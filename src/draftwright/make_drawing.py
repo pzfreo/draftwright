@@ -1665,15 +1665,38 @@ def _annotate_pmi(dwg, a, draft) -> None:
                     )
 
             elif bore_axis == "Y":
-                # Y-axis bore: circle visible in front view.
-                # Show diameter as a horizontal span (X direction) in front view.
-                p1 = (FX(cx_f - half), FZ(cz_f), 0)
-                p2 = (FX(cx_f + half), FZ(cz_f), 0)
-                if math.hypot(p2[0] - p1[0], p2[1] - p1[1]) >= 3:
+                # Y-axis bore: circle visible in front view as a circle.
+                # The horizontal page span = diameter × scale.  When that span
+                # is narrower than ~8 mm the centered label text overflows the
+                # 4 mm gap and the extension lines punch through it.  Use a
+                # Leader (arrowhead at bore edge, text on a horizontal shelf)
+                # for narrow bores; fall back to a bracket dim only for large
+                # bores where the span actually accommodates the text.
+                half_pg = half * a.SCALE  # bore radius on page (mm)
+                if half_pg >= 4.0:
+                    # Wide enough for a bracket horizontal dimension.
+                    p1 = (FX(cx_f - half), FZ(cz_f), 0)
+                    p2 = (FX(cx_f + half), FZ(cz_f), 0)
                     placed = (
                         _try_above(p1, p2, a.fv_zones.above, label, name_d)
                         or _try_below(p1, p2, a.fv_zones.below, label, name_d)
                     )
+                else:
+                    # Narrow bore: leader from bore bottom into the below strip.
+                    tip = (FX(cx_f), FZ(cz_f) - half_pg, 0)
+                    slot = a.fv_zones.below.allocate(_SLOT)
+                    if slot is not None:
+                        elbow = (FX(cx_f), slot, 0)
+                        dwg.add(Leader(tip, elbow, label, draft), name_d)
+                        placed = True
+                    else:
+                        # Fall back: leader upward into the above strip.
+                        slot = a.fv_zones.above.allocate(_SLOT)
+                        if slot is not None:
+                            tip = (FX(cx_f), FZ(cz_f) + half_pg, 0)
+                            elbow = (FX(cx_f), slot, 0)
+                            dwg.add(Leader(tip, elbow, label, draft), name_d)
+                            placed = True
 
         elif ax == "X":
             wp = _witness_from_bbox(rec, "front")
