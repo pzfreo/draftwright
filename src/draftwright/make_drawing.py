@@ -663,6 +663,42 @@ def choose_scale(
 # ---------------------------------------------------------------------------
 
 
+def _largest_empty_rect(drawable, obstacles):
+    """Largest axis-aligned empty rectangle in *drawable* avoiding *obstacles*.
+
+    *drawable* and each obstacle are ``(x0, y0, x1, y1)`` page-mm boxes.  Returns
+    the empty sub-rectangle of *drawable* (overlapping no obstacle) that maximises
+    the side of the largest square it can hold — i.e. ``min(width, height)`` — so
+    the (near-square) iso view can be scaled up as far as possible.
+
+    The obstacle set is tiny (front/plan/side views + title block), so a
+    gap-based search over candidate edges is both exact enough and cheap: every
+    maximal empty rectangle has edges drawn from the drawable bounds and the
+    obstacle bounds, so enumerating those cut lines finds the optimum.
+    """
+    dx0, dy0, dx1, dy1 = drawable
+    xs = sorted({dx0, dx1, *(c for o in obstacles for c in (o[0], o[2]) if dx0 < c < dx1)})
+    ys = sorted({dy0, dy1, *(c for o in obstacles for c in (o[1], o[3]) if dy0 < c < dy1)})
+
+    best = None
+    best_score = 0.0
+    for i in range(len(xs) - 1):
+        for j in range(i + 1, len(xs)):
+            rx0, rx1 = xs[i], xs[j]
+            for k in range(len(ys) - 1):
+                for m in range(k + 1, len(ys)):
+                    ry0, ry1 = ys[k], ys[m]
+                    if any(
+                        rx0 < o[2] and o[0] < rx1 and ry0 < o[3] and o[1] < ry1 for o in obstacles
+                    ):
+                        continue
+                    score = min(rx1 - rx0, ry1 - ry0)
+                    if score > best_score:
+                        best_score = score
+                        best = (rx0, ry0, rx1, ry1)
+    return best if best is not None else drawable
+
+
 def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, page=None, pmi="off"):
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -803,35 +839,44 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     SV_X = FV_X + fv_hw + gap_fv_sv + sv_hw
     SV_Y = FV_Y
     sv_right = SV_X + sv_hw + DIM_PAD
-    tb_top_y = margin + _TB_H
-    iso_above_tb = (PV_Y - pv_hh) > tb_top_y
-    iso_right_limit = (PAGE_W - margin) if iso_above_tb else (PAGE_W - TB_W - margin)
-    right_avail = max(0.0, iso_right_limit - sv_right)
-    ISO_X = sv_right + right_avail / 2
-    ISO_Y = PV_Y
+    # Right wall for the side-view annotation strip: full page (minus margin)
+    # when the views clear the title block, otherwise stop left of it.
+    sv_right_wall = (
+        (PAGE_W - margin) if (PV_Y - pv_hh) > (margin + _TB_H) else (PAGE_W - TB_W - margin)
+    )
 
-    # When the standard iso zone (right of SV) is narrower than the natural iso
-    # extent, check whether the upper-right zone — right of FV/PV and above the SV
-    # y-range — offers more room.  This zone shares no y-range with the SV, so the
-    # iso can sit there without conflicting with SV annotations.
-    _iso_natural = bbox_max * SCALE * 0.7
-    _ur_left = FV_X + fv_hw + gap_fv_sv  # = sv_left_edge; clears FV/PV right strips
-    _sv_top = FV_Y + fv_hh  # SV_Y == FV_Y; sv_top == FV_Y + fv_hh
-    _ur_bottom = _sv_top + DIM_PAD
-    _ur_w = max(0.0, iso_right_limit - _ur_left)
-    _ur_h = max(0.0, (PAGE_H - margin) - _ur_bottom)
-    _std_min = min(right_avail, PAGE_H - 2 * margin)
-    _ur_min = min(_ur_w, _ur_h)
-    if _std_min < _iso_natural and _ur_min > _std_min:
-        ISO_X = (_ur_left + iso_right_limit) / 2
-        ISO_Y = (_ur_bottom + PAGE_H - margin) / 2
-        iso_left_limit = _ur_left
-        iso_bottom_limit = _ur_bottom
-        iso_in_upper_right = True
-    else:
-        iso_left_limit = sv_right
-        iso_bottom_limit = margin
-        iso_in_upper_right = False
+    # Iso placement (#11): rather than special-casing wide/flat-on-A3, find the
+    # largest empty rectangle in the drawable area after the FV/PV/SV views and
+    # the title block are positioned, and centre the iso in it.  _fit_iso_view
+    # then scales the iso to fill that rectangle.  Each view box is padded by
+    # DIM_PAD to reserve its annotation strips; the title block is padded too.
+    drawable = (margin, margin, PAGE_W - margin, PAGE_H - margin)
+    obstacles = [
+        (
+            FV_X - fv_hw - DIM_PAD,
+            FV_Y - fv_hh - DIM_PAD,
+            FV_X + fv_hw + DIM_PAD,
+            FV_Y + fv_hh + DIM_PAD,
+        ),
+        (
+            PV_X - fv_hw - DIM_PAD,
+            PV_Y - pv_hh - DIM_PAD,
+            PV_X + fv_hw + DIM_PAD,
+            PV_Y + pv_hh + DIM_PAD,
+        ),
+        (
+            SV_X - sv_hw - DIM_PAD,
+            SV_Y - fv_hh - DIM_PAD,
+            SV_X + sv_hw + DIM_PAD,
+            SV_Y + fv_hh + DIM_PAD,
+        ),
+        (PAGE_W - TB_W - 11 - DIM_PAD, margin, PAGE_W - 11 + DIM_PAD, 11 + _TB_H + DIM_PAD),
+    ]
+    iso_left_limit, iso_bottom_limit, iso_right_limit, iso_top_limit = _largest_empty_rect(
+        drawable, obstacles
+    )
+    ISO_X = (iso_left_limit + iso_right_limit) / 2
+    ISO_Y = (iso_bottom_limit + iso_top_limit) / 2
 
     # ------------------------------------------------------------------
     # Strip / zone construction.
@@ -874,7 +919,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     sv_zones = ViewZones(
         # sv_right already includes DIM_PAD; anchor here so the strip never
         # places annotations inside that gap
-        right=Strip(sv_right, iso_right_limit, direction=1),
+        right=Strip(sv_right, sv_right_wall, direction=1),
         left=None,  # immediately abuts the front view's right edge
         above=Strip(sv_top_edge, PAGE_H - margin, direction=1),
         below=Strip(sv_bottom_edge, margin, direction=-1),
@@ -934,7 +979,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
         ISO_Y=ISO_Y,
         iso_left_limit=iso_left_limit,
         iso_bottom_limit=iso_bottom_limit,
-        iso_in_upper_right=iso_in_upper_right,
+        iso_top_limit=iso_top_limit,
         # View half-extents in page units (convenient for strip arithmetic)
         fv_hw=fv_hw,
         fv_hh=fv_hh,
@@ -1283,16 +1328,21 @@ def _auto_annotate(dwg, a):
     # that the iso has been projected and fitted.  Always apply so that any
     # future allocations are bounded; warn when the cursor has already passed
     # the limit (dims already placed may overlap the iso view).
-    _iso_x0, _, _, _ = _iso_bbox(dwg)
+    _iso_x0, _iso_y0, _, _iso_y1 = _iso_bbox(dwg)
     _iso_x_limit = _iso_x0 - 4
-    # When the iso sits above the SV (upper-right zone), the SV right strip shares
-    # no y-range with the iso, so tightening sv_zones.right by iso_x would set
-    # outer_limit below the strip anchor and break all SV annotation allocations.
-    _right_strips = (
-        (a.fv_zones.right, a.pv_zones.right)
-        if a.iso_in_upper_right
-        else (a.fv_zones.right, a.pv_zones.right, a.sv_zones.right)
-    )
+    # Only tighten a right strip when the iso shares the strip's y-range: a strip
+    # that abuts the iso horizontally would otherwise lose annotation space, while
+    # one sitting entirely above/below the iso (e.g. the SV strip when the iso is
+    # in an upper-right zone) must keep its full width — capping it could push the
+    # outer_limit below the strip anchor and break all its allocations.
+    _right_strips = []
+    for _rs, _y0, _y1 in (
+        (a.fv_zones.right, a.FV_Y - a.fv_hh, a.FV_Y + a.fv_hh),
+        (a.pv_zones.right, a.PV_Y - a.pv_hh, a.PV_Y + a.pv_hh),
+        (a.sv_zones.right, a.SV_Y - a.fv_hh, a.SV_Y + a.fv_hh),
+    ):
+        if _y0 < _iso_y1 and _iso_y0 < _y1:
+            _right_strips.append(_rs)
     for _rs in _right_strips:
         _rs.outer_limit = min(_rs.outer_limit, _iso_x_limit)
         if _rs._cursor >= _iso_x_limit:
@@ -2709,17 +2759,23 @@ def _fit_iso_view(dwg, a, annotate: bool = True):
     - Under-fill (needed > 1): grow to 90 % of zone, leaving breathing room.
     - Within 5 % of sheet scale: leave as-is (no NTS label).
     """
-    # Use the precomputed iso zone limits.  When iso is in the upper-right zone,
-    # any section view sits below the iso's y-range so its x-extent doesn't
-    # constrain the iso region.
+    # Use the precomputed iso zone (largest empty rectangle).  A section view
+    # only constrains the iso region when it shares the iso's y-range; one that
+    # sits entirely below the iso (e.g. when the iso is in an upper-right zone)
+    # leaves the region's left edge untouched.
     region_left = a.iso_left_limit
-    if not a.iso_in_upper_right and "section_aa" in dwg.views:
+    if "section_aa" in dwg.views:
         sec_vis, sec_hid = dwg.views["section_aa"]
-        sec_right = sec_vis.bounding_box().max.X
+        sec_bb = sec_vis.bounding_box()
+        sec_right = sec_bb.max.X
+        sec_y0, sec_y1 = sec_bb.min.Y, sec_bb.max.Y
         if sec_hid:
-            sec_right = max(sec_right, sec_hid.bounding_box().max.X)
-        region_left = max(region_left, sec_right + 4)
-    region = (region_left, a.iso_bottom_limit, a.iso_right_limit, a.PAGE_H - a.margin)
+            shb = sec_hid.bounding_box()
+            sec_right = max(sec_right, shb.max.X)
+            sec_y0, sec_y1 = min(sec_y0, shb.min.Y), max(sec_y1, shb.max.Y)
+        if sec_y0 < a.iso_top_limit and a.iso_bottom_limit < sec_y1:
+            region_left = max(region_left, sec_right + 4)
+    region = (region_left, a.iso_bottom_limit, a.iso_right_limit, a.iso_top_limit)
     bb = _iso_bbox(dwg)
     ratios = [
         avail / extent
@@ -2838,11 +2894,16 @@ def build_drawing(
         _sv_ol = a.sv_zones.right.outer_limit
         _auto_annotate(dwg, a)
         _fit_iso_view(dwg, a)
-        _final_iso_x_lim = _iso_bbox(dwg)[0] - 4
+        _ix0, _iy0, _, _iy1 = _iso_bbox(dwg)
+        _final_iso_x_lim = _ix0 - 4
         a.fv_zones.right.outer_limit = min(_fv_ol, _final_iso_x_lim)
         a.pv_zones.right.outer_limit = min(_pv_ol, _final_iso_x_lim)
-        if not a.iso_in_upper_right:
+        # Only re-cap the SV right strip when the iso shares its y-range (see the
+        # matching guard in _auto_annotate); otherwise restore its full width.
+        if (a.SV_Y - a.fv_hh) < _iy1 and _iy0 < (a.SV_Y + a.fv_hh):
             a.sv_zones.right.outer_limit = min(_sv_ol, _final_iso_x_lim)
+        else:
+            a.sv_zones.right.outer_limit = _sv_ol
     else:
         _fit_iso_view(dwg, a, annotate=False)
         _add_title_block(dwg, a)

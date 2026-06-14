@@ -440,8 +440,10 @@ class TestStripZones:
 
     def test_right_strip_outer_limits_tightened_to_iso(self):
         # fv.right and pv.right are both bounded by sv_left_edge so bore callout
-        # labels cannot cross into the side view.  sv.right is tightened to the
-        # actual iso view left edge (iso_x0 - 4) by _auto_annotate().
+        # labels cannot cross into the side view.  The sv.right strip is only
+        # iso-tightened (to iso_x0 - 4) when the iso shares the side view's
+        # y-range; with the #11 free-rectangle placement the iso may instead sit
+        # above the side view, in which case sv.right keeps its full width.
         # Use a plain box (no holes) so bore callout overhead doesn't push the
         # iso view right and interfere with the sv tightening check.
         from build123d import Box
@@ -453,15 +455,19 @@ class TestStripZones:
         dwg = build_drawing(part)
         a = dwg._analysis
         sv_left = a.SV_X - a.sv_hw
-        iso_x0, _, _, _ = _iso_bbox(dwg)
+        iso_x0, iso_y0, _, iso_y1 = _iso_bbox(dwg)
         iso_limit = iso_x0 - 4
         # fv right must not extend past the side view left edge
         assert a.fv_zones.right.outer_limit == pytest.approx(sv_left, abs=0.1)
         # pv right is also bounded by sv_left so bore callout labels cannot
         # cross dim_locy extension lines in the side view corridor
         assert a.pv_zones.right.outer_limit == pytest.approx(sv_left, abs=0.1)
-        # sv right strip is iso-tightened
-        assert a.sv_zones.right.outer_limit == pytest.approx(iso_limit, abs=0.1)
+        # sv right strip is iso-tightened only when the iso overlaps its y-range.
+        sv_y0, sv_y1 = a.SV_Y - a.fv_hh, a.SV_Y + a.fv_hh
+        if sv_y0 < iso_y1 and iso_y0 < sv_y1:
+            assert a.sv_zones.right.outer_limit == pytest.approx(iso_limit, abs=0.1)
+        else:
+            assert a.sv_zones.right.outer_limit > iso_limit
 
     def test_sv_zones_below_strip_is_active(self):
         # sv_zones.below must be a Strip (not None) after _analyse().
@@ -1185,6 +1191,59 @@ def test_iso_stays_within_page_bounds():
     assert y0 >= margin - 0.5
     assert x1 <= dwg.page_w - margin + 0.5
     assert y1 <= dwg.page_h - margin + 0.5
+
+
+@pytest.mark.timeout(120)
+def test_ctc01_iso_picks_upper_right_rectangle(ctc01_a3_drawing):
+    # #11 — the general largest-empty-rectangle search must reproduce the #9
+    # outcome for the wide/flat-on-A3 case: the chosen iso zone is the
+    # upper-right region (right of the FV/PV column, above the SV row).
+    dwg = ctc01_a3_drawing
+    a = dwg._analysis
+    # FV/PV occupy the left column; SV the lower-middle.  The picked rectangle
+    # must sit to the right of the FV/PV column and above the SV row.
+    fv_right = a.FV_X + a.fv_hw
+    sv_top = a.SV_Y + a.fv_hh
+    assert a.iso_left_limit >= fv_right
+    assert a.iso_bottom_limit >= sv_top
+    # And it reaches into the upper-right corner of the drawable area.
+    assert a.iso_right_limit >= a.PAGE_W - a.margin - 0.5
+    assert a.iso_top_limit >= a.PAGE_H - a.margin - 0.5
+    assert a.ISO_X > a.PAGE_W / 2 and a.ISO_Y > a.PAGE_H / 2
+
+
+@pytest.mark.timeout(120)
+def test_tall_part_iso_in_largest_free_zone():
+    # #11 — a tall/narrow part has no per-shape branch; the iso must land in the
+    # largest empty rectangle, clear of every view bbox and the title block, and
+    # stay within the page margins.
+    from draftwright.make_drawing import _iso_bbox
+
+    dwg = build_drawing(Box(40, 40, 300))
+    a = dwg._analysis
+    x0, y0, x1, y1 = _iso_bbox(dwg)
+    margin = a.margin
+    # Within page margins.
+    assert x0 >= margin - 0.5
+    assert y0 >= margin - 0.5
+    assert x1 <= a.PAGE_W - margin + 0.5
+    assert y1 <= a.PAGE_H - margin + 0.5
+
+    iso_bb = (x0, y0, x1, y1)
+
+    def overlaps(b1, b2):
+        return b1[0] < b2[2] and b2[0] < b1[2] and b1[1] < b2[3] and b2[1] < b1[3]
+
+    # No overlap with any orthographic view bounding box.
+    for name in ("front", "plan", "side"):
+        vis, hid = dwg.views[name]
+        vb = vis.bounding_box()
+        view_bb = (vb.min.X, vb.min.Y, vb.max.X, vb.max.Y)
+        assert not overlaps(iso_bb, view_bb), f"iso overlaps {name} view"
+
+    # No overlap with the title-block region (bottom-right corner).
+    tb_bb = (a.PAGE_W - a.TB_W - 11, 11, a.PAGE_W - 11, 11 + 35)
+    assert not overlaps(iso_bb, tb_bb), "iso overlaps title block"
 
 
 @pytest.mark.timeout(60)
@@ -2119,9 +2178,7 @@ class TestTurnedMultiBoreOverflow:
         bores = {d for d in a.z_diams if d != a.od_diam}
         assert bores == {60.0, 44.0, 30.0, 16.0}
         annotated = {
-            float(ann.label.lstrip("ø"))
-            for n, ann in dwg._named.items()
-            if n.startswith("ldr_z")
+            float(ann.label.lstrip("ø")) for n, ann in dwg._named.items() if n.startswith("ldr_z")
         }
         # Acceptance (#10): annotate all, or surface the overflow via lint —
         # never drop a bore with no trace.
