@@ -51,3 +51,31 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  bump-dev-version:
+    needs: publish-pypi
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+      - name: Bump to next dev version
+        run: |
+          tag=${{ github.event.release.tag_name }}
+          version=${tag#v}
+          IFS='.' read -r major minor patch <<< "$version"
+          next="${major}.${minor}.$((patch + 1)).dev0"
+          uv version "$next"
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "chore: bump version to $(uv version --short) after ${{ github.event.release.tag_name }} release"
+          git push
