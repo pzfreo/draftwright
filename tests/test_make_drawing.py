@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 from build123d import Box, Compound, Cylinder, Edge, Pos, export_step
-
 from build123d_drafting import Leader, ViewCoordinates, view_axes
+
 from draftwright import Drawing, build_drawing, make_drawing
 from draftwright.make_drawing import (
     _MIN_VIEW_MM,
@@ -201,7 +201,6 @@ class TestSectionHatchEdges:
         # Face.make_rect(10, 5, Plane.XZ) gives corners at X∈[-5,5], Z∈[-2.5,2.5].
         # With spacing=5, c=0 gives hatch line through corner (-5,-2.5).
         from build123d import Face, Plane
-
         from build123d_drafting.make_drawing import _section_hatch_edges
 
         face = Face.make_rect(10, 5, Plane.XZ)
@@ -213,7 +212,6 @@ class TestSectionHatchEdges:
 
     def test_hatch_edges_are_45_degrees(self):
         from build123d import Face, Plane
-
         from build123d_drafting.make_drawing import _section_hatch_edges
 
         face = Face.make_rect(20, 15, Plane.XZ)
@@ -272,7 +270,6 @@ class TestStripZones:
 
     def test_analyse_returns_view_zones(self):
         from build123d import Box, Cylinder
-
         from build123d_drafting import build_drawing
         from build123d_drafting.make_drawing import Strip, ViewZones
 
@@ -289,7 +286,6 @@ class TestStripZones:
 
     def test_strip_limits_are_within_page(self):
         from build123d import Box, Cylinder
-
         from build123d_drafting import build_drawing
 
         part = Box(80, 60, 20) - Cylinder(5, 20)
@@ -305,7 +301,6 @@ class TestStripZones:
         # dim_height must be placed via the strip; its dimension line must
         # land within the fv_zones.right corridor (anchor..outer_limit).
         from build123d import Box
-
         from build123d_drafting import build_drawing
 
         part = Box(60, 40, 30)
@@ -321,7 +316,6 @@ class TestStripZones:
     def test_pv_below_strip_is_now_active(self):
         # pv_zones.below should be a Strip (not None) after Phase 3
         from build123d import Box
-
         from build123d_drafting import build_drawing
         from build123d_drafting.make_drawing import Strip
 
@@ -336,7 +330,6 @@ class TestStripZones:
     def test_dim_width_routed_through_pv_below_strip(self):
         # dim_width must exist below the plan view, with depth_used > 0
         from build123d import Box
-
         from build123d_drafting import build_drawing
 
         # non-square part → x_size != y_size → dim_width should appear
@@ -351,7 +344,6 @@ class TestStripZones:
     def test_dim_locx_routed_through_pv_above_strip(self):
         # dim_locx dims must be above plan_top and allocated from pv_zones.above
         from build123d import Box, Cylinder, Pos
-
         from build123d_drafting import build_drawing
 
         part = Box(80, 60, 20) - Pos(20, 10, 0) * Cylinder(5, 20)
@@ -366,7 +358,6 @@ class TestStripZones:
     def test_dim_locy_routed_through_sv_above_strip(self):
         # dim_locy dims must be above side_top and allocated from sv_zones.above
         from build123d import Box, Cylinder, Pos
-
         from build123d_drafting import build_drawing
 
         # Cylinder at Y=10 → offset from datum_y=bb.min.Y → generates dim_locy0
@@ -385,7 +376,6 @@ class TestStripZones:
         # which is enough for dim_height (10 mm) + spacing (4 mm) + dim_step (14 mm).
         # Both annotations must now appear without overlapping the side view.
         from build123d import Box, Pos
-
         from build123d_drafting import build_drawing
         from build123d_drafting.make_drawing import _est_right_strip_depth
 
@@ -416,7 +406,6 @@ class TestStripZones:
         # plan view go to the right of the plan/side pair (different Y band) and
         # need the full iso-bounded corridor.
         from build123d import Box
-
         from build123d_drafting import build_drawing
 
         part = Box(80, 60, 20)
@@ -429,7 +418,6 @@ class TestStripZones:
         # Phase 1: dim_height must still be generated — it fits in the 18 mm
         # corridor (gap=8 + slot=10 = 18 mm exactly).
         from build123d import Box
-
         from build123d_drafting import build_drawing
 
         part = Box(60, 40, 30)
@@ -444,7 +432,6 @@ class TestStripZones:
         # Use a plain box (no holes) so bore callout overhead doesn't push the
         # iso view right and interfere with the sv tightening check.
         from build123d import Box
-
         from build123d_drafting import build_drawing
         from build123d_drafting.make_drawing import _iso_bbox
 
@@ -465,7 +452,6 @@ class TestStripZones:
     def test_sv_zones_below_strip_is_active(self):
         # sv_zones.below must be a Strip (not None) after _analyse().
         from build123d import Box
-
         from build123d_drafting import build_drawing
 
         part = Box(80, 60, 20)
@@ -477,7 +463,6 @@ class TestStripZones:
         # dim_depth (Y envelope) must be placed below side_top via sv_zones.below.
         # Uses a part where x_size != y_size by > 5% to trigger the annotation.
         from build123d import Box
-
         from build123d_drafting import build_drawing
 
         # 80×40×20 box: x_size=80, y_size=40 — differ by > 5%, so dim_depth fires
@@ -492,7 +477,6 @@ class TestStripZones:
     def test_dim_depth_absent_for_square_plan(self):
         # dim_depth must be omitted when x_size == y_size (within 5%).
         from build123d import Box
-
         from build123d_drafting import build_drawing
 
         part = Box(60, 60, 20)  # square plan: x_size == y_size
@@ -610,7 +594,6 @@ class TestDynamicCorridors:
     def test_gap_fv_sv_equals_dim_pad_for_flat_part(self):
         # A plain box (no step faces) → sv_left - fv_right == _DIM_PAD.
         from build123d import Box
-
         from build123d_drafting import build_drawing
         from build123d_drafting.make_drawing import _DIM_PAD
 
@@ -638,7 +621,6 @@ class TestDynamicCorridors:
         # gap = _est_right_strip_depth(1) = 36 mm.  The ≥20 mm gate matches what
         # _auto_annotate applies — bore floors or shallow faces don't count.
         from build123d import Box, Pos
-
         from build123d_drafting import build_drawing
         from build123d_drafting.make_drawing import _est_right_strip_depth
 
@@ -669,7 +651,6 @@ class TestTwoPassLayout:
         # "4× ⌀15.9 THRU") that need more than _DIM_PAD right of the plan view.
         # The two-pass layout must size gap_fv_sv >= bore callout depth.
         from build123d import Box, Cylinder, Pos
-
         from build123d_drafting import build_drawing
         from build123d_drafting.features import find_holes
         from build123d_drafting.make_drawing import _DIM_PAD, _est_bore_callout_width
@@ -701,7 +682,6 @@ class TestTwoPassLayout:
     def test_plain_box_gap_unchanged(self):
         # A box with no holes: bore callout depth = 0 → gap_fv_sv stays _DIM_PAD.
         from build123d import Box
-
         from build123d_drafting import build_drawing
         from build123d_drafting.make_drawing import _DIM_PAD
 
@@ -714,7 +694,6 @@ class TestTwoPassLayout:
         # Verify actual callout label does not reach sv_left.
         # The Leader label_bbox right edge must stay left of sv_left.
         from build123d import Box, Cylinder, Pos
-
         from build123d_drafting import build_drawing
 
         part = (
@@ -738,7 +717,6 @@ class TestTwoPassLayout:
         # BoltCircle callouts carry "EQ SP ON ø… BC" suffix (~34 mm wide).
         # _est_bore_callout_width must include it when patterns are provided.
         from build123d import Box, Cylinder, Pos
-
         from build123d_drafting.features import find_hole_patterns, find_holes
         from build123d_drafting.make_drawing import _est_bore_callout_width
 
@@ -765,7 +743,6 @@ class TestTwoPassLayout:
         # pv_zones.below outer_limit = fv_top_edge (not fv_top_edge + 2), giving
         # 18 mm available vs 16 mm needed for dim_width — no razor-fit (#130).
         from build123d import Box
-
         from build123d_drafting import build_drawing
         from build123d_drafting.make_drawing import _est_pv_below_depth
 
@@ -1255,7 +1232,9 @@ class TestPrismaticClassification:
         # A housing-like plate: Z-axis bores exist, but they are holes — not
         # an OD. dim_od / centrelines / ldr_z* would all be wrong.
         part = (
-            Box(100, 60, 20) - Pos(20, 10, 0) * Cylinder(5, 30) - Pos(-30, -15, 0) * Cylinder(8, 30)
+            Box(100, 60, 20)
+            - Pos(20, 10, 0) * Cylinder(5, 30)
+            - Pos(-30, -15, 0) * Cylinder(8, 30)
         )
         dwg = build_drawing(part)
         assert "dim_od" not in dwg._named
@@ -1322,7 +1301,6 @@ class TestExportShapeFallback:
 
     def test_annotation_falls_back_to_faces(self):
         from build123d import Draft
-
         from build123d_drafting import Note
 
         note = Note("AB", (10, 10), Draft(font_size=3.0))  # two glyphs → ≥2 faces
@@ -1393,7 +1371,6 @@ class TestLintFeatureCoverage:
     @pytest.mark.timeout(60)
     def test_diameter_callout_covers_feature(self):
         from build123d import Draft
-
         from build123d_drafting import Note
 
         part = Box(100, 60, 20) - Pos(20, 10, 0) * Cylinder(4, 30)
@@ -1404,7 +1381,6 @@ class TestLintFeatureCoverage:
     def test_radius_note_does_not_cover(self):
         # An "R4 TYP" fillet note must not mask an undimensioned ø8 bore.
         from build123d import Draft
-
         from build123d_drafting import Note
 
         part = Box(100, 60, 20) - Pos(20, 10, 0) * Cylinder(4, 30)
@@ -1456,7 +1432,6 @@ class TestLintFeatureCoverage:
     def test_title_block_text_is_not_a_callout(self):
         # "BRACKET R8" in the title must not mark ø16 as covered.
         from build123d import Draft
-
         from build123d_drafting import TitleBlock
 
         part = Box(100, 60, 20) - Pos(20, 10, 0) * Cylinder(8, 30)
@@ -1720,7 +1695,6 @@ class TestHolePatternAnnotations:
     @pytest.mark.timeout(60)
     def test_count_mismatch_surfaces_in_lint(self):
         from build123d import Draft
-
         from build123d_drafting import HoleCallout
 
         part = Box(100, 100, 10)
@@ -1734,7 +1708,6 @@ class TestHolePatternAnnotations:
     @pytest.mark.timeout(60)
     def test_text_labels_are_exempt_from_count_check(self):
         from build123d import Draft
-
         from build123d_drafting import Note
 
         part = Box(100, 100, 10)
@@ -1746,7 +1719,6 @@ class TestHolePatternAnnotations:
     @pytest.mark.timeout(60)
     def test_repetition_label_passes_measured_check(self):
         from build123d import Draft
-
         from build123d_drafting import Dimension, lint_drawing
 
         d = Draft(font_size=2.5)
@@ -1874,7 +1846,9 @@ class TestLocationDimsAndSection:
             for name, ann in dwg._named.items():
                 if name.startswith("dim_step") and getattr(ann, "label_bbox", None):
                     x0, y0, x1, y1 = ann.label_bbox
-                    assert not (x1 > sb.min.X and x0 < sb.max.X and y1 > sb.min.Y and y0 < sb.max.Y)
+                    assert not (
+                        x1 > sb.min.X and x0 < sb.max.X and y1 > sb.min.Y and y0 < sb.max.Y
+                    )
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(120)

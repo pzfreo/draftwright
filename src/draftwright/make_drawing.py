@@ -42,9 +42,6 @@ from build123d import (
     Vector,
     import_step,
 )
-from OCP.BRepAdaptor import BRepAdaptor_Surface
-from OCP.GeomAbs import GeomAbs_Plane
-
 from build123d_drafting.features import (
     BoltCircle,
     LinearArray,
@@ -72,6 +69,8 @@ from build123d_drafting.helpers import (
     set_page,
     view_axes,
 )
+from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.GeomAbs import GeomAbs_Plane
 
 _log = logging.getLogger(__name__)
 
@@ -625,7 +624,9 @@ def choose_scale(
         if not _fits(
             x_size, y_size, z_size, float(scale), pw, ph, tb, n_steps=n_steps, strips=strips
         ):
-            _log.warning("Requested scale %s on %s page may not fit the 4-view layout", scale, page)
+            _log.warning(
+                "Requested scale %s on %s page may not fit the 4-view layout", scale, page
+            )
         return float(scale), pw, ph, tb
     if page is not None:
         pw, ph, tb = _parse_page(page)
@@ -1004,7 +1005,9 @@ class Drawing:
         self.views[name] = (placed, placed_hid)
         axes = view_axes(camera, up, la)
         cx, cy, cz = la[0] / self.scale, la[1] / self.scale, la[2] / self.scale
-        self._coords[name] = ViewCoordinates(axes, position[0], position[1], cx, cy, cz, self.scale)
+        self._coords[name] = ViewCoordinates(
+            axes, position[0], position[1], cx, cy, cz, self.scale
+        )
         _log.info("  %s: %d visible / %d hidden", name, len(vl), len(hl))
         return self._coords[name]
 
@@ -1476,7 +1479,9 @@ def _add_location_dims(dwg, a, axis_letter, patterns):
             # dim chains the rest outward (shortest baseline, per practice)
             near = min(
                 p.holes,
-                key=lambda h: (h.location[0] - a.bb.min.X) ** 2 + (h.location[1] - a.bb.min.Y) ** 2,
+                key=lambda h: (
+                    (h.location[0] - a.bb.min.X) ** 2 + (h.location[1] - a.bb.min.Y) ** 2
+                ),
             )
             refs.append((near.location[0], near.location[1], near.diameter))
     refs += [(h.location[0], h.location[1], h.diameter) for h in z_holes if h not in patterned]
@@ -2066,7 +2071,9 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns):
                         "Hole callout ø%s skipped (front strip full)", _fmt(holes[0].diameter)
                     )
                     continue
-                if any(ox0 <= centre[0] <= ox1 and row_y > elbow_y for ox0, ox1, row_y in occupied):
+                if any(
+                    ox0 <= centre[0] <= ox1 and row_y > elbow_y for ox0, ox1, row_y in occupied
+                ):
                     _log.info(
                         "Hole callout ø%s skipped (shaft would cross another callout)",
                         _fmt(holes[0].diameter),

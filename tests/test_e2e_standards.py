@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 from build123d import Box, Cylinder, export_step
-
 from build123d_drafting import TitleBlock
+
 from draftwright import build_drawing, make_drawing
 
 
