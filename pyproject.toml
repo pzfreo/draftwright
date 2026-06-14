@@ -28,6 +28,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
+[project.optional-dependencies]
+pdf = ["cairosvg>=2.7"]
+
 [project.scripts]
 draftwright = "draftwright.make_drawing:_cli"
 

@@ -1142,6 +1142,27 @@ class Drawing:
         self.dxf_path = dxf_path
         return svg_path, dxf_path
 
+    def export_pdf(self, out=None) -> str:
+        """Write a PDF rendered from the SVG.  Requires ``cairosvg`` (install with
+        ``pip install draftwright[pdf]``).  Calls :meth:`export` first if the SVG
+        hasn't been written yet.  Returns the PDF path."""
+        try:
+            import cairosvg
+        except ImportError as exc:
+            raise ImportError(
+                "PDF export requires cairosvg. Install it with:  pip install draftwright[pdf]"
+            ) from exc
+
+        svg_path: str
+        if not hasattr(self, "svg_path") or self.svg_path is None:
+            svg_path, _ = self.export(out=out)
+        else:
+            svg_path = self.svg_path
+        pdf_path = svg_path[:-4] + ".pdf" if svg_path.endswith(".svg") else svg_path + ".pdf"
+        cairosvg.svg2pdf(url=svg_path, write_to=pdf_path)
+        _log.info("PDF → %s", pdf_path)
+        return pdf_path
+
     def _add_shapes(self, exporter):
         """Add every view layer and annotation to *exporter* with error context."""
         for name, (vis, hid) in self.views.items():
@@ -2960,7 +2981,6 @@ def generate_script(
 
 
 def _cli():
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser(
         description="Zero-AI STEP → technical drawing (SVG + DXF, or editable .py script)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -2997,13 +3017,29 @@ def _cli():
             "'annotate' — add PMI-derived dimensions to the drawing"
         ),
     )
+    ap.add_argument(
+        "--pdf",
+        action="store_true",
+        help="Also write a PDF (requires draftwright[pdf] / cairosvg)",
+    )
+    ap.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show detailed progress (default: warnings and errors only)",
+    )
     args = ap.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(message)s",
+    )
 
     if args.script and (args.scale is not None or args.page is not None):
         ap.error("--scale/--page only apply to direct output; edit the generated script instead")
 
     if args.script:
-        generate_script(
+        py_path = generate_script(
             step_file=args.step_file,
             out=args.out,
             title=args.title,
@@ -3012,8 +3048,9 @@ def _cli():
             drawn_by=args.drawn_by,
             pmi=args.pmi,
         )
+        print(py_path)
     else:
-        make_drawing(
+        dwg = build_drawing(
             step_file=args.step_file,
             out=args.out,
             title=args.title,
@@ -3024,6 +3061,11 @@ def _cli():
             page=args.page,
             pmi=args.pmi,
         )
+        svg_path, dxf_path = dwg.export()
+        print(svg_path)
+        print(dxf_path)
+        if args.pdf:
+            print(dwg.export_pdf())
 
 
 if __name__ == "__main__":
