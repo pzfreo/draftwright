@@ -1167,10 +1167,13 @@ def test_shrunk_iso_keeps_world_to_page_mapping(shrunk_iso_drawing):
     vis, _hid = dwg.views["iso"]
     bb = vis.bounding_box()
     assert bb.min.X < centre[0] < bb.max.X and bb.min.Y < centre[1] < bb.max.Y
-    # This fixture shrinks the iso to 1/2 sheet scale (see the NTS test above).
-    # World +Z maps to page +Y; the offset must use the shrunk view scale.
+    # World +Z maps to page +Y; the offset must use the shrunk view scale (not
+    # the sheet scale).  Derive the actual shrunk scale from _coords so the
+    # test does not depend on a specific discretised shrink factor.
+    shrunk_scale = dwg._coords["iso"]._scale
+    assert shrunk_scale < dwg.scale, "iso should be shrunk below sheet scale"
     raised = dwg.at("iso", cx, cy, cz + 100)
-    assert raised[1] - centre[1] == pytest.approx(100 * dwg.scale * 0.5)
+    assert raised[1] - centre[1] == pytest.approx(100 * shrunk_scale)
 
 
 @pytest.mark.timeout(60)

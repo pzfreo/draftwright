@@ -1254,15 +1254,14 @@ def _auto_annotate(dwg, a):
         return a.PV_Y + (y - a.cy) * a.SCALE
 
     # Tighten right-strip outer_limits to the actual iso view left edge now
-    # that the iso has been projected and fitted.  Guard: only apply if the
-    # limit is above the strip cursor — an overflowing iso can produce
-    # _iso_x_limit < cursor, which would silence every right-strip allocation.
+    # that the iso has been projected and fitted.  Always apply so that any
+    # future allocations are bounded; warn when the cursor has already passed
+    # the limit (dims already placed may overlap the iso view).
     _iso_x0, _, _, _ = _iso_bbox(dwg)
     _iso_x_limit = _iso_x0 - 4
     for _rs in (a.fv_zones.right, a.pv_zones.right, a.sv_zones.right):
-        if _iso_x_limit > _rs._cursor:
-            _rs.outer_limit = min(_rs.outer_limit, _iso_x_limit)
-        else:
+        _rs.outer_limit = min(_rs.outer_limit, _iso_x_limit)
+        if _rs._cursor >= _iso_x_limit:
             _log.warning(
                 "right-strip cursor %.1f >= iso_x limit %.1f: right-strip dims"
                 " may overlap iso view (iso view overflows into annotation zone)",
@@ -2693,7 +2692,10 @@ def _fit_iso_view(dwg, a):
         if extent > 0
     ]
     needed = min(ratios, default=1.0)
-    factor = next((f for f in _ISO_SHRINK_FACTORS if f <= needed), _ISO_SHRINK_FACTORS[-1])
+    # Apply a 2 % safety margin and floor to 4 decimal places to avoid
+    # floating-point creep past the region boundary.  The iso is NTS so
+    # there is no need to constrain to "clean" fractions.
+    factor = math.floor(needed * 0.98 * 10000) / 10000
     _project_iso(dwg, a, a.SCALE * factor)
     bb = _iso_bbox(dwg)
     if not _bbox_within(bb, region):
