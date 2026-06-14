@@ -26,7 +26,7 @@ jobs:
         run: uv run ruff format --check src/ tests/
 
       - name: Mypy
-        run: uv run mypy src/build123d_drafting/
+        run: uv run mypy src/draftwright/
 
   test:
     strategy:
