@@ -23,6 +23,9 @@ classifiers = [
     "Topic :: Scientific/Engineering",
     "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 
 [project.scripts]
@@ -32,13 +35,36 @@ draftwright = "draftwright.make_drawing:_cli"
 Homepage = "https://github.com/pzfreo/draftwright"
 Repository = "https://github.com/pzfreo/draftwright"
 Issues = "https://github.com/pzfreo/draftwright/issues"
+Changelog = "https://github.com/pzfreo/draftwright/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/draftwright"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/draftwright",
+    "tests",
+    "skills",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "pyproject.toml",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--tb=short --cov=src/draftwright --cov-report=term-missing"
+timeout = 300
+addopts = "--tb=short --cov=src/draftwright --cov-report=term-missing --cov-report=xml"
+
+[tool.coverage.run]
+source = ["src/draftwright"]
+omit = ["src/draftwright/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
 
 [tool.mypy]
 python_version = "3.10"
