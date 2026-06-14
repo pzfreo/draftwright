@@ -40,6 +40,12 @@ packages = ["src/draftwright"]
 testpaths = ["tests"]
 addopts = "--tb=short --cov=src/draftwright --cov-report=term-missing"
 
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+
 [tool.ruff]
 line-length = 99
 target-version = "py310"
