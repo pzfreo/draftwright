@@ -201,7 +201,8 @@ class TestSectionHatchEdges:
         # Face.make_rect(10, 5, Plane.XZ) gives corners at X∈[-5,5], Z∈[-2.5,2.5].
         # With spacing=5, c=0 gives hatch line through corner (-5,-2.5).
         from build123d import Face, Plane
-        from build123d_drafting.make_drawing import _section_hatch_edges
+
+        from draftwright.make_drawing import _section_hatch_edges
 
         face = Face.make_rect(10, 5, Plane.XZ)
         edges = _section_hatch_edges(face, lambda x: x, lambda z: z, spacing=5.0)
@@ -212,7 +213,8 @@ class TestSectionHatchEdges:
 
     def test_hatch_edges_are_45_degrees(self):
         from build123d import Face, Plane
-        from build123d_drafting.make_drawing import _section_hatch_edges
+
+        from draftwright.make_drawing import _section_hatch_edges
 
         face = Face.make_rect(20, 15, Plane.XZ)
         edges = _section_hatch_edges(face, lambda x: x, lambda z: z, spacing=4.5)
@@ -227,10 +229,10 @@ class TestStripZones:
     """Unit tests for the Strip / ViewZones layout primitives (issue #105)."""
 
     def test_strip_import(self):
-        from build123d_drafting.make_drawing import Strip, ViewZones  # noqa: F401
+        from draftwright.make_drawing import Strip, ViewZones  # noqa: F401
 
     def test_outward_strip_allocates_and_advances(self):
-        from build123d_drafting.make_drawing import Strip
+        from draftwright.make_drawing import Strip
 
         s = Strip(anchor=100.0, outer_limit=200.0, direction=1, gap=8.0, spacing=4.0)
         pos = s.allocate(10.0)
@@ -239,7 +241,7 @@ class TestStripZones:
         assert pos2 == pytest.approx(122.0)  # 108 + 10 + 4
 
     def test_inward_strip_allocates_and_retreats(self):
-        from build123d_drafting.make_drawing import Strip
+        from draftwright.make_drawing import Strip
 
         s = Strip(anchor=100.0, outer_limit=0.0, direction=-1, gap=8.0, spacing=4.0)
         pos = s.allocate(10.0)
@@ -248,20 +250,20 @@ class TestStripZones:
         assert pos2 == pytest.approx(78.0)  # 92 - 10 - 4
 
     def test_strip_returns_none_when_full(self):
-        from build123d_drafting.make_drawing import Strip
+        from draftwright.make_drawing import Strip
 
         s = Strip(anchor=0.0, outer_limit=20.0, direction=1, gap=2.0, spacing=2.0)
         assert s.allocate(10.0) is not None  # fits: 2..12
         assert s.allocate(10.0) is None  # would need 14..24, over limit=20
 
     def test_strip_available(self):
-        from build123d_drafting.make_drawing import Strip
+        from draftwright.make_drawing import Strip
 
         s = Strip(anchor=50.0, outer_limit=150.0, direction=1)
         assert s.available == pytest.approx(100.0)
 
     def test_strip_depth_used(self):
-        from build123d_drafting.make_drawing import Strip
+        from draftwright.make_drawing import Strip
 
         s = Strip(anchor=100.0, outer_limit=200.0, direction=1, gap=8.0, spacing=4.0)
         s.allocate(10.0)
@@ -270,8 +272,9 @@ class TestStripZones:
 
     def test_analyse_returns_view_zones(self):
         from build123d import Box, Cylinder
-        from build123d_drafting import build_drawing
-        from build123d_drafting.make_drawing import Strip, ViewZones
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import Strip, ViewZones
 
         part = Box(80, 60, 20) - Cylinder(5, 20)
         dwg = build_drawing(part)
@@ -286,7 +289,8 @@ class TestStripZones:
 
     def test_strip_limits_are_within_page(self):
         from build123d import Box, Cylinder
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         part = Box(80, 60, 20) - Cylinder(5, 20)
         dwg = build_drawing(part)
@@ -301,7 +305,8 @@ class TestStripZones:
         # dim_height must be placed via the strip; its dimension line must
         # land within the fv_zones.right corridor (anchor..outer_limit).
         from build123d import Box
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         part = Box(60, 40, 30)
         dwg = build_drawing(part)
@@ -316,8 +321,9 @@ class TestStripZones:
     def test_pv_below_strip_is_now_active(self):
         # pv_zones.below should be a Strip (not None) after Phase 3
         from build123d import Box
-        from build123d_drafting import build_drawing
-        from build123d_drafting.make_drawing import Strip
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import Strip
 
         part = Box(80, 60, 20)
         dwg = build_drawing(part)
@@ -330,7 +336,8 @@ class TestStripZones:
     def test_dim_width_routed_through_pv_below_strip(self):
         # dim_width must exist below the plan view, with depth_used > 0
         from build123d import Box
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         # non-square part → x_size != y_size → dim_width should appear
         part = Box(80, 40, 20)
@@ -344,7 +351,8 @@ class TestStripZones:
     def test_dim_locx_routed_through_pv_above_strip(self):
         # dim_locx dims must be above plan_top and allocated from pv_zones.above
         from build123d import Box, Cylinder, Pos
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         part = Box(80, 60, 20) - Pos(20, 10, 0) * Cylinder(5, 20)
         dwg = build_drawing(part)
@@ -358,7 +366,8 @@ class TestStripZones:
     def test_dim_locy_routed_through_sv_above_strip(self):
         # dim_locy dims must be above side_top and allocated from sv_zones.above
         from build123d import Box, Cylinder, Pos
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         # Cylinder at Y=10 → offset from datum_y=bb.min.Y → generates dim_locy0
         part = Box(80, 60, 20) - Pos(0, 10, 0) * Cylinder(5, 20)
@@ -376,8 +385,9 @@ class TestStripZones:
         # which is enough for dim_height (10 mm) + spacing (4 mm) + dim_step (14 mm).
         # Both annotations must now appear without overlapping the side view.
         from build123d import Box, Pos
-        from build123d_drafting import build_drawing
-        from build123d_drafting.make_drawing import _est_right_strip_depth
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import _est_right_strip_depth
 
         part = Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20)
         dwg = build_drawing(part)
@@ -406,7 +416,8 @@ class TestStripZones:
         # plan view go to the right of the plan/side pair (different Y band) and
         # need the full iso-bounded corridor.
         from build123d import Box
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         part = Box(80, 60, 20)
         dwg = build_drawing(part)
@@ -418,7 +429,8 @@ class TestStripZones:
         # Phase 1: dim_height must still be generated — it fits in the 18 mm
         # corridor (gap=8 + slot=10 = 18 mm exactly).
         from build123d import Box
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         part = Box(60, 40, 30)
         dwg = build_drawing(part)
@@ -432,8 +444,9 @@ class TestStripZones:
         # Use a plain box (no holes) so bore callout overhead doesn't push the
         # iso view right and interfere with the sv tightening check.
         from build123d import Box
-        from build123d_drafting import build_drawing
-        from build123d_drafting.make_drawing import _iso_bbox
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import _iso_bbox
 
         part = Box(80, 60, 20)
         dwg = build_drawing(part)
@@ -452,7 +465,8 @@ class TestStripZones:
     def test_sv_zones_below_strip_is_active(self):
         # sv_zones.below must be a Strip (not None) after _analyse().
         from build123d import Box
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         part = Box(80, 60, 20)
         dwg = build_drawing(part)
@@ -463,7 +477,8 @@ class TestStripZones:
         # dim_depth (Y envelope) must be placed below side_top via sv_zones.below.
         # Uses a part where x_size != y_size by > 5% to trigger the annotation.
         from build123d import Box
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         # 80×40×20 box: x_size=80, y_size=40 — differ by > 5%, so dim_depth fires
         part = Box(80, 40, 20)
@@ -477,7 +492,8 @@ class TestStripZones:
     def test_dim_depth_absent_for_square_plan(self):
         # dim_depth must be omitted when x_size == y_size (within 5%).
         from build123d import Box
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         part = Box(60, 60, 20)  # square plan: x_size == y_size
         dwg = build_drawing(part)
@@ -493,36 +509,36 @@ class TestDepthEstimators:
     """Pure-function tests for _est_right_strip_depth / _est_pv_below_depth."""
 
     def test_right_depth_no_steps_equals_dim_pad(self):
-        from build123d_drafting.make_drawing import _DIM_PAD, _est_right_strip_depth
+        from draftwright.make_drawing import _DIM_PAD, _est_right_strip_depth
 
         # 0 steps → dim_height only → gap(8) + slot(10) = 18 = _DIM_PAD
         assert _est_right_strip_depth(0) == pytest.approx(_DIM_PAD, abs=0.01)
 
     def test_right_depth_one_step(self):
-        from build123d_drafting.make_drawing import _est_right_strip_depth
+        from draftwright.make_drawing import _est_right_strip_depth
 
         # dim_height (10) + spacing (4) + 1×dim_step (14) = 8 + 10 + 4 + 14 = 36
         assert _est_right_strip_depth(1) == pytest.approx(36.0, abs=0.01)
 
     def test_right_depth_three_steps(self):
-        from build123d_drafting.make_drawing import _est_right_strip_depth
+        from draftwright.make_drawing import _est_right_strip_depth
 
         # dim_height (10) + 3×dim_step (14 each) + 3×spacing (4 each) = 8+10+4+14+4+14+4+14 = 72
         assert _est_right_strip_depth(3) == pytest.approx(72.0, abs=0.01)
 
     def test_right_depth_capped_at_three_steps(self):
-        from build123d_drafting.make_drawing import _est_right_strip_depth
+        from draftwright.make_drawing import _est_right_strip_depth
 
         # n_steps is capped at 3 in the estimator
         assert _est_right_strip_depth(3) == _est_right_strip_depth(10)
 
     def test_right_depth_increases_with_steps(self):
-        from build123d_drafting.make_drawing import _est_right_strip_depth
+        from draftwright.make_drawing import _est_right_strip_depth
 
         assert _est_right_strip_depth(0) < _est_right_strip_depth(1) < _est_right_strip_depth(3)
 
     def test_pv_below_depth(self):
-        from build123d_drafting.make_drawing import _est_pv_below_depth
+        from draftwright.make_drawing import _est_pv_below_depth
 
         # gap(8) + dim_width slot(8) = 16
         assert _est_pv_below_depth() == pytest.approx(16.0, abs=0.01)
@@ -530,7 +546,7 @@ class TestDepthEstimators:
     def test_right_depth_fits_in_exact_corridor(self):
         # A Strip whose available width equals _est_right_strip_depth(n) must
         # accept exactly n+1 allocations (dim_height + n dim_steps).
-        from build123d_drafting.make_drawing import (
+        from draftwright.make_drawing import (
             _SLOT_DIM_HEIGHT,
             _SLOT_DIM_STEP,
             _STRIP_GAP,
@@ -551,7 +567,7 @@ class TestDepthEstimators:
 
     def test_pv_below_depth_fits_in_exact_corridor(self):
         # A Strip of _est_pv_below_depth() width must accept one dim_width allocation.
-        from build123d_drafting.make_drawing import (
+        from draftwright.make_drawing import (
             _SLOT_DIM_WIDTH,
             _STRIP_GAP,
             Strip,
@@ -576,14 +592,14 @@ class TestDynamicCorridors:
         #   n_steps=0 (gap=18): w=417 ≤ 420 → direct fit
         #   n_steps=3 (gap=72): w=471 > 420; views_bottom=39.5 < 45 so
         #     the iso-over-title-block fallback cannot apply → False
-        from build123d_drafting.make_drawing import _fits
+        from draftwright.make_drawing import _fits
 
         assert _fits(5.0, 100.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=0)
         assert not _fits(5.0, 100.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=3)
 
     def test_fits_zero_steps_same_as_default(self):
         # n_steps=0 must produce the same result as the old signature (no kwarg).
-        from build123d_drafting.make_drawing import _fits
+        from draftwright.make_drawing import _fits
 
         page_w, page_h, tb = 297.0, 210.0, 120.0
         scale, x_size, y_size, z_size = 1.0, 20.0, 20.0, 20.0
@@ -594,8 +610,9 @@ class TestDynamicCorridors:
     def test_gap_fv_sv_equals_dim_pad_for_flat_part(self):
         # A plain box (no step faces) → sv_left - fv_right == _DIM_PAD.
         from build123d import Box
-        from build123d_drafting import build_drawing
-        from build123d_drafting.make_drawing import _DIM_PAD
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import _DIM_PAD
 
         a = build_drawing(Box(60, 40, 20))._analysis
         assert len(a.step_zs) == 0
@@ -608,7 +625,7 @@ class TestDynamicCorridors:
         # With n_steps=3, gap_fv_sv jumps to 72 mm — A3 no longer fits and
         # choose_scale must return A2.  This verifies that the conservative
         # n_steps_ub path in _analyse() ensures the page is never too small.
-        from build123d_drafting.make_drawing import choose_scale
+        from draftwright.make_drawing import choose_scale
 
         _, page_w_flat, _, _ = choose_scale(5.0, 100.0, 100.0, n_steps=0)
         _, page_w_deep, _, _ = choose_scale(5.0, 100.0, 100.0, n_steps=3)
@@ -621,8 +638,9 @@ class TestDynamicCorridors:
         # gap = _est_right_strip_depth(1) = 36 mm.  The ≥20 mm gate matches what
         # _auto_annotate applies — bore floors or shallow faces don't count.
         from build123d import Box, Pos
-        from build123d_drafting import build_drawing
-        from build123d_drafting.make_drawing import _est_right_strip_depth
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import _est_right_strip_depth
 
         # Box(60, 40, 50): Z -25..+25.  Carve top-right quadrant so the step
         # floor is at Z=0, giving a 25 mm step height (≥20 mm threshold).
@@ -651,9 +669,10 @@ class TestTwoPassLayout:
         # "4× ⌀15.9 THRU") that need more than _DIM_PAD right of the plan view.
         # The two-pass layout must size gap_fv_sv >= bore callout depth.
         from build123d import Box, Cylinder, Pos
-        from build123d_drafting import build_drawing
         from build123d_drafting.features import find_holes
-        from build123d_drafting.make_drawing import _DIM_PAD, _est_bore_callout_width
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import _DIM_PAD, _est_bore_callout_width
 
         # Four identical cylinders → "4× ⌀16 THRU" callout with a count prefix
         part = (
@@ -682,8 +701,9 @@ class TestTwoPassLayout:
     def test_plain_box_gap_unchanged(self):
         # A box with no holes: bore callout depth = 0 → gap_fv_sv stays _DIM_PAD.
         from build123d import Box
-        from build123d_drafting import build_drawing
-        from build123d_drafting.make_drawing import _DIM_PAD
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import _DIM_PAD
 
         a = build_drawing(Box(60, 40, 20))._analysis
         sv_left = a.SV_X - a.sv_hw
@@ -694,7 +714,8 @@ class TestTwoPassLayout:
         # Verify actual callout label does not reach sv_left.
         # The Leader label_bbox right edge must stay left of sv_left.
         from build123d import Box, Cylinder, Pos
-        from build123d_drafting import build_drawing
+
+        from draftwright import build_drawing
 
         part = (
             Box(100, 80, 20)
@@ -718,7 +739,8 @@ class TestTwoPassLayout:
         # _est_bore_callout_width must include it when patterns are provided.
         from build123d import Box, Cylinder, Pos
         from build123d_drafting.features import find_hole_patterns, find_holes
-        from build123d_drafting.make_drawing import _est_bore_callout_width
+
+        from draftwright.make_drawing import _est_bore_callout_width
 
         # Six ⌀8 holes at equal 60° spacing on R=35 → BoltCircle pattern
         part = (
@@ -743,8 +765,9 @@ class TestTwoPassLayout:
         # pv_zones.below outer_limit = fv_top_edge (not fv_top_edge + 2), giving
         # 18 mm available vs 16 mm needed for dim_width — no razor-fit (#130).
         from build123d import Box
-        from build123d_drafting import build_drawing
-        from build123d_drafting.make_drawing import _est_pv_below_depth
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import _est_pv_below_depth
 
         part = Box(80, 40, 20)
         dwg = build_drawing(part)
@@ -1122,7 +1145,7 @@ def shrunk_iso_drawing():
 def test_iso_overflow_shrinks_with_nts_note(shrunk_iso_drawing):
     # #75 — at sheet scale the iso would run past the A3 page edge; it must be
     # re-projected smaller and captioned NTS.
-    from build123d_drafting.make_drawing import _iso_bbox
+    from draftwright.make_drawing import _iso_bbox
 
     dwg = shrunk_iso_drawing
     labels = [getattr(a, "label", "") for a in dwg.annotations]
@@ -1597,7 +1620,7 @@ class TestAutoHoleAnnotations:
 
     @pytest.mark.timeout(60)
     def test_solve_strip_ys_returns_feasible_positions(self):
-        from build123d_drafting.make_drawing import _solve_strip_ys
+        from draftwright.make_drawing import _solve_strip_ys
 
         # Four natural positions, solver must spread them to respect min_gap=8.
         result = _solve_strip_ys([10.0, 12.0, 14.0, 16.0], min_gap=8.0, y_min=0.0, y_max=100.0)
@@ -1610,7 +1633,7 @@ class TestAutoHoleAnnotations:
 
     @pytest.mark.timeout(60)
     def test_solve_strip_ys_infeasible_returns_none(self):
-        from build123d_drafting.make_drawing import _solve_strip_ys
+        from draftwright.make_drawing import _solve_strip_ys
 
         # Three items need 2 × 8 = 16mm gap, but range is only 10mm.
         result = _solve_strip_ys([5.0, 10.0, 15.0], min_gap=8.0, y_min=0.0, y_max=10.0)
@@ -1618,7 +1641,7 @@ class TestAutoHoleAnnotations:
 
     @pytest.mark.timeout(60)
     def test_solve_strip_ys_empty_input(self):
-        from build123d_drafting.make_drawing import _solve_strip_ys
+        from draftwright.make_drawing import _solve_strip_ys
 
         assert _solve_strip_ys([], min_gap=8.0, y_min=0.0, y_max=100.0) == []
 
@@ -1971,7 +1994,7 @@ class TestIsRotational:
         # leaks the OD into the bore leaders as a duplicate ø60 callout.
         import importlib
 
-        md = importlib.import_module("build123d_drafting.make_drawing")
+        md = importlib.import_module("draftwright.make_drawing")
         real = md.analyse_cylinders
 
         def unrounded(part):
@@ -1995,7 +2018,7 @@ class TestIsRotational:
 
         # (the package re-exports the make_drawing *function*, shadowing the
         # submodule attribute, so plain `import ... as md` grabs the function)
-        md = importlib.import_module("build123d_drafting.make_drawing")
+        md = importlib.import_module("draftwright.make_drawing")
 
         dwg = build_drawing(Box(30, 20, 10))
         calls = {"n": 0}
