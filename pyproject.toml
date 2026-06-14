@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "draftwright"
+version = "0.1.0"
+description = "Automated technical-drawing generation for build123d"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Paul Fremantle", email = "pzfreo@gmail.com" }]
+requires-python = ">=3.10"
+dependencies = [
+    "build123d>=0.9.0",
+    "build123d-drafting-helpers>=0.9.1",
+    "kiwisolver>=1.4,<2",
+]
+keywords = ["build123d", "cad", "drafting", "engineering-drawing", "technical-drawing", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Manufacturing",
+    "Topic :: Scientific/Engineering",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+]
+
+[project.scripts]
+draftwright = "draftwright.make_drawing:_cli"
+
+[project.urls]
+Homepage = "https://github.com/pzfreo/draftwright"
+Repository = "https://github.com/pzfreo/draftwright"
+Issues = "https://github.com/pzfreo/draftwright/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/draftwright"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short --cov=src/draftwright --cov-report=term-missing"
+
+[tool.ruff]
+line-length = 99
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "pytest-timeout>=2",
+    "ruff>=0.4",
+]
