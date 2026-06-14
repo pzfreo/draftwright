@@ -1,5 +1,6 @@
 """Tests for draftwright.make_drawing."""
 
+import math
 from pathlib import Path
 
 import pytest
@@ -2038,3 +2039,128 @@ class TestIsRotational:
         dwg.lint()
         dwg.lint()
         assert calls["n"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Layout-overfitting regression tests (issue #13)
+#
+# The fixtures above exercise the prismatic path well but leave the turned
+# path and several hard-coded thresholds under-tested — which is how the
+# overfitting in #10–#12 went unnoticed. These cases pin the *general*
+# behaviour the algorithm should have. Where current `main` does not yet
+# meet it, the test is marked xfail(strict=True) so it auto-flags (xpass)
+# the moment the corresponding fix lands.
+# ---------------------------------------------------------------------------
+
+
+class TestTurnedPlusDrilledFlange:
+    """A flange is turned (square envelope, dominant OD) yet carries discrete
+    off-axis holes — the most common turned-and-drilled part. The binary
+    turned/prismatic split (#10) classifies it rotational and then withholds
+    every hole callout, location dim, and bolt-circle furniture, leaving the
+    bolt holes with bare centre marks.
+    """
+
+    @staticmethod
+    def _flange():
+        # ø100 × 20 disc, ø30 central bore, 6 × ø8 holes on an ø80 bolt circle.
+        flange = Cylinder(50, 20) - Cylinder(15, 20)
+        for i in range(6):
+            ang = 2 * math.pi * i / 6
+            flange -= Pos(40 * math.cos(ang), 40 * math.sin(ang), 0) * Cylinder(4, 20)
+        return flange
+
+    @pytest.mark.timeout(60)
+    def test_flange_classifies_rotational_with_od(self):
+        # The turned base set is correct today and must stay so.
+        dwg = build_drawing(self._flange())
+        assert dwg._analysis.is_rotational
+        assert "dim_od" in dwg._named
+        assert "centerline_front" in dwg._named
+
+    @pytest.mark.timeout(60)
+    @pytest.mark.xfail(
+        strict=True,
+        reason="#10: turned/prismatic split is binary — a turned flange gets "
+        "dim_od but no hole callouts, location dims, or bolt-circle furniture "
+        "for its off-axis holes. Classification should pick a base set while "
+        "callouts fire on feature presence, independent of class.",
+    )
+    def test_flange_composes_od_with_bolt_circle_furniture(self):
+        dwg = build_drawing(self._flange())
+        # Turned base set — already works.
+        assert "dim_od" in dwg._named
+        # Feature-driven furniture for the bolt circle — withheld today.
+        assert any(n.startswith("hc_") for n in dwg._named), "expected hole callouts"
+        assert any(n.startswith("dim_loc") for n in dwg._named), "expected location dims"
+        assert any(n.startswith("bc_") for n in dwg._named), "expected bolt-circle furniture"
+
+
+class TestTurnedMultiBoreOverflow:
+    """A turned part with 4+ distinct concentric bores. The leader stack caps
+    at three (`bores[:3]`); the overflow must not vanish silently — it should
+    be annotated or surfaced through the coverage lint (#10).
+    """
+
+    @staticmethod
+    def _telescoping():
+        # ø80 OD with four concentric counterbore steps: ø60 / ø44 / ø30 / ø16.
+        part = Cylinder(40, 80)
+        part -= Pos(0, 0, 30) * Cylinder(30, 20)
+        part -= Pos(0, 0, 10) * Cylinder(22, 30)
+        part -= Pos(0, 0, -10) * Cylinder(15, 30)
+        part -= Pos(0, 0, -30) * Cylinder(8, 20)
+        return part
+
+    @pytest.mark.timeout(60)
+    def test_no_bore_silently_dropped(self):
+        dwg = build_drawing(self._telescoping())
+        a = dwg._analysis
+        bores = {d for d in a.z_diams if d != a.od_diam}
+        assert bores == {60.0, 44.0, 30.0, 16.0}
+        annotated = {
+            float(ann.label.lstrip("ø"))
+            for n, ann in dwg._named.items()
+            if n.startswith("ldr_z")
+        }
+        # Acceptance (#10): annotate all, or surface the overflow via lint —
+        # never drop a bore with no trace.
+        if annotated != bores:
+            assert any(i.code == "feature_not_dimensioned" for i in dwg.lint()), (
+                f"bores {bores - annotated} dropped with no lint coverage"
+            )
+
+
+class TestStepHeightThreshold:
+    """The step-height gate dimensions a step only when it projects to ≥20 mm
+    on the page (`(z - bb.min.Z) * SCALE >= 20`). That page-mm cutoff is
+    incidental: a genuine, well-separated step should be dimensioned whatever
+    its scaled height (#13).
+    """
+
+    @staticmethod
+    def _stepped(base_h):
+        # Prismatic two-level block: a base of height ``base_h`` (bottom at
+        # z=0) with a smaller platform on top. The single interior step face
+        # sits ``base_h`` above the part bottom, so at 1:1 it projects to
+        # exactly ``base_h`` mm on the page.
+        base = Pos(0, 0, base_h / 2) * Box(100, 100, base_h)
+        platform = Pos(0, 0, base_h + 5) * Box(60, 60, 10)
+        return base + platform
+
+    @pytest.mark.timeout(60)
+    def test_step_above_page_gate_is_dimensioned(self):
+        # 21 mm of page height — dimensioned. Guards the gate's upper side.
+        dwg = build_drawing(self._stepped(21), scale=1.0, page="A2")
+        assert any(n.startswith("dim_step") for n in dwg._named)
+
+    @pytest.mark.timeout(60)
+    @pytest.mark.xfail(
+        strict=True,
+        reason="#13: the 20 mm page-height gate drops a real, well-separated "
+        "step purely because it projects to 19 mm. A genuine step should be "
+        "dimensioned regardless of the incidental page-mm cutoff.",
+    )
+    def test_real_step_just_below_page_gate_still_dimensioned(self):
+        dwg = build_drawing(self._stepped(19), scale=1.0, page="A2")
+        assert any(n.startswith("dim_step") for n in dwg._named)
