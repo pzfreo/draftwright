@@ -1488,10 +1488,24 @@ def _annotate_pmi(dwg, a, draft) -> None:
     """
     pmi = getattr(a, "pmi", [])
     usable = [r for r in pmi if r.value > 0 and len(r.ref_pts) >= 2]
-    n_gtol = sum(1 for r in pmi if r.kind not in ("linear", "diameter", "radius", "angular",
-                                                    "curved_dist", "oriented", "curve_length",
-                                                    "thickness", "label", "presentation")
-                 and r.value > 0)
+    n_gtol = sum(
+        1
+        for r in pmi
+        if r.kind
+        not in (
+            "linear",
+            "diameter",
+            "radius",
+            "angular",
+            "curved_dist",
+            "oriented",
+            "curve_length",
+            "thickness",
+            "label",
+            "presentation",
+        )
+        and r.value > 0
+    )
     if n_gtol:
         _log.debug("PMI annotate: %d gtol/datum record(s) not yet annotatable (Phase 4)", n_gtol)
     if not usable:
@@ -1591,8 +1605,14 @@ def _annotate_pmi(dwg, a, draft) -> None:
             return False
         slot = strip.allocate(_SLOT)
         dwg.add(
-            Dimension((p1[0], witness_y, 0), (p2[0], witness_y, 0),
-                      "above", slot - witness_y, draft, label=label),
+            Dimension(
+                (p1[0], witness_y, 0),
+                (p2[0], witness_y, 0),
+                "above",
+                slot - witness_y,
+                draft,
+                label=label,
+            ),
             name,
         )
         return True
@@ -1606,8 +1626,14 @@ def _annotate_pmi(dwg, a, draft) -> None:
             return False
         slot = strip.allocate(_SLOT)
         dwg.add(
-            Dimension((p1[0], witness_y, 0), (p2[0], witness_y, 0),
-                      "below", witness_y - slot, draft, label=label),
+            Dimension(
+                (p1[0], witness_y, 0),
+                (p2[0], witness_y, 0),
+                "below",
+                witness_y - slot,
+                draft,
+                label=label,
+            ),
             name,
         )
         return True
@@ -1621,8 +1647,14 @@ def _annotate_pmi(dwg, a, draft) -> None:
             return False
         slot = strip.allocate(_SLOT)
         dwg.add(
-            Dimension((witness_x, p1[1], 0), (witness_x, p2[1], 0),
-                      "right", slot - witness_x, draft, label=label),
+            Dimension(
+                (witness_x, p1[1], 0),
+                (witness_x, p2[1], 0),
+                "right",
+                slot - witness_x,
+                draft,
+                label=label,
+            ),
             name,
         )
         return True
@@ -1636,8 +1668,14 @@ def _annotate_pmi(dwg, a, draft) -> None:
             return False
         slot = strip.allocate(_SLOT)
         dwg.add(
-            Dimension((witness_x, p1[1], 0), (witness_x, p2[1], 0),
-                      "left", witness_x - slot, draft, label=label),
+            Dimension(
+                (witness_x, p1[1], 0),
+                (witness_x, p2[1], 0),
+                "left",
+                witness_x - slot,
+                draft,
+                label=label,
+            ),
             name,
         )
         return True
@@ -1674,9 +1712,8 @@ def _annotate_pmi(dwg, a, draft) -> None:
                 if half_pg >= 4.0:
                     p1 = (PX(cx_f - half), PY(cy_f), 0)
                     p2 = (PX(cx_f + half), PY(cy_f), 0)
-                    placed = (
-                        _try_above(p1, p2, a.pv_zones.above, label, name_d)
-                        or _try_below(p1, p2, a.pv_zones.below, label, name_d)
+                    placed = _try_above(p1, p2, a.pv_zones.above, label, name_d) or _try_below(
+                        p1, p2, a.pv_zones.below, label, name_d
                     )
                 else:
                     tip = (PX(cx_f), PY(cy_f) + half_pg, 0)
@@ -1696,9 +1733,8 @@ def _annotate_pmi(dwg, a, draft) -> None:
                 if half_pg >= 4.0:
                     p1 = (SX(cy_f - half), SZ(cz_f), 0)
                     p2 = (SX(cy_f + half), SZ(cz_f), 0)
-                    placed = (
-                        _try_above(p1, p2, a.sv_zones.above, label, name_d)
-                        or _try_below(p1, p2, a.sv_zones.below, label, name_d)
+                    placed = _try_above(p1, p2, a.sv_zones.above, label, name_d) or _try_below(
+                        p1, p2, a.sv_zones.below, label, name_d
                     )
                 else:
                     tip = (SX(cy_f), SZ(cz_f) + half_pg, 0)
@@ -1718,9 +1754,8 @@ def _annotate_pmi(dwg, a, draft) -> None:
                 if half_pg >= 4.0:
                     p1 = (FX(cx_f - half), FZ(cz_f), 0)
                     p2 = (FX(cx_f + half), FZ(cz_f), 0)
-                    placed = (
-                        _try_above(p1, p2, a.fv_zones.above, label, name_d)
-                        or _try_below(p1, p2, a.fv_zones.below, label, name_d)
+                    placed = _try_above(p1, p2, a.fv_zones.above, label, name_d) or _try_below(
+                        p1, p2, a.fv_zones.below, label, name_d
                     )
                 else:
                     # Narrow bore: leader from bore bottom into the below strip.
@@ -2693,7 +2728,9 @@ def build_drawing(
             break
     title = title or stem.replace("_", " ").upper()
 
-    a = _analyse(step_file, title, number, tolerance, drawn_by, out, scale=scale, page=page, pmi=pmi)
+    a = _analyse(
+        step_file, title, number, tolerance, drawn_by, out, scale=scale, page=page, pmi=pmi
+    )
 
     cxs, cys, czs = a.cx * a.SCALE, a.cy * a.SCALE, a.cz * a.SCALE
     look_at = (cxs, cys, czs)

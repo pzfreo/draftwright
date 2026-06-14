@@ -55,27 +55,27 @@ except ImportError:
 
 # int → human tag for XCAFDimTolObjects_DimensionType enum
 _DIM_TYPE: dict[int, str] = {
-    0: "location",       # Location_None
-    1: "curved_dist",    # Location_CurvedDistance
-    2: "linear",         # Location_LinearDistance (outer-to-outer, generic)
-    3: "linear",         # FromCenterToOuter
-    4: "linear",         # FromCenterToInner
-    5: "linear",         # FromOuterToCenter
-    6: "linear",         # FromOuterToOuter
-    7: "linear",         # FromOuterToInner
-    8: "linear",         # FromInnerToCenter
-    9: "linear",         # FromInnerToOuter
-    10: "linear",        # FromInnerToInner
-    11: "angular",       # Location_Angular (incl. curved centre-to-centre)
-    12: "oriented",      # Location_Oriented
+    0: "location",  # Location_None
+    1: "curved_dist",  # Location_CurvedDistance
+    2: "linear",  # Location_LinearDistance (outer-to-outer, generic)
+    3: "linear",  # FromCenterToOuter
+    4: "linear",  # FromCenterToInner
+    5: "linear",  # FromOuterToCenter
+    6: "linear",  # FromOuterToOuter
+    7: "linear",  # FromOuterToInner
+    8: "linear",  # FromInnerToCenter
+    9: "linear",  # FromInnerToOuter
+    10: "linear",  # FromInnerToInner
+    11: "angular",  # Location_Angular (incl. curved centre-to-centre)
+    12: "oriented",  # Location_Oriented
     14: "curve_length",  # Size_CurveLength
-    15: "diameter",      # Size_Diameter  ← add ø prefix
-    16: "diameter",      # Size_SphericalDiameter
-    17: "radius",        # Size_Radius    ← add R prefix
-    18: "radius",        # Size_SphericalRadius
-    27: "thickness",     # Size_Thickness
-    28: "angular",       # Size_Angular
-    30: "label",         # CommonLabel     ← no numeric value, skip
+    15: "diameter",  # Size_Diameter  ← add ø prefix
+    16: "diameter",  # Size_SphericalDiameter
+    17: "radius",  # Size_Radius    ← add R prefix
+    18: "radius",  # Size_SphericalRadius
+    27: "thickness",  # Size_Thickness
+    28: "angular",  # Size_Angular
+    30: "label",  # CommonLabel     ← no numeric value, skip
     31: "presentation",  # DimensionPresentation ← graphical only, skip
 }
 
@@ -165,7 +165,7 @@ def _bbox_centroid(bbox: tuple) -> tuple[float, float, float]:
 
 
 def _merge_bboxes(
-    boxes: list[tuple[float, float, float, float, float, float]]
+    boxes: list[tuple[float, float, float, float, float, float]],
 ) -> tuple[float, float, float, float, float, float]:
     """Return the combined axis-aligned bbox of *boxes*."""
     xs = [b[0] for b in boxes] + [b[3] for b in boxes]
@@ -174,9 +174,7 @@ def _merge_bboxes(
     return (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
 
 
-def _dominant_from_bbox(
-    bbox: tuple[float, float, float, float, float, float]
-) -> str:
+def _dominant_from_bbox(bbox: tuple[float, float, float, float, float, float]) -> str:
     """Return ``'X'``/``'Y'``/``'Z'`` for the axis with the largest bbox extent."""
     xmin, ymin, zmin, xmax, ymax, zmax = bbox
     spans = [("X", abs(xmax - xmin)), ("Y", abs(ymax - ymin)), ("Z", abs(zmax - zmin))]
@@ -233,7 +231,9 @@ def extract_pmi(step_file: str | Path) -> list[PmiRecord]:
     reader.SetNameMode(True)
     status = reader.ReadFile(path)
     if status != IFSelect_RetDone:
-        _log.warning("PMI extraction: ReadFile failed for %s (status=%s)", Path(step_file).name, status)
+        _log.warning(
+            "PMI extraction: ReadFile failed for %s (status=%s)", Path(step_file).name, status
+        )
         return []
     reader.Transfer(doc)
 
