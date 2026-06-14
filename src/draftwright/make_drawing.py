@@ -810,6 +810,29 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     ISO_X = sv_right + right_avail / 2
     ISO_Y = PV_Y
 
+    # When the standard iso zone (right of SV) is narrower than the natural iso
+    # extent, check whether the upper-right zone — right of FV/PV and above the SV
+    # y-range — offers more room.  This zone shares no y-range with the SV, so the
+    # iso can sit there without conflicting with SV annotations.
+    _iso_natural = bbox_max * SCALE * 0.7
+    _ur_left = FV_X + fv_hw + gap_fv_sv  # = sv_left_edge; clears FV/PV right strips
+    _sv_top = FV_Y + fv_hh  # SV_Y == FV_Y; sv_top == FV_Y + fv_hh
+    _ur_bottom = _sv_top + DIM_PAD
+    _ur_w = max(0.0, iso_right_limit - _ur_left)
+    _ur_h = max(0.0, (PAGE_H - margin) - _ur_bottom)
+    _std_min = min(right_avail, PAGE_H - 2 * margin)
+    _ur_min = min(_ur_w, _ur_h)
+    if _std_min < _iso_natural and _ur_min > _std_min:
+        ISO_X = (_ur_left + iso_right_limit) / 2
+        ISO_Y = (_ur_bottom + PAGE_H - margin) / 2
+        iso_left_limit = _ur_left
+        iso_bottom_limit = _ur_bottom
+        iso_in_upper_right = True
+    else:
+        iso_left_limit = sv_right
+        iso_bottom_limit = margin
+        iso_in_upper_right = False
+
     # ------------------------------------------------------------------
     # Strip / zone construction.
     # Phase 1: defines regions only — annotation functions still use their
@@ -909,6 +932,9 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
         SV_Y=SV_Y,
         ISO_X=ISO_X,
         ISO_Y=ISO_Y,
+        iso_left_limit=iso_left_limit,
+        iso_bottom_limit=iso_bottom_limit,
+        iso_in_upper_right=iso_in_upper_right,
         # View half-extents in page units (convenient for strip arithmetic)
         fv_hw=fv_hw,
         fv_hh=fv_hh,
@@ -1259,7 +1285,15 @@ def _auto_annotate(dwg, a):
     # the limit (dims already placed may overlap the iso view).
     _iso_x0, _, _, _ = _iso_bbox(dwg)
     _iso_x_limit = _iso_x0 - 4
-    for _rs in (a.fv_zones.right, a.pv_zones.right, a.sv_zones.right):
+    # When the iso sits above the SV (upper-right zone), the SV right strip shares
+    # no y-range with the iso, so tightening sv_zones.right by iso_x would set
+    # outer_limit below the strip anchor and break all SV annotation allocations.
+    _right_strips = (
+        (a.fv_zones.right, a.pv_zones.right)
+        if a.iso_in_upper_right
+        else (a.fv_zones.right, a.pv_zones.right, a.sv_zones.right)
+    )
+    for _rs in _right_strips:
         _rs.outer_limit = min(_rs.outer_limit, _iso_x_limit)
         if _rs._cursor >= _iso_x_limit:
             _log.warning(
@@ -2662,25 +2696,31 @@ def _project_iso(dwg, a, scale, shape_s=None):
         dwg._coords["iso"] = ViewCoordinates(axes, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale)
 
 
-def _fit_iso_view(dwg, a):
-    """Shrink the iso view to fit its page region, captioning it NTS (#75).
+def _fit_iso_view(dwg, a, annotate: bool = True):
+    """Scale the iso view to fill its page zone, captioning it NTS when the
+    scale differs from sheet scale.  Pass ``annotate=False`` to suppress the
+    NTS note (used when ``auto_dims=False``).
 
-    The layout reserves ~0.7 × bbox_max for the iso column, but the true
-    projected extent can be wider (long prismatic parts), pushing the iso past
-    the page edge or into the side view's dimension space. When the projected
-    iso bbox overflows the region, re-project at a clean fraction of sheet
-    scale and add an "ISO VIEW (NTS)" caption below it.
+    The iso is always centred at (ISO_X, ISO_Y) which sits at the centre of
+    the available zone.  The projection is linear, so the factor needed to
+    fill the zone can be computed from the measured extents without iteration.
+
+    - Overflow (needed < 1): shrink with 2 % safety margin.
+    - Under-fill (needed > 1): grow to 90 % of zone, leaving breathing room.
+    - Within 5 % of sheet scale: leave as-is (no NTS label).
     """
-    region = (a.sv_right, a.margin, a.iso_right_limit, a.PAGE_H - a.margin)
+    # Use the precomputed iso zone limits.  When iso is in the upper-right zone,
+    # any section view sits below the iso's y-range so its x-extent doesn't
+    # constrain the iso region.
+    region_left = a.iso_left_limit
+    if not a.iso_in_upper_right and "section_aa" in dwg.views:
+        sec_vis, sec_hid = dwg.views["section_aa"]
+        sec_right = sec_vis.bounding_box().max.X
+        if sec_hid:
+            sec_right = max(sec_right, sec_hid.bounding_box().max.X)
+        region_left = max(region_left, sec_right + 4)
+    region = (region_left, a.iso_bottom_limit, a.iso_right_limit, a.PAGE_H - a.margin)
     bb = _iso_bbox(dwg)
-    # Exact check (no tolerance): the lint's view_out_of_bounds is exact, so
-    # accepting a sub-tolerance overflow here would pass the fit yet fail lint.
-    if _bbox_within(bb, region, tol=0.0):
-        return
-    # Orthographic projection is linear and the view centre maps to
-    # (ISO_X, ISO_Y), so each bbox side's offset from the centre scales
-    # exactly with the shape scale — the factor needed to fit can be computed
-    # from the measured extents, costing a single re-projection.
     ratios = [
         avail / extent
         for extent, avail in (
@@ -2692,24 +2732,32 @@ def _fit_iso_view(dwg, a):
         if extent > 0
     ]
     needed = min(ratios, default=1.0)
-    # Apply a 2 % safety margin and floor to 4 decimal places to avoid
-    # floating-point creep past the region boundary.  The iso is NTS so
-    # there is no need to constrain to "clean" fractions.
-    factor = math.floor(needed * 0.98 * 10000) / 10000
+    if needed >= 1.0:
+        # Iso fits; grow to 90 % of zone — leaves comfortable breathing room.
+        margin_pct = 0.90
+    else:
+        # Iso overflows; shrink to just fit with 2 % safety margin.
+        margin_pct = 0.98
+    factor = math.floor(needed * margin_pct * 10000) / 10000
+    if needed >= 1.0:
+        factor = max(factor, 1.0)  # grow branch must never shrink
+    if abs(factor - 1.0) < 0.05:
+        return  # within 5 % of sheet scale — no rescale, no NTS label
     _project_iso(dwg, a, a.SCALE * factor)
     bb = _iso_bbox(dwg)
-    if not _bbox_within(bb, region):
+    if factor < 1.0 and not _bbox_within(bb, region):
         _log.warning("Iso view still overflows its page region at %g× sheet scale", factor)
-    font = dwg.draft.font_size
-    dwg.add(
-        Note(
-            "ISO VIEW (NTS)",
-            (a.ISO_X, max(bb[1] - 2 * font, a.margin + font)),
-            dwg.draft,
-        ),
-        "note_iso_nts",
-    )
-    _log.info("Iso view shrunk to %g× sheet scale (NTS)", factor)
+    if annotate:
+        font = dwg.draft.font_size
+        dwg.add(
+            Note(
+                "ISO VIEW (NTS)",
+                (a.ISO_X, max(bb[1] - 2 * font, a.margin + font)),
+                dwg.draft,
+            ),
+            "note_iso_nts",
+        )
+    _log.info("Iso view scaled to %g× sheet scale%s", factor, " (NTS)" if annotate else "")
 
 
 def build_drawing(
@@ -2779,11 +2827,24 @@ def build_drawing(
     dwg.add_view("plan", part_s, (cxs, cys, czs + dist), (0, 1, 0), (a.PV_X, a.PV_Y), scaled=True)
     dwg.add_view("side", part_s, (cxs + dist, cys, czs), (0, 0, 1), (a.SV_X, a.SV_Y), scaled=True)
     _project_iso(dwg, a, a.SCALE, shape_s=part_s)
-    _fit_iso_view(dwg, a)
 
     if auto_dims:
+        # Snapshot outer_limits before _auto_annotate tightens them against the
+        # initial (possibly overflowing) iso.  After _fit_iso_view rescales the
+        # iso we restore all three right strips to min(original, final_iso_x_limit)
+        # so each strip reflects actual final geometry, not the transient state.
+        _fv_ol = a.fv_zones.right.outer_limit
+        _pv_ol = a.pv_zones.right.outer_limit
+        _sv_ol = a.sv_zones.right.outer_limit
         _auto_annotate(dwg, a)
+        _fit_iso_view(dwg, a)
+        _final_iso_x_lim = _iso_bbox(dwg)[0] - 4
+        a.fv_zones.right.outer_limit = min(_fv_ol, _final_iso_x_lim)
+        a.pv_zones.right.outer_limit = min(_pv_ol, _final_iso_x_lim)
+        if not a.iso_in_upper_right:
+            a.sv_zones.right.outer_limit = min(_sv_ol, _final_iso_x_lim)
     else:
+        _fit_iso_view(dwg, a, annotate=False)
         _add_title_block(dwg, a)
     return dwg
 

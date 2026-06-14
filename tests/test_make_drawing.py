@@ -1135,52 +1135,55 @@ def test_clear_annotations_keep_custom_and_unnamed_removed():
 
 
 @pytest.fixture(scope="module")
-def shrunk_iso_drawing():
-    # #75 fixture — NIST CTC-01-like plate at 1:5 on A3: the iso overflows at
-    # sheet scale and is auto-shrunk. Module-scoped; tests must not mutate it.
+def ctc01_a3_drawing():
+    # Fixture — NIST CTC-01-like plate at 1:5 on A3.  Module-scoped; tests must not mutate it.
     return build_drawing(Box(800, 450, 150), scale=0.2, page="A3")
 
 
 @pytest.mark.timeout(120)
-def test_iso_overflow_shrinks_with_nts_note(shrunk_iso_drawing):
-    # #75 — at sheet scale the iso would run past the A3 page edge; it must be
-    # re-projected smaller and captioned NTS.
+def test_ctc01_iso_uses_upper_right_zone(ctc01_a3_drawing):
+    # #75 updated — wide/flat part on A3: the iso is repositioned into the upper-right
+    # zone (above the SV, right of FV/PV) where it fits at sheet scale.  No NTS label.
     from draftwright.make_drawing import _iso_bbox
 
-    dwg = shrunk_iso_drawing
+    dwg = ctc01_a3_drawing
     labels = [getattr(a, "label", "") for a in dwg.annotations]
-    assert "ISO VIEW (NTS)" in labels
+    assert "ISO VIEW (NTS)" not in labels  # iso now fits at sheet scale — no NTS
     x0, y0, x1, y1 = _iso_bbox(dwg)
     assert (
         x1 <= dwg.page_w - 10 + 0.5 and x0 >= 0 and y0 >= 10 - 0.5 and y1 <= dwg.page_h - 10 + 0.5
     )
+    # iso must be significantly larger than the old 65 mm (shrunken) view
+    assert (x1 - x0) > 100
 
 
 @pytest.mark.timeout(120)
-def test_shrunk_iso_keeps_world_to_page_mapping(shrunk_iso_drawing):
-    # After the NTS shrink, dwg.at("iso", ...) must still map world points to
-    # the page: the centroid lands on the view centre and offsets scale by the
-    # shrunk view scale, not the sheet scale.
-    dwg = shrunk_iso_drawing
+def test_ctc01_iso_world_to_page_mapping(ctc01_a3_drawing):
+    # dwg.at("iso", ...) must map world points to page even after the iso is
+    # repositioned to the upper-right zone (still projected at sheet scale).
+    dwg = ctc01_a3_drawing
     cx, cy, cz = dwg.centroid
     centre = dwg.at("iso", cx, cy, cz)
     vis, _hid = dwg.views["iso"]
     bb = vis.bounding_box()
     assert bb.min.X < centre[0] < bb.max.X and bb.min.Y < centre[1] < bb.max.Y
-    # World +Z maps to page +Y; the offset must use the shrunk view scale (not
-    # the sheet scale).  Derive the actual shrunk scale from _coords so the
-    # test does not depend on a specific discretised shrink factor.
-    shrunk_scale = dwg._coords["iso"]._scale
-    assert shrunk_scale < dwg.scale, "iso should be shrunk below sheet scale"
+    iso_scale = dwg._coords["iso"]._scale
     raised = dwg.at("iso", cx, cy, cz + 100)
-    assert raised[1] - centre[1] == pytest.approx(100 * shrunk_scale)
+    assert raised[1] - centre[1] == pytest.approx(100 * iso_scale)
 
 
 @pytest.mark.timeout(60)
-def test_iso_that_fits_is_not_shrunk():
+def test_iso_stays_within_page_bounds():
+    # Whether scaled up or not, the iso must always lie within the page margin.
+    from draftwright.make_drawing import _iso_bbox
+
     dwg = build_drawing(Box(30, 20, 10))
-    labels = [getattr(a, "label", "") for a in dwg.annotations]
-    assert "ISO VIEW (NTS)" not in labels
+    x0, y0, x1, y1 = _iso_bbox(dwg)
+    margin = 10
+    assert x0 >= margin - 0.5
+    assert y0 >= margin - 0.5
+    assert x1 <= dwg.page_w - margin + 0.5
+    assert y1 <= dwg.page_h - margin + 0.5
 
 
 @pytest.mark.timeout(60)
