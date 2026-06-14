@@ -6,7 +6,7 @@ import pytest
 from build123d import Box, export_step
 
 from draftwright import build_drawing, extract_pmi
-from draftwright.pmi import PmiRecord, _PMI_AVAILABLE
+from draftwright.pmi import _PMI_AVAILABLE, PmiRecord
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CTC01 = FIXTURES / "nist_ctc_01_asme1_ap242.stp"
@@ -111,7 +111,6 @@ class TestBuildDrawingPmi:
 
     def test_pmi_annotate_drawing_lint_clean(self, tmp_path):
         """Drawing with PMI annotations passes lint with no errors."""
-        from build123d_drafting.helpers import lint_drawing
 
         stem = str(tmp_path / "ctc01_lint")
         dwg = build_drawing(

@@ -20,7 +20,6 @@ GeomTolerance, Datum).
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -38,8 +37,8 @@ try:
     from OCP.TDF import TDF_LabelSequence
     from OCP.TDocStd import TDocStd_Document
     from OCP.XCAFDoc import (
-        XCAFDoc_DimTolTool,
         XCAFDoc_Dimension,
+        XCAFDoc_DimTolTool,
         XCAFDoc_DocumentTool,
         XCAFDoc_GeomTolerance,
     )
