@@ -1153,14 +1153,13 @@ class Drawing:
                 "PDF export requires cairosvg. Install it with:  pip install draftwright[pdf]"
             ) from exc
 
-        if not hasattr(self, "svg_path"):
-            self.export(out=out)
-        pdf_path = (
-            self.svg_path[:-4] + ".pdf"
-            if self.svg_path.endswith(".svg")
-            else self.svg_path + ".pdf"
-        )
-        cairosvg.svg2pdf(url=self.svg_path, write_to=pdf_path)
+        svg_path: str
+        if not hasattr(self, "svg_path") or self.svg_path is None:
+            svg_path, _ = self.export(out=out)
+        else:
+            svg_path = self.svg_path
+        pdf_path = svg_path[:-4] + ".pdf" if svg_path.endswith(".svg") else svg_path + ".pdf"
+        cairosvg.svg2pdf(url=svg_path, write_to=pdf_path)
         _log.info("PDF → %s", pdf_path)
         return pdf_path
 
