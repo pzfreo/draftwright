@@ -2138,13 +2138,6 @@ class TestTurnedPlusDrilledFlange:
         assert "centerline_front" in dwg._named
 
     @pytest.mark.timeout(60)
-    @pytest.mark.xfail(
-        strict=True,
-        reason="#10: turned/prismatic split is binary — a turned flange gets "
-        "dim_od but no hole callouts, location dims, or bolt-circle furniture "
-        "for its off-axis holes. Classification should pick a base set while "
-        "callouts fire on feature presence, independent of class.",
-    )
     def test_flange_composes_od_with_bolt_circle_furniture(self):
         dwg = build_drawing(self._flange())
         # Turned base set — already works.
@@ -2212,12 +2205,6 @@ class TestStepHeightThreshold:
         assert any(n.startswith("dim_step") for n in dwg._named)
 
     @pytest.mark.timeout(60)
-    @pytest.mark.xfail(
-        strict=True,
-        reason="#13: the 20 mm page-height gate drops a real, well-separated "
-        "step purely because it projects to 19 mm. A genuine step should be "
-        "dimensioned regardless of the incidental page-mm cutoff.",
-    )
     def test_real_step_just_below_page_gate_still_dimensioned(self):
         dwg = build_drawing(self._stepped(19), scale=1.0, page="A2")
         assert any(n.startswith("dim_step") for n in dwg._named)

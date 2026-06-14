@@ -169,6 +169,40 @@ def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
     )
 
 
+# A hole is "concentric" with a turned part's rotation axis when its drilling
+# axis is the Z (OD) axis and its opening sits on the part centreline.  Such
+# bores are already dimensioned by the ldr_z bore leaders, so they must not
+# also receive a hole callout / location dim (#10).  Off-axis holes (a bolt
+# circle, a cross-hole) fall through to the feature-presence path.
+_CONCENTRIC_TOL_MM = 0.5
+
+
+def _is_concentric_hole(h, a, axis_letter) -> bool:
+    """True when *h* is an axial bore on the part centreline (turned base set)."""
+    if axis_letter(h) != "z":
+        return False
+    return math.hypot(h.location[0] - a.cx, h.location[1] - a.cy) <= _CONCENTRIC_TOL_MM
+
+
+def _concentric_bore_diams(a) -> list:
+    """Distinct bore diameters on the rotation axis, in z_diams order (#10).
+
+    ``a.z_diams`` carries every Z cylinder diameter — including off-axis ones
+    such as a bolt circle's holes — so the bore-leader set is restricted to
+    diameters that actually have an *internal* Z cylinder whose axis sits on
+    the part centreline.  The OD is excluded.  Returned in z_diams order so
+    label ordering is stable.
+    """
+    z_cyls, _ = a.cyls
+    concentric = {
+        c["diameter"]
+        for c in _full_cyls(z_cyls)
+        if not c["external"]
+        and math.hypot(c["axis_xyz"][0] - a.cx, c["axis_xyz"][1] - a.cy) <= _CONCENTRIC_TOL_MM
+    }
+    return [d for d in a.z_diams if d != a.od_diam and any(abs(d - c) <= 0.15 for c in concentric)]
+
+
 def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None) -> list:
     """Coarse completeness check: report part diameters with no callout (#80).
 
@@ -426,6 +460,18 @@ _SLOT_DIM_HEIGHT = 10.0  # fv_zones.right: overall height dimension
 _SLOT_DIM_STEP = 14.0  # fv_zones.right: step-height dimension
 _SLOT_DIM_WIDTH = 8.0  # pv_zones.below: overall width dimension
 _SLOT_DIM_DEPTH = 8.0  # sv_zones.below: overall depth dimension
+
+# Smallest projected step height (page-mm) that can still carry a *legible*
+# stacked dimension between its two extension lines.  Derived from what has to
+# fit vertically: the label (font height) plus an arrowhead at each end plus
+# the text clearance above and below — not an arbitrary page-mm cutoff (#13).
+# Used as the single gate in BOTH _analyse (n_steps) and _auto_annotate
+# (dim_step placement) so the two can never diverge.
+_MIN_STEP_DIM_MM = (
+    _FONT_SIZE
+    + 2 * draft_preset(font_size=_FONT_SIZE, decimal_precision=1).arrow_length
+    + 2 * draft_preset(font_size=_FONT_SIZE, decimal_precision=1).pad_around_text
+)
 
 # ---------------------------------------------------------------------------
 # Annotation depth estimators (Phase 2 of #118)
@@ -848,8 +894,8 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
                 )
     DIM_PAD = _DIM_PAD
     margin = _MARGIN
-    # Refine: apply the same 20 mm height gate _auto_annotate uses for dim_step.
-    n_steps = len([z for z in step_zs[:3] if (z - bb.min.Z) * SCALE >= 20])
+    # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
+    n_steps = len([z for z in step_zs[:3] if (z - bb.min.Z) * SCALE >= _MIN_STEP_DIM_MM])
     strips = _measure_strips(
         holes,
         patterns,
@@ -1459,16 +1505,25 @@ def _auto_annotate(dwg, a):
         )
 
     # Z-axis bore leaders to the left of the front view — these assume bores
-    # concentric with the rotation axis, so rotational only (#81)
-    bores = [d for d in a.z_diams if d != a.od_diam]
+    # concentric with the rotation axis, so rotational only (#81).  z_diams
+    # carries *every* Z cylinder diameter including off-axis ones (e.g. a bolt
+    # circle's holes), so the bore set is restricted to diameters that actually
+    # belong to an internal cylinder on the rotation axis (#10): an off-axis
+    # ø8 bolt hole must not surface as a phantom concentric bore leader.
+    bores = _concentric_bore_diams(a) if a.is_rotational else []
     if a.is_rotational and bores:
         left_edge = FX(a.bb.min.X)
         left_space = left_edge - a.margin
         if left_space >= a.DIM_PAD:
             ldr_length = a.DIM_PAD * 0.6
             elbow_x = left_edge - ldr_length
-            for i, d in enumerate(bores[:3]):
-                tip_z = FZ(a.cz) + (i - 1) * 10
+            # Stack all distinct bores, centred on the axis (generalised beyond
+            # the old hard cap of 3 — #10); any not annotated would surface via
+            # the coverage lint, but all are placed here.
+            n = len(bores)
+            pitch = max(10.0, draft.font_size * 3.0)
+            for i, d in enumerate(bores):
+                tip_z = FZ(a.cz) + (i - (n - 1) / 2) * pitch
                 dwg.add(
                     Leader(
                         tip=(FX(a.cx - d / 2), tip_z, 0),
@@ -1498,13 +1553,28 @@ def _auto_annotate(dwg, a):
         size = max(2.5, h.diameter * a.SCALE + 2.0)
         dwg.add(CenterMark(to_page(h), size, draft), f"cm_{view}{i}")
 
-    # Hole callouts, locations, and sections — prismatic parts only; turned
-    # parts keep dim_od/ldr_z
-    if not a.is_rotational and a.holes:
-        _annotate_holes(dwg, a, view_of_axis, _axis_letter, a.patterns)
-        _add_location_dims(dwg, a, _axis_letter, a.patterns)
+    # Hole callouts, location dims, and the section view fire on *feature
+    # presence*, independent of the turned/prismatic class (#10): the
+    # classification only selects the base set (OD+centreline+ldr_z vs envelope
+    # dims).  A turned flange (round OD + a bolt circle) must get BOTH.
+    #
+    # On a turned part the concentric, axis-aligned bores are already
+    # dimensioned by the ldr_z leaders, so they are excluded here to avoid a
+    # duplicate hole callout; only the off-axis features get callouts.  On a
+    # prismatic part every hole flows through unchanged.
+    feature_holes = a.holes
+    feature_patterns = a.patterns
+    if a.is_rotational:
+        feature_holes = [h for h in a.holes if not _is_concentric_hole(h, a, _axis_letter)]
+        present = set(map(id, feature_holes))
+        feature_patterns = [p for p in a.patterns if all(id(h) in present for h in p.holes)]
+    if feature_holes:
+        _annotate_holes(
+            dwg, a, view_of_axis, _axis_letter, feature_patterns, holes_in=feature_holes
+        )
+        _add_location_dims(dwg, a, _axis_letter, feature_patterns, holes_in=feature_holes)
 
-    if a.cross_diams and a.is_rotational:
+    if a.cross_diams and a.is_rotational and not feature_holes:
         _log.info(
             "Cross-hole ø%s detected but not annotated (requires section view)",
             _fmt(a.cross_diams[0]),
@@ -1513,7 +1583,9 @@ def _auto_annotate(dwg, a):
     # Step heights — only where the step is tall enough to fit a label;
     # each step witnesses from the previous dim's line (_right_ladder) so
     # extension lines are adjacent rather than coincident
-    for col, z in enumerate([z for z in a.step_zs[:3] if (z - a.bb.min.Z) * a.SCALE >= 20]):
+    for col, z in enumerate(
+        [z for z in a.step_zs[:3] if (z - a.bb.min.Z) * a.SCALE >= _MIN_STEP_DIM_MM]
+    ):
         _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
         if _px is None:
             _log.warning("dim_step_%d skipped: fv_zones.right strip full", col)
@@ -1571,9 +1643,10 @@ def _auto_annotate(dwg, a):
 
     # The section view goes last: its room check clears every annotation
     # already placed right of the side view (callout labels, height/step
-    # dim ladders)
-    if not a.is_rotational and a.holes:
-        _add_section_view(dwg, a, _axis_letter)
+    # dim ladders).  Fires on feature presence, not class (#10); concentric
+    # bores on a turned part are excluded (the ldr_z leaders cover them).
+    if feature_holes:
+        _add_section_view(dwg, a, _axis_letter, holes=feature_holes)
 
     # Phase 7 — strip footprint debug logging + post-placement overflow check.
     # Overflow can only occur when outer_limit was tightened after allocations
@@ -1982,7 +2055,7 @@ _MAX_CALLOUTS_PER_VIEW = 4
 _MAX_LOCATION_REFS = 4
 
 
-def _add_location_dims(dwg, a, axis_letter, patterns):
+def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
     """Baseline X/Y location dimensions in the plan view (#93).
 
     The datum corner is a *default* — the part's minimum-X/minimum-Y corner
@@ -1995,8 +2068,9 @@ def _add_location_dims(dwg, a, axis_letter, patterns):
     never force-placed. Cross-axis holes are not located yet (logged).
     """
     draft = dwg.draft
-    z_holes = [h for h in a.holes if axis_letter(h) == "z"]
-    if len(z_holes) < len(a.holes):
+    all_holes = a.holes if holes_in is None else holes_in
+    z_holes = [h for h in all_holes if axis_letter(h) == "z"]
+    if len(z_holes) < len(all_holes):
         _log.info("Cross-axis holes present; their locations are not auto-dimensioned")
     patterned = {h for p in patterns for h in p.holes}
     refs = []  # (world_x, world_y, sort_diameter)
@@ -2177,7 +2251,7 @@ def _section_hatch_edges(face, SX, SZ, spacing):
     return result
 
 
-def _add_section_view(dwg, a, axis_letter):
+def _add_section_view(dwg, a, axis_letter, holes=None):
     """Full section A–A when blind or stepped holes hide their structure (#94).
 
     Trigger: any Z-axis hole with a counterbore/spotface or a non-through
@@ -2192,7 +2266,7 @@ def _add_section_view(dwg, a, axis_letter):
     """
     cands = [
         h
-        for h in a.holes
+        for h in (a.holes if holes is None else holes)
         if axis_letter(h) == "z" and (h.cbore or h.spotface or h.bottom != "through")
     ]
     if not cands:
@@ -2460,7 +2534,7 @@ def _solve_strip_ys(natural_ys, min_gap, y_min, y_max):
         return None
 
 
-def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns):
+def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=None):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
     Identical holes share one callout with an ``n×`` count prefix (#92's
@@ -2484,7 +2558,7 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns):
     # different operations and get separate callouts, and a spec group's
     # hole set therefore lines up exactly with find_hole_patterns' groups.
     groups: dict = {}
-    for h in a.holes:
+    for h in a.holes if holes_in is None else holes_in:
         groups.setdefault(_spec_key(h), []).append(h)
 
     by_view: dict = {}
