@@ -329,6 +329,15 @@ class Strip:
         """How far the cursor has advanced from the anchor (mm)."""
         return abs(self._cursor - self.anchor)
 
+    def peek(self, size: float) -> float | None:
+        """Return what ``allocate(size)`` would return without advancing the cursor."""
+        if self.direction == 1:
+            start = self._cursor
+            return start if (start + size) <= self.outer_limit else None
+        else:
+            end = self._cursor
+            return end if (end - size) >= self.outer_limit else None
+
     def allocate(self, size: float) -> float | None:
         """Reserve *size* mm; return the near-edge page coordinate, or ``None`` if full.
 
@@ -1479,6 +1488,12 @@ def _annotate_pmi(dwg, a, draft) -> None:
     """
     pmi = getattr(a, "pmi", [])
     usable = [r for r in pmi if r.value > 0 and len(r.ref_pts) >= 2]
+    n_gtol = sum(1 for r in pmi if r.kind not in ("linear", "diameter", "radius", "angular",
+                                                    "curved_dist", "oriented", "curve_length",
+                                                    "thickness", "label", "presentation")
+                 and r.value > 0)
+    if n_gtol:
+        _log.debug("PMI annotate: %d gtol/datum record(s) not yet annotatable (Phase 4)", n_gtol)
     if not usable:
         _log.info("PMI annotate: no usable records (value>0 with 2+ ref pts)")
         return
@@ -1507,19 +1522,23 @@ def _annotate_pmi(dwg, a, draft) -> None:
         """For Size_Diameter / Size_Radius records, return (bore_axis, cx, cy, cz).
 
         bore_axis is the bbox's LONGEST extent (the bore's depth direction).
+        Reuses rec.dominant_axis set by extract_pmi; falls back to re-sorting
+        the bbox spans only when dominant_axis is '?' (degenerate bbox).
         The diameter/radius is then placed perpendicular to the bore axis in the
         view where the bore appears as a circle.  Returns None if ref_bbox absent.
         """
         bb = rec.ref_bbox
         if bb is None:
             return None
-        xmin, ymin, zmin, xmax, ymax, zmax = bb
-        spans = sorted(
-            [("X", abs(xmax - xmin)), ("Y", abs(ymax - ymin)), ("Z", abs(zmax - zmin))],
-            key=lambda t: t[1],
-            reverse=True,
-        )
-        bore_axis = spans[0][0]
+        bore_axis = rec.dominant_axis
+        if bore_axis == "?":
+            xmin, ymin, zmin, xmax, ymax, zmax = bb
+            spans = sorted(
+                [("X", abs(xmax - xmin)), ("Y", abs(ymax - ymin)), ("Z", abs(zmax - zmin))],
+                key=lambda t: t[1],
+                reverse=True,
+            )
+            bore_axis = spans[0][0]
         cx_f = sum(p[0] for p in rec.ref_pts) / len(rec.ref_pts) if rec.ref_pts else 0.0
         cy_f = sum(p[1] for p in rec.ref_pts) / len(rec.ref_pts) if rec.ref_pts else 0.0
         cz_f = sum(p[2] for p in rec.ref_pts) / len(rec.ref_pts) if rec.ref_pts else 0.0
@@ -1568,59 +1587,60 @@ def _annotate_pmi(dwg, a, draft) -> None:
         if strip is None:
             return False
         witness_y = max(p1[1], p2[1]) + 2
+        if strip.peek(_SLOT) is None or strip.peek(_SLOT) <= witness_y:
+            return False
         slot = strip.allocate(_SLOT)
-        if slot is not None and slot > witness_y:
-            dwg.add(
-                Dimension((p1[0], witness_y, 0), (p2[0], witness_y, 0),
-                          "above", slot - witness_y, draft, label=label),
-                name,
-            )
-            return True
-        return False
+        dwg.add(
+            Dimension((p1[0], witness_y, 0), (p2[0], witness_y, 0),
+                      "above", slot - witness_y, draft, label=label),
+            name,
+        )
+        return True
 
     def _try_below(p1, p2, strip, label, name):
         """Place a horizontal dimension line BELOW the witness points."""
         if strip is None:
             return False
         witness_y = min(p1[1], p2[1]) - 2
+        if strip.peek(_SLOT) is None or strip.peek(_SLOT) >= witness_y:
+            return False
         slot = strip.allocate(_SLOT)
-        if slot is not None and slot < witness_y:
-            dwg.add(
-                Dimension((p1[0], witness_y, 0), (p2[0], witness_y, 0),
-                          "below", witness_y - slot, draft, label=label),
-                name,
-            )
-            return True
-        return False
+        dwg.add(
+            Dimension((p1[0], witness_y, 0), (p2[0], witness_y, 0),
+                      "below", witness_y - slot, draft, label=label),
+            name,
+        )
+        return True
 
     def _try_right(p1, p2, strip, label, name):
         """Place a vertical dimension line to the RIGHT of the witness points."""
         if strip is None:
             return False
         witness_x = max(p1[0], p2[0]) + 2
+        if strip.peek(_SLOT) is None or strip.peek(_SLOT) <= witness_x:
+            return False
         slot = strip.allocate(_SLOT)
-        if slot is not None and slot > witness_x:
-            dwg.add(
-                Dimension((witness_x, p1[1], 0), (witness_x, p2[1], 0),
-                          "right", slot - witness_x, draft, label=label),
-                name,
-            )
-            return True
-        return False
+        dwg.add(
+            Dimension((witness_x, p1[1], 0), (witness_x, p2[1], 0),
+                      "right", slot - witness_x, draft, label=label),
+            name,
+        )
+        return True
 
     def _try_left(p1, p2, strip, label, name):
         """Place a vertical dimension line to the LEFT of the witness points."""
         if strip is None:
             return False
         witness_x = min(p1[0], p2[0]) - 2
+        if strip.peek(_SLOT) is None or strip.peek(_SLOT) >= witness_x:
+            return False
         slot = strip.allocate(_SLOT)
-        if slot is not None and slot < witness_x:
-            dwg.add(
-                Dimension((witness_x, p1[1], 0), (witness_x, p2[1], 0),
-                          "left", witness_x - slot, draft, label=label),
-                name,
-            )
-            return True
+        dwg.add(
+            Dimension((witness_x, p1[1], 0), (witness_x, p2[1], 0),
+                      "left", witness_x - slot, draft, label=label),
+            name,
+        )
+        return True
         return False
 
     emitted = 0
@@ -2873,6 +2893,7 @@ def generate_script(
     number: str = "DWG-001",
     tolerance: str = "ISO 2768-m",
     drawn_by: str = "",
+    pmi: Literal["off", "report", "annotate"] = "off",
 ) -> str:
     """Generate an editable Cog-enabled drawing script from a STEP file.
 
@@ -2892,7 +2913,7 @@ def generate_script(
             out = out[: -len(_ext)]
             break
     title = title or stem.replace("_", " ").upper()
-    a = _analyse(step_file, title, number, tolerance, drawn_by, out)
+    a = _analyse(step_file, title, number, tolerance, drawn_by, out, pmi=pmi)
     return _write_script(a)
 
 
@@ -2952,6 +2973,7 @@ def _cli():
             number=args.number,
             tolerance=args.tolerance,
             drawn_by=args.drawn_by,
+            pmi=args.pmi,
         )
     else:
         make_drawing(

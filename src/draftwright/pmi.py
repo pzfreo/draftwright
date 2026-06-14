@@ -32,6 +32,7 @@ _log = logging.getLogger(__name__)
 try:
     from OCP.Bnd import Bnd_Box
     from OCP.BRepBndLib import BRepBndLib
+    from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
     from OCP.TCollection import TCollection_ExtendedString
     from OCP.TDF import TDF_LabelSequence
@@ -189,15 +190,19 @@ def _make_label(kind: str, value: float, upper_tol: float | None, lower_tol: flo
 
     prefix = _DIM_PREFIX.get(kind, "")
     base = f"{prefix}{_fmt(value)}"
+    # OCCT returns tolerances as positive magnitudes regardless of sign
+    # convention.  upper_tol is always the + deviation; lower_tol is always
+    # the - deviation stored as a positive magnitude.  We add explicit signs
+    # so the label is unambiguous on the drawing.
     if upper_tol is not None and lower_tol is not None:
         if abs(abs(upper_tol) - abs(lower_tol)) < 1e-4:
             base += f" ±{_fmt(abs(upper_tol))}"
         else:
-            base += f" +{_fmt(upper_tol)}/{_fmt(lower_tol)}"
+            base += f" +{_fmt(abs(upper_tol))}/-{_fmt(abs(lower_tol))}"
     elif upper_tol is not None:
-        base += f" +{_fmt(upper_tol)}"
+        base += f" +{_fmt(abs(upper_tol))}"
     elif lower_tol is not None:
-        base += f" {_fmt(lower_tol)}"
+        base += f" -{_fmt(abs(lower_tol))}"
     return base
 
 
@@ -226,7 +231,10 @@ def extract_pmi(step_file: str | Path) -> list[PmiRecord]:
     reader = STEPCAFControl_Reader()
     reader.SetGDTMode(True)
     reader.SetNameMode(True)
-    reader.ReadFile(path)
+    status = reader.ReadFile(path)
+    if status != IFSelect_RetDone:
+        _log.warning("PMI extraction: ReadFile failed for %s (status=%s)", Path(step_file).name, status)
+        return []
     reader.Transfer(doc)
 
     main = doc.Main()
