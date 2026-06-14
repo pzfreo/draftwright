@@ -1642,39 +1642,60 @@ def _annotate_pmi(dwg, a, draft) -> None:
             bore_axis, cx_f, cy_f, cz_f = info
             half = rec.value / 2 if rec.kind == "diameter" else rec.value
 
+            # Bore diameter page span = diameter × scale.  When the span is
+            # narrower than ~8 mm the centred label text overflows the gap
+            # and the extension lines punch through it.  Use a Leader
+            # (arrowhead at bore edge, text on a horizontal shelf) for
+            # narrow bores; bracket dims only when span fits the text.
+            half_pg = half * a.SCALE  # bore radius on page (mm)
+
             if bore_axis == "Z":
                 # Z-axis bore: circle visible in plan view.
-                # Show diameter as a horizontal span in plan view.
-                p1 = (PX(cx_f - half), PY(cy_f), 0)
-                p2 = (PX(cx_f + half), PY(cy_f), 0)
-                if math.hypot(p2[0] - p1[0], p2[1] - p1[1]) >= 3:
+                if half_pg >= 4.0:
+                    p1 = (PX(cx_f - half), PY(cy_f), 0)
+                    p2 = (PX(cx_f + half), PY(cy_f), 0)
                     placed = (
                         _try_above(p1, p2, a.pv_zones.above, label, name_d)
                         or _try_below(p1, p2, a.pv_zones.below, label, name_d)
                     )
+                else:
+                    tip = (PX(cx_f), PY(cy_f) + half_pg, 0)
+                    slot = a.pv_zones.above.allocate(_SLOT)
+                    if slot is not None:
+                        dwg.add(Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d)
+                        placed = True
+                    else:
+                        slot = a.pv_zones.below.allocate(_SLOT)
+                        if slot is not None:
+                            tip = (PX(cx_f), PY(cy_f) - half_pg, 0)
+                            dwg.add(Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d)
+                            placed = True
 
             elif bore_axis == "X":
                 # X-axis bore: circle visible in side view.
-                # Show diameter as a horizontal span (Y direction) in side view.
-                p1 = (SX(cy_f - half), SZ(cz_f), 0)
-                p2 = (SX(cy_f + half), SZ(cz_f), 0)
-                if math.hypot(p2[0] - p1[0], p2[1] - p1[1]) >= 3:
+                if half_pg >= 4.0:
+                    p1 = (SX(cy_f - half), SZ(cz_f), 0)
+                    p2 = (SX(cy_f + half), SZ(cz_f), 0)
                     placed = (
                         _try_above(p1, p2, a.sv_zones.above, label, name_d)
                         or _try_below(p1, p2, a.sv_zones.below, label, name_d)
                     )
+                else:
+                    tip = (SX(cy_f), SZ(cz_f) + half_pg, 0)
+                    slot = a.sv_zones.above.allocate(_SLOT)
+                    if slot is not None:
+                        dwg.add(Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d)
+                        placed = True
+                    else:
+                        slot = a.sv_zones.below.allocate(_SLOT)
+                        if slot is not None:
+                            tip = (SX(cy_f), SZ(cz_f) - half_pg, 0)
+                            dwg.add(Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d)
+                            placed = True
 
             elif bore_axis == "Y":
                 # Y-axis bore: circle visible in front view as a circle.
-                # The horizontal page span = diameter × scale.  When that span
-                # is narrower than ~8 mm the centered label text overflows the
-                # 4 mm gap and the extension lines punch through it.  Use a
-                # Leader (arrowhead at bore edge, text on a horizontal shelf)
-                # for narrow bores; fall back to a bracket dim only for large
-                # bores where the span actually accommodates the text.
-                half_pg = half * a.SCALE  # bore radius on page (mm)
                 if half_pg >= 4.0:
-                    # Wide enough for a bracket horizontal dimension.
                     p1 = (FX(cx_f - half), FZ(cz_f), 0)
                     p2 = (FX(cx_f + half), FZ(cz_f), 0)
                     placed = (
