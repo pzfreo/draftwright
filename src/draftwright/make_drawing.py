@@ -2500,7 +2500,7 @@ def _write_script(a) -> str:
         f"Run:  uv run python {py_name}\n"
         f'"""\n'
         f"import os as _os\n"
-        f"from build123d_drafting import build_drawing\n"
+        f"from draftwright import build_drawing\n"
         f"\n"
         f"# ── Config (auto-updated by cog) ──────────────────────────────────────────────\n"
     )
