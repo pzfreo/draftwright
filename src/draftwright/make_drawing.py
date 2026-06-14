@@ -810,6 +810,29 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     ISO_X = sv_right + right_avail / 2
     ISO_Y = PV_Y
 
+    # When the standard iso zone (right of SV) is narrower than the natural iso
+    # extent, check whether the upper-right zone — right of FV/PV and above the SV
+    # y-range — offers more room.  This zone shares no y-range with the SV, so the
+    # iso can sit there without conflicting with SV annotations.
+    _iso_natural = bbox_max * SCALE * 0.7
+    _ur_left = FV_X + fv_hw + gap_fv_sv  # = sv_left_edge; clears FV/PV right strips
+    _sv_top = FV_Y + fv_hh  # SV_Y == FV_Y; sv_top == FV_Y + fv_hh
+    _ur_bottom = _sv_top + DIM_PAD
+    _ur_w = max(0.0, iso_right_limit - _ur_left)
+    _ur_h = max(0.0, (PAGE_H - margin) - _ur_bottom)
+    _std_min = min(right_avail, PAGE_H - 2 * margin)
+    _ur_min = min(_ur_w, _ur_h)
+    if _std_min < _iso_natural and _ur_min > _std_min:
+        ISO_X = (_ur_left + iso_right_limit) / 2
+        ISO_Y = (_ur_bottom + PAGE_H - margin) / 2
+        iso_left_limit = _ur_left
+        iso_bottom_limit = _ur_bottom
+        iso_in_upper_right = True
+    else:
+        iso_left_limit = sv_right
+        iso_bottom_limit = margin
+        iso_in_upper_right = False
+
     # ------------------------------------------------------------------
     # Strip / zone construction.
     # Phase 1: defines regions only — annotation functions still use their
@@ -909,6 +932,9 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
         SV_Y=SV_Y,
         ISO_X=ISO_X,
         ISO_Y=ISO_Y,
+        iso_left_limit=iso_left_limit,
+        iso_bottom_limit=iso_bottom_limit,
+        iso_in_upper_right=iso_in_upper_right,
         # View half-extents in page units (convenient for strip arithmetic)
         fv_hw=fv_hw,
         fv_hh=fv_hh,
@@ -1259,7 +1285,15 @@ def _auto_annotate(dwg, a):
     # the limit (dims already placed may overlap the iso view).
     _iso_x0, _, _, _ = _iso_bbox(dwg)
     _iso_x_limit = _iso_x0 - 4
-    for _rs in (a.fv_zones.right, a.pv_zones.right, a.sv_zones.right):
+    # When the iso sits above the SV (upper-right zone), the SV right strip shares
+    # no y-range with the iso, so tightening sv_zones.right by iso_x would set
+    # outer_limit below the strip anchor and break all SV annotation allocations.
+    _right_strips = (
+        (a.fv_zones.right, a.pv_zones.right)
+        if a.iso_in_upper_right
+        else (a.fv_zones.right, a.pv_zones.right, a.sv_zones.right)
+    )
+    for _rs in _right_strips:
         _rs.outer_limit = min(_rs.outer_limit, _iso_x_limit)
         if _rs._cursor >= _iso_x_limit:
             _log.warning(
@@ -2675,16 +2709,17 @@ def _fit_iso_view(dwg, a, annotate: bool = True):
     - Under-fill (needed > 1): grow to 90 % of zone, leaving breathing room.
     - Within 5 % of sheet scale: leave as-is (no NTS label).
     """
-    # If a section view was placed to the right of the side view, it sits
-    # between sv_right and the iso zone.  Constrain iso growth to not overlap it.
-    region_left = a.sv_right
-    if "section_aa" in dwg.views:
+    # Use the precomputed iso zone limits.  When iso is in the upper-right zone,
+    # any section view sits below the iso's y-range so its x-extent doesn't
+    # constrain the iso region.
+    region_left = a.iso_left_limit
+    if not a.iso_in_upper_right and "section_aa" in dwg.views:
         sec_vis, sec_hid = dwg.views["section_aa"]
         sec_right = sec_vis.bounding_box().max.X
         if sec_hid:
             sec_right = max(sec_right, sec_hid.bounding_box().max.X)
         region_left = max(region_left, sec_right + 4)
-    region = (region_left, a.margin, a.iso_right_limit, a.PAGE_H - a.margin)
+    region = (region_left, a.iso_bottom_limit, a.iso_right_limit, a.PAGE_H - a.margin)
     bb = _iso_bbox(dwg)
     ratios = [
         avail / extent
@@ -2806,7 +2841,8 @@ def build_drawing(
         _final_iso_x_lim = _iso_bbox(dwg)[0] - 4
         a.fv_zones.right.outer_limit = min(_fv_ol, _final_iso_x_lim)
         a.pv_zones.right.outer_limit = min(_pv_ol, _final_iso_x_lim)
-        a.sv_zones.right.outer_limit = min(_sv_ol, _final_iso_x_lim)
+        if not a.iso_in_upper_right:
+            a.sv_zones.right.outer_limit = min(_sv_ol, _final_iso_x_lim)
     else:
         _fit_iso_view(dwg, a, annotate=False)
         _add_title_block(dwg, a)
