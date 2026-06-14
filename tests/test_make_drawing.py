@@ -1177,10 +1177,17 @@ def test_shrunk_iso_keeps_world_to_page_mapping(shrunk_iso_drawing):
 
 
 @pytest.mark.timeout(60)
-def test_iso_that_fits_is_not_shrunk():
+def test_iso_stays_within_page_bounds():
+    # Whether scaled up or not, the iso must always lie within the page margin.
+    from draftwright.make_drawing import _iso_bbox
+
     dwg = build_drawing(Box(30, 20, 10))
-    labels = [getattr(a, "label", "") for a in dwg.annotations]
-    assert "ISO VIEW (NTS)" not in labels
+    x0, y0, x1, y1 = _iso_bbox(dwg)
+    margin = 10
+    assert x0 >= margin - 0.5
+    assert y0 >= margin - 0.5
+    assert x1 <= dwg.page_w - margin + 0.5
+    assert y1 <= dwg.page_h - margin + 0.5
 
 
 @pytest.mark.timeout(60)

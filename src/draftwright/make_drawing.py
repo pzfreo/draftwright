@@ -2662,25 +2662,30 @@ def _project_iso(dwg, a, scale, shape_s=None):
         dwg._coords["iso"] = ViewCoordinates(axes, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale)
 
 
-def _fit_iso_view(dwg, a):
-    """Shrink the iso view to fit its page region, captioning it NTS (#75).
+def _fit_iso_view(dwg, a, annotate: bool = True):
+    """Scale the iso view to fill its page zone, captioning it NTS when the
+    scale differs from sheet scale.  Pass ``annotate=False`` to suppress the
+    NTS note (used when ``auto_dims=False``).
 
-    The layout reserves ~0.7 × bbox_max for the iso column, but the true
-    projected extent can be wider (long prismatic parts), pushing the iso past
-    the page edge or into the side view's dimension space. When the projected
-    iso bbox overflows the region, re-project at a clean fraction of sheet
-    scale and add an "ISO VIEW (NTS)" caption below it.
+    The iso is always centred at (ISO_X, ISO_Y) which sits at the centre of
+    the available zone.  The projection is linear, so the factor needed to
+    fill the zone can be computed from the measured extents without iteration.
+
+    - Overflow (needed < 1): shrink with 2 % safety margin.
+    - Under-fill (needed > 1): grow to 90 % of zone, leaving breathing room.
+    - Within 5 % of sheet scale: leave as-is (no NTS label).
     """
-    region = (a.sv_right, a.margin, a.iso_right_limit, a.PAGE_H - a.margin)
+    # If a section view was placed to the right of the side view, it sits
+    # between sv_right and the iso zone.  Constrain iso growth to not overlap it.
+    region_left = a.sv_right
+    if "section_aa" in dwg.views:
+        sec_vis, sec_hid = dwg.views["section_aa"]
+        sec_right = sec_vis.bounding_box().max.X
+        if sec_hid:
+            sec_right = max(sec_right, sec_hid.bounding_box().max.X)
+        region_left = max(region_left, sec_right + 4)
+    region = (region_left, a.margin, a.iso_right_limit, a.PAGE_H - a.margin)
     bb = _iso_bbox(dwg)
-    # Exact check (no tolerance): the lint's view_out_of_bounds is exact, so
-    # accepting a sub-tolerance overflow here would pass the fit yet fail lint.
-    if _bbox_within(bb, region, tol=0.0):
-        return
-    # Orthographic projection is linear and the view centre maps to
-    # (ISO_X, ISO_Y), so each bbox side's offset from the centre scales
-    # exactly with the shape scale — the factor needed to fit can be computed
-    # from the measured extents, costing a single re-projection.
     ratios = [
         avail / extent
         for extent, avail in (
@@ -2692,24 +2697,30 @@ def _fit_iso_view(dwg, a):
         if extent > 0
     ]
     needed = min(ratios, default=1.0)
-    # Apply a 2 % safety margin and floor to 4 decimal places to avoid
-    # floating-point creep past the region boundary.  The iso is NTS so
-    # there is no need to constrain to "clean" fractions.
-    factor = math.floor(needed * 0.98 * 10000) / 10000
+    if needed >= 1.0:
+        # Iso fits; grow to 90 % of zone — leaves comfortable breathing room.
+        margin_pct = 0.90
+    else:
+        # Iso overflows; shrink to just fit with 2 % safety margin.
+        margin_pct = 0.98
+    factor = math.floor(needed * margin_pct * 10000) / 10000
+    if abs(factor - 1.0) < 0.05:
+        return  # within 5 % of sheet scale — no rescale, no NTS label
     _project_iso(dwg, a, a.SCALE * factor)
     bb = _iso_bbox(dwg)
-    if not _bbox_within(bb, region):
+    if factor < 1.0 and not _bbox_within(bb, region):
         _log.warning("Iso view still overflows its page region at %g× sheet scale", factor)
-    font = dwg.draft.font_size
-    dwg.add(
-        Note(
-            "ISO VIEW (NTS)",
-            (a.ISO_X, max(bb[1] - 2 * font, a.margin + font)),
-            dwg.draft,
-        ),
-        "note_iso_nts",
-    )
-    _log.info("Iso view shrunk to %g× sheet scale (NTS)", factor)
+    if annotate:
+        font = dwg.draft.font_size
+        dwg.add(
+            Note(
+                "ISO VIEW (NTS)",
+                (a.ISO_X, max(bb[1] - 2 * font, a.margin + font)),
+                dwg.draft,
+            ),
+            "note_iso_nts",
+        )
+    _log.info("Iso view scaled to %g× sheet scale (NTS)", factor)
 
 
 def build_drawing(
@@ -2779,11 +2790,17 @@ def build_drawing(
     dwg.add_view("plan", part_s, (cxs, cys, czs + dist), (0, 1, 0), (a.PV_X, a.PV_Y), scaled=True)
     dwg.add_view("side", part_s, (cxs + dist, cys, czs), (0, 0, 1), (a.SV_X, a.SV_Y), scaled=True)
     _project_iso(dwg, a, a.SCALE, shape_s=part_s)
-    _fit_iso_view(dwg, a)
 
     if auto_dims:
         _auto_annotate(dwg, a)
+        _fit_iso_view(dwg, a)
+        # _auto_annotate tightened sv_zones.right using the initial iso which may
+        # have overflowed its zone before _fit_iso_view rescaled it.  Relax the
+        # limit if the final iso is smaller (shrink case) so the outer_limit
+        # correctly reflects the final geometry rather than the transient overflow.
+        a.sv_zones.right.outer_limit = max(a.sv_zones.right.outer_limit, _iso_bbox(dwg)[0] - 4)
     else:
+        _fit_iso_view(dwg, a, annotate=False)
         _add_title_block(dwg, a)
     return dwg
 
