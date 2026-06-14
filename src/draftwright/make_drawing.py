@@ -2704,6 +2704,8 @@ def _fit_iso_view(dwg, a, annotate: bool = True):
         # Iso overflows; shrink to just fit with 2 % safety margin.
         margin_pct = 0.98
     factor = math.floor(needed * margin_pct * 10000) / 10000
+    if needed >= 1.0:
+        factor = max(factor, 1.0)  # grow branch must never shrink
     if abs(factor - 1.0) < 0.05:
         return  # within 5 % of sheet scale — no rescale, no NTS label
     _project_iso(dwg, a, a.SCALE * factor)
@@ -2720,7 +2722,7 @@ def _fit_iso_view(dwg, a, annotate: bool = True):
             ),
             "note_iso_nts",
         )
-    _log.info("Iso view scaled to %g× sheet scale (NTS)", factor)
+    _log.info("Iso view scaled to %g× sheet scale%s", factor, " (NTS)" if annotate else "")
 
 
 def build_drawing(
@@ -2792,13 +2794,19 @@ def build_drawing(
     _project_iso(dwg, a, a.SCALE, shape_s=part_s)
 
     if auto_dims:
+        # Snapshot outer_limits before _auto_annotate tightens them against the
+        # initial (possibly overflowing) iso.  After _fit_iso_view rescales the
+        # iso we restore all three right strips to min(original, final_iso_x_limit)
+        # so each strip reflects actual final geometry, not the transient state.
+        _fv_ol = a.fv_zones.right.outer_limit
+        _pv_ol = a.pv_zones.right.outer_limit
+        _sv_ol = a.sv_zones.right.outer_limit
         _auto_annotate(dwg, a)
         _fit_iso_view(dwg, a)
-        # _auto_annotate tightened sv_zones.right using the initial iso which may
-        # have overflowed its zone before _fit_iso_view rescaled it.  Relax the
-        # limit if the final iso is smaller (shrink case) so the outer_limit
-        # correctly reflects the final geometry rather than the transient overflow.
-        a.sv_zones.right.outer_limit = max(a.sv_zones.right.outer_limit, _iso_bbox(dwg)[0] - 4)
+        _final_iso_x_lim = _iso_bbox(dwg)[0] - 4
+        a.fv_zones.right.outer_limit = min(_fv_ol, _final_iso_x_lim)
+        a.pv_zones.right.outer_limit = min(_pv_ol, _final_iso_x_lim)
+        a.sv_zones.right.outer_limit = min(_sv_ol, _final_iso_x_lim)
     else:
         _fit_iso_view(dwg, a, annotate=False)
         _add_title_block(dwg, a)
