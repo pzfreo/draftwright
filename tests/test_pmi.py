@@ -31,12 +31,27 @@ class TestExtractPmi:
 
     def test_nist_ctc01_gtol_count(self):
         recs = extract_pmi(CTC01)
-        gtols = [r for r in recs if r.kind in (
-            "straightness", "flatness", "circularity", "cylindricity",
-            "profile_line", "profile_surface", "perpendicularity",
-            "angularity", "parallelism", "position", "concentricity",
-            "symmetry", "circular_runout", "total_runout",
-        )]
+        gtols = [
+            r
+            for r in recs
+            if r.kind
+            in (
+                "straightness",
+                "flatness",
+                "circularity",
+                "cylindricity",
+                "profile_line",
+                "profile_surface",
+                "perpendicularity",
+                "angularity",
+                "parallelism",
+                "position",
+                "concentricity",
+                "symmetry",
+                "circular_runout",
+                "total_runout",
+            )
+        ]
         assert len(gtols) >= 4
 
     def test_usable_dims_have_positive_value(self):
@@ -103,9 +118,7 @@ class TestBuildDrawingPmi:
     def test_pmi_annotate_adds_dims(self, tmp_path):
         """pmi='annotate' adds at least one pmi_ dimension to the drawing."""
         stem = str(tmp_path / "ctc01_annotate")
-        dwg = build_drawing(
-            str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="annotate"
-        )
+        dwg = build_drawing(str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="annotate")
         pmi_names = [n for n in dwg._named if n.startswith("pmi_")]
         assert len(pmi_names) >= 1, f"expected ≥1 pmi_ annotation, got {pmi_names}"
 
@@ -113,9 +126,7 @@ class TestBuildDrawingPmi:
         """Drawing with PMI annotations passes lint with no errors."""
 
         stem = str(tmp_path / "ctc01_lint")
-        dwg = build_drawing(
-            str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="annotate"
-        )
+        dwg = build_drawing(str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="annotate")
         issues = dwg.lint()
         errors = [i for i in issues if i.severity == "error"]
         assert errors == [], f"lint errors with PMI: {[str(i) for i in errors]}"
@@ -123,9 +134,7 @@ class TestBuildDrawingPmi:
     def test_pmi_annotate_exports_svg_dxf(self, tmp_path):
         """build_drawing + export with PMI produces valid SVG and DXF files."""
         stem = str(tmp_path / "ctc01_export")
-        dwg = build_drawing(
-            str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="annotate"
-        )
+        dwg = build_drawing(str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="annotate")
         svg_path, dxf_path = dwg.export()
         assert Path(svg_path).exists() and Path(svg_path).stat().st_size > 0
         assert Path(dxf_path).exists() and Path(dxf_path).stat().st_size > 0
@@ -133,8 +142,6 @@ class TestBuildDrawingPmi:
     def test_pmi_annotation_names_unique(self, tmp_path):
         """All pmi_ annotation names in the drawing are unique."""
         stem = str(tmp_path / "ctc01_unique")
-        dwg = build_drawing(
-            str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="annotate"
-        )
+        dwg = build_drawing(str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="annotate")
         pmi_names = [n for n in dwg._named if n.startswith("pmi_")]
         assert len(pmi_names) == len(set(pmi_names)), f"duplicate pmi names: {pmi_names}"
