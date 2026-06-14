@@ -22,13 +22,16 @@ from draftwright.make_drawing import (
     lint_feature_coverage,
     make_drawing,
 )
+from draftwright.pmi import PmiRecord, extract_pmi
 
 __all__ = [
     "Drawing",
+    "PmiRecord",
     "analyse_face_levels",
     "build_drawing",
     "choose_scale",
     "dedup_diams",
+    "extract_pmi",
     "fix_svg_page_size",
     "generate_script",
     "lint_feature_coverage",
