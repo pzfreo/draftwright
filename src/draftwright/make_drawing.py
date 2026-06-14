@@ -78,6 +78,7 @@ _log = logging.getLogger(__name__)
 _TB_W = 150.0
 _MARGIN = 10.0
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
+_FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
 _DIM_PAD = 18.0
 _TB_H = 35.0
 # Minimum acceptable projected view dimension (page-mm).  Below this, annotation
@@ -475,7 +476,7 @@ assert _DIM_PAD >= _est_pv_below_depth(), (
 
 
 def _est_bore_callout_width(
-    holes, font_size: float = 3.0, patterns=None, pad_around_text: float = 2.0
+    holes, font_size: float = _FONT_SIZE, patterns=None, pad_around_text: float = 2.0
 ) -> float:
     """Estimate the maximum bore callout label width (page-mm) across all holes.
 
@@ -559,7 +560,7 @@ def _measure_strips(
     patterns,
     n_steps: int,
     bb,
-    font_size: float = 3.0,
+    font_size: float = _FONT_SIZE,
     arrow_length: float = 2.7,
     pad_around_text: float = 2.0,
 ) -> StripDepths:
@@ -809,7 +810,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     # Construct the same draft preset used later in build_drawing() to read
     # arrow_length and pad_around_text from their authoritative source rather
     # than re-stating them as magic literals in the estimators.
-    _draft_est = draft_preset(font_size=3.0, decimal_precision=1)
+    _draft_est = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
     _arrow_length = _draft_est.arrow_length
     _pad_around_text = _draft_est.pad_around_text
     holes = find_holes(part, cyls=(z_cyls, cross_cyls))
@@ -819,8 +820,12 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     # faces without the SCALE-dependent 20 mm gate (SCALE is not yet known).
     n_steps_ub = len(step_zs[:3])
     strips_ub = _measure_strips(
-        holes, patterns, n_steps_ub, bb,
-        arrow_length=_arrow_length, pad_around_text=_pad_around_text,
+        holes,
+        patterns,
+        n_steps_ub,
+        bb,
+        arrow_length=_arrow_length,
+        pad_around_text=_pad_around_text,
     )
     SCALE, PAGE_W, PAGE_H, TB_W = choose_scale(
         x_size, y_size, z_size, n_steps=n_steps_ub, scale=scale, page=page, strips=strips_ub
@@ -846,8 +851,12 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     # Refine: apply the same 20 mm height gate _auto_annotate uses for dim_step.
     n_steps = len([z for z in step_zs[:3] if (z - bb.min.Z) * SCALE >= 20])
     strips = _measure_strips(
-        holes, patterns, n_steps, bb,
-        arrow_length=_arrow_length, pad_around_text=_pad_around_text,
+        holes,
+        patterns,
+        n_steps,
+        bb,
+        arrow_length=_arrow_length,
+        pad_around_text=_pad_around_text,
     )
     gap_fv_sv = max(DIM_PAD, strips.right)
     gap_left = max(DIM_PAD, strips.left)
@@ -938,7 +947,10 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     fv_zones = ViewZones(
         right=Strip(fv_right_edge, sv_left_edge, direction=1),
         left=Strip(fv_left_edge, margin, direction=-1),
-        above=Strip(fv_top_edge, pv_bottom_edge - 2, direction=1),  # 2 = _DIM_PAD - _est_pv_below_depth()
+        # Stop the front-view 'above' strip short of pv_bottom_edge by the
+        # slack the pv_below slot leaves in the gap, derived (not re-typed) so
+        # it tracks _DIM_PAD and the slot constants.
+        above=Strip(fv_top_edge, pv_bottom_edge - (_DIM_PAD - _est_pv_below_depth()), direction=1),
         below=Strip(fv_bottom_edge, margin, direction=-1),
     )
     pv_zones = ViewZones(
@@ -2908,7 +2920,7 @@ def build_drawing(
         page_w=a.PAGE_W,
         page_h=a.PAGE_H,
         tb_w=a.TB_W,
-        draft=draft_preset(font_size=3.0, decimal_precision=1),
+        draft=draft_preset(font_size=_FONT_SIZE, decimal_precision=1),
         look_at=look_at,
         dist=dist,
         centroid=(a.cx, a.cy, a.cz),
