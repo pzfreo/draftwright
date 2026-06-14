@@ -77,6 +77,8 @@ _log = logging.getLogger(__name__)
 
 _TB_W = 150.0
 _MARGIN = 10.0
+_TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
+_FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
 _DIM_PAD = 18.0
 _TB_H = 35.0
 # Minimum acceptable projected view dimension (page-mm).  Below this, annotation
@@ -454,6 +456,17 @@ def _est_pv_below_depth() -> float:
     return _STRIP_GAP + _SLOT_DIM_WIDTH
 
 
+# Inter-constant invariant: the gap between the front view top edge and the
+# plan view bottom edge equals _DIM_PAD.  The pv_zones.below strip occupies
+# that gap, so _DIM_PAD must be at least as wide as the depth pv_below needs.
+# If _DIM_PAD is shrunk below _est_pv_below_depth(), dim_width would silently
+# overlap the front view rather than failing an allocate().
+assert _DIM_PAD >= _est_pv_below_depth(), (
+    f"_DIM_PAD ({_DIM_PAD}) is smaller than pv_below slot depth "
+    f"({_est_pv_below_depth()}); bump _DIM_PAD or shrink the slot constants."
+)
+
+
 # ---------------------------------------------------------------------------
 # Two-pass layout — Pass 1: annotation strip depth measurement (#131)
 #
@@ -462,7 +475,9 @@ def _est_pv_below_depth() -> float:
 # ---------------------------------------------------------------------------
 
 
-def _est_bore_callout_width(holes, font_size: float = 3.0, patterns=None) -> float:
+def _est_bore_callout_width(
+    holes, font_size: float = _FONT_SIZE, patterns=None, pad_around_text: float = 2.0
+) -> float:
     """Estimate the maximum bore callout label width (page-mm) across all holes.
 
     Groups holes by machining spec (same as _annotate_holes), then estimates
@@ -471,6 +486,7 @@ def _est_bore_callout_width(holes, font_size: float = 3.0, patterns=None) -> flo
     Returns the label width only — elbow_dx and gap clearance are NOT included;
     callers that need the full strip depth should add those overheads separately.
     Returns 0.0 when the hole list is empty.
+    *pad_around_text* should come from ``draft_preset(...).pad_around_text``.
     """
     if not holes:
         return 0.0
@@ -488,7 +504,7 @@ def _est_bore_callout_width(holes, font_size: float = 3.0, patterns=None) -> flo
     h_fs = font_size
     gap = 0.45 * h_fs
     sym_w = h_fs
-    pad = 2.0  # pad_around_text (fixed in Draft for standard drawings)
+    pad = pad_around_text
     char_w = 0.6 * h_fs  # avg character width
 
     max_w = 0.0
@@ -539,18 +555,29 @@ class StripDepths:
     left: float  # horizontal corridor left of FV/PV
 
 
-def _measure_strips(holes, patterns, n_steps: int, bb, font_size: float = 3.0) -> StripDepths:
+def _measure_strips(
+    holes,
+    patterns,
+    n_steps: int,
+    bb,
+    font_size: float = _FONT_SIZE,
+    arrow_length: float = 2.7,
+    pad_around_text: float = 2.0,
+) -> StripDepths:
     """Compute annotation strip depths from hole geometry (Pass 1 of #131).
 
     All annotation sizes are scale-independent because font_size is a fixed
     page-mm constant, so there is no circularity with choose_scale().
+    *arrow_length* and *pad_around_text* should come from ``draft_preset(...)``.
     """
-    bore_depth = _est_bore_callout_width(holes, font_size, patterns=patterns)
+    bore_depth = _est_bore_callout_width(
+        holes, font_size, patterns=patterns, pad_around_text=pad_around_text
+    )
     # Add elbow clearance and leader-to-label gap so gap_fv_sv fully contains
-    # the composed leader: elbow_dx (= arrow_length ≈ 0.9×fs when a section
-    # line is present) + gap (= pad_around_text = 2.0 mm, always present).
+    # the composed leader: elbow_dx (= draft.arrow_length) + gap
+    # (= draft.pad_around_text), always present.
     if bore_depth > 0:
-        bore_depth += 2.0 + 0.9 * font_size
+        bore_depth += pad_around_text + arrow_length
     right = max(_est_right_strip_depth(n_steps), bore_depth)
     left = max(_DIM_PAD, bore_depth)
     return StripDepths(right=right, left=left)
@@ -780,13 +807,26 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     # Pass 1 (two-pass layout, #131): measure annotation strip depths before
     # view positions are fixed.  font_size=3.0 is a fixed page-mm constant so
     # all annotation sizes are scale-independent — no circularity.
+    # Construct the same draft preset used later in build_drawing() to read
+    # arrow_length and pad_around_text from their authoritative source rather
+    # than re-stating them as magic literals in the estimators.
+    _draft_est = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
+    _arrow_length = _draft_est.arrow_length
+    _pad_around_text = _draft_est.pad_around_text
     holes = find_holes(part, cyls=(z_cyls, cross_cyls))
     patterns = find_hole_patterns(holes)
 
     # Conservative upper bound for page selection: count all candidate step
     # faces without the SCALE-dependent 20 mm gate (SCALE is not yet known).
     n_steps_ub = len(step_zs[:3])
-    strips_ub = _measure_strips(holes, patterns, n_steps_ub, bb)
+    strips_ub = _measure_strips(
+        holes,
+        patterns,
+        n_steps_ub,
+        bb,
+        arrow_length=_arrow_length,
+        pad_around_text=_pad_around_text,
+    )
     SCALE, PAGE_W, PAGE_H, TB_W = choose_scale(
         x_size, y_size, z_size, n_steps=n_steps_ub, scale=scale, page=page, strips=strips_ub
     )
@@ -810,7 +850,14 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     margin = _MARGIN
     # Refine: apply the same 20 mm height gate _auto_annotate uses for dim_step.
     n_steps = len([z for z in step_zs[:3] if (z - bb.min.Z) * SCALE >= 20])
-    strips = _measure_strips(holes, patterns, n_steps, bb)
+    strips = _measure_strips(
+        holes,
+        patterns,
+        n_steps,
+        bb,
+        arrow_length=_arrow_length,
+        pad_around_text=_pad_around_text,
+    )
     gap_fv_sv = max(DIM_PAD, strips.right)
     gap_left = max(DIM_PAD, strips.left)
 
@@ -900,7 +947,10 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     fv_zones = ViewZones(
         right=Strip(fv_right_edge, sv_left_edge, direction=1),
         left=Strip(fv_left_edge, margin, direction=-1),
-        above=Strip(fv_top_edge, pv_bottom_edge - 2, direction=1),
+        # Stop the front-view 'above' strip short of pv_bottom_edge by the
+        # slack the pv_below slot leaves in the gap, derived (not re-typed) so
+        # it tracks _DIM_PAD and the slot constants.
+        above=Strip(fv_top_edge, pv_bottom_edge - (_DIM_PAD - _est_pv_below_depth()), direction=1),
         below=Strip(fv_bottom_edge, margin, direction=-1),
     )
     pv_zones = ViewZones(
@@ -912,7 +962,8 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
         right=Strip(pv_right_edge, sv_left_edge, direction=1),
         left=Strip(pv_left_edge, margin, direction=-1),
         above=Strip(pv_top_edge, PAGE_H - margin, direction=1),
-        # gap_fv_pv = DIM_PAD = 18 mm; pv_below needs 16 mm, leaving 2 mm slack.
+        # gap_fv_pv = _DIM_PAD; pv_below needs _est_pv_below_depth() mm,
+        # leaving (_DIM_PAD - _est_pv_below_depth()) mm slack (assert above).
         below=Strip(pv_bottom_edge, fv_top_edge, direction=-1),
     )
     sv_bottom_edge = SV_Y - fv_hh  # same as fv_bottom_edge; side and front share Z height
@@ -2153,8 +2204,9 @@ def _add_section_view(dwg, a, axis_letter):
     )
 
     # room check: same row as the front/side views, to the right — past any
-    # side-view callout labels already placed there
-    # the caption is ~19mm wide — narrow sections are bounded by it
+    # side-view callout labels already placed there.
+    # 12.0 mm floor: conservative minimum half-width so very narrow sections
+    # have enough room for the "SECTION A–A" caption and arrows.
     half_w = max(a.x_size * a.SCALE / 2, 12.0)
     half_h = a.z_size * a.SCALE / 2
     side_vis, side_hid = dwg.views["side"]
@@ -2173,8 +2225,8 @@ def _add_section_view(dwg, a, axis_letter):
     right_limit = a.PAGE_W - a.margin
     if a.FV_Y + half_h + 6 > iso_y0 - 2:
         right_limit = min(right_limit, iso_x0 - 4)
-    tb_left = a.PAGE_W - a.TB_W - 11
-    if a.FV_Y - half_h - 10 < 11 + _TB_H and pos_x + half_w > tb_left - 4:
+    tb_left = a.PAGE_W - a.TB_W - _TB_CLEAR
+    if a.FV_Y - half_h - 10 < _TB_CLEAR + _TB_H and pos_x + half_w > tb_left - 4:
         _log.info("Section A–A skipped (would collide with the title block)")
         return
     if pos_x + half_w > right_limit:
@@ -2444,8 +2496,8 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns):
     plan_left = a.PV_X + (a.bb.min.X - a.cx) * a.SCALE
     side_right = a.SV_X + (a.bb.max.Y - a.cy) * a.SCALE
     front_bottom = a.FV_Y + (a.bb.min.Z - a.cz) * a.SCALE
-    tb_left = a.PAGE_W - a.TB_W - 11
-    tb_top = 11 + _TB_H
+    tb_left = a.PAGE_W - a.TB_W - _TB_CLEAR
+    tb_top = _TB_CLEAR + _TB_H
 
     # A section line will be placed when the part has z-axis holes with
     # counterbores, spotfaces, or blind bottoms (_add_section_view trigger).
@@ -2868,7 +2920,7 @@ def build_drawing(
         page_w=a.PAGE_W,
         page_h=a.PAGE_H,
         tb_w=a.TB_W,
-        draft=draft_preset(font_size=3.0, decimal_precision=1),
+        draft=draft_preset(font_size=_FONT_SIZE, decimal_precision=1),
         look_at=look_at,
         dist=dist,
         centroid=(a.cx, a.cy, a.cz),
