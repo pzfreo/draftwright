@@ -2304,20 +2304,19 @@ def _annotate_pmi(dwg, a, draft) -> None:
 _MAX_CALLOUTS_PER_VIEW = 4
 
 
-_MAX_LOCATION_REFS = 4
-
-
 def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
     """Baseline X/Y location dimensions in the plan view (#93).
 
     The datum corner is a *default* — the part's minimum-X/minimum-Y corner
     (lower-left in the plan view), per inspection practice; a human/LLM pass
     can re-anchor it. One reference per pattern (bolt-circle centre, array
-    first hole) plus each unpatterned hole, capped at
-    ``_MAX_LOCATION_REFS`` (largest holes first, the rest logged). X dims
-    tier above the plan view (below sit dim_width and the front view),
-    Y dims tier to its left; a tier that would leave the page is skipped,
-    never force-placed. Cross-axis holes are not located yet (logged).
+    first hole) plus each unpatterned hole. There is no fixed cap: dims are
+    placed nearest-datum-first (baseline practice) until the above-view tier
+    strips fill — a tier that would leave the page is skipped, never
+    force-placed, and the unplaced ref surfaces as ``location_ref_dropped``
+    (#36). X dims tier above the plan view (below sit dim_width and the front
+    view), Y dims tier above the side view. Cross-axis holes are not located
+    yet (logged).
     """
     draft = dwg.draft
     all_holes = a.holes if holes_in is None else holes_in
@@ -2350,21 +2349,6 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
     refs = unique
     if not refs:
         return
-    if len(refs) > _MAX_LOCATION_REFS:
-        refs.sort(key=lambda r: r[2], reverse=True)
-        n_drop = len(refs) - _MAX_LOCATION_REFS
-        _log.info(
-            "%d location references; dimensioning the %d largest",
-            len(refs),
-            _MAX_LOCATION_REFS,
-        )
-        dwg._record_build_issue(
-            "warning",
-            "location_ref_dropped",
-            f"{n_drop} hole location reference(s) not dimensioned "
-            f"(cap of {_MAX_LOCATION_REFS} per part)",
-        )
-        refs = refs[:_MAX_LOCATION_REFS]
 
     def PX(x):
         return a.PV_X + (x - a.cx) * a.SCALE
@@ -2391,6 +2375,11 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
         _py = a.pv_zones.above.allocate(tier)
         if _py is None:
             _log.info("X location dim for x=%s skipped (no room above plan view)", _fmt(rx))
+            dwg._record_build_issue(
+                "warning",
+                "location_ref_dropped",
+                f"X location dim for x={_fmt(rx)} not placed (no room above the plan view)",
+            )
             continue
         dwg.add(
             Dimension(
@@ -2446,6 +2435,11 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
         _py = a.sv_zones.above.allocate(tier)
         if _py is None:
             _log.info("Y location dim for y=%s skipped (no room above the side view)", _fmt(ry))
+            dwg._record_build_issue(
+                "warning",
+                "location_ref_dropped",
+                f"Y location dim for y={_fmt(ry)} not placed (no room above the side view)",
+            )
             continue
         dwg.add(
             Dimension(

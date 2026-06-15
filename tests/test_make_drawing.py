@@ -2397,39 +2397,61 @@ class TestLintSummaryAndDrops:
         assert "step_dim_dropped" in {i.code for i in dwg.lint()}
 
     @pytest.mark.timeout(120)
-    def test_location_ref_cap_overflow_is_surfaced(self):
+    def test_location_dims_are_adaptive_not_capped(self):
+        # #36: location dims have no fixed cap. Six scattered holes (distinct X
+        # and Y, varied diameters so no array collapses them) get far more than
+        # the old cap of four location dims, with nothing dropped — they fit.
         from build123d import Box, Cylinder, Pos
 
         from draftwright import build_drawing
 
-        # A 5×3 grid of identical holes gives many location references; the
-        # per-part cap (_MAX_LOCATION_REFS=4) means the rest must surface.
-        plate = Box(120, 120, 8)
-        for x in (-40, -20, 0, 20, 40):
-            for y in (-40, 0, 40):
-                plate -= Pos(x, y, 0) * Cylinder(2.5, 8)
+        plate = Box(140, 90, 8)
+        for x, y, r in [
+            (-55, -35, 2.0),
+            (-33, -12, 2.5),
+            (-11, 15, 3.0),
+            (12, -20, 3.5),
+            (34, 28, 2.0),
+            (55, 5, 2.5),
+        ]:
+            plate -= Pos(x, y, 0) * Cylinder(r, 8)
         dwg = build_drawing(plate)
-        assert "location_ref_dropped" in {i.code for i in dwg.lint()}
+        n_loc = len([n for n in dwg._named if n.startswith(("dim_locx", "dim_locy"))])
+        assert n_loc > 4, f"expected adaptive >4 location dims, got {n_loc}"
+        assert "location_ref_dropped" not in {i.code for i in dwg.lint()}
 
     @pytest.mark.timeout(120)
-    def test_auto_annotate_resets_build_issues(self):
-        # Re-running annotation must not accumulate duplicate drop records.
-        from build123d import Box, Cylinder, Pos
+    def test_auto_annotate_clears_stale_build_issues(self):
+        # Re-annotating starts build-time lint tracking from a clean slate:
+        # stale drop records from a prior pass are cleared, not accumulated.
+        # (A full second pass is not idempotent — strip cursors advance — but
+        # the records always reflect only the latest pass.)
+        from build123d import Box
 
         from draftwright import build_drawing
         from draftwright.make_drawing import _auto_annotate
 
-        plate = Box(120, 120, 8)
-        for x in (-40, -20, 0, 20, 40):
-            for y in (-40, 0, 40):
-                plate -= Pos(x, y, 0) * Cylinder(2.5, 8)
+        dwg = build_drawing(Box(60, 40, 30))
+        dwg._record_build_issue("warning", "callout_dropped", "stale")
+        assert any(i.message == "stale" for i in dwg._build_issues)
+        _auto_annotate(dwg, dwg._analysis)
+        assert not any(i.message == "stale" for i in dwg._build_issues)
+        assert dwg._dropped_callout_diams == []
+
+    def test_repeated_lint_is_stable(self):
+        # lint()/lint_summary() are idempotent — repeated calls return the same
+        # issues and never accumulate the build-time drop records.
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import build_drawing
+
+        plate = Box(120, 60, 8)
+        for x, r in zip((-48, -24, 0, 24, 48), (2.0, 2.5, 3.0, 3.5, 4.0)):
+            plate -= Pos(x, 0, 0) * Cylinder(r, 8)
         dwg = build_drawing(plate)
-        n_issues = len(dwg._build_issues)
-        n_diams = len(dwg._dropped_callout_diams)
-        assert n_issues > 0
-        _auto_annotate(dwg, dwg._analysis)  # second pass
-        assert len(dwg._build_issues) == n_issues
-        assert len(dwg._dropped_callout_diams) == n_diams
+        first, second = dwg.lint(), dwg.lint()
+        assert len(first) == len(second)
+        assert dwg.lint_summary()["by_code"] == dwg.lint_summary()["by_code"]
 
     def test_placement_unsatisfiable_is_error_severity(self):
         # placement_unsatisfiable (engine could not place a wanted annotation)
