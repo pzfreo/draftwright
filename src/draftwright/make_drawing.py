@@ -118,6 +118,53 @@ def fix_svg_page_size(svg_path: str, page_w: float, page_h: float) -> None:
     Path(svg_path).write_text(data, encoding="utf-8")
 
 
+# Below this, an elliptical-arc radius (page-mm) is treated as degenerate.
+# Real feature arcs are orders of magnitude larger; the bad ones are ~1e-7.
+_MIN_ARC_RADIUS = 1e-3
+
+_SVG_NUM = r"(-?\d+\.?\d*(?:[eE][-+]?\d+)?)"
+_SVG_ARC_RE = re.compile(
+    r"A\s*"
+    + _SVG_NUM
+    + r"[ ,]+"
+    + _SVG_NUM
+    + r"[ ,]+"
+    + _SVG_NUM
+    + r"[ ,]+([01])[ ,]*([01])[ ,]+"
+    + _SVG_NUM
+    + r"[ ,]+"
+    + _SVG_NUM
+)
+
+
+def sanitize_svg_arcs(svg_path: str) -> int:
+    """Rewrite near-degenerate elliptical arcs as straight line segments.
+
+    build123d's ``ExportSVG`` projects a circular edge seen edge-on (a hole or
+    fillet rim whose plane is parallel to the view direction) as an elliptical
+    arc with a vanishing minor radius (``ry`` ≈ 1e-7).  The SVG spec says a
+    zero-radius arc is a straight line, but because the radius is not *exactly*
+    zero, renderers (librsvg, cairosvg) treat it as a hugely eccentric ellipse
+    and draw a spurious full-page line.  Each such arc (``A rx ry rot lf sf x
+    y``) with ``rx`` or ``ry`` below :data:`_MIN_ARC_RADIUS` is replaced by
+    ``L x y`` — its true geometry.  Returns the number of arcs rewritten.
+    """
+    data = Path(svg_path).read_text(encoding="utf-8")
+    n = 0
+
+    def _repl(m):
+        nonlocal n
+        if abs(float(m.group(1))) < _MIN_ARC_RADIUS or abs(float(m.group(2))) < _MIN_ARC_RADIUS:
+            n += 1
+            return f"L {m.group(6)} {m.group(7)}"
+        return m.group(0)
+
+    fixed = _SVG_ARC_RE.sub(_repl, data)
+    if n:
+        Path(svg_path).write_text(fixed, encoding="utf-8")
+    return n
+
+
 # ---------------------------------------------------------------------------
 # Geometry analysis
 # ---------------------------------------------------------------------------
@@ -1305,6 +1352,9 @@ class Drawing:
         svg_path = out + ".svg"
         svg.write(svg_path)
         fix_svg_page_size(svg_path, self.page_w, self.page_h)
+        n_arcs = sanitize_svg_arcs(svg_path)
+        if n_arcs:
+            _log.info("Rewrote %d degenerate (near-zero-radius) arc(s) as line segments", n_arcs)
         _log.info("SVG → %s", svg_path)
 
         dxf = ExportDXF()

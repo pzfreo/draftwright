@@ -87,3 +87,47 @@ def test_e2e_from_step_meets_standards(tmp_path):
     # ...and build_drawing on the same STEP gives a Drawing to assert against.
     dwg = build_drawing(str(step), out=stem, title="PLATE", number="DWG-1")
     _assert_meets_standards(dwg, svg, dxf)
+
+
+# ---------------------------------------------------------------------------
+# NIST MBE PMI Combined Test Cases (CTC), public-domain models.
+# All 10 variants ship as fixtures, but CTC-04 (both variants) and CTC-02 AP242
+# currently crash OCCT on import (see issue #20) — a segfault/abort would kill
+# the whole test run, so those are excluded from the build tests below.
+# ---------------------------------------------------------------------------
+
+FIXTURES = Path(__file__).parent / "fixtures"
+_CTC_AP203_OK = ["01", "02", "03", "05"]  # 04 aborts on import (#20)
+_CTC_AP242_OK = ["01", "03", "05"]  # 02, 04 segfault on import (#20)
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+@pytest.mark.parametrize("n", _CTC_AP203_OK)
+def test_ctc_ap203_meets_standards_no_degenerate_arcs(tmp_path, n):
+    from draftwright.make_drawing import _MIN_ARC_RADIUS, _SVG_ARC_RE
+
+    step = FIXTURES / f"nist_ctc_{n}_asme1_ap203.stp"
+    stem = str(tmp_path / f"ctc{n}")
+    dwg = build_drawing(str(step), out=stem)
+    svg, dxf = dwg.export(stem)
+    _assert_meets_standards(dwg, svg, dxf)
+    # The #19 fix: no circle-edge-on degenerate arcs leak into the SVG.
+    data = Path(svg).read_text(encoding="utf-8")
+    degenerate = [
+        m.group(0)
+        for m in _SVG_ARC_RE.finditer(data)
+        if abs(float(m.group(1))) < _MIN_ARC_RADIUS or abs(float(m.group(2))) < _MIN_ARC_RADIUS
+    ]
+    assert not degenerate, f"{len(degenerate)} near-zero-radius arcs leaked into the SVG"
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+@pytest.mark.parametrize("n", _CTC_AP242_OK)
+def test_ctc_ap242_meets_standards(tmp_path, n):
+    step = FIXTURES / f"nist_ctc_{n}_asme1_ap242.stp"
+    stem = str(tmp_path / f"ctc{n}_ap242")
+    dwg = build_drawing(str(step), out=stem)
+    svg, dxf = dwg.export(stem)
+    _assert_meets_standards(dwg, svg, dxf)
