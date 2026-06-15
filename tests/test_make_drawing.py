@@ -2302,3 +2302,69 @@ class TestSanitizeSvgArcs:
         n = sanitize_svg_arcs(f)
         assert n == 0
         assert "A 5.0 5.0 0 0 1 20 20" in Path(f).read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Lint summary + surfacing of build-time annotation drops (#32)
+# ---------------------------------------------------------------------------
+
+
+class TestLintSummaryAndDrops:
+    def test_summary_shape_is_consistent_with_lint(self):
+        from build123d import Box, Cylinder
+
+        from draftwright import build_drawing
+
+        dwg = build_drawing(Box(80, 60, 20) - Cylinder(5, 20))
+        issues = dwg.lint()
+        s = dwg.lint_summary()
+
+        assert set(s) == {
+            "passed",
+            "score",
+            "errors",
+            "warnings",
+            "infos",
+            "by_code",
+            "geometry_issues",
+            "issues",
+        }
+        assert s["errors"] + s["warnings"] + s["infos"] == len(issues)
+        assert s["passed"] is (s["errors"] == 0)
+        assert 0.0 <= s["score"] <= 1.0
+        assert sum(s["by_code"].values()) == len(issues)
+        assert len(s["issues"]) == len(issues)
+        # A single-hole plate doesn't overflow the per-view callout cap.
+        assert "callout_dropped" not in s["by_code"]
+
+    def test_recorded_build_issue_surfaces_and_counts(self):
+        from build123d import Box
+
+        from draftwright import build_drawing
+
+        dwg = build_drawing(Box(60, 40, 30))
+        before = dwg.lint_summary()
+        dwg._record_build_issue("warning", "callout_dropped", "synthetic drop")
+
+        codes = {i.code for i in dwg.lint()}
+        assert "callout_dropped" in codes
+
+        after = dwg.lint_summary()
+        assert after["warnings"] == before["warnings"] + 1
+        assert after["by_code"]["callout_dropped"] == 1
+        # callout_dropped is a geometry-aware code, so it lifts that count too.
+        assert after["geometry_issues"] == before["geometry_issues"] + 1
+
+    @pytest.mark.timeout(120)
+    def test_callout_cap_overflow_is_surfaced(self):
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import build_drawing
+
+        # Five distinct-diameter through-holes in the plan view exceed the
+        # per-view callout cap (4); the overflow must surface, not vanish.
+        plate = Box(120, 60, 8)
+        for x, r in zip((-48, -24, 0, 24, 48), (2.0, 2.5, 3.0, 3.5, 4.0)):
+            plate -= Pos(x, 0, 0) * Cylinder(r, 8)
+        dwg = build_drawing(plate)
+        assert "callout_dropped" in {i.code for i in dwg.lint()}
