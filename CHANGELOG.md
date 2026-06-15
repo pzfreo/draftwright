@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **Step-height dimensions are no longer capped at three.** The `fv_zones.right`
+  corridor is now sized for every legible step (`_est_right_strip_depth` no
+  longer caps the count), and a step dim is placed for each legible level. A
+  part with several shoulders gets them all dimensioned instead of an arbitrary
+  three; the strip allocator remains the real bound (an unplaceable step
+  surfaces as `placement_unsatisfiable`). Verified the NIST CTC parts (8–16
+  step faces each) build with no error-severity lint. Second step of the
+  adaptive-caps work (#36); the per-view callout cap follows. The
+  `step_dim_dropped` lint code is removed (the cap that produced it is gone).
 - Hole **location dimensions are no longer capped at four** per part: they are
   placed nearest-datum-first (baseline practice) until the above-view tier
   strips fill, so a part with room gets all its holes located instead of an

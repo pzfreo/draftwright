@@ -391,7 +391,6 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "dim_inside_part",
         "callout_dropped",
         "location_ref_dropped",
-        "step_dim_dropped",
         "placement_unsatisfiable",
     }
 )
@@ -636,12 +635,11 @@ _MIN_STEP_DIM_MM = (
 def _est_right_strip_depth(n_steps: int) -> float:
     """Depth needed to the right of the front view.
 
-    Always includes dim_height (1 slot).  Up to *n_steps* dim_step slots
-    (capped at 3) follow if any step levels are present.  Returns the minimum
-    corridor width (from view edge to outer_limit) that makes all those
-    allocations succeed.
+    Always includes dim_height (1 slot).  *n_steps* dim_step slots follow if
+    any step levels are present.  Returns the minimum corridor width (from view
+    edge to outer_limit) that makes all those allocations succeed.
     """
-    n = 1 + min(max(n_steps, 0), 3)  # dim_height + up to 3 step dims
+    n = 1 + max(n_steps, 0)  # dim_height + one slot per step dim
     # gap + dim_height + (n-1) step slots each preceded by one spacing
     return _STRIP_GAP + _SLOT_DIM_HEIGHT + (n - 1) * (_STRIP_SPACING + _SLOT_DIM_STEP)
 
@@ -1026,7 +1024,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
 
     # Conservative upper bound for page selection: count all candidate step
     # faces without the SCALE-dependent _MIN_STEP_DIM_MM gate (SCALE not yet known).
-    n_steps_ub = len(step_zs[:3])
+    n_steps_ub = len(step_zs)
     strips_ub = _measure_strips(
         holes,
         patterns,
@@ -1057,7 +1055,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     DIM_PAD = _DIM_PAD
     margin = _MARGIN
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
-    n_steps = len([z for z in step_zs[:3] if (z - bb.min.Z) * SCALE >= _MIN_STEP_DIM_MM])
+    n_steps = len([z for z in step_zs if (z - bb.min.Z) * SCALE >= _MIN_STEP_DIM_MM])
     strips = _measure_strips(
         holes,
         patterns,
@@ -1816,21 +1814,14 @@ def _auto_annotate(dwg, a):
 
     # Step heights — only where the step is tall enough to fit a label;
     # each step witnesses from the previous dim's line (_right_ladder) so
-    # extension lines are adjacent rather than coincident. Only the first
-    # three steps are dimensioned; any further dimensionable steps surface
-    # via lint rather than being silently dropped.
+    # extension lines are adjacent rather than coincident. No fixed cap: the
+    # fv_zones.right corridor is sized for every legible step (#36), and the
+    # strip allocator is the real bound — a step that doesn't fit surfaces via
+    # lint rather than being silently dropped.
     def _step_legible(z):
         return (z - a.bb.min.Z) * a.SCALE >= _MIN_STEP_DIM_MM
 
-    _step_zs = [z for z in a.step_zs[:3] if _step_legible(z)]
-    _n_over_cap = sum(1 for z in a.step_zs if _step_legible(z)) - len(_step_zs)
-    if _n_over_cap > 0:
-        dwg._record_build_issue(
-            "warning",
-            "step_dim_dropped",
-            f"{_n_over_cap} step-height dimension(s) not placed "
-            "(only the first three steps are dimensioned)",
-        )
+    _step_zs = [z for z in a.step_zs if _step_legible(z)]
     for col, z in enumerate(_step_zs):
         _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
         if _px is None:

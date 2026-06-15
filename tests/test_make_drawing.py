@@ -533,11 +533,18 @@ class TestDepthEstimators:
         # dim_height (10) + 3×dim_step (14 each) + 3×spacing (4 each) = 8+10+4+14+4+14+4+14 = 72
         assert _est_right_strip_depth(3) == pytest.approx(72.0, abs=0.01)
 
-    def test_right_depth_capped_at_three_steps(self):
-        from draftwright.make_drawing import _est_right_strip_depth
+    def test_right_depth_grows_per_step_uncapped(self):
+        from draftwright.make_drawing import (
+            _SLOT_DIM_STEP,
+            _STRIP_SPACING,
+            _est_right_strip_depth,
+        )
 
-        # n_steps is capped at 3 in the estimator
-        assert _est_right_strip_depth(3) == _est_right_strip_depth(10)
+        # #36: no cap — each further step adds one slot + one spacing.
+        assert _est_right_strip_depth(10) > _est_right_strip_depth(3)
+        assert _est_right_strip_depth(10) - _est_right_strip_depth(3) == pytest.approx(
+            7 * (_STRIP_SPACING + _SLOT_DIM_STEP), abs=0.01
+        )
 
     def test_right_depth_increases_with_steps(self):
         from draftwright.make_drawing import _est_right_strip_depth
@@ -2382,19 +2389,22 @@ class TestLintSummaryAndDrops:
         assert not any("ø4" in m for m in fnd), fnd
 
     @pytest.mark.timeout(120)
-    def test_step_dim_cap_overflow_is_surfaced(self):
+    def test_step_dims_are_adaptive_not_capped(self):
+        # #36: no fixed 3-step cap. Five stacked ledges → a step dim for each
+        # legible ledge (well over the old cap of three), corridor sized to fit
+        # them all, no error-severity lint.
         from build123d import Box, Pos
 
         from draftwright import build_drawing
 
-        # Five stacked ledges → five step heights; only the first three are
-        # dimensioned (step_zs[:3]), so the rest must surface, not vanish.
         tower = Box(120, 120, 15)
         for i in range(1, 6):
             side = 120 - i * 18
             tower += Pos(0, 0, i * 15) * Box(side, side, 15)
         dwg = build_drawing(tower)
-        assert "step_dim_dropped" in {i.code for i in dwg.lint()}
+        n_steps = len([n for n in dwg._named if n.startswith("dim_step")])
+        assert n_steps > 3, f"expected adaptive >3 step dims, got {n_steps}"
+        assert [i for i in dwg.lint() if i.severity == "error"] == []
 
     @pytest.mark.timeout(120)
     def test_location_dims_are_adaptive_not_capped(self):
