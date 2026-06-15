@@ -41,7 +41,6 @@ from build123d import (
     Pos,
     Shape,
     Vector,
-    import_step,
 )
 from build123d_drafting.features import (
     BoltCircle,
@@ -73,6 +72,8 @@ from build123d_drafting.helpers import (
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.GeomAbs import GeomAbs_Plane
+from OCP.IFSelect import IFSelect_ReturnStatus
+from OCP.STEPControl import STEPControl_Reader
 from OCP.TopTools import TopTools_ListOfShape
 
 _log = logging.getLogger(__name__)
@@ -165,6 +166,23 @@ def sanitize_svg_arcs(svg_path: str) -> int:
     if n:
         Path(svg_path).write_text(fixed, encoding="utf-8")
     return n
+
+
+def _import_step(path) -> Compound:
+    """Read solid geometry from a STEP file via OCCT's ``STEPControl_Reader``.
+
+    build123d's ``import_step`` uses the XCAF reader (colours, names, PMI), which
+    **segfaults** on some AP242 files carrying semantic PMI — e.g. NIST CTC-02
+    AP242 (#20) — before any Python code can intervene. draftwright needs only
+    the solid geometry (it drops PMI presentation data anyway), so we read the
+    geometry directly. Verified to produce identical shapes (solids, edges, bbox)
+    to ``import_step`` on the files that read in both, minus the unused metadata.
+    """
+    reader = STEPControl_Reader()
+    if reader.ReadFile(str(path)) != IFSelect_ReturnStatus.IFSelect_RetDone:
+        raise ValueError(f"could not read STEP file {path!r}")
+    reader.TransferRoots()
+    return Compound(reader.OneShape())
 
 
 # ---------------------------------------------------------------------------
@@ -840,7 +858,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
         part = step_file
         src = "build123d object"
     else:
-        part = import_step(step_file)
+        part = _import_step(step_file)
         src = str(step_file)
     # AP242 STEP files carry PMI presentation geometry (annotation-plane
     # border wires, leader curves) beside the solid; left in, it draws as
