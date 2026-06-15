@@ -1691,9 +1691,13 @@ class TestAutoHoleAnnotations:
             if name.startswith("hc_"):
                 covered.update(ann.covers_diameters)
         assert covered == {4.0, 5.0, 6.0, 8.0}
-        # the dropped specs surface through the coverage lint by design
-        flagged = {i.message for i in dwg.lint() if i.code == "feature_not_dimensioned"}
-        assert len(flagged) == 2
+        # the dropped specs (ø2, ø3) surface through callout_dropped, which names
+        # them — not double-reported as feature_not_dimensioned (#32 de-dup)
+        issues = dwg.lint()
+        cd = next(i for i in issues if i.code == "callout_dropped")
+        assert "ø2" in cd.message and "ø3" in cd.message
+        flagged = {i.message for i in issues if i.code == "feature_not_dimensioned"}
+        assert flagged == set()
 
     @pytest.mark.timeout(60)
     def test_rotational_part_keeps_leader_annotations(self):
@@ -2363,11 +2367,19 @@ class TestLintSummaryAndDrops:
 
         # Five distinct-diameter through-holes in the plan view exceed the
         # per-view callout cap (4); the overflow must surface, not vanish.
+        # The smallest (ø4) is the one dropped (largest four are kept).
         plate = Box(120, 60, 8)
         for x, r in zip((-48, -24, 0, 24, 48), (2.0, 2.5, 3.0, 3.5, 4.0)):
             plate -= Pos(x, 0, 0) * Cylinder(r, 8)
         dwg = build_drawing(plate)
-        assert "callout_dropped" in {i.code for i in dwg.lint()}
+        issues = dwg.lint()
+        assert "callout_dropped" in {i.code for i in issues}
+        # The dropped diameter is named by callout_dropped...
+        cd = next(i for i in issues if i.code == "callout_dropped")
+        assert "ø4" in cd.message
+        # ...and NOT double-reported as feature_not_dimensioned (de-dup).
+        fnd = [i.message for i in issues if i.code == "feature_not_dimensioned"]
+        assert not any("ø4" in m for m in fnd), fnd
 
     @pytest.mark.timeout(120)
     def test_step_dim_cap_overflow_is_surfaced(self):
@@ -2383,3 +2395,53 @@ class TestLintSummaryAndDrops:
             tower += Pos(0, 0, i * 15) * Box(side, side, 15)
         dwg = build_drawing(tower)
         assert "step_dim_dropped" in {i.code for i in dwg.lint()}
+
+    @pytest.mark.timeout(120)
+    def test_location_ref_cap_overflow_is_surfaced(self):
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import build_drawing
+
+        # A 5×3 grid of identical holes gives many location references; the
+        # per-part cap (_MAX_LOCATION_REFS=4) means the rest must surface.
+        plate = Box(120, 120, 8)
+        for x in (-40, -20, 0, 20, 40):
+            for y in (-40, 0, 40):
+                plate -= Pos(x, y, 0) * Cylinder(2.5, 8)
+        dwg = build_drawing(plate)
+        assert "location_ref_dropped" in {i.code for i in dwg.lint()}
+
+    @pytest.mark.timeout(120)
+    def test_auto_annotate_resets_build_issues(self):
+        # Re-running annotation must not accumulate duplicate drop records.
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import _auto_annotate
+
+        plate = Box(120, 120, 8)
+        for x in (-40, -20, 0, 20, 40):
+            for y in (-40, 0, 40):
+                plate -= Pos(x, y, 0) * Cylinder(2.5, 8)
+        dwg = build_drawing(plate)
+        n_issues = len(dwg._build_issues)
+        n_diams = len(dwg._dropped_callout_diams)
+        assert n_issues > 0
+        _auto_annotate(dwg, dwg._analysis)  # second pass
+        assert len(dwg._build_issues) == n_issues
+        assert len(dwg._dropped_callout_diams) == n_diams
+
+    def test_placement_unsatisfiable_is_error_severity(self):
+        # placement_unsatisfiable (engine could not place a wanted annotation)
+        # is error-severity, so it fails the `passed` gate.
+        from build123d import Box
+
+        from draftwright import build_drawing
+
+        dwg = build_drawing(Box(60, 40, 30))
+        assert dwg.lint_summary()["passed"] is True
+        dwg._record_build_issue("error", "placement_unsatisfiable", "synthetic")
+        s = dwg.lint_summary()
+        assert s["passed"] is False
+        assert s["errors"] >= 1
+        assert s["by_code"]["placement_unsatisfiable"] == 1

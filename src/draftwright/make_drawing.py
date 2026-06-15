@@ -297,8 +297,13 @@ def _concentric_bore_diams(a) -> list:
     return [d for d in a.z_diams if d != a.od_diam and any(abs(d - c) <= 0.15 for c in concentric)]
 
 
-def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None) -> list:
+def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None, exclude=None) -> list:
     """Coarse completeness check: report part diameters with no callout (#80).
+
+    ``exclude`` is an optional iterable of diameters already accounted for by a
+    more specific build-time lint (e.g. the per-view callout cap's
+    ``callout_dropped``); these are skipped here so a dropped callout is not
+    double-reported as ``feature_not_dimensioned``.
 
     Builds a feature inventory from *part*'s hole/boss diameters (cylinder
     patches spanning at least ~half a turn around their axis in total, so
@@ -339,6 +344,7 @@ def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None) -> li
             mentioned.add(float(v))
             provided[float(v)] = provided.get(float(v), 0) + count
 
+    exclude = exclude or ()
     issues = [
         LintIssue(
             severity="warning",
@@ -347,6 +353,7 @@ def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None) -> li
         )
         for d in inventory
         if not any(abs(d - v) <= tol for v in mentioned)
+        and not any(abs(d - e) <= tol for e in exclude)
     ]
 
     required: dict[float, int] = {}
@@ -1318,8 +1325,12 @@ class Drawing:
         self._analysis: SimpleNamespace | None = None
         # Lint issues found while building (e.g. annotations the layout had to
         # drop). Recorded here so :meth:`lint` can surface them — a dropped
-        # feature must never be silent.
+        # feature must never be silent. Diameters dropped by the per-view
+        # callout cap are tracked separately so :meth:`lint` can suppress the
+        # redundant feature_not_dimensioned for them. Both are reset at the
+        # top of :func:`_auto_annotate` so re-annotation does not accumulate.
         self._build_issues: list = []
+        self._dropped_callout_diams: list = []
 
     # -- views ----------------------------------------------------------------
     def add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
@@ -1430,7 +1441,12 @@ class Drawing:
         if self.part is not None:
             if self._cyl_cache is None:
                 self._cyl_cache = analyse_cylinders(self.part)
-            issues += lint_feature_coverage(self.part, self.annotations, cyls=self._cyl_cache)
+            issues += lint_feature_coverage(
+                self.part,
+                self.annotations,
+                cyls=self._cyl_cache,
+                exclude=self._dropped_callout_diams,
+            )
         issues += list(self._build_issues)
         return issues
 
@@ -1616,6 +1632,10 @@ def _export_shape(exporter, shape, layer, ctx):
 def _auto_annotate(dwg, a):
     """Add the standard automatic dimensions, centrelines, and title block."""
     draft = dwg.draft
+    # Idempotent: clear build-time lint state so a second annotation pass does
+    # not accumulate duplicate drop records.
+    dwg._build_issues = []
+    dwg._dropped_callout_diams = []
 
     def FX(x):
         return a.FV_X + (x - a.cx) * a.SCALE
@@ -1816,7 +1836,7 @@ def _auto_annotate(dwg, a):
         if _px is None:
             _log.warning("dim_step_%d skipped: fv_zones.right strip full", col)
             dwg._record_build_issue(
-                "warning",
+                "error",
                 "placement_unsatisfiable",
                 f"{len(_step_zs) - col} step-height dimension(s) dropped "
                 "(front-view right strip full)",
@@ -2925,19 +2945,25 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
             # (their pattern furniture is withheld too — a bare pitch circle
             # with no callout referencing it explains nothing)
             specs.sort(key=lambda s: s[0][0].diameter, reverse=True)
-            n_drop = len(specs) - _MAX_CALLOUTS_PER_VIEW
+            dropped = specs[_MAX_CALLOUTS_PER_VIEW:]
+            dropped_diams = [s[0][0].diameter for s in dropped]
+            # Remember which diameters were dropped so lint() can suppress the
+            # redundant feature_not_dimensioned for them — callout_dropped names
+            # them and is the more specific signal (no double-report).
+            dwg._dropped_callout_diams.extend(dropped_diams)
             _log.info(
                 "%d hole specs in %s view; annotating the %d largest "
-                "(the rest surface as feature_not_dimensioned)",
+                "(the rest surface as callout_dropped)",
                 len(specs),
                 view,
                 _MAX_CALLOUTS_PER_VIEW,
             )
+            _diams = ", ".join(f"ø{_fmt(d)}" for d in dropped_diams)
             dwg._record_build_issue(
                 "warning",
                 "callout_dropped",
-                f"{n_drop} hole callout(s) dropped from the {view} view "
-                f"(cap of {_MAX_CALLOUTS_PER_VIEW} per view)",
+                f"{len(dropped)} hole callout(s) dropped from the {view} view "
+                f"(cap of {_MAX_CALLOUTS_PER_VIEW} per view): {_diams}",
             )
             specs = specs[:_MAX_CALLOUTS_PER_VIEW]
 
@@ -3032,7 +3058,7 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
             if not can_right and not can_left:
                 _log.info("Hole callout ø%s skipped (no room)", _fmt(holes[0].diameter))
                 dwg._record_build_issue(
-                    "warning",
+                    "error",
                     "placement_unsatisfiable",
                     f"hole callout ø{_fmt(holes[0].diameter)} not placed "
                     f"(no room beside the {view} view)",
@@ -3064,7 +3090,7 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
                     len(right_queue),
                 )
                 dwg._record_build_issue(
-                    "warning",
+                    "error",
                     "placement_unsatisfiable",
                     f"{n_drop} of {len(right_queue)} bore callout(s) dropped "
                     f"(strip full right of the {view} view)",
@@ -3082,7 +3108,7 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
                     len(left_queue),
                 )
                 dwg._record_build_issue(
-                    "warning",
+                    "error",
                     "placement_unsatisfiable",
                     f"{n_drop} of {len(left_queue)} bore callout(s) dropped "
                     f"(strip full left of the {view} view)",

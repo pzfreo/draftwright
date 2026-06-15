@@ -19,6 +19,14 @@
   under a dedicated code (`callout_dropped`, `location_ref_dropped`,
   `step_dim_dropped`, `placement_unsatisfiable`), so a short drawing always
   carries a machine-readable reason (#32).
+- `placement_unsatisfiable` (the engine could not place an annotation it wanted
+  to, as opposed to a deliberate cap) is **error** severity, so it fails the
+  `lint_summary()` `passed` gate; the deliberate-cap drops stay warnings (#32).
+- A callout dropped by the per-view cap is no longer double-reported: the
+  dropped diameters are named in the `callout_dropped` message and excluded from
+  `feature_not_dimensioned` (#32).
+- `_auto_annotate` is idempotent for build-time lint records — re-annotating a
+  drawing no longer accumulates duplicate drop reports (#32).
 
 ## v0.1.6 — 2026-06-15
 
