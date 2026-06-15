@@ -2445,3 +2445,95 @@ class TestLintSummaryAndDrops:
         assert s["passed"] is False
         assert s["errors"] >= 1
         assert s["by_code"]["placement_unsatisfiable"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Layout generalisation guards (#13) — pin the *general* behaviour the
+# algorithm should have on turned/hybrid parts and at the step-legibility
+# boundary, so the overfitting that #10–#12/#31 removed cannot creep back.
+# ---------------------------------------------------------------------------
+
+
+class TestLayoutGeneralisation:
+    @pytest.mark.timeout(120)
+    def test_turned_flange_gets_both_od_and_hole_furniture(self):
+        # A turned-and-drilled flange (cylinder OD + centre bore + bolt circle)
+        # must get the turned base set (OD dim + centrelines) AND the drilled
+        # furniture (hole callout + pitch circle) — not one or the other. This
+        # is the feature-presence composition from #10, on a genuinely
+        # rotational part rather than a prismatic plate.
+        import math
+
+        from build123d import Cylinder, Pos
+
+        from draftwright import build_drawing
+
+        flange = Cylinder(radius=40, height=10) - Cylinder(radius=8, height=10)
+        for i in range(6):
+            ang = math.radians(60 * i)
+            flange -= Pos(28 * math.cos(ang), 28 * math.sin(ang), 0) * Cylinder(2.5, 10)
+        dwg = build_drawing(flange)
+
+        assert dwg._analysis.is_rotational, "flange should classify as rotational"
+        # Turned base set.
+        assert "dim_od" in dwg._named
+        assert "centerline_front" in dwg._named
+        assert "centerline_side" in dwg._named
+        # Drilled furniture.
+        assert any(n.startswith("hc_") for n in dwg._named), "expected a hole callout"
+        assert any(n.startswith("bc_") for n in dwg._named), "expected a pitch circle"
+        # No error-severity lint (warnings tolerated).
+        assert [i for i in dwg.lint() if i.severity == "error"] == []
+
+    @pytest.mark.timeout(120)
+    def test_turned_flange_callout_overflow_is_surfaced_not_dropped(self):
+        # A turned part with more distinct bores than the per-view callout cap
+        # must annotate the largest up to the cap and surface the rest via
+        # lint — never silently drop them (the bores[:N] concern in #13).
+        import math
+
+        from build123d import Cylinder, Pos
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import _MAX_CALLOUTS_PER_VIEW
+
+        flange = Cylinder(radius=45, height=10) - Cylinder(radius=8, height=10)
+        for i, r in enumerate((2.0, 2.5, 3.0, 3.5, 4.0)):
+            ang = math.radians(72 * i)
+            flange -= Pos(30 * math.cos(ang), 30 * math.sin(ang), 0) * Cylinder(r, 10)
+        dwg = build_drawing(flange)
+
+        n_callouts = len([n for n in dwg._named if n.startswith("hc_")])
+        assert n_callouts <= _MAX_CALLOUTS_PER_VIEW
+        # The overflow is surfaced, not silent.
+        assert "callout_dropped" in {i.code for i in dwg.lint()}
+
+    @pytest.mark.timeout(120)
+    def test_step_height_legibility_threshold(self):
+        # The step-height dimension gate is the legibility constant
+        # (_MIN_STEP_DIM_MM), not an incidental cutoff: a shoulder whose
+        # page-projected height falls just below the gate gets no step dim;
+        # just above, it does. Pin the gate, not a magic millimetre value.
+        from build123d import Cylinder, Pos
+
+        from draftwright import build_drawing
+        from draftwright.make_drawing import _MIN_STEP_DIM_MM
+
+        def shaft_with_shoulder_at(length):
+            # Lower segment height == `length`; shoulder sits `length` above the
+            # base (bb.min.Z), so legibility = length * SCALE.
+            return Pos(0, 0, length / 2) * Cylinder(22, length) + Pos(
+                0, 0, length + 12.5
+            ) * Cylinder(11, 25)
+
+        for length, expect in ((12.0, False), (13.0, True)):
+            dwg = build_drawing(shaft_with_shoulder_at(length))
+            a = dwg._analysis
+            legible = length * a.SCALE >= _MIN_STEP_DIM_MM
+            assert legible is expect, (
+                f"length={length} scale={a.SCALE}: legibility expectation wrong"
+            )
+            has_step = "dim_step_0" in dwg._named
+            assert has_step is expect, (
+                f"length={length}: step dim present={has_step}, expected {expect}"
+            )
