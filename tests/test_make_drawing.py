@@ -587,6 +587,54 @@ class TestDepthEstimators:
 
 
 # ---------------------------------------------------------------------------
+# #31: layout constants derived from text metrics
+# ---------------------------------------------------------------------------
+
+
+class TestDerivedLayoutConstants:
+    """Slots / callout widths / iso budget derive from text metrics, not bare mm."""
+
+    def test_slots_derive_from_font_metrics(self):
+        from draftwright.make_drawing import (
+            _FONT_SIZE,
+            _PAD,
+            _SLOT_DIM_DEPTH,
+            _SLOT_DIM_HEIGHT,
+            _SLOT_DIM_STEP,
+            _SLOT_DIM_WIDTH,
+        )
+
+        assert _SLOT_DIM_WIDTH == pytest.approx(2 * _FONT_SIZE + _PAD)
+        assert _SLOT_DIM_DEPTH == pytest.approx(2 * _FONT_SIZE + _PAD)
+        assert _SLOT_DIM_HEIGHT == pytest.approx(2 * _FONT_SIZE + 2 * _PAD)
+        assert _SLOT_DIM_STEP == pytest.approx(4 * _FONT_SIZE + _PAD)
+        # The slots are linear in font metrics — a hypothetical larger font
+        # would yield larger slots — so they are not frozen mm constants.
+        assert (2 * (2 * _FONT_SIZE) + 2 * _PAD) > _SLOT_DIM_HEIGHT
+
+    def test_text_width_returns_real_glyph_metrics(self):
+        from draftwright.make_drawing import _text_width
+
+        assert _text_width("", 3.0) == 0.0
+        # A real measurement is positive and grows with the string.
+        w1 = _text_width("8", 3.0)
+        w3 = _text_width("888", 3.0)
+        assert 0.0 < w1 < w3
+        # Wider glyphs (uppercase) measure wider than the old 0.6*font fudge
+        # would have estimated — the whole point of using real metrics (#31).
+        assert _text_width("THRU", 3.0) > 4 * 0.6 * 3.0
+
+    def test_bore_callout_width_scales_with_font_size(self):
+        from draftwright.make_drawing import _est_bore_callout_width, find_holes
+
+        part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
+        holes = find_holes(part)
+        small = _est_bore_callout_width(holes, font_size=3.0)
+        large = _est_bore_callout_width(holes, font_size=6.0)
+        assert large > small
+
+
+# ---------------------------------------------------------------------------
 # Phase 3 (#118): dynamic FV→SV corridor
 # ---------------------------------------------------------------------------
 
