@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- Hole **location dimensions are no longer capped at four** per part: they are
+  placed nearest-datum-first (baseline practice) until the above-view tier
+  strips fill, so a part with room gets all its holes located instead of an
+  arbitrary four. Refs that genuinely don't fit are skipped (never
+  force-placed) and surface as `location_ref_dropped` (#36). First step of the
+  adaptive-caps work; step-height and per-view callout caps follow.
+
 ### Added
 
 - `Drawing.lint_summary()` — a JSON-friendly aggregate of `lint()` for
