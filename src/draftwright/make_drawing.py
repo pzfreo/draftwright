@@ -384,6 +384,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "dim_inside_part",
         "callout_dropped",
         "location_ref_dropped",
+        "step_dim_dropped",
         "placement_unsatisfiable",
     }
 )
@@ -1795,13 +1796,31 @@ def _auto_annotate(dwg, a):
 
     # Step heights — only where the step is tall enough to fit a label;
     # each step witnesses from the previous dim's line (_right_ladder) so
-    # extension lines are adjacent rather than coincident
-    for col, z in enumerate(
-        [z for z in a.step_zs[:3] if (z - a.bb.min.Z) * a.SCALE >= _MIN_STEP_DIM_MM]
-    ):
+    # extension lines are adjacent rather than coincident. Only the first
+    # three steps are dimensioned; any further dimensionable steps surface
+    # via lint rather than being silently dropped.
+    def _step_legible(z):
+        return (z - a.bb.min.Z) * a.SCALE >= _MIN_STEP_DIM_MM
+
+    _step_zs = [z for z in a.step_zs[:3] if _step_legible(z)]
+    _n_over_cap = sum(1 for z in a.step_zs if _step_legible(z)) - len(_step_zs)
+    if _n_over_cap > 0:
+        dwg._record_build_issue(
+            "warning",
+            "step_dim_dropped",
+            f"{_n_over_cap} step-height dimension(s) not placed "
+            "(only the first three steps are dimensioned)",
+        )
+    for col, z in enumerate(_step_zs):
         _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
         if _px is None:
             _log.warning("dim_step_%d skipped: fv_zones.right strip full", col)
+            dwg._record_build_issue(
+                "warning",
+                "placement_unsatisfiable",
+                f"{len(_step_zs) - col} step-height dimension(s) dropped "
+                "(front-view right strip full)",
+            )
             break
         dwg.add(
             Dimension(

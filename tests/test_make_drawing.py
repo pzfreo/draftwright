@@ -2368,3 +2368,18 @@ class TestLintSummaryAndDrops:
             plate -= Pos(x, 0, 0) * Cylinder(r, 8)
         dwg = build_drawing(plate)
         assert "callout_dropped" in {i.code for i in dwg.lint()}
+
+    @pytest.mark.timeout(120)
+    def test_step_dim_cap_overflow_is_surfaced(self):
+        from build123d import Box, Pos
+
+        from draftwright import build_drawing
+
+        # Five stacked ledges → five step heights; only the first three are
+        # dimensioned (step_zs[:3]), so the rest must surface, not vanish.
+        tower = Box(120, 120, 15)
+        for i in range(1, 6):
+            side = 120 - i * 18
+            tower += Pos(0, 0, i * 15) * Box(side, side, 15)
+        dwg = build_drawing(tower)
+        assert "step_dim_dropped" in {i.code for i in dwg.lint()}

@@ -13,10 +13,11 @@
 ### Fixed
 
 - Annotations the layout had to drop (hole callouts past the per-view cap,
-  location references past the per-part cap, bore callouts with no room or an
-  unsatisfiable strip) are no longer silent: each is recorded during the build
-  and surfaced by `lint()` under a dedicated code (`callout_dropped`,
-  `location_ref_dropped`, `placement_unsatisfiable`), so a short drawing always
+  location references past the per-part cap, step-height dimensions past the
+  first three, bore callouts with no room or an unsatisfiable strip) are no
+  longer silent: each is recorded during the build and surfaced by `lint()`
+  under a dedicated code (`callout_dropped`, `location_ref_dropped`,
+  `step_dim_dropped`, `placement_unsatisfiable`), so a short drawing always
   carries a machine-readable reason (#32).
 
 ## v0.1.6 — 2026-06-15
