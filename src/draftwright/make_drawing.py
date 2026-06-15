@@ -297,8 +297,13 @@ def _concentric_bore_diams(a) -> list:
     return [d for d in a.z_diams if d != a.od_diam and any(abs(d - c) <= 0.15 for c in concentric)]
 
 
-def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None) -> list:
+def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None, exclude=None) -> list:
     """Coarse completeness check: report part diameters with no callout (#80).
+
+    ``exclude`` is an optional iterable of diameters already accounted for by a
+    more specific build-time lint (e.g. the per-view callout cap's
+    ``callout_dropped``); these are skipped here so a dropped callout is not
+    double-reported as ``feature_not_dimensioned``.
 
     Builds a feature inventory from *part*'s hole/boss diameters (cylinder
     patches spanning at least ~half a turn around their axis in total, so
@@ -339,6 +344,7 @@ def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None) -> li
             mentioned.add(float(v))
             provided[float(v)] = provided.get(float(v), 0) + count
 
+    exclude = exclude or ()
     issues = [
         LintIssue(
             severity="warning",
@@ -347,6 +353,7 @@ def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None) -> li
         )
         for d in inventory
         if not any(abs(d - v) <= tol for v in mentioned)
+        and not any(abs(d - e) <= tol for e in exclude)
     ]
 
     required: dict[float, int] = {}
@@ -369,6 +376,31 @@ def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None) -> li
                 )
             )
     return issues
+
+
+# --- lint scoring (see Drawing.lint_summary) -------------------------------
+# Codes that check standards/geometry correctness rather than pure page
+# layout. Grouped so a caller (and the #30 repair loop) can tell a wrong
+# drawing from a merely tight one.
+_GEOMETRY_AWARE_CODES = frozenset(
+    {
+        "feature_not_dimensioned",
+        "feature_count_mismatch",
+        "missing_principal_dimension",
+        "label_vs_measured",
+        "dim_inside_part",
+        "callout_dropped",
+        "location_ref_dropped",
+        "step_dim_dropped",
+        "placement_unsatisfiable",
+    }
+)
+
+# Coarse 0–1 quality heuristic: a clean sheet scores 1.0; each issue subtracts
+# a flat per-severity penalty (clamped at 0). A convenience signal only — the
+# severity/code counts in the summary are the authoritative output.
+_SCORE_ERROR_PENALTY = 0.2
+_SCORE_WARNING_PENALTY = 0.05
 
 
 def analyse_face_levels(part, tol: float = 0.5) -> list:
@@ -1291,6 +1323,14 @@ class Drawing:
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
         self._analysis: SimpleNamespace | None = None
+        # Lint issues found while building (e.g. annotations the layout had to
+        # drop). Recorded here so :meth:`lint` can surface them — a dropped
+        # feature must never be silent. Diameters dropped by the per-view
+        # callout cap are tracked separately so :meth:`lint` can suppress the
+        # redundant feature_not_dimensioned for them. Both are reset at the
+        # top of :func:`_auto_annotate` so re-annotation does not accumulate.
+        self._build_issues: list = []
+        self._dropped_callout_diams: list = []
 
     # -- views ----------------------------------------------------------------
     def add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
@@ -1382,11 +1422,18 @@ class Drawing:
         self._named = kept_named
         return removed
 
+    def _record_build_issue(self, severity, code, message):
+        """Record a lint issue discovered during construction (e.g. an
+        annotation the layout had to drop). Surfaced by :meth:`lint` so a
+        dropped feature is never silent."""
+        self._build_issues.append(LintIssue(severity=severity, code=code, message=message))
+
     # -- output ---------------------------------------------------------------
     def lint(self):
         """Lint all annotations against all views; returns the list of issues.
 
         When :attr:`part` is set, also runs :func:`lint_feature_coverage`.
+        Build-time drops recorded via :meth:`_record_build_issue` are included.
         """
         set_page(self.page_w, self.page_h, margin=10)
         view_shapes = [vis for vis, _ in self.views.values()]
@@ -1394,8 +1441,58 @@ class Drawing:
         if self.part is not None:
             if self._cyl_cache is None:
                 self._cyl_cache = analyse_cylinders(self.part)
-            issues += lint_feature_coverage(self.part, self.annotations, cyls=self._cyl_cache)
+            issues += lint_feature_coverage(
+                self.part,
+                self.annotations,
+                cyls=self._cyl_cache,
+                exclude=self._dropped_callout_diams,
+            )
+        issues += list(self._build_issues)
         return issues
+
+    def lint_summary(self) -> dict:
+        """Aggregate :meth:`lint` into a JSON-friendly quality summary.
+
+        Gives a non-interactive caller (a script, or an LLM via the API) a
+        single signal to gate and optimise on without rendering the SVG:
+
+        - ``passed`` — no error-severity issues;
+        - ``score`` — coarse 0–1 quality heuristic (see ``_SCORE_*``);
+        - ``errors`` / ``warnings`` / ``infos`` — counts by severity;
+        - ``by_code`` — per-check counts;
+        - ``geometry_issues`` — count of standards/geometry-correctness issues
+          as opposed to pure layout (see ``_GEOMETRY_AWARE_CODES``);
+        - ``issues`` — the full list, each as a plain dict.
+        """
+        issues = self.lint()
+        errors = sum(1 for i in issues if i.severity == "error")
+        warnings = sum(1 for i in issues if i.severity == "warning")
+        infos = sum(1 for i in issues if i.severity == "info")
+        by_code: dict[str, int] = {}
+        for i in issues:
+            by_code[i.code] = by_code.get(i.code, 0) + 1
+        score = max(
+            0.0,
+            1.0 - errors * _SCORE_ERROR_PENALTY - warnings * _SCORE_WARNING_PENALTY,
+        )
+        return {
+            "passed": errors == 0,
+            "score": score,
+            "errors": errors,
+            "warnings": warnings,
+            "infos": infos,
+            "by_code": by_code,
+            "geometry_issues": sum(1 for i in issues if i.code in _GEOMETRY_AWARE_CODES),
+            "issues": [
+                {
+                    "severity": i.severity,
+                    "code": i.code,
+                    "message": i.message,
+                    "location": i.location,
+                }
+                for i in issues
+            ],
+        }
 
     def export(self, out=None):
         """Lint, then write SVG and DXF. Returns ``(svg_path, dxf_path)``."""
@@ -1535,6 +1632,10 @@ def _export_shape(exporter, shape, layer, ctx):
 def _auto_annotate(dwg, a):
     """Add the standard automatic dimensions, centrelines, and title block."""
     draft = dwg.draft
+    # Idempotent: clear build-time lint state so a second annotation pass does
+    # not accumulate duplicate drop records.
+    dwg._build_issues = []
+    dwg._dropped_callout_diams = []
 
     def FX(x):
         return a.FV_X + (x - a.cx) * a.SCALE
@@ -1715,13 +1816,31 @@ def _auto_annotate(dwg, a):
 
     # Step heights — only where the step is tall enough to fit a label;
     # each step witnesses from the previous dim's line (_right_ladder) so
-    # extension lines are adjacent rather than coincident
-    for col, z in enumerate(
-        [z for z in a.step_zs[:3] if (z - a.bb.min.Z) * a.SCALE >= _MIN_STEP_DIM_MM]
-    ):
+    # extension lines are adjacent rather than coincident. Only the first
+    # three steps are dimensioned; any further dimensionable steps surface
+    # via lint rather than being silently dropped.
+    def _step_legible(z):
+        return (z - a.bb.min.Z) * a.SCALE >= _MIN_STEP_DIM_MM
+
+    _step_zs = [z for z in a.step_zs[:3] if _step_legible(z)]
+    _n_over_cap = sum(1 for z in a.step_zs if _step_legible(z)) - len(_step_zs)
+    if _n_over_cap > 0:
+        dwg._record_build_issue(
+            "warning",
+            "step_dim_dropped",
+            f"{_n_over_cap} step-height dimension(s) not placed "
+            "(only the first three steps are dimensioned)",
+        )
+    for col, z in enumerate(_step_zs):
         _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
         if _px is None:
             _log.warning("dim_step_%d skipped: fv_zones.right strip full", col)
+            dwg._record_build_issue(
+                "error",
+                "placement_unsatisfiable",
+                f"{len(_step_zs) - col} step-height dimension(s) dropped "
+                "(front-view right strip full)",
+            )
             break
         dwg.add(
             Dimension(
@@ -2233,10 +2352,17 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
         return
     if len(refs) > _MAX_LOCATION_REFS:
         refs.sort(key=lambda r: r[2], reverse=True)
+        n_drop = len(refs) - _MAX_LOCATION_REFS
         _log.info(
             "%d location references; dimensioning the %d largest",
             len(refs),
             _MAX_LOCATION_REFS,
+        )
+        dwg._record_build_issue(
+            "warning",
+            "location_ref_dropped",
+            f"{n_drop} hole location reference(s) not dimensioned "
+            f"(cap of {_MAX_LOCATION_REFS} per part)",
         )
         refs = refs[:_MAX_LOCATION_REFS]
 
@@ -2819,12 +2945,25 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
             # (their pattern furniture is withheld too — a bare pitch circle
             # with no callout referencing it explains nothing)
             specs.sort(key=lambda s: s[0][0].diameter, reverse=True)
+            dropped = specs[_MAX_CALLOUTS_PER_VIEW:]
+            dropped_diams = [s[0][0].diameter for s in dropped]
+            # Remember which diameters were dropped so lint() can suppress the
+            # redundant feature_not_dimensioned for them — callout_dropped names
+            # them and is the more specific signal (no double-report).
+            dwg._dropped_callout_diams.extend(dropped_diams)
             _log.info(
                 "%d hole specs in %s view; annotating the %d largest "
-                "(the rest surface as feature_not_dimensioned)",
+                "(the rest surface as callout_dropped)",
                 len(specs),
                 view,
                 _MAX_CALLOUTS_PER_VIEW,
+            )
+            _diams = ", ".join(f"ø{_fmt(d)}" for d in dropped_diams)
+            dwg._record_build_issue(
+                "warning",
+                "callout_dropped",
+                f"{len(dropped)} hole callout(s) dropped from the {view} view "
+                f"(cap of {_MAX_CALLOUTS_PER_VIEW} per view): {_diams}",
             )
             specs = specs[:_MAX_CALLOUTS_PER_VIEW]
 
@@ -2918,6 +3057,12 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
 
             if not can_right and not can_left:
                 _log.info("Hole callout ø%s skipped (no room)", _fmt(holes[0].diameter))
+                dwg._record_build_issue(
+                    "error",
+                    "placement_unsatisfiable",
+                    f"hole callout ø{_fmt(holes[0].diameter)} not placed "
+                    f"(no room beside the {view} view)",
+                )
                 continue
 
             if can_right and (not can_left or d_right <= d_left):
@@ -2944,6 +3089,12 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
                     n_drop,
                     len(right_queue),
                 )
+                dwg._record_build_issue(
+                    "error",
+                    "placement_unsatisfiable",
+                    f"{n_drop} of {len(right_queue)} bore callout(s) dropped "
+                    f"(strip full right of the {view} view)",
+                )
             right_queue = right_queue[: len(right_ys)]
         if left_ys is None and left_queue:
             left_ys = _greedy_strip_ys(
@@ -2955,6 +3106,12 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
                     "plan/side left strip: %d of %d bore callouts skipped (strip full)",
                     n_drop,
                     len(left_queue),
+                )
+                dwg._record_build_issue(
+                    "error",
+                    "placement_unsatisfiable",
+                    f"{n_drop} of {len(left_queue)} bore callout(s) dropped "
+                    f"(strip full left of the {view} view)",
                 )
             left_queue = left_queue[: len(left_ys)]
 

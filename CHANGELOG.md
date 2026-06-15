@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Added
+
+- `Drawing.lint_summary()` — a JSON-friendly aggregate of `lint()` for
+  non-interactive callers (scripts, or an LLM via the API): severity counts,
+  per-code counts, a `geometry_issues` tally (standards/geometry checks vs pure
+  layout), a `passed` flag, a coarse 0–1 `score`, and the full issue list. Gives
+  a single signal to gate and optimise on without rendering the SVG (#32).
+
+### Fixed
+
+- Annotations the layout had to drop (hole callouts past the per-view cap,
+  location references past the per-part cap, step-height dimensions past the
+  first three, bore callouts with no room or an unsatisfiable strip) are no
+  longer silent: each is recorded during the build and surfaced by `lint()`
+  under a dedicated code (`callout_dropped`, `location_ref_dropped`,
+  `step_dim_dropped`, `placement_unsatisfiable`), so a short drawing always
+  carries a machine-readable reason (#32).
+- `placement_unsatisfiable` (the engine could not place an annotation it wanted
+  to, as opposed to a deliberate cap) is **error** severity, so it fails the
+  `lint_summary()` `passed` gate; the deliberate-cap drops stay warnings (#32).
+- A callout dropped by the per-view cap is no longer double-reported: the
+  dropped diameters are named in the `callout_dropped` message and excluded from
+  `feature_not_dimensioned` (#32).
+- `_auto_annotate` is idempotent for build-time lint records — re-annotating a
+  drawing no longer accumulates duplicate drop reports (#32).
+
 ## v0.1.6 — 2026-06-15
 
 ### Fixed
