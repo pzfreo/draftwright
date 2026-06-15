@@ -769,7 +769,17 @@ def _largest_empty_rect(drawable, obstacles):
                     if score > best_score:
                         best_score = score
                         best = (rx0, ry0, rx1, ry1)
-    return best if best is not None else drawable
+    if best is None:
+        # No empty rectangle exists (obstacles cover the drawable area). This
+        # is unreachable in practice — choose_scale always leaves a gap — but
+        # if it ever happens the iso would render over the other views, so flag
+        # it rather than fail silently.
+        _log.warning(
+            "No empty rectangle found for the iso view; obstacles fill the "
+            "drawable area — iso may overlap other views"
+        )
+        return drawable
+    return best
 
 
 def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, page=None, pmi="off"):
@@ -863,7 +873,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     patterns = find_hole_patterns(holes)
 
     # Conservative upper bound for page selection: count all candidate step
-    # faces without the SCALE-dependent 20 mm gate (SCALE is not yet known).
+    # faces without the SCALE-dependent _MIN_STEP_DIM_MM gate (SCALE not yet known).
     n_steps_ub = len(step_zs[:3])
     strips_ub = _measure_strips(
         holes,
