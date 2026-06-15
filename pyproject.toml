@@ -57,7 +57,11 @@ include = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 timeout = 300
-addopts = "--tb=short --cov=src/draftwright --cov-report=term-missing --cov-report=xml"
+# `slow` covers the heavy end-to-end builds over the large NIST CTC fixtures
+# (minutes each). They are deselected by default for a fast normal run; run the
+# full suite with `-m ""` or just the slow tier with `-m slow` (CI runs both).
+markers = ["slow: heavy end-to-end CTC fixture builds (deselected by default)"]
+addopts = "--tb=short --cov=src/draftwright --cov-report=term-missing --cov-report=xml -m 'not slow'"
 
 [tool.coverage.run]
 source = ["src/draftwright"]

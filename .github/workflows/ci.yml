@@ -48,7 +48,25 @@ jobs:
         run: uv sync --group dev
 
       - name: Run tests
+        # Fast tier only — the `slow` marker (heavy CTC fixture builds) is
+        # deselected by default via addopts. The slow tier runs once in the
+        # `test-slow` job below.
         # No --timeout here: it would override the 300 s set in
         # [tool.pytest.ini_options]. The heaviest test (full specimen-sheet SVG
         # export) can exceed 120 s on the slower macOS runners.
         run: uv run pytest tests/ -v
+
+  test-slow:
+    # Heavy end-to-end CTC fixture builds (minutes each); run once, not across
+    # the full OS/Python matrix.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run slow tests
+        run: uv run pytest tests/ -v -m slow
