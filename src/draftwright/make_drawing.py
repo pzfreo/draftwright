@@ -17,6 +17,7 @@ CLI (registered as ``make-drawing``)::
 """
 
 import argparse
+import functools
 import logging
 import math
 import re
@@ -26,6 +27,7 @@ from types import SimpleNamespace
 from typing import Literal
 
 from build123d import (
+    Align,
     Arrow,
     Box,
     Color,
@@ -40,6 +42,7 @@ from build123d import (
     Mode,
     Pos,
     Shape,
+    Text,
     Vector,
 )
 from build123d_drafting.features import (
@@ -204,6 +207,30 @@ def _fmt(v: float) -> str:
     """Format a float as integer string if whole, otherwise 1 dp."""
     r = round(v)
     return str(r) if abs(v - r) < 1e-6 else f"{v:.1f}"
+
+
+@functools.lru_cache(maxsize=512)
+def _text_width(text: str, font_size: float, font: str = "Arial") -> float:
+    """Measured rendered width (page-mm) of *text* in *font* at *font_size*.
+
+    Uses build123d's ``Text`` — the same primitive ``Dimension``/``HoleCallout``
+    stroke their labels with — so callout-width estimates use real glyph metrics
+    instead of a character-count fudge (#31).  Cached because the same numeric
+    labels recur across holes and the rasterisation is the costly part.
+    """
+    if not text:
+        return 0.0
+    return (
+        Text(
+            txt=text,
+            font_size=font_size,
+            font=font,
+            align=(Align.CENTER, Align.CENTER),
+            mode=Mode.PRIVATE,
+        )
+        .bounding_box()
+        .size.X
+    )
 
 
 _DIAM_RE = re.compile(r"[øØ⌀]\s*(\d+(?:\.\d+)?)")
@@ -519,14 +546,37 @@ def _parse_page(page) -> tuple:
 _STRIP_GAP = 8.0
 _STRIP_SPACING = 4.0
 
+# Horizontal page budget to reserve for the isometric view during scale
+# selection and view placement, as a fraction of bbox_max * scale.  This is a
+# deliberate *under-estimate*, not the true projected size (a cube's iso
+# projection is ~1.63*bbox_max wide): the iso is the last column and is fitted
+# to the actual largest-empty-rect afterwards by _fit_iso_view(), which shrinks
+# it to whatever space is genuinely left.  A true fit test here is circular —
+# the empty rect depends on the very view positions this estimate feeds — so
+# the budget stays a single, named factor rather than a recomputed fit (#31).
+_ISO_WIDTH_BUDGET = 0.7
+
 # Slot sizes for the annotations that allocate from fv/pv/sv strips.
 # Shared between the depth estimators below and the allocate() call-sites in
 # _auto_annotate() so that a slot-size change is automatically reflected in
 # the estimator-driven corridor widths.
-_SLOT_DIM_HEIGHT = 10.0  # fv_zones.right: overall height dimension
-_SLOT_DIM_STEP = 14.0  # fv_zones.right: step-height dimension
-_SLOT_DIM_WIDTH = 8.0  # pv_zones.below: overall width dimension
-_SLOT_DIM_DEPTH = 8.0  # sv_zones.below: overall depth dimension
+#
+# A slot is the perpendicular depth (page-mm) reserved for one Dimension: its
+# dim-line offset from the view edge plus the label, which sits exactly
+# pad_around_text beyond the line (measured: a "right"/"below" Dimension's
+# perpendicular span equals offset + pad_around_text - extension_gap, and
+# pad == extension_gap in the draft preset).  Each slot is therefore derived
+# from text metrics (font_size + pad_around_text), like _MIN_STEP_DIM_MM, so it
+# rescales with _FONT_SIZE instead of being a bare mm guess (#31).
+_PAD = draft_preset(font_size=_FONT_SIZE, decimal_precision=1).pad_around_text
+# Single overall dim: two glyph-heights of line offset + the outboard label pad.
+_SLOT_DIM_WIDTH = 2 * _FONT_SIZE + _PAD  # pv_zones.below: overall width dimension
+_SLOT_DIM_DEPTH = 2 * _FONT_SIZE + _PAD  # sv_zones.below: overall depth dimension
+# The overall height dim leads the right ladder, so it carries an extra pad of
+# clearance from the view above the first step dim's witness.
+_SLOT_DIM_HEIGHT = 2 * _FONT_SIZE + 2 * _PAD  # fv_zones.right: overall height dim
+# Stacked step dims sit deeper so each ladder rung's label clears the rung below.
+_SLOT_DIM_STEP = 4 * _FONT_SIZE + _PAD  # fv_zones.right: step-height dimension
 
 # Smallest projected step height (page-mm) that can still carry a *legible*
 # stacked dimension between its two extension lines.  Derived from what has to
@@ -615,10 +665,13 @@ def _est_bore_callout_width(
                 bc_by_spec[_spec_key(p.holes[0])] = p
 
     h_fs = font_size
+    # gap (inter-token spacing) and sym_w (geometry-symbol cell width) mirror
+    # HoleCallout's own internal layout constants so the estimate matches what
+    # the primitive actually strokes.  Variable text tokens are measured with
+    # real glyph metrics (_text_width) rather than a character-count fudge (#31).
     gap = 0.45 * h_fs
     sym_w = h_fs
     pad = pad_around_text
-    char_w = 0.6 * h_fs  # avg character width
 
     max_w = 0.0
     for spec_key, group in groups.items():
@@ -629,26 +682,26 @@ def _est_bore_callout_width(
 
         token_w: list[float] = []
         if count:
-            token_w.append(len(f"{count}×") * char_w)
+            token_w.append(_text_width(f"{count}×", h_fs))
         token_w.append(sym_w)  # ⌀ symbol
-        token_w.append(len(_fmt(rep.diameter)) * char_w)
+        token_w.append(_text_width(_fmt(rep.diameter), h_fs))
         if through:
-            token_w.append(len("THRU") * char_w)
+            token_w.append(_text_width("THRU", h_fs))
         elif rep.depth:
             token_w.append(sym_w)  # depth symbol
-            token_w.append(len(_fmt(rep.depth)) * char_w)
+            token_w.append(_text_width(_fmt(rep.depth), h_fs))
         if step:
             token_w.append(sym_w)  # counterbore/spotface symbol
             token_w.append(sym_w)  # ⌀
-            token_w.append(len(_fmt(step.diameter)) * char_w)
+            token_w.append(_text_width(_fmt(step.diameter), h_fs))
             if step.depth:
                 token_w.append(sym_w)  # depth symbol
-                token_w.append(len(_fmt(step.depth)) * char_w)
+                token_w.append(_text_width(_fmt(step.depth), h_fs))
 
         # BoltCircle suffix: "EQ SP ON ø{bc_dia} BC"
         bc = bc_by_spec.get(spec_key)
         if bc is not None:
-            token_w.append(len(f"EQ SP ON ø{_fmt(bc.diameter)} BC") * char_w)
+            token_w.append(_text_width(f"EQ SP ON ø{_fmt(bc.diameter)} BC", h_fs))
 
         n = len(token_w)
         w = sum(token_w) + max(n - 1, 0) * gap + pad
@@ -723,7 +776,7 @@ def _fits(
         + gap_fv_sv
         + y_size * scale
         + _DIM_PAD
-        + bbox_max * scale * 0.7
+        + bbox_max * scale * _ISO_WIDTH_BUDGET
         + _DIM_PAD
         + tb_w
         + _MARGIN
@@ -998,7 +1051,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
         + x_size * SCALE
         + y_size * SCALE
         + 2 * DIM_PAD
-        + bbox_max * SCALE * 0.7
+        + bbox_max * SCALE * _ISO_WIDTH_BUDGET
     )
     x_offset = max(0.0, (PAGE_W - 2 * margin - TB_W - total_content_w) / 2)
 
@@ -2670,7 +2723,11 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
     """
     draft = dwg.draft
     gap = draft.pad_around_text
-    min_gap = draft.font_size * 2.2
+    # Minimum vertical separation between stacked bore-callout labels: one label
+    # height (font_size) plus pad_around_text clearance above and below, so
+    # adjacent labels never touch.  Derived from text metrics rather than a bare
+    # font-size ratio (#31).
+    min_gap = draft.font_size + 2 * gap
     # Group on the same machining-spec key pattern detection uses (snapped
     # axis vector included): blind holes drilled from opposite faces are
     # different operations and get separate callouts, and a spec group's
@@ -2938,9 +2995,6 @@ def _add_title_block(dwg, a):
         draft=dwg.draft,
     ).locate(Location((a.PAGE_W - a.TB_W - 11, 11, 0)))
     dwg.add(tb, "title_block")
-
-
-_ISO_SHRINK_FACTORS = (0.5, 0.2, 0.1)
 
 
 def _iso_bbox(dwg):
