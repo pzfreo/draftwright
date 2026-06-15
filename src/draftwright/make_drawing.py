@@ -71,7 +71,9 @@ from build123d_drafting.helpers import (
     view_axes,
 )
 from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.GeomAbs import GeomAbs_Plane
+from OCP.TopTools import TopTools_ListOfShape
 
 _log = logging.getLogger(__name__)
 
@@ -2311,6 +2313,39 @@ def _section_hatch_edges(face, SX, SZ, spacing):
     return result
 
 
+def _fuzzy_cut(body, cutter, fuzzy: float = 1e-3):
+    """Boolean-subtract *cutter* from *body* with a fuzzy tolerance.
+
+    Returns a build123d ``Solid`` (or ``Compound`` of solids), or ``None`` if the
+    boolean fails or yields no solid.
+
+    build123d's plain ``body - cutter`` runs an exact (zero-fuzzy) boolean which
+    raises an *uncatchable* ``Standard_DomainError`` on some cast geometry — the
+    C++ exception escapes to ``libc++abi: terminating`` (SIGABRT) and a
+    surrounding ``try/except`` never sees it, killing the whole drawing (NIST
+    CTC-04 section cut, #20). A small fuzzy value makes ``BRepAlgoAPI_Cut`` robust
+    on the same input. We drive the OCCT op directly (build123d's
+    ``Shape._bool_op`` result-processing aborts on the resulting compound) and
+    keep only the solids, so non-solid boolean artefacts can't crash the
+    downstream hidden-line projection.
+    """
+    args = TopTools_ListOfShape()
+    args.Append(body.wrapped)
+    tools = TopTools_ListOfShape()
+    tools.Append(cutter.wrapped)
+    op = BRepAlgoAPI_Cut()
+    op.SetArguments(args)
+    op.SetTools(tools)
+    op.SetFuzzyValue(fuzzy)
+    op.Build()
+    if not op.IsDone():
+        return None
+    solids = Compound(op.Shape()).solids()
+    if not solids:
+        return None
+    return solids[0] if len(solids) == 1 else Compound(children=list(solids))
+
+
 def _add_section_view(dwg, a, axis_letter, holes=None):
     """Full section A–A when blind or stepped holes hide their structure (#94).
 
@@ -2380,9 +2415,14 @@ def _add_section_view(dwg, a, axis_letter, holes=None):
         return
     body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
     try:
-        keep_behind = body - Pos(a.cx, y_star - big / 2, a.cz) * Box(big, big, big)
+        # Fuzzy boolean: the exact `body - Box(...)` aborts uncatchably
+        # (Standard_DomainError) on some cast geometry — see _fuzzy_cut / #20.
+        keep_behind = _fuzzy_cut(body, Pos(a.cx, y_star - big / 2, a.cz) * Box(big, big, big))
     except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
         _log.warning("Section A–A skipped (cut failed: %s)", exc)
+        return
+    if keep_behind is None:
+        _log.warning("Section A–A skipped (boolean cut produced no solid)")
         return
     camera = (dwg.look_at[0], dwg.look_at[1] - dwg.dist, dwg.look_at[2])
     dwg.add_view("section_aa", keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
