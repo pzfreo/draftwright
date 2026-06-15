@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## v0.1.5 — 2026-06-15
+
+### Fixed
+
+- CTC-02 spurious full-page line: build123d's `ExportSVG` projected
+  circle-edge-on edges (hole/fillet rims seen edge-on) as elliptical arcs with
+  a near-zero minor radius, which renderers blow up into full-page lines.
+  `sanitize_svg_arcs()` rewrites any arc with a sub-1e-3 mm radius into the
+  straight line it actually is, leaving real arcs untouched (#19). Not a PMI
+  issue — the file is AP203 geometry-only.
+
+### Tests
+
+- Added the full NIST CTC set (01–05) as fixtures, both AP203 geometry-only and
+  AP242 (with-PMI) variants.
+- Heavy end-to-end CTC fixture builds are marked `slow` and deselected from the
+  default `pytest` run (fast normal run, ~4.5 min); CI runs the fast tier across
+  the OS/Python matrix and the slow tier once.
+- Known: AP242 CTC-02 and both CTC-04 variants crash OCCT on import (#20); their
+  fixtures are excluded from build tests.
+
 ## v0.1.4 — 2026-06-15
 
 ### Changed
