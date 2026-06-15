@@ -9,3 +9,4 @@ build/
 testenv/
 .coverage
 coverage.xml
+.DS_Store

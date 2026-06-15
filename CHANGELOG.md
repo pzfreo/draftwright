@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## v0.1.4 — 2026-06-15
+
+### Changed
+
+- Feature annotations (hole callouts, location dimensions, section view) now
+  fire on feature presence independent of the turned/prismatic classification,
+  so turned-and-drilled parts (e.g. flanges) get both the OD/centreline base
+  set and per-hole callouts plus bolt-circle furniture (#10).
+- Isometric view placement now uses a general largest-empty-rectangle search in
+  place of the wide/flat-on-A3 special case (#11).
+- Concentric bore-leader stacking is generalised beyond three, and the
+  step-height dimension gate is now a single derived constant (#10, #12).
+
+### Internal
+
+- Single-sourced duplicated geometry constants from the draft preset (#12).
+- Minor comment and logging cleanups.
+
 ## v0.1.0 — 2026-06-14
 
 Initial release — spun out of `build123d-drafting-helpers` v0.9.1.
