@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## v0.1.6 — 2026-06-15
+
+### Fixed
+
+- Section-view boolean cut on cast geometry: the exact `body - Box(...)` boolean
+  raised an uncatchable `Standard_DomainError` (C++ abort, SIGABRT) on some parts
+  (NIST CTC-04), crashing the whole drawing. `_fuzzy_cut()` now runs
+  `BRepAlgoAPI_Cut` with a small fuzzy tolerance and keeps solids-only, making
+  the section cut robust (#20, #22).
+
+### Tests
+
+- NIST CTC-04 (both AP203 and AP242) now build with a clean section view and are
+  covered by the CTC build tests.
+- Known: CTC-02 AP242 still segfaults inside OCCT's AP242/PMI STEP read (#20),
+  excluded from build tests.
+
 ## v0.1.5 — 2026-06-15
 
 ### Fixed
