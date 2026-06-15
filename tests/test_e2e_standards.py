@@ -91,14 +91,15 @@ def test_e2e_from_step_meets_standards(tmp_path):
 
 # ---------------------------------------------------------------------------
 # NIST MBE PMI Combined Test Cases (CTC), public-domain models.
-# All 10 variants ship as fixtures, but CTC-04 (both variants) and CTC-02 AP242
-# currently crash OCCT on import (see issue #20) — a segfault/abort would kill
-# the whole test run, so those are excluded from the build tests below.
+# All 10 variants ship as fixtures. CTC-04 used to abort in the section-view
+# boolean cut; the fuzzy cut (_fuzzy_cut, #20) fixed that, so it now builds.
+# CTC-02 AP242 still segfaults inside OCCT's AP242/PMI STEP read (#20) — a
+# segfault would kill the whole test run, so it stays excluded.
 # ---------------------------------------------------------------------------
 
 FIXTURES = Path(__file__).parent / "fixtures"
-_CTC_AP203_OK = ["01", "02", "03", "05"]  # 04 aborts on import (#20)
-_CTC_AP242_OK = ["01", "03", "05"]  # 02, 04 segfault on import (#20)
+_CTC_AP203_OK = ["01", "02", "03", "04", "05"]  # all build (#20 section-cut fix)
+_CTC_AP242_OK = ["01", "03", "04", "05"]  # 02 segfaults in OCCT STEP+PMI read (#20)
 
 
 @pytest.mark.slow
