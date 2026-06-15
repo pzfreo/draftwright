@@ -87,3 +87,27 @@ def test_e2e_from_step_meets_standards(tmp_path):
     # ...and build_drawing on the same STEP gives a Drawing to assert against.
     dwg = build_drawing(str(step), out=stem, title="PLATE", number="DWG-1")
     _assert_meets_standards(dwg, svg, dxf)
+
+
+# ---------------------------------------------------------------------------
+# Regression: NIST CTC-02 (AP203 geometry-only) used to render a spurious
+# full-page vertical line from circle-edge-on projections exported as
+# near-zero-radius SVG arcs.  The export must now leave no degenerate arcs.
+# ---------------------------------------------------------------------------
+
+CTC02_AP203 = Path(__file__).parent / "fixtures" / "nist_ctc_02_asme1_ap203.stp"
+
+
+@pytest.mark.timeout(300)
+def test_ctc02_no_degenerate_arcs_in_svg(tmp_path):
+    from draftwright.make_drawing import _MIN_ARC_RADIUS, _SVG_ARC_RE
+
+    dwg = build_drawing(str(CTC02_AP203), out=str(tmp_path / "ctc02"))
+    svg, _ = dwg.export(str(tmp_path / "ctc02"))
+    data = Path(svg).read_text(encoding="utf-8")
+    degenerate = [
+        m.group(0)
+        for m in _SVG_ARC_RE.finditer(data)
+        if abs(float(m.group(1))) < _MIN_ARC_RADIUS or abs(float(m.group(2))) < _MIN_ARC_RADIUS
+    ]
+    assert not degenerate, f"{len(degenerate)} near-zero-radius arcs leaked into the SVG"
