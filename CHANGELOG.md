@@ -2,33 +2,7 @@
 
 ## Unreleased
 
-### Changed
-
-- **Hole callouts are no longer capped at four per view.** Every distinct bore
-  is attempted; the per-view placement bounds (front-view shaft rows, plan/side
-  strip Y-solver) are the real limit, and a callout that genuinely doesn't fit
-  surfaces as `callout_dropped` (a warning, with its diameter, excluded from
-  `feature_not_dimensioned`). Three previously-silent front-view skip paths now
-  surface too. The bore-callout "no room"/"strip full" drops are reclassified
-  from error (`placement_unsatisfiable`) to this warning, since under the
-  adaptive model an unplaceable callout is an incomplete — not invalid —
-  drawing. Completes the adaptive-caps work (#36); NIST CTC parts now place
-  5–9 callouts (vs a capped 4) with no error-severity lint.
-- **Step-height dimensions are no longer capped at three.** The `fv_zones.right`
-  corridor is now sized for every legible step (`_est_right_strip_depth` no
-  longer caps the count), and a step dim is placed for each legible level. A
-  part with several shoulders gets them all dimensioned instead of an arbitrary
-  three; the strip allocator remains the real bound (an unplaceable step
-  surfaces as `placement_unsatisfiable`). Verified the NIST CTC parts (8–16
-  step faces each) build with no error-severity lint. Second step of the
-  adaptive-caps work (#36); the per-view callout cap follows. The
-  `step_dim_dropped` lint code is removed (the cap that produced it is gone).
-- Hole **location dimensions are no longer capped at four** per part: they are
-  placed nearest-datum-first (baseline practice) until the above-view tier
-  strips fill, so a part with room gets all its holes located instead of an
-  arbitrary four. Refs that genuinely don't fit are skipped (never
-  force-placed) and surface as `location_ref_dropped` (#36). First step of the
-  adaptive-caps work; step-height and per-view callout caps follow.
+## v0.1.7 — 2026-06-15
 
 ### Added
 
@@ -38,23 +12,45 @@
   layout), a `passed` flag, a coarse 0–1 `score`, and the full issue list. Gives
   a single signal to gate and optimise on without rendering the SVG (#32).
 
+### Changed
+
+- **Adaptive annotation placement.** The three hard-coded cardinality caps —
+  four hole callouts per view, four hole location references per part, and three
+  step-height dimensions — are removed. The engine now places as many as the
+  available strip/corridor space allows (callouts largest-first, locations
+  nearest-datum-first, every legible step), so a part with room is dimensioned
+  completely instead of dropped to an arbitrary count. An annotation that
+  genuinely doesn't fit is never force-placed; it surfaces via lint
+  (`callout_dropped` / `location_ref_dropped`, warning severity). On the NIST
+  CTC parts this raises coverage substantially (e.g. CTC-02: 4 → 36 location
+  dimensions, 4 → 9 callouts) with no error-severity lint (#36).
+- **No silent annotation drops.** Every place the layout has to drop an
+  annotation now records a machine-readable lint issue, surfaced by `lint()`,
+  so a short drawing always carries a reason. A dropped callout names its
+  diameter and is excluded from `feature_not_dimensioned` (no double-report).
+  `placement_unsatisfiable` (error severity) is reserved for the degenerate
+  case where space was reserved but an annotation still could not be placed
+  (#32).
+- **Layout constants derived from first principles.** Bare, fixture-tuned
+  constants (strip slot widths, callout label widths, isometric fit factor) are
+  now computed from text metrics and page size rather than hard-coded, so the
+  layout generalises to unseen geometry instead of fitting the test cases (#31).
+- `_auto_annotate` clears its build-time lint records on re-entry, and repeated
+  `lint()` calls are stable (#32).
+
 ### Fixed
 
-- Annotations the layout had to drop (hole callouts past the per-view cap,
-  location references past the per-part cap, step-height dimensions past the
-  first three, bore callouts with no room or an unsatisfiable strip) are no
-  longer silent: each is recorded during the build and surfaced by `lint()`
-  under a dedicated code (`callout_dropped`, `location_ref_dropped`,
-  `step_dim_dropped`, `placement_unsatisfiable`), so a short drawing always
-  carries a machine-readable reason (#32).
-- `placement_unsatisfiable` (the engine could not place an annotation it wanted
-  to, as opposed to a deliberate cap) is **error** severity, so it fails the
-  `lint_summary()` `passed` gate; the deliberate-cap drops stay warnings (#32).
-- A callout dropped by the per-view cap is no longer double-reported: the
-  dropped diameters are named in the `callout_dropped` message and excluded from
-  `feature_not_dimensioned` (#32).
-- `_auto_annotate` is idempotent for build-time lint records — re-annotating a
-  drawing no longer accumulates duplicate drop reports (#32).
+- AP242 / PMI STEP import segfault: STEP geometry is now read directly via
+  `STEPControl_Reader`, avoiding the XCAF/PMI read that crashed (SIGSEGV) on
+  with-PMI files such as NIST CTC-02 (#20).
+
+### Tests
+
+- Overfitting guards pin the general layout behaviour on turned/hybrid parts
+  (flange OD + bolt circle), multi-bore parts, and the step-legibility boundary
+  (#13).
+- The full NIST CTC set (AP203 and AP242) builds and is covered by the slow
+  end-to-end tier.
 
 ## v0.1.6 — 2026-06-15
 
