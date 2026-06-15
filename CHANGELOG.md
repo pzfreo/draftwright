@@ -4,6 +4,16 @@
 
 ### Changed
 
+- **Hole callouts are no longer capped at four per view.** Every distinct bore
+  is attempted; the per-view placement bounds (front-view shaft rows, plan/side
+  strip Y-solver) are the real limit, and a callout that genuinely doesn't fit
+  surfaces as `callout_dropped` (a warning, with its diameter, excluded from
+  `feature_not_dimensioned`). Three previously-silent front-view skip paths now
+  surface too. The bore-callout "no room"/"strip full" drops are reclassified
+  from error (`placement_unsatisfiable`) to this warning, since under the
+  adaptive model an unplaceable callout is an incomplete — not invalid —
+  drawing. Completes the adaptive-caps work (#36); NIST CTC parts now place
+  5–9 callouts (vs a capped 4) with no error-severity lint.
 - **Step-height dimensions are no longer capped at three.** The `fv_zones.right`
   corridor is now sized for every legible step (`_est_right_strip_depth` no
   longer caps the count), and a step dim is placed for each legible level. A

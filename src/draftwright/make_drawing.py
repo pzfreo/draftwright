@@ -2292,7 +2292,20 @@ def _annotate_pmi(dwg, a, draft) -> None:
     _log.info("PMI annotate: %d/%d dims placed", emitted, len(usable))
 
 
-_MAX_CALLOUTS_PER_VIEW = 4
+def _record_callout_drop(dwg, view, diam, reason):
+    """Record a hole callout the layout could not place (#36).
+
+    A warning (the drawing is incomplete, not invalid), whose diameter is
+    excluded from ``feature_not_dimensioned`` like the old per-view cap drop —
+    so a callout that genuinely doesn't fit is surfaced once, with a reason,
+    and not double-reported.
+    """
+    dwg._dropped_callout_diams.append(diam)
+    dwg._record_build_issue(
+        "warning",
+        "callout_dropped",
+        f"hole callout ø{_fmt(diam)} dropped from the {view} view ({reason})",
+    )
 
 
 def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
@@ -2925,32 +2938,12 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
         for holes in view_groups:
             pattern = patterns.get(frozenset(holes))
             specs.append((holes, _build_callout(holes, pattern), pattern))
-        if len(specs) > _MAX_CALLOUTS_PER_VIEW:
-            # annotate the largest features; the rest surface via the lint
-            # (their pattern furniture is withheld too — a bare pitch circle
-            # with no callout referencing it explains nothing)
-            specs.sort(key=lambda s: s[0][0].diameter, reverse=True)
-            dropped = specs[_MAX_CALLOUTS_PER_VIEW:]
-            dropped_diams = [s[0][0].diameter for s in dropped]
-            # Remember which diameters were dropped so lint() can suppress the
-            # redundant feature_not_dimensioned for them — callout_dropped names
-            # them and is the more specific signal (no double-report).
-            dwg._dropped_callout_diams.extend(dropped_diams)
-            _log.info(
-                "%d hole specs in %s view; annotating the %d largest "
-                "(the rest surface as callout_dropped)",
-                len(specs),
-                view,
-                _MAX_CALLOUTS_PER_VIEW,
-            )
-            _diams = ", ".join(f"ø{_fmt(d)}" for d in dropped_diams)
-            dwg._record_build_issue(
-                "warning",
-                "callout_dropped",
-                f"{len(dropped)} hole callout(s) dropped from the {view} view "
-                f"(cap of {_MAX_CALLOUTS_PER_VIEW} per view): {_diams}",
-            )
-            specs = specs[:_MAX_CALLOUTS_PER_VIEW]
+        # No fixed cap (#36): every spec is attempted; the per-view placement
+        # bounds below (front-view shaft rows, plan/side strip Y-solver) are the
+        # real limit, and any callout that genuinely doesn't fit surfaces as
+        # callout_dropped. Largest diameters first so the most significant
+        # features win the available room.
+        specs.sort(key=lambda s: s[0][0].diameter, reverse=True)
 
         if view == "front":
             # Below the view, vertical shafts. Rows are assigned right-to-
@@ -2968,6 +2961,7 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
                     side, x0, x1 = "left", centre[0] - gap - w, centre[0] - gap
                 else:
                     _log.info("Hole callout ø%s skipped (no room)", _fmt(holes[0].diameter))
+                    _record_callout_drop(dwg, view, holes[0].diameter, "no room beside the view")
                     continue
                 # the title block only constrains rows that reach its x-range
                 floor = (tb_top + 4) if x1 > tb_left - 4 else a.margin + 4
@@ -2975,6 +2969,7 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
                     _log.info(
                         "Hole callout ø%s skipped (front strip full)", _fmt(holes[0].diameter)
                     )
+                    _record_callout_drop(dwg, view, holes[0].diameter, "front strip full")
                     continue
                 if any(
                     ox0 <= centre[0] <= ox1 and row_y > elbow_y for ox0, ox1, row_y in occupied
@@ -2982,6 +2977,9 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
                     _log.info(
                         "Hole callout ø%s skipped (shaft would cross another callout)",
                         _fmt(holes[0].diameter),
+                    )
+                    _record_callout_drop(
+                        dwg, view, holes[0].diameter, "shaft would cross another callout"
                     )
                     continue
                 elbow = (centre[0], elbow_y)
@@ -3042,12 +3040,7 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
 
             if not can_right and not can_left:
                 _log.info("Hole callout ø%s skipped (no room)", _fmt(holes[0].diameter))
-                dwg._record_build_issue(
-                    "error",
-                    "placement_unsatisfiable",
-                    f"hole callout ø{_fmt(holes[0].diameter)} not placed "
-                    f"(no room beside the {view} view)",
-                )
+                _record_callout_drop(dwg, view, holes[0].diameter, "no room beside the view")
                 continue
 
             if can_right and (not can_left or d_right <= d_left):
@@ -3074,12 +3067,8 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
                     n_drop,
                     len(right_queue),
                 )
-                dwg._record_build_issue(
-                    "error",
-                    "placement_unsatisfiable",
-                    f"{n_drop} of {len(right_queue)} bore callout(s) dropped "
-                    f"(strip full right of the {view} view)",
-                )
+                for holes, *_ in right_queue[len(right_ys) :]:
+                    _record_callout_drop(dwg, view, holes[0].diameter, "right strip full")
             right_queue = right_queue[: len(right_ys)]
         if left_ys is None and left_queue:
             left_ys = _greedy_strip_ys(
@@ -3092,12 +3081,8 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
                     n_drop,
                     len(left_queue),
                 )
-                dwg._record_build_issue(
-                    "error",
-                    "placement_unsatisfiable",
-                    f"{n_drop} of {len(left_queue)} bore callout(s) dropped "
-                    f"(strip full left of the {view} view)",
-                )
+                for holes, *_ in left_queue[len(left_ys) :]:
+                    _record_callout_drop(dwg, view, holes[0].diameter, "left strip full")
             left_queue = left_queue[: len(left_ys)]
 
         for i, ((holes, callout, pattern, _, rep), elbow_y) in enumerate(

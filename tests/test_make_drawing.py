@@ -1688,7 +1688,10 @@ class TestAutoHoleAnnotations:
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(60)
-    def test_callout_cap_keeps_the_largest_holes(self):
+    def test_all_distinct_bores_get_callouts(self):
+        # #36: no per-view callout cap — six distinct-diameter holes in a row
+        # all get callouts (previously capped at the four largest), and nothing
+        # is dropped because they fit.
         part = Box(120, 80, 10)
         for i, r in enumerate([1, 1.5, 2, 2.5, 3, 4]):
             part = part - Pos(-50 + i * 20, 0, 0) * Cylinder(r, 10)
@@ -1697,14 +1700,8 @@ class TestAutoHoleAnnotations:
         for name, ann in dwg._named.items():
             if name.startswith("hc_"):
                 covered.update(ann.covers_diameters)
-        assert covered == {4.0, 5.0, 6.0, 8.0}
-        # the dropped specs (ø2, ø3) surface through callout_dropped, which names
-        # them — not double-reported as feature_not_dimensioned (#32 de-dup)
-        issues = dwg.lint()
-        cd = next(i for i in issues if i.code == "callout_dropped")
-        assert "ø2" in cd.message and "ø3" in cd.message
-        flagged = {i.message for i in issues if i.code == "feature_not_dimensioned"}
-        assert flagged == set()
+        assert covered == {2.0, 3.0, 4.0, 5.0, 6.0, 8.0}
+        assert "callout_dropped" not in {i.code for i in dwg.lint()}
 
     @pytest.mark.timeout(60)
     def test_rotational_part_keeps_leader_annotations(self):
@@ -2366,27 +2363,20 @@ class TestLintSummaryAndDrops:
         # callout_dropped is a geometry-aware code, so it lifts that count too.
         assert after["geometry_issues"] == before["geometry_issues"] + 1
 
-    @pytest.mark.timeout(120)
-    def test_callout_cap_overflow_is_surfaced(self):
-        from build123d import Box, Cylinder, Pos
+    def test_dropped_callout_diameter_excluded_from_feature_lint(self):
+        # The de-dup contract: a diameter recorded as a dropped callout is
+        # excluded from feature_not_dimensioned, so a callout the layout could
+        # not place (#36) is surfaced once (as callout_dropped) and not
+        # double-reported.
+        from build123d import Box, Cylinder
 
-        from draftwright import build_drawing
+        from draftwright.make_drawing import lint_feature_coverage
 
-        # Five distinct-diameter through-holes in the plan view exceed the
-        # per-view callout cap (4); the overflow must surface, not vanish.
-        # The smallest (ø4) is the one dropped (largest four are kept).
-        plate = Box(120, 60, 8)
-        for x, r in zip((-48, -24, 0, 24, 48), (2.0, 2.5, 3.0, 3.5, 4.0)):
-            plate -= Pos(x, 0, 0) * Cylinder(r, 8)
-        dwg = build_drawing(plate)
-        issues = dwg.lint()
-        assert "callout_dropped" in {i.code for i in issues}
-        # The dropped diameter is named by callout_dropped...
-        cd = next(i for i in issues if i.code == "callout_dropped")
-        assert "ø4" in cd.message
-        # ...and NOT double-reported as feature_not_dimensioned (de-dup).
-        fnd = [i.message for i in issues if i.code == "feature_not_dimensioned"]
-        assert not any("ø4" in m for m in fnd), fnd
+        part = Box(60, 40, 20) - Cylinder(5, 20)  # one undimensioned ø10 bore
+        base = lint_feature_coverage(part, [])
+        assert any(i.code == "feature_not_dimensioned" for i in base)
+        excluded = lint_feature_coverage(part, [], exclude=[10.0])
+        assert not any(i.code == "feature_not_dimensioned" for i in excluded)
 
     @pytest.mark.timeout(120)
     def test_step_dims_are_adaptive_not_capped(self):
@@ -2518,16 +2508,15 @@ class TestLayoutGeneralisation:
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
     @pytest.mark.timeout(120)
-    def test_turned_flange_callout_overflow_is_surfaced_not_dropped(self):
-        # A turned part with more distinct bores than the per-view callout cap
-        # must annotate the largest up to the cap and surface the rest via
-        # lint — never silently drop them (the bores[:N] concern in #13).
+    def test_turned_flange_dimensions_all_its_bores(self):
+        # #36: no per-view callout cap — a turned part with five distinct bores
+        # gets a callout for every one (was capped at four largest), more than
+        # the old cap, with nothing dropped because they fit.
         import math
 
         from build123d import Cylinder, Pos
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _MAX_CALLOUTS_PER_VIEW
 
         flange = Cylinder(radius=45, height=10) - Cylinder(radius=8, height=10)
         for i, r in enumerate((2.0, 2.5, 3.0, 3.5, 4.0)):
@@ -2536,9 +2525,8 @@ class TestLayoutGeneralisation:
         dwg = build_drawing(flange)
 
         n_callouts = len([n for n in dwg._named if n.startswith("hc_")])
-        assert n_callouts <= _MAX_CALLOUTS_PER_VIEW
-        # The overflow is surfaced, not silent.
-        assert "callout_dropped" in {i.code for i in dwg.lint()}
+        assert n_callouts > 4, f"expected adaptive >4 callouts, got {n_callouts}"
+        assert "callout_dropped" not in {i.code for i in dwg.lint()}
 
     @pytest.mark.timeout(120)
     def test_step_height_legibility_threshold(self):
