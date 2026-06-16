@@ -1775,6 +1775,30 @@ class Drawing:
         px, py = self._coords[view].pp(x, y, z)
         return (px, py, 0.0)
 
+    def view_bounds(self, view):
+        """Return ``(x_min, y_min, x_max, y_max)`` of the projected geometry in
+        *view*, or ``None`` if the view is unknown (#28).
+
+        The box is the tight bounding box of the placed silhouette — visible
+        plus hidden lines — in page coordinates (mm from the sheet origin), the
+        same space :meth:`at` returns. Use it to place free-form notes, leader
+        elbows and the like just outside a view without guessing offsets::
+
+            x0, y0, x1, y1 = dwg.view_bounds("front")
+            dwg.add(Note("SEE NOTE 1", (x1 + 5, (y0 + y1) / 2), dwg.draft))
+        """
+        placed = self.views.get(view)
+        if placed is None:
+            return None
+        vis, hid = placed
+        bb = vis.bounding_box()
+        x0, y0, x1, y1 = bb.min.X, bb.min.Y, bb.max.X, bb.max.Y
+        if hid:
+            hb = hid.bounding_box()
+            x0, y0 = min(x0, hb.min.X), min(y0, hb.min.Y)
+            x1, y1 = max(x1, hb.max.X), max(y1, hb.max.Y)
+        return (x0, y0, x1, y1)
+
     def features(self, view="front"):
         """Return detected geometric features in page coordinates for *view*.
 
@@ -4020,14 +4044,7 @@ def _add_title_block(dwg, a):
 
 def _iso_bbox(dwg):
     """(min_x, min_y, max_x, max_y) of the placed iso view, hidden lines included."""
-    vis, hid = dwg.views["iso"]
-    bb = vis.bounding_box()
-    x0, y0, x1, y1 = bb.min.X, bb.min.Y, bb.max.X, bb.max.Y
-    if hid:
-        hb = hid.bounding_box()
-        x0, y0 = min(x0, hb.min.X), min(y0, hb.min.Y)
-        x1, y1 = max(x1, hb.max.X), max(y1, hb.max.Y)
-    return x0, y0, x1, y1
+    return dwg.view_bounds("iso")
 
 
 def _bbox_within(bb, region, tol: float = 0.5) -> bool:
@@ -4384,6 +4401,7 @@ def _write_script(a) -> str:
         "# dwg.annotations()        → {name: type} of every named annotation\n"
         "# dwg.get_annotation(name) → the named annotation object, or None\n"
         "# dwg.at(view, x, y, z)  → page point (px, py, 0) mapped from world coordinates\n"
+        "# dwg.view_bounds(view)  → (x_min, y_min, x_max, y_max) page bbox of the view, or None\n"
         "# dwg.add(obj, name) / dwg.remove(name)\n"
         "# dwg.add_view(name, shape, camera, up, position)  → section / auxiliary view\n"
         "# Example:\n"

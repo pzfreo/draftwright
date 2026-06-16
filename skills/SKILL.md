@@ -80,6 +80,7 @@ dwg = build_drawing(part, out="drawings/bracket", title="BRACKET",
 #   dwg.get_annotation(name) → the named annotation object, or None
 #   dwg.draft / dwg.scale / dwg.page_w / dwg.page_h
 #   dwg.at(view, x, y, z)    → page point (px, py, 0) mapped from world coordinates
+#   dwg.view_bounds(view)    → (x_min, y_min, x_max, y_max) page bbox of the view, or None
 
 # Add a dimension/leader the automatic pass missed:
 dwg.add(Leader(tip=dwg.at("front", 10, 0, 5), elbow=(8, 40, 0),
