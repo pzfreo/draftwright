@@ -1709,8 +1709,8 @@ class TestAutoHoleAnnotations:
 
     @pytest.fixture(scope="class")
     def plate_drawing(self):
-        # 4x o10 thru corners + centre o8 thru with o16x6 cbore + o6 x-axis
-        # cross hole + o12 blind hole
+        # 4× ø10 thru corners + centre ø8 thru with ø16×6 cbore + ø6 x-axis
+        # cross hole + ø12 blind hole
         part = (
             Box(100, 100, 20)
             - Pos(35, 35, 0) * Cylinder(5, 20)
@@ -1727,7 +1727,7 @@ class TestAutoHoleAnnotations:
     @pytest.mark.timeout(120)
     def test_identical_holes_share_one_counted_callout(self, plate_drawing):
         hc = [n for n in plate_drawing._named if n.startswith("hc_plan")]
-        # 3 distinct Z specs (4x o10 thru, o8 cbore stack, o12 blind), not 6
+        # 3 distinct Z specs (4× ø10 thru, ø8 cbore stack, ø12 blind), not 6
         assert len(hc) == 3
 
     @pytest.mark.timeout(120)
@@ -2490,9 +2490,9 @@ class TestLintSummaryAndDrops:
 
     @pytest.mark.timeout(120)
     def test_step_dims_are_adaptive_not_capped(self):
-        # #36: no fixed 3-step cap. Five stacked ledges → a step dim for each
-        # legible ledge (well over the old cap of three), corridor sized to fit
-        # them all, no error-severity lint.
+        # #36: no fixed 3-step cap; #45: five equal ledges form a uniform
+        # staircase → one representative dim_step_typ labelled "N× rise",
+        # no error-severity lint.
         from build123d import Box, Pos
 
         from draftwright import build_drawing
@@ -2502,8 +2502,7 @@ class TestLintSummaryAndDrops:
             side = 120 - i * 18
             tower += Pos(0, 0, i * 15) * Box(side, side, 15)
         dwg = build_drawing(tower)
-        n_steps = len([n for n in dwg._named if n.startswith("dim_step")])
-        assert n_steps > 3, f"expected adaptive >3 step dims, got {n_steps}"
+        assert "dim_step_typ" in dwg._named, "uniform staircase should get a TYP dim"
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
     def test_legible_steps_gate_drops_closely_spaced(self):
@@ -2813,3 +2812,91 @@ class TestDetailView:
         assert "detail_caption" not in dwg._named
         assert not any(n.startswith("dim_detail") for n in dwg._named)
         assert [i for i in dwg.lint() if i.severity == "error"] == []
+
+
+# ---------------------------------------------------------------------------
+# Issue #45: TYP / representative dimensioning for uniform step patterns
+# ---------------------------------------------------------------------------
+
+
+def _uniform_staircase(n_treads=8, rise=15.0, going=20.0, width=30.0):
+    """Return a staircase solid with *n_treads* treads of equal rise and going."""
+    part = None
+    for i in range(n_treads):
+        h = (i + 1) * rise
+        w = (n_treads - i) * going
+        b = Pos(w / 2, 0, h / 2) * Box(w, width, h)
+        part = b if part is None else part + b
+    return part
+
+
+class TestTypDimensioning:
+    """#45: uniform staircase → single representative dim labelled N× rise."""
+
+    def test_uniform_staircase_gets_typ_dim(self):
+        dwg = build_drawing(_uniform_staircase(n_treads=8, rise=15.0))
+        named = dwg._named
+        assert "dim_step_typ" in named, "expected a single representative step dim"
+        assert not any(k.startswith("dim_step_") and k != "dim_step_typ" for k in named)
+        assert named["dim_step_typ"].label == "8× 15"
+        assert "dim_height" in named
+        assert [i for i in dwg.lint() if i.severity == "error"] == []
+
+    def test_typ_label_fractional_rise(self):
+        dwg = build_drawing(_uniform_staircase(n_treads=5, rise=12.5, going=18.0))
+        assert "dim_step_typ" in dwg._named
+        assert dwg._named["dim_step_typ"].label == "5× 12.5"
+
+    def test_irregular_staircase_gets_per_step_dims(self):
+        # Non-uniform rises → fall back to per-step ladder.
+        # Build as union of full-height slabs with decreasing footprint so
+        # OpenCASCADE produces horizontal tread faces at each step level.
+        cum_zs = [10.0, 30.0, 40.0, 65.0, 80.0]  # deliberately irregular
+        n = len(cum_zs)
+        going = 20
+        part = None
+        for i, total_h in enumerate(cum_zs):
+            w = (n - i) * going
+            b = Pos(w / 2, 0, total_h / 2) * Box(w, 30, total_h)
+            part = b if part is None else part + b
+        dwg = build_drawing(part)
+        assert "dim_step_typ" not in dwg._named
+        assert any(k.startswith("dim_step_") and k != "dim_step_typ" for k in dwg._named)
+
+    def test_two_step_part_not_detected_as_pattern(self):
+        # Only 2 interior steps → below the ≥3 threshold; per-step path used.
+        from draftwright.make_drawing import _detect_step_repeat
+
+        step_zs = [10.0, 20.0]
+        result = _detect_step_repeat(step_zs, 0.0, 30.0)
+        assert result is None
+
+    def test_detect_step_repeat_uniform(self):
+        from draftwright.make_drawing import _detect_step_repeat
+
+        zs = [15.0, 30.0, 45.0, 60.0, 75.0, 90.0, 105.0]
+        n, rise = _detect_step_repeat(zs, 0.0, 120.0)
+        assert n == 8
+        assert abs(rise - 15.0) < 0.01
+
+    def test_detect_step_repeat_nonuniform(self):
+        from draftwright.make_drawing import _detect_step_repeat
+
+        zs = [10.0, 25.0, 35.0, 60.0]
+        assert _detect_step_repeat(zs, 0.0, 70.0) is None
+
+    def test_detect_step_repeat_top_gap_mismatch_excluded_from_count(self):
+        # When top gap doesn't match the mean rise, n = len(step_zs) not +1.
+        from draftwright.make_drawing import _detect_step_repeat
+
+        zs = [10.0, 20.0, 30.0]  # 3 equal interior rises of 10mm
+        # top gap = 55 - 30 = 25 ≠ 10 → should NOT add 1
+        n, rise = _detect_step_repeat(zs, 0.0, 55.0)
+        assert n == 3
+        assert abs(rise - 10.0) < 0.01
+
+    def test_three_step_part_gets_typ_dim(self):
+        # Integration: exactly 3 interior steps (the minimum threshold) → TYP path.
+        dwg = build_drawing(_uniform_staircase(n_treads=4, rise=20.0))
+        assert "dim_step_typ" in dwg._named
+        assert not any(k.startswith("dim_step_") and k != "dim_step_typ" for k in dwg._named)
