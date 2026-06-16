@@ -13,6 +13,7 @@ Licensed under the GNU Affero General Public License v3 (AGPL-3.0).
 
 from draftwright.make_drawing import (
     Drawing,
+    FeatureInfo,
     analyse_face_levels,
     build_drawing,
     choose_scale,
@@ -26,6 +27,7 @@ from draftwright.pmi import PmiRecord, extract_pmi
 
 __all__ = [
     "Drawing",
+    "FeatureInfo",
     "PmiRecord",
     "analyse_face_levels",
     "build_drawing",

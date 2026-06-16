@@ -2900,3 +2900,144 @@ class TestTypDimensioning:
         dwg = build_drawing(_uniform_staircase(n_treads=4, rise=20.0))
         assert "dim_step_typ" in dwg._named
         assert not any(k.startswith("dim_step_") and k != "dim_step_typ" for k in dwg._named)
+
+
+# ---------------------------------------------------------------------------
+# Issues #26 + #25: dwg.features() and dwg.place_dim()
+# ---------------------------------------------------------------------------
+
+
+def _holed_plate():
+    """80×60×20 plate: 4 corner ø10 through-holes (Z-axis) + 1 centre ø6 blind (Z-axis)."""
+    return (
+        Box(80, 60, 20)
+        - Pos(25, 20, 0) * Cylinder(5, 20)
+        - Pos(-25, 20, 0) * Cylinder(5, 20)
+        - Pos(25, -20, 0) * Cylinder(5, 20)
+        - Pos(-25, -20, 0) * Cylinder(5, 20)
+        - Pos(0, 0, 5) * Cylinder(3, 10)
+    )
+
+
+class TestFeatures:
+    """#26: dwg.features(view) exposes analysis to scripts."""
+
+    def test_feature_info_importable_from_top_level(self):
+        from draftwright import FeatureInfo
+
+        f = FeatureInfo(
+            type="hole", page_pos=(1.0, 2.0), diameter=5.0, through=True, depth=None, count=1
+        )
+        assert f.type == "hole"
+        assert f.count == 1
+
+    def test_z_axis_holes_appear_in_plan_view(self):
+        dwg = build_drawing(_holed_plate())
+        feats = dwg.features("plan")
+        assert len(feats) == 2  # ø10 group (×4) + ø6 group (×1)
+        diams = {f.diameter for f in feats}
+        assert diams == {10.0, 6.0}
+
+    def test_through_and_blind_correctly_classified(self):
+        dwg = build_drawing(_holed_plate())
+        feats = {f.diameter: f for f in dwg.features("plan")}
+        assert feats[10.0].through is True
+        assert feats[10.0].depth is None
+        assert feats[6.0].through is False
+        assert feats[6.0].depth == 10.0
+
+    def test_count_groups_identical_holes(self):
+        dwg = build_drawing(_holed_plate())
+        feats = {f.diameter: f for f in dwg.features("plan")}
+        assert feats[10.0].count == 4
+        assert feats[6.0].count == 1
+
+    def test_page_pos_is_in_plan_view_coordinate_range(self):
+        dwg = build_drawing(_holed_plate())
+        a = dwg._analysis
+        feats = dwg.features("plan")
+        for f in feats:
+            px, py = f.page_pos
+            # page_pos must lie within the plan view bounds (within half-extents + margin)
+            assert abs(px - a.PV_X) <= a.x_size / 2 * a.SCALE + 5
+            assert abs(py - a.PV_Y) <= a.y_size / 2 * a.SCALE + 5
+
+    def test_z_axis_holes_absent_from_front_view(self):
+        # The holed plate has only Z-axis holes — none should appear in front
+        dwg = build_drawing(_holed_plate())
+        assert dwg.features("front") == []
+
+    def test_unknown_view_returns_empty(self):
+        dwg = build_drawing(Box(40, 30, 20))
+        assert dwg.features("nonsense") == []
+
+    def test_no_analysis_returns_empty(self):
+        from draftwright import Drawing
+
+        dwg = Drawing(
+            scale=1.0,
+            page_w=297,
+            page_h=210,
+            tb_w=100,
+            draft=None,
+            look_at=(0, 0, 0),
+            dist=100,
+            centroid=(0, 0, 0),
+            out="",
+        )
+        assert dwg.features("plan") == []
+
+
+class TestPlaceDim:
+    """#25: dwg.place_dim() stacks with the auto-dimension strip."""
+
+    def test_place_dim_adds_named_annotation(self):
+        dwg = build_drawing(Box(80, 60, 20))
+        p1 = dwg.at("plan", -40, 0, 0)
+        p2 = dwg.at("plan", 40, 0, 0)
+        dwg.place_dim(p1, p2, "below", "plan", dwg.draft, name="my_dim", label="80")
+        assert "my_dim" in dwg._named
+        assert dwg._named["my_dim"].label == "80"
+
+    def test_place_dim_returns_dimension_object(self):
+        from build123d_drafting.helpers import Dimension
+
+        dwg = build_drawing(Box(60, 40, 20))
+        p1 = dwg.at("front", -30, 0, -10)
+        p2 = dwg.at("front", 30, 0, -10)
+        result = dwg.place_dim(p1, p2, "below", "front", dwg.draft)
+        assert isinstance(result, Dimension)
+
+    def test_two_place_dim_calls_stack_without_overlap(self):
+        # Two dims on the same strip must land at different page positions.
+        # Use auto_dims=False so the strip has no prior allocations, and
+        # "above" where there is ample headroom for two consecutive allocations.
+        dwg = build_drawing(Box(80, 60, 20), auto_dims=False)
+        p1 = dwg.at("plan", -40, 0, 0)
+        p2 = dwg.at("plan", 40, 0, 0)
+        d1 = dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="d1")
+        d2 = dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="d2")
+        # dim_level_y is the y-coordinate of the dim line on the page;
+        # two stacked dims must land at different y values.
+        assert d1.dim_level_y != d2.dim_level_y
+
+    def test_place_dim_no_analysis_falls_back_to_slot(self):
+        # _analysis is None → no strip available → falls back to slot offset, no error.
+        from build123d_drafting.helpers import Dimension, draft_preset
+
+        from draftwright import Drawing
+
+        d = draft_preset(font_size=3.0, decimal_precision=1)
+        dwg = Drawing(
+            scale=1.0,
+            page_w=297,
+            page_h=210,
+            tb_w=100,
+            draft=d,
+            look_at=(0, 0, 0),
+            dist=100,
+            centroid=(0, 0, 0),
+            out="",
+        )
+        result = dwg.place_dim((0, 0, 0), (80, 0, 0), "below", "plan", d, slot=8.0)
+        assert isinstance(result, Dimension)

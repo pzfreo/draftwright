@@ -1529,6 +1529,22 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class FeatureInfo:
+    """A detected geometric feature, expressed in page coordinates.
+
+    Returned by :meth:`Drawing.features`.  ``page_pos`` is in the coordinate
+    system of the view passed to that call.
+    """
+
+    type: str
+    page_pos: tuple
+    diameter: float
+    through: bool
+    depth: float | None
+    count: int
+
+
 class Drawing:
     """A composable technical drawing — the editable form of :func:`make_drawing`.
 
@@ -1645,6 +1661,102 @@ class Drawing:
         """Map a world point to a page point ``(px, py, 0)`` in ``view``."""
         px, py = self._coords[view].pp(x, y, z)
         return (px, py, 0.0)
+
+    def features(self, view="front"):
+        """Return detected geometric features in page coordinates for *view*.
+
+        Holes are grouped by machining spec (diameter + depth + cbore) and
+        returned as :class:`FeatureInfo` objects with ``count`` set to the
+        number of identical holes at that spec.  Each group's ``page_pos``
+        is the page position of the first hole in the group.
+
+        The view determines which holes appear as circles (and are therefore
+        annotatable from that view):
+
+        - ``"plan"``  → Z-axis holes
+        - ``"front"`` → Y-axis holes
+        - ``"side"``  → X-axis holes
+
+        Returns an empty list when no analysis is available or the view name
+        is unrecognised.
+        """
+        a = self._analysis
+        if a is None:
+            return []
+
+        _axis_for_view = {"plan": "z", "front": "y", "side": "x"}
+        target_axis = _axis_for_view.get(view)
+        if target_axis is None:
+            return []
+
+        def _axis_letter(h):
+            return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
+
+        if view not in self._coords:
+            return []
+
+        def _to_page(h):
+            return self._coords[view].pp(*h.location)
+
+        groups: dict = {}
+        for h in a.holes:
+            if _axis_letter(h) != target_axis:
+                continue
+            groups.setdefault(_spec_key(h), []).append(h)
+
+        result = []
+        for group in groups.values():
+            rep = group[0]
+            result.append(
+                FeatureInfo(
+                    type="hole",
+                    page_pos=_to_page(rep),
+                    diameter=rep.diameter,
+                    through=rep.bottom == "through",
+                    depth=None if rep.bottom == "through" else rep.depth,
+                    count=len(group),
+                )
+            )
+        return result
+
+    def place_dim(self, p1, p2, side, view, draft, *, name=None, slot=8.0, **kwargs):
+        """Add a :class:`~build123d_drafting.helpers.Dimension` that stacks cleanly
+        with the auto-generated dimensions by delegating to the same strip-allocation
+        system (:class:`Strip`) that :func:`build_drawing` uses internally.
+
+        Args:
+            p1, p2: page-coordinate tuples ``(px, py, 0)`` — use :meth:`at` to
+                convert world coordinates.
+            side: ``"above"``, ``"below"``, ``"left"``, or ``"right"``.
+            view: ``"front"``, ``"plan"``, or ``"side"``.
+            draft: the drawing's :attr:`draft` preset.
+            name: optional annotation name for later :meth:`remove` / replace.
+            slot: strip slot depth (mm); the perpendicular space reserved per dim.
+            **kwargs: forwarded to ``Dimension`` (e.g. ``label=``, ``tolerance=``).
+
+        Falls back to a fixed ``slot`` offset when the strip is full or when no
+        layout analysis is available (e.g. when ``auto_dims=False`` was not used
+        with :func:`build_drawing`).
+        """
+        from build123d_drafting.helpers import Dimension
+
+        a = self._analysis
+        _view_zones = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
+        strip = None
+        if a is not None:
+            zones = getattr(a, _view_zones.get(view, ""), None)
+            if zones is not None:
+                strip = getattr(zones, side, None)
+        dist = slot
+        if strip is not None:
+            coord = strip.allocate(slot)
+            if coord is not None:
+                ax = 0 if side in ("left", "right") else 1
+                if side in ("right", "above"):
+                    dist = coord - max(p[ax] for p in (p1, p2))
+                else:
+                    dist = min(p[ax] for p in (p1, p2)) - coord
+        return self.add(Dimension(p1, p2, side, max(dist, 4.0), draft, **kwargs), name)
 
     # -- annotations ----------------------------------------------------------
     def add(self, obj, name=None):
