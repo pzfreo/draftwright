@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Changed
+
+- **Step heights are dimensioned only where legibly separable.** After the
+  adaptive cap (#36), a part with many closely-spaced shoulders (e.g. NIST
+  CTC-02 at 1:5) tried to dimension faces only ~1 mm apart on the page. A step
+  is now dimensioned only if it is both tall enough from the base *and* at least
+  one legible step-height above the previously dimensioned one; the rest surface
+  as `step_dim_dropped` (use a detail view). "Fits" is not the same as
+  "legible" (#41).
+- **Tighter location-dimension tier pitch.** The vertical pitch between stacked
+  X/Y location dimensions is now derived from the label footprint
+  (`font_size + 2·pad_around_text`, ≈7 mm) instead of a looser `font_size·3`,
+  so location stacks pack closer (#41).
+
 ## v0.1.7 — 2026-06-15
 
 ### Added

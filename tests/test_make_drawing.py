@@ -2396,6 +2396,27 @@ class TestLintSummaryAndDrops:
         assert n_steps > 3, f"expected adaptive >3 step dims, got {n_steps}"
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
+    def test_legible_steps_gate_drops_closely_spaced(self):
+        # #41: a step is dimensioned only if tall enough from the base AND at
+        # least _MIN_STEP_SEP_MM (page-mm) above the previously kept step;
+        # closely-spaced shoulders are dropped (surfaced via lint), too-short
+        # ones are silently omitted.
+        from draftwright.make_drawing import (
+            _MIN_STEP_DIM_MM,
+            _MIN_STEP_SEP_MM,
+            _legible_steps,
+        )
+
+        base = _MIN_STEP_DIM_MM + 5.0  # all comfortably tall enough from z=0
+        zs = [base, base + 0.5, base + 1.0, base + _MIN_STEP_SEP_MM + 1.0]
+        kept, n_too_close = _legible_steps(zs, 0.0, scale=1.0)
+        assert kept == [base, base + _MIN_STEP_SEP_MM + 1.0]
+        assert n_too_close == 2
+        # A sub-legible step (too short to carry a label) is omitted, not dropped.
+        kept2, n2 = _legible_steps([1.0, base], 0.0, scale=1.0)
+        assert kept2 == [base]
+        assert n2 == 0
+
     @pytest.mark.timeout(120)
     def test_location_dims_are_adaptive_not_capped(self):
         # #36: location dims have no fixed cap. Six scattered holes (distinct X
