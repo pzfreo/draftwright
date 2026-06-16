@@ -3149,14 +3149,15 @@ class TestLintSuggestions:
         assert _suggest_fix(issue, dwg) is None
 
     def test_non_integer_diameter_still_gets_suggestion(self):
-        # Regression: the reported diameter is dedup-rounded to 1 dp, so a 1e-6
-        # match against the raw feature diameter would silently drop the
-        # suggestion for any non-integer bore. ø8.4 must still get one.
-        part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(4.2, 20)
+        # Regression guard for the 1e-6-vs-_fmt bug: radius 4.111 gives a raw
+        # diameter of 8.22, but the message reports the 1dp-rounded ø8.2 — a
+        # 0.02 gap that a 1e-6 match would drop. The diameter must round-trip
+        # with tolerance so the suggestion still appears.
+        part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(4.111, 20)
         dwg = build_drawing(part, auto_dims=False)
         issues = [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
         assert issues
-        assert "ø8.4" in issues[0].message
+        assert "ø8.2" in issues[0].message  # rounded, differs from raw 8.22
         assert issues[0].suggestion is not None
         assert 'dwg.features("plan")' in issues[0].suggestion
 

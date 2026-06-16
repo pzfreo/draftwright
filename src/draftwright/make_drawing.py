@@ -438,7 +438,7 @@ def _suggest_fix(issue, dwg) -> str | None:
                 return (
                     f"# ø{_fmt(d)} has no callout. Locate it via features() and add a leader:\n"
                     f'for f in dwg.features("{view}"):\n'
-                    f"    if abs(f.diameter - {_fmt(d)}) < 0.2:\n"
+                    f"    if abs(f.diameter - {_fmt(d)}) < {_DIAM_MATCH_TOL}:\n"
                     f"        callout = HoleCallout(f.diameter, count=f.count,\n"
                     f"                              through=f.through, depth=f.depth, draft=dwg.draft)\n"
                     f"        elbow = (f.page_pos[0] + 15, f.page_pos[1] + 10, 0)\n"
