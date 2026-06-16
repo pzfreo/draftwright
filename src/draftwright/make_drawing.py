@@ -391,6 +391,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "dim_inside_part",
         "callout_dropped",
         "location_ref_dropped",
+        "step_dim_dropped",
         "placement_unsatisfiable",
     }
 )
@@ -620,6 +621,40 @@ _MIN_STEP_DIM_MM = (
     + 2 * draft_preset(font_size=_FONT_SIZE, decimal_precision=1).arrow_length
     + 2 * draft_preset(font_size=_FONT_SIZE, decimal_precision=1).pad_around_text
 )
+
+# Minimum page-mm separation between two *consecutive* dimensioned step heights.
+# Shoulders closer than this on the page read as one, so only the first of such
+# a cluster is dimensioned and the rest surface via lint (#41). Sized to the
+# value-label footprint (one glyph height + clearance) — enough to tell two
+# stacked step dims apart, without dropping genuinely-distinct shoulders.
+_MIN_STEP_SEP_MM = _FONT_SIZE + 2 * _PAD
+
+
+def _legible_steps(step_zs, bb_min_z, scale):
+    """Step heights worth dimensioning at *scale*, and how many were too close.
+
+    A step is dimensioned only if it is tall enough from the base to carry a
+    label *and* at least ``_MIN_STEP_SEP_MM`` (page-mm) above the previously
+    kept step — consecutive shoulders closer than that are page-coincident and
+    cannot be told apart (#41). Returns ``(kept_zs, n_too_close)``: the heights
+    to dimension, and the count of tall-enough steps dropped for spacing (the
+    caller surfaces these via lint; the full-fidelity answer is a detail view,
+    #42). Steps too short to carry a label at all are silently omitted — they
+    are simply not dimensionable, not dropped.
+    """
+    kept: list[float] = []
+    n_too_close = 0
+    last = None
+    for z in sorted(step_zs):
+        if (z - bb_min_z) * scale < _MIN_STEP_DIM_MM:
+            continue
+        if last is not None and (z - last) * scale < _MIN_STEP_SEP_MM:
+            n_too_close += 1
+            continue
+        kept.append(z)
+        last = z
+    return kept, n_too_close
+
 
 # ---------------------------------------------------------------------------
 # Annotation depth estimators (Phase 2 of #118)
@@ -1055,7 +1090,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     DIM_PAD = _DIM_PAD
     margin = _MARGIN
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
-    n_steps = len([z for z in step_zs if (z - bb.min.Z) * SCALE >= _MIN_STEP_DIM_MM])
+    n_steps = len(_legible_steps(step_zs, bb.min.Z, SCALE)[0])
     strips = _measure_strips(
         holes,
         patterns,
@@ -1812,16 +1847,20 @@ def _auto_annotate(dwg, a):
             _fmt(a.cross_diams[0]),
         )
 
-    # Step heights — only where the step is tall enough to fit a label;
-    # each step witnesses from the previous dim's line (_right_ladder) so
-    # extension lines are adjacent rather than coincident. No fixed cap: the
-    # fv_zones.right corridor is sized for every legible step (#36), and the
-    # strip allocator is the real bound — a step that doesn't fit surfaces via
-    # lint rather than being silently dropped.
-    def _step_legible(z):
-        return (z - a.bb.min.Z) * a.SCALE >= _MIN_STEP_DIM_MM
-
-    _step_zs = [z for z in a.step_zs if _step_legible(z)]
+    # Step heights — only steps that are tall enough to carry a label AND far
+    # enough apart on the page to tell from their neighbours (#41). Each step
+    # witnesses from the previous dim's line (_right_ladder) so extension lines
+    # are adjacent rather than coincident. Steps dropped for being too closely
+    # spaced surface via lint (use a detail view, #42); the corridor is sized
+    # for the kept count, so the strip is only the bound in degenerate cases.
+    _step_zs, _n_too_close = _legible_steps(a.step_zs, a.bb.min.Z, a.SCALE)
+    if _n_too_close:
+        dwg._record_build_issue(
+            "warning",
+            "step_dim_dropped",
+            f"{_n_too_close} step height(s) too closely spaced to dimension at this "
+            "scale (use a detail view)",
+        )
     for col, z in enumerate(_step_zs):
         _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
         if _px is None:
@@ -2362,7 +2401,11 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
 
     plan_top = PY(a.bb.max.Y)
     datum_x, datum_y = a.bb.min.X, a.bb.min.Y
-    tier = draft.font_size * 3.0
+    # Vertical pitch between stacked location dims: the value label (one glyph
+    # height) plus clearance above and below, so consecutive tiers pack as
+    # tightly as they can without a label touching the next dim line. (Was a
+    # looser font_size*3.)
+    tier = draft.font_size + 2 * draft.pad_around_text
 
     # X locations: dims above the plan view, routed through pv_zones.above.
     # Pre-advance the strip past any pitch dims already placed above plan_top.
