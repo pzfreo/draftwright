@@ -743,9 +743,9 @@ def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
     """Return (n, rise) if step_zs form a uniform staircase, else None.
 
     A uniform staircase has all inter-step rises (including from bb_min_z to the
-    first step, and from the last step to bb_max_z) within *tol_frac* of each
-    other.  Requires ≥3 detected interior steps to avoid false positives.
-    *n* is the total riser count (interior + 1 if the top gap also matches).
+    first step) within *tol_frac* of their mean.  Requires ≥3 detected interior
+    steps to avoid false positives.  *n* is len(step_zs) + 1 when the top gap
+    (bb_max_z − last step) also matches the mean, otherwise len(step_zs).
     """
     if len(step_zs) < 3:
         return None

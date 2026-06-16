@@ -2884,3 +2884,19 @@ class TestTypDimensioning:
 
         zs = [10.0, 25.0, 35.0, 60.0]
         assert _detect_step_repeat(zs, 0.0, 70.0) is None
+
+    def test_detect_step_repeat_top_gap_mismatch_excluded_from_count(self):
+        # When top gap doesn't match the mean rise, n = len(step_zs) not +1.
+        from draftwright.make_drawing import _detect_step_repeat
+
+        zs = [10.0, 20.0, 30.0]  # 3 equal interior rises of 10mm
+        # top gap = 55 - 30 = 25 ≠ 10 → should NOT add 1
+        n, rise = _detect_step_repeat(zs, 0.0, 55.0)
+        assert n == 3
+        assert abs(rise - 10.0) < 0.01
+
+    def test_three_step_part_gets_typ_dim(self):
+        # Integration: exactly 3 interior steps (the minimum threshold) → TYP path.
+        dwg = build_drawing(_uniform_staircase(n_treads=4, rise=20.0))
+        assert "dim_step_typ" in dwg._named
+        assert not any(k.startswith("dim_step_") and k != "dim_step_typ" for k in dwg._named)
