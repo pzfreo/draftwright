@@ -407,6 +407,28 @@ _SCORE_WARNING_PENALTY = 0.05
 # Quote a label parsed from a lint message safely back into a snippet.
 _QUOTED_RE = re.compile(r"'([^']*)'")
 
+# Lint codes the #30 repair loop can mechanically resolve, and the side flip
+# used to move a dimension that landed on the wrong side of its witness points.
+_REPAIRABLE_CODES = frozenset({"annotation_overlap", "dim_inside_part"})
+_OPPOSITE_SIDE = {"above": "below", "below": "above", "left": "right", "right": "left"}
+
+
+def _dim(p1, p2, side, distance, draft, **kwargs):
+    """Build a :class:`Dimension`, tagged with its placement spec.
+
+    Identical to constructing ``Dimension`` directly, but records ``p1``,
+    ``p2``, ``side``, ``distance`` and the label kwargs on the result as
+    ``_dw_spec`` so the #30 repair loop can re-place the dimension (flip the
+    side, widen the offset) without re-deriving any geometry. Only dimensions
+    built this way are re-placeable by :meth:`Drawing.repair`.
+    """
+    d = Dimension(p1, p2, side, distance, draft, **kwargs)
+    d._dw_spec = SimpleNamespace(
+        p1=p1, p2=p2, side=side, distance=abs(distance), draft=draft, kwargs=kwargs
+    )
+    return d
+
+
 # Tolerance for matching a lint message's reported diameter (dedup
 # representative at tol 0.15, formatted to 1 dp) back to a raw feature
 # diameter when generating a fix snippet (#29).
@@ -1829,8 +1851,6 @@ class Drawing:
         layout analysis is available (e.g. when ``auto_dims=False`` was not used
         with :func:`build_drawing`).
         """
-        from build123d_drafting.helpers import Dimension
-
         a = self._analysis
         _view_zones = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
         strip = None
@@ -1847,7 +1867,7 @@ class Drawing:
                     dist = coord - max(p[ax] for p in (p1, p2))
                 else:
                     dist = min(p[ax] for p in (p1, p2)) - coord
-        return self.add(Dimension(p1, p2, side, max(dist, 4.0), draft, **kwargs), name)
+        return self.add(_dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name)
 
     # -- annotations ----------------------------------------------------------
     def add(self, obj, name=None):
@@ -1895,6 +1915,108 @@ class Drawing:
         annotation the layout had to drop). Surfaced by :meth:`lint` so a
         dropped feature is never silent."""
         self._build_issues.append(LintIssue(severity=severity, code=code, message=message))
+
+    # -- repair ---------------------------------------------------------------
+    def _find_dim(self, label):
+        """Return the re-placeable dimension whose label is *label*, or None.
+
+        Only dimensions built by :func:`_dim` (carrying ``_dw_spec``) qualify;
+        leaders, callouts and hand-built annotations are left untouched.
+        """
+        for o in self.annotations:
+            if getattr(o, "_dw_spec", None) is not None and getattr(o, "label", None) == label:
+                return o
+        return None
+
+    def _replace_dim(self, old, new):
+        """Swap *old* for *new* in :attr:`annotations`, preserving its name and
+        any per-view scale tag (so a re-placed detail-view dim stays at scale)."""
+        if getattr(old, "_dw_scale", None) is not None:
+            new._dw_scale = old._dw_scale
+        self.annotations[self.annotations.index(old)] = new
+        for n, o in self._named.items():
+            if o is old:
+                self._named[n] = new
+
+    def _repair_dim_inside_part(self, issue) -> bool:
+        """Flip a dimension that sits inside the view onto the opposite side."""
+        labels = _QUOTED_RE.findall(issue.message)
+        dim = self._find_dim(labels[0]) if labels else None
+        if dim is None:
+            return False
+        s = dim._dw_spec
+        new_side = _OPPOSITE_SIDE.get(s.side)
+        if new_side is None:
+            return False
+        self._replace_dim(dim, _dim(s.p1, s.p2, new_side, s.distance, s.draft, **s.kwargs))
+        return True
+
+    def _repair_overlap(self, issue) -> bool:
+        """Push the first re-placeable label in an overlap one strip-row further
+        out so the two labels separate. Monotonic, so repeated passes converge."""
+        step = _STRIP_SPACING + _SLOT_DIM_HEIGHT
+        for label in _QUOTED_RE.findall(issue.message):
+            dim = self._find_dim(label)
+            if dim is None:
+                continue
+            s = dim._dw_spec
+            self._replace_dim(
+                dim, _dim(s.p1, s.p2, s.side, s.distance + step, s.draft, **s.kwargs)
+            )
+            return True
+        return False
+
+    def repair(self, max_iter: int = 3):
+        """Close the lint→repair loop: act on violations, don't only report them.
+
+        After the greedy initial placement, re-place the dimensions behind the
+        mechanically-clear violations and re-lint, bounded to *max_iter* passes:
+
+        - ``dim_inside_part`` — the offset is on the wrong side; flip it once.
+        - ``annotation_overlap`` — two labels collide; push one further out.
+
+        Only engine-built dimensions (carrying ``_dw_spec``) are re-placeable;
+        leaders, callouts and standards-judgement issues (e.g.
+        ``missing_principal_dimension``) are left for the caller. Each side
+        flip is attempted at most once and overlap pushes only move outward, so
+        the loop terminates and a clean drawing is returned unchanged.
+
+        A pass that would *net-increase* the issue count (e.g. an overlap push
+        that shoves a label out of frame on a tight sheet) is rolled back and
+        the loop stops, so :meth:`repair` never makes a drawing worse.
+
+        Returns ``self`` for chaining.
+        """
+        flipped: set = set()
+        for _ in range(max_iter):
+            before = self.lint()
+            if not before:
+                break
+            snap_annotations = list(self.annotations)
+            snap_named = dict(self._named)
+            changed = False
+            for issue in before:
+                if issue.code not in _REPAIRABLE_CODES:
+                    continue
+                if issue.code == "dim_inside_part":
+                    labels = _QUOTED_RE.findall(issue.message)
+                    key = labels[0] if labels else None
+                    if key in flipped:
+                        continue
+                    if self._repair_dim_inside_part(issue):
+                        flipped.add(key)
+                        changed = True
+                elif issue.code == "annotation_overlap":
+                    changed |= self._repair_overlap(issue)
+            if not changed:
+                break
+            if len(self.lint()) > len(before):
+                # The repairs net-worsened the sheet — undo this pass and stop.
+                self.annotations[:] = snap_annotations
+                self._named.clear()
+                self._named.update(snap_named)
+                break
+        return self
 
     # -- output ---------------------------------------------------------------
     def lint(self):
@@ -2189,7 +2311,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     if a.is_rotational:
         od = a.od_diam
         dwg.add(
-            Dimension(
+            _dim(
                 (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
                 (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
                 "above",
@@ -2301,7 +2423,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
         _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
         if _px is not None:
             dwg.add(
-                Dimension(
+                _dim(
                     (_right_ladder, FZ(a.bb.min.Z), 0),
                     (_right_ladder, FZ(first_step_z), 0),
                     "right",
@@ -2343,7 +2465,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
                 )
                 break
             dwg.add(
-                Dimension(
+                _dim(
                     (_right_ladder, FZ(a.bb.min.Z), 0),
                     (_right_ladder, FZ(z), 0),
                     "right",
@@ -2359,7 +2481,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     _px = a.fv_zones.right.allocate(_SLOT_DIM_HEIGHT)
     if _px is not None:
         dwg.add(
-            Dimension(
+            _dim(
                 (_right_ladder, FZ(a.bb.min.Z), 0),
                 (_right_ladder, FZ(a.bb.max.Z), 0),
                 "right",
@@ -2379,7 +2501,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
         _py = a.pv_zones.below.allocate(_SLOT_DIM_WIDTH)
         if _py is not None:
             dwg.add(
-                Dimension(
+                _dim(
                     (PX(a.bb.min.X), _below_witness, 0),
                     (PX(a.bb.max.X), _below_witness, 0),
                     "below",
@@ -2398,7 +2520,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
         _pd = a.sv_zones.below.allocate(_SLOT_DIM_DEPTH)
         if _pd is not None:
             dwg.add(
-                Dimension(
+                _dim(
                     (SX(a.bb.min.Y), _below_witness_d, 0),
                     (SX(a.bb.max.Y), _below_witness_d, 0),
                     "below",
@@ -2607,7 +2729,7 @@ def _annotate_pmi(dwg, a, draft) -> None:
             return False
         slot = strip.allocate(_SLOT)
         dwg.add(
-            Dimension(
+            _dim(
                 (p1[0], witness_y, 0),
                 (p2[0], witness_y, 0),
                 "above",
@@ -2628,7 +2750,7 @@ def _annotate_pmi(dwg, a, draft) -> None:
             return False
         slot = strip.allocate(_SLOT)
         dwg.add(
-            Dimension(
+            _dim(
                 (p1[0], witness_y, 0),
                 (p2[0], witness_y, 0),
                 "below",
@@ -2649,7 +2771,7 @@ def _annotate_pmi(dwg, a, draft) -> None:
             return False
         slot = strip.allocate(_SLOT)
         dwg.add(
-            Dimension(
+            _dim(
                 (witness_x, p1[1], 0),
                 (witness_x, p2[1], 0),
                 "right",
@@ -2670,7 +2792,7 @@ def _annotate_pmi(dwg, a, draft) -> None:
             return False
         slot = strip.allocate(_SLOT)
         dwg.add(
-            Dimension(
+            _dim(
                 (witness_x, p1[1], 0),
                 (witness_x, p2[1], 0),
                 "left",
@@ -2936,7 +3058,7 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
             )
             continue
         dwg.add(
-            Dimension(
+            _dim(
                 (PX(datum_x), PY(ry), 0),
                 (PX(rx), PY(ry), 0),
                 "above",
@@ -3010,7 +3132,7 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
             )
             continue
         dwg.add(
-            Dimension(
+            _dim(
                 (SX(datum_y), SZ(a.bb.max.Z), 0),
                 (SX(ry), SZ(a.bb.max.Z), 0),
                 "above",
@@ -3416,7 +3538,7 @@ def _add_detail_view(dwg, a):
         try:
             p_lo = dwg.at("detail_a", a.bb.max.X, dcy, a.bb.min.Z)
             p_hi = dwg.at("detail_a", a.bb.max.X, dcy, z)
-            _dim = Dimension(
+            det_dim = _dim(
                 (ladder, p_lo[1], 0),
                 (ladder, p_hi[1], 0),
                 "right",
@@ -3426,8 +3548,8 @@ def _add_detail_view(dwg, a):
             )
             # The detail view is drawn at detail_scale, not sheet scale; tag the
             # dim so lint() checks label-vs-measured against the right scale (#42).
-            _dim._dw_scale = detail_scale
-            dwg.add(_dim, f"dim_detail_step_{i}")
+            det_dim._dw_scale = detail_scale
+            dwg.add(det_dim, f"dim_detail_step_{i}")
             ladder += step_pad
         except Exception as exc:  # noqa: BLE001 — placement may fail on degenerate geometry
             _log.info("dim_detail_step_%d skipped (%s)", i, exc)
@@ -3436,7 +3558,7 @@ def _add_detail_view(dwg, a):
     try:
         p_lo = dwg.at("detail_a", a.bb.max.X, dcy, a.bb.min.Z)
         p_hi = dwg.at("detail_a", a.bb.max.X, dcy, a.bb.max.Z)
-        _dim = Dimension(
+        det_dim = _dim(
             (ladder, p_lo[1], 0),
             (ladder, p_hi[1], 0),
             "right",
@@ -3444,8 +3566,8 @@ def _add_detail_view(dwg, a):
             dwg.draft,
             label=_fmt(a.z_size),
         )
-        _dim._dw_scale = detail_scale  # detail view scale, for label-vs-measured lint (#42)
-        dwg.add(_dim, "dim_detail_height")
+        det_dim._dw_scale = detail_scale  # detail view scale, for label-vs-measured lint (#42)
+        dwg.add(det_dim, "dim_detail_height")
     except Exception as exc:  # noqa: BLE001 — placement may fail on degenerate geometry
         _log.info("dim_detail_height skipped (%s)", exc)
 
@@ -3521,7 +3643,7 @@ def _add_pitch_dim(dwg, a, view, j, pattern, to_page):
         return
     n = len(pattern.holes)
     dwg.add(
-        Dimension(
+        _dim(
             (p1[0], p1[1], 0),
             (p2[0], p2[1], 0),
             side,
@@ -4014,6 +4136,7 @@ def build_drawing(
     auto_dims: bool = True,
     detail_view: bool = False,
     pmi: Literal["off", "report", "annotate"] = "off",
+    repair: bool = True,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -4029,6 +4152,10 @@ def build_drawing(
             page, and title block are still produced; add your own
             annotations before export. (Annotations added by the default can
             also be removed wholesale with :meth:`Drawing.clear_annotations`.)
+        repair: run the bounded lint→repair loop (:meth:`Drawing.repair`) after
+            placement to fix mechanically-clear violations (a dim on the wrong
+            side, two overlapping labels). Default ``True``; a no-op on a clean
+            sheet. Pass ``False`` to inspect the raw greedy placement (#30).
 
     Returns:
         A :class:`Drawing` with the standard front/plan/side/iso views projected
@@ -4094,6 +4221,12 @@ def build_drawing(
     else:
         _fit_iso_view(dwg, a, annotate=False)
         _add_title_block(dwg, a)
+    if repair:
+        # Close the loop on the greedy placement: re-place dims behind any
+        # mechanically-clear violations (overlap, wrong-side) and re-lint (#30).
+        # A no-op on a clean sheet, so default-on costs nothing when there is
+        # nothing to fix.
+        dwg.repair()
     return dwg
 
 
