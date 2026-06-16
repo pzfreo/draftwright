@@ -3270,9 +3270,7 @@ class TestRepair:
         from draftwright.make_drawing import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
-        orig = dwg.add(
-            _dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="RB"), "x"
-        )
+        orig = dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="RB"), "x")
         overlap = LintIssue(
             severity="warning",
             message="labels 'RB' and 'QQ' overlap",

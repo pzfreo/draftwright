@@ -428,6 +428,7 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
     )
     return d
 
+
 # Tolerance for matching a lint message's reported diameter (dedup
 # representative at tol 0.15, formatted to 1 dp) back to a raw feature
 # diameter when generating a fix snippet (#29).
