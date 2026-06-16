@@ -2758,3 +2758,51 @@ class TestLayoutGeneralisation:
             assert has_step is expect, (
                 f"length={length}: step dim present={has_step}, expected {expect}"
             )
+
+
+def _crowded_shoulder_part():
+    """A tall, narrow stacked-tier block whose shoulders are 3 mm apart in Z.
+
+    At the auto sheet scale the step-legibility gate (#41) drops at least one
+    shoulder (3 mm × scale < _MIN_STEP_SEP_MM), which is exactly the trigger for
+    the enlarged detail view (#42). Narrow X/Y so the detail footprint fits the
+    free space on the sheet.
+    """
+    parts = [Pos(0, 0, 3) * Box(20, 16, 6)]  # base plate
+    z = 6
+    for w in (16, 13, 10, 7, 5):
+        h = 3
+        parts.append(Pos(0, 0, z + h / 2) * Box(w, 12, h))
+        z += h
+    part = parts[0]
+    for p in parts[1:]:
+        part = part + p
+    return part
+
+
+@pytest.mark.timeout(120)
+class TestDetailView:
+    def test_crowded_shoulders_get_a_detail_view(self):
+        from draftwright.make_drawing import _legible_steps
+
+        dwg = build_drawing(_crowded_shoulder_part())
+        a = dwg._analysis
+        # Pin the trigger: the gate must actually drop at least one shoulder at
+        # the chosen scale, otherwise the test is not exercising #42.
+        _, n_dropped = _legible_steps(a.step_zs, a.bb.min.Z, a.SCALE)
+        assert n_dropped >= 1
+        # The detail view, its caption, and at least one detail step dim exist.
+        assert "detail_a" in dwg.views
+        assert "detail_caption" in dwg._named
+        assert any(n.startswith("dim_detail_step") for n in dwg._named)
+        # Drawn at a larger scale than the sheet.
+        assert dwg._coords["detail_a"]._scale > a.SCALE
+        # No error-severity lint introduced.
+        assert [i for i in dwg.lint() if i.severity == "error"] == []
+
+    def test_plain_part_gets_no_detail_view(self):
+        dwg = build_drawing(Box(60, 40, 20))
+        assert "detail_a" not in dwg.views
+        assert "detail_caption" not in dwg._named
+        assert not any(n.startswith("dim_detail") for n in dwg._named)
+        assert [i for i in dwg.lint() if i.severity == "error"] == []

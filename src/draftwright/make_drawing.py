@@ -1678,7 +1678,21 @@ class Drawing:
         """
         set_page(self.page_w, self.page_h, margin=10)
         view_shapes = [vis for vis, _ in self.views.values()]
-        issues = lint_drawing(self.annotations, drawing_scale=self.scale, view_shapes=view_shapes)
+        # Most annotations are at sheet scale, but a non-sheet-scale view (the
+        # enlarged detail view, #42) tags its dims with `_dw_scale`. Lint each
+        # scale group with its own drawing_scale so label-vs-measured is correct
+        # per view. The common single-scale case is byte-identical to before.
+        by_scale: dict = {}
+        for ann in self.annotations:
+            by_scale.setdefault(getattr(ann, "_dw_scale", self.scale), []).append(ann)
+        if len(by_scale) <= 1:
+            issues = lint_drawing(
+                self.annotations, drawing_scale=self.scale, view_shapes=view_shapes
+            )
+        else:
+            issues = []
+            for _scale, _anns in by_scale.items():
+                issues += lint_drawing(_anns, drawing_scale=_scale, view_shapes=view_shapes)
         if self.part is not None:
             if self._cyl_cache is None:
                 self._cyl_cache = analyse_cylinders(self.part)
@@ -2140,6 +2154,11 @@ def _auto_annotate(dwg, a):
     # bores on a turned part are excluded (the ldr_z leaders cover them).
     if feature_holes:
         _add_section_view(dwg, a, _axis_letter, holes=feature_holes)
+
+    # Detail view: enlarge the stepped region when the legibility gate dropped
+    # crowded shoulders (#42).  Returns early when nothing was dropped, so parts
+    # without crowded steps are untouched.
+    _add_detail_view(dwg, a)
 
     # Phase 7 — strip footprint debug logging + post-placement overflow check.
     # Overflow can only occur when outer_limit was tightened after allocations
@@ -2971,6 +2990,202 @@ def _add_section_view(dwg, a, axis_letter, holes=None):
         hatch = Compound(children=hatch_edges)
         hatch.is_section_hatch = True  # exempt from view_annotation_overlap lint
         dwg.add(hatch, "section_hatch")
+
+
+def _add_detail_view(dwg, a):
+    """Enlarged detail of a stepped region whose shoulders the legibility gate
+    dropped (#42).
+
+    Trigger: the step-height legibility gate (#41) drops one or more shoulders
+    because they are page-coincident at sheet scale. We crop the part to the
+    full step Z-band, project it at a larger standard scale into the largest
+    free rectangle on the sheet, re-draw the dropped step dimensions there at
+    a scale where they separate, mark the region on the front view, and caption
+    it "DETAIL A". Mirrors :func:`_add_section_view`: every risky boolean /
+    projection is wrapped and skips-with-log rather than aborting the drawing,
+    and the function returns early (drawing unchanged) when there is nothing to
+    detail.
+    """
+    if len(a.step_zs) < 2:
+        return
+    kept, _ = _legible_steps(a.step_zs, a.bb.min.Z, a.SCALE)
+    crowded = [z for z in a.step_zs if z not in set(kept)]
+    if len(crowded) < 1:
+        return
+
+    # Region: the full step Z-band, padded and clamped to the part bbox.
+    z0, z1 = min(a.step_zs), max(a.step_zs)
+    pad = 0.08 * (z1 - z0) + 1.0
+    band_lo = max(a.bb.min.Z, z0 - pad)
+    band_hi = min(a.bb.max.Z, z1 + pad)
+
+    # Detail scale: the smallest standard multiple in [2, 5, 10] of sheet scale
+    # that separates the closest shoulder pair (≥ _MIN_STEP_SEP_MM). Always at
+    # least 2× so the detail is a genuine enlargement.
+    s_zs = sorted(a.step_zs)
+    gaps = [b - aa for aa, b in zip(s_zs, s_zs[1:])]
+    min_gap = min(gaps)
+    need = _MIN_STEP_SEP_MM / min_gap if min_gap > 0 else float("inf")
+    detail_scale = a.SCALE * 2
+    for factor in (2, 5, 10):
+        detail_scale = a.SCALE * factor
+        if detail_scale >= need:
+            break
+
+    # Crop to the Z-band with two fuzzy cuts (remove z<band_lo and z>band_hi).
+    # Solids only — a mixed-dimension compound (PMI curves) cannot be cut.
+    solids = a.part.solids()
+    if not solids:
+        _log.info("Detail view skipped (no solid bodies to crop)")
+        return
+    body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
+    big = 4 * a.bbox_max
+    try:
+        cropped = _fuzzy_cut(body, Pos(a.cx, a.cy, band_lo - big / 2) * Box(big, big, big))
+        if cropped is not None:
+            cropped = _fuzzy_cut(cropped, Pos(a.cx, a.cy, band_hi + big / 2) * Box(big, big, big))
+    except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
+        _log.warning("Detail view skipped (crop failed: %s)", exc)
+        return
+    if cropped is None:
+        _log.warning("Detail view skipped (boolean crop produced no solid)")
+        return
+
+    # Placement: largest empty rectangle avoiding every placed view + title block.
+    drawable = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    obstacles = []
+    for vis, hid in dwg.views.values():
+        for shp in (vis, hid):
+            if shp is None:
+                continue
+            vb = shp.bounding_box()
+            obstacles.append((vb.min.X, vb.min.Y, vb.max.X, vb.max.Y))
+    obstacles.append(
+        (a.PAGE_W - a.TB_W - _TB_CLEAR, a.margin, a.PAGE_W - _TB_CLEAR, _TB_CLEAR + _TB_H)
+    )
+    rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles)
+    rect_w, rect_h = rx1 - rx0, ry1 - ry0
+
+    # Detail footprint at the chosen scale, including the step-dim ladder on the
+    # right (one rung per kept step + the overall band height) and breathing
+    # room for the caption below.  Shrink the scale to fit if necessary.
+    step_pad = _MIN_STEP_SEP_MM
+    n_rungs = len(_legible_steps(a.step_zs, a.bb.min.Z, detail_scale)[0]) + 1
+    ladder_w = n_rungs * step_pad + 6
+    while detail_scale > a.SCALE * 1.2:
+        detail_w = a.x_size * detail_scale + ladder_w
+        detail_h = (band_hi - band_lo) * detail_scale + a.DIM_PAD
+        if detail_w <= rect_w and detail_h <= rect_h:
+            break
+        detail_scale -= a.SCALE
+    n_rungs = len(_legible_steps(a.step_zs, a.bb.min.Z, detail_scale)[0]) + 1
+    ladder_w = n_rungs * step_pad + 6
+    detail_w = a.x_size * detail_scale + ladder_w
+    detail_h = (band_hi - band_lo) * detail_scale + a.DIM_PAD
+    if detail_scale <= a.SCALE * 1.2 or detail_w > rect_w or detail_h > rect_h:
+        _log.info("Detail view skipped (no room)")
+        return
+
+    # Centre the view+ladder footprint in the rect; the view itself sits left of
+    # centre so its right-hand ladder stays inside the chosen rectangle.
+    DX = (rx0 + rx1) / 2 - ladder_w / 2
+    DY = (ry0 + ry1) / 2
+
+    # Project the cropped band front-on (look from −Y, up +Z), mirroring the
+    # front view but at detail_scale around the band's own centroid (#42, like
+    # _project_iso). Then rebuild ViewCoordinates so dwg.at("detail_a", ...)
+    # maps world→page at the detail scale.
+    cb = cropped.bounding_box()
+    dcx = (cb.min.X + cb.max.X) / 2
+    dcy = (cb.min.Y + cb.max.Y) / 2
+    dcz = (cb.min.Z + cb.max.Z) / 2
+    la = (dcx * detail_scale, dcy * detail_scale, dcz * detail_scale)
+    dist_d = a.bbox_max * detail_scale + 100
+    camera = (la[0], la[1] - dist_d, la[2])
+    try:
+        band_s = cropped.scale(detail_scale)
+        dwg.add_view("detail_a", band_s, camera, (0, 0, 1), (DX, DY), look_at=la, scaled=True)
+    except Exception as exc:  # noqa: BLE001 — projection raises broadly on cast geometry
+        _log.warning("Detail view skipped (projection failed: %s)", exc)
+        return
+    dwg._coords["detail_a"] = ViewCoordinates(
+        view_axes(camera, (0, 0, 1), la), DX, DY, dcx, dcy, dcz, detail_scale
+    )
+
+    # Caption below the detail.
+    detail_bottom = DY - detail_h / 2
+    dwg.add(
+        Note(
+            f"DETAIL A — SCALE {format_drawing_scale(detail_scale)}",
+            (DX, detail_bottom - 7),
+            dwg.draft,
+        ),
+        "detail_caption",
+    )
+
+    # Marker on the front view: a rectangle around the Z-band, with an 'A' label.
+    def FX(x):
+        return a.FV_X + (x - a.cx) * a.SCALE
+
+    def FZ(z):
+        return a.FV_Y + (z - a.cz) * a.SCALE
+
+    mx0, mx1 = FX(a.bb.min.X), FX(a.bb.max.X)
+    my0, my1 = FZ(band_lo), FZ(band_hi)
+    marker = Compound(
+        children=[
+            Edge.make_line(Vector(mx0, my0, 0), Vector(mx1, my0, 0)),
+            Edge.make_line(Vector(mx1, my0, 0), Vector(mx1, my1, 0)),
+            Edge.make_line(Vector(mx1, my1, 0), Vector(mx0, my1, 0)),
+            Edge.make_line(Vector(mx0, my1, 0), Vector(mx0, my0, 0)),
+        ]
+    )
+    marker.is_centerline = True  # furniture, not a dimension — exempt from overlap lint
+    dwg.add(marker, "detail_marker")
+    dwg.add(Note("A", (mx1 + 3, my1 + 2), dwg.draft), "detail_marker_label")
+
+    # Detail dimensions: step heights now legible at detail_scale, plus the
+    # overall band height. Baseline-ladder to the right of the detail, mirroring
+    # the main-view step dims.
+    det_kept, _ = _legible_steps(a.step_zs, a.bb.min.Z, detail_scale)
+    base_x = dwg.at("detail_a", a.bb.max.X, dcy, a.bb.min.Z)[0] + 2
+    ladder = base_x
+    for i, z in enumerate(det_kept):
+        try:
+            p_lo = dwg.at("detail_a", a.bb.max.X, dcy, a.bb.min.Z)
+            p_hi = dwg.at("detail_a", a.bb.max.X, dcy, z)
+            _dim = Dimension(
+                (ladder, p_lo[1], 0),
+                (ladder, p_hi[1], 0),
+                "right",
+                step_pad,
+                dwg.draft,
+                label=_fmt(z - a.bb.min.Z),
+            )
+            # The detail view is drawn at detail_scale, not sheet scale; tag the
+            # dim so lint() checks label-vs-measured against the right scale (#42).
+            _dim._dw_scale = detail_scale
+            dwg.add(_dim, f"dim_detail_step_{i}")
+            ladder += step_pad
+        except Exception as exc:  # noqa: BLE001 — placement may fail on degenerate geometry
+            _log.info("dim_detail_step_%d skipped (%s)", i, exc)
+
+    # Overall band height — outermost.
+    try:
+        p_lo = dwg.at("detail_a", a.bb.max.X, dcy, a.bb.min.Z)
+        p_hi = dwg.at("detail_a", a.bb.max.X, dcy, a.bb.max.Z)
+        _dim = Dimension(
+            (ladder, p_lo[1], 0),
+            (ladder, p_hi[1], 0),
+            "right",
+            step_pad,
+            dwg.draft,
+            label=_fmt(a.z_size),
+        )
+        _dim._dw_scale = detail_scale  # detail view scale, for label-vs-measured lint (#42)
+        dwg.add(_dim, "dim_detail_height")
+    except Exception as exc:  # noqa: BLE001 — placement may fail on degenerate geometry
+        _log.info("dim_detail_height skipped (%s)", exc)
 
 
 def _add_furniture(dwg, a, view, j, pattern, to_page):
