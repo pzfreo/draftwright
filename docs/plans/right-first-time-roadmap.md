@@ -1,7 +1,12 @@
 # "Right first time" roadmap — hardening the deterministic core
 
-_Status: living plan. Last updated 2026-06-16 alongside PR #47 (page-aware scale
-selection). Tracks the work toward "API-driven output as good as interactive."_
+_Status: living plan. Last updated 2026-06-16 after #42 (detail view) and the
+ADRs. Tracks the work toward "API-driven output as good as interactive."_
+
+> **Direction is now formalised in `docs/adr/`** (ADR 0001 — deterministic
+> generation over a bespoke editable-code DSL; ADR 0002 — the build→critique→
+> domain-fix loop). Cluster B below is the **domain-semantic** layer those ADRs
+> call for. See `docs/HANDOVER.md` for the current state snapshot.
 
 ## Why this exists
 
@@ -35,8 +40,8 @@ worse on novel input.
 - #28 — `dwg.view_bounds(view)` — page bbox of a projected view
 
 **Cluster C — default drawing quality** (the staircase / NIST CTC-02 review)
-- #43 — location-dimension count/legibility gate (the "tall-tower" fix)
-- #42 — enlarged detail view for fine / closely-spaced features
+- ~~#43 — location-dimension count/legibility gate~~ ✅ done
+- ~~#42 — enlarged detail view for fine / closely-spaced features~~ ✅ done (MVP)
 - #45 — representative / "TYP" dimensioning for repeated features
 
 ## How they depend on each other
@@ -58,19 +63,20 @@ worse on novel input.
 
 ## Recommended sequence
 
+Cluster C (deterministic drawing quality) is essentially done (#41/#43/#42/#46/#47);
+the focus now shifts to the **domain-semantic layer** (ADR 0002's build→critique→
+domain-fix loop):
+
 ```
-#43            location-dim legibility gate   ← do next (sequel to #47)
+#26, #25       domain API: features() + place_dim()   ← do next (frame in DOMAIN terms)
    ↓
-#42            detail view for fine features   (home for what #43 + step gate drop)
+#29            lint suggestions — each issue carries a ready domain-API call
    ↓
-#26, #25       primitives (features, place_dim) — also standalone API wins
-   ↓
-#29            lint suggestions, building on #32's issue dict
-   ↓
-#30            repair loop, consuming features + place_dim + suggestions
+#30            repair loop — auto-apply computable suggestions, surface the rest
 ```
-#45 slots in opportunistically alongside #42 (both reduce annotation clutter).
-#27 / #28 slot in wherever an API caller needs them.
+#45 (TYP dimensioning) slots in opportunistically. #27 / #28 land wherever an API
+caller needs them. Keep #26/#25's surface in **domain vocabulary**
+(holes/bores/sections/dimensions), never strip/zone internals (ADR 0001).
 
 ## Done
 
@@ -88,7 +94,7 @@ worse on novel input.
   turned/hybrid parts (flange OD + bolt circle), multi-bore parts, and the
   step-legibility boundary.
 
-### Default drawing quality (Cluster C in progress)
+### Default drawing quality (Cluster C — done bar #45)
 - **#36 — adaptive cardinality caps**. Removed the hard 4 callouts / 4 location
   refs / 3 step-dims caps; the engine now places as many as the available
   strip/corridor space allows, surfacing genuine drops via lint.
@@ -98,11 +104,24 @@ worse on novel input.
 - **Staircase review fixes** (PR #46). Phantom step corridor no longer blocks a
   larger scale; engraved-text faces no longer dimensioned as phantom steps
   (`min_area_frac` filter); overall-height dim nests outside the step dims.
-- **Page-aware scale selection** (PR #47, in review). A specified page enlarges
+- **Page-aware scale selection** (#47, released v0.1.8). A specified page enlarges
   to the best fitting scale (iso packed into 2D empty space, e.g. staircase 2:1
   on A3); automatic selection now minimises sheet size (page-major ladder, e.g.
   20×15×10 → 2:1 on A4 not 5:1 on A3); iso growth capped at 1.3× sheet scale.
   Shared `_layout_geometry` so fit and placement can't diverge.
+- **Location-dimension legibility gate** (#43, released v0.1.8). `_legible_locations`
+  drops hole-location refs whose witness lines would be page-coincident, per axis;
+  the rest surface via `location_ref_dropped`. The sequel to #47's tighter sheets.
+- **Enlarged detail view** (#42 MVP, #52). When the step gate drops a crowded
+  shoulder cluster, auto-generate one enlarged detail view that recovers the
+  dropped dims (`_add_detail_view`); non-sheet scale, so `lint()` partitions dims
+  by `_dw_scale`. Follow-ups: legibility on already-reduced parts; redundant
+  `step_dim_dropped`; the `is_centerline` marker exemption (see `docs/HANDOVER.md`).
+
+### Architecture decisions
+- **ADR 0001 / 0002** (`docs/adr/`, PR #51). Deterministic generation + a
+  domain-semantic edit API over a bespoke editable-code DSL; the
+  build→critique→domain-fix loop as the supported refinement model.
 
 ### Earlier groundwork
 - #10 turned+drilled classification; #11 free-rectangle iso placement; #12
