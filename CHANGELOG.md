@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.8 — 2026-06-16
 
 ### Changed
 
@@ -24,6 +24,25 @@
   longer grows past 1.3× sheet scale; on an oversized sheet it could previously
   balloon to ~8× and dwarf the dimensioned orthographic views. Shrinking to fit
   a small zone is unchanged.
+- **Step heights are dimensioned only where legibly separable.** After the
+  adaptive cap (#36), a part with many closely-spaced shoulders (e.g. NIST
+  CTC-02 at 1:5) tried to dimension faces only ~1 mm apart on the page. A step
+  is now dimensioned only if it is both tall enough from the base *and* at least
+  one legible step-height above the previously dimensioned one; the rest surface
+  as `step_dim_dropped` (use a detail view). "Fits" is not the same as
+  "legible" (#41).
+- **Hole-location dimensions are gated for legibility.** A hole-dense part (e.g.
+  NIST CTC-02, ~38 distinct hole locations) previously stacked every location
+  reference into a tall, busy tower above the views — "fits" is not "legible".
+  Each axis's references are now gated by inter-dimension page spacing
+  (`_legible_locations`, analogous to the step-height gate #41): only locations
+  at least one value-label footprint apart on the page are dimensioned; the rest
+  surface as `location_ref_dropped` (full fidelity belongs in a detail view,
+  #42). Sparse parts are unchanged (#43).
+- **Tighter location-dimension tier pitch.** The vertical pitch between stacked
+  X/Y location dimensions is now derived from the label footprint
+  (`font_size + 2·pad_around_text`, ≈7 mm) instead of a looser `font_size·3`,
+  so location stacks pack closer (#41).
 
 ### Fixed
 
@@ -43,28 +62,6 @@
   is now placed last on the front view's right ladder so it sits outermost, with
   the step-height dims inside it; extension lines nest instead of leapfrogging
   (staircase.step review).
-
-### Changed
-
-- **Hole-location dimensions are gated for legibility.** A hole-dense part (e.g.
-  NIST CTC-02, ~38 distinct hole locations) previously stacked every location
-  reference into a tall, busy tower above the views — "fits" is not "legible".
-  Each axis's references are now gated by inter-dimension page spacing
-  (`_legible_locations`, analogous to the step-height gate #41): only locations
-  at least one value-label footprint apart on the page are dimensioned; the rest
-  surface as `location_ref_dropped` (full fidelity belongs in a detail view,
-  #42). Sparse parts are unchanged (#43).
-- **Step heights are dimensioned only where legibly separable.** After the
-  adaptive cap (#36), a part with many closely-spaced shoulders (e.g. NIST
-  CTC-02 at 1:5) tried to dimension faces only ~1 mm apart on the page. A step
-  is now dimensioned only if it is both tall enough from the base *and* at least
-  one legible step-height above the previously dimensioned one; the rest surface
-  as `step_dim_dropped` (use a detail view). "Fits" is not the same as
-  "legible" (#41).
-- **Tighter location-dimension tier pitch.** The vertical pitch between stacked
-  X/Y location dimensions is now derived from the label footprint
-  (`font_size + 2·pad_around_text`, ≈7 mm) instead of a looser `font_size·3`,
-  so location stacks pack closer (#41).
 
 ## v0.1.7 — 2026-06-15
 
