@@ -3355,3 +3355,48 @@ class TestAnnotationsQuery:
         dwg.remove("r")
         assert dwg.get_annotation("r") is None
         assert "r" not in dwg.annotations()
+
+
+class TestViewBounds:
+    """#28: page bounding box of a named view's projected geometry."""
+
+    def test_view_bounds_returns_page_bbox(self):
+        dwg = build_drawing(Box(60, 40, 20))
+        b = dwg.view_bounds("front")
+        assert b is not None and len(b) == 4
+        x0, y0, x1, y1 = b
+        assert x1 > x0 and y1 > y0
+        # Front view (looking along Y) shows X=60 wide, Z=20 tall, at sheet scale.
+        assert (x1 - x0) == pytest.approx(60 * dwg.scale, rel=1e-3)
+        assert (y1 - y0) == pytest.approx(20 * dwg.scale, rel=1e-3)
+
+    def test_view_bounds_contains_projected_centroid(self):
+        # The part centroid (world origin for a centred Box) projects inside.
+        dwg = build_drawing(Box(60, 40, 20))
+        x0, y0, x1, y1 = dwg.view_bounds("front")
+        px, py, _ = dwg.at("front", 0, 0, 0)
+        assert x0 <= px <= x1
+        assert y0 <= py <= y1
+
+    def test_view_bounds_unknown_view_is_none(self):
+        dwg = build_drawing(Box(60, 40, 20))
+        assert dwg.view_bounds("does_not_exist") is None
+
+    def test_view_bounds_for_each_standard_view(self):
+        dwg = build_drawing(Box(60, 40, 20))
+        for v in ("front", "plan", "side", "iso"):
+            b = dwg.view_bounds(v)
+            assert b is not None, v
+            x0, y0, x1, y1 = b
+            assert x1 > x0 and y1 > y0, v
+
+    def test_view_bounds_includes_hidden_lines(self):
+        # Bounds union the visible and hidden silhouettes. Replace the front
+        # view's hidden compound with one that extends past the visible box and
+        # confirm the right edge moves out to it.
+        dwg = build_drawing(Box(60, 40, 20))
+        vis, _ = dwg.views["front"]
+        _, _, x1, _ = dwg.view_bounds("front")
+        far = Compound(children=[Edge.make_line((x1 + 10, 0, 0), (x1 + 10, 5, 0))])
+        dwg.views["front"] = (vis, far)
+        assert dwg.view_bounds("front")[2] == pytest.approx(x1 + 10)
