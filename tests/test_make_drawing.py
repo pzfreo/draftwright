@@ -3389,3 +3389,14 @@ class TestViewBounds:
             assert b is not None, v
             x0, y0, x1, y1 = b
             assert x1 > x0 and y1 > y0, v
+
+    def test_view_bounds_includes_hidden_lines(self):
+        # Bounds union the visible and hidden silhouettes. Replace the front
+        # view's hidden compound with one that extends past the visible box and
+        # confirm the right edge moves out to it.
+        dwg = build_drawing(Box(60, 40, 20))
+        vis, _ = dwg.views["front"]
+        _, _, x1, _ = dwg.view_bounds("front")
+        far = Compound(children=[Edge.make_line((x1 + 10, 0, 0), (x1 + 10, 5, 0))])
+        dwg.views["front"] = (vis, far)
+        assert dwg.view_bounds("front")[2] == pytest.approx(x1 + 10)
