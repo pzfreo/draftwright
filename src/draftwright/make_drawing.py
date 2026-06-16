@@ -439,20 +439,32 @@ def analyse_face_levels(part, tol: float = 0.5, min_area_frac: float = 0.0) -> l
     return sorted(buckets.values())
 
 
+# Automatic scale/page preference ladder, first-fit.  The enlargement/unity
+# region is page-major: every standard scale on the smallest sheet (A4) is tried
+# before moving to the next sheet, so a part lands on the smallest sheet it fits
+# at the largest scale that sheet allows — e.g. a 20×15×10 part gets 2:1 on A4,
+# not 5:1 on A3.  Reductions (below 1:1) keep their legibility-vs-sheet balance
+# (least reduction first) so a large part is not over-reduced onto a small sheet.
 _LADDER = [
+    # A4 — smallest sheet first, largest scale first
     (10.0, 297.0, 210.0, 120.0),  # A4 10:1
     (5.0, 297.0, 210.0, 120.0),  # A4 5:1
-    (5.0, 420.0, 297.0, 150.0),  # A3 5:1
     (2.0, 297.0, 210.0, 120.0),  # A4 2:1
     (1.0, 297.0, 210.0, 120.0),  # A4 1:1
+    # A3
+    (5.0, 420.0, 297.0, 150.0),  # A3 5:1
     (2.0, 420.0, 297.0, 150.0),  # A3 2:1
     (1.0, 420.0, 297.0, 150.0),  # A3 1:1
+    # A2
     (2.0, 594.0, 420.0, 150.0),  # A2 2:1
     (1.0, 594.0, 420.0, 150.0),  # A2 1:1
+    # A1
+    (1.0, 841.0, 594.0, 150.0),  # A1 1:1
+    # Reductions — least reduction first, so a too-big part is not crammed onto a
+    # small sheet at an illegible scale.
     (0.5, 594.0, 420.0, 150.0),  # A2 1:2
     (0.2, 420.0, 297.0, 150.0),  # A3 1:5
     (0.2, 594.0, 420.0, 150.0),  # A2 1:5
-    (1.0, 841.0, 594.0, 150.0),  # A1 1:1
     (0.5, 841.0, 594.0, 150.0),  # A1 1:2
     (0.2, 841.0, 594.0, 150.0),  # A1 1:5
     (0.5, 1189.0, 841.0, 150.0),  # A0 1:2

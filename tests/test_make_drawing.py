@@ -107,10 +107,12 @@ class TestChooseScale:
     # Enlargement scales for small parts (#62)
 
     def test_small_part_gets_enlargement_scale(self):
-        # 28 × 8.5 × 12.5 mm (issue #62 part) → 5:1 on A3, not 1:1 on A4
+        # 28 × 8.5 × 12.5 mm (issue #62 part) → enlarged, and kept on the
+        # smallest sheet: 2:1 on A4, not 5:1 on A3.  The ladder is page-major,
+        # so a smaller sheet is preferred over a larger enlargement scale.
         scale, pw, ph, tbw = choose_scale(28, 8.5, 12.5)
-        assert scale == 5.0
-        assert int(pw) == 420
+        assert scale == 2.0
+        assert int(pw) == 297
 
     def test_very_small_part_gets_10x(self):
         scale, pw, ph, tbw = choose_scale(8, 4, 4)

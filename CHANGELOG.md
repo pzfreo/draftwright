@@ -4,6 +4,13 @@
 
 ### Changed
 
+- **Automatic scale selection now minimises the sheet size.** The preference
+  ladder is page-major: every standard scale on the smallest sheet is tried
+  before the next sheet up, so a part lands on the smallest sheet it fits at the
+  largest scale that sheet allows. A 20 × 15 × 10 mm part is now drawn 2:1 on A4
+  instead of 5:1 on A3 — a smaller sheet is preferred over a larger enlargement
+  scale. Reductions keep their legibility-first balance, so a too-big part is
+  not over-reduced onto a small sheet.
 - **A specified page now enlarges to the best fitting scale.** When the caller
   fixes the page (`--page A3`) or scale, scale selection packs the isometric
   view into the largest empty rectangle the placement engine actually uses (it
