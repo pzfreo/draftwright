@@ -1151,16 +1151,11 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     )
 
     return SimpleNamespace(
-        margin=margin,
         x_offset=x_offset,
-        y_offset=y_offset,
-        gap_fv_sv=gap_fv_sv,
-        gap_left=gap_left,
         fv_hw=fv_hw,
         fv_hh=fv_hh,
         pv_hh=pv_hh,
         sv_hw=sv_hw,
-        total_h=total_h,
         FV_X=FV_X,
         FV_Y=FV_Y,
         PV_X=PV_X,

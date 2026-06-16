@@ -154,6 +154,18 @@ class TestChooseScaleOverrides:
         assert scale == 2.0
         assert int(pw) == 297
 
+    def test_scale_only_enlarges_long_short_part_via_2d_iso(self):
+        # Fixed scale, no page: choose_scale walks the page list with
+        # pack_iso_2d=True, so a long/short part keeps the requested 2:1 by
+        # packing the iso into vertical headroom.  At 2:1 the part overruns A4
+        # but fits A3; the conservative row model would have rejected A3 too.
+        from draftwright.make_drawing import _fits
+
+        assert not _fits(100, 10, 11, 2.0, 297.0, 210.0, 120.0, pack_iso_2d=True)
+        assert _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=True)
+        assert not _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0)
+        assert choose_scale(100, 10, 11, scale=2) == (2.0, 420.0, 297.0, 150.0)
+
     def test_page_tuple(self):
         scale, pw, ph, tbw = choose_scale(10, 10, 10, page=(420, 297))
         assert (pw, ph, tbw) == (420.0, 297.0, 150.0)
@@ -173,6 +185,31 @@ class TestChooseScaleOverrides:
     def test_nonpositive_scale_raises(self):
         with pytest.raises(ValueError, match="scale"):
             choose_scale(10, 10, 10, scale=0)
+
+
+class TestIsoEmptyRect:
+    def test_largest_empty_rect_fallback_when_fully_covered(self):
+        # When obstacles leave no genuine gap, _largest_empty_rect returns the
+        # whole drawable (documented fallback) — the mechanism iso_valid checks.
+        from draftwright.make_drawing import _largest_empty_rect
+
+        drawable = (10.0, 10.0, 90.0, 90.0)
+        assert _largest_empty_rect(drawable, [drawable]) == drawable
+
+    def test_layout_geometry_iso_valid_false_when_no_gap(self):
+        # A part that fills the sheet leaves no empty rectangle for the iso, so
+        # the fallback returns the drawable (overlapping the view obstacles) and
+        # iso_valid is False — the flag _fits uses to reject such a layout.
+        from draftwright.make_drawing import _layout_geometry
+
+        g = _layout_geometry(200, 150, 150, 2.0, 297.0, 210.0, 120.0, None)
+        assert g.iso_valid is False
+
+    def test_layout_geometry_iso_valid_true_for_normal_part(self):
+        from draftwright.make_drawing import _layout_geometry
+
+        g = _layout_geometry(20, 20, 20, 1.0, 297.0, 210.0, 120.0, None)
+        assert g.iso_valid is True
 
 
 class TestScaleMinimum:
