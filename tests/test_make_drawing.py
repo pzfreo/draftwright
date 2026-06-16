@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from build123d import Box, Compound, Cylinder, Edge, Pos, export_step
-from build123d_drafting import Leader, ViewCoordinates, view_axes
+from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
 from draftwright import Drawing, build_drawing, make_drawing
 from draftwright.make_drawing import (
@@ -3041,3 +3041,139 @@ class TestPlaceDim:
         )
         result = dwg.place_dim((0, 0, 0), (80, 0, 0), "below", "plan", d, slot=8.0)
         assert isinstance(result, Dimension)
+
+
+# ---------------------------------------------------------------------------
+# Issue #29: lint findings carry a suggested-fix code snippet
+# ---------------------------------------------------------------------------
+
+
+class TestLintSuggestions:
+    """#29: each LintIssue carries a `suggestion` (str | None) with a fix snippet."""
+
+    def test_feature_not_dimensioned_has_suggestion(self):
+        # auto_dims=False leaves the ø10 hole undimensioned → coverage lint fires.
+        part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(5, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        issues = [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
+        assert issues, "expected a feature_not_dimensioned issue"
+        sug = issues[0].suggestion
+        assert sug is not None
+        assert "dwg.features(" in sug
+        assert "HoleCallout(" in sug
+        assert "Leader(" in sug
+
+    def test_feature_not_dimensioned_suggestion_is_runnable(self):
+        # The headline #29 promise: paste the snippet and the lint resolves.
+        part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(5, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        assert any(i.code == "feature_not_dimensioned" for i in dwg.lint())
+
+        for f in dwg.features("plan"):
+            if abs(f.diameter - 10.0) < 1e-6:
+                callout = HoleCallout(
+                    f.diameter, count=f.count, through=f.through, depth=f.depth, draft=dwg.draft
+                )
+                elbow = (f.page_pos[0] + 15, f.page_pos[1] + 10, 0)
+                leader = Leader((*f.page_pos, 0), elbow, "", dwg.draft, callout=callout)
+                dwg.add(leader, name="hole_10")
+
+        assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
+
+    def test_clean_drawing_has_no_suggestions(self):
+        # A fully auto-dimensioned plain box should lint clean → no suggestions.
+        dwg = build_drawing(Box(60, 40, 20))
+        for i in dwg.lint():
+            assert i.suggestion is None
+
+    def test_lint_summary_omits_none_suggestion(self):
+        # A clean box: issue dicts (if any) must not carry a suggestion key.
+        dwg = build_drawing(Box(60, 40, 20))
+        for d in dwg.lint_summary()["issues"]:
+            assert "suggestion" not in d
+
+    def test_lint_summary_includes_present_suggestion(self):
+        part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(5, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        dicts = [d for d in dwg.lint_summary()["issues"] if d["code"] == "feature_not_dimensioned"]
+        assert dicts
+        assert "suggestion" in dicts[0]
+        assert dicts[0]["suggestion"]
+
+    def test_step_dim_dropped_suggestion_mentions_detail_view(self):
+        dwg = build_drawing(_crowded_shoulder_part())
+        issues = [i for i in dwg.lint() if i.code == "step_dim_dropped"]
+        assert issues, "crowded shoulders should drop a step dim"
+        assert "detail_view=True" in issues[0].suggestion
+
+    def test_annotation_overlap_suggestion_uses_place_dim(self):
+        # Synthetic issue — exercise the _suggest_fix branch directly.
+        from build123d_drafting.helpers import LintIssue
+
+        from draftwright.make_drawing import _suggest_fix
+
+        dwg = build_drawing(Box(60, 40, 20))
+        issue = LintIssue(
+            severity="warning",
+            message="labels 'dim_width' and 'dim_height' overlap by 3.0×2.0 mm",
+            code="annotation_overlap",
+        )
+        sug = _suggest_fix(issue, dwg)
+        assert sug is not None
+        assert "place_dim" in sug
+        assert "dim_width" in sug
+
+    def test_dim_inside_part_suggestion_uses_place_dim(self):
+        from build123d_drafting.helpers import LintIssue
+
+        from draftwright.make_drawing import _suggest_fix
+
+        dwg = build_drawing(Box(60, 40, 20))
+        issue = LintIssue(
+            severity="warning",
+            message="Dim 'dim_height': annotation bbox overlaps part outline by 40%",
+            code="dim_inside_part",
+        )
+        sug = _suggest_fix(issue, dwg)
+        assert sug is not None
+        assert "place_dim" in sug
+        assert "dim_height" in sug
+
+    def test_unknown_code_has_no_suggestion(self):
+        from build123d_drafting.helpers import LintIssue
+
+        from draftwright.make_drawing import _suggest_fix
+
+        dwg = build_drawing(Box(60, 40, 20))
+        issue = LintIssue(severity="info", message="something", code="some_unhandled_code")
+        assert _suggest_fix(issue, dwg) is None
+
+    def test_non_integer_diameter_still_gets_suggestion(self):
+        # Regression guard for the 1e-6-vs-_fmt bug: radius 4.111 gives a raw
+        # diameter of 8.22, but the message reports the 1dp-rounded ø8.2 — a
+        # 0.02 gap that a 1e-6 match would drop. The diameter must round-trip
+        # with tolerance so the suggestion still appears.
+        part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(4.111, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        issues = [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
+        assert issues
+        assert "ø8.2" in issues[0].message  # rounded, differs from raw 8.22
+        assert issues[0].suggestion is not None
+        assert 'dwg.features("plan")' in issues[0].suggestion
+
+    def test_feature_count_mismatch_suggestion_sets_count(self):
+        # The leading number is `need`; diameter digits (even fractional) must
+        # not interfere with the parse.
+        from build123d_drafting.helpers import LintIssue
+
+        from draftwright.make_drawing import _suggest_fix
+
+        dwg = build_drawing(Box(60, 40, 20))
+        issue = LintIssue(
+            severity="warning",
+            message="4 ø8.5 features on the part but callouts account for 1",
+            code="feature_count_mismatch",
+        )
+        sug = _suggest_fix(issue, dwg)
+        assert sug is not None
+        assert "count=4" in sug
