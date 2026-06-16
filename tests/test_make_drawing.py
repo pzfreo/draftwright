@@ -2601,6 +2601,27 @@ class TestLintSummaryAndDrops:
         assert 0 < n_locy < 10
 
     @pytest.mark.timeout(120)
+    def test_location_gate_ignores_datum_edge_hole(self):
+        # #43 follow-up: a hole on the datum edge is never dimensioned (its dim is
+        # ~zero), so the gate must not anchor a cluster on it and drop a real
+        # neighbour. Box centred at origin -> datum corner at (-40, -30).
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import build_drawing
+
+        part = Box(80, 60, 20)
+        part -= Pos(-39.3, 0, 0) * Cylinder(0.4, 20)  # ~0.7 mm from datum_x: skipped
+        part -= Pos(-36.5, 0, 0) * Cylinder(1.5, 20)  # ~2.8 mm from the edge hole
+        dwg = build_drawing(part)
+        # The real neighbour is dimensioned...
+        assert any(n.startswith("dim_locx") for n in dwg._named)
+        # ...and the gate did not record a spurious X spacing drop.
+        x_spacing_drops = [
+            i for i in dwg.lint() if i.code == "location_ref_dropped" and "X location" in i.message
+        ]
+        assert x_spacing_drops == []
+
+    @pytest.mark.timeout(120)
     def test_auto_annotate_clears_stale_build_issues(self):
         # Re-annotating starts build-time lint tracking from a clean slate:
         # stale drop records from a prior pass are cleared, not accumulated.

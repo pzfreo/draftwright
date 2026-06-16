@@ -2625,8 +2625,11 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
         if not any(abs(r[0] - u[0]) < 0.5 for u in x_refs):
             x_refs.append(r)
     # Legibility gate (#43): drop X refs whose baseline witness lines would be
-    # page-coincident with a kept one — "fits" is not "legible" (cf. #41).
-    _kept_x, _n_x_close = _legible_locations([r[0] for r in x_refs], a.SCALE)
+    # page-coincident with a kept one — "fits" is not "legible" (cf. #41). Gate
+    # only the refs that will actually be drawn: a hole on the datum edge is
+    # skipped below, so it must not anchor a cluster and drop a real neighbour.
+    _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
+    _kept_x, _n_x_close = _legible_locations(_x_drawable, a.SCALE)
     if _n_x_close:
         dwg._record_build_issue(
             "warning",
@@ -2635,7 +2638,7 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
             "(use a detail view)",
         )
     _kept_x_set = set(_kept_x)
-    x_refs = [r for r in x_refs if r[0] in _kept_x_set]
+    x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
     for n, ann in dwg._named.items():
         if n.startswith("dim_pitch_plan") and getattr(ann, "dim_level_y", 0) > plan_top:
             a.pv_zones.above.allocate(10.0)  # consume space used by pitch dim
@@ -2679,8 +2682,11 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
     for rx, ry, dia in refs:
         if not any(abs(ry - u[1]) < 0.5 for u in y_refs):
             y_refs.append((rx, ry, dia))
-    # Legibility gate (#43): drop Y refs page-coincident with a kept one.
-    _kept_y, _n_y_close = _legible_locations([r[1] for r in y_refs], a.SCALE)
+    # Legibility gate (#43): drop Y refs page-coincident with a kept one. Gate
+    # only drawable refs (the placement loop skips datum-edge ones), so the gate
+    # never anchors a cluster on a hole that isn't dimensioned.
+    _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
+    _kept_y, _n_y_close = _legible_locations(_y_drawable, a.SCALE)
     if _n_y_close:
         dwg._record_build_issue(
             "warning",
@@ -2689,7 +2695,7 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
             "(use a detail view)",
         )
     _kept_y_set = set(_kept_y)
-    y_refs = [r for r in y_refs if r[1] in _kept_y_set]
+    y_refs = [r for r in y_refs if r[1] not in _y_drawable or r[1] in _kept_y_set]
     # Y locations: dims above the side view, routed through sv_zones.above.
     # Pre-advance past any pitch dims already placed above side_top.
     for n, ann in dwg._named.items():
