@@ -438,6 +438,26 @@ class TestStripZones:
         assert "dim_height" in dwg._named
         assert dwg._named["dim_height"].label == "30"
 
+    def test_overall_height_dim_sits_outside_step_dims(self):
+        # staircase.step review: the overall-height dimension must nest OUTSIDE
+        # the step-height dims (placed last so it is outermost), so extension
+        # lines nest rather than leapfrog. A stepped part exercises both.
+        from build123d import Box, Pos
+
+        from draftwright import build_drawing
+
+        part = (
+            Box(40, 12, 60) - Pos(10, 0, 30) * Box(20, 12, 30) - Pos(-10, 0, 40) * Box(20, 12, 20)
+        )
+        dwg = build_drawing(part)
+        assert "dim_height" in dwg._named
+        step_dims = [n for n in dwg._named if n.startswith("dim_step")]
+        assert step_dims, "expected at least one step dim"
+        height_x = dwg._named["dim_height"].bounding_box().max.X
+        for n in step_dims:
+            step_x = dwg._named[n].bounding_box().max.X
+            assert height_x > step_x, f"overall height must sit outside {n}"
+
     def test_right_strip_outer_limits_tightened_to_iso(self):
         # fv.right and pv.right are both bounded by sv_left_edge so bore callout
         # labels cannot cross into the side view.  The sv.right strip is only
@@ -1128,6 +1148,28 @@ def test_analyse_face_levels_returns_sorted():
     box = Box(30, 20, 10)
     levels = analyse_face_levels(box)
     assert levels == sorted(levels)
+
+
+@pytest.mark.timeout(60)
+def test_analyse_face_levels_area_filter_drops_tiny_faces():
+    # A sub-feature horizontal face (e.g. a fragment of engraved text) is far
+    # smaller than the plan footprint and must not be counted as a real step.
+    # staircase.step review: a 0.57 mm² digit face was dimensioned as z=6.4.
+    from build123d import Box, Pos
+
+    # 30×20 footprint (600 mm²); a 1×1 pip on top (1 mm² top face at z=7).
+    part = Box(30, 20, 10) + Pos(0, 0, 6) * Box(1, 1, 2)
+
+    # Without the filter the tiny face shows up as a phantom level.
+    unfiltered = analyse_face_levels(part)
+    assert any(abs(z - 7.0) < 0.1 for z in unfiltered)
+
+    # With a 1%-of-footprint threshold (6 mm²) the 1 mm² face is dropped,
+    # leaving only the real slab faces.
+    filtered = analyse_face_levels(part, min_area_frac=0.01)
+    assert not any(abs(z - 7.0) < 0.1 for z in filtered)
+    assert any(abs(z - 5.0) < 0.1 for z in filtered)
+    assert any(abs(z - (-5.0)) < 0.1 for z in filtered)
 
 
 # ---------------------------------------------------------------------------

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Phantom step corridor no longer blocks a larger scale.** Page/scale
+  selection reserved a step-ladder corridor sized for *every* candidate
+  horizontal face, including ones the legibility gate would never dimension. A
+  part with many sub-legible faces (e.g. a staircase with 15 tiny treads) was
+  forced onto an oversized sheet at 1:1. Scale selection now iterates so the
+  reserved corridor matches the step count actually placed, freeing the part to
+  pick a tighter sheet (staircase.step review).
+- **Engraved-text faces are no longer dimensioned as steps.** `analyse_face_levels`
+  gained a `min_area_frac` filter; a horizontal face counts as a step only if
+  its area is at least 1% of the part's plan footprint. This drops sub-feature
+  faces (fragments of engraved numbers/text) that were surfacing as phantom
+  shoulders — e.g. a 0.57 mm² digit face dimensioned as z=6.4 on staircase.step.
+- **Overall-height dimension nests outside the step dims.** The overall height
+  is now placed last on the front view's right ladder so it sits outermost, with
+  the step-height dims inside it; extension lines nest instead of leapfrogging
+  (staircase.step review).
+
 ### Changed
 
 - **Step heights are dimensioned only where legibly separable.** After the

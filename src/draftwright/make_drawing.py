@@ -74,7 +74,9 @@ from build123d_drafting.helpers import (
 )
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+from OCP.BRepGProp import BRepGProp
 from OCP.GeomAbs import GeomAbs_Plane
+from OCP.GProp import GProp_GProps
 from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
 from OCP.TopTools import TopTools_ListOfShape
@@ -403,13 +405,20 @@ _SCORE_ERROR_PENALTY = 0.2
 _SCORE_WARNING_PENALTY = 0.05
 
 
-def analyse_face_levels(part, tol: float = 0.5) -> list:
+def analyse_face_levels(part, tol: float = 0.5, min_area_frac: float = 0.0) -> list:
     """Return sorted unique Z-coords of horizontal (normal≈±Z) planar faces.
 
     Uses tol-bucket deduplication but returns the actual face Z, not the rounded
     bucket centre, so dimension labels match the true geometry.
+
+    When *min_area_frac* > 0, a Z level is kept only if the total area of its
+    horizontal faces is at least ``min_area_frac × (x_size × y_size)`` (the
+    part's plan footprint). This drops sub-feature faces — e.g. fragments of
+    engraved text/numbers — that are not real steps and would otherwise be
+    dimensioned as phantom shoulders (staircase.step review).
     """
-    buckets = {}
+    buckets: dict = {}  # bucket key -> representative z
+    areas: dict = {}  # bucket key -> total horizontal-face area
     for face in part.faces():
         surf = BRepAdaptor_Surface(face.wrapped)
         if surf.GetType() == GeomAbs_Plane:
@@ -417,8 +426,16 @@ def analyse_face_levels(part, tol: float = 0.5) -> list:
             if abs(ax.Z()) > 0.99:
                 z = surf.Plane().Location().Z()
                 key = round(z / tol) * tol
-                if key not in buckets:
-                    buckets[key] = z
+                buckets.setdefault(key, z)
+                if min_area_frac > 0.0:
+                    props = GProp_GProps()
+                    BRepGProp.SurfaceProperties_s(face.wrapped, props)
+                    areas[key] = areas.get(key, 0.0) + props.Mass()
+    if min_area_frac > 0.0:
+        bb = part.bounding_box()
+        footprint = (bb.max.X - bb.min.X) * (bb.max.Y - bb.min.Y)
+        threshold = min_area_frac * footprint
+        return sorted(z for key, z in buckets.items() if areas.get(key, 0.0) >= threshold)
     return sorted(buckets.values())
 
 
@@ -628,6 +645,11 @@ _MIN_STEP_DIM_MM = (
 # value-label footprint (one glyph height + clearance) — enough to tell two
 # stacked step dims apart, without dropping genuinely-distinct shoulders.
 _MIN_STEP_SEP_MM = _FONT_SIZE + 2 * _PAD
+
+# A horizontal face counts as a real step only if its area is at least this
+# fraction of the part's plan footprint (x_size × y_size). Filters out tiny
+# faces from engraved text/numbers that are not steps (staircase.step review).
+_STEP_MIN_AREA_FRAC = 0.01
 
 
 def _legible_steps(step_zs, bb_min_z, scale):
@@ -1042,7 +1064,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     if z_diams and not is_rotational:
         _log.info("Part classified prismatic; skipping OD/centreline/bore annotations")
 
-    face_zs = analyse_face_levels(part)
+    face_zs = analyse_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)
     step_zs = [z for z in face_zs if z > bb.min.Z + 0.6 and z < bb.max.Z - 0.6]
 
     # Pass 1 (two-pass layout, #131): measure annotation strip depths before
@@ -1057,23 +1079,33 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
     holes = find_holes(part, cyls=(z_cyls, cross_cyls))
     patterns = find_hole_patterns(holes)
 
-    # Conservative upper bound for page selection: count all candidate step
-    # faces without the SCALE-dependent _MIN_STEP_DIM_MM gate (SCALE not yet known).
-    n_steps_ub = len(step_zs)
-    strips_ub = _measure_strips(
-        holes,
-        patterns,
-        n_steps_ub,
-        bb,
-        arrow_length=_arrow_length,
-        pad_around_text=_pad_around_text,
-    )
-    SCALE, PAGE_W, PAGE_H, TB_W = choose_scale(
-        x_size, y_size, z_size, n_steps=n_steps_ub, scale=scale, page=page, strips=strips_ub
-    )
+    # Choose scale/page, iterating so the reserved step corridor matches the
+    # number of steps the legibility gate will actually place (#1) — not the raw
+    # face count. Otherwise a part with many sub-legible faces (e.g. a staircase
+    # with 15 tiny treads) reserves a phantom step ladder that blocks a larger
+    # scale. Seed conservatively (all faces), then re-gate at the chosen scale;
+    # converges in a couple of rounds.
+    n_for_sizing = len(step_zs)
+    strips_i = None
+    for _ in range(3):
+        strips_i = _measure_strips(
+            holes,
+            patterns,
+            n_for_sizing,
+            bb,
+            arrow_length=_arrow_length,
+            pad_around_text=_pad_around_text,
+        )
+        SCALE, PAGE_W, PAGE_H, TB_W = choose_scale(
+            x_size, y_size, z_size, n_steps=n_for_sizing, scale=scale, page=page, strips=strips_i
+        )
+        n_next = len(_legible_steps(step_zs, bb.min.Z, SCALE)[0])
+        if n_next == n_for_sizing:
+            break
+        n_for_sizing = n_next
     if scale is not None:
         auto_scale, _, _, _ = choose_scale(
-            x_size, y_size, z_size, n_steps=n_steps_ub, scale=None, page=page, strips=strips_ub
+            x_size, y_size, z_size, n_steps=n_for_sizing, scale=None, page=page, strips=strips_i
         )
         if SCALE < auto_scale:
             min_dim = min(x_size, y_size, z_size)
@@ -1717,27 +1749,12 @@ def _auto_annotate(dwg, a):
                 _iso_x_limit,
             )
 
-    # Overall height — slot reserved in fv_zones.right.
-    # _right_ladder tracks the witness x for the progressive ladder: each
-    # subsequent dim witnesses from the previous dim's line, so extension
-    # lines are adjacent rather than coincident.
+    # Height dimensions stack to the right of the front view, smallest nearest
+    # the part and the overall height OUTERMOST so extension lines nest without
+    # leapfrogging (#staircase review). _right_ladder tracks the witness x; each
+    # successive dim witnesses from the previous dim's line. The step dims are
+    # placed first (inner) below; the overall height is placed last (outer).
     _right_ladder = FX(a.bb.max.X) + 2
-    _px = a.fv_zones.right.allocate(_SLOT_DIM_HEIGHT)
-    if _px is not None:
-        dwg.add(
-            Dimension(
-                (_right_ladder, FZ(a.bb.min.Z), 0),
-                (_right_ladder, FZ(a.bb.max.Z), 0),
-                "right",
-                _px - _right_ladder,
-                draft,
-                label=_fmt(a.z_size),
-            ),
-            "dim_height",
-        )
-        _right_ladder = _px
-    else:
-        _log.warning("dim_height skipped: fv_zones.right strip full")
 
     # Outer diameter — only for rotational (turned) parts, and from the
     # classified external OD cylinder, never a bore that happens to be the
@@ -1884,6 +1901,24 @@ def _auto_annotate(dwg, a):
             f"dim_step_{col}",
         )
         _right_ladder = _px
+
+    # Overall height — placed last so it sits OUTERMOST, beyond the step dims.
+    _px = a.fv_zones.right.allocate(_SLOT_DIM_HEIGHT)
+    if _px is not None:
+        dwg.add(
+            Dimension(
+                (_right_ladder, FZ(a.bb.min.Z), 0),
+                (_right_ladder, FZ(a.bb.max.Z), 0),
+                "right",
+                _px - _right_ladder,
+                draft,
+                label=_fmt(a.z_size),
+            ),
+            "dim_height",
+        )
+        _right_ladder = _px
+    else:
+        _log.warning("dim_height skipped: fv_zones.right strip full")
 
     # Width (non-round / non-square parts only) — routed through pv_zones.below
     if abs(a.x_size - a.y_size) > max(a.x_size, a.y_size) * 0.05:
