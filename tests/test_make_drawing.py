@@ -1709,8 +1709,8 @@ class TestAutoHoleAnnotations:
 
     @pytest.fixture(scope="class")
     def plate_drawing(self):
-        # 4x o10 thru corners + centre o8 thru with o16x6 cbore + o6 x-axis
-        # cross hole + o12 blind hole
+        # 4× ø10 thru corners + centre ø8 thru with ø16×6 cbore + ø6 x-axis
+        # cross hole + ø12 blind hole
         part = (
             Box(100, 100, 20)
             - Pos(35, 35, 0) * Cylinder(5, 20)
@@ -1727,7 +1727,7 @@ class TestAutoHoleAnnotations:
     @pytest.mark.timeout(120)
     def test_identical_holes_share_one_counted_callout(self, plate_drawing):
         hc = [n for n in plate_drawing._named if n.startswith("hc_plan")]
-        # 3 distinct Z specs (4x o10 thru, o8 cbore stack, o12 blind), not 6
+        # 3 distinct Z specs (4× ø10 thru, ø8 cbore stack, ø12 blind), not 6
         assert len(hc) == 3
 
     @pytest.mark.timeout(120)
