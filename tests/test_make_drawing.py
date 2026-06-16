@@ -107,10 +107,12 @@ class TestChooseScale:
     # Enlargement scales for small parts (#62)
 
     def test_small_part_gets_enlargement_scale(self):
-        # 28 × 8.5 × 12.5 mm (issue #62 part) → 5:1 on A3, not 1:1 on A4
+        # 28 × 8.5 × 12.5 mm (issue #62 part) → enlarged, and kept on the
+        # smallest sheet: 2:1 on A4, not 5:1 on A3.  The ladder is page-major,
+        # so a smaller sheet is preferred over a larger enlargement scale.
         scale, pw, ph, tbw = choose_scale(28, 8.5, 12.5)
-        assert scale == 5.0
-        assert int(pw) == 420
+        assert scale == 2.0
+        assert int(pw) == 297
 
     def test_very_small_part_gets_10x(self):
         scale, pw, ph, tbw = choose_scale(8, 4, 4)
@@ -132,10 +134,37 @@ class TestChooseScaleOverrides:
         assert (pw, ph) == (420.0, 297.0)
         assert scale == 5.0
 
+    def test_specified_page_enlarges_long_short_part_via_2d_iso(self):
+        # A long, short part (100 × 10 × 11, e.g. a staircase) fills a specified
+        # A3 sheet at 2:1.  The conservative row model would reject 2:1 (it
+        # charges the iso a row column), but on a fixed page the iso is packed
+        # into vertical headroom, so the larger scale genuinely fits (#staircase).
+        from draftwright.make_drawing import _fits
+
+        assert not _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0)
+        assert _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=True)
+        scale, pw, ph, _ = choose_scale(100, 10, 11, page="A3")
+        assert scale == 2.0
+        assert (pw, ph) == (420.0, 297.0)
+        # Automatic selection (no page) stays conservative — A4 at 1:1.
+        assert choose_scale(100, 10, 11)[:3] == (1.0, 297.0, 210.0)
+
     def test_scale_only_picks_smallest_fitting_page(self):
         scale, pw, ph, tbw = choose_scale(28, 8.5, 12.5, scale=2)
         assert scale == 2.0
         assert int(pw) == 297
+
+    def test_scale_only_enlarges_long_short_part_via_2d_iso(self):
+        # Fixed scale, no page: choose_scale walks the page list with
+        # pack_iso_2d=True, so a long/short part keeps the requested 2:1 by
+        # packing the iso into vertical headroom.  At 2:1 the part overruns A4
+        # but fits A3; the conservative row model would have rejected A3 too.
+        from draftwright.make_drawing import _fits
+
+        assert not _fits(100, 10, 11, 2.0, 297.0, 210.0, 120.0, pack_iso_2d=True)
+        assert _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=True)
+        assert not _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0)
+        assert choose_scale(100, 10, 11, scale=2) == (2.0, 420.0, 297.0, 150.0)
 
     def test_page_tuple(self):
         scale, pw, ph, tbw = choose_scale(10, 10, 10, page=(420, 297))
@@ -156,6 +185,31 @@ class TestChooseScaleOverrides:
     def test_nonpositive_scale_raises(self):
         with pytest.raises(ValueError, match="scale"):
             choose_scale(10, 10, 10, scale=0)
+
+
+class TestIsoEmptyRect:
+    def test_largest_empty_rect_fallback_when_fully_covered(self):
+        # When obstacles leave no genuine gap, _largest_empty_rect returns the
+        # whole drawable (documented fallback) — the mechanism iso_valid checks.
+        from draftwright.make_drawing import _largest_empty_rect
+
+        drawable = (10.0, 10.0, 90.0, 90.0)
+        assert _largest_empty_rect(drawable, [drawable]) == drawable
+
+    def test_layout_geometry_iso_valid_false_when_no_gap(self):
+        # A part that fills the sheet leaves no empty rectangle for the iso, so
+        # the fallback returns the drawable (overlapping the view obstacles) and
+        # iso_valid is False — the flag _fits uses to reject such a layout.
+        from draftwright.make_drawing import _layout_geometry
+
+        g = _layout_geometry(200, 150, 150, 2.0, 297.0, 210.0, 120.0, None)
+        assert g.iso_valid is False
+
+    def test_layout_geometry_iso_valid_true_for_normal_part(self):
+        from draftwright.make_drawing import _layout_geometry
+
+        g = _layout_geometry(20, 20, 20, 1.0, 297.0, 210.0, 120.0, None)
+        assert g.iso_valid is True
 
 
 class TestScaleMinimum:
@@ -1274,6 +1328,20 @@ def test_ctc01_iso_world_to_page_mapping(ctc01_a3_drawing):
     iso_scale = dwg._coords["iso"]._scale
     raised = dwg.at("iso", cx, cy, cz + 100)
     assert raised[1] - centre[1] == pytest.approx(100 * iso_scale)
+
+
+@pytest.mark.timeout(60)
+def test_iso_view_grow_capped_at_max():
+    # The iso is an orientation aid, not a measured view: fitted to a large empty
+    # zone it must not balloon past _ISO_MAX_GROW × sheet scale (was ~8× before).
+    from draftwright.make_drawing import _ISO_MAX_GROW
+
+    # Small part forced onto a big sheet → large empty rectangle → would over-grow.
+    dwg = build_drawing(Box(40, 30, 20), scale=1, page="A1")
+    iso_scale = dwg._coords["iso"]._scale
+    sheet_scale = dwg._analysis.SCALE
+    assert iso_scale <= _ISO_MAX_GROW * sheet_scale + 1e-6
+    assert iso_scale == pytest.approx(_ISO_MAX_GROW * sheet_scale, abs=1e-6)
 
 
 @pytest.mark.timeout(60)
