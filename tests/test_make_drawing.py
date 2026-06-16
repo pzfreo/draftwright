@@ -2782,10 +2782,17 @@ def _crowded_shoulder_part():
 
 @pytest.mark.timeout(120)
 class TestDetailView:
-    def test_crowded_shoulders_get_a_detail_view(self):
+    def test_detail_view_off_by_default(self):
+        # detail_view=False (default) — no detail view even when shoulders are crowded.
+        dwg = build_drawing(_crowded_shoulder_part())
+        assert "detail_a" not in dwg.views
+        assert "detail_caption" not in dwg._named
+        assert not any(n.startswith("dim_detail") for n in dwg._named)
+
+    def test_crowded_shoulders_get_a_detail_view_when_requested(self):
         from draftwright.make_drawing import _legible_steps
 
-        dwg = build_drawing(_crowded_shoulder_part())
+        dwg = build_drawing(_crowded_shoulder_part(), detail_view=True)
         a = dwg._analysis
         # Pin the trigger: the gate must actually drop at least one shoulder at
         # the chosen scale, otherwise the test is not exercising #42.
