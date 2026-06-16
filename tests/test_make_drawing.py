@@ -3147,3 +3147,32 @@ class TestLintSuggestions:
         dwg = build_drawing(Box(60, 40, 20))
         issue = LintIssue(severity="info", message="something", code="some_unhandled_code")
         assert _suggest_fix(issue, dwg) is None
+
+    def test_non_integer_diameter_still_gets_suggestion(self):
+        # Regression: the reported diameter is dedup-rounded to 1 dp, so a 1e-6
+        # match against the raw feature diameter would silently drop the
+        # suggestion for any non-integer bore. ø8.4 must still get one.
+        part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(4.2, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        issues = [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
+        assert issues
+        assert "ø8.4" in issues[0].message
+        assert issues[0].suggestion is not None
+        assert 'dwg.features("plan")' in issues[0].suggestion
+
+    def test_feature_count_mismatch_suggestion_sets_count(self):
+        # The leading number is `need`; diameter digits (even fractional) must
+        # not interfere with the parse.
+        from build123d_drafting.helpers import LintIssue
+
+        from draftwright.make_drawing import _suggest_fix
+
+        dwg = build_drawing(Box(60, 40, 20))
+        issue = LintIssue(
+            severity="warning",
+            message="4 ø8.5 features on the part but callouts account for 1",
+            code="feature_count_mismatch",
+        )
+        sug = _suggest_fix(issue, dwg)
+        assert sug is not None
+        assert "count=4" in sug

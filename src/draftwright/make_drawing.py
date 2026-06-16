@@ -407,6 +407,11 @@ _SCORE_WARNING_PENALTY = 0.05
 # Quote a label parsed from a lint message safely back into a snippet.
 _QUOTED_RE = re.compile(r"'([^']*)'")
 
+# Tolerance for matching a lint message's reported diameter (dedup
+# representative at tol 0.15, formatted to 1 dp) back to a raw feature
+# diameter when generating a fix snippet (#29).
+_DIAM_MATCH_TOL = 0.2
+
 
 def _suggest_fix(issue, dwg) -> str | None:
     """Return a ready-to-paste code snippet that addresses *issue*, or None.
@@ -424,14 +429,16 @@ def _suggest_fix(issue, dwg) -> str | None:
         if m is None:
             return None
         d = float(m.group(1))
-        # Find which view the feature appears in so the snippet is view-correct.
+        # The reported diameter is the dedup representative (tol 0.15) formatted
+        # to 1 dp, so match raw feature diameters with that combined slack — a
+        # 1e-6 match would silently miss every non-integer bore.
         for view in ("plan", "front", "side"):
-            if any(abs(f.diameter - d) < 1e-6 for f in dwg.features(view)):
+            if any(abs(f.diameter - d) < _DIAM_MATCH_TOL for f in dwg.features(view)):
                 tag = _fmt(d).replace(".", "_")
                 return (
                     f"# ø{_fmt(d)} has no callout. Locate it via features() and add a leader:\n"
                     f'for f in dwg.features("{view}"):\n'
-                    f"    if abs(f.diameter - {_fmt(d)}) < 1e-6:\n"
+                    f"    if abs(f.diameter - {_fmt(d)}) < 0.2:\n"
                     f"        callout = HoleCallout(f.diameter, count=f.count,\n"
                     f"                              through=f.through, depth=f.depth, draft=dwg.draft)\n"
                     f"        elbow = (f.page_pos[0] + 15, f.page_pos[1] + 10, 0)\n"
@@ -442,11 +449,13 @@ def _suggest_fix(issue, dwg) -> str | None:
 
     if code == "feature_count_mismatch":
         # Message: "4 ø8 features on the part but callouts account for 1".
+        # `need` is the leading count; anchor it so diameter digits never
+        # interfere regardless of message word order.
         m = _DIAM_RE.search(issue.message)
-        nums = re.findall(r"\b(\d+)\b", issue.message)
-        if m is None or not nums:
+        need_m = re.match(r"\s*(\d+)", issue.message)
+        if m is None or need_m is None:
             return None
-        need = nums[0]
+        need = need_m.group(1)
         return (
             f"# Only some ø{m.group(1)} holes are counted. Set count={need} on the "
             f"callout so it covers them all:\n"
