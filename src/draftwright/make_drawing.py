@@ -679,6 +679,39 @@ _MIN_STEP_SEP_MM = _FONT_SIZE + 2 * _PAD
 # faces from engraved text/numbers that are not steps (staircase.step review).
 _STEP_MIN_AREA_FRAC = 0.01
 
+# Minimum page-mm separation between two *consecutive* hole-location dimensions
+# along one axis. Stacked location dims sit on separate tiers, so their value
+# labels never collide (the tier pitch handles that); the legibility limit is the
+# extension lines / arrowheads merging when two holes share almost the same
+# position on that axis. Sized to one arrowhead plus clearance — smaller than the
+# step-spacing gate, which also stacks labels in one column. Holes closer than
+# this read as one, so only the first of such a run is dimensioned and the rest
+# surface via lint (#43): "fits" is not the same as "legible".
+_MIN_LOC_SEP_MM = draft_preset(font_size=_FONT_SIZE, decimal_precision=1).arrow_length + _PAD
+
+
+def _legible_locations(positions, scale):
+    """Axis positions far enough apart on the page to dimension legibly.
+
+    Given world-coordinate *positions* along one axis, keep a position only if it
+    is at least ``_MIN_LOC_SEP_MM`` page-mm from the previously kept one;
+    consecutive holes closer than that produce baseline witness lines that read
+    as a single busy cluster (#43). Returns ``(kept, n_too_close)``: the
+    positions to dimension and the count dropped for spacing (the caller surfaces
+    these via ``location_ref_dropped`` lint; the full-fidelity answer is a detail
+    view, #42). Mirrors :func:`_legible_steps` for hole locations.
+    """
+    kept: list[float] = []
+    n_too_close = 0
+    last = None
+    for p in sorted(positions):
+        if last is not None and (p - last) * scale < _MIN_LOC_SEP_MM:
+            n_too_close += 1
+            continue
+        kept.append(p)
+        last = p
+    return kept, n_too_close
+
 
 def _legible_steps(step_zs, bb_min_z, scale):
     """Step heights worth dimensioning at *scale*, and how many were too close.
@@ -2591,6 +2624,18 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
     for r in refs:
         if not any(abs(r[0] - u[0]) < 0.5 for u in x_refs):
             x_refs.append(r)
+    # Legibility gate (#43): drop X refs whose baseline witness lines would be
+    # page-coincident with a kept one — "fits" is not "legible" (cf. #41).
+    _kept_x, _n_x_close = _legible_locations([r[0] for r in x_refs], a.SCALE)
+    if _n_x_close:
+        dwg._record_build_issue(
+            "warning",
+            "location_ref_dropped",
+            f"{_n_x_close} X location dim(s) too closely spaced to dimension legibly "
+            "(use a detail view)",
+        )
+    _kept_x_set = set(_kept_x)
+    x_refs = [r for r in x_refs if r[0] in _kept_x_set]
     for n, ann in dwg._named.items():
         if n.startswith("dim_pitch_plan") and getattr(ann, "dim_level_y", 0) > plan_top:
             a.pv_zones.above.allocate(10.0)  # consume space used by pitch dim
@@ -2634,6 +2679,17 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
     for rx, ry, dia in refs:
         if not any(abs(ry - u[1]) < 0.5 for u in y_refs):
             y_refs.append((rx, ry, dia))
+    # Legibility gate (#43): drop Y refs page-coincident with a kept one.
+    _kept_y, _n_y_close = _legible_locations([r[1] for r in y_refs], a.SCALE)
+    if _n_y_close:
+        dwg._record_build_issue(
+            "warning",
+            "location_ref_dropped",
+            f"{_n_y_close} Y location dim(s) too closely spaced to dimension legibly "
+            "(use a detail view)",
+        )
+    _kept_y_set = set(_kept_y)
+    y_refs = [r for r in y_refs if r[1] in _kept_y_set]
     # Y locations: dims above the side view, routed through sv_zones.above.
     # Pre-advance past any pitch dims already placed above side_top.
     for n, ann in dwg._named.items():

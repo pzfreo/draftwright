@@ -46,6 +46,14 @@
 
 ### Changed
 
+- **Hole-location dimensions are gated for legibility.** A hole-dense part (e.g.
+  NIST CTC-02, ~38 distinct hole locations) previously stacked every location
+  reference into a tall, busy tower above the views — "fits" is not "legible".
+  Each axis's references are now gated by inter-dimension page spacing
+  (`_legible_locations`, analogous to the step-height gate #41): only locations
+  at least one value-label footprint apart on the page are dimensioned; the rest
+  surface as `location_ref_dropped` (full fidelity belongs in a detail view,
+  #42). Sparse parts are unchanged (#43).
 - **Step heights are dimensioned only where legibly separable.** After the
   adaptive cap (#36), a part with many closely-spaced shoulders (e.g. NIST
   CTC-02 at 1:5) tried to dimension faces only ~1 mm apart on the page. A step

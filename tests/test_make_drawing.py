@@ -2551,6 +2551,55 @@ class TestLintSummaryAndDrops:
         assert n_loc > 4, f"expected adaptive >4 location dims, got {n_loc}"
         assert "location_ref_dropped" not in {i.code for i in dwg.lint()}
 
+    def test_legible_locations_gate_drops_closely_spaced(self):
+        # #43: a location is dimensioned only if it is at least _MIN_LOC_SEP_MM
+        # (page-mm) from the previously kept one; closer ones read as one busy
+        # cluster and are dropped (surfaced via lint).
+        from draftwright.make_drawing import _MIN_LOC_SEP_MM, _legible_locations
+
+        sep = _MIN_LOC_SEP_MM
+        positions = [0.0, 1.0, 2.0, sep + 2.0, sep + 2.5, 2 * sep + 5.0]
+        kept, n_too_close = _legible_locations(positions, scale=1.0)
+        assert kept == [0.0, sep + 2.0, 2 * sep + 5.0]
+        assert n_too_close == 3
+        # At a larger scale the same world spacing reads fine — nothing dropped.
+        kept2, n2 = _legible_locations([0.0, 1.0, 2.0], scale=10.0)
+        assert kept2 == [0.0, 1.0, 2.0]
+        assert n2 == 0
+
+    @pytest.mark.timeout(120)
+    def test_location_tower_trimmed_to_legible_set(self):
+        # #43: many unpatterned holes with near-coincident X/Y positions trim to
+        # a legible set; the rest surface as location_ref_dropped, no error lint.
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import build_drawing
+
+        plate = Box(80, 60, 8)
+        pts = [
+            (-30, -20),
+            (-28, 18),
+            (-26, -5),
+            (-10, 22),
+            (-8, -22),
+            (6, 10),
+            (9, -15),
+            (24, 20),
+            (27, -8),
+            (30, 4),
+        ]
+        for x, y in pts:
+            plate -= Pos(x, y, 0) * Cylinder(1.2, 8)
+        dwg = build_drawing(plate)
+        codes = {i.code for i in dwg.lint()}
+        n_locx = len([n for n in dwg._named if n.startswith("dim_locx")])
+        n_locy = len([n for n in dwg._named if n.startswith("dim_locy")])
+        assert "location_ref_dropped" in codes  # closely-spaced refs were trimmed
+        assert not any(i.severity == "error" for i in dwg.lint())
+        # The kept set is strictly fewer than the ten holes per axis.
+        assert 0 < n_locx < 10
+        assert 0 < n_locy < 10
+
     @pytest.mark.timeout(120)
     def test_auto_annotate_clears_stale_build_issues(self):
         # Re-annotating starts build-time lint tracking from a clean slate:
