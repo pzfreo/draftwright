@@ -1,17 +1,20 @@
 # "Right first time" roadmap — hardening the deterministic core
 
-_Status: living plan. Last updated alongside PR #33 (#32)._
+_Status: living plan. Last updated 2026-06-16 alongside PR #47 (page-aware scale
+selection). Tracks the work toward "API-driven output as good as interactive."_
 
 ## Why this exists
 
 draftwright gets good results when driven interactively (Claude Code): render →
 eyeball → read lint → adjust → re-render. The same engine driven one-shot via an
 API underwhelms — not because of the model, but because the API call doesn't get
-those laps. The fix is two-pronged and both prongs meet at `lint()`:
+those laps. The fix is three-pronged:
 
 1. **Push the deterministic boundary outward** so fewer decisions need an LLM at
    all (the engine self-corrects).
-2. **Give a non-interactive caller the same scaffolding a human has** — the lint
+2. **Make the default output good without any laps** — scale, page, and
+   annotation choices that look right first time on novel geometry.
+3. **Give a non-interactive caller the same scaffolding a human has** — the lint
    critic as a machine-readable signal, plus the primitives to act on it.
 
 Treat "the API gives less impressive results" as a signal pointing at *engine
@@ -19,45 +22,46 @@ gaps*, not a prompt-quality problem. Every gap closed in Python is permanent and
 free per run; every gap left to the API is paid for, non-deterministic, and
 worse on novel input.
 
-## The two clusters of open issues
+## The three clusters of open issues
 
-The open issues are the same goal approached from two ends, meeting at lint:
-
-**Cluster A — make the engine self-correcting**
-- #31 — derive bare layout constants (remove the generalization tax)
-- #32 — lint score + surface silent annotation drops  ← **in progress (PR #33)**
+**Cluster A — make the engine self-correcting** (meets at `lint()`)
 - #30 — lint→repair loop (act on violations, don't just report)
-- #13 — tests that pin the *general* behaviour (the verification layer)
+- #29 — lint findings carry a `suggestion` code snippet
 
 **Cluster B — primitives so a script/LLM can fix things**
 - #26 — `dwg.features(view)` — expose the geometry analysis
 - #25 — `Drawing.place_dim()` — layout-strip-aware stacking dimension
-- #29 — lint findings carry a `suggestion` code snippet
 - #27 — `dwg.annotations()` — query placed annotations
 - #28 — `dwg.view_bounds(view)` — page bbox of a projected view
 
+**Cluster C — default drawing quality** (the staircase / NIST CTC-02 review)
+- #43 — location-dimension count/legibility gate (the "tall-tower" fix)
+- #42 — enlarged detail view for fine / closely-spaced features
+- #45 — representative / "TYP" dimensioning for repeated features
+
 ## How they depend on each other
 
-- **#32 is the foundation.** It turns lint into structured output (`lint_summary()`)
-  and makes every layout failure a machine-readable lint code instead of a log
-  line. Everything downstream consumes this.
-- **#29 extends #32 directly** — a `suggestion` field is just another key on the
-  issue dict `lint_summary()` already emits. A computable suggestion *is* a
-  repair recipe, so #29 is the bridge from #32 (surface) to #30 (auto-apply).
-- **#26 and #25 are prerequisites for #30**, not just neighbours:
-  - repairing `feature_not_dimensioned` / `callout_dropped` needs the feature
-    geometry back → `dwg.features()` (#26)
-  - repairing `annotation_overlap` needs strip re-stacking → `place_dim` (#25)
-  Both also stand alone as API wins, so they are low-regret to land early.
-- **#13 verifies #31 and #32 together** — its "4+ bores: all annotated or
-  overflow surfaced via lint" assertion is only expressible because of #32's drop
-  codes; its cap/threshold cases are exactly what #31 must derive. Land #13's
-  tests *with* #31 so the overfitting #31 removes can't creep back.
+- **Cluster A is downstream of B.** Repairing `feature_not_dimensioned` /
+  `callout_dropped` needs the feature geometry back → `dwg.features()` (#26);
+  repairing `annotation_overlap` / stacking needs strip re-stacking →
+  `place_dim` (#25). #29 (computable `suggestion`) is the bridge from the lint
+  surface (#32, done) to auto-apply (#30). Both B primitives also stand alone as
+  API wins, so they are low-regret to land early.
+- **Cluster C is the immediate sequel to PR #47.** #47 makes automatic selection
+  prefer the *smallest* sheet, so parts now sit on tighter pages → less room for
+  stacked location dims → higher risk of silent drops. **#43 is effectively part
+  two of #47**: a legibility/count gate so a tight sheet drops dims *visibly and
+  gracefully* (or re-tiers) instead of overflowing. #42 then gives the dropped
+  fine detail somewhere to live (a detail view); #45 cuts clutter for repeated
+  features (e.g. the staircase treads, where 1 mm steps can't be individually
+  dimensioned at sheet scale).
 
 ## Recommended sequence
 
 ```
-#31 + #13      constants + the tests that pin general behaviour
+#43            location-dim legibility gate   ← do next (sequel to #47)
+   ↓
+#42            detail view for fine features   (home for what #43 + step gate drop)
    ↓
 #26, #25       primitives (features, place_dim) — also standalone API wins
    ↓
@@ -65,31 +69,57 @@ The open issues are the same goal approached from two ends, meeting at lint:
    ↓
 #30            repair loop, consuming features + place_dim + suggestions
 ```
-#27 / #28 slot in opportunistically wherever an API caller needs them.
+#45 slots in opportunistically alongside #42 (both reduce annotation clutter).
+#27 / #28 slot in wherever an API caller needs them.
 
-## Done / in progress
+## Done
 
-### #32 — lint score + surface silent drops (PR #33)
-- `Drawing.lint_summary()` — JSON-friendly aggregate of `lint()`: `passed`,
-  coarse 0–1 `score`, severity counts, `by_code`, `geometry_issues`, full issue
-  list. One signal to gate/optimise on without rendering.
-- `Drawing._record_build_issue()` records build-time drops; `lint()` surfaces them.
-- New drop codes: `callout_dropped` (per-view cap), `location_ref_dropped`
-  (per-part cap), `placement_unsatisfiable` (no room / strip full),
-  `step_dim_dropped` (step_zs[:3] cap). No layout change — only surfacing.
-- Score weights (`_SCORE_ERROR_PENALTY`, `_SCORE_WARNING_PENALTY`) and the
-  geometry-aware code set (`_GEOMETRY_AWARE_CODES`) are single-sourced module
-  constants, consistent with #31's intent.
+### Foundations (Cluster A surface + verification)
+- **#32 — lint score + surface silent drops** (PR #33). `Drawing.lint_summary()`:
+  JSON-friendly aggregate of `lint()` — `passed`, coarse 0–1 `score`, severity
+  counts, `by_code`, `geometry_issues`, full issue list. `_record_build_issue()`
+  records build-time drops; `lint()` surfaces them. One signal to gate/optimise on
+  without rendering. Score weights and the geometry-aware code set are
+  single-sourced module constants.
+- **#31 — derive bare layout constants** (PR #34). Strip slot widths, callout
+  label widths, the isometric fit factor are computed from text metrics and page
+  size instead of fixture-tuned magic numbers.
+- **#13 — overfitting guard tests**. Pin the *general* layout behaviour on
+  turned/hybrid parts (flange OD + bolt circle), multi-bore parts, and the
+  step-legibility boundary.
+
+### Default drawing quality (Cluster C in progress)
+- **#36 — adaptive cardinality caps**. Removed the hard 4 callouts / 4 location
+  refs / 3 step-dims caps; the engine now places as many as the available
+  strip/corridor space allows, surfacing genuine drops via lint.
+- **#41 — step-height legibility gate**. A step is dimensioned only if it is both
+  tall enough from the base *and* a legible step-height above the previous one;
+  the rest surface as `step_dim_dropped`. "Fits" ≠ "legible".
+- **Staircase review fixes** (PR #46). Phantom step corridor no longer blocks a
+  larger scale; engraved-text faces no longer dimensioned as phantom steps
+  (`min_area_frac` filter); overall-height dim nests outside the step dims.
+- **Page-aware scale selection** (PR #47, in review). A specified page enlarges
+  to the best fitting scale (iso packed into 2D empty space, e.g. staircase 2:1
+  on A3); automatic selection now minimises sheet size (page-major ladder, e.g.
+  20×15×10 → 2:1 on A4 not 5:1 on A3); iso growth capped at 1.3× sheet scale.
+  Shared `_layout_geometry` so fit and placement can't diverge.
+
+### Earlier groundwork
+- #10 turned+drilled classification; #11 free-rectangle iso placement; #12
+  single-sourced geometry constants; #20 AP242/PMI STEP import segfault.
 
 ## Notes / gaps to keep in mind
 
-- The lint *score* is itself a heuristic with tunable weights. It's named and
+- The lint *score* is a heuristic with tunable weights. It's named and
   single-sourced, but the severity/code counts are the authoritative output —
   callers should prefer counts over the scalar where it matters.
 - Full location-dimension *coverage* lint (flagging under-located parts that were
-  never even attempted) is still out of scope — #32 surfaces the *drops*, not the
-  never-attempted gaps. Candidate follow-up under #13/#30.
-- `_MAX_CALLOUTS_PER_VIEW=4`, `_MAX_LOCATION_REFS=4`, `step_zs[:3]` remain
-  uncalibrated caps — surfaced now (#32), to be *derived* under #31.
+  never even attempted) is still out of scope — the drop codes surface *drops*,
+  not never-attempted gaps. Candidate for #43/#30.
+- With #47's smaller-sheet preference, watch for parts that now drop location
+  dims on a tighter page — that is precisely what #43 must gate.
 - Naming drift: #29's examples say `LintFinding`; the class is `LintIssue`. Fix
   when #29 is implemented.
+- `_ISO_MIN_FIT_FRAC` (0.6) and `_ISO_MAX_GROW` (1.3) are named single-sourced
+  constants but not yet derived from first principles — revisit if iso sizing
+  looks off on unseen geometry.
