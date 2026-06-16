@@ -739,6 +739,30 @@ def _legible_steps(step_zs, bb_min_z, scale):
     return kept, n_too_close
 
 
+def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
+    """Return (n, rise) if step_zs form a uniform staircase, else None.
+
+    A uniform staircase has all inter-step rises (including from bb_min_z to the
+    first step, and from the last step to bb_max_z) within *tol_frac* of each
+    other.  Requires ≥3 detected interior steps to avoid false positives.
+    *n* is the total riser count (interior + 1 if the top gap also matches).
+    """
+    if len(step_zs) < 3:
+        return None
+    sorted_zs = sorted(step_zs)
+    rises = [sorted_zs[0] - bb_min_z] + [
+        sorted_zs[i + 1] - sorted_zs[i] for i in range(len(sorted_zs) - 1)
+    ]
+    mean_rise = sum(rises) / len(rises)
+    if mean_rise <= 0:
+        return None
+    if not all(abs(r - mean_rise) / mean_rise <= tol_frac for r in rises):
+        return None
+    top_gap = bb_max_z - sorted_zs[-1]
+    n = len(rises) + (1 if abs(top_gap - mean_rise) / mean_rise <= tol_frac else 0)
+    return n, mean_rise
+
+
 # ---------------------------------------------------------------------------
 # Annotation depth estimators (Phase 2 of #118)
 #
@@ -2054,43 +2078,69 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
             _fmt(a.cross_diams[0]),
         )
 
-    # Step heights — only steps that are tall enough to carry a label AND far
-    # enough apart on the page to tell from their neighbours (#41). Each step
-    # witnesses from the previous dim's line (_right_ladder) so extension lines
-    # are adjacent rather than coincident. Steps dropped for being too closely
-    # spaced surface via lint (use a detail view, #42); the corridor is sized
-    # for the kept count, so the strip is only the bound in degenerate cases.
-    _step_zs, _n_too_close = _legible_steps(a.step_zs, a.bb.min.Z, a.SCALE)
-    if _n_too_close:
-        dwg._record_build_issue(
-            "warning",
-            "step_dim_dropped",
-            f"{_n_too_close} step height(s) too closely spaced to dimension at this "
-            "scale (use a detail view)",
-        )
-    for col, z in enumerate(_step_zs):
+    # Step heights.  If the steps form a uniform staircase (#45) place a single
+    # representative dim labelled "N× rise" instead of one dim per step.
+    # Otherwise fall back to the per-step ladder (legibility-gated, #41).
+    _step_rep = _detect_step_repeat(a.step_zs, a.bb.min.Z, a.bb.max.Z)
+    if _step_rep is not None:
+        n_rep, rise_mm = _step_rep
+        first_step_z = sorted(a.step_zs)[0]
         _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
-        if _px is None:
-            _log.warning("dim_step_%d skipped: fv_zones.right strip full", col)
+        if _px is not None:
+            dwg.add(
+                Dimension(
+                    (_right_ladder, FZ(a.bb.min.Z), 0),
+                    (_right_ladder, FZ(first_step_z), 0),
+                    "right",
+                    _px - _right_ladder,
+                    draft,
+                    label=f"{n_rep}× {_fmt(rise_mm)}",
+                ),
+                "dim_step_typ",
+            )
+            _right_ladder = _px
+        else:
+            _log.warning("dim_step_typ skipped: fv_zones.right strip full")
             dwg._record_build_issue(
                 "error",
                 "placement_unsatisfiable",
-                f"{len(_step_zs) - col} step-height dimension(s) dropped "
-                "(front-view right strip full)",
+                "representative step-height dimension dropped (front-view right strip full)",
             )
-            break
-        dwg.add(
-            Dimension(
-                (_right_ladder, FZ(a.bb.min.Z), 0),
-                (_right_ladder, FZ(z), 0),
-                "right",
-                _px - _right_ladder,
-                draft,
-                label=_fmt(z - a.bb.min.Z),
-            ),
-            f"dim_step_{col}",
-        )
-        _right_ladder = _px
+    else:
+        # Per-step ladder: only steps tall enough AND far enough apart on the
+        # page (#41). Extension lines witness from the previous dim's line so
+        # they are adjacent rather than coincident.
+        _step_zs, _n_too_close = _legible_steps(a.step_zs, a.bb.min.Z, a.SCALE)
+        if _n_too_close:
+            dwg._record_build_issue(
+                "warning",
+                "step_dim_dropped",
+                f"{_n_too_close} step height(s) too closely spaced to dimension at this "
+                "scale (use a detail view)",
+            )
+        for col, z in enumerate(_step_zs):
+            _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
+            if _px is None:
+                _log.warning("dim_step_%d skipped: fv_zones.right strip full", col)
+                dwg._record_build_issue(
+                    "error",
+                    "placement_unsatisfiable",
+                    f"{len(_step_zs) - col} step-height dimension(s) dropped "
+                    "(front-view right strip full)",
+                )
+                break
+            dwg.add(
+                Dimension(
+                    (_right_ladder, FZ(a.bb.min.Z), 0),
+                    (_right_ladder, FZ(z), 0),
+                    "right",
+                    _px - _right_ladder,
+                    draft,
+                    label=_fmt(z - a.bb.min.Z),
+                ),
+                f"dim_step_{col}",
+            )
+            _right_ladder = _px
 
     # Overall height — placed last so it sits OUTERMOST, beyond the step dims.
     _px = a.fv_zones.right.allocate(_SLOT_DIM_HEIGHT)
