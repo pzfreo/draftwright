@@ -3260,6 +3260,39 @@ class TestRepair:
             fixed = ew(build_drawing(part, repair=True))
             assert fixed <= raw
 
+    def test_repair_rolls_back_a_pass_that_makes_things_worse(self):
+        # Guard: if a repair (e.g. an overlap push off a tight sheet) net-raises
+        # the issue count, that pass is undone and the loop stops — repair never
+        # makes a drawing worse. Drive it with a stateful lint stub: one fixable
+        # overlap before, two issues after the push.
+        from build123d_drafting.helpers import LintIssue
+
+        from draftwright.make_drawing import _dim
+
+        dwg = build_drawing(Box(60, 40, 20))
+        orig = dwg.add(
+            _dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="RB"), "x"
+        )
+        overlap = LintIssue(
+            severity="warning",
+            message="labels 'RB' and 'QQ' overlap",
+            code="annotation_overlap",
+        )
+        worse = LintIssue(
+            severity="warning", message="label 'RB' off sheet", code="label_out_of_frame"
+        )
+        calls = {"n": 0}
+
+        def fake_lint():
+            calls["n"] += 1
+            return [overlap] if calls["n"] == 1 else [overlap, worse]
+
+        dwg.lint = fake_lint
+        dwg.repair(max_iter=3)
+        # The pushed dim was reverted: 'x' is the original object, offset intact.
+        assert dwg._named["x"] is orig
+        assert dwg._named["x"]._dw_spec.distance == 8
+
     def test_build_drawing_repair_flag_is_respected(self):
         # repair=False leaves the greedy placement untouched; the default repairs.
         from draftwright.make_drawing import _dim

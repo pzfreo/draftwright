@@ -1980,12 +1980,23 @@ class Drawing:
         flip is attempted at most once and overlap pushes only move outward, so
         the loop terminates and a clean drawing is returned unchanged.
 
+        A pass that would *net-increase* the issue count (e.g. an overlap push
+        that shoves a label out of frame on a tight sheet) is rolled back and
+        the loop stops, so :meth:`repair` never makes a drawing worse.
+
         Returns ``self`` for chaining.
         """
         flipped: set = set()
         for _ in range(max_iter):
+            before = self.lint()
+            if not before:
+                break
+            snap_annotations = list(self.annotations)
+            snap_named = dict(self._named)
             changed = False
-            for issue in self.lint():
+            for issue in before:
+                if issue.code not in _REPAIRABLE_CODES:
+                    continue
                 if issue.code == "dim_inside_part":
                     labels = _QUOTED_RE.findall(issue.message)
                     key = labels[0] if labels else None
@@ -1997,6 +2008,12 @@ class Drawing:
                 elif issue.code == "annotation_overlap":
                     changed |= self._repair_overlap(issue)
             if not changed:
+                break
+            if len(self.lint()) > len(before):
+                # The repairs net-worsened the sheet — undo this pass and stop.
+                self.annotations[:] = snap_annotations
+                self._named.clear()
+                self._named.update(snap_named)
                 break
         return self
 
