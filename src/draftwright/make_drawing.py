@@ -1678,7 +1678,21 @@ class Drawing:
         """
         set_page(self.page_w, self.page_h, margin=10)
         view_shapes = [vis for vis, _ in self.views.values()]
-        issues = lint_drawing(self.annotations, drawing_scale=self.scale, view_shapes=view_shapes)
+        # Most annotations are at sheet scale, but a non-sheet-scale view (the
+        # enlarged detail view, #42) tags its dims with `_dw_scale`. Lint each
+        # scale group with its own drawing_scale so label-vs-measured is correct
+        # per view. The common single-scale case is byte-identical to before.
+        by_scale: dict = {}
+        for ann in self.annotations:
+            by_scale.setdefault(getattr(ann, "_dw_scale", self.scale), []).append(ann)
+        if len(by_scale) <= 1:
+            issues = lint_drawing(
+                self.annotations, drawing_scale=self.scale, view_shapes=view_shapes
+            )
+        else:
+            issues = []
+            for _scale, _anns in by_scale.items():
+                issues += lint_drawing(_anns, drawing_scale=_scale, view_shapes=view_shapes)
         if self.part is not None:
             if self._cyl_cache is None:
                 self._cyl_cache = analyse_cylinders(self.part)
@@ -3140,17 +3154,18 @@ def _add_detail_view(dwg, a):
         try:
             p_lo = dwg.at("detail_a", a.bb.max.X, dcy, a.bb.min.Z)
             p_hi = dwg.at("detail_a", a.bb.max.X, dcy, z)
-            dwg.add(
-                Dimension(
-                    (ladder, p_lo[1], 0),
-                    (ladder, p_hi[1], 0),
-                    "right",
-                    step_pad,
-                    dwg.draft,
-                    label=_fmt(z - a.bb.min.Z),
-                ),
-                f"dim_detail_step_{i}",
+            _dim = Dimension(
+                (ladder, p_lo[1], 0),
+                (ladder, p_hi[1], 0),
+                "right",
+                step_pad,
+                dwg.draft,
+                label=_fmt(z - a.bb.min.Z),
             )
+            # The detail view is drawn at detail_scale, not sheet scale; tag the
+            # dim so lint() checks label-vs-measured against the right scale (#42).
+            _dim._dw_scale = detail_scale
+            dwg.add(_dim, f"dim_detail_step_{i}")
             ladder += step_pad
         except Exception as exc:  # noqa: BLE001 — placement may fail on degenerate geometry
             _log.info("dim_detail_step_%d skipped (%s)", i, exc)
@@ -3159,17 +3174,16 @@ def _add_detail_view(dwg, a):
     try:
         p_lo = dwg.at("detail_a", a.bb.max.X, dcy, a.bb.min.Z)
         p_hi = dwg.at("detail_a", a.bb.max.X, dcy, a.bb.max.Z)
-        dwg.add(
-            Dimension(
-                (ladder, p_lo[1], 0),
-                (ladder, p_hi[1], 0),
-                "right",
-                step_pad,
-                dwg.draft,
-                label=_fmt(a.z_size),
-            ),
-            "dim_detail_height",
+        _dim = Dimension(
+            (ladder, p_lo[1], 0),
+            (ladder, p_hi[1], 0),
+            "right",
+            step_pad,
+            dwg.draft,
+            label=_fmt(a.z_size),
         )
+        _dim._dw_scale = detail_scale  # detail view scale, for label-vs-measured lint (#42)
+        dwg.add(_dim, "dim_detail_height")
     except Exception as exc:  # noqa: BLE001 — placement may fail on degenerate geometry
         _log.info("dim_detail_height skipped (%s)", exc)
 
