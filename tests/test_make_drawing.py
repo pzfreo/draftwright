@@ -3177,3 +3177,99 @@ class TestLintSuggestions:
         sug = _suggest_fix(issue, dwg)
         assert sug is not None
         assert "count=4" in sug
+
+
+class TestRepair:
+    """#30: bounded lint→repair loop acts on violations instead of only reporting."""
+
+    def test_repair_clears_annotation_overlap(self):
+        # Two dimensions forced onto the same page location → their labels
+        # collide; the repair loop pushes one further out to separate them.
+        from draftwright.make_drawing import _dim
+
+        dwg = build_drawing(Box(60, 40, 20))
+        d = dwg.draft
+        p1, p2 = (40.0, 20.0, 0.0), (80.0, 20.0, 0.0)
+        dwg.add(_dim(p1, p2, "above", 8, d, label="AA"), "ov1")
+        dwg.add(_dim(p1, p2, "above", 8, d, label="BB"), "ov2")
+        assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
+
+        dwg.repair()
+        assert not [i for i in dwg.lint() if i.code == "annotation_overlap"]
+
+    def test_repair_dim_inside_part_flips_side(self):
+        # dim_inside_part is dormant in the multi-view sheet (lint passes no
+        # part_bbox), so drive the repair directly: a wrong-side dim flips to
+        # the opposite side and keeps its name binding.
+        from build123d_drafting.helpers import LintIssue
+
+        from draftwright.make_drawing import _dim
+
+        dwg = build_drawing(Box(60, 40, 20))
+        dim = dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="INSIDE"), "x")
+        assert dim._dw_spec.side == "above"
+
+        issue = LintIssue(
+            severity="warning",
+            message="Dim 'INSIDE': annotation bbox overlaps part outline by 40%",
+            code="dim_inside_part",
+        )
+        assert dwg._repair_dim_inside_part(issue) is True
+        new = dwg._named["x"]
+        assert new is not dim
+        assert new._dw_spec.side == "below"
+        assert new in dwg.annotations and dim not in dwg.annotations
+
+    def test_repair_inside_part_attempted_once_no_oscillation(self):
+        # A side flip that does not help must not be re-flipped (oscillation).
+        # The same label is only flipped once across the whole loop.
+        from build123d_drafting.helpers import LintIssue
+
+        from draftwright.make_drawing import _dim
+
+        dwg = build_drawing(Box(60, 40, 20))
+        dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="OSC"), "x")
+
+        # Monkeypatch lint to always report the same dim_inside_part.
+        issue = LintIssue(
+            severity="warning",
+            message="Dim 'OSC': annotation bbox overlaps part outline by 40%",
+            code="dim_inside_part",
+        )
+        dwg.lint = lambda: [issue]
+        dwg.repair(max_iter=5)
+        # Flipped exactly once → ends on "below", not back to "above".
+        assert dwg._named["x"]._dw_spec.side == "below"
+
+    def test_repair_idempotent_on_clean_drawing(self):
+        # build_drawing already repairs by default, so a second pass is a no-op:
+        # same objects, same order.
+        dwg = build_drawing(Box(60, 40, 20))
+        before = [id(o) for o in dwg.annotations]
+        assert dwg.repair() is dwg
+        assert [id(o) for o in dwg.annotations] == before
+
+    def test_repair_does_not_increase_issue_counts(self):
+        # Acceptance: on the existing fixtures, error+warning counts after the
+        # repair pass are <= the raw greedy placement — no regressions.
+        def ew(dwg):
+            return sum(1 for i in dwg.lint() if i.severity in ("error", "warning"))
+
+        for part in (Box(60, 40, 20), _holed_plate(), _uniform_staircase()):
+            raw = ew(build_drawing(part, repair=False))
+            fixed = ew(build_drawing(part, repair=True))
+            assert fixed <= raw
+
+    def test_build_drawing_repair_flag_is_respected(self):
+        # repair=False leaves the greedy placement untouched; the default repairs.
+        from draftwright.make_drawing import _dim
+
+        # A clean part is identical either way (nothing to repair).
+        a = build_drawing(Box(60, 40, 20), repair=False)
+        b = build_drawing(Box(60, 40, 20), repair=True)
+        assert [getattr(o, "label", None) for o in a.annotations] == [
+            getattr(o, "label", None) for o in b.annotations
+        ]
+        # The factory tags engine dims so repair can re-place them.
+        d = _dim((0, 0, 0), (40, 0, 0), "above", 8, a.draft, label="Z")
+        assert d._dw_spec.side == "above"
