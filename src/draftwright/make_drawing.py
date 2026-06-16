@@ -1692,13 +1692,11 @@ class Drawing:
         def _axis_letter(h):
             return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
 
+        if view not in self._coords:
+            return []
+
         def _to_page(h):
-            x, y, z = h.location
-            if view == "plan":
-                return (a.PV_X + (x - a.cx) * a.SCALE, a.PV_Y + (y - a.cy) * a.SCALE)
-            if view == "front":
-                return (a.FV_X + (x - a.cx) * a.SCALE, a.FV_Y + (z - a.cz) * a.SCALE)
-            return (a.SV_X + (y - a.cy) * a.SCALE, a.SV_Y + (z - a.cz) * a.SCALE)
+            return self._coords[view].pp(*h.location)
 
         groups: dict = {}
         for h in a.holes:

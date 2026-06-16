@@ -3009,13 +3009,17 @@ class TestPlaceDim:
         assert isinstance(result, Dimension)
 
     def test_two_place_dim_calls_stack_without_overlap(self):
-        # Two dims on the same strip must land at different distances.
-        dwg = build_drawing(Box(80, 60, 20))
+        # Two dims on the same strip must land at different page positions.
+        # Use auto_dims=False so the strip has no prior allocations, and
+        # "above" where there is ample headroom for two consecutive allocations.
+        dwg = build_drawing(Box(80, 60, 20), auto_dims=False)
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
-        d1 = dwg.place_dim(p1, p2, "below", "plan", dwg.draft, name="d1")
-        d2 = dwg.place_dim(p1, p2, "below", "plan", dwg.draft, name="d2")
-        assert d1.distance != d2.distance
+        d1 = dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="d1")
+        d2 = dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="d2")
+        # dim_level_y is the y-coordinate of the dim line on the page;
+        # two stacked dims must land at different y values.
+        assert d1.dim_level_y != d2.dim_level_y
 
     def test_place_dim_no_analysis_falls_back_to_slot(self):
         # _analysis is None → no strip available → falls back to slot offset, no error.
