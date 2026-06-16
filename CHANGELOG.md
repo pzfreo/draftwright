@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.1.9 — 2026-06-16
+
+### Added
+
+- **Domain-semantic editing API.** `dwg.features(view)` returns detected holes
+  and features grouped by machining spec in page coordinates, and
+  `dwg.place_dim(p1, p2, side, view, draft, name=…)` places a dimension from
+  domain inputs — the vocabulary a script (or an AI assistant) needs to edit a
+  drawing without hand-computing page geometry (#25, #26).
+- **`dwg.annotations()` and `dwg.get_annotation(name)`.** Introspect what is
+  already on the drawing — a `{name: type}` map and a name lookup — so a script
+  can make incremental edits without risking a silent name-collision replace
+  (#27).
+- **`dwg.view_bounds(view)`.** Returns `(x_min, y_min, x_max, y_max)`, the page
+  bounding box of a view's projected geometry (or `None` for an unknown view),
+  so free-form notes and leader elbows can be placed just outside a view without
+  guessing offsets from `dwg.at()` (#28).
+- **Lint findings carry a suggested fix.** Each repairable lint issue now
+  includes a ready-to-run domain-API call snippet, so acting on a finding is one
+  copy-paste away (#29).
+- **Lint→repair loop.** `Drawing.repair()` — run by default in `build_drawing` —
+  mechanically resolves the lint codes that have a deterministic placement fix:
+  overlapping labels are pushed apart and wrong-side dimensions are flipped. A
+  pass that would net-increase the issue count is rolled back, so repair never
+  makes a drawing worse (#30).
+- **TYP / representative dimensioning for uniform step patterns.** A run of
+  equal-rise, equal-going steps is dimensioned once and labelled representative
+  (TYP) instead of repeating identical dimensions down the ladder (#45).
+- **Enlarged detail view for crowded step clusters (MVP).** When shoulders are
+  too closely spaced to dimension legibly at sheet scale, an opt-in
+  (`detail_view=True`) detail view re-draws them at a larger scale (#42).
+
+### Changed
+
+- **BREAKING: the annotation list `dwg.annotations` is renamed to `dwg.items`.**
+  `dwg.annotations` is now a method (see Added); the ordered, mutable list of
+  annotation objects it used to be is now `dwg.items`. Pre-1.0 with no published
+  consumers, so the clearer name was taken now rather than spelling the new query
+  method awkwardly (#27).
+
+### Documentation
+
+- ADRs 0001 (editing model) and 0002 (iteration loop) record the design
+  direction behind the domain API and the lint→repair loop (#51).
+
 ## v0.1.8 — 2026-06-16
 
 ### Changed
