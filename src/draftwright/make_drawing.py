@@ -1884,7 +1884,7 @@ def _export_shape(exporter, shape, layer, ctx):
         )
 
 
-def _auto_annotate(dwg, a):
+def _auto_annotate(dwg, a, *, detail_view: bool = False):
     """Add the standard automatic dimensions, centrelines, and title block."""
     draft = dwg.draft
     # Idempotent: clear build-time lint state so a second annotation pass does
@@ -2155,10 +2155,9 @@ def _auto_annotate(dwg, a):
     if feature_holes:
         _add_section_view(dwg, a, _axis_letter, holes=feature_holes)
 
-    # Detail view: enlarge the stepped region when the legibility gate dropped
-    # crowded shoulders (#42).  Returns early when nothing was dropped, so parts
-    # without crowded steps are untouched.
-    _add_detail_view(dwg, a)
+    # Detail view: only when explicitly requested via build_drawing(detail_view=True).
+    if detail_view:
+        _add_detail_view(dwg, a)
 
     # Phase 7 — strip footprint debug logging + post-placement overflow check.
     # Overflow can only occur when outer_limit was tightened after allocations
@@ -3750,6 +3749,7 @@ def build_drawing(
     scale: float | None = None,
     page: str | tuple | None = None,
     auto_dims: bool = True,
+    detail_view: bool = False,
     pmi: Literal["off", "report", "annotate"] = "off",
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
@@ -3816,7 +3816,7 @@ def build_drawing(
         _fv_ol = a.fv_zones.right.outer_limit
         _pv_ol = a.pv_zones.right.outer_limit
         _sv_ol = a.sv_zones.right.outer_limit
-        _auto_annotate(dwg, a)
+        _auto_annotate(dwg, a, detail_view=detail_view)
         _fit_iso_view(dwg, a)
         _ix0, _iy0, _, _iy1 = _iso_bbox(dwg)
         _final_iso_x_lim = _ix0 - 4
@@ -3849,6 +3849,7 @@ def make_drawing(
     scale: float | None = None,
     page: str | tuple | None = None,
     auto_dims: bool = True,
+    detail_view: bool = False,
     pmi: Literal["off", "report", "annotate"] = "off",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
@@ -3888,6 +3889,7 @@ def make_drawing(
         scale=scale,
         page=page,
         auto_dims=auto_dims,
+        detail_view=detail_view,
         pmi=pmi,
     ).export()
 
