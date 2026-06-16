@@ -1236,7 +1236,7 @@ def test_build_drawing_returns_populated_drawing(tmp_path):
     dwg = build_drawing(Box(30, 20, 10), out=str(tmp_path / "b"), title="B", number="DWG-1")
     assert isinstance(dwg, Drawing)
     assert set(dwg.views) == {"front", "plan", "side", "iso"}
-    assert dwg.annotations, "expected automatic annotations"
+    assert dwg.items, "expected automatic annotations"
     # build_drawing must not write any files — that is export()'s job.
     assert not (tmp_path / "b.svg").exists()
     assert not (tmp_path / "b.dxf").exists()
@@ -1264,18 +1264,18 @@ def test_build_drawing_auto_dims_false():
     # #74 — views, scale, page, and title block only; no turned-part dims.
     dwg = build_drawing(Cylinder(15, 40), auto_dims=False)
     assert set(dwg.views) == {"front", "plan", "side", "iso"}
-    assert [a for a in dwg.annotations] == [dwg._named["title_block"]]
+    assert [a for a in dwg.items] == [dwg._named["title_block"]]
 
 
 @pytest.mark.timeout(60)
 def test_clear_annotations_keeps_title_block():
     # #74 — wholesale removal without knowing the auto-name scheme.
     dwg = build_drawing(Cylinder(15, 40))  # cylinder → od dim, centerlines, …
-    assert len(dwg.annotations) > 1
+    assert len(dwg.items) > 1
     removed = dwg.clear_annotations()
     assert removed
-    assert all(a not in dwg.annotations for a in removed)
-    assert len(dwg.annotations) == 1
+    assert all(a not in dwg.items for a in removed)
+    assert len(dwg.items) == 1
     assert "title_block" in dwg._named and len(dwg._named) == 1
 
 
@@ -1288,8 +1288,8 @@ def test_clear_annotations_keep_custom_and_unnamed_removed():
     dwg.add(Leader(tip=dwg.at("front", 0, 0, 0), elbow=(6, 6, 0), label="U", draft=dwg.draft))
     dwg.clear_annotations(keep=("title_block", "ldr_k"))
     assert set(dwg._named) == {"title_block", "ldr_k"}
-    assert keep_me in dwg.annotations
-    assert len(dwg.annotations) == 2  # unnamed leader removed too
+    assert keep_me in dwg.items
+    assert len(dwg.items) == 2  # unnamed leader removed too
 
 
 @pytest.fixture(scope="module")
@@ -1305,7 +1305,7 @@ def test_ctc01_iso_uses_upper_right_zone(ctc01_a3_drawing):
     from draftwright.make_drawing import _iso_bbox
 
     dwg = ctc01_a3_drawing
-    labels = [getattr(a, "label", "") for a in dwg.annotations]
+    labels = [getattr(a, "label", "") for a in dwg.items]
     assert "ISO VIEW (NTS)" not in labels  # iso now fits at sheet scale — no NTS
     x0, y0, x1, y1 = _iso_bbox(dwg)
     assert (
@@ -1414,13 +1414,13 @@ def test_tall_part_iso_in_largest_free_zone():
 @pytest.mark.timeout(60)
 def test_drawing_add_and_remove():
     dwg = build_drawing(Box(30, 20, 10))
-    n0 = len(dwg.annotations)
+    n0 = len(dwg.items)
     ldr = Leader(tip=dwg.at("front", 0, 0, 0), elbow=(5, 5, 0), label="X", draft=dwg.draft)
     dwg.add(ldr, "ldr_test")
-    assert len(dwg.annotations) == n0 + 1
+    assert len(dwg.items) == n0 + 1
     removed = dwg.remove("ldr_test")
     assert removed is ldr
-    assert len(dwg.annotations) == n0
+    assert len(dwg.items) == n0
     with pytest.raises(KeyError):
         dwg.remove("does_not_exist")
 
@@ -1428,13 +1428,13 @@ def test_drawing_add_and_remove():
 @pytest.mark.timeout(60)
 def test_drawing_add_replaces_reused_name():
     dwg = build_drawing(Box(30, 20, 10))
-    n0 = len(dwg.annotations)
+    n0 = len(dwg.items)
     first = Leader(tip=dwg.at("front", 0, 0, 0), elbow=(5, 5, 0), label="A", draft=dwg.draft)
     second = Leader(tip=dwg.at("front", 0, 0, 0), elbow=(6, 6, 0), label="B", draft=dwg.draft)
     dwg.add(first, "ldr")
     dwg.add(second, "ldr")  # same name → replaces, no orphan left behind
-    assert len(dwg.annotations) == n0 + 1
-    assert first not in dwg.annotations
+    assert len(dwg.items) == n0 + 1
+    assert first not in dwg.items
     assert dwg.remove("ldr") is second
 
 
@@ -3218,7 +3218,7 @@ class TestRepair:
         new = dwg._named["x"]
         assert new is not dim
         assert new._dw_spec.side == "below"
-        assert new in dwg.annotations and dim not in dwg.annotations
+        assert new in dwg.items and dim not in dwg.items
 
     def test_repair_inside_part_attempted_once_no_oscillation(self):
         # A side flip that does not help must not be re-flipped (oscillation).
@@ -3245,9 +3245,9 @@ class TestRepair:
         # build_drawing already repairs by default, so a second pass is a no-op:
         # same objects, same order.
         dwg = build_drawing(Box(60, 40, 20))
-        before = [id(o) for o in dwg.annotations]
+        before = [id(o) for o in dwg.items]
         assert dwg.repair() is dwg
-        assert [id(o) for o in dwg.annotations] == before
+        assert [id(o) for o in dwg.items] == before
 
     def test_repair_does_not_increase_issue_counts(self):
         # Acceptance: on the existing fixtures, error+warning counts after the
@@ -3298,9 +3298,60 @@ class TestRepair:
         # A clean part is identical either way (nothing to repair).
         a = build_drawing(Box(60, 40, 20), repair=False)
         b = build_drawing(Box(60, 40, 20), repair=True)
-        assert [getattr(o, "label", None) for o in a.annotations] == [
-            getattr(o, "label", None) for o in b.annotations
+        assert [getattr(o, "label", None) for o in a.items] == [
+            getattr(o, "label", None) for o in b.items
         ]
         # The factory tags engine dims so repair can re-place them.
         d = _dim((0, 0, 0), (40, 0, 0), "above", 8, a.draft, label="Z")
         assert d._dw_spec.side == "above"
+
+
+class TestAnnotationsQuery:
+    """#27: introspect existing annotations by name and type."""
+
+    def test_annotations_maps_name_to_type(self):
+        dwg = build_drawing(Box(60, 40, 20))
+        anns = dwg.annotations()
+        # A dict keyed by the names actually registered, valued by class name.
+        assert isinstance(anns, dict)
+        assert anns  # a box drawing has named annotations
+        assert all(isinstance(k, str) and isinstance(v, str) for k, v in anns.items())
+        # Every key resolves, and its reported type matches the live object.
+        for name, type_name in anns.items():
+            assert type(dwg._named[name]).__name__ == type_name
+
+    def test_annotations_omits_unnamed(self):
+        from draftwright.make_drawing import _dim
+
+        dwg = build_drawing(Box(60, 40, 20))
+        before = dict(dwg.annotations())
+        dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="U"))  # no name
+        # Unnamed annotation lands in items but not in the name→type map.
+        assert dwg.annotations() == before
+        assert len(dwg.items) == len(before) + 1
+
+    def test_annotations_reflects_add_and_membership(self):
+        from draftwright.make_drawing import _dim
+
+        dwg = build_drawing(Box(60, 40, 20))
+        assert "q_dim" not in dwg.annotations()
+        dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="Q"), "q_dim")
+        assert dwg.annotations()["q_dim"] == "Dimension"
+
+    def test_get_annotation_returns_object_or_none(self):
+        from draftwright.make_drawing import _dim
+
+        dwg = build_drawing(Box(60, 40, 20))
+        obj = dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="G"), "g")
+        assert dwg.get_annotation("g") is obj
+        assert dwg.get_annotation("does_not_exist") is None
+
+    def test_get_annotation_follows_remove(self):
+        from draftwright.make_drawing import _dim
+
+        dwg = build_drawing(Box(60, 40, 20))
+        dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="R"), "r")
+        assert dwg.get_annotation("r") is not None
+        dwg.remove("r")
+        assert dwg.get_annotation("r") is None
+        assert "r" not in dwg.annotations()

@@ -75,7 +75,9 @@ dwg = build_drawing(part, out="drawings/bracket", title="BRACKET",
 
 # Available on dwg:
 #   dwg.views        {"front","plan","side","iso"} → (visible, hidden) compounds
-#   dwg.annotations  mutable list of annotation objects
+#   dwg.items        mutable list of annotation objects
+#   dwg.annotations()        → {name: type} of every named annotation
+#   dwg.get_annotation(name) → the named annotation object, or None
 #   dwg.draft / dwg.scale / dwg.page_w / dwg.page_h
 #   dwg.at(view, x, y, z)    → page point (px, py, 0) mapped from world coordinates
 

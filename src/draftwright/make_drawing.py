@@ -1676,7 +1676,7 @@ class Drawing:
         dist: orthographic camera distance in scaled space.
         centroid: unscaled centroid ``(x, y, z)``.
         views: ``{name: (visible_compound, hidden_compound_or_None)}``.
-        annotations: ordered list of annotation objects (mutable).
+        items: ordered list of annotation objects (mutable).
         part: the source solid, when known — enables the feature-coverage lint.
 
     The constructor also accepts ``cyls``, a precomputed
@@ -1711,7 +1711,7 @@ class Drawing:
         self.centroid = centroid
         self.out = out
         self.views: dict = {}
-        self.annotations: list = []
+        self.items: list = []
         self._coords: dict = {}
         self._named: dict = {}
         self.svg_path: str | None = None
@@ -1874,12 +1874,12 @@ class Drawing:
         """Register an annotation so lint and export include it; returns ``obj``.
 
         Re-using an existing ``name`` replaces the previously added object (it is
-        dropped from :attr:`annotations`), so a name always maps to one object.
+        dropped from :attr:`items`), so a name always maps to one object.
         """
         if name is not None and name in self._named:
-            self.annotations.remove(self._named[name])
+            self.items.remove(self._named[name])
         annotate(obj, name)
-        self.annotations.append(obj)
+        self.items.append(obj)
         if name is not None:
             self._named[name] = obj
         return obj
@@ -1889,8 +1889,22 @@ class Drawing:
         obj = self._named.pop(name, None)
         if obj is None:
             raise KeyError(f"no annotation named {name!r}")
-        self.annotations.remove(obj)
+        self.items.remove(obj)
         return obj
+
+    def annotations(self) -> dict:
+        """Return ``{name: type_name}`` for every *named* annotation (#27).
+
+        Lets a script introspect what is already on the drawing before adding
+        more — e.g. ``if "dim_width" not in dwg.annotations()`` — so it can do
+        incremental edits without risking a silent name-collision replace.
+        Unnamed annotations are omitted; iterate :attr:`items` for those.
+        """
+        return {name: type(obj).__name__ for name, obj in self._named.items()}
+
+    def get_annotation(self, name):
+        """Return the named annotation object, or ``None`` if no such name (#27)."""
+        return self._named.get(name)
 
     def clear_annotations(self, keep=("title_block",)):
         """Remove all annotations except those named in *keep* (#74).
@@ -1905,8 +1919,8 @@ class Drawing:
         keep_set = set(keep)
         kept_named = {n: o for n, o in self._named.items() if n in keep_set}
         kept_ids = {id(o) for o in kept_named.values()}
-        removed = [o for o in self.annotations if id(o) not in kept_ids]
-        self.annotations = [o for o in self.annotations if id(o) in kept_ids]
+        removed = [o for o in self.items if id(o) not in kept_ids]
+        self.items = [o for o in self.items if id(o) in kept_ids]
         self._named = kept_named
         return removed
 
@@ -1923,17 +1937,17 @@ class Drawing:
         Only dimensions built by :func:`_dim` (carrying ``_dw_spec``) qualify;
         leaders, callouts and hand-built annotations are left untouched.
         """
-        for o in self.annotations:
+        for o in self.items:
             if getattr(o, "_dw_spec", None) is not None and getattr(o, "label", None) == label:
                 return o
         return None
 
     def _replace_dim(self, old, new):
-        """Swap *old* for *new* in :attr:`annotations`, preserving its name and
+        """Swap *old* for *new* in :attr:`items`, preserving its name and
         any per-view scale tag (so a re-placed detail-view dim stays at scale)."""
         if getattr(old, "_dw_scale", None) is not None:
             new._dw_scale = old._dw_scale
-        self.annotations[self.annotations.index(old)] = new
+        self.items[self.items.index(old)] = new
         for n, o in self._named.items():
             if o is old:
                 self._named[n] = new
@@ -1992,7 +2006,7 @@ class Drawing:
             before = self.lint()
             if not before:
                 break
-            snap_annotations = list(self.annotations)
+            snap_annotations = list(self.items)
             snap_named = dict(self._named)
             changed = False
             for issue in before:
@@ -2012,7 +2026,7 @@ class Drawing:
                 break
             if len(self.lint()) > len(before):
                 # The repairs net-worsened the sheet — undo this pass and stop.
-                self.annotations[:] = snap_annotations
+                self.items[:] = snap_annotations
                 self._named.clear()
                 self._named.update(snap_named)
                 break
@@ -2032,12 +2046,10 @@ class Drawing:
         # scale group with its own drawing_scale so label-vs-measured is correct
         # per view. The common single-scale case is byte-identical to before.
         by_scale: dict = {}
-        for ann in self.annotations:
+        for ann in self.items:
             by_scale.setdefault(getattr(ann, "_dw_scale", self.scale), []).append(ann)
         if len(by_scale) <= 1:
-            issues = lint_drawing(
-                self.annotations, drawing_scale=self.scale, view_shapes=view_shapes
-            )
+            issues = lint_drawing(self.items, drawing_scale=self.scale, view_shapes=view_shapes)
         else:
             issues = []
             for _scale, _anns in by_scale.items():
@@ -2047,7 +2059,7 @@ class Drawing:
                 self._cyl_cache = analyse_cylinders(self.part)
             issues += lint_feature_coverage(
                 self.part,
-                self.annotations,
+                self.items,
                 cyls=self._cyl_cache,
                 exclude=self._dropped_callout_diams,
             )
@@ -2181,7 +2193,7 @@ class Drawing:
             _export_shape(exporter, vis, "part", f"view {name!r}")
             if hid:
                 _export_shape(exporter, hid, "hidden", f"view {name!r}")
-        for ann in self.annotations:
+        for ann in self.items:
             label = getattr(ann, "label", "") or type(ann).__name__
             _export_shape(exporter, ann, "dims", f"annotation {label!r}")
 
@@ -4368,7 +4380,9 @@ def _write_script(a) -> str:
         "\n"
         "# ── Customise here — runs BEFORE export, so edits land in the output ───────────\n"
         "# dwg.views        'front' 'plan' 'side' 'iso'  → (visible, hidden) compounds\n"
-        "# dwg.annotations  mutable list of annotation objects\n"
+        "# dwg.items        mutable list of annotation objects\n"
+        "# dwg.annotations()        → {name: type} of every named annotation\n"
+        "# dwg.get_annotation(name) → the named annotation object, or None\n"
         "# dwg.at(view, x, y, z)  → page point (px, py, 0) mapped from world coordinates\n"
         "# dwg.add(obj, name) / dwg.remove(name)\n"
         "# dwg.add_view(name, shape, camera, up, position)  → section / auxiliary view\n"

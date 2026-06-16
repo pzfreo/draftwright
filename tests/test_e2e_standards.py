@@ -44,8 +44,8 @@ def _assert_meets_standards(dwg, svg_path, dxf_path):
 
     # Structure: four standard views, a title block, at least one dimension.
     assert set(dwg.views) >= {"front", "plan", "side", "iso"}
-    assert any(isinstance(a, TitleBlock) for a in dwg.annotations), "no title block"
-    assert len(dwg.annotations) >= 2, "expected dimensions + title block"
+    assert any(isinstance(a, TitleBlock) for a in dwg.items), "no title block"
+    assert len(dwg.items) >= 2, "expected dimensions + title block"
 
     # Lint: no error-severity issues (warnings tolerated).
     errors = [i for i in dwg.lint() if i.severity == "error"]
