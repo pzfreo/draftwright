@@ -605,6 +605,22 @@ _STRIP_SPACING = 4.0
 # the budget stays a single, named factor rather than a recomputed fit (#31).
 _ISO_WIDTH_BUDGET = 0.7
 
+# Scale selection accepts a layout when the largest empty rectangle left for the
+# iso view can hold a square of at least this fraction of the iso's natural size
+# (bbox_max * scale * _ISO_WIDTH_BUDGET).  Below 1.0 because _fit_iso_view scales
+# the iso down to whatever space remains, so a modestly smaller rectangle still
+# renders a legible iso — letting a long/short part enlarge onto a sheet (e.g.
+# 2:1 on A3) where the strict row model would have under-scaled it.
+_ISO_MIN_FIT_FRAC = 0.6
+
+# Upper bound on how far the iso view may grow beyond sheet scale when fitted to
+# its zone.  The iso is an orientation aid, not a measured view: left uncapped it
+# fills the (now often large) empty rectangle and can dwarf the dimensioned
+# orthographic views (up to ~8× on an oversized sheet).  Capped just above sheet
+# scale so it still fills modest zones without dominating.  Shrinking to fit a
+# small zone is never capped.
+_ISO_MAX_GROW = 1.3
+
 # Slot sizes for the annotations that allocate from fv/pv/sv strips.
 # Shared between the depth estimators below and the allocate() call-sites in
 # _auto_annotate() so that a slot-size change is automatically reflected in
@@ -846,37 +862,74 @@ def _fits(
     tb_w,
     n_steps: int = 0,
     strips: StripDepths | None = None,
+    pack_iso_2d: bool = False,
 ) -> bool:
     """True if the 4-view layout fits the page at this scale.
 
-    The title block occupies only the bottom ``_TB_H`` mm of the sheet, so when
-    the vertically-centred view rows clear its top edge, the row width does not
-    need to reserve title-block space (the iso view may extend over it).
+    Default (``pack_iso_2d=False``) is the conservative row model used by
+    automatic scale selection: the iso view is charged a column in the view row
+    alongside the title block.  This deliberately over-reserves horizontal space,
+    which keeps annotation-heavy parts on a sheet large enough to place all their
+    dimensions rather than dropping some onto a tighter sheet.
+
+    When ``pack_iso_2d=True`` — used when the caller fixes the page or scale —
+    the iso is instead fitted into the largest empty rectangle the placement
+    engine actually uses (:func:`_layout_geometry`), so it may occupy vertical
+    headroom above the views rather than a row column.  A long, short part can
+    then be enlarged onto the requested sheet (e.g. 2:1 on A3), where the row
+    model would have under-scaled it.
+
+    The title block occupies only the bottom ``_TB_H`` mm of the sheet, so the
+    views may extend over it horizontally as long as they clear it vertically.
     """
     bbox_max = max(x_size, y_size, z_size)
     gap_fv_sv = max(_DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps))
     gap_left = max(_DIM_PAD, strips.left if strips else _DIM_PAD)
-    w = (
+    h = _MARGIN + _DIM_PAD + y_size * scale + _DIM_PAD + z_size * scale + _DIM_PAD + _MARGIN
+    if h > page_h:
+        return False
+
+    if not pack_iso_2d:
+        # Conservative row model: iso + title block both charged to the row.
+        w = (
+            _MARGIN
+            + gap_left
+            + x_size * scale
+            + gap_fv_sv
+            + y_size * scale
+            + _DIM_PAD
+            + bbox_max * scale * _ISO_WIDTH_BUDGET
+            + _DIM_PAD
+            + tb_w
+            + _MARGIN
+        )
+        if w <= page_w:
+            return True
+        views_bottom = max(0.0, (page_h - h) / 2) + _MARGIN + _DIM_PAD
+        # When views clear the title block row, the iso sits above it and the
+        # title block no longer constrains horizontal space — drop tb_w from w.
+        return w - tb_w <= page_w and views_bottom >= _MARGIN + _TB_H
+
+    # 2D packing: views + title block fit the row; the iso fits leftover space.
+    w_views_tb = (
         _MARGIN
         + gap_left
         + x_size * scale
         + gap_fv_sv
         + y_size * scale
         + _DIM_PAD
-        + bbox_max * scale * _ISO_WIDTH_BUDGET
-        + _DIM_PAD
         + tb_w
         + _MARGIN
     )
-    h = _MARGIN + _DIM_PAD + y_size * scale + _DIM_PAD + z_size * scale + _DIM_PAD + _MARGIN
-    if h > page_h:
+    if w_views_tb > page_w:
+        views_bottom = max(0.0, (page_h - h) / 2) + _MARGIN + _DIM_PAD
+        if not (w_views_tb - tb_w <= page_w and views_bottom >= _MARGIN + _TB_H):
+            return False
+    g = _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps)
+    if not g.iso_valid:
         return False
-    if w <= page_w:
-        return True
-    views_bottom = max(0.0, (page_h - h) / 2) + _MARGIN + _DIM_PAD
-    # When views clear the title block row, the iso sits above it and the
-    # title block no longer constrains horizontal space — drop tb_w from w.
-    return w - tb_w <= page_w and views_bottom >= _MARGIN + _TB_H
+    iso_fit = min(g.iso_right - g.iso_left, g.iso_top - g.iso_bottom)
+    return iso_fit >= _ISO_MIN_FIT_FRAC * g.iso_natural
 
 
 def choose_scale(
@@ -912,21 +965,39 @@ def choose_scale(
     if scale is not None and page is not None:
         pw, ph, tb = _parse_page(page)
         if not _fits(
-            x_size, y_size, z_size, float(scale), pw, ph, tb, n_steps=n_steps, strips=strips
+            x_size,
+            y_size,
+            z_size,
+            float(scale),
+            pw,
+            ph,
+            tb,
+            n_steps=n_steps,
+            strips=strips,
+            pack_iso_2d=True,
         ):
             _log.warning(
                 "Requested scale %s on %s page may not fit the 4-view layout", scale, page
             )
         return float(scale), pw, ph, tb
+    # When the caller fixes the page or scale, pack the iso into 2D space so the
+    # largest scale that genuinely fits the requested sheet is chosen (the iso
+    # may sit in vertical headroom).  Automatic selection stays on the
+    # conservative row model, which reserves enough space for all annotations.
     if page is not None:
         pw, ph, tb = _parse_page(page)
         candidates = [(s, pw, ph, tb) for s in _SCALES]
+        pack_iso_2d = True
     elif scale is not None:
         candidates = [(float(scale), pw, ph, _tb_width(pw)) for pw, ph in _PAGE_SIZES.values()]
+        pack_iso_2d = True
     else:
         candidates = _LADDER
+        pack_iso_2d = False
     for cand in candidates:
-        if _fits(x_size, y_size, z_size, *cand, n_steps=n_steps, strips=strips):
+        if _fits(
+            x_size, y_size, z_size, *cand, n_steps=n_steps, strips=strips, pack_iso_2d=pack_iso_2d
+        ):
             return cand
     _log.warning(
         "No layout fits %.0f × %.0f × %.0f mm; falling back to %s",
@@ -987,6 +1058,114 @@ def _largest_empty_rect(drawable, obstacles):
         )
         return drawable
     return best
+
+
+def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps=0):
+    """Compute the 4-view layout geometry for a part at a given scale/page.
+
+    Single source of truth shared by scale selection (:func:`_fits`) and view
+    placement (:func:`_analyse`): the orthographic FV/PV/SV view centres and
+    half-sizes, the annotation-strip gaps, and the largest empty rectangle the
+    isometric view is fitted into.  Returns a :class:`SimpleNamespace`.
+
+    When *strips* is ``None`` the annotation-corridor gaps fall back to the
+    step-count estimate (used during scale selection before strips are
+    measured); otherwise the measured strip depths are used.
+    """
+    margin = _MARGIN
+    DIM_PAD = _DIM_PAD
+    bbox_max = max(x_size, y_size, z_size)
+    gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps))
+    gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD)
+
+    fv_hw = x_size * scale / 2
+    fv_hh = z_size * scale / 2
+    pv_hh = y_size * scale / 2
+    sv_hw = y_size * scale / 2
+
+    total_h = 2 * margin + 3 * DIM_PAD + z_size * scale + y_size * scale
+    y_offset = max(0.0, (page_h - total_h) / 2)
+
+    total_content_w = (
+        gap_left
+        + gap_fv_sv
+        + x_size * scale
+        + y_size * scale
+        + 2 * DIM_PAD
+        + bbox_max * scale * _ISO_WIDTH_BUDGET
+    )
+    x_offset = max(0.0, (page_w - 2 * margin - tb_w - total_content_w) / 2)
+
+    FV_X = margin + x_offset + gap_left + fv_hw
+    FV_Y = y_offset + margin + DIM_PAD + fv_hh
+    PV_X = FV_X
+    PV_Y = FV_Y + fv_hh + DIM_PAD + pv_hh
+    SV_X = FV_X + fv_hw + gap_fv_sv + sv_hw
+    SV_Y = FV_Y
+    sv_right = SV_X + sv_hw + DIM_PAD
+    sv_right_wall = (
+        (page_w - margin) if (PV_Y - pv_hh) > (margin + _TB_H) else (page_w - tb_w - margin)
+    )
+
+    drawable = (margin, margin, page_w - margin, page_h - margin)
+    obstacles = [
+        (
+            FV_X - fv_hw - DIM_PAD,
+            FV_Y - fv_hh - DIM_PAD,
+            FV_X + fv_hw + DIM_PAD,
+            FV_Y + fv_hh + DIM_PAD,
+        ),
+        (
+            PV_X - fv_hw - DIM_PAD,
+            PV_Y - pv_hh - DIM_PAD,
+            PV_X + fv_hw + DIM_PAD,
+            PV_Y + pv_hh + DIM_PAD,
+        ),
+        (
+            SV_X - sv_hw - DIM_PAD,
+            SV_Y - fv_hh - DIM_PAD,
+            SV_X + sv_hw + DIM_PAD,
+            SV_Y + fv_hh + DIM_PAD,
+        ),
+        (page_w - tb_w - 11 - DIM_PAD, margin, page_w - 11 + DIM_PAD, 11 + _TB_H + DIM_PAD),
+    ]
+    iso_left, iso_bottom, iso_right, iso_top = _largest_empty_rect(drawable, obstacles)
+    # _largest_empty_rect falls back to the full drawable when the obstacles
+    # leave no genuine gap; detect that (rect overlaps an obstacle) so callers
+    # can treat "no room for the iso" as not-fitting rather than a huge phantom.
+    iso_valid = not any(
+        iso_left < o[2] and o[0] < iso_right and iso_bottom < o[3] and o[1] < iso_top
+        for o in obstacles
+    )
+
+    return SimpleNamespace(
+        margin=margin,
+        x_offset=x_offset,
+        y_offset=y_offset,
+        gap_fv_sv=gap_fv_sv,
+        gap_left=gap_left,
+        fv_hw=fv_hw,
+        fv_hh=fv_hh,
+        pv_hh=pv_hh,
+        sv_hw=sv_hw,
+        total_h=total_h,
+        FV_X=FV_X,
+        FV_Y=FV_Y,
+        PV_X=PV_X,
+        PV_Y=PV_Y,
+        SV_X=SV_X,
+        SV_Y=SV_Y,
+        sv_right=sv_right,
+        sv_right_wall=sv_right_wall,
+        iso_left=iso_left,
+        iso_bottom=iso_bottom,
+        iso_right=iso_right,
+        iso_top=iso_top,
+        ISO_X=(iso_left + iso_right) / 2,
+        ISO_Y=(iso_bottom + iso_top) / 2,
+        iso_valid=iso_valid,
+        iso_natural=bbox_max * scale * _ISO_WIDTH_BUDGET,
+    )
 
 
 def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, page=None, pmi="off"):
@@ -1131,72 +1310,29 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
         arrow_length=_arrow_length,
         pad_around_text=_pad_around_text,
     )
-    gap_fv_sv = max(DIM_PAD, strips.right)
-    gap_left = max(DIM_PAD, strips.left)
-
-    fv_hw = x_size * SCALE / 2
-    fv_hh = z_size * SCALE / 2
-    pv_hh = y_size * SCALE / 2
-    sv_hw = y_size * SCALE / 2
-
-    total_h = 2 * margin + 3 * DIM_PAD + z_size * SCALE + y_size * SCALE
-    y_offset = max(0.0, (PAGE_H - total_h) / 2)
-
-    total_content_w = (
-        gap_left
-        + gap_fv_sv
-        + x_size * SCALE
-        + y_size * SCALE
-        + 2 * DIM_PAD
-        + bbox_max * SCALE * _ISO_WIDTH_BUDGET
-    )
-    x_offset = max(0.0, (PAGE_W - 2 * margin - TB_W - total_content_w) / 2)
-
-    FV_X = margin + x_offset + gap_left + fv_hw
-    FV_Y = y_offset + margin + DIM_PAD + fv_hh
-    PV_X = FV_X
-    PV_Y = FV_Y + fv_hh + DIM_PAD + pv_hh
-    SV_X = FV_X + fv_hw + gap_fv_sv + sv_hw
-    SV_Y = FV_Y
-    sv_right = SV_X + sv_hw + DIM_PAD
-    # Right wall for the side-view annotation strip: full page (minus margin)
-    # when the views clear the title block, otherwise stop left of it.
-    sv_right_wall = (
-        (PAGE_W - margin) if (PV_Y - pv_hh) > (margin + _TB_H) else (PAGE_W - TB_W - margin)
-    )
-
-    # Iso placement (#11): rather than special-casing wide/flat-on-A3, find the
-    # largest empty rectangle in the drawable area after the FV/PV/SV views and
-    # the title block are positioned, and centre the iso in it.  _fit_iso_view
-    # then scales the iso to fill that rectangle.  Each view box is padded by
-    # DIM_PAD to reserve its annotation strips; the title block is padded too.
-    drawable = (margin, margin, PAGE_W - margin, PAGE_H - margin)
-    obstacles = [
-        (
-            FV_X - fv_hw - DIM_PAD,
-            FV_Y - fv_hh - DIM_PAD,
-            FV_X + fv_hw + DIM_PAD,
-            FV_Y + fv_hh + DIM_PAD,
-        ),
-        (
-            PV_X - fv_hw - DIM_PAD,
-            PV_Y - pv_hh - DIM_PAD,
-            PV_X + fv_hw + DIM_PAD,
-            PV_Y + pv_hh + DIM_PAD,
-        ),
-        (
-            SV_X - sv_hw - DIM_PAD,
-            SV_Y - fv_hh - DIM_PAD,
-            SV_X + sv_hw + DIM_PAD,
-            SV_Y + fv_hh + DIM_PAD,
-        ),
-        (PAGE_W - TB_W - 11 - DIM_PAD, margin, PAGE_W - 11 + DIM_PAD, 11 + _TB_H + DIM_PAD),
-    ]
-    iso_left_limit, iso_bottom_limit, iso_right_limit, iso_top_limit = _largest_empty_rect(
-        drawable, obstacles
-    )
-    ISO_X = (iso_left_limit + iso_right_limit) / 2
-    ISO_Y = (iso_bottom_limit + iso_top_limit) / 2
+    # View positions + iso empty-rectangle, shared with scale selection (_fits)
+    # via _layout_geometry so placement and fit never diverge (#11).  _fit_iso_view
+    # later scales the iso to fill its rectangle.
+    _g = _layout_geometry(x_size, y_size, z_size, SCALE, PAGE_W, PAGE_H, TB_W, strips, n_steps)
+    fv_hw = _g.fv_hw
+    fv_hh = _g.fv_hh
+    pv_hh = _g.pv_hh
+    sv_hw = _g.sv_hw
+    x_offset = _g.x_offset
+    FV_X = _g.FV_X
+    FV_Y = _g.FV_Y
+    PV_X = _g.PV_X
+    PV_Y = _g.PV_Y
+    SV_X = _g.SV_X
+    SV_Y = _g.SV_Y
+    sv_right = _g.sv_right
+    sv_right_wall = _g.sv_right_wall
+    iso_left_limit = _g.iso_left
+    iso_bottom_limit = _g.iso_bottom
+    iso_right_limit = _g.iso_right
+    iso_top_limit = _g.iso_top
+    ISO_X = _g.ISO_X
+    ISO_Y = _g.ISO_Y
 
     # ------------------------------------------------------------------
     # Strip / zone construction.
@@ -3300,6 +3436,7 @@ def _fit_iso_view(dwg, a, annotate: bool = True):
     factor = math.floor(needed * margin_pct * 10000) / 10000
     if needed >= 1.0:
         factor = max(factor, 1.0)  # grow branch must never shrink
+        factor = min(factor, _ISO_MAX_GROW)  # never dwarf the dimensioned views
     if abs(factor - 1.0) < 0.05:
         return  # within 5 % of sheet scale — no rescale, no NTS label
     _project_iso(dwg, a, a.SCALE * factor)

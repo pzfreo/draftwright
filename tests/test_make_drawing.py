@@ -132,6 +132,21 @@ class TestChooseScaleOverrides:
         assert (pw, ph) == (420.0, 297.0)
         assert scale == 5.0
 
+    def test_specified_page_enlarges_long_short_part_via_2d_iso(self):
+        # A long, short part (100 × 10 × 11, e.g. a staircase) fills a specified
+        # A3 sheet at 2:1.  The conservative row model would reject 2:1 (it
+        # charges the iso a row column), but on a fixed page the iso is packed
+        # into vertical headroom, so the larger scale genuinely fits (#staircase).
+        from draftwright.make_drawing import _fits
+
+        assert not _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0)
+        assert _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=True)
+        scale, pw, ph, _ = choose_scale(100, 10, 11, page="A3")
+        assert scale == 2.0
+        assert (pw, ph) == (420.0, 297.0)
+        # Automatic selection (no page) stays conservative — A4 at 1:1.
+        assert choose_scale(100, 10, 11)[:3] == (1.0, 297.0, 210.0)
+
     def test_scale_only_picks_smallest_fitting_page(self):
         scale, pw, ph, tbw = choose_scale(28, 8.5, 12.5, scale=2)
         assert scale == 2.0
@@ -1274,6 +1289,20 @@ def test_ctc01_iso_world_to_page_mapping(ctc01_a3_drawing):
     iso_scale = dwg._coords["iso"]._scale
     raised = dwg.at("iso", cx, cy, cz + 100)
     assert raised[1] - centre[1] == pytest.approx(100 * iso_scale)
+
+
+@pytest.mark.timeout(60)
+def test_iso_view_grow_capped_at_max():
+    # The iso is an orientation aid, not a measured view: fitted to a large empty
+    # zone it must not balloon past _ISO_MAX_GROW × sheet scale (was ~8× before).
+    from draftwright.make_drawing import _ISO_MAX_GROW
+
+    # Small part forced onto a big sheet → large empty rectangle → would over-grow.
+    dwg = build_drawing(Box(40, 30, 20), scale=1, page="A1")
+    iso_scale = dwg._coords["iso"]._scale
+    sheet_scale = dwg._analysis.SCALE
+    assert iso_scale <= _ISO_MAX_GROW * sheet_scale + 1e-6
+    assert iso_scale == pytest.approx(_ISO_MAX_GROW * sheet_scale, abs=1e-6)
 
 
 @pytest.mark.timeout(60)

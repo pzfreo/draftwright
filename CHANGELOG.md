@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Changed
+
+- **A specified page now enlarges to the best fitting scale.** When the caller
+  fixes the page (`--page A3`) or scale, scale selection packs the isometric
+  view into the largest empty rectangle the placement engine actually uses (it
+  may sit in vertical headroom above the views), instead of charging it a column
+  in the view row. A long, short part — e.g. a 100 × 10 × 11 mm staircase — now
+  fills a requested A3 at 2:1 where it was previously under-scaled to 1:1.
+  Automatic selection (no page/scale given) keeps the conservative row model,
+  which reserves enough room to place every annotation rather than dropping some
+  onto a tighter sheet (staircase review).
+- **Isometric view growth is capped.** The iso is fitted to fill its zone but no
+  longer grows past 1.3× sheet scale; on an oversized sheet it could previously
+  balloon to ~8× and dwarf the dimensioned orthographic views. Shrinking to fit
+  a small zone is unchanged.
+
 ### Fixed
 
 - **Phantom step corridor no longer blocks a larger scale.** Page/scale
