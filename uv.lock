@@ -580,6 +580,8 @@ dependencies = [
     { name = "build123d" },
     { name = "build123d-drafting-helpers" },
     { name = "kiwisolver" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 
 [package.optional-dependencies]
@@ -602,6 +604,7 @@ requires-dist = [
     { name = "build123d-drafting-helpers", specifier = ">=0.10.0" },
     { name = "cairosvg", marker = "extra == 'pdf'", specifier = ">=2.7" },
     { name = "kiwisolver", specifier = ">=1.4,<2" },
+    { name = "numpy", specifier = ">=1.24" },
 ]
 provides-extras = ["pdf"]
 
