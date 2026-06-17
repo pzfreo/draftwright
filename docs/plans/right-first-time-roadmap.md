@@ -1,14 +1,15 @@
 # "Right first time" roadmap — hardening the deterministic core
 
-_Status: living plan. Last updated 2026-06-16 alongside PR #47 (page-aware scale
-selection). Tracks the work toward "API-driven output as good as interactive."_
+_Status: living plan. Last updated 2026-06-17. The original "right-first-time"
+arc (deterministic self-correction + a domain-semantic editing API) closed with
+**v0.1.9**; this revision re-baselines on that and sequences the next arc._
 
 ## Why this exists
 
 draftwright gets good results when driven interactively (Claude Code): render →
 eyeball → read lint → adjust → re-render. The same engine driven one-shot via an
-API underwhelms — not because of the model, but because the API call doesn't get
-those laps. The fix is three-pronged:
+API used to underwhelm — not because of the model, but because the API call
+didn't get those laps. The fix was three-pronged:
 
 1. **Push the deterministic boundary outward** so fewer decisions need an LLM at
    all (the engine self-corrects).
@@ -22,104 +23,119 @@ gaps*, not a prompt-quality problem. Every gap closed in Python is permanent and
 free per run; every gap left to the API is paid for, non-deterministic, and
 worse on novel input.
 
-## The three clusters of open issues
+## Done — the right-first-time arc (through v0.1.9)
 
-**Cluster A — make the engine self-correcting** (meets at `lint()`)
-- #30 — lint→repair loop (act on violations, don't just report)
-- #29 — lint findings carry a `suggestion` code snippet
+The three clusters that defined this arc are **complete and released**.
 
-**Cluster B — primitives so a script/LLM can fix things**
-- #26 — `dwg.features(view)` — expose the geometry analysis
-- #25 — `Drawing.place_dim()` — layout-strip-aware stacking dimension
-- #27 — `dwg.annotations()` — query placed annotations
-- #28 — `dwg.view_bounds(view)` — page bbox of a projected view
+### Cluster A — the engine self-corrects (meets at `lint()`)
+- **#32 — lint score + surface silent drops** (v0.1.7). `lint_summary()`:
+  JSON-friendly aggregate — `passed`, 0–1 `score`, severity counts, `by_code`,
+  `geometry_issues`, full issue list. One signal to gate/optimise on without
+  rendering.
+- **#29 — lint findings carry a `suggestion`** (v0.1.9). Each repairable issue
+  ships a ready-to-paste domain-API snippet (`_suggest_fix`).
+- **#30 — lint→repair loop** (v0.1.9). `Drawing.repair()`, run by default in
+  `build_drawing`, mechanically fixes the codes with a deterministic placement
+  fix (overlap push-apart, wrong-side flip); a pass that would net-increase
+  issues is rolled back.
 
-**Cluster C — default drawing quality** (the staircase / NIST CTC-02 review)
-- #43 — location-dimension count/legibility gate (the "tall-tower" fix)
-- #42 — enlarged detail view for fine / closely-spaced features
-- #45 — representative / "TYP" dimensioning for repeated features
+### Cluster B — primitives so a script/LLM can fix things
+- **#26 — `dwg.features(view)`** (v0.1.9). Detected holes/features grouped by
+  machining spec, in page coordinates.
+- **#25 — `dwg.place_dim(p1, p2, side, view, draft, …)`** (v0.1.9).
+  Layout-strip-aware stacking dimension from domain inputs.
+- **#27 — `dwg.annotations()` / `dwg.get_annotation(name)`** (v0.1.9).
+  Introspect placed annotations; the old `dwg.annotations` list is now
+  `dwg.items` (breaking, pre-1.0).
+- **#28 — `dwg.view_bounds(view)`** (v0.1.9). Page bbox of a projected view.
 
-## How they depend on each other
+### Cluster C — default drawing quality (staircase / NIST CTC-02 review)
+- **#36 — adaptive cardinality caps** (v0.1.7). Hard 4/4/3 caps removed; the
+  engine places as many as space allows, drops surface via lint.
+- **#41 — step-height legibility gate** (v0.1.8). "Fits" ≠ "legible".
+- **#43 — location-dimension legibility gate** (v0.1.8). The tall-tower fix,
+  with datum-edge correctness.
+- **Page-aware scale selection** (v0.1.8). Specified page enlarges to best
+  fitting scale (2D iso packing); automatic selection minimises sheet size
+  (page-major ladder); iso growth capped at 1.3× sheet scale.
+- **#45 — TYP / representative dimensioning** (v0.1.9). A uniform step run is
+  dimensioned once and labelled TYP.
+- **#42 — enlarged detail view (MVP)** (v0.1.9). Opt-in `detail_view=True`
+  re-draws crowded shoulders at a larger scale; per-view-scale lint.
 
-- **Cluster A is downstream of B.** Repairing `feature_not_dimensioned` /
-  `callout_dropped` needs the feature geometry back → `dwg.features()` (#26);
-  repairing `annotation_overlap` / stacking needs strip re-stacking →
-  `place_dim` (#25). #29 (computable `suggestion`) is the bridge from the lint
-  surface (#32, done) to auto-apply (#30). Both B primitives also stand alone as
-  API wins, so they are low-regret to land early.
-- **Cluster C is the immediate sequel to PR #47.** #47 makes automatic selection
-  prefer the *smallest* sheet, so parts now sit on tighter pages → less room for
-  stacked location dims → higher risk of silent drops. **#43 is effectively part
-  two of #47**: a legibility/count gate so a tight sheet drops dims *visibly and
-  gracefully* (or re-tiers) instead of overflowing. #42 then gives the dropped
-  fine detail somewhere to live (a detail view); #45 cuts clutter for repeated
-  features (e.g. the staircase treads, where 1 mm steps can't be individually
-  dimensioned at sheet scale).
+### Design record
+- **ADR 0001** — deterministic generation over an editable-code DSL.
+- **ADR 0002** — iterate via lint critique and domain repair.
+
+## The next arc — correctness, then GD&T, then output polish
+
+With the right-first-time scaffolding in place, the open backlog falls into four
+themes. The ordering principle: **a wrong dimension is worse than a missing or
+ugly one**, so geometry-correctness bugs lead.
+
+### 1. Geometry correctness (do first — these emit *wrong* drawings)
+- **#68 — blind-hole depth measured across solid boundaries.** On a multi-solid
+  assembly a bore reports `⌀9.8 ↓111.4` — a depth ~4× the bore-axis extent,
+  because the opposite-face search crosses into a neighbouring solid. Fix:
+  restrict the bottom-face search to the entry face's own solid, and never emit
+  a depth exceeding that solid's bore-axis extent.
+- **#67 — recover exact circles for revolved/NURBS on-axis silhouettes.**
+  Imported-STEP turned features come back from HLR as approximating B-splines,
+  not circles → spline DXF entities and fitted (not exact) radii. Fix: a
+  post-projection silhouette conic-refit pass, grouping candidate faces *per
+  revolution axis* (pooling all axes cross-contaminates neighbours). A working
+  implementation exists in gib-tuners to port.
+
+### 2. GD&T / PMI (the next capability arc — mirrors the domain-API arc)
+- **#61 — GD&T placement API: `dwg.place_fcf()` / `dwg.place_datum()`.** The
+  domain primitives, analogous to `place_dim`. Land before auto-annotation so
+  there is a target to place into.
+- **#62 — auto-annotate GD&T from STEP PMI (Phase 4).** Read PMI feature control
+  frames / datums and place them via the #61 primitives.
+
+### 3. Assembly-awareness
+- **#69 — assembly-aware `feature_not_dimensioned`.** A general-arrangement
+  drawing shouldn't demand a callout on every bore; the coverage lint needs an
+  assembly/GA mode. (Pairs with #68 — both are multi-solid gaps.)
+
+### 4. Output polish & ergonomics
+- **#70 — auto-place / collision-resolve leaders, notes, text blocks.** Extends
+  the repair loop (#30) to free-form annotations.
+- **#73 — report the auto-selected page size.** Surface the chosen sheet back to
+  the caller (currently silent).
+- **#54 — enlarged detail view beyond the MVP.** Sub-region selection, multiple
+  details, location/callout dims fed in, ISO detail-circle convention,
+  `add_detail(region, scale)` domain API.
+- **#56 — suppress the `detail_view=True` suggestion once a detail view exists**
+  (small; acceptance #2 of the issue — #1 already shipped with #29).
+- **#72 — generic auto-placed table primitive** (gear data / BOM / rev history).
+- **#71 — optional shaded (raster) isometric pictorial.**
+- **#57 — AnalysisSitus SDK for feature recognition** (larger, exploratory).
 
 ## Recommended sequence
 
 ```
-#43            location-dim legibility gate   ← do next (sequel to #47)
+#68  blind-hole depth across solids   ← do next (wrong dimension)
+#67  exact-circle silhouette refit       (wrong DXF entities / fitted radii)
    ↓
-#42            detail view for fine features   (home for what #43 + step gate drop)
+#61  place_fcf() / place_datum()         GD&T primitives
+#62  auto-annotate GD&T from PMI         (consumes #61)
    ↓
-#26, #25       primitives (features, place_dim) — also standalone API wins
+#69  assembly-aware coverage lint        (pairs with #68's multi-solid work)
    ↓
-#29            lint suggestions, building on #32's issue dict
-   ↓
-#30            repair loop, consuming features + place_dim + suggestions
+output polish: #70, #73, #54, #56, #72, #71 — slot in opportunistically
+#57  AnalysisSitus — separate exploratory track
 ```
-#45 slots in opportunistically alongside #42 (both reduce annotation clutter).
-#27 / #28 slot in wherever an API caller needs them.
-
-## Done
-
-### Foundations (Cluster A surface + verification)
-- **#32 — lint score + surface silent drops** (PR #33). `Drawing.lint_summary()`:
-  JSON-friendly aggregate of `lint()` — `passed`, coarse 0–1 `score`, severity
-  counts, `by_code`, `geometry_issues`, full issue list. `_record_build_issue()`
-  records build-time drops; `lint()` surfaces them. One signal to gate/optimise on
-  without rendering. Score weights and the geometry-aware code set are
-  single-sourced module constants.
-- **#31 — derive bare layout constants** (PR #34). Strip slot widths, callout
-  label widths, the isometric fit factor are computed from text metrics and page
-  size instead of fixture-tuned magic numbers.
-- **#13 — overfitting guard tests**. Pin the *general* layout behaviour on
-  turned/hybrid parts (flange OD + bolt circle), multi-bore parts, and the
-  step-legibility boundary.
-
-### Default drawing quality (Cluster C in progress)
-- **#36 — adaptive cardinality caps**. Removed the hard 4 callouts / 4 location
-  refs / 3 step-dims caps; the engine now places as many as the available
-  strip/corridor space allows, surfacing genuine drops via lint.
-- **#41 — step-height legibility gate**. A step is dimensioned only if it is both
-  tall enough from the base *and* a legible step-height above the previous one;
-  the rest surface as `step_dim_dropped`. "Fits" ≠ "legible".
-- **Staircase review fixes** (PR #46). Phantom step corridor no longer blocks a
-  larger scale; engraved-text faces no longer dimensioned as phantom steps
-  (`min_area_frac` filter); overall-height dim nests outside the step dims.
-- **Page-aware scale selection** (PR #47, in review). A specified page enlarges
-  to the best fitting scale (iso packed into 2D empty space, e.g. staircase 2:1
-  on A3); automatic selection now minimises sheet size (page-major ladder, e.g.
-  20×15×10 → 2:1 on A4 not 5:1 on A3); iso growth capped at 1.3× sheet scale.
-  Shared `_layout_geometry` so fit and placement can't diverge.
-
-### Earlier groundwork
-- #10 turned+drilled classification; #11 free-rectangle iso placement; #12
-  single-sourced geometry constants; #20 AP242/PMI STEP import segfault.
 
 ## Notes / gaps to keep in mind
 
-- The lint *score* is a heuristic with tunable weights. It's named and
-  single-sourced, but the severity/code counts are the authoritative output —
-  callers should prefer counts over the scalar where it matters.
-- Full location-dimension *coverage* lint (flagging under-located parts that were
-  never even attempted) is still out of scope — the drop codes surface *drops*,
-  not never-attempted gaps. Candidate for #43/#30.
-- With #47's smaller-sheet preference, watch for parts that now drop location
-  dims on a tighter page — that is precisely what #43 must gate.
-- Naming drift: #29's examples say `LintFinding`; the class is `LintIssue`. Fix
-  when #29 is implemented.
+- The lint *score* is a heuristic with tunable weights; severity/code counts are
+  the authoritative output — prefer counts over the scalar where it matters.
+- Full location-dimension *coverage* lint (flagging never-attempted gaps, not
+  just drops) is still out of scope.
 - `_ISO_MIN_FIT_FRAC` (0.6) and `_ISO_MAX_GROW` (1.3) are named single-sourced
   constants but not yet derived from first principles — revisit if iso sizing
   looks off on unseen geometry.
+- #68 and #67 both originate from the gib-tuners drawing pipeline, which has
+  switched to `make_drawing`; that pipeline is a good real-world regression
+  source for the multi-solid and turned-feature paths.
