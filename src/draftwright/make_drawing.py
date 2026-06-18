@@ -1011,6 +1011,11 @@ _SLOT_DIM_HEIGHT = 2 * _FONT_SIZE + 2 * _PAD  # fv_zones.right: overall height d
 # Stacked step dims sit deeper so each ladder rung's label clears the rung below.
 _SLOT_DIM_STEP = 4 * _FONT_SIZE + _PAD  # fv_zones.right: step-height dimension
 
+# A plan view with at least this many holes escalates to a hole chart when it is
+# too dense to dimension every hole individually (#93). Below it, a dropped ref
+# stays a legibility drop rather than tabulating a handful of holes.
+_TABULATE_MIN_HOLES = 16
+
 # Smallest projected step height (page-mm) that can still carry a *legible*
 # stacked dimension between its two extension lines.  Derived from what has to
 # fit vertically: the label (font height) plus an arrowhead at each end plus
@@ -1971,9 +1976,6 @@ class Drawing:
         # top of :func:`_auto_annotate` so re-annotation does not accumulate.
         self._build_issues: list = []
         self._dropped_callout_diams: list = []
-        # Views whose hole callouts the layout had to drop — the trigger for the
-        # hole-table escalation (#93).
-        self._dropped_callout_views: set = set()
 
     # -- views ----------------------------------------------------------------
     def add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
@@ -2797,7 +2799,6 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     # not accumulate duplicate drop records.
     dwg._build_issues = []
     dwg._dropped_callout_diams = []
-    dwg._dropped_callout_views = set()
 
     def FX(x):
         return a.FV_X + (x - a.cx) * a.SCALE
@@ -3172,7 +3173,10 @@ def _maybe_tabulate_holes(dwg, a):
         return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
 
     holes = [h for h in a.holes if axis_letter(h) == "z"]  # plan-view holes
-    if not holes:
+    # A chart is warranted only for a *genuinely* dense plan view — a part that
+    # merely dropped one too-close location ref keeps its individual dims (the
+    # legibility gate already handled it). #93.
+    if len(holes) < _TABULATE_MIN_HOLES:
         return
     dx, dy = a.bb.min.X, a.bb.min.Y
     tags = _tag_sequence(len(holes))
@@ -3565,7 +3569,6 @@ def _record_callout_drop(dwg, view, diam, reason):
     and not double-reported.
     """
     dwg._dropped_callout_diams.append(diam)
-    dwg._dropped_callout_views.add(view)
     dwg._record_build_issue(
         "warning",
         "callout_dropped",
