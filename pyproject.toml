@@ -14,6 +14,7 @@ dependencies = [
     "build123d>=0.9.0",
     "build123d-drafting-helpers>=0.10.0",
     "kiwisolver>=1.4,<2",
+    "numpy>=1.24",
 ]
 keywords = ["build123d", "cad", "drafting", "engineering-drawing", "technical-drawing", "automation"]
 classifiers = [

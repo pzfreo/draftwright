@@ -26,6 +26,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal
 
+import numpy as np
 from build123d import (
     Align,
     Arrow,
@@ -40,9 +41,11 @@ from build123d import (
     LineType,
     Location,
     Mode,
+    Plane,
     Pos,
     Shape,
     Text,
+    ThreePointArc,
     Vector,
 )
 from build123d_drafting.features import (
@@ -75,7 +78,14 @@ from build123d_drafting.helpers import (
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.BRepGProp import BRepGProp
-from OCP.GeomAbs import GeomAbs_Plane
+from OCP.GeomAbs import (
+    GeomAbs_Cone,
+    GeomAbs_Cylinder,
+    GeomAbs_Plane,
+    GeomAbs_Sphere,
+    GeomAbs_SurfaceOfRevolution,
+    GeomAbs_Torus,
+)
 from OCP.GProp import GProp_GProps
 from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
@@ -171,6 +181,153 @@ def sanitize_svg_arcs(svg_path: str) -> int:
     if n:
         Path(svg_path).write_text(fixed, encoding="utf-8")
     return n
+
+
+# Equidistance tolerance (page-mm) for accepting a sampled silhouette spline as
+# a circle about a known projected axis.  Loose enough to swallow HLR's spline
+# approximation error, tight enough not to round a genuinely off-axis curve.
+_SILHOUETTE_TOL = 0.12
+
+
+def _raw_view_projector(axes, look_at_scaled):
+    """Build a ``gp_Pnt -> (x, y)`` projector into raw viewport coordinates.
+
+    ``project_to_viewport`` returns edges centred on ``look_at`` with the world
+    axes mapped to page X/Y per :func:`view_axes`.  This reproduces that 2D
+    mapping for an arbitrary point on the *scaled* solid, so a revolution axis's
+    location can be projected into the same frame as the projected edges (before
+    the view is placed at its page position).
+    """
+    idx = {"world_X": 0, "world_Y": 1, "world_Z": 2}
+    x_terms = [(idx[w], s) for w, (p, s) in axes.items() if p == "page_X"]
+    y_terms = [(idx[w], s) for w, (p, s) in axes.items() if p == "page_Y"]
+    lx, ly, lz = look_at_scaled
+    center = (lx, ly, lz)
+
+    def proj(pnt):
+        c = (pnt.X(), pnt.Y(), pnt.Z())
+        x = sum((c[i] - center[i]) * s for i, s in x_terms)
+        y = sum((c[i] - center[i]) * s for i, s in y_terms)
+        return (x, y)
+
+    return proj
+
+
+def _exactify_silhouettes(edges, faces, view_dir, proj_fn, tol=_SILHOUETTE_TOL):
+    """Replace faceted silhouette splines with exact circles/arcs (#67).
+
+    ``project_to_viewport``'s HLR emits the silhouette ("outline") of a curved
+    face as an approximating BSpline (typically a rational degree 2–4 curve), so
+    an imported-STEP turned feature — or the concentric arc of a gear-tooth tip —
+    projects as a spline rather than a true circle, even though it is
+    geometrically circular.  A surface of revolution viewed along its axis has a
+    circular silhouette whose CENTRE we know exactly (the projected axis); we
+    replace a spline only when points sampled along it are equidistant from such
+    a known centre within ``tol`` (page-mm) — the radius comes from the samples,
+    the centre is never fitted.  Equidistance holds at any parametrisation, so
+    the test is independent of the spline's degree.  Inapplicable edges are
+    returned untouched.
+
+    Candidate centres are gathered per revolution axis, not pooled across all
+    faces: pooling lets one feature's axis turn a neighbouring feature's grazing
+    silhouette into a spurious circle.
+
+    Args:
+        edges: projected edges from ``project_to_viewport`` (raw view coords).
+        faces: faces of the projected (scaled) solid.
+        view_dir: unit world direction of the view axis, e.g. ``(0, 1, 0)``.
+        proj_fn: ``gp_Pnt -> (x, y)`` into the same raw view coords as ``edges``.
+
+    Returns:
+        ``(new_edges, replaced_count)``.
+    """
+    centres = []
+    seen = set()
+
+    def _add_centre(pnt):
+        # Coaxial faces (every counterbore step, fillet-adjacent wall, …) project
+        # to the same centre; dedup so the per-edge test loop below stays short.
+        c = np.array(proj_fn(pnt))
+        key = (round(float(c[0]), 3), round(float(c[1]), 3))
+        if key not in seen:
+            seen.add(key)
+            centres.append(c)
+
+    for f in faces:
+        surf = BRepAdaptor_Surface(f.wrapped)
+        st = surf.GetType()
+        if st == GeomAbs_Sphere:
+            _add_centre(surf.Sphere().Location())
+            continue
+        elif st == GeomAbs_Torus:
+            ax = surf.Torus().Position().Axis()
+        elif st == GeomAbs_SurfaceOfRevolution:
+            ax = surf.AxeOfRevolution()
+        elif st in (GeomAbs_Cylinder, GeomAbs_Cone):
+            ax = (surf.Cylinder() if st == GeomAbs_Cylinder else surf.Cone()).Axis()
+        else:
+            continue
+        d = ax.Direction()
+        if abs(d.X() * view_dir[0] + d.Y() * view_dir[1] + d.Z() * view_dir[2]) > 0.999:
+            _add_centre(ax.Location())
+
+    if not centres:
+        return list(edges), 0
+
+    # A silhouette circle cannot exceed the part's own projected footprint;
+    # this guards the degenerate-fragment case below.
+    gb = Compound(children=list(edges)).bounding_box()
+
+    def replacement(e):
+        if e.geom_type != GeomType.BSPLINE:
+            return None  # real circles/lines/arcs are already exact
+        # Sample the curve and test equidistance from a known centre (see the
+        # function docstring) — robust to the spline's degree and knot spacing.
+        n_samp = 33
+        try:
+            pts = np.array([[(p := e @ (i / (n_samp - 1))).X, p.Y, p.Z] for i in range(n_samp)])
+        except Exception:
+            return None
+        for c2 in centres:
+            dist = np.linalg.norm(pts[:, :2] - c2, axis=1)
+            if dist.max() - dist.min() < tol:
+                R = dist.mean()
+                z = pts[0, 2]
+                # A real silhouette circle cannot exceed the part's own projected
+                # footprint.  A sliver that happens to be equidistant from a
+                # distant axis would otherwise fit a giant circle/arc.
+                if (
+                    c2[0] - R < gb.min.X - 2
+                    or c2[0] + R > gb.max.X + 2
+                    or c2[1] - R < gb.min.Y - 2
+                    or c2[1] + R > gb.max.Y + 2
+                ):
+                    continue
+
+                def snap(p, c2=c2, R=R, z=z):
+                    v = p[:2] - c2
+                    v = v / np.linalg.norm(v) * R
+                    return (c2[0] + v[0], c2[1] + v[1], z)
+
+                if np.linalg.norm(pts[0, :2] - pts[-1, :2]) < tol:
+                    span = max(np.ptp(pts[:, 0]), np.ptp(pts[:, 1]))
+                    # A closed loop must actually span the circle it claims;
+                    # a tiny closed sliver is a grazing fragment, not a rim.
+                    if span < 4 * tol or abs(span - 2 * R) > 4 * tol:
+                        continue
+                    return Edge.make_circle(R, Plane((c2[0], c2[1], z)))
+                try:
+                    return ThreePointArc(snap(pts[0]), snap(pts[len(pts) // 2]), snap(pts[-1]))
+                except Exception:
+                    return None  # degenerate (collinear/coincident) — keep the polyline
+        return None
+
+    out, n = [], 0
+    for e in edges:
+        rep = replacement(e)
+        out.append(rep if rep is not None else e)
+        n += rep is not None
+    return out, n
 
 
 def _import_step(path) -> Compound:
@@ -1754,11 +1911,21 @@ class Drawing:
                 f"project_to_viewport returned empty geometry for view {name!r} "
                 f"(camera {camera}) — check the camera position and look_at."
             )
+        axes = view_axes(camera, up, la)
+        # Recover exact circles for revolution silhouettes that HLR projected as
+        # approximating splines (#67) — a no-op when no revolution axis is
+        # parallel to the view direction (e.g. iso/section views).
+        if vl:
+            vd = Vector(la[0] - camera[0], la[1] - camera[1], la[2] - camera[2])
+            vd = vd.normalized()
+            proj = _raw_view_projector(axes, la)
+            vl, n_circ = _exactify_silhouettes(vl, shape_s.faces(), (vd.X, vd.Y, vd.Z), proj)
+            if n_circ:
+                _log.info("  %s: %d silhouette spline(s) refit to circles", name, n_circ)
         loc = Location((position[0], position[1], 0))
         placed = Compound(children=vl).locate(loc)
         placed_hid = Compound(children=hl).locate(loc) if hl else None
         self.views[name] = (placed, placed_hid)
-        axes = view_axes(camera, up, la)
         cx, cy, cz = la[0] / self.scale, la[1] / self.scale, la[2] / self.scale
         self._coords[name] = ViewCoordinates(
             axes, position[0], position[1], cx, cy, cz, self.scale

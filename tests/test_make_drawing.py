@@ -2422,6 +2422,68 @@ class TestSanitizeSvgArcs:
         assert "A 5.0 5.0 0 0 1 20 20" in Path(f).read_text(encoding="utf-8")
 
 
+class TestSilhouetteCircleRefit:
+    """Imported-STEP turned features (and concentric arc features like gear-tooth
+    tips) project via HLR as faceted BSpline silhouette polylines, not true
+    circles (#67). ``add_view`` refits any silhouette whose vertices are
+    equidistant from a recognised revolution axis back to an exact circle/arc, so
+    DXF carries CIRCLE entities and feature radii read exactly. A silhouette with
+    no supporting revolution axis is left untouched."""
+
+    @staticmethod
+    def _nurbs(shape):
+        # NurbsConvert erases analytic surface types (Cylinder -> BSplineSurface),
+        # mimicking a STEP whose turned features come in as NURBS — and forcing
+        # the silhouette to project as a spline rather than a native circle.
+        from build123d import Solid
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_NurbsConvert
+
+        return Solid(BRepBuilderAPI_NurbsConvert(shape.wrapped, True).Shape())
+
+    @staticmethod
+    def _circle_radii(view_compound):
+        from build123d import GeomType
+
+        return sorted(
+            round(e.radius, 2) for e in view_compound.edges() if e.geom_type == GeomType.CIRCLE
+        )
+
+    @pytest.mark.timeout(120)
+    def test_analytic_revolution_silhouette_is_circle(self):
+        # Baseline: build123d already recovers an analytic cylinder's on-axis
+        # silhouette as a circle. The refit pass must not regress this.
+        from build123d import GeomType
+
+        dwg = build_drawing(Cylinder(8, 30), page="A4")
+        vis, _ = dwg.views["plan"]
+        assert any(e.geom_type == GeomType.CIRCLE for e in vis.edges())
+
+    @pytest.mark.timeout(120)
+    def test_concentric_nurbs_ring_silhouette_refit_to_circle(self):
+        # The inner analytic cylinder supplies the Z axis; the outer NURBS ring's
+        # silhouette (a faceted BSpline at R18) is concentric, so it refits to an
+        # exact circle at the true radius instead of staying a spline.
+        inner = Cylinder(5, 12)
+        outer = self._nurbs(Cylinder(18, 4))
+        dwg = build_drawing(Compound([inner, outer]), page="A4")
+        vis, _ = dwg.views["plan"]
+        radii = [round(r / dwg.scale, 2) for r in self._circle_radii(vis)]
+        assert 18.0 in radii  # outer NURBS rim recovered as an exact circle
+        assert 5.0 in radii  # inner analytic bore
+
+    @pytest.mark.timeout(120)
+    def test_no_axis_silhouette_left_untouched(self):
+        # A lone NURBS cylinder has no recognised revolution face (NurbsConvert
+        # erased its analytic type), so there is no axis to refit against. The
+        # silhouette must stay a spline rather than fabricate a circle.
+        from build123d import GeomType
+
+        part = self._nurbs(Cylinder(8, 30))
+        dwg = build_drawing(part, page="A4")
+        vis, _ = dwg.views["plan"]
+        assert all(e.geom_type != GeomType.CIRCLE for e in vis.edges())
+
+
 # ---------------------------------------------------------------------------
 # Lint summary + surfacing of build-time annotation drops (#32)
 # ---------------------------------------------------------------------------
