@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.1.10 — 2026-06-18
+
+### Added
+
+- **Constraint-based layout engine (ADR 0003).** A new `draftwright.layout`
+  module with a `Placeable` protocol and a `LayoutSolver`: a 1D Cassowary strip
+  solver (`solve_strip`, with per-pair gaps) and a 2D free-rectangle placer
+  (`place_box` / `fit_box`) that positions a box in a free part of the page
+  clear of the views, title block, and existing annotations. Hole-callout and
+  turned-diameter placement now run on the solver. The engine grows per real
+  consumer; a monolithic global 2D solve is deferred (see the ADR).
+- **Hole table + balloons (#93).** `dwg.add_table(rows)` places a generic data
+  table (gear data, BOM, revision block, …) in a free corner via `place_box`;
+  `dwg.add_hole_table(view)` builds a hole chart from the detected holes with a
+  circled balloon tag at each hole. A **too-dense plan view now auto-escalates**:
+  a part the layout cannot legibly dimension hole-by-hole is replaced by a
+  complete per-instance hole chart (`TAG | ⌀ | X | Y`, datum-relative) plus
+  balloons, instead of silently dropping callouts and location dims. The chart
+  wraps into multiple column-blocks to fit the page.
+- **External turned diameters (#77).** A turned part lying along the X axis now
+  gets ø leader-callouts for its external stepped diameters, with thread/worm
+  patches collapsed into a single boss.
+- **Pin / manual override (#89).** `dwg.pin(name)` / `dwg.unpin(name)` fix an
+  annotation's position so `repair()` — and the layout engine — never move it; a
+  deliberate (human or AI) placement wins over automatic layout.
+
+### Changed
+
+- Hole-callout and turned-diameter placement is deconflicted through the shared
+  `LayoutSolver` instead of ad-hoc per-pass logic (no output change).
+
+### Docs
+
+- The skill and generated-script header now lead with the domain API
+  (`features` / `place_dim` / `repair` / `lint_summary`) and the
+  build → critique → fix loop. ADR 0003 records the layout architecture; ADRs
+  0001/0002 remain the editing-model and lint→repair foundations.
+
 ## v0.1.9 — 2026-06-16
 
 ### Added
