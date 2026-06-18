@@ -3403,6 +3403,82 @@ class TestRepair:
         assert d._dw_spec.side == "above"
 
 
+class TestPin:
+    """#89: a pinned annotation is never moved by the engine (repair today)."""
+
+    def _two_overlapping(self):
+        from draftwright.make_drawing import _dim
+
+        dwg = build_drawing(Box(60, 40, 20))
+        p1, p2 = (40.0, 20.0, 0.0), (80.0, 20.0, 0.0)
+        dwg.add(_dim(p1, p2, "above", 8, dwg.draft, label="AA"), "a")
+        dwg.add(_dim(p1, p2, "above", 8, dwg.draft, label="BB"), "b")
+        return dwg
+
+    def test_repair_does_not_move_a_pinned_dim(self):
+        # 'a' is the first re-placeable in the overlap, so repair would push it;
+        # pinned, it stays at distance 8 and 'b' is pushed instead.
+        dwg = self._two_overlapping()
+        dwg.pin("a")
+        dwg.repair()
+        assert dwg._named["a"]._dw_spec.distance == 8  # untouched
+        assert dwg._named["b"]._dw_spec.distance > 8  # moved in its place
+
+    def test_unpin_lets_repair_move_it_again(self):
+        dwg = self._two_overlapping()
+        dwg.pin("a").unpin("a")
+        dwg.repair()
+        # With nothing pinned, the overlap is resolved (one of them moved).
+        assert not [i for i in dwg.lint() if i.code == "annotation_overlap"]
+
+    def test_pin_unknown_name_raises(self):
+        dwg = build_drawing(Box(60, 40, 20))
+        with pytest.raises(KeyError):
+            dwg.pin("does_not_exist")
+
+    def test_pin_and_unpin_are_chainable(self):
+        dwg = self._two_overlapping()
+        assert dwg.pin("a") is dwg
+        assert dwg.unpin("a") is dwg
+
+    def test_placeable_locked_defaults_false(self):
+        from draftwright.layout import Placeable
+
+        p = Placeable("k", ((0, 0),), (4, 2), "y", 0.0, 5.0)
+        assert p.locked is False
+        assert Placeable("k", ((0, 0),), (4, 2), "y", 0.0, 5.0, locked=True).locked is True
+
+    def test_pinning_both_overlap_labels_is_a_noop(self):
+        # Both deliberate → the engine respects both and leaves the overlap.
+        dwg = self._two_overlapping()
+        dwg.pin("a").pin("b")
+        dwg.repair()
+        assert dwg._named["a"]._dw_spec.distance == 8
+        assert dwg._named["b"]._dw_spec.distance == 8
+
+    def test_pinning_a_non_dim_then_repair_does_not_crash(self):
+        # _find_dim builds an id-set over pinned objects of any type; pinning a
+        # Leader (not a re-placeable dim) must not break repair.
+        dwg = self._two_overlapping()
+        dwg.add(Leader((0, 0, 0), (10, 10, 0), "L", dwg.draft), "ldr")
+        dwg.pin("ldr")
+        dwg.repair()  # must not raise
+        assert "ldr" in dwg.annotations()
+
+    def test_removed_then_readded_name_is_not_still_pinned(self):
+        from draftwright.make_drawing import _dim
+
+        dwg = self._two_overlapping()
+        dwg.pin("a")
+        dwg.remove("a")
+        # Re-add a fresh "a" at the same overlapping spot; it must NOT inherit
+        # the old pin, so repair is free to move it.
+        dwg.add(_dim((40.0, 20.0, 0.0), (80.0, 20.0, 0.0), "above", 8, dwg.draft, label="AA"), "a")
+        assert "a" not in dwg._pinned
+        dwg.repair()
+        assert not [i for i in dwg.lint() if i.code == "annotation_overlap"]
+
+
 class TestAnnotationsQuery:
     """#27: introspect existing annotations by name and type."""
 
