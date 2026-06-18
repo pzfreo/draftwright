@@ -11,7 +11,9 @@ from draftwright.layout import (
     LayoutSolver,
     Placeable,
     _greedy_strip_1d,
+    _greedy_strip_1d_var,
     _solve_strip_1d,
+    _solve_strip_1d_var,
 )
 
 
@@ -58,6 +60,37 @@ class TestGreedyStrip1d:
         assert out == [0, 8]
 
 
+class TestPerPairGaps:
+    """#81: per-pair gaps in the 1D primitive (heterogeneous slot depths)."""
+
+    def test_var_honours_each_pair_gap(self):
+        # All naturals at 0; gaps [4, 10] → packs to 0, 4, 14.
+        out = _solve_strip_1d_var([0.0, 0.0, 0.0], [4.0, 10.0], 0.0, 100.0)
+        assert out is not None
+        assert out[1] - out[0] >= 4.0 - 1e-9
+        assert out[2] - out[1] >= 10.0 - 1e-9
+
+    def test_var_matches_scalar_for_uniform_gaps(self):
+        # The uniform special case must reproduce the scalar primitive exactly.
+        naturals = [1.0, 1.0, 1.0, 1.0]
+        var = _solve_strip_1d_var(naturals, [3.0, 3.0, 3.0], 0.0, 100.0)
+        scalar = _solve_strip_1d(naturals, 3.0, 0.0, 100.0)
+        assert var == scalar
+
+    def test_var_infeasible_when_gaps_exceed_span(self):
+        # sum(gaps) = 14 > span 10 → None.
+        assert _solve_strip_1d_var([0.0, 0.0, 0.0], [4.0, 10.0], 0.0, 10.0) is None
+
+    def test_var_empty_and_single(self):
+        assert _solve_strip_1d_var([], [], 0.0, 10.0) == []
+        assert _solve_strip_1d_var([5.0], [], 0.0, 10.0) == [5.0]
+
+    def test_greedy_var_prefix_drops_overflow(self):
+        # gaps [4, 4]; span 6 fits only the first two → prefix stops before #3.
+        out = _greedy_strip_1d_var([0.0, 0.0, 0.0], [4.0, 4.0], 0.0, 6.0, prefix=True)
+        assert out == [0.0, 4.0]
+
+
 class TestLayoutSolver:
     def _leader(self, key, natural, gap=5.0, axis="x"):
         return Placeable(
@@ -78,6 +111,31 @@ class TestLayoutSolver:
         assert set(out) == {"a", "b", "c"}
         xs = [out["a"], out["b"], out["c"]]
         assert xs[1] - xs[0] >= 5 - 1e-9 and xs[2] - xs[1] >= 5 - 1e-9
+
+    def test_solve_strip_uses_per_pair_gaps_for_heterogeneous_members(self):
+        # Members with different min_gaps share a strip: each pair is separated
+        # by the larger of its two neighbours' gaps, not one global max (#81).
+        s = LayoutSolver()
+        s.register(self._leader("a", 0, gap=4))
+        s.register(self._leader("b", 0, gap=4))
+        s.register(self._leader("c", 0, gap=12))
+        out = s.solve_strip(lo=0, hi=100, axis="x")
+        xs = [out["a"], out["b"], out["c"]]
+        assert xs[1] - xs[0] == pytest.approx(4)  # max(4,4)
+        assert xs[2] - xs[1] == pytest.approx(12)  # max(4,12), not a global 12 on both
+
+    def test_uniform_members_take_the_scalar_path(self, monkeypatch):
+        # Byte-identical contract: uniform members must NOT touch the _var
+        # primitive's sum(gaps) arithmetic. Make _var explode and confirm a
+        # uniform solve still succeeds — proving it routed to the scalar path.
+        def _boom(*a, **k):
+            raise AssertionError("uniform members must use the scalar path")
+
+        monkeypatch.setattr(L, "_solve_strip_1d_var", _boom)
+        s = LayoutSolver()
+        s.register(self._leader("a", 0, gap=5))
+        s.register(self._leader("b", 10, gap=5))
+        assert set(s.solve_strip(lo=-50, hi=50, axis="x")) == {"a", "b"}
 
     def test_solve_strip_ignores_other_axis_and_pinned(self):
         s = LayoutSolver()

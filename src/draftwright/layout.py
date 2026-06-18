@@ -91,6 +91,61 @@ def _solve_strip_1d(naturals, min_gap, lo, hi):
         return None
 
 
+def _greedy_strip_1d_var(naturals, gaps, lo, hi, *, prefix=False):
+    """Greedy 1D placement with **per-pair** gaps (ADR 0003 phase 3a, #81).
+
+    ``gaps[i]`` is the minimum ``naturals[i+1] - naturals[i]`` separation;
+    ``len(gaps) == max(len(naturals) - 1, 0)``. Otherwise identical to
+    :func:`_greedy_strip_1d` (its uniform special case is ``gaps = [g]*(n-1)``).
+    """
+    result: list = []
+    for i, nat in enumerate(naturals):
+        floor = lo if i == 0 else result[-1] + gaps[i - 1]
+        v = max(floor, nat)
+        if v > hi:
+            if prefix:
+                break
+            return None
+        result.append(v)
+    return result
+
+
+def _solve_strip_1d_var(naturals, gaps, lo, hi):
+    """Cassowary 1D placement with **per-pair** gaps (ADR 0003 phase 3a, #81).
+
+    Like :func:`_solve_strip_1d`, but the required separation between adjacent
+    items is ``gaps[i]`` rather than one uniform value — the capability the
+    ``Placeable.size`` field exists for, used when heterogeneous items (e.g. a
+    deep step-dim slot next to a shallow height slot) share one strip.
+    ``len(gaps)`` must be ``max(len(naturals) - 1, 0)``.
+    """
+    if not naturals:
+        return []
+    n = len(naturals)
+    if sum(gaps) > hi - lo:
+        return None  # provably infeasible
+
+    try:
+        import kiwisolver as ki
+    except ImportError:
+        return _greedy_strip_1d_var(naturals, gaps, lo, hi)
+
+    solver = ki.Solver()
+    vs = [ki.Variable(f"v{i}") for i in range(n)]
+    try:
+        for v in vs:
+            solver.addConstraint((v >= lo) | "required")
+            solver.addConstraint((v <= hi) | "required")
+        for i in range(n - 1):
+            solver.addConstraint((vs[i + 1] - vs[i] >= gaps[i]) | "required")
+        for v, nat in zip(vs, naturals, strict=True):
+            solver.addConstraint((v == nat) | "strong")
+        solver.updateVariables()
+        return [v.value() for v in vs]
+    except ki.UnsatisfiableConstraint:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Placeable protocol + solver
 # ---------------------------------------------------------------------------
@@ -178,11 +233,22 @@ class LayoutSolver:
         )
         if not members:
             return {}
-        gap = max(p.min_gap for p in members)
         naturals = [p.natural for p in members]
-        positions = _solve_strip_1d(naturals, gap, lo, hi)
-        if positions is None and greedy_fallback:
-            positions = _greedy_strip_1d(naturals, gap, lo, hi)
+        min_gaps = [p.min_gap for p in members]
+        if len(set(min_gaps)) <= 1:
+            # Uniform (or single) members — the scalar primitive, byte-identical
+            # to the pre-#81 path (preserves its exact (n-1)*gap arithmetic).
+            gap = max(min_gaps)
+            positions = _solve_strip_1d(naturals, gap, lo, hi)
+            if positions is None and greedy_fallback:
+                positions = _greedy_strip_1d(naturals, gap, lo, hi)
+        else:
+            # Heterogeneous members — per-pair gaps so a larger member's
+            # clearance doesn't over-separate every pair (#81).
+            gaps = [max(min_gaps[i], min_gaps[i + 1]) for i in range(len(members) - 1)]
+            positions = _solve_strip_1d_var(naturals, gaps, lo, hi)
+            if positions is None and greedy_fallback:
+                positions = _greedy_strip_1d_var(naturals, gaps, lo, hi)
         if positions is None:
             return None
         return {p.key: pos for p, pos in zip(members, positions, strict=True)}
