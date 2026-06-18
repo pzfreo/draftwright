@@ -1698,12 +1698,12 @@ class Analysis:
     bbox_max: float
     holes: list
     patterns: list
-    z_diams: list
-    cross_diams: list
+    z_diams: list[float]
+    cross_diams: list[float]
     cyls: tuple[list, list]
     od_diam: float | None
     is_rotational: bool
-    step_zs: list
+    step_zs: list[float]
     sv_right: float
     iso_right_limit: float
     SCALE: float
@@ -3295,7 +3295,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                     _last_end,
                 )
 
-    if getattr(a, "pmi_mode", "off") == "annotate":
+    if a.pmi_mode == "annotate":
         _annotate_pmi(dwg, a, draft)
 
     _add_title_block(dwg, a)
@@ -3386,7 +3386,7 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                    (falls back to pv_zones.below for Y dims that are
                     too compressed in the side view)
     """
-    pmi = getattr(a, "pmi", [])
+    pmi = a.pmi
     usable = [r for r in pmi if r.value > 0 and len(r.ref_pts) >= 2]
     n_gtol = sum(
         1
