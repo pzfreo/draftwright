@@ -3662,6 +3662,29 @@ class TestHoleTable:
         # header + one row per group; the table is a grid Compound.
         assert tbl.table_size[0] > 0 and tbl.table_size[1] > 0
 
+    def test_a_balloon_per_hole_keyed_to_a_row(self):
+        # 3 physical holes (1 ø16 → A, 2 ø10 → B) get 3 balloons; tags A,B exist.
+        dwg = build_drawing(_multi_hole_plate())
+        dwg.add_hole_table("plan")
+        balloons = [n for n in dwg.annotations() if n.startswith("balloon_plan_")]
+        assert len(balloons) == 3
+        tags = {n.split("_")[2] for n in balloons}
+        assert tags == {"A", "B"}
+
+    def test_balloons_false_suppresses_them(self):
+        dwg = build_drawing(_multi_hole_plate())
+        dwg.add_hole_table("plan", balloons=False)
+        assert not any(n.startswith("balloon_") for n in dwg.annotations())
+
+    def test_table_and_balloons_keep_lint_clean(self):
+        # covers_diameters lets coverage lint count the tabulated holes, and the
+        # balloons are furniture (is_centerline) so they do not trip overlap lint.
+        dwg = build_drawing(_multi_hole_plate())
+        before = {i.code for i in dwg.lint()}
+        dwg.add_hole_table("plan")
+        assert {i.code for i in dwg.lint()} == before
+        assert dwg._named["hole_table_plan"].covers_diameters == (16.0, 10.0)
+
     def test_table_does_not_overlap_views_or_title_block(self):
         dwg = build_drawing(_multi_hole_plate())
         dwg.add_hole_table("plan")

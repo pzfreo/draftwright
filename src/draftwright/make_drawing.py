@@ -31,6 +31,7 @@ from build123d import (
     Align,
     Arrow,
     Box,
+    Circle,
     Color,
     Compound,
     Edge,
@@ -2208,22 +2209,75 @@ class Drawing:
             return None
         return self.add(table.locate(Location((pos[0], pos[1], 0))), name)
 
-    def add_hole_table(self, view="plan", *, prefer="tr", name=None):
+    def _hole_spec_groups(self, view):
+        """Ordered ``(tag, [holes])`` spec-groups of *view*'s holes (tags A, B,
+        …). The shared basis for the hole table's rows and its balloons, so the
+        TAG column and the balloon glyphs line up."""
+        a = self._analysis
+        target = {"plan": "z", "front": "y", "side": "x"}.get(view)
+        if a is None or target is None or view not in self._coords:
+            return []
+
+        def axis_letter(h):
+            return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
+
+        groups: dict = {}
+        for h in a.holes:
+            if axis_letter(h) == target:
+                groups.setdefault(_spec_key(h), []).append(h)
+        glist = list(groups.values())
+        return list(zip(_tag_sequence(len(glist)), glist, strict=True))
+
+    def _add_balloon(self, view, tag, j, hole):
+        """A circled tag (no leader) adjacent to *hole*, keyed to its table row."""
+        cx, cy = self._coords[view].pp(*hole.location)
+        fs = self.draft.font_size
+        r = fs * 1.5  # circle comfortably larger than the glyph
+        off = hole.diameter * self.scale / 2 + r + 1.0
+        bx, by = cx + off * 0.7, cy + off * 0.7
+        loc = Location((bx, by, 0))
+        # The annotation layer fills closed paths, so a circle edge renders as a
+        # disc. A thin annular FACE fills as a ring — i.e. a circle outline.
+        ring_faces = [f.moved(loc) for f in (Circle(r) - Circle(r - 0.35)).faces()]
+        text = Text(
+            txt=tag, font_size=fs, align=(Align.CENTER, Align.CENTER), mode=Mode.PRIVATE
+        ).locate(loc)
+        balloon = Compound(children=[*ring_faces, *text.faces()])
+        # Furniture that legitimately sits on the view geometry — exempt from the
+        # annotation-overlap / centreline lint, as the section arrows do.
+        balloon.is_centerline = True
+        self.add(balloon, f"balloon_{view}_{tag}_{j}")
+
+    def add_hole_table(self, view="plan", *, prefer="tr", name=None, balloons=True):
         """Add a hole table for *view*'s holes, placed in a free corner (#93).
 
         One row per hole spec-group — ``TAG | ⌀ | DEPTH | QTY`` with tags
-        ``A, B, …`` — derived from :meth:`features` and placed via
-        :meth:`add_table`. Returns the table, or ``None`` when *view* has no
+        ``A, B, …`` — placed via :meth:`add_table`. With *balloons* (the
+        default) a circled tag is added at each hole keyed to its row. The table
+        carries ``covers_diameters`` so the coverage lint counts the tabulated
+        holes as dimensioned. Returns the table, or ``None`` when *view* has no
         holes or it will not fit.
         """
-        feats = [f for f in self.features(view) if f.type == "hole"]
-        if not feats:
+        groups = self._hole_spec_groups(view)
+        if not groups:
             return None
         rows = [("TAG", "⌀", "DEPTH", "QTY")]
-        for tag, f in zip(_tag_sequence(len(feats)), feats, strict=True):
-            depth = "THRU" if f.through else (_fmt(f.depth) if f.depth else "")
-            rows.append((tag, f"ø{_fmt(f.diameter)}", depth, str(f.count)))
-        return self.add_table(rows, prefer=prefer, name=name or f"hole_table_{view}")
+        diams = []
+        for tag, holes in groups:
+            h = holes[0]
+            depth = "THRU" if h.bottom == "through" else (_fmt(h.depth) if h.depth else "")
+            rows.append((tag, f"ø{_fmt(h.diameter)}", depth, str(len(holes))))
+            diams.append(h.diameter)
+        table = self.add_table(rows, prefer=prefer, name=name or f"hole_table_{view}")
+        if table is None:
+            return None
+        # The table documents these diameters — let lint see that (#93).
+        table.covers_diameters = tuple(diams)
+        if balloons:
+            for tag, holes in groups:
+                for j, h in enumerate(holes):
+                    self._add_balloon(view, tag, j, h)
+        return table
 
     def pin(self, name):
         """Pin a named annotation so the engine never moves it (#89).
