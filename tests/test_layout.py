@@ -126,9 +126,9 @@ class TestLayoutSolver:
         assert out == {"a": 0, "b": 5}
 
 
-def test_layout_is_not_wired_into_the_default_drawing_path():
-    # Phase 1 is scaffolding: no annotation pass constructs a Placeable yet.
+def test_layout_engine_is_wired_into_the_drawing_path():
+    # Phase 2 (#80): hole-callout placement now flows through the LayoutSolver.
     src = (L.__file__).replace("layout.py", "make_drawing.py")
     text = open(src).read()
-    assert "Placeable(" not in text
-    assert "LayoutSolver(" not in text
+    assert "Placeable(" in text
+    assert "LayoutSolver(" in text
