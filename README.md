@@ -31,7 +31,8 @@ draftwright my_part.step --title "Mounting Block" --number DWG-001
 - **Three orthographic views** (front, plan, side) sized and scaled automatically to the
   page
 - **Dimensions** on every principal envelope face, plus bore callouts (diameter, depth,
-  counterbore, spotface) on all holes
+  counterbore, spotface) on all holes, and ø leader-callouts for the external stepped
+  diameters of turned parts
 - **Section A–A** with ISO 128-44 solid filled cutting-plane arrows and ISO 128-50 45°
   hatching on the cut face, triggered automatically when blind or stepped holes would
   otherwise be hidden-line-only
@@ -95,16 +96,26 @@ scale, page_w, page_h, n_steps = choose_scale(80, 60, 20, page="A3")
 make_drawing(part, out="drawing", scale=2.0, page="A2")
 ```
 
-### Lint and coverage
+### Edit, critique, and self-repair
+
+Edit a `Drawing` in **domain vocabulary** — the engine places annotations
+automatically, so you say *what* to dimension, not *where*:
 
 ```python
-from draftwright import build_drawing, lint_feature_coverage
-
 dwg = build_drawing(part)
-issues = dwg.lint()   # geometry lint + feature-coverage check
-for i in issues:
-    print(i.severity, i.message)
+
+# Inspect detected features and add a dimension in domain terms (auto-placed):
+for f in dwg.features("plan"):
+    dwg.place_dim(f.page_pos, (f.page_pos[0] + f.diameter, f.page_pos[1]),
+                  "below", "plan", dwg.draft, name="dim_pocket")
+
+crit = dwg.lint_summary()   # {"passed", "score", "by_code", "issues":[…suggestion]}
+dwg.repair()                # auto-fix mechanically-fixable lint; never worsens
 ```
+
+Each `LintIssue` carries a domain-meaningful `code` and, when computable, a
+ready-to-apply `suggestion`. See `docs/adr/` for the design (deterministic
+generation, the lint→repair loop, and the constraint-based layout engine).
 
 ## Architecture
 
