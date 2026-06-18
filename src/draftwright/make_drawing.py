@@ -54,6 +54,7 @@ from build123d_drafting.features import (
     _full_cyls,
     _spec_key,
     analyse_cylinders,
+    find_bosses,
     find_hole_patterns,
     find_holes,
 )
@@ -2446,6 +2447,108 @@ def _export_shape(exporter, shape, layer, ctx):
         )
 
 
+def _mentioned_diams(annotations):
+    """Diameters already called out by an annotation — from ø-labels and from
+    structured ``covers_diameters`` metadata (e.g. ``HoleCallout``). Mirrors the
+    coverage :func:`lint_feature_coverage` checks, so a diameter in this set will
+    not lint as ``feature_not_dimensioned``."""
+    diams: set = set()
+    for ann in annotations:
+        if isinstance(ann, TitleBlock):
+            continue
+        for m in _DIAM_RE.finditer(getattr(ann, "label", None) or ""):
+            diams.add(float(m.group(1)))
+        for v in getattr(ann, "covers_diameters", ()):
+            diams.add(float(v))
+    return diams
+
+
+def _annotate_turned_diameters(dwg, a):
+    """Leader ø-callouts for external turned diameters whose axis lies along X (#77).
+
+    draftwright dimensions holes and, for a Z-rotational part, the OD; the
+    external stepped diameters of a turned part lying along X — a peg body, a
+    stepped shaft drawn on its side — are otherwise undimensioned and surface
+    only as ``feature_not_dimensioned``. This pass places one ø leader per
+    distinct external diameter, the thread/worm patches collapsed by
+    :func:`find_bosses` into a single boss, below the front-view profile.
+    Diameters another annotation already covers are skipped.
+
+    Scope (MVP): X-axis turning only. Z-rotational parts keep their existing
+    OD/bore path untouched; Y-axis turning, gear/thread module notes, and
+    axial-length dims are out of scope.
+    """
+    draft = dwg.draft
+    try:
+        bosses = find_bosses(a.part)
+    except Exception as exc:  # noqa: BLE001 — recognition may fail on odd geometry
+        _log.info("turned-diameter annotation skipped (%s)", exc)
+        return
+
+    def _axis_letter(vec):
+        return max(zip("xyz", vec, strict=True), key=lambda t: abs(t[1]))[0]
+
+    x_bosses = [b for b in bosses if _axis_letter(b.axis) == "x"]
+    if not x_bosses:
+        return
+
+    mentioned = _mentioned_diams(dwg.items)
+    # One representative boss per distinct external diameter (tallest wins),
+    # skipping any diameter another annotation already covers.
+    by_diam: dict = {}
+    for b in x_bosses:
+        key = next((k for k in by_diam if abs(k - b.diameter) <= 0.15), b.diameter)
+        if key not in by_diam or b.height > by_diam[key].height:
+            by_diam[key] = b
+    todo = [b for d, b in by_diam.items() if not any(abs(d - m) <= 0.15 for m in mentioned)]
+    if not todo:
+        return
+
+    # Each callout's label sits in a row below the front view, pulled toward the
+    # page-x of its feature; a shared 1D Cassowary solve spreads any that would
+    # overlap. This is ADR 0003's layer-2 primitive (_solve_strip_ys reused on
+    # the x axis) standing in for the manual pitch stacking the other leaders
+    # still use — the first pass to place on the constraint solver (#77).
+    fx0, fy0, fx1, _ = dwg.view_bounds("front")  # page bbox of the profile (#28)
+    # Drop the row clear of anything already placed below the profile (hole
+    # callouts, envelope dims). This is a coarse single-pass guard against the
+    # cross-pass overlap a global solve would handle exactly (ADR 0003 / #80):
+    # it deconflicts the whole row vertically, not per-label.
+    obstacle_bottom = fy0
+    for o in dwg.items:
+        try:
+            ob = o.bounding_box()
+        except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+            continue
+        if ob.min.Y < fy0 and ob.max.X > fx0 and ob.min.X < fx1:
+            obstacle_bottom = min(obstacle_bottom, ob.min.Y)
+    label_y = obstacle_bottom - (draft.font_size + 4 * draft.pad_around_text)
+    specs = []  # (tip_page, label) ordered by feature x
+    for b in todo:
+        mid_x = b.location[0] - b.axis[0] * (b.height / 2)
+        tip = dwg.at("front", mid_x, b.location[1], b.location[2] - b.diameter / 2)
+        specs.append((tip, f"ø{_fmt(b.diameter)}"))
+    specs.sort(key=lambda s: s[0][0])
+
+    half_w = max(len(label) for _, label in specs) * draft.font_size * 0.62 / 2
+    min_gap = 2 * half_w + 2 * draft.pad_around_text
+    naturals = [tip[0] for tip, _ in specs]
+    x_lo, x_hi = fx0 + half_w, fx1 - half_w
+    label_xs = _solve_strip_ys(naturals, min_gap, x_lo, x_hi) or _greedy_strip_ys(
+        naturals, min_gap, x_lo, x_hi
+    )
+    for i, ((tip, label), lx) in enumerate(zip(specs, label_xs, strict=True)):
+        dwg.add(
+            Leader(
+                tip=(tip[0], tip[1], 0),
+                elbow=(lx, label_y, 0),
+                label=label,
+                draft=draft,
+            ),
+            f"ldr_d{i}",
+        )
+
+
 def _auto_annotate(dwg, a, *, detail_view: bool = False):
     """Add the standard automatic dimensions, centrelines, and title block."""
     draft = dwg.draft
@@ -2746,6 +2849,9 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     # Detail view: only when explicitly requested via build_drawing(detail_view=True).
     if detail_view:
         _add_detail_view(dwg, a)
+
+    # External turned diameters (X-axis turning) the passes above do not cover.
+    _annotate_turned_diameters(dwg, a)
 
     # Phase 7 — strip footprint debug logging + post-placement overflow check.
     # Overflow can only occur when outer_limit was tightened after allocations

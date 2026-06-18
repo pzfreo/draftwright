@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 
 import pytest
-from build123d import Box, Compound, Cylinder, Edge, Pos, export_step
+from build123d import Box, Compound, Cylinder, Edge, Pos, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
 from draftwright import Drawing, build_drawing, make_drawing
@@ -3471,3 +3471,44 @@ class TestViewBounds:
         far = Compound(children=[Edge.make_line((x1 + 10, 0, 0), (x1 + 10, 5, 0))])
         dwg.views["front"] = (vis, far)
         assert dwg.view_bounds("front")[2] == pytest.approx(x1 + 10)
+
+
+def _x_stepped_shaft():
+    """A turned shaft lying along X: ø30 (len 40) then ø16 (len 30).
+
+    Built about Z then rotated so the turning axis is X — the orientation that
+    is *not* flagged rotational (the OD logic is Z-centric), exercising #77.
+    """
+    return Rotation(0, 90, 0) * (Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(8, 30))
+
+
+class TestTurnedDiameters:
+    """#77: external turned diameters (X-axis turning) get ø leader callouts."""
+
+    def test_each_external_diameter_gets_a_callout(self):
+        dwg = build_drawing(_x_stepped_shaft())
+        labels = {o.label for n, o in dwg._named.items() if n.startswith("ldr_d")}
+        assert "ø30" in labels
+        assert "ø16" in labels
+
+    def test_no_feature_not_dimensioned_left(self):
+        # The whole point: the external diameters no longer lint as uncovered.
+        dwg = build_drawing(_x_stepped_shaft())
+        codes = dwg.lint_summary()["by_code"]
+        assert codes.get("feature_not_dimensioned", 0) == 0
+
+    def test_callouts_are_leaders_on_the_constraint_solver(self):
+        # Placed via _solve_strip_ys (ADR 0003 layer-2), so two distinct
+        # diameters never share an x and never collide: label xs are min_gap
+        # apart and inside the front view's page bounds.
+        dwg = build_drawing(_x_stepped_shaft())
+        leaders = [o for n, o in dwg._named.items() if n.startswith("ldr_d")]
+        assert len(leaders) >= 2
+        xs = sorted(ldr.elbow[0] for ldr in leaders)
+        assert all(b - a > 1.0 for a, b in zip(xs, xs[1:]))  # spread, not stacked
+
+    def test_z_rotational_part_is_untouched(self):
+        # A Z-axis turned part keeps its existing OD/bore path: the new pass is
+        # a no-op (no X-axis bosses), so no ldr_d callouts appear.
+        dwg = build_drawing(Cylinder(15, 40))  # plain Z disc/shaft
+        assert not any(n.startswith("ldr_d") for n in dwg._named)
