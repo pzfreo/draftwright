@@ -95,14 +95,14 @@ wheels = [
 
 [[package]]
 name = "build123d-drafting-helpers"
-version = "0.10.0"
+version = "0.10.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5b/7d/25d5149e90728ee01d50c33f3848cb4046643789c6540688c3943114bc0e/build123d_drafting_helpers-0.10.0.tar.gz", hash = "sha256:d0634bfb434cbea0bd2d76bc8cfb23c7d3f99b6e674c01860c2d32c314d28216", size = 106909, upload-time = "2026-06-14T08:52:11.73Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/c1/fa4d3a596e9323dd8f66bc8ac34310624f4bef29c66b013a7fe3db21982e/build123d_drafting_helpers-0.10.1.tar.gz", hash = "sha256:b6b59bcbdea95b50427dff21d658cb6ef4a09aa8551701b530921cda608a7c33", size = 107974, upload-time = "2026-06-18T06:52:10.435Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/f5/8069370d2f813f7d0affa53d04733161bfe5a2ad9a87d0fbe388110d6550/build123d_drafting_helpers-0.10.0-py3-none-any.whl", hash = "sha256:5d5c97cacbc07a7ad4e2379a5fbb1d0d44bf032e4d1b0515abf558ecbb5bc2d9", size = 60270, upload-time = "2026-06-14T08:52:10.55Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/25/2902713bc0254e862482ae8adec6fb827ad4c61960ae674a1d18d6e3d365/build123d_drafting_helpers-0.10.1-py3-none-any.whl", hash = "sha256:ac5da059ac3d5dae347281049c9574cccfe764f7348b4635f2310f560857a770", size = 60573, upload-time = "2026-06-18T06:52:08.858Z" },
 ]
 
 [[package]]
@@ -601,7 +601,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "build123d", specifier = ">=0.9.0" },
-    { name = "build123d-drafting-helpers", specifier = ">=0.10.0" },
+    { name = "build123d-drafting-helpers", specifier = ">=0.10.1" },
     { name = "cairosvg", marker = "extra == 'pdf'", specifier = ">=2.7" },
     { name = "kiwisolver", specifier = ">=1.4,<2" },
     { name = "numpy", specifier = ">=1.24" },

@@ -1643,9 +1643,18 @@ class TestLintFeatureCoverage:
 
     @pytest.mark.timeout(60)
     def test_slot_split_bore_is_still_a_feature(self):
-        # A bore intersected by a slot leaves cylinder patches under half a
-        # turn each — together they are still one undimensioned ø10 hole.
-        part = Box(60, 40, 10) - Cylinder(5, 12) - Box(60, 6, 12)
+        # Two opposed keyway notches leave the bore wall as two cylinder patches
+        # under half a turn each — together they are still one undimensioned ø10
+        # hole. (A single full-width slot would bisect the block into two solids,
+        # i.e. two half-bores rather than one keyed hole; coaxial bores in
+        # *different* solids are kept distinct, helpers #68.)
+        part = (
+            Box(60, 40, 10)
+            - Cylinder(5, 12)
+            - Pos(0, 5, 0) * Box(2, 4, 12)
+            - Pos(0, -5, 0) * Box(2, 4, 12)
+        )
+        assert len(part.solids()) == 1
         issues = lint_feature_coverage(part, [])
         assert any("ø10" in i.message for i in issues)
 
