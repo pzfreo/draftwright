@@ -3639,6 +3639,19 @@ def _multi_hole_plate():
     )
 
 
+def _dense_plate():
+    """A small plate crowded with 24 Z-holes — too dense to dimension each, so
+    the location dims overflow and the engine escalates to a hole chart (#93)."""
+    import itertools
+
+    from build123d import Box, Cylinder, Pos
+
+    part = Box(70, 50, 12)
+    for i, (gx, gy) in enumerate(itertools.product([-25, -15, -5, 5, 15, 25], [-15, -5, 5, 15])):
+        part -= Pos(gx, gy, 0) * Cylinder(1.0 + (i % 5) * 0.4, 20)
+    return part
+
+
 class TestHoleTable:
     """#93: hole table placed in a free corner via place_box."""
 
@@ -3751,3 +3764,44 @@ class TestHoleTable:
         tb = self._bbox(tbl)
         for v in dwg.views:
             assert self._area(tb, dwg.view_bounds(v)) == 0.0, v
+
+
+class TestEscalation:
+    """#93: a too-dense plan view auto-escalates to a hole chart + balloons."""
+
+    def test_dense_part_auto_tabulates(self):
+        dwg = build_drawing(_dense_plate())
+        # The escalation fired: a table, a balloon per hole, and the individual
+        # plan callouts + location dims are gone.
+        assert "hole_table_plan" in dwg.annotations()
+        assert len([n for n in dwg.annotations() if n.startswith("balloon_")]) == 24
+        assert not any(
+            n.startswith(("hc_plan", "dim_locx", "dim_locy")) for n in dwg.annotations()
+        )
+
+    def test_escalation_clears_density_lint(self):
+        # No callout_dropped / location_ref_dropped warnings survive once the
+        # holes are tabulated, and the count check is satisfied (covers_diameters
+        # lists every instance).
+        dwg = build_drawing(_dense_plate())
+        warns = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
+        assert "callout_dropped" not in warns
+        assert "location_ref_dropped" not in warns
+        assert "feature_count_mismatch" not in warns
+
+    def test_sparse_part_is_not_tabulated(self):
+        # A sparse plate dimensions every hole individually — no table, unchanged.
+        dwg = build_drawing(_multi_hole_plate())
+        assert "hole_table_plan" not in dwg.annotations()
+        assert not any(n.startswith("balloon_") for n in dwg.annotations())
+        assert any(n.startswith("hc_plan") for n in dwg.annotations())
+
+    def test_wrap_rows_reshapes_into_blocks(self):
+        from draftwright.make_drawing import _wrap_rows
+
+        header = ("T", "D")
+        data = [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4"), ("e", "5")]
+        wide = _wrap_rows(header, data, 2)  # 5 rows → 3 per block, 2 blocks
+        assert wide[0] == ("T", "D", "T", "D")  # header repeated per block
+        assert wide[1] == ("a", "1", "d", "4")  # row 0 of each block
+        assert wide[3] == ("c", "3", "", "")  # ragged tail padded blank

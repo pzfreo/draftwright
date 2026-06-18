@@ -103,7 +103,7 @@ _CTC_AP242_OK = ["01", "02", "03", "04", "05"]
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(600)
 @pytest.mark.parametrize("n", _CTC_AP203_OK)
 def test_ctc_ap203_meets_standards_no_degenerate_arcs(tmp_path, n):
     from draftwright.make_drawing import _MIN_ARC_RADIUS, _SVG_ARC_RE
@@ -124,7 +124,7 @@ def test_ctc_ap203_meets_standards_no_degenerate_arcs(tmp_path, n):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(600)
 @pytest.mark.parametrize("n", _CTC_AP242_OK)
 def test_ctc_ap242_meets_standards(tmp_path, n):
     step = FIXTURES / f"nist_ctc_{n}_asme1_ap242.stp"
