@@ -97,6 +97,7 @@ from draftwright.layout import (
     Placeable,
     _greedy_strip_1d,
     _solve_strip_1d,
+    fit_box,
 )
 
 _log = logging.getLogger(__name__)
@@ -398,6 +399,66 @@ def _text_width(text: str, font_size: float, font: str = "Arial") -> float:
         .bounding_box()
         .size.X
     )
+
+
+def _tag_sequence(n):
+    """``A, B, …, Z, AA, AB, …`` — deterministic hole-table tags for *n* rows."""
+    tags = []
+    for i in range(n):
+        s, k = "", i
+        while True:
+            s = chr(ord("A") + k % 26) + s
+            k = k // 26 - 1
+            if k < 0:
+                break
+        tags.append(s)
+    return tags
+
+
+def _build_table(rows, draft):
+    """Build a generic data-table annotation at the origin (bottom-left ``(0, 0)``).
+
+    *rows* is a list of equal-length string tuples; ``rows[0]`` is the header,
+    drawn at the top. Returns a :class:`Compound` of grid rules + cell text,
+    carrying ``.table_size = (w, h)`` so it can be positioned via
+    :func:`fit_box`. Column widths are sized to their content via real glyph
+    metrics (:func:`_text_width`). Generic — the hole table, and gear/BOM/
+    revision tables, all build through here.
+    """
+    fs = draft.font_size
+    pad = draft.pad_around_text
+    row_h = fs + 2 * pad
+    ncol = len(rows[0])
+    col_w = [
+        max(max(_text_width(str(r[c]), fs) for r in rows) + 2 * pad, fs * 2.5) for c in range(ncol)
+    ]
+    xs = [0.0]
+    for w in col_w:
+        xs.append(xs[-1] + w)
+    total_w = xs[-1]
+    total_h = row_h * len(rows)
+    ys = [i * row_h for i in range(len(rows) + 1)]
+    children = []
+    for x in xs:
+        children.append(Edge.make_line(Vector(x, 0, 0), Vector(x, total_h, 0)))
+    for y in ys:
+        children.append(Edge.make_line(Vector(0, y, 0), Vector(total_w, y, 0)))
+    for ri, row in enumerate(rows):  # rows[0] (header) sits at the top
+        cy = total_h - (ri + 0.5) * row_h
+        for ci, cell in enumerate(row):
+            if not str(cell):
+                continue
+            cx = (xs[ci] + xs[ci + 1]) / 2
+            text = Text(
+                txt=str(cell),
+                font_size=fs,
+                align=(Align.CENTER, Align.CENTER),
+                mode=Mode.PRIVATE,
+            ).locate(Location((cx, cy, 0)))
+            children.extend(text.faces())
+    table = Compound(children=children)
+    table.table_size = (total_w, total_h)
+    return table
 
 
 _DIAM_RE = re.compile(r"[øØ⌀]\s*(\d+(?:\.\d+)?)")
@@ -2111,6 +2172,58 @@ class Drawing:
     def get_annotation(self, name):
         """Return the named annotation object, or ``None`` if no such name (#27)."""
         return self._named.get(name)
+
+    def add_table(self, rows, *, prefer="tr", name="table"):
+        """Add a generic data table, placed in a free corner (#93).
+
+        *rows* is a list of equal-length string tuples (``rows[0]`` is the
+        header). The table is positioned by :func:`fit_box` clear of the views,
+        title block, and existing annotations; *prefer* is the page corner to sit
+        nearest. Returns the table annotation, or ``None`` if it has no rows or
+        will not fit (recorded as ``table_dropped`` lint). Gear-data, BOM, and
+        revision tables all go through here; :meth:`add_hole_table` is the
+        hole-specific convenience built on it.
+        """
+        if not rows:
+            return None
+        table = _build_table(rows, self.draft)
+        w, h = table.table_size
+        a = self._analysis
+        margin = a.margin if a is not None else 10.0
+        pw = a.PAGE_W if a is not None else self.page_w
+        ph = a.PAGE_H if a is not None else self.page_h
+        region = (margin, margin, pw - margin, ph - margin)
+        obstacles = [b for v in self.views if (b := self.view_bounds(v)) is not None]
+        for o in self.items:
+            try:
+                bb = o.bounding_box()
+            except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+                continue
+            obstacles.append((bb.min.X, bb.min.Y, bb.max.X, bb.max.Y))
+        pos = fit_box((w, h), region, obstacles, prefer)
+        if pos is None:
+            self._record_build_issue(
+                "warning", "table_dropped", f"table {name!r} did not fit the sheet"
+            )
+            return None
+        return self.add(table.locate(Location((pos[0], pos[1], 0))), name)
+
+    def add_hole_table(self, view="plan", *, prefer="tr", name=None):
+        """Add a hole table for *view*'s holes, placed in a free corner (#93).
+
+        One row per hole spec-group — ``TAG | ⌀ | DEPTH | QTY`` with tags
+        ``A, B, …`` — derived from :meth:`features` and placed via
+        :meth:`add_table`. Returns the table, or ``None`` when *view* has no
+        holes or it will not fit.
+        """
+        feats = [f for f in self.features(view) if f.type == "hole"]
+        if not feats:
+            return None
+        rows = [("TAG", "⌀", "DEPTH", "QTY")]
+        for tag, f in zip(_tag_sequence(len(feats)), feats, strict=True):
+            depth = "THRU" if f.through else (_fmt(f.depth) if f.depth else "")
+            rows.append((tag, f"ø{_fmt(f.diameter)}", depth, str(f.count)))
+        return self.add_table(rows, prefer=prefer, name=name or f"hole_table_{view}")
 
     def pin(self, name):
         """Pin a named annotation so the engine never moves it (#89).

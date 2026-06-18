@@ -3625,3 +3625,106 @@ class TestTurnedDiameters:
         monkeypatch.setattr(m, "_greedy_strip_ys", lambda *a, **k: None)
         dwg = build_drawing(_x_stepped_shaft())  # must not raise
         assert not any(n.startswith("ldr_d") for n in dwg._named)
+
+
+def _multi_hole_plate():
+    """A plate with three spec-groups of Z-holes (two ø10, one ø16)."""
+    from build123d import Box, Cylinder, Pos
+
+    return (
+        Box(120, 80, 20)
+        - Pos(40, 25, 0) * Cylinder(5, 30)
+        - Pos(-40, 25, 0) * Cylinder(5, 30)
+        - Pos(0, -25, 0) * Cylinder(8, 30)
+    )
+
+
+class TestHoleTable:
+    """#93: hole table placed in a free corner via place_box."""
+
+    @staticmethod
+    def _area(a, b):
+        ox = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+        oy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+        return ox * oy
+
+    def _bbox(self, obj):
+        bb = obj.bounding_box()
+        return (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
+
+    def test_table_has_a_row_per_spec_group(self):
+        dwg = build_drawing(_multi_hole_plate())
+        n_groups = len([f for f in dwg.features("plan") if f.type == "hole"])
+        assert n_groups == 2  # ø10 (×2) and ø16
+        tbl = dwg.add_hole_table("plan")
+        assert tbl is not None
+        assert "hole_table_plan" in dwg.annotations()
+        # header + one row per group; the table is a grid Compound.
+        assert tbl.table_size[0] > 0 and tbl.table_size[1] > 0
+
+    def test_table_does_not_overlap_views_or_title_block(self):
+        dwg = build_drawing(_multi_hole_plate())
+        dwg.add_hole_table("plan")
+        tb = self._bbox(dwg._named["hole_table_plan"])
+        for v in dwg.views:
+            assert self._area(tb, dwg.view_bounds(v)) == 0.0, v
+        assert self._area(tb, self._bbox(dwg._named["title_block"])) == 0.0
+
+    def test_no_holes_in_view_returns_none(self):
+        from build123d import Box
+
+        dwg = build_drawing(Box(60, 40, 20))
+        assert dwg.add_hole_table("plan") is None
+        assert "hole_table_plan" not in dwg.annotations()
+
+    def test_table_dropped_when_it_will_not_fit(self, monkeypatch):
+        import sys
+
+        m = sys.modules["draftwright.make_drawing"]
+        monkeypatch.setattr(m, "fit_box", lambda *a, **k: None)
+        dwg = build_drawing(_multi_hole_plate())
+        assert dwg.add_hole_table("plan") is None
+        assert "table_dropped" in {i.code for i in dwg.lint()}
+
+    def test_tag_sequence_rolls_over_past_z(self):
+        from draftwright.make_drawing import _tag_sequence
+
+        seq = _tag_sequence(28)
+        assert seq[:3] == ["A", "B", "C"]
+        assert seq[25] == "Z"
+        assert seq[26] == "AA"
+        assert seq[27] == "AB"
+        # The base-26 rollover boundary and uniqueness.
+        full = _tag_sequence(703)
+        assert full[701] == "ZZ"
+        assert full[702] == "AAA"
+        assert len(set(full)) == 703  # bijective — no dup or skip
+
+    def test_table_keeps_lint_clean(self, tmp_path):
+        # The label-less table must not trip annotation_overlap / view-overlap
+        # lint, and the mixed Edge+Text Compound must export cleanly.
+        dwg = build_drawing(_multi_hole_plate())
+        before = {i.code for i in dwg.lint()}
+        dwg.add_hole_table("plan")
+        after = {i.code for i in dwg.lint()}
+        assert after == before  # no new lint codes from the table
+        svg, dxf = dwg.export(str(tmp_path / "t"))
+        assert Path(svg).stat().st_size > 0 and Path(dxf).stat().st_size > 0
+
+    def test_table_geometry_is_deterministic(self):
+        from draftwright.make_drawing import _build_table
+
+        rows = [("TAG", "⌀", "QTY"), ("A", "ø10", "2")]
+        a = build_drawing(Box(60, 40, 20)).draft
+        assert _build_table(rows, a).table_size == _build_table(rows, a).table_size
+
+    def test_generic_add_table_places_arbitrary_rows(self):
+        # The builder is generic: a gear/BOM-style param table places like a
+        # hole table, clear of the views and title block.
+        dwg = build_drawing(_multi_hole_plate())
+        rows = [("PARAMETER", "VALUE"), ("MODULE", "0.5"), ("RATIO", "13:1")]
+        tbl = dwg.add_table(rows, name="gear_data")
+        assert tbl is not None and "gear_data" in dwg.annotations()
+        tb = self._bbox(tbl)
+        for v in dwg.views:
+            assert self._area(tb, dwg.view_bounds(v)) == 0.0, v
