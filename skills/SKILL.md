@@ -241,6 +241,10 @@ for i in dwg.lint():
 #    labels pushed apart, wrong-side dims flipped). Runs by default inside
 #    build_drawing; call again after manual edits. It never makes a sheet worse.
 dwg.repair()
+
+# Pin a deliberate placement so repair won't move it (the constraint solver will
+# honour it too as it lands — ADR 0003):
+dwg.pin(name)             # name from dwg.annotations(); dwg.unpin(name) to release
 ```
 
 Codes are domain-meaningful (`feature_not_dimensioned`, `feature_count_mismatch`,

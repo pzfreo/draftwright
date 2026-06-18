@@ -1879,6 +1879,9 @@ class Drawing:
         self.items: list = []
         self._coords: dict = {}
         self._named: dict = {}
+        # Names the caller has pinned: their position is fixed and the engine
+        # must not move them (repair now; the global solve later — ADR 0003 #89).
+        self._pinned: set = set()
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
         self._analysis: SimpleNamespace | None = None
@@ -2077,6 +2080,9 @@ class Drawing:
         """
         if name is not None and name in self._named:
             self.items.remove(self._named[name])
+            # A replacement under the same name is a fresh, deliberate object —
+            # it does not inherit the old object's pin (#89).
+            self._pinned.discard(name)
         annotate(obj, name)
         self.items.append(obj)
         if name is not None:
@@ -2089,6 +2095,7 @@ class Drawing:
         if obj is None:
             raise KeyError(f"no annotation named {name!r}")
         self.items.remove(obj)
+        self._pinned.discard(name)  # a removed name carries no pin (#89)
         return obj
 
     def annotations(self) -> dict:
@@ -2104,6 +2111,27 @@ class Drawing:
     def get_annotation(self, name):
         """Return the named annotation object, or ``None`` if no such name (#27)."""
         return self._named.get(name)
+
+    def pin(self, name):
+        """Pin a named annotation so the engine never moves it (#89).
+
+        A deliberate placement — by you or an AI — must win over automatic
+        layout. :meth:`repair` will not re-place a pinned annotation, and the
+        constraint solver (ADR 0003) treats it as fixed. Pinning fixes the
+        *position*, not existence: :meth:`remove` and :meth:`clear_annotations`
+        still apply. Raises ``KeyError`` if *name* is not a known annotation.
+        Returns ``self`` for chaining.
+        """
+        if name not in self._named:
+            raise KeyError(f"no annotation named {name!r}")
+        self._pinned.add(name)
+        return self
+
+    def unpin(self, name):
+        """Release a pin so the engine may move *name* again (#89). Returns
+        ``self``; a no-op if *name* was not pinned."""
+        self._pinned.discard(name)
+        return self
 
     def clear_annotations(self, keep=("title_block",)):
         """Remove all annotations except those named in *keep* (#74).
@@ -2121,6 +2149,7 @@ class Drawing:
         removed = [o for o in self.items if id(o) not in kept_ids]
         self.items = [o for o in self.items if id(o) in kept_ids]
         self._named = kept_named
+        self._pinned &= keep_set  # drop pins for cleared names (#89)
         return removed
 
     def _record_build_issue(self, severity, code, message):
@@ -2134,9 +2163,16 @@ class Drawing:
         """Return the re-placeable dimension whose label is *label*, or None.
 
         Only dimensions built by :func:`_dim` (carrying ``_dw_spec``) qualify;
-        leaders, callouts and hand-built annotations are left untouched.
+        leaders, callouts and hand-built annotations are left untouched. A
+        pinned dimension (#89) is also skipped — a deliberate placement must
+        win over automatic repair.
         """
+        # Identity-based, matching clear_annotations: "this specific object",
+        # not build123d's geometric Shape equality.
+        pinned_ids = {id(self._named[n]) for n in self._pinned if n in self._named}
         for o in self.items:
+            if id(o) in pinned_ids:
+                continue
             if getattr(o, "_dw_spec", None) is not None and getattr(o, "label", None) == label:
                 return o
         return None
@@ -4682,6 +4718,7 @@ def _write_script(a) -> str:
         "# dwg.annotations()        → {name: type} of every named annotation\n"
         "# dwg.get_annotation(name) → the named annotation object, or None\n"
         "# dwg.remove(name) / dwg.add(obj, name)\n"
+        "# dwg.pin(name) / dwg.unpin(name)  → fix a placement so repair never moves it\n"
         "# dwg.lint_summary()       → {passed, score, by_code, issues:[…suggestion]}\n"
         "# dwg.repair()             → auto-fix mechanically-fixable lint (never worsens)\n"
         "# dwg.add_view(name, shape, camera, up, position)  → section / auxiliary view\n"

@@ -172,6 +172,10 @@ class Placeable:
             centre), derived from ``size`` plus padding.
         group: alignment-group id; placeables sharing a group will share an
             offset variable once alignment lands (phase 3, #81).
+        locked: when true the solver must keep this at ``natural`` and never
+            move it — a deliberate (human/AI) placement that wins over automatic
+            layout. The global solve (#82) honours this; the Drawing-level pin
+            verb (``dwg.pin`` / #89) is how callers set it.
     """
 
     key: str
@@ -181,6 +185,7 @@ class Placeable:
     natural: float
     min_gap: float
     group: str | None = None
+    locked: bool = False
 
 
 class LayoutSolver:

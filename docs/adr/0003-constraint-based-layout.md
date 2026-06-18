@@ -133,11 +133,11 @@ required mitigations:
 - **Manual override must win.** When a human or AI places something explicitly
   ("put *this* label *here*"), the solver must treat it as a hard **pin** that
   survives every later re-solve and stays local — never re-derive over a
-  deliberate placement. This needs a `locked`/`pinned` preference on `Placeable`
-  **and** a domain-facing verb (e.g. `dwg.pin(name, at=…)`); the existing
-  `dof_axis=None` is the mechanism, but without the verb the global solve could
-  overwrite an intentional tweak. **This is a hard prerequisite for the global
-  2D solve / escalation (#82), not a later nicety.**
+  deliberate placement. _Partly landed (#89):_ `dwg.pin(name)` / `dwg.unpin(name)`
+  are the domain verbs, `Placeable.locked` is the solver-side flag, and
+  `repair()` already refuses to move a pinned annotation. **Still owed by #82:**
+  the global 2D solve must honour `locked` (keep it at `natural`, solve the rest
+  around it). This remains a hard prerequisite for that solve, not a later nicety.
 
 Keep `Placeable`/`LayoutSolver` an implementation detail: callers edit through
 the domain API (`place_dim`, `features`, `annotations`, lint→repair), never by
