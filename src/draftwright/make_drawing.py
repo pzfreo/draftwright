@@ -2523,6 +2523,13 @@ def _annotate_turned_diameters(dwg, a):
         if ob.min.Y < fy0 and ob.max.X > fx0 and ob.min.X < fx1:
             obstacle_bottom = min(obstacle_bottom, ob.min.Y)
     label_y = obstacle_bottom - (draft.font_size + 4 * draft.pad_around_text)
+    # No room below the profile within the page — skip rather than run the row
+    # off the sheet. The diameters then surface as feature_not_dimensioned; the
+    # escalation ladder (#82) will tabulate instead of dropping.
+    if label_y < a.margin + draft.font_size:
+        _log.info("turned-diameter callouts skipped (no room below the front view)")
+        return
+
     specs = []  # (tip_page, label) ordered by feature x
     for b in todo:
         mid_x = b.location[0] - b.axis[0] * (b.height / 2)
@@ -2537,6 +2544,11 @@ def _annotate_turned_diameters(dwg, a):
     label_xs = _solve_strip_ys(naturals, min_gap, x_lo, x_hi) or _greedy_strip_ys(
         naturals, min_gap, x_lo, x_hi
     )
+    if label_xs is None:
+        # The labels do not fit the row even greedily; skip rather than crash on
+        # a None unpack. They surface as feature_not_dimensioned (#82 tabulates).
+        _log.info("turned-diameter callouts skipped (%d will not fit the row)", len(specs))
+        return
     for i, ((tip, label), lx) in enumerate(zip(specs, label_xs, strict=True)):
         dwg.add(
             Leader(

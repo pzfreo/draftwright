@@ -3512,3 +3512,14 @@ class TestTurnedDiameters:
         # a no-op (no X-axis bosses), so no ldr_d callouts appear.
         dwg = build_drawing(Cylinder(15, 40))  # plain Z disc/shaft
         assert not any(n.startswith("ldr_d") for n in dwg._named)
+
+    def test_unfittable_row_skips_without_crashing(self, monkeypatch):
+        # When the labels do not fit the row, both solvers return None; the pass
+        # must skip gracefully, not crash the whole build on a None unpack.
+        import sys
+
+        m = sys.modules["draftwright.make_drawing"]  # __init__ shadows the submodule
+        monkeypatch.setattr(m, "_solve_strip_ys", lambda *a, **k: None)
+        monkeypatch.setattr(m, "_greedy_strip_ys", lambda *a, **k: None)
+        dwg = build_drawing(_x_stepped_shaft())  # must not raise
+        assert not any(n.startswith("ldr_d") for n in dwg._named)
