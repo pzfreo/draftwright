@@ -508,6 +508,14 @@ def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
     )
 
 
+def _axis_letter(obj) -> str:
+    """Letter (``"x"``/``"y"``/``"z"``) of ``obj.axis``'s dominant component.
+
+    ``obj`` is anything carrying an ``.axis`` 3-vector (a hole or a boss).
+    """
+    return max(zip("xyz", obj.axis, strict=True), key=lambda t: abs(t[1]))[0]
+
+
 # A hole is "concentric" with a turned part's rotation axis when its drilling
 # axis is the Z (OD) axis and its opening sits on the part centreline.  Such
 # bores are already dimensioned by the ldr_z bore leaders, so they must not
@@ -516,9 +524,9 @@ def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
 _CONCENTRIC_TOL_MM = 0.5
 
 
-def _is_concentric_hole(h, a, axis_letter) -> bool:
+def _is_concentric_hole(h, a) -> bool:
     """True when *h* is an axial bore on the part centreline (turned base set)."""
-    if axis_letter(h) != "z":
+    if _axis_letter(h) != "z":
         return False
     return math.hypot(h.location[0] - a.cx, h.location[1] - a.cy) <= _CONCENTRIC_TOL_MM
 
@@ -1608,6 +1616,59 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     )
 
 
+@dataclass(frozen=True)
+class _Projector:
+    """Model → page coordinate projection for the orthographic views.
+
+    Each in-plane view axis projects as ``origin + (value - centroid) * scale``.
+    Built once in :func:`_analyse` and hung off the analysis namespace as
+    ``a.proj`` so the annotation passes share one projector instead of each
+    re-deriving the ``FX``/``FZ``/``SX``/``SZ``/``PX``/``PY`` closures.
+
+    This deliberately mirrors those analysis-phase closures byte-for-byte (an
+    unsigned ``+1`` projection), so the consolidation is provably
+    behaviour-preserving. The helpers library's ``ViewCoordinates.px``/``.py``
+    (already built per view as ``dwg._coords``) computes a *signed* projection
+    from ``view_axes()``; routing through it would couple the annotation passes
+    to render-order ``_coords`` population and could change output where a view
+    axis projects with a negative sign. Unifying onto ``ViewCoordinates`` is
+    therefore tracked as separate follow-up work, not part of this dedup.
+
+    Convention at call sites: bind a short local alias (``FX = a.proj.front_x``)
+    when a function projects repeatedly through its body; call ``a.proj.*()``
+    directly for one-off projections.
+    """
+
+    fv_x: float
+    fv_y: float
+    sv_x: float
+    sv_y: float
+    pv_x: float
+    pv_y: float
+    cx: float
+    cy: float
+    cz: float
+    scale: float
+
+    def front_x(self, x: float) -> float:
+        return self.fv_x + (x - self.cx) * self.scale
+
+    def front_z(self, z: float) -> float:
+        return self.fv_y + (z - self.cz) * self.scale
+
+    def side_x(self, y: float) -> float:
+        return self.sv_x + (y - self.cy) * self.scale
+
+    def side_z(self, z: float) -> float:
+        return self.sv_y + (z - self.cz) * self.scale
+
+    def plan_x(self, x: float) -> float:
+        return self.pv_x + (x - self.cx) * self.scale
+
+    def plan_y(self, y: float) -> float:
+        return self.pv_y + (y - self.cy) * self.scale
+
+
 def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, page=None, pmi="off"):
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -1875,6 +1936,18 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
         PV_Y=PV_Y,
         SV_X=SV_X,
         SV_Y=SV_Y,
+        proj=_Projector(
+            fv_x=FV_X,
+            fv_y=FV_Y,
+            sv_x=SV_X,
+            sv_y=SV_Y,
+            pv_x=PV_X,
+            pv_y=PV_Y,
+            cx=cx,
+            cy=cy,
+            cz=cz,
+            scale=SCALE,
+        ),
         ISO_X=ISO_X,
         ISO_Y=ISO_Y,
         iso_left_limit=iso_left_limit,
@@ -2109,9 +2182,6 @@ class Drawing:
         if target_axis is None:
             return []
 
-        def _axis_letter(h):
-            return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
-
         if view not in self._coords:
             return []
 
@@ -2268,12 +2338,9 @@ class Drawing:
         if a is None or target is None or view not in self._coords:
             return []
 
-        def axis_letter(h):
-            return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
-
         groups: dict = {}
         for h in a.holes:
-            if axis_letter(h) == target:
+            if _axis_letter(h) == target:
                 groups.setdefault(_spec_key(h), []).append(h)
         glist = list(groups.values())
         return list(zip(_tag_sequence(len(glist)), glist, strict=True))
@@ -2746,10 +2813,7 @@ def _annotate_turned_diameters(dwg, a):
         _log.info("turned-diameter annotation skipped (%s)", exc)
         return
 
-    def _axis_letter(vec):
-        return max(zip("xyz", vec, strict=True), key=lambda t: abs(t[1]))[0]
-
-    x_bosses = [b for b in bosses if _axis_letter(b.axis) == "x"]
+    x_bosses = [b for b in bosses if _axis_letter(b) == "x"]
     if not x_bosses:
         return
 
@@ -2830,23 +2894,12 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     dwg._build_issues = []
     dwg._dropped_callout_diams = []
 
-    def FX(x):
-        return a.FV_X + (x - a.cx) * a.SCALE
-
-    def FZ(z):
-        return a.FV_Y + (z - a.cz) * a.SCALE
-
-    def SX(y):
-        return a.SV_X + (y - a.cy) * a.SCALE
-
-    def SZ(z):
-        return a.SV_Y + (z - a.cz) * a.SCALE
-
-    def PX(x):
-        return a.PV_X + (x - a.cx) * a.SCALE
-
-    def PY(y):
-        return a.PV_Y + (y - a.cy) * a.SCALE
+    FX = a.proj.front_x
+    FZ = a.proj.front_z
+    SX = a.proj.side_x
+    SZ = a.proj.side_z
+    PX = a.proj.plan_x
+    PY = a.proj.plan_y
 
     # Tighten right-strip outer_limits to the actual iso view left edge now
     # that the iso has been projected and fitted.  Always apply so that any
@@ -2956,9 +3009,6 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
         "x": ("side", lambda h: (SX(h.location[1]), SZ(h.location[2]))),
     }
 
-    def _axis_letter(h):
-        return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
-
     # Centre marks for every hole (all part classes)
     for i, h in enumerate(a.holes):
         view, to_page = view_of_axis[_axis_letter(h)]
@@ -2977,14 +3027,12 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     feature_holes = a.holes
     feature_patterns = a.patterns
     if a.is_rotational:
-        feature_holes = [h for h in a.holes if not _is_concentric_hole(h, a, _axis_letter)]
+        feature_holes = [h for h in a.holes if not _is_concentric_hole(h, a)]
         present = set(map(id, feature_holes))
         feature_patterns = [p for p in a.patterns if all(id(h) in present for h in p.holes)]
     if feature_holes:
-        _annotate_holes(
-            dwg, a, view_of_axis, _axis_letter, feature_patterns, holes_in=feature_holes
-        )
-        _add_location_dims(dwg, a, _axis_letter, feature_patterns, holes_in=feature_holes)
+        _annotate_holes(dwg, a, view_of_axis, feature_patterns, holes_in=feature_holes)
+        _add_location_dims(dwg, a, feature_patterns, holes_in=feature_holes)
 
     if a.cross_diams and a.is_rotational and not feature_holes:
         _log.info(
@@ -3117,7 +3165,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     # dim ladders).  Fires on feature presence, not class (#10); concentric
     # bores on a turned part are excluded (the ldr_z leaders cover them).
     if feature_holes:
-        _add_section_view(dwg, a, _axis_letter, holes=feature_holes)
+        _add_section_view(dwg, a, holes=feature_holes)
 
     # Detail view: only when explicitly requested via build_drawing(detail_view=True).
     if detail_view:
@@ -3199,10 +3247,7 @@ def _maybe_tabulate_holes(dwg, a):
     if not any(i.code in ("callout_dropped", "location_ref_dropped") for i in dwg._build_issues):
         return
 
-    def axis_letter(h):
-        return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
-
-    holes = [h for h in a.holes if axis_letter(h) == "z"]  # plan-view holes
+    holes = [h for h in a.holes if _axis_letter(h) == "z"]  # plan-view holes
     # A chart is warranted only for a *genuinely* dense plan view — a part that
     # merely dropped one too-close location ref keeps its individual dims (the
     # legibility gate already handled it). #93.
@@ -3291,23 +3336,12 @@ def _annotate_pmi(dwg, a, draft) -> None:
         _log.info("PMI annotate: no usable records (value>0 with 2+ ref pts)")
         return
 
-    def FX(x):
-        return a.FV_X + (x - a.cx) * a.SCALE
-
-    def FZ(z):
-        return a.FV_Y + (z - a.cz) * a.SCALE
-
-    def SX(y):
-        return a.SV_X + (y - a.cy) * a.SCALE
-
-    def SZ(z):
-        return a.SV_Y + (z - a.cz) * a.SCALE
-
-    def PX(x):
-        return a.PV_X + (x - a.cx) * a.SCALE
-
-    def PY(y):
-        return a.PV_Y + (y - a.cy) * a.SCALE
+    FX = a.proj.front_x
+    FZ = a.proj.front_z
+    SX = a.proj.side_x
+    SZ = a.proj.side_z
+    PX = a.proj.plan_x
+    PY = a.proj.plan_y
 
     _SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
 
@@ -3616,7 +3650,7 @@ def _record_callout_drop(dwg, view, diam, reason):
     )
 
 
-def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
+def _add_location_dims(dwg, a, patterns, holes_in=None):
     """Baseline X/Y location dimensions in the plan view (#93).
 
     The datum corner is a *default* — the part's minimum-X/minimum-Y corner
@@ -3632,13 +3666,13 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
     """
     draft = dwg.draft
     all_holes = a.holes if holes_in is None else holes_in
-    z_holes = [h for h in all_holes if axis_letter(h) == "z"]
+    z_holes = [h for h in all_holes if _axis_letter(h) == "z"]
     if len(z_holes) < len(all_holes):
         _log.info("Cross-axis holes present; their locations are not auto-dimensioned")
     patterned = {h for p in patterns for h in p.holes}
     refs = []  # (world_x, world_y, sort_diameter)
     for p in patterns:
-        if axis_letter(p.holes[0]) != "z":
+        if _axis_letter(p.holes[0]) != "z":
             continue
         if isinstance(p, BoltCircle):
             refs.append((p.center[0], p.center[1], p.holes[0].diameter))
@@ -3662,11 +3696,8 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
     if not refs:
         return
 
-    def PX(x):
-        return a.PV_X + (x - a.cx) * a.SCALE
-
-    def PY(y):
-        return a.PV_Y + (y - a.cy) * a.SCALE
+    PX = a.proj.plan_x
+    PY = a.proj.plan_y
 
     plan_top = PY(a.bb.max.Y)
     datum_x, datum_y = a.bb.min.X, a.bb.min.Y
@@ -3728,11 +3759,8 @@ def _add_location_dims(dwg, a, axis_letter, patterns, holes_in=None):
     # above it is open (the plan view's left margin fits barely one tier) —
     # dims go above the side view, witness lines rising from its top edge at
     # each hole's axis position
-    def SX(y):
-        return a.SV_X + (y - a.cy) * a.SCALE
-
-    def SZ(z):
-        return a.SV_Y + (z - a.cz) * a.SCALE
+    SX = a.proj.side_x
+    SZ = a.proj.side_z
 
     side_top = SZ(a.bb.max.Z)
     iso_x0, iso_y0, _, _ = _iso_bbox(dwg)
@@ -3882,7 +3910,7 @@ def _fuzzy_cut(body, cutter, fuzzy: float = 1e-3):
     return solids[0] if len(solids) == 1 else Compound(children=list(solids))
 
 
-def _add_section_view(dwg, a, axis_letter, holes=None):
+def _add_section_view(dwg, a, holes=None):
     """Full section A–A when blind or stepped holes hide their structure (#94).
 
     Trigger: any Z-axis hole with a counterbore/spotface or a non-through
@@ -3898,7 +3926,7 @@ def _add_section_view(dwg, a, axis_letter, holes=None):
     cands = [
         h
         for h in (a.holes if holes is None else holes)
-        if axis_letter(h) == "z" and (h.cbore or h.spotface or h.bottom != "through")
+        if _axis_letter(h) == "z" and (h.cbore or h.spotface or h.bottom != "through")
     ]
     if not cands:
         return
@@ -3968,11 +3996,8 @@ def _add_section_view(dwg, a, axis_letter, holes=None):
     )
 
     # cutting-plane line + identification letters on the plan view
-    def PX(x):
-        return a.PV_X + (x - a.cx) * a.SCALE
-
-    def PY(y):
-        return a.PV_Y + (y - a.cy) * a.SCALE
+    PX = a.proj.plan_x
+    PY = a.proj.plan_y
 
     y_page = PY(y_star)
     # the line and its letters must clear pattern centrelines that sweep
@@ -4013,12 +4038,13 @@ def _add_section_view(dwg, a, axis_letter, holes=None):
     dwg.add(Note("A", (x0 - 3, y_page + lift), dwg.draft), "section_a_left")
     dwg.add(Note("A", (x1 + 3, y_page + lift), dwg.draft), "section_a_right")
 
-    # ISO 128-50: 45° hatching on the cut face, in page coordinates
+    # ISO 128-50: 45° hatching on the cut face, in page coordinates. The section
+    # is drawn in its own frame: X is offset to the section's page slot (pos_x),
+    # while the height axis matches the front view — so SZ is exactly front_z.
     def SX(wx):
         return pos_x + (wx - a.cx) * a.SCALE
 
-    def SZ(wz):
-        return a.FV_Y + (wz - a.cz) * a.SCALE
+    SZ = a.proj.front_z
 
     hatch_spacing = dwg.draft.font_size * 1.5
     cut_faces = [f for f in keep_behind.faces() if f.normal_at().Y < -0.9]
@@ -4163,11 +4189,8 @@ def _add_detail_view(dwg, a):
     )
 
     # Marker on the front view: a rectangle around the Z-band, with an 'A' label.
-    def FX(x):
-        return a.FV_X + (x - a.cx) * a.SCALE
-
-    def FZ(z):
-        return a.FV_Y + (z - a.cz) * a.SCALE
+    FX = a.proj.front_x
+    FZ = a.proj.front_z
 
     mx0, mx1 = FX(a.bb.min.X), FX(a.bb.max.X)
     my0, my1 = FZ(band_lo), FZ(band_hi)
@@ -4252,19 +4275,19 @@ def _add_pitch_dim(dwg, a, view, j, pattern, to_page):
     # view extents in page coordinates, to push the dim line outside
     if view == "plan":
         corners = [
-            (a.PV_X + (x - a.cx) * a.SCALE, a.PV_Y + (y - a.cy) * a.SCALE)
+            (a.proj.plan_x(x), a.proj.plan_y(y))
             for x in (a.bb.min.X, a.bb.max.X)
             for y in (a.bb.min.Y, a.bb.max.Y)
         ]
     elif view == "front":
         corners = [
-            (a.FV_X + (x - a.cx) * a.SCALE, a.FV_Y + (z - a.cz) * a.SCALE)
+            (a.proj.front_x(x), a.proj.front_z(z))
             for x in (a.bb.min.X, a.bb.max.X)
             for z in (a.bb.min.Z, a.bb.max.Z)
         ]
     else:
         corners = [
-            (a.SV_X + (y - a.cy) * a.SCALE, a.SV_Y + (z - a.cz) * a.SCALE)
+            (a.proj.side_x(y), a.proj.side_z(z))
             for y in (a.bb.min.Y, a.bb.max.Y)
             for z in (a.bb.min.Z, a.bb.max.Z)
         ]
@@ -4349,7 +4372,7 @@ def _solve_strip_via_layout(naturals, min_gap, lo, hi, key_prefix):
     return [placed[k] for k in keys]
 
 
-def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=None):
+def _annotate_holes(dwg, a, view_of_axis, found_patterns, holes_in=None):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
     Identical holes share one callout with an ``n×`` count prefix (#92's
@@ -4382,13 +4405,13 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
 
     by_view: dict = {}
     for holes in groups.values():
-        by_view.setdefault(view_of_axis[axis_letter(holes[0])][0], []).append(holes)
+        by_view.setdefault(view_of_axis[_axis_letter(holes[0])][0], []).append(holes)
 
     _, iso_y0, _, _ = _iso_bbox(dwg)
-    plan_right = a.PV_X + (a.bb.max.X - a.cx) * a.SCALE
-    plan_left = a.PV_X + (a.bb.min.X - a.cx) * a.SCALE
-    side_right = a.SV_X + (a.bb.max.Y - a.cy) * a.SCALE
-    front_bottom = a.FV_Y + (a.bb.min.Z - a.cz) * a.SCALE
+    plan_right = a.proj.plan_x(a.bb.max.X)
+    plan_left = a.proj.plan_x(a.bb.min.X)
+    side_right = a.proj.side_x(a.bb.max.Y)
+    front_bottom = a.proj.front_z(a.bb.min.Z)
     tb_left = a.PAGE_W - a.TB_W - _TB_CLEAR
     tb_top = _TB_CLEAR + _TB_H
 
@@ -4398,7 +4421,8 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
     # ~arrow_length, so plan-view elbow must sit that far outside to clear them.
     # Room-check failures may still skip the section, but the offset is harmless.
     will_have_section_line = any(
-        axis_letter(h) == "z" and (h.cbore or h.spotface or h.bottom != "through") for h in a.holes
+        _axis_letter(h) == "z" and (h.cbore or h.spotface or h.bottom != "through")
+        for h in a.holes
     )
 
     # A pattern annotates only when it accounts for the whole spec group —

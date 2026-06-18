@@ -15,15 +15,20 @@ It sits on top of two Apache 2.0 libraries:
 
 ## Architecture
 
-One module: `make_drawing.py`. It contains:
+Three modules:
 
-- **Layout engine** — strip/zone model that places views and reserves space for annotations
-- **Scale selection** (`choose_scale`) — ISO/ASME standard scales
-- **Feature orchestration** — calls `find_holes`, `analyse_cylinders` from `build123d_drafting.features`
-- **Annotation placement** — calls helpers from `build123d_drafting.helpers`
-- **Section view generation** (`_add_section_view`) — ISO 128-44 arrows, ISO 128-50 hatching
-- **`Drawing` class** — composable result object with `.lint()`, `.add()`, `.export_*`
-- **CLI** (`draftwright` command) — STEP → SVG+DXF or editable .py script
+- **`make_drawing.py`** — the bulk of the engine:
+  - **Layout orchestration** — strip/zone model that places views and reserves space for annotations
+  - **Scale selection** (`choose_scale`) — ISO/ASME standard scales
+  - **Feature orchestration** — calls `find_holes`, `analyse_cylinders` from `build123d_drafting.features`
+  - **Annotation placement** — calls helpers from `build123d_drafting.helpers`
+  - **Section view generation** (`_add_section_view`) — ISO 128-44 arrows, ISO 128-50 hatching
+  - **`Drawing` class** — composable result object with `.lint()`, `.add()`, `.export_*`
+  - **CLI** (`draftwright` command) — STEP → SVG+DXF or editable .py script
+- **`layout.py`** — the constraint-based layout engine (ADR 0003): the `Placeable`
+  protocol and `LayoutSolver` (1D Cassowary strip solver `solve_strip`; 2D
+  free-rectangle placer `place_box`/`fit_box`). Sits *below* the domain API.
+- **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
 
 ## Dependencies
 
