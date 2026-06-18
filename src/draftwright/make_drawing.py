@@ -92,6 +92,8 @@ from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
 from OCP.TopTools import TopTools_ListOfShape
 
+from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
+
 _log = logging.getLogger(__name__)
 
 _TB_W = 150.0
@@ -3976,60 +3978,11 @@ def _add_pitch_dim(dwg, a, view, j, pattern, to_page):
     )
 
 
-def _greedy_strip_ys(natural_ys, min_gap, y_min, y_max, *, prefix=False):
-    """Greedy Y-placement: push each value down until the gap clears.
-
-    With *prefix=False* (default): returns None if any item overflows y_max.
-    With *prefix=True*: stops at the first overflow and returns the placed prefix.
-    """
-    result = []
-    prev = y_min - min_gap
-    for ny in natural_ys:
-        y = max(prev + min_gap, ny)
-        if y > y_max:
-            if prefix:
-                break
-            return None
-        result.append(y)
-        prev = y
-    return result
-
-
-def _solve_strip_ys(natural_ys, min_gap, y_min, y_max):
-    """Cassowary Y-placement for bore-callout leaders sharing one strip.
-
-    Returns solved Y positions (same length as *natural_ys*), or ``None`` when
-    the callouts don't fit within [y_min, y_max].  Falls back to the greedy
-    cursor when kiwisolver is unavailable.
-
-    *natural_ys* must be sorted ascending; each solved value is bounded to
-    [y_min, y_max] and adjacent values are at least *min_gap* apart.
-    """
-    if not natural_ys:
-        return []
-    n = len(natural_ys)
-    if (n - 1) * min_gap > y_max - y_min:
-        return None  # provably infeasible
-
-    try:
-        import kiwisolver as ki
-    except ImportError:
-        return _greedy_strip_ys(natural_ys, min_gap, y_min, y_max)
-
-    solver = ki.Solver()
-    ys = [ki.Variable(f"y{i}") for i in range(n)]
-    try:
-        for v in ys:
-            solver.addConstraint((v >= y_min) | "required")
-            solver.addConstraint((v <= y_max) | "required")
-        for i in range(n - 1):
-            solver.addConstraint((ys[i + 1] - ys[i] >= min_gap) | "required")
-        for v, ny in zip(ys, natural_ys, strict=True):
-            solver.addConstraint((v == ny) | "strong")
-        solver.updateVariables()
-        return [v.value() for v in ys]
-    except ki.UnsatisfiableConstraint:
-        return None
+# 1D strip placement now lives in draftwright.layout (ADR 0003 phase 1, #79).
+# These aliases keep the existing axis-specific callers and their tests working
+# while the primitive is axis-neutral; later phases route through LayoutSolver.
+_greedy_strip_ys = _greedy_strip_1d
+_solve_strip_ys = _solve_strip_1d
 
 
 def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=None):
