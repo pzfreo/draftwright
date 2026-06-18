@@ -429,8 +429,7 @@ def _build_hole_table(rows, draft):
     row_h = fs + 2 * pad
     ncol = len(rows[0])
     col_w = [
-        max(max(_text_width(str(r[c]), fs) for r in rows) + 2 * pad, fs * 2.5)
-        for c in range(ncol)
+        max(max(_text_width(str(r[c]), fs) for r in rows) + 2 * pad, fs * 2.5) for c in range(ncol)
     ]
     xs = [0.0]
     for w in col_w:
