@@ -456,13 +456,24 @@ def _concentric_bore_diams(a) -> list:
     return [d for d in a.z_diams if d != a.od_diam and any(abs(d - c) <= 0.15 for c in concentric)]
 
 
-def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None, exclude=None) -> list:
+def lint_feature_coverage(
+    part, annotations, tol: float = 0.15, cyls=None, exclude=None, assembly=None
+) -> list:
     """Coarse completeness check: report part diameters with no callout (#80).
 
     ``exclude`` is an optional iterable of diameters already accounted for by a
     more specific build-time lint (e.g. the per-view callout cap's
     ``callout_dropped``); these are skipped here so a dropped callout is not
     double-reported as ``feature_not_dimensioned``.
+
+    ``assembly`` controls severity for a general-arrangement drawing of a
+    multi-body part. A GA deliberately omits each part's bores (they belong on
+    detail sheets), so demanding a callout for every cylinder is noise. When
+    ``assembly`` is ``True`` the coverage codes (``feature_not_dimensioned`` /
+    ``feature_count_mismatch``) are emitted at ``info`` severity instead of
+    ``warning`` — kept queryable but out of the warning count and quality score.
+    ``None`` (the default) auto-detects: a multi-solid ``part`` is treated as an
+    assembly. Pass ``False`` to force strict single-part severity (#69).
 
     Builds a feature inventory from *part*'s hole/boss diameters (cylinder
     patches spanning at least ~half a turn around their axis in total, so
@@ -488,6 +499,10 @@ def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None, exclu
     z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
     inventory = dedup_diams(_full_cyls(z_cyls + cross_cyls), tol=tol)
 
+    if assembly is None:
+        assembly = len(part.solids()) > 1
+    coverage_severity = "info" if assembly else "warning"
+
     mentioned: set[float] = set()
     text_mentioned: set[float] = set()
     provided: dict[float, int] = {}
@@ -506,7 +521,7 @@ def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None, exclu
     exclude = exclude or ()
     issues = [
         LintIssue(
-            severity="warning",
+            severity=coverage_severity,
             code="feature_not_dimensioned",
             message=f"cylindrical feature ø{_fmt(d)} has no diameter callout on the sheet",
         )
@@ -527,7 +542,7 @@ def lint_feature_coverage(part, annotations, tol: float = 0.15, cyls=None, exclu
         if 0 < have < need:
             issues.append(
                 LintIssue(
-                    severity="warning",
+                    severity=coverage_severity,
                     code="feature_count_mismatch",
                     message=(
                         f"{need} ø{_fmt(d)} features on the part but callouts account for {have}"
@@ -1835,6 +1850,9 @@ class Drawing:
         views: ``{name: (visible_compound, hidden_compound_or_None)}``.
         items: ordered list of annotation objects (mutable).
         part: the source solid, when known — enables the feature-coverage lint.
+        assembly: feature-coverage severity control — ``None`` auto-detects a
+            multi-solid part as an assembly (per-part bores at ``info``),
+            ``True``/``False`` forces it (#69).
 
     The constructor also accepts ``cyls``, a precomputed
     ``analyse_cylinders(part)`` result (cached privately; computed lazily on
@@ -1855,10 +1873,14 @@ class Drawing:
         out,
         part=None,
         cyls=None,
+        assembly=None,
     ):
         self.scale = scale
         self.part = part
         self._cyl_cache = cyls
+        # None → the coverage lint auto-detects a multi-solid part as an
+        # assembly; True/False forces assembly/strict severity (#69).
+        self.assembly = assembly
         self.page_w = page_w
         self.page_h = page_h
         self.tb_w = tb_w
@@ -2253,6 +2275,7 @@ class Drawing:
                 self.items,
                 cyls=self._cyl_cache,
                 exclude=self._dropped_callout_diams,
+                assembly=self.assembly,
             )
         issues += list(self._build_issues)
         # Attach a ready-to-paste fix snippet where one is computable (#29).
@@ -4333,6 +4356,7 @@ def build_drawing(
     detail_view: bool = False,
     pmi: Literal["off", "report", "annotate"] = "off",
     repair: bool = True,
+    assembly: bool | None = None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -4352,6 +4376,11 @@ def build_drawing(
             placement to fix mechanically-clear violations (a dim on the wrong
             side, two overlapping labels). Default ``True``; a no-op on a clean
             sheet. Pass ``False`` to inspect the raw greedy placement (#30).
+        assembly: severity of the feature-coverage lint for a general-arrangement
+            drawing. ``None`` (default) auto-detects — a multi-solid part is an
+            assembly, whose per-part bores are reported at ``info`` rather than
+            ``warning`` (a GA omits them by design). Force with ``True``/``False``
+            (#69).
 
     Returns:
         A :class:`Drawing` with the standard front/plan/side/iso views projected
@@ -4385,6 +4414,7 @@ def build_drawing(
         out=out,
         part=a.part,
         cyls=a.cyls,
+        assembly=assembly,
     )
     dwg._analysis = a  # expose analysis namespace for testing and future strip access
 
@@ -4443,6 +4473,7 @@ def make_drawing(
     auto_dims: bool = True,
     detail_view: bool = False,
     pmi: Literal["off", "report", "annotate"] = "off",
+    assembly: bool | None = None,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -4483,6 +4514,7 @@ def make_drawing(
         auto_dims=auto_dims,
         detail_view=detail_view,
         pmi=pmi,
+        assembly=assembly,
     ).export()
 
 

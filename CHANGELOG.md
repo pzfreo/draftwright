@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Feature-coverage lint is assembly-aware.** A general-arrangement drawing of
+  a multi-solid part deliberately omits each part's bores (they belong on detail
+  sheets), so `feature_not_dimensioned` / `feature_count_mismatch` are now
+  emitted at `info` rather than `warning` when the part is multi-solid — out of
+  the warning count and quality score, but still queryable. Auto-detected;
+  override with `build_drawing(..., assembly=True/False)` or
+  `lint_feature_coverage(..., assembly=...)` (#69).
+
+### Fixed
+
+- **Exact circles recovered for revolution silhouettes.** `project_to_viewport`'s
+  HLR returns the on-axis silhouette of a turned feature (or a concentric
+  gear-tooth-tip arc) as an approximating spline, not a true circle — splines in
+  the DXF where CAM expects `CIRCLE`/`ARC`, and fitted rather than exact radii.
+  `add_view` now refits any silhouette whose samples are equidistant from a
+  recognised revolution axis back to an exact circle/arc (#67).
+- **Blind-hole depth no longer measured across solid boundaries.** On a
+  multi-solid assembly, coaxial bores in different bodies were merged into one
+  hole, reporting a depth spanning the inter-body gap (the ⌀9.8 ↓111.4 symptom).
+  Fixed upstream in `build123d-drafting-helpers` 0.10.1; the dependency pin is
+  bumped to `>=0.10.1` to pick it up (#68).
+
 ## v0.1.9 — 2026-06-16
 
 ### Added
