@@ -1659,6 +1659,51 @@ class TestLintFeatureCoverage:
         assert any("ø10" in i.message for i in issues)
 
     @pytest.mark.timeout(60)
+    def test_single_part_feature_warns(self):
+        # A lone part keeps strict severity: an undimensioned bore is a warning.
+        part = Box(40, 40, 12) - Cylinder(4, 12)
+        issues = lint_feature_coverage(part, [])
+        fnd = [i for i in issues if i.code == "feature_not_dimensioned"]
+        assert fnd and all(i.severity == "warning" for i in fnd)
+
+    @pytest.mark.timeout(60)
+    def test_multisolid_assembly_downgrades_to_info(self):
+        # A general-arrangement (multi-solid) drawing omits each part's bores by
+        # design, so feature_not_dimensioned drops to info — out of the warning
+        # count but still queryable (#69).
+        a = Pos(0, 0, 0) * (Box(20, 20, 12) - Cylinder(3, 12))
+        b = Pos(40, 0, 0) * (Box(20, 20, 12) - Cylinder(2.5, 12))
+        asm = Compound(children=[a, b])
+        assert len(asm.solids()) == 2
+        issues = lint_feature_coverage(asm, [])
+        fnd = [i for i in issues if i.code == "feature_not_dimensioned"]
+        assert fnd and all(i.severity == "info" for i in fnd)
+
+    @pytest.mark.timeout(60)
+    def test_assembly_override_forces_strict(self):
+        # assembly=False forces strict severity even on a multi-solid part.
+        a = Pos(0, 0, 0) * (Box(20, 20, 12) - Cylinder(3, 12))
+        b = Pos(40, 0, 0) * (Box(20, 20, 12) - Cylinder(2.5, 12))
+        asm = Compound(children=[a, b])
+        issues = lint_feature_coverage(asm, [], assembly=False)
+        fnd = [i for i in issues if i.code == "feature_not_dimensioned"]
+        assert fnd and all(i.severity == "warning" for i in fnd)
+
+    @pytest.mark.timeout(120)
+    def test_build_drawing_assembly_keeps_warnings_clean(self):
+        # End to end: a GA's uncovered bores land as infos, not warnings, so the
+        # warning count and quality score are not polluted; assembly=False
+        # restores the strict warnings.
+        a = Pos(0, 0, 0) * (Box(20, 20, 12) - Cylinder(3, 12))
+        b = Pos(40, 0, 0) * (Box(20, 20, 12) - Cylinder(2.5, 12))
+        asm = Compound(children=[a, b])
+        auto = build_drawing(asm, page="A4", auto_dims=False).lint_summary()
+        strict = build_drawing(asm, page="A4", auto_dims=False, assembly=False).lint_summary()
+        assert auto["by_code"].get("feature_not_dimensioned", 0) > 0
+        assert auto["warnings"] == 0 and auto["infos"] > 0
+        assert strict["warnings"] > 0 and strict["infos"] == 0
+
+    @pytest.mark.timeout(60)
     def test_hole_callout_accepts_string_diameter(self):
         from build123d_drafting import HoleCallout
 
