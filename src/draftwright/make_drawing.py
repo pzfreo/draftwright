@@ -242,11 +242,22 @@ def _exactify_silhouettes(edges, faces, view_dir, proj_fn, tol=_SILHOUETTE_TOL):
         ``(new_edges, replaced_count)``.
     """
     centres = []
+    seen = set()
+
+    def _add_centre(pnt):
+        # Coaxial faces (every counterbore step, fillet-adjacent wall, …) project
+        # to the same centre; dedup so the per-edge test loop below stays short.
+        c = np.array(proj_fn(pnt))
+        key = (round(float(c[0]), 3), round(float(c[1]), 3))
+        if key not in seen:
+            seen.add(key)
+            centres.append(c)
+
     for f in faces:
         surf = BRepAdaptor_Surface(f.wrapped)
         st = surf.GetType()
         if st == GeomAbs_Sphere:
-            centres.append(np.array(proj_fn(surf.Sphere().Location())))
+            _add_centre(surf.Sphere().Location())
             continue
         elif st == GeomAbs_Torus:
             ax = surf.Torus().Position().Axis()
@@ -258,7 +269,7 @@ def _exactify_silhouettes(edges, faces, view_dir, proj_fn, tol=_SILHOUETTE_TOL):
             continue
         d = ax.Direction()
         if abs(d.X() * view_dir[0] + d.Y() * view_dir[1] + d.Z() * view_dir[2]) > 0.999:
-            centres.append(np.array(proj_fn(ax.Location())))
+            _add_centre(ax.Location())
 
     if not centres:
         return list(edges), 0
@@ -270,11 +281,8 @@ def _exactify_silhouettes(edges, faces, view_dir, proj_fn, tol=_SILHOUETTE_TOL):
     def replacement(e):
         if e.geom_type != GeomType.BSPLINE:
             return None  # real circles/lines/arcs are already exact
-        # project_to_viewport emits a circular silhouette as a rational BSpline
-        # (degree 2–4), not the degree-1 polyline a raw HLR pass would — so test
-        # circularity by sampling the curve rather than reading its poles.  Points
-        # on a circle are equidistant from its centre at any parametrisation, so
-        # the test is independent of degree and knot spacing.
+        # Sample the curve and test equidistance from a known centre (see the
+        # function docstring) — robust to the spline's degree and knot spacing.
         n_samp = 33
         try:
             pts = np.array([[(p := e @ (i / (n_samp - 1))).X, p.Y, p.Z] for i in range(n_samp)])
