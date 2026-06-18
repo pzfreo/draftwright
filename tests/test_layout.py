@@ -4,6 +4,8 @@ These exercise the constraint primitive and solver in isolation, with no drawing
 build, which is the point of putting them in their own module.
 """
 
+import pytest
+
 import draftwright.layout as L
 from draftwright.layout import (
     LayoutSolver,
@@ -106,6 +108,22 @@ class TestLayoutSolver:
         assert forward.solve_strip(lo=-50, hi=50, axis="x") == shuffled.solve_strip(
             lo=-50, hi=50, axis="x"
         )
+
+    def test_duplicate_key_is_rejected(self):
+        s = LayoutSolver()
+        s.register(self._leader("dup", 0))
+        with pytest.raises(ValueError, match="duplicate placeable key"):
+            s.register(self._leader("dup", 5))
+
+    def test_solve_strip_falls_back_to_greedy(self, monkeypatch):
+        # When the Cassowary solve yields None but a greedy placement fits,
+        # solve_strip must still return positions (the fallback branch).
+        monkeypatch.setattr(L, "_solve_strip_1d", lambda *a, **k: None)
+        s = LayoutSolver()
+        s.register(self._leader("a", 0))
+        s.register(self._leader("b", 0))
+        out = s.solve_strip(lo=0, hi=100, axis="x")
+        assert out == {"a": 0, "b": 5}
 
 
 def test_layout_is_not_wired_into_the_default_drawing_path():

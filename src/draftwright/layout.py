@@ -139,9 +139,18 @@ class LayoutSolver:
 
     def __init__(self) -> None:
         self._placeables: list[Placeable] = []
+        self._keys: set[str] = set()
 
     def register(self, placeable: Placeable) -> None:
-        """Add a placeable to be solved."""
+        """Add a placeable to be solved.
+
+        Raises ``ValueError`` on a duplicate ``key`` — the key is the result
+        handle, so a collision would silently drop a placeable from the solved
+        map rather than fail visibly.
+        """
+        if placeable.key in self._keys:
+            raise ValueError(f"duplicate placeable key {placeable.key!r}")
+        self._keys.add(placeable.key)
         self._placeables.append(placeable)
 
     def solve_strip(self, *, lo: float, hi: float, axis: Axis) -> dict | None:
