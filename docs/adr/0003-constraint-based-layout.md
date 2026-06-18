@@ -118,6 +118,33 @@ surfaced as lint.
   stop being reproducible. Cassowary is deterministic given stable input order.
 - Multi-PR effort; risk of a half-migrated engine running two models at once.
 
+**Editability — the constraint this engine must not break (ADR 0001/0002)**
+
+draftwright's whole point is that humans and AI tweak in *domain vocabulary*
+and never touch placement mechanics; the solver lives strictly *below* that
+line and must keep it. Two specific risks a global solve introduces, and the
+required mitigations:
+
+- **Edit locality.** Adding or nudging one annotation must not silently shift
+  unrelated ones. A from-scratch global re-solve violates the human expectation
+  of a local change. Mitigation: incremental / warm-started re-solve that
+  perturbs minimally, plus the "pin near anchor" priority. An edit's blast
+  radius is part of the editability contract, not just an aesthetic.
+- **Manual override must win.** When a human or AI places something explicitly
+  ("put *this* label *here*"), the solver must treat it as a hard **pin** that
+  survives every later re-solve and stays local — never re-derive over a
+  deliberate placement. This needs a `locked`/`pinned` preference on `Placeable`
+  **and** a domain-facing verb (e.g. `dwg.pin(name, at=…)`); the existing
+  `dof_axis=None` is the mechanism, but without the verb the global solve could
+  overwrite an intentional tweak. **This is a hard prerequisite for the global
+  2D solve / escalation (#82), not a later nicety.**
+
+Keep `Placeable`/`LayoutSolver` an implementation detail: callers edit through
+the domain API (`place_dim`, `features`, `annotations`, lint→repair), never by
+constructing placeables. As long as that holds, the engine *improves*
+editability for AI (state intent, get a correct deconflicted placement) rather
+than eroding it.
+
 **Neutral / follow-ups**
 - Performance: hundreds of variables is comfortable for Cassowary; watch the
   largest sheets.
