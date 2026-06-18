@@ -3185,24 +3185,34 @@ def _maybe_tabulate_holes(dwg, a):
         (tag, f"ø{_fmt(h.diameter)}", _fmt(h.location[0] - dx), _fmt(h.location[1] - dy))
         for tag, h in zip(tags, holes, strict=True)
     ]
+    # Remove the callouts and location dims the table replaces FIRST: it frees
+    # their space for the table and shrinks the obstacle set fit_box scans (the
+    # dense parts have dozens), which is the dominant cost on heavy sheets (#93).
+    replaced = {
+        n: dwg._named[n]
+        for n in list(dwg._named)
+        if n.startswith(("hc_plan", "dim_locx", "dim_locy"))
+    }
+    for n in replaced:
+        dwg.remove(n)
+
     # Widen the chart into more column-blocks until it fits the page.
     table = None
     for ncols in (1, 2, 3, 4):
         table = dwg.add_table(_wrap_rows(header, data, ncols), name="hole_table_plan")
         if table is not None:
             break
-    # The failed narrower attempts each recorded a table_dropped; clear them.
     dwg._build_issues = [i for i in dwg._build_issues if i.code != "table_dropped"]
     if table is None:
+        # Even wrapped it will not fit — restore the callouts/dims and keep the
+        # drop lint, so the sheet is never left with neither.
+        for n, obj in replaced.items():
+            dwg.add(obj, n)
         dwg._record_build_issue("warning", "table_dropped", "hole table did not fit the sheet")
-        return  # keep the partial callouts/location dims + lint
+        return
     # One entry per hole (with repeats) so the coverage *count* check sees that
     # the table documents every instance, not just each distinct diameter.
     table.covers_diameters = tuple(h.diameter for h in holes)
-    # The table now documents every plan hole — drop the individual callouts and
-    # location dims it replaces, and balloon each hole.
-    for n in [n for n in list(dwg._named) if n.startswith(("hc_plan", "dim_locx", "dim_locy"))]:
-        dwg.remove(n)
     for tag, h in zip(tags, holes, strict=True):
         dwg._add_balloon("plan", tag, 0, h)
     dwg._build_issues = [
