@@ -98,7 +98,7 @@ def _greedy_strip_1d_var(naturals, gaps, lo, hi, *, prefix=False):
     ``len(gaps) == max(len(naturals) - 1, 0)``. Otherwise identical to
     :func:`_greedy_strip_1d` (its uniform special case is ``gaps = [g]*(n-1)``).
     """
-    result = []
+    result: list = []
     for i, nat in enumerate(naturals):
         floor = lo if i == 0 else result[-1] + gaps[i - 1]
         v = max(floor, nat)
