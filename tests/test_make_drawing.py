@@ -1864,7 +1864,7 @@ class TestAutoHoleAnnotations:
         from draftwright.make_drawing import _solve_strip_ys
 
         # Four natural positions, solver must spread them to respect min_gap=8.
-        result = _solve_strip_ys([10.0, 12.0, 14.0, 16.0], min_gap=8.0, y_min=0.0, y_max=100.0)
+        result = _solve_strip_ys([10.0, 12.0, 14.0, 16.0], min_gap=8.0, lo=0.0, hi=100.0)
         assert result is not None
         assert len(result) == 4
         for y in result:
@@ -1877,14 +1877,14 @@ class TestAutoHoleAnnotations:
         from draftwright.make_drawing import _solve_strip_ys
 
         # Three items need 2 × 8 = 16mm gap, but range is only 10mm.
-        result = _solve_strip_ys([5.0, 10.0, 15.0], min_gap=8.0, y_min=0.0, y_max=10.0)
+        result = _solve_strip_ys([5.0, 10.0, 15.0], min_gap=8.0, lo=0.0, hi=10.0)
         assert result is None
 
     @pytest.mark.timeout(60)
     def test_solve_strip_ys_empty_input(self):
         from draftwright.make_drawing import _solve_strip_ys
 
-        assert _solve_strip_ys([], min_gap=8.0, y_min=0.0, y_max=100.0) == []
+        assert _solve_strip_ys([], min_gap=8.0, lo=0.0, hi=100.0) == []
 
 
 class TestHolePatternAnnotations:
