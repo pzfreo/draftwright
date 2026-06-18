@@ -3694,3 +3694,26 @@ class TestHoleTable:
         assert seq[25] == "Z"
         assert seq[26] == "AA"
         assert seq[27] == "AB"
+        # The base-26 rollover boundary and uniqueness.
+        full = _tag_sequence(703)
+        assert full[701] == "ZZ"
+        assert full[702] == "AAA"
+        assert len(set(full)) == 703  # bijective — no dup or skip
+
+    def test_table_keeps_lint_clean(self, tmp_path):
+        # The label-less table must not trip annotation_overlap / view-overlap
+        # lint, and the mixed Edge+Text Compound must export cleanly.
+        dwg = build_drawing(_multi_hole_plate())
+        before = {i.code for i in dwg.lint()}
+        dwg.add_hole_table("plan")
+        after = {i.code for i in dwg.lint()}
+        assert after == before  # no new lint codes from the table
+        svg, dxf = dwg.export(str(tmp_path / "t"))
+        assert Path(svg).stat().st_size > 0 and Path(dxf).stat().st_size > 0
+
+    def test_table_geometry_is_deterministic(self):
+        from draftwright.make_drawing import _build_hole_table
+
+        rows = [("TAG", "⌀", "QTY"), ("A", "ø10", "2")]
+        a = build_drawing(Box(60, 40, 20)).draft
+        assert _build_hole_table(rows, a).table_size == _build_hole_table(rows, a).table_size
