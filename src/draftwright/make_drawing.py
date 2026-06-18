@@ -416,6 +416,22 @@ def _tag_sequence(n):
     return tags
 
 
+def _wrap_rows(header, data, ncols):
+    """Reshape *data* rows into *ncols* side-by-side blocks (a wider, shorter
+    table), each block headed by *header* — so a long hole chart fits the page.
+    """
+    per = math.ceil(len(data) / ncols)
+    blank = ("",) * len(header)
+    wide = [tuple(header) * ncols]
+    for r in range(per):
+        row: tuple = ()
+        for c in range(ncols):
+            idx = c * per + r
+            row += data[idx] if idx < len(data) else blank
+        wide.append(row)
+    return wide
+
+
 def _build_table(rows, draft):
     """Build a generic data-table annotation at the origin (bottom-left ``(0, 0)``).
 
@@ -1955,6 +1971,9 @@ class Drawing:
         # top of :func:`_auto_annotate` so re-annotation does not accumulate.
         self._build_issues: list = []
         self._dropped_callout_diams: list = []
+        # Views whose hole callouts the layout had to drop — the trigger for the
+        # hole-table escalation (#93).
+        self._dropped_callout_views: set = set()
 
     # -- views ----------------------------------------------------------------
     def add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
@@ -2778,6 +2797,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     # not accumulate duplicate drop records.
     dwg._build_issues = []
     dwg._dropped_callout_diams = []
+    dwg._dropped_callout_views = set()
 
     def FX(x):
         return a.FV_X + (x - a.cx) * a.SCALE
@@ -3124,6 +3144,66 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
         _annotate_pmi(dwg, a, draft)
 
     _add_title_block(dwg, a)
+
+    # Escalate to a hole table when the plan view is too dense to dimension
+    # every hole — runs last so the table avoids every placed annotation
+    # including the title block (#93).
+    _maybe_tabulate_holes(dwg, a)
+
+
+def _maybe_tabulate_holes(dwg, a):
+    """Escalate to a per-instance hole table + balloons when the plan view is too
+    dense to dimension every hole individually (#93).
+
+    When callouts or location references had to be dropped, the individual
+    plan-view callouts and X/Y location dims are removed and replaced by a
+    complete **hole chart** — one row per hole (``TAG | ⌀ | X | Y``, X/Y from the
+    min-corner datum) and a uniquely-tagged balloon at each hole. The table
+    carries ``covers_diameters`` so the coverage lint still counts the holes.
+    Sparse parts drop nothing, so this is a no-op for them — unchanged.
+
+    If the table itself will not fit, nothing is removed and the drop lint is
+    kept — the sheet is never left with neither.
+    """
+    if not any(i.code in ("callout_dropped", "location_ref_dropped") for i in dwg._build_issues):
+        return
+
+    def axis_letter(h):
+        return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
+
+    holes = [h for h in a.holes if axis_letter(h) == "z"]  # plan-view holes
+    if not holes:
+        return
+    dx, dy = a.bb.min.X, a.bb.min.Y
+    tags = _tag_sequence(len(holes))
+    header = ("TAG", "⌀", "X", "Y")
+    data = [
+        (tag, f"ø{_fmt(h.diameter)}", _fmt(h.location[0] - dx), _fmt(h.location[1] - dy))
+        for tag, h in zip(tags, holes, strict=True)
+    ]
+    # Widen the chart into more column-blocks until it fits the page.
+    table = None
+    for ncols in (1, 2, 3, 4):
+        table = dwg.add_table(_wrap_rows(header, data, ncols), name="hole_table_plan")
+        if table is not None:
+            break
+    # The failed narrower attempts each recorded a table_dropped; clear them.
+    dwg._build_issues = [i for i in dwg._build_issues if i.code != "table_dropped"]
+    if table is None:
+        dwg._record_build_issue("warning", "table_dropped", "hole table did not fit the sheet")
+        return  # keep the partial callouts/location dims + lint
+    # One entry per hole (with repeats) so the coverage *count* check sees that
+    # the table documents every instance, not just each distinct diameter.
+    table.covers_diameters = tuple(h.diameter for h in holes)
+    # The table now documents every plan hole — drop the individual callouts and
+    # location dims it replaces, and balloon each hole.
+    for n in [n for n in list(dwg._named) if n.startswith(("hc_plan", "dim_locx", "dim_locy"))]:
+        dwg.remove(n)
+    for tag, h in zip(tags, holes, strict=True):
+        dwg._add_balloon("plan", tag, 0, h)
+    dwg._build_issues = [
+        i for i in dwg._build_issues if i.code not in ("callout_dropped", "location_ref_dropped")
+    ]
 
 
 def _annotate_pmi(dwg, a, draft) -> None:
@@ -3485,6 +3565,7 @@ def _record_callout_drop(dwg, view, diam, reason):
     and not double-reported.
     """
     dwg._dropped_callout_diams.append(diam)
+    dwg._dropped_callout_views.add(view)
     dwg._record_build_issue(
         "warning",
         "callout_dropped",
