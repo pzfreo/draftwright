@@ -153,21 +153,44 @@ than eroding it.
 ## Migration — incremental, subsumes existing behaviour
 
 1. Define `Placeable` + a `LayoutSolver` wrapping Cassowary; generalise
-   `_solve_strip_ys` into the axis-neutral 1D primitive it already is.
+   `_solve_strip_ys` into the axis-neutral 1D primitive it already is. *(#79)*
 2. **Prove on one mechanism** — the #77 turned-diameter leaders place via the
-   shared 1D solver, not manual pitch (this PR; the bridge to the protocol).
-3. Port hole callouts (already Cassowary) → bore leaders → dimension ladders.
-4. Retire manual pitch-stacking and fold the post-hoc repair loop into
-   validate-and-resolve as passes move in.
-5. Tables and GD&T arrive as new `Placeable`s.
+   shared 1D solver, not manual pitch. *(#77)*
+3. Port hole callouts onto the solver *(#80)*; add per-pair gaps *(#81a)*; add
+   pin/`locked` so a deliberate placement wins *(#89)*.
+4. Add the 2D capabilities the next features need — `place_box` (free-rectangle
+   placement for tables/frames) via the hole table *(#93)* — and grow the engine
+   through real consumers, not a speculative big-bang solve.
+5. GD&T arrives reusing `place_box` / the leader machinery.
+
+## Correction (2026-06-18): the "global 2D solve" is deferred, not central
+
+This ADR originally framed phase 4 as a single **global 2D Cassowary solve**.
+On contact with the code that proved **over-scoped**:
+
+- **Cross-pass overlap is rare.** Only one zone (`front.below`) has two passes
+  competing, and the fix there is a deterministic shared cursor, not a solve.
+- **2D box placement is the real need, and it is not Cassowary.** Non-overlap is
+  a disjunction; the practical answer is an exact **free-rectangle finder**
+  (`fit_box`/`place_box`, #93) — which the codebase already had 80 % of in
+  `_largest_empty_rect`. Tables, GD&T frames, and BOM/revision blocks all reuse
+  it; *that* is the genuine, reusable 2D capability.
+- **Non-crossing leader routing** (the genuinely hard, combinatorial part) is
+  built **only when a real fixture needs it** — adjacent (leaderless) balloons
+  cover typical parts first.
+
+So the engine grows **per real consumer**, and a monolithic global 2D Cassowary
+solve is **deferred until a part actually forces it (tracked in #94), and may
+never be needed.** This is a deliberate scope correction, not an omission.
 
 ## Current state vs target
 
-- **Exists:** the strip/zone allocator, `_solve_strip_ys` (a working 1D
-  Cassowary placement), and `Drawing.repair()` (dim-only post-hoc fix).
-- **Target:** the `Placeable` protocol, a global `LayoutSolver`, the escalation
-  ladder, and all passes migrated onto them. Until then the engine runs the four
-  mechanisms side by side; each migration step removes one.
+- **Exists:** the strip/zone allocator; `LayoutSolver` with 1D `solve_strip`
+  (+ per-pair gaps) and 2D `place_box`; `Placeable`/`locked`; pin/override
+  (#89); hole callouts + turned diameters on the solver; `repair()`.
+- **Target:** the escalation ladder + tables/balloons (#93) and GD&T (#61/#62)
+  built on the above. The full global 2D solve (#94) remains deferred unless a
+  real part forces it.
 
 ## Related
 

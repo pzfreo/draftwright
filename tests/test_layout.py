@@ -14,6 +14,7 @@ from draftwright.layout import (
     _greedy_strip_1d_var,
     _solve_strip_1d,
     _solve_strip_1d_var,
+    fit_box,
 )
 
 
@@ -182,6 +183,67 @@ class TestLayoutSolver:
         s.register(self._leader("b", 0))
         out = s.solve_strip(lo=0, hi=100, axis="x")
         assert out == {"a": 0, "b": 5}
+
+
+class TestFitBox:
+    """#93: 2D free-rectangle box placement (tables, GD&T frames, BOM)."""
+
+    def test_empty_region_places_at_preferred_corner(self):
+        # No obstacles: a 20x10 box prefers the bottom-right of a 100x100 region.
+        assert fit_box((20, 10), (0, 0, 100, 100), [], "br") == (80, 0)
+        assert fit_box((20, 10), (0, 0, 100, 100), [], "bl") == (0, 0)
+        assert fit_box((20, 10), (0, 0, 100, 100), [], "tr") == (80, 90)
+        assert fit_box((20, 10), (0, 0, 100, 100), [], "tl") == (0, 90)
+
+    def test_box_avoids_obstacles(self):
+        # An obstacle fills the bottom-right; the box must sit clear of it.
+        pos = fit_box((20, 20), (0, 0, 100, 100), [(50, 0, 100, 50)], "br")
+        assert pos is not None
+        x0, y0 = pos
+        # Placed box must not overlap the obstacle.
+        assert not (x0 < 100 and 50 < x0 + 20 and y0 < 50 and 0 < y0 + 20)
+
+    def test_returns_none_when_it_cannot_fit(self):
+        assert fit_box((200, 10), (0, 0, 100, 100), [], "br") is None  # too wide
+        assert fit_box((10, 200), (0, 0, 100, 100), [], "br") is None  # too tall
+        # A single obstacle leaving no 60-wide gap anywhere.
+        assert fit_box((60, 60), (0, 0, 100, 100), [(20, 0, 80, 100)], "br") is None
+
+    def test_deterministic(self):
+        args = ((20, 10), (0, 0, 100, 100), [(30, 30, 60, 60)], "br")
+        assert fit_box(*args) == fit_box(*args)
+
+    def test_place_box_method_delegates(self):
+        s = LayoutSolver()
+        assert s.place_box(size=(20, 10), region=(0, 0, 100, 100), obstacles=[], prefer="bl") == (
+            0,
+            0,
+        )
+
+    def test_interior_obstacle_is_avoided(self):
+        # An obstacle floating in the interior must be cleared (exercises the
+        # box-vs-obstacle rejection, not just the cut-line filter).
+        pos = fit_box((30, 30), (0, 0, 100, 100), [(40, 40, 60, 60)], "br")
+        assert pos is not None
+        x0, y0 = pos
+        assert not (x0 < 60 and 40 < x0 + 30 and y0 < 60 and 40 < y0 + 30)
+
+    def test_fits_into_an_l_shaped_pocket(self):
+        # Completeness: the only fit is tucked against three obstacles.
+        obstacles = [(0, 0, 40, 100), (60, 0, 100, 100), (40, 60, 60, 100)]
+        assert fit_box((20, 60), (0, 0, 100, 100), obstacles, "br") == (40, 0)
+
+    def test_order_independent(self):
+        a = [(30, 30, 60, 60), (10, 10, 20, 20), (70, 70, 90, 90)]
+        assert fit_box((20, 20), (0, 0, 100, 100), a, "br") == fit_box(
+            (20, 20), (0, 0, 100, 100), list(reversed(a)), "br"
+        )
+
+    def test_stays_fast_with_many_obstacles(self):
+        # O(n^3): dozens of obstacles (the hole-table case) must place quickly,
+        # not blow up like the old O(n^4) form. Just assert it returns.
+        obstacles = [(i, i, i + 2, i + 2) for i in range(0, 200, 5)]
+        assert fit_box((20, 20), (0, 0, 300, 300), obstacles, "tr") is not None
 
 
 def test_layout_engine_is_wired_into_the_drawing_path():

@@ -257,3 +257,61 @@ class LayoutSolver:
         if positions is None:
             return None
         return {p.key: pos for p, pos in zip(members, positions, strict=True)}
+
+    def place_box(self, *, size, region, obstacles, prefer="br"):
+        """Place a rigid box (a table, a GD&T frame, a revision block) in a free
+        part of the page near a preferred corner (ADR 0003 phase 4b, #93).
+
+        The 2D analogue of :meth:`solve_strip`: returns the box's ``(x0, y0)``
+        page-mm position, or ``None`` if it does not fit. *size* is ``(w, h)``;
+        *region* and each *obstacle* are ``(x0, y0, x1, y1)`` boxes; *prefer* is
+        one of ``"bl" "br" "tl" "tr"`` — the region corner to sit nearest. This
+        is the reusable 2D-placement capability tables and (later) GD&T frames
+        and BOM/revision blocks share.
+        """
+        return fit_box(size, region, obstacles, prefer)
+
+
+def fit_box(size, region, obstacles, prefer="br"):
+    """Place a ``(w, h)`` box in *region* avoiding *obstacles*, sat as near the
+    *prefer* corner as possible (ADR 0003, #93).
+
+    *region* and each obstacle are ``(x0, y0, x1, y1)`` page-mm boxes. *prefer* is
+    one of ``"bl" "br" "tl" "tr"``. Returns the box ``(x0, y0)`` or ``None``.
+
+    An optimal placement always has each box edge flush against a region or
+    obstacle edge, so the candidate top-left positions are exactly
+    ``{edge, edge - boxsize}`` per axis — O(n) each, O(n²) positions, each
+    checked against the obstacles in O(n). That is O(n³), tractable for the
+    dozens-of-annotations obstacle sets the hole table feeds it (the old
+    rectangle-enumeration form was O(n⁴) and blew up — #93 review). Deterministic
+    (sorted candidates, first minimum wins).
+    """
+    w, h = size
+    rx0, ry0, rx1, ry1 = region
+    if w > rx1 - rx0 or h > ry1 - ry0:
+        return None
+    # Only obstacles that can intersect the region constrain the placement.
+    obs = [o for o in obstacles if o[0] < rx1 and rx0 < o[2] and o[1] < ry1 and ry0 < o[3]]
+    x_edges = {rx0, rx1, *(o[0] for o in obs), *(o[2] for o in obs)}
+    y_edges = {ry0, ry1, *(o[1] for o in obs), *(o[3] for o in obs)}
+    xs = sorted({x for e in x_edges for x in (e, e - w) if rx0 <= x <= rx1 - w})
+    ys = sorted({y for e in y_edges for y in (e, e - h) if ry0 <= y <= ry1 - h})
+
+    right = prefer in ("br", "tr")
+    top = prefer in ("tl", "tr")
+    cx = rx1 if right else rx0
+    cy = ry1 if top else ry0
+    best = None
+    best_score = None
+    for bx in xs:
+        for by in ys:
+            if any(bx < o[2] and o[0] < bx + w and by < o[3] and o[1] < by + h for o in obs):
+                continue
+            bcx = bx + w if right else bx
+            bcy = by + h if top else by
+            score = (bcx - cx) ** 2 + (bcy - cy) ** 2
+            if best_score is None or score < best_score:
+                best_score = score
+                best = (bx, by)
+    return best
