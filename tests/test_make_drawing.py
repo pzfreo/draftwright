@@ -3684,7 +3684,7 @@ class TestHoleTable:
         monkeypatch.setattr(m, "fit_box", lambda *a, **k: None)
         dwg = build_drawing(_multi_hole_plate())
         assert dwg.add_hole_table("plan") is None
-        assert "hole_table_dropped" in {i.code for i in dwg.lint()}
+        assert "table_dropped" in {i.code for i in dwg.lint()}
 
     def test_tag_sequence_rolls_over_past_z(self):
         from draftwright.make_drawing import _tag_sequence
@@ -3712,8 +3712,19 @@ class TestHoleTable:
         assert Path(svg).stat().st_size > 0 and Path(dxf).stat().st_size > 0
 
     def test_table_geometry_is_deterministic(self):
-        from draftwright.make_drawing import _build_hole_table
+        from draftwright.make_drawing import _build_table
 
         rows = [("TAG", "⌀", "QTY"), ("A", "ø10", "2")]
         a = build_drawing(Box(60, 40, 20)).draft
-        assert _build_hole_table(rows, a).table_size == _build_hole_table(rows, a).table_size
+        assert _build_table(rows, a).table_size == _build_table(rows, a).table_size
+
+    def test_generic_add_table_places_arbitrary_rows(self):
+        # The builder is generic: a gear/BOM-style param table places like a
+        # hole table, clear of the views and title block.
+        dwg = build_drawing(_multi_hole_plate())
+        rows = [("PARAMETER", "VALUE"), ("MODULE", "0.5"), ("RATIO", "13:1")]
+        tbl = dwg.add_table(rows, name="gear_data")
+        assert tbl is not None and "gear_data" in dwg.annotations()
+        tb = self._bbox(tbl)
+        for v in dwg.views:
+            assert self._area(tb, dwg.view_bounds(v)) == 0.0, v

@@ -415,14 +415,15 @@ def _tag_sequence(n):
     return tags
 
 
-def _build_hole_table(rows, draft):
-    """Build a hole-table annotation at the origin (bottom-left at ``(0, 0)``).
+def _build_table(rows, draft):
+    """Build a generic data-table annotation at the origin (bottom-left ``(0, 0)``).
 
     *rows* is a list of equal-length string tuples; ``rows[0]`` is the header,
     drawn at the top. Returns a :class:`Compound` of grid rules + cell text,
     carrying ``.table_size = (w, h)`` so it can be positioned via
     :func:`fit_box`. Column widths are sized to their content via real glyph
-    metrics (:func:`_text_width`).
+    metrics (:func:`_text_width`). Generic — the hole table, and gear/BOM/
+    revision tables, all build through here.
     """
     fs = draft.font_size
     pad = draft.pad_around_text
@@ -2172,26 +2173,21 @@ class Drawing:
         """Return the named annotation object, or ``None`` if no such name (#27)."""
         return self._named.get(name)
 
-    def add_hole_table(self, view="plan", *, prefer="tr", name=None):
-        """Add a hole table for *view*'s holes, placed in a free corner (#93).
+    def add_table(self, rows, *, prefer="tr", name="table"):
+        """Add a generic data table, placed in a free corner (#93).
 
-        One row per hole spec-group — ``TAG | ⌀ | DEPTH | QTY`` with tags
-        ``A, B, …`` — built from :meth:`features` and positioned by
-        :func:`fit_box` clear of the views, title block, and existing
-        annotations. *prefer* is the page corner to sit nearest. Returns the
-        table annotation, or ``None`` when *view* has no holes or it will not
-        fit (recorded as ``hole_table_dropped`` lint).
+        *rows* is a list of equal-length string tuples (``rows[0]`` is the
+        header). The table is positioned by :func:`fit_box` clear of the views,
+        title block, and existing annotations; *prefer* is the page corner to sit
+        nearest. Returns the table annotation, or ``None`` if it has no rows or
+        will not fit (recorded as ``table_dropped`` lint). Gear-data, BOM, and
+        revision tables all go through here; :meth:`add_hole_table` is the
+        hole-specific convenience built on it.
         """
-        feats = [f for f in self.features(view) if f.type == "hole"]
-        if not feats:
+        if not rows:
             return None
-        rows = [("TAG", "⌀", "DEPTH", "QTY")]
-        for tag, f in zip(_tag_sequence(len(feats)), feats, strict=True):
-            depth = "THRU" if f.through else (_fmt(f.depth) if f.depth else "")
-            rows.append((tag, f"ø{_fmt(f.diameter)}", depth, str(f.count)))
-        table = _build_hole_table(rows, self.draft)
+        table = _build_table(rows, self.draft)
         w, h = table.table_size
-
         a = self._analysis
         margin = a.margin if a is not None else 10.0
         pw = a.PAGE_W if a is not None else self.page_w
@@ -2204,14 +2200,30 @@ class Drawing:
             except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
                 continue
             obstacles.append((bb.min.X, bb.min.Y, bb.max.X, bb.max.Y))
-
         pos = fit_box((w, h), region, obstacles, prefer)
         if pos is None:
             self._record_build_issue(
-                "warning", "hole_table_dropped", f"hole table for {view!r} did not fit the sheet"
+                "warning", "table_dropped", f"table {name!r} did not fit the sheet"
             )
             return None
-        return self.add(table.locate(Location((pos[0], pos[1], 0))), name or f"hole_table_{view}")
+        return self.add(table.locate(Location((pos[0], pos[1], 0))), name)
+
+    def add_hole_table(self, view="plan", *, prefer="tr", name=None):
+        """Add a hole table for *view*'s holes, placed in a free corner (#93).
+
+        One row per hole spec-group — ``TAG | ⌀ | DEPTH | QTY`` with tags
+        ``A, B, …`` — derived from :meth:`features` and placed via
+        :meth:`add_table`. Returns the table, or ``None`` when *view* has no
+        holes or it will not fit.
+        """
+        feats = [f for f in self.features(view) if f.type == "hole"]
+        if not feats:
+            return None
+        rows = [("TAG", "⌀", "DEPTH", "QTY")]
+        for tag, f in zip(_tag_sequence(len(feats)), feats, strict=True):
+            depth = "THRU" if f.through else (_fmt(f.depth) if f.depth else "")
+            rows.append((tag, f"ø{_fmt(f.diameter)}", depth, str(f.count)))
+        return self.add_table(rows, prefer=prefer, name=name or f"hole_table_{view}")
 
     def pin(self, name):
         """Pin a named annotation so the engine never moves it (#89).
