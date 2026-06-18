@@ -2174,6 +2174,13 @@ class Drawing:
                     dist = coord - max(p[ax] for p in (p1, p2))
                 else:
                     dist = min(p[ax] for p in (p1, p2)) - coord
+        # p1/p2 are page coordinates; Dimension labels the raw page distance when
+        # no label is given, which is scale-too-big at non-1:1 scales. Supply the
+        # real-world length (page distance ÷ drawing scale) unless the caller set
+        # an explicit label.
+        if "label" not in kwargs:
+            page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+            kwargs["label"] = _fmt(page_len / self.scale)
         return self.add(_dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name)
 
     # -- annotations ----------------------------------------------------------

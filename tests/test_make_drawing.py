@@ -3184,6 +3184,29 @@ class TestPlaceDim:
         result = dwg.place_dim((0, 0, 0), (80, 0, 0), "below", "plan", d, slot=8.0)
         assert isinstance(result, Dimension)
 
+    def test_place_dim_labels_real_world_length_at_non_unity_scale(self):
+        # place_dim receives page-coordinate points; at 1:2 the page span is 2× the
+        # world size. The auto label must read the real-world length, not the page
+        # distance, or it disagrees with the geometry (and trips label_vs_measured).
+        from build123d_drafting.helpers import lint_drawing
+
+        dwg = build_drawing(Box(80, 60, 20), scale=2.0)
+        assert dwg.scale == 2.0
+        p1 = dwg.at("plan", -40, 0, 0)
+        p2 = dwg.at("plan", 40, 0, 0)
+        d = dwg.place_dim(p1, p2, "below", "plan", dwg.draft, name="w")
+        assert d.label == "80"
+        assert [
+            i for i in lint_drawing([d], drawing_scale=dwg.scale) if i.code == "label_vs_measured"
+        ] == []
+
+    def test_place_dim_explicit_label_wins_over_scale_autolabel(self):
+        dwg = build_drawing(Box(80, 60, 20), scale=2.0)
+        p1 = dwg.at("plan", -40, 0, 0)
+        p2 = dwg.at("plan", 40, 0, 0)
+        d = dwg.place_dim(p1, p2, "below", "plan", dwg.draft, label="CUSTOM")
+        assert d.label == "CUSTOM"
+
 
 # ---------------------------------------------------------------------------
 # Issue #29: lint findings carry a suggested-fix code snippet
