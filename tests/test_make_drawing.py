@@ -1886,6 +1886,32 @@ class TestAutoHoleAnnotations:
 
         assert _solve_strip_ys([], min_gap=8.0, lo=0.0, hi=100.0) == []
 
+    @pytest.mark.timeout(60)
+    def test_solve_strip_via_layout_is_byte_identical_to_primitive(self):
+        # #80: the hole-callout Y-stack now routes through the LayoutSolver. The
+        # adapter must return exactly what the bare primitive did — including for
+        # tied natural Ys, where the solver's (natural, key) order must reduce to
+        # the input order via the zero-padded keys.
+        from draftwright.make_drawing import _solve_strip_via_layout, _solve_strip_ys
+
+        # (naturals, gap, lo, hi)
+        cases = [
+            ([10.0, 12.0, 14.0, 16.0], 8.0, 0.0, 100.0),  # distinct, feasible
+            ([5.0, 5.0, 5.0], 8.0, 0.0, 100.0),  # all tied
+            ([0.0, 0.0, 20.0, 20.0], 8.0, 0.0, 100.0),  # paired ties
+            ([], 8.0, 0.0, 10.0),  # empty
+            ([0.0, 0.0, 0.0], 8.0, 0.0, 10.0),  # infeasible, greedy also overflows
+            # Knife-edge: exact solve reports infeasible at (n-1)*gap == hi-lo, but
+            # a non-prefix greedy packing would just fit. The adapter must still
+            # return None here (matching the primitive), or the caller's drop is
+            # silently skipped (#80 review).
+            ([4.52, 5.29, 16.07, 22.13], 4.73, 8.44, 22.63),
+        ]
+        for naturals, gap, lo, hi in cases:
+            adapter = _solve_strip_via_layout(naturals, gap, lo, hi, "k")
+            primitive = _solve_strip_ys(naturals, gap, lo, hi)
+            assert adapter == primitive, naturals
+
 
 class TestHolePatternAnnotations:
     """Bolt-circle and linear-array sheet furniture + count-aware lint (#92)."""

@@ -92,7 +92,12 @@ from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
 from OCP.TopTools import TopTools_ListOfShape
 
-from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
+from draftwright.layout import (
+    LayoutSolver,
+    Placeable,
+    _greedy_strip_1d,
+    _solve_strip_1d,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -3985,6 +3990,38 @@ _greedy_strip_ys = _greedy_strip_1d
 _solve_strip_ys = _solve_strip_1d
 
 
+def _solve_strip_via_layout(naturals, min_gap, lo, hi, key_prefix):
+    """Place a pre-sorted, uniform-gap 1D stack through the shared LayoutSolver
+    (ADR 0003 phase 2, #80), returning positions in input order, or ``None`` if
+    the stack does not fit.
+
+    *naturals* must be ascending (the caller sorts the queue), so the solver's
+    ``(natural, key)`` ordering — with the zero-padded keys built here — is the
+    identity, and the result is byte-identical to the bare ``_solve_strip_1d``
+    this replaces. The label width is irrelevant to a vertical stack, so each
+    placeable carries the uniform ``min_gap`` as its height.
+    """
+    solver = LayoutSolver()
+    keys = [f"{key_prefix}{j:04d}" for j in range(len(naturals))]
+    for key, nat in zip(keys, naturals, strict=True):
+        solver.register(
+            Placeable(
+                key=key,
+                anchors=((0.0, nat),),
+                size=(0.0, min_gap),
+                dof_axis="y",
+                natural=nat,
+                min_gap=min_gap,
+            )
+        )
+    # greedy_fallback=False so this returns exactly what the bare primitive did:
+    # None when the strip is full, leaving the caller's prefix-drop to fire (#80).
+    placed = solver.solve_strip(lo=lo, hi=hi, axis="y", greedy_fallback=False)
+    if placed is None:
+        return None
+    return [placed[k] for k in keys]
+
+
 def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=None):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
@@ -4208,9 +4245,13 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
         right_queue.sort(key=lambda s: s[3])
         left_queue.sort(key=lambda s: s[3])
 
-        # --- Pass 2: Y placement ---
-        right_ys = _solve_strip_ys([s[3] for s in right_queue], min_gap, y_min, y_max)
-        left_ys = _solve_strip_ys([s[3] for s in left_queue], min_gap, y_min, y_max)
+        # --- Pass 2: Y placement (through the LayoutSolver, #80) ---
+        right_ys = _solve_strip_via_layout(
+            [s[3] for s in right_queue], min_gap, y_min, y_max, "hc_r"
+        )
+        left_ys = _solve_strip_via_layout(
+            [s[3] for s in left_queue], min_gap, y_min, y_max, "hc_l"
+        )
 
         if right_ys is None and right_queue:
             right_ys = _greedy_strip_ys(

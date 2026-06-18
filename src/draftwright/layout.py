@@ -153,7 +153,9 @@ class LayoutSolver:
         self._keys.add(placeable.key)
         self._placeables.append(placeable)
 
-    def solve_strip(self, *, lo: float, hi: float, axis: Axis) -> dict | None:
+    def solve_strip(
+        self, *, lo: float, hi: float, axis: Axis, greedy_fallback: bool = True
+    ) -> dict | None:
         """Place every registered placeable with ``dof_axis == axis`` along that
         axis, as one 1D Cassowary solve within ``[lo, hi]``.
 
@@ -162,6 +164,13 @@ class LayoutSolver:
         ordered by ``(natural, key)`` so the result is deterministic regardless
         of registration order; a single ``min_gap`` (the largest any member
         requires) separates neighbours.
+
+        When the exact Cassowary solve is infeasible and *greedy_fallback* is
+        true (the default), a greedy packing is tried before giving up. A caller
+        that does its own overflow handling (e.g. dropping a prefix and recording
+        it) passes ``greedy_fallback=False`` to get the exact-or-``None`` contract
+        of the bare 1D primitive, so its drop logic fires exactly when the solve
+        is full.
         """
         members = sorted(
             (p for p in self._placeables if p.dof_axis == axis),
@@ -172,7 +181,7 @@ class LayoutSolver:
         gap = max(p.min_gap for p in members)
         naturals = [p.natural for p in members]
         positions = _solve_strip_1d(naturals, gap, lo, hi)
-        if positions is None:
+        if positions is None and greedy_fallback:
             positions = _greedy_strip_1d(naturals, gap, lo, hi)
         if positions is None:
             return None
