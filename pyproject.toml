@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "draftwright"
-version = "0.1.10.dev0"
+version = "0.1.11.dev0"
 description = "Automated technical-drawing generation for build123d"
 readme = "README.md"
 license = { file = "LICENSE" }

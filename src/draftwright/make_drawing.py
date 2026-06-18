@@ -31,6 +31,7 @@ from build123d import (
     Align,
     Arrow,
     Box,
+    Circle,
     Color,
     Compound,
     Edge,
@@ -54,6 +55,7 @@ from build123d_drafting.features import (
     _full_cyls,
     _spec_key,
     analyse_cylinders,
+    find_bosses,
     find_hole_patterns,
     find_holes,
 )
@@ -90,6 +92,14 @@ from OCP.GProp import GProp_GProps
 from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
 from OCP.TopTools import TopTools_ListOfShape
+
+from draftwright.layout import (
+    LayoutSolver,
+    Placeable,
+    _greedy_strip_1d,
+    _solve_strip_1d,
+    fit_box,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -390,6 +400,82 @@ def _text_width(text: str, font_size: float, font: str = "Arial") -> float:
         .bounding_box()
         .size.X
     )
+
+
+def _tag_sequence(n):
+    """``A, B, …, Z, AA, AB, …`` — deterministic hole-table tags for *n* rows."""
+    tags = []
+    for i in range(n):
+        s, k = "", i
+        while True:
+            s = chr(ord("A") + k % 26) + s
+            k = k // 26 - 1
+            if k < 0:
+                break
+        tags.append(s)
+    return tags
+
+
+def _wrap_rows(header, data, ncols):
+    """Reshape *data* rows into *ncols* side-by-side blocks (a wider, shorter
+    table), each block headed by *header* — so a long hole chart fits the page.
+    """
+    per = math.ceil(len(data) / ncols)
+    blank = ("",) * len(header)
+    wide = [tuple(header) * ncols]
+    for r in range(per):
+        row: tuple = ()
+        for c in range(ncols):
+            idx = c * per + r
+            row += data[idx] if idx < len(data) else blank
+        wide.append(row)
+    return wide
+
+
+def _build_table(rows, draft):
+    """Build a generic data-table annotation at the origin (bottom-left ``(0, 0)``).
+
+    *rows* is a list of equal-length string tuples; ``rows[0]`` is the header,
+    drawn at the top. Returns a :class:`Compound` of grid rules + cell text,
+    carrying ``.table_size = (w, h)`` so it can be positioned via
+    :func:`fit_box`. Column widths are sized to their content via real glyph
+    metrics (:func:`_text_width`). Generic — the hole table, and gear/BOM/
+    revision tables, all build through here.
+    """
+    fs = draft.font_size
+    pad = draft.pad_around_text
+    row_h = fs + 2 * pad
+    ncol = len(rows[0])
+    col_w = [
+        max(max(_text_width(str(r[c]), fs) for r in rows) + 2 * pad, fs * 2.5) for c in range(ncol)
+    ]
+    xs = [0.0]
+    for w in col_w:
+        xs.append(xs[-1] + w)
+    total_w = xs[-1]
+    total_h = row_h * len(rows)
+    ys = [i * row_h for i in range(len(rows) + 1)]
+    children = []
+    for x in xs:
+        children.append(Edge.make_line(Vector(x, 0, 0), Vector(x, total_h, 0)))
+    for y in ys:
+        children.append(Edge.make_line(Vector(0, y, 0), Vector(total_w, y, 0)))
+    for ri, row in enumerate(rows):  # rows[0] (header) sits at the top
+        cy = total_h - (ri + 0.5) * row_h
+        for ci, cell in enumerate(row):
+            if not str(cell):
+                continue
+            cx = (xs[ci] + xs[ci + 1]) / 2
+            text = Text(
+                txt=str(cell),
+                font_size=fs,
+                align=(Align.CENTER, Align.CENTER),
+                mode=Mode.PRIVATE,
+            ).locate(Location((cx, cy, 0)))
+            children.extend(text.faces())
+    table = Compound(children=children)
+    table.table_size = (total_w, total_h)
+    return table
 
 
 _DIAM_RE = re.compile(r"[øØ⌀]\s*(\d+(?:\.\d+)?)")
@@ -939,6 +1025,11 @@ _SLOT_DIM_DEPTH = 2 * _FONT_SIZE + _PAD  # sv_zones.below: overall depth dimensi
 _SLOT_DIM_HEIGHT = 2 * _FONT_SIZE + 2 * _PAD  # fv_zones.right: overall height dim
 # Stacked step dims sit deeper so each ladder rung's label clears the rung below.
 _SLOT_DIM_STEP = 4 * _FONT_SIZE + _PAD  # fv_zones.right: step-height dimension
+
+# A plan view with at least this many holes escalates to a hole chart when it is
+# too dense to dimension every hole individually (#93). Below it, a dropped ref
+# stays a legibility drop rather than tabulating a handful of holes.
+_TABULATE_MIN_HOLES = 16
 
 # Smallest projected step height (page-mm) that can still carry a *legible*
 # stacked dimension between its two extension lines.  Derived from what has to
@@ -1893,6 +1984,9 @@ class Drawing:
         self.items: list = []
         self._coords: dict = {}
         self._named: dict = {}
+        # Names the caller has pinned: their position is fixed and the engine
+        # must not move them (repair now; the global solve later — ADR 0003 #89).
+        self._pinned: set = set()
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
         self._analysis: SimpleNamespace | None = None
@@ -2091,6 +2185,9 @@ class Drawing:
         """
         if name is not None and name in self._named:
             self.items.remove(self._named[name])
+            # A replacement under the same name is a fresh, deliberate object —
+            # it does not inherit the old object's pin (#89).
+            self._pinned.discard(name)
         annotate(obj, name)
         self.items.append(obj)
         if name is not None:
@@ -2103,6 +2200,7 @@ class Drawing:
         if obj is None:
             raise KeyError(f"no annotation named {name!r}")
         self.items.remove(obj)
+        self._pinned.discard(name)  # a removed name carries no pin (#89)
         return obj
 
     def annotations(self) -> dict:
@@ -2118,6 +2216,132 @@ class Drawing:
     def get_annotation(self, name):
         """Return the named annotation object, or ``None`` if no such name (#27)."""
         return self._named.get(name)
+
+    def add_table(self, rows, *, prefer="tr", name="table"):
+        """Add a generic data table, placed in a free corner (#93).
+
+        *rows* is a list of equal-length string tuples (``rows[0]`` is the
+        header). The table is positioned by :func:`fit_box` clear of the views,
+        title block, and existing annotations; *prefer* is the page corner to sit
+        nearest. Returns the table annotation, or ``None`` if it has no rows or
+        will not fit (recorded as ``table_dropped`` lint). Gear-data, BOM, and
+        revision tables all go through here; :meth:`add_hole_table` is the
+        hole-specific convenience built on it.
+        """
+        if not rows:
+            return None
+        table = _build_table(rows, self.draft)
+        w, h = table.table_size
+        a = self._analysis
+        margin = a.margin if a is not None else 10.0
+        pw = a.PAGE_W if a is not None else self.page_w
+        ph = a.PAGE_H if a is not None else self.page_h
+        region = (margin, margin, pw - margin, ph - margin)
+        obstacles = [b for v in self.views if (b := self.view_bounds(v)) is not None]
+        for o in self.items:
+            try:
+                bb = o.bounding_box()
+            except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+                continue
+            obstacles.append((bb.min.X, bb.min.Y, bb.max.X, bb.max.Y))
+        pos = fit_box((w, h), region, obstacles, prefer)
+        if pos is None:
+            self._record_build_issue(
+                "warning", "table_dropped", f"table {name!r} did not fit the sheet"
+            )
+            return None
+        return self.add(table.locate(Location((pos[0], pos[1], 0))), name)
+
+    def _hole_spec_groups(self, view):
+        """Ordered ``(tag, [holes])`` spec-groups of *view*'s holes (tags A, B,
+        …). The shared basis for the hole table's rows and its balloons, so the
+        TAG column and the balloon glyphs line up."""
+        a = self._analysis
+        target = {"plan": "z", "front": "y", "side": "x"}.get(view)
+        if a is None or target is None or view not in self._coords:
+            return []
+
+        def axis_letter(h):
+            return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
+
+        groups: dict = {}
+        for h in a.holes:
+            if axis_letter(h) == target:
+                groups.setdefault(_spec_key(h), []).append(h)
+        glist = list(groups.values())
+        return list(zip(_tag_sequence(len(glist)), glist, strict=True))
+
+    def _add_balloon(self, view, tag, j, hole):
+        """A circled tag (no leader) adjacent to *hole*, keyed to its table row."""
+        cx, cy = self._coords[view].pp(*hole.location)
+        fs = self.draft.font_size
+        r = fs * 1.5  # circle comfortably larger than the glyph
+        off = hole.diameter * self.scale / 2 + r + 1.0
+        bx, by = cx + off * 0.7, cy + off * 0.7
+        loc = Location((bx, by, 0))
+        # The annotation layer fills closed paths, so a circle edge renders as a
+        # disc. A thin annular FACE fills as a ring — i.e. a circle outline.
+        ring_faces = [f.moved(loc) for f in (Circle(r) - Circle(r - 0.35)).faces()]
+        text = Text(
+            txt=tag, font_size=fs, align=(Align.CENTER, Align.CENTER), mode=Mode.PRIVATE
+        ).locate(loc)
+        balloon = Compound(children=[*ring_faces, *text.faces()])
+        # Furniture that legitimately sits on the view geometry — exempt from the
+        # annotation-overlap / centreline lint, as the section arrows do.
+        balloon.is_centerline = True
+        self.add(balloon, f"balloon_{view}_{tag}_{j}")
+
+    def add_hole_table(self, view="plan", *, prefer="tr", name=None, balloons=True):
+        """Add a hole table for *view*'s holes, placed in a free corner (#93).
+
+        One row per hole spec-group — ``TAG | ⌀ | DEPTH | QTY`` with tags
+        ``A, B, …`` — placed via :meth:`add_table`. With *balloons* (the
+        default) a circled tag is added at each hole keyed to its row. The table
+        carries ``covers_diameters`` so the coverage lint counts the tabulated
+        holes as dimensioned. Returns the table, or ``None`` when *view* has no
+        holes or it will not fit.
+        """
+        groups = self._hole_spec_groups(view)
+        if not groups:
+            return None
+        rows = [("TAG", "⌀", "DEPTH", "QTY")]
+        diams = []
+        for tag, holes in groups:
+            h = holes[0]
+            depth = "THRU" if h.bottom == "through" else (_fmt(h.depth) if h.depth else "")
+            rows.append((tag, f"ø{_fmt(h.diameter)}", depth, str(len(holes))))
+            diams.append(h.diameter)
+        table = self.add_table(rows, prefer=prefer, name=name or f"hole_table_{view}")
+        if table is None:
+            return None
+        # The table documents these diameters — let lint see that (#93).
+        table.covers_diameters = tuple(diams)
+        if balloons:
+            for tag, holes in groups:
+                for j, h in enumerate(holes):
+                    self._add_balloon(view, tag, j, h)
+        return table
+
+    def pin(self, name):
+        """Pin a named annotation so the engine never moves it (#89).
+
+        A deliberate placement — by you or an AI — must win over automatic
+        layout. :meth:`repair` will not re-place a pinned annotation, and the
+        constraint solver (ADR 0003) treats it as fixed. Pinning fixes the
+        *position*, not existence: :meth:`remove` and :meth:`clear_annotations`
+        still apply. Raises ``KeyError`` if *name* is not a known annotation.
+        Returns ``self`` for chaining.
+        """
+        if name not in self._named:
+            raise KeyError(f"no annotation named {name!r}")
+        self._pinned.add(name)
+        return self
+
+    def unpin(self, name):
+        """Release a pin so the engine may move *name* again (#89). Returns
+        ``self``; a no-op if *name* was not pinned."""
+        self._pinned.discard(name)
+        return self
 
     def clear_annotations(self, keep=("title_block",)):
         """Remove all annotations except those named in *keep* (#74).
@@ -2135,6 +2359,7 @@ class Drawing:
         removed = [o for o in self.items if id(o) not in kept_ids]
         self.items = [o for o in self.items if id(o) in kept_ids]
         self._named = kept_named
+        self._pinned &= keep_set  # drop pins for cleared names (#89)
         return removed
 
     def _record_build_issue(self, severity, code, message):
@@ -2148,9 +2373,16 @@ class Drawing:
         """Return the re-placeable dimension whose label is *label*, or None.
 
         Only dimensions built by :func:`_dim` (carrying ``_dw_spec``) qualify;
-        leaders, callouts and hand-built annotations are left untouched.
+        leaders, callouts and hand-built annotations are left untouched. A
+        pinned dimension (#89) is also skipped — a deliberate placement must
+        win over automatic repair.
         """
+        # Identity-based, matching clear_annotations: "this specific object",
+        # not build123d's geometric Shape equality.
+        pinned_ids = {id(self._named[n]) for n in self._pinned if n in self._named}
         for o in self.items:
+            if id(o) in pinned_ids:
+                continue
             if getattr(o, "_dw_spec", None) is not None and getattr(o, "label", None) == label:
                 return o
         return None
@@ -2469,6 +2701,120 @@ def _export_shape(exporter, shape, layer, ctx):
         )
 
 
+def _mentioned_diams(annotations):
+    """Diameters already called out by an annotation — from ø-labels and from
+    structured ``covers_diameters`` metadata (e.g. ``HoleCallout``). Mirrors the
+    coverage :func:`lint_feature_coverage` checks, so a diameter in this set will
+    not lint as ``feature_not_dimensioned``."""
+    diams: set = set()
+    for ann in annotations:
+        if isinstance(ann, TitleBlock):
+            continue
+        for m in _DIAM_RE.finditer(getattr(ann, "label", None) or ""):
+            diams.add(float(m.group(1)))
+        for v in getattr(ann, "covers_diameters", ()):
+            diams.add(float(v))
+    return diams
+
+
+def _annotate_turned_diameters(dwg, a):
+    """Leader ø-callouts for external turned diameters whose axis lies along X (#77).
+
+    draftwright dimensions holes and, for a Z-rotational part, the OD; the
+    external stepped diameters of a turned part lying along X — a peg body, a
+    stepped shaft drawn on its side — are otherwise undimensioned and surface
+    only as ``feature_not_dimensioned``. This pass places one ø leader per
+    distinct external diameter, the thread/worm patches collapsed by
+    :func:`find_bosses` into a single boss, below the front-view profile.
+    Diameters another annotation already covers are skipped.
+
+    Scope (MVP): X-axis turning only. Z-rotational parts keep their existing
+    OD/bore path untouched; Y-axis turning, gear/thread module notes, and
+    axial-length dims are out of scope.
+    """
+    draft = dwg.draft
+    try:
+        bosses = find_bosses(a.part)
+    except Exception as exc:  # noqa: BLE001 — recognition may fail on odd geometry
+        _log.info("turned-diameter annotation skipped (%s)", exc)
+        return
+
+    def _axis_letter(vec):
+        return max(zip("xyz", vec, strict=True), key=lambda t: abs(t[1]))[0]
+
+    x_bosses = [b for b in bosses if _axis_letter(b.axis) == "x"]
+    if not x_bosses:
+        return
+
+    mentioned = _mentioned_diams(dwg.items)
+    # One representative boss per distinct external diameter (tallest wins),
+    # skipping any diameter another annotation already covers.
+    by_diam: dict = {}
+    for b in x_bosses:
+        key = next((k for k in by_diam if abs(k - b.diameter) <= 0.15), b.diameter)
+        if key not in by_diam or b.height > by_diam[key].height:
+            by_diam[key] = b
+    todo = [b for d, b in by_diam.items() if not any(abs(d - m) <= 0.15 for m in mentioned)]
+    if not todo:
+        return
+
+    # Each callout's label sits in a row below the front view, pulled toward the
+    # page-x of its feature; a shared 1D Cassowary solve spreads any that would
+    # overlap. This is ADR 0003's layer-2 primitive (_solve_strip_ys reused on
+    # the x axis) standing in for the manual pitch stacking the other leaders
+    # still use — the first pass to place on the constraint solver (#77).
+    fx0, fy0, fx1, _ = dwg.view_bounds("front")  # page bbox of the profile (#28)
+    # Drop the row clear of anything already placed below the profile (hole
+    # callouts, envelope dims). This is a coarse single-pass guard against the
+    # cross-pass overlap a global solve would handle exactly (ADR 0003 / #80):
+    # it deconflicts the whole row vertically, not per-label.
+    obstacle_bottom = fy0
+    for o in dwg.items:
+        try:
+            ob = o.bounding_box()
+        except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+            continue
+        if ob.min.Y < fy0 and ob.max.X > fx0 and ob.min.X < fx1:
+            obstacle_bottom = min(obstacle_bottom, ob.min.Y)
+    label_y = obstacle_bottom - (draft.font_size + 4 * draft.pad_around_text)
+    # No room below the profile within the page — skip rather than run the row
+    # off the sheet. The diameters then surface as feature_not_dimensioned; the
+    # escalation ladder (#82) will tabulate instead of dropping.
+    if label_y < a.margin + draft.font_size:
+        _log.info("turned-diameter callouts skipped (no room below the front view)")
+        return
+
+    specs = []  # (tip_page, label) ordered by feature x
+    for b in todo:
+        mid_x = b.location[0] - b.axis[0] * (b.height / 2)
+        tip = dwg.at("front", mid_x, b.location[1], b.location[2] - b.diameter / 2)
+        specs.append((tip, f"ø{_fmt(b.diameter)}"))
+    specs.sort(key=lambda s: s[0][0])
+
+    half_w = max(len(label) for _, label in specs) * draft.font_size * 0.62 / 2
+    min_gap = 2 * half_w + 2 * draft.pad_around_text
+    naturals = [tip[0] for tip, _ in specs]
+    x_lo, x_hi = fx0 + half_w, fx1 - half_w
+    label_xs = _solve_strip_ys(naturals, min_gap, x_lo, x_hi) or _greedy_strip_ys(
+        naturals, min_gap, x_lo, x_hi
+    )
+    if label_xs is None:
+        # The labels do not fit the row even greedily; skip rather than crash on
+        # a None unpack. They surface as feature_not_dimensioned (#82 tabulates).
+        _log.info("turned-diameter callouts skipped (%d will not fit the row)", len(specs))
+        return
+    for i, ((tip, label), lx) in enumerate(zip(specs, label_xs, strict=True)):
+        dwg.add(
+            Leader(
+                tip=(tip[0], tip[1], 0),
+                elbow=(lx, label_y, 0),
+                label=label,
+                draft=draft,
+            ),
+            f"ldr_d{i}",
+        )
+
+
 def _auto_annotate(dwg, a, *, detail_view: bool = False):
     """Add the standard automatic dimensions, centrelines, and title block."""
     draft = dwg.draft
@@ -2770,6 +3116,9 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     if detail_view:
         _add_detail_view(dwg, a)
 
+    # External turned diameters (X-axis turning) the passes above do not cover.
+    _annotate_turned_diameters(dwg, a)
+
     # Phase 7 — strip footprint debug logging + post-placement overflow check.
     # Overflow can only occur when outer_limit was tightened after allocations
     # were already committed (e.g. iso-x tightening or iso-y cap guard).
@@ -2819,6 +3168,79 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
         _annotate_pmi(dwg, a, draft)
 
     _add_title_block(dwg, a)
+
+    # Escalate to a hole table when the plan view is too dense to dimension
+    # every hole — runs last so the table avoids every placed annotation
+    # including the title block (#93).
+    _maybe_tabulate_holes(dwg, a)
+
+
+def _maybe_tabulate_holes(dwg, a):
+    """Escalate to a per-instance hole table + balloons when the plan view is too
+    dense to dimension every hole individually (#93).
+
+    When callouts or location references had to be dropped, the individual
+    plan-view callouts and X/Y location dims are removed and replaced by a
+    complete **hole chart** — one row per hole (``TAG | ⌀ | X | Y``, X/Y from the
+    min-corner datum) and a uniquely-tagged balloon at each hole. The table
+    carries ``covers_diameters`` so the coverage lint still counts the holes.
+    Sparse parts drop nothing, so this is a no-op for them — unchanged.
+
+    If the table itself will not fit, nothing is removed and the drop lint is
+    kept — the sheet is never left with neither.
+    """
+    if not any(i.code in ("callout_dropped", "location_ref_dropped") for i in dwg._build_issues):
+        return
+
+    def axis_letter(h):
+        return max(zip("xyz", h.axis, strict=True), key=lambda t: abs(t[1]))[0]
+
+    holes = [h for h in a.holes if axis_letter(h) == "z"]  # plan-view holes
+    # A chart is warranted only for a *genuinely* dense plan view — a part that
+    # merely dropped one too-close location ref keeps its individual dims (the
+    # legibility gate already handled it). #93.
+    if len(holes) < _TABULATE_MIN_HOLES:
+        return
+    dx, dy = a.bb.min.X, a.bb.min.Y
+    tags = _tag_sequence(len(holes))
+    header = ("TAG", "⌀", "X", "Y")
+    data = [
+        (tag, f"ø{_fmt(h.diameter)}", _fmt(h.location[0] - dx), _fmt(h.location[1] - dy))
+        for tag, h in zip(tags, holes, strict=True)
+    ]
+    # Remove the callouts and location dims the table replaces FIRST: it frees
+    # their space for the table and shrinks the obstacle set fit_box scans (the
+    # dense parts have dozens), which is the dominant cost on heavy sheets (#93).
+    replaced = {
+        n: dwg._named[n]
+        for n in list(dwg._named)
+        if n.startswith(("hc_plan", "dim_locx", "dim_locy"))
+    }
+    for n in replaced:
+        dwg.remove(n)
+
+    # Widen the chart into more column-blocks until it fits the page.
+    table = None
+    for ncols in (1, 2, 3, 4):
+        table = dwg.add_table(_wrap_rows(header, data, ncols), name="hole_table_plan")
+        if table is not None:
+            break
+    dwg._build_issues = [i for i in dwg._build_issues if i.code != "table_dropped"]
+    if table is None:
+        # Even wrapped it will not fit — restore the callouts/dims and keep the
+        # drop lint, so the sheet is never left with neither.
+        for n, obj in replaced.items():
+            dwg.add(obj, n)
+        dwg._record_build_issue("warning", "table_dropped", "hole table did not fit the sheet")
+        return
+    # One entry per hole (with repeats) so the coverage *count* check sees that
+    # the table documents every instance, not just each distinct diameter.
+    table.covers_diameters = tuple(h.diameter for h in holes)
+    for tag, h in zip(tags, holes, strict=True):
+        dwg._add_balloon("plan", tag, 0, h)
+    dwg._build_issues = [
+        i for i in dwg._build_issues if i.code not in ("callout_dropped", "location_ref_dropped")
+    ]
 
 
 def _annotate_pmi(dwg, a, draft) -> None:
@@ -3881,60 +4303,43 @@ def _add_pitch_dim(dwg, a, view, j, pattern, to_page):
     )
 
 
-def _greedy_strip_ys(natural_ys, min_gap, y_min, y_max, *, prefix=False):
-    """Greedy Y-placement: push each value down until the gap clears.
+# 1D strip placement now lives in draftwright.layout (ADR 0003 phase 1, #79).
+# These aliases keep the existing axis-specific callers and their tests working
+# while the primitive is axis-neutral; later phases route through LayoutSolver.
+_greedy_strip_ys = _greedy_strip_1d
+_solve_strip_ys = _solve_strip_1d
 
-    With *prefix=False* (default): returns None if any item overflows y_max.
-    With *prefix=True*: stops at the first overflow and returns the placed prefix.
+
+def _solve_strip_via_layout(naturals, min_gap, lo, hi, key_prefix):
+    """Place a pre-sorted, uniform-gap 1D stack through the shared LayoutSolver
+    (ADR 0003 phase 2, #80), returning positions in input order, or ``None`` if
+    the stack does not fit.
+
+    *naturals* must be ascending (the caller sorts the queue), so the solver's
+    ``(natural, key)`` ordering — with the zero-padded keys built here — is the
+    identity, and the result is byte-identical to the bare ``_solve_strip_1d``
+    this replaces. The label width is irrelevant to a vertical stack, so each
+    placeable carries the uniform ``min_gap`` as its height.
     """
-    result = []
-    prev = y_min - min_gap
-    for ny in natural_ys:
-        y = max(prev + min_gap, ny)
-        if y > y_max:
-            if prefix:
-                break
-            return None
-        result.append(y)
-        prev = y
-    return result
-
-
-def _solve_strip_ys(natural_ys, min_gap, y_min, y_max):
-    """Cassowary Y-placement for bore-callout leaders sharing one strip.
-
-    Returns solved Y positions (same length as *natural_ys*), or ``None`` when
-    the callouts don't fit within [y_min, y_max].  Falls back to the greedy
-    cursor when kiwisolver is unavailable.
-
-    *natural_ys* must be sorted ascending; each solved value is bounded to
-    [y_min, y_max] and adjacent values are at least *min_gap* apart.
-    """
-    if not natural_ys:
-        return []
-    n = len(natural_ys)
-    if (n - 1) * min_gap > y_max - y_min:
-        return None  # provably infeasible
-
-    try:
-        import kiwisolver as ki
-    except ImportError:
-        return _greedy_strip_ys(natural_ys, min_gap, y_min, y_max)
-
-    solver = ki.Solver()
-    ys = [ki.Variable(f"y{i}") for i in range(n)]
-    try:
-        for v in ys:
-            solver.addConstraint((v >= y_min) | "required")
-            solver.addConstraint((v <= y_max) | "required")
-        for i in range(n - 1):
-            solver.addConstraint((ys[i + 1] - ys[i] >= min_gap) | "required")
-        for v, ny in zip(ys, natural_ys, strict=True):
-            solver.addConstraint((v == ny) | "strong")
-        solver.updateVariables()
-        return [v.value() for v in ys]
-    except ki.UnsatisfiableConstraint:
+    solver = LayoutSolver()
+    keys = [f"{key_prefix}{j:04d}" for j in range(len(naturals))]
+    for key, nat in zip(keys, naturals, strict=True):
+        solver.register(
+            Placeable(
+                key=key,
+                anchors=((0.0, nat),),
+                size=(0.0, min_gap),
+                dof_axis="y",
+                natural=nat,
+                min_gap=min_gap,
+            )
+        )
+    # greedy_fallback=False so this returns exactly what the bare primitive did:
+    # None when the strip is full, leaving the caller's prefix-drop to fire (#80).
+    placed = solver.solve_strip(lo=lo, hi=hi, axis="y", greedy_fallback=False)
+    if placed is None:
         return None
+    return [placed[k] for k in keys]
 
 
 def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=None):
@@ -4160,9 +4565,13 @@ def _annotate_holes(dwg, a, view_of_axis, axis_letter, found_patterns, holes_in=
         right_queue.sort(key=lambda s: s[3])
         left_queue.sort(key=lambda s: s[3])
 
-        # --- Pass 2: Y placement ---
-        right_ys = _solve_strip_ys([s[3] for s in right_queue], min_gap, y_min, y_max)
-        left_ys = _solve_strip_ys([s[3] for s in left_queue], min_gap, y_min, y_max)
+        # --- Pass 2: Y placement (through the LayoutSolver, #80) ---
+        right_ys = _solve_strip_via_layout(
+            [s[3] for s in right_queue], min_gap, y_min, y_max, "hc_r"
+        )
+        left_ys = _solve_strip_via_layout(
+            [s[3] for s in left_queue], min_gap, y_min, y_max, "hc_l"
+        )
 
         if right_ys is None and right_queue:
             right_ys = _greedy_strip_ys(
@@ -4595,19 +5004,21 @@ def _write_script(a) -> str:
         ")\n"
         "\n"
         "# ── Customise here — runs BEFORE export, so edits land in the output ───────────\n"
-        "# dwg.views        'front' 'plan' 'side' 'iso'  → (visible, hidden) compounds\n"
-        "# dwg.items        mutable list of annotation objects\n"
+        "# Prefer domain edits (place_dim / features) over page mechanics (at / Leader);\n"
+        "# the engine places annotations automatically — say WHAT, not WHERE.\n"
+        "# dwg.features(view)       → detected features → [FeatureInfo(.diameter .count .page_pos)]\n"
+        "# dwg.place_dim(p1, p2, side, view, dwg.draft, name=…)  → add a dimension, auto-placed\n"
         "# dwg.annotations()        → {name: type} of every named annotation\n"
         "# dwg.get_annotation(name) → the named annotation object, or None\n"
-        "# dwg.at(view, x, y, z)  → page point (px, py, 0) mapped from world coordinates\n"
-        "# dwg.view_bounds(view)  → (x_min, y_min, x_max, y_max) page bbox of the view, or None\n"
-        "# dwg.add(obj, name) / dwg.remove(name)\n"
+        "# dwg.remove(name) / dwg.add(obj, name)\n"
+        "# dwg.pin(name) / dwg.unpin(name)  → fix a placement so repair never moves it\n"
+        "# dwg.lint_summary()       → {passed, score, by_code, issues:[…suggestion]}\n"
+        "# dwg.repair()             → auto-fix mechanically-fixable lint (never worsens)\n"
         "# dwg.add_view(name, shape, camera, up, position)  → section / auxiliary view\n"
-        "# Example:\n"
-        "#   from build123d_drafting import Leader\n"
-        "#   dwg.add(Leader(tip=dwg.at('front', 10, 0, 5), elbow=(8, 40, 0),\n"
-        "#                  label='ø4 BORE', draft=dwg.draft), 'ldr_bore')\n"
-        "#   dwg.remove('dim_height')\n"
+        "# dwg.items / dwg.views / dwg.at(view,x,y,z) / dwg.view_bounds(view)  → low-level escape\n"
+        "# Example — add a linear dim (place_dim auto-stacks; endpoints via dwg.at):\n"
+        "#   p1, p2 = dwg.at('front', 0, 0, 0), dwg.at('front', 40, 0, 0)\n"
+        "#   dwg.place_dim(p1, p2, 'above', 'front', dwg.draft, name='dim_len')\n"
         "\n"
         "# ── Export ────────────────────────────────────────────────────────────────────\n"
         "svg_path, dxf_path = dwg.export(_stem)\n"

@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 
 import pytest
-from build123d import Box, Compound, Cylinder, Edge, Pos, export_step
+from build123d import Box, Compound, Cylinder, Edge, Pos, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
 from draftwright import Drawing, build_drawing, make_drawing
@@ -1909,7 +1909,7 @@ class TestAutoHoleAnnotations:
         from draftwright.make_drawing import _solve_strip_ys
 
         # Four natural positions, solver must spread them to respect min_gap=8.
-        result = _solve_strip_ys([10.0, 12.0, 14.0, 16.0], min_gap=8.0, y_min=0.0, y_max=100.0)
+        result = _solve_strip_ys([10.0, 12.0, 14.0, 16.0], min_gap=8.0, lo=0.0, hi=100.0)
         assert result is not None
         assert len(result) == 4
         for y in result:
@@ -1922,14 +1922,40 @@ class TestAutoHoleAnnotations:
         from draftwright.make_drawing import _solve_strip_ys
 
         # Three items need 2 × 8 = 16mm gap, but range is only 10mm.
-        result = _solve_strip_ys([5.0, 10.0, 15.0], min_gap=8.0, y_min=0.0, y_max=10.0)
+        result = _solve_strip_ys([5.0, 10.0, 15.0], min_gap=8.0, lo=0.0, hi=10.0)
         assert result is None
 
     @pytest.mark.timeout(60)
     def test_solve_strip_ys_empty_input(self):
         from draftwright.make_drawing import _solve_strip_ys
 
-        assert _solve_strip_ys([], min_gap=8.0, y_min=0.0, y_max=100.0) == []
+        assert _solve_strip_ys([], min_gap=8.0, lo=0.0, hi=100.0) == []
+
+    @pytest.mark.timeout(60)
+    def test_solve_strip_via_layout_is_byte_identical_to_primitive(self):
+        # #80: the hole-callout Y-stack now routes through the LayoutSolver. The
+        # adapter must return exactly what the bare primitive did — including for
+        # tied natural Ys, where the solver's (natural, key) order must reduce to
+        # the input order via the zero-padded keys.
+        from draftwright.make_drawing import _solve_strip_via_layout, _solve_strip_ys
+
+        # (naturals, gap, lo, hi)
+        cases = [
+            ([10.0, 12.0, 14.0, 16.0], 8.0, 0.0, 100.0),  # distinct, feasible
+            ([5.0, 5.0, 5.0], 8.0, 0.0, 100.0),  # all tied
+            ([0.0, 0.0, 20.0, 20.0], 8.0, 0.0, 100.0),  # paired ties
+            ([], 8.0, 0.0, 10.0),  # empty
+            ([0.0, 0.0, 0.0], 8.0, 0.0, 10.0),  # infeasible, greedy also overflows
+            # Knife-edge: exact solve reports infeasible at (n-1)*gap == hi-lo, but
+            # a non-prefix greedy packing would just fit. The adapter must still
+            # return None here (matching the primitive), or the caller's drop is
+            # silently skipped (#80 review).
+            ([4.52, 5.29, 16.07, 22.13], 4.73, 8.44, 22.63),
+        ]
+        for naturals, gap, lo, hi in cases:
+            adapter = _solve_strip_via_layout(naturals, gap, lo, hi, "k")
+            primitive = _solve_strip_ys(naturals, gap, lo, hi)
+            assert adapter == primitive, naturals
 
 
 class TestHolePatternAnnotations:
@@ -3422,6 +3448,82 @@ class TestRepair:
         assert d._dw_spec.side == "above"
 
 
+class TestPin:
+    """#89: a pinned annotation is never moved by the engine (repair today)."""
+
+    def _two_overlapping(self):
+        from draftwright.make_drawing import _dim
+
+        dwg = build_drawing(Box(60, 40, 20))
+        p1, p2 = (40.0, 20.0, 0.0), (80.0, 20.0, 0.0)
+        dwg.add(_dim(p1, p2, "above", 8, dwg.draft, label="AA"), "a")
+        dwg.add(_dim(p1, p2, "above", 8, dwg.draft, label="BB"), "b")
+        return dwg
+
+    def test_repair_does_not_move_a_pinned_dim(self):
+        # 'a' is the first re-placeable in the overlap, so repair would push it;
+        # pinned, it stays at distance 8 and 'b' is pushed instead.
+        dwg = self._two_overlapping()
+        dwg.pin("a")
+        dwg.repair()
+        assert dwg._named["a"]._dw_spec.distance == 8  # untouched
+        assert dwg._named["b"]._dw_spec.distance > 8  # moved in its place
+
+    def test_unpin_lets_repair_move_it_again(self):
+        dwg = self._two_overlapping()
+        dwg.pin("a").unpin("a")
+        dwg.repair()
+        # With nothing pinned, the overlap is resolved (one of them moved).
+        assert not [i for i in dwg.lint() if i.code == "annotation_overlap"]
+
+    def test_pin_unknown_name_raises(self):
+        dwg = build_drawing(Box(60, 40, 20))
+        with pytest.raises(KeyError):
+            dwg.pin("does_not_exist")
+
+    def test_pin_and_unpin_are_chainable(self):
+        dwg = self._two_overlapping()
+        assert dwg.pin("a") is dwg
+        assert dwg.unpin("a") is dwg
+
+    def test_placeable_locked_defaults_false(self):
+        from draftwright.layout import Placeable
+
+        p = Placeable("k", ((0, 0),), (4, 2), "y", 0.0, 5.0)
+        assert p.locked is False
+        assert Placeable("k", ((0, 0),), (4, 2), "y", 0.0, 5.0, locked=True).locked is True
+
+    def test_pinning_both_overlap_labels_is_a_noop(self):
+        # Both deliberate → the engine respects both and leaves the overlap.
+        dwg = self._two_overlapping()
+        dwg.pin("a").pin("b")
+        dwg.repair()
+        assert dwg._named["a"]._dw_spec.distance == 8
+        assert dwg._named["b"]._dw_spec.distance == 8
+
+    def test_pinning_a_non_dim_then_repair_does_not_crash(self):
+        # _find_dim builds an id-set over pinned objects of any type; pinning a
+        # Leader (not a re-placeable dim) must not break repair.
+        dwg = self._two_overlapping()
+        dwg.add(Leader((0, 0, 0), (10, 10, 0), "L", dwg.draft), "ldr")
+        dwg.pin("ldr")
+        dwg.repair()  # must not raise
+        assert "ldr" in dwg.annotations()
+
+    def test_removed_then_readded_name_is_not_still_pinned(self):
+        from draftwright.make_drawing import _dim
+
+        dwg = self._two_overlapping()
+        dwg.pin("a")
+        dwg.remove("a")
+        # Re-add a fresh "a" at the same overlapping spot; it must NOT inherit
+        # the old pin, so repair is free to move it.
+        dwg.add(_dim((40.0, 20.0, 0.0), (80.0, 20.0, 0.0), "above", 8, dwg.draft, label="AA"), "a")
+        assert "a" not in dwg._pinned
+        dwg.repair()
+        assert not [i for i in dwg.lint() if i.code == "annotation_overlap"]
+
+
 class TestAnnotationsQuery:
     """#27: introspect existing annotations by name and type."""
 
@@ -3516,3 +3618,235 @@ class TestViewBounds:
         far = Compound(children=[Edge.make_line((x1 + 10, 0, 0), (x1 + 10, 5, 0))])
         dwg.views["front"] = (vis, far)
         assert dwg.view_bounds("front")[2] == pytest.approx(x1 + 10)
+
+
+def _x_stepped_shaft():
+    """A turned shaft lying along X: ø30 (len 40) then ø16 (len 30).
+
+    Built about Z then rotated so the turning axis is X — the orientation that
+    is *not* flagged rotational (the OD logic is Z-centric), exercising #77.
+    """
+    return Rotation(0, 90, 0) * (Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(8, 30))
+
+
+class TestTurnedDiameters:
+    """#77: external turned diameters (X-axis turning) get ø leader callouts."""
+
+    def test_each_external_diameter_gets_a_callout(self):
+        dwg = build_drawing(_x_stepped_shaft())
+        labels = {o.label for n, o in dwg._named.items() if n.startswith("ldr_d")}
+        assert "ø30" in labels
+        assert "ø16" in labels
+
+    def test_no_feature_not_dimensioned_left(self):
+        # The whole point: the external diameters no longer lint as uncovered.
+        dwg = build_drawing(_x_stepped_shaft())
+        codes = dwg.lint_summary()["by_code"]
+        assert codes.get("feature_not_dimensioned", 0) == 0
+
+    def test_callouts_are_leaders_on_the_constraint_solver(self):
+        # Placed via _solve_strip_ys (ADR 0003 layer-2), so two distinct
+        # diameters never share an x and never collide: label xs are min_gap
+        # apart and inside the front view's page bounds.
+        dwg = build_drawing(_x_stepped_shaft())
+        leaders = [o for n, o in dwg._named.items() if n.startswith("ldr_d")]
+        assert len(leaders) >= 2
+        xs = sorted(ldr.elbow[0] for ldr in leaders)
+        assert all(b - a > 1.0 for a, b in zip(xs, xs[1:]))  # spread, not stacked
+
+    def test_z_rotational_part_is_untouched(self):
+        # A Z-axis turned part keeps its existing OD/bore path: the new pass is
+        # a no-op (no X-axis bosses), so no ldr_d callouts appear.
+        dwg = build_drawing(Cylinder(15, 40))  # plain Z disc/shaft
+        assert not any(n.startswith("ldr_d") for n in dwg._named)
+
+    def test_unfittable_row_skips_without_crashing(self, monkeypatch):
+        # When the labels do not fit the row, both solvers return None; the pass
+        # must skip gracefully, not crash the whole build on a None unpack.
+        import sys
+
+        m = sys.modules["draftwright.make_drawing"]  # __init__ shadows the submodule
+        monkeypatch.setattr(m, "_solve_strip_ys", lambda *a, **k: None)
+        monkeypatch.setattr(m, "_greedy_strip_ys", lambda *a, **k: None)
+        dwg = build_drawing(_x_stepped_shaft())  # must not raise
+        assert not any(n.startswith("ldr_d") for n in dwg._named)
+
+
+def _multi_hole_plate():
+    """A plate with three spec-groups of Z-holes (two ø10, one ø16)."""
+    from build123d import Box, Cylinder, Pos
+
+    return (
+        Box(120, 80, 20)
+        - Pos(40, 25, 0) * Cylinder(5, 30)
+        - Pos(-40, 25, 0) * Cylinder(5, 30)
+        - Pos(0, -25, 0) * Cylinder(8, 30)
+    )
+
+
+def _dense_plate():
+    """A small plate crowded with 24 Z-holes — too dense to dimension each, so
+    the location dims overflow and the engine escalates to a hole chart (#93)."""
+    import itertools
+
+    from build123d import Box, Cylinder, Pos
+
+    part = Box(70, 50, 12)
+    for i, (gx, gy) in enumerate(itertools.product([-25, -15, -5, 5, 15, 25], [-15, -5, 5, 15])):
+        part -= Pos(gx, gy, 0) * Cylinder(1.0 + (i % 5) * 0.4, 20)
+    return part
+
+
+class TestHoleTable:
+    """#93: hole table placed in a free corner via place_box."""
+
+    @staticmethod
+    def _area(a, b):
+        ox = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+        oy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+        return ox * oy
+
+    def _bbox(self, obj):
+        bb = obj.bounding_box()
+        return (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
+
+    def test_table_has_a_row_per_spec_group(self):
+        dwg = build_drawing(_multi_hole_plate())
+        n_groups = len([f for f in dwg.features("plan") if f.type == "hole"])
+        assert n_groups == 2  # ø10 (×2) and ø16
+        tbl = dwg.add_hole_table("plan")
+        assert tbl is not None
+        assert "hole_table_plan" in dwg.annotations()
+        # header + one row per group; the table is a grid Compound.
+        assert tbl.table_size[0] > 0 and tbl.table_size[1] > 0
+
+    def test_a_balloon_per_hole_keyed_to_a_row(self):
+        # 3 physical holes (1 ø16 → A, 2 ø10 → B) get 3 balloons; tags A,B exist.
+        dwg = build_drawing(_multi_hole_plate())
+        dwg.add_hole_table("plan")
+        balloons = [n for n in dwg.annotations() if n.startswith("balloon_plan_")]
+        assert len(balloons) == 3
+        tags = {n.split("_")[2] for n in balloons}
+        assert tags == {"A", "B"}
+
+    def test_balloons_false_suppresses_them(self):
+        dwg = build_drawing(_multi_hole_plate())
+        dwg.add_hole_table("plan", balloons=False)
+        assert not any(n.startswith("balloon_") for n in dwg.annotations())
+
+    def test_table_and_balloons_keep_lint_clean(self):
+        # covers_diameters lets coverage lint count the tabulated holes, and the
+        # balloons are furniture (is_centerline) so they do not trip overlap lint.
+        dwg = build_drawing(_multi_hole_plate())
+        before = {i.code for i in dwg.lint()}
+        dwg.add_hole_table("plan")
+        assert {i.code for i in dwg.lint()} == before
+        assert dwg._named["hole_table_plan"].covers_diameters == (16.0, 10.0)
+
+    def test_table_does_not_overlap_views_or_title_block(self):
+        dwg = build_drawing(_multi_hole_plate())
+        dwg.add_hole_table("plan")
+        tb = self._bbox(dwg._named["hole_table_plan"])
+        for v in dwg.views:
+            assert self._area(tb, dwg.view_bounds(v)) == 0.0, v
+        assert self._area(tb, self._bbox(dwg._named["title_block"])) == 0.0
+
+    def test_no_holes_in_view_returns_none(self):
+        from build123d import Box
+
+        dwg = build_drawing(Box(60, 40, 20))
+        assert dwg.add_hole_table("plan") is None
+        assert "hole_table_plan" not in dwg.annotations()
+
+    def test_table_dropped_when_it_will_not_fit(self, monkeypatch):
+        import sys
+
+        m = sys.modules["draftwright.make_drawing"]
+        monkeypatch.setattr(m, "fit_box", lambda *a, **k: None)
+        dwg = build_drawing(_multi_hole_plate())
+        assert dwg.add_hole_table("plan") is None
+        assert "table_dropped" in {i.code for i in dwg.lint()}
+
+    def test_tag_sequence_rolls_over_past_z(self):
+        from draftwright.make_drawing import _tag_sequence
+
+        seq = _tag_sequence(28)
+        assert seq[:3] == ["A", "B", "C"]
+        assert seq[25] == "Z"
+        assert seq[26] == "AA"
+        assert seq[27] == "AB"
+        # The base-26 rollover boundary and uniqueness.
+        full = _tag_sequence(703)
+        assert full[701] == "ZZ"
+        assert full[702] == "AAA"
+        assert len(set(full)) == 703  # bijective — no dup or skip
+
+    def test_table_keeps_lint_clean(self, tmp_path):
+        # The label-less table must not trip annotation_overlap / view-overlap
+        # lint, and the mixed Edge+Text Compound must export cleanly.
+        dwg = build_drawing(_multi_hole_plate())
+        before = {i.code for i in dwg.lint()}
+        dwg.add_hole_table("plan")
+        after = {i.code for i in dwg.lint()}
+        assert after == before  # no new lint codes from the table
+        svg, dxf = dwg.export(str(tmp_path / "t"))
+        assert Path(svg).stat().st_size > 0 and Path(dxf).stat().st_size > 0
+
+    def test_table_geometry_is_deterministic(self):
+        from draftwright.make_drawing import _build_table
+
+        rows = [("TAG", "⌀", "QTY"), ("A", "ø10", "2")]
+        a = build_drawing(Box(60, 40, 20)).draft
+        assert _build_table(rows, a).table_size == _build_table(rows, a).table_size
+
+    def test_generic_add_table_places_arbitrary_rows(self):
+        # The builder is generic: a gear/BOM-style param table places like a
+        # hole table, clear of the views and title block.
+        dwg = build_drawing(_multi_hole_plate())
+        rows = [("PARAMETER", "VALUE"), ("MODULE", "0.5"), ("RATIO", "13:1")]
+        tbl = dwg.add_table(rows, name="gear_data")
+        assert tbl is not None and "gear_data" in dwg.annotations()
+        tb = self._bbox(tbl)
+        for v in dwg.views:
+            assert self._area(tb, dwg.view_bounds(v)) == 0.0, v
+
+
+class TestEscalation:
+    """#93: a too-dense plan view auto-escalates to a hole chart + balloons."""
+
+    def test_dense_part_auto_tabulates(self):
+        dwg = build_drawing(_dense_plate())
+        # The escalation fired: a table, a balloon per hole, and the individual
+        # plan callouts + location dims are gone.
+        assert "hole_table_plan" in dwg.annotations()
+        assert len([n for n in dwg.annotations() if n.startswith("balloon_")]) == 24
+        assert not any(
+            n.startswith(("hc_plan", "dim_locx", "dim_locy")) for n in dwg.annotations()
+        )
+
+    def test_escalation_clears_density_lint(self):
+        # No callout_dropped / location_ref_dropped warnings survive once the
+        # holes are tabulated, and the count check is satisfied (covers_diameters
+        # lists every instance).
+        dwg = build_drawing(_dense_plate())
+        warns = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
+        assert "callout_dropped" not in warns
+        assert "location_ref_dropped" not in warns
+        assert "feature_count_mismatch" not in warns
+
+    def test_sparse_part_is_not_tabulated(self):
+        # A sparse plate dimensions every hole individually — no table, unchanged.
+        dwg = build_drawing(_multi_hole_plate())
+        assert "hole_table_plan" not in dwg.annotations()
+        assert not any(n.startswith("balloon_") for n in dwg.annotations())
+        assert any(n.startswith("hc_plan") for n in dwg.annotations())
+
+    def test_wrap_rows_reshapes_into_blocks(self):
+        from draftwright.make_drawing import _wrap_rows
+
+        header = ("T", "D")
+        data = [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4"), ("e", "5")]
+        wide = _wrap_rows(header, data, 2)  # 5 rows → 3 per block, 2 blocks
+        assert wide[0] == ("T", "D", "T", "D")  # header repeated per block
+        assert wide[1] == ("a", "1", "d", "4")  # row 0 of each block
+        assert wide[3] == ("c", "3", "", "")  # ragged tail padded blank
