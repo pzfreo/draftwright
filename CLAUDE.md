@@ -15,16 +15,25 @@ It sits on top of two Apache 2.0 libraries:
 
 ## Architecture
 
-Three modules:
+Five modules. The dependency graph is a DAG: `layout.py` → `_core.py` →
+(`make_drawing.py`, `annotate.py`), and `make_drawing.py` → `annotate.py`. No
+lower module imports an upper one.
 
-- **`make_drawing.py`** — the bulk of the engine:
+- **`make_drawing.py`** — orchestration and the public surface:
+  - **STEP/Shape import + geometry analysis** (`_analyse`) — builds the `Analysis` namespace
   - **Layout orchestration** — strip/zone model that places views and reserves space for annotations
   - **Scale selection** (`choose_scale`) — ISO/ASME standard scales
   - **Feature orchestration** — calls `find_holes`, `analyse_cylinders` from `build123d_drafting.features`
-  - **Annotation placement** — calls helpers from `build123d_drafting.helpers`
-  - **Section view generation** (`_add_section_view`) — ISO 128-44 arrows, ISO 128-50 hatching
   - **`Drawing` class** — composable result object with `.lint()`, `.add()`, `.export_*`
   - **CLI** (`draftwright` command) — STEP → SVG+DXF or editable .py script
+- **`annotate.py`** — the automatic annotation passes. `_auto_annotate` is the single
+  entry point (called by `build_drawing`); it drives `_annotate_holes`, `_annotate_pmi`,
+  `_add_location_dims`, `_add_section_view` (ISO 128-44 arrows, ISO 128-50 hatching),
+  and `_add_detail_view`. Imports only from `_core.py`/`layout.py` and third-party libs.
+- **`_core.py`** — shared primitives below both `make_drawing.py` and `annotate.py`:
+  the `Analysis` namespace and its field types (`_Projector`, `Strip`, `ViewZones`),
+  the dimension/format helpers (`_dim`, `_fmt`, `_add_title_block`, …), and the
+  page/slot/margin layout constants.
 - **`layout.py`** — the constraint-based layout engine (ADR 0003): the `Placeable`
   protocol and `LayoutSolver` (1D Cassowary strip solver `solve_strip`; 2D
   free-rectangle placer `place_box`/`fit_box`). Sits *below* the domain API.
