@@ -1302,15 +1302,21 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
         pv_hh,
         top=DIM_PAD,
         right=gap_fv_sv,
-        bottom=pv_below,
+        bottom=max(pv_below, halo),  # band below PV holds the width dim + a balloon row
         left=gap_left,
     )
     sv = ViewBlock(sv_hw, fv_hh, right=DIM_PAD)
 
-    # Vertical stack: bottom margin + FV block + abutting FV↔PV gap + PV block +
-    # PV top band + top margin.  Reduces to 2·margin + 3·DIM_PAD + z·s + y·s when
-    # halo = 0.
-    total_h = 2 * margin + fv.bottom + 2 * fv.hh + (fv.top + pv.bottom) + 2 * pv.hh + pv.top
+    # Bottom balloon band: rather than pushing the front view down (which would
+    # cascade into the iso/table and the scale choice), LIFT the plan view up
+    # into the empty top headroom above it — the front/side views, iso and title
+    # block stay anchored, so the table is undisturbed.  The lift is implicit:
+    # the vertical stack is centred with the BASE front↔plan gap (so FV/SV centre
+    # exactly as when halo = 0), while PV is positioned with the full ballooned
+    # gap, leaving it max(0, halo - pv_below) higher.  Byte-identical when
+    # halo = 0.  (#112, ADR 0004.)
+    base_gap = fv.top + pv_below
+    total_h = 2 * margin + fv.bottom + 2 * fv.hh + base_gap + 2 * pv.hh + pv.top
     y_offset = max(0.0, (page_h - total_h) / 2)
 
     total_content_w = (
@@ -1326,6 +1332,9 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     FV_X = margin + x_offset + fv.left + fv.hw
     FV_Y = y_offset + margin + fv.bottom + fv.hh
     PV_X = FV_X
+    # PV uses the full (ballooned) front↔plan gap while FV/SV were centred with
+    # the base gap — so the plan view sits pv_lift higher: lifted into the
+    # headroom, front view anchored.
     PV_Y = FV_Y + fv.hh + (fv.top + pv.bottom) + pv.hh
     SV_X = FV_X + fv.hw + max(fv.right, sv.left) + sv.hw
     SV_Y = FV_Y
@@ -2088,25 +2097,33 @@ class Drawing:
         fs = self.draft.font_size
         r = fs * 1.5  # circle comfortably larger than the glyph
         standoff = _STRIP_GAP
-        gap = 2 * r + _STRIP_SPACING  # min centre-to-centre between balloons
+        gap = 2 * r + 2 * _STRIP_SPACING  # min centre-to-centre: balloon + padding both sides
 
         # Plan-view page edges; the reserved bands sit just outside them.
         pl, pr = a.PV_X - a.fv_hw, a.PV_X + a.fv_hw
-        pt = a.PV_Y + a.pv_hh
+        pt, pb = a.PV_Y + a.pv_hh, a.PV_Y - a.pv_hh
         sv_left = a.SV_X - a.sv_hw
         margin, ph = a.margin, a.PAGE_H
 
-        # Assign each hole to the nearest reserved band (bottom excluded — the
-        # front view abuts the plan view there; a bottom balloon band needs the
-        # hole table packed as a block too, see #112).
-        bands: dict = {"left": [], "right": [], "top": []}
+        # A bottom band (below PV, beside the overall-width dim) is usable only
+        # when the layout actually lifted the plan view — i.e. widened the FV↔PV
+        # gap beyond the base DIM_PAD (#112, ADR 0004).  Without the lift the gap
+        # is full of the width dimension and a balloon row would collide with it;
+        # bottom-edge holes then fall back to the nearest side/top band.
+        bottom_line = pb - standoff - r
+        has_bottom = pb - (a.FV_Y + a.fv_hh) > _DIM_PAD + 2
+
+        # Assign each hole to the nearest reserved band.
+        bands: dict = {"left": [], "right": [], "top": [], "bottom": []}
         for tag, j, hole in specs:
             cx, cy = pp(*hole.location)
             choices = {"left": cx - pl, "right": pr - cx, "top": pt - cy}
+            if has_bottom:
+                choices["bottom"] = cy - pb
             bands[min(choices, key=lambda s: choices[s])].append((tag, j, hole, cx, cy))
 
         # left/right balloons vary in Y at a fixed X just outside the part; top
-        # balloons vary in X at a fixed Y just above it.
+        # and bottom balloons vary in X at a fixed Y just beyond it.
         self._place_band(
             view, bands["left"], "y", pl - standoff - r, margin + r, ph - margin - r, gap, fs, r
         )
@@ -2115,6 +2132,9 @@ class Drawing:
         )
         self._place_band(
             view, bands["top"], "x", pt + standoff + r, pl - standoff, sv_left - r, gap, fs, r
+        )
+        self._place_band(
+            view, bands["bottom"], "x", bottom_line, pl - standoff, sv_left - r, gap, fs, r
         )
 
     def _place_band(self, view, members, axis, line, lo, hi, gap, fs, r):
