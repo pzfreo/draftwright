@@ -1276,19 +1276,41 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     margin = _MARGIN
     DIM_PAD = _DIM_PAD
     bbox_max = max(x_size, y_size, z_size)
-    # When the plan view will be ballooned, reserve a standoff band (pv_halo) on
-    # its left and right corridors so the balloon ring has clear space off the
-    # part and no leader crosses a neighbouring view (#111).
-    halo = strips.pv_halo if strips else 0.0
-    gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
-    gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
-
     fv_hw = x_size * scale / 2
     fv_hh = z_size * scale / 2
     pv_hh = y_size * scale / 2
     sv_hw = y_size * scale / 2
 
-    total_h = 2 * margin + 3 * DIM_PAD + z_size * scale + y_size * scale
+    # Compose each view as a block: geometry half-extents + reserved annotation
+    # bands per side (#112).  The front and plan views form a vertical column
+    # sharing the left/right corridors (max of the two); the side view shares
+    # the FV↔SV corridor; the front↔plan gap is the abutting pair
+    # (fv.top + pv.bottom).  When the plan view is ballooned (halo > 0) its halo
+    # becomes explicit per-side bands so the ballooned plan view is placed as a
+    # unit — including a BOTTOM band that pushes the front view down so balloons
+    # ring the part below it, not just left/right/top (#111/#112 Phase 2).  All
+    # bands reduce to today's arithmetic when halo = 0 (byte-identical).
+    halo = strips.pv_halo if strips else 0.0
+    gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
+    gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
+    pv_below = _est_pv_below_depth()
+    fv = ViewBlock(
+        fv_hw, fv_hh, top=DIM_PAD - pv_below, right=gap_fv_sv, bottom=DIM_PAD, left=gap_left
+    )
+    pv = ViewBlock(
+        fv_hw,
+        pv_hh,
+        top=DIM_PAD,
+        right=gap_fv_sv,
+        bottom=pv_below,
+        left=gap_left,
+    )
+    sv = ViewBlock(sv_hw, fv_hh, right=DIM_PAD)
+
+    # Vertical stack: bottom margin + FV block + abutting FV↔PV gap + PV block +
+    # PV top band + top margin.  Reduces to 2·margin + 3·DIM_PAD + z·s + y·s when
+    # halo = 0.
+    total_h = 2 * margin + fv.bottom + 2 * fv.hh + (fv.top + pv.bottom) + 2 * pv.hh + pv.top
     y_offset = max(0.0, (page_h - total_h) / 2)
 
     total_content_w = (
@@ -1300,19 +1322,6 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
         + bbox_max * scale * _ISO_WIDTH_BUDGET
     )
     x_offset = max(0.0, (page_w - 2 * margin - tb_w - total_content_w) / 2)
-
-    # Compose each view as a block (geometry half-extents + reserved annotation
-    # bands per side) and place the blocks (#112).  The bands reproduce today's
-    # corridor arithmetic exactly (gap→band map in #112): the front and plan
-    # views form a vertical column sharing the left/right corridors; the side
-    # view sits to the right sharing the FV↔SV corridor; the front↔plan gap is
-    # the one abutting pair (fv.top + pv.bottom = DIM_PAD).
-    pv_below = _est_pv_below_depth()
-    fv = ViewBlock(
-        fv_hw, fv_hh, top=DIM_PAD - pv_below, right=gap_fv_sv, bottom=DIM_PAD, left=gap_left
-    )
-    pv = ViewBlock(fv_hw, pv_hh, top=DIM_PAD, right=gap_fv_sv, bottom=pv_below, left=gap_left)
-    sv = ViewBlock(sv_hw, fv_hh, right=DIM_PAD)
 
     FV_X = margin + x_offset + fv.left + fv.hw
     FV_Y = y_offset + margin + fv.bottom + fv.hh
@@ -2087,7 +2096,9 @@ class Drawing:
         sv_left = a.SV_X - a.sv_hw
         margin, ph = a.margin, a.PAGE_H
 
-        # Assign each hole to the nearest reserved band (bottom excluded).
+        # Assign each hole to the nearest reserved band (bottom excluded — the
+        # front view abuts the plan view there; a bottom balloon band needs the
+        # hole table packed as a block too, see #112).
         bands: dict = {"left": [], "right": [], "top": []}
         for tag, j, hole in specs:
             cx, cy = pp(*hole.location)
