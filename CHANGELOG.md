@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.11 — 2026-06-19
+
 ### Changed
 
 - **Feature-coverage lint is assembly-aware.** A general-arrangement drawing of
@@ -11,6 +13,22 @@
   the warning count and quality score, but still queryable. Auto-detected;
   override with `build_drawing(..., assembly=True/False)` or
   `lint_feature_coverage(..., assembly=...)` (#69).
+
+### Fixed
+
+- **`place_dim` now labels the real-world length, not the page distance**, at
+  non-1:1 scale. Previously a dimension placed at a scale other than 1:1 showed
+  the on-page millimetre span instead of the true model dimension (#104).
+
+### Internal
+
+- **`make_drawing.py` decomposed (#98).** The per-view projection math and the
+  analysis namespace were deduplicated and typed (the namespace is now a frozen
+  `Analysis` dataclass), and the annotation passes were extracted into a new
+  `draftwright.annotate` module on top of a shared `draftwright._core`. The
+  module graph is a DAG (`layout → _core → {make_drawing, annotate}`) and
+  `make_drawing.py` shrank from ~5,270 to ~2,930 lines. No public API or
+  behaviour change.
 
 ## v0.1.10 — 2026-06-18
 
