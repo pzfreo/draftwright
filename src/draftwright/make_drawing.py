@@ -1241,6 +1241,26 @@ def choose_scale(
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class ViewBlock:
+    """A view's composite footprint (#112): its geometry half-extents plus the
+    reserved annotation-band depth on each side (page-mm).
+
+    The block's outer box is the geometry box inflated by its bands; the layout
+    packs these blocks rather than padding bare views with scalar corridors.
+    Two blocks that *abut* are separated by ``bandA + bandB``; two that *share*
+    a corridor (a band against a common wall or neighbour) by ``max(bandA,
+    bandB)`` — see the gap→band map in #112.
+    """
+
+    hw: float  # geometry half-width
+    hh: float  # geometry half-height
+    top: float = 0.0
+    right: float = 0.0
+    bottom: float = 0.0
+    left: float = 0.0
+
+
 def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps=0):
     """Compute the 4-view layout geometry for a part at a given scale/page.
 
@@ -1281,13 +1301,26 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     )
     x_offset = max(0.0, (page_w - 2 * margin - tb_w - total_content_w) / 2)
 
-    FV_X = margin + x_offset + gap_left + fv_hw
-    FV_Y = y_offset + margin + DIM_PAD + fv_hh
+    # Compose each view as a block (geometry half-extents + reserved annotation
+    # bands per side) and place the blocks (#112).  The bands reproduce today's
+    # corridor arithmetic exactly (gap→band map in #112): the front and plan
+    # views form a vertical column sharing the left/right corridors; the side
+    # view sits to the right sharing the FV↔SV corridor; the front↔plan gap is
+    # the one abutting pair (fv.top + pv.bottom = DIM_PAD).
+    pv_below = _est_pv_below_depth()
+    fv = ViewBlock(
+        fv_hw, fv_hh, top=DIM_PAD - pv_below, right=gap_fv_sv, bottom=DIM_PAD, left=gap_left
+    )
+    pv = ViewBlock(fv_hw, pv_hh, top=DIM_PAD, right=gap_fv_sv, bottom=pv_below, left=gap_left)
+    sv = ViewBlock(sv_hw, fv_hh, right=DIM_PAD)
+
+    FV_X = margin + x_offset + fv.left + fv.hw
+    FV_Y = y_offset + margin + fv.bottom + fv.hh
     PV_X = FV_X
-    PV_Y = FV_Y + fv_hh + DIM_PAD + pv_hh
-    SV_X = FV_X + fv_hw + gap_fv_sv + sv_hw
+    PV_Y = FV_Y + fv.hh + (fv.top + pv.bottom) + pv.hh
+    SV_X = FV_X + fv.hw + max(fv.right, sv.left) + sv.hw
     SV_Y = FV_Y
-    sv_right = SV_X + sv_hw + DIM_PAD
+    sv_right = SV_X + sv.hw + sv.right
     sv_right_wall = (
         (page_w - margin) if (PV_Y - pv_hh) > (margin + _TB_H) else (page_w - tb_w - margin)
     )
