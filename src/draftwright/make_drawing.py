@@ -56,6 +56,7 @@ from build123d_drafting.features import (
     find_holes,
 )
 from build123d_drafting.helpers import (
+    Leader,
     LintIssue,
     Note,
     TitleBlock,
@@ -87,6 +88,7 @@ from draftwright._core import (
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
     _SLOT_DIM_WIDTH,
+    _TABULATE_MIN_HOLES,
     _TB_H,
     Analysis,
     Strip,
@@ -104,6 +106,8 @@ from draftwright._core import (
 )
 from draftwright.annotate import _auto_annotate
 from draftwright.layout import (
+    _greedy_strip_1d,
+    _solve_strip_1d,
     fit_box,
 )
 
@@ -912,6 +916,36 @@ def _est_pv_below_depth() -> float:
     return _STRIP_GAP + _SLOT_DIM_WIDTH
 
 
+def _est_plan_halo(font_size: float = _FONT_SIZE) -> float:
+    """Per-side standoff band (page-mm) reserved around the plan view when its
+    holes will be ballooned, so the leadered balloon ring sits in clear space
+    off the part instead of jamming the views together (#111).
+
+    Scale-independent (font_size is fixed page-mm), like the strip depths: a
+    leader standoff + one balloon diameter (``2·r = 3·font_size``) + clearance.
+    """
+    return _STRIP_GAP + 3 * font_size + _STRIP_SPACING
+
+
+def _will_balloon(holes, patterns) -> bool:
+    """A-priori (pre-layout) prediction that the plan view will escalate to a
+    leadered hole-chart, so its balloon halo can be reserved before the views
+    are placed (#111, approach A).
+
+    Conservative and scale-independent: fires when there are at least
+    ``_TABULATE_MIN_HOLES`` plan-view holes that are *not* mostly covered by a
+    detected pattern (a patterned set is grouped into one ``n× ⌀`` callout +
+    pattern dim, so it does not balloon).  May occasionally over-reserve (a
+    little wasted corridor) or, if the runtime trigger fires anyway, fall back
+    to placing balloons in the unreserved margin — both are graceful.
+    """
+    z = [h for h in holes if _axis_letter(h) == "z"]
+    if len(z) < _TABULATE_MIN_HOLES:
+        return False
+    covered = sum(len(p.holes) for p in patterns if p.holes and _axis_letter(p.holes[0]) == "z")
+    return covered < 0.8 * len(z)
+
+
 # Inter-constant invariant: the gap between the front view top edge and the
 # plan view bottom edge equals _DIM_PAD.  The pv_zones.below strip occupies
 # that gap, so _DIM_PAD must be at least as wide as the depth pv_below needs.
@@ -1012,6 +1046,7 @@ class StripDepths:
 
     right: float  # horizontal corridor right of FV/PV → gap_fv_sv
     left: float  # horizontal corridor left of FV/PV
+    pv_halo: float = 0.0  # balloon standoff band reserved around the plan view (#111)
 
 
 def _measure_strips(
@@ -1039,7 +1074,8 @@ def _measure_strips(
         bore_depth += pad_around_text + arrow_length
     right = max(_est_right_strip_depth(n_steps), bore_depth)
     left = max(_DIM_PAD, bore_depth)
-    return StripDepths(right=right, left=left)
+    pv_halo = _est_plan_halo(font_size) if _will_balloon(holes, patterns) else 0.0
+    return StripDepths(right=right, left=left, pv_halo=pv_halo)
 
 
 def _fits(
@@ -1073,8 +1109,9 @@ def _fits(
     views may extend over it horizontally as long as they clear it vertically.
     """
     bbox_max = max(x_size, y_size, z_size)
-    gap_fv_sv = max(_DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps))
-    gap_left = max(_DIM_PAD, strips.left if strips else _DIM_PAD)
+    halo = strips.pv_halo if strips else 0.0
+    gap_fv_sv = max(_DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
+    gap_left = max(_DIM_PAD, strips.left if strips else _DIM_PAD, halo)
     h = _MARGIN + _DIM_PAD + y_size * scale + _DIM_PAD + z_size * scale + _DIM_PAD + _MARGIN
     if h > page_h:
         return False
@@ -1219,8 +1256,12 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     margin = _MARGIN
     DIM_PAD = _DIM_PAD
     bbox_max = max(x_size, y_size, z_size)
-    gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps))
-    gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD)
+    # When the plan view will be ballooned, reserve a standoff band (pv_halo) on
+    # its left and right corridors so the balloon ring has clear space off the
+    # part and no leader crosses a neighbouring view (#111).
+    halo = strips.pv_halo if strips else 0.0
+    gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
+    gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
 
     fv_hw = x_size * scale / 2
     fv_hh = z_size * scale / 2
@@ -1985,13 +2026,78 @@ class Drawing:
         glist = list(groups.values())
         return list(zip(_tag_sequence(len(glist)), glist, strict=True))
 
-    def _add_balloon(self, view, tag, j, hole):
-        """A circled tag (no leader) adjacent to *hole*, keyed to its table row."""
-        cx, cy = self._coords[view].pp(*hole.location)
+    def _add_balloons(self, view, specs):
+        """Place a leadered balloon for each ``(tag, j, hole)`` in *specs*,
+        fitted into the halo the layout reserved around the view (#111).
+
+        Each hole is assigned to the nearest reserved band — left, right, or top
+        of the plan view (never the bottom: the front view abuts it there) — and
+        the balloons in each band are spread along it with the 1D strip solver so
+        none overlap, each pulled toward its hole's coordinate.  A :class:`Leader`
+        then runs from the hole rim to the glyph.  Because the layout reserved
+        this band before placing the views (:func:`_est_plan_halo` /
+        :func:`_will_balloon`), the balloons sit in clear space off the part and
+        no leader crosses a neighbouring view.
+        """
+        a = self._analysis
+        if view not in self._coords or a is None:
+            return
+        pp = self._coords[view].pp
         fs = self.draft.font_size
         r = fs * 1.5  # circle comfortably larger than the glyph
-        off = hole.diameter * self.scale / 2 + r + 1.0
-        bx, by = cx + off * 0.7, cy + off * 0.7
+        standoff = _STRIP_GAP
+        gap = 2 * r + _STRIP_SPACING  # min centre-to-centre between balloons
+
+        # Plan-view page edges; the reserved bands sit just outside them.
+        pl, pr = a.PV_X - a.fv_hw, a.PV_X + a.fv_hw
+        pt = a.PV_Y + a.pv_hh
+        sv_left = a.SV_X - a.sv_hw
+        margin, ph = a.margin, a.PAGE_H
+
+        # Assign each hole to the nearest reserved band (bottom excluded).
+        bands: dict = {"left": [], "right": [], "top": []}
+        for tag, j, hole in specs:
+            cx, cy = pp(*hole.location)
+            choices = {"left": cx - pl, "right": pr - cx, "top": pt - cy}
+            bands[min(choices, key=lambda s: choices[s])].append((tag, j, hole, cx, cy))
+
+        # left/right balloons vary in Y at a fixed X just outside the part; top
+        # balloons vary in X at a fixed Y just above it.
+        self._place_band(
+            view, bands["left"], "y", pl - standoff - r, margin + r, ph - margin - r, gap, fs, r
+        )
+        self._place_band(
+            view, bands["right"], "y", pr + standoff + r, margin + r, ph - margin - r, gap, fs, r
+        )
+        self._place_band(
+            view, bands["top"], "x", pt + standoff + r, pl - standoff, sv_left - r, gap, fs, r
+        )
+
+    def _place_band(self, view, members, axis, line, lo, hi, gap, fs, r):
+        """Spread *members* (``(tag, j, hole, cx, cy)``) along one reserved band
+        with the strip solver, then render a leadered balloon for each (#111).
+
+        *axis* is the band's free axis (``"y"`` for the left/right bands, ``"x"``
+        for the top); *line* is the fixed coordinate of the other axis.  Overflow
+        beyond ``[lo, hi]`` drops the tail rather than running balloons off-page.
+        """
+        if not members:
+            return
+        k = 4 if axis == "y" else 3  # index of cy / cx in the member tuple
+        members.sort(key=lambda m: m[k])
+        naturals = [m[k] for m in members]
+        coords = (
+            _solve_strip_1d(naturals, gap, lo, hi)
+            or _greedy_strip_1d(naturals, gap, lo, hi)
+            or _greedy_strip_1d(naturals, gap, lo, hi, prefix=True)
+        )
+        for (tag, j, hole, cx, cy), c in zip(members, coords):
+            bx, by = (line, c) if axis == "y" else (c, line)
+            self._render_balloon(view, tag, j, hole, cx, cy, bx, by, fs, r)
+
+    def _render_balloon(self, view, tag, j, hole, cx, cy, bx, by, fs, r):
+        """Build and add one balloon glyph + leader at solved centre ``(bx, by)``
+        for hole ``(cx, cy)`` (#111)."""
         loc = Location((bx, by, 0))
         # The annotation layer fills closed paths, so a circle edge renders as a
         # disc. A thin annular FACE fills as a ring — i.e. a circle outline.
@@ -1999,11 +2105,27 @@ class Drawing:
         text = Text(
             txt=tag, font_size=fs, align=(Align.CENTER, Align.CENTER), mode=Mode.PRIVATE
         ).locate(loc)
-        balloon = Compound(children=[*ring_faces, *text.faces()])
+        parts = [*ring_faces, *text.faces()]
+        # Leader from the hole rim to the balloon's near edge — the glyph is the
+        # label, so label="".  Skipped when the balloon could not clear the hole
+        # (degenerate fallback), where a leader would be a stub through the ring.
+        dx, dy = bx - cx, by - cy
+        dist = math.hypot(dx, dy)
+        hole_r = hole.diameter * self.scale / 2
+        if dist > hole_r + r:
+            ux, uy = dx / dist, dy / dist
+            tip = (cx + ux * hole_r, cy + uy * hole_r, 0)
+            elbow = (bx - ux * r, by - uy * r, 0)
+            parts.append(Leader(tip, elbow, "", self.draft))
+        balloon = Compound(children=parts)
         # Furniture that legitimately sits on the view geometry — exempt from the
         # annotation-overlap / centreline lint, as the section arrows do.
         balloon.is_centerline = True
         self.add(balloon, f"balloon_{view}_{tag}_{j}")
+
+    def _add_balloon(self, view, tag, j, hole):
+        """Single-balloon convenience over :meth:`_add_balloons` (#111)."""
+        self._add_balloons(view, [(tag, j, hole)])
 
     def add_hole_table(self, view="plan", *, prefer="tr", name=None, balloons=True):
         """Add a hole table for *view*'s holes, placed in a free corner (#93).
@@ -2031,9 +2153,10 @@ class Drawing:
         # The table documents these diameters — let lint see that (#93).
         table.covers_diameters = tuple(diams)
         if balloons:
-            for tag, holes in groups:
-                for j, h in enumerate(holes):
-                    self._add_balloon(view, tag, j, h)
+            self._add_balloons(
+                view,
+                [(tag, j, h) for tag, holes in groups for j, h in enumerate(holes)],
+            )
         return table
 
     def pin(self, name):
