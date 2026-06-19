@@ -257,7 +257,7 @@ class TestSectionHatchEdges:
         # With spacing=5, c=0 gives hatch line through corner (-5,-2.5).
         from build123d import Face, Plane
 
-        from draftwright.make_drawing import _section_hatch_edges
+        from draftwright.annotate import _section_hatch_edges
 
         face = Face.make_rect(10, 5, Plane.XZ)
         edges = _section_hatch_edges(face, lambda x: x, lambda z: z, spacing=5.0)
@@ -269,7 +269,7 @@ class TestSectionHatchEdges:
     def test_hatch_edges_are_45_degrees(self):
         from build123d import Face, Plane
 
-        from draftwright.make_drawing import _section_hatch_edges
+        from draftwright.annotate import _section_hatch_edges
 
         face = Face.make_rect(20, 15, Plane.XZ)
         edges = _section_hatch_edges(face, lambda x: x, lambda z: z, spacing=4.5)
@@ -676,7 +676,7 @@ class TestDerivedLayoutConstants:
     """Slots / callout widths / iso budget derive from text metrics, not bare mm."""
 
     def test_slots_derive_from_font_metrics(self):
-        from draftwright.make_drawing import (
+        from draftwright._core import (
             _FONT_SIZE,
             _PAD,
             _SLOT_DIM_DEPTH,
@@ -1906,7 +1906,7 @@ class TestAutoHoleAnnotations:
 
     @pytest.mark.timeout(60)
     def test_solve_strip_ys_returns_feasible_positions(self):
-        from draftwright.make_drawing import _solve_strip_ys
+        from draftwright._core import _solve_strip_ys
 
         # Four natural positions, solver must spread them to respect min_gap=8.
         result = _solve_strip_ys([10.0, 12.0, 14.0, 16.0], min_gap=8.0, lo=0.0, hi=100.0)
@@ -1919,7 +1919,7 @@ class TestAutoHoleAnnotations:
 
     @pytest.mark.timeout(60)
     def test_solve_strip_ys_infeasible_returns_none(self):
-        from draftwright.make_drawing import _solve_strip_ys
+        from draftwright._core import _solve_strip_ys
 
         # Three items need 2 × 8 = 16mm gap, but range is only 10mm.
         result = _solve_strip_ys([5.0, 10.0, 15.0], min_gap=8.0, lo=0.0, hi=10.0)
@@ -1927,7 +1927,7 @@ class TestAutoHoleAnnotations:
 
     @pytest.mark.timeout(60)
     def test_solve_strip_ys_empty_input(self):
-        from draftwright.make_drawing import _solve_strip_ys
+        from draftwright._core import _solve_strip_ys
 
         assert _solve_strip_ys([], min_gap=8.0, lo=0.0, hi=100.0) == []
 
@@ -1937,7 +1937,8 @@ class TestAutoHoleAnnotations:
         # adapter must return exactly what the bare primitive did — including for
         # tied natural Ys, where the solver's (natural, key) order must reduce to
         # the input order via the zero-padded keys.
-        from draftwright.make_drawing import _solve_strip_via_layout, _solve_strip_ys
+        from draftwright._core import _solve_strip_ys
+        from draftwright.annotate import _solve_strip_via_layout
 
         # (naturals, gap, lo, hi)
         cases = [
@@ -2652,7 +2653,7 @@ class TestLintSummaryAndDrops:
         # least _MIN_STEP_SEP_MM (page-mm) above the previously kept step;
         # closely-spaced shoulders are dropped (surfaced via lint), too-short
         # ones are silently omitted.
-        from draftwright.make_drawing import (
+        from draftwright._core import (
             _MIN_STEP_DIM_MM,
             _MIN_STEP_SEP_MM,
             _legible_steps,
@@ -2696,7 +2697,8 @@ class TestLintSummaryAndDrops:
         # #43: a location is dimensioned only if it is at least _MIN_LOC_SEP_MM
         # (page-mm) from the previously kept one; closer ones read as one busy
         # cluster and are dropped (surfaced via lint).
-        from draftwright.make_drawing import _MIN_LOC_SEP_MM, _legible_locations
+        from draftwright._core import _MIN_LOC_SEP_MM
+        from draftwright.annotate import _legible_locations
 
         sep = _MIN_LOC_SEP_MM
         positions = [0.0, 1.0, 2.0, sep + 2.0, sep + 2.5, 2 * sep + 5.0]
@@ -2771,7 +2773,7 @@ class TestLintSummaryAndDrops:
         from build123d import Box
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _auto_annotate
+        from draftwright.annotate import _auto_annotate
 
         dwg = build_drawing(Box(60, 40, 30))
         dwg._record_build_issue("warning", "callout_dropped", "stale")
@@ -2879,7 +2881,7 @@ class TestLayoutGeneralisation:
         from build123d import Cylinder, Pos
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _MIN_STEP_DIM_MM
+        from draftwright._core import _MIN_STEP_DIM_MM
 
         def shaft_with_shoulder_at(length):
             # Lower segment height == `length`; shoulder sits `length` above the
@@ -3007,14 +3009,14 @@ class TestTypDimensioning:
 
     def test_two_step_part_not_detected_as_pattern(self):
         # Only 2 interior steps → below the ≥3 threshold; per-step path used.
-        from draftwright.make_drawing import _detect_step_repeat
+        from draftwright.annotate import _detect_step_repeat
 
         step_zs = [10.0, 20.0]
         result = _detect_step_repeat(step_zs, 0.0, 30.0)
         assert result is None
 
     def test_detect_step_repeat_uniform(self):
-        from draftwright.make_drawing import _detect_step_repeat
+        from draftwright.annotate import _detect_step_repeat
 
         zs = [15.0, 30.0, 45.0, 60.0, 75.0, 90.0, 105.0]
         n, rise = _detect_step_repeat(zs, 0.0, 120.0)
@@ -3022,14 +3024,14 @@ class TestTypDimensioning:
         assert abs(rise - 15.0) < 0.01
 
     def test_detect_step_repeat_nonuniform(self):
-        from draftwright.make_drawing import _detect_step_repeat
+        from draftwright.annotate import _detect_step_repeat
 
         zs = [10.0, 25.0, 35.0, 60.0]
         assert _detect_step_repeat(zs, 0.0, 70.0) is None
 
     def test_detect_step_repeat_top_gap_mismatch_excluded_from_count(self):
         # When top gap doesn't match the mean rise, n = len(step_zs) not +1.
-        from draftwright.make_drawing import _detect_step_repeat
+        from draftwright.annotate import _detect_step_repeat
 
         zs = [10.0, 20.0, 30.0]  # 3 equal interior rises of 10mm
         # top gap = 55 - 30 = 25 ≠ 10 → should NOT add 1
@@ -3688,7 +3690,10 @@ class TestTurnedDiameters:
         # must skip gracefully, not crash the whole build on a None unpack.
         import sys
 
-        m = sys.modules["draftwright.make_drawing"]  # __init__ shadows the submodule
+        # The strip solvers are called by the hole / turned-diameter passes,
+        # which live in annotate.py and look them up in that module's namespace
+        # (#98 Phase C) — so patch them on annotate, not on make_drawing.
+        m = sys.modules["draftwright.annotate"]
         monkeypatch.setattr(m, "_solve_strip_ys", lambda *a, **k: None)
         monkeypatch.setattr(m, "_greedy_strip_ys", lambda *a, **k: None)
         dwg = build_drawing(_x_stepped_shaft())  # must not raise
@@ -3865,7 +3870,7 @@ class TestEscalation:
         assert any(n.startswith("hc_plan") for n in dwg.annotations())
 
     def test_wrap_rows_reshapes_into_blocks(self):
-        from draftwright.make_drawing import _wrap_rows
+        from draftwright.annotate import _wrap_rows
 
         header = ("T", "D")
         data = [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4"), ("e", "5")]

@@ -248,7 +248,8 @@ class TestFitBox:
 
 def test_layout_engine_is_wired_into_the_drawing_path():
     # Phase 2 (#80): hole-callout placement now flows through the LayoutSolver.
-    src = (L.__file__).replace("layout.py", "make_drawing.py")
+    # The passes that wire it in live in annotate.py (#98 Phase C).
+    src = (L.__file__).replace("layout.py", "annotate.py")
     text = open(src).read()
     assert "Placeable(" in text
     assert "LayoutSolver(" in text
