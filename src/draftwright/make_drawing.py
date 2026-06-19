@@ -16,6 +16,8 @@ CLI (registered as ``make-drawing``)::
     make-drawing part.step --out /tmp/output
 """
 
+from __future__ import annotations
+
 import argparse
 import functools
 import logging
@@ -30,6 +32,7 @@ import numpy as np
 from build123d import (
     Align,
     Arrow,
+    BoundBox,
     Box,
     Circle,
     Color,
@@ -524,14 +527,14 @@ def _axis_letter(obj) -> str:
 _CONCENTRIC_TOL_MM = 0.5
 
 
-def _is_concentric_hole(h, a) -> bool:
+def _is_concentric_hole(h, a: Analysis) -> bool:
     """True when *h* is an axial bore on the part centreline (turned base set)."""
     if _axis_letter(h) != "z":
         return False
     return math.hypot(h.location[0] - a.cx, h.location[1] - a.cy) <= _CONCENTRIC_TOL_MM
 
 
-def _concentric_bore_diams(a) -> list:
+def _concentric_bore_diams(a: Analysis) -> list:
     """Distinct bore diameters on the rotation axis, in z_diams order (#10).
 
     ``a.z_diams`` carries every Z cylinder diameter — including off-axis ones
@@ -936,14 +939,15 @@ class Strip:
 class ViewZones:
     """The four annotation strips surrounding one orthographic view.
 
-    Any strip that has no usable space (e.g. a side view's left strip, which
-    abuts the front view) is ``None``.
+    The ``right``/``above``/``below`` strips are always present for the three
+    orthographic views; only ``left`` can be ``None`` (a side view's left strip
+    abuts the front view, so it has no usable space).
     """
 
-    right: Strip | None = None
+    right: Strip
+    above: Strip
+    below: Strip
     left: Strip | None = None
-    above: Strip | None = None
-    below: Strip | None = None
 
 
 def _tb_width(page_w: float) -> float:
@@ -1669,10 +1673,81 @@ class _Projector:
         return self.pv_y + (y - self.cy) * self.scale
 
 
-def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, page=None, pmi="off"):
+@dataclass(frozen=True)
+class Analysis:
+    """Typed geometry+layout analysis produced by :func:`_analyse`.
+
+    The single data structure threaded through the whole annotation layer
+    (exposed as ``dwg._analysis`` and passed to the passes as ``a``). It was a
+    ``SimpleNamespace`` — invisible to mypy; making it a frozen dataclass type-
+    checks every ``a.<field>`` access and documents the contract (#98).
+
+    Page-coordinate fields (``FV_X`` … ``SV_Y``, ``ISO_X``/``ISO_Y``, the
+    ``*_limit`` and half-extent fields) are in page mm; ``cx``/``cy``/``cz`` and
+    the size fields are world mm; ``SCALE`` is the page-per-world factor.
+    """
+
+    part: Shape
+    bb: BoundBox
+    x_size: float
+    y_size: float
+    z_size: float
+    cx: float
+    cy: float
+    cz: float
+    bbox_max: float
+    holes: list
+    patterns: list
+    z_diams: list[float]
+    cross_diams: list[float]
+    cyls: tuple[list, list]
+    od_diam: float | None
+    is_rotational: bool
+    step_zs: list[float]
+    sv_right: float
+    iso_right_limit: float
+    SCALE: float
+    PAGE_W: float
+    PAGE_H: float
+    TB_W: float
+    DIM_PAD: float
+    margin: float
+    x_offset: float
+    FV_X: float
+    FV_Y: float
+    PV_X: float
+    PV_Y: float
+    SV_X: float
+    SV_Y: float
+    proj: _Projector
+    ISO_X: float
+    ISO_Y: float
+    iso_left_limit: float
+    iso_bottom_limit: float
+    iso_top_limit: float
+    fv_hw: float
+    fv_hh: float
+    pv_hh: float
+    sv_hw: float
+    fv_zones: ViewZones
+    pv_zones: ViewZones
+    sv_zones: ViewZones
+    step_file: str | Path | Shape
+    title: str
+    number: str
+    tolerance: str
+    drawn_by: str
+    out: str
+    pmi: list
+    pmi_mode: str
+
+
+def _analyse(
+    step_file, title, number, tolerance, drawn_by, out, scale=None, page=None, pmi="off"
+) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
-    Returns SimpleNamespace.
+    Returns an :class:`Analysis`.
     """
     if isinstance(step_file, Shape):
         part = step_file
@@ -1903,7 +1978,7 @@ def _analyse(step_file, title, number, tolerance, drawn_by, out, scale=None, pag
         ISO_Y,
     )
 
-    return SimpleNamespace(
+    return Analysis(
         part=part,
         bb=bb,
         x_size=x_size,
@@ -2062,7 +2137,7 @@ class Drawing:
         self._pinned: set = set()
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
-        self._analysis: SimpleNamespace | None = None
+        self._analysis: Analysis | None = None
         # Lint issues found while building (e.g. annotations the layout had to
         # drop). Recorded here so :meth:`lint` can surface them — a dropped
         # feature must never be silent. Diameters dropped by the per-view
@@ -2791,7 +2866,7 @@ def _mentioned_diams(annotations):
     return diams
 
 
-def _annotate_turned_diameters(dwg, a):
+def _annotate_turned_diameters(dwg, a: Analysis):
     """Leader ø-callouts for external turned diameters whose axis lies along X (#77).
 
     draftwright dimensions holes and, for a Z-rotational part, the OD; the
@@ -2886,7 +2961,7 @@ def _annotate_turned_diameters(dwg, a):
         )
 
 
-def _auto_annotate(dwg, a, *, detail_view: bool = False):
+def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     """Add the standard automatic dimensions, centrelines, and title block."""
     draft = dwg.draft
     # Idempotent: clear build-time lint state so a second annotation pass does
@@ -2942,6 +3017,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     # largest diameter (#81)
     if a.is_rotational:
         od = a.od_diam
+        assert od is not None  # is_rotational ⇒ od_diam is set (see _is_rotational)
         dwg.add(
             _dim(
                 (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
@@ -3219,7 +3295,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
                     _last_end,
                 )
 
-    if getattr(a, "pmi_mode", "off") == "annotate":
+    if a.pmi_mode == "annotate":
         _annotate_pmi(dwg, a, draft)
 
     _add_title_block(dwg, a)
@@ -3230,7 +3306,7 @@ def _auto_annotate(dwg, a, *, detail_view: bool = False):
     _maybe_tabulate_holes(dwg, a)
 
 
-def _maybe_tabulate_holes(dwg, a):
+def _maybe_tabulate_holes(dwg, a: Analysis):
     """Escalate to a per-instance hole table + balloons when the plan view is too
     dense to dimension every hole individually (#93).
 
@@ -3295,7 +3371,7 @@ def _maybe_tabulate_holes(dwg, a):
     ]
 
 
-def _annotate_pmi(dwg, a, draft) -> None:
+def _annotate_pmi(dwg, a: Analysis, draft) -> None:
     """Add PMI-derived dimension annotations to *dwg* using remaining strip space.
 
     Called from ``_auto_annotate`` after all automatic dimensions are placed so
@@ -3310,7 +3386,7 @@ def _annotate_pmi(dwg, a, draft) -> None:
                    (falls back to pv_zones.below for Y dims that are
                     too compressed in the side view)
     """
-    pmi = getattr(a, "pmi", [])
+    pmi = a.pmi
     usable = [r for r in pmi if r.value > 0 and len(r.ref_pts) >= 2]
     n_gtol = sum(
         1
@@ -3650,7 +3726,7 @@ def _record_callout_drop(dwg, view, diam, reason):
     )
 
 
-def _add_location_dims(dwg, a, patterns, holes_in=None):
+def _add_location_dims(dwg, a: Analysis, patterns, holes_in=None):
     """Baseline X/Y location dimensions in the plan view (#93).
 
     The datum corner is a *default* — the part's minimum-X/minimum-Y corner
@@ -3910,7 +3986,7 @@ def _fuzzy_cut(body, cutter, fuzzy: float = 1e-3):
     return solids[0] if len(solids) == 1 else Compound(children=list(solids))
 
 
-def _add_section_view(dwg, a, holes=None):
+def _add_section_view(dwg, a: Analysis, holes=None):
     """Full section A–A when blind or stepped holes hide their structure (#94).
 
     Trigger: any Z-axis hole with a counterbore/spotface or a non-through
@@ -4057,7 +4133,7 @@ def _add_section_view(dwg, a, holes=None):
         dwg.add(hatch, "section_hatch")
 
 
-def _add_detail_view(dwg, a):
+def _add_detail_view(dwg, a: Analysis):
     """Enlarged detail of a stepped region whose shoulders the legibility gate
     dropped (#42).
 
@@ -4250,7 +4326,7 @@ def _add_detail_view(dwg, a):
         _log.info("dim_detail_height skipped (%s)", exc)
 
 
-def _add_furniture(dwg, a, view, j, pattern, to_page):
+def _add_furniture(dwg, a: Analysis, view, j, pattern, to_page):
     """Pattern sheet furniture, added once its callout is placed (#92)."""
     if isinstance(pattern, BoltCircle):
         cx = sum(to_page(h)[0] for h in pattern.holes) / len(pattern.holes)
@@ -4260,7 +4336,7 @@ def _add_furniture(dwg, a, view, j, pattern, to_page):
         _add_pitch_dim(dwg, a, view, j, pattern, to_page)
 
 
-def _add_pitch_dim(dwg, a, view, j, pattern, to_page):
+def _add_pitch_dim(dwg, a: Analysis, view, j, pattern, to_page):
     """Pitch dimension for a linear hole array: first→last hole centres,
     labelled ``(n-1)× pitch``, placed just outside the view on the side of
     the row's outward perpendicular (#92)."""
@@ -4372,7 +4448,7 @@ def _solve_strip_via_layout(naturals, min_gap, lo, hi, key_prefix):
     return [placed[k] for k in keys]
 
 
-def _annotate_holes(dwg, a, view_of_axis, found_patterns, holes_in=None):
+def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=None):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
     Identical holes share one callout with an ``n×`` count prefix (#92's
@@ -4656,7 +4732,7 @@ def _annotate_holes(dwg, a, view_of_axis, found_patterns, holes_in=None):
             _add_furniture(dwg, a, view, i, pattern, to_page)
 
 
-def _add_title_block(dwg, a):
+def _add_title_block(dwg, a: Analysis):
     """Add the title block annotation."""
     tb = TitleBlock(
         a.title,
@@ -4687,7 +4763,7 @@ def _bbox_within(bb, region, tol: float = 0.5) -> bool:
     )
 
 
-def _project_iso(dwg, a, scale, shape_s=None):
+def _project_iso(dwg, a: Analysis, scale, shape_s=None):
     """(Re-)project the iso view at *scale* (an absolute factor, not a fraction).
 
     Pass *shape_s* when the part is already scaled by *scale* to skip the copy.
@@ -4712,7 +4788,7 @@ def _project_iso(dwg, a, scale, shape_s=None):
         dwg._coords["iso"] = ViewCoordinates(axes, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale)
 
 
-def _fit_iso_view(dwg, a, annotate: bool = True):
+def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
     """Scale the iso view to fill its page zone, captioning it NTS when the
     scale differs from sheet scale.  Pass ``annotate=False`` to suppress the
     NTS note (used when ``auto_dims=False``).
@@ -4963,7 +5039,7 @@ def make_drawing(
 # ---------------------------------------------------------------------------
 
 
-def _write_script(a) -> str:
+def _write_script(a: Analysis) -> str:
     """Write an editable script at ``a.out + '.py'`` that calls make_drawing()."""
     py_path = a.out + ".py"
     py_name = Path(py_path).name
