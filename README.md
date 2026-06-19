@@ -119,30 +119,15 @@ generation, the lint→repair loop, and the constraint-based layout engine).
 
 ## Architecture
 
-draftwright is a single module (`make_drawing.py`) on top of two Apache 2.0 libraries:
+draftwright is a single module (`make_drawing.py`) on top of two libraries:
 
 ```
-draftwright  (AGPL-3.0)
-    └── build123d-drafting-helpers  (Apache 2.0)  — Dimension, Leader, HoleCallout, …
-    └── build123d  (Apache 2.0)                   — CAD kernel
+draftwright
+    └── build123d-drafting-helpers  — Dimension, Leader, HoleCallout, …
+    └── build123d                   — CAD kernel
 ```
 
 The engine handles view layout (strip/zone model), scale selection, feature recognition
 (holes, bosses, bolt circles), annotation placement, and section view generation.
 Annotation primitives (`Dimension`, `Leader`, `lint_drawing`, etc.) live in
 `build123d-drafting-helpers` and can be used independently.
-
-## License
-
-draftwright is licensed under the **GNU Affero General Public License v3 (AGPL-3.0)**.
-
-This means:
-- You can use, modify, and distribute it freely in open-source projects
-- If you run draftwright as part of a **network service** (e.g. an API that generates
-  drawings), you must make your application's source code available to users
-
-For commercial use without these obligations, contact pzfreo@gmail.com.
-
-The annotation primitives in
-[`build123d-drafting-helpers`](https://github.com/pzfreo/build123d-drafting-helpers)
-are Apache 2.0 and may be embedded in commercial applications without restriction.
