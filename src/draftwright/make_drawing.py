@@ -1241,6 +1241,26 @@ def choose_scale(
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class ViewBlock:
+    """A view's composite footprint (#112): its geometry half-extents plus the
+    reserved annotation-band depth on each side (page-mm).
+
+    The block's outer box is the geometry box inflated by its bands; the layout
+    packs these blocks rather than padding bare views with scalar corridors.
+    Two blocks that *abut* are separated by ``bandA + bandB``; two that *share*
+    a corridor (a band against a common wall or neighbour) by ``max(bandA,
+    bandB)`` — see the gap→band map in #112.
+    """
+
+    hw: float  # geometry half-width
+    hh: float  # geometry half-height
+    top: float = 0.0
+    right: float = 0.0
+    bottom: float = 0.0
+    left: float = 0.0
+
+
 def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps=0):
     """Compute the 4-view layout geometry for a part at a given scale/page.
 
@@ -1256,19 +1276,47 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     margin = _MARGIN
     DIM_PAD = _DIM_PAD
     bbox_max = max(x_size, y_size, z_size)
-    # When the plan view will be ballooned, reserve a standoff band (pv_halo) on
-    # its left and right corridors so the balloon ring has clear space off the
-    # part and no leader crosses a neighbouring view (#111).
-    halo = strips.pv_halo if strips else 0.0
-    gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
-    gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
-
     fv_hw = x_size * scale / 2
     fv_hh = z_size * scale / 2
     pv_hh = y_size * scale / 2
     sv_hw = y_size * scale / 2
 
-    total_h = 2 * margin + 3 * DIM_PAD + z_size * scale + y_size * scale
+    # Compose each view as a block: geometry half-extents + reserved annotation
+    # bands per side (#112).  The front and plan views form a vertical column
+    # sharing the left/right corridors (max of the two); the side view shares
+    # the FV↔SV corridor; the front↔plan gap is the abutting pair
+    # (fv.top + pv.bottom).  When the plan view is ballooned (halo > 0) its halo
+    # becomes explicit per-side bands so the ballooned plan view is placed as a
+    # unit — including a BOTTOM band that pushes the front view down so balloons
+    # ring the part below it, not just left/right/top (#111/#112 Phase 2).  All
+    # bands reduce to today's arithmetic when halo = 0 (byte-identical).
+    halo = strips.pv_halo if strips else 0.0
+    gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
+    gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
+    pv_below = _est_pv_below_depth()
+    fv = ViewBlock(
+        fv_hw, fv_hh, top=DIM_PAD - pv_below, right=gap_fv_sv, bottom=DIM_PAD, left=gap_left
+    )
+    pv = ViewBlock(
+        fv_hw,
+        pv_hh,
+        top=DIM_PAD,
+        right=gap_fv_sv,
+        bottom=max(pv_below, halo),  # band below PV holds the width dim + a balloon row
+        left=gap_left,
+    )
+    sv = ViewBlock(sv_hw, fv_hh, right=DIM_PAD)
+
+    # Bottom balloon band: rather than pushing the front view down (which would
+    # cascade into the iso/table and the scale choice), LIFT the plan view up
+    # into the empty top headroom above it — the front/side views, iso and title
+    # block stay anchored, so the table is undisturbed.  The lift is implicit:
+    # the vertical stack is centred with the BASE front↔plan gap (so FV/SV centre
+    # exactly as when halo = 0), while PV is positioned with the full ballooned
+    # gap, leaving it max(0, halo - pv_below) higher.  Byte-identical when
+    # halo = 0.  (#112, ADR 0004.)
+    base_gap = fv.top + pv_below
+    total_h = 2 * margin + fv.bottom + 2 * fv.hh + base_gap + 2 * pv.hh + pv.top
     y_offset = max(0.0, (page_h - total_h) / 2)
 
     total_content_w = (
@@ -1281,13 +1329,16 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     )
     x_offset = max(0.0, (page_w - 2 * margin - tb_w - total_content_w) / 2)
 
-    FV_X = margin + x_offset + gap_left + fv_hw
-    FV_Y = y_offset + margin + DIM_PAD + fv_hh
+    FV_X = margin + x_offset + fv.left + fv.hw
+    FV_Y = y_offset + margin + fv.bottom + fv.hh
     PV_X = FV_X
-    PV_Y = FV_Y + fv_hh + DIM_PAD + pv_hh
-    SV_X = FV_X + fv_hw + gap_fv_sv + sv_hw
+    # PV uses the full (ballooned) front↔plan gap while FV/SV were centred with
+    # the base gap — so the plan view sits pv_lift higher: lifted into the
+    # headroom, front view anchored.
+    PV_Y = FV_Y + fv.hh + (fv.top + pv.bottom) + pv.hh
+    SV_X = FV_X + fv.hw + max(fv.right, sv.left) + sv.hw
     SV_Y = FV_Y
-    sv_right = SV_X + sv_hw + DIM_PAD
+    sv_right = SV_X + sv.hw + sv.right
     sv_right_wall = (
         (page_w - margin) if (PV_Y - pv_hh) > (margin + _TB_H) else (page_w - tb_w - margin)
     )
@@ -2046,23 +2097,33 @@ class Drawing:
         fs = self.draft.font_size
         r = fs * 1.5  # circle comfortably larger than the glyph
         standoff = _STRIP_GAP
-        gap = 2 * r + _STRIP_SPACING  # min centre-to-centre between balloons
+        gap = 2 * r + 2 * _STRIP_SPACING  # min centre-to-centre: balloon + padding both sides
 
         # Plan-view page edges; the reserved bands sit just outside them.
         pl, pr = a.PV_X - a.fv_hw, a.PV_X + a.fv_hw
-        pt = a.PV_Y + a.pv_hh
+        pt, pb = a.PV_Y + a.pv_hh, a.PV_Y - a.pv_hh
         sv_left = a.SV_X - a.sv_hw
         margin, ph = a.margin, a.PAGE_H
 
-        # Assign each hole to the nearest reserved band (bottom excluded).
-        bands: dict = {"left": [], "right": [], "top": []}
+        # A bottom band (below PV, beside the overall-width dim) is usable only
+        # when the layout actually lifted the plan view — i.e. widened the FV↔PV
+        # gap beyond the base DIM_PAD (#112, ADR 0004).  Without the lift the gap
+        # is full of the width dimension and a balloon row would collide with it;
+        # bottom-edge holes then fall back to the nearest side/top band.
+        bottom_line = pb - standoff - r
+        has_bottom = pb - (a.FV_Y + a.fv_hh) > _DIM_PAD + 2
+
+        # Assign each hole to the nearest reserved band.
+        bands: dict = {"left": [], "right": [], "top": [], "bottom": []}
         for tag, j, hole in specs:
             cx, cy = pp(*hole.location)
             choices = {"left": cx - pl, "right": pr - cx, "top": pt - cy}
+            if has_bottom:
+                choices["bottom"] = cy - pb
             bands[min(choices, key=lambda s: choices[s])].append((tag, j, hole, cx, cy))
 
         # left/right balloons vary in Y at a fixed X just outside the part; top
-        # balloons vary in X at a fixed Y just above it.
+        # and bottom balloons vary in X at a fixed Y just beyond it.
         self._place_band(
             view, bands["left"], "y", pl - standoff - r, margin + r, ph - margin - r, gap, fs, r
         )
@@ -2071,6 +2132,9 @@ class Drawing:
         )
         self._place_band(
             view, bands["top"], "x", pt + standoff + r, pl - standoff, sv_left - r, gap, fs, r
+        )
+        self._place_band(
+            view, bands["bottom"], "x", bottom_line, pl - standoff, sv_left - r, gap, fs, r
         )
 
     def _place_band(self, view, members, axis, line, lo, hi, gap, fs, r):
