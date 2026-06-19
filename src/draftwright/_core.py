@@ -423,7 +423,7 @@ def _add_title_block(dwg, a: Analysis):
         legal_owner="",
         width=a.TB_W,
         draft=dwg.draft,
-    ).locate(Location((a.PAGE_W - a.TB_W - 11, 11, 0)))
+    ).locate(Location((a.PAGE_W - a.TB_W - _TB_CLEAR, _TB_CLEAR, 0)))
     dwg.add(tb, "title_block")
 
 

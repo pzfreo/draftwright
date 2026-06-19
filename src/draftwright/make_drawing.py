@@ -89,6 +89,7 @@ from draftwright._core import (
     _SLOT_DIM_STEP,
     _SLOT_DIM_WIDTH,
     _TABULATE_MIN_HOLES,
+    _TB_CLEAR,
     _TB_H,
     Analysis,
     Strip,
@@ -1261,6 +1262,15 @@ class ViewBlock:
     left: float = 0.0
 
 
+def _padded_box(cx, cy, hw, hh, pad=_DIM_PAD):
+    """A view's geometry box centred at (cx, cy), inflated by `pad` mm clearance.
+
+    Used to build the obstacles the iso is placed around (the iso is the one
+    *placed* block; the views and title block are the fixed blocks it dodges).
+    """
+    return (cx - hw - pad, cy - hh - pad, cx + hw + pad, cy + hh + pad)
+
+
 def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps=0):
     """Compute the 4-view layout geometry for a part at a given scale/page.
 
@@ -1344,26 +1354,19 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     )
 
     drawable = (margin, margin, page_w - margin, page_h - margin)
+
+    # Title block: a PINNED block.  Its lower-left corner sits _TB_CLEAR in from
+    # the right page edge and _TB_CLEAR up from the bottom, _TB_H tall — the same
+    # pin the renderer uses in _add_title_block.  Everything else is laid out to
+    # work around it.  (#112, ADR 0004.)
+    tb_right = page_w - _TB_CLEAR
+    title_block = (tb_right - tb_w, _TB_CLEAR, tb_right, _TB_CLEAR + _TB_H)
+
     obstacles = [
-        (
-            FV_X - fv_hw - DIM_PAD,
-            FV_Y - fv_hh - DIM_PAD,
-            FV_X + fv_hw + DIM_PAD,
-            FV_Y + fv_hh + DIM_PAD,
-        ),
-        (
-            PV_X - fv_hw - DIM_PAD,
-            PV_Y - pv_hh - DIM_PAD,
-            PV_X + fv_hw + DIM_PAD,
-            PV_Y + pv_hh + DIM_PAD,
-        ),
-        (
-            SV_X - sv_hw - DIM_PAD,
-            SV_Y - fv_hh - DIM_PAD,
-            SV_X + sv_hw + DIM_PAD,
-            SV_Y + fv_hh + DIM_PAD,
-        ),
-        (page_w - tb_w - 11 - DIM_PAD, margin, page_w - 11 + DIM_PAD, 11 + _TB_H + DIM_PAD),
+        _padded_box(FV_X, FV_Y, fv_hw, fv_hh),
+        _padded_box(PV_X, PV_Y, fv_hw, pv_hh),
+        _padded_box(SV_X, SV_Y, sv_hw, fv_hh),
+        (title_block[0] - DIM_PAD, margin, title_block[2] + DIM_PAD, title_block[3] + DIM_PAD),
     ]
     iso_left, iso_bottom, iso_right, iso_top = _largest_empty_rect(drawable, obstacles)
     # _largest_empty_rect falls back to the full drawable when the obstacles
