@@ -678,8 +678,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # One entry per hole (with repeats) so the coverage *count* check sees that
     # the table documents every instance, not just each distinct diameter.
     table.covers_diameters = tuple(h.diameter for h in holes)
-    for tag, h in zip(tags, holes, strict=True):
-        dwg._add_balloon("plan", tag, 0, h)
+    dwg._add_balloons("plan", [(tag, 0, h) for tag, h in zip(tags, holes, strict=True)])
     dwg._build_issues = [
         i for i in dwg._build_issues if i.code not in ("callout_dropped", "location_ref_dropped")
     ]
