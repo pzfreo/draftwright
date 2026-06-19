@@ -89,6 +89,7 @@ from draftwright._core import (
     _SLOT_DIM_STEP,
     _SLOT_DIM_WIDTH,
     _TABULATE_MIN_HOLES,
+    _TB_CLEAR,
     _TB_H,
     Analysis,
     Strip,
@@ -1260,6 +1261,28 @@ class ViewBlock:
     bottom: float = 0.0
     left: float = 0.0
 
+    def footprint(self, cx, cy):
+        """Outer box of this block placed at centre (cx, cy): the geometry box
+        inflated by the per-side bands.  This is what the layout packs and what
+        other blocks are placed around — the padding lives on the block, not on
+        the caller building the obstacle."""
+        return (
+            cx - self.hw - self.left,
+            cy - self.hh - self.bottom,
+            cx + self.hw + self.right,
+            cy + self.hh + self.top,
+        )
+
+
+def _padded_box(cx, cy, hw, hh, pad=_DIM_PAD):
+    """Footprint of a fixed block at (cx, cy) with a uniform `pad` clearance band.
+
+    The clearance is expressed as the block's own bands (see
+    ``ViewBlock.footprint``) — the obstacle the iso is placed around is the
+    block's footprint, not an ad-hoc inflation done by the caller.
+    """
+    return ViewBlock(hw, hh, pad, pad, pad, pad).footprint(cx, cy)
+
 
 def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps=0):
     """Compute the 4-view layout geometry for a part at a given scale/page.
@@ -1344,26 +1367,30 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     )
 
     drawable = (margin, margin, page_w - margin, page_h - margin)
+
+    # Title block: a PINNED block.  Its lower-left corner sits _TB_CLEAR in from
+    # the right page edge and _TB_CLEAR up from the bottom, _TB_H tall — the same
+    # pin the renderer uses in _add_title_block.  Its clearance is the block's
+    # own bands: DIM_PAD on the three free sides, and only down to the page
+    # margin below (it abuts the bottom sheet edge).  Everything else is laid
+    # out to work around its footprint.  (#112, ADR 0004.)
+    title_block = ViewBlock(
+        tb_w / 2,
+        _TB_H / 2,
+        top=DIM_PAD,
+        right=DIM_PAD,
+        bottom=_TB_CLEAR - margin,
+        left=DIM_PAD,
+    )
+    tb_cx, tb_cy = page_w - _TB_CLEAR - tb_w / 2, _TB_CLEAR + _TB_H / 2
+
+    # The iso is the one *placed* block: it takes the largest gap the fixed
+    # blocks' footprints leave.
     obstacles = [
-        (
-            FV_X - fv_hw - DIM_PAD,
-            FV_Y - fv_hh - DIM_PAD,
-            FV_X + fv_hw + DIM_PAD,
-            FV_Y + fv_hh + DIM_PAD,
-        ),
-        (
-            PV_X - fv_hw - DIM_PAD,
-            PV_Y - pv_hh - DIM_PAD,
-            PV_X + fv_hw + DIM_PAD,
-            PV_Y + pv_hh + DIM_PAD,
-        ),
-        (
-            SV_X - sv_hw - DIM_PAD,
-            SV_Y - fv_hh - DIM_PAD,
-            SV_X + sv_hw + DIM_PAD,
-            SV_Y + fv_hh + DIM_PAD,
-        ),
-        (page_w - tb_w - 11 - DIM_PAD, margin, page_w - 11 + DIM_PAD, 11 + _TB_H + DIM_PAD),
+        _padded_box(FV_X, FV_Y, fv_hw, fv_hh),
+        _padded_box(PV_X, PV_Y, fv_hw, pv_hh),
+        _padded_box(SV_X, SV_Y, sv_hw, fv_hh),
+        title_block.footprint(tb_cx, tb_cy),
     ]
     iso_left, iso_bottom, iso_right, iso_top = _largest_empty_rect(drawable, obstacles)
     # _largest_empty_rect falls back to the full drawable when the obstacles
