@@ -676,7 +676,7 @@ class TestDerivedLayoutConstants:
     """Slots / callout widths / iso budget derive from text metrics, not bare mm."""
 
     def test_slots_derive_from_font_metrics(self):
-        from draftwright.make_drawing import (
+        from draftwright._core import (
             _FONT_SIZE,
             _PAD,
             _SLOT_DIM_DEPTH,
@@ -2652,7 +2652,7 @@ class TestLintSummaryAndDrops:
         # least _MIN_STEP_SEP_MM (page-mm) above the previously kept step;
         # closely-spaced shoulders are dropped (surfaced via lint), too-short
         # ones are silently omitted.
-        from draftwright.make_drawing import (
+        from draftwright._core import (
             _MIN_STEP_DIM_MM,
             _MIN_STEP_SEP_MM,
             _legible_steps,
@@ -2879,7 +2879,7 @@ class TestLayoutGeneralisation:
         from build123d import Cylinder, Pos
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _MIN_STEP_DIM_MM
+        from draftwright._core import _MIN_STEP_DIM_MM
 
         def shaft_with_shoulder_at(length):
             # Lower segment height == `length`; shoulder sits `length` above the

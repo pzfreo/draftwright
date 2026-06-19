@@ -23,7 +23,7 @@ import functools
 import logging
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal
@@ -32,7 +32,6 @@ import numpy as np
 from build123d import (
     Align,
     Arrow,
-    BoundBox,
     Box,
     Circle,
     Color,
@@ -66,7 +65,6 @@ from build123d_drafting.helpers import (
     Centerline,
     CenterlineCircle,
     CenterMark,
-    Dimension,
     HoleCallout,
     Leader,
     LintIssue,
@@ -96,22 +94,44 @@ from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
 from OCP.TopTools import TopTools_ListOfShape
 
+from draftwright._core import (
+    _CONCENTRIC_TOL_MM,
+    _DIAM_RE,
+    _FONT_SIZE,
+    _MARGIN,
+    _MIN_LOC_SEP_MM,
+    _MIN_STEP_SEP_MM,
+    _SLOT_DIM_DEPTH,
+    _SLOT_DIM_HEIGHT,
+    _SLOT_DIM_STEP,
+    _SLOT_DIM_WIDTH,
+    _TABULATE_MIN_HOLES,
+    _TB_CLEAR,
+    _TB_H,
+    Analysis,
+    Strip,
+    ViewZones,
+    _add_title_block,
+    _axis_letter,
+    _dim,
+    _fmt,
+    _greedy_strip_ys,
+    _iso_bbox,
+    _largest_empty_rect,
+    _legible_steps,
+    _log,
+    _Projector,
+    _solve_strip_ys,
+    _tag_sequence,
+)
 from draftwright.layout import (
     LayoutSolver,
     Placeable,
-    _greedy_strip_1d,
-    _solve_strip_1d,
     fit_box,
 )
 
-_log = logging.getLogger(__name__)
-
 _TB_W = 150.0
-_MARGIN = 10.0
-_TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
-_FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
 _DIM_PAD = 18.0
-_TB_H = 35.0
 # Minimum acceptable projected view dimension (page-mm).  Below this, annotation
 # geometry (leader wires, centre marks, bore callout elbows) can degenerate and
 # cause OCCT Standard_DomainError / SIGABRT (#129).
@@ -375,12 +395,6 @@ def dedup_diams(cyls, tol: float = 0.15) -> list:
     return merged
 
 
-def _fmt(v: float) -> str:
-    """Format a float as integer string if whole, otherwise 1 dp."""
-    r = round(v)
-    return str(r) if abs(v - r) < 1e-6 else f"{v:.1f}"
-
-
 @functools.lru_cache(maxsize=512)
 def _text_width(text: str, font_size: float, font: str = "Arial") -> float:
     """Measured rendered width (page-mm) of *text* in *font* at *font_size*.
@@ -403,20 +417,6 @@ def _text_width(text: str, font_size: float, font: str = "Arial") -> float:
         .bounding_box()
         .size.X
     )
-
-
-def _tag_sequence(n):
-    """``A, B, …, Z, AA, AB, …`` — deterministic hole-table tags for *n* rows."""
-    tags = []
-    for i in range(n):
-        s, k = "", i
-        while True:
-            s = chr(ord("A") + k % 26) + s
-            k = k // 26 - 1
-            if k < 0:
-                break
-        tags.append(s)
-    return tags
 
 
 def _wrap_rows(header, data, ncols):
@@ -481,8 +481,6 @@ def _build_table(rows, draft):
     return table
 
 
-_DIAM_RE = re.compile(r"[øØ⌀]\s*(\d+(?:\.\d+)?)")
-
 # Turned-part classification (#81): a rotational part's bounding box is
 # square in XY to within _SQUARENESS_TOL, and its OD — the largest full
 # *external* Z cylinder — fills at least _OD_FILL_MIN of that envelope, with
@@ -511,20 +509,11 @@ def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
     )
 
 
-def _axis_letter(obj) -> str:
-    """Letter (``"x"``/``"y"``/``"z"``) of ``obj.axis``'s dominant component.
-
-    ``obj`` is anything carrying an ``.axis`` 3-vector (a hole or a boss).
-    """
-    return max(zip("xyz", obj.axis, strict=True), key=lambda t: abs(t[1]))[0]
-
-
 # A hole is "concentric" with a turned part's rotation axis when its drilling
 # axis is the Z (OD) axis and its opening sits on the part centreline.  Such
 # bores are already dimensioned by the ldr_z bore leaders, so they must not
 # also receive a hole callout / location dim (#10).  Off-axis holes (a bolt
 # circle, a cross-hole) fall through to the feature-presence path.
-_CONCENTRIC_TOL_MM = 0.5
 
 
 def _is_concentric_hole(h, a: Analysis) -> bool:
@@ -680,22 +669,6 @@ _QUOTED_RE = re.compile(r"'([^']*)'")
 # used to move a dimension that landed on the wrong side of its witness points.
 _REPAIRABLE_CODES = frozenset({"annotation_overlap", "dim_inside_part"})
 _OPPOSITE_SIDE = {"above": "below", "below": "above", "left": "right", "right": "left"}
-
-
-def _dim(p1, p2, side, distance, draft, **kwargs):
-    """Build a :class:`Dimension`, tagged with its placement spec.
-
-    Identical to constructing ``Dimension`` directly, but records ``p1``,
-    ``p2``, ``side``, ``distance`` and the label kwargs on the result as
-    ``_dw_spec`` so the #30 repair loop can re-place the dimension (flip the
-    side, widen the offset) without re-deriving any geometry. Only dimensions
-    built this way are re-placeable by :meth:`Drawing.repair`.
-    """
-    d = Dimension(p1, p2, side, distance, draft, **kwargs)
-    d._dw_spec = SimpleNamespace(
-        p1=p1, p2=p2, side=side, distance=abs(distance), draft=draft, kwargs=kwargs
-    )
-    return d
 
 
 # Tolerance for matching a lint message's reported diameter (dedup
@@ -861,95 +834,6 @@ _SCALES = [10.0, 5.0, 2.0, 1.0, 0.5, 0.2]
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class Strip:
-    """A one-dimensional annotation band adjacent to an orthographic view.
-
-    Annotations are stacked outward from the view edge by calling
-    :meth:`allocate`.  The cursor starts at ``anchor + direction * gap`` and
-    advances after each successful allocation.
-
-    Attributes:
-        anchor:      Page coordinate of the view edge this strip starts from.
-        outer_limit: Page coordinate at which the strip ends (page margin,
-                     neighbouring view, or title-block boundary).
-        direction:   ``+1`` — cursor moves away from anchor (right/above);
-                     ``-1`` — cursor retreats from anchor (left/below).
-        gap:         Clearance between the view edge and the first annotation.
-        spacing:     Clearance between successive annotations.
-    """
-
-    anchor: float
-    outer_limit: float
-    direction: float = 1.0
-    gap: float = 8.0
-    spacing: float = 4.0
-    _cursor: float = field(init=False, compare=False, repr=False)
-
-    def __post_init__(self):
-        self._cursor = self.anchor + self.direction * self.gap
-
-    # ------------------------------------------------------------------
-    # Public API
-
-    @property
-    def available(self) -> float:
-        """Total space available in this strip (mm)."""
-        return abs(self.outer_limit - self.anchor)
-
-    @property
-    def depth_used(self) -> float:
-        """How far the cursor has advanced from the anchor (mm)."""
-        return abs(self._cursor - self.anchor)
-
-    def peek(self, size: float) -> float | None:
-        """Return what ``allocate(size)`` would return without advancing the cursor."""
-        if self.direction == 1:
-            start = self._cursor
-            return start if (start + size) <= self.outer_limit else None
-        else:
-            end = self._cursor
-            return end if (end - size) >= self.outer_limit else None
-
-    def allocate(self, size: float) -> float | None:
-        """Reserve *size* mm; return the near-edge page coordinate, or ``None`` if full.
-
-        The returned value is the page coordinate of the annotation's
-        dimension line (or leader elbow).  Convert to a relative offset with::
-
-            distance = abs(page_coord - strip.anchor)
-        """
-        if self.direction == 1:
-            start = self._cursor
-            end = start + size
-            if end > self.outer_limit:
-                return None
-            self._cursor = end + self.spacing
-            return start
-        else:
-            end = self._cursor
-            start = end - size
-            if start < self.outer_limit:
-                return None
-            self._cursor = start - self.spacing
-            return end
-
-
-@dataclass
-class ViewZones:
-    """The four annotation strips surrounding one orthographic view.
-
-    The ``right``/``above``/``below`` strips are always present for the three
-    orthographic views; only ``left`` can be ``None`` (a side view's left strip
-    abuts the front view, so it has no usable space).
-    """
-
-    right: Strip
-    above: Strip
-    below: Strip
-    left: Strip | None = None
-
-
 def _tb_width(page_w: float) -> float:
     """Title-block width for a page: 120 mm on A4, 150 mm on A3 and larger."""
     return 120.0 if page_w <= 297.0 else 150.0
@@ -1028,20 +912,14 @@ _ISO_MAX_GROW = 1.3
 # pad == extension_gap in the draft preset).  Each slot is therefore derived
 # from text metrics (font_size + pad_around_text), like _MIN_STEP_DIM_MM, so it
 # rescales with _FONT_SIZE instead of being a bare mm guess (#31).
-_PAD = draft_preset(font_size=_FONT_SIZE, decimal_precision=1).pad_around_text
 # Single overall dim: two glyph-heights of line offset + the outboard label pad.
-_SLOT_DIM_WIDTH = 2 * _FONT_SIZE + _PAD  # pv_zones.below: overall width dimension
-_SLOT_DIM_DEPTH = 2 * _FONT_SIZE + _PAD  # sv_zones.below: overall depth dimension
 # The overall height dim leads the right ladder, so it carries an extra pad of
 # clearance from the view above the first step dim's witness.
-_SLOT_DIM_HEIGHT = 2 * _FONT_SIZE + 2 * _PAD  # fv_zones.right: overall height dim
 # Stacked step dims sit deeper so each ladder rung's label clears the rung below.
-_SLOT_DIM_STEP = 4 * _FONT_SIZE + _PAD  # fv_zones.right: step-height dimension
 
 # A plan view with at least this many holes escalates to a hole chart when it is
 # too dense to dimension every hole individually (#93). Below it, a dropped ref
 # stays a legibility drop rather than tabulating a handful of holes.
-_TABULATE_MIN_HOLES = 16
 
 # Smallest projected step height (page-mm) that can still carry a *legible*
 # stacked dimension between its two extension lines.  Derived from what has to
@@ -1049,18 +927,12 @@ _TABULATE_MIN_HOLES = 16
 # the text clearance above and below — not an arbitrary page-mm cutoff (#13).
 # Used as the single gate in BOTH _analyse (n_steps) and _auto_annotate
 # (dim_step placement) so the two can never diverge.
-_MIN_STEP_DIM_MM = (
-    _FONT_SIZE
-    + 2 * draft_preset(font_size=_FONT_SIZE, decimal_precision=1).arrow_length
-    + 2 * draft_preset(font_size=_FONT_SIZE, decimal_precision=1).pad_around_text
-)
 
 # Minimum page-mm separation between two *consecutive* dimensioned step heights.
 # Shoulders closer than this on the page read as one, so only the first of such
 # a cluster is dimensioned and the rest surface via lint (#41). Sized to the
 # value-label footprint (one glyph height + clearance) — enough to tell two
 # stacked step dims apart, without dropping genuinely-distinct shoulders.
-_MIN_STEP_SEP_MM = _FONT_SIZE + 2 * _PAD
 
 # A horizontal face counts as a real step only if its area is at least this
 # fraction of the part's plan footprint (x_size × y_size). Filters out tiny
@@ -1075,7 +947,6 @@ _STEP_MIN_AREA_FRAC = 0.01
 # step-spacing gate, which also stacks labels in one column. Holes closer than
 # this read as one, so only the first of such a run is dimensioned and the rest
 # surface via lint (#43): "fits" is not the same as "legible".
-_MIN_LOC_SEP_MM = draft_preset(font_size=_FONT_SIZE, decimal_precision=1).arrow_length + _PAD
 
 
 def _legible_locations(positions, scale):
@@ -1098,32 +969,6 @@ def _legible_locations(positions, scale):
             continue
         kept.append(p)
         last = p
-    return kept, n_too_close
-
-
-def _legible_steps(step_zs, bb_min_z, scale):
-    """Step heights worth dimensioning at *scale*, and how many were too close.
-
-    A step is dimensioned only if it is tall enough from the base to carry a
-    label *and* at least ``_MIN_STEP_SEP_MM`` (page-mm) above the previously
-    kept step — consecutive shoulders closer than that are page-coincident and
-    cannot be told apart (#41). Returns ``(kept_zs, n_too_close)``: the heights
-    to dimension, and the count of tall-enough steps dropped for spacing (the
-    caller surfaces these via lint; the full-fidelity answer is a detail view,
-    #42). Steps too short to carry a label at all are silently omitted — they
-    are simply not dimensionable, not dropped.
-    """
-    kept: list[float] = []
-    n_too_close = 0
-    last = None
-    for z in sorted(step_zs):
-        if (z - bb_min_z) * scale < _MIN_STEP_DIM_MM:
-            continue
-        if last is not None and (z - last) * scale < _MIN_STEP_SEP_MM:
-            n_too_close += 1
-            continue
-        kept.append(z)
-        last = z
     return kept, n_too_close
 
 
@@ -1471,52 +1316,6 @@ def choose_scale(
 # ---------------------------------------------------------------------------
 
 
-def _largest_empty_rect(drawable, obstacles):
-    """Largest axis-aligned empty rectangle in *drawable* avoiding *obstacles*.
-
-    *drawable* and each obstacle are ``(x0, y0, x1, y1)`` page-mm boxes.  Returns
-    the empty sub-rectangle of *drawable* (overlapping no obstacle) that maximises
-    the side of the largest square it can hold — i.e. ``min(width, height)`` — so
-    the (near-square) iso view can be scaled up as far as possible.
-
-    The obstacle set is tiny (front/plan/side views + title block), so a
-    gap-based search over candidate edges is both exact enough and cheap: every
-    maximal empty rectangle has edges drawn from the drawable bounds and the
-    obstacle bounds, so enumerating those cut lines finds the optimum.
-    """
-    dx0, dy0, dx1, dy1 = drawable
-    xs = sorted({dx0, dx1, *(c for o in obstacles for c in (o[0], o[2]) if dx0 < c < dx1)})
-    ys = sorted({dy0, dy1, *(c for o in obstacles for c in (o[1], o[3]) if dy0 < c < dy1)})
-
-    best = None
-    best_score = 0.0
-    for i in range(len(xs) - 1):
-        for j in range(i + 1, len(xs)):
-            rx0, rx1 = xs[i], xs[j]
-            for k in range(len(ys) - 1):
-                for m in range(k + 1, len(ys)):
-                    ry0, ry1 = ys[k], ys[m]
-                    if any(
-                        rx0 < o[2] and o[0] < rx1 and ry0 < o[3] and o[1] < ry1 for o in obstacles
-                    ):
-                        continue
-                    score = min(rx1 - rx0, ry1 - ry0)
-                    if score > best_score:
-                        best_score = score
-                        best = (rx0, ry0, rx1, ry1)
-    if best is None:
-        # No empty rectangle exists (obstacles cover the drawable area). This
-        # is unreachable in practice — choose_scale always leaves a gap — but
-        # if it ever happens the iso would render over the other views, so flag
-        # it rather than fail silently.
-        _log.warning(
-            "No empty rectangle found for the iso view; obstacles fill the "
-            "drawable area — iso may overlap other views"
-        )
-        return drawable
-    return best
-
-
 def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps=0):
     """Compute the 4-view layout geometry for a part at a given scale/page.
 
@@ -1618,128 +1417,6 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
         iso_valid=iso_valid,
         iso_natural=bbox_max * scale * _ISO_WIDTH_BUDGET,
     )
-
-
-@dataclass(frozen=True)
-class _Projector:
-    """Model → page coordinate projection for the orthographic views.
-
-    Each in-plane view axis projects as ``origin + (value - centroid) * scale``.
-    Built once in :func:`_analyse` and hung off the analysis namespace as
-    ``a.proj`` so the annotation passes share one projector instead of each
-    re-deriving the ``FX``/``FZ``/``SX``/``SZ``/``PX``/``PY`` closures.
-
-    This deliberately mirrors those analysis-phase closures byte-for-byte (an
-    unsigned ``+1`` projection), so the consolidation is provably
-    behaviour-preserving. The helpers library's ``ViewCoordinates.px``/``.py``
-    (already built per view as ``dwg._coords``) computes a *signed* projection
-    from ``view_axes()``; routing through it would couple the annotation passes
-    to render-order ``_coords`` population and could change output where a view
-    axis projects with a negative sign. Unifying onto ``ViewCoordinates`` is
-    therefore tracked as separate follow-up work, not part of this dedup.
-
-    Convention at call sites: bind a short local alias (``FX = a.proj.front_x``)
-    when a function projects repeatedly through its body; call ``a.proj.*()``
-    directly for one-off projections.
-    """
-
-    fv_x: float
-    fv_y: float
-    sv_x: float
-    sv_y: float
-    pv_x: float
-    pv_y: float
-    cx: float
-    cy: float
-    cz: float
-    scale: float
-
-    def front_x(self, x: float) -> float:
-        return self.fv_x + (x - self.cx) * self.scale
-
-    def front_z(self, z: float) -> float:
-        return self.fv_y + (z - self.cz) * self.scale
-
-    def side_x(self, y: float) -> float:
-        return self.sv_x + (y - self.cy) * self.scale
-
-    def side_z(self, z: float) -> float:
-        return self.sv_y + (z - self.cz) * self.scale
-
-    def plan_x(self, x: float) -> float:
-        return self.pv_x + (x - self.cx) * self.scale
-
-    def plan_y(self, y: float) -> float:
-        return self.pv_y + (y - self.cy) * self.scale
-
-
-@dataclass(frozen=True)
-class Analysis:
-    """Typed geometry+layout analysis produced by :func:`_analyse`.
-
-    The single data structure threaded through the whole annotation layer
-    (exposed as ``dwg._analysis`` and passed to the passes as ``a``). It was a
-    ``SimpleNamespace`` — invisible to mypy; making it a frozen dataclass type-
-    checks every ``a.<field>`` access and documents the contract (#98).
-
-    Page-coordinate fields (``FV_X`` … ``SV_Y``, ``ISO_X``/``ISO_Y``, the
-    ``*_limit`` and half-extent fields) are in page mm; ``cx``/``cy``/``cz`` and
-    the size fields are world mm; ``SCALE`` is the page-per-world factor.
-    """
-
-    part: Shape
-    bb: BoundBox
-    x_size: float
-    y_size: float
-    z_size: float
-    cx: float
-    cy: float
-    cz: float
-    bbox_max: float
-    holes: list
-    patterns: list
-    z_diams: list[float]
-    cross_diams: list[float]
-    cyls: tuple[list, list]
-    od_diam: float | None
-    is_rotational: bool
-    step_zs: list[float]
-    sv_right: float
-    iso_right_limit: float
-    SCALE: float
-    PAGE_W: float
-    PAGE_H: float
-    TB_W: float
-    DIM_PAD: float
-    margin: float
-    x_offset: float
-    FV_X: float
-    FV_Y: float
-    PV_X: float
-    PV_Y: float
-    SV_X: float
-    SV_Y: float
-    proj: _Projector
-    ISO_X: float
-    ISO_Y: float
-    iso_left_limit: float
-    iso_bottom_limit: float
-    iso_top_limit: float
-    fv_hw: float
-    fv_hh: float
-    pv_hh: float
-    sv_hw: float
-    fv_zones: ViewZones
-    pv_zones: ViewZones
-    sv_zones: ViewZones
-    step_file: str | Path | Shape
-    title: str
-    number: str
-    tolerance: str
-    drawn_by: str
-    out: str
-    pmi: list
-    pmi_mode: str
 
 
 def _analyse(
@@ -4412,8 +4089,6 @@ def _add_pitch_dim(dwg, a: Analysis, view, j, pattern, to_page):
 # 1D strip placement now lives in draftwright.layout (ADR 0003 phase 1, #79).
 # These aliases keep the existing axis-specific callers and their tests working
 # while the primitive is axis-neutral; later phases route through LayoutSolver.
-_greedy_strip_ys = _greedy_strip_1d
-_solve_strip_ys = _solve_strip_1d
 
 
 def _solve_strip_via_layout(naturals, min_gap, lo, hi, key_prefix):
@@ -4730,27 +4405,6 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=Non
             tip = (max(tip[0], edge_left + draft.arrow_length), tip[1])
             _add(view, i, tip, elbow, "left", callout)
             _add_furniture(dwg, a, view, i, pattern, to_page)
-
-
-def _add_title_block(dwg, a: Analysis):
-    """Add the title block annotation."""
-    tb = TitleBlock(
-        a.title,
-        a.number,
-        scale=format_drawing_scale(a.SCALE),
-        general_tolerance=a.tolerance,
-        designed_by=a.drawn_by,
-        revision="A",
-        legal_owner="",
-        width=a.TB_W,
-        draft=dwg.draft,
-    ).locate(Location((a.PAGE_W - a.TB_W - 11, 11, 0)))
-    dwg.add(tb, "title_block")
-
-
-def _iso_bbox(dwg):
-    """(min_x, min_y, max_x, max_y) of the placed iso view, hidden lines included."""
-    return dwg.view_bounds("iso")
 
 
 def _bbox_within(bb, region, tol: float = 0.5) -> bool:
