@@ -715,6 +715,78 @@ class TestDerivedLayoutConstants:
         assert large > small
 
 
+class TestComposeAnnoBoxes:
+    """Step 4a (#112): the AnnoBox composer reduces to the identical StripDepths
+    that _measure_strips computes — the byte-identical box-model foundation that
+    later steps make honest."""
+
+    def _assert_match(self, holes, patterns, n_steps, bb):
+        from draftwright.make_drawing import (
+            _compose_anno_boxes,
+            _footprint_from_boxes,
+            _measure_strips,
+        )
+
+        composed = _footprint_from_boxes(_compose_anno_boxes(holes, patterns, n_steps))
+        scalar = _measure_strips(holes, patterns, n_steps, bb)
+        assert composed == scalar
+
+    def test_matches_for_plain_part(self):
+        from draftwright.make_drawing import find_hole_patterns, find_holes
+
+        part = Box(60, 40, 12)
+        holes = find_holes(part)
+        patterns = find_hole_patterns(holes)
+        bb = part.bounding_box()
+        for n_steps in (0, 1, 3):
+            self._assert_match(holes, patterns, n_steps, bb)
+
+    def test_matches_for_bored_part(self):
+        from draftwright.make_drawing import find_hole_patterns, find_holes
+
+        part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
+        holes = find_holes(part)
+        patterns = find_hole_patterns(holes)
+        bb = part.bounding_box()
+        for n_steps in (0, 2):
+            self._assert_match(holes, patterns, n_steps, bb)
+
+    def test_matches_for_dense_ballooning_part(self):
+        # _dense_plate triggers _will_balloon → exercises the plan_halo band.
+        from draftwright.make_drawing import _will_balloon, find_hole_patterns, find_holes
+
+        part = _dense_plate()
+        holes = find_holes(part)
+        patterns = find_hole_patterns(holes)
+        bb = part.bounding_box()
+        assert _will_balloon(holes, patterns)  # guard: this case must balloon
+        self._assert_match(holes, patterns, 0, bb)
+
+    def test_footprint_reduction_and_left_floor(self):
+        # Direct unit test of the reducer: deepest band per side wins, and the
+        # left keeps its _DIM_PAD floor even when the deepest left band is
+        # shallower — the branch real parts rarely make the deciding one.
+        from draftwright.make_drawing import (
+            _DIM_PAD,
+            AnnoBox,
+            StripDepths,
+            _footprint_from_boxes,
+        )
+
+        fp = _footprint_from_boxes(
+            [
+                AnnoBox("right", 5.0),
+                AnnoBox("right", 30.0),  # deeper right band wins
+                AnnoBox("left", 5.0),  # below the floor → floor wins
+                AnnoBox("plan_halo", 21.0),
+            ]
+        )
+        assert fp == StripDepths(right=30.0, left=_DIM_PAD, pv_halo=21.0)
+
+        # No bands at all → zero depths, but the left floor still applies.
+        assert _footprint_from_boxes([]) == StripDepths(right=0.0, left=_DIM_PAD, pv_halo=0.0)
+
+
 # ---------------------------------------------------------------------------
 # Phase 3 (#118): dynamic FV→SV corridor
 # ---------------------------------------------------------------------------
