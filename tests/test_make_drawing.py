@@ -4041,3 +4041,56 @@ class TestEscalation:
         assert wide[0] == ("T", "D", "T", "D")  # header repeated per block
         assert wide[1] == ("a", "1", "d", "4")  # row 0 of each block
         assert wide[3] == ("c", "3", "", "")  # ragged tail padded blank
+
+
+class TestDraftwrightAttribution:
+    """draftwright self-attribution in the title block + clickable SVG link."""
+
+    def test_author_appends_draftwright(self):
+        from draftwright._core import _attribution_author
+
+        assert _attribution_author("P. Fremantle") == "P. Fremantle / draftwright"
+
+    def test_author_defaults_to_draftwright(self):
+        from draftwright._core import _attribution_author
+
+        assert _attribution_author("") == "draftwright"
+        assert _attribution_author(None) == "draftwright"
+        assert _attribution_author("   ") == "draftwright"
+
+    def test_link_rect_sits_over_the_drawn_by_cell(self):
+        # The recorded hyperlink rect is the "drawn by" cell: bottom row, from
+        # the 40% column divider to the title block's right edge.
+        from draftwright._core import _TB_CELL_H, _TB_CLEAR
+
+        dwg = build_drawing(Box(60, 40, 20))
+        x0, y0, x1, y1 = dwg._draftwright_link_rect
+        assert x1 == pytest.approx(dwg.page_w - _TB_CLEAR)
+        assert x0 == pytest.approx(x1 - 0.60 * dwg.tb_w)
+        assert y0 == pytest.approx(_TB_CLEAR)
+        assert y1 == pytest.approx(_TB_CLEAR + _TB_CELL_H)
+        # stays inside the drawable page
+        assert 0 < x0 < x1 <= dwg.page_w and 0 < y0 < y1 <= dwg.page_h
+
+    def test_add_svg_hyperlink_injects_anchor(self, tmp_path):
+        from draftwright.make_drawing import _DRAFTWRIGHT_URL, add_svg_hyperlink
+
+        svg = tmp_path / "x.svg"
+        svg.write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -100 200 100"><g/></svg>',
+            encoding="utf-8",
+        )
+        add_svg_hyperlink(str(svg), (150.0, 10.0, 190.0, 18.0))
+        out = svg.read_text(encoding="utf-8")
+        assert "xmlns:xlink" in out  # namespace declared so xlink:href is valid
+        assert f'href="{_DRAFTWRIGHT_URL}"' in out
+        # page (x, y) -> svg (x, -y): rect top-left = (150, -18), size 40 x 8
+        assert 'x="150.000" y="-18.000" width="40.000" height="8.000"' in out
+        assert 'pointer-events="all"' in out
+
+    def test_export_svg_carries_the_clickable_link(self, tmp_path):
+        dwg = build_drawing(Box(60, 40, 20))
+        svg_path, _ = dwg.export(str(tmp_path / "out"))
+        svg = Path(svg_path).read_text(encoding="utf-8")
+        assert "github.com/pzfreo/draftwright" in svg
+        assert "<a " in svg and "</a>" in svg

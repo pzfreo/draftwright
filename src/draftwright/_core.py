@@ -411,6 +411,18 @@ _greedy_strip_ys = _greedy_strip_1d
 _solve_strip_ys = _solve_strip_1d
 
 
+_TB_CELL_H = 8.0  # TitleBlock default cell_height (page-mm)
+
+_DRAFTWRIGHT_URL = "https://github.com/pzfreo/draftwright"
+
+
+def _attribution_author(drawn_by: str | None) -> str:
+    """ISO 7200 "drawn by" value: the human author and draftwright, or just
+    draftwright when no author was supplied."""
+    author = (drawn_by or "").strip()
+    return f"{author} / draftwright" if author else "draftwright"
+
+
 def _add_title_block(dwg, a: Analysis):
     """Add the title block annotation."""
     tb = TitleBlock(
@@ -418,13 +430,26 @@ def _add_title_block(dwg, a: Analysis):
         a.number,
         scale=format_drawing_scale(a.SCALE),
         general_tolerance=a.tolerance,
-        designed_by=a.drawn_by,
+        designed_by=_attribution_author(a.drawn_by),
         revision="A",
         legal_owner="",
         width=a.TB_W,
         draft=dwg.draft,
     ).locate(Location((a.PAGE_W - a.TB_W - _TB_CLEAR, _TB_CLEAR, 0)))
     dwg.add(tb, "title_block")
+
+    # Record the page-space rectangle of the "drawn by" cell (bottom row,
+    # columns 2-5, from the 40% divider to the right edge) so export() can place
+    # a clickable draftwright hyperlink over the "… / draftwright" author text.
+    # Keeps the block at its standard two rows — no extra height, no layout
+    # impact (a third row would squeeze the dense-part hole table).
+    bx = a.PAGE_W - a.TB_W - _TB_CLEAR
+    dwg._draftwright_link_rect = (
+        bx + 0.40 * a.TB_W,
+        _TB_CLEAR,
+        bx + a.TB_W,
+        _TB_CLEAR + _TB_CELL_H,
+    )
 
 
 def _iso_bbox(dwg):
