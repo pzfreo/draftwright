@@ -1181,6 +1181,11 @@ class TestComposeThenPackRepack:
         # The MAJOR fix: when the plan view's measured left band is the deeper of
         # the two, the FV/PV column must clear it (col_left), or PV slides off the
         # left margin.  front.left tiny, plan.left huge.
+        #
+        # The page is sized so the content FILLS it (x_offset == 0): on a wide
+        # sheet the centring slack would absorb the mis-anchoring and the buggy
+        # code (FV_X anchored on fv.left) would pass anyway.  With x_offset == 0
+        # the bug puts the plan-view left edge at margin - 120 = -110 mm.
         from draftwright.make_drawing import _MARGIN, ViewBlock, _layout_geometry
 
         blocks = {
@@ -1188,7 +1193,11 @@ class TestComposeThenPackRepack:
             "plan": ViewBlock(10, 10, left=120.0, right=8, top=8, bottom=8),
             "side": ViewBlock(10, 10, left=0.0, right=8, top=8, bottom=8),
         }
-        g = _layout_geometry(20, 20, 20, 1.0, 841.0, 594.0, 150.0, None, blocks=blocks)
+        g = _layout_geometry(20, 20, 20, 1.0, 380.0, 300.0, 150.0, None, blocks=blocks)
+        # Precondition: no centring slack, or the test cannot catch the bug.
+        assert g.x_offset == pytest.approx(0.0, abs=0.01), (
+            f"test needs x_offset==0 to be meaningful, got {g.x_offset:.1f}"
+        )
         pv_left_footprint_edge = g.PV_X - g.fv_hw - 120.0
         assert pv_left_footprint_edge >= _MARGIN - 0.5, (
             f"plan-view left footprint edge {pv_left_footprint_edge:.1f} slid past "
