@@ -729,15 +729,18 @@ class TestComposeAnnoBoxes:
             draft_preset,
         )
 
-        # The composer must reproduce StripDepths exactly under BOTH the default
-        # clearance args and the production draft preset (#112, Step 4b): the
-        # bore-band elbow+gap overhead (arrow_length + pad_around_text) is added
-        # identically on both paths, so byte-identity holds for any preset — not
-        # just the 2.7/2.0 defaults the earlier slices happened to test.
+        # The composer must reproduce StripDepths exactly for ANY clearance
+        # args (#112, Step 4b): the bore-band elbow+gap overhead
+        # (arrow_length + pad_around_text) is added identically on both paths,
+        # so byte-identity cannot depend on the values. We test the function
+        # defaults, the production draft preset (which today equals the
+        # defaults — a forward-guard if it ever diverges), and a deliberately
+        # divergent set that actually exercises a different overhead.
         preset = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
         arg_sets = (
             {},
             {"arrow_length": preset.arrow_length, "pad_around_text": preset.pad_around_text},
+            {"arrow_length": 4.3, "pad_around_text": 3.1},
         )
         for kw in arg_sets:
             composed = _footprint_from_boxes(_compose_anno_boxes(holes, patterns, n_steps, **kw))
@@ -812,8 +815,10 @@ class TestComposeAnnoBoxesCorpus:
         """The part archetypes draftwright draws, spanning every branch of
         _compose_anno_boxes: a plain prismatic block (right ladder only), a
         single bore and a multi-spec / corner-holed plate (left+right bore
-        bands), a stepped staircase (deeper right ladder), and a dense plate
-        that escalates to the leadered hole chart (plan halo band)."""
+        bands), and a dense plate that escalates to the leadered hole chart
+        (plan halo band). The right dim ladder depth is a pure function of the
+        n_steps argument (not geometry), so it is swept per part below rather
+        than via a dedicated stepped fixture."""
         from draftwright.make_drawing import find_hole_patterns, find_holes
 
         parts = {
@@ -821,7 +826,6 @@ class TestComposeAnnoBoxesCorpus:
             "single_bore": Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12),
             "multi_hole": _multi_hole_plate(),
             "holed_plate": _holed_plate(),
-            "staircase": _uniform_staircase(n_treads=4),
             "dense_balloon": _dense_plate(),
         }
         corpus = []
