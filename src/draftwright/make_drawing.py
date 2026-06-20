@@ -1541,7 +1541,9 @@ def _padded_box(cx, cy, hw, hh, pad=_DIM_PAD):
     return ViewBlock(hw, hh, pad, pad, pad, pad).footprint(cx, cy)
 
 
-def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps=0):
+def _layout_geometry(
+    x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps=0, blocks=None
+):
     """Compute the 4-view layout geometry for a part at a given scale/page.
 
     Single source of truth shared by scale selection (:func:`_fits`) and view
@@ -1582,18 +1584,35 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     # the headroom above PV, and reserving more would needlessly grow the layout
     # (and can starve the section view of its leftover space).
     pv_top = (max(DIM_PAD, strip_top) + halo) if halo > 0 else DIM_PAD
-    fv = ViewBlock(
-        fv_hw, fv_hh, top=DIM_PAD - pv_below, right=gap_fv_sv, bottom=DIM_PAD, left=gap_left
-    )
-    pv = ViewBlock(
-        fv_hw,
-        pv_hh,
-        top=pv_top,
-        right=gap_fv_sv,
-        bottom=max(pv_below, halo),  # band below PV holds the width dim + a balloon row
-        left=gap_left,
-    )
-    sv = ViewBlock(sv_hw, fv_hh, right=DIM_PAD)
+    if blocks is not None:
+        # Measure-and-repack pass (#121, ADR 0004): pack the *measured* per-view
+        # footprints disjoint, not the estimated scalar corridors. Bands carry the
+        # geometry half-extents too, so use them as the source of truth.
+        fv, pv, sv = blocks["front"], blocks["plan"], blocks["side"]
+        fv_hw, fv_hh = fv.hw, fv.hh
+        pv_hh = pv.hh
+        sv_hw = sv.hw
+    else:
+        fv = ViewBlock(
+            fv_hw, fv_hh, top=DIM_PAD - pv_below, right=gap_fv_sv, bottom=DIM_PAD, left=gap_left
+        )
+        pv = ViewBlock(
+            fv_hw,
+            pv_hh,
+            top=pv_top,
+            right=gap_fv_sv,
+            bottom=max(pv_below, halo),  # band below PV holds the width dim + a balloon row
+            left=gap_left,
+        )
+        sv = ViewBlock(sv_hw, fv_hh, right=DIM_PAD)
+    # Per-side corridor depths from the (possibly measured) blocks. The front and
+    # plan views stack vertically (same X, different Y) so they SHARE the left and
+    # right corridors — the deeper of the two facing bands. The side view ABUTS
+    # the column, so its gap is that column band PLUS its own facing band (sum) —
+    # disjoint by construction (#121). Byte-identical for the estimator path,
+    # where fv/pv bands are equal and sv.left == 0.
+    col_left = max(fv.left, pv.left)
+    col_right = max(fv.right, pv.right)
 
     # Bottom balloon band: rather than pushing the front view down (which would
     # cascade into the iso/table and the scale choice), LIFT the plan view up
@@ -1603,16 +1622,19 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     # exactly as when halo = 0), while PV is positioned with the full ballooned
     # gap, leaving it max(0, halo - pv_below) higher.  Byte-identical when
     # halo = 0.  (#112, ADR 0004.)
-    base_gap = fv.top + pv_below
+    # FV↔PV vertical gap = fv.top + pv.bottom (abutting → sum). The estimator path
+    # keeps its lift trick (centre on the base gap, place PV on the full gap);
+    # the measured path uses the real gap directly.
+    base_gap = (fv.top + pv.bottom) if blocks is not None else (fv.top + pv_below)
     total_h = 2 * margin + fv.bottom + 2 * fv.hh + base_gap + 2 * pv.hh + pv.top
     y_offset = max(0.0, (page_h - total_h) / 2)
 
     total_content_w = (
-        gap_left
-        + gap_fv_sv
+        col_left
+        + col_right
         + x_size * scale
         + y_size * scale
-        + 2 * DIM_PAD
+        + max(2 * DIM_PAD, sv.right + DIM_PAD)
         + bbox_max * scale * _ISO_WIDTH_BUDGET
     )
     x_offset = max(0.0, (page_w - 2 * margin - tb_w - total_content_w) / 2)
@@ -1624,7 +1646,10 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     # the base gap — so the plan view sits pv_lift higher: lifted into the
     # headroom, front view anchored.
     PV_Y = FV_Y + fv.hh + (fv.top + pv.bottom) + pv.hh
-    SV_X = FV_X + fv.hw + max(fv.right, sv.left) + sv.hw
+    # SV abuts the FV/PV column: gap = column right band + SV's own left band
+    # (disjoint sum). Byte-identical to the old max(fv.right, sv.left) on the
+    # estimator path (fv.right == pv.right == col_right, sv.left == 0).
+    SV_X = FV_X + fv.hw + col_right + sv.left + sv.hw
     SV_Y = FV_Y
     sv_right = SV_X + sv.hw + sv.right
     sv_right_wall = (
