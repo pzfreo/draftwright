@@ -1005,6 +1005,38 @@ def _est_pv_below_depth() -> float:
     return _STRIP_GAP + _SLOT_DIM_WIDTH
 
 
+def _est_pv_above_depth(
+    holes, patterns, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0
+) -> float:
+    """Estimate the depth above the plan view consumed by X-location dims, which
+    tier one per distinct datum-X reference (#36) — so the layout can reserve it
+    (and a balloon row beyond) *before* placing views, instead of letting the
+    tiers spill into headroom (#121).
+
+    WIP estimate standing in for ADR 0004's "lay out, don't predict": a
+    conservative upper bound (one spare tier for the pitch dim / rounding), which
+    the packer absorbs by scale rather than under-reserving and overlapping.
+    Scale-independent (tier height is fixed page-mm).
+    """
+    z_refs_x: list[float] = []
+    patterned = {h for p in patterns for h in p.holes}
+    for p in patterns:
+        if _axis_letter(p.holes[0]) != "z":
+            continue
+        z_refs_x.append(
+            p.center[0] if isinstance(p, BoltCircle) else p.holes[0].location[0]
+        )
+    z_refs_x += [h.location[0] for h in holes if _axis_letter(h) == "z" and h not in patterned]
+    distinct: list[float] = []
+    for x in sorted(z_refs_x):
+        if not distinct or abs(x - distinct[-1]) > 0.5:
+            distinct.append(x)
+    if not distinct:
+        return 0.0
+    tier = font_size + 2 * pad_around_text
+    return (len(distinct) + 1) * tier  # +1 tier: pitch dim / rounding headroom
+
+
 def _est_plan_halo(font_size: float = _FONT_SIZE) -> float:
     """Per-side standoff band (page-mm) reserved around the plan view when its
     holes will be ballooned, so the leadered balloon ring sits in clear space
@@ -1135,6 +1167,7 @@ class StripDepths:
 
     right: float  # horizontal corridor right of FV/PV → gap_fv_sv
     left: float  # horizontal corridor left of FV/PV
+    top: float = 0.0  # band above PV for tiered X-location dims (#121)
     pv_halo: float = 0.0  # balloon standoff band reserved around the plan view (#111)
 
 
@@ -1163,8 +1196,9 @@ def _measure_strips(
         bore_depth += pad_around_text + arrow_length
     right = max(_est_right_strip_depth(n_steps), bore_depth)
     left = max(_DIM_PAD, bore_depth)
+    top = _est_pv_above_depth(holes, patterns, font_size, pad_around_text)
     pv_halo = _est_plan_halo(font_size) if _will_balloon(holes, patterns) else 0.0
-    return StripDepths(right=right, left=left, pv_halo=pv_halo)
+    return StripDepths(right=right, left=left, top=top, pv_halo=pv_halo)
 
 
 @dataclass(frozen=True)
@@ -1269,7 +1303,10 @@ def _fits(
     halo = strips.pv_halo if strips else 0.0
     gap_fv_sv = max(_DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
     gap_left = max(_DIM_PAD, strips.left if strips else _DIM_PAD, halo)
-    h = _MARGIN + _DIM_PAD + y_size * scale + _DIM_PAD + z_size * scale + _DIM_PAD + _MARGIN
+    # PV top band must hold the tiered X-location dims + a balloon row beyond them
+    # (#121) — mirror _layout_geometry's pv.top so scale/page is sized for it.
+    pv_top = max(_DIM_PAD, strips.top if strips else 0.0) + halo
+    h = _MARGIN + pv_top + y_size * scale + _DIM_PAD + z_size * scale + _DIM_PAD + _MARGIN
     if h > page_h:
         return False
 
@@ -1470,16 +1507,21 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     # ring the part below it, not just left/right/top (#111/#112 Phase 2).  All
     # bands reduce to today's arithmetic when halo = 0 (byte-identical).
     halo = strips.pv_halo if strips else 0.0
+    strip_top = strips.top if strips else 0.0
     gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
     gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
     pv_below = _est_pv_below_depth()
+    # Top band above PV: the tiered X-location dims (strip_top) PLUS a balloon row
+    # beyond them, not max(DIM_PAD, halo) — the dims were only fitting by spilling
+    # into headroom, so the ring placed beyond them overran the page (#121).
+    pv_top = max(DIM_PAD, strip_top) + halo
     fv = ViewBlock(
         fv_hw, fv_hh, top=DIM_PAD - pv_below, right=gap_fv_sv, bottom=DIM_PAD, left=gap_left
     )
     pv = ViewBlock(
         fv_hw,
         pv_hh,
-        top=DIM_PAD,
+        top=pv_top,
         right=gap_fv_sv,
         bottom=max(pv_below, halo),  # band below PV holds the width dim + a balloon row
         left=gap_left,
