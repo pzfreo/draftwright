@@ -1023,9 +1023,7 @@ def _est_pv_above_depth(
     for p in patterns:
         if _axis_letter(p.holes[0]) != "z":
             continue
-        z_refs_x.append(
-            p.center[0] if isinstance(p, BoltCircle) else p.holes[0].location[0]
-        )
+        z_refs_x.append(p.center[0] if isinstance(p, BoltCircle) else p.holes[0].location[0])
     z_refs_x += [h.location[0] for h in holes if _axis_letter(h) == "z" and h not in patterned]
     distinct: list[float] = []
     for x in sorted(z_refs_x):
@@ -1528,8 +1526,10 @@ def _measure_blocks(dwg, a) -> dict:
     ext: dict = {v: None for v in geom}
     for _name, v, bb, _label in _attribute_annotations(dwg, a):
         e = ext[v]
-        ext[v] = bb if e is None else (
-            min(e[0], bb[0]), min(e[1], bb[1]), max(e[2], bb[2]), max(e[3], bb[3])
+        ext[v] = (
+            bb
+            if e is None
+            else (min(e[0], bb[0]), min(e[1], bb[1]), max(e[2], bb[2]), max(e[3], bb[3]))
         )
 
     blocks: dict = {}
@@ -2607,20 +2607,48 @@ class Drawing:
         # and bottom balloons vary in X at a fixed Y just beyond it. Each line is
         # offset by its side's dim depth so the ring sits clear of the dims.
         self._place_band(
-            view, bands["left"], "y", pl - left_dim - standoff - r,
-            margin + r, ph - margin - r, gap, fs, r,
+            view,
+            bands["left"],
+            "y",
+            pl - left_dim - standoff - r,
+            margin + r,
+            ph - margin - r,
+            gap,
+            fs,
+            r,
         )
         self._place_band(
-            view, bands["right"], "y", pr + right_dim + standoff + r,
-            margin + r, ph - margin - r, gap, fs, r,
+            view,
+            bands["right"],
+            "y",
+            pr + right_dim + standoff + r,
+            margin + r,
+            ph - margin - r,
+            gap,
+            fs,
+            r,
         )
         self._place_band(
-            view, bands["top"], "x", pt + top_dim + standoff + r,
-            pl - standoff, sv_left - r, gap, fs, r,
+            view,
+            bands["top"],
+            "x",
+            pt + top_dim + standoff + r,
+            pl - standoff,
+            sv_left - r,
+            gap,
+            fs,
+            r,
         )
         self._place_band(
-            view, bands["bottom"], "x", bottom_line,
-            pl - standoff, sv_left - r, gap, fs, r,
+            view,
+            bands["bottom"],
+            "x",
+            bottom_line,
+            pl - standoff,
+            sv_left - r,
+            gap,
+            fs,
+            r,
         )
 
     def _place_band(self, view, members, axis, line, lo, hi, gap, fs, r):
@@ -3383,8 +3411,8 @@ def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None):
         )
 
     candidates = _repack_candidates(a, scale, page)
-    chosen, g = next(((c, gg) for c in candidates if (gg := _geom(c)).fits), (None, None))
-    if chosen is None:
+    fit = next(((c, gg) for c in candidates if (gg := _geom(c)).fits), None)
+    if fit is None:
         # Nothing fits — keep the largest candidate and let lint report the
         # overflow (mirrors choose_scale's fallback rather than crashing).
         chosen = candidates[-1]
@@ -3392,6 +3420,8 @@ def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None):
         _log.warning(
             "measure-repack: no standard sheet fits the measured layout; using %s", chosen
         )
+    else:
+        chosen, g = fit
     s, pw, ph, tb = chosen
     moved = max(
         abs(g.FV_X - a.FV_X),

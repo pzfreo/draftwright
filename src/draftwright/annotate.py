@@ -938,7 +938,9 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                     tip = (PX(cx_f), PY(cy_f) + half_pg, 0)
                     slot = a.pv_zones.above.allocate(_SLOT)
                     if slot is not None:
-                        dwg.add(Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d, view="plan")
+                        dwg.add(
+                            Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d, view="plan"
+                        )
                         placed = True
                     else:
                         slot = a.pv_zones.below.allocate(_SLOT)
@@ -961,7 +963,9 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                     tip = (SX(cy_f), SZ(cz_f) + half_pg, 0)
                     slot = a.sv_zones.above.allocate(_SLOT)
                     if slot is not None:
-                        dwg.add(Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d, view="side")
+                        dwg.add(
+                            Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d, view="side"
+                        )
                         placed = True
                     else:
                         slot = a.sv_zones.below.allocate(_SLOT)
@@ -1667,9 +1671,7 @@ def _add_furniture(dwg, a: Analysis, view, j, pattern, to_page):
     if isinstance(pattern, BoltCircle):
         cx = sum(to_page(h)[0] for h in pattern.holes) / len(pattern.holes)
         cy = sum(to_page(h)[1] for h in pattern.holes) / len(pattern.holes)
-        dwg.add(
-            CenterlineCircle((cx, cy), pattern.diameter * a.SCALE), f"bc_{view}{j}", view=view
-        )
+        dwg.add(CenterlineCircle((cx, cy), pattern.diameter * a.SCALE), f"bc_{view}{j}", view=view)
     elif isinstance(pattern, LinearArray):
         _add_pitch_dim(dwg, a, view, j, pattern, to_page)
 
