@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 from build123d import BoundBox, Location, Shape
 from build123d_drafting.helpers import (
-    _TB_COL_FRACTIONS,
+    _TB_COL_FRACTIONS,  # private: title-block column widths — tight coupling, see CLAUDE.md
     Dimension,
     TitleBlock,
     draft_preset,

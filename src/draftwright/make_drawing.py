@@ -2757,7 +2757,10 @@ def _render_pdf(svg_path: str, pdf_path: str, page_h: float, link_rect=None) -> 
             ctx.tag_end(cairocffi.TAG_LINK)
         instance.finish()
     except Exception:
-        # Never fail the export over the link/metadata extras.
+        # Never fail the export over the link/metadata extras; degrade to a
+        # plain render. Logged at debug so a regression in the link annotation
+        # is diagnosable (in normal use only the dedicated test would catch it).
+        _log.debug("PDF link/metadata extras failed; rendered a plain PDF", exc_info=True)
         cairosvg.svg2pdf(url=svg_path, write_to=pdf_path)
 
 
