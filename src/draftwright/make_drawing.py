@@ -1441,6 +1441,64 @@ def choose_scale(
 # ---------------------------------------------------------------------------
 
 
+def _measure_blocks(dwg, a) -> dict:
+    """Measure each orthographic view's *actual* annotation footprint from the
+    laid-out drawing (#121, ADR 0004 — "lay out, don't predict").
+
+    Each view's four band depths are how far its annotations extend beyond its
+    geometry box, **measured** from what the annotation passes produced — not
+    estimated. Every annotation is attributed to the nearest view (by its
+    label/box centre), and the band depth on a side is the furthest that view's
+    annotations reach past the geometry edge there. Returns ``{view_name:
+    ViewBlock}`` whose bands the packer can place disjoint, no ``_est_*`` needed.
+    """
+    geom = {
+        "front": (a.FV_X, a.FV_Y, a.fv_hw, a.fv_hh),
+        "plan": (a.PV_X, a.PV_Y, a.fv_hw, a.pv_hh),
+        "side": (a.SV_X, a.SV_Y, a.sv_hw, a.fv_hh),
+    }
+
+    def box(o):
+        lb = getattr(o, "label_bbox", None)
+        if lb is not None:
+            return lb
+        try:
+            b = o.bounding_box()
+            return (b.min.X, b.min.Y, b.max.X, b.max.Y)
+        except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+            return None
+
+    ext: dict = {v: None for v in geom}
+    for name, o in dwg._named.items():
+        if name == "title_block":
+            continue
+        bb = box(o)
+        if bb is None:
+            continue
+        bcx, bcy = (bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2
+        v = min(geom, key=lambda k: (bcx - geom[k][0]) ** 2 + (bcy - geom[k][1]) ** 2)
+        e = ext[v]
+        ext[v] = bb if e is None else (
+            min(e[0], bb[0]), min(e[1], bb[1]), max(e[2], bb[2]), max(e[3], bb[3])
+        )
+
+    blocks: dict = {}
+    for v, (cx, cy, hw, hh) in geom.items():
+        e = ext[v]
+        if e is None:
+            blocks[v] = ViewBlock(hw, hh)
+            continue
+        blocks[v] = ViewBlock(
+            hw,
+            hh,
+            top=max(0.0, e[3] - (cy + hh)),
+            right=max(0.0, e[2] - (cx + hw)),
+            bottom=max(0.0, (cy - hh) - e[1]),
+            left=max(0.0, (cx - hw) - e[0]),
+        )
+    return blocks
+
+
 @dataclass(frozen=True)
 class ViewBlock:
     """A view's composite footprint (#112): its geometry half-extents plus the
