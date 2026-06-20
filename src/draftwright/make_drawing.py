@@ -466,7 +466,7 @@ def _text_width(text: str, font_size: float, font: str = "Arial") -> float:
     )
 
 
-def _build_table(rows, draft):
+def _build_table(rows, draft, block_cols=None):
     """Build a generic data-table annotation at the origin (bottom-left ``(0, 0)``).
 
     *rows* is a list of equal-length string tuples; ``rows[0]`` is the header,
@@ -475,31 +475,47 @@ def _build_table(rows, draft):
     :func:`fit_box`. Column widths are sized to their content via real glyph
     metrics (:func:`_text_width`). Generic — the hole table, and gear/BOM/
     revision tables, all build through here.
+
+    When the rows are a wrapped chart of *block_cols*-wide side-by-side blocks
+    (see :func:`_wrap_rows`), each block is drawn as its own bordered grid with
+    a whitespace gap between them, so the blocks read as separate tables rather
+    than one run-on grid.
     """
     fs = draft.font_size
     pad = draft.pad_around_text
     row_h = fs + 2 * pad
     ncol = len(rows[0])
+    # Only treat as multi-block when block_cols evenly divides the row width.
+    bc = block_cols if (block_cols and ncol % block_cols == 0 and block_cols < ncol) else ncol
+    block_gap = 3 * pad  # whitespace between side-by-side blocks
     col_w = [
         max(max(_text_width(str(r[c]), fs) for r in rows) + 2 * pad, fs * 2.5) for c in range(ncol)
     ]
-    xs = [0.0]
-    for w in col_w:
-        xs.append(xs[-1] + w)
-    total_w = xs[-1]
+    # Per-column left/right edges, inserting block_gap before each new block.
+    lefts, rights, cursor = [], [], 0.0
+    for c in range(ncol):
+        if c > 0 and c % bc == 0:
+            cursor += block_gap
+        lefts.append(cursor)
+        cursor += col_w[c]
+        rights.append(cursor)
+    total_w = cursor
     total_h = row_h * len(rows)
     ys = [i * row_h for i in range(len(rows) + 1)]
     children = []
-    for x in xs:
-        children.append(Edge.make_line(Vector(x, 0, 0), Vector(x, total_h, 0)))
-    for y in ys:
-        children.append(Edge.make_line(Vector(0, y, 0), Vector(total_w, y, 0)))
+    for b in range(ncol // bc):  # one bordered grid per block
+        cols = range(b * bc, b * bc + bc)
+        bl, br = lefts[b * bc], rights[b * bc + bc - 1]
+        for x in [lefts[c] for c in cols] + [br]:  # column rules + block edges
+            children.append(Edge.make_line(Vector(x, 0, 0), Vector(x, total_h, 0)))
+        for y in ys:  # horizontal rules stop at the block edge, not the gap
+            children.append(Edge.make_line(Vector(bl, y, 0), Vector(br, y, 0)))
     for ri, row in enumerate(rows):  # rows[0] (header) sits at the top
         cy = total_h - (ri + 0.5) * row_h
         for ci, cell in enumerate(row):
             if not str(cell):
                 continue
-            cx = (xs[ci] + xs[ci + 1]) / 2
+            cx = (lefts[ci] + rights[ci]) / 2
             text = Text(
                 txt=str(cell),
                 font_size=fs,
@@ -2186,7 +2202,7 @@ class Drawing:
         """Return the named annotation object, or ``None`` if no such name (#27)."""
         return self._named.get(name)
 
-    def add_table(self, rows, *, prefer="tr", name="table"):
+    def add_table(self, rows, *, prefer="tr", name="table", block_cols=None):
         """Add a generic data table, placed in a free corner (#93).
 
         *rows* is a list of equal-length string tuples (``rows[0]`` is the
@@ -2199,7 +2215,7 @@ class Drawing:
         """
         if not rows:
             return None
-        table = _build_table(rows, self.draft)
+        table = _build_table(rows, self.draft, block_cols=block_cols)
         w, h = table.table_size
         a = self._analysis
         margin = a.margin if a is not None else 10.0
