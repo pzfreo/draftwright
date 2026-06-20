@@ -1,6 +1,6 @@
 # ADR 0004 — Compose-then-pack: views as blocks carrying their annotation footprint
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-06-19; amended 2026-06-20 — see Amendment)
 - **Date:** 2026-06-19
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -117,7 +117,10 @@ table size, halo) collapse into one composer per view.
   non-deterministic. Fixed-topology + composed footprints + local free-rect
   placement is the right amount of structure.
 
-### Roadmap (incremental; each step mergeable, byte-identical for unaffected drawings)
+### Roadmap (incremental; each step mergeable)
+
+> **Amended 2026-06-20:** the original "byte-identical for unaffected drawings"
+> discipline is **dropped** — see the Amendment section below.
 
 1. **Done** — `ViewBlock` data model + block-driven view placement
    (byte-identical foundation).
@@ -131,8 +134,10 @@ table size, halo) collapse into one composer per view.
 5. **Retire `_will_balloon`** — escalation decided from the composed fit.
 
 The standing acceptance test at every step is the **dense-ballooning hard case**
-(NIST CTC-02); the golden/geometry suite is the contract that unaffected
-drawings do not move.
+(NIST CTC-02). **Specifically: the plan view's labels (balloons) must not overlap
+the front view's dimensions** — the inter-view annotation overlap that motivates
+this ADR. Output *is allowed to change* (see Amendment); correctness is judged by
+overlaps-gone + lint-clean, not by golden/geometry stability.
 
 ## Consequences
 
@@ -158,3 +163,33 @@ drawings do not move.
 - `compose(view, scale)` must run the *real* legibility/escalation logic (not
   estimate) to be correct — this is where the substance moves, and it must stay
   fast (box math) to preserve the performance win.
+
+## Amendment (2026-06-20) — accepted; byte-identity dropped
+
+Acting on this ADR exposed that holding step 1 (`ViewBlock` foundation, 4a/4b)
+**byte-identical** is exactly why nothing improved: a byte-identical composer just
+re-expresses the old scalar reservation, so the front-dim/plan-label overlap
+persists by construction. Chasing the overlap with post-hoc balloon-placement
+tweaks (push the ring out, stack beyond dims) only relocates the collision —
+confirming the ADR's thesis that the fix is the *reorder*, not placement.
+
+Decisions:
+
+1. **Status → Accepted.** Build steps 2–5 of the Roadmap for real.
+2. **Drop the "byte-identical per step" rule.** Output *will* change on many
+   drawings, by design. The golden/geometry suite is no longer the contract;
+   it is updated to the new, correct output.
+3. **Acceptance test = the inter-view overlap.** A step is correct when
+   **plan-view labels do not overlap front-view dimensions** (and lint is clean)
+   on the hard case (NIST CTC-02), *not* when output is unchanged.
+4. **Footprint stays a box layout** (page-mm rectangles via the ADR-0003 inner
+   layout in view-local space) — never bbox-measured OCC geometry (the O(n²)
+   `lint()` wall, ~110 s on CTC-02, is the standing evidence).
+5. **Tracked as #121.** The root cause is "annotations placed *after* views are
+   positioned, into shared corridors." The fix order is: **compose** each view
+   as `view_rect(scale) + its annotation boxes` → **size** via the monotone
+   `(scale, page)` search → **pack** blocks **disjoint** (one block's annotations
+   cannot enter another block's rectangle) → build geometry once → repair only as
+   a safety net. Scale/page is the outer search; compose-then-pack is its
+   fitness function. If even A0 at the smallest standard scale will not hold the
+   packed blocks, **suggest a larger page / smaller scale** rather than cram.
