@@ -720,16 +720,32 @@ class TestComposeAnnoBoxes:
     that _measure_strips computes — the byte-identical box-model foundation that
     later steps make honest."""
 
-    def _assert_match(self, holes, patterns, n_steps, bb):
+    def _assert_match(self, holes, patterns, n_steps, bb, label=""):
         from draftwright.make_drawing import (
+            _FONT_SIZE,
             _compose_anno_boxes,
             _footprint_from_boxes,
             _measure_strips,
+            draft_preset,
         )
 
-        composed = _footprint_from_boxes(_compose_anno_boxes(holes, patterns, n_steps))
-        scalar = _measure_strips(holes, patterns, n_steps, bb)
-        assert composed == scalar
+        # The composer must reproduce StripDepths exactly for ANY clearance
+        # args (#112, Step 4b): the bore-band elbow+gap overhead
+        # (arrow_length + pad_around_text) is added identically on both paths,
+        # so byte-identity cannot depend on the values. We test the function
+        # defaults, the production draft preset (which today equals the
+        # defaults — a forward-guard if it ever diverges), and a deliberately
+        # divergent set that actually exercises a different overhead.
+        preset = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
+        arg_sets = (
+            {},
+            {"arrow_length": preset.arrow_length, "pad_around_text": preset.pad_around_text},
+            {"arrow_length": 4.3, "pad_around_text": 3.1},
+        )
+        for kw in arg_sets:
+            composed = _footprint_from_boxes(_compose_anno_boxes(holes, patterns, n_steps, **kw))
+            scalar = _measure_strips(holes, patterns, n_steps, bb, **kw)
+            assert composed == scalar, (label, n_steps, kw)
 
     def test_matches_for_plain_part(self):
         from draftwright.make_drawing import find_hole_patterns, find_holes
@@ -785,6 +801,81 @@ class TestComposeAnnoBoxes:
 
         # No bands at all → zero depths, but the left floor still applies.
         assert _footprint_from_boxes([]) == StripDepths(right=0.0, left=_DIM_PAD, pv_halo=0.0)
+
+
+class TestComposeAnnoBoxesCorpus:
+    """Step 4b (#112): de-risk the 4c reservation switch by proving the AnnoBox
+    composer is a faithful drop-in for _measure_strips across the full part
+    archetype corpus, and by pinning the per-side box *structure* that 4c will
+    consume. Pure validation — nothing yet uses the composer for layout, so the
+    rendered output is byte-identical."""
+
+    @staticmethod
+    def _corpus():
+        """The part archetypes draftwright draws, spanning every branch of
+        _compose_anno_boxes: a plain prismatic block (right ladder only), a
+        single bore and a multi-spec / corner-holed plate (left+right bore
+        bands), and a dense plate that escalates to the leadered hole chart
+        (plan halo band). The right dim ladder depth is a pure function of the
+        n_steps argument (not geometry), so it is swept per part below rather
+        than via a dedicated stepped fixture."""
+        from draftwright.make_drawing import find_hole_patterns, find_holes
+
+        parts = {
+            "plain_block": Box(60, 40, 12),
+            "single_bore": Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12),
+            "multi_hole": _multi_hole_plate(),
+            "holed_plate": _holed_plate(),
+            "dense_balloon": _dense_plate(),
+        }
+        corpus = []
+        for label, part in parts.items():
+            holes = find_holes(part)
+            patterns = find_hole_patterns(holes)
+            corpus.append((label, holes, patterns, part.bounding_box()))
+        return corpus
+
+    def test_byte_identity_across_corpus(self):
+        helper = TestComposeAnnoBoxes()
+        for label, holes, patterns, bb in self._corpus():
+            for n_steps in (0, 1, 4):
+                helper._assert_match(holes, patterns, n_steps, bb, label=label)
+
+    def test_box_structure_contract(self):
+        """The per-side box structure 4c consumes: the right dim ladder is
+        always emitted at the estimated depth; bore bands come as one
+        equal-depth left/right pair iff the part has annotatable holes; the
+        plan halo appears iff the plan view will balloon. (_footprint_from_boxes
+        folding these back to the StripDepths estimate is covered above.)"""
+        from draftwright.make_drawing import (
+            _FONT_SIZE,
+            _compose_anno_boxes,
+            _est_bore_callout_width,
+            _est_right_strip_depth,
+            _will_balloon,
+        )
+
+        for label, holes, patterns, _bb in self._corpus():
+            for n_steps in (0, 2):
+                boxes = _compose_anno_boxes(holes, patterns, n_steps)
+                rights = [b.depth for b in boxes if b.side == "right"]
+                lefts = [b.depth for b in boxes if b.side == "left"]
+                halos = [b for b in boxes if b.side == "plan_halo"]
+
+                # The right dim ladder is always present, at the estimated depth.
+                assert _est_right_strip_depth(n_steps) in rights, (label, n_steps)
+
+                has_callout = _est_bore_callout_width(holes, _FONT_SIZE, patterns=patterns) > 0
+                if has_callout:
+                    # Bore bands are emitted as a single equal-depth left/right
+                    # pair — the symmetry _measure_strips' max() collapses.
+                    assert len(lefts) == 1, (label, n_steps)
+                    assert lefts[0] in rights, (label, n_steps)
+                else:
+                    assert lefts == [], (label, n_steps)
+
+                # The halo band is emitted exactly when the part will balloon.
+                assert bool(halos) == _will_balloon(holes, patterns), (label, n_steps)
 
 
 # ---------------------------------------------------------------------------
