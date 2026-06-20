@@ -3889,8 +3889,10 @@ def _multi_hole_plate():
 
 
 def _dense_plate():
-    """A small plate crowded with 24 Z-holes — too dense to dimension each, so
-    the location dims overflow and the engine escalates to a hole chart (#93)."""
+    """A small plate crowded with 24 Z-holes in 5 diameter groups. Dense enough
+    to stress the layout, but on the auto-sized sheet (#121) its location dims +
+    grouped spec-callouts fit, so it group-and-types rather than escalating to a
+    hole chart (#93)."""
     import itertools
 
     from build123d import Box, Cylinder, Pos
@@ -4018,20 +4020,26 @@ class TestHoleTable:
 class TestEscalation:
     """#93: a too-dense plan view auto-escalates to a hole chart + balloons."""
 
-    def test_dense_part_auto_tabulates(self):
+    def test_dense_part_groups_and_types(self):
+        # Sized honestly for its real annotation footprint (#121, ADR 0004), the
+        # sheet grows so the X-location dims + grouped spec-callouts fit — so this
+        # moderately-dense plate no longer escalates to a per-hole table + balloon
+        # ring (the worse representation for a dense varying-diameter field). It
+        # group-and-types instead: spec-group callouts (5× ⌀…) + location dims,
+        # lint clean. The table/balloon escalation path remains for parts too
+        # dense to fit even that — covered by the CTC-02 slow-tier test.
         dwg = build_drawing(_dense_plate())
-        # The escalation fired: a table, a balloon per hole, and the individual
-        # plan callouts + location dims are gone.
-        assert "hole_table_plan" in dwg.annotations()
-        assert len([n for n in dwg.annotations() if n.startswith("balloon_")]) == 24
-        assert not any(
-            n.startswith(("hc_plan", "dim_locx", "dim_locy")) for n in dwg.annotations()
-        )
+        ann = dwg.annotations()
+        assert "hole_table_plan" not in ann
+        assert not any(n.startswith("balloon_") for n in ann)
+        assert sum(1 for n in ann if n.startswith("hc_plan")) >= 1  # spec-group callouts
+        assert any(n.startswith("dim_locx") for n in ann)  # location dims placed, not dropped
+        assert [i for i in dwg.lint() if i.severity in ("warning", "error")] == []
 
     def test_escalation_clears_density_lint(self):
-        # No callout_dropped / location_ref_dropped warnings survive once the
-        # holes are tabulated, and the count check is satisfied (covers_diameters
-        # lists every instance).
+        # No callout_dropped / location_ref_dropped / count-mismatch warnings
+        # survive once the dense plate is dimensioned — whether by group-and-type
+        # (now, on the auto-sized sheet) or by the table escalation it used to need.
         dwg = build_drawing(_dense_plate())
         warns = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
         assert "callout_dropped" not in warns
