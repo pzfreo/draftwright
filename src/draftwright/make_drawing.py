@@ -1247,6 +1247,9 @@ def _compose_anno_boxes(
         bore_depth += pad_around_text + arrow_length
         boxes.append(AnnoBox("right", bore_depth))  # FV/PV right bore callouts
         boxes.append(AnnoBox("left", bore_depth))  # FV/PV left bore callouts
+    above = _est_pv_above_depth(holes, patterns, font_size, pad_around_text)
+    if above > 0:
+        boxes.append(AnnoBox("above", above))  # tiered X-location dims above PV (#121)
     if _will_balloon(holes, patterns):
         boxes.append(AnnoBox("plan_halo", _est_plan_halo(font_size)))
     return boxes
@@ -1265,6 +1268,7 @@ def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
     return StripDepths(
         right=deepest("right"),
         left=max(_DIM_PAD, deepest("left")),
+        top=deepest("above"),
         pv_halo=deepest("plan_halo"),
     )
 
