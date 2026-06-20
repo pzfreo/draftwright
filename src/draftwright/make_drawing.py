@@ -2293,13 +2293,27 @@ class Drawing:
         sv_left = a.SV_X - a.sv_hw
         margin, ph = a.margin, a.PAGE_H
 
-        # A bottom band (below PV, beside the overall-width dim) is usable only
-        # when the layout actually lifted the plan view — i.e. widened the FV↔PV
-        # gap beyond the base DIM_PAD (#112, ADR 0004).  Without the lift the gap
-        # is full of the width dimension and a balloon row would collide with it;
-        # bottom-edge holes then fall back to the nearest side/top band.
-        bottom_line = pb - standoff - r
-        has_bottom = pb - (a.FV_Y + a.fv_hh) > _DIM_PAD + 2
+        # Stack the balloon ring *beyond* the dimensions already placed around the
+        # plan view, not on top of them (#121). Each side's dim corridor depth is
+        # the zone strip's used extent (pitch/location dims tier above, the width
+        # dim sits below), measured now that the dims are placed — so the ring
+        # clears them instead of overlapping (the old bands sat at standoff + r,
+        # right where the dims are).
+        # NOTE (WIP): this pushes the ring out cleanly for moderate parts but on a
+        # dense sheet (CTC-02) the top band overruns the page margin — the layout
+        # reservation must grow to match (the real #121 sizing step). Kept here as
+        # the placement half of Stage 1; do not ship without the sizing change.
+        za = a.pv_zones
+        top_dim = za.above.depth_used if za and za.above else 0.0
+        bot_dim = za.below.depth_used if za and za.below else 0.0
+        left_dim = za.left.depth_used if za and za.left else 0.0
+        right_dim = za.right.depth_used if za and za.right else 0.0
+
+        # A bottom band (below PV, beyond the overall-width dim) is usable only
+        # when the FV↔PV gap has room for the width dim *and* a balloon row;
+        # otherwise bottom-edge holes fall back to the nearest side/top band.
+        bottom_line = pb - bot_dim - standoff - r
+        has_bottom = pb - (a.FV_Y + a.fv_hh) > bot_dim + standoff + 2 * r
 
         # Assign each hole to the nearest reserved band.
         bands: dict = {"left": [], "right": [], "top": [], "bottom": []}
@@ -2311,18 +2325,23 @@ class Drawing:
             bands[min(choices, key=lambda s: choices[s])].append((tag, j, hole, cx, cy))
 
         # left/right balloons vary in Y at a fixed X just outside the part; top
-        # and bottom balloons vary in X at a fixed Y just beyond it.
+        # and bottom balloons vary in X at a fixed Y just beyond it. Each line is
+        # offset by its side's dim depth so the ring sits clear of the dims.
         self._place_band(
-            view, bands["left"], "y", pl - standoff - r, margin + r, ph - margin - r, gap, fs, r
+            view, bands["left"], "y", pl - left_dim - standoff - r,
+            margin + r, ph - margin - r, gap, fs, r,
         )
         self._place_band(
-            view, bands["right"], "y", pr + standoff + r, margin + r, ph - margin - r, gap, fs, r
+            view, bands["right"], "y", pr + right_dim + standoff + r,
+            margin + r, ph - margin - r, gap, fs, r,
         )
         self._place_band(
-            view, bands["top"], "x", pt + standoff + r, pl - standoff, sv_left - r, gap, fs, r
+            view, bands["top"], "x", pt + top_dim + standoff + r,
+            pl - standoff, sv_left - r, gap, fs, r,
         )
         self._place_band(
-            view, bands["bottom"], "x", bottom_line, pl - standoff, sv_left - r, gap, fs, r
+            view, bands["bottom"], "x", bottom_line,
+            pl - standoff, sv_left - r, gap, fs, r,
         )
 
     def _place_band(self, view, members, axis, line, lo, hi, gap, fs, r):
