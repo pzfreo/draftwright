@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 from build123d import BoundBox, Location, Shape
 from build123d_drafting.helpers import (
+    _TB_COL_FRACTIONS,
     Dimension,
     TitleBlock,
     draft_preset,
@@ -411,8 +412,6 @@ _greedy_strip_ys = _greedy_strip_1d
 _solve_strip_ys = _solve_strip_1d
 
 
-_TB_CELL_H = 8.0  # TitleBlock default cell_height (page-mm)
-
 _DRAFTWRIGHT_URL = "https://github.com/pzfreo/draftwright"
 
 
@@ -435,20 +434,25 @@ def _add_title_block(dwg, a: Analysis):
         legal_owner="",
         width=a.TB_W,
         draft=dwg.draft,
-    ).locate(Location((a.PAGE_W - a.TB_W - _TB_CLEAR, _TB_CLEAR, 0)))
+    )
+    # Drawn-by cell geometry, taken from the block itself rather than hardcoded,
+    # so the hyperlink rect tracks any upstream TitleBlock layout change: the
+    # two-row block's bottom row is half the block height, and the cell spans
+    # from the first column divider (_TB_COL_FRACTIONS[0]) to the right edge.
+    cell_h = tb.block_bbox["height"] / 2.0
+    tb = tb.locate(Location((a.PAGE_W - a.TB_W - _TB_CLEAR, _TB_CLEAR, 0)))
     dwg.add(tb, "title_block")
 
-    # Record the page-space rectangle of the "drawn by" cell (bottom row,
-    # columns 2-5, from the 40% divider to the right edge) so export() can place
-    # a clickable draftwright hyperlink over the "… / draftwright" author text.
-    # Keeps the block at its standard two rows — no extra height, no layout
-    # impact (a third row would squeeze the dense-part hole table).
+    # Record that cell's page-space rectangle so export() can place a clickable
+    # draftwright hyperlink over the "… / draftwright" author text. Keeps the
+    # block at its standard two rows — no extra height, no layout impact (a
+    # third row would squeeze the dense-part hole table).
     bx = a.PAGE_W - a.TB_W - _TB_CLEAR
     dwg._draftwright_link_rect = (
-        bx + 0.40 * a.TB_W,
+        bx + _TB_COL_FRACTIONS[0] * a.TB_W,
         _TB_CLEAR,
         bx + a.TB_W,
-        _TB_CLEAR + _TB_CELL_H,
+        _TB_CLEAR + cell_h,
     )
 
 

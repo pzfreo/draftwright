@@ -189,8 +189,10 @@ def add_svg_hyperlink(svg_path: str, rect, href: str = _DRAFTWRIGHT_URL) -> None
         f'fill="transparent" pointer-events="all"/></a>'
     )
     data = Path(svg_path).read_text(encoding="utf-8")
+    if f'href="{href}"' in data:
+        return  # already injected — keep idempotent like add_svg_metadata
     if "xmlns:xlink" not in data:
-        data = data.replace("<svg ", '<svg xmlns:xlink="http://www.w3.org/1999/xlink" ', 1)
+        data = re.sub(r"(<svg\b)", r'\1 xmlns:xlink="http://www.w3.org/1999/xlink"', data, count=1)
     data = data.replace("</svg>", link + "</svg>", 1)
     Path(svg_path).write_text(data, encoding="utf-8")
 
