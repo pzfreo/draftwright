@@ -1459,7 +1459,11 @@ def _anno_bbox(o):
     try:
         b = o.bounding_box()
         return (b.min.X, b.min.Y, b.max.X, b.max.Y)
-    except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+    except Exception as exc:  # noqa: BLE001 — not every annotation bbox-es cleanly
+        # Fails open: an un-bbox-able annotation drops out of the overlap count and
+        # the measured footprint. Surface it so a silently-missed repack trigger is
+        # debuggable rather than invisible (#121).
+        _log.debug("annotation %r has no resolvable bbox: %s", type(o).__name__, exc)
         return None
 
 
@@ -1700,7 +1704,12 @@ def _layout_geometry(
     )
     x_offset = max(0.0, (page_w - 2 * margin - tb_w - total_content_w) / 2)
 
-    FV_X = margin + x_offset + fv.left + fv.hw
+    # Anchor the FV/PV column on the SHARED left corridor (col_left), not fv.left
+    # alone: when the measured plan-view left band is the deeper of the two, the
+    # column must clear it or PV slides left of the centred region — and off the
+    # margin (#121). Byte-identical on the estimator path (col_left == fv.left),
+    # and symmetric with SV_X's use of col_right below.
+    FV_X = margin + x_offset + col_left + fv.hw
     FV_Y = y_offset + margin + fv.bottom + fv.hh
     PV_X = FV_X
     # PV uses the full (ballooned) front↔plan gap while FV/SV were centred with
@@ -1736,13 +1745,24 @@ def _layout_geometry(
     tb_cx, tb_cy = page_w - _TB_CLEAR - tb_w / 2, _TB_CLEAR + _TB_H / 2
 
     # The iso is the one *placed* block: it takes the largest gap the fixed
-    # blocks' footprints leave.
-    obstacles = [
-        _padded_box(FV_X, FV_Y, fv_hw, fv_hh),
-        _padded_box(PV_X, PV_Y, fv_hw, pv_hh),
-        _padded_box(SV_X, SV_Y, sv_hw, fv_hh),
-        title_block.footprint(tb_cx, tb_cy),
-    ]
+    # blocks' footprints leave.  On the repack path use the MEASURED footprints
+    # (bands may exceed DIM_PAD), so the iso stays clear of real annotations
+    # rather than just the estimate's padded box (#121); the estimator path keeps
+    # the DIM_PAD-padded boxes for byte-identity.
+    if blocks is not None:
+        obstacles = [
+            fv.footprint(FV_X, FV_Y),
+            pv.footprint(PV_X, PV_Y),
+            sv.footprint(SV_X, SV_Y),
+            title_block.footprint(tb_cx, tb_cy),
+        ]
+    else:
+        obstacles = [
+            _padded_box(FV_X, FV_Y, fv_hw, fv_hh),
+            _padded_box(PV_X, PV_Y, fv_hw, pv_hh),
+            _padded_box(SV_X, SV_Y, sv_hw, fv_hh),
+            title_block.footprint(tb_cx, tb_cy),
+        ]
     iso_left, iso_bottom, iso_right, iso_top = _largest_empty_rect(drawable, obstacles)
     # _largest_empty_rect falls back to the full drawable when the obstacles
     # leave no genuine gap; detect that (rect overlaps an obstacle) so callers
@@ -2440,8 +2460,13 @@ class Drawing:
         self.items.append(obj)
         if name is not None:
             self._named[name] = obj
+            # A replacement is a fresh object (see the pin discard above): set the
+            # new owner, or clear a stale tag when re-added view-less, so the
+            # ownership map never lags _named (#121).
             if view is not None:
                 self._anno_view[name] = view
+            else:
+                self._anno_view.pop(name, None)
         return obj
 
     def remove(self, name):
@@ -2722,6 +2747,7 @@ class Drawing:
         self.items = [o for o in self.items if id(o) in kept_ids]
         self._named = kept_named
         self._pinned &= keep_set  # drop pins for cleared names (#89)
+        self._anno_view = {n: v for n, v in self._anno_view.items() if n in keep_set}
         return removed
 
     def _record_build_issue(self, severity, code, message):
@@ -3318,7 +3344,20 @@ def _repack_candidates(a, scale, page):
         return [(s, pw, ph, tb) for s in _SCALES]
     if scale is not None:
         return [(float(scale), pw, ph, _tb_width(pw)) for pw, ph in _PAGE_SIZES.values()]
-    return list(_LADDER)
+    # Auto ladder, but floored at pass 1's chosen sheet: the measured blocks are
+    # never smaller than the estimate that pass 1 already rejected the earlier
+    # rungs against, and the repack's .fits is more permissive than choose_scale's
+    # row model — so without this floor the repack could pick a *smaller* sheet
+    # than pass 1 and make things worse (#121). Start the search at pass 1's rung.
+    start = next(
+        (
+            i
+            for i, (s, pw, ph, _tb) in enumerate(_LADDER)
+            if s == a.SCALE and pw == a.PAGE_W and ph == a.PAGE_H
+        ),
+        0,
+    )
+    return list(_LADDER[start:])
 
 
 def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None):

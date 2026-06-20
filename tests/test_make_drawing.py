@@ -1079,6 +1079,175 @@ class TestTwoPassLayout:
         assert "dim_width" in dwg._named, "dim_width must not be skipped"
 
 
+class TestComposeThenPackRepack:
+    """Ownership-based compose-then-pack + measure-and-repack (#121, ADR 0004):
+    the cross-view collision detector, the disjoint block packing, the candidate
+    floor, and the annotation-ownership map lifecycle.  Pure/fast — no OCP."""
+
+    # --- cross-view collision detector -----------------------------------
+
+    @staticmethod
+    def _label(bb):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(label_bbox=bb)
+
+    @staticmethod
+    def _line(bb):
+        # Bare geometry: no label_bbox attribute, bbox via bounding_box().
+        from types import SimpleNamespace
+
+        class _Bare:
+            def bounding_box(self):
+                return SimpleNamespace(
+                    min=SimpleNamespace(X=bb[0], Y=bb[1]),
+                    max=SimpleNamespace(X=bb[2], Y=bb[3]),
+                )
+
+        return _Bare()
+
+    def _fake_dwg(self, named, views):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(_named=named, _anno_view=views)
+
+    def test_overlap_counts_label_vs_label_across_views(self):
+        from draftwright.make_drawing import _cross_view_overlaps
+
+        dwg = self._fake_dwg(
+            {"a": self._label((0, 0, 10, 10)), "b": self._label((5, 5, 15, 15))},
+            {"a": "front", "b": "plan"},
+        )
+        assert _cross_view_overlaps(dwg, None) == 1
+
+    def test_overlap_counts_label_vs_line_across_views(self):
+        # The literal #121 case: a plan balloon (bare geometry) over a front-view
+        # dimension (label) — counted because at least one side is a label.
+        from draftwright.make_drawing import _cross_view_overlaps
+
+        dwg = self._fake_dwg(
+            {"dim": self._label((0, 0, 10, 10)), "balloon": self._line((5, 5, 15, 15))},
+            {"dim": "front", "balloon": "plan"},
+        )
+        assert _cross_view_overlaps(dwg, None) == 1
+
+    def test_overlap_ignores_same_view(self):
+        from draftwright.make_drawing import _cross_view_overlaps
+
+        dwg = self._fake_dwg(
+            {"a": self._label((0, 0, 10, 10)), "b": self._label((5, 5, 15, 15))},
+            {"a": "front", "b": "front"},
+        )
+        assert _cross_view_overlaps(dwg, None) == 0
+
+    def test_overlap_ignores_line_vs_line(self):
+        # Two bare lines crossing between views is normal drafting, not a clash.
+        from draftwright.make_drawing import _cross_view_overlaps
+
+        dwg = self._fake_dwg(
+            {"a": self._line((0, 0, 10, 10)), "b": self._line((5, 5, 15, 15))},
+            {"a": "front", "b": "side"},
+        )
+        assert _cross_view_overlaps(dwg, None) == 0
+
+    def test_overlap_ignores_untagged_furniture(self):
+        # An annotation with no ortho-view tag (iso/section/detail/title) is
+        # invisible to the detector, even when it overlaps a tagged one.
+        from draftwright.make_drawing import _cross_view_overlaps
+
+        dwg = self._fake_dwg(
+            {"dim": self._label((0, 0, 10, 10)), "note": self._label((5, 5, 15, 15))},
+            {"dim": "front", "note": "iso"},
+        )
+        assert _cross_view_overlaps(dwg, None) == 0
+
+    # --- disjoint block packing ------------------------------------------
+
+    def test_repacked_blocks_are_disjoint(self):
+        from draftwright.make_drawing import ViewBlock, _layout_geometry
+
+        blocks = {
+            "front": ViewBlock(10, 10, top=12, right=12, bottom=12, left=12),
+            "plan": ViewBlock(10, 10, top=12, right=12, bottom=12, left=12),
+            "side": ViewBlock(10, 10, top=12, right=12, bottom=12, left=12),
+        }
+        g = _layout_geometry(20, 20, 20, 1.0, 841.0, 594.0, 150.0, None, blocks=blocks)
+        # FV and PV share X and stack vertically — PV's bottom must clear FV's top.
+        assert (g.PV_Y - g.pv_hh) > (g.FV_Y + g.fv_hh)
+        # SV abuts the column to the right — its left edge must clear FV's right.
+        assert (g.SV_X - g.sv_hw) > (g.FV_X + g.fv_hw)
+
+    def test_left_corridor_uses_shared_band_not_front_only(self):
+        # The MAJOR fix: when the plan view's measured left band is the deeper of
+        # the two, the FV/PV column must clear it (col_left), or PV slides off the
+        # left margin.  front.left tiny, plan.left huge.
+        from draftwright.make_drawing import _MARGIN, ViewBlock, _layout_geometry
+
+        blocks = {
+            "front": ViewBlock(10, 10, left=0.0, right=8, top=8, bottom=8),
+            "plan": ViewBlock(10, 10, left=120.0, right=8, top=8, bottom=8),
+            "side": ViewBlock(10, 10, left=0.0, right=8, top=8, bottom=8),
+        }
+        g = _layout_geometry(20, 20, 20, 1.0, 841.0, 594.0, 150.0, None, blocks=blocks)
+        pv_left_footprint_edge = g.PV_X - g.fv_hw - 120.0
+        assert pv_left_footprint_edge >= _MARGIN - 0.5, (
+            f"plan-view left footprint edge {pv_left_footprint_edge:.1f} slid past "
+            f"the {_MARGIN} mm margin — column anchored on front.left, not col_left"
+        )
+
+    # --- candidate ladder floor ------------------------------------------
+
+    def test_repack_candidates_floored_at_pass1_sheet(self):
+        from types import SimpleNamespace
+
+        from draftwright.make_drawing import _repack_candidates
+
+        a = SimpleNamespace(SCALE=0.2, PAGE_W=594.0, PAGE_H=420.0)
+        cands = _repack_candidates(a, None, None)
+        # Search starts at pass 1's own rung (A2 1:5) ...
+        assert cands[0] == (0.2, 594.0, 420.0, 150.0)
+        # ... never offers a smaller sheet pass 1 already rejected ...
+        assert (10.0, 297.0, 210.0, 120.0) not in cands
+        # ... but a larger reduction (A0 1:5) stays reachable.
+        assert (0.2, 1189.0, 841.0, 150.0) in cands
+
+    def test_repack_candidates_honour_fixed_scale_and_page(self):
+        from types import SimpleNamespace
+
+        from draftwright.make_drawing import _repack_candidates
+
+        a = SimpleNamespace(SCALE=1.0, PAGE_W=297.0, PAGE_H=210.0)
+        cands = _repack_candidates(a, 2.0, "A3")
+        assert len(cands) == 1 and cands[0][0] == 2.0
+
+    # --- ownership-map lifecycle -----------------------------------------
+
+    @pytest.mark.timeout(60)
+    def test_anno_view_lifecycle(self):
+        # add(view=) records; re-add view-less clears the stale tag; remove pops;
+        # clear_annotations prunes — the map never lags _named (#121).
+        dwg = build_drawing(Box(30, 20, 10))
+
+        def _leader(label):
+            return Leader(
+                tip=dwg.at("front", 0, 0, 0), elbow=(5, 5, 0), label=label, draft=dwg.draft
+            )
+
+        dwg.add(_leader("A"), "tag", view="front")
+        assert dwg._anno_view["tag"] == "front"
+
+        dwg.add(_leader("B"), "tag")  # replacement, view-less → clears stale tag
+        assert "tag" not in dwg._anno_view
+
+        dwg.add(_leader("C"), "tag2", view="plan")
+        dwg.remove("tag2")
+        assert "tag2" not in dwg._anno_view
+
+        dwg.add(_leader("D"), "tag3", view="side")
+        dwg.clear_annotations()  # keeps title_block only
+        assert "tag3" not in dwg._anno_view
+
+
 # ---------------------------------------------------------------------------
 # Integration test — requires build123d + OCP (slow)
 # ---------------------------------------------------------------------------
