@@ -1307,9 +1307,11 @@ def _fits(
     halo = strips.pv_halo if strips else 0.0
     gap_fv_sv = max(_DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
     gap_left = max(_DIM_PAD, strips.left if strips else _DIM_PAD, halo)
-    # PV top band must hold the tiered X-location dims + a balloon row beyond them
-    # (#121) — mirror _layout_geometry's pv.top so scale/page is sized for it.
-    pv_top = max(_DIM_PAD, strips.top if strips else 0.0) + halo
+    # PV top band: when ballooned, hold the tiered X-location dims + a balloon row
+    # beyond them (#121); otherwise the historic DIM_PAD (tiers spill into
+    # headroom). Mirror _layout_geometry's pv.top so scale/page is sized for it.
+    strip_top = strips.top if strips else 0.0
+    pv_top = (max(_DIM_PAD, strip_top) + halo) if halo > 0 else _DIM_PAD
     h = _MARGIN + pv_top + y_size * scale + _DIM_PAD + z_size * scale + _DIM_PAD + _MARGIN
     if h > page_h:
         return False
@@ -1515,10 +1517,13 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
     gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
     pv_below = _est_pv_below_depth()
-    # Top band above PV: the tiered X-location dims (strip_top) PLUS a balloon row
-    # beyond them, not max(DIM_PAD, halo) — the dims were only fitting by spilling
-    # into headroom, so the ring placed beyond them overran the page (#121).
-    pv_top = max(DIM_PAD, strip_top) + halo
+    # Top band above PV. When the plan view is ballooned, the ring sits beyond the
+    # tiered X-location dims, so reserve their real depth (strip_top) PLUS a
+    # balloon row — otherwise the ring overruns the page (#121). When NOT
+    # ballooned, keep the historic DIM_PAD: the dim tiers spill harmlessly into
+    # the headroom above PV, and reserving more would needlessly grow the layout
+    # (and can starve the section view of its leftover space).
+    pv_top = (max(DIM_PAD, strip_top) + halo) if halo > 0 else DIM_PAD
     fv = ViewBlock(
         fv_hw, fv_hh, top=DIM_PAD - pv_below, right=gap_fv_sv, bottom=DIM_PAD, left=gap_left
     )
