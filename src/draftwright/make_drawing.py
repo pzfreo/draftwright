@@ -2875,12 +2875,14 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
         look_at=la,
         scaled=True,
     )
-    if scale != dwg.scale:
-        # add_view derives ViewCoordinates from the drawing scale; an iso
-        # projected at a different scale needs them rebuilt so
-        # dwg.at("iso", ...) keeps mapping world points correctly.
-        axes = view_axes(camera, (0, 0, 1), la)
-        dwg._coords["iso"] = ViewCoordinates(axes, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale)
+    # add_view builds ViewCoordinates from a collapsed view_axes() mapping, which
+    # helpers (>=0.11) cannot project for the oblique iso (pp() needs the full
+    # foreshortening basis). Rebuild from the raw viewport so dwg.at("iso", ...)
+    # maps world points correctly — also covers an iso re-projected at a
+    # different scale than the sheet.
+    dwg._coords["iso"] = ViewCoordinates.from_viewport(
+        camera, (0, 0, 1), la, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale
+    )
 
 
 def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
