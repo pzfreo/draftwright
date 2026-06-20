@@ -762,6 +762,30 @@ class TestComposeAnnoBoxes:
         assert _will_balloon(holes, patterns)  # guard: this case must balloon
         self._assert_match(holes, patterns, 0, bb)
 
+    def test_footprint_reduction_and_left_floor(self):
+        # Direct unit test of the reducer: deepest band per side wins, and the
+        # left keeps its _DIM_PAD floor even when the deepest left band is
+        # shallower — the branch real parts rarely make the deciding one.
+        from draftwright.make_drawing import (
+            _DIM_PAD,
+            AnnoBox,
+            StripDepths,
+            _footprint_from_boxes,
+        )
+
+        fp = _footprint_from_boxes(
+            [
+                AnnoBox("right", 5.0),
+                AnnoBox("right", 30.0),  # deeper right band wins
+                AnnoBox("left", 5.0),  # below the floor → floor wins
+                AnnoBox("plan_halo", 21.0),
+            ]
+        )
+        assert fp == StripDepths(right=30.0, left=_DIM_PAD, pv_halo=21.0)
+
+        # No bands at all → zero depths, but the left floor still applies.
+        assert _footprint_from_boxes([]) == StripDepths(right=0.0, left=_DIM_PAD, pv_halo=0.0)
+
 
 # ---------------------------------------------------------------------------
 # Phase 3 (#118): dynamic FV→SV corridor

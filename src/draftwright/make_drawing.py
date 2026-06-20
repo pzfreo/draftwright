@@ -1089,9 +1089,10 @@ class AnnoBox:
     footprint is the deepest band per side — see ``_footprint_from_boxes``.
 
     This is the box-model expression of the scalar corridor reservation that
-    ``_measure_strips`` computes (Step 4a): each band that contributes to a
-    ``StripDepths`` field becomes one ``AnnoBox``.  Today the depths are the
-    same estimates ``_measure_strips`` uses, so the two are interchangeable
+    ``_measure_strips`` computes (Step 4a): every band that can drive a
+    ``StripDepths`` field is emitted as an ``AnnoBox``, and the deepest band per
+    side wins (see ``_footprint_from_boxes``).  Today the depths are the same
+    estimates ``_measure_strips`` uses, so the two are interchangeable
     (byte-identical); later steps replace the estimates with depths measured
     from the real placement.
     """
