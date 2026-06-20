@@ -664,7 +664,9 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # Widen the chart into more column-blocks until it fits the page.
     table = None
     for ncols in (1, 2, 3, 4):
-        table = dwg.add_table(_wrap_rows(header, data, ncols), name="hole_table_plan")
+        table = dwg.add_table(
+            _wrap_rows(header, data, ncols), name="hole_table_plan", block_cols=len(header)
+        )
         if table is not None:
             break
     dwg._build_issues = [i for i in dwg._build_issues if i.code != "table_dropped"]
