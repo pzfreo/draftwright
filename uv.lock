@@ -1,9 +1,8 @@
 version = 1
 revision = 3
-requires-python = ">=3.10"
+requires-python = ">=3.10, <3.15"
 resolution-markers = [
-    "python_full_version >= '3.15'",
-    "python_full_version >= '3.11' and python_full_version < '3.15'",
+    "python_full_version >= '3.11'",
     "python_full_version < '3.11'",
 ]
 
@@ -95,14 +94,14 @@ wheels = [
 
 [[package]]
 name = "build123d-drafting-helpers"
-version = "0.10.1"
+version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/c1/fa4d3a596e9323dd8f66bc8ac34310624f4bef29c66b013a7fe3db21982e/build123d_drafting_helpers-0.10.1.tar.gz", hash = "sha256:b6b59bcbdea95b50427dff21d658cb6ef4a09aa8551701b530921cda608a7c33", size = 107974, upload-time = "2026-06-18T06:52:10.435Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/35/5a8369096fd96f687b74dfd60dfe3b20cedfbc782c5eedaef8c8d89887b8/build123d_drafting_helpers-0.11.0.tar.gz", hash = "sha256:659663fe2db7cfae71cccfa61ade1793b3c065ed62b77b5f45fe61db4c5b56a6", size = 117889, upload-time = "2026-06-20T11:01:45.979Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/25/2902713bc0254e862482ae8adec6fb827ad4c61960ae674a1d18d6e3d365/build123d_drafting_helpers-0.10.1-py3-none-any.whl", hash = "sha256:ac5da059ac3d5dae347281049c9574cccfe764f7348b4635f2310f560857a770", size = 60573, upload-time = "2026-06-18T06:52:08.858Z" },
+    { url = "https://files.pythonhosted.org/packages/64/44/8b4656fd593d18036c26470a87fb8678778b9746e250091af1ea2503278d/build123d_drafting_helpers-0.11.0-py3-none-any.whl", hash = "sha256:5747e8556daf199ab536613f85d62e2dec9a65b1558327f78921c1c87fce2010", size = 65119, upload-time = "2026-06-20T11:01:44.644Z" },
 ]
 
 [[package]]
@@ -333,8 +332,7 @@ name = "contourpy"
 version = "1.3.3"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.15'",
-    "python_full_version >= '3.11' and python_full_version < '3.15'",
+    "python_full_version >= '3.11'",
 ]
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -601,7 +599,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "build123d", specifier = ">=0.9.0" },
-    { name = "build123d-drafting-helpers", specifier = ">=0.10.1" },
+    { name = "build123d-drafting-helpers", specifier = ">=0.11.0" },
     { name = "cairosvg", marker = "extra == 'pdf'", specifier = ">=2.7" },
     { name = "kiwisolver", specifier = ">=1.4,<2" },
     { name = "numpy", specifier = ">=1.24" },
@@ -782,8 +780,7 @@ name = "ipython"
 version = "9.14.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.15'",
-    "python_full_version >= '3.11' and python_full_version < '3.15'",
+    "python_full_version >= '3.11'",
 ]
 dependencies = [
     { name = "colorama", marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
@@ -1128,8 +1125,7 @@ name = "matplotlib"
 version = "3.11.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.15'",
-    "python_full_version >= '3.11' and python_full_version < '3.15'",
+    "python_full_version >= '3.11'",
 ]
 dependencies = [
     { name = "contourpy", version = "1.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -1350,8 +1346,7 @@ name = "numpy"
 version = "2.4.6"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.15'",
-    "python_full_version >= '3.11' and python_full_version < '3.15'",
+    "python_full_version >= '3.11'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d0/ad/fed0499ce6a338d2a03ebae59cd15093910c8875328855781952abf6c2fe/numpy-2.4.6.tar.gz", hash = "sha256:f3a3570c4a2a16746ac2c31a7c7c7b0c186b95ce902e33db6f28094ed7387dda", size = 20735807, upload-time = "2026-05-18T23:37:14.07Z" }
 wheels = [
@@ -1833,8 +1828,7 @@ name = "scipy"
 version = "1.17.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.15'",
-    "python_full_version >= '3.11' and python_full_version < '3.15'",
+    "python_full_version >= '3.11'",
 ]
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },

@@ -1283,9 +1283,19 @@ class TestViewCoordinates:
     # ISO view: camera at (-DIST, -DIST, DIST) → two world axes → page_X
 
     def _iso_vc(self):
-        # Standard ISO camera: world_X → page_X (+1), world_Y → page_X (-1), world_Z → page_Y (+1)
-        axes = view_axes((-100.0, -100.0, 100.0), (0.0, 0.0, 1.0), (0.0, 0.0, 0.0))
-        return ViewCoordinates(axes, view_x=100.0, view_y=80.0, cx=0.0, cy=0.0, cz=0.0, scale=1.0)
+        # Standard ISO camera. Built from the raw viewport so pp() carries the
+        # real foreshortening basis (helpers >=0.11 requires it for oblique views).
+        return ViewCoordinates.from_viewport(
+            (-100.0, -100.0, 100.0),
+            (0.0, 0.0, 1.0),
+            (0.0, 0.0, 0.0),
+            view_x=100.0,
+            view_y=80.0,
+            cx=0.0,
+            cy=0.0,
+            cz=0.0,
+            scale=1.0,
+        )
 
     def test_iso_view_px_axis_is_none(self):
         vc = self._iso_vc()
@@ -1305,14 +1315,14 @@ class TestViewCoordinates:
         assert vc.py(3.0) == pytest.approx(83.0)
 
     def test_iso_view_pp_correct(self):
-        # For ISO camera at (-100,-100,100) with look_at=(0,0,0), up=(0,0,1):
-        # world_X → page_X (+1), world_Y → page_X (-1), world_Z → page_Y (+1)
-        # pp(10, 5, 3) → page_x = 100 + (10-0)*1 + (5-0)*(-1) = 105
-        #                page_y = 80 + (3-0)*1 = 83
+        # ISO camera at (-100,-100,100), look_at=(0,0,0), up=(0,0,1). pp() now
+        # uses the true foreshortening basis (helpers >=0.11) rather than the old
+        # collapsed view_axes mapping, so an off-centre point projects with real
+        # axonometric foreshortening (was the un-foreshortened (105, 83)).
         vc = self._iso_vc()
         page_x, page_y = vc.pp(10.0, 5.0, 3.0)
-        assert page_x == pytest.approx(105.0)
-        assert page_y == pytest.approx(83.0)
+        assert page_x == pytest.approx(103.5355339)
+        assert page_y == pytest.approx(88.5732141)
 
     def test_iso_view_pp_at_centroid_gives_view_centre(self):
         vc = self._iso_vc()
@@ -1490,7 +1500,10 @@ def test_ctc01_iso_world_to_page_mapping(ctc01_a3_drawing):
     assert bb.min.X < centre[0] < bb.max.X and bb.min.Y < centre[1] < bb.max.Y
     iso_scale = dwg._coords["iso"]._scale
     raised = dwg.at("iso", cx, cy, cz + 100)
-    assert raised[1] - centre[1] == pytest.approx(100 * iso_scale)
+    # Raising world Z lifts the iso page point by the foreshortened amount: the
+    # vertical axis of a (1,1,1)-camera isometric projects at sqrt(2/3) (helpers
+    # >=0.11 uses the real basis instead of a 1:1 collapsed mapping).
+    assert raised[1] - centre[1] == pytest.approx(100 * iso_scale * (2 / 3) ** 0.5)
 
 
 @pytest.mark.timeout(60)

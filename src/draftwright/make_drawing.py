@@ -52,6 +52,7 @@ from build123d_drafting.features import (
     _full_cyls,
     _spec_key,
     analyse_cylinders,
+    feature_diameters,
     find_hole_patterns,
     find_holes,
 )
@@ -604,7 +605,13 @@ def lint_feature_coverage(
     count semantics. Location coverage remains out of scope (#93).
     """
     z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
-    inventory = dedup_diams(_full_cyls(z_cyls + cross_cyls), tol=tol)
+    # Coverage inventory: the *recognised* dimensionable diameters (bores,
+    # cbore/spotface steps, bosses) from feature_diameters — built via
+    # find_holes/find_bosses, so slot ends and interrupted recesses (partial
+    # cylinders that an angle-only test mistakes for full bores) are excluded.
+    # Replaces the raw _full_cyls patch list, which over-reported those as
+    # undimensioned features (helpers #158/#159).
+    inventory = feature_diameters(part, cyls=(z_cyls, cross_cyls))
 
     if assembly is None:
         assembly = len(part.solids()) > 1
@@ -1965,6 +1972,11 @@ class Drawing:
         self.items: list = []
         self._coords: dict = {}
         self._named: dict = {}
+        # One per-drawing cache for lint_drawing's per-view edge bboxes, keyed on
+        # id(view shape). repair() / lint_summary() lint the SAME projected view
+        # objects (self.views) repeatedly, so persisting it recomputes each
+        # view's edges once instead of every lint (helpers #143/#164).
+        self._view_edge_cache: dict = {}
         # Names the caller has pinned: their position is fixed and the engine
         # must not move them (repair now; the global solve later — ADR 0003 #89).
         self._pinned: set = set()
@@ -2571,11 +2583,21 @@ class Drawing:
         for ann in self.items:
             by_scale.setdefault(getattr(ann, "_dw_scale", self.scale), []).append(ann)
         if len(by_scale) <= 1:
-            issues = lint_drawing(self.items, drawing_scale=self.scale, view_shapes=view_shapes)
+            issues = lint_drawing(
+                self.items,
+                drawing_scale=self.scale,
+                view_shapes=view_shapes,
+                view_edge_cache=self._view_edge_cache,
+            )
         else:
             issues = []
             for _scale, _anns in by_scale.items():
-                issues += lint_drawing(_anns, drawing_scale=_scale, view_shapes=view_shapes)
+                issues += lint_drawing(
+                    _anns,
+                    drawing_scale=_scale,
+                    view_shapes=view_shapes,
+                    view_edge_cache=self._view_edge_cache,
+                )
         if self.part is not None:
             if self._cyl_cache is None:
                 self._cyl_cache = analyse_cylinders(self.part)
@@ -2869,12 +2891,14 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
         look_at=la,
         scaled=True,
     )
-    if scale != dwg.scale:
-        # add_view derives ViewCoordinates from the drawing scale; an iso
-        # projected at a different scale needs them rebuilt so
-        # dwg.at("iso", ...) keeps mapping world points correctly.
-        axes = view_axes(camera, (0, 0, 1), la)
-        dwg._coords["iso"] = ViewCoordinates(axes, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale)
+    # add_view builds ViewCoordinates from a collapsed view_axes() mapping, which
+    # helpers (>=0.11) cannot project for the oblique iso (pp() needs the full
+    # foreshortening basis). Rebuild from the raw viewport so dwg.at("iso", ...)
+    # maps world points correctly — also covers an iso re-projected at a
+    # different scale than the sheet.
+    dwg._coords["iso"] = ViewCoordinates.from_viewport(
+        camera, (0, 0, 1), la, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale
+    )
 
 
 def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
