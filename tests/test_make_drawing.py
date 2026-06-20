@@ -715,6 +715,54 @@ class TestDerivedLayoutConstants:
         assert large > small
 
 
+class TestComposeAnnoBoxes:
+    """Step 4a (#112): the AnnoBox composer reduces to the identical StripDepths
+    that _measure_strips computes — the byte-identical box-model foundation that
+    later steps make honest."""
+
+    def _assert_match(self, holes, patterns, n_steps, bb):
+        from draftwright.make_drawing import (
+            _compose_anno_boxes,
+            _footprint_from_boxes,
+            _measure_strips,
+        )
+
+        composed = _footprint_from_boxes(_compose_anno_boxes(holes, patterns, n_steps))
+        scalar = _measure_strips(holes, patterns, n_steps, bb)
+        assert composed == scalar
+
+    def test_matches_for_plain_part(self):
+        from draftwright.make_drawing import find_hole_patterns, find_holes
+
+        part = Box(60, 40, 12)
+        holes = find_holes(part)
+        patterns = find_hole_patterns(holes)
+        bb = part.bounding_box()
+        for n_steps in (0, 1, 3):
+            self._assert_match(holes, patterns, n_steps, bb)
+
+    def test_matches_for_bored_part(self):
+        from draftwright.make_drawing import find_hole_patterns, find_holes
+
+        part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
+        holes = find_holes(part)
+        patterns = find_hole_patterns(holes)
+        bb = part.bounding_box()
+        for n_steps in (0, 2):
+            self._assert_match(holes, patterns, n_steps, bb)
+
+    def test_matches_for_dense_ballooning_part(self):
+        # _dense_plate triggers _will_balloon → exercises the plan_halo band.
+        from draftwright.make_drawing import _will_balloon, find_hole_patterns, find_holes
+
+        part = _dense_plate()
+        holes = find_holes(part)
+        patterns = find_hole_patterns(holes)
+        bb = part.bounding_box()
+        assert _will_balloon(holes, patterns)  # guard: this case must balloon
+        self._assert_match(holes, patterns, 0, bb)
+
+
 # ---------------------------------------------------------------------------
 # Phase 3 (#118): dynamic FV→SV corridor
 # ---------------------------------------------------------------------------

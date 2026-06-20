@@ -1079,6 +1079,73 @@ def _measure_strips(
     return StripDepths(right=right, left=left, pv_halo=pv_halo)
 
 
+@dataclass(frozen=True)
+class AnnoBox:
+    """A composed annotation band as a page-mm box (#112, ADR 0004 Step 4).
+
+    ``side`` is the view side the band sits on (``"right"``/``"left"`` of the
+    front/plan views, or ``"plan_halo"`` for the balloon standoff ring);
+    ``depth`` is the band's perpendicular extent from the view edge.  A view's
+    footprint is the deepest band per side — see ``_footprint_from_boxes``.
+
+    This is the box-model expression of the scalar corridor reservation that
+    ``_measure_strips`` computes (Step 4a): each band that contributes to a
+    ``StripDepths`` field becomes one ``AnnoBox``.  Today the depths are the
+    same estimates ``_measure_strips`` uses, so the two are interchangeable
+    (byte-identical); later steps replace the estimates with depths measured
+    from the real placement.
+    """
+
+    side: str
+    depth: float
+
+
+def _compose_anno_boxes(
+    holes,
+    patterns,
+    n_steps: int,
+    font_size: float = _FONT_SIZE,
+    arrow_length: float = 2.7,
+    pad_around_text: float = 2.0,
+) -> list[AnnoBox]:
+    """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
+
+    Mirrors ``_measure_strips`` exactly, but emits each contributing band as a
+    box rather than folding them into three scalars up front.
+    ``_footprint_from_boxes`` reduces these back to the identical
+    ``StripDepths``.
+    """
+    boxes = [AnnoBox("right", _est_right_strip_depth(n_steps))]  # FV right dim ladder
+    bore_depth = _est_bore_callout_width(
+        holes, font_size, patterns=patterns, pad_around_text=pad_around_text
+    )
+    if bore_depth > 0:
+        # elbow clearance + leader-to-label gap, as in _measure_strips
+        bore_depth += pad_around_text + arrow_length
+        boxes.append(AnnoBox("right", bore_depth))  # FV/PV right bore callouts
+        boxes.append(AnnoBox("left", bore_depth))  # FV/PV left bore callouts
+    if _will_balloon(holes, patterns):
+        boxes.append(AnnoBox("plan_halo", _est_plan_halo(font_size)))
+    return boxes
+
+
+def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
+    """Reduce composed ``AnnoBox`` bands to per-side corridor depths (Step 4a).
+
+    Each ``StripDepths`` field is the deepest band on its side; ``left`` keeps
+    the ``_DIM_PAD`` floor it has in ``_measure_strips``.
+    """
+
+    def deepest(side: str) -> float:
+        return max((b.depth for b in boxes if b.side == side), default=0.0)
+
+    return StripDepths(
+        right=deepest("right"),
+        left=max(_DIM_PAD, deepest("left")),
+        pv_halo=deepest("plan_halo"),
+    )
+
+
 def _fits(
     x_size,
     y_size,
