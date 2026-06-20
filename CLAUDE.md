@@ -39,6 +39,31 @@ lower module imports an upper one.
   free-rectangle placer `place_box`/`fit_box`). Sits *below* the domain API.
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
 
+## Architecture decisions — READ `docs/adr/` FIRST
+
+**Before any change to layout, scaling, page selection, annotation placement, or
+generation strategy, read `docs/adr/` and follow the accepted ADRs.** They are
+the source of truth for *why* the engine is shaped the way it is; do not
+re-derive or contradict them. If a change conflicts with an ADR, amend the ADR
+in the same PR (status, reasoning, date) rather than silently diverging — and if
+a decision turns out wrong, record that too.
+
+Current ADRs:
+- **0001** — deterministic generation over an editable DSL.
+- **0002** — iterate via lint-critique and domain-repair (repair is a *safety
+  net*, not the primary placement mechanism).
+- **0003** — constraint-based **inner** layout (`Placeable`/Cassowary in
+  `layout.py`): placing one view's annotations within its own zones.
+- **0004** — **compose-then-pack** (Accepted; the **outer** layout): each view is
+  a *block* = `view_rect(scale) + its annotation boxes`; choose `(scale, page)`
+  by a monotone search whose fitness function is composing + packing the blocks
+  **disjoint**; build OCC geometry once at the end. Footprints are page-mm
+  **box layouts**, never bbox-measured geometry (perf). Byte-identity is **not**
+  required — output may change; acceptance = plan-view labels never overlap
+  front-view dimensions (CTC-02) + lint clean. Execution tracked as **#121**
+  (the current order — annotations placed *after* views, into shared corridors —
+  is the root cause of cross-view overlap).
+
 ## Dependencies
 
 - `build123d-drafting-helpers>=0.9.1` (Apache 2.0)
