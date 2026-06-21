@@ -1752,8 +1752,14 @@ def _add_grid_pitch_dims(dwg, a: Analysis, view, j, grid, to_page):
         # perpendicular coordinate, take the far one along u. Picking the global
         # max-projection hole instead lands on the opposite diagonal corner and
         # draws the pitch dim diagonally across the grid (#92).
+        # Tolerance must be below the PERPENDICULAR lattice-line spacing — which
+        # is the *other* axis' pitch, so use the smaller of the two pitches.
+        # (pitch_page * 0.25 fails on a high-aspect grid: for the long axis the
+        # perpendicular lines are only the short pitch apart, and a quarter of
+        # the long pitch can exceed that, merging two lines → diagonal again.)
         lo_across = across(lo)
-        line = [idx for idx in range(len(pts)) if abs(across(idx) - lo_across) < pitch_page * 0.25]
+        line_tol = min(l1, l2) * 0.25
+        line = [idx for idx in range(len(pts)) if abs(across(idx) - lo_across) < line_tol]
         hi = max(line, key=along)
         span = along(hi) - along(lo)
         n = round(span / pitch_page) + 1

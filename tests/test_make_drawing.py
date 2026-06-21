@@ -1336,6 +1336,33 @@ class TestHolePatternCallouts:
         assert not [n for n in named if "table" in n]
 
     @pytest.mark.timeout(120)
+    def test_rect_grid_pitch_dims_not_diagonal_when_rotated(self):
+        # Regression guard for the high-aspect ROTATED grid: each pitch dim must
+        # measure along one lattice edge (endpoint span == label span), not
+        # corner-to-corner. A 2×5 grid (10 × 45 pitch) rotated 25° — the short-
+        # axis dim spans 10 mm; the diagonal bug would make it ~180 mm.
+        ang = math.radians(25)
+        ca, sa = math.cos(ang), math.sin(ang)
+        part = Box(220, 120, 12)
+        for r in range(2):
+            for c in range(5):
+                x, y = (c - 2) * 45, (r - 0.5) * 10
+                part -= Pos(x * ca - y * sa, x * sa + y * ca, 0) * Cylinder(4, 12)
+        dwg = build_drawing(part)
+        scale = dwg._analysis.SCALE
+        pitch = [n for n in dwg._named if n.startswith("dim_pitch_")]
+        assert len(pitch) == 2, f"expected two grid pitch dims, got {pitch}"
+        for n in pitch:
+            dim = dwg._named[n]
+            sp = dim._dw_spec
+            span = math.hypot(sp.p2[0] - sp.p1[0], sp.p2[1] - sp.p1[1]) / scale
+            k, p = dim.label.split("× ")
+            expected = int(k) * float(p)
+            assert abs(span - expected) < 1.0, (
+                f"{n} ({dim.label!r}) endpoint span {span:.1f} ≠ {expected:.1f} — drawn diagonally"
+            )
+
+    @pytest.mark.timeout(120)
     def test_rect_grid_coverage_lint_quiet(self):
         codes = {i.code for i in build_drawing(self._grid_part()).lint()}
         assert "feature_not_dimensioned" not in codes
