@@ -28,6 +28,7 @@ from build123d import (
 from build123d_drafting.features import (
     BoltCircle,
     LinearArray,
+    RectGrid,
     _full_cyls,
     _spec_key,
     find_bosses,
@@ -647,7 +648,12 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     if not any(i.code in ("callout_dropped", "location_ref_dropped") for i in dwg._build_issues):
         return
 
-    holes = [h for h in a.holes if _axis_letter(h) == "z"]  # plan-view holes
+    # Tabulate only the genuinely UNpatterned plan-view holes: holes in a
+    # recognised pattern are documented by their grouped ``n× ⌀`` callout +
+    # pattern dimension, so they must not become table rows or per-hole balloons
+    # (#92).  Excluding them is also what keeps a densely-but-regularly drilled
+    # part (e.g. NIST CTC-02) off the 61-row escalation (#111).
+    holes = [h for h in a.holes if _axis_letter(h) == "z" and h not in dwg._patterned_holes]
     # A chart is warranted only for a *genuinely* dense plan view — a part that
     # merely dropped one too-close location ref keeps its individual dims (the
     # legibility gate already handled it). #93.
@@ -666,7 +672,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     replaced = {
         n: dwg._named[n]
         for n in list(dwg._named)
-        if n.startswith(("hc_plan", "dim_locx", "dim_locy"))
+        if n.startswith(("hc_plan", "dim_locx", "dim_locy")) and n not in dwg._pattern_callouts
     }
     replaced_view = {n: dwg._anno_view.get(n) for n in replaced}
     for n in replaced:
@@ -1668,20 +1674,119 @@ def _add_detail_view(dwg, a: Analysis):
 
 def _add_furniture(dwg, a: Analysis, view, j, pattern, to_page):
     """Pattern sheet furniture, added once its callout is placed (#92)."""
+    if pattern is not None:
+        # Remember the bore-callout name AND the holes it documents, so a later
+        # hole-table escalation leaves the grouped pattern callout standing and
+        # tabulates only the holes no *placed* pattern callout covers (#92).
+        # Recording here (callout already placed) — not from a.patterns — means a
+        # pattern dropped for lack of room, or filtered off a rotational part,
+        # correctly falls back to the table instead of going undocumented.
+        dwg._pattern_callouts.add(f"hc_{view}{j}")
+        dwg._patterned_holes.update(pattern.holes)
     if isinstance(pattern, BoltCircle):
         cx = sum(to_page(h)[0] for h in pattern.holes) / len(pattern.holes)
         cy = sum(to_page(h)[1] for h in pattern.holes) / len(pattern.holes)
         dwg.add(CenterlineCircle((cx, cy), pattern.diameter * a.SCALE), f"bc_{view}{j}", view=view)
     elif isinstance(pattern, LinearArray):
-        _add_pitch_dim(dwg, a, view, j, pattern, to_page)
+        _place_pitch_dim(
+            dwg,
+            a,
+            view,
+            pattern.holes[0],
+            pattern.holes[-1],
+            len(pattern.holes),
+            pattern.pitch,
+            to_page,
+            f"dim_pitch_{view}{j}",
+        )
+    elif isinstance(pattern, RectGrid):
+        _add_grid_pitch_dims(dwg, a, view, j, pattern, to_page)
 
 
-def _add_pitch_dim(dwg, a: Analysis, view, j, pattern, to_page):
-    """Pitch dimension for a linear hole array: first→last hole centres,
-    labelled ``(n-1)× pitch``, placed just outside the view on the side of
-    the row's outward perpendicular (#92)."""
-    p1 = to_page(pattern.holes[0])
-    p2 = to_page(pattern.holes[-1])
+def _add_grid_pitch_dims(dwg, a: Analysis, view, j, grid, to_page):
+    """Both pitch dimensions of a rectangular grid — one along each lattice axis,
+    each labelled ``(n-1)× pitch`` (#92).  The two axes are recovered as the two
+    shortest near-orthogonal inter-hole page vectors (the recogniser's own
+    basis); this is used only to pick the dimension endpoints and the per-axis
+    count, not to re-recognise the grid (recognition stays upstream)."""
+    pts = [to_page(h) for h in grid.holes]
+    diffs = []
+    for ia in range(len(pts)):
+        for ib in range(len(pts)):
+            if ia == ib:
+                continue
+            dx, dy = pts[ib][0] - pts[ia][0], pts[ib][1] - pts[ia][1]
+            length = math.hypot(dx, dy)
+            if length > 1e-6:
+                diffs.append((length, dx, dy))
+    if not diffs:
+        return
+    diffs.sort()
+    l1, ax, ay = diffs[0]
+    u1 = (ax / l1, ay / l1)
+    basis2 = next(
+        (
+            (length, dx, dy)
+            for length, dx, dy in diffs
+            if abs((dx * u1[0] + dy * u1[1]) / length) < 0.2
+        ),
+        None,
+    )
+    if basis2 is None:
+        return
+    l2, bx, by = basis2
+    u2 = (bx / l2, by / l2)
+    nominals = (grid.row_pitch, grid.col_pitch)
+
+    def _axis_dim(u, pitch_page, sub):
+        perp = (-u[1], u[0])
+
+        def along(idx):
+            return pts[idx][0] * u[0] + pts[idx][1] * u[1]
+
+        def across(idx):
+            return pts[idx][0] * perp[0] + pts[idx][1] * perp[1]
+
+        lo = min(range(len(pts)), key=along)
+        # Keep the dimension on ONE lattice line: of the holes sharing lo's
+        # perpendicular coordinate, take the far one along u. Picking the global
+        # max-projection hole instead lands on the opposite diagonal corner and
+        # draws the pitch dim diagonally across the grid (#92).
+        # Tolerance must be below the PERPENDICULAR lattice-line spacing — which
+        # is the *other* axis' pitch, so use the smaller of the two pitches.
+        # (pitch_page * 0.25 fails on a high-aspect grid: for the long axis the
+        # perpendicular lines are only the short pitch apart, and a quarter of
+        # the long pitch can exceed that, merging two lines → diagonal again.)
+        lo_across = across(lo)
+        line_tol = min(l1, l2) * 0.25
+        line = [idx for idx in range(len(pts)) if abs(across(idx) - lo_across) < line_tol]
+        hi = max(line, key=along)
+        span = along(hi) - along(lo)
+        n = round(span / pitch_page) + 1
+        # Label with the recogniser's nominal pitch nearest this axis' page step.
+        pitch = min(nominals, key=lambda v: abs(v - pitch_page / a.SCALE))
+        _place_pitch_dim(
+            dwg,
+            a,
+            view,
+            grid.holes[lo],
+            grid.holes[hi],
+            n,
+            pitch,
+            to_page,
+            f"dim_pitch_{view}{j}_{sub}",
+        )
+
+    _axis_dim(u1, l1, 0)
+    _axis_dim(u2, l2, 1)
+
+
+def _place_pitch_dim(dwg, a: Analysis, view, h1, h2, n, pitch, to_page, name):
+    """Pitch dimension between two hole centres ``h1``→``h2``, labelled
+    ``(n-1)× pitch``, placed just outside the view on the side of the row's
+    outward perpendicular (#92)."""
+    p1 = to_page(h1)
+    p2 = to_page(h2)
     ux, uy = p2[0] - p1[0], p2[1] - p1[1]
     norm = math.hypot(ux, uy)
     if norm < 1e-9:
@@ -1723,7 +1828,7 @@ def _add_pitch_dim(dwg, a: Analysis, view, j, pattern, to_page):
         pref = (-0.3, 1.0) if view == "plan" else (-0.3, -1.0)
         side, reach = max(cands, key=lambda c: c[0][0] * pref[0] + c[0][1] * pref[1])
     # stack further pitch dims in this view on outer tiers
-    prior = sum(1 for name in dwg._named if name.startswith(f"dim_pitch_{view}"))
+    prior = sum(1 for nm in dwg._named if nm.startswith(f"dim_pitch_{view}"))
     offset = reach + 8 + 10 * prior
     # never force-place: skip (and log) when the dim line would leave the page
     ox = mid[0] + side[0] * (offset + 6)
@@ -1731,11 +1836,10 @@ def _add_pitch_dim(dwg, a: Analysis, view, j, pattern, to_page):
     if not (a.margin <= ox <= a.PAGE_W - a.margin and a.margin <= oy <= a.PAGE_H - a.margin):
         _log.info(
             "Pitch dimension for the %s× %s array skipped (no room)",
-            len(pattern.holes),
-            _fmt(pattern.pitch),
+            n,
+            _fmt(pitch),
         )
         return
-    n = len(pattern.holes)
     dwg.add(
         _dim(
             (p1[0], p1[1], 0),
@@ -1743,9 +1847,9 @@ def _add_pitch_dim(dwg, a: Analysis, view, j, pattern, to_page):
             side,
             offset,
             dwg.draft,
-            label=f"{n - 1}× {_fmt(pattern.pitch)}",
+            label=f"{n - 1}× {_fmt(pitch)}",
         ),
-        f"dim_pitch_{view}{j}",
+        name,
         view=view,
     )
 
@@ -1835,10 +1939,29 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=Non
         for h in a.holes
     )
 
-    # A pattern annotates only when it accounts for the whole spec group —
-    # a 7th same-size hole off the circle would make "7× ... EQ SP ON BC"
-    # a lie about six of them.
-    patterns = {frozenset(p.holes): p for p in found_patterns}
+    # v0.12.0 sub-clusters a machining-spec group into >=0 patterns: a filled
+    # lattice -> one RectGrid, a rectangular perimeter -> its edge LinearArray
+    # rows, plus a same-spec second bolt circle, etc.  Each hole belongs to at
+    # most one pattern, so map hole -> pattern and split every spec group into
+    # one callout PER pattern + one for the leftover unpatterned holes (#92).
+    hole_pattern = {h: p for p in found_patterns for h in p.holes}
+
+    def _subspecs(holes):
+        """Split a spec group's holes into ``(subholes, pattern)`` entries — one
+        per recognised pattern (its full hole set) plus a trailing ``(rest,
+        None)`` for any holes no pattern claimed."""
+        by_pat: dict = {}
+        remainder = []
+        for h in holes:
+            p = hole_pattern.get(h)
+            if p is None:
+                remainder.append(h)
+            else:
+                by_pat.setdefault(p, []).append(h)
+        out = [(list(p.holes), p) for p in by_pat]
+        if remainder:
+            out.append((remainder, None))
+        return out
 
     def _build_callout(holes, pattern):
         h = holes[0]
@@ -1850,9 +1973,12 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=Non
             )
             step = h.cbore
         through = h.bottom == "through"
-        suffix = (
-            f"EQ SP ON ø{_fmt(pattern.diameter)} BC" if isinstance(pattern, BoltCircle) else None
-        )
+        if isinstance(pattern, BoltCircle):
+            suffix = f"EQ SP ON ø{_fmt(pattern.diameter)} BC"
+        elif isinstance(pattern, RectGrid):
+            suffix = f"({pattern.rows}×{pattern.cols})"
+        else:
+            suffix = None
         return HoleCallout(
             _fmt(h.diameter),
             count=len(holes) if len(holes) > 1 else None,
@@ -1891,8 +2017,8 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=Non
         to_page = view_of_axis[{"plan": "z", "front": "y", "side": "x"}[view]][1]
         specs = []
         for holes in view_groups:
-            pattern = patterns.get(frozenset(holes))
-            specs.append((holes, _build_callout(holes, pattern), pattern))
+            for subholes, pattern in _subspecs(holes):
+                specs.append((subholes, _build_callout(subholes, pattern), pattern))
         # No fixed cap (#36): every spec is attempted; the per-view placement
         # bounds below (front-view shaft rows, plan/side strip Y-solver) are the
         # real limit, and any callout that genuinely doesn't fit surfaces as
