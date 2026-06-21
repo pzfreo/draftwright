@@ -272,6 +272,7 @@ def _annotate_turned_diameters(dwg, a: Analysis):
                 draft=draft,
             ),
             f"ldr_d{i}",
+            view="front",
         )
 
 
@@ -342,6 +343,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                 label=f"ø{_fmt(od)}",
             ),
             "dim_od",
+            view="front",
         )
         # Centreline through the rotation axis — front and side views
         dwg.add(
@@ -350,6 +352,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                 (FX(a.cx), FZ(a.bb.max.Z) + 5, 0),
             ),
             "centerline_front",
+            view="front",
         )
         dwg.add(
             Centerline(
@@ -357,6 +360,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                 (SX(a.cy), SZ(a.bb.max.Z) + 5, 0),
             ),
             "centerline_side",
+            view="side",
         )
 
     # Z-axis bore leaders to the left of the front view — these assume bores
@@ -387,6 +391,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                         draft=draft,
                     ),
                     f"ldr_z{i}",
+                    view="front",
                 )
         else:
             _log.info("Additional diameters %s not annotated (insufficient left margin)", bores)
@@ -403,7 +408,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     for i, h in enumerate(a.holes):
         view, to_page = view_of_axis[_axis_letter(h)]
         size = max(2.5, h.diameter * a.SCALE + 2.0)
-        dwg.add(CenterMark(to_page(h), size, draft), f"cm_{view}{i}")
+        dwg.add(CenterMark(to_page(h), size, draft), f"cm_{view}{i}", view=view)
 
     # Hole callouts, location dims, and the section view fire on *feature
     # presence*, independent of the turned/prismatic class (#10): the
@@ -449,6 +454,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                     label=f"{n_rep}× {_fmt(rise_mm)}",
                 ),
                 "dim_step_typ",
+                view="front",
             )
             _right_ladder = _px
         else:
@@ -491,6 +497,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                     label=_fmt(z - a.bb.min.Z),
                 ),
                 f"dim_step_{col}",
+                view="front",
             )
             _right_ladder = _px
 
@@ -507,6 +514,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                 label=_fmt(a.z_size),
             ),
             "dim_height",
+            view="front",
         )
         _right_ladder = _px
     else:
@@ -527,6 +535,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                     label=_fmt(a.x_size),
                 ),
                 "dim_width",
+                view="plan",
             )
         else:
             _log.warning("dim_width skipped: pv_zones.below strip full")
@@ -546,6 +555,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                     label=_fmt(a.y_size),
                 ),
                 "dim_depth",
+                view="side",
             )
         else:
             _log.warning("dim_depth skipped: sv_zones.below strip full")
@@ -658,6 +668,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
         for n in list(dwg._named)
         if n.startswith(("hc_plan", "dim_locx", "dim_locy"))
     }
+    replaced_view = {n: dwg._anno_view.get(n) for n in replaced}
     for n in replaced:
         dwg.remove(n)
 
@@ -674,7 +685,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
         # Even wrapped it will not fit — restore the callouts/dims and keep the
         # drop lint, so the sheet is never left with neither.
         for n, obj in replaced.items():
-            dwg.add(obj, n)
+            dwg.add(obj, n, view=replaced_view.get(n))
         dwg._record_build_issue("warning", "table_dropped", "hole table did not fit the sheet")
         return
     # One entry per hole (with repeats) so the coverage *count* check sees that
@@ -800,7 +811,7 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
             return None
         return p1, p2, avg_t
 
-    def _try_above(p1, p2, strip, label, name):
+    def _try_above(p1, p2, strip, label, name, view):
         """Place a horizontal dimension line ABOVE the witness points."""
         if strip is None:
             return False
@@ -818,10 +829,11 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                 label=label,
             ),
             name,
+            view=view,
         )
         return True
 
-    def _try_below(p1, p2, strip, label, name):
+    def _try_below(p1, p2, strip, label, name, view):
         """Place a horizontal dimension line BELOW the witness points."""
         if strip is None:
             return False
@@ -839,10 +851,11 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                 label=label,
             ),
             name,
+            view=view,
         )
         return True
 
-    def _try_right(p1, p2, strip, label, name):
+    def _try_right(p1, p2, strip, label, name, view):
         """Place a vertical dimension line to the RIGHT of the witness points."""
         if strip is None:
             return False
@@ -860,10 +873,11 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                 label=label,
             ),
             name,
+            view=view,
         )
         return True
 
-    def _try_left(p1, p2, strip, label, name):
+    def _try_left(p1, p2, strip, label, name, view):
         """Place a vertical dimension line to the LEFT of the witness points."""
         if strip is None:
             return False
@@ -881,6 +895,7 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                 label=label,
             ),
             name,
+            view=view,
         )
         return True
         return False
@@ -916,20 +931,24 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                 if half_pg >= 4.0:
                     p1 = (PX(cx_f - half), PY(cy_f), 0)
                     p2 = (PX(cx_f + half), PY(cy_f), 0)
-                    placed = _try_above(p1, p2, a.pv_zones.above, label, name_d) or _try_below(
-                        p1, p2, a.pv_zones.below, label, name_d
-                    )
+                    placed = _try_above(
+                        p1, p2, a.pv_zones.above, label, name_d, "plan"
+                    ) or _try_below(p1, p2, a.pv_zones.below, label, name_d, "plan")
                 else:
                     tip = (PX(cx_f), PY(cy_f) + half_pg, 0)
                     slot = a.pv_zones.above.allocate(_SLOT)
                     if slot is not None:
-                        dwg.add(Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d)
+                        dwg.add(
+                            Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d, view="plan"
+                        )
                         placed = True
                     else:
                         slot = a.pv_zones.below.allocate(_SLOT)
                         if slot is not None:
                             tip = (PX(cx_f), PY(cy_f) - half_pg, 0)
-                            dwg.add(Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d)
+                            dwg.add(
+                                Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d, view="plan"
+                            )
                             placed = True
 
             elif bore_axis == "X":
@@ -937,20 +956,24 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                 if half_pg >= 4.0:
                     p1 = (SX(cy_f - half), SZ(cz_f), 0)
                     p2 = (SX(cy_f + half), SZ(cz_f), 0)
-                    placed = _try_above(p1, p2, a.sv_zones.above, label, name_d) or _try_below(
-                        p1, p2, a.sv_zones.below, label, name_d
-                    )
+                    placed = _try_above(
+                        p1, p2, a.sv_zones.above, label, name_d, "side"
+                    ) or _try_below(p1, p2, a.sv_zones.below, label, name_d, "side")
                 else:
                     tip = (SX(cy_f), SZ(cz_f) + half_pg, 0)
                     slot = a.sv_zones.above.allocate(_SLOT)
                     if slot is not None:
-                        dwg.add(Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d)
+                        dwg.add(
+                            Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d, view="side"
+                        )
                         placed = True
                     else:
                         slot = a.sv_zones.below.allocate(_SLOT)
                         if slot is not None:
                             tip = (SX(cy_f), SZ(cz_f) - half_pg, 0)
-                            dwg.add(Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d)
+                            dwg.add(
+                                Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d, view="side"
+                            )
                             placed = True
 
             elif bore_axis == "Y":
@@ -958,16 +981,16 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                 if half_pg >= 4.0:
                     p1 = (FX(cx_f - half), FZ(cz_f), 0)
                     p2 = (FX(cx_f + half), FZ(cz_f), 0)
-                    placed = _try_above(p1, p2, a.fv_zones.above, label, name_d) or _try_below(
-                        p1, p2, a.fv_zones.below, label, name_d
-                    )
+                    placed = _try_above(
+                        p1, p2, a.fv_zones.above, label, name_d, "front"
+                    ) or _try_below(p1, p2, a.fv_zones.below, label, name_d, "front")
                 else:
                     # Narrow bore: leader from bore bottom into the below strip.
                     tip = (FX(cx_f), FZ(cz_f) - half_pg, 0)
                     slot = a.fv_zones.below.allocate(_SLOT)
                     if slot is not None:
                         elbow = (FX(cx_f), slot, 0)
-                        dwg.add(Leader(tip, elbow, label, draft), name_d)
+                        dwg.add(Leader(tip, elbow, label, draft), name_d, view="front")
                         placed = True
                     else:
                         # Fall back: leader upward into the above strip.
@@ -975,7 +998,7 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                         if slot is not None:
                             tip = (FX(cx_f), FZ(cz_f) + half_pg, 0)
                             elbow = (FX(cx_f), slot, 0)
-                            dwg.add(Leader(tip, elbow, label, draft), name_d)
+                            dwg.add(Leader(tip, elbow, label, draft), name_d, view="front")
                             placed = True
 
         elif ax == "X":
@@ -985,9 +1008,9 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                 continue
             p1, p2, avg_pz = wp
             if avg_pz >= a.FV_Y:
-                placed = _try_above(p1, p2, a.fv_zones.above, label, name_x)
+                placed = _try_above(p1, p2, a.fv_zones.above, label, name_x, "front")
             if not placed:
-                placed = _try_below(p1, p2, a.fv_zones.below, label, name_x)
+                placed = _try_below(p1, p2, a.fv_zones.below, label, name_x, "front")
 
         elif ax == "Z":
             wp = _witness_from_bbox(rec, "front")
@@ -996,9 +1019,9 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
                 continue
             p1, p2, avg_px = wp
             if avg_px >= a.FV_X:
-                placed = _try_right(p1, p2, a.fv_zones.right, label, name_z)
+                placed = _try_right(p1, p2, a.fv_zones.right, label, name_z, "front")
             if not placed:
-                placed = _try_left(p1, p2, a.fv_zones.left, label, name_z)
+                placed = _try_left(p1, p2, a.fv_zones.left, label, name_z, "front")
 
         elif ax == "Y":
             # Try side view (Y maps to SX horizontal).
@@ -1006,15 +1029,15 @@ def _annotate_pmi(dwg, a: Analysis, draft) -> None:
             if wp is not None:
                 p1, p2, avg_sz = wp
                 if avg_sz >= a.SV_Y:
-                    placed = _try_above(p1, p2, a.sv_zones.above, label, name_y)
+                    placed = _try_above(p1, p2, a.sv_zones.above, label, name_y, "side")
                 if not placed:
-                    placed = _try_below(p1, p2, a.sv_zones.below, label, name_y)
+                    placed = _try_below(p1, p2, a.sv_zones.below, label, name_y, "side")
             # Fall back: plan view (Y maps to PY vertical).
             if not placed:
                 wp = _witness_from_bbox(rec, "plan")
                 if wp is not None:
                     p1, p2, _ = wp
-                    placed = _try_below(p1, p2, a.pv_zones.below, label, name_y)
+                    placed = _try_below(p1, p2, a.pv_zones.below, label, name_y, "plan")
 
         if placed:
             emitted += 1
@@ -1144,6 +1167,7 @@ def _add_location_dims(dwg, a: Analysis, patterns, holes_in=None):
                 label=_fmt(rx - datum_x),
             ),
             f"dim_locx{i}",
+            view="plan",
         )
 
     # Y locations: the side view maps world Y horizontally, and the strip
@@ -1215,6 +1239,7 @@ def _add_location_dims(dwg, a: Analysis, patterns, holes_in=None):
                 label=_fmt(ry - datum_y),
             ),
             f"dim_locy{i}",
+            view="side",
         )
 
 
@@ -1646,7 +1671,7 @@ def _add_furniture(dwg, a: Analysis, view, j, pattern, to_page):
     if isinstance(pattern, BoltCircle):
         cx = sum(to_page(h)[0] for h in pattern.holes) / len(pattern.holes)
         cy = sum(to_page(h)[1] for h in pattern.holes) / len(pattern.holes)
-        dwg.add(CenterlineCircle((cx, cy), pattern.diameter * a.SCALE), f"bc_{view}{j}")
+        dwg.add(CenterlineCircle((cx, cy), pattern.diameter * a.SCALE), f"bc_{view}{j}", view=view)
     elif isinstance(pattern, LinearArray):
         _add_pitch_dim(dwg, a, view, j, pattern, to_page)
 
@@ -1721,6 +1746,7 @@ def _add_pitch_dim(dwg, a: Analysis, view, j, pattern, to_page):
             label=f"{n - 1}× {_fmt(pattern.pitch)}",
         ),
         f"dim_pitch_{view}{j}",
+        view=view,
     )
 
 
@@ -1858,6 +1884,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=Non
                 callout=callout,
             ),
             f"hc_{view}{i}",
+            view=view,
         )
 
     for view, view_groups in by_view.items():

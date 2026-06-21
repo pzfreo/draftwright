@@ -23,7 +23,7 @@ import functools
 import logging
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal
@@ -1005,6 +1005,36 @@ def _est_pv_below_depth() -> float:
     return _STRIP_GAP + _SLOT_DIM_WIDTH
 
 
+def _est_pv_above_depth(
+    holes, patterns, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0
+) -> float:
+    """Estimate the depth above the plan view consumed by X-location dims, which
+    tier one per distinct datum-X reference (#36) — so the layout can reserve it
+    (and a balloon row beyond) *before* placing views, instead of letting the
+    tiers spill into headroom (#121).
+
+    WIP estimate standing in for ADR 0004's "lay out, don't predict": a
+    conservative upper bound (one spare tier for the pitch dim / rounding), which
+    the packer absorbs by scale rather than under-reserving and overlapping.
+    Scale-independent (tier height is fixed page-mm).
+    """
+    z_refs_x: list[float] = []
+    patterned = {h for p in patterns for h in p.holes}
+    for p in patterns:
+        if _axis_letter(p.holes[0]) != "z":
+            continue
+        z_refs_x.append(p.center[0] if isinstance(p, BoltCircle) else p.holes[0].location[0])
+    z_refs_x += [h.location[0] for h in holes if _axis_letter(h) == "z" and h not in patterned]
+    distinct: list[float] = []
+    for x in sorted(z_refs_x):
+        if not distinct or abs(x - distinct[-1]) > 0.5:
+            distinct.append(x)
+    if not distinct:
+        return 0.0
+    tier = font_size + 2 * pad_around_text
+    return (len(distinct) + 1) * tier  # +1 tier: pitch dim / rounding headroom
+
+
 def _est_plan_halo(font_size: float = _FONT_SIZE) -> float:
     """Per-side standoff band (page-mm) reserved around the plan view when its
     holes will be ballooned, so the leadered balloon ring sits in clear space
@@ -1135,6 +1165,7 @@ class StripDepths:
 
     right: float  # horizontal corridor right of FV/PV → gap_fv_sv
     left: float  # horizontal corridor left of FV/PV
+    top: float = 0.0  # band above PV for tiered X-location dims (#121)
     pv_halo: float = 0.0  # balloon standoff band reserved around the plan view (#111)
 
 
@@ -1163,8 +1194,9 @@ def _measure_strips(
         bore_depth += pad_around_text + arrow_length
     right = max(_est_right_strip_depth(n_steps), bore_depth)
     left = max(_DIM_PAD, bore_depth)
+    top = _est_pv_above_depth(holes, patterns, font_size, pad_around_text)
     pv_halo = _est_plan_halo(font_size) if _will_balloon(holes, patterns) else 0.0
-    return StripDepths(right=right, left=left, pv_halo=pv_halo)
+    return StripDepths(right=right, left=left, top=top, pv_halo=pv_halo)
 
 
 @dataclass(frozen=True)
@@ -1213,6 +1245,9 @@ def _compose_anno_boxes(
         bore_depth += pad_around_text + arrow_length
         boxes.append(AnnoBox("right", bore_depth))  # FV/PV right bore callouts
         boxes.append(AnnoBox("left", bore_depth))  # FV/PV left bore callouts
+    above = _est_pv_above_depth(holes, patterns, font_size, pad_around_text)
+    if above > 0:
+        boxes.append(AnnoBox("above", above))  # tiered X-location dims above PV (#121)
     if _will_balloon(holes, patterns):
         boxes.append(AnnoBox("plan_halo", _est_plan_halo(font_size)))
     return boxes
@@ -1231,6 +1266,7 @@ def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
     return StripDepths(
         right=deepest("right"),
         left=max(_DIM_PAD, deepest("left")),
+        top=deepest("above"),
         pv_halo=deepest("plan_halo"),
     )
 
@@ -1269,7 +1305,12 @@ def _fits(
     halo = strips.pv_halo if strips else 0.0
     gap_fv_sv = max(_DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
     gap_left = max(_DIM_PAD, strips.left if strips else _DIM_PAD, halo)
-    h = _MARGIN + _DIM_PAD + y_size * scale + _DIM_PAD + z_size * scale + _DIM_PAD + _MARGIN
+    # PV top band: when ballooned, hold the tiered X-location dims + a balloon row
+    # beyond them (#121); otherwise the historic DIM_PAD (tiers spill into
+    # headroom). Mirror _layout_geometry's pv.top so scale/page is sized for it.
+    strip_top = strips.top if strips else 0.0
+    pv_top = (max(_DIM_PAD, strip_top) + halo) if halo > 0 else _DIM_PAD
+    h = _MARGIN + pv_top + y_size * scale + _DIM_PAD + z_size * scale + _DIM_PAD + _MARGIN
     if h > page_h:
         return False
 
@@ -1398,6 +1439,116 @@ def choose_scale(
 # ---------------------------------------------------------------------------
 
 
+def _view_geom(a) -> dict:
+    """The three orthographic geometry boxes as ``{view: (cx, cy, hw, hh)}``."""
+    return {
+        "front": (a.FV_X, a.FV_Y, a.fv_hw, a.fv_hh),
+        "plan": (a.PV_X, a.PV_Y, a.fv_hw, a.pv_hh),
+        "side": (a.SV_X, a.SV_Y, a.sv_hw, a.fv_hh),
+    }
+
+
+def _anno_bbox(o):
+    """Page-space bbox of an annotation: its text ``label_bbox`` if it has one,
+    else its geometric bounding box; ``None`` if neither resolves."""
+    lb = getattr(o, "label_bbox", None)
+    if lb is not None:
+        return lb
+    try:
+        b = o.bounding_box()
+        return (b.min.X, b.min.Y, b.max.X, b.max.Y)
+    except Exception as exc:  # noqa: BLE001 — not every annotation bbox-es cleanly
+        # Fails open: an un-bbox-able annotation drops out of the overlap count and
+        # the measured footprint. Surface it so a silently-missed repack trigger is
+        # debuggable rather than invisible (#121).
+        _log.debug("annotation %r has no resolvable bbox: %s", type(o).__name__, exc)
+        return None
+
+
+def _attribute_annotations(dwg, a):
+    """Yield ``(name, view, bbox, is_label)`` for every annotation OWNED by an
+    orthographic view, per the view recorded at creation (``dwg._anno_view``).
+
+    Ownership is authoritative — the annotation pass that drew it knew which view
+    it belonged to and tagged it (#121) — so a front-view step dimension sitting
+    in the front↔plan gap is the *front* view's, never recovered (and mis-bucketed)
+    from page coordinates.  Annotations with no recorded ortho view (title block,
+    iso/section/detail furniture) belong to no block and are skipped.  ``is_label``
+    is true when the annotation carries a text ``label_bbox`` (a dimension value
+    or balloon tag) rather than bare geometry (a centreline/leader line).
+    """
+    for name, o in dwg._named.items():
+        view = dwg._anno_view.get(name)
+        if view not in ("front", "plan", "side"):
+            continue
+        label = getattr(o, "label_bbox", None)
+        bb = label if label is not None else _anno_bbox(o)
+        if bb is None:
+            continue
+        yield name, view, bb, label is not None
+
+
+def _cross_view_overlaps(dwg, a) -> int:
+    """Count pairs of annotations attributed to *different* views whose boxes
+    overlap — the #121 failure (a plan-view balloon over a front-view dimension).
+
+    This is the repack trigger: a clean sheet (no cross-view overlap) is left
+    exactly as pass 1 placed it, so well-estimated parts stay byte-identical;
+    only a sheet with a real collision is re-packed (ADR 0004).
+    """
+    items = list(_attribute_annotations(dwg, a))
+    n = 0
+    for i in range(len(items)):
+        _, vi, bi, li = items[i]
+        for j in range(i + 1, len(items)):
+            _, vj, bj, lj = items[j]
+            # Only a collision involving a text label matters — two bare lines
+            # (extension/leader) crossing between views is normal drafting.
+            if vi == vj or not (li or lj):
+                continue
+            if min(bi[2], bj[2]) > max(bi[0], bj[0]) and min(bi[3], bj[3]) > max(bi[1], bj[1]):
+                n += 1
+    return n
+
+
+def _measure_blocks(dwg, a) -> dict:
+    """Measure each orthographic view's *actual* annotation footprint from the
+    laid-out drawing (#121, ADR 0004 — "lay out, don't predict").
+
+    Each view's four band depths are how far its annotations extend beyond its
+    geometry box, **measured** from what the annotation passes produced — not
+    estimated. Every annotation is attributed to the nearest view (by its
+    label/box centre), and the band depth on a side is the furthest that view's
+    annotations reach past the geometry edge there. Returns ``{view_name:
+    ViewBlock}`` whose bands the packer can place disjoint, no ``_est_*`` needed.
+    """
+    geom = _view_geom(a)
+    ext: dict = {v: None for v in geom}
+    for _name, v, bb, _label in _attribute_annotations(dwg, a):
+        e = ext[v]
+        ext[v] = (
+            bb
+            if e is None
+            else (min(e[0], bb[0]), min(e[1], bb[1]), max(e[2], bb[2]), max(e[3], bb[3]))
+        )
+
+    blocks: dict = {}
+    for v, (cx, cy, hw, hh) in geom.items():
+        e = ext[v]
+        if e is None:
+            blocks[v] = ViewBlock(hw, hh)
+            continue
+        blocks[v] = ViewBlock(
+            hw,
+            hh,
+            top=max(0.0, e[3] - (cy + hh)),
+            right=max(0.0, e[2] - (cx + hw)),
+            bottom=max(0.0, (cy - hh) - e[1]),
+            left=max(0.0, (cx - hw) - e[0]),
+        )
+    return blocks
+
+
 @dataclass(frozen=True)
 class ViewBlock:
     """A view's composite footprint (#112): its geometry half-extents plus the
@@ -1440,7 +1591,9 @@ def _padded_box(cx, cy, hw, hh, pad=_DIM_PAD):
     return ViewBlock(hw, hh, pad, pad, pad, pad).footprint(cx, cy)
 
 
-def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps=0):
+def _layout_geometry(
+    x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips, n_steps=0, blocks=None
+):
     """Compute the 4-view layout geometry for a part at a given scale/page.
 
     Single source of truth shared by scale selection (:func:`_fits`) and view
@@ -1470,21 +1623,61 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     # ring the part below it, not just left/right/top (#111/#112 Phase 2).  All
     # bands reduce to today's arithmetic when halo = 0 (byte-identical).
     halo = strips.pv_halo if strips else 0.0
+    strip_top = strips.top if strips else 0.0
     gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
     gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
     pv_below = _est_pv_below_depth()
-    fv = ViewBlock(
+    # Top band above PV. When the plan view is ballooned, the ring sits beyond the
+    # tiered X-location dims, so reserve their real depth (strip_top) PLUS a
+    # balloon row — otherwise the ring overruns the page (#121). When NOT
+    # ballooned, keep the historic DIM_PAD: the dim tiers spill harmlessly into
+    # the headroom above PV, and reserving more would needlessly grow the layout
+    # (and can starve the section view of its leftover space).
+    pv_top = (max(DIM_PAD, strip_top) + halo) if halo > 0 else DIM_PAD
+    # Estimated blocks (always built): the scale-derived geometry half-extents
+    # plus the heuristic per-side corridor depths.
+    est_fv = ViewBlock(
         fv_hw, fv_hh, top=DIM_PAD - pv_below, right=gap_fv_sv, bottom=DIM_PAD, left=gap_left
     )
-    pv = ViewBlock(
+    est_pv = ViewBlock(
         fv_hw,
         pv_hh,
-        top=DIM_PAD,
+        top=pv_top,
         right=gap_fv_sv,
         bottom=max(pv_below, halo),  # band below PV holds the width dim + a balloon row
         left=gap_left,
     )
-    sv = ViewBlock(sv_hw, fv_hh, right=DIM_PAD)
+    est_sv = ViewBlock(sv_hw, fv_hh, right=DIM_PAD)
+    if blocks is not None:
+        # Measure-and-repack pass (#121, ADR 0004): pack the *measured* per-view
+        # footprints disjoint.  Floor each measured band at the estimate — the
+        # repack may only GROW a corridor to fit annotations the estimate
+        # under-sized (the documented FV-top vs PV-balloon overlap), never shrink
+        # below the clearance the estimate guarantees.  The geometry half-extents
+        # stay scale-derived (the estimate), not the measured block.
+        def _merge(est, meas):
+            return ViewBlock(
+                est.hw,
+                est.hh,
+                top=max(est.top, meas.top),
+                right=max(est.right, meas.right),
+                bottom=max(est.bottom, meas.bottom),
+                left=max(est.left, meas.left),
+            )
+
+        fv = _merge(est_fv, blocks["front"])
+        pv = _merge(est_pv, blocks["plan"])
+        sv = _merge(est_sv, blocks["side"])
+    else:
+        fv, pv, sv = est_fv, est_pv, est_sv
+    # Per-side corridor depths from the (possibly measured) blocks. The front and
+    # plan views stack vertically (same X, different Y) so they SHARE the left and
+    # right corridors — the deeper of the two facing bands. The side view ABUTS
+    # the column, so its gap is that column band PLUS its own facing band (sum) —
+    # disjoint by construction (#121). Byte-identical for the estimator path,
+    # where fv/pv bands are equal and sv.left == 0.
+    col_left = max(fv.left, pv.left)
+    col_right = max(fv.right, pv.right)
 
     # Bottom balloon band: rather than pushing the front view down (which would
     # cascade into the iso/table and the scale choice), LIFT the plan view up
@@ -1494,28 +1687,39 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     # exactly as when halo = 0), while PV is positioned with the full ballooned
     # gap, leaving it max(0, halo - pv_below) higher.  Byte-identical when
     # halo = 0.  (#112, ADR 0004.)
-    base_gap = fv.top + pv_below
+    # FV↔PV vertical gap = fv.top + pv.bottom (abutting → sum). The estimator path
+    # keeps its lift trick (centre on the base gap, place PV on the full gap);
+    # the measured path uses the real gap directly.
+    base_gap = (fv.top + pv.bottom) if blocks is not None else (fv.top + pv_below)
     total_h = 2 * margin + fv.bottom + 2 * fv.hh + base_gap + 2 * pv.hh + pv.top
     y_offset = max(0.0, (page_h - total_h) / 2)
 
     total_content_w = (
-        gap_left
-        + gap_fv_sv
+        col_left
+        + col_right
         + x_size * scale
         + y_size * scale
-        + 2 * DIM_PAD
+        + max(2 * DIM_PAD, sv.right + DIM_PAD)
         + bbox_max * scale * _ISO_WIDTH_BUDGET
     )
     x_offset = max(0.0, (page_w - 2 * margin - tb_w - total_content_w) / 2)
 
-    FV_X = margin + x_offset + fv.left + fv.hw
+    # Anchor the FV/PV column on the SHARED left corridor (col_left), not fv.left
+    # alone: when the measured plan-view left band is the deeper of the two, the
+    # column must clear it or PV slides left of the centred region — and off the
+    # margin (#121). Byte-identical on the estimator path (col_left == fv.left),
+    # and symmetric with SV_X's use of col_right below.
+    FV_X = margin + x_offset + col_left + fv.hw
     FV_Y = y_offset + margin + fv.bottom + fv.hh
     PV_X = FV_X
     # PV uses the full (ballooned) front↔plan gap while FV/SV were centred with
     # the base gap — so the plan view sits pv_lift higher: lifted into the
     # headroom, front view anchored.
     PV_Y = FV_Y + fv.hh + (fv.top + pv.bottom) + pv.hh
-    SV_X = FV_X + fv.hw + max(fv.right, sv.left) + sv.hw
+    # SV abuts the FV/PV column: gap = column right band + SV's own left band
+    # (disjoint sum). Byte-identical to the old max(fv.right, sv.left) on the
+    # estimator path (fv.right == pv.right == col_right, sv.left == 0).
+    SV_X = FV_X + fv.hw + col_right + sv.left + sv.hw
     SV_Y = FV_Y
     sv_right = SV_X + sv.hw + sv.right
     sv_right_wall = (
@@ -1541,13 +1745,24 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     tb_cx, tb_cy = page_w - _TB_CLEAR - tb_w / 2, _TB_CLEAR + _TB_H / 2
 
     # The iso is the one *placed* block: it takes the largest gap the fixed
-    # blocks' footprints leave.
-    obstacles = [
-        _padded_box(FV_X, FV_Y, fv_hw, fv_hh),
-        _padded_box(PV_X, PV_Y, fv_hw, pv_hh),
-        _padded_box(SV_X, SV_Y, sv_hw, fv_hh),
-        title_block.footprint(tb_cx, tb_cy),
-    ]
+    # blocks' footprints leave.  On the repack path use the MEASURED footprints
+    # (bands may exceed DIM_PAD), so the iso stays clear of real annotations
+    # rather than just the estimate's padded box (#121); the estimator path keeps
+    # the DIM_PAD-padded boxes for byte-identity.
+    if blocks is not None:
+        obstacles = [
+            fv.footprint(FV_X, FV_Y),
+            pv.footprint(PV_X, PV_Y),
+            sv.footprint(SV_X, SV_Y),
+            title_block.footprint(tb_cx, tb_cy),
+        ]
+    else:
+        obstacles = [
+            _padded_box(FV_X, FV_Y, fv_hw, fv_hh),
+            _padded_box(PV_X, PV_Y, fv_hw, pv_hh),
+            _padded_box(SV_X, SV_Y, sv_hw, fv_hh),
+            title_block.footprint(tb_cx, tb_cy),
+        ]
     iso_left, iso_bottom, iso_right, iso_top = _largest_empty_rect(drawable, obstacles)
     # _largest_empty_rect falls back to the full drawable when the obstacles
     # leave no genuine gap; detect that (rect overlaps an obstacle) so callers
@@ -1555,6 +1770,33 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
     iso_valid = not any(
         iso_left < o[2] and o[0] < iso_right and iso_bottom < o[3] and o[1] < iso_top
         for o in obstacles
+    )
+
+    # Does the packed disjoint layout actually fit the sheet? — the fitness the
+    # (scale, page) search optimises (#121, ADR 0004).  The union of the three
+    # view *footprints* (geometry + bands) must sit inside the drawable area; the
+    # orthographic views must clear the title block (stay left of its column
+    # unless their bottom is above it); and the iso must have a real gap.  This is
+    # what tells the repack to escalate to a larger sheet when the measured
+    # footprints no longer fit the estimate's page.
+    _view_boxes = [
+        fv.footprint(FV_X, FV_Y),
+        pv.footprint(PV_X, PV_Y),
+        sv.footprint(SV_X, SV_Y),
+    ]
+    cx0 = min(b[0] for b in _view_boxes)
+    cy0 = min(b[1] for b in _view_boxes)
+    cx1 = max(b[2] for b in _view_boxes)
+    cy1 = max(b[3] for b in _view_boxes)
+    _tol = 0.5
+    _clears_tb = cy0 >= (_TB_CLEAR + _TB_H)
+    _right_limit = (page_w - margin) if _clears_tb else (page_w - tb_w - margin)
+    fits = (
+        iso_valid
+        and cy0 >= margin - _tol
+        and cy1 <= page_h - margin + _tol
+        and cx0 >= margin - _tol
+        and cx1 <= _right_limit + _tol
     )
 
     return SimpleNamespace(
@@ -1579,7 +1821,66 @@ def _layout_geometry(x_size, y_size, z_size, scale, page_w, page_h, tb_w, strips
         ISO_Y=(iso_bottom + iso_top) / 2,
         iso_valid=iso_valid,
         iso_natural=bbox_max * scale * _ISO_WIDTH_BUDGET,
+        fits=fits,
     )
+
+
+def _build_zones(g, margin, page_h):
+    """Construct the FV/PV/SV annotation :class:`ViewZones` from a placement
+    namespace *g* (the return of :func:`_layout_geometry`).
+
+    Factored out of :func:`_analyse` so the measure-and-repack pass (#121) can
+    rebuild the zones from the repacked geometry with the same arithmetic — the
+    zones must track the moved view centres, not the pass-1 placement.
+    """
+    FV_X, FV_Y, fv_hw, fv_hh = g.FV_X, g.FV_Y, g.fv_hw, g.fv_hh
+    PV_X, PV_Y, pv_hh = g.PV_X, g.PV_Y, g.pv_hh
+    SV_X, SV_Y, sv_hw = g.SV_X, g.SV_Y, g.sv_hw
+
+    fv_right_edge = FV_X + fv_hw
+    fv_left_edge = FV_X - fv_hw
+    fv_top_edge = FV_Y + fv_hh
+    fv_bottom_edge = FV_Y - fv_hh
+    pv_right_edge = PV_X + fv_hw  # plan has the same X half-width as front
+    pv_left_edge = PV_X - fv_hw
+    pv_top_edge = PV_Y + pv_hh
+    pv_bottom_edge = PV_Y - pv_hh  # = fv_top_edge + DIM_PAD
+    sv_top_edge = SV_Y + fv_hh  # side view has the same Z height as front
+    # Outer limit for fv/pv right strips: must not enter the side view.
+    sv_left_edge = SV_X - sv_hw  # = fv_right_edge + gap_fv_sv
+
+    fv_zones = ViewZones(
+        right=Strip(fv_right_edge, sv_left_edge, direction=1),
+        left=Strip(fv_left_edge, margin, direction=-1),
+        # Stop the front-view 'above' strip short of pv_bottom_edge by the
+        # slack the pv_below slot leaves in the gap, derived (not re-typed) so
+        # it tracks _DIM_PAD and the slot constants.
+        above=Strip(fv_top_edge, pv_bottom_edge - (_DIM_PAD - _est_pv_below_depth()), direction=1),
+        below=Strip(fv_bottom_edge, margin, direction=-1),
+    )
+    pv_zones = ViewZones(
+        # Outer limit = sv_left_edge (not iso_right_limit) so bore callouts in
+        # the plan view are bounded by the same hard wall as the FV right strip,
+        # preventing labels from crossing dim_locy extension lines in the side
+        # view.  gap_fv_sv is sized by _measure_strips to accommodate the widest
+        # callout, so well-estimated labels will always fit within this bound.
+        right=Strip(pv_right_edge, sv_left_edge, direction=1),
+        left=Strip(pv_left_edge, margin, direction=-1),
+        above=Strip(pv_top_edge, page_h - margin, direction=1),
+        # gap_fv_pv = _DIM_PAD; pv_below needs _est_pv_below_depth() mm,
+        # leaving (_DIM_PAD - _est_pv_below_depth()) mm slack (assert above).
+        below=Strip(pv_bottom_edge, fv_top_edge, direction=-1),
+    )
+    sv_bottom_edge = SV_Y - fv_hh  # same as fv_bottom_edge; side and front share Z height
+    sv_zones = ViewZones(
+        # sv_right already includes DIM_PAD; anchor here so the strip never
+        # places annotations inside that gap
+        right=Strip(g.sv_right, g.sv_right_wall, direction=1),
+        left=None,  # immediately abuts the front view's right edge
+        above=Strip(sv_top_edge, page_h - margin, direction=1),
+        below=Strip(sv_bottom_edge, margin, direction=-1),
+    )
+    return fv_zones, pv_zones, sv_zones
 
 
 def _analyse(
@@ -1742,7 +2043,6 @@ def _analyse(
     SV_X = _g.SV_X
     SV_Y = _g.SV_Y
     sv_right = _g.sv_right
-    sv_right_wall = _g.sv_right_wall
     iso_left_limit = _g.iso_left
     iso_bottom_limit = _g.iso_bottom
     iso_right_limit = _g.iso_right
@@ -1757,49 +2057,7 @@ def _analyse(
     # through strip.allocate().  The iso view's outer limits are conservative
     # here (PAGE_H - margin / iso_right_limit); _auto_annotate() tightens
     # them once the iso has been projected.
-    fv_right_edge = FV_X + fv_hw
-    fv_left_edge = FV_X - fv_hw
-    fv_top_edge = FV_Y + fv_hh
-    fv_bottom_edge = FV_Y - fv_hh
-    pv_right_edge = PV_X + fv_hw  # plan has the same X half-width as front
-    pv_left_edge = PV_X - fv_hw
-    pv_top_edge = PV_Y + pv_hh
-    pv_bottom_edge = PV_Y - pv_hh  # = fv_top_edge + DIM_PAD
-    sv_top_edge = SV_Y + fv_hh  # side view has the same Z height as front
-    # Outer limit for fv/pv right strips: must not enter the side view.
-    sv_left_edge = SV_X - sv_hw  # = fv_right_edge + gap_fv_sv
-
-    fv_zones = ViewZones(
-        right=Strip(fv_right_edge, sv_left_edge, direction=1),
-        left=Strip(fv_left_edge, margin, direction=-1),
-        # Stop the front-view 'above' strip short of pv_bottom_edge by the
-        # slack the pv_below slot leaves in the gap, derived (not re-typed) so
-        # it tracks _DIM_PAD and the slot constants.
-        above=Strip(fv_top_edge, pv_bottom_edge - (_DIM_PAD - _est_pv_below_depth()), direction=1),
-        below=Strip(fv_bottom_edge, margin, direction=-1),
-    )
-    pv_zones = ViewZones(
-        # Outer limit = sv_left_edge (not iso_right_limit) so bore callouts in
-        # the plan view are bounded by the same hard wall as the FV right strip,
-        # preventing labels from crossing dim_locy extension lines in the side
-        # view.  gap_fv_sv is sized by _measure_strips to accommodate the widest
-        # callout, so well-estimated labels will always fit within this bound.
-        right=Strip(pv_right_edge, sv_left_edge, direction=1),
-        left=Strip(pv_left_edge, margin, direction=-1),
-        above=Strip(pv_top_edge, PAGE_H - margin, direction=1),
-        # gap_fv_pv = _DIM_PAD; pv_below needs _est_pv_below_depth() mm,
-        # leaving (_DIM_PAD - _est_pv_below_depth()) mm slack (assert above).
-        below=Strip(pv_bottom_edge, fv_top_edge, direction=-1),
-    )
-    sv_bottom_edge = SV_Y - fv_hh  # same as fv_bottom_edge; side and front share Z height
-    sv_zones = ViewZones(
-        # sv_right already includes DIM_PAD; anchor here so the strip never
-        # places annotations inside that gap
-        right=Strip(sv_right, sv_right_wall, direction=1),
-        left=None,  # immediately abuts the front view's right edge
-        above=Strip(sv_top_edge, PAGE_H - margin, direction=1),
-        below=Strip(sv_bottom_edge, margin, direction=-1),
-    )
+    fv_zones, pv_zones, sv_zones = _build_zones(_g, margin, PAGE_H)
 
     page_label = {297: "A4", 420: "A3", 594: "A2", 841: "A1", 1189: "A0"}.get(
         int(PAGE_W), f"{PAGE_W:.0f}mm"
@@ -1972,6 +2230,13 @@ class Drawing:
         self.items: list = []
         self._coords: dict = {}
         self._named: dict = {}
+        # Owning view per named annotation ("front"/"plan"/"side"), captured at
+        # creation by the annotation passes (#121).  This is the authoritative
+        # source for composing each view's footprint rectangle — the view and the
+        # annotations it owns are one block — so the layout never has to recover
+        # ownership from page coordinates.  Drawing-level marks (title block,
+        # iso/section notes) carry no view.
+        self._anno_view: dict = {}
         # One per-drawing cache for lint_drawing's per-view edge bboxes, keyed on
         # id(view shape). repair() / lint_summary() lint the SAME projected view
         # objects (self.views) repeatedly, so persisting it recomputes each
@@ -2174,11 +2439,17 @@ class Drawing:
         return self.add(_dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name)
 
     # -- annotations ----------------------------------------------------------
-    def add(self, obj, name=None):
+    def add(self, obj, name=None, view=None):
         """Register an annotation so lint and export include it; returns ``obj``.
 
         Re-using an existing ``name`` replaces the previously added object (it is
         dropped from :attr:`items`), so a name always maps to one object.
+
+        ``view`` records which orthographic view ("front"/"plan"/"side") owns
+        this annotation, so the layout can compose each view with its own
+        annotations as a single footprint block (#121).  Pass ``None`` for
+        drawing-level marks (title block, iso/section notes) that belong to no
+        single view.
         """
         if name is not None and name in self._named:
             self.items.remove(self._named[name])
@@ -2189,6 +2460,13 @@ class Drawing:
         self.items.append(obj)
         if name is not None:
             self._named[name] = obj
+            # A replacement is a fresh object (see the pin discard above): set the
+            # new owner, or clear a stale tag when re-added view-less, so the
+            # ownership map never lags _named (#121).
+            if view is not None:
+                self._anno_view[name] = view
+            else:
+                self._anno_view.pop(name, None)
         return obj
 
     def remove(self, name):
@@ -2198,6 +2476,7 @@ class Drawing:
             raise KeyError(f"no annotation named {name!r}")
         self.items.remove(obj)
         self._pinned.discard(name)  # a removed name carries no pin (#89)
+        self._anno_view.pop(name, None)
         return obj
 
     def annotations(self) -> dict:
@@ -2293,13 +2572,27 @@ class Drawing:
         sv_left = a.SV_X - a.sv_hw
         margin, ph = a.margin, a.PAGE_H
 
-        # A bottom band (below PV, beside the overall-width dim) is usable only
-        # when the layout actually lifted the plan view — i.e. widened the FV↔PV
-        # gap beyond the base DIM_PAD (#112, ADR 0004).  Without the lift the gap
-        # is full of the width dimension and a balloon row would collide with it;
-        # bottom-edge holes then fall back to the nearest side/top band.
-        bottom_line = pb - standoff - r
-        has_bottom = pb - (a.FV_Y + a.fv_hh) > _DIM_PAD + 2
+        # Stack the balloon ring *beyond* the dimensions already placed around the
+        # plan view, not on top of them (#121). Each side's dim corridor depth is
+        # the zone strip's used extent (pitch/location dims tier above, the width
+        # dim sits below), measured now that the dims are placed — so the ring
+        # clears them instead of overlapping (the old bands sat at standoff + r,
+        # right where the dims are).
+        # NOTE (WIP): this pushes the ring out cleanly for moderate parts but on a
+        # dense sheet (CTC-02) the top band overruns the page margin — the layout
+        # reservation must grow to match (the real #121 sizing step). Kept here as
+        # the placement half of Stage 1; do not ship without the sizing change.
+        za = a.pv_zones
+        top_dim = za.above.depth_used if za and za.above else 0.0
+        bot_dim = za.below.depth_used if za and za.below else 0.0
+        left_dim = za.left.depth_used if za and za.left else 0.0
+        right_dim = za.right.depth_used if za and za.right else 0.0
+
+        # A bottom band (below PV, beyond the overall-width dim) is usable only
+        # when the FV↔PV gap has room for the width dim *and* a balloon row;
+        # otherwise bottom-edge holes fall back to the nearest side/top band.
+        bottom_line = pb - bot_dim - standoff - r
+        has_bottom = pb - (a.FV_Y + a.fv_hh) > bot_dim + standoff + 2 * r
 
         # Assign each hole to the nearest reserved band.
         bands: dict = {"left": [], "right": [], "top": [], "bottom": []}
@@ -2311,18 +2604,51 @@ class Drawing:
             bands[min(choices, key=lambda s: choices[s])].append((tag, j, hole, cx, cy))
 
         # left/right balloons vary in Y at a fixed X just outside the part; top
-        # and bottom balloons vary in X at a fixed Y just beyond it.
+        # and bottom balloons vary in X at a fixed Y just beyond it. Each line is
+        # offset by its side's dim depth so the ring sits clear of the dims.
         self._place_band(
-            view, bands["left"], "y", pl - standoff - r, margin + r, ph - margin - r, gap, fs, r
+            view,
+            bands["left"],
+            "y",
+            pl - left_dim - standoff - r,
+            margin + r,
+            ph - margin - r,
+            gap,
+            fs,
+            r,
         )
         self._place_band(
-            view, bands["right"], "y", pr + standoff + r, margin + r, ph - margin - r, gap, fs, r
+            view,
+            bands["right"],
+            "y",
+            pr + right_dim + standoff + r,
+            margin + r,
+            ph - margin - r,
+            gap,
+            fs,
+            r,
         )
         self._place_band(
-            view, bands["top"], "x", pt + standoff + r, pl - standoff, sv_left - r, gap, fs, r
+            view,
+            bands["top"],
+            "x",
+            pt + top_dim + standoff + r,
+            pl - standoff,
+            sv_left - r,
+            gap,
+            fs,
+            r,
         )
         self._place_band(
-            view, bands["bottom"], "x", bottom_line, pl - standoff, sv_left - r, gap, fs, r
+            view,
+            bands["bottom"],
+            "x",
+            bottom_line,
+            pl - standoff,
+            sv_left - r,
+            gap,
+            fs,
+            r,
         )
 
     def _place_band(self, view, members, axis, line, lo, hi, gap, fs, r):
@@ -2373,7 +2699,7 @@ class Drawing:
         # Furniture that legitimately sits on the view geometry — exempt from the
         # annotation-overlap / centreline lint, as the section arrows do.
         balloon.is_centerline = True
-        self.add(balloon, f"balloon_{view}_{tag}_{j}")
+        self.add(balloon, f"balloon_{view}_{tag}_{j}", view=view)
 
     def _add_balloon(self, view, tag, j, hole):
         """Single-balloon convenience over :meth:`_add_balloons` (#111)."""
@@ -2449,6 +2775,7 @@ class Drawing:
         self.items = [o for o in self.items if id(o) in kept_ids]
         self._named = kept_named
         self._pinned &= keep_set  # drop pins for cleared names (#89)
+        self._anno_view = {n: v for n, v in self._anno_view.items() if n in keep_set}
         return removed
 
     def _record_build_issue(self, severity, code, message):
@@ -2972,6 +3299,185 @@ def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
     _log.info("Iso view scaled to %g× sheet scale%s", factor, " (NTS)" if annotate else "")
 
 
+# A view centre must move by more than this (mm) for the measure-and-repack
+# pass to re-assemble.  Below it, the estimate already matched the measured
+# footprint and pass 1 stands (the common, non-ballooned case).
+_REPACK_TOL = 0.75
+
+
+def _assemble(a, out, assembly, detail_view, auto_dims):
+    """Project the 4 views for analysis *a*, run the automatic annotation
+    passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
+    repacked analysis it is also pass 2 of the measure-and-repack loop (#121)."""
+    cxs, cys, czs = a.cx * a.SCALE, a.cy * a.SCALE, a.cz * a.SCALE
+    dist = a.bbox_max * a.SCALE + 100
+
+    dwg = Drawing(
+        scale=a.SCALE,
+        page_w=a.PAGE_W,
+        page_h=a.PAGE_H,
+        tb_w=a.TB_W,
+        draft=draft_preset(font_size=_FONT_SIZE, decimal_precision=1),
+        look_at=(cxs, cys, czs),
+        dist=dist,
+        centroid=(a.cx, a.cy, a.cz),
+        out=out,
+        part=a.part,
+        cyls=a.cyls,
+        assembly=assembly,
+    )
+    dwg._analysis = a  # expose analysis namespace for testing and future strip access
+
+    part_s = a.part.scale(a.SCALE)
+    dwg.add_view("front", part_s, (cxs, cys - dist, czs), (0, 0, 1), (a.FV_X, a.FV_Y), scaled=True)
+    dwg.add_view("plan", part_s, (cxs, cys, czs + dist), (0, 1, 0), (a.PV_X, a.PV_Y), scaled=True)
+    dwg.add_view("side", part_s, (cxs + dist, cys, czs), (0, 0, 1), (a.SV_X, a.SV_Y), scaled=True)
+    _project_iso(dwg, a, a.SCALE, shape_s=part_s)
+
+    if auto_dims:
+        # Snapshot outer_limits before _auto_annotate tightens them against the
+        # initial (possibly overflowing) iso.  After _fit_iso_view rescales the
+        # iso we restore all three right strips to min(original, final_iso_x_limit)
+        # so each strip reflects actual final geometry, not the transient state.
+        _fv_ol = a.fv_zones.right.outer_limit
+        _pv_ol = a.pv_zones.right.outer_limit
+        _sv_ol = a.sv_zones.right.outer_limit
+        _auto_annotate(dwg, a, detail_view=detail_view)
+        _fit_iso_view(dwg, a)
+        _ix0, _iy0, _, _iy1 = _iso_bbox(dwg)
+        _final_iso_x_lim = _ix0 - 4
+        a.fv_zones.right.outer_limit = min(_fv_ol, _final_iso_x_lim)
+        a.pv_zones.right.outer_limit = min(_pv_ol, _final_iso_x_lim)
+        # Only re-cap the SV right strip when the iso shares its y-range (see the
+        # matching guard in _auto_annotate); otherwise restore its full width.
+        if (a.SV_Y - a.fv_hh) < _iy1 and _iy0 < (a.SV_Y + a.fv_hh):
+            a.sv_zones.right.outer_limit = min(_sv_ol, _final_iso_x_lim)
+        else:
+            a.sv_zones.right.outer_limit = _sv_ol
+    else:
+        _fit_iso_view(dwg, a, annotate=False)
+        _add_title_block(dwg, a)
+    return dwg
+
+
+def _repack_candidates(a, scale, page):
+    """The (scale, page_w, page_h, tb_w) candidates the repack may choose from,
+    mirroring :func:`choose_scale`: a user-fixed scale and/or page is honoured;
+    otherwise the auto ladder (smallest legible sheet first) is searched."""
+    if scale is not None and page is not None:
+        pw, ph, tb = _parse_page(page)
+        return [(float(scale), pw, ph, tb)]
+    if page is not None:
+        pw, ph, tb = _parse_page(page)
+        return [(s, pw, ph, tb) for s in _SCALES]
+    if scale is not None:
+        return [(float(scale), pw, ph, _tb_width(pw)) for pw, ph in _PAGE_SIZES.values()]
+    # Auto ladder, but floored at pass 1's chosen sheet: the measured blocks are
+    # never smaller than the estimate that pass 1 already rejected the earlier
+    # rungs against, and the repack's .fits is more permissive than choose_scale's
+    # row model — so without this floor the repack could pick a *smaller* sheet
+    # than pass 1 and make things worse (#121). Start the search at pass 1's rung.
+    start = next(
+        (
+            i
+            for i, (s, pw, ph, _tb) in enumerate(_LADDER)
+            if s == a.SCALE and pw == a.PAGE_W and ph == a.PAGE_H
+        ),
+        0,
+    )
+    return list(_LADDER[start:])
+
+
+def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None):
+    """Measure the laid-out drawing's *real* per-view annotation footprints and,
+    when a view collides across views, pack the blocks disjoint — escalating the
+    sheet/scale until the packed layout fits — then re-assemble (#121, ADR 0004 —
+    "lay out, don't predict"; the (scale, page) choice is the outer search whose
+    fitness is *do the packed disjoint blocks fit*).
+
+    Returns ``(a2, dwg2)`` for the repacked drawing, or ``None`` when pass 1 has
+    no cross-view overlap (the common case — a clean sheet is left exactly as
+    placed, so well-estimated parts stay byte-identical) or when the repack would
+    change nothing (same sheet/scale and no view actually moves).
+    """
+    if _cross_view_overlaps(dwg, a) == 0:
+        return None
+    blocks = _measure_blocks(dwg, a)
+
+    def _geom(cand):
+        s, pw, ph, tb = cand
+        return _layout_geometry(
+            a.x_size, a.y_size, a.z_size, s, pw, ph, tb, None, 0, blocks=blocks
+        )
+
+    candidates = _repack_candidates(a, scale, page)
+    fit = next(((c, gg) for c in candidates if (gg := _geom(c)).fits), None)
+    if fit is None:
+        # Nothing fits — keep the largest candidate and let lint report the
+        # overflow (mirrors choose_scale's fallback rather than crashing).
+        chosen = candidates[-1]
+        g = _geom(chosen)
+        _log.warning(
+            "measure-repack: no standard sheet fits the measured layout; using %s", chosen
+        )
+    else:
+        chosen, g = fit
+    s, pw, ph, tb = chosen
+    moved = max(
+        abs(g.FV_X - a.FV_X),
+        abs(g.FV_Y - a.FV_Y),
+        abs(g.PV_X - a.PV_X),
+        abs(g.PV_Y - a.PV_Y),
+        abs(g.SV_X - a.SV_X),
+        abs(g.SV_Y - a.SV_Y),
+    )
+    if s == a.SCALE and pw == a.PAGE_W and ph == a.PAGE_H and moved < _REPACK_TOL:
+        return None
+    fv_zones, pv_zones, sv_zones = _build_zones(g, a.margin, ph)
+    a2 = replace(
+        a,
+        SCALE=s,
+        PAGE_W=pw,
+        PAGE_H=ph,
+        TB_W=tb,
+        x_offset=g.x_offset,
+        FV_X=g.FV_X,
+        FV_Y=g.FV_Y,
+        PV_X=g.PV_X,
+        PV_Y=g.PV_Y,
+        SV_X=g.SV_X,
+        SV_Y=g.SV_Y,
+        fv_hw=g.fv_hw,
+        fv_hh=g.fv_hh,
+        pv_hh=g.pv_hh,
+        sv_hw=g.sv_hw,
+        sv_right=g.sv_right,
+        iso_right_limit=g.iso_right,
+        ISO_X=g.ISO_X,
+        ISO_Y=g.ISO_Y,
+        iso_left_limit=g.iso_left,
+        iso_bottom_limit=g.iso_bottom,
+        iso_top_limit=g.iso_top,
+        proj=_Projector(
+            fv_x=g.FV_X,
+            fv_y=g.FV_Y,
+            sv_x=g.SV_X,
+            sv_y=g.SV_Y,
+            pv_x=g.PV_X,
+            pv_y=g.PV_Y,
+            cx=a.cx,
+            cy=a.cy,
+            cz=a.cz,
+            scale=s,
+        ),
+        fv_zones=fv_zones,
+        pv_zones=pv_zones,
+        sv_zones=sv_zones,
+    )
+    dwg2 = _assemble(a2, out, assembly, detail_view, auto_dims=True)
+    return a2, dwg2
+
+
 def build_drawing(
     step_file: str | Path | Shape,
     out: str | None = None,
@@ -3027,55 +3533,15 @@ def build_drawing(
         step_file, title, number, tolerance, drawn_by, out, scale=scale, page=page, pmi=pmi
     )
 
-    cxs, cys, czs = a.cx * a.SCALE, a.cy * a.SCALE, a.cz * a.SCALE
-    look_at = (cxs, cys, czs)
-    dist = a.bbox_max * a.SCALE + 100
-
-    dwg = Drawing(
-        scale=a.SCALE,
-        page_w=a.PAGE_W,
-        page_h=a.PAGE_H,
-        tb_w=a.TB_W,
-        draft=draft_preset(font_size=_FONT_SIZE, decimal_precision=1),
-        look_at=look_at,
-        dist=dist,
-        centroid=(a.cx, a.cy, a.cz),
-        out=out,
-        part=a.part,
-        cyls=a.cyls,
-        assembly=assembly,
-    )
-    dwg._analysis = a  # expose analysis namespace for testing and future strip access
-
-    part_s = a.part.scale(a.SCALE)
-    dwg.add_view("front", part_s, (cxs, cys - dist, czs), (0, 0, 1), (a.FV_X, a.FV_Y), scaled=True)
-    dwg.add_view("plan", part_s, (cxs, cys, czs + dist), (0, 1, 0), (a.PV_X, a.PV_Y), scaled=True)
-    dwg.add_view("side", part_s, (cxs + dist, cys, czs), (0, 0, 1), (a.SV_X, a.SV_Y), scaled=True)
-    _project_iso(dwg, a, a.SCALE, shape_s=part_s)
-
+    # Pass 1: place + annotate from the estimated layout, then measure the real
+    # per-view footprints and re-pack the blocks disjoint if a view actually
+    # moves (#121, ADR 0004 — "lay out, don't predict").  Non-ballooned parts
+    # measure ≈ estimate, so they skip pass 2 and stand byte-identical.
+    dwg = _assemble(a, out, assembly, detail_view, auto_dims)
     if auto_dims:
-        # Snapshot outer_limits before _auto_annotate tightens them against the
-        # initial (possibly overflowing) iso.  After _fit_iso_view rescales the
-        # iso we restore all three right strips to min(original, final_iso_x_limit)
-        # so each strip reflects actual final geometry, not the transient state.
-        _fv_ol = a.fv_zones.right.outer_limit
-        _pv_ol = a.pv_zones.right.outer_limit
-        _sv_ol = a.sv_zones.right.outer_limit
-        _auto_annotate(dwg, a, detail_view=detail_view)
-        _fit_iso_view(dwg, a)
-        _ix0, _iy0, _, _iy1 = _iso_bbox(dwg)
-        _final_iso_x_lim = _ix0 - 4
-        a.fv_zones.right.outer_limit = min(_fv_ol, _final_iso_x_lim)
-        a.pv_zones.right.outer_limit = min(_pv_ol, _final_iso_x_lim)
-        # Only re-cap the SV right strip when the iso shares its y-range (see the
-        # matching guard in _auto_annotate); otherwise restore its full width.
-        if (a.SV_Y - a.fv_hh) < _iy1 and _iy0 < (a.SV_Y + a.fv_hh):
-            a.sv_zones.right.outer_limit = min(_sv_ol, _final_iso_x_lim)
-        else:
-            a.sv_zones.right.outer_limit = _sv_ol
-    else:
-        _fit_iso_view(dwg, a, annotate=False)
-        _add_title_block(dwg, a)
+        repacked = _repack(a, dwg, out, assembly, detail_view, scale=scale, page=page)
+        if repacked is not None:
+            a, dwg = repacked
     if repair:
         # Close the loop on the greedy placement: re-place dims behind any
         # mechanically-clear violations (overlap, wrong-side) and re-lint (#30).
