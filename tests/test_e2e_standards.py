@@ -132,3 +132,43 @@ def test_ctc_ap242_meets_standards(tmp_path, n):
     dwg = build_drawing(str(step), out=stem)
     svg, dxf = dwg.export(stem)
     _assert_meets_standards(dwg, svg, dxf)
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(600)
+def test_ctc02_top_balloon_ring_hugs_dimensions():
+    """#125: the plan-view TOP balloon ring sits just beyond the real dimension
+    stack, not over the phantom corridor the deleted X-location dims leave in the
+    above-strip cursor. Pre-fix the top ring floated ~150 mm above the highest
+    dimension; it should now clear it by only a small standoff."""
+    dwg = build_drawing(str(FIXTURES / "nist_ctc_02_asme1_ap203.stp"))
+    a = dwg._analysis
+    pt = a.PV_Y + a.pv_hh
+    pl, pr = a.PV_X - a.fv_hw, a.PV_X + a.fv_hw
+
+    # Highest plan-view dimension spanning the plan width above it — the real
+    # obstruction the top ring must clear.
+    dim_top = pt
+    for name, obj in dwg._named.items():
+        if not name.startswith("dim_") or dwg._anno_view.get(name) != "plan":
+            continue
+        bb = obj.bounding_box()
+        if bb.max.X > pl and bb.min.X < pr and bb.max.Y > pt:
+            dim_top = max(dim_top, bb.max.Y)
+
+    # No plan balloon should float far above the dimension stack. Balloons are
+    # leadered compounds (no label_bbox); the highest point of any of them is a
+    # glyph at the end of its leader. Pre-#125 the top ring sat ~150 mm above the
+    # highest dim; the fix keeps the whole ring within a small standoff of it.
+    balloon_tops = [
+        obj.bounding_box().max.Y
+        for name, obj in dwg._named.items()
+        if name.startswith("balloon_plan")
+    ]
+    assert balloon_tops, "expected balloons on CTC-02"
+    assert max(balloon_tops) > pt + 20, "expected a balloon ring above the plan view"
+    gap = max(balloon_tops) - dim_top
+    assert gap < 60, (
+        f"a plan balloon floats {gap:.0f} mm above the dimension stack — the pre-#125 "
+        f"stale-cursor phantom corridor was ~150 mm; expected a small standoff"
+    )
