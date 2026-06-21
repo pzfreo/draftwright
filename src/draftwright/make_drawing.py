@@ -1523,6 +1523,21 @@ def _cross_view_overlaps(dwg, a) -> int:
     return n
 
 
+def _annotations_out_of_bounds(dwg, a, tol: float = 1.0) -> bool:
+    """True when any view-owned annotation's footprint extends past the drawable
+    area — the second repack trigger besides cross-view overlap.  A ballooned
+    plan view can overflow the page top (the balloon ring) without crossing
+    another view, so the page must still escalate; the measure-and-repack pass
+    re-sizes it because the overflowing balloons are part of the plan footprint
+    (#92).  Only view-owned annotations count — those are what a repack can move
+    by escalating the sheet."""
+    lo, hi_x, hi_y = a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin
+    for _name, _view, bb, _label in _attribute_annotations(dwg, a):
+        if bb[0] < lo - tol or bb[1] < lo - tol or bb[2] > hi_x + tol or bb[3] > hi_y + tol:
+            return True
+    return False
+
+
 def _measure_blocks(dwg, a) -> dict:
     """Measure each orthographic view's *actual* annotation footprint from the
     laid-out drawing (#121, ADR 0004 — "lay out, don't predict").
@@ -3412,11 +3427,12 @@ def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None):
     fitness is *do the packed disjoint blocks fit*).
 
     Returns ``(a2, dwg2)`` for the repacked drawing, or ``None`` when pass 1 has
-    no cross-view overlap (the common case — a clean sheet is left exactly as
-    placed, so well-estimated parts stay byte-identical) or when the repack would
-    change nothing (same sheet/scale and no view actually moves).
+    no cross-view overlap AND nothing overflows the drawable (the common case — a
+    clean sheet is left exactly as placed, so well-estimated parts stay
+    byte-identical) or when the repack would change nothing (same sheet/scale and
+    no view actually moves).
     """
-    if _cross_view_overlaps(dwg, a) == 0:
+    if _cross_view_overlaps(dwg, a) == 0 and not _annotations_out_of_bounds(dwg, a):
         return None
     blocks = _measure_blocks(dwg, a)
 
