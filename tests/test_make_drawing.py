@@ -1257,6 +1257,76 @@ class TestComposeThenPackRepack:
         assert "tag3" not in dwg._anno_view
 
 
+class TestHolePatternCallouts:
+    """Grouped pattern callouts from the helpers v0.12.0 recognition (RectGrid +
+    sub-clustered LinearArrays): a recognised set collapses to one ``n× ⌀``
+    callout plus its pattern dimensions, never per-hole balloons/table (#92,
+    #111). Coverage lint stays quiet because the grouped callout carries the
+    full diameter count."""
+
+    @staticmethod
+    def _grid_part():
+        # 2 rows × 4 cols of ⌀8 through-holes; 20 mm pitch one way, 25 mm the
+        # other → a single RectGrid(2×4).
+        part = Box(140, 70, 12)
+        for r in range(2):
+            for c in range(4):
+                part -= Pos(-37.5 + c * 25, -10 + r * 20, 0) * Cylinder(4, 12)
+        return part
+
+    @staticmethod
+    def _perimeter_part():
+        # Rectangular perimeter of ⌀6 holes — five along the top and bottom
+        # edges (recognised as two LinearArrays), the rest unpatterned.
+        part = Box(140, 100, 12)
+        pos = set()
+        for x in (-50, -25, 0, 25, 50):
+            pos.add((x, -35))
+            pos.add((x, 35))
+        for y in (-35, 0, 35):
+            pos.add((-50, y))
+            pos.add((50, y))
+        for x, y in pos:
+            part -= Pos(x, y, 0) * Cylinder(3, 12)
+        return part
+
+    @pytest.mark.timeout(120)
+    def test_rect_grid_one_callout_and_two_pitch_dims(self):
+        dwg = build_drawing(self._grid_part())
+        named = dwg._named
+        hc = [n for n in named if n.startswith("hc_")]
+        pitch = [n for n in named if n.startswith("dim_pitch_")]
+        # one grouped callout covering all eight holes — not eight callouts
+        assert len(hc) == 1, f"expected one grouped callout, got {hc}"
+        assert named[hc[0]].covers_count == 8
+        assert named[hc[0]].covers_diameters == (8.0,)
+        # both grid pitch dimensions, labelled (n-1)× pitch
+        assert len(pitch) == 2, f"expected two pitch dims, got {pitch}"
+        assert {named[n].label for n in pitch} == {"1× 20", "3× 25"}
+        # the grouped callout replaces — never coexists with — per-hole furniture
+        assert not [n for n in named if n.startswith("balloon")]
+        assert not [n for n in named if "table" in n]
+
+    @pytest.mark.timeout(120)
+    def test_rect_grid_coverage_lint_quiet(self):
+        codes = {i.code for i in build_drawing(self._grid_part()).lint()}
+        assert "feature_not_dimensioned" not in codes
+        assert "feature_count_mismatch" not in codes
+
+    @pytest.mark.timeout(120)
+    def test_perimeter_rows_dimensioned_not_per_hole(self):
+        dwg = build_drawing(self._perimeter_part())
+        named = dwg._named
+        pitch = [n for n in named if n.startswith("dim_pitch_")]
+        # each recognised edge row (5 holes, pitch 25) gets its own pitch dim
+        assert len(pitch) >= 2, f"expected the edge rows dimensioned, got {pitch}"
+        assert any(named[n].label == "4× 25" for n in pitch)
+        # the rows are not exploded into a per-hole table / balloons
+        assert not [n for n in named if n.startswith("balloon")]
+        assert not [n for n in named if "table" in n]
+        assert "feature_not_dimensioned" not in {i.code for i in dwg.lint()}
+
+
 # ---------------------------------------------------------------------------
 # Integration test — requires build123d + OCP (slow)
 # ---------------------------------------------------------------------------

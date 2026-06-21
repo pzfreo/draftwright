@@ -49,6 +49,7 @@ from build123d import (
 )
 from build123d_drafting.features import (
     BoltCircle,
+    RectGrid,
     _full_cyls,
     _spec_key,
     analyse_cylinders,
@@ -1103,12 +1104,22 @@ def _est_bore_callout_width(
     for h in holes:
         groups.setdefault(_spec_key(h), []).append(h)
 
-    # Map spec_key → BoltCircle so BoltCircle groups get their suffix estimated.
-    bc_by_spec: dict = {}
+    # Map spec_key → the widest pattern-callout suffix, so a spec's grouped
+    # callout reserves room for it. A spec can sub-cluster into several patterns
+    # (#92); the BoltCircle "EQ SP ON ø… BC" is wider than a RectGrid "(r×c)",
+    # so the widest wins (the corridor must hold the longest callout).
+    suffix_by_spec: dict = {}
     if patterns:
         for p in patterns:
             if isinstance(p, BoltCircle):
-                bc_by_spec[_spec_key(p.holes[0])] = p
+                s = f"EQ SP ON ø{_fmt(p.diameter)} BC"
+            elif isinstance(p, RectGrid):
+                s = f"({p.rows}×{p.cols})"
+            else:
+                continue
+            key = _spec_key(p.holes[0])
+            if len(s) > len(suffix_by_spec.get(key, "")):
+                suffix_by_spec[key] = s
 
     h_fs = font_size
     # gap (inter-token spacing) and sym_w (geometry-symbol cell width) mirror
@@ -1144,10 +1155,11 @@ def _est_bore_callout_width(
                 token_w.append(sym_w)  # depth symbol
                 token_w.append(_text_width(_fmt(step.depth), h_fs))
 
-        # BoltCircle suffix: "EQ SP ON ø{bc_dia} BC"
-        bc = bc_by_spec.get(spec_key)
-        if bc is not None:
-            token_w.append(_text_width(f"EQ SP ON ø{_fmt(bc.diameter)} BC", h_fs))
+        # Pattern callout suffix ("EQ SP ON ø… BC" / "(r×c)"), when this spec
+        # group is recognised as a pattern.
+        suffix = suffix_by_spec.get(spec_key)
+        if suffix is not None:
+            token_w.append(_text_width(suffix, h_fs))
 
         n = len(token_w)
         w = sum(token_w) + max(n - 1, 0) * gap + pad
@@ -2237,6 +2249,10 @@ class Drawing:
         # ownership from page coordinates.  Drawing-level marks (title block,
         # iso/section notes) carry no view.
         self._anno_view: dict = {}
+        # Names of bore callouts that document a recognised hole pattern (a
+        # grouped ``n× ⌀`` callout). The hole-table escalation keeps these and
+        # tabulates only the unpatterned holes (#92).
+        self._pattern_callouts: set = set()
         # One per-drawing cache for lint_drawing's per-view edge bboxes, keyed on
         # id(view shape). repair() / lint_summary() lint the SAME projected view
         # objects (self.views) repeatedly, so persisting it recomputes each
