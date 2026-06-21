@@ -1161,6 +1161,25 @@ class TestComposeThenPackRepack:
         )
         assert _cross_view_overlaps(dwg, None) == 0
 
+    # --- out-of-bounds escalation trigger (#92) ---------------------------
+
+    def test_out_of_bounds_trigger(self):
+        # The second repack trigger: a view-owned annotation past the drawable
+        # (e.g. a ballooned plan view overflowing the page top) escalates even
+        # without a cross-view overlap. Untagged overflow is ignored — a repack
+        # can only move view-owned annotations.
+        from types import SimpleNamespace
+
+        from draftwright.make_drawing import _annotations_out_of_bounds
+
+        a = SimpleNamespace(margin=10.0, PAGE_W=200.0, PAGE_H=100.0)
+        inb = self._fake_dwg({"d": self._line((20, 20, 40, 40))}, {"d": "plan"})
+        assert not _annotations_out_of_bounds(inb, a)
+        over = self._fake_dwg({"d": self._line((20, 20, 40, 120))}, {"d": "plan"})
+        assert _annotations_out_of_bounds(over, a)
+        untagged = self._fake_dwg({"d": self._line((20, 20, 40, 120))}, {"d": "iso"})
+        assert not _annotations_out_of_bounds(untagged, a)
+
     # --- disjoint block packing ------------------------------------------
 
     def test_repacked_blocks_are_disjoint(self):
@@ -1303,6 +1322,15 @@ class TestHolePatternCallouts:
         # both grid pitch dimensions, labelled (n-1)× pitch
         assert len(pitch) == 2, f"expected two pitch dims, got {pitch}"
         assert {named[n].label for n in pitch} == {"1× 20", "3× 25"}
+        # each dim runs ALONG one lattice axis — its endpoints share a coordinate
+        # — not diagonally across the grid; and the two are perpendicular.
+        axes = set()
+        for n in pitch:
+            sp = named[n]._dw_spec
+            dx, dy = abs(sp.p1[0] - sp.p2[0]), abs(sp.p1[1] - sp.p2[1])
+            assert dx < 0.5 or dy < 0.5, f"{n} drawn diagonally: p1={sp.p1} p2={sp.p2}"
+            axes.add("vertical" if dx < 0.5 else "horizontal")
+        assert axes == {"vertical", "horizontal"}, f"grid dims not perpendicular: {axes}"
         # the grouped callout replaces — never coexists with — per-hole furniture
         assert not [n for n in named if n.startswith("balloon")]
         assert not [n for n in named if "table" in n]

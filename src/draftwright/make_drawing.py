@@ -1532,7 +1532,20 @@ def _annotations_out_of_bounds(dwg, a, tol: float = 1.0) -> bool:
     (#92).  Only view-owned annotations count — those are what a repack can move
     by escalating the sheet."""
     lo, hi_x, hi_y = a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin
-    for _name, _view, bb, _label in _attribute_annotations(dwg, a):
+    for name, o in dwg._named.items():
+        if dwg._anno_view.get(name) not in ("front", "plan", "side"):
+            continue
+        # Match the lint, which tests each item's FULL bounding_box (extension
+        # lines, arrowheads, leader + balloon ring) — not just the label rect —
+        # so a dimension whose extension lines overrun the page is caught too.
+        try:
+            b = o.bounding_box()
+            bb = (b.min.X, b.min.Y, b.max.X, b.max.Y)
+        except Exception:  # noqa: BLE001 — fall back to the label rect, else skip
+            lb = getattr(o, "label_bbox", None)
+            if lb is None:
+                continue
+            bb = lb
         if bb[0] < lo - tol or bb[1] < lo - tol or bb[2] > hi_x + tol or bb[3] > hi_y + tol:
             return True
     return False
@@ -2265,9 +2278,11 @@ class Drawing:
         # iso/section notes) carry no view.
         self._anno_view: dict = {}
         # Names of bore callouts that document a recognised hole pattern (a
-        # grouped ``n× ⌀`` callout). The hole-table escalation keeps these and
-        # tabulates only the unpatterned holes (#92).
+        # grouped ``n× ⌀`` callout), and the holes those placed callouts cover.
+        # The hole-table escalation keeps these callouts and tabulates only the
+        # holes no placed pattern callout documents (#92).
         self._pattern_callouts: set = set()
+        self._patterned_holes: set = set()
         # One per-drawing cache for lint_drawing's per-view edge bboxes, keyed on
         # id(view shape). repair() / lint_summary() lint the SAME projected view
         # objects (self.views) repeatedly, so persisting it recomputes each

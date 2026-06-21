@@ -653,8 +653,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # pattern dimension, so they must not become table rows or per-hole balloons
     # (#92).  Excluding them is also what keeps a densely-but-regularly drilled
     # part (e.g. NIST CTC-02) off the 61-row escalation (#111).
-    patterned = {h for p in a.patterns for h in p.holes}
-    holes = [h for h in a.holes if _axis_letter(h) == "z" and h not in patterned]
+    holes = [h for h in a.holes if _axis_letter(h) == "z" and h not in dwg._patterned_holes]
     # A chart is warranted only for a *genuinely* dense plan view — a part that
     # merely dropped one too-close location ref keeps its individual dims (the
     # legibility gate already handled it). #93.
@@ -1676,10 +1675,14 @@ def _add_detail_view(dwg, a: Analysis):
 def _add_furniture(dwg, a: Analysis, view, j, pattern, to_page):
     """Pattern sheet furniture, added once its callout is placed (#92)."""
     if pattern is not None:
-        # Remember which bore-callout names belong to a pattern, so a later
-        # hole-table escalation tabulates only the genuinely unpatterned holes
-        # and leaves the grouped pattern callouts standing (#92).
+        # Remember the bore-callout name AND the holes it documents, so a later
+        # hole-table escalation leaves the grouped pattern callout standing and
+        # tabulates only the holes no *placed* pattern callout covers (#92).
+        # Recording here (callout already placed) — not from a.patterns — means a
+        # pattern dropped for lack of room, or filtered off a rotational part,
+        # correctly falls back to the table instead of going undocumented.
         dwg._pattern_callouts.add(f"hc_{view}{j}")
+        dwg._patterned_holes.update(pattern.holes)
     if isinstance(pattern, BoltCircle):
         cx = sum(to_page(h)[0] for h in pattern.holes) / len(pattern.holes)
         cy = sum(to_page(h)[1] for h in pattern.holes) / len(pattern.holes)
@@ -1736,9 +1739,23 @@ def _add_grid_pitch_dims(dwg, a: Analysis, view, j, grid, to_page):
     nominals = (grid.row_pitch, grid.col_pitch)
 
     def _axis_dim(u, pitch_page, sub):
-        order = sorted(range(len(pts)), key=lambda idx: pts[idx][0] * u[0] + pts[idx][1] * u[1])
-        lo, hi = order[0], order[-1]
-        span = (pts[hi][0] - pts[lo][0]) * u[0] + (pts[hi][1] - pts[lo][1]) * u[1]
+        perp = (-u[1], u[0])
+
+        def along(idx):
+            return pts[idx][0] * u[0] + pts[idx][1] * u[1]
+
+        def across(idx):
+            return pts[idx][0] * perp[0] + pts[idx][1] * perp[1]
+
+        lo = min(range(len(pts)), key=along)
+        # Keep the dimension on ONE lattice line: of the holes sharing lo's
+        # perpendicular coordinate, take the far one along u. Picking the global
+        # max-projection hole instead lands on the opposite diagonal corner and
+        # draws the pitch dim diagonally across the grid (#92).
+        lo_across = across(lo)
+        line = [idx for idx in range(len(pts)) if abs(across(idx) - lo_across) < pitch_page * 0.25]
+        hi = max(line, key=along)
+        span = along(hi) - along(lo)
         n = round(span / pitch_page) + 1
         # Label with the recogniser's nominal pitch nearest this axis' page step.
         pitch = min(nominals, key=lambda v: abs(v - pitch_page / a.SCALE))
