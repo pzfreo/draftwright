@@ -156,19 +156,19 @@ def test_ctc02_top_balloon_ring_hugs_dimensions():
         if bb.max.X > pl and bb.min.X < pr and bb.max.Y > pt:
             dim_top = max(dim_top, bb.max.Y)
 
-    # Balloons are leadered compounds with no label_bbox; a top-band balloon's
-    # glyph is its highest point (the leader runs DOWN to the hole), so the
-    # highest balloon top across the ring is a top-ring glyph.
+    # No plan balloon should float far above the dimension stack. Balloons are
+    # leadered compounds (no label_bbox); the highest point of any of them is a
+    # glyph at the end of its leader. Pre-#125 the top ring sat ~150 mm above the
+    # highest dim; the fix keeps the whole ring within a small standoff of it.
     balloon_tops = [
         obj.bounding_box().max.Y
         for name, obj in dwg._named.items()
         if name.startswith("balloon_plan")
     ]
     assert balloon_tops, "expected balloons on CTC-02"
-    ring_top = max(balloon_tops)
-    assert ring_top > pt + 20, "expected a top balloon ring above the plan view"
-    gap = ring_top - dim_top
+    assert max(balloon_tops) > pt + 20, "expected a balloon ring above the plan view"
+    gap = max(balloon_tops) - dim_top
     assert gap < 60, (
-        f"top balloon ring stands {gap:.0f} mm above the dimension stack — the "
-        f"pre-#125 stale-cursor phantom corridor was ~150 mm; expected a small standoff"
+        f"a plan balloon floats {gap:.0f} mm above the dimension stack — the pre-#125 "
+        f"stale-cursor phantom corridor was ~150 mm; expected a small standoff"
     )

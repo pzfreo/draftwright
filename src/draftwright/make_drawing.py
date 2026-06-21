@@ -2628,14 +2628,18 @@ class Drawing:
         # deletes the X-location dims but never rewinds the above-strip cursor, so
         # za.above.depth_used keeps their high-water mark (~240 mm of phantom
         # corridor on CTC-02) and the top ring floats ~150 mm over empty space
-        # (#125). Top balloons vary in X at a fixed Y, so they must clear only the
-        # HORIZONTAL dimensions actually spanning the plan's width above it
-        # (pitch lines) — measure that real depth. (Left/right balloons sit at a
-        # fixed X *inside* the vertical side dims, so they keep the shallow strip
-        # depth; bottom's width dim is never removed, so it is not stale.)
+        # (#125). Top balloons vary in X at a fixed Y, so they must clear the
+        # DIMENSIONS spanning the plan's width above it — measure the real depth
+        # of those (pitch dims dim_* AND PMI bore dims pmi_*). Construction
+        # centrelines (bc_*) are crossable, not obstructions, so they are
+        # excluded — their bolt-circle bbox would otherwise re-inflate the band.
+        # Left/right/bottom are NOT stale: the deleted X-location dims only ever
+        # allocated into the above strip (dim_locy tiers above the *side* view,
+        # the width dim below is never removed), so those keep their correct
+        # shallow strip depth.
         top_dim = 0.0
         for nm, obj in self._named.items():
-            if not nm.startswith("dim_") or self._anno_view.get(nm) != view:
+            if not nm.startswith(("dim_", "pmi_")) or self._anno_view.get(nm) != view:
                 continue
             try:
                 ob = obj.bounding_box()
