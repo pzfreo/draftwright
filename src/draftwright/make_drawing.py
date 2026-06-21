@@ -2618,21 +2618,31 @@ class Drawing:
         sv_left = a.SV_X - a.sv_hw
         margin, ph = a.margin, a.PAGE_H
 
-        # Stack the balloon ring *beyond* the dimensions already placed around the
-        # plan view, not on top of them (#121). Each side's dim corridor depth is
-        # the zone strip's used extent (pitch/location dims tier above, the width
-        # dim sits below), measured now that the dims are placed — so the ring
-        # clears them instead of overlapping (the old bands sat at standoff + r,
-        # right where the dims are).
-        # NOTE (WIP): this pushes the ring out cleanly for moderate parts but on a
-        # dense sheet (CTC-02) the top band overruns the page margin — the layout
-        # reservation must grow to match (the real #121 sizing step). Kept here as
-        # the placement half of Stage 1; do not ship without the sizing change.
+        # Stack the balloon ring *beyond* the annotations already placed around
+        # the plan view, not on top of them (#121).
         za = a.pv_zones
-        top_dim = za.above.depth_used if za and za.above else 0.0
         bot_dim = za.below.depth_used if za and za.below else 0.0
         left_dim = za.left.depth_used if za and za.left else 0.0
         right_dim = za.right.depth_used if za and za.right else 0.0
+        # The TOP band is the one that goes stale: the hole-table escalation
+        # deletes the X-location dims but never rewinds the above-strip cursor, so
+        # za.above.depth_used keeps their high-water mark (~240 mm of phantom
+        # corridor on CTC-02) and the top ring floats ~150 mm over empty space
+        # (#125). Top balloons vary in X at a fixed Y, so they must clear only the
+        # HORIZONTAL dimensions actually spanning the plan's width above it
+        # (pitch lines) — measure that real depth. (Left/right balloons sit at a
+        # fixed X *inside* the vertical side dims, so they keep the shallow strip
+        # depth; bottom's width dim is never removed, so it is not stale.)
+        top_dim = 0.0
+        for nm, obj in self._named.items():
+            if not nm.startswith("dim_") or self._anno_view.get(nm) != view:
+                continue
+            try:
+                ob = obj.bounding_box()
+            except Exception:  # noqa: BLE001 — a mark with no bbox can't obstruct
+                continue
+            if ob.max.X > pl and ob.min.X < pr and ob.max.Y > pt:
+                top_dim = max(top_dim, ob.max.Y - pt)
 
         # A bottom band (below PV, beyond the overall-width dim) is usable only
         # when the FV↔PV gap has room for the width dim *and* a balloon row;

@@ -132,3 +132,43 @@ def test_ctc_ap242_meets_standards(tmp_path, n):
     dwg = build_drawing(str(step), out=stem)
     svg, dxf = dwg.export(stem)
     _assert_meets_standards(dwg, svg, dxf)
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(600)
+def test_ctc02_top_balloon_ring_hugs_dimensions():
+    """#125: the plan-view TOP balloon ring sits just beyond the real dimension
+    stack, not over the phantom corridor the deleted X-location dims leave in the
+    above-strip cursor. Pre-fix the top ring floated ~150 mm above the highest
+    dimension; it should now clear it by only a small standoff."""
+    dwg = build_drawing(str(FIXTURES / "nist_ctc_02_asme1_ap203.stp"))
+    a = dwg._analysis
+    pt = a.PV_Y + a.pv_hh
+    pl, pr = a.PV_X - a.fv_hw, a.PV_X + a.fv_hw
+
+    # Highest plan-view dimension spanning the plan width above it — the real
+    # obstruction the top ring must clear.
+    dim_top = pt
+    for name, obj in dwg._named.items():
+        if not name.startswith("dim_") or dwg._anno_view.get(name) != "plan":
+            continue
+        bb = obj.bounding_box()
+        if bb.max.X > pl and bb.min.X < pr and bb.max.Y > pt:
+            dim_top = max(dim_top, bb.max.Y)
+
+    # Balloons are leadered compounds with no label_bbox; a top-band balloon's
+    # glyph is its highest point (the leader runs DOWN to the hole), so the
+    # highest balloon top across the ring is a top-ring glyph.
+    balloon_tops = [
+        obj.bounding_box().max.Y
+        for name, obj in dwg._named.items()
+        if name.startswith("balloon_plan")
+    ]
+    assert balloon_tops, "expected balloons on CTC-02"
+    ring_top = max(balloon_tops)
+    assert ring_top > pt + 20, "expected a top balloon ring above the plan view"
+    gap = ring_top - dim_top
+    assert gap < 60, (
+        f"top balloon ring stands {gap:.0f} mm above the dimension stack — the "
+        f"pre-#125 stale-cursor phantom corridor was ~150 mm; expected a small standoff"
+    )
