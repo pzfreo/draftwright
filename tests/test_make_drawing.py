@@ -1996,6 +1996,19 @@ class TestPrismaticClassification:
         assert not [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
 
     @pytest.mark.timeout(60)
+    def test_locates_side_drilled_holes(self):
+        # A side-drilled (X-axis) hole appears as a circle in the side view and
+        # must be located THERE. _add_location_dims was plan-view (z-hole) only,
+        # so off-axis holes got a diameter callout but no position (#133).
+        from build123d import Rot
+
+        part = Box(12, 40, 30) - Pos(0, 8, 6) * Rot(0, 90, 0) * Cylinder(3, 12)
+        dwg = build_drawing(part)
+        assert any(name.startswith("dim_loc_side") for name in dwg._named), (
+            "side-drilled hole was not located in the side view"
+        )
+
+    @pytest.mark.timeout(60)
     def test_corner_fillets_do_not_make_a_plate_rotational(self):
         # Big quarter-cylinder corner fillets on a square plate must not be
         # mistaken for an OD.

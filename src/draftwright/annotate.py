@@ -1172,7 +1172,9 @@ def _add_location_dims(dwg, a: Analysis, patterns, holes_in=None):
         if not any(abs(r[0] - u[0]) < 0.5 and abs(r[1] - u[1]) < 0.5 for u in unique):
             unique.append(r)
     refs = unique
-    if not refs:
+    # An off-axis-only part has no z-hole refs but still needs its side-drilled
+    # holes located below (#133); only bail when there is nothing to place at all.
+    if not refs and not any(_axis_letter(h) in ("x", "y") for h in all_holes):
         return
 
     PX = a.proj.plan_x
@@ -1305,6 +1307,66 @@ def _add_location_dims(dwg, a: Analysis, patterns, holes_in=None):
             ),
             f"dim_locy{i}",
             view="side",
+        )
+
+    # ------------------------------------------------------------------
+    # Side-drilled holes (#133): an X-axis hole appears as a circle in the SIDE
+    # view (locate its Y and Z), a Y-axis hole in the FRONT view (locate its X
+    # and Z). One dim per distinct offset, allocated through the view's strips
+    # via place_dim so they stack without overlap. Pattern-located holes are
+    # covered by their pattern callout and skipped, as in the plan path. The Z
+    # axis is the page-vertical of both views, so the vertical offset is always
+    # measured from the part's min-Z datum.
+    datum_z = a.bb.min.Z
+
+    def _locate_off_axis(holes, view, h_idx, h_datum, at_h, at_v):
+        placed_h: set = set()
+        placed_v: set = set()
+        for k, h in enumerate(holes):
+            if h in patterned:
+                continue
+            ho = round(abs(h.location[h_idx] - h_datum), 2)
+            if ho * a.SCALE >= 1.0 and ho not in placed_h:
+                placed_h.add(ho)
+                dwg.place_dim(
+                    at_h(h_datum),
+                    at_h(h.location[h_idx]),
+                    "below",
+                    view,
+                    draft,
+                    name=f"dim_loc_{view}_h{k}",
+                )
+            vo = round(abs(h.location[2] - datum_z), 2)
+            if vo * a.SCALE >= 1.0 and vo not in placed_v:
+                placed_v.add(vo)
+                dwg.place_dim(
+                    at_v(datum_z),
+                    at_v(h.location[2]),
+                    "left",
+                    view,
+                    draft,
+                    name=f"dim_loc_{view}_v{k}",
+                )
+
+    x_axis_holes = [h for h in all_holes if _axis_letter(h) == "x"]
+    if x_axis_holes:  # circles in the side view: horizontal = world Y
+        _locate_off_axis(
+            x_axis_holes,
+            "side",
+            1,
+            datum_y,
+            lambda y: dwg.at("side", 0.0, y, a.bb.min.Z),
+            lambda z: dwg.at("side", 0.0, a.bb.min.Y, z),
+        )
+    y_axis_holes = [h for h in all_holes if _axis_letter(h) == "y"]
+    if y_axis_holes:  # circles in the front view: horizontal = world X
+        _locate_off_axis(
+            y_axis_holes,
+            "front",
+            0,
+            datum_x,
+            lambda x: dwg.at("front", x, 0.0, a.bb.min.Z),
+            lambda z: dwg.at("front", a.bb.min.X, 0.0, z),
         )
 
 
