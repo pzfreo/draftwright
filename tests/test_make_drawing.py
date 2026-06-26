@@ -1983,6 +1983,21 @@ class TestPrismaticClassification:
         assert "ldr_z0" in dwg._named
 
     @pytest.mark.timeout(60)
+    def test_z_axis_stepped_shaft_calls_out_step_diameters(self):
+        # A vertical (Z-axis) stepped shaft: dim_od dimensions the OD, and the
+        # intermediate step diameter gets a ø callout in the left-hand column
+        # (#131 — the page-Y mirror of the X-axis #77 row-below). Without it the
+        # ⌀20 step surfaces only as feature_not_dimensioned.
+        shaft = Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(10, 30)
+        dwg = build_drawing(shaft)
+        diam_labels = {
+            o.label for o in dwg.items if getattr(o, "label", "") and "ø" in o.label
+        }
+        assert "ø30" in diam_labels and "ø20" in diam_labels
+        assert any(name.startswith("ldr_dz") for name in dwg._named)
+        assert not [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
+
+    @pytest.mark.timeout(60)
     def test_corner_fillets_do_not_make_a_plate_rotational(self):
         # Big quarter-cylinder corner fillets on a square plate must not be
         # mistaken for an OD.
