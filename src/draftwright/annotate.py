@@ -634,6 +634,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # External turned diameters (X-axis turning) the passes above do not cover.
     _annotate_turned_diameters(dwg, a)
 
+    # Side-drilled (X/Y-axis) hole locations — last, so the envelope and
+    # turned-diameter dims claim their strip space first and are never evicted (#133).
+    if feature_holes:
+        _locate_off_axis_holes(dwg, a, holes_in=feature_holes)
+
     # Phase 7 — strip footprint debug logging + post-placement overflow check.
     # Overflow can only occur when outer_limit was tightened after allocations
     # were already committed (e.g. iso-x tightening or iso-y cap guard).
@@ -1306,6 +1311,180 @@ def _add_location_dims(dwg, a: Analysis, patterns, holes_in=None):
             f"dim_locy{i}",
             view="side",
         )
+
+
+def _anno_box(o):
+    """Page-space bbox ``(x0, y0, x1, y1)`` of an annotation — its text
+    ``label_bbox`` if it has one, else its geometric bounding box; ``None`` if
+    neither resolves.  Local mirror of ``make_drawing._anno_bbox`` (annotate sits
+    below make_drawing, so it cannot import from it)."""
+    lb = getattr(o, "label_bbox", None)
+    if lb is not None:
+        return lb
+    try:
+        b = o.bounding_box()
+        return (b.min.X, b.min.Y, b.max.X, b.max.Y)
+    except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+        return None
+
+
+def _occupied_boxes(dwg):
+    """Boxes of already-placed annotations a location dim must not overprint:
+    every label-bearing annotation (hole callouts, other dims) plus the section
+    hatch.  Bare centrelines/leaders are excluded — those legitimately cross a
+    dimension and lint does not flag them."""
+    boxes = []
+    for name, o in dwg._named.items():
+        if getattr(o, "label_bbox", None) is None and name != "section_hatch":
+            continue
+        bb = _anno_box(o)
+        if bb is not None:
+            boxes.append(bb)
+    return boxes
+
+
+def _box_hits(bb, boxes):
+    """True when ``bb`` overlaps any box in ``boxes`` (strict AABB test). Slightly
+    more conservative than the within-view label lint (which tolerates a 0.5 mm
+    sliver): a touch counts as a hit, so a candidate never overprints — at worst
+    it is dropped a hair early."""
+    if bb is None:
+        return False
+    for c in boxes:
+        if min(bb[2], c[2]) > max(bb[0], c[0]) and min(bb[3], c[3]) > max(bb[1], c[1]):
+            return True
+    return False
+
+
+def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
+    """Location dimensions for side-drilled holes (#133).
+
+    An X-axis hole is a circle in the SIDE view (locate its Y below the view and
+    its Z to the right — the side view has no left strip); a Y-axis hole is a
+    circle in the FRONT view (locate its X below and its Z to the right). Each
+    offset is allocated from the view's strip so dims stack without overlap, and
+    this pass runs AFTER the envelope and turned-diameter passes so it can never
+    evict an overall dimension. A tier with no room is dropped and recorded as
+    ``off_axis_location_dropped`` — never force-stacked. Holes already covered by
+    a pattern callout are skipped, as in the plan path.
+    """
+    draft = dwg.draft
+    all_holes = a.holes if holes_in is None else holes_in
+    patterned = {h for p in a.patterns for h in p.holes}
+    off = [h for h in all_holes if _axis_letter(h) in ("x", "y") and h not in patterned]
+    if not off:
+        return
+    SX, SZ = a.proj.side_x, a.proj.side_z
+    FX, FZ = a.proj.front_x, a.proj.front_z
+    dx, dy, dz = a.bb.min.X, a.bb.min.Y, a.bb.min.Z
+    tier = draft.font_size + 2 * draft.pad_around_text
+    occupied = _occupied_boxes(dwg)
+
+    def _drop(axis, view):
+        # Recorded at INFO under a code DISTINCT from the plan path's
+        # ``location_ref_dropped`` (which is a warning). Two reasons:
+        #  - Severity: a best-effort off-axis location dim that did not fit is not
+        #    a drawing DEFECT (the sheet is correct — no overlap, in bounds), it is
+        #    a completeness shortfall measured by the separate location-coverage
+        #    score (see the eval scoreboard), not by lint. So a valid sheet stays
+        #    lint-clean while the gap is still surfaced.
+        #  - Distinct code: ``_maybe_tabulate_holes`` triggers the plan-view hole
+        #    chart on ``location_ref_dropped`` and then clears it — a side-hole
+        #    height that did not fit must not tabulate (or be erased by) the plan
+        #    view, so it gets its own code.
+        # (The plan path's primary top-view positions are expected on every
+        # drawing, so a drop there stays a warning.)
+        dwg._record_build_issue(
+            "info",
+            "off_axis_location_dropped",
+            f"{axis} location dim for a {view}-view hole not placed (no room beside the view)",
+        )
+
+    def _place(strip, view, p_lo, p_hi, dist, label, name, side):
+        # The strip cursor only tracks dims it allocated; the right strips are
+        # SHARED with hole callouts (``hc_side``) and the section hatch, which
+        # use other placers and are invisible to the cursor (#133). So a clean
+        # allocation is necessary but not sufficient — verify the candidate's box
+        # does not collide with an already-placed occupant before committing.
+        # Returns True on success, False if there was no room/a collision (the
+        # caller decides whether to fall back to another strip or drop).
+        coord = strip.allocate(tier) if strip is not None else None
+        if coord is None:
+            return False
+        dim = _dim(p_lo, p_hi, side, dist(coord), draft, label=_fmt(label))
+        if _box_hits(_anno_box(dim), occupied):
+            # The allocated tier is consumed even though we reject it here; that
+            # only pushes later same-strip dims one tier outward (which then drop
+            # cleanly if they overflow), so it is a benign waste, not a bug.
+            return False
+        dwg.add(dim, name, view=view)
+        occupied.append(_anno_box(dim))
+        return True
+
+    def _below(strip, view, p_lo, p_hi, witness, label, axis):
+        if not _place(
+            strip,
+            view,
+            p_lo,
+            p_hi,
+            lambda c: witness - c,
+            label,
+            f"dim_loc_{view}_{axis}{round(label * 100)}",
+            "below",
+        ):
+            _drop(axis, view)
+
+    # In-plane offset: X-axis hole -> Y below the side view; Y-axis hole -> X
+    # below the front view (each view's below strip is its own, uncontended).
+    yw, xw = SZ(dz) - 2, FZ(dz) - 2
+    seen_y, seen_x = set(), set()
+    for h in (h for h in off if _axis_letter(h) == "x"):
+        yo = round(abs(h.location[1] - dy), 2)
+        if yo * a.SCALE >= 1.0 and yo not in seen_y:
+            seen_y.add(yo)
+            _below(
+                a.sv_zones.below, "side", (SX(dy), yw, 0), (SX(h.location[1]), yw, 0), yw, yo, "y"
+            )
+    for h in (h for h in off if _axis_letter(h) == "y"):
+        xo = round(abs(h.location[0] - dx), 2)
+        if xo * a.SCALE >= 1.0 and xo not in seen_x:
+            seen_x.add(xo)
+            _below(
+                a.fv_zones.below, "front", (FX(dx), xw, 0), (FX(h.location[0]), xw, 0), xw, xo, "x"
+            )
+
+    # Height offset (Z): a hole's height is visible to the RIGHT of both the side
+    # and the front view. Neither right strip is universally free — the side
+    # view's is contended by hole callouts (hc_side) + the section hatch, the
+    # front view's by the dim_height/dim_step ladder — so try the natural strip
+    # first and FALL BACK to the other before giving up (#133 rework). The
+    # occupancy check in _place drops a candidate that would overprint a callout
+    # or hatch the strip cursor cannot see, so neither strip overprints.
+    zr, zrf = SX(a.bb.max.Y), FX(a.bb.max.X)
+    seen_z = set()
+    for h in off:
+        zo = round(abs(h.location[2] - dz), 2)
+        if zo * a.SCALE < 1.0 or zo in seen_z:
+            continue
+        seen_z.add(zo)
+        hz = h.location[2]
+        side_cand = (a.sv_zones.right, "side", (zr, SZ(dz), 0), (zr, SZ(hz), 0), zr)
+        front_cand = (a.fv_zones.right, "front", (zrf, FZ(dz), 0), (zrf, FZ(hz), 0), zrf)
+        order = (side_cand, front_cand) if _axis_letter(h) == "x" else (front_cand, side_cand)
+        if not any(
+            _place(
+                strip,
+                view,
+                p_lo,
+                p_hi,
+                lambda c, e=edge: c - e,
+                zo,
+                f"dim_loc_{view}_z{round(zo * 100)}",
+                "right",
+            )
+            for strip, view, p_lo, p_hi, edge in order
+        ):
+            _drop("Z", order[0][1])
 
 
 def _section_hatch_edges(face, SX, SZ, spacing):
