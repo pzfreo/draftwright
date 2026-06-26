@@ -1990,9 +1990,7 @@ class TestPrismaticClassification:
         # ⌀20 step surfaces only as feature_not_dimensioned.
         shaft = Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(10, 30)
         dwg = build_drawing(shaft)
-        diam_labels = {
-            o.label for o in dwg.items if getattr(o, "label", "") and "ø" in o.label
-        }
+        diam_labels = {o.label for o in dwg.items if getattr(o, "label", "") and "ø" in o.label}
         assert "ø30" in diam_labels and "ø20" in diam_labels
         assert any(name.startswith("ldr_dz") for name in dwg._named)
         assert not [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
