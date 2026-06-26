@@ -181,8 +181,19 @@ def _mentioned_diams(annotations):
     return diams
 
 
+def _distinct_bosses(bosses, mentioned):
+    """One representative boss per distinct external diameter (tallest wins),
+    dropping any diameter another annotation already covers (#77)."""
+    by_diam: dict = {}
+    for b in bosses:
+        key = next((k for k in by_diam if abs(k - b.diameter) <= 0.15), b.diameter)
+        if key not in by_diam or b.height > by_diam[key].height:
+            by_diam[key] = b
+    return [b for d, b in by_diam.items() if not any(abs(d - m) <= 0.15 for m in mentioned)]
+
+
 def _annotate_turned_diameters(dwg, a: Analysis):
-    """Leader ø-callouts for external turned diameters whose axis lies along X (#77).
+    """Leader ø-callouts for external turned step diameters (#77, #131).
 
     draftwright dimensions holes and, for a Z-rotational part, the OD; the
     external stepped diameters of a turned part lying along X — a peg body, a
@@ -192,9 +203,10 @@ def _annotate_turned_diameters(dwg, a: Analysis):
     :func:`find_bosses` into a single boss, below the front-view profile.
     Diameters another annotation already covers are skipped.
 
-    Scope (MVP): X-axis turning only. Z-rotational parts keep their existing
-    OD/bore path untouched; Y-axis turning, gear/thread module notes, and
-    axial-length dims are out of scope.
+    X-axis turning (a shaft drawn on its side) gets a row of callouts below the
+    front view; Z-axis turning (a vertical stepped shaft) gets a column to its
+    left (#131). Y-axis turning, gear/thread module notes, and axial-length dims
+    are out of scope.
     """
     draft = dwg.draft
     try:
@@ -203,19 +215,13 @@ def _annotate_turned_diameters(dwg, a: Analysis):
         _log.info("turned-diameter annotation skipped (%s)", exc)
         return
 
-    x_bosses = [b for b in bosses if _axis_letter(b) == "x"]
-    if not x_bosses:
-        return
-
     mentioned = _mentioned_diams(dwg.items)
-    # One representative boss per distinct external diameter (tallest wins),
-    # skipping any diameter another annotation already covers.
-    by_diam: dict = {}
-    for b in x_bosses:
-        key = next((k for k in by_diam if abs(k - b.diameter) <= 0.15), b.diameter)
-        if key not in by_diam or b.height > by_diam[key].height:
-            by_diam[key] = b
-    todo = [b for d, b in by_diam.items() if not any(abs(d - m) <= 0.15 for m in mentioned)]
+    # Z-axis turning (a vertical stepped shaft) gets a column of ø callouts to the
+    # left of the front view (#131); X-axis turning keeps the row below (#77).
+    _turned_diameters_beside(
+        dwg, a, _distinct_bosses([b for b in bosses if _axis_letter(b) == "z"], mentioned)
+    )
+    todo = _distinct_bosses([b for b in bosses if _axis_letter(b) == "x"], mentioned)
     if not todo:
         return
 
@@ -273,6 +279,59 @@ def _annotate_turned_diameters(dwg, a: Analysis):
                 draft=draft,
             ),
             f"ldr_d{i}",
+            view="front",
+        )
+
+
+def _turned_diameters_beside(dwg, a: Analysis, todo):
+    """ø-callout column to the LEFT of the front view for Z-axis turned (vertical
+    stepped) diameters — the page-Y mirror of the #77 row-below (#131)."""
+    if not todo:
+        return
+    draft = dwg.draft
+    fx0, fy0, fx1, fy1 = dwg.view_bounds("front")
+    # Drop the column clear of anything already left of the profile within the
+    # front view's y-range (the single-pass guard #77 uses, mirrored onto x).
+    left_limit = fx0
+    for o in dwg.items:
+        try:
+            ob = o.bounding_box()
+        except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+            continue
+        if ob.min.X < fx0 and ob.max.Y > fy0 and ob.min.Y < fy1:
+            left_limit = min(left_limit, ob.min.X)
+    label_w = max(len(f"ø{_fmt(b.diameter)}") for b in todo) * draft.font_size * 0.62
+    elbow_x = left_limit - (draft.font_size + 2 * draft.pad_around_text)
+    # No room left of the profile within the page — skip rather than run off the
+    # sheet; the diameters then surface as feature_not_dimensioned.
+    if elbow_x - label_w < a.margin:
+        _log.info("turned-diameter callouts skipped (no room left of the front view)")
+        return
+    specs = []  # (tip_page, label) — tip on the step's left silhouette at mid-height
+    for b in todo:
+        mid_z = b.location[2] - b.axis[2] * (b.height / 2)
+        tip = dwg.at("front", b.location[0] - b.diameter / 2, b.location[1], mid_z)
+        specs.append((tip, f"ø{_fmt(b.diameter)}"))
+    specs.sort(key=lambda s: s[0][1])
+    half_h = draft.font_size / 2 + draft.pad_around_text
+    min_gap = 2 * half_h
+    naturals = [tip[1] for tip, _ in specs]
+    y_lo, y_hi = fy0 + half_h, fy1 - half_h
+    label_ys = _solve_strip_ys(naturals, min_gap, y_lo, y_hi) or _greedy_strip_ys(
+        naturals, min_gap, y_lo, y_hi
+    )
+    if label_ys is None:
+        _log.info("turned-diameter callouts skipped (%d will not fit the column)", len(specs))
+        return
+    for i, ((tip, label), ly) in enumerate(zip(specs, label_ys, strict=True)):
+        dwg.add(
+            Leader(
+                tip=(tip[0], tip[1], 0),
+                elbow=(elbow_x, ly, 0),
+                label=label,
+                draft=draft,
+            ),
+            f"ldr_dz{i}",
             view="front",
         )
 
