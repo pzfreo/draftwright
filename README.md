@@ -66,8 +66,7 @@ make_drawing(part, out="drawing", title="My Part", number="DWG-001")
 # Composable: get a Drawing object to inspect or extend
 dwg = build_drawing(part, title="My Part")
 issues = dwg.lint()          # list[LintIssue]
-dwg.export_svg("drawing.svg")
-dwg.export_dxf("drawing.dxf")
+svg_path, dxf_path = dwg.export("drawing")
 ```
 
 ### From a STEP file
