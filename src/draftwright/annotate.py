@@ -1344,7 +1344,10 @@ def _occupied_boxes(dwg):
 
 
 def _box_hits(bb, boxes):
-    """True when ``bb`` overlaps any box in ``boxes`` (AABB test, matching lint)."""
+    """True when ``bb`` overlaps any box in ``boxes`` (strict AABB test). Slightly
+    more conservative than the within-view label lint (which tolerates a 0.5 mm
+    sliver): a touch counts as a hit, so a candidate never overprints — at worst
+    it is dropped a hair early."""
     if bb is None:
         return False
     for c in boxes:
@@ -1362,8 +1365,8 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
     offset is allocated from the view's strip so dims stack without overlap, and
     this pass runs AFTER the envelope and turned-diameter passes so it can never
     evict an overall dimension. A tier with no room is dropped and recorded as
-    ``location_ref_dropped`` — never force-stacked. Holes already covered by a
-    pattern callout are skipped, as in the plan path.
+    ``off_axis_location_dropped`` — never force-stacked. Holes already covered by
+    a pattern callout are skipped, as in the plan path.
     """
     draft = dwg.draft
     all_holes = a.holes if holes_in is None else holes_in
@@ -1378,16 +1381,22 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
     occupied = _occupied_boxes(dwg)
 
     def _drop(axis, view):
-        # Recorded at INFO, not warning: a best-effort off-axis location dim that
-        # did not fit is not a drawing DEFECT (the sheet is correct — no overlap,
-        # in bounds), it is a completeness shortfall, and completeness is measured
-        # by the separate location-coverage score (see the eval scoreboard), not
-        # by lint. This keeps a valid sheet lint-clean while still surfacing the
-        # gap. (The plan path's primary-location drops stay warning — those are
-        # the top-view positions expected on every drawing.)
+        # Recorded at INFO under a code DISTINCT from the plan path's
+        # ``location_ref_dropped`` (which is a warning). Two reasons:
+        #  - Severity: a best-effort off-axis location dim that did not fit is not
+        #    a drawing DEFECT (the sheet is correct — no overlap, in bounds), it is
+        #    a completeness shortfall measured by the separate location-coverage
+        #    score (see the eval scoreboard), not by lint. So a valid sheet stays
+        #    lint-clean while the gap is still surfaced.
+        #  - Distinct code: ``_maybe_tabulate_holes`` triggers the plan-view hole
+        #    chart on ``location_ref_dropped`` and then clears it — a side-hole
+        #    height that did not fit must not tabulate (or be erased by) the plan
+        #    view, so it gets its own code.
+        # (The plan path's primary top-view positions are expected on every
+        # drawing, so a drop there stays a warning.)
         dwg._record_build_issue(
             "info",
-            "location_ref_dropped",
+            "off_axis_location_dropped",
             f"{axis} location dim for a {view}-view hole not placed (no room beside the view)",
         )
 
@@ -1404,6 +1413,9 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
             return False
         dim = _dim(p_lo, p_hi, side, dist(coord), draft, label=_fmt(label))
         if _box_hits(_anno_box(dim), occupied):
+            # The allocated tier is consumed even though we reject it here; that
+            # only pushes later same-strip dims one tier outward (which then drop
+            # cleanly if they overflow), so it is a benign waste, not a bug.
             return False
         dwg.add(dim, name, view=view)
         occupied.append(_anno_box(dim))
