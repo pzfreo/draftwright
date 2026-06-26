@@ -290,20 +290,20 @@ def _turned_diameters_beside(dwg, a: Analysis, todo):
         return
     draft = dwg.draft
     fx0, fy0, fx1, fy1 = dwg.view_bounds("front")
-    # Drop the column clear of anything already left of the profile within the
-    # front view's y-range (the single-pass guard #77 uses, mirrored onto x).
-    left_limit = fx0
-    for o in dwg.items:
-        try:
-            ob = o.bounding_box()
-        except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
-            continue
-        if ob.min.X < fx0 and ob.max.Y > fy0 and ob.min.Y < fy1:
-            left_limit = min(left_limit, ob.min.X)
+    # Anchor the ø column just LEFT of the profile — not left of every obstacle.
+    # The concentric bore leaders (ldr_z) already own a column further left; the
+    # old "left of the leftmost left-obstacle" anchor pushed this column past
+    # them and off the page, so a BORED stepped shaft lost ALL its step-diameter
+    # callouts (#144). A step sits at its own height, normally clear of the bore
+    # leader (which is at the bore's mid-height); the per-label occupancy gate
+    # below drops only a step that genuinely collides — place-what-fits, never
+    # all-or-nothing. For a non-bored shaft there is no left obstacle, so this is
+    # identical to the prior behaviour.
     label_w = max(len(f"ø{_fmt(b.diameter)}") for b in todo) * draft.font_size * 0.62
-    elbow_x = left_limit - (draft.font_size + 2 * draft.pad_around_text)
-    # No room left of the profile within the page — skip rather than run off the
-    # sheet; the diameters then surface as feature_not_dimensioned.
+    elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
+    # No room left of the profile within the page (the view itself abuts the left
+    # margin) — skip rather than run off the sheet; the diameters then surface as
+    # feature_not_dimensioned.
     if elbow_x - label_w < a.margin:
         _log.info("turned-diameter callouts skipped (no room left of the front view)")
         return
@@ -323,17 +323,16 @@ def _turned_diameters_beside(dwg, a: Analysis, todo):
     if label_ys is None:
         _log.info("turned-diameter callouts skipped (%d will not fit the column)", len(specs))
         return
+    occupied = _occupied_boxes(dwg)  # bore leaders + other left-column callouts
     for i, ((tip, label), ly) in enumerate(zip(specs, label_ys, strict=True)):
-        dwg.add(
-            Leader(
-                tip=(tip[0], tip[1], 0),
-                elbow=(elbow_x, ly, 0),
-                label=label,
-                draft=draft,
-            ),
-            f"ldr_dz{i}",
-            view="front",
-        )
+        ldr = Leader(tip=(tip[0], tip[1], 0), elbow=(elbow_x, ly, 0), label=label, draft=draft)
+        if _box_hits(_anno_box(ldr), occupied):
+            # This step's label would overprint a bore leader / existing callout
+            # sharing the left region — drop just this one (it surfaces as
+            # feature_not_dimensioned), not the whole column.
+            continue
+        dwg.add(ldr, f"ldr_dz{i}", view="front")
+        occupied.append(_anno_box(ldr))
 
 
 def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
