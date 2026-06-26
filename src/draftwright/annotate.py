@@ -634,6 +634,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # External turned diameters (X-axis turning) the passes above do not cover.
     _annotate_turned_diameters(dwg, a)
 
+    # Side-drilled (X/Y-axis) hole locations — last, so the envelope and
+    # turned-diameter dims claim their strip space first and are never evicted (#133).
+    if feature_holes:
+        _locate_off_axis_holes(dwg, a, holes_in=feature_holes)
+
     # Phase 7 — strip footprint debug logging + post-placement overflow check.
     # Overflow can only occur when outer_limit was tightened after allocations
     # were already committed (e.g. iso-x tightening or iso-y cap guard).
@@ -1172,9 +1177,7 @@ def _add_location_dims(dwg, a: Analysis, patterns, holes_in=None):
         if not any(abs(r[0] - u[0]) < 0.5 and abs(r[1] - u[1]) < 0.5 for u in unique):
             unique.append(r)
     refs = unique
-    # An off-axis-only part has no z-hole refs but still needs its side-drilled
-    # holes located below (#133); only bail when there is nothing to place at all.
-    if not refs and not any(_axis_letter(h) in ("x", "y") for h in all_holes):
+    if not refs:
         return
 
     PX = a.proj.plan_x
@@ -1309,65 +1312,90 @@ def _add_location_dims(dwg, a: Analysis, patterns, holes_in=None):
             view="side",
         )
 
-    # ------------------------------------------------------------------
-    # Side-drilled holes (#133): an X-axis hole appears as a circle in the SIDE
-    # view (locate its Y and Z), a Y-axis hole in the FRONT view (locate its X
-    # and Z). One dim per distinct offset, allocated through the view's strips
-    # via place_dim so they stack without overlap. Pattern-located holes are
-    # covered by their pattern callout and skipped, as in the plan path. The Z
-    # axis is the page-vertical of both views, so the vertical offset is always
-    # measured from the part's min-Z datum.
-    datum_z = a.bb.min.Z
 
-    def _locate_off_axis(holes, view, h_idx, h_datum, at_h, at_v):
-        placed_h: set = set()
-        placed_v: set = set()
-        for k, h in enumerate(holes):
-            if h in patterned:
-                continue
-            ho = round(abs(h.location[h_idx] - h_datum), 2)
-            if ho * a.SCALE >= 1.0 and ho not in placed_h:
-                placed_h.add(ho)
-                dwg.place_dim(
-                    at_h(h_datum),
-                    at_h(h.location[h_idx]),
-                    "below",
-                    view,
-                    draft,
-                    name=f"dim_loc_{view}_h{k}",
-                )
-            vo = round(abs(h.location[2] - datum_z), 2)
-            if vo * a.SCALE >= 1.0 and vo not in placed_v:
-                placed_v.add(vo)
-                dwg.place_dim(
-                    at_v(datum_z),
-                    at_v(h.location[2]),
-                    "left",
-                    view,
-                    draft,
-                    name=f"dim_loc_{view}_v{k}",
-                )
+def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
+    """Location dimensions for side-drilled holes (#133).
 
-    x_axis_holes = [h for h in all_holes if _axis_letter(h) == "x"]
-    if x_axis_holes:  # circles in the side view: horizontal = world Y
-        _locate_off_axis(
-            x_axis_holes,
-            "side",
-            1,
-            datum_y,
-            lambda y: dwg.at("side", 0.0, y, a.bb.min.Z),
-            lambda z: dwg.at("side", 0.0, a.bb.min.Y, z),
+    An X-axis hole is a circle in the SIDE view (locate its Y below the view and
+    its Z to the right — the side view has no left strip); a Y-axis hole is a
+    circle in the FRONT view (locate its X below and its Z to the right). Each
+    offset is allocated from the view's strip so dims stack without overlap, and
+    this pass runs AFTER the envelope and turned-diameter passes so it can never
+    evict an overall dimension. A tier with no room is dropped and recorded as
+    ``location_ref_dropped`` — never force-stacked. Holes already covered by a
+    pattern callout are skipped, as in the plan path.
+    """
+    draft = dwg.draft
+    all_holes = a.holes if holes_in is None else holes_in
+    patterned = {h for p in a.patterns for h in p.holes}
+    off = [h for h in all_holes if _axis_letter(h) in ("x", "y") and h not in patterned]
+    if not off:
+        return
+    SX, SZ = a.proj.side_x, a.proj.side_z
+    FX, FZ = a.proj.front_x, a.proj.front_z
+    dx, dy, dz = a.bb.min.X, a.bb.min.Y, a.bb.min.Z
+    tier = draft.font_size + 2 * draft.pad_around_text
+
+    def _drop(axis, view):
+        dwg._record_build_issue(
+            "warning",
+            "location_ref_dropped",
+            f"{axis} location dim for a {view}-view hole not placed (no room beside the view)",
         )
-    y_axis_holes = [h for h in all_holes if _axis_letter(h) == "y"]
-    if y_axis_holes:  # circles in the front view: horizontal = world X
-        _locate_off_axis(
-            y_axis_holes,
-            "front",
-            0,
-            datum_x,
-            lambda x: dwg.at("front", x, 0.0, a.bb.min.Z),
-            lambda z: dwg.at("front", a.bb.min.X, 0.0, z),
+
+    def _below(strip, view, p_lo, p_hi, witness, label, axis):
+        coord = strip.allocate(tier) if strip is not None else None
+        if coord is None:
+            _drop(axis, view)
+            return
+        dwg.add(
+            _dim(p_lo, p_hi, "below", witness - coord, draft, label=_fmt(label)),
+            f"dim_loc_{view}_{axis}{round(label * 100)}",
+            view=view,
         )
+
+    def _right(strip, view, p_lo, p_hi, edge, label):
+        coord = strip.allocate(tier) if strip is not None else None
+        if coord is None:
+            _drop("Z", view)
+            return
+        dwg.add(
+            _dim(p_lo, p_hi, "right", coord - edge, draft, label=_fmt(label)),
+            f"dim_loc_{view}_z{round(label * 100)}",
+            view=view,
+        )
+
+    # X-axis holes -> side view: Y offset below, Z offset right.
+    yw, zr = SZ(dz) - 2, SX(a.bb.max.Y)
+    seen_y, seen_zs = set(), set()
+    for h in (h for h in off if _axis_letter(h) == "x"):
+        yo = round(abs(h.location[1] - dy), 2)
+        if yo * a.SCALE >= 1.0 and yo not in seen_y:
+            seen_y.add(yo)
+            _below(
+                a.sv_zones.below, "side", (SX(dy), yw, 0), (SX(h.location[1]), yw, 0), yw, yo, "y"
+            )
+        zo = round(abs(h.location[2] - dz), 2)
+        if zo * a.SCALE >= 1.0 and zo not in seen_zs:
+            seen_zs.add(zo)
+            _right(a.sv_zones.right, "side", (zr, SZ(dz), 0), (zr, SZ(h.location[2]), 0), zr, zo)
+
+    # Y-axis holes -> front view: X offset below, Z offset right.
+    xw, zrf = FZ(dz) - 2, FX(a.bb.max.X)
+    seen_x, seen_zf = set(), set()
+    for h in (h for h in off if _axis_letter(h) == "y"):
+        xo = round(abs(h.location[0] - dx), 2)
+        if xo * a.SCALE >= 1.0 and xo not in seen_x:
+            seen_x.add(xo)
+            _below(
+                a.fv_zones.below, "front", (FX(dx), xw, 0), (FX(h.location[0]), xw, 0), xw, xo, "x"
+            )
+        zo = round(abs(h.location[2] - dz), 2)
+        if zo * a.SCALE >= 1.0 and zo not in seen_zf:
+            seen_zf.add(zo)
+            _right(
+                a.fv_zones.right, "front", (zrf, FZ(dz), 0), (zrf, FZ(h.location[2]), 0), zrf, zo
+            )
 
 
 def _section_hatch_edges(face, SX, SZ, spacing):
