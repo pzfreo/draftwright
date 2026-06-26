@@ -2004,9 +2004,15 @@ class TestPrismaticClassification:
 
         part = Box(12, 40, 30) - Pos(0, 8, 6) * Rot(0, 90, 0) * Cylinder(3, 12)
         dwg = build_drawing(part)
-        assert any(name.startswith("dim_loc_side") for name in dwg._named), (
-            "side-drilled hole was not located in the side view"
-        )
+        loc = {name for name in dwg._named if name.startswith("dim_loc")}
+        # Fully located: the in-plane (Y) offset below the side view AND the
+        # height (Z) offset to its right (#133). The Z routes to whichever right
+        # strip is free — side here (no section view to contend it).
+        assert any(n.startswith("dim_loc_side_y") for n in loc), "in-plane offset missing"
+        assert any(n.endswith("_z2100") for n in loc), "height offset missing"
+        # The location dims must never overprint the callouts/section that share
+        # the right strips — the sheet stays lint-clean (#133 rework).
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(60)
     def test_corner_fillets_do_not_make_a_plate_rotational(self):
