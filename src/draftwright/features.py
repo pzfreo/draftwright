@@ -251,6 +251,10 @@ def _has_floor(faces, s: Slot) -> bool:
                 c = "XYZ"[_AXES[ax]]
                 ov = min(getattr(f.bb.max, c), hi) - max(getattr(f.bb.min, c), lo)
                 area *= max(ov, 0.0)
+            # Sum (not union): the coplanar floor faces of a valid solid tile the
+            # floor without overlapping, so this is exact for them.  Overlapping
+            # coplanar faces would double-count, but those only arise from a
+            # Compound of interpenetrating solids — degenerate input.
             covered += area
         if covered >= _FLOOR_COVER_FRAC * foot_area:
             return True
