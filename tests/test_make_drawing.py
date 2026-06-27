@@ -8,20 +8,17 @@ from build123d import Box, Compound, Cylinder, Edge, Pos, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
 from draftwright import Drawing, build_drawing, make_drawing
+from draftwright._core import _MIN_VIEW_MM
+from draftwright.analysis import _is_rotational, analyse_face_levels, dedup_diams
 from draftwright.features import Slot, find_slots
 from draftwright.make_drawing import (
-    _MIN_VIEW_MM,
     _export_shape,
     _fmt,
-    _is_rotational,
     analyse_cylinders,
-    analyse_face_levels,
-    choose_scale,
-    dedup_diams,
     generate_script,
     lint_feature_coverage,
 )
-from draftwright.sheet import _fits
+from draftwright.sheet import _fits, choose_scale
 
 
 def _state_snapshot(dwg):
@@ -619,7 +616,7 @@ class TestDepthEstimators:
     """Pure-function tests for _est_right_strip_depth / _est_pv_below_depth."""
 
     def test_right_depth_no_steps_equals_dim_pad(self):
-        from draftwright.make_drawing import _DIM_PAD
+        from draftwright._core import _DIM_PAD
         from draftwright.sheet import _est_right_strip_depth
 
         # 0 steps → dim_height only → gap(8) + slot(10) = 18 = _DIM_PAD
@@ -730,7 +727,8 @@ class TestDerivedLayoutConstants:
         assert _text_width("WXYZ", 3.0) > _text_width("iiii", 3.0)
 
     def test_bore_callout_width_scales_with_font_size(self):
-        from draftwright.make_drawing import find_holes
+        from build123d_drafting.features import find_holes
+
         from draftwright.sheet import _est_bore_callout_width
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
@@ -746,8 +744,8 @@ class TestComposeAnnoBoxes:
     later steps make honest."""
 
     def _assert_match(self, holes, patterns, n_steps, bb, label=""):
-        from draftwright.make_drawing import _FONT_SIZE, _measure_strips, draft_preset
-        from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes
+        from draftwright.make_drawing import _FONT_SIZE, draft_preset
+        from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
 
         # The composer must reproduce StripDepths exactly for ANY clearance
         # args (#112, Step 4b): the bore-band elbow+gap overhead
@@ -768,7 +766,7 @@ class TestComposeAnnoBoxes:
             assert composed == scalar, (label, n_steps, kw)
 
     def test_matches_for_plain_part(self):
-        from draftwright.make_drawing import find_hole_patterns, find_holes
+        from build123d_drafting.features import find_hole_patterns, find_holes
 
         part = Box(60, 40, 12)
         holes = find_holes(part)
@@ -778,7 +776,7 @@ class TestComposeAnnoBoxes:
             self._assert_match(holes, patterns, n_steps, bb)
 
     def test_matches_for_bored_part(self):
-        from draftwright.make_drawing import find_hole_patterns, find_holes
+        from build123d_drafting.features import find_hole_patterns, find_holes
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
         holes = find_holes(part)
@@ -789,7 +787,8 @@ class TestComposeAnnoBoxes:
 
     def test_matches_for_dense_ballooning_part(self):
         # _dense_plate triggers _will_balloon → exercises the plan_halo band.
-        from draftwright.make_drawing import find_hole_patterns, find_holes
+        from build123d_drafting.features import find_hole_patterns, find_holes
+
         from draftwright.sheet import _will_balloon
 
         part = _dense_plate()
@@ -803,7 +802,7 @@ class TestComposeAnnoBoxes:
         # Direct unit test of the reducer: deepest band per side wins, and the
         # left keeps its _DIM_PAD floor even when the deepest left band is
         # shallower — the branch real parts rarely make the deciding one.
-        from draftwright.make_drawing import _DIM_PAD
+        from draftwright._core import _DIM_PAD
         from draftwright.sheet import AnnoBox, StripDepths, _footprint_from_boxes
 
         fp = _footprint_from_boxes(
@@ -836,7 +835,7 @@ class TestComposeAnnoBoxesCorpus:
         (plan halo band). The right dim ladder depth is a pure function of the
         n_steps argument (not geometry), so it is swept per part below rather
         than via a dedicated stepped fixture."""
-        from draftwright.make_drawing import find_hole_patterns, find_holes
+        from build123d_drafting.features import find_hole_patterns, find_holes
 
         parts = {
             "plain_block": Box(60, 40, 12),
@@ -928,7 +927,7 @@ class TestDynamicCorridors:
         from build123d import Box
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _DIM_PAD
+        from draftwright._core import _DIM_PAD
 
         a = build_drawing(Box(60, 40, 20))._analysis
         assert len(a.step_zs) == 0
@@ -941,7 +940,7 @@ class TestDynamicCorridors:
         # With n_steps=3, gap_fv_sv jumps to 72 mm — A3 no longer fits and
         # choose_scale must return A2.  This verifies that the conservative
         # n_steps_ub path in _analyse() ensures the page is never too small.
-        from draftwright.make_drawing import choose_scale
+        from draftwright.sheet import choose_scale
 
         _, page_w_flat, _, _ = choose_scale(5.0, 100.0, 100.0, n_steps=0)
         _, page_w_deep, _, _ = choose_scale(5.0, 100.0, 100.0, n_steps=3)
@@ -988,7 +987,7 @@ class TestTwoPassLayout:
         from build123d_drafting.features import find_holes
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _DIM_PAD
+        from draftwright._core import _DIM_PAD
         from draftwright.sheet import _est_bore_callout_width
 
         # Four identical cylinders → "4× ⌀16 THRU" callout with a count prefix
@@ -1020,7 +1019,7 @@ class TestTwoPassLayout:
         from build123d import Box
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _DIM_PAD
+        from draftwright._core import _DIM_PAD
 
         a = build_drawing(Box(60, 40, 20))._analysis
         sv_left = a.SV_X - a.sv_hw
@@ -1223,7 +1222,8 @@ class TestComposeThenPackRepack:
         # sheet the centring slack would absorb the mis-anchoring and the buggy
         # code (FV_X anchored on fv.left) would pass anyway.  With x_offset == 0
         # the bug puts the plan-view left edge at margin - 120 = -110 mm.
-        from draftwright.make_drawing import _MARGIN, ViewBlock, _layout_geometry
+        from draftwright._core import _MARGIN
+        from draftwright.make_drawing import ViewBlock, _layout_geometry
 
         blocks = {
             "front": ViewBlock(10, 10, left=0.0, right=8, top=8, bottom=8),
@@ -3462,7 +3462,7 @@ class TestDetailView:
         assert not any(n.startswith("dim_detail") for n in dwg._named)
 
     def test_crowded_shoulders_get_a_detail_view_when_requested(self):
-        from draftwright.make_drawing import _legible_steps
+        from draftwright._core import _legible_steps
 
         dwg = build_drawing(_crowded_shoulder_part(), detail_view=True)
         a = dwg._analysis

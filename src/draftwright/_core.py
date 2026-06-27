@@ -227,6 +227,9 @@ _SLOT_DIM_HEIGHT = 2 * _FONT_SIZE + 2 * _PAD  # fv_zones.right: overall height d
 
 
 _STRIP_SPACING = 4.0  # page-mm between successive annotations in a strip
+_MIN_VIEW_MM = (
+    10.0  # min projected view dimension; below it annotation geometry degenerates (#129)
+)
 
 
 _SLOT_DIM_STEP = 4 * _FONT_SIZE + _PAD  # fv_zones.right: step-height dimension

@@ -35,7 +35,7 @@ no PR introduces an import cycle, riskiest (annotations) last:
 | ~~P1~~ | #160 | `_text_width` → `_core` ✅ | tiny | — |
 | ~~P2~~ | #161 | `projection.py` (silhouettes, iso) ✅ | med | — |
 | ~~P3~~ | #162 | `sheet.py` — compose-then-pack (repack deferred to P6) ✅ | large (2 PRs) | P1 |
-| **P4** | #163 | `analysis.py` (`_analyse`) | med-lg | — |
+| ~~P4~~ | #163 | `analysis.py` (`_analyse`) ✅ | med-lg | — |
 | **P5** | #164 | `annotations/` — sections, turned, pmi, **holes**, **orchestrator** | biggest (~5 PRs) | P1–P4 |
 | **P6** | #165 | `builder.py` + thread the build context | med | P2, P4 |
 | **P7** | #166 | tighten mypy on settled contracts | cleanup | all |
@@ -44,7 +44,7 @@ no PR introduces an import cycle, riskiest (annotations) last:
 ```text
 make_drawing.py   # transitional compat facade / public re-exports
 builder.py        # build_drawing/make_drawing orchestration (P6)
-analysis.py       # _analyse, Analysis construction (P4)
+analysis.py       # _analyse, Analysis construction (DONE)
 sheet.py          # choose_scale, compose-then-pack (DONE; repack→P6)
 projection.py     # view projection, silhouettes, iso fit (DONE)
 registry.py       # annotation identity (DONE)
