@@ -1,0 +1,148 @@
+{
+  "drawing": {
+    "annotations": [
+      {
+        "bbox": [
+          74.9036,
+          74.4486,
+          77.0964,
+          77.5514
+        ],
+        "label": "20",
+        "type": "Dimension"
+      },
+      {
+        "bbox": [
+          204.4441,
+          92.7482,
+          226.5559,
+          95.5651
+        ],
+        "label": "ISO VIEW (NTS)",
+        "type": "Note"
+      },
+      {
+        "bbox": [
+          165.925,
+          10.925,
+          286.075,
+          27.075
+        ],
+        "label": "STEPPED",
+        "type": "TitleBlock"
+      }
+    ],
+    "lint": {
+      "by_code": {},
+      "errors": 0,
+      "infos": 0,
+      "passed": true,
+      "warnings": 0
+    },
+    "page": {
+      "h": 210.0,
+      "scale": 1.0,
+      "w": 297.0
+    },
+    "views": {
+      "front": {
+        "hidden": {
+          "bbox": [
+            28.0,
+            66.0,
+            68.0,
+            86.0
+          ],
+          "edges": 9
+        },
+        "visible": {
+          "bbox": [
+            28.0,
+            66.0,
+            68.0,
+            86.0
+          ],
+          "edges": 7
+        }
+      },
+      "iso": {
+        "hidden": {
+          "bbox": [
+            178.7304,
+            121.3855,
+            252.2696,
+            153.2289
+          ],
+          "edges": 8
+        },
+        "visible": {
+          "bbox": [
+            178.7304,
+            100.1566,
+            252.2696,
+            153.2289
+          ],
+          "edges": 18
+        }
+      },
+      "plan": {
+        "hidden": {
+          "bbox": [
+            28.0,
+            104.0,
+            68.0,
+            144.0
+          ],
+          "edges": 8
+        },
+        "visible": {
+          "bbox": [
+            28.0,
+            104.0,
+            68.0,
+            144.0
+          ],
+          "edges": 8
+        }
+      },
+      "side": {
+        "hidden": {
+          "bbox": [
+            86.0,
+            66.0,
+            126.0,
+            86.0
+          ],
+          "edges": 9
+        },
+        "visible": {
+          "bbox": [
+            86.0,
+            66.0,
+            126.0,
+            86.0
+          ],
+          "edges": 7
+        }
+      }
+    }
+  },
+  "svg": {
+    "height": "210.000mm",
+    "tags": {
+      "Description": 1,
+      "RDF": 1,
+      "a": 1,
+      "creator": 1,
+      "description": 1,
+      "g": 4,
+      "line": 74,
+      "metadata": 1,
+      "path": 104,
+      "rect": 1,
+      "source": 1,
+      "svg": 1
+    },
+    "width": "297.000mm"
+  }
+}
