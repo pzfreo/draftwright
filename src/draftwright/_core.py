@@ -18,7 +18,6 @@ from types import SimpleNamespace
 
 from build123d import BoundBox, Location, Shape
 from build123d_drafting.helpers import (
-    _TB_COL_FRACTIONS,  # private: title-block column widths — tight coupling, see CLAUDE.md
     Dimension,
     TitleBlock,
     draft_preset,
@@ -444,24 +443,22 @@ def _add_title_block(dwg, a: Analysis):
             font_path=PLEX_SANS_CONDENSED,
         ),
     )
-    # Drawn-by cell geometry, taken from the block itself rather than hardcoded,
-    # so the hyperlink rect tracks any upstream TitleBlock layout change: the
-    # two-row block's bottom row is half the block height, and the cell spans
-    # from the first column divider (_TB_COL_FRACTIONS[0]) to the right edge.
-    cell_h = tb.block_bbox["height"] / 2.0
+    # Drawn-by cell geometry, from the block's own public cell bbox (#139) rather
+    # than hardcoded column fractions, so the hyperlink rect tracks any upstream
+    # TitleBlock layout change. Build-frame bbox; translated to page space below.
+    cell = tb.drawn_by_cell_bbox()
     tb = tb.locate(Location((a.PAGE_W - a.TB_W - _TB_CLEAR, _TB_CLEAR, 0)))
     dwg.add(tb, "title_block")
 
     # Record that cell's page-space rectangle so export() can place a clickable
-    # draftwright hyperlink over the "… / draftwright" author text. Keeps the
-    # block at its standard two rows — no extra height, no layout impact (a
-    # third row would squeeze the dense-part hole table).
+    # draftwright hyperlink over the "… / draftwright" author text. The build-frame
+    # cell corners are offset by the block's page location (bx, _TB_CLEAR).
     bx = a.PAGE_W - a.TB_W - _TB_CLEAR
     dwg._draftwright_link_rect = (
-        bx + _TB_COL_FRACTIONS[0] * a.TB_W,
-        _TB_CLEAR,
-        bx + a.TB_W,
-        _TB_CLEAR + cell_h,
+        bx + cell["min_x"],
+        _TB_CLEAR + cell["min_y"],
+        bx + cell["max_x"],
+        _TB_CLEAR + cell["max_y"],
     )
 
 

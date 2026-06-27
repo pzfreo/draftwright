@@ -4580,18 +4580,19 @@ class TestDraftwrightAttribution:
     def test_link_rect_sits_over_the_drawn_by_cell(self):
         # The hyperlink rect must cover the "drawn by" cell of the *rendered*
         # title block: bottom row (half the two-row block height), from the
-        # first column divider to the block's right edge. Asserted against the
-        # placed block's bounding box so it catches drift if the rect or the
-        # upstream TitleBlock layout ever diverge.
-        from build123d_drafting.helpers import _TB_COL_FRACTIONS
-
+        # drawn-by cell's left edge to the block's right edge. The left edge is
+        # derived from the block's public cell bbox (#139); everything is asserted
+        # against the placed block's bounding box so it catches drift if the rect
+        # or the upstream TitleBlock layout ever diverge.
         dwg = build_drawing(Box(60, 40, 20))
         x0, y0, x1, y1 = dwg._draftwright_link_rect
-        bb = dwg._named["title_block"].bounding_box()
+        tb = dwg._named["title_block"]
+        bb = tb.bounding_box()
+        cell = tb.drawn_by_cell_bbox()  # build-frame; block min corner is at bb.min
         assert x1 == pytest.approx(bb.max.X, abs=0.5)  # flush to block right edge
         assert y0 == pytest.approx(bb.min.Y, abs=0.5)  # block bottom
         assert y1 - y0 == pytest.approx((bb.max.Y - bb.min.Y) / 2, abs=0.5)  # one row
-        assert x0 == pytest.approx(bb.max.X - (1 - _TB_COL_FRACTIONS[0]) * dwg.tb_w, abs=0.5)
+        assert x0 == pytest.approx(bb.min.X + cell["min_x"], abs=0.5)  # drawn-by cell left
         assert 0 < x0 < x1 <= dwg.page_w and 0 < y0 < y1 <= dwg.page_h
 
     def test_add_svg_hyperlink_injects_anchor(self, tmp_path):

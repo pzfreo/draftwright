@@ -1,8 +1,12 @@
 # ADR 0005 — Compiler-pipeline module boundaries and single-owner build state
 
-- **Status:** Proposed
+- **Status:** Accepted, in progress
 - **Date:** 2026-06-27
 - **Deciders:** Paul Fremantle (pzfreo)
+- **Progress:** Step 0 (golden gate) and Step 1 (#139, public helper APIs) landed;
+  Step 2 (`registry.py` owns annotation identity; `Drawing` delegates, the four
+  field names kept as compat properties) in progress. Remaining: coverage state →
+  lint, build context → pipeline, and the stage-module splits.
 
 ## Context
 

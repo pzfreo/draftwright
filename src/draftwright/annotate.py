@@ -27,11 +27,11 @@ from build123d import (
 )
 from build123d_drafting.features import (
     BoltCircle,
+    HoleSpec,
     LinearArray,
     RectGrid,
-    _full_cyls,
-    _spec_key,
     find_bosses,
+    full_cylinders,
 )
 from build123d_drafting.helpers import (
     Centerline,
@@ -111,7 +111,7 @@ def _concentric_bore_diams(a: Analysis) -> list:
     z_cyls, _ = a.cyls
     concentric = {
         c["diameter"]
-        for c in _full_cyls(z_cyls)
+        for c in full_cylinders(z_cyls)
         if not c["external"]
         and math.hypot(c["axis_xyz"][0] - a.cx, c["axis_xyz"][1] - a.cy) <= _CONCENTRIC_TOL_MM
     }
@@ -340,7 +340,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     draft = dwg.draft
     # Idempotent: clear build-time lint state so a second annotation pass does
     # not accumulate duplicate drop records.
-    dwg._build_issues = []
+    dwg._reset_build_issues()
     dwg._dropped_callout_diams = []
 
     FX = a.proj.front_x
@@ -753,7 +753,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
         )
         if table is not None:
             break
-    dwg._build_issues = [i for i in dwg._build_issues if i.code != "table_dropped"]
+    dwg._drop_build_issues("table_dropped")
     if table is None:
         # Even wrapped it will not fit — restore the callouts/dims and keep the
         # drop lint, so the sheet is never left with neither.
@@ -765,9 +765,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # the table documents every instance, not just each distinct diameter.
     table.covers_diameters = tuple(h.diameter for h in holes)
     dwg._add_balloons("plan", [(tag, 0, h) for tag, h in zip(tags, holes, strict=True)])
-    dwg._build_issues = [
-        i for i in dwg._build_issues if i.code not in ("callout_dropped", "location_ref_dropped")
-    ]
+    dwg._drop_build_issues("callout_dropped", "location_ref_dropped")
 
 
 def _annotate_pmi(dwg, a: Analysis, draft) -> None:
@@ -2312,7 +2310,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=Non
     # hole set therefore lines up exactly with find_hole_patterns' groups.
     groups: dict = {}
     for h in a.holes if holes_in is None else holes_in:
-        groups.setdefault(_spec_key(h), []).append(h)
+        groups.setdefault(HoleSpec.from_hole(h), []).append(h)
 
     by_view: dict = {}
     for holes in groups.values():
