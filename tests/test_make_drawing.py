@@ -4376,10 +4376,10 @@ class TestTurnedDiameters:
         # must skip gracefully, not crash the whole build on a None unpack.
         import sys
 
-        # The strip solvers are called by the hole / turned-diameter passes,
-        # which live in annotate.py and look them up in that module's namespace
-        # (#98 Phase C) — so patch them on annotate, not on make_drawing.
-        m = sys.modules["draftwright.annotate"]
+        # The turned-diameter pass looks the strip solvers up in its own module's
+        # namespace (#98 Phase C; the pass moved to annotations.turned in #164) —
+        # so patch them there, not on make_drawing.
+        m = sys.modules["draftwright.annotations.turned"]
         monkeypatch.setattr(m, "_solve_strip_ys", lambda *a, **k: None)
         monkeypatch.setattr(m, "_greedy_strip_ys", lambda *a, **k: None)
         dwg = build_drawing(_x_stepped_shaft())  # must not raise
