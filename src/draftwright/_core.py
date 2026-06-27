@@ -64,6 +64,10 @@ def _tag_sequence(n):
 
 _DIAM_RE = re.compile(r"[øØ⌀]\s*(\d+(?:\.\d+)?)")
 
+# A single-quoted label lifted from a lint message, e.g. "labels 'A' and 'B' …".
+# Shared by the #29 lint suggestions (linting.py) and the #30 repair loop.
+_QUOTED_RE = re.compile(r"'([^']*)'")
+
 
 def _axis_letter(obj) -> str:
     """Letter (``"x"``/``"y"``/``"z"``) of ``obj.axis``'s dominant component.

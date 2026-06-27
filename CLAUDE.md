@@ -43,10 +43,10 @@ The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`,
   delegates here and keeps the render list; `_named`/`_anno_view`/`_pinned`/
   `_build_issues` remain `Drawing` properties during the migration.
 - **`linting.py`** — the lint module (#138 / ADR 0005): `lint_feature_coverage`
-  (the feature-coverage completeness check) and `CoverageState` (the coverage
-  signal it reads — pattern callouts, patterned holes, dropped diameters).
-  Depends only on `_core` + build123d_drafting. (`_suggest_fix` follows with the
-  repair extraction — it shares `_QUOTED_RE` with the repair code.)
+  (feature-coverage completeness check), `_suggest_fix` (#29 fix snippets), and
+  `CoverageState` (the coverage signal — pattern callouts, patterned holes,
+  dropped diameters). Depends only on `_core` + build123d_drafting. `_QUOTED_RE`
+  (a lint-message label regex shared with the repair loop) lives in `_core`.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
 - **`export.py`** — SVG/DXF/PDF export + post-processing (page-size fix,
