@@ -16,9 +16,9 @@ It sits on top of two Apache 2.0 libraries:
 ## Architecture
 
 The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`,
-`linting.py`, and `fonts.py` sit below `_core.py` → (`make_drawing.py`,
-`annotate.py`), and `make_drawing.py` → `annotate.py`. No lower module imports an
-upper one.
+`linting.py`, and `fonts.py` sit below `_core.py`; `_core.py` and the stage module
+`export.py` sit below (`make_drawing.py`, `annotate.py`); and `make_drawing.py` →
+`annotate.py`. No lower module imports an upper one.
 
 - **`make_drawing.py`** — orchestration and the public surface:
   - **STEP/Shape import + geometry analysis** (`_analyse`) — builds the `Analysis` namespace
@@ -48,6 +48,11 @@ upper one.
   `_suggest_fix`; for now it owns just the state they read.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
+- **`export.py`** — SVG/DXF/PDF export + post-processing (page-size fix,
+  attribution hyperlink/metadata, DXF metadata, arc sanitisation, element-wise
+  shape-export degradation, cairo PDF render). The first **module-split** step of
+  #138 (ADR 0005): `Drawing.export()` / `export_pdf()` stay as thin wrappers.
+  Sits below `make_drawing.py`, above `_core.py`.
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
 
 ## Architecture decisions — READ `docs/adr/` FIRST
