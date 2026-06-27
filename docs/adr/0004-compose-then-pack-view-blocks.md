@@ -194,13 +194,15 @@ Decisions:
    fitness function. If even A0 at the smallest standard scale will not hold the
    packed blocks, **suggest a larger page / smaller scale** rather than cram.
 
-## Module homes (forward note — ADR 0005, proposed)
+## Module homes (forward note — ADR 0005, in progress)
 
 This ADR names its anchors by their *current* location: `_analyse`,
 `StripDepths`, `ViewBlock`, `_repack`, `choose_scale` in `make_drawing.py`, and
 `_auto_annotate` in `annotate.py`. [ADR 0005](0005-pipeline-architecture-and-state-ownership.md)
-(proposed) plans to relocate these — sheet planning/compose-then-pack to
-`sheet.py`, projection/`_assemble` to `projection.py`, annotation sequencing to
-`annotations/orchestrator.py` — **without changing this decision**. When that
-migration lands, refresh the anchor names above. The compose-then-pack model,
-the box-layout footprint, and the monotone `(scale, page)` search are unaffected.
+(Accepted, in progress) relocates these **without changing this decision** —
+sheet planning/compose-then-pack to `sheet.py` (#162), projection/`_assemble` to
+`projection.py` (#161) / `builder.py` (#165), `_analyse` to `analysis.py` (#163),
+annotation sequencing to `annotations/orchestrator.py` (#164). Refresh the anchor
+names above as each phase lands (roadmap: `docs/plans/138-module-split-roadmap.md`).
+The compose-then-pack model, the box-layout footprint, and the monotone
+`(scale, page)` search are unaffected.
