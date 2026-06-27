@@ -217,13 +217,17 @@ def _candidate(fa, fb, part_ext):
 def _has_floor(faces, s: Slot) -> bool:
     """True when a planar floor caps the slot — i.e. it is blind, not through.
 
-    A floor is a planar face perpendicular to the depth axis that sits at one of
-    the slot's depth ends, covers most of its width x length footprint, and whose
-    outward normal points *into* the slot (material lies beyond it).  That last
-    test is what distinguishes a real floor from the part's own outer face: when
-    a through-slot exits the stock, its depth end coincides with an outer face,
-    but that face's normal points *out* of the part — the slot passes through it,
-    it does not cap it.
+    A floor is one or more planar faces perpendicular to the depth axis sitting
+    at one of the slot's depth ends, whose outward normals point *into* the slot
+    (material lies beyond them) and which together cover most of its width x
+    length footprint.  The into-the-slot normal test is what distinguishes a real
+    floor from the part's own outer face: a through-slot's depth end coincides
+    with an outer face, but that face's normal points *out* of the part — the
+    slot passes through it, it does not cap it.
+
+    Coverage is *aggregated* over all qualifying faces at a depth end (not tested
+    per face), so a floor split into pieces by a rib or divider — a webbed or
+    twin-cavity blind pocket — is still recognised as a floor (#146 re-review).
     """
     da = s.depth_axis
     dk = _AXES[da]
@@ -231,24 +235,24 @@ def _has_floor(faces, s: Slot) -> bool:
         s.width_axis: (s.w_center - s.width / 2, s.w_center + s.width / 2),
         s.long_axis: (s.lo, s.hi),
     }
-    for f in faces:
-        if f.axis != da:
-            continue
-        ctr = _center(f.bb, dk)
-        # A floor at the low end faces +depth (toward the slot); at the high end,
-        # -depth. The part's outer face at the same level faces the other way.
-        if abs(ctr - s.d_lo) <= _FLOOR_TOL and f.normal[dk] > 0:
-            pass
-        elif abs(ctr - s.d_hi) <= _FLOOR_TOL and f.normal[dk] < 0:
-            pass
-        else:
-            continue
-        if all(
-            min(getattr(f.bb.max, "XYZ"[_AXES[ax]]), hi)
-            - max(getattr(f.bb.min, "XYZ"[_AXES[ax]]), lo)
-            >= _FLOOR_COVER_FRAC * (hi - lo)
-            for ax, (lo, hi) in foot.items()
-        ):
+    foot_area = math.prod(hi - lo for lo, hi in foot.values())
+    # A floor at the low end faces +depth (toward the slot interior); at the high
+    # end, -depth.  The part's own outer face at the same level faces the other
+    # way and is excluded.
+    for end, want in ((s.d_lo, 1.0), (s.d_hi, -1.0)):
+        covered = 0.0
+        for f in faces:
+            if f.axis != da or abs(_center(f.bb, dk) - end) > _FLOOR_TOL:
+                continue
+            if f.normal[dk] * want <= 0:
+                continue
+            area = 1.0
+            for ax, (lo, hi) in foot.items():
+                c = "XYZ"[_AXES[ax]]
+                ov = min(getattr(f.bb.max, c), hi) - max(getattr(f.bb.min, c), lo)
+                area *= max(ov, 0.0)
+            covered += area
+        if covered >= _FLOOR_COVER_FRAC * foot_area:
             return True
     return False
 

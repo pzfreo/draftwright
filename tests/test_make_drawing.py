@@ -3686,6 +3686,14 @@ class TestFindSlots:
         part = Box(100, 60, 10) - Pos(0, 0, 2) * Box(40, 25, 6)
         assert find_slots(part) == []
 
+    def test_split_floor_pocket_is_not_a_slot(self):
+        # A blind pocket whose floor is divided into two coplanar faces by a rib
+        # (a webbed / twin-cavity pocket): neither floor half covers 50% of the
+        # footprint alone, so the floor test must AGGREGATE coverage across both
+        # — otherwise the pocket reads as a phantom through-slot (#146 re-review).
+        part = (Box(40, 40, 20) - Pos(0, 0, 10) * Box(10, 30, 8)) + Pos(0, 0, 7) * Box(10, 2, 2)
+        assert find_slots(part) == []
+
     def test_turned_groove_is_not_a_slot(self):
         # A circumferential groove on a shaft has ANNULAR (circle-bounded) walls;
         # the rectangular-wall test must reject it (otherwise a stepped shaft's
@@ -3775,6 +3783,32 @@ class TestSlotDimensioning:
         dwg = build_drawing(part)
         assert dwg._named["slot0_width"].label == "4.8"
         assert [i for i in dwg.lint() if i.code == "label_vs_measured"] == []
+
+    @pytest.mark.timeout(60)
+    def test_slot_dims_do_not_overprint_hole_callouts(self):
+        # A slot dim's witness/arrow geometry must not cross a hole callout label.
+        # The collision gate tests the dim's FULL geometry (not just its label
+        # box) against external annotations, which lint is blind to (#146 review).
+        part = Box(140, 60, 16) - Pos(0, 0, 0) * Box(10, 40, 24)
+        for x, y in [(-45, 20), (45, 20), (-45, -20), (45, -20)]:
+            part = part - Pos(x, y, 0) * Cylinder(4, 16)
+        dwg = build_drawing(part)
+
+        def overlaps(a, b):
+            return min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1])
+
+        external = [
+            o.label_bbox
+            for n, o in dwg._named.items()
+            if not n.startswith("slot") and getattr(o, "label_bbox", None) is not None
+        ]
+        assert external  # the holes produced callouts
+        for n, o in dwg._named.items():
+            if not n.startswith("slot"):
+                continue
+            g = o.bounding_box()
+            full = (g.min.X, g.min.Y, g.max.X, g.max.Y)
+            assert not any(overlaps(full, e) for e in external), f"{n} overprints a callout"
 
 
 class TestPlaceDim:

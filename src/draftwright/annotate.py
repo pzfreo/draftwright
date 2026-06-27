@@ -1510,7 +1510,14 @@ def _annotate_slots(dwg, a: Analysis):
     if not a.slots:
         return
     draft = dwg.draft
-    occupied = _occupied_boxes(dwg)
+    # Two occupancy sets with different collision tests (#146 re-review):
+    #  - ``external`` (callouts, envelope dims, hatch) is tested against the
+    #    candidate's FULL geometry, so a slot dim's witness/arrow line may not
+    #    cross another feature's label even though the label boxes clear;
+    #  - ``placed`` (this pass's own slot dims) is tested label-box to label-box,
+    #    so sibling dims may still stack in a shared strip corridor.
+    external = _occupied_boxes(dwg)
+    placed: list = []
     tier = draft.font_size + 2 * draft.pad_around_text
 
     # (view name, zones, horizontal axis + projector, vertical axis + projector)
@@ -1523,11 +1530,11 @@ def _annotate_slots(dwg, a: Analysis):
     def _bb(axis, hi):
         return getattr(a.bb.max if hi else a.bb.min, axis.upper())
 
-    def _drop(kind, view):
+    def _drop(kind, idx, view):
         dwg._record_build_issue(
             "info",
             "slot_dim_dropped",
-            f"slot {kind} dim not placed (no room beside the {view} view)",
+            f"slot{idx} {kind} dim not placed (no room beside the {view} view)",
         )
 
     for i, s in enumerate(a.slots):
@@ -1595,11 +1602,13 @@ def _annotate_slots(dwg, a: Analysis):
                     e_lo = (witness, meas_proj(p_lo), 0)
                     e_hi = (witness, meas_proj(p_hi), 0)
                 dim = _dim(e_lo, e_hi, side, abs(coord - witness), draft, label=_fmt(label))
-                if _box_hits(_anno_box(dim), occupied):
+                gbb = dim.bounding_box()
+                full = (gbb.min.X, gbb.min.Y, gbb.max.X, gbb.max.Y)
+                if _box_hits(full, external) or _box_hits(_anno_box(dim), placed):
                     continue
                 strip.allocate(tier)
                 dwg.add(dim, f"slot{idx}_{kind}", view=vw[0])
-                occupied.append(_anno_box(dim))
+                placed.append(_anno_box(dim))
                 return True
             return False
 
@@ -1609,7 +1618,7 @@ def _annotate_slots(dwg, a: Analysis):
         if not _place(
             s.width_axis, s.w_center - half, s.w_center + half, s.lo, s.hi, s.width, "width"
         ):
-            _drop("width", name)
+            _drop("width", i, name)
 
         # Length along the slot's long axis (find_slots excludes full-span open
         # features, so length is always a real, sub-envelope measurement); its
@@ -1617,7 +1626,7 @@ def _annotate_slots(dwg, a: Analysis):
         if not _place(
             s.long_axis, s.lo, s.hi, s.w_center - half, s.w_center + half, s.length, "length"
         ):
-            _drop("length", name)
+            _drop("length", i, name)
 
         # Position: from the part datum (min on the long axis, the same datum the
         # hole-location dims use) to the slot's near edge — its lo, the edge
@@ -1634,7 +1643,7 @@ def _annotate_slots(dwg, a: Analysis):
                 "pos",
                 anchor="lo",
             ):
-                _drop("position", name)
+                _drop("position", i, name)
 
 
 def _section_hatch_edges(face, SX, SZ, spacing):
