@@ -341,7 +341,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Idempotent: clear build-time lint state so a second annotation pass does
     # not accumulate duplicate drop records.
     dwg._reset_build_issues()
-    dwg._dropped_callout_diams = []
+    dwg._reset_dropped_callout_diams()
 
     FX = a.proj.front_x
     FZ = a.proj.front_z
@@ -720,7 +720,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # pattern dimension, so they must not become table rows or per-hole balloons
     # (#92).  Excluding them is also what keeps a densely-but-regularly drilled
     # part (e.g. NIST CTC-02) off the 61-row escalation (#111).
-    holes = [h for h in a.holes if _axis_letter(h) == "z" and h not in dwg._patterned_holes]
+    holes = [h for h in a.holes if _axis_letter(h) == "z" and not dwg._is_hole_patterned(h)]
     # A chart is warranted only for a *genuinely* dense plan view — a part that
     # merely dropped one too-close location ref keeps its individual dims (the
     # legibility gate already handled it). #93.
@@ -739,7 +739,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     replaced = {
         n: dwg._named[n]
         for n in list(dwg._named)
-        if n.startswith(("hc_plan", "dim_locx", "dim_locy")) and n not in dwg._pattern_callouts
+        if n.startswith(("hc_plan", "dim_locx", "dim_locy")) and not dwg._is_pattern_callout(n)
     }
     replaced_view = {n: dwg._anno_view.get(n) for n in replaced}
     for n in replaced:
@@ -1127,7 +1127,7 @@ def _record_callout_drop(dwg, view, diam, reason):
     so a callout that genuinely doesn't fit is surfaced once, with a reason,
     and not double-reported.
     """
-    dwg._dropped_callout_diams.append(diam)
+    dwg._drop_callout_diam(diam)
     dwg._record_build_issue(
         "warning",
         "callout_dropped",
@@ -2076,8 +2076,7 @@ def _add_furniture(dwg, a: Analysis, view, j, pattern, to_page):
         # Recording here (callout already placed) — not from a.patterns — means a
         # pattern dropped for lack of room, or filtered off a rotational part,
         # correctly falls back to the table instead of going undocumented.
-        dwg._pattern_callouts.add(f"hc_{view}{j}")
-        dwg._patterned_holes.update(pattern.holes)
+        dwg._cover_pattern(f"hc_{view}{j}", pattern.holes)
     if isinstance(pattern, BoltCircle):
         cx = sum(to_page(h)[0] for h in pattern.holes) / len(pattern.holes)
         cy = sum(to_page(h)[1] for h in pattern.holes) / len(pattern.holes)

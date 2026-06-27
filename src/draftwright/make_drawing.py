@@ -116,6 +116,7 @@ from draftwright.layout import (
     _solve_strip_1d,
     fit_box,
 )
+from draftwright.linting import CoverageState
 from draftwright.registry import AnnotationRegistry
 
 _TB_W = 150.0
@@ -2284,12 +2285,11 @@ class Drawing:
         # / `_build_issues` remain reachable as properties (below) so tests and
         # helpers that read through them keep working during the migration.
         self._registry = AnnotationRegistry()
-        # Names of bore callouts that document a recognised hole pattern (a
-        # grouped ``n× ⌀`` callout), and the holes those placed callouts cover.
-        # The hole-table escalation keeps these callouts and tabulates only the
-        # holes no placed pattern callout documents (#92).
-        self._pattern_callouts: set = set()
-        self._patterned_holes: set = set()
+        # Lint-side coverage signal (pattern callouts, patterned holes, dropped
+        # callout diameters) lives in its own owner (#138 / ADR 0005, Step 3).
+        # _pattern_callouts / _patterned_holes / _dropped_callout_diams remain
+        # reachable as properties below.
+        self._coverage = CoverageState()
         # One per-drawing cache for lint_drawing's per-view edge bboxes, keyed on
         # id(view shape). repair() / lint_summary() lint the SAME projected view
         # objects (self.views) repeatedly, so persisting it recomputes each
@@ -2298,10 +2298,6 @@ class Drawing:
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
         self._analysis: Analysis | None = None
-        # Diameters dropped by the per-view callout cap, tracked so :meth:`lint`
-        # can suppress the redundant feature_not_dimensioned for them. Reset at
-        # the top of :func:`_auto_annotate` so re-annotation does not accumulate.
-        self._dropped_callout_diams: list = []
 
     # -- annotation registry (compat accessors, ADR 0005 §4) ------------------
     # The registry owns these four; they are exposed as their live containers so
@@ -2338,6 +2334,55 @@ class Drawing:
     @_build_issues.setter
     def _build_issues(self, value) -> None:
         self._registry._build_issues = value
+
+    # -- coverage state (compat accessors, ADR 0005 §4) -----------------------
+    # The CoverageState owner holds these three; exposed as their live containers
+    # so code reading dwg._pattern_callouts / _patterned_holes /
+    # _dropped_callout_diams keeps working until those sites are redirected.
+    @property
+    def _pattern_callouts(self) -> set:
+        return self._coverage._pattern_callouts
+
+    @_pattern_callouts.setter
+    def _pattern_callouts(self, value) -> None:
+        self._coverage._pattern_callouts = value
+
+    @property
+    def _patterned_holes(self) -> set:
+        return self._coverage._patterned_holes
+
+    @_patterned_holes.setter
+    def _patterned_holes(self, value) -> None:
+        self._coverage._patterned_holes = value
+
+    @property
+    def _dropped_callout_diams(self) -> list:
+        return self._coverage._dropped_callout_diams
+
+    @_dropped_callout_diams.setter
+    def _dropped_callout_diams(self, value) -> None:
+        self._coverage._dropped_callout_diams = value
+
+    # -- coverage state operations (used by the annotation passes) ------------
+    def _cover_pattern(self, callout_name, holes):
+        """Record that placed *callout_name* documents *holes* (#92)."""
+        self._coverage.cover_pattern(callout_name, holes)
+
+    def _is_pattern_callout(self, name) -> bool:
+        """Is *name* a placed pattern (grouped ``n× ⌀``) callout?"""
+        return self._coverage.is_pattern_callout(name)
+
+    def _is_hole_patterned(self, hole) -> bool:
+        """Is *hole* already documented by a placed pattern callout?"""
+        return self._coverage.is_hole_patterned(hole)
+
+    def _reset_dropped_callout_diams(self):
+        """Clear dropped-diameter tracking (top of :func:`_auto_annotate`)."""
+        self._coverage.reset_dropped()
+
+    def _drop_callout_diam(self, diam):
+        """Record a diameter dropped by the per-view callout cap."""
+        self._coverage.drop_diam(diam)
 
     # -- views ----------------------------------------------------------------
     def add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
@@ -3029,7 +3074,7 @@ class Drawing:
                 self.part,
                 self.items,
                 cyls=self._cyl_cache,
-                exclude=self._dropped_callout_diams,
+                exclude=self._coverage.dropped_diams,
                 assembly=self.assembly,
             )
         issues += list(self._build_issues)

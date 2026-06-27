@@ -15,9 +15,10 @@ It sits on top of two Apache 2.0 libraries:
 
 ## Architecture
 
-The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`, and
-`fonts.py` sit below `_core.py` → (`make_drawing.py`, `annotate.py`), and
-`make_drawing.py` → `annotate.py`. No lower module imports an upper one.
+The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`,
+`linting.py`, and `fonts.py` sit below `_core.py` → (`make_drawing.py`,
+`annotate.py`), and `make_drawing.py` → `annotate.py`. No lower module imports an
+upper one.
 
 - **`make_drawing.py`** — orchestration and the public surface:
   - **STEP/Shape import + geometry analysis** (`_analyse`) — builds the `Analysis` namespace
@@ -41,6 +42,10 @@ The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`, and
   identity/ownership/pins/build-issues (#138 / ADR 0005, Step 2). `Drawing`
   delegates here and keeps the render list; `_named`/`_anno_view`/`_pinned`/
   `_build_issues` remain `Drawing` properties during the migration.
+- **`linting.py`** — `CoverageState`: the single owner of the lint-side coverage
+  signal (pattern callouts, patterned holes, dropped callout diameters; #138 /
+  ADR 0005, Step 3). The designated future home for `lint_feature_coverage` /
+  `_suggest_fix`; for now it owns just the state they read.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
@@ -77,10 +82,11 @@ Current ADRs:
   `layout.py` unchanged. **Landed so far:** Step 0 (golden-output harness, gates
   behaviour-equivalence), Step 1 (#139, public helper APIs), Step 2 (`registry.py`
   owns annotation identity; `Drawing` delegates, with `_named`/`_anno_view`/
-  `_pinned`/`_build_issues` kept as compat properties). **Still ahead:** coverage
-  state → lint, build context → pipeline, the sheet/projection/export/annotations
-  splits. The module list above is the *current* tree; the remaining stage modules
-  do not exist yet.
+  `_pinned`/`_build_issues` kept as compat properties), Step 3 (`linting.py`
+  `CoverageState` owns the lint-side coverage signal). **Still ahead:** build
+  context → pipeline, and the sheet/projection/export/annotations splits. The
+  module list above is the *current* tree; the remaining stage modules do not
+  exist yet.
 - **0006** — **Accepted** (#149): deterministic cross-platform layout via bundled,
   path-pinned fonts. Layout depends on measured text width; resolving a font *name*
   (`"Arial"`) substitutes a different font on Linux, drifting the whole sheet ~1 mm.
