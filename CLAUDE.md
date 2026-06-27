@@ -72,10 +72,17 @@ Current ADRs:
   modules DAG" description above is still the *current* tree; do not assume 0005's
   module shape exists until the #138 PRs land. Behaviour-equivalence is gated by a
   golden-output harness (Step 0).
+- **0006** — **Accepted** (#149): deterministic cross-platform layout via bundled,
+  path-pinned fonts. Layout depends on measured text width; resolving a font *name*
+  (`"Arial"`) substitutes a different font on Linux, drifting the whole sheet ~1 mm.
+  draftwright vendors IBM Plex (OFL) and pins it by `font_path` (Plex Mono for
+  dimensions, Plex Sans Condensed for title blocks); the helper renders via
+  `font_path` (needs `>=0.13.0`). Output changed once for every drawing (goldens
+  regenerated); the 0005 golden gate now pins a real part (CTC-01).
 
 ## Dependencies
 
-- `build123d-drafting-helpers>=0.12.1` (Apache 2.0)
+- `build123d-drafting-helpers>=0.13.0` (Apache 2.0)
 - `build123d>=0.9.0` (Apache 2.0)
 - `kiwisolver>=1.4,<2` — Cassowary constraint solver for bore-callout Y-placement
 

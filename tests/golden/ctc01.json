@@ -1,0 +1,335 @@
+{
+  "drawing": {
+    "annotations": [
+      {
+        "bbox": [
+          108.775,
+          153.0,
+          114.775,
+          159.0
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          120.775,
+          153.0,
+          126.775,
+          159.0
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          146.275,
+          221.5,
+          153.275,
+          228.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          146.275,
+          239.5,
+          153.275,
+          246.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          178.275,
+          194.5,
+          187.275,
+          203.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          178.275,
+          264.5,
+          187.275,
+          273.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          48.275,
+          194.5,
+          57.275,
+          203.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          48.275,
+          264.5,
+          57.275,
+          273.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          82.275,
+          221.5,
+          89.275,
+          228.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          82.275,
+          239.5,
+          89.275,
+          246.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "label": "100",
+        "type": "Dimension"
+      },
+      {
+        "label": "150",
+        "type": "Dimension"
+      },
+      {
+        "label": "180",
+        "type": "Dimension"
+      },
+      {
+        "label": "240",
+        "type": "Dimension"
+      },
+      {
+        "label": "270",
+        "type": "Dimension"
+      },
+      {
+        "label": "370",
+        "type": "Dimension"
+      },
+      {
+        "label": "40",
+        "type": "Dimension"
+      },
+      {
+        "label": "400",
+        "type": "Dimension"
+      },
+      {
+        "label": "430",
+        "type": "Dimension"
+      },
+      {
+        "label": "450",
+        "type": "Dimension"
+      },
+      {
+        "label": "50",
+        "type": "Dimension"
+      },
+      {
+        "label": "50",
+        "type": "Dimension"
+      },
+      {
+        "label": "560",
+        "type": "Dimension"
+      },
+      {
+        "label": "725",
+        "type": "Dimension"
+      },
+      {
+        "label": "75",
+        "type": "Dimension"
+      },
+      {
+        "label": "75",
+        "type": "Dimension"
+      },
+      {
+        "label": "80",
+        "type": "Dimension"
+      },
+      {
+        "label": "800",
+        "type": "Dimension"
+      },
+      {
+        "label": "",
+        "type": "Leader"
+      },
+      {
+        "label": "",
+        "type": "Leader"
+      },
+      {
+        "label": "",
+        "type": "Leader"
+      },
+      {
+        "label": "ISO VIEW (NTS)",
+        "type": "Note"
+      },
+      {
+        "bbox": [
+          432.925,
+          10.925,
+          583.075,
+          27.075
+        ],
+        "label": "NIST CTC 01 ASME1 AP203",
+        "type": "TitleBlock"
+      }
+    ],
+    "lint": {
+      "by_code": {
+        "slot_dim_dropped": 3
+      },
+      "errors": 0,
+      "infos": 3,
+      "passed": true,
+      "warnings": 0
+    },
+    "page": {
+      "h": 420.0,
+      "scale": 0.2,
+      "w": 594.0
+    },
+    "views": {
+      "front": {
+        "hidden": {
+          "bbox": [
+            37.775,
+            141.0,
+            197.775,
+            171.0
+          ],
+          "edges": 293
+        },
+        "visible": {
+          "bbox": [
+            37.775,
+            141.0,
+            197.775,
+            171.0
+          ],
+          "edges": 77
+        }
+      },
+      "iso": {
+        "hidden": {
+          "bbox": [
+            353.8898,
+            165.6941,
+            571.8852,
+            303.024
+          ],
+          "edges": 280
+        },
+        "visible": {
+          "bbox": [
+            353.8898,
+            160.4122,
+            571.8852,
+            305.2118
+          ],
+          "edges": 276
+        }
+      },
+      "plan": {
+        "hidden": {
+          "bbox": [
+            37.775,
+            189.0,
+            197.775,
+            279.0
+          ],
+          "edges": 225
+        },
+        "visible": {
+          "bbox": [
+            37.775,
+            189.0,
+            197.775,
+            279.0
+          ],
+          "edges": 97
+        }
+      },
+      "side": {
+        "hidden": {
+          "bbox": [
+            233.775,
+            141.0,
+            323.775,
+            171.0
+          ],
+          "edges": 293
+        },
+        "visible": {
+          "bbox": [
+            233.775,
+            141.0,
+            323.775,
+            171.0
+          ],
+          "edges": 71
+        }
+      }
+    }
+  },
+  "dxf": {
+    "by_layer": {
+      "hidden": 1091,
+      "part": 521
+    },
+    "by_type": {
+      "ARC": 101,
+      "CIRCLE": 14,
+      "ELLIPSE": 187,
+      "LINE": 962,
+      "SPLINE": 348
+    }
+  },
+  "svg": {
+    "elements": {
+      "Description": 1,
+      "RDF": 1,
+      "a": 1,
+      "circle": 14,
+      "creator": 1,
+      "description": 1,
+      "g": 1,
+      "g.dims": 1,
+      "g.hidden": 1,
+      "g.part": 1,
+      "line": 962,
+      "metadata": 1,
+      "path": 927,
+      "rect": 1,
+      "source": 1,
+      "svg": 1
+    },
+    "height": "420.000mm",
+    "width": "594.000mm"
+  }
+}

@@ -25,6 +25,7 @@ from build123d_drafting.helpers import (
     format_drawing_scale,
 )
 
+from draftwright.fonts import PLEX_SANS_CONDENSED
 from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
 
 _log = logging.getLogger(__name__)
@@ -434,7 +435,14 @@ def _add_title_block(dwg, a: Analysis):
         revision="A",
         legal_owner="",
         width=a.TB_W,
-        draft=dwg.draft,
+        # Title block renders in condensed sans (the tight ISO 7200 cells), a
+        # different face from the monospace dimensions — so it carries its own
+        # pinned-font draft rather than reusing dwg.draft (#149).
+        draft=draft_preset(
+            font_size=dwg.draft.font_size,
+            decimal_precision=dwg.draft.decimal_precision,
+            font_path=PLEX_SANS_CONDENSED,
+        ),
     )
     # Drawn-by cell geometry, taken from the block itself rather than hardcoded,
     # so the hyperlink rect tracks any upstream TitleBlock layout change: the
