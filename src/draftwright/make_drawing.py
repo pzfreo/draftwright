@@ -116,6 +116,7 @@ from draftwright.layout import (
     _solve_strip_1d,
     fit_box,
 )
+from draftwright.registry import AnnotationRegistry
 
 _TB_W = 150.0
 _DIM_PAD = 18.0
@@ -2278,14 +2279,11 @@ class Drawing:
         self.views: dict = {}
         self.items: list = []
         self._coords: dict = {}
-        self._named: dict = {}
-        # Owning view per named annotation ("front"/"plan"/"side"), captured at
-        # creation by the annotation passes (#121).  This is the authoritative
-        # source for composing each view's footprint rectangle — the view and the
-        # annotations it owns are one block — so the layout never has to recover
-        # ownership from page coordinates.  Drawing-level marks (title block,
-        # iso/section notes) carry no view.
-        self._anno_view: dict = {}
+        # Annotation identity, ownership, pins, and build issues live in the
+        # registry (#138 / ADR 0005, Step 2). `_named` / `_anno_view` / `_pinned`
+        # / `_build_issues` remain reachable as properties (below) so tests and
+        # helpers that read through them keep working during the migration.
+        self._registry = AnnotationRegistry()
         # Names of bore callouts that document a recognised hole pattern (a
         # grouped ``n× ⌀`` callout), and the holes those placed callouts cover.
         # The hole-table escalation keeps these callouts and tabulates only the
@@ -2297,20 +2295,49 @@ class Drawing:
         # objects (self.views) repeatedly, so persisting it recomputes each
         # view's edges once instead of every lint (helpers #143/#164).
         self._view_edge_cache: dict = {}
-        # Names the caller has pinned: their position is fixed and the engine
-        # must not move them (repair now; the global solve later — ADR 0003 #89).
-        self._pinned: set = set()
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
         self._analysis: Analysis | None = None
-        # Lint issues found while building (e.g. annotations the layout had to
-        # drop). Recorded here so :meth:`lint` can surface them — a dropped
-        # feature must never be silent. Diameters dropped by the per-view
-        # callout cap are tracked separately so :meth:`lint` can suppress the
-        # redundant feature_not_dimensioned for them. Both are reset at the
-        # top of :func:`_auto_annotate` so re-annotation does not accumulate.
-        self._build_issues: list = []
+        # Diameters dropped by the per-view callout cap, tracked so :meth:`lint`
+        # can suppress the redundant feature_not_dimensioned for them. Reset at
+        # the top of :func:`_auto_annotate` so re-annotation does not accumulate.
         self._dropped_callout_diams: list = []
+
+    # -- annotation registry (compat accessors, ADR 0005 §4) ------------------
+    # The registry owns these four; they are exposed as their live containers so
+    # code that reads or mutates ``dwg._named`` / ``_anno_view`` / ``_pinned`` /
+    # ``_build_issues`` keeps working until those call sites are redirected.
+    @property
+    def _named(self) -> dict:
+        return self._registry._named
+
+    @_named.setter
+    def _named(self, value) -> None:
+        self._registry._named = value
+
+    @property
+    def _anno_view(self) -> dict:
+        return self._registry._anno_view
+
+    @_anno_view.setter
+    def _anno_view(self, value) -> None:
+        self._registry._anno_view = value
+
+    @property
+    def _pinned(self) -> set:
+        return self._registry._pinned
+
+    @_pinned.setter
+    def _pinned(self, value) -> None:
+        self._registry._pinned = value
+
+    @property
+    def _build_issues(self) -> list:
+        return self._registry._build_issues
+
+    @_build_issues.setter
+    def _build_issues(self, value) -> None:
+        self._registry._build_issues = value
 
     # -- views ----------------------------------------------------------------
     def add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
@@ -2506,32 +2533,23 @@ class Drawing:
         drawing-level marks (title block, iso/section notes) that belong to no
         single view.
         """
-        if name is not None and name in self._named:
-            self.items.remove(self._named[name])
-            # A replacement under the same name is a fresh, deliberate object —
-            # it does not inherit the old object's pin (#89).
-            self._pinned.discard(name)
+        displaced = self._registry.named(name) if name is not None else None
+        if displaced is not None:
+            self.items.remove(displaced)
         annotate(obj, name)
         self.items.append(obj)
-        if name is not None:
-            self._named[name] = obj
-            # A replacement is a fresh object (see the pin discard above): set the
-            # new owner, or clear a stale tag when re-added view-less, so the
-            # ownership map never lags _named (#121).
-            if view is not None:
-                self._anno_view[name] = view
-            else:
-                self._anno_view.pop(name, None)
+        # The registry records name -> obj and the owning view, and drops any pin
+        # the replaced name carried — a replacement is a fresh object (#89) — and
+        # clears a stale ownership tag when re-added view-less (#121).
+        self._registry.add(obj, name, view)
         return obj
 
     def remove(self, name):
         """Remove a previously named annotation. Raises ``KeyError`` if absent."""
-        obj = self._named.pop(name, None)
+        obj = self._registry.remove(name)  # forgets object, view, and pin (#89)
         if obj is None:
             raise KeyError(f"no annotation named {name!r}")
         self.items.remove(obj)
-        self._pinned.discard(name)  # a removed name carries no pin (#89)
-        self._anno_view.pop(name, None)
         return obj
 
     def annotations(self) -> dict:
@@ -2542,11 +2560,11 @@ class Drawing:
         incremental edits without risking a silent name-collision replace.
         Unnamed annotations are omitted; iterate :attr:`items` for those.
         """
-        return {name: type(obj).__name__ for name, obj in self._named.items()}
+        return self._registry.annotations()
 
     def get_annotation(self, name):
         """Return the named annotation object, or ``None`` if no such name (#27)."""
-        return self._named.get(name)
+        return self._registry.named(name)
 
     def add_table(self, rows, *, prefer="tr", name="table", block_cols=None):
         """Add a generic data table, placed in a free corner (#93).
@@ -2820,15 +2838,15 @@ class Drawing:
         still apply. Raises ``KeyError`` if *name* is not a known annotation.
         Returns ``self`` for chaining.
         """
-        if name not in self._named:
+        if name not in self._registry:
             raise KeyError(f"no annotation named {name!r}")
-        self._pinned.add(name)
+        self._registry.pin(name)
         return self
 
     def unpin(self, name):
         """Release a pin so the engine may move *name* again (#89). Returns
         ``self``; a no-op if *name* was not pinned."""
-        self._pinned.discard(name)
+        self._registry.unpin(name)
         return self
 
     def clear_annotations(self, keep=("title_block",)):
@@ -2841,21 +2859,17 @@ class Drawing:
         Returns:
             The list of removed annotation objects.
         """
-        keep_set = set(keep)
-        kept_named = {n: o for n, o in self._named.items() if n in keep_set}
+        kept_named = self._registry.clear(keep)  # prunes names, views, and pins
         kept_ids = {id(o) for o in kept_named.values()}
         removed = [o for o in self.items if id(o) not in kept_ids]
         self.items = [o for o in self.items if id(o) in kept_ids]
-        self._named = kept_named
-        self._pinned &= keep_set  # drop pins for cleared names (#89)
-        self._anno_view = {n: v for n, v in self._anno_view.items() if n in keep_set}
         return removed
 
     def _record_build_issue(self, severity, code, message):
         """Record a lint issue discovered during construction (e.g. an
         annotation the layout had to drop). Surfaced by :meth:`lint` so a
         dropped feature is never silent."""
-        self._build_issues.append(LintIssue(severity=severity, code=code, message=message))
+        self._registry.record_issue(LintIssue(severity=severity, code=code, message=message))
 
     # -- repair ---------------------------------------------------------------
     def _find_dim(self, label):
@@ -2868,7 +2882,7 @@ class Drawing:
         """
         # Identity-based, matching clear_annotations: "this specific object",
         # not build123d's geometric Shape equality.
-        pinned_ids = {id(self._named[n]) for n in self._pinned if n in self._named}
+        pinned_ids = self._registry.pinned_object_ids()
         for o in self.items:
             if id(o) in pinned_ids:
                 continue

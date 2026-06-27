@@ -15,9 +15,9 @@ It sits on top of two Apache 2.0 libraries:
 
 ## Architecture
 
-Five modules. The dependency graph is a DAG: `layout.py` → `_core.py` →
-(`make_drawing.py`, `annotate.py`), and `make_drawing.py` → `annotate.py`. No
-lower module imports an upper one.
+The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`, and
+`fonts.py` sit below `_core.py` → (`make_drawing.py`, `annotate.py`), and
+`make_drawing.py` → `annotate.py`. No lower module imports an upper one.
 
 - **`make_drawing.py`** — orchestration and the public surface:
   - **STEP/Shape import + geometry analysis** (`_analyse`) — builds the `Analysis` namespace
@@ -37,6 +37,12 @@ lower module imports an upper one.
 - **`layout.py`** — the constraint-based layout engine (ADR 0003): the `Placeable`
   protocol and `LayoutSolver` (1D Cassowary strip solver `solve_strip`; 2D
   free-rectangle placer `place_box`/`fit_box`). Sits *below* the domain API.
+- **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
+  identity/ownership/pins/build-issues (#138 / ADR 0005, Step 2). `Drawing`
+  delegates here and keeps the render list; `_named`/`_anno_view`/`_pinned`/
+  `_build_issues` remain `Drawing` properties during the migration.
+- **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
+  cross-platform layout (ADR 0006).
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
 
 ## Architecture decisions — READ `docs/adr/` FIRST
@@ -63,15 +69,18 @@ Current ADRs:
   front-view dimensions (CTC-02) + lint clean. Execution tracked as **#121**
   (the current order — annotations placed *after* views, into shared corridors —
   is the root cause of cross-view overlap).
-- **0005** — **Proposed** (#138): compiler-pipeline module boundaries + single-owner
-  build state. `Drawing` stops being the implicit state bus; annotation
-  identity/pins/build-issues move to a `registry.py`, coverage state to lint,
-  build context (`Analysis`, edge cache) to the pipeline. Stages split into
+- **0005** — **Accepted, in progress** (#138): compiler-pipeline module boundaries
+  + single-owner build state. `Drawing` stops being the implicit state bus;
+  annotation identity/pins/build-issues move to a `registry.py`, coverage state to
+  lint, build context (`Analysis`, edge cache) to the pipeline. Stages split into
   `builder`/`analysis`/`sheet`/`projection`/`linting`/`repair`/`export`/`annotations/`;
-  `layout.py` unchanged. **Migration is unstarted** — the "Five modules" / "Five
-  modules DAG" description above is still the *current* tree; do not assume 0005's
-  module shape exists until the #138 PRs land. Behaviour-equivalence is gated by a
-  golden-output harness (Step 0).
+  `layout.py` unchanged. **Landed so far:** Step 0 (golden-output harness, gates
+  behaviour-equivalence), Step 1 (#139, public helper APIs), Step 2 (`registry.py`
+  owns annotation identity; `Drawing` delegates, with `_named`/`_anno_view`/
+  `_pinned`/`_build_issues` kept as compat properties). **Still ahead:** coverage
+  state → lint, build context → pipeline, the sheet/projection/export/annotations
+  splits. The module list above is the *current* tree; the remaining stage modules
+  do not exist yet.
 - **0006** — **Accepted** (#149): deterministic cross-platform layout via bundled,
   path-pinned fonts. Layout depends on measured text width; resolving a font *name*
   (`"Arial"`) substitutes a different font on Linux, drifting the whole sheet ~1 mm.
