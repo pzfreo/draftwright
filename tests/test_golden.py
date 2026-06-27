@@ -46,9 +46,22 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
-from build123d import Box, Cylinder
+from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
+
+
+def _holed_plate():
+    """A symmetric prismatic plate with four identical through-holes — the only
+    fast fixture that exercises the hole-callout pass. Symmetric on both axes so
+    the page-centering computation is balanced (the asymmetry-driven ~1 mm sheet
+    shift that makes real NIST parts platform-variant should not arise here)."""
+    plate = Box(80, 60, 10)
+    for x in (-25, 25):
+        for y in (-15, 15):
+            plate -= Pos(x, y, 0) * Cylinder(radius=4, height=12)
+    return plate
+
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -213,11 +226,13 @@ _PARTS = {
     "cylinder": lambda: Cylinder(radius=15, height=40),
     "plate": lambda: Box(80, 50, 8),
     "stepped": lambda: Box(40, 40, 10) + Box(20, 20, 10).translate((0, 0, 10)),
+    "holed_plate": _holed_plate,
 }
 
-# (id, kind, ident, slow). Three primitives cover the turned / prismatic /
-# stepped geometry classes. They are cross-platform stable to 1e-4 mm (verified on
-# the Linux/macOS/Windows CI matrix).
+# (id, kind, ident, slow). The first three cover the turned / prismatic / stepped
+# geometry classes and are cross-platform stable to 1e-4 mm (verified on the
+# Linux/macOS/Windows CI matrix). holed_plate adds the hole-callout pass on a
+# symmetric part chosen to keep its layout platform-stable (see _holed_plate).
 #
 # The NIST CTC fixtures are deliberately NOT here. A real part's *absolute* layout
 # is platform-variant: its page centering and iso fit depend on summed text-metric
@@ -230,6 +245,7 @@ _CASES = [
     ("cylinder", "obj", "cylinder", False),
     ("plate", "obj", "plate", False),
     ("stepped", "obj", "stepped", False),
+    ("holed_plate", "obj", "holed_plate", False),
 ]
 
 

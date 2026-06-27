@@ -1,0 +1,220 @@
+{
+  "drawing": {
+    "annotations": [
+      {
+        "bbox": [
+          46.3286,
+          142.5,
+          56.3286,
+          152.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          46.3286,
+          172.5,
+          56.3286,
+          182.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          96.3286,
+          142.5,
+          106.3286,
+          152.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "bbox": [
+          96.3286,
+          172.5,
+          106.3286,
+          182.5
+        ],
+        "label": "",
+        "type": "CenterMark"
+      },
+      {
+        "label": "10",
+        "type": "Dimension"
+      },
+      {
+        "label": "15",
+        "type": "Dimension"
+      },
+      {
+        "label": "15",
+        "type": "Dimension"
+      },
+      {
+        "label": "45",
+        "type": "Dimension"
+      },
+      {
+        "label": "60",
+        "type": "Dimension"
+      },
+      {
+        "label": "65",
+        "type": "Dimension"
+      },
+      {
+        "label": "80",
+        "type": "Dimension"
+      },
+      {
+        "label": "",
+        "type": "Leader"
+      },
+      {
+        "label": "ISO VIEW (NTS)",
+        "type": "Note"
+      },
+      {
+        "bbox": [
+          258.925,
+          10.925,
+          409.075,
+          27.075
+        ],
+        "label": "HOLED_PLATE",
+        "type": "TitleBlock"
+      }
+    ],
+    "lint": {
+      "by_code": {},
+      "errors": 0,
+      "infos": 0,
+      "passed": true,
+      "warnings": 0
+    },
+    "page": {
+      "h": 297.0,
+      "scale": 1.0,
+      "w": 420.0
+    },
+    "views": {
+      "front": {
+        "hidden": {
+          "bbox": [
+            36.3286,
+            104.5,
+            116.3286,
+            114.5
+          ],
+          "edges": 28
+        },
+        "visible": {
+          "bbox": [
+            36.3286,
+            104.5,
+            116.3286,
+            114.5
+          ],
+          "edges": 4
+        }
+      },
+      "iso": {
+        "hidden": {
+          "bbox": [
+            250.9819,
+            145.9616,
+            379.6753,
+            217.9578
+          ],
+          "edges": 23
+        },
+        "visible": {
+          "bbox": [
+            250.9819,
+            133.0422,
+            379.6753,
+            217.9578
+          ],
+          "edges": 21
+        }
+      },
+      "plan": {
+        "hidden": {
+          "bbox": [
+            36.3286,
+            132.5,
+            116.3286,
+            192.5
+          ],
+          "edges": 8
+        },
+        "visible": {
+          "bbox": [
+            36.3286,
+            132.5,
+            116.3286,
+            192.5
+          ],
+          "edges": 8
+        }
+      },
+      "side": {
+        "hidden": {
+          "bbox": [
+            142.6572,
+            104.5,
+            202.6572,
+            114.5
+          ],
+          "edges": 36
+        },
+        "visible": {
+          "bbox": [
+            142.6572,
+            104.5,
+            202.6572,
+            114.5
+          ],
+          "edges": 4
+        }
+      }
+    }
+  },
+  "dxf": {
+    "by_layer": {
+      "hidden": 95,
+      "part": 37
+    },
+    "by_type": {
+      "CIRCLE": 8,
+      "ELLIPSE": 24,
+      "LINE": 60,
+      "SPLINE": 40
+    }
+  },
+  "svg": {
+    "elements": {
+      "Description": 1,
+      "RDF": 1,
+      "a": 1,
+      "circle": 8,
+      "creator": 1,
+      "description": 1,
+      "g": 1,
+      "g.dims": 1,
+      "g.hidden": 1,
+      "g.part": 1,
+      "line": 60,
+      "metadata": 1,
+      "path": 228,
+      "rect": 1,
+      "source": 1,
+      "svg": 1
+    },
+    "height": "297.000mm",
+    "width": "420.000mm"
+  }
+}
