@@ -52,7 +52,6 @@ from build123d_drafting.features import (
     HoleSpec,
     RectGrid,
     analyse_cylinders,
-    feature_diameters,
     find_hole_patterns,
     find_holes,
     full_cylinders,
@@ -61,7 +60,6 @@ from build123d_drafting.helpers import (
     Leader,
     LintIssue,
     Note,
-    TitleBlock,
     ViewCoordinates,
     annotate,
     draft_preset,
@@ -124,7 +122,7 @@ from draftwright.layout import (
     _solve_strip_1d,
     fit_box,
 )
-from draftwright.linting import CoverageState
+from draftwright.linting import CoverageState, lint_feature_coverage
 from draftwright.registry import AnnotationRegistry
 
 _TB_W = 150.0
@@ -451,108 +449,6 @@ def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
 # bores are already dimensioned by the ldr_z bore leaders, so they must not
 # also receive a hole callout / location dim (#10).  Off-axis holes (a bolt
 # circle, a cross-hole) fall through to the feature-presence path.
-
-
-def lint_feature_coverage(
-    part, annotations, tol: float = 0.15, cyls=None, exclude=None, assembly=None
-) -> list:
-    """Coarse completeness check: report part diameters with no callout (#80).
-
-    ``exclude`` is an optional iterable of diameters already accounted for by a
-    more specific build-time lint (e.g. the per-view callout cap's
-    ``callout_dropped``); these are skipped here so a dropped callout is not
-    double-reported as ``feature_not_dimensioned``.
-
-    ``assembly`` controls severity for a general-arrangement drawing of a
-    multi-body part. A GA deliberately omits each part's bores (they belong on
-    detail sheets), so demanding a callout for every cylinder is noise. When
-    ``assembly`` is ``True`` the coverage codes (``feature_not_dimensioned`` /
-    ``feature_count_mismatch``) are emitted at ``info`` severity instead of
-    ``warning`` — kept queryable but out of the warning count and quality score.
-    ``None`` (the default) auto-detects: a multi-solid ``part`` is treated as an
-    assembly. Pass ``False`` to force strict single-part severity (#69).
-
-    Builds a feature inventory from *part*'s hole/boss diameters (cylinder
-    patches spanning at least ~half a turn around their axis in total, so
-    fillets are ignored) and diffs it against every ø value mentioned in the
-    annotations' labels, plus the structured ``covers_diameters`` metadata on
-    annotations that draw their values geometrically (e.g. ``HoleCallout``).
-    Radius callouts are *not* counted — "R5 TYP" fillet notes would otherwise
-    mask an undimensioned ø10 bore. Title blocks are skipped — part numbers
-    like "BRACKET R8" are not callouts. Each uncovered diameter yields one
-    ``feature_not_dimensioned`` warning.
-
-    ``cyls`` accepts a precomputed ``analyse_cylinders(part)`` result so
-    repeated lint runs need not re-scan the solid.
-
-    Counts are checked too (#92): the part's holes (via ``find_holes``) give
-    a required count per diameter (each bore, counterbore, and spotface
-    occurrence counts one), and structured callouts declare how many holes
-    they dimension (``covers_count`` — the ``n×`` prefix). A shortfall
-    yields a ``feature_count_mismatch`` warning. A diameter covered by any
-    free-text ø-label is exempt from the count check — text labels carry no
-    count semantics. Location coverage remains out of scope (#93).
-    """
-    z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
-    # Coverage inventory: the *recognised* dimensionable diameters (bores,
-    # cbore/spotface steps, bosses) from feature_diameters — built via
-    # find_holes/find_bosses, so slot ends and interrupted recesses (partial
-    # cylinders that an angle-only test mistakes for full bores) are excluded.
-    # Replaces the raw full_cylinders patch list, which over-reported those as
-    # undimensioned features (helpers #158/#159).
-    inventory = feature_diameters(part, cyls=(z_cyls, cross_cyls))
-
-    if assembly is None:
-        assembly = len(part.solids()) > 1
-    coverage_severity = "info" if assembly else "warning"
-
-    mentioned: set[float] = set()
-    text_mentioned: set[float] = set()
-    provided: dict[float, int] = {}
-    for ann in annotations:
-        if isinstance(ann, TitleBlock):
-            continue
-        label = getattr(ann, "label", None) or ""
-        for m in _DIAM_RE.finditer(label):
-            mentioned.add(float(m.group(1)))
-            text_mentioned.add(float(m.group(1)))
-        count = getattr(ann, "covers_count", 1)
-        for v in getattr(ann, "covers_diameters", ()):
-            mentioned.add(float(v))
-            provided[float(v)] = provided.get(float(v), 0) + count
-
-    exclude = exclude or ()
-    issues = [
-        LintIssue(
-            severity=coverage_severity,
-            code="feature_not_dimensioned",
-            message=f"cylindrical feature ø{_fmt(d)} has no diameter callout on the sheet",
-        )
-        for d in inventory
-        if not any(abs(d - v) <= tol for v in mentioned)
-        and not any(abs(d - e) <= tol for e in exclude)
-    ]
-
-    required: dict[float, int] = {}
-    for h in find_holes(part, cyls=(z_cyls, cross_cyls)):
-        for d in (h.diameter, *(s.diameter for s in (h.cbore, h.spotface) if s)):
-            key = next((k for k in required if abs(k - d) <= tol), d)
-            required[key] = required.get(key, 0) + 1
-    for d, need in sorted(required.items(), reverse=True):
-        if any(abs(d - v) <= tol for v in text_mentioned):
-            continue  # free-text coverage carries no count to check against
-        have = sum(c for v, c in provided.items() if abs(d - v) <= tol)
-        if 0 < have < need:
-            issues.append(
-                LintIssue(
-                    severity=coverage_severity,
-                    code="feature_count_mismatch",
-                    message=(
-                        f"{need} ø{_fmt(d)} features on the part but callouts account for {have}"
-                    ),
-                )
-            )
-    return issues
 
 
 # --- lint scoring (see Drawing.lint_summary) -------------------------------
