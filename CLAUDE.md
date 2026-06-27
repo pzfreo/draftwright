@@ -63,10 +63,19 @@ Current ADRs:
   front-view dimensions (CTC-02) + lint clean. Execution tracked as **#121**
   (the current order — annotations placed *after* views, into shared corridors —
   is the root cause of cross-view overlap).
+- **0005** — **Proposed** (#138): compiler-pipeline module boundaries + single-owner
+  build state. `Drawing` stops being the implicit state bus; annotation
+  identity/pins/build-issues move to a `registry.py`, coverage state to lint,
+  build context (`Analysis`, edge cache) to the pipeline. Stages split into
+  `builder`/`analysis`/`sheet`/`projection`/`linting`/`repair`/`export`/`annotations/`;
+  `layout.py` unchanged. **Migration is unstarted** — the "Five modules" / "Five
+  modules DAG" description above is still the *current* tree; do not assume 0005's
+  module shape exists until the #138 PRs land. Behaviour-equivalence is gated by a
+  golden-output harness (Step 0).
 
 ## Dependencies
 
-- `build123d-drafting-helpers>=0.9.1` (Apache 2.0)
+- `build123d-drafting-helpers>=0.12.1` (Apache 2.0)
 - `build123d>=0.9.0` (Apache 2.0)
 - `kiwisolver>=1.4,<2` — Cassowary constraint solver for bore-callout Y-placement
 

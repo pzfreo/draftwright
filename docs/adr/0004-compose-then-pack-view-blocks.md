@@ -193,3 +193,14 @@ Decisions:
    a safety net. Scale/page is the outer search; compose-then-pack is its
    fitness function. If even A0 at the smallest standard scale will not hold the
    packed blocks, **suggest a larger page / smaller scale** rather than cram.
+
+## Module homes (forward note — ADR 0005, proposed)
+
+This ADR names its anchors by their *current* location: `_analyse`,
+`StripDepths`, `ViewBlock`, `_repack`, `choose_scale` in `make_drawing.py`, and
+`_auto_annotate` in `annotate.py`. [ADR 0005](0005-pipeline-architecture-and-state-ownership.md)
+(proposed) plans to relocate these — sheet planning/compose-then-pack to
+`sheet.py`, projection/`_assemble` to `projection.py`, annotation sequencing to
+`annotations/orchestrator.py` — **without changing this decision**. When that
+migration lands, refresh the anchor names above. The compose-then-pack model,
+the box-layout footprint, and the monotone `(scale, page)` search are unaffected.

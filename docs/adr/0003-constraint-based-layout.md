@@ -135,7 +135,11 @@ required mitigations:
   survives every later re-solve and stays local — never re-derive over a
   deliberate placement. _Partly landed (#89):_ `dwg.pin(name)` / `dwg.unpin(name)`
   are the domain verbs, `Placeable.locked` is the solver-side flag, and
-  `repair()` already refuses to move a pinned annotation. **Still owed by #82:**
+  `repair()` already refuses to move a pinned annotation. _(The pin **state**
+  itself — today `Drawing._pinned` — is planned to move into `registry.py` as its
+  single owner per [ADR 0005](0005-pipeline-architecture-and-state-ownership.md),
+  proposed; the override contract here is unchanged, only its home.)_ **Still owed
+  by #82:**
   the global 2D solve must honour `locked` (keep it at `natural`, solve the rest
   around it). This remains a hard prerequisite for that solve, not a later nicety.
 
@@ -198,6 +202,9 @@ never be needed.** This is a deliberate scope correction, not an omission.
   generation; layout quality is a pillar of that determinism.
 - [ADR 0002](0002-iterate-via-lint-critique-and-domain-repair.md) — the repair
   loop this ADR generalises from "nudge dims" to "constrain and re-solve."
+- [ADR 0005](0005-pipeline-architecture-and-state-ownership.md) — module
+  boundaries and single-owner build state; `layout.py` is unchanged, but pin
+  state moves to `registry.py`.
 - Issue #77 (external turned diameters — the first `Placeable`); the phased
   layout issues (protocol/solver → port callouts → port dims → tables/GD&T);
   #61/#62 (GD&T — beneficiaries of the unified placement).
