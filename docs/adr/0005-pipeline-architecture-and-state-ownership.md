@@ -1,6 +1,6 @@
 # ADR 0005 — Compiler-pipeline module boundaries and single-owner build state
 
-- **Status:** Accepted, in progress
+- **Status:** Accepted (module split complete; two follow-ups noted below)
 - **Date:** 2026-06-27
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Progress:** Execution roadmap with per-phase tracking issues:
@@ -12,8 +12,8 @@
   (the lint→repair loop), and `export.py`. **Remaining** (deeply-coupled stage
   splits, sequenced prerequisite-first): P1 `_text_width`→`_core` (#160, done), P2
   `projection.py` (#161), P3 `sheet.py` (#162, done; repack deferred to P6), P4 `analysis.py` (#163, done), P5
-  `annotations/` (#164), P6 `builder.py`+`drawing.py` (#165, done; context-threading deferred), P7 mypy
-  (#166). Build context (`_analysis`, edge cache) is threaded through
+  `annotations/` (#164), P6 `builder.py`+`drawing.py` (#165, done; context-threading deferred), P7 mypy (#166, done). All phases landed: make_drawing.py 3,907 → ~17 (facade).
+  Deferred follow-ups: annotations/envelope.py + build-context threading (§2). Build context (`_analysis`, edge cache) is threaded through
   `builder`/`projection` in P6, **not** parked on `Drawing` as a standalone owner.
 
 ## Context
