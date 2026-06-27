@@ -12,7 +12,6 @@ from draftwright.features import Slot, find_slots
 from draftwright.make_drawing import (
     _MIN_VIEW_MM,
     _export_shape,
-    _fits,
     _fmt,
     _is_rotational,
     analyse_cylinders,
@@ -22,6 +21,7 @@ from draftwright.make_drawing import (
     generate_script,
     lint_feature_coverage,
 )
+from draftwright.sheet import _fits
 
 
 def _state_snapshot(dwg):
@@ -168,7 +168,7 @@ class TestChooseScaleOverrides:
         # A3 sheet at 2:1.  The conservative row model would reject 2:1 (it
         # charges the iso a row column), but on a fixed page the iso is packed
         # into vertical headroom, so the larger scale genuinely fits (#staircase).
-        from draftwright.make_drawing import _fits
+        from draftwright.sheet import _fits
 
         assert not _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0)
         assert _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=True)
@@ -188,7 +188,7 @@ class TestChooseScaleOverrides:
         # pack_iso_2d=True, so a long/short part keeps the requested 2:1 by
         # packing the iso into vertical headroom.  At 2:1 the part overruns A4
         # but fits A3; the conservative row model would have rejected A3 too.
-        from draftwright.make_drawing import _fits
+        from draftwright.sheet import _fits
 
         assert not _fits(100, 10, 11, 2.0, 297.0, 210.0, 120.0, pack_iso_2d=True)
         assert _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=True)
@@ -220,7 +220,7 @@ class TestIsoEmptyRect:
     def test_largest_empty_rect_fallback_when_fully_covered(self):
         # When obstacles leave no genuine gap, _largest_empty_rect returns the
         # whole drawable (documented fallback) — the mechanism iso_valid checks.
-        from draftwright.make_drawing import _largest_empty_rect
+        from draftwright._core import _largest_empty_rect
 
         drawable = (10.0, 10.0, 90.0, 90.0)
         assert _largest_empty_rect(drawable, [drawable]) == drawable
@@ -313,10 +313,10 @@ class TestStripZones:
     """Unit tests for the Strip / ViewZones layout primitives (issue #105)."""
 
     def test_strip_import(self):
-        from draftwright.make_drawing import Strip, ViewZones  # noqa: F401
+        pass
 
     def test_outward_strip_allocates_and_advances(self):
-        from draftwright.make_drawing import Strip
+        from draftwright._core import Strip
 
         s = Strip(anchor=100.0, outer_limit=200.0, direction=1, gap=8.0, spacing=4.0)
         pos = s.allocate(10.0)
@@ -325,7 +325,7 @@ class TestStripZones:
         assert pos2 == pytest.approx(122.0)  # 108 + 10 + 4
 
     def test_inward_strip_allocates_and_retreats(self):
-        from draftwright.make_drawing import Strip
+        from draftwright._core import Strip
 
         s = Strip(anchor=100.0, outer_limit=0.0, direction=-1, gap=8.0, spacing=4.0)
         pos = s.allocate(10.0)
@@ -334,20 +334,20 @@ class TestStripZones:
         assert pos2 == pytest.approx(78.0)  # 92 - 10 - 4
 
     def test_strip_returns_none_when_full(self):
-        from draftwright.make_drawing import Strip
+        from draftwright._core import Strip
 
         s = Strip(anchor=0.0, outer_limit=20.0, direction=1, gap=2.0, spacing=2.0)
         assert s.allocate(10.0) is not None  # fits: 2..12
         assert s.allocate(10.0) is None  # would need 14..24, over limit=20
 
     def test_strip_available(self):
-        from draftwright.make_drawing import Strip
+        from draftwright._core import Strip
 
         s = Strip(anchor=50.0, outer_limit=150.0, direction=1)
         assert s.available == pytest.approx(100.0)
 
     def test_strip_depth_used(self):
-        from draftwright.make_drawing import Strip
+        from draftwright._core import Strip
 
         s = Strip(anchor=100.0, outer_limit=200.0, direction=1, gap=8.0, spacing=4.0)
         s.allocate(10.0)
@@ -358,7 +358,7 @@ class TestStripZones:
         from build123d import Box, Cylinder
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import Strip, ViewZones
+        from draftwright._core import Strip, ViewZones
 
         part = Box(80, 60, 20) - Cylinder(5, 20)
         dwg = build_drawing(part)
@@ -407,7 +407,7 @@ class TestStripZones:
         from build123d import Box
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import Strip
+        from draftwright._core import Strip
 
         part = Box(80, 60, 20)
         dwg = build_drawing(part)
@@ -471,7 +471,7 @@ class TestStripZones:
         from build123d import Box, Pos
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _est_right_strip_depth
+        from draftwright.sheet import _est_right_strip_depth
 
         part = Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20)
         dwg = build_drawing(part)
@@ -619,29 +619,28 @@ class TestDepthEstimators:
     """Pure-function tests for _est_right_strip_depth / _est_pv_below_depth."""
 
     def test_right_depth_no_steps_equals_dim_pad(self):
-        from draftwright.make_drawing import _DIM_PAD, _est_right_strip_depth
+        from draftwright.make_drawing import _DIM_PAD
+        from draftwright.sheet import _est_right_strip_depth
 
         # 0 steps → dim_height only → gap(8) + slot(10) = 18 = _DIM_PAD
         assert _est_right_strip_depth(0) == pytest.approx(_DIM_PAD, abs=0.01)
 
     def test_right_depth_one_step(self):
-        from draftwright.make_drawing import _est_right_strip_depth
+        from draftwright.sheet import _est_right_strip_depth
 
         # dim_height (10) + spacing (4) + 1×dim_step (14) = 8 + 10 + 4 + 14 = 36
         assert _est_right_strip_depth(1) == pytest.approx(36.0, abs=0.01)
 
     def test_right_depth_three_steps(self):
-        from draftwright.make_drawing import _est_right_strip_depth
+        from draftwright.sheet import _est_right_strip_depth
 
         # dim_height (10) + 3×dim_step (14 each) + 3×spacing (4 each) = 8+10+4+14+4+14+4+14 = 72
         assert _est_right_strip_depth(3) == pytest.approx(72.0, abs=0.01)
 
     def test_right_depth_grows_per_step_uncapped(self):
-        from draftwright.make_drawing import (
-            _SLOT_DIM_STEP,
-            _STRIP_SPACING,
-            _est_right_strip_depth,
-        )
+        from draftwright._core import _SLOT_DIM_STEP
+        from draftwright.make_drawing import _STRIP_SPACING
+        from draftwright.sheet import _est_right_strip_depth
 
         # #36: no cap — each further step adds one slot + one spacing.
         assert _est_right_strip_depth(10) > _est_right_strip_depth(3)
@@ -650,12 +649,12 @@ class TestDepthEstimators:
         )
 
     def test_right_depth_increases_with_steps(self):
-        from draftwright.make_drawing import _est_right_strip_depth
+        from draftwright.sheet import _est_right_strip_depth
 
         assert _est_right_strip_depth(0) < _est_right_strip_depth(1) < _est_right_strip_depth(3)
 
     def test_pv_below_depth(self):
-        from draftwright.make_drawing import _est_pv_below_depth
+        from draftwright.sheet import _est_pv_below_depth
 
         # gap(8) + dim_width slot(8) = 16
         assert _est_pv_below_depth() == pytest.approx(16.0, abs=0.01)
@@ -663,13 +662,9 @@ class TestDepthEstimators:
     def test_right_depth_fits_in_exact_corridor(self):
         # A Strip whose available width equals _est_right_strip_depth(n) must
         # accept exactly n+1 allocations (dim_height + n dim_steps).
-        from draftwright.make_drawing import (
-            _SLOT_DIM_HEIGHT,
-            _SLOT_DIM_STEP,
-            _STRIP_GAP,
-            Strip,
-            _est_right_strip_depth,
-        )
+        from draftwright._core import _SLOT_DIM_HEIGHT, _SLOT_DIM_STEP, Strip
+        from draftwright.make_drawing import _STRIP_GAP
+        from draftwright.sheet import _est_right_strip_depth
 
         for n_steps in (0, 1, 3):
             est = _est_right_strip_depth(n_steps)
@@ -684,12 +679,9 @@ class TestDepthEstimators:
 
     def test_pv_below_depth_fits_in_exact_corridor(self):
         # A Strip of _est_pv_below_depth() width must accept one dim_width allocation.
-        from draftwright.make_drawing import (
-            _SLOT_DIM_WIDTH,
-            _STRIP_GAP,
-            Strip,
-            _est_pv_below_depth,
-        )
+        from draftwright._core import _SLOT_DIM_WIDTH, Strip
+        from draftwright.make_drawing import _STRIP_GAP
+        from draftwright.sheet import _est_pv_below_depth
 
         est = _est_pv_below_depth()
         s = Strip(anchor=100.0, outer_limit=100.0 - est, direction=-1, gap=_STRIP_GAP)
@@ -738,7 +730,8 @@ class TestDerivedLayoutConstants:
         assert _text_width("WXYZ", 3.0) > _text_width("iiii", 3.0)
 
     def test_bore_callout_width_scales_with_font_size(self):
-        from draftwright.make_drawing import _est_bore_callout_width, find_holes
+        from draftwright.make_drawing import find_holes
+        from draftwright.sheet import _est_bore_callout_width
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
         holes = find_holes(part)
@@ -753,13 +746,8 @@ class TestComposeAnnoBoxes:
     later steps make honest."""
 
     def _assert_match(self, holes, patterns, n_steps, bb, label=""):
-        from draftwright.make_drawing import (
-            _FONT_SIZE,
-            _compose_anno_boxes,
-            _footprint_from_boxes,
-            _measure_strips,
-            draft_preset,
-        )
+        from draftwright.make_drawing import _FONT_SIZE, _measure_strips, draft_preset
+        from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes
 
         # The composer must reproduce StripDepths exactly for ANY clearance
         # args (#112, Step 4b): the bore-band elbow+gap overhead
@@ -801,7 +789,8 @@ class TestComposeAnnoBoxes:
 
     def test_matches_for_dense_ballooning_part(self):
         # _dense_plate triggers _will_balloon → exercises the plan_halo band.
-        from draftwright.make_drawing import _will_balloon, find_hole_patterns, find_holes
+        from draftwright.make_drawing import find_hole_patterns, find_holes
+        from draftwright.sheet import _will_balloon
 
         part = _dense_plate()
         holes = find_holes(part)
@@ -814,12 +803,8 @@ class TestComposeAnnoBoxes:
         # Direct unit test of the reducer: deepest band per side wins, and the
         # left keeps its _DIM_PAD floor even when the deepest left band is
         # shallower — the branch real parts rarely make the deciding one.
-        from draftwright.make_drawing import (
-            _DIM_PAD,
-            AnnoBox,
-            StripDepths,
-            _footprint_from_boxes,
-        )
+        from draftwright.make_drawing import _DIM_PAD
+        from draftwright.sheet import AnnoBox, StripDepths, _footprint_from_boxes
 
         fp = _footprint_from_boxes(
             [
@@ -879,8 +864,8 @@ class TestComposeAnnoBoxesCorpus:
         equal-depth left/right pair iff the part has annotatable holes; the
         plan halo appears iff the plan view will balloon. (_footprint_from_boxes
         folding these back to the StripDepths estimate is covered above.)"""
-        from draftwright.make_drawing import (
-            _FONT_SIZE,
+        from draftwright.make_drawing import _FONT_SIZE
+        from draftwright.sheet import (
             _compose_anno_boxes,
             _est_bore_callout_width,
             _est_right_strip_depth,
@@ -923,14 +908,14 @@ class TestDynamicCorridors:
         #   n_steps=0 (gap=18): w=417 ≤ 420 → direct fit
         #   n_steps=3 (gap=72): w=471 > 420; views_bottom=39.5 < 45 so
         #     the iso-over-title-block fallback cannot apply → False
-        from draftwright.make_drawing import _fits
+        from draftwright.sheet import _fits
 
         assert _fits(5.0, 100.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=0)
         assert not _fits(5.0, 100.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=3)
 
     def test_fits_zero_steps_same_as_default(self):
         # n_steps=0 must produce the same result as the old signature (no kwarg).
-        from draftwright.make_drawing import _fits
+        from draftwright.sheet import _fits
 
         page_w, page_h, tb = 297.0, 210.0, 120.0
         scale, x_size, y_size, z_size = 1.0, 20.0, 20.0, 20.0
@@ -971,7 +956,7 @@ class TestDynamicCorridors:
         from build123d import Box, Pos
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _est_right_strip_depth
+        from draftwright.sheet import _est_right_strip_depth
 
         # Box(60, 40, 50): Z -25..+25.  Carve top-right quadrant so the step
         # floor is at Z=0, giving a 25 mm step height (≥20 mm threshold).
@@ -1003,7 +988,8 @@ class TestTwoPassLayout:
         from build123d_drafting.features import find_holes
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _DIM_PAD, _est_bore_callout_width
+        from draftwright.make_drawing import _DIM_PAD
+        from draftwright.sheet import _est_bore_callout_width
 
         # Four identical cylinders → "4× ⌀16 THRU" callout with a count prefix
         part = (
@@ -1071,7 +1057,7 @@ class TestTwoPassLayout:
         from build123d import Box, Cylinder, Pos
         from build123d_drafting.features import find_hole_patterns, find_holes
 
-        from draftwright.make_drawing import _est_bore_callout_width
+        from draftwright.sheet import _est_bore_callout_width
 
         # Six ⌀8 holes at equal 60° spacing on R=35 → BoltCircle pattern
         part = (
@@ -1098,7 +1084,7 @@ class TestTwoPassLayout:
         from build123d import Box
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _est_pv_below_depth
+        from draftwright.sheet import _est_pv_below_depth
 
         part = Box(80, 40, 20)
         dwg = build_drawing(part)
