@@ -27,10 +27,25 @@ The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`,
   - **Feature orchestration** — calls `find_holes`, `analyse_cylinders` from `build123d_drafting.features`
   - **`Drawing` class** — composable result object with `.lint()`, `.add()`, `.export_*`
   - **CLI** (`draftwright` command) — STEP → SVG+DXF or editable .py script
-- **`annotate.py`** — the automatic annotation passes. `_auto_annotate` is the single
-  entry point (called by `build_drawing`); it drives `_annotate_holes`, `_annotate_pmi`,
-  `_add_location_dims`, `_add_section_view` (ISO 128-44 arrows, ISO 128-50 hatching),
-  and `_add_detail_view`. Imports only from `_core.py`/`layout.py` and third-party libs.
+- **`annotate.py`** — thin compat facade re-exporting `_auto_annotate` (the
+  orchestrator) from `annotations/`. The annotation passes were split into the
+  **`annotations/`** subpackage (#164 / ADR 0005, P5):
+  - **`annotations/orchestrator.py`** — `_auto_annotate`, the single entry point
+    (called by `build_drawing`); classifies the part, places envelope/OD dims
+    inline, drives the capability passes + title block. (Envelope dims remain
+    inline here; pulling them into `annotations/envelope.py` is a deferred
+    follow-up.)
+  - **`annotations/holes.py`** — hole/pattern callouts, balloons, location dims
+    (incl. side-drilled #133), pitch/grid dims, slots (the largest pass).
+  - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
+    ISO 128-50 hatching).
+  - **`annotations/turned.py`** — turned-part step-diameter callouts.
+  - **`annotations/pmi.py`** — the PMI/GD&T annotation pass (distinct from the
+    STEP-side extraction in `pmi.py`).
+  - **`annotations/_common.py`** — shared placement helpers (`_anno_box`,
+    `_occupied_boxes`, `_box_hits`) at the bottom of the annotations DAG.
+  Each submodule imports only `_core`/`layout`/`projection`/third-party — never
+  `annotate`/`make_drawing` — so the orchestrator calls down with no cycle.
 - **`_core.py`** — shared primitives below both `make_drawing.py` and `annotate.py`:
   the `Analysis` namespace and its field types (`_Projector`, `Strip`, `ViewZones`),
   the dimension/format helpers (`_dim`, `_fmt`, `_add_title_block`, …), and the

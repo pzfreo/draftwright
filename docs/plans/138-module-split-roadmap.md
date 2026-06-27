@@ -36,7 +36,7 @@ no PR introduces an import cycle, riskiest (annotations) last:
 | ~~P2~~ | #161 | `projection.py` (silhouettes, iso) ✅ | med | — |
 | ~~P3~~ | #162 | `sheet.py` — compose-then-pack (repack deferred to P6) ✅ | large (2 PRs) | P1 |
 | ~~P4~~ | #163 | `analysis.py` (`_analyse`) ✅ | med-lg | — |
-| **P5** | #164 | `annotations/` — sections, turned, pmi, **holes**, **orchestrator** | biggest (~5 PRs) | P1–P4 |
+| ~~P5~~ | #164 | `annotations/` — sections, turned, pmi, holes, orchestrator ✅ (envelope.py deferred) | biggest (5 PRs) | P1–P4 |
 | **P6** | #165 | `builder.py` + thread the build context | med | P2, P4 |
 | **P7** | #166 | tighten mypy on settled contracts | cleanup | all |
 
