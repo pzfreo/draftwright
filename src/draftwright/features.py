@@ -1,18 +1,28 @@
 """Recognition of non-cylindrical machined features (#135).
 
-Draftwright-local **prototype**.  It recognises milled *slots* / reduced
-across-flats sections — the class of feature the cylinder-based pipeline
-(``analyse_cylinders``/``find_holes`` in ``build123d_drafting.features``) is
-blind to.  Once the recognition predicate stabilises this is intended to be
-upstreamed into ``build123d-drafting-helpers`` beside the hole/boss recognisers;
-it deliberately mirrors their OCC face-scan idioms so the lift is mechanical.
+Draftwright-local **prototype**.  It recognises milled *slots* — the class of
+feature the cylinder-based pipeline (``analyse_cylinders``/``find_holes`` in
+``build123d_drafting.features``) is blind to.  Once the recognition predicate
+stabilises this is intended to be upstreamed into ``build123d-drafting-helpers``
+beside the hole/boss recognisers; it deliberately mirrors their OCC face-scan
+idioms so the lift is mechanical.
 
-The defining signature of a cut-in slot is a pair of **opposed parallel walls
-that face each other**: two axis-aligned planar faces with anti-parallel
-outward normals where each normal points *towards* the other face.  The part's
-own outer faces are also parallel and anti-parallel, but their outward normals
-point *away* from each other, so the facing test excludes them cleanly without
-any bounding-box / "is this an outer face" heuristic.
+Scope (deliberately narrow — see #148): only **enclosed through-slots with
+straight, rectangular walls** are recognised.  The recogniser proves a candidate
+is a slot rather than some other facing-wall feature with three predicates a
+naive "opposed facing walls" test gets wrong:
+
+1. **Facing walls** — two axis-aligned planar faces with anti-parallel outward
+   normals each pointing *towards* the other.  The part's own outer faces face
+   *away*, so this excludes them without any "is this an outer face" heuristic.
+2. **Rectangular walls** — both walls are bounded by straight (LINE) edges only.
+   A turned groove / circlip recess has *annular* walls (CIRCLE edges); this
+   rejects them (otherwise a stepped shaft's groove reads as a slot).
+3. **Through, not blind** — no planar floor caps the cut.  A blind pocket (or
+   the floored gap between two bosses) has a floor face spanning the footprint;
+   a through-slot does not.  This is what separates a slot from a pocket — a
+   distinction that is partly definitional for low-aspect features, which is why
+   blind slots and pockets are deferred to a follow-up recogniser (#148).
 """
 
 from __future__ import annotations
@@ -20,6 +30,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from build123d import GeomType
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Plane
 from OCP.TopAbs import TopAbs_Orientation
@@ -31,6 +42,11 @@ _AXIS_ALIGNED_TOL = 1e-3
 # Two slot candidates are the same physical feature when their region centres
 # coincide to within this (mm); the narrower wins (the true across-flats width).
 _MERGE_TOL = 0.5
+# A planar face counts as a slot *floor* (capping the slot, so it is blind not
+# through) when its centre on the depth axis is within this of a slot end and it
+# covers at least _FLOOR_COVER_FRAC of the slot footprint on each in-plane axis.
+_FLOOR_TOL = 0.3
+_FLOOR_COVER_FRAC = 0.5
 
 
 @dataclass(frozen=True)
@@ -102,9 +118,19 @@ def _dominant_axis(nrm):
     return None
 
 
-def _planar_walls(part):
-    """Axis-aligned planar faces as (normal, axis, bbox) tuples."""
-    walls = []
+@dataclass(frozen=True)
+class _Face:
+    """An axis-aligned planar face reduced to the data the recogniser needs."""
+
+    normal: tuple
+    axis: str
+    bb: object
+    rect: bool  # bounded by straight (LINE) edges only
+
+
+def _planar_faces(part):
+    """All axis-aligned planar faces as :class:`_Face` records (computed once)."""
+    faces = []
     for face in part.faces():
         nrm = _outward_normal(face)
         if nrm is None:
@@ -112,8 +138,9 @@ def _planar_walls(part):
         axis = _dominant_axis(nrm)
         if axis is None:
             continue
-        walls.append((nrm, axis, face.bounding_box()))
-    return walls
+        rect = all(e.geom_type == GeomType.LINE for e in face.edges())
+        faces.append(_Face(nrm, axis, face.bounding_box(), rect))
+    return faces
 
 
 def _center(bb, k):
@@ -128,79 +155,130 @@ def _overlap_len(bb_a, bb_b, axis):
     return hi - lo
 
 
-def find_slots(part) -> list[Slot]:
-    """Recognise milled slots / reduced across-flats sections in *part*.
+def _candidate(fa, fb, part_ext):
+    """Build a :class:`Slot` from two facing rectangular walls, or None if the
+    pair is not a slot (not facing, not overlapping, wider than long, or
+    spanning the full part).  Geometry only — the through/blind test is applied
+    by the caller, which needs the whole face set."""
+    axis = fa.axis
+    k = _AXES[axis]
+    bb_a, bb_b = fa.bb, fb.bb
+    # Anti-parallel outward normals.
+    if fa.normal[k] * fb.normal[k] >= 0:
+        return None
+    c_a, c_b = _center(bb_a, k), _center(bb_b, k)
+    # Facing each other: A's outward normal points towards B.  Outer faces of
+    # the stock fail this (their normals point apart).
+    if (c_b - c_a) * fa.normal[k] <= 0:
+        return None
+    # The walls must genuinely overlap in both perpendicular axes, otherwise
+    # they are unrelated faces that merely happen to be parallel and facing.
+    others = [a for a in "xyz" if a != axis]
+    ov = [_overlap_len(bb_a, bb_b, a) for a in others]
+    if min(ov) <= 0:
+        return None
+    width = abs(c_b - c_a)
+    # The longer shared extent is the slot length; the shorter is depth.  When
+    # the two are near-equal (a near-square slot) the choice is ambiguous, so
+    # break the tie towards the part's longer axis — a slot on a bar runs along
+    # the bar.
+    (ax0, ov0), (ax1, ov1) = sorted(zip(others, ov), key=lambda t: t[1], reverse=True)
+    if (ov0 - ov1) <= _LENGTH_TIE_FRAC * ov0 and part_ext[ax1] > part_ext[ax0]:
+        (long_axis, length), depth_axis = (ax1, ov1), ax0
+    else:
+        (long_axis, length), depth_axis = (ax0, ov0), ax1
+    # A slot is elongated: its width (the wall separation) is not its largest
+    # dimension.  A wider-than-long pair is a step/pocket or a sliver of two
+    # incidental parallel faces.
+    if width > length:
+        return None
+    # Reject open / full-span features along the length (see _SLOT_MAX_SPAN_FRAC).
+    if length >= _SLOT_MAX_SPAN_FRAC * part_ext[long_axis]:
+        return None
+    lc = "XYZ"[_AXES[long_axis]]
+    lo = max(getattr(bb_a.min, lc), getattr(bb_b.min, lc))
+    hi = min(getattr(bb_a.max, lc), getattr(bb_b.max, lc))
+    dc = "XYZ"[_AXES[depth_axis]]
+    d_lo = max(getattr(bb_a.min, dc), getattr(bb_b.min, dc))
+    d_hi = min(getattr(bb_a.max, dc), getattr(bb_b.max, dc))
+    return Slot(
+        width_axis=axis,
+        long_axis=long_axis,
+        width=round(width, 2),
+        length=round(hi - lo, 2),
+        w_center=round((c_a + c_b) / 2, 2),
+        lo=round(lo, 2),
+        hi=round(hi, 2),
+        d_lo=round(d_lo, 2),
+        d_hi=round(d_hi, 2),
+    )
 
-    Returns a list of :class:`Slot`, one per physical feature (co-located
-    candidate pairs are merged, keeping the narrower width).
+
+def _has_floor(faces, s: Slot) -> bool:
+    """True when a planar floor caps the slot — i.e. it is blind, not through.
+
+    A floor is a planar face perpendicular to the depth axis that sits at one of
+    the slot's depth ends, covers most of its width x length footprint, and whose
+    outward normal points *into* the slot (material lies beyond it).  That last
+    test is what distinguishes a real floor from the part's own outer face: when
+    a through-slot exits the stock, its depth end coincides with an outer face,
+    but that face's normal points *out* of the part — the slot passes through it,
+    it does not cap it.
     """
-    walls = _planar_walls(part)
+    da = s.depth_axis
+    dk = _AXES[da]
+    foot = {
+        s.width_axis: (s.w_center - s.width / 2, s.w_center + s.width / 2),
+        s.long_axis: (s.lo, s.hi),
+    }
+    for f in faces:
+        if f.axis != da:
+            continue
+        ctr = _center(f.bb, dk)
+        # A floor at the low end faces +depth (toward the slot); at the high end,
+        # -depth. The part's outer face at the same level faces the other way.
+        if abs(ctr - s.d_lo) <= _FLOOR_TOL and f.normal[dk] > 0:
+            pass
+        elif abs(ctr - s.d_hi) <= _FLOOR_TOL and f.normal[dk] < 0:
+            pass
+        else:
+            continue
+        if all(
+            min(getattr(f.bb.max, "XYZ"[_AXES[ax]]), hi)
+            - max(getattr(f.bb.min, "XYZ"[_AXES[ax]]), lo)
+            >= _FLOOR_COVER_FRAC * (hi - lo)
+            for ax, (lo, hi) in foot.items()
+        ):
+            return True
+    return False
+
+
+def find_slots(part) -> list[Slot]:
+    """Recognise enclosed through-slots with rectangular walls in *part*.
+
+    Returns a list of :class:`Slot`, one per physical feature, in a
+    deterministic order (co-located candidate pairs are merged, keeping the
+    narrower width).  See the module docstring for the recognition predicate and
+    its (deliberately narrow) scope.
+    """
+    faces = _planar_faces(part)
     pbb = part.bounding_box()
     part_ext = {a: getattr(pbb.size, "XYZ"[_AXES[a]]) for a in "xyz"}
+    # Only straight-walled faces can be slot walls; bucket them by axis so the
+    # O(n^2) pairing runs within each axis instead of across all planar faces.
+    by_axis: dict[str, list[_Face]] = {}
+    for f in faces:
+        if f.rect:
+            by_axis.setdefault(f.axis, []).append(f)
     candidates: list[Slot] = []
-    for i in range(len(walls)):
-        n_a, axis, bb_a = walls[i]
-        k = _AXES[axis]
-        for j in range(i + 1, len(walls)):
-            n_b, axis_b, bb_b = walls[j]
-            if axis_b != axis:
-                continue
-            # Anti-parallel outward normals.
-            if n_a[k] * n_b[k] >= 0:
-                continue
-            c_a, c_b = _center(bb_a, k), _center(bb_b, k)
-            # Facing each other: A's outward normal points towards B.  Outer
-            # faces of the stock fail this (their normals point apart).
-            if (c_b - c_a) * n_a[k] <= 0:
-                continue
-            # The walls must genuinely overlap in both perpendicular axes,
-            # otherwise they are unrelated faces that merely happen to be
-            # parallel and facing.
-            others = [a for a in "xyz" if a != axis]
-            ov = [_overlap_len(bb_a, bb_b, a) for a in others]
-            if min(ov) <= 0:
-                continue
-            width = abs(c_b - c_a)
-            # The longer shared extent is the slot length; the shorter is depth.
-            # When the two are near-equal (a near-square slot, e.g. a channel cut
-            # straight through a shaft) the choice is ambiguous, so break the tie
-            # towards the part's longer axis — the manufacturing "length" of a
-            # slot on a bar runs along the bar.
-            (ax0, ov0), (ax1, ov1) = sorted(zip(others, ov), key=lambda t: t[1], reverse=True)
-            if (ov0 - ov1) <= _LENGTH_TIE_FRAC * ov0 and part_ext[ax1] > part_ext[ax0]:
-                (long_axis, length), (depth_axis, _) = (ax1, ov1), (ax0, ov0)
-            else:
-                (long_axis, length), (depth_axis, _) = (ax0, ov0), (ax1, ov1)
-            # A slot is elongated: its width (the wall separation) is not its
-            # largest dimension.  Pairs wider than they are long are not slots
-            # but wide steps / pockets, or — when the overlap is a sliver —
-            # incidental parallel faces (e.g. two part faces that merely happen
-            # to face each other). Both are filtered here, before merging.
-            if width > length:
-                continue
-            # Reject open / full-span features (an enclosed slot is shorter than
-            # the part along its length — see _SLOT_MAX_SPAN_FRAC).
-            if length >= _SLOT_MAX_SPAN_FRAC * part_ext[long_axis]:
-                continue
-            lc = "XYZ"[_AXES[long_axis]]
-            lo = max(getattr(bb_a.min, lc), getattr(bb_b.min, lc))
-            hi = min(getattr(bb_a.max, lc), getattr(bb_b.max, lc))
-            dc = "XYZ"[_AXES[depth_axis]]
-            d_lo = max(getattr(bb_a.min, dc), getattr(bb_b.min, dc))
-            d_hi = min(getattr(bb_a.max, dc), getattr(bb_b.max, dc))
-            candidates.append(
-                Slot(
-                    width_axis=axis,
-                    long_axis=long_axis,
-                    width=round(width, 2),
-                    length=round(hi - lo, 2),
-                    w_center=round((c_a + c_b) / 2, 2),
-                    lo=round(lo, 2),
-                    hi=round(hi, 2),
-                    d_lo=round(d_lo, 2),
-                    d_hi=round(d_hi, 2),
-                )
-            )
+    for walls in by_axis.values():
+        for i in range(len(walls)):
+            for j in range(i + 1, len(walls)):
+                s = _candidate(walls[i], walls[j], part_ext)
+                # Keep only through-slots: a blind pocket (or the floored gap
+                # between bosses) is capped by a floor and is out of scope (#148).
+                if s is not None and not _has_floor(faces, s):
+                    candidates.append(s)
     return _merge(candidates)
 
 
@@ -218,9 +296,13 @@ def _merge(candidates: list[Slot]) -> list[Slot]:
     """A rectangular slot is bounded by two orthogonal opposed-wall pairs (the
     width walls and the length end-caps), so the same feature is detected twice
     — once per pair.  Collapse candidates that occupy the same region, keeping
-    the one with the smallest width (the true across-flats)."""
+    the one with the smallest width (the true across-flats).
+
+    Sorted by ``(width, region_centre)`` so the output order — and therefore the
+    ``slot{i}`` annotation names downstream — is determined by geometry alone,
+    not by OCC face-iteration order (which is not stable across kernels)."""
     kept: list[Slot] = []
-    for s in sorted(candidates, key=lambda c: c.width):
+    for s in sorted(candidates, key=lambda c: (c.width, _region_center(c))):
         cs = _region_center(s)
         if any(math.dist(cs, _region_center(k)) <= _MERGE_TOL for k in kept):
             continue

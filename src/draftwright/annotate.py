@@ -1535,12 +1535,14 @@ def _annotate_slots(dwg, a: Analysis):
         # (find_slots derives long_axis from the axes other than width_axis), so
         # the pair always selects exactly one view.
         view = views[frozenset((s.width_axis, s.long_axis))]
-        name, zones, h_axis, h_proj, v_axis, v_proj = view
+        name, zones, h_axis, h_proj, _v_axis, v_proj = view
 
         def _place(
             meas_axis,
             p_lo,
             p_hi,
+            perp_lo,
+            perp_hi,
             label,
             kind,
             anchor="center",
@@ -1548,7 +1550,6 @@ def _annotate_slots(dwg, a: Analysis):
             zn=zones,
             ha=h_axis,
             hp=h_proj,
-            va=v_axis,
             vp=v_proj,
             idx=i,
         ):
@@ -1568,16 +1569,25 @@ def _annotate_slots(dwg, a: Analysis):
             # view; vertical (along the v-axis) stacks to the right. Fall back to
             # the opposite strip before giving up.
             if meas_axis == ha:
-                meas_proj, perp_axis, perp_proj = hp, va, vp
+                meas_proj, perp_proj = hp, vp
                 cands = (("above", zn.above, True), ("below", zn.below, False))
             else:
-                meas_proj, perp_axis, perp_proj = vp, ha, hp
+                meas_proj, perp_proj = vp, hp
                 cands = (("right", zn.right, True), ("left", zn.left, False))
             for side, strip, hi in cands:
-                coord = strip.allocate(tier) if strip is not None else None
+                if strip is None:
+                    continue
+                # Peek, don't allocate yet: a candidate rejected for collision
+                # below must not consume the tier (which would starve later slots
+                # and inflate the drop count).
+                coord = strip.peek(tier)
                 if coord is None:
                     continue
-                witness = perp_proj(_bb(perp_axis, hi))
+                # Witness the dimension off the slot's OWN edge (its extent on the
+                # perpendicular axis), not the part envelope — otherwise a slot's
+                # size dim is drawn across at the far edge of the part and reads
+                # as an envelope dimension (#146 review).
+                witness = perp_proj(perp_hi if hi else perp_lo)
                 if side in ("above", "below"):
                     e_lo = (meas_proj(p_lo), witness, 0)
                     e_hi = (meas_proj(p_hi), witness, 0)
@@ -1587,19 +1597,26 @@ def _annotate_slots(dwg, a: Analysis):
                 dim = _dim(e_lo, e_hi, side, abs(coord - witness), draft, label=_fmt(label))
                 if _box_hits(_anno_box(dim), occupied):
                     continue
+                strip.allocate(tier)
                 dwg.add(dim, f"slot{idx}_{kind}", view=vw[0])
                 occupied.append(_anno_box(dim))
                 return True
             return False
 
-        # Width — the defining size, always attempted.
+        # Width — the defining size, measured across width_axis; its witness
+        # rides the slot's long-axis extent.
         half = s.width / 2
-        if not _place(s.width_axis, s.w_center - half, s.w_center + half, s.width, "width"):
+        if not _place(
+            s.width_axis, s.w_center - half, s.w_center + half, s.lo, s.hi, s.width, "width"
+        ):
             _drop("width", name)
 
-        # Length along the slot's long axis (find_slots already excludes full-span
-        # open features, so the length is always a real, sub-envelope measurement).
-        if not _place(s.long_axis, s.lo, s.hi, s.length, "length"):
+        # Length along the slot's long axis (find_slots excludes full-span open
+        # features, so length is always a real, sub-envelope measurement); its
+        # witness rides the slot's width extent.
+        if not _place(
+            s.long_axis, s.lo, s.hi, s.w_center - half, s.w_center + half, s.length, "length"
+        ):
             _drop("length", name)
 
         # Position: from the part datum (min on the long axis, the same datum the
@@ -1607,7 +1624,16 @@ def _annotate_slots(dwg, a: Analysis):
         # closer to that datum. Skipped when the slot abuts the datum.
         datum = _bb(s.long_axis, False)
         if (s.lo - datum) * a.SCALE >= 1.0:
-            if not _place(s.long_axis, datum, s.lo, s.lo - datum, "pos", anchor="lo"):
+            if not _place(
+                s.long_axis,
+                datum,
+                s.lo,
+                s.w_center - half,
+                s.w_center + half,
+                s.lo - datum,
+                "pos",
+                anchor="lo",
+            ):
                 _drop("position", name)
 
 
