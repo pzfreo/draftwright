@@ -15,18 +15,25 @@ It sits on top of two Apache 2.0 libraries:
 
 ## Architecture
 
-The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`,
-`linting.py`, and `fonts.py` sit below `_core.py`; `_core.py` and the stage modules
-`export.py` / `repair.py` sit below (`make_drawing.py`, `annotate.py`); and
-`make_drawing.py` → `annotate.py`. No lower module imports an upper one.
+The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
+top: leaf modules (`layout.py`, `registry.py`, `linting.py`, `fonts.py`) → `_core.py`
+→ stage modules (`export.py`, `repair.py`, `projection.py`, `sheet.py`, `analysis.py`,
+`drawing.py`, the `annotations/` subpackage) → `builder.py` → the `make_drawing.py` /
+`annotate.py` compat facades. No lower module imports an upper one.
 
-- **`make_drawing.py`** — orchestration and the public surface:
-  - **STEP/Shape import + geometry analysis** (`_analyse`) — builds the `Analysis` namespace
-  - **Layout orchestration** — strip/zone model that places views and reserves space for annotations
-  - **Scale selection** (`choose_scale`) — ISO/ASME standard scales
-  - **Feature orchestration** — calls `find_holes`, `analyse_cylinders` from `build123d_drafting.features`
-  - **`Drawing` class** — composable result object with `.lint()`, `.add()`, `.export_*`
-  - **CLI** (`draftwright` command) — STEP → SVG+DXF or editable .py script
+- **`make_drawing.py`** — thin compat facade (~17 lines) re-exporting the public
+  surface (`Drawing`, `build_drawing`, `make_drawing`, `generate_script`, `_cli`,
+  `FeatureInfo`, `fix_svg_page_size`, `lint_feature_coverage`) so existing imports
+  and the `draftwright` CLI entry point keep working. The engine lives in:
+  - **`builder.py`** — build orchestration: `build_drawing` (analyse → assemble →
+    measure-and-repack → `Drawing`), `make_drawing` (+ export), the editable-script
+    generator (`generate_script`), and the CLI (`_cli`). Imports `drawing`/`analysis`/
+    the annotation orchestrator/the stage modules — never `make_drawing` (a DAG).
+  - **`drawing.py`** — the `Drawing` result object (`.lint()`/`.add()`/`.place_dim()`/
+    `.repair()`/`.export*()`; delegates identity to `registry`, coverage to `lint`)
+    plus `_build_table` and `FeatureInfo`. Sits below `builder` (which constructs it).
+    *(The build context `_analysis`/`_view_edge_cache` still lives on `Drawing`;
+    threading it through `builder`→`projection`, ADR 0005 §2, is a deferred follow-up.)*
 - **`annotate.py`** — thin compat facade re-exporting `_auto_annotate` (the
   orchestrator) from `annotations/`. The annotation passes were split into the
   **`annotations/`** subpackage (#164 / ADR 0005, P5):

@@ -184,7 +184,7 @@ def _dominant_from_bbox(bbox: tuple[float, float, float, float, float, float]) -
 
 def _make_label(kind: str, value: float, upper_tol: float | None, lower_tol: float | None) -> str:
     """Format the annotation label with optional tolerance suffix."""
-    from draftwright.make_drawing import _fmt  # local import to avoid circularity
+    from draftwright._core import _fmt
 
     prefix = _DIM_PREFIX.get(kind, "")
     base = f"{prefix}{_fmt(value)}"
