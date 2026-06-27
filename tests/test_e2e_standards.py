@@ -64,6 +64,7 @@ def _assert_meets_standards(dwg, svg_path, dxf_path):
     ET.fromstring(data)
 
 
+@pytest.mark.smoke  # representative full build → annotate → export → lint → standards
 @pytest.mark.timeout(120)
 @pytest.mark.parametrize("name", ["cylinder", "plate", "stepped"])
 def test_e2e_from_object_meets_standards(tmp_path, name):

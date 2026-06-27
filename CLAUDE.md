@@ -97,8 +97,18 @@ Current ADRs:
 
 ## Testing
 
-`uv run pytest`. Tests are geometry-level — edge counts, bbox placement, face counts,
-lint clean checks. Target is 100% passing.
+Tests are geometry-level — edge counts, bbox placement, face counts, lint clean
+checks. Target is 100% passing. Tiers (#153):
+
+- **`uv run pytest -m smoke`** (~30 s) — curated build-light subset for a quick
+  local "did I break something obvious" check.
+- **`uv run pytest`** — full fast tier (`-m 'not slow'`, ~8 min; nearly every test
+  does a real OCC build). Prefer **targeted** selections (`-k`, node ids) locally.
+- **`-m slow`** (~19 min, CTC fixture builds) — CI-only.
+
+Coverage is kept out of the default addopts (it adds ~13% locally); the CI
+workflow passes the `--cov` flags. CI runs the full fast tier (3×3 OS/Python
+matrix) plus the slow tier on every PR.
 
 ## License
 

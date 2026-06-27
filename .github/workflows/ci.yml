@@ -54,7 +54,9 @@ jobs:
         # No --timeout here: it would override the 300 s set in
         # [tool.pytest.ini_options]. The heaviest test (full specimen-sheet SVG
         # export) can exceed 120 s on the slower macOS runners.
-        run: uv run pytest tests/ -v
+        # Coverage runs in CI; it is kept out of the default addopts so local
+        # runs stay lean (see pyproject [tool.pytest.ini_options]).
+        run: uv run pytest tests/ -v --cov=src/draftwright --cov-report=term-missing --cov-report=xml
 
   test-slow:
     # Heavy end-to-end CTC fixture builds (minutes each); run once, not across
