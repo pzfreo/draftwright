@@ -340,7 +340,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     draft = dwg.draft
     # Idempotent: clear build-time lint state so a second annotation pass does
     # not accumulate duplicate drop records.
-    dwg._build_issues = []
+    dwg._reset_build_issues()
     dwg._dropped_callout_diams = []
 
     FX = a.proj.front_x
@@ -753,7 +753,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
         )
         if table is not None:
             break
-    dwg._build_issues = [i for i in dwg._build_issues if i.code != "table_dropped"]
+    dwg._drop_build_issues("table_dropped")
     if table is None:
         # Even wrapped it will not fit — restore the callouts/dims and keep the
         # drop lint, so the sheet is never left with neither.
@@ -765,9 +765,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # the table documents every instance, not just each distinct diameter.
     table.covers_diameters = tuple(h.diameter for h in holes)
     dwg._add_balloons("plan", [(tag, 0, h) for tag, h in zip(tags, holes, strict=True)])
-    dwg._build_issues = [
-        i for i in dwg._build_issues if i.code not in ("callout_dropped", "location_ref_dropped")
-    ]
+    dwg._drop_build_issues("callout_dropped", "location_ref_dropped")
 
 
 def _annotate_pmi(dwg, a: Analysis, draft) -> None:

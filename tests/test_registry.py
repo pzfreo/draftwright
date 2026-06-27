@@ -80,3 +80,21 @@ def test_build_issues_accumulate_in_order():
     r.record_issue("first")
     r.record_issue("second")
     assert r._build_issues == ["first", "second"]
+
+
+class _Issue:
+    def __init__(self, code):
+        self.code = code
+
+
+def test_drop_issues_by_code_and_reset():
+    r = AnnotationRegistry()
+    for c in ("a", "b", "c"):
+        r.record_issue(_Issue(c))
+    r.drop_issues(["b"])
+    assert [i.code for i in r._build_issues] == ["a", "c"]
+    r.drop_issues(("a", "c"))  # accepts any iterable of codes
+    assert r._build_issues == []
+    r.record_issue(_Issue("x"))
+    r.reset_issues()
+    assert r._build_issues == []

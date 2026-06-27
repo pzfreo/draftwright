@@ -2871,6 +2871,16 @@ class Drawing:
         dropped feature is never silent."""
         self._registry.record_issue(LintIssue(severity=severity, code=code, message=message))
 
+    def _reset_build_issues(self):
+        """Clear build-time issues — called at the top of :func:`_auto_annotate`
+        so re-annotation does not accumulate them."""
+        self._registry.reset_issues()
+
+    def _drop_build_issues(self, *codes):
+        """Drop recorded build issues whose code is in *codes* (a fallback that
+        restored tentatively-dropped annotations un-records their drop)."""
+        self._registry.drop_issues(codes)
+
     # -- repair ---------------------------------------------------------------
     def _find_dim(self, label):
         """Return the re-placeable dimension whose label is *label*, or None.

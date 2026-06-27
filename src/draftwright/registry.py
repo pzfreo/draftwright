@@ -114,3 +114,13 @@ class AnnotationRegistry:
     def record_issue(self, issue) -> None:
         """Record a build-time :class:`LintIssue` (already constructed)."""
         self._build_issues.append(issue)
+
+    def reset_issues(self) -> None:
+        """Drop all build issues (re-annotation starts from a clean slate)."""
+        self._build_issues = []
+
+    def drop_issues(self, codes) -> None:
+        """Drop recorded build issues whose ``code`` is in *codes* — e.g. when a
+        fallback restores annotations the layout had tentatively dropped."""
+        drop = set(codes)
+        self._build_issues = [i for i in self._build_issues if i.code not in drop]
