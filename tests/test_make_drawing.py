@@ -23,6 +23,34 @@ from draftwright.make_drawing import (
     lint_feature_coverage,
 )
 
+
+def _state_snapshot(dwg):
+    """The mutable state a read-only test must not touch — annotation count,
+    names, pins, and the per-view (visible, hidden) tuples (by identity)."""
+    return (
+        len(dwg.items),
+        frozenset(dwg._named),
+        frozenset(dwg._pinned),
+        {k: (id(vis), id(hid)) for k, (vis, hid) in dwg.views.items()},
+    )
+
+
+@pytest.fixture(scope="module")
+def dwg_box_60_40_20():
+    """A built ``Box(60, 40, 20)`` drawing, built once and shared by the
+    **read-only** tests in this module (#153 — the hot part is otherwise rebuilt
+    dozens of times). A teardown guard asserts the drawing was not mutated, so a
+    consumer that accidentally adds/removes/pins an annotation or swaps a view
+    fails loudly here instead of silently contaminating its neighbours."""
+    dwg = build_drawing(Box(60, 40, 20))
+    before = _state_snapshot(dwg)
+    yield dwg
+    assert _state_snapshot(dwg) == before, (
+        "a shared-fixture consumer mutated dwg_box_60_40_20 — give that test its "
+        "own build_drawing(Box(60, 40, 20)) (see #153)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Pure-function unit tests (fast, no OCP projection)
 # ---------------------------------------------------------------------------
@@ -3921,16 +3949,14 @@ class TestLintSuggestions:
 
         assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
 
-    def test_clean_drawing_has_no_suggestions(self):
+    def test_clean_drawing_has_no_suggestions(self, dwg_box_60_40_20):
         # A fully auto-dimensioned plain box should lint clean → no suggestions.
-        dwg = build_drawing(Box(60, 40, 20))
-        for i in dwg.lint():
+        for i in dwg_box_60_40_20.lint():
             assert i.suggestion is None
 
-    def test_lint_summary_omits_none_suggestion(self):
+    def test_lint_summary_omits_none_suggestion(self, dwg_box_60_40_20):
         # A clean box: issue dicts (if any) must not carry a suggestion key.
-        dwg = build_drawing(Box(60, 40, 20))
-        for d in dwg.lint_summary()["issues"]:
+        for d in dwg_box_60_40_20.lint_summary()["issues"]:
             assert "suggestion" not in d
 
     def test_lint_summary_includes_present_suggestion(self):
@@ -4277,8 +4303,8 @@ class TestAnnotationsQuery:
 class TestViewBounds:
     """#28: page bounding box of a named view's projected geometry."""
 
-    def test_view_bounds_returns_page_bbox(self):
-        dwg = build_drawing(Box(60, 40, 20))
+    def test_view_bounds_returns_page_bbox(self, dwg_box_60_40_20):
+        dwg = dwg_box_60_40_20
         b = dwg.view_bounds("front")
         assert b is not None and len(b) == 4
         x0, y0, x1, y1 = b
@@ -4287,20 +4313,19 @@ class TestViewBounds:
         assert (x1 - x0) == pytest.approx(60 * dwg.scale, rel=1e-3)
         assert (y1 - y0) == pytest.approx(20 * dwg.scale, rel=1e-3)
 
-    def test_view_bounds_contains_projected_centroid(self):
+    def test_view_bounds_contains_projected_centroid(self, dwg_box_60_40_20):
         # The part centroid (world origin for a centred Box) projects inside.
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = dwg_box_60_40_20
         x0, y0, x1, y1 = dwg.view_bounds("front")
         px, py, _ = dwg.at("front", 0, 0, 0)
         assert x0 <= px <= x1
         assert y0 <= py <= y1
 
-    def test_view_bounds_unknown_view_is_none(self):
-        dwg = build_drawing(Box(60, 40, 20))
-        assert dwg.view_bounds("does_not_exist") is None
+    def test_view_bounds_unknown_view_is_none(self, dwg_box_60_40_20):
+        assert dwg_box_60_40_20.view_bounds("does_not_exist") is None
 
-    def test_view_bounds_for_each_standard_view(self):
-        dwg = build_drawing(Box(60, 40, 20))
+    def test_view_bounds_for_each_standard_view(self, dwg_box_60_40_20):
+        dwg = dwg_box_60_40_20
         for v in ("front", "plan", "side", "iso"):
             b = dwg.view_bounds(v)
             assert b is not None, v
