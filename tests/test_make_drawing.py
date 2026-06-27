@@ -283,7 +283,7 @@ class TestSectionHatchEdges:
         # With spacing=5, c=0 gives hatch line through corner (-5,-2.5).
         from build123d import Face, Plane
 
-        from draftwright.annotate import _section_hatch_edges
+        from draftwright.annotations.sections import _section_hatch_edges
 
         face = Face.make_rect(10, 5, Plane.XZ)
         edges = _section_hatch_edges(face, lambda x: x, lambda z: z, spacing=5.0)
@@ -295,7 +295,7 @@ class TestSectionHatchEdges:
     def test_hatch_edges_are_45_degrees(self):
         from build123d import Face, Plane
 
-        from draftwright.annotate import _section_hatch_edges
+        from draftwright.annotations.sections import _section_hatch_edges
 
         face = Face.make_rect(20, 15, Plane.XZ)
         edges = _section_hatch_edges(face, lambda x: x, lambda z: z, spacing=4.5)
