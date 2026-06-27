@@ -35,7 +35,9 @@ A refactor PR must leave every ``tests/golden/*.json`` byte-identical. When a PR
 
     UPDATE_GOLDEN=1 uv run pytest tests/test_golden.py
 
-The heavy NIST CTC build is marked ``slow`` (deselected by default, run in CI).
+The corpus is three build123d primitives, cross-platform stable to 1e-4 mm. Real
+NIST CTC parts are excluded because their absolute layout is platform-variant (see
+the note on ``_CASES``); real-part coverage stays with ``test_e2e_standards``.
 """
 
 import json
@@ -214,15 +216,20 @@ _PARTS = {
 }
 
 # (id, kind, ident, slow). Three primitives cover the turned / prismatic /
-# stepped geometry classes cheaply; CTC-01 is one real-world fixture with holes
-# (exercises the hole-callout pass), marked slow. The pathological dense-ballooning
-# case (CTC-02) is deliberately excluded — too heavy for a routine gate, and its
-# overlap acceptance is already pinned by test_e2e_standards.py.
+# stepped geometry classes. They are cross-platform stable to 1e-4 mm (verified on
+# the Linux/macOS/Windows CI matrix).
+#
+# The NIST CTC fixtures are deliberately NOT here. A real part's *absolute* layout
+# is platform-variant: its page centering and iso fit depend on summed text-metric
+# measurements, so the whole sheet drifts ~1 mm across OS (CTC-01 shifted +1.028 mm
+# in X on Linux vs macOS — views and annotations together, span preserved). A
+# byte-exact geometry gate cannot pin that portably. Real-part coverage stays with
+# test_e2e_standards (property-based, platform-robust); golden coverage of a real
+# part would need the gate pinned to one OS (a separate decision — see ADR 0005).
 _CASES = [
     ("cylinder", "obj", "cylinder", False),
     ("plate", "obj", "plate", False),
     ("stepped", "obj", "stepped", False),
-    ("ctc01", "step", "nist_ctc_01_asme1_ap203.stp", True),
 ]
 
 

@@ -119,17 +119,29 @@ A pure-refactor of ~6,300 lines cannot be proven safe by the current
 geometry-level tests alone (they assert edge counts and bboxes; a 0.3 mm shift or
 a reordered pass can pass them all). Therefore, as **Step 0, before any module
 moves**: stand up a golden/characterisation harness (`tests/test_golden.py`) that
-builds a fixed set of reference parts — three build123d primitives plus NIST
-CTC-01, a real part with holes; CTC-02 is excluded as too heavy for a routine
-gate and its overlap acceptance is already pinned by `test_e2e_standards` — and
-snapshots a canonical digest of each: the Drawing's per-view geometry +
-annotations + lint summary, the SVG structure, and the DXF entity counts. The
-digest pins **counts and geometry, never text** — dimension glyph boxes are
-font-metric-dependent and differ across OS, so they are deliberately omitted to
-keep the gate platform-portable. Every refactor PR in this series must leave those
-snapshots identical unless it **explicitly** states it is correcting behaviour and
-regenerates them (`UPDATE_GOLDEN=1`) with rationale — the same discipline ADR
-0004's amendment applied to *intended* changes, here used to prove *no* change.
+builds a fixed corpus — three build123d primitives (turned / prismatic / stepped)
+— and snapshots a canonical digest of each: the Drawing's per-view geometry +
+annotations + lint summary, the SVG structure, and the DXF geometry-entity counts.
+Every refactor PR must leave those snapshots identical unless it **explicitly**
+states it is correcting behaviour and regenerates them (`UPDATE_GOLDEN=1`) with
+rationale — the discipline ADR 0004's amendment applied to *intended* changes, here
+used to prove *no* change.
+
+Two portability constraints shape what the gate can pin, both learned on the CI
+matrix (Linux/macOS/Windows):
+
+- **No text.** Dimension glyph boxes and their tessellated DXF entities are
+  font-metric-dependent and differ across OS, so the digest pins *counts and
+  geometry, never text extents* (it records dimension values, not label boxes).
+- **No real-part absolute layout.** A real part's page centering and iso fit
+  depend on summed text-metric measurements, so its whole sheet drifts ~1 mm
+  across OS (NIST CTC-01 shifted +1.028 mm in X on Linux vs macOS). A byte-exact
+  geometry gate cannot pin that portably, so the corpus is the primitives, which
+  *are* cross-platform stable. Real-part coverage stays with `test_e2e_standards`
+  (property-based); golden coverage of a real part would require pinning the gate
+  to a single OS — a separate decision, deferred. (The dense-ballooning CTC-02
+  case is likewise out: too heavy for a routine gate, and its overlap acceptance
+  is already pinned by `test_e2e_standards`.)
 
 ### 4. Compatibility facade is transitional, with a deletion deadline
 
