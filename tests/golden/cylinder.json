@@ -141,16 +141,14 @@
   },
   "dxf": {
     "by_layer": {
-      "dims": 1572,
       "hidden": 6,
       "part": 18
     },
     "by_type": {
-      "ARC": 8,
       "CIRCLE": 2,
       "ELLIPSE": 6,
-      "LINE": 804,
-      "SPLINE": 776
+      "LINE": 6,
+      "SPLINE": 10
     }
   },
   "svg": {

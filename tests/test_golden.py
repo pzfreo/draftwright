@@ -169,12 +169,22 @@ def digest_svg(svg_path: str) -> dict:
     }
 
 
+# DXF layers carrying tessellated dimension-text glyphs. Their LINE/SPLINE entity
+# counts depend on the platform's curve-flattening of the font outlines (Linux and
+# macOS disagree by hundreds of entities), so they are excluded from the digest —
+# the geometry layers (part/hidden) carry the portable, meaningful DXF witness.
+_DXF_TEXT_LAYERS = {"dims"}
+
+
 def digest_dxf(dxf_path: str) -> dict:
-    """A structural digest of the exported DXF: entity counts by type and layer.
+    """A structural digest of the exported DXF: geometry entity counts by type and
+    layer, excluding text-bearing layers.
 
     Counts (not coordinates) for the same portability reason as the SVG digest;
     this is the witness for the DXF export path, which the drawing/SVG digests do
-    not otherwise cover.
+    not otherwise cover. Text layers are skipped (see ``_DXF_TEXT_LAYERS``) because
+    glyph tessellation is platform-variant; dimension *presence/value* is already
+    pinned by the drawing digest, so this guards the geometry reaching the DXF.
     """
     import ezdxf
 
@@ -182,8 +192,10 @@ def digest_dxf(dxf_path: str) -> dict:
     by_type: dict[str, int] = {}
     by_layer: dict[str, int] = {}
     for e in msp:
-        by_type[e.dxftype()] = by_type.get(e.dxftype(), 0) + 1
         layer = e.dxf.layer
+        if layer in _DXF_TEXT_LAYERS:
+            continue
+        by_type[e.dxftype()] = by_type.get(e.dxftype(), 0) + 1
         by_layer[layer] = by_layer.get(layer, 0) + 1
     return {
         "by_type": dict(sorted(by_type.items())),

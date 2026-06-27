@@ -117,14 +117,11 @@
   },
   "dxf": {
     "by_layer": {
-      "dims": 1445,
       "hidden": 34,
       "part": 40
     },
     "by_type": {
-      "ARC": 4,
-      "LINE": 741,
-      "SPLINE": 774
+      "LINE": 74
     }
   },
   "svg": {
