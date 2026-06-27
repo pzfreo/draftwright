@@ -110,6 +110,7 @@ from draftwright._core import (
 )
 from draftwright.annotate import _auto_annotate
 from draftwright.features import find_slots
+from draftwright.fonts import PLEX_MONO
 from draftwright.layout import (
     _greedy_strip_1d,
     _solve_strip_1d,
@@ -446,13 +447,17 @@ def dedup_diams(cyls, tol: float = 0.15) -> list:
 
 
 @functools.lru_cache(maxsize=512)
-def _text_width(text: str, font_size: float, font: str = "Arial") -> float:
-    """Measured rendered width (page-mm) of *text* in *font* at *font_size*.
+def _text_width(text: str, font_size: float, font_path: str = PLEX_MONO) -> float:
+    """Measured rendered width (page-mm) of *text* at *font_size*.
 
     Uses build123d's ``Text`` — the same primitive ``Dimension``/``HoleCallout``
     stroke their labels with — so callout-width estimates use real glyph metrics
-    instead of a character-count fudge (#31).  Cached because the same numeric
-    labels recur across holes and the rasterisation is the costly part.
+    instead of a character-count fudge (#31).  Pinned to a vendored font **file**
+    (``font_path``), not a system font *name*: name resolution substitutes a
+    different font on Linux, which makes this estimate — and the layout it feeds —
+    platform-variant (#149). The default is the same face the annotations render
+    with, so estimate and render agree.  Cached because the same numeric labels
+    recur across holes and the rasterisation is the costly part.
     """
     if not text:
         return 0.0
@@ -460,7 +465,7 @@ def _text_width(text: str, font_size: float, font: str = "Arial") -> float:
         Text(
             txt=text,
             font_size=font_size,
-            font=font,
+            font_path=font_path,
             align=(Align.CENTER, Align.CENTER),
             mode=Mode.PRIVATE,
         )
@@ -522,6 +527,7 @@ def _build_table(rows, draft, block_cols=None):
             text = Text(
                 txt=str(cell),
                 font_size=fs,
+                font_path=PLEX_MONO,
                 align=(Align.CENTER, Align.CENTER),
                 mode=Mode.PRIVATE,
             ).locate(Location((cx, cy, 0)))
@@ -2744,7 +2750,11 @@ class Drawing:
         # disc. A thin annular FACE fills as a ring — i.e. a circle outline.
         ring_faces = [f.moved(loc) for f in (Circle(r) - Circle(r - 0.35)).faces()]
         text = Text(
-            txt=tag, font_size=fs, align=(Align.CENTER, Align.CENTER), mode=Mode.PRIVATE
+            txt=tag,
+            font_size=fs,
+            font_path=PLEX_MONO,
+            align=(Align.CENTER, Align.CENTER),
+            mode=Mode.PRIVATE,
         ).locate(loc)
         parts = [*ring_faces, *text.faces()]
         # Leader from the hole rim to the balloon's near edge — the glyph is the
@@ -3380,7 +3390,7 @@ def _assemble(a, out, assembly, detail_view, auto_dims):
         page_w=a.PAGE_W,
         page_h=a.PAGE_H,
         tb_w=a.TB_W,
-        draft=draft_preset(font_size=_FONT_SIZE, decimal_precision=1),
+        draft=draft_preset(font_size=_FONT_SIZE, decimal_precision=1, font_path=PLEX_MONO),
         look_at=(cxs, cys, czs),
         dist=dist,
         centroid=(a.cx, a.cy, a.cz),

@@ -702,9 +702,12 @@ class TestDerivedLayoutConstants:
         w1 = _text_width("8", 3.0)
         w3 = _text_width("888", 3.0)
         assert 0.0 < w1 < w3
-        # Wider glyphs (uppercase) measure wider than the old 0.6*font fudge
-        # would have estimated — the whole point of using real metrics (#31).
-        assert _text_width("THRU", 3.0) > 4 * 0.6 * 3.0
+        # Real glyph metrics, not a character-count fudge (#31): equal-length
+        # strings of wide vs narrow glyphs measure differently. (Pinned to the
+        # vendored Plex Mono via font_path, #149, so these widths are also
+        # deterministic across platforms; Plex Mono being monospace made the old
+        # Arial "wider-than-0.6*font" threshold both font-specific and moot.)
+        assert _text_width("WXYZ", 3.0) > _text_width("iiii", 3.0)
 
     def test_bore_callout_width_scales_with_font_size(self):
         from draftwright.make_drawing import _est_bore_callout_width, find_holes

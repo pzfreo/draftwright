@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Changed
+
+- **Requires `build123d-drafting-helpers>=0.13.0`; text pinned to bundled fonts**
+  (#149, ADR 0006). draftwright now vendors IBM Plex (OFL-1.1) and renders and
+  measures all text via `font_path` — IBM Plex Mono for dimensions/callouts/notes,
+  IBM Plex Sans Condensed for the title block — instead of resolving the system
+  font name `"Arial"`. Resolving a name substitutes a different font on Linux,
+  which shifted the whole sheet ~1 mm; pinning a bundled font file makes generated
+  layout **deterministic across Linux/macOS/Windows** and gives a consistent
+  typeface. **Drawing output changes**: positions shift slightly from prior
+  releases and labels render in IBM Plex (helpers #172).
+
 ## v0.1.12 — 2026-06-21
 
 ### Changed

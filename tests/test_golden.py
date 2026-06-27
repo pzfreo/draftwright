@@ -35,9 +35,10 @@ A refactor PR must leave every ``tests/golden/*.json`` byte-identical. When a PR
 
     UPDATE_GOLDEN=1 uv run pytest tests/test_golden.py
 
-The corpus is three build123d primitives, cross-platform stable to 1e-4 mm. Real
-NIST CTC parts are excluded because their absolute layout is platform-variant (see
-the note on ``_CASES``); real-part coverage stays with ``test_e2e_standards``.
+The corpus is three build123d primitives plus NIST CTC-01 (a real part with
+holes, slow). All are cross-platform stable to 1e-4 mm because layout is pinned to
+a bundled font (#149); before that fix, real parts drifted ~1 mm across OS and
+could not be pinned here.
 """
 
 import json
@@ -215,21 +216,20 @@ _PARTS = {
     "stepped": lambda: Box(40, 40, 10) + Box(20, 20, 10).translate((0, 0, 10)),
 }
 
-# (id, kind, ident, slow). Three primitives cover the turned / prismatic /
-# stepped geometry classes. They are cross-platform stable to 1e-4 mm (verified on
-# the Linux/macOS/Windows CI matrix).
+# (id, kind, ident, slow). Three primitives cover the turned / prismatic / stepped
+# geometry classes; CTC-01 is a real NIST part with holes (the hole-callout pass),
+# marked slow.
 #
-# The NIST CTC fixtures are deliberately NOT here. A real part's *absolute* layout
-# is platform-variant: its page centering and iso fit depend on summed text-metric
-# measurements, so the whole sheet drifts ~1 mm across OS (CTC-01 shifted +1.028 mm
-# in X on Linux vs macOS — views and annotations together, span preserved). A
-# byte-exact geometry gate cannot pin that portably. Real-part coverage stays with
-# test_e2e_standards (property-based, platform-robust); golden coverage of a real
-# part would need the gate pinned to one OS (a separate decision — see ADR 0005).
+# CTC-01 is here again as of #149: with the layout pinned to a bundled font
+# (font_path, not a system font name), absolute layout is now deterministic across
+# OS — so a real part's whole-sheet position no longer drifts ~1 mm between Linux
+# and macOS, and the byte-exact gate can pin it. (Earlier this case had to be
+# dropped for exactly that drift; the font fix is what brought it back.)
 _CASES = [
     ("cylinder", "obj", "cylinder", False),
     ("plate", "obj", "plate", False),
     ("stepped", "obj", "stepped", False),
+    ("ctc01", "step", "nist_ctc_01_asme1_ap203.stp", True),
 ]
 
 
