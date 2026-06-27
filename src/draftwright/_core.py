@@ -10,13 +10,14 @@ the dimension/format helpers, and the layout constants).  It imports only from
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 
-from build123d import BoundBox, Location, Shape
+from build123d import Align, BoundBox, Location, Mode, Shape, Text
 from build123d_drafting.helpers import (
     Dimension,
     TitleBlock,
@@ -24,7 +25,7 @@ from build123d_drafting.helpers import (
     format_drawing_scale,
 )
 
-from draftwright.fonts import PLEX_SANS_CONDENSED
+from draftwright.fonts import PLEX_MONO, PLEX_SANS_CONDENSED
 from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
 
 _log = logging.getLogger(__name__)
@@ -67,6 +68,34 @@ _DIAM_RE = re.compile(r"[øØ⌀]\s*(\d+(?:\.\d+)?)")
 # A single-quoted label lifted from a lint message, e.g. "labels 'A' and 'B' …".
 # Shared by the #29 lint suggestions (linting.py) and the #30 repair loop.
 _QUOTED_RE = re.compile(r"'([^']*)'")
+
+
+@functools.lru_cache(maxsize=512)
+def _text_width(text: str, font_size: float, font_path: str = PLEX_MONO) -> float:
+    """Measured rendered width (page-mm) of *text* at *font_size*.
+
+    Uses build123d's ``Text`` — the same primitive ``Dimension``/``HoleCallout``
+    stroke their labels with — so callout-width estimates use real glyph metrics
+    instead of a character-count fudge (#31).  Pinned to a vendored font **file**
+    (``font_path``), not a system font *name*: name resolution substitutes a
+    different font on Linux, which makes this estimate — and the layout it feeds —
+    platform-variant (#149). The default is the same face the annotations render
+    with, so estimate and render agree.  Cached because the same numeric labels
+    recur across holes and the rasterisation is the costly part.
+    """
+    if not text:
+        return 0.0
+    return (
+        Text(
+            txt=text,
+            font_size=font_size,
+            font_path=font_path,
+            align=(Align.CENTER, Align.CENTER),
+            mode=Mode.PRIVATE,
+        )
+        .bounding_box()
+        .size.X
+    )
 
 
 def _axis_letter(obj) -> str:
