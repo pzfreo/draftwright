@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.13 — 2026-06-27
+
 ### Changed
 
 - **Requires `build123d-drafting-helpers>=0.13.0`; text pinned to bundled fonts**
@@ -13,6 +15,20 @@
   layout **deterministic across Linux/macOS/Windows** and gives a consistent
   typeface. **Drawing output changes**: positions shift slightly from prior
   releases and labels render in IBM Plex (helpers #172).
+
+### Internal
+
+- **Compiler-pipeline module split** (#138, ADR 0005). The two large modules
+  `make_drawing.py` (3,907 lines) and `annotate.py` (2,587) were decomposed into a
+  DAG of focused stage modules — `projection`, `sheet`, `analysis`, `drawing`,
+  `builder`, the `annotations/` subpackage (sections/turned/pmi/holes/orchestrator),
+  alongside the existing `registry`/`linting`/`repair`/`export`/`fonts`. Annotation
+  identity, the lint coverage signal, and the deterministic repair loop each gained a
+  single owner; `make_drawing.py` / `annotate.py` are now thin compat facades, so all
+  existing imports and the `draftwright` CLI entry point keep working. A golden-output
+  regression gate verified every step is behaviour-preserving (output byte-identical),
+  and mypy was tightened on the settled contracts. No public API or drawing-output
+  change. (Phases #160–#166.)
 
 ## v0.1.12 — 2026-06-21
 
