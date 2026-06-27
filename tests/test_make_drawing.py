@@ -3704,11 +3704,7 @@ class TestFindSlots:
     def test_gap_between_bosses_is_not_a_slot(self):
         # The floored channel between two raised bosses has facing rectangular
         # walls but is not a cut slot — the floor (the base plate) rejects it.
-        part = (
-            Box(80, 40, 6)
-            + Pos(-15, 0, 9) * Box(10, 40, 12)
-            + Pos(15, 0, 9) * Box(10, 40, 12)
-        )
+        part = Box(80, 40, 6) + Pos(-15, 0, 9) * Box(10, 40, 12) + Pos(15, 0, 9) * Box(10, 40, 12)
         assert find_slots(part) == []
 
     def test_full_span_through_slot_is_not_a_slot(self):
@@ -3745,11 +3741,7 @@ class TestFindSlots:
     def test_output_order_is_deterministic(self):
         # Two equal-width through-slots must be ordered by geometry (not OCC face
         # order), so the slot{i} annotation names are stable.
-        part = (
-            Box(120, 40, 12)
-            - Pos(-30, 0, 0) * Box(8, 20, 20)
-            - Pos(30, 0, 0) * Box(8, 20, 20)
-        )
+        part = Box(120, 40, 12) - Pos(-30, 0, 0) * Box(8, 20, 20) - Pos(30, 0, 0) * Box(8, 20, 20)
         runs = [[(s.width, s.lo, s.hi) for s in find_slots(part)] for _ in range(3)]
         assert runs[0] == runs[1] == runs[2]
         assert len(runs[0]) == 2
