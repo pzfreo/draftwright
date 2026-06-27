@@ -32,7 +32,7 @@ no PR introduces an import cycle, riskiest (annotations) last:
 
 | Phase | Issue | Chunk(s) | Size | Depends |
 |---|---|---|---|---|
-| **P1** | #160 | `_text_width` → `_core` | tiny | — |
+| ~~P1~~ | #160 | `_text_width` → `_core` ✅ | tiny | — |
 | **P2** | #161 | `projection.py` (silhouettes, iso) | med | — |
 | **P3** | #162 | `sheet.py` — 3a footprints/estimators, 3b scale/zone/repack | large (2 PRs) | P1 |
 | **P4** | #163 | `analysis.py` (`_analyse`) | med-lg | — |

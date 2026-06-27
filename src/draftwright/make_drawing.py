@@ -19,7 +19,6 @@ CLI (registered as ``make-drawing``)::
 from __future__ import annotations
 
 import argparse
-import functools
 import logging
 import math
 import re
@@ -104,6 +103,7 @@ from draftwright._core import (
     _log,
     _Projector,
     _tag_sequence,
+    _text_width,
 )
 from draftwright.annotate import _auto_annotate
 from draftwright.export import (
@@ -324,34 +324,6 @@ def dedup_diams(cyls, tol: float = 0.15) -> list:
         if not merged or abs(d - merged[-1]) > tol:
             merged.append(round(d, 2))
     return merged
-
-
-@functools.lru_cache(maxsize=512)
-def _text_width(text: str, font_size: float, font_path: str = PLEX_MONO) -> float:
-    """Measured rendered width (page-mm) of *text* at *font_size*.
-
-    Uses build123d's ``Text`` — the same primitive ``Dimension``/``HoleCallout``
-    stroke their labels with — so callout-width estimates use real glyph metrics
-    instead of a character-count fudge (#31).  Pinned to a vendored font **file**
-    (``font_path``), not a system font *name*: name resolution substitutes a
-    different font on Linux, which makes this estimate — and the layout it feeds —
-    platform-variant (#149). The default is the same face the annotations render
-    with, so estimate and render agree.  Cached because the same numeric labels
-    recur across holes and the rasterisation is the costly part.
-    """
-    if not text:
-        return 0.0
-    return (
-        Text(
-            txt=text,
-            font_size=font_size,
-            font_path=font_path,
-            align=(Align.CENTER, Align.CENTER),
-            mode=Mode.PRIVATE,
-        )
-        .bounding_box()
-        .size.X
-    )
 
 
 def _build_table(rows, draft, block_cols=None):

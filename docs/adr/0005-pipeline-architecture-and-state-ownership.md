@@ -10,7 +10,7 @@
   (#139), `registry.py` (annotation identity, Step 2), `linting.py`
   (`CoverageState` + `lint_feature_coverage` + `_suggest_fix`, Step 3), `repair.py`
   (the lint→repair loop), and `export.py`. **Remaining** (deeply-coupled stage
-  splits, sequenced prerequisite-first): P1 `_text_width`→`_core` (#160), P2
+  splits, sequenced prerequisite-first): P1 `_text_width`→`_core` (#160, done), P2
   `projection.py` (#161), P3 `sheet.py` (#162), P4 `analysis.py` (#163), P5
   `annotations/` (#164), P6 `builder.py` + build-context threading (#165), P7 mypy
   (#166). Build context (`_analysis`, edge cache) is threaded through
