@@ -8,16 +8,12 @@ from build123d import Box, Compound, Cylinder, Edge, Pos, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
 from draftwright import Drawing, build_drawing, make_drawing
-from draftwright._core import _MIN_VIEW_MM
+from draftwright._core import _MIN_VIEW_MM, _fmt
 from draftwright.analysis import _is_rotational, analyse_face_levels, dedup_diams
+from draftwright.drawing import analyse_cylinders
+from draftwright.export import _export_shape
 from draftwright.features import Slot, find_slots
-from draftwright.make_drawing import (
-    _export_shape,
-    _fmt,
-    analyse_cylinders,
-    generate_script,
-    lint_feature_coverage,
-)
+from draftwright.make_drawing import generate_script, lint_feature_coverage
 from draftwright.sheet import _fits, choose_scale
 
 
@@ -226,13 +222,13 @@ class TestIsoEmptyRect:
         # A part that fills the sheet leaves no empty rectangle for the iso, so
         # the fallback returns the drawable (overlapping the view obstacles) and
         # iso_valid is False — the flag _fits uses to reject such a layout.
-        from draftwright.make_drawing import _layout_geometry
+        from draftwright.sheet import _layout_geometry
 
         g = _layout_geometry(200, 150, 150, 2.0, 297.0, 210.0, 120.0, None)
         assert g.iso_valid is False
 
     def test_layout_geometry_iso_valid_true_for_normal_part(self):
-        from draftwright.make_drawing import _layout_geometry
+        from draftwright.sheet import _layout_geometry
 
         g = _layout_geometry(20, 20, 20, 1.0, 297.0, 210.0, 120.0, None)
         assert g.iso_valid is True
@@ -549,7 +545,7 @@ class TestStripZones:
         from build123d import Box
 
         from draftwright import build_drawing
-        from draftwright.make_drawing import _iso_bbox
+        from draftwright._core import _iso_bbox
 
         part = Box(80, 60, 20)
         dwg = build_drawing(part)
@@ -636,7 +632,7 @@ class TestDepthEstimators:
 
     def test_right_depth_grows_per_step_uncapped(self):
         from draftwright._core import _SLOT_DIM_STEP
-        from draftwright.make_drawing import _STRIP_SPACING
+        from draftwright.drawing import _STRIP_SPACING
         from draftwright.sheet import _est_right_strip_depth
 
         # #36: no cap — each further step adds one slot + one spacing.
@@ -660,7 +656,7 @@ class TestDepthEstimators:
         # A Strip whose available width equals _est_right_strip_depth(n) must
         # accept exactly n+1 allocations (dim_height + n dim_steps).
         from draftwright._core import _SLOT_DIM_HEIGHT, _SLOT_DIM_STEP, Strip
-        from draftwright.make_drawing import _STRIP_GAP
+        from draftwright.drawing import _STRIP_GAP
         from draftwright.sheet import _est_right_strip_depth
 
         for n_steps in (0, 1, 3):
@@ -677,7 +673,7 @@ class TestDepthEstimators:
     def test_pv_below_depth_fits_in_exact_corridor(self):
         # A Strip of _est_pv_below_depth() width must accept one dim_width allocation.
         from draftwright._core import _SLOT_DIM_WIDTH, Strip
-        from draftwright.make_drawing import _STRIP_GAP
+        from draftwright.drawing import _STRIP_GAP
         from draftwright.sheet import _est_pv_below_depth
 
         est = _est_pv_below_depth()
@@ -712,7 +708,7 @@ class TestDerivedLayoutConstants:
         assert (2 * (2 * _FONT_SIZE) + 2 * _PAD) > _SLOT_DIM_HEIGHT
 
     def test_text_width_returns_real_glyph_metrics(self):
-        from draftwright.make_drawing import _text_width
+        from draftwright._core import _text_width
 
         assert _text_width("", 3.0) == 0.0
         # A real measurement is positive and grows with the string.
@@ -744,7 +740,7 @@ class TestComposeAnnoBoxes:
     later steps make honest."""
 
     def _assert_match(self, holes, patterns, n_steps, bb, label=""):
-        from draftwright.make_drawing import _FONT_SIZE, draft_preset
+        from draftwright.builder import _FONT_SIZE, draft_preset
         from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
 
         # The composer must reproduce StripDepths exactly for ANY clearance
@@ -863,7 +859,7 @@ class TestComposeAnnoBoxesCorpus:
         equal-depth left/right pair iff the part has annotatable holes; the
         plan halo appears iff the plan view will balloon. (_footprint_from_boxes
         folding these back to the StripDepths estimate is covered above.)"""
-        from draftwright.make_drawing import _FONT_SIZE
+        from draftwright.builder import _FONT_SIZE
         from draftwright.sheet import (
             _compose_anno_boxes,
             _est_bore_callout_width,
@@ -1129,7 +1125,7 @@ class TestComposeThenPackRepack:
         return SimpleNamespace(_named=named, _anno_view=views)
 
     def test_overlap_counts_label_vs_label_across_views(self):
-        from draftwright.make_drawing import _cross_view_overlaps
+        from draftwright.builder import _cross_view_overlaps
 
         dwg = self._fake_dwg(
             {"a": self._label((0, 0, 10, 10)), "b": self._label((5, 5, 15, 15))},
@@ -1140,7 +1136,7 @@ class TestComposeThenPackRepack:
     def test_overlap_counts_label_vs_line_across_views(self):
         # The literal #121 case: a plan balloon (bare geometry) over a front-view
         # dimension (label) — counted because at least one side is a label.
-        from draftwright.make_drawing import _cross_view_overlaps
+        from draftwright.builder import _cross_view_overlaps
 
         dwg = self._fake_dwg(
             {"dim": self._label((0, 0, 10, 10)), "balloon": self._line((5, 5, 15, 15))},
@@ -1149,7 +1145,7 @@ class TestComposeThenPackRepack:
         assert _cross_view_overlaps(dwg, None) == 1
 
     def test_overlap_ignores_same_view(self):
-        from draftwright.make_drawing import _cross_view_overlaps
+        from draftwright.builder import _cross_view_overlaps
 
         dwg = self._fake_dwg(
             {"a": self._label((0, 0, 10, 10)), "b": self._label((5, 5, 15, 15))},
@@ -1159,7 +1155,7 @@ class TestComposeThenPackRepack:
 
     def test_overlap_ignores_line_vs_line(self):
         # Two bare lines crossing between views is normal drafting, not a clash.
-        from draftwright.make_drawing import _cross_view_overlaps
+        from draftwright.builder import _cross_view_overlaps
 
         dwg = self._fake_dwg(
             {"a": self._line((0, 0, 10, 10)), "b": self._line((5, 5, 15, 15))},
@@ -1170,7 +1166,7 @@ class TestComposeThenPackRepack:
     def test_overlap_ignores_untagged_furniture(self):
         # An annotation with no ortho-view tag (iso/section/detail/title) is
         # invisible to the detector, even when it overlaps a tagged one.
-        from draftwright.make_drawing import _cross_view_overlaps
+        from draftwright.builder import _cross_view_overlaps
 
         dwg = self._fake_dwg(
             {"dim": self._label((0, 0, 10, 10)), "note": self._label((5, 5, 15, 15))},
@@ -1187,7 +1183,7 @@ class TestComposeThenPackRepack:
         # can only move view-owned annotations.
         from types import SimpleNamespace
 
-        from draftwright.make_drawing import _annotations_out_of_bounds
+        from draftwright.builder import _annotations_out_of_bounds
 
         a = SimpleNamespace(margin=10.0, PAGE_W=200.0, PAGE_H=100.0)
         inb = self._fake_dwg({"d": self._line((20, 20, 40, 40))}, {"d": "plan"})
@@ -1200,7 +1196,7 @@ class TestComposeThenPackRepack:
     # --- disjoint block packing ------------------------------------------
 
     def test_repacked_blocks_are_disjoint(self):
-        from draftwright.make_drawing import ViewBlock, _layout_geometry
+        from draftwright.sheet import ViewBlock, _layout_geometry
 
         blocks = {
             "front": ViewBlock(10, 10, top=12, right=12, bottom=12, left=12),
@@ -1223,7 +1219,7 @@ class TestComposeThenPackRepack:
         # code (FV_X anchored on fv.left) would pass anyway.  With x_offset == 0
         # the bug puts the plan-view left edge at margin - 120 = -110 mm.
         from draftwright._core import _MARGIN
-        from draftwright.make_drawing import ViewBlock, _layout_geometry
+        from draftwright.sheet import ViewBlock, _layout_geometry
 
         blocks = {
             "front": ViewBlock(10, 10, left=0.0, right=8, top=8, bottom=8),
@@ -1246,7 +1242,7 @@ class TestComposeThenPackRepack:
     def test_repack_candidates_floored_at_pass1_sheet(self):
         from types import SimpleNamespace
 
-        from draftwright.make_drawing import _repack_candidates
+        from draftwright.builder import _repack_candidates
 
         a = SimpleNamespace(SCALE=0.2, PAGE_W=594.0, PAGE_H=420.0)
         cands = _repack_candidates(a, None, None)
@@ -1260,7 +1256,7 @@ class TestComposeThenPackRepack:
     def test_repack_candidates_honour_fixed_scale_and_page(self):
         from types import SimpleNamespace
 
-        from draftwright.make_drawing import _repack_candidates
+        from draftwright.builder import _repack_candidates
 
         a = SimpleNamespace(SCALE=1.0, PAGE_W=297.0, PAGE_H=210.0)
         cands = _repack_candidates(a, 2.0, "A3")
@@ -1796,7 +1792,7 @@ def ctc01_a3_drawing():
 def test_ctc01_iso_uses_upper_right_zone(ctc01_a3_drawing):
     # #75 updated — wide/flat part on A3: the iso is repositioned into the upper-right
     # zone (above the SV, right of FV/PV) where it fits at sheet scale.  No NTS label.
-    from draftwright.make_drawing import _iso_bbox
+    from draftwright._core import _iso_bbox
 
     dwg = ctc01_a3_drawing
     labels = [getattr(a, "label", "") for a in dwg.items]
@@ -1844,7 +1840,7 @@ def test_iso_view_grow_capped_at_max():
 @pytest.mark.timeout(60)
 def test_iso_stays_within_page_bounds():
     # Whether scaled up or not, the iso must always lie within the page margin.
-    from draftwright.make_drawing import _iso_bbox
+    from draftwright._core import _iso_bbox
 
     dwg = build_drawing(Box(30, 20, 10))
     x0, y0, x1, y1 = _iso_bbox(dwg)
@@ -1879,7 +1875,7 @@ def test_tall_part_iso_in_largest_free_zone():
     # #11 — a tall/narrow part has no per-shape branch; the iso must land in the
     # largest empty rectangle, clear of every view bbox and the title block, and
     # stay within the page margins.
-    from draftwright.make_drawing import _iso_bbox
+    from draftwright._core import _iso_bbox
 
     dwg = build_drawing(Box(40, 40, 300))
     a = dwg._analysis
@@ -2836,7 +2832,7 @@ class TestIsRotational:
         # leaks the OD into the bore leaders as a duplicate ø60 callout.
         import importlib
 
-        md = importlib.import_module("draftwright.make_drawing")
+        md = importlib.import_module("draftwright.analysis")
         real = md.analyse_cylinders
 
         def unrounded(part):
@@ -2860,7 +2856,7 @@ class TestIsRotational:
 
         # (the package re-exports the make_drawing *function*, shadowing the
         # submodule attribute, so plain `import ... as md` grabs the function)
-        md = importlib.import_module("draftwright.make_drawing")
+        md = importlib.import_module("draftwright.analysis")
 
         dwg = build_drawing(Box(30, 20, 10))
         calls = {"n": 0}
@@ -3008,7 +3004,7 @@ class TestSanitizeSvgArcs:
     def test_degenerate_arc_rewritten_to_line(self, tmp_path):
         from pathlib import Path
 
-        from draftwright.make_drawing import sanitize_svg_arcs
+        from draftwright.export import sanitize_svg_arcs
 
         f = self._write(
             tmp_path, '<path d="M 441.547 224.55 A 3.65627 5.88651e-7 90.0 0 0 441.547 222.627" />'
@@ -3023,7 +3019,7 @@ class TestSanitizeSvgArcs:
     def test_real_radius_arc_preserved(self, tmp_path):
         from pathlib import Path
 
-        from draftwright.make_drawing import sanitize_svg_arcs
+        from draftwright.export import sanitize_svg_arcs
 
         arc = '<path d="M 10 10 A 5.0 5.0 0 0 1 20 20" />'
         f = self._write(tmp_path, arc)
@@ -3963,7 +3959,7 @@ class TestLintSuggestions:
         # Synthetic issue — exercise the _suggest_fix branch directly.
         from build123d_drafting.helpers import LintIssue
 
-        from draftwright.make_drawing import _suggest_fix
+        from draftwright.linting import _suggest_fix
 
         dwg = build_drawing(Box(60, 40, 20))
         issue = LintIssue(
@@ -3979,7 +3975,7 @@ class TestLintSuggestions:
     def test_dim_inside_part_suggestion_uses_place_dim(self):
         from build123d_drafting.helpers import LintIssue
 
-        from draftwright.make_drawing import _suggest_fix
+        from draftwright.linting import _suggest_fix
 
         dwg = build_drawing(Box(60, 40, 20))
         issue = LintIssue(
@@ -3995,7 +3991,7 @@ class TestLintSuggestions:
     def test_unknown_code_has_no_suggestion(self):
         from build123d_drafting.helpers import LintIssue
 
-        from draftwright.make_drawing import _suggest_fix
+        from draftwright.linting import _suggest_fix
 
         dwg = build_drawing(Box(60, 40, 20))
         issue = LintIssue(severity="info", message="something", code="some_unhandled_code")
@@ -4019,7 +4015,7 @@ class TestLintSuggestions:
         # not interfere with the parse.
         from build123d_drafting.helpers import LintIssue
 
-        from draftwright.make_drawing import _suggest_fix
+        from draftwright.linting import _suggest_fix
 
         dwg = build_drawing(Box(60, 40, 20))
         issue = LintIssue(
@@ -4038,7 +4034,7 @@ class TestRepair:
     def test_repair_clears_annotation_overlap(self):
         # Two dimensions forced onto the same page location → their labels
         # collide; the repair loop pushes one further out to separate them.
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
         d = dwg.draft
@@ -4056,7 +4052,7 @@ class TestRepair:
         # the opposite side and keeps its name binding.
         from build123d_drafting.helpers import LintIssue
 
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
         from draftwright.repair import _repair_dim_inside_part
 
         dwg = build_drawing(Box(60, 40, 20))
@@ -4079,7 +4075,7 @@ class TestRepair:
         # The same label is only flipped once across the whole loop.
         from build123d_drafting.helpers import LintIssue
 
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
         dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="OSC"), "x")
@@ -4121,7 +4117,7 @@ class TestRepair:
         # overlap before, two issues after the push.
         from build123d_drafting.helpers import LintIssue
 
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
         orig = dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="RB"), "x")
@@ -4147,7 +4143,7 @@ class TestRepair:
 
     def test_build_drawing_repair_flag_is_respected(self):
         # repair=False leaves the greedy placement untouched; the default repairs.
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
 
         # A clean part is identical either way (nothing to repair).
         a = build_drawing(Box(60, 40, 20), repair=False)
@@ -4164,7 +4160,7 @@ class TestPin:
     """#89: a pinned annotation is never moved by the engine (repair today)."""
 
     def _two_overlapping(self):
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
         p1, p2 = (40.0, 20.0, 0.0), (80.0, 20.0, 0.0)
@@ -4223,7 +4219,7 @@ class TestPin:
         assert "ldr" in dwg.annotations()
 
     def test_removed_then_readded_name_is_not_still_pinned(self):
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
 
         dwg = self._two_overlapping()
         dwg.pin("a")
@@ -4251,7 +4247,7 @@ class TestAnnotationsQuery:
             assert type(dwg._named[name]).__name__ == type_name
 
     def test_annotations_omits_unnamed(self):
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
         before = dict(dwg.annotations())
@@ -4261,7 +4257,7 @@ class TestAnnotationsQuery:
         assert len(dwg.items) == len(before) + 1
 
     def test_annotations_reflects_add_and_membership(self):
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
         assert "q_dim" not in dwg.annotations()
@@ -4269,7 +4265,7 @@ class TestAnnotationsQuery:
         assert dwg.annotations()["q_dim"] == "Dimension"
 
     def test_get_annotation_returns_object_or_none(self):
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
         obj = dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="G"), "g")
@@ -4277,7 +4273,7 @@ class TestAnnotationsQuery:
         assert dwg.get_annotation("does_not_exist") is None
 
     def test_get_annotation_follows_remove(self):
-        from draftwright.make_drawing import _dim
+        from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
         dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="R"), "r")
@@ -4477,14 +4473,14 @@ class TestHoleTable:
     def test_table_dropped_when_it_will_not_fit(self, monkeypatch):
         import sys
 
-        m = sys.modules["draftwright.make_drawing"]
+        m = sys.modules["draftwright.drawing"]
         monkeypatch.setattr(m, "fit_box", lambda *a, **k: None)
         dwg = build_drawing(_multi_hole_plate())
         assert dwg.add_hole_table("plan") is None
         assert "table_dropped" in {i.code for i in dwg.lint()}
 
     def test_tag_sequence_rolls_over_past_z(self):
-        from draftwright.make_drawing import _tag_sequence
+        from draftwright._core import _tag_sequence
 
         seq = _tag_sequence(28)
         assert seq[:3] == ["A", "B", "C"]
@@ -4509,7 +4505,7 @@ class TestHoleTable:
         assert Path(svg).stat().st_size > 0 and Path(dxf).stat().st_size > 0
 
     def test_table_geometry_is_deterministic(self):
-        from draftwright.make_drawing import _build_table
+        from draftwright.drawing import _build_table
 
         rows = [("TAG", "⌀", "QTY"), ("A", "ø10", "2")]
         a = build_drawing(Box(60, 40, 20)).draft

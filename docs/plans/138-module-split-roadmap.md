@@ -37,13 +37,14 @@ no PR introduces an import cycle, riskiest (annotations) last:
 | ~~P3~~ | #162 | `sheet.py` — compose-then-pack (repack deferred to P6) ✅ | large (2 PRs) | P1 |
 | ~~P4~~ | #163 | `analysis.py` (`_analyse`) ✅ | med-lg | — |
 | ~~P5~~ | #164 | `annotations/` — sections, turned, pmi, holes, orchestrator ✅ (envelope.py deferred) | biggest (5 PRs) | P1–P4 |
-| **P6** | #165 | `builder.py` + thread the build context | med | P2, P4 |
+| ~~P6~~ | #165 | `builder.py` + `drawing.py` ✅ (context-threading deferred) | med | P2, P4 |
 | **P7** | #166 | tighten mypy on settled contracts | cleanup | all |
 
 ## Target module shape (ADR 0005 §1)
 ```text
-make_drawing.py   # transitional compat facade / public re-exports
-builder.py        # build_drawing/make_drawing orchestration (P6)
+make_drawing.py   # compat facade / public re-exports (DONE)
+builder.py        # build_drawing/make_drawing orchestration (DONE)
+drawing.py        # the Drawing result object (DONE)
 analysis.py       # _analyse, Analysis construction (DONE)
 sheet.py          # choose_scale, compose-then-pack (DONE; repack→P6)
 projection.py     # view projection, silhouettes, iso fit (DONE)
