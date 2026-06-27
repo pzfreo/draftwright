@@ -3,12 +3,18 @@
 - **Status:** Accepted, in progress
 - **Date:** 2026-06-27
 - **Deciders:** Paul Fremantle (pzfreo)
-- **Progress:** Step 0 (golden gate), Step 1 (#139, public helper APIs), Step 2
-  (`registry.py` owns annotation identity; `Drawing` delegates, the four field
-  names kept as compat properties), and Step 3 (`linting.py` `CoverageState` owns
-  the lint-side coverage signal — pattern callouts, patterned holes, dropped
-  callout diameters) landed. Remaining: build context (`Analysis`, edge cache) →
-  pipeline, and the stage-module splits.
+- **Progress:** Execution roadmap with per-phase tracking issues:
+  [`docs/plans/138-module-split-roadmap.md`](../plans/138-module-split-roadmap.md).
+  **Landed** (`make_drawing.py` 3,907 → 3,476): the golden gate (Step 0, made
+  cross-platform-deterministic by the #149 font pinning), public helper APIs
+  (#139), `registry.py` (annotation identity, Step 2), `linting.py`
+  (`CoverageState` + `lint_feature_coverage` + `_suggest_fix`, Step 3), `repair.py`
+  (the lint→repair loop), and `export.py`. **Remaining** (deeply-coupled stage
+  splits, sequenced prerequisite-first): P1 `_text_width`→`_core` (#160), P2
+  `projection.py` (#161), P3 `sheet.py` (#162), P4 `analysis.py` (#163), P5
+  `annotations/` (#164), P6 `builder.py` + build-context threading (#165), P7 mypy
+  (#166). Build context (`_analysis`, edge cache) is threaded through
+  `builder`/`projection` in P6, **not** parked on `Drawing` as a standalone owner.
 
 ## Context
 

@@ -89,14 +89,14 @@ Current ADRs:
   annotation identity/pins/build-issues move to a `registry.py`, coverage state to
   lint, build context (`Analysis`, edge cache) to the pipeline. Stages split into
   `builder`/`analysis`/`sheet`/`projection`/`linting`/`repair`/`export`/`annotations/`;
-  `layout.py` unchanged. **Landed so far:** Step 0 (golden-output harness, gates
-  behaviour-equivalence), Step 1 (#139, public helper APIs), Step 2 (`registry.py`
-  owns annotation identity; `Drawing` delegates, with `_named`/`_anno_view`/
-  `_pinned`/`_build_issues` kept as compat properties), Step 3 (`linting.py`
-  `CoverageState` owns the lint-side coverage signal). **Still ahead:** build
-  context → pipeline, and the sheet/projection/export/annotations splits. The
-  module list above is the *current* tree; the remaining stage modules do not
-  exist yet.
+  `layout.py` unchanged. **Roadmap + per-phase issues:**
+  `docs/plans/138-module-split-roadmap.md`. **Landed** (`make_drawing.py`
+  3,907 → 3,476): golden gate (Step 0), public helper APIs (#139), `registry.py`
+  (Step 2), `linting.py` (`CoverageState` + lint functions, Step 3), `repair.py`,
+  `export.py`. **Still ahead:** P1 `_text_width`→`_core` (#160), P2 `projection.py`
+  (#161), P3 `sheet.py` (#162), P4 `analysis.py` (#163), P5 `annotations/` (#164),
+  P6 `builder.py` + build-context threading (#165), P7 mypy (#166). The module list
+  above is the *current* tree; the remaining stage modules do not exist yet.
 - **0006** — **Accepted** (#149): deterministic cross-platform layout via bundled,
   path-pinned fonts. Layout depends on measured text width; resolving a font *name*
   (`"Arial"`) substitutes a different font on Linux, drifting the whole sheet ~1 mm.
