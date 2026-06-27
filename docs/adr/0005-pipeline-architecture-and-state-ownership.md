@@ -118,12 +118,18 @@ the public editable object but is no longer the implicit state bus.
 A pure-refactor of ~6,300 lines cannot be proven safe by the current
 geometry-level tests alone (they assert edge counts and bboxes; a 0.3 mm shift or
 a reordered pass can pass them all). Therefore, as **Step 0, before any module
-moves**: stand up a golden/characterisation harness that renders a fixed set of
-reference parts (including NIST CTC-02) to SVG+DXF and snapshots their geometry.
-Every refactor PR in this series must leave those snapshots identical unless it
-**explicitly** states it is correcting behaviour and updates them with rationale —
-the same discipline ADR 0004's amendment applied to *intended* changes, here used
-to prove *no* change.
+moves**: stand up a golden/characterisation harness (`tests/test_golden.py`) that
+builds a fixed set of reference parts — three build123d primitives plus NIST
+CTC-01, a real part with holes; CTC-02 is excluded as too heavy for a routine
+gate and its overlap acceptance is already pinned by `test_e2e_standards` — and
+snapshots a canonical digest of each: the Drawing's per-view geometry +
+annotations + lint summary, the SVG structure, and the DXF entity counts. The
+digest pins **counts and geometry, never text** — dimension glyph boxes are
+font-metric-dependent and differ across OS, so they are deliberately omitted to
+keep the gate platform-portable. Every refactor PR in this series must leave those
+snapshots identical unless it **explicitly** states it is correcting behaviour and
+regenerates them (`UPDATE_GOLDEN=1`) with rationale — the same discipline ADR
+0004's amendment applied to *intended* changes, here used to prove *no* change.
 
 ### 4. Compatibility facade is transitional, with a deletion deadline
 

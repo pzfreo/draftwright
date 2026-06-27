@@ -2,42 +2,18 @@
   "drawing": {
     "annotations": [
       {
-        "bbox": [
-          149.4656,
-          57.9036,
-          152.5344,
-          60.0964
-        ],
         "label": "50",
         "type": "Dimension"
       },
       {
-        "bbox": [
-          114.9036,
-          70.2925,
-          117.0964,
-          71.7075
-        ],
         "label": "8",
         "type": "Dimension"
       },
       {
-        "bbox": [
-          66.4641,
-          83.9036,
-          69.5359,
-          86.0964
-        ],
         "label": "80",
         "type": "Dimension"
       },
       {
-        "bbox": [
-          195.4441,
-          100.3488,
-          217.5559,
-          103.1657
-        ],
         "label": "ISO VIEW (NTS)",
         "type": "Note"
       },
@@ -147,15 +123,29 @@
       }
     }
   },
+  "dxf": {
+    "by_layer": {
+      "dims": 1425,
+      "hidden": 15,
+      "part": 21
+    },
+    "by_type": {
+      "ARC": 12,
+      "LINE": 725,
+      "SPLINE": 724
+    }
+  },
   "svg": {
-    "height": "210.000mm",
-    "tags": {
+    "elements": {
       "Description": 1,
       "RDF": 1,
       "a": 1,
       "creator": 1,
       "description": 1,
-      "g": 4,
+      "g": 1,
+      "g.dims": 1,
+      "g.hidden": 1,
+      "g.part": 1,
       "line": 36,
       "metadata": 1,
       "path": 113,
@@ -163,6 +153,7 @@
       "source": 1,
       "svg": 1
     },
+    "height": "210.000mm",
     "width": "297.000mm"
   }
 }

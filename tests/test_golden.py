@@ -8,24 +8,34 @@ them all. This module pins the whole drawing.
 
 For each reference part it builds the drawing and snapshots a canonical digest:
 
-- ``drawing`` — the semantic content SVG/DXF are a pure function of: per-view
-  edge counts + bboxes, every annotation's type/label/bbox, and the lint summary.
-  Built from the **public** surface (`views`, `items`, `page_*`, `scale`,
-  `lint_summary()`) only — so the oracle survives the registry move (Step 2)
-  without edits and keeps witnessing the same values.
-- ``svg`` — a structural digest of the exported SVG (element-tag histogram + page
-  size) to guard the export path (Step 3). Tag counts, not text, so the embedded
-  draftwright version / metadata does not perturb it.
+- ``drawing`` — per-view edge counts + geometry bboxes, every annotation's
+  type + label, geometry-annotation bboxes, and the lint summary. Built from the
+  **public** surface (`views`, `items`, `page_*`, `scale`, `lint_summary()`)
+  only — so the oracle survives the registry move (Step 2) without edits.
+- ``svg`` — page size + per-(tag, class) element counts, to guard the SVG export
+  path (Step 3).
+- ``dxf`` — entity counts by type and layer, to guard the DXF export path.
 
-Coordinates are rounded to ``ROUND`` decimal places (1e-4 mm): tight enough to
-catch a real placement change, loose enough to absorb floating-point noise.
+**Platform portability.** The digest pins *counts and geometry*, never text. A
+dimension's ``label_bbox`` and the path coordinates of its rendered glyphs come
+from font metrics, which differ across OS by up to ~0.3 mm — so committed
+snapshots that included them failed on Linux while passing on macOS. The gate
+therefore records dimension *values* (label strings), geometry-annotation bboxes,
+and per-layer element counts — all platform-stable — and deliberately omits text
+extents and glyph coordinates. The trade-off: it does not pin the exact pixel
+position of dimension text (unlikely to regress from pure code movement, and the
+value + owning view geometry + path counts still move if a dimension is dropped,
+revalued, or re-attributed).
+
+Geometry coordinates are rounded to ``ROUND`` decimal places (1e-4 mm): tight
+enough to catch a real placement change, loose enough to absorb FP noise.
 
 A refactor PR must leave every ``tests/golden/*.json`` byte-identical. When a PR
 *intends* to change output (a layout correction), regenerate and review the diff:
 
     UPDATE_GOLDEN=1 uv run pytest tests/test_golden.py
 
-The heavy NIST CTC builds are marked ``slow`` (deselected by default, run in CI).
+The heavy NIST CTC build is marked ``slow`` (deselected by default, run in CI).
 """
 
 import json
@@ -53,16 +63,30 @@ def _r(x):
     return round(float(x), ROUND)
 
 
-def _bbox(o):
-    """A drawing-object bbox: its text ``label_bbox`` if present, else geometry."""
-    lb = getattr(o, "label_bbox", None)
-    if lb is not None:
-        return [_r(v) for v in lb]
+def _geom_bbox(o):
+    """A glyph-free, platform-stable geometric bbox, or ``None``."""
     try:
         b = o.bounding_box()
         return [_r(b.min.X), _r(b.min.Y), _r(b.max.X), _r(b.max.Y)]
     except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
         return None
+
+
+def _anno_entry(o):
+    """A platform-portable digest entry for one annotation.
+
+    Text-bearing annotations (dimensions, balloons) carry a ``label_bbox`` derived
+    from font metrics, which differ across OS by up to ~0.3 mm (the dimension text
+    glyph boxes are the *only* part of the drawing that is not platform-stable).
+    So we pin their *value* (the label text), not their box. Pure-geometry
+    annotations (centrelines, leaders, section lines) have a glyph-free,
+    platform-stable bbox, so we keep it — that retains position sensitivity for
+    everything except dimension text.
+    """
+    entry = {"type": type(o).__name__, "label": _label(o)}
+    if getattr(o, "label_bbox", None) is None:
+        entry["bbox"] = _geom_bbox(o)
+    return entry
 
 
 def _shape_digest(shape):
@@ -99,13 +123,10 @@ def digest_drawing(dwg) -> dict:
         vis, hid = dwg.views[name]
         views[name] = {"visible": _shape_digest(vis), "hidden": _shape_digest(hid)}
 
-    anns = [
-        {"type": type(o).__name__, "label": _label(o), "bbox": _bbox(o)}
-        for o in dwg.items
-    ]
+    anns = [_anno_entry(o) for o in dwg.items]
     # Sort canonically: annotation list-order is draw order, not a behaviour we
-    # want to pin. Position/label/type are.
-    anns.sort(key=lambda a: (a["type"], a["label"] or "", json.dumps(a["bbox"])))
+    # want to pin. Type/label/(geometry) position are.
+    anns.sort(key=lambda a: (a["type"], a["label"] or "", json.dumps(a.get("bbox"))))
 
     s = dwg.lint_summary()
     lint = {
@@ -125,20 +146,48 @@ def digest_drawing(dwg) -> dict:
 
 
 def digest_svg(svg_path: str) -> dict:
-    """A structural digest of the exported SVG: element-tag histogram + page size.
+    """A structural digest of the exported SVG: page size + per-(tag, class)
+    element counts.
 
-    Tag counts (not text) so the embedded draftwright version / metadata does not
-    perturb it; the ``<path>`` count is the real geometry witness for export.
+    Counts, not coordinates: glyph path *coordinates* differ across OS (the same
+    font-metric variance that keeps text bboxes out of the drawing digest), but
+    the *number* of paths per layer is platform-stable and witnesses dropped /
+    added / mis-layered geometry and labels. Keying by ``class`` adds per-layer
+    granularity (``part`` / ``hidden`` / ``dims``) over a bare tag histogram.
     """
     root = ET.fromstring(Path(svg_path).read_text(encoding="utf-8"))
     hist: dict[str, int] = {}
     for el in root.iter():
         tag = el.tag.split("}")[-1]
-        hist[tag] = hist.get(tag, 0) + 1
+        cls = el.get("class") or el.get("id") or ""
+        key = f"{tag}.{cls}" if cls else tag
+        hist[key] = hist.get(key, 0) + 1
     return {
-        "tags": dict(sorted(hist.items())),
+        "elements": dict(sorted(hist.items())),
         "width": root.get("width"),
         "height": root.get("height"),
+    }
+
+
+def digest_dxf(dxf_path: str) -> dict:
+    """A structural digest of the exported DXF: entity counts by type and layer.
+
+    Counts (not coordinates) for the same portability reason as the SVG digest;
+    this is the witness for the DXF export path, which the drawing/SVG digests do
+    not otherwise cover.
+    """
+    import ezdxf
+
+    msp = ezdxf.readfile(dxf_path).modelspace()
+    by_type: dict[str, int] = {}
+    by_layer: dict[str, int] = {}
+    for e in msp:
+        by_type[e.dxftype()] = by_type.get(e.dxftype(), 0) + 1
+        layer = e.dxf.layer
+        by_layer[layer] = by_layer.get(layer, 0) + 1
+    return {
+        "by_type": dict(sorted(by_type.items())),
+        "by_layer": dict(sorted(by_layer.items())),
     }
 
 
@@ -204,8 +253,12 @@ def test_golden(case, tmp_path):
     cid = case[0]
     stem = str(tmp_path / cid)
     dwg = _build(case, stem)
-    svg, _dxf = dwg.export(stem)
-    actual = {"drawing": digest_drawing(dwg), "svg": digest_svg(svg)}
+    svg, dxf = dwg.export(stem)
+    actual = {
+        "drawing": digest_drawing(dwg),
+        "svg": digest_svg(svg),
+        "dxf": digest_dxf(dxf),
+    }
 
     path = GOLDEN_DIR / f"{cid}.json"
     if UPDATE:

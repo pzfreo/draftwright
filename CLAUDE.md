@@ -75,7 +75,7 @@ Current ADRs:
 
 ## Dependencies
 
-- `build123d-drafting-helpers>=0.9.1` (Apache 2.0)
+- `build123d-drafting-helpers>=0.12.1` (Apache 2.0)
 - `build123d>=0.9.0` (Apache 2.0)
 - `kiwisolver>=1.4,<2` — Cassowary constraint solver for bore-callout Y-placement
 

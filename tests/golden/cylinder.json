@@ -22,32 +22,14 @@
         "type": "Centerline"
       },
       {
-        "bbox": [
-          64.9036,
-          79.4224,
-          67.0964,
-          82.5776
-        ],
         "label": "40",
         "type": "Dimension"
       },
       {
-        "bbox": [
-          40.5815,
-          109.864,
-          45.4185,
-          112.136
-        ],
         "label": "\u00f830",
         "type": "Dimension"
       },
       {
-        "bbox": [
-          194.4441,
-          92.1043,
-          216.5559,
-          94.9212
-        ],
         "label": "ISO VIEW (NTS)",
         "type": "Note"
       },
@@ -157,16 +139,32 @@
       }
     }
   },
+  "dxf": {
+    "by_layer": {
+      "dims": 1572,
+      "hidden": 6,
+      "part": 18
+    },
+    "by_type": {
+      "ARC": 8,
+      "CIRCLE": 2,
+      "ELLIPSE": 6,
+      "LINE": 804,
+      "SPLINE": 776
+    }
+  },
   "svg": {
-    "height": "210.000mm",
-    "tags": {
+    "elements": {
       "Description": 1,
       "RDF": 1,
       "a": 1,
       "circle": 2,
       "creator": 1,
       "description": 1,
-      "g": 4,
+      "g": 1,
+      "g.dims": 1,
+      "g.hidden": 1,
+      "g.part": 1,
       "line": 6,
       "metadata": 1,
       "path": 150,
@@ -174,6 +172,7 @@
       "source": 1,
       "svg": 1
     },
+    "height": "210.000mm",
     "width": "297.000mm"
   }
 }
