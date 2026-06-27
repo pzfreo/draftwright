@@ -501,3 +501,109 @@ def _add_title_block(dwg, a: Analysis):
 def _iso_bbox(dwg):
     """(min_x, min_y, max_x, max_y) of the placed iso view, hidden lines included."""
     return dwg.view_bounds("iso")
+
+
+# --- page/scale selection + sheet-layout constants and helpers --------------
+# Relocated from make_drawing for the sheet.py split (#162). Shared by sheet.py
+# (choose_scale/_layout_geometry) and make_drawing's repack pass, so they live
+# here in the shared base to keep the DAG acyclic.
+_DIM_PAD = 18.0
+_STRIP_GAP = 8.0
+
+_PAGE_SIZES = {
+    "A4": (297.0, 210.0),
+    "A3": (420.0, 297.0),
+    "A2": (594.0, 420.0),
+    "A1": (841.0, 594.0),
+    "A0": (1189.0, 841.0),
+}
+
+_SCALES = [10.0, 5.0, 2.0, 1.0, 0.5, 0.2]
+
+# Horizontal page budget to reserve for the isometric view during scale
+# selection and view placement, as a fraction of bbox_max * scale.  This is a
+# deliberate *under-estimate*, not the true projected size (a cube's iso
+# projection is ~1.63*bbox_max wide): the iso is the last column and is fitted
+# to the actual largest-empty-rect afterwards by _fit_iso_view(), which shrinks
+# it to whatever space is genuinely left.  A true fit test here is circular —
+# the empty rect depends on the very view positions this estimate feeds — so
+# the budget stays a single, named factor rather than a recomputed fit (#31).
+_ISO_WIDTH_BUDGET = 0.7
+
+# Scale selection accepts a layout when the largest empty rectangle left for the
+# iso view can hold a square of at least this fraction of the iso's natural size
+# (bbox_max * scale * _ISO_WIDTH_BUDGET).  Below 1.0 because _fit_iso_view scales
+# the iso down to whatever space remains, so a modestly smaller rectangle still
+# renders a legible iso — letting a long/short part enlarge onto a sheet (e.g.
+# 2:1 on A3) where the strict row model would have under-scaled it.
+_ISO_MIN_FIT_FRAC = 0.6
+
+
+# Automatic scale/page preference ladder, first-fit.  The enlargement/unity
+# region is page-major: every standard scale on the smallest sheet (A4) is tried
+# before moving to the next sheet, so a part lands on the smallest sheet it fits
+# at the largest scale that sheet allows — e.g. a 20×15×10 part gets 2:1 on A4,
+# not 5:1 on A3.  Reductions (below 1:1) keep their legibility-vs-sheet balance
+# (least reduction first) so a large part is not over-reduced onto a small sheet.
+_LADDER = [
+    # A4 — smallest sheet first, largest scale first
+    (10.0, 297.0, 210.0, 120.0),  # A4 10:1
+    (5.0, 297.0, 210.0, 120.0),  # A4 5:1
+    (2.0, 297.0, 210.0, 120.0),  # A4 2:1
+    (1.0, 297.0, 210.0, 120.0),  # A4 1:1
+    # A3
+    (5.0, 420.0, 297.0, 150.0),  # A3 5:1
+    (2.0, 420.0, 297.0, 150.0),  # A3 2:1
+    (1.0, 420.0, 297.0, 150.0),  # A3 1:1
+    # A2
+    (2.0, 594.0, 420.0, 150.0),  # A2 2:1
+    (1.0, 594.0, 420.0, 150.0),  # A2 1:1
+    # A1
+    (1.0, 841.0, 594.0, 150.0),  # A1 1:1
+    # Reductions — least reduction first, so a too-big part is not crammed onto a
+    # small sheet at an illegible scale.
+    (0.5, 594.0, 420.0, 150.0),  # A2 1:2
+    (0.2, 420.0, 297.0, 150.0),  # A3 1:5
+    (0.2, 594.0, 420.0, 150.0),  # A2 1:5
+    (0.5, 841.0, 594.0, 150.0),  # A1 1:2
+    (0.2, 841.0, 594.0, 150.0),  # A1 1:5
+    (0.5, 1189.0, 841.0, 150.0),  # A0 1:2
+    (0.2, 1189.0, 841.0, 150.0),  # A0 1:5
+]
+
+
+def _tb_width(page_w: float) -> float:
+    """Title-block width for a page: 120 mm on A4, 150 mm on A3 and larger."""
+    return 120.0 if page_w <= 297.0 else 150.0
+
+
+def _parse_page(page) -> tuple:
+    """Resolve a page spec to ``(PAGE_W, PAGE_H, TB_W)``.
+
+    Accepts an ISO name (``"A4"``…``"A0"``, case-insensitive), a
+    ``"WIDTHxHEIGHT"`` string in mm (e.g. ``"420x297"``), or a
+    ``(width, height)`` tuple in mm.
+    """
+    if isinstance(page, str):
+        name = page.strip().upper()
+        if name in _PAGE_SIZES:
+            pw, ph = _PAGE_SIZES[name]
+        else:
+            m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)", page.strip())
+            if not m:
+                raise ValueError(
+                    f"unknown page size {page!r} — expected one of "
+                    f"{', '.join(_PAGE_SIZES)} or WIDTHxHEIGHT in mm (e.g. '420x297')"
+                )
+            pw, ph = float(m.group(1)), float(m.group(2))
+    else:
+        try:
+            pw, ph = float(page[0]), float(page[1])
+        except (TypeError, ValueError, IndexError):
+            raise ValueError(
+                f"invalid page size {page!r} — expected an ISO name, "
+                f"'WIDTHxHEIGHT', or a (width, height) tuple in mm"
+            ) from None
+    if pw <= 0 or ph <= 0:
+        raise ValueError(f"page dimensions must be positive, got {page!r}")
+    return pw, ph, _tb_width(pw)
