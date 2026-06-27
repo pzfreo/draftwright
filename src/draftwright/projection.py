@@ -185,7 +185,7 @@ _ISO_MAX_GROW = 1.3
 
 def _bbox_within(bb, region, tol: float = 0.5) -> bool:
     """True if (min_x, min_y, max_x, max_y) *bb* fits inside *region* within *tol*."""
-    return (
+    return bool(
         bb[0] >= region[0] - tol
         and bb[1] >= region[1] - tol
         and bb[2] <= region[2] + tol

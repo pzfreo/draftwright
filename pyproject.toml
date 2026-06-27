@@ -86,6 +86,14 @@ python_version = "3.10"
 ignore_missing_imports = true
 check_untyped_defs = true
 warn_unused_ignores = true
+# Tightened on the settled module contracts (#138 / ADR 0005 P7). disallow_untyped_defs
+# stays off (geometry helpers lean on untyped build123d returns); these flags catch
+# real gaps without demanding annotations everywhere.
+no_implicit_optional = true
+warn_redundant_casts = true
+strict_equality = true
+warn_return_any = true
+extra_checks = true
 
 [tool.ruff]
 line-length = 99

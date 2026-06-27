@@ -14,6 +14,10 @@ behaviour-preserving.
 
 ## Status
 
+**All phases complete (#138 done).** Two behaviour-sensitive sub-extractions are
+deferred as noted follow-ups: `annotations/envelope.py` (inline envelope dims) and
+build-context threading (`_analysis`/`_view_edge_cache` off `Drawing`, ADR 0005 §2).
+
 **Landed** (`make_drawing.py` 3,907 → 3,476):
 
 | Step | What | PR |
@@ -38,7 +42,7 @@ no PR introduces an import cycle, riskiest (annotations) last:
 | ~~P4~~ | #163 | `analysis.py` (`_analyse`) ✅ | med-lg | — |
 | ~~P5~~ | #164 | `annotations/` — sections, turned, pmi, holes, orchestrator ✅ (envelope.py deferred) | biggest (5 PRs) | P1–P4 |
 | ~~P6~~ | #165 | `builder.py` + `drawing.py` ✅ (context-threading deferred) | med | P2, P4 |
-| **P7** | #166 | tighten mypy on settled contracts | cleanup | all |
+| ~~P7~~ | #166 | tighten mypy on settled contracts ✅ | cleanup | all |
 
 ## Target module shape (ADR 0005 §1)
 ```text

@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 _log = logging.getLogger(__name__)
 
@@ -156,7 +157,7 @@ def _shape_bbox(shape) -> tuple[float, float, float, float, float, float]:
     """Return ``(xmin, ymin, zmin, xmax, ymax, zmax)`` of *shape* in global space."""
     bb = Bnd_Box()
     BRepBndLib.Add_s(shape, bb)
-    return bb.Get()
+    return cast(tuple[float, float, float, float, float, float], bb.Get())
 
 
 def _bbox_centroid(bbox: tuple) -> tuple[float, float, float]:

@@ -1024,7 +1024,7 @@ class Drawing:
             ],
         }
 
-    def export(self, out=None):
+    def export(self, out=None) -> tuple[str, str]:
         """Lint, then write SVG and DXF. Returns ``(svg_path, dxf_path)``."""
         out = out if out is not None else self.out
         for _ext in (".svg", ".dxf"):

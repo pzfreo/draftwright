@@ -98,7 +98,7 @@ def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
     if od_diam is None:
         return False
     envelope = max(x_size, y_size)
-    return (
+    return bool(
         abs(x_size - y_size) <= _SQUARENESS_TOL * envelope
         and od_diam >= _OD_FILL_MIN * envelope
         and od_axis_offset <= _OD_AXIS_TOL * envelope

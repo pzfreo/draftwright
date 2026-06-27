@@ -163,7 +163,7 @@ def _measure_blocks(dwg, a) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _assemble(a, out, assembly, detail_view, auto_dims):
+def _assemble(a, out, assembly, detail_view, auto_dims) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
     passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
     repacked analysis it is also pass 2 of the measure-and-repack loop (#121)."""

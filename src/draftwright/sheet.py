@@ -57,12 +57,12 @@ def _est_right_strip_depth(n_steps: int) -> float:
     """
     n = 1 + max(n_steps, 0)  # dim_height + one slot per step dim
     # gap + dim_height + (n-1) step slots each preceded by one spacing
-    return _STRIP_GAP + _SLOT_DIM_HEIGHT + (n - 1) * (_STRIP_SPACING + _SLOT_DIM_STEP)
+    return float(_STRIP_GAP + _SLOT_DIM_HEIGHT + (n - 1) * (_STRIP_SPACING + _SLOT_DIM_STEP))
 
 
 def _est_pv_below_depth() -> float:
     """Depth needed below the plan view: dim_width (always one slot)."""
-    return _STRIP_GAP + _SLOT_DIM_WIDTH
+    return float(_STRIP_GAP + _SLOT_DIM_WIDTH)
 
 
 def _est_pv_above_depth(
@@ -404,7 +404,7 @@ def _fits(
         views_bottom = max(0.0, (page_h - h) / 2) + _MARGIN + _DIM_PAD
         # When views clear the title block row, the iso sits above it and the
         # title block no longer constrains horizontal space — drop tb_w from w.
-        return w - tb_w <= page_w and views_bottom >= _MARGIN + _TB_H
+        return bool(w - tb_w <= page_w and views_bottom >= _MARGIN + _TB_H)
 
     # 2D packing: views + title block fit the row; the iso fits leftover space.
     w_views_tb = (
@@ -425,7 +425,7 @@ def _fits(
     if not g.iso_valid:
         return False
     iso_fit = min(g.iso_right - g.iso_left, g.iso_top - g.iso_bottom)
-    return iso_fit >= _ISO_MIN_FIT_FRAC * g.iso_natural
+    return bool(iso_fit >= _ISO_MIN_FIT_FRAC * g.iso_natural)
 
 
 def choose_scale(
