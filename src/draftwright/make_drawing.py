@@ -49,13 +49,13 @@ from build123d import (
 )
 from build123d_drafting.features import (
     BoltCircle,
+    HoleSpec,
     RectGrid,
-    _full_cyls,
-    _spec_key,
     analyse_cylinders,
     feature_diameters,
     find_hole_patterns,
     find_holes,
+    full_cylinders,
 )
 from build123d_drafting.helpers import (
     Leader,
@@ -617,7 +617,7 @@ def lint_feature_coverage(
     # cbore/spotface steps, bosses) from feature_diameters — built via
     # find_holes/find_bosses, so slot ends and interrupted recesses (partial
     # cylinders that an angle-only test mistakes for full bores) are excluded.
-    # Replaces the raw _full_cyls patch list, which over-reported those as
+    # Replaces the raw full_cylinders patch list, which over-reported those as
     # undimensioned features (helpers #158/#159).
     inventory = feature_diameters(part, cyls=(z_cyls, cross_cyls))
 
@@ -1109,7 +1109,7 @@ def _est_bore_callout_width(
         return 0.0
     groups: dict = {}
     for h in holes:
-        groups.setdefault(_spec_key(h), []).append(h)
+        groups.setdefault(HoleSpec.from_hole(h), []).append(h)
 
     # Map spec_key → the widest pattern-callout suffix, so a spec's grouped
     # callout reserves room for it. A spec can sub-cluster into several patterns
@@ -1124,7 +1124,7 @@ def _est_bore_callout_width(
                 s = f"({p.rows}×{p.cols})"
             else:
                 continue
-            key = _spec_key(p.holes[0])
+            key = HoleSpec.from_hole(p.holes[0])
             if len(s) > len(suffix_by_spec.get(key, "")):
                 suffix_by_spec[key] = s
 
@@ -1984,9 +1984,9 @@ def _analyse(
     z_cyls, cross_cyls = analyse_cylinders(part)
     # Partial (fillet) faces are not features: they would pollute the OD,
     # the bore leaders, and the rotational classification alike (#81)
-    full_z = _full_cyls(z_cyls)
+    full_z = full_cylinders(z_cyls)
     z_diams = dedup_diams(full_z)
-    cross_diams = dedup_diams(_full_cyls(cross_cyls))
+    cross_diams = dedup_diams(full_cylinders(cross_cyls))
 
     _log.info("Z-axis diameters: %s", z_diams)
     if cross_diams:
@@ -2432,7 +2432,7 @@ class Drawing:
         for h in a.holes:
             if _axis_letter(h) != target_axis:
                 continue
-            groups.setdefault(_spec_key(h), []).append(h)
+            groups.setdefault(HoleSpec.from_hole(h), []).append(h)
 
         result = []
         for group in groups.values():
@@ -2595,7 +2595,7 @@ class Drawing:
         groups: dict = {}
         for h in a.holes:
             if _axis_letter(h) == target:
-                groups.setdefault(_spec_key(h), []).append(h)
+                groups.setdefault(HoleSpec.from_hole(h), []).append(h)
         glist = list(groups.values())
         return list(zip(_tag_sequence(len(glist)), glist, strict=True))
 

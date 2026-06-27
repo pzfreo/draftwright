@@ -27,11 +27,11 @@ from build123d import (
 )
 from build123d_drafting.features import (
     BoltCircle,
+    HoleSpec,
     LinearArray,
     RectGrid,
-    _full_cyls,
-    _spec_key,
     find_bosses,
+    full_cylinders,
 )
 from build123d_drafting.helpers import (
     Centerline,
@@ -111,7 +111,7 @@ def _concentric_bore_diams(a: Analysis) -> list:
     z_cyls, _ = a.cyls
     concentric = {
         c["diameter"]
-        for c in _full_cyls(z_cyls)
+        for c in full_cylinders(z_cyls)
         if not c["external"]
         and math.hypot(c["axis_xyz"][0] - a.cx, c["axis_xyz"][1] - a.cy) <= _CONCENTRIC_TOL_MM
     }
@@ -2312,7 +2312,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=Non
     # hole set therefore lines up exactly with find_hole_patterns' groups.
     groups: dict = {}
     for h in a.holes if holes_in is None else holes_in:
-        groups.setdefault(_spec_key(h), []).append(h)
+        groups.setdefault(HoleSpec.from_hole(h), []).append(h)
 
     by_view: dict = {}
     for holes in groups.values():
