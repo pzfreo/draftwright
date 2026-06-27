@@ -33,7 +33,7 @@ no PR introduces an import cycle, riskiest (annotations) last:
 | Phase | Issue | Chunk(s) | Size | Depends |
 |---|---|---|---|---|
 | ~~P1~~ | #160 | `_text_width` → `_core` ✅ | tiny | — |
-| **P2** | #161 | `projection.py` (silhouettes, iso) | med | — |
+| ~~P2~~ | #161 | `projection.py` (silhouettes, iso) ✅ | med | — |
 | **P3** | #162 | `sheet.py` — 3a footprints/estimators, 3b scale/zone/repack | large (2 PRs) | P1 |
 | **P4** | #163 | `analysis.py` (`_analyse`) | med-lg | — |
 | **P5** | #164 | `annotations/` — sections, turned, pmi, **holes**, **orchestrator** | biggest (~5 PRs) | P1–P4 |
@@ -46,7 +46,7 @@ make_drawing.py   # transitional compat facade / public re-exports
 builder.py        # build_drawing/make_drawing orchestration (P6)
 analysis.py       # _analyse, Analysis construction (P4)
 sheet.py          # choose_scale, compose-then-pack, repack (P3)
-projection.py     # view projection, silhouettes, iso fit (P2)
+projection.py     # view projection, silhouettes, iso fit (DONE)
 registry.py       # annotation identity (DONE)
 linting.py        # lint_feature_coverage, _suggest_fix, CoverageState (DONE)
 repair.py         # deterministic repair loop (DONE)

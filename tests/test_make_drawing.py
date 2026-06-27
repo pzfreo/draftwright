@@ -1845,7 +1845,7 @@ def test_ctc01_iso_world_to_page_mapping(ctc01_a3_drawing):
 def test_iso_view_grow_capped_at_max():
     # The iso is an orientation aid, not a measured view: fitted to a large empty
     # zone it must not balloon past _ISO_MAX_GROW × sheet scale (was ~8× before).
-    from draftwright.make_drawing import _ISO_MAX_GROW
+    from draftwright.projection import _ISO_MAX_GROW
 
     # Small part forced onto a big sheet → large empty rectangle → would over-grow.
     dwg = build_drawing(Box(40, 30, 20), scale=1, page="A1")
