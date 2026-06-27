@@ -16,9 +16,9 @@ It sits on top of two Apache 2.0 libraries:
 ## Architecture
 
 The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`,
-`linting.py`, and `fonts.py` sit below `_core.py`; `_core.py` and the stage module
-`export.py` sit below (`make_drawing.py`, `annotate.py`); and `make_drawing.py` →
-`annotate.py`. No lower module imports an upper one.
+`linting.py`, and `fonts.py` sit below `_core.py`; `_core.py` and the stage modules
+`export.py` / `repair.py` sit below (`make_drawing.py`, `annotate.py`); and
+`make_drawing.py` → `annotate.py`. No lower module imports an upper one.
 
 - **`make_drawing.py`** — orchestration and the public surface:
   - **STEP/Shape import + geometry analysis** (`_analyse`) — builds the `Analysis` namespace
@@ -43,10 +43,10 @@ The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`,
   delegates here and keeps the render list; `_named`/`_anno_view`/`_pinned`/
   `_build_issues` remain `Drawing` properties during the migration.
 - **`linting.py`** — the lint module (#138 / ADR 0005): `lint_feature_coverage`
-  (the feature-coverage completeness check) and `CoverageState` (the coverage
-  signal it reads — pattern callouts, patterned holes, dropped diameters).
-  Depends only on `_core` + build123d_drafting. (`_suggest_fix` follows with the
-  repair extraction — it shares `_QUOTED_RE` with the repair code.)
+  (feature-coverage completeness check), `_suggest_fix` (#29 fix snippets), and
+  `CoverageState` (the coverage signal — pattern callouts, patterned holes,
+  dropped diameters). Depends only on `_core` + build123d_drafting. `_QUOTED_RE`
+  (a lint-message label regex shared with the repair loop) lives in `_core`.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
 - **`export.py`** — SVG/DXF/PDF export + post-processing (page-size fix,
@@ -54,6 +54,10 @@ The dependency graph is a DAG: the leaf modules `layout.py`, `registry.py`,
   shape-export degradation, cairo PDF render). The first **module-split** step of
   #138 (ADR 0005): `Drawing.export()` / `export_pdf()` stay as thin wrappers.
   Sits below `make_drawing.py`, above `_core.py`.
+- **`repair.py`** — the deterministic lint→repair loop (#30 / ADR 0002): the
+  re-place helpers (`_find_dim`/`_replace_dim`/`_repair_*`/`repair_drawing`) take
+  the drawing duck-typed as `dwg`; `Drawing.repair()` stays a thin wrapper.
+  Depends only on `_core`.
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
 
 ## Architecture decisions — READ `docs/adr/` FIRST

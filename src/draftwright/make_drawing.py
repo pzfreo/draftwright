@@ -82,12 +82,12 @@ from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
 
 from draftwright._core import (
-    _DIAM_RE,
     _FONT_SIZE,
     _MARGIN,
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
     _SLOT_DIM_WIDTH,
+    _STRIP_SPACING,
     _TABULATE_MIN_HOLES,
     _TB_CLEAR,
     _TB_H,
@@ -122,8 +122,9 @@ from draftwright.layout import (
     _solve_strip_1d,
     fit_box,
 )
-from draftwright.linting import CoverageState, lint_feature_coverage
+from draftwright.linting import CoverageState, _suggest_fix, lint_feature_coverage
 from draftwright.registry import AnnotationRegistry
+from draftwright.repair import repair_drawing
 
 _TB_W = 150.0
 _DIM_PAD = 18.0
@@ -475,103 +476,6 @@ _GEOMETRY_AWARE_CODES = frozenset(
 _SCORE_ERROR_PENALTY = 0.2
 _SCORE_WARNING_PENALTY = 0.05
 
-# Quote a label parsed from a lint message safely back into a snippet.
-_QUOTED_RE = re.compile(r"'([^']*)'")
-
-# Lint codes the #30 repair loop can mechanically resolve, and the side flip
-# used to move a dimension that landed on the wrong side of its witness points.
-_REPAIRABLE_CODES = frozenset({"annotation_overlap", "dim_inside_part"})
-_OPPOSITE_SIDE = {"above": "below", "below": "above", "left": "right", "right": "left"}
-
-
-# Tolerance for matching a lint message's reported diameter (dedup
-# representative at tol 0.15, formatted to 1 dp) back to a raw feature
-# diameter when generating a fix snippet (#29).
-_DIAM_MATCH_TOL = 0.2
-
-
-def _suggest_fix(issue, dwg) -> str | None:
-    """Return a ready-to-paste code snippet that addresses *issue*, or None.
-
-    The snippet is a hint, not necessarily runnable verbatim (``...`` stands in
-    for args the engine cannot infer). It uses the public domain API
-    (:meth:`Drawing.features`, :meth:`Drawing.at`, :meth:`Drawing.place_dim`)
-    so a caller or LLM can paste and fill the gaps trivially (#29).
-    """
-    code = issue.code
-
-    if code == "feature_not_dimensioned":
-        # Message: "cylindrical feature ø8 has no diameter callout on the sheet".
-        m = _DIAM_RE.search(issue.message)
-        if m is None:
-            return None
-        d = float(m.group(1))
-        # The reported diameter is the dedup representative (tol 0.15) formatted
-        # to 1 dp, so match raw feature diameters with that combined slack — a
-        # 1e-6 match would silently miss every non-integer bore.
-        for view in ("plan", "front", "side"):
-            if any(abs(f.diameter - d) < _DIAM_MATCH_TOL for f in dwg.features(view)):
-                tag = _fmt(d).replace(".", "_")
-                return (
-                    f"# ø{_fmt(d)} has no callout. Locate it via features() and add a leader:\n"
-                    f'for f in dwg.features("{view}"):\n'
-                    f"    if abs(f.diameter - {_fmt(d)}) < {_DIAM_MATCH_TOL}:\n"
-                    f"        callout = HoleCallout(f.diameter, count=f.count,\n"
-                    f"                              through=f.through, depth=f.depth, draft=dwg.draft)\n"
-                    f"        elbow = (f.page_pos[0] + 15, f.page_pos[1] + 10, 0)\n"
-                    f'        leader = Leader((*f.page_pos, 0), elbow, "", dwg.draft, callout=callout)\n'
-                    f'        dwg.add(leader, name="hole_{tag}")'
-                )
-        return None
-
-    if code == "feature_count_mismatch":
-        # Message: "4 ø8 features on the part but callouts account for 1".
-        # `need` is the leading count; anchor it so diameter digits never
-        # interfere regardless of message word order.
-        m = _DIAM_RE.search(issue.message)
-        need_m = re.match(r"\s*(\d+)", issue.message)
-        if m is None or need_m is None:
-            return None
-        need = need_m.group(1)
-        return (
-            f"# Only some ø{m.group(1)} holes are counted. Set count={need} on the "
-            f"callout so it covers them all:\n"
-            f"# HoleCallout(..., count={need}, draft=dwg.draft)"
-        )
-
-    if code == "annotation_overlap":
-        # Message: "labels 'A' and 'B' overlap by ...".
-        labels = _QUOTED_RE.findall(issue.message)
-        first = labels[0] if labels else "<dim>"
-        return (
-            f"# Re-add the dimension with place_dim so it auto-stacks in the "
-            f"layout strip instead of overlapping:\n"
-            f'dwg.remove("{first}")  # if it was named\n'
-            f'dwg.place_dim(p1, p2, "below", "plan", dwg.draft, name="{first}")'
-        )
-
-    if code == "dim_inside_part":
-        # Message: "Dim 'X': annotation bbox overlaps part outline by ...".
-        labels = _QUOTED_RE.findall(issue.message)
-        first = labels[0] if labels else "<dim>"
-        return (
-            f"# The dim sits inside the view — its offset is on the wrong side. "
-            f"Re-place it on the opposite side via place_dim (auto-stacks clear "
-            f"of the part):\n"
-            f'dwg.remove("{first}")  # if it was named\n'
-            f'dwg.place_dim(p1, p2, "right", "front", dwg.draft, name="{first}")'
-        )
-
-    if code == "step_dim_dropped":
-        # Steps too closely spaced to dimension at sheet scale (#41/#42).
-        return (
-            "# Re-build with an enlarged detail view so the crowded shoulders are "
-            "dimensionable:\n"
-            "dwg = build_drawing(part, detail_view=True)"
-        )
-
-    return None
-
 
 def analyse_face_levels(part, tol: float = 0.5, min_area_frac: float = 0.0) -> list:
     """Return sorted unique Z-coords of horizontal (normal≈±Z) planar faces.
@@ -685,7 +589,6 @@ def _parse_page(page) -> tuple:
 
 
 _STRIP_GAP = 8.0
-_STRIP_SPACING = 4.0
 
 # Horizontal page budget to reserve for the isometric view during scale
 # selection and view placement, as a fraction of bbox_max * scale.  This is a
@@ -2702,62 +2605,6 @@ class Drawing:
         self._registry.drop_issues(codes)
 
     # -- repair ---------------------------------------------------------------
-    def _find_dim(self, label):
-        """Return the re-placeable dimension whose label is *label*, or None.
-
-        Only dimensions built by :func:`_dim` (carrying ``_dw_spec``) qualify;
-        leaders, callouts and hand-built annotations are left untouched. A
-        pinned dimension (#89) is also skipped — a deliberate placement must
-        win over automatic repair.
-        """
-        # Identity-based, matching clear_annotations: "this specific object",
-        # not build123d's geometric Shape equality.
-        pinned_ids = self._registry.pinned_object_ids()
-        for o in self.items:
-            if id(o) in pinned_ids:
-                continue
-            if getattr(o, "_dw_spec", None) is not None and getattr(o, "label", None) == label:
-                return o
-        return None
-
-    def _replace_dim(self, old, new):
-        """Swap *old* for *new* in :attr:`items`, preserving its name and
-        any per-view scale tag (so a re-placed detail-view dim stays at scale)."""
-        if getattr(old, "_dw_scale", None) is not None:
-            new._dw_scale = old._dw_scale
-        self.items[self.items.index(old)] = new
-        for n, o in self._named.items():
-            if o is old:
-                self._named[n] = new
-
-    def _repair_dim_inside_part(self, issue) -> bool:
-        """Flip a dimension that sits inside the view onto the opposite side."""
-        labels = _QUOTED_RE.findall(issue.message)
-        dim = self._find_dim(labels[0]) if labels else None
-        if dim is None:
-            return False
-        s = dim._dw_spec
-        new_side = _OPPOSITE_SIDE.get(s.side)
-        if new_side is None:
-            return False
-        self._replace_dim(dim, _dim(s.p1, s.p2, new_side, s.distance, s.draft, **s.kwargs))
-        return True
-
-    def _repair_overlap(self, issue) -> bool:
-        """Push the first re-placeable label in an overlap one strip-row further
-        out so the two labels separate. Monotonic, so repeated passes converge."""
-        step = _STRIP_SPACING + _SLOT_DIM_HEIGHT
-        for label in _QUOTED_RE.findall(issue.message):
-            dim = self._find_dim(label)
-            if dim is None:
-                continue
-            s = dim._dw_spec
-            self._replace_dim(
-                dim, _dim(s.p1, s.p2, s.side, s.distance + step, s.draft, **s.kwargs)
-            )
-            return True
-        return False
-
     def repair(self, max_iter: int = 3):
         """Close the lint→repair loop: act on violations, don't only report them.
 
@@ -2769,46 +2616,17 @@ class Drawing:
 
         Only engine-built dimensions (carrying ``_dw_spec``) are re-placeable;
         leaders, callouts and standards-judgement issues (e.g.
-        ``missing_principal_dimension``) are left for the caller. Each side
-        flip is attempted at most once and overlap pushes only move outward, so
-        the loop terminates and a clean drawing is returned unchanged.
+        ``missing_principal_dimension``) are left for the caller. Each side flip
+        is attempted at most once and overlap pushes only move outward, so the
+        loop terminates and a clean drawing is returned unchanged.
 
         A pass that would *net-increase* the issue count (e.g. an overlap push
-        that shoves a label out of frame on a tight sheet) is rolled back and
-        the loop stops, so :meth:`repair` never makes a drawing worse.
+        that shoves a label out of frame on a tight sheet) is rolled back and the
+        loop stops, so :meth:`repair` never makes a drawing worse.
 
         Returns ``self`` for chaining.
         """
-        flipped: set = set()
-        for _ in range(max_iter):
-            before = self.lint()
-            if not before:
-                break
-            snap_annotations = list(self.items)
-            snap_named = dict(self._named)
-            changed = False
-            for issue in before:
-                if issue.code not in _REPAIRABLE_CODES:
-                    continue
-                if issue.code == "dim_inside_part":
-                    labels = _QUOTED_RE.findall(issue.message)
-                    key = labels[0] if labels else None
-                    if key in flipped:
-                        continue
-                    if self._repair_dim_inside_part(issue):
-                        flipped.add(key)
-                        changed = True
-                elif issue.code == "annotation_overlap":
-                    changed |= self._repair_overlap(issue)
-            if not changed:
-                break
-            if len(self.lint()) > len(before):
-                # The repairs net-worsened the sheet — undo this pass and stop.
-                self.items[:] = snap_annotations
-                self._named.clear()
-                self._named.update(snap_named)
-                break
-        return self
+        return repair_drawing(self, max_iter)
 
     # -- output ---------------------------------------------------------------
     def lint(self):
