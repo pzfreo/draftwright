@@ -362,6 +362,7 @@ class Analysis:
     bbox_max: float
     holes: list
     patterns: list
+    slots: list
     z_diams: list[float]
     cross_diams: list[float]
     cyls: tuple[list, list]

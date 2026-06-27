@@ -638,6 +638,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     if feature_holes:
         _locate_off_axis_holes(dwg, a, holes_in=feature_holes)
 
+    # Non-cylindrical machined features: slots / reduced across-flats sections
+    # (#135). Runs after every hole/diameter pass so it claims strip space last.
+    _annotate_slots(dwg, a)
+
     # Phase 7 — strip footprint debug logging + post-placement overflow check.
     # Overflow can only occur when outer_limit was tightened after allocations
     # were already committed (e.g. iso-x tightening or iso-y cap guard).
@@ -1484,6 +1488,162 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
             for strip, view, p_lo, p_hi, edge in order
         ):
             _drop("Z", order[0][1])
+
+
+def _annotate_slots(dwg, a: Analysis):
+    """Dimension milled slots / reduced across-flats sections (#135).
+
+    Each recognised slot (``features.find_slots``) is dimensioned in the
+    orthographic view whose two in-plane axes are the slot's ``width_axis`` and
+    ``long_axis``: the *width* (the defining size) across ``width_axis``, its
+    *length* along ``long_axis``, and one *position* dim from the part datum.
+    Width measured along the view's vertical axis is placed in the right strip
+    (falling back to left), along the horizontal axis in the above strip
+    (falling back to below); length/position take the orthogonal strips.
+
+    Runs after the envelope, turned-diameter and hole passes, so it claims strip
+    space last and never evicts a primary dimension.  A dim with no clear room
+    is dropped and recorded at info severity under ``slot_dim_dropped`` — the
+    sheet stays correct (place-what-fits, as #133/#144); the gap is a
+    completeness shortfall, not a drawing defect.
+    """
+    if not a.slots:
+        return
+    draft = dwg.draft
+    # Two occupancy sets with different collision tests (#146 re-review):
+    #  - ``external`` (callouts, envelope dims, hatch) is tested against the
+    #    candidate's FULL geometry, so a slot dim's witness/arrow line may not
+    #    cross another feature's label even though the label boxes clear;
+    #  - ``placed`` (this pass's own slot dims) is tested label-box to label-box,
+    #    so sibling dims may still stack in a shared strip corridor.
+    external = _occupied_boxes(dwg)
+    placed: list = []
+    tier = draft.font_size + 2 * draft.pad_around_text
+
+    # (view name, zones, horizontal axis + projector, vertical axis + projector)
+    views = {
+        frozenset("xy"): ("plan", a.pv_zones, "x", a.proj.plan_x, "y", a.proj.plan_y),
+        frozenset("xz"): ("front", a.fv_zones, "x", a.proj.front_x, "z", a.proj.front_z),
+        frozenset("yz"): ("side", a.sv_zones, "y", a.proj.side_x, "z", a.proj.side_z),
+    }
+
+    def _bb(axis, hi):
+        return getattr(a.bb.max if hi else a.bb.min, axis.upper())
+
+    def _drop(kind, idx, view):
+        dwg._record_build_issue(
+            "info",
+            "slot_dim_dropped",
+            f"slot{idx} {kind} dim not placed (no room beside the {view} view)",
+        )
+
+    for i, s in enumerate(a.slots):
+        # width_axis and long_axis are always two distinct orthographic axes
+        # (find_slots derives long_axis from the axes other than width_axis), so
+        # the pair always selects exactly one view.
+        view = views[frozenset((s.width_axis, s.long_axis))]
+        name, zones, h_axis, h_proj, _v_axis, v_proj = view
+
+        def _place(
+            meas_axis,
+            p_lo,
+            p_hi,
+            perp_lo,
+            perp_hi,
+            label,
+            kind,
+            anchor="center",
+            vw=view,
+            zn=zones,
+            ha=h_axis,
+            hp=h_proj,
+            vp=v_proj,
+            idx=i,
+        ):
+            # Snap the dimension's geometric span to its *displayed* value so the
+            # drawn length matches the (1-dp) label exactly — otherwise a true
+            # 4.75 mm feature, labelled "4.8", trips the label-vs-measured lint.
+            # ``center`` snaps symmetrically (a size dim); ``lo`` keeps p_lo fixed
+            # (a position dim anchored on the datum).
+            disp = float(_fmt(label))
+            sgn = 1.0 if p_hi >= p_lo else -1.0
+            if anchor == "center":
+                mid = (p_lo + p_hi) / 2
+                p_lo, p_hi = mid - sgn * disp / 2, mid + sgn * disp / 2
+            else:
+                p_hi = p_lo + sgn * disp
+            # Horizontal measurement (along the view's h-axis) stacks above the
+            # view; vertical (along the v-axis) stacks to the right. Fall back to
+            # the opposite strip before giving up.
+            if meas_axis == ha:
+                meas_proj, perp_proj = hp, vp
+                cands = (("above", zn.above, True), ("below", zn.below, False))
+            else:
+                meas_proj, perp_proj = vp, hp
+                cands = (("right", zn.right, True), ("left", zn.left, False))
+            for side, strip, hi in cands:
+                if strip is None:
+                    continue
+                # Peek, don't allocate yet: a candidate rejected for collision
+                # below must not consume the tier (which would starve later slots
+                # and inflate the drop count).
+                coord = strip.peek(tier)
+                if coord is None:
+                    continue
+                # Witness the dimension off the slot's OWN edge (its extent on the
+                # perpendicular axis), not the part envelope — otherwise a slot's
+                # size dim is drawn across at the far edge of the part and reads
+                # as an envelope dimension (#146 review).
+                witness = perp_proj(perp_hi if hi else perp_lo)
+                if side in ("above", "below"):
+                    e_lo = (meas_proj(p_lo), witness, 0)
+                    e_hi = (meas_proj(p_hi), witness, 0)
+                else:
+                    e_lo = (witness, meas_proj(p_lo), 0)
+                    e_hi = (witness, meas_proj(p_hi), 0)
+                dim = _dim(e_lo, e_hi, side, abs(coord - witness), draft, label=_fmt(label))
+                gbb = dim.bounding_box()
+                full = (gbb.min.X, gbb.min.Y, gbb.max.X, gbb.max.Y)
+                if _box_hits(full, external) or _box_hits(_anno_box(dim), placed):
+                    continue
+                strip.allocate(tier)
+                dwg.add(dim, f"slot{idx}_{kind}", view=vw[0])
+                placed.append(_anno_box(dim))
+                return True
+            return False
+
+        # Width — the defining size, measured across width_axis; its witness
+        # rides the slot's long-axis extent.
+        half = s.width / 2
+        if not _place(
+            s.width_axis, s.w_center - half, s.w_center + half, s.lo, s.hi, s.width, "width"
+        ):
+            _drop("width", i, name)
+
+        # Length along the slot's long axis (find_slots excludes full-span open
+        # features, so length is always a real, sub-envelope measurement); its
+        # witness rides the slot's width extent.
+        if not _place(
+            s.long_axis, s.lo, s.hi, s.w_center - half, s.w_center + half, s.length, "length"
+        ):
+            _drop("length", i, name)
+
+        # Position: from the part datum (min on the long axis, the same datum the
+        # hole-location dims use) to the slot's near edge — its lo, the edge
+        # closer to that datum. Skipped when the slot abuts the datum.
+        datum = _bb(s.long_axis, False)
+        if (s.lo - datum) * a.SCALE >= 1.0:
+            if not _place(
+                s.long_axis,
+                datum,
+                s.lo,
+                s.w_center - half,
+                s.w_center + half,
+                s.lo - datum,
+                "pos",
+                anchor="lo",
+            ):
+                _drop("position", i, name)
 
 
 def _section_hatch_edges(face, SX, SZ, spacing):

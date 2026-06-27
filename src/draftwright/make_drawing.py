@@ -109,6 +109,7 @@ from draftwright._core import (
     _tag_sequence,
 )
 from draftwright.annotate import _auto_annotate
+from draftwright.features import find_slots
 from draftwright.layout import (
     _greedy_strip_1d,
     _solve_strip_1d,
@@ -2014,6 +2015,7 @@ def _analyse(
     _pad_around_text = _draft_est.pad_around_text
     holes = find_holes(part, cyls=(z_cyls, cross_cyls))
     patterns = find_hole_patterns(holes)
+    slots = find_slots(part)
 
     # Choose scale/page, iterating so the reserved step corridor matches the
     # number of steps the legibility gate will actually place (#1) — not the raw
@@ -2128,6 +2130,7 @@ def _analyse(
         bbox_max=bbox_max,
         holes=holes,
         patterns=patterns,
+        slots=slots,
         z_diams=z_diams,
         cross_diams=cross_diams,
         cyls=(z_cyls, cross_cyls),

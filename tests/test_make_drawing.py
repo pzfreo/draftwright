@@ -8,6 +8,7 @@ from build123d import Box, Compound, Cylinder, Edge, Pos, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
 from draftwright import Drawing, build_drawing, make_drawing
+from draftwright.features import Slot, find_slots
 from draftwright.make_drawing import (
     _MIN_VIEW_MM,
     _export_shape,
@@ -3641,6 +3642,165 @@ class TestFeatures:
             out="",
         )
         assert dwg.features("plan") == []
+
+
+class TestFindSlots:
+    """#135: recognition of enclosed through-slots with rectangular walls.
+
+    find_slots() is a pure-geometry pass (no projection) so these are fast.
+    Scope is deliberately narrow (#148): only through-slots with straight walls.
+    """
+
+    def test_through_slot_recognised(self):
+        # A 20-long, 8-wide channel milled THROUGH a 60×30×12 bar.
+        part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20)
+        slots = find_slots(part)
+        assert len(slots) == 1
+        s = slots[0]
+        assert s.width_axis == "y"
+        assert s.long_axis == "x"
+        assert s.width == 8.0
+        assert s.length == 20.0
+        assert (s.lo, s.hi) == (-10.0, 10.0)
+
+    def test_plain_box_has_no_slots(self):
+        # The stock's own outer faces are parallel and anti-parallel but face
+        # AWAY from each other — the facing test must exclude them.
+        assert find_slots(Box(40, 20, 10)) == []
+
+    def test_single_flat_is_not_a_slot(self):
+        # One machined flat has no opposing wall, so it is not a slot.
+        part = Box(40, 20, 10) - Pos(0, 12, 0) * Box(40, 10, 10)
+        assert find_slots(part) == []
+
+    def test_blind_slot_is_not_a_slot(self):
+        # A blind slot (cut partway, leaving a floor) is out of scope (#148):
+        # the floor test rejects it. Same geometry as the through case but the
+        # cutter does not break through the bottom.
+        part = Box(60, 30, 12) - Pos(0, 0, 2) * Box(20, 8, 8)
+        assert find_slots(part) == []
+
+    def test_blind_pocket_is_not_a_slot(self):
+        # A rectangular pocket has the same facing rectangular walls as a slot
+        # but is capped by a floor — the through/blind test must reject it.
+        part = Box(100, 60, 10) - Pos(0, 0, 2) * Box(40, 25, 6)
+        assert find_slots(part) == []
+
+    def test_split_floor_pocket_is_not_a_slot(self):
+        # A blind pocket whose floor is divided into two coplanar faces by a rib
+        # (a webbed / twin-cavity pocket): neither floor half covers 50% of the
+        # footprint alone, so the floor test must AGGREGATE coverage across both
+        # — otherwise the pocket reads as a phantom through-slot (#146 re-review).
+        part = (Box(40, 40, 20) - Pos(0, 0, 10) * Box(10, 30, 8)) + Pos(0, 0, 7) * Box(10, 2, 2)
+        assert find_slots(part) == []
+
+    def test_turned_groove_is_not_a_slot(self):
+        # A circumferential groove on a shaft has ANNULAR (circle-bounded) walls;
+        # the rectangular-wall test must reject it (otherwise a stepped shaft's
+        # circlip groove reads as a slot — the #146 review false positive).
+        part = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(7, 4))
+        assert find_slots(part) == []
+
+    def test_gap_between_bosses_is_not_a_slot(self):
+        # The floored channel between two raised bosses has facing rectangular
+        # walls but is not a cut slot — the floor (the base plate) rejects it.
+        part = Box(80, 40, 6) + Pos(-15, 0, 9) * Box(10, 40, 12) + Pos(15, 0, 9) * Box(10, 40, 12)
+        assert find_slots(part) == []
+
+    def test_full_span_through_slot_is_not_a_slot(self):
+        # A through-channel that runs the WHOLE length of the part is an open
+        # feature (a U-channel), not an enclosed slot — rejected by the span cap.
+        part = Box(20, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20)
+        assert find_slots(part) == []
+
+    def test_rectangular_slot_reported_once(self):
+        # A through rectangular slot is bounded by two orthogonal opposed-wall
+        # pairs; the merge must collapse them to a single Slot (the narrower
+        # width), not report the same feature twice.
+        part = Box(60, 40, 12) - Pos(0, 0, 0) * Box(10, 24, 20)
+        slots = find_slots(part)
+        assert len(slots) == 1
+        assert slots[0].width == 10.0  # the narrower of the two opposed pairs
+
+    def test_near_square_slot_runs_along_the_bar(self):
+        # A through slot whose x-extent ≈ z-extent: the length is assigned to the
+        # part's longer axis (a slot on a bar runs along the bar), not whichever
+        # OCC extent is fractionally larger.
+        part = Box(80, 20, 6) - Pos(0, 0, 0) * Box(6, 4, 8)
+        (s,) = find_slots(part)
+        assert s.width_axis == "y"
+        assert s.width == 4.0
+        assert s.long_axis == "x"  # not z, despite z-extent ≈ x-extent locally
+
+    def test_slot_is_frozen_dataclass(self):
+        s = find_slots(Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20))[0]
+        assert isinstance(s, Slot)
+        with pytest.raises(Exception):
+            s.width = 1.0  # frozen
+
+    def test_output_order_is_deterministic(self):
+        # Two equal-width through-slots must be ordered by geometry (not OCC face
+        # order), so the slot{i} annotation names are stable.
+        part = Box(120, 40, 12) - Pos(-30, 0, 0) * Box(8, 20, 20) - Pos(30, 0, 0) * Box(8, 20, 20)
+        runs = [[(s.width, s.lo, s.hi) for s in find_slots(part)] for _ in range(3)]
+        assert runs[0] == runs[1] == runs[2]
+        assert len(runs[0]) == 2
+
+
+class TestSlotDimensioning:
+    """#135: slots carry width / length / position dims, place-what-fits."""
+
+    @pytest.mark.timeout(60)
+    def test_slot_gets_width_length_and_position(self):
+        # Through slot at x∈[-10,10] in a 60-long bar (datum x=-30): position to
+        # the near (lo) edge is -10-(-30) = 20.
+        part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20)
+        dwg = build_drawing(part)
+        labels = {n: dwg._named[n].label for n in dwg._named if n.startswith("slot")}
+        assert labels.get("slot0_width") == "8"
+        assert labels.get("slot0_length") == "20"
+        assert labels.get("slot0_pos") == "20"
+
+    @pytest.mark.timeout(60)
+    def test_slot_sheet_is_lint_clean(self):
+        part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20)
+        dwg = build_drawing(part)
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    @pytest.mark.timeout(60)
+    def test_non_round_width_label_matches_geometry(self):
+        # A true 4.75 mm slot labels as "4.8"; the dim geometry must be snapped
+        # to the displayed value or the label-vs-measured lint trips (#135).
+        part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 4.75, 20)
+        dwg = build_drawing(part)
+        assert dwg._named["slot0_width"].label == "4.8"
+        assert [i for i in dwg.lint() if i.code == "label_vs_measured"] == []
+
+    @pytest.mark.timeout(60)
+    def test_slot_dims_do_not_overprint_hole_callouts(self):
+        # A slot dim's witness/arrow geometry must not cross a hole callout label.
+        # The collision gate tests the dim's FULL geometry (not just its label
+        # box) against external annotations, which lint is blind to (#146 review).
+        part = Box(140, 60, 16) - Pos(0, 0, 0) * Box(10, 40, 24)
+        for x, y in [(-45, 20), (45, 20), (-45, -20), (45, -20)]:
+            part = part - Pos(x, y, 0) * Cylinder(4, 16)
+        dwg = build_drawing(part)
+
+        def overlaps(a, b):
+            return min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1])
+
+        external = [
+            o.label_bbox
+            for n, o in dwg._named.items()
+            if not n.startswith("slot") and getattr(o, "label_bbox", None) is not None
+        ]
+        assert external  # the holes produced callouts
+        for n, o in dwg._named.items():
+            if not n.startswith("slot"):
+                continue
+            g = o.bounding_box()
+            full = (g.min.X, g.min.Y, g.max.X, g.max.Y)
+            assert not any(overlaps(full, e) for e in external), f"{n} overprints a callout"
 
 
 class TestPlaceDim:
