@@ -11,19 +11,18 @@ Requires build123d-drafting-helpers for annotation primitives.
 Licensed under the GNU Affero General Public License v3 (AGPL-3.0).
 """
 
+from draftwright.analysis import analyse_face_levels, dedup_diams
 from draftwright.make_drawing import (
     Drawing,
     FeatureInfo,
-    analyse_face_levels,
     build_drawing,
-    choose_scale,
-    dedup_diams,
     fix_svg_page_size,
     generate_script,
     lint_feature_coverage,
     make_drawing,
 )
 from draftwright.pmi import PmiRecord, extract_pmi
+from draftwright.sheet import choose_scale
 
 __all__ = [
     "Drawing",
