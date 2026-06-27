@@ -1,7 +1,12 @@
 """Unit tests for AnnotationRegistry — the single owner of annotation identity,
 ownership, pins, and build issues (#138 / ADR 0005, Step 2)."""
 
+import pytest
+
 from draftwright.registry import AnnotationRegistry
+
+# Pure unit tests — no OCC builds — so they join the build-light `smoke` set (#153).
+pytestmark = pytest.mark.smoke
 
 
 def test_add_records_name_and_view():

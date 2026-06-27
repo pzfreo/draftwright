@@ -301,6 +301,7 @@ def test_golden(case, tmp_path):
         )
 
 
+@pytest.mark.smoke  # exercises the build → digest path quickly (#153)
 def test_digest_is_deterministic(tmp_path):
     """The digest must be reproducible build-to-build, or the gate is noise."""
     a = build_drawing(_PARTS["plate"](), out=str(tmp_path / "a"), number="DWG-1")

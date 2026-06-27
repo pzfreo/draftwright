@@ -59,10 +59,17 @@ include = [
 testpaths = ["tests"]
 timeout = 300
 # `slow` covers the heavy end-to-end builds over the large NIST CTC fixtures
-# (minutes each). They are deselected by default for a fast normal run; run the
-# full suite with `-m ""` or just the slow tier with `-m slow` (CI runs both).
-markers = ["slow: heavy end-to-end CTC fixture builds (deselected by default)"]
-addopts = "--tb=short --cov=src/draftwright --cov-report=term-missing --cov-report=xml -m 'not slow'"
+# (minutes each), deselected by default. `smoke` is a curated, build-light subset
+# (~30 s) for a quick local "did I break something obvious" check — run it with
+# `uv run pytest -m smoke`. The default run is the full fast tier (`-m 'not slow'`,
+# ~8 min); CI owns that plus the slow tier across the OS/Python matrix.
+markers = [
+    "slow: heavy end-to-end CTC fixture builds (deselected by default)",
+    "smoke: curated build-light subset for a fast local check (~30 s)",
+]
+# Coverage is a CI concern (it adds ~13% locally and instruments every line); the
+# CI workflow passes the --cov flags explicitly. Keep the local default lean.
+addopts = "--tb=short -m 'not slow'"
 
 [tool.coverage.run]
 source = ["src/draftwright"]

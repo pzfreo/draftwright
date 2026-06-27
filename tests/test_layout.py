@@ -17,6 +17,10 @@ from draftwright.layout import (
     fit_box,
 )
 
+# Pure solver unit tests — fast, no OCC builds — so the whole module is part of
+# the build-light `smoke` subset (#153).
+pytestmark = pytest.mark.smoke
+
 
 class TestSolveStrip1d:
     def test_feasible_positions_respect_bounds_and_gap(self):
