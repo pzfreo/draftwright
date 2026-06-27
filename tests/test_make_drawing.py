@@ -2467,7 +2467,7 @@ class TestAutoHoleAnnotations:
         # tied natural Ys, where the solver's (natural, key) order must reduce to
         # the input order via the zero-padded keys.
         from draftwright._core import _solve_strip_ys
-        from draftwright.annotate import _solve_strip_via_layout
+        from draftwright.annotations.holes import _solve_strip_via_layout
 
         # (naturals, gap, lo, hi)
         cases = [
@@ -3227,7 +3227,7 @@ class TestLintSummaryAndDrops:
         # (page-mm) from the previously kept one; closer ones read as one busy
         # cluster and are dropped (surfaced via lint).
         from draftwright._core import _MIN_LOC_SEP_MM
-        from draftwright.annotate import _legible_locations
+        from draftwright.annotations.holes import _legible_locations
 
         sep = _MIN_LOC_SEP_MM
         positions = [0.0, 1.0, 2.0, sep + 2.0, sep + 2.5, 2 * sep + 5.0]
