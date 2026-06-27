@@ -197,6 +197,9 @@ _SLOT_DIM_DEPTH = 2 * _FONT_SIZE + _PAD  # sv_zones.below: overall depth dimensi
 _SLOT_DIM_HEIGHT = 2 * _FONT_SIZE + 2 * _PAD  # fv_zones.right: overall height dim
 
 
+_STRIP_SPACING = 4.0  # page-mm between successive annotations in a strip
+
+
 _SLOT_DIM_STEP = 4 * _FONT_SIZE + _PAD  # fv_zones.right: step-height dimension
 
 

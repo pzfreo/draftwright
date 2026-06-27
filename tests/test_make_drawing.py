@@ -4071,6 +4071,7 @@ class TestRepair:
         from build123d_drafting.helpers import LintIssue
 
         from draftwright.make_drawing import _dim
+        from draftwright.repair import _repair_dim_inside_part
 
         dwg = build_drawing(Box(60, 40, 20))
         dim = dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="INSIDE"), "x")
@@ -4081,7 +4082,7 @@ class TestRepair:
             message="Dim 'INSIDE': annotation bbox overlaps part outline by 40%",
             code="dim_inside_part",
         )
-        assert dwg._repair_dim_inside_part(issue) is True
+        assert _repair_dim_inside_part(dwg, issue) is True
         new = dwg._named["x"]
         assert new is not dim
         assert new._dw_spec.side == "below"

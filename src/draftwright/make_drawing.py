@@ -84,10 +84,10 @@ from OCP.STEPControl import STEPControl_Reader
 from draftwright._core import (
     _FONT_SIZE,
     _MARGIN,
-    _QUOTED_RE,
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
     _SLOT_DIM_WIDTH,
+    _STRIP_SPACING,
     _TABULATE_MIN_HOLES,
     _TB_CLEAR,
     _TB_H,
@@ -124,6 +124,7 @@ from draftwright.layout import (
 )
 from draftwright.linting import CoverageState, _suggest_fix, lint_feature_coverage
 from draftwright.registry import AnnotationRegistry
+from draftwright.repair import repair_drawing
 
 _TB_W = 150.0
 _DIM_PAD = 18.0
@@ -475,10 +476,6 @@ _GEOMETRY_AWARE_CODES = frozenset(
 _SCORE_ERROR_PENALTY = 0.2
 _SCORE_WARNING_PENALTY = 0.05
 
-# Lint codes the #30 repair loop can mechanically resolve, and the side flip
-# used to move a dimension that landed on the wrong side of its witness points.
-_REPAIRABLE_CODES = frozenset({"annotation_overlap", "dim_inside_part"})
-_OPPOSITE_SIDE = {"above": "below", "below": "above", "left": "right", "right": "left"}
 
 
 def analyse_face_levels(part, tol: float = 0.5, min_area_frac: float = 0.0) -> list:
@@ -593,7 +590,6 @@ def _parse_page(page) -> tuple:
 
 
 _STRIP_GAP = 8.0
-_STRIP_SPACING = 4.0
 
 # Horizontal page budget to reserve for the isometric view during scale
 # selection and view placement, as a fraction of bbox_max * scale.  This is a
@@ -2610,113 +2606,28 @@ class Drawing:
         self._registry.drop_issues(codes)
 
     # -- repair ---------------------------------------------------------------
-    def _find_dim(self, label):
-        """Return the re-placeable dimension whose label is *label*, or None.
-
-        Only dimensions built by :func:`_dim` (carrying ``_dw_spec``) qualify;
-        leaders, callouts and hand-built annotations are left untouched. A
-        pinned dimension (#89) is also skipped — a deliberate placement must
-        win over automatic repair.
-        """
-        # Identity-based, matching clear_annotations: "this specific object",
-        # not build123d's geometric Shape equality.
-        pinned_ids = self._registry.pinned_object_ids()
-        for o in self.items:
-            if id(o) in pinned_ids:
-                continue
-            if getattr(o, "_dw_spec", None) is not None and getattr(o, "label", None) == label:
-                return o
-        return None
-
-    def _replace_dim(self, old, new):
-        """Swap *old* for *new* in :attr:`items`, preserving its name and
-        any per-view scale tag (so a re-placed detail-view dim stays at scale)."""
-        if getattr(old, "_dw_scale", None) is not None:
-            new._dw_scale = old._dw_scale
-        self.items[self.items.index(old)] = new
-        for n, o in self._named.items():
-            if o is old:
-                self._named[n] = new
-
-    def _repair_dim_inside_part(self, issue) -> bool:
-        """Flip a dimension that sits inside the view onto the opposite side."""
-        labels = _QUOTED_RE.findall(issue.message)
-        dim = self._find_dim(labels[0]) if labels else None
-        if dim is None:
-            return False
-        s = dim._dw_spec
-        new_side = _OPPOSITE_SIDE.get(s.side)
-        if new_side is None:
-            return False
-        self._replace_dim(dim, _dim(s.p1, s.p2, new_side, s.distance, s.draft, **s.kwargs))
-        return True
-
-    def _repair_overlap(self, issue) -> bool:
-        """Push the first re-placeable label in an overlap one strip-row further
-        out so the two labels separate. Monotonic, so repeated passes converge."""
-        step = _STRIP_SPACING + _SLOT_DIM_HEIGHT
-        for label in _QUOTED_RE.findall(issue.message):
-            dim = self._find_dim(label)
-            if dim is None:
-                continue
-            s = dim._dw_spec
-            self._replace_dim(
-                dim, _dim(s.p1, s.p2, s.side, s.distance + step, s.draft, **s.kwargs)
-            )
-            return True
-        return False
-
     def repair(self, max_iter: int = 3):
-        """Close the lint→repair loop: act on violations, don't only report them.
+        """Close the lint\u2192repair loop: act on violations, don't only report them.
 
         After the greedy initial placement, re-place the dimensions behind the
         mechanically-clear violations and re-lint, bounded to *max_iter* passes:
 
-        - ``dim_inside_part`` — the offset is on the wrong side; flip it once.
-        - ``annotation_overlap`` — two labels collide; push one further out.
+        - ``dim_inside_part`` \u2014 the offset is on the wrong side; flip it once.
+        - ``annotation_overlap`` \u2014 two labels collide; push one further out.
 
         Only engine-built dimensions (carrying ``_dw_spec``) are re-placeable;
         leaders, callouts and standards-judgement issues (e.g.
-        ``missing_principal_dimension``) are left for the caller. Each side
-        flip is attempted at most once and overlap pushes only move outward, so
-        the loop terminates and a clean drawing is returned unchanged.
+        ``missing_principal_dimension``) are left for the caller. Each side flip
+        is attempted at most once and overlap pushes only move outward, so the
+        loop terminates and a clean drawing is returned unchanged.
 
         A pass that would *net-increase* the issue count (e.g. an overlap push
-        that shoves a label out of frame on a tight sheet) is rolled back and
-        the loop stops, so :meth:`repair` never makes a drawing worse.
+        that shoves a label out of frame on a tight sheet) is rolled back and the
+        loop stops, so :meth:`repair` never makes a drawing worse.
 
         Returns ``self`` for chaining.
         """
-        flipped: set = set()
-        for _ in range(max_iter):
-            before = self.lint()
-            if not before:
-                break
-            snap_annotations = list(self.items)
-            snap_named = dict(self._named)
-            changed = False
-            for issue in before:
-                if issue.code not in _REPAIRABLE_CODES:
-                    continue
-                if issue.code == "dim_inside_part":
-                    labels = _QUOTED_RE.findall(issue.message)
-                    key = labels[0] if labels else None
-                    if key in flipped:
-                        continue
-                    if self._repair_dim_inside_part(issue):
-                        flipped.add(key)
-                        changed = True
-                elif issue.code == "annotation_overlap":
-                    changed |= self._repair_overlap(issue)
-            if not changed:
-                break
-            if len(self.lint()) > len(before):
-                # The repairs net-worsened the sheet — undo this pass and stop.
-                self.items[:] = snap_annotations
-                self._named.clear()
-                self._named.update(snap_named)
-                break
-        return self
+        return repair_drawing(self, max_iter)
 
     # -- output ---------------------------------------------------------------
     def lint(self):
