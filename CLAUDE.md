@@ -108,13 +108,17 @@ checks. Target is 100% passing. Tiers (#153):
 
 - **`uv run pytest -m smoke`** (~30 s) — curated build-light subset for a quick
   local "did I break something obvious" check.
-- **`uv run pytest`** — full fast tier (`-m 'not slow'`, ~8 min; nearly every test
-  does a real OCC build). Prefer **targeted** selections (`-k`, node ids) locally.
-- **`-m slow`** (~19 min, CTC fixture builds) — CI-only.
+- **`uv run pytest`** — full fast tier (`-m 'not slow'`; nearly every test does a
+  real OCC build). Prefer **targeted** selections (`-k`, node ids) locally; for a
+  full local run add **`-n auto --dist loadscope`** (pytest-xdist) to spread it
+  across cores (~471 s → ~200 s on 8 cores, #153).
+- **`-m slow`** (CTC fixture builds) — CI-only.
 
 Coverage is kept out of the default addopts (it adds ~13% locally); the CI
 workflow passes the `--cov` flags. CI runs the full fast tier (3×3 OS/Python
-matrix) plus the slow tier on every PR.
+matrix, parallelised with `-n auto`) on every PR; the **slow tier runs post-merge
+on `main`**, not as a PR gate (#153) — a regression there is caught right after
+merge rather than blocking every PR for ~19 min.
 
 ## License
 

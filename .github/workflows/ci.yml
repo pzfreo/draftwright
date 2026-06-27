@@ -49,18 +49,28 @@ jobs:
 
       - name: Run tests
         # Fast tier only — the `slow` marker (heavy CTC fixture builds) is
-        # deselected by default via addopts. The slow tier runs once in the
+        # deselected by default via addopts. The slow tier runs post-merge in the
         # `test-slow` job below.
+        # `-n auto --dist loadscope`: run across all cores (#153). The suite is
+        # build-bound and parallel-safe; loadscope keeps a class/module on one
+        # worker so test ordering and the module-scoped golden fixture hold.
         # No --timeout here: it would override the 300 s set in
         # [tool.pytest.ini_options]. The heaviest test (full specimen-sheet SVG
         # export) can exceed 120 s on the slower macOS runners.
         # Coverage runs in CI; it is kept out of the default addopts so local
         # runs stay lean (see pyproject [tool.pytest.ini_options]).
-        run: uv run pytest tests/ -v --cov=src/draftwright --cov-report=term-missing --cov-report=xml
+        run: uv run pytest tests/ -n auto --dist loadscope --cov=src/draftwright --cov-report=term-missing --cov-report=xml
 
   test-slow:
     # Heavy end-to-end CTC fixture builds (minutes each); run once, not across
     # the full OS/Python matrix.
+    #
+    # POST-MERGE ONLY — runs on push to main, not on pull_request, so it no
+    # longer gates PR merge (#153). Rationale: since #149 pinned the fonts,
+    # generated layout is deterministic, so the cross-platform CTC golden check
+    # rarely catches anything a PR's fast-tier golden digests miss. It stays as a
+    # safety net on main; a regression here is caught right after merge.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -71,4 +81,4 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run slow tests
-        run: uv run pytest tests/ -v -m slow
+        run: uv run pytest tests/ -m slow -n auto --dist loadscope
