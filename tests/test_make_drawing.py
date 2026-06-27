@@ -4621,7 +4621,7 @@ class TestDraftwrightAttribution:
         assert 0 < x0 < x1 <= dwg.page_w and 0 < y0 < y1 <= dwg.page_h
 
     def test_add_svg_hyperlink_injects_anchor(self, tmp_path):
-        from draftwright.make_drawing import _DRAFTWRIGHT_URL, add_svg_hyperlink
+        from draftwright.export import _DRAFTWRIGHT_URL, add_svg_hyperlink
 
         svg = tmp_path / "x.svg"
         svg.write_text(
