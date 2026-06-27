@@ -477,7 +477,6 @@ _SCORE_ERROR_PENALTY = 0.2
 _SCORE_WARNING_PENALTY = 0.05
 
 
-
 def analyse_face_levels(part, tol: float = 0.5, min_area_frac: float = 0.0) -> list:
     """Return sorted unique Z-coords of horizontal (normal≈±Z) planar faces.
 
@@ -2607,13 +2606,13 @@ class Drawing:
 
     # -- repair ---------------------------------------------------------------
     def repair(self, max_iter: int = 3):
-        """Close the lint\u2192repair loop: act on violations, don't only report them.
+        """Close the lint→repair loop: act on violations, don't only report them.
 
         After the greedy initial placement, re-place the dimensions behind the
         mechanically-clear violations and re-lint, bounded to *max_iter* passes:
 
-        - ``dim_inside_part`` \u2014 the offset is on the wrong side; flip it once.
-        - ``annotation_overlap`` \u2014 two labels collide; push one further out.
+        - ``dim_inside_part`` — the offset is on the wrong side; flip it once.
+        - ``annotation_overlap`` — two labels collide; push one further out.
 
         Only engine-built dimensions (carrying ``_dw_spec``) are re-placeable;
         leaders, callouts and standards-judgement issues (e.g.
