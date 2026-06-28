@@ -15,3 +15,6 @@ from draftwright.builder import (  # noqa: F401
 from draftwright.drawing import Drawing, FeatureInfo  # noqa: F401
 from draftwright.export import fix_svg_page_size  # noqa: F401
 from draftwright.linting import lint_feature_coverage  # noqa: F401
+
+if __name__ == "__main__":
+    _cli()
