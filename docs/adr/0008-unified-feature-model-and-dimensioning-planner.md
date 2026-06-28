@@ -60,13 +60,15 @@ class Feature(Protocol):              # hole, step, boss, slot, chamfer, gear, �
 @dataclass(frozen=True)
 class DimParameter:                   # the universal currency of dimensioning
     kind: Literal["diameter","length","depth","radius","angle","location","thread"]
+    role: str                         # semantic origin: bore/counterbore/step/boss/od/…
     value: float
-    label: str                        # rendered text, e.g. "ø8", "20", "M3"
     span: tuple[Point, Point] | None  # model-space extent, for placement
     refs: tuple[str, ...] = ()        # datum ids it is measured from
 ```
 
 A `PartModel` holds the oriented part, the `Feature` list, and the `Datum` set.
+**`DimParameter` carries a semantic `role`, not a rendered label** — see the
+amendment below; formatting and GD&T symbols are a renderer concern.
 
 ### 2. Why this survives arbitrary new shapes — Open/Closed by construction
 
@@ -88,6 +90,9 @@ chain vs ordinate, datum selection, redundancy/duplication avoidance, view choic
 **uniformly**. "A turned part's step lengths", "a hole's depth", "a slot's width"
 are all `DimParameter`s flowing through one planner. This is the logic currently
 reimplemented per-pass; centralising it is where the back-end stops rotting.
+
+The planner emits one **`DimensionGroup` per feature** (carrying the source
+feature + a single view), not a flat dimension list — see the amendment below.
 
 ### 4. The layout layer is untouched
 
@@ -115,6 +120,38 @@ and X/Z parity as standing criteria):
 5. **Generalise planner rules only after ~3 feature types** have stressed the
    `DimParameter` set — don't build a speculative rule engine (that is just
    framework-shaped spaghetti).
+
+## Amendment (2026-06-28) — contract refined by the prototype + reviews (#211, #212)
+
+Building the prototype and reviewing it (counterbore, then patterns) hardened the
+waist. The decisions, now in `src/draftwright/model/`:
+
+1. **`DimParameter` carries a semantic `role`, never a rendered label.** The pinned
+   font has no GD&T glyphs (`⌴`/`⌵`/`↧`), and the engine draws those as *geometry*,
+   not text — so baking a label into the IR is both wrong and font-fragile.
+   Formatting is a renderer concern; `display()` gives font-safe debug text. `role`
+   (bore / counterbore / step / boss / od / …) is what the planner reasons on.
+2. **The planner emits `DimensionGroup`s, not a flat list.** One group per feature,
+   carrying the **source feature** + a **single view** + its planned dims. This is
+   what lets a *compound* callout (a hole's bore + counterbore + depth) render as
+   one callout, lets a `PatternFeature` keep its `count`/`pattern` metadata across
+   the waist, and keeps the plan Open/Closed (a renderer reads whatever feature
+   metadata it needs without the plan growing a field per feature type).
+3. **Redundancy is feature-aware, never value-blind.** The planner does not
+   collapse two parameters merely because they share a value (a counterbore ø16
+   and a boss ø16; a 10×10 pocket's two 10 mm lengths both survive). Count of
+   *repeated identical features* (`6× ø8`) is upstream — a `PatternFeature`, not a
+   planner dedup.
+4. **View + anchor are group-level and axis-derived.** A group's view comes from
+   the feature's axis by one rule for all axes (a diameter callout end-on:
+   `z→plan`, `x→side`, `y→front`; a turned step's length+OD on the lengthwise
+   `front`) — orientation is data, so X and Z are symmetric. The anchor is the
+   feature's frame origin.
+
+Still open (tracked, gate-protected, for the wiring phases): the view/routing must
+become *model-aware* for turned concentric bores (front bore-leader + section, not
+the generic end-on rule — #201) and for a rotational OD on a single-OD turned part
+(profile view, not end-on — #205).
 
 ## Consequences
 
