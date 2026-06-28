@@ -16,8 +16,6 @@ import logging
 from dataclasses import dataclass
 from types import SimpleNamespace
 
-from build123d_drafting.features import BoltCircle, HoleSpec, RectGrid
-
 from draftwright._core import (
     _DIM_PAD,
     _FONT_SIZE,
@@ -44,6 +42,7 @@ from draftwright._core import (
     _tb_width,
     _text_width,
 )
+from draftwright.recognition import BoltCircle, HoleSpec, RectGrid
 
 _log = logging.getLogger(__name__)
 

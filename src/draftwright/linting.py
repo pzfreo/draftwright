@@ -20,14 +20,14 @@ from __future__ import annotations
 
 import re
 
-from build123d_drafting.features import (
+from build123d_drafting.helpers import LintIssue, TitleBlock
+
+from draftwright._core import _DIAM_RE, _QUOTED_RE, _fmt
+from draftwright.recognition import (
     analyse_cylinders,
     feature_diameters,
     find_holes,
 )
-from build123d_drafting.helpers import LintIssue, TitleBlock
-
-from draftwright._core import _DIAM_RE, _QUOTED_RE, _fmt
 
 
 class CoverageState:

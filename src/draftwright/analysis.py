@@ -14,12 +14,6 @@ import logging
 import math
 
 from build123d import Compound, Shape
-from build123d_drafting.features import (
-    analyse_cylinders,
-    find_hole_patterns,
-    find_holes,
-    full_cylinders,
-)
 from build123d_drafting.helpers import draft_preset
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepGProp import BRepGProp
@@ -37,7 +31,13 @@ from draftwright._core import (
     _legible_steps,
     _Projector,
 )
-from draftwright.features import find_slots
+from draftwright.recognition import (
+    analyse_cylinders,
+    find_hole_patterns,
+    find_holes,
+    find_slots,
+    full_cylinders,
+)
 from draftwright.sheet import (
     _build_zones,
     _layout_geometry,

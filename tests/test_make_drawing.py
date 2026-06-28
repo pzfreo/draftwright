@@ -15,8 +15,8 @@ from draftwright._core import _MIN_VIEW_MM, _fmt
 from draftwright.analysis import _is_rotational, analyse_face_levels, dedup_diams
 from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
-from draftwright.features import Slot, find_slots
 from draftwright.make_drawing import generate_script, lint_feature_coverage
+from draftwright.recognition import Slot, find_slots
 from draftwright.sheet import _fits, choose_scale
 
 
@@ -726,8 +726,7 @@ class TestDerivedLayoutConstants:
         assert _text_width("WXYZ", 3.0) > _text_width("iiii", 3.0)
 
     def test_bore_callout_width_scales_with_font_size(self):
-        from build123d_drafting.features import find_holes
-
+        from draftwright.recognition import find_holes
         from draftwright.sheet import _est_bore_callout_width
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
@@ -765,7 +764,7 @@ class TestComposeAnnoBoxes:
             assert composed == scalar, (label, n_steps, kw)
 
     def test_matches_for_plain_part(self):
-        from build123d_drafting.features import find_hole_patterns, find_holes
+        from draftwright.recognition import find_hole_patterns, find_holes
 
         part = Box(60, 40, 12)
         holes = find_holes(part)
@@ -775,7 +774,7 @@ class TestComposeAnnoBoxes:
             self._assert_match(holes, patterns, n_steps, bb)
 
     def test_matches_for_bored_part(self):
-        from build123d_drafting.features import find_hole_patterns, find_holes
+        from draftwright.recognition import find_hole_patterns, find_holes
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
         holes = find_holes(part)
@@ -786,8 +785,7 @@ class TestComposeAnnoBoxes:
 
     def test_matches_for_dense_ballooning_part(self):
         # _dense_plate triggers _will_balloon → exercises the plan_halo band.
-        from build123d_drafting.features import find_hole_patterns, find_holes
-
+        from draftwright.recognition import find_hole_patterns, find_holes
         from draftwright.sheet import _will_balloon
 
         part = _dense_plate()
@@ -834,7 +832,7 @@ class TestComposeAnnoBoxesCorpus:
         (plan halo band). The right dim ladder depth is a pure function of the
         n_steps argument (not geometry), so it is swept per part below rather
         than via a dedicated stepped fixture."""
-        from build123d_drafting.features import find_hole_patterns, find_holes
+        from draftwright.recognition import find_hole_patterns, find_holes
 
         parts = {
             "plain_block": Box(60, 40, 12),
@@ -983,10 +981,10 @@ class TestTwoPassLayout:
         # "4× ⌀15.9 THRU") that need more than _DIM_PAD right of the plan view.
         # The two-pass layout must size gap_fv_sv >= bore callout depth.
         from build123d import Box, Cylinder, Pos
-        from build123d_drafting.features import find_holes
 
         from draftwright import build_drawing
         from draftwright._core import _DIM_PAD
+        from draftwright.recognition import find_holes
         from draftwright.sheet import _est_bore_callout_width
 
         # Four identical cylinders → "4× ⌀16 THRU" callout with a count prefix
@@ -1053,8 +1051,8 @@ class TestTwoPassLayout:
         # BoltCircle callouts carry "EQ SP ON ø… BC" suffix (~34 mm wide).
         # _est_bore_callout_width must include it when patterns are provided.
         from build123d import Box, Cylinder, Pos
-        from build123d_drafting.features import find_hole_patterns, find_holes
 
+        from draftwright.recognition import find_hole_patterns, find_holes
         from draftwright.sheet import _est_bore_callout_width
 
         # Six ⌀8 holes at equal 60° spacing on R=35 → BoltCircle pattern

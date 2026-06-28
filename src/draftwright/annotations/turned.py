@@ -6,9 +6,6 @@ front view (`_annotate_turned_diameters` + helpers). Below annotate in the DAG.
 
 from __future__ import annotations
 
-from build123d_drafting.features import (
-    find_bosses,
-)
 from build123d_drafting.helpers import (
     Leader,
     TitleBlock,
@@ -24,6 +21,9 @@ from draftwright._core import (
     _solve_strip_ys,
 )
 from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
+from draftwright.recognition import (
+    find_bosses,
+)
 
 
 def _mentioned_diams(annotations):

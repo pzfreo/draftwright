@@ -10,16 +10,18 @@ produces a fully-annotated multi-view technical drawing (orthographic views, dim
 section A–A, ISO hatching, title block) ready for DXF/SVG export.
 
 It sits on top of two Apache 2.0 libraries:
-- `build123d-drafting-helpers` — annotation primitives (`Dimension`, `Leader`, `HoleCallout`, …)
+- `build123d-drafting-helpers` — annotation primitives (`Dimension`, `Leader`, `HoleCallout`, …).
+  The *rendering* library; draftwright owns feature recognition and linting (ADR 0007).
 - `build123d` — the underlying CAD kernel
 
 ## Architecture
 
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
-top: leaf modules (`layout.py`, `registry.py`, `linting.py`, `fonts.py`) → `_core.py`
-→ stage modules (`export.py`, `repair.py`, `projection.py`, `sheet.py`, `analysis.py`,
-`drawing.py`, the `annotations/` subpackage) → `builder.py` → the `make_drawing.py` /
-`annotate.py` compat facades. No lower module imports an upper one.
+top: leaf modules (`layout.py`, `registry.py`, `linting.py`, `fonts.py`, the
+`recognition/` subpackage) → `_core.py` → stage modules (`export.py`, `repair.py`,
+`projection.py`, `sheet.py`, `analysis.py`, `drawing.py`, the `annotations/`
+subpackage) → `builder.py` → the `make_drawing.py` / `annotate.py` compat facades.
+No lower module imports an upper one.
 
 - **`make_drawing.py`** — thin compat facade (~17 lines) re-exporting the public
   surface (`Drawing`, `build_drawing`, `make_drawing`, `generate_script`, `_cli`,
@@ -69,6 +71,12 @@ top: leaf modules (`layout.py`, `registry.py`, `linting.py`, `fonts.py`) → `_c
   `CoverageState` (the coverage signal — pattern callouts, patterned holes,
   dropped diameters). Depends only on `_core` + build123d_drafting. `_QUOTED_RE`
   (a lint-message label regex shared with the repair loop) lives in `_core`.
+- **`recognition/`** — feature recognition (ADR 0007: draftwright owns it, not
+  helpers). `_features.py` (vendored from `build123d_drafting.features`; the
+  hole/boss/cylinder/pattern recognisers — `find_holes`/`find_bosses`/
+  `analyse_cylinders`/`feature_diameters`/`find_hole_patterns`/`full_cylinders`
+  + the feature/pattern types) and `slots.py` (the milled-slot recogniser, #135).
+  Bottom of the DAG: depends only on build123d/OCP. Import via the package surface.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
 - **`export.py`** — SVG/DXF/PDF export + post-processing (page-size fix,

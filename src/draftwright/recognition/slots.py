@@ -1,11 +1,10 @@
 """Recognition of non-cylindrical machined features (#135).
 
-Draftwright-local **prototype**.  It recognises milled *slots* — the class of
-feature the cylinder-based pipeline (``analyse_cylinders``/``find_holes`` in
-``build123d_drafting.features``) is blind to.  Once the recognition predicate
-stabilises this is intended to be upstreamed into ``build123d-drafting-helpers``
-beside the hole/boss recognisers; it deliberately mirrors their OCC face-scan
-idioms so the lift is mechanical.
+It recognises milled *slots* — the class of feature the cylinder-based pipeline
+(``analyse_cylinders``/``find_holes`` in :mod:`._features`) is blind to.  It
+sits beside the hole/boss recognisers in :mod:`draftwright.recognition`, the
+single home for feature recognition (ADR 0007 — recognition lives in
+draftwright, not upstream); it mirrors their OCC face-scan idioms.
 
 Scope (deliberately narrow — see #148): only **enclosed through-slots with
 straight, rectangular walls** are recognised.  The recogniser proves a candidate
