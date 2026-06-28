@@ -2606,7 +2606,9 @@ class TestHolePatternAnnotations:
     @pytest.mark.timeout(60)
     def test_repetition_label_passes_measured_check(self):
         from build123d import Draft
-        from build123d_drafting import Dimension, lint_drawing
+        from build123d_drafting import Dimension
+
+        from draftwright.linting import lint_drawing
 
         d = Draft(font_size=2.5)
         dim = Dimension((0, 0, 0), (80, 0, 0), "above", 8, d, label="4× 20")

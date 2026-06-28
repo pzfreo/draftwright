@@ -34,6 +34,7 @@ from build123d_drafting.helpers import (
 )
 
 from draftwright._core import (
+    _MARGIN,
     _STRIP_GAP,
     _STRIP_SPACING,
     Analysis,
@@ -935,10 +936,10 @@ class Drawing:
         When :attr:`part` is set, also runs :func:`lint_feature_coverage`.
         Build-time drops recorded via :meth:`_record_build_issue` are included.
         """
-        # Drawable area (page minus the 10 mm margin), passed explicitly to
+        # Drawable area (page minus the standard margin), passed explicitly to
         # lint_drawing for bounds checks — draftwright owns linting now and no
         # longer relies on the helpers set_page module-global (ADR 0007).
-        page_bbox = (10, 10, self.page_w - 10, self.page_h - 10)
+        page_bbox = (_MARGIN, _MARGIN, self.page_w - _MARGIN, self.page_h - _MARGIN)
         view_shapes = [vis for vis, _ in self.views.values()]
         # Most annotations are at sheet scale, but a non-sheet-scale view (the
         # enlarged detail view, #42) tags its dims with `_dw_scale`. Lint each
