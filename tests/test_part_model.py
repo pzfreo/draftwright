@@ -95,20 +95,28 @@ class TestBuildPartModel:
         assert params[("diameter", "counterbore")] == 12.0  # counterbore kept
         assert params[("diameter", "bolt_circle")] == 50.0  # BCD
 
-    def test_linear_array_carries_pitch(self):
+    def test_linear_array_carries_pitch_and_arrangement(self):
         part = Box(100, 20, 10)
         for x in (-30, -10, 10, 30):
             part -= Pos(x, 0, 0) * Cylinder(3, 20)
         pats = [f for f in build_part_model(part).features if isinstance(f, PatternFeature)]
-        assert pats and pats[0].pattern == "linear" and pats[0].pitch == 20.0
+        assert pats
+        p = pats[0]
+        assert p.pattern == "linear" and p.pitch == 20.0
+        # arrangement geometry the renderer needs is NOT discarded:
+        assert p.direction is not None and len(p.members) == 4
 
-    def test_rect_grid_carries_pitches(self):
+    def test_rect_grid_carries_pitches_and_lattice(self):
         part = Box(80, 80, 10)
         for x in (-20, 0, 20):
             for y in (-20, 0, 20):
                 part -= Pos(x, y, 0) * Cylinder(3, 20)
         pats = [f for f in build_part_model(part).features if isinstance(f, PatternFeature)]
-        assert pats and pats[0].pattern == "grid" and pats[0].grid == (20.0, 20.0)
+        assert pats
+        p = pats[0]
+        assert p.pattern == "grid" and p.grid == (20.0, 20.0)
+        # rows/cols/angle + member locations survive (the gratuitous-loss the review found):
+        assert p.rows == 3 and p.cols == 3 and p.angle is not None and len(p.members) == 9
 
 
 class TestPlanner:

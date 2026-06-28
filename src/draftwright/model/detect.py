@@ -61,10 +61,16 @@ def _pattern_feature(pat, members) -> PatternFeature:
     composing a representative member hole so its counterbore/spotface survive."""
     axis = _axis_letter(members[0])
     n = len(members)
+    locs = tuple(_pt(m.location) for m in members)  # raw arrangement — never discarded
     if isinstance(pat, BoltCircle):
         frame = Frame(_pt(pat.center), axis)
         return PatternFeature(
-            frame, "bolt_circle", n, _member_hole(members[0], frame), bcd=pat.diameter
+            frame,
+            "bolt_circle",
+            n,
+            _member_hole(members[0], frame),
+            members=locs,
+            bcd=pat.diameter,
         )
     if isinstance(pat, LinearArray):
         c = (
@@ -73,14 +79,30 @@ def _pattern_feature(pat, members) -> PatternFeature:
             sum(m.location[2] for m in members) / n,
         )
         frame = Frame(c, axis)
-        return PatternFeature(frame, "linear", n, _member_hole(members[0], frame), pitch=pat.pitch)
+        return PatternFeature(
+            frame,
+            "linear",
+            n,
+            _member_hole(members[0], frame),
+            members=locs,
+            pitch=pat.pitch,
+            direction=tuple(pat.direction),
+        )
     if isinstance(pat, RectGrid):
         frame = Frame(_pt(pat.center), axis)
         return PatternFeature(
-            frame, "grid", n, _member_hole(members[0], frame), grid=(pat.row_pitch, pat.col_pitch)
+            frame,
+            "grid",
+            n,
+            _member_hole(members[0], frame),
+            members=locs,
+            grid=(pat.row_pitch, pat.col_pitch),
+            rows=pat.rows,
+            cols=pat.cols,
+            angle=pat.angle,
         )
     frame = Frame(_pt(members[0].location), axis)  # unknown type — plain count× callout
-    return PatternFeature(frame, "other", n, _member_hole(members[0], frame))
+    return PatternFeature(frame, "other", n, _member_hole(members[0], frame), members=locs)
 
 
 def _distinct_by_diameter(bosses, tol: float = 0.15):

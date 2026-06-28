@@ -158,9 +158,14 @@ class PatternFeature:
     pattern: str  # "bolt_circle" | "linear" | "grid"
     count: int
     member: HoleFeature
+    members: tuple[Point, ...] = ()  # ordered member-hole centres (raw arrangement)
     bcd: float | None = None  # bolt-circle diameter
     pitch: float | None = None  # linear pitch
+    direction: tuple[float, float, float] | None = None  # linear array axis
     grid: tuple[float, float] | None = None  # (row_pitch, col_pitch)
+    rows: int | None = None
+    cols: int | None = None
+    angle: float | None = None  # grid lattice rotation (degrees)
     kind: ClassVar[str] = "pattern"
 
     def parameters(self) -> list[DimParameter]:
