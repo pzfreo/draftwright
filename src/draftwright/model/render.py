@@ -17,11 +17,18 @@ pure IR stays free of any helpers/annotations import.
 
 from __future__ import annotations
 
-from build123d_drafting.helpers import HoleCallout, Leader
+from build123d_drafting.helpers import Dimension, HoleCallout, Leader
 
-from draftwright._core import _fmt
+from draftwright._core import _dim, _fmt
 from draftwright.annotations._common import _anno_box, _box_hits
 from draftwright.model.planner import DimensionGroup, plan_dimensions
+
+# Which view + side an overall (envelope) dimension lands on, by its role.
+_ENVELOPE_PLACEMENT = {
+    "width": ("plan", "below"),  # X extent
+    "height": ("front", "right"),  # Z extent
+    "depth": ("side", "below"),  # Y extent
+}
 
 # Candidate leader-elbow offsets from the hole, in rings of increasing radius and
 # eight directions — the renderer's local placement search (ADR 0003 layout: keep
@@ -107,10 +114,30 @@ def render_callouts(dwg, groups) -> list[Leader]:
     return [ldr for g in groups if (ldr := _callout_leader(dwg, g)) is not None]
 
 
-def _placed_callout_leader(dwg, group, obstacles) -> Leader | None:
-    """A `HoleCallout` leader placed clear of *obstacles* by searching outward from
-    the hole (ADR 0003 layout): the first elbow whose leader box hits nothing wins;
-    the farthest candidate is the fallback."""
+def _place_leader(dwg, view, tip_model, obstacles, *, label="", callout=None) -> Leader | None:
+    """A leader (callout or plain ø label) placed clear of *obstacles* by searching
+    outward from the feature (ADR 0003 layout): first non-colliding elbow wins; the
+    farthest candidate is the fallback."""
+    tx, ty, *_ = dwg.at(view, *tip_model)
+    fallback = None
+    for dx, dy in _ELBOW_OFFSETS:
+        leader = Leader(
+            tip=(tx, ty, 0),
+            elbow=(tx + dx, ty + dy, 0),
+            label=label,
+            draft=dwg.draft,
+            callout=callout,
+        )
+        box = _anno_box(leader)
+        if box is None:
+            return leader
+        if not _box_hits(box, obstacles):
+            return leader
+        fallback = leader
+    return fallback
+
+
+def _hole_leader(dwg, group, obstacles) -> Leader | None:
     spec = hole_callout_spec(group)
     if spec is None:
         return None
@@ -125,43 +152,62 @@ def _placed_callout_leader(dwg, group, obstacles) -> Leader | None:
         draft=dwg.draft,
     )
     members = getattr(group.feature, "members", ())
-    tip_model = members[0] if members else group.anchor
-    tx, ty, *_ = dwg.at(group.view, *tip_model)
-    fallback = None
-    for dx, dy in _ELBOW_OFFSETS:
-        leader = Leader(
-            tip=(tx, ty, 0),
-            elbow=(tx + dx, ty + dy, 0),
-            label="",
-            draft=dwg.draft,
-            callout=callout,
+    tip = members[0] if members else group.anchor
+    return _place_leader(dwg, group.view, tip, obstacles, callout=callout)
+
+
+def _diameter_leader(dwg, group, obstacles) -> Leader | None:
+    """A plain ø diameter callout for a boss/step group (the external diameter)."""
+    dia = _first(group, "diameter", "boss", "step")
+    if dia is None:
+        return None
+    return _place_leader(dwg, group.view, group.anchor, obstacles, label=f"ø{_fmt(dia)}")
+
+
+def _envelope_dims(dwg, group) -> list[tuple[Dimension, str]]:
+    """Overall (width/height/depth) linear dims, each placed just outside its view."""
+    out: list[tuple[Dimension, str]] = []
+    for pd in group.dims:
+        place = _ENVELOPE_PLACEMENT.get(pd.param.role)
+        if place is None or pd.param.span is None:
+            continue
+        view, side = place
+        a, b = pd.param.span
+        p1, p2 = dwg.at(view, *a), dwg.at(view, *b)
+        dim = _dim(
+            (p1[0], p1[1], 0), (p2[0], p2[1], 0), side, 9.0, dwg.draft, label=_fmt(pd.param.value)
         )
-        box = _anno_box(leader)
-        if box is None:
-            return leader  # can't measure → accept
-        if not _box_hits(box, obstacles):
-            return leader
-        fallback = leader
-    return fallback
+        out.append((dim, view))
+    return out
 
 
 def render_into(dwg, model) -> int:
     """The end-to-end seam: plan *model* and **add** its annotations to *dwg*
     (which must already have its views, e.g. ``build_drawing(part, auto_dims=False)``).
-    Each callout is placed clear of the views and of callouts already added (the
-    layout solver, not fixed offsets). Returns the count added. Hole/pattern
-    callouts today; other feature kinds follow as the framework out-grows the
-    engine. Lint *dwg* to judge correctness."""
+    Diameter callouts (holes/patterns/bosses) are placed clear of the views and of
+    each other (ADR-0003 layout); overall envelope dims sit just outside their view.
+    Returns the count added; lint *dwg* to judge correctness. Turned stepped parts
+    remain the engine's domain (out-grow, not reproduce — ADR 0008 Amendment 2)."""
     view_boxes = [vb for v in dwg.views if (vb := dwg.view_bounds(v)) is not None]
     placed: list = []
     n = 0
     for g in plan_dimensions(model):
-        leader = _placed_callout_leader(dwg, g, view_boxes + placed)
-        if leader is None:
+        if g.feature_kind in ("hole", "pattern"):
+            ann = _hole_leader(dwg, g, view_boxes + placed)
+        elif g.feature_kind in ("boss", "step"):
+            ann = _diameter_leader(dwg, g, view_boxes + placed)
+        elif g.feature_kind == "envelope":
+            for dim, view in _envelope_dims(dwg, g):
+                dwg.add(dim, f"m_env{n}", view=view)
+                n += 1
             continue
-        dwg.add(leader, f"m_callout{n}", view=g.view)
+        else:
+            ann = None
+        if ann is None:
+            continue
+        dwg.add(ann, f"m_callout{n}", view=g.view)
         n += 1
-        box = _anno_box(leader)
+        box = _anno_box(ann)
         if box is not None:
             placed.append(box)
     return n
