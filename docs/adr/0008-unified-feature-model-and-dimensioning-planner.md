@@ -1,6 +1,6 @@
 # ADR 0008 — Unified feature model and a dimensioning planner
 
-- **Status:** Proposed
+- **Status:** Accepted (migration in progress — step 1 landed: #191)
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 

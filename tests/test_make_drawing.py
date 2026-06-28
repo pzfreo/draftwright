@@ -4450,6 +4450,29 @@ class TestTurnedLengths:
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) >= 1
 
 
+class TestStepLadderRecognition:
+    """ADR 0008 step 1: the Z step-height ladder draws its step levels from the
+    unified turned-step model, which filters by the OD silhouette."""
+
+    def test_blind_bore_floor_is_not_a_phantom_shoulder(self):
+        from build123d import Cylinder, Pos
+
+        # Two OD steps (one real interior shoulder at z=15) + a blind axial bore
+        # whose flat floor sits at z=30. The floor must NOT be dimensioned as a
+        # step height — that was the area-filter phantom the model removes.
+        shaft = Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)
+        part = shaft - Pos(0, 0, 45) * Cylinder(5, 30)
+        dwg = build_drawing(part, number="D-1")
+        labels = [o.label for n, o in dwg._named.items() if n.startswith("dim_step")]
+        assert labels == ["30"]  # the real shoulder only; no '45' bore-floor phantom
+
+    def test_plain_z_stepped_shaft_still_laddered(self):
+        from build123d import Cylinder, Pos
+
+        dwg = build_drawing(Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30), number="D-1")
+        assert [o.label for n, o in dwg._named.items() if n.startswith("dim_step")] == ["30"]
+
+
 class TestAxialCoverageLint:
     """lint_axial_coverage — the scoring signal for undimensioned turned steps."""
 
