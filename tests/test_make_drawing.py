@@ -4399,6 +4399,63 @@ class TestTurnedDiameters:
         assert not any(n.startswith("ldr_d") for n in dwg._named)
 
 
+class TestTurnedLengths:
+    """Axial step-length chain for X-axis turned parts (the drive-screw gap:
+    every diameter dimensioned, no shoulder locatable)."""
+
+    def test_each_step_length_is_dimensioned(self):
+        dwg = build_drawing(_x_stepped_shaft())  # ø30 l40 then ø16 l30
+        labels = {o.label for n, o in dwg._named.items() if n.startswith("dim_len")}
+        assert labels == {"40", "30"}
+
+    def test_overall_width_suppressed_for_turned_part(self):
+        # The complete chain conveys the overall length, so the envelope width dim
+        # is dropped — no double dimensioning (ISO 129).
+        dwg = build_drawing(_x_stepped_shaft())
+        assert "dim_width" not in dwg._named
+
+    def test_turned_part_lints_clean(self):
+        dwg = build_drawing(_x_stepped_shaft())
+        codes = dwg.lint_summary()["by_code"]
+        assert codes.get("axial_length_missing", 0) == 0
+        assert codes.get("annotation_overlap", 0) == 0
+
+    def test_three_step_shaft_dimensions_all_steps(self):
+        from build123d import Cylinder, Pos, Rotation
+
+        shaft = Rotation(0, 90, 0) * (
+            Cylinder(10, 10) + Pos(0, 0, 10) * Cylinder(7, 10) + Pos(0, 0, 20) * Cylinder(4, 10)
+        )
+        dwg = build_drawing(shaft)
+        assert len([n for n in dwg._named if n.startswith("dim_len")]) == 3
+
+    def test_prismatic_part_has_no_step_lengths(self):
+        dwg = build_drawing(Box(80, 60, 20))
+        assert not any(n.startswith("dim_len") for n in dwg._named)
+
+
+class TestAxialCoverageLint:
+    """lint_axial_coverage — the scoring signal for undimensioned turned steps."""
+
+    def test_flags_uncovered_turned_part(self):
+        from draftwright.linting import lint_axial_coverage
+
+        issues = lint_axial_coverage(_x_stepped_shaft(), covered=0)
+        assert [i.code for i in issues] == ["axial_length_missing"]
+        assert issues[0].severity == "warning"
+
+    def test_clean_when_all_steps_covered(self):
+        from draftwright.linting import lint_axial_coverage
+
+        # _x_stepped_shaft has 2 steps; covering both clears the check.
+        assert lint_axial_coverage(_x_stepped_shaft(), covered=2) == []
+
+    def test_silent_for_non_turned_part(self):
+        from draftwright.linting import lint_axial_coverage
+
+        assert lint_axial_coverage(Box(80, 60, 20), covered=0) == []
+
+
 def _multi_hole_plate():
     """A plate with three spec-groups of Z-holes (two ø10, one ø16)."""
     from build123d import Box, Cylinder, Pos

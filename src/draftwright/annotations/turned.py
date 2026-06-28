@@ -15,6 +15,7 @@ from draftwright._core import (
     _DIAM_RE,
     Analysis,
     _axis_letter,
+    _dim,
     _fmt,
     _greedy_strip_ys,
     _log,
@@ -22,6 +23,7 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
 from draftwright.recognition import (
+    TurnedProfile,
     find_bosses,
 )
 
@@ -194,3 +196,63 @@ def _turned_diameters_beside(dwg, a: Analysis, todo):
             continue
         dwg.add(ldr, f"ldr_dz{i}", view="front")
         occupied.append(_anno_box(ldr))
+
+
+def _annotate_turned_lengths(dwg, a: Analysis, prof: TurnedProfile | None) -> None:
+    """Axial step-length chain for an X-axis turned part, above the front view.
+
+    A turned part can have every diameter called out yet be unmanufacturable: with
+    no shoulder located, the step lengths are unknown (the drive-screw gap). This
+    places a complete chain — one dimension per step, end to end — so every
+    shoulder is located. The chain is complete, so the orchestrator drops the
+    redundant overall length (``dim_width``) for these parts (no double
+    dimensioning, ISO 129).
+
+    Scoped to X-axis turning (a shaft drawn on its side): the chain runs above the
+    front-view profile, clear of the ø-callout row the diameter pass places below.
+    Z-axis (vertical) shafts are out of scope here, matching
+    :func:`lint_axial_coverage`. Each dim is built with :func:`_dim` so the repair
+    loop can re-place it.
+    """
+    if prof is None or prof.axis != "x":
+        return
+    draft = dwg.draft
+    _, _, _, fy1 = dwg.view_bounds("front")  # page top of the profile
+    y_ref = a.bb.center().Y
+    z_top = a.bb.max.Z
+    # Page-x of each shoulder, on the top silhouette of the front view.
+    page_x = {s: dwg.at("front", s, y_ref, z_top)[0] for s in prof.shoulders}
+    witness_y = fy1  # witness lines start at the profile top and rise to the chain
+    gap = draft.font_size + 4 * draft.pad_around_text
+
+    # A chain over closely-spaced steps (the drive-screw's 0.5 mm boss next to a
+    # 2 mm disc) crowds its labels. Slide each label along the dim line so the
+    # text clears its neighbours: a 1D strip solve (ADR 0003 layer-2, the same
+    # primitive the ø row uses) spreads label centres to ≥ one label-width apart,
+    # symmetric about the profile, then label_offset_x carries each back.
+    labels = [_fmt(s.length) for s in prof.steps]
+    centers = [(page_x[s.lo] + page_x[s.hi]) / 2 for s in prof.steps]
+    half_w = max(len(label) for label in labels) * draft.font_size * 0.62 / 2
+    min_gap = 2 * half_w + 2 * draft.pad_around_text
+    mid = (centers[0] + centers[-1]) / 2
+    span = len(labels) * min_gap
+    solved = (
+        _solve_strip_ys(centers, min_gap, mid - span / 2, mid + span / 2)
+        or _greedy_strip_ys(centers, min_gap, mid - span / 2, mid + span / 2)
+        or centers
+    )
+    for i, step in enumerate(prof.steps):
+        dwg.add(
+            _dim(
+                (page_x[step.lo], witness_y, 0),
+                (page_x[step.hi], witness_y, 0),
+                "above",
+                gap,
+                draft,
+                label=labels[i],
+                label_offset_x=solved[i] - centers[i],
+            ),
+            f"dim_len{i}",
+            view="front",
+        )
+    dwg._coverage.cover_axial(len(prof.steps))

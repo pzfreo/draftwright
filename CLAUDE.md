@@ -48,7 +48,10 @@ No lower module imports an upper one.
     (incl. side-drilled #133), pitch/grid dims, slots (the largest pass).
   - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
     ISO 128-50 hatching).
-  - **`annotations/turned.py`** — turned-part step-diameter callouts.
+  - **`annotations/turned.py`** — turned-part step-diameter callouts and the
+    axial step-length chain (X-axis turned parts; `find_turned_steps` +
+    `lint_axial_coverage` close the drive-screw gap — diameters dimensioned but
+    shoulders unlocatable).
   - **`annotations/pmi.py`** — the PMI/GD&T annotation pass (distinct from the
     STEP-side extraction in `pmi.py`).
   - **`annotations/_common.py`** — shared placement helpers (`_anno_box`,

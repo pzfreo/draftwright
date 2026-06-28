@@ -16,7 +16,11 @@ Import the public surface from here, not the submodules.
 
 from __future__ import annotations
 
-from draftwright.linting.coverage import CoverageState, lint_feature_coverage
+from draftwright.linting.coverage import (
+    CoverageState,
+    lint_axial_coverage,
+    lint_feature_coverage,
+)
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import lint_drawing
 from draftwright.linting.suggest import _suggest_fix
@@ -25,6 +29,7 @@ __all__ = [
     "CoverageState",
     "LintIssue",
     "_suggest_fix",
+    "lint_axial_coverage",
     "lint_drawing",
     "lint_feature_coverage",
 ]

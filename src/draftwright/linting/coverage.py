@@ -28,6 +28,7 @@ from draftwright.recognition import (
     analyse_cylinders,
     feature_diameters,
     find_holes,
+    find_turned_steps,
 )
 
 
@@ -45,6 +46,10 @@ class CoverageState:
         # redundant feature_not_dimensioned for them. Reset at the top of
         # _auto_annotate so re-annotation does not accumulate.
         self._dropped_callout_diams: list = []
+        # Count of turned-part axial step lengths the step-length pass dimensioned,
+        # so lint_axial_coverage knows how many shoulders are located. Reset with
+        # the dropped diameters at the top of _auto_annotate.
+        self._axial_covered: int = 0
 
     # -- pattern coverage -----------------------------------------------------
 
@@ -65,8 +70,9 @@ class CoverageState:
     # -- dropped diameters ----------------------------------------------------
 
     def reset_dropped(self) -> None:
-        """Clear dropped-diameter tracking (top of _auto_annotate)."""
+        """Clear dropped-diameter and axial tracking (top of _auto_annotate)."""
         self._dropped_callout_diams = []
+        self._axial_covered = 0
 
     def drop_diam(self, diam) -> None:
         """Record a diameter dropped by the per-view callout cap."""
@@ -76,6 +82,17 @@ class CoverageState:
     def dropped_diams(self) -> list:
         """Diameters dropped by the cap (passed to lint_feature_coverage)."""
         return self._dropped_callout_diams
+
+    # -- axial step coverage --------------------------------------------------
+
+    def cover_axial(self, count: int = 1) -> None:
+        """Record that the step-length pass dimensioned *count* axial steps."""
+        self._axial_covered += count
+
+    @property
+    def axial_covered(self) -> int:
+        """Number of turned-part axial steps dimensioned (for lint_axial_coverage)."""
+        return self._axial_covered
 
 
 def lint_feature_coverage(
@@ -178,3 +195,37 @@ def lint_feature_coverage(
                 )
             )
     return issues
+
+
+def lint_axial_coverage(part, covered: int, assembly=None) -> list:
+    """Report a stepped turned part whose axial step lengths are undimensioned.
+
+    A turned part can have every diameter called out yet be unmanufacturable: with
+    no shoulder located, the lengths are unknown (the drive-screw gap). A complete
+    chain dimensions all ``n`` steps; *covered* is how many the step-length pass
+    placed (from :attr:`CoverageState.axial_covered`). A shortfall yields one
+    ``axial_length_missing`` issue.
+
+    Scoped to X-axis turning — the orientation the step-length pass dimensions; a
+    vertical (Z-axis) stepped shaft is out of scope here so lint and placement
+    stay consistent (no perpetually-dirty Z parts). Severity mirrors
+    :func:`lint_feature_coverage`: ``info`` for an assembly, else ``warning``.
+    """
+    prof = find_turned_steps(part)
+    if prof is None or prof.axis != "x":
+        return []
+    if assembly is None:
+        assembly = len(part.solids()) > 1
+    n = len(prof.steps)
+    if covered >= n:
+        return []
+    return [
+        LintIssue(
+            severity="info" if assembly else "warning",
+            code="axial_length_missing",
+            message=(
+                f"turned part has {n} axial steps but only {covered} step length(s) "
+                f"dimensioned — shoulders cannot be located"
+            ),
+        )
+    ]
