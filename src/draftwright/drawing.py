@@ -64,6 +64,7 @@ from draftwright.linting import (
     CoverageState,
     LintIssue,
     _suggest_fix,
+    lint_axial_coverage,
     lint_drawing,
     lint_feature_coverage,
 )
@@ -974,6 +975,11 @@ class Drawing:
                 self.items,
                 cyls=self._cyl_cache,
                 exclude=self._coverage.dropped_diams,
+                assembly=self.assembly,
+            )
+            issues += lint_axial_coverage(
+                self.part,
+                self._coverage.axial_covered,
                 assembly=self.assembly,
             )
         issues += list(self._build_issues)

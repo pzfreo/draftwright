@@ -46,8 +46,12 @@ from draftwright.annotations.holes import (
 )
 from draftwright.annotations.pmi import _annotate_pmi
 from draftwright.annotations.sections import _add_detail_view, _add_section_view
-from draftwright.annotations.turned import _annotate_turned_diameters
+from draftwright.annotations.turned import (
+    _annotate_turned_diameters,
+    _annotate_turned_lengths,
+)
 from draftwright.recognition import (
+    find_turned_steps,
     full_cylinders,
 )
 
@@ -362,8 +366,14 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     else:
         _log.warning("dim_height skipped: fv_zones.right strip full")
 
+    # An X-axis turned (stepped-shaft) part gets a full axial step-length chain
+    # below (the step-length pass); that chain already conveys the overall length,
+    # so the envelope width dim would double-dimension it (ISO 129). Suppress it.
+    _turned_prof = find_turned_steps(a.part)
+    _x_turned = _turned_prof is not None and _turned_prof.axis == "x"
+
     # Width (non-round / non-square parts only) — routed through pv_zones.below
-    if abs(a.x_size - a.y_size) > max(a.x_size, a.y_size) * 0.05:
+    if not _x_turned and abs(a.x_size - a.y_size) > max(a.x_size, a.y_size) * 0.05:
         _below_witness = PY(a.bb.min.Y) - 2
         _py = a.pv_zones.below.allocate(_SLOT_DIM_WIDTH)
         if _py is not None:
@@ -415,6 +425,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     # External turned diameters (X-axis turning) the passes above do not cover.
     _annotate_turned_diameters(dwg, a)
+
+    # Axial step lengths for an X-axis turned part — the chain above the front
+    # view that locates every shoulder (the overall width dim was suppressed
+    # above for these parts so the chain does not double-dimension it).
+    _annotate_turned_lengths(dwg, a, _turned_prof)
 
     # Side-drilled (X/Y-axis) hole locations — last, so the envelope and
     # turned-diameter dims claim their strip space first and are never evicted (#133).
