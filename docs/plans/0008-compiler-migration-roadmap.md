@@ -1,5 +1,14 @@
 # ADR 0008 migration roadmap — rewrite detectors + drawing components onto the IR
 
+> **SUPERSEDED (2026-06-28) by ADR 0008 Amendment 2.** This roadmap described a
+> *reproduce-each-engine-pass-and-swap-under-an-equivalence-gate* migration. That
+> strategy was abandoned: the byte-equivalence gate forced the clean framework to
+> clone the old engine's quirks (parity-first, value-last), which is the opposite
+> of a robust framework. The new strategy is **out-grow, not replace** — the IR is
+> the path for new/poorly-handled shapes, judged by *correctness* not equivalence;
+> the engine is migrated only opportunistically. The scoped golden gate (Phase 0)
+> is retired. Kept for history; do not execute the phases below as written.
+
 Execution plan for ADR 0008 (the part-drawing compiler). Moves **every** detector
 and **every** drawing component onto the `Feature`/`DimParameter` IR + planner,
 behind a **scoped, disposable golden gate**, with **X/Z parity** as a standing

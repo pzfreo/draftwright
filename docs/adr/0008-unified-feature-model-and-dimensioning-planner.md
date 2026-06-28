@@ -1,6 +1,8 @@
 # ADR 0008 — The part-drawing compiler: a Feature/DimParameter IR and a dimensioning planner
 
-- **Status:** Accepted (migration in progress — step 1 landed; prototype landed)
+- **Status:** Accepted — architecture stands; **migration strategy pivoted**
+  (Amendment 2): out-grow the engine, don't reproduce-and-swap it. The equivalence
+  golden gate is retired.
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Supersedes the original 0008** ("unified feature model") with a concrete
@@ -152,6 +154,49 @@ Still open (tracked, gate-protected, for the wiring phases): the view/routing mu
 become *model-aware* for turned concentric bores (front bore-leader + section, not
 the generic end-on rule — #201) and for a rotational OD on a single-OD turned part
 (profile view, not end-on — #205).
+
+## Amendment 2 (2026-06-28) — strategy pivot: out-grow, don't reproduce-and-swap
+
+The original migration plan (reproduce each engine pass on the IR, swap it in under
+a byte-equivalence golden gate) was wrong, and building it exposed why:
+
+- **The equivalence gate enforced the wrong goal.** A byte-semantic gate demands the
+  new path *match the existing engine exactly*, which forces the clean framework to
+  clone the accreted engine's quirks bug-for-bug. You cannot build a robust
+  framework by mimicking the thing you are trying to replace. (This is the standing
+  wariness of golden gates, ADR 0005 §3, made concrete: a gate for a *refactor*
+  preserves behaviour; a gate for a *re-architecture* freezes the improvement that
+  is the entire point.)
+- **It front-loaded large, low-value, high-risk work.** Reproducing holes →
+  location dims → sections → turned-bore routing → layout → tables *just to
+  re-achieve what already works* is parity-first, value-last. The renderer-seam
+  spike (#213) made this plain: replacing `holes.py` means re-modelling almost the
+  whole engine before any new capability ships.
+
+**Revised strategy — out-grow, not replace:**
+
+1. **The IR/planner/render pipeline is the path for *new* and *poorly-handled*
+   shape work.** It earns its place by making the *next* shape clean, not by
+   re-achieving parity on shapes the engine already draws.
+2. **The existing engine keeps its current responsibilities** and is migrated only
+   *opportunistically* — when a pass would otherwise need a new orientation branch,
+   route it through the IR instead. No big-bang reproduce-everything.
+3. **Success is correctness, not equivalence.** The new path is judged by
+   lint-clean + ISO/ASME-compliant + coverage-complete output (the geometry-level
+   and `test_e2e_standards` suites), *not* by matching the old engine byte-for-byte.
+   This lets the new path be cleaner/better.
+4. **The scoped migration golden gate is retired** (`tests/_migration_gate/` +
+   `test_migration_gate.py` removed). It was the mechanism enforcing equivalence;
+   it served its purpose proving step 1 and is now counter-productive. Regression
+   coverage rests where it always should (ADR 0005 §3 / 0007): the geometry-level +
+   property-based standards suites, plus targeted behavioural tests.
+5. **Validate the *whole* pipeline end-to-end** (one part → a complete, correct
+   drawing via detect → model → plan → render → layout) before grinding feature by
+   feature — so integration gaps surface in context, judged by correctness.
+
+The earlier roadmap (`docs/plans/0008-compiler-migration-roadmap.md`) and the
+reproduce-and-swap framing of issues #197–#209 are superseded by this; the epic
+(#195) is re-scoped to value-first deployment.
 
 ## Consequences
 
