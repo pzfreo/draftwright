@@ -3900,7 +3900,7 @@ class TestPlaceDim:
         # place_dim receives page-coordinate points; at 1:2 the page span is 2× the
         # world size. The auto label must read the real-world length, not the page
         # distance, or it disagrees with the geometry (and trips label_vs_measured).
-        from build123d_drafting.helpers import lint_drawing
+        from draftwright.linting import lint_drawing
 
         dwg = build_drawing(Box(80, 60, 20), scale=2.0)
         assert dwg.scale == 2.0
@@ -3983,9 +3983,7 @@ class TestLintSuggestions:
 
     def test_annotation_overlap_suggestion_uses_place_dim(self):
         # Synthetic issue — exercise the _suggest_fix branch directly.
-        from build123d_drafting.helpers import LintIssue
-
-        from draftwright.linting import _suggest_fix
+        from draftwright.linting import LintIssue, _suggest_fix
 
         dwg = build_drawing(Box(60, 40, 20))
         issue = LintIssue(
@@ -3999,9 +3997,7 @@ class TestLintSuggestions:
         assert "dim_width" in sug
 
     def test_dim_inside_part_suggestion_uses_place_dim(self):
-        from build123d_drafting.helpers import LintIssue
-
-        from draftwright.linting import _suggest_fix
+        from draftwright.linting import LintIssue, _suggest_fix
 
         dwg = build_drawing(Box(60, 40, 20))
         issue = LintIssue(
@@ -4015,9 +4011,7 @@ class TestLintSuggestions:
         assert "dim_height" in sug
 
     def test_unknown_code_has_no_suggestion(self):
-        from build123d_drafting.helpers import LintIssue
-
-        from draftwright.linting import _suggest_fix
+        from draftwright.linting import LintIssue, _suggest_fix
 
         dwg = build_drawing(Box(60, 40, 20))
         issue = LintIssue(severity="info", message="something", code="some_unhandled_code")
@@ -4039,9 +4033,7 @@ class TestLintSuggestions:
     def test_feature_count_mismatch_suggestion_sets_count(self):
         # The leading number is `need`; diameter digits (even fractional) must
         # not interfere with the parse.
-        from build123d_drafting.helpers import LintIssue
-
-        from draftwright.linting import _suggest_fix
+        from draftwright.linting import LintIssue, _suggest_fix
 
         dwg = build_drawing(Box(60, 40, 20))
         issue = LintIssue(
@@ -4076,9 +4068,8 @@ class TestRepair:
         # dim_inside_part is dormant in the multi-view sheet (lint passes no
         # part_bbox), so drive the repair directly: a wrong-side dim flips to
         # the opposite side and keeps its name binding.
-        from build123d_drafting.helpers import LintIssue
-
         from draftwright._core import _dim
+        from draftwright.linting import LintIssue
         from draftwright.repair import _repair_dim_inside_part
 
         dwg = build_drawing(Box(60, 40, 20))
@@ -4099,9 +4090,8 @@ class TestRepair:
     def test_repair_inside_part_attempted_once_no_oscillation(self):
         # A side flip that does not help must not be re-flipped (oscillation).
         # The same label is only flipped once across the whole loop.
-        from build123d_drafting.helpers import LintIssue
-
         from draftwright._core import _dim
+        from draftwright.linting import LintIssue
 
         dwg = build_drawing(Box(60, 40, 20))
         dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="OSC"), "x")
@@ -4141,9 +4131,8 @@ class TestRepair:
         # the issue count, that pass is undone and the loop stops — repair never
         # makes a drawing worse. Drive it with a stateful lint stub: one fixable
         # overlap before, two issues after the push.
-        from build123d_drafting.helpers import LintIssue
-
         from draftwright._core import _dim
+        from draftwright.linting import LintIssue
 
         dwg = build_drawing(Box(60, 40, 20))
         orig = dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="RB"), "x")
