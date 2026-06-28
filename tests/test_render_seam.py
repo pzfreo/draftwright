@@ -44,13 +44,25 @@ class TestCalloutSpec:
         assert s["diameter"] == 8.0
         assert s["cbore_dia"] == 16.0 and s["cbore_depth"] is not None
 
-    def test_bolt_circle_is_one_counted_callout(self):
+    def test_bolt_circle_is_one_counted_callout_with_bc_suffix(self):
         part = Cylinder(40, 8)
         for i in range(6):
             a = i * math.pi / 3
             part -= Pos(25 * math.cos(a), 25 * math.sin(a), 0) * Cylinder(3, 20)
         s = _hole_or_pattern_spec(part)
         assert s["diameter"] == 6.0 and s["count"] == 6  # 6× ø6, not six callouts
+        assert s["suffix"] is not None and "BC" in s["suffix"]  # BCD in the suffix
+
+    def test_spotface_maps_to_the_step(self):
+        # The renderer must not drop a spotface (review): step = cbore or spotface.
+        from draftwright.model import Frame, HoleFeature, PartModel
+
+        hole = HoleFeature(
+            Frame((0, 0, 0), "z"), 6.0, depth=None, through=True, spotface=(14.0, 1.0)
+        )
+        g = plan_dimensions(PartModel(bbox=None, orientation=None, features=[hole]))[0]
+        s = hole_callout_spec(g)
+        assert s["cbore_dia"] == 14.0 and s["cbore_depth"] == 1.0
 
 
 class TestRender:
@@ -60,11 +72,17 @@ class TestRender:
         anns = render_callouts(dwg, _groups(part))
         assert len(anns) == 2 and all(isinstance(a, Leader) for a in anns)  # one per hole, placed
 
-    def test_bolt_circle_renders_one_leader_not_six(self):
+    def test_bolt_circle_renders_one_leader_pointing_at_a_member(self):
         part = Cylinder(40, 8)
         for i in range(6):
             a = i * math.pi / 3
             part -= Pos(25 * math.cos(a), 25 * math.sin(a), 0) * Cylinder(3, 20)
         dwg = build_drawing(part, number="X")
-        anns = render_callouts(dwg, _groups(part))
+        groups = _groups(part)
+        pat = next(g for g in groups if g.feature_kind == "pattern")
+        anns = render_callouts(dwg, groups)
         assert len(anns) == 1  # one grouped callout for the whole bolt circle
+        # the leader tips at a member hole, not the empty pattern centre
+        member_tip = dwg.at(pat.view, *pat.feature.members[0])
+        assert abs(anns[0].tip[0] - member_tip[0]) < 1e-6
+        assert abs(anns[0].tip[1] - member_tip[1]) < 1e-6

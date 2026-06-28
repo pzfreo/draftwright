@@ -17,45 +17,60 @@ from __future__ import annotations
 
 from build123d_drafting.helpers import HoleCallout, Leader
 
+from draftwright._core import _fmt
 from draftwright.model.planner import DimensionGroup
 
 
-def _value(group: DimensionGroup, kind: str, role: str) -> float | None:
-    for pd in group.dims:
-        if pd.param.kind == kind and pd.param.role == role:
-            return pd.param.value
+def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
+    """First parameter value matching *kind* and any of *roles*, in role order."""
+    for role in roles:
+        for pd in group.dims:
+            if pd.param.kind == kind and pd.param.role == role:
+                return pd.param.value
     return None
 
 
 def hole_callout_spec(group: DimensionGroup) -> dict | None:
-    """A hole/pattern group's planned params → `HoleCallout` kwargs (the renderer's
-    reading of the plan). ``None`` if the group is not a hole-bearing callout.
+    """A hole/pattern group's plan → `HoleCallout` kwargs, mirroring the engine's
+    convention. ``None`` if not a hole-bearing callout.
 
-    Everything comes from the plan: the bore/counterbore values from
-    `DimParameter` roles, ``through`` inferred from the absence of a bore-depth
-    param, and ``count`` from the source feature (so a 6-hole bolt circle is one
-    ``6× ø6`` callout)."""
+    From the plan: bore from `DimParameter` roles; the cbore/spotface *step* with
+    counterbore precedence (``step = cbore or spotface``, as the engine does);
+    ``through`` inferred from the absence of a bore-depth param; ``count`` and the
+    pattern *suffix* (``EQ SP ON ø50 BC`` / ``(3×3)``) from the source feature."""
     if group.feature_kind not in ("hole", "pattern"):
         return None
-    bore = _value(group, "diameter", "bore")
+    bore = _first(group, "diameter", "bore")
     if bore is None:
         return None
-    depth = _value(group, "depth", "bore")
-    count = getattr(group.feature, "count", 1)
+    depth = _first(group, "depth", "bore")
+    feat = group.feature
+    count = getattr(feat, "count", 1)
+    suffix = None
+    pattern = getattr(feat, "pattern", None)
+    bcd = getattr(feat, "bcd", None)
+    rows, cols = getattr(feat, "rows", None), getattr(feat, "cols", None)
+    if pattern == "bolt_circle" and bcd is not None:
+        suffix = f"EQ SP ON ø{_fmt(bcd)} BC"
+    elif pattern == "grid" and rows and cols:
+        suffix = f"({rows}×{cols})"
     return {
         "diameter": bore,
         "count": count if count and count > 1 else None,
         "through": depth is None,
         "depth": depth,
-        "cbore_dia": _value(group, "diameter", "counterbore"),
-        "cbore_depth": _value(group, "depth", "counterbore"),
+        # counterbore precedence, spotface fallback — the engine's mapping
+        "cbore_dia": _first(group, "diameter", "counterbore", "spotface"),
+        "cbore_depth": _first(group, "depth", "counterbore", "spotface"),
+        "suffix": suffix,
     }
 
 
 def render_callouts(dwg, groups) -> list[Leader]:
-    """Build placed `HoleCallout` leaders for the hole/pattern groups, projecting
-    each group's anchor into its view. Returns the annotations; does not mutate
-    *dwg* (the swap-in that adds them to the drawing is #201)."""
+    """Build placed `HoleCallout` leaders for the hole/pattern groups. The leader
+    tips at a real member hole (not the empty pattern centre), projected into the
+    group's view. Returns the annotations; does not mutate *dwg* (the swap-in that
+    adds them is #201)."""
     out: list[Leader] = []
     for g in groups:
         spec = hole_callout_spec(g)
@@ -68,9 +83,14 @@ def render_callouts(dwg, groups) -> list[Leader]:
             depth=spec["depth"],
             cbore_dia=spec["cbore_dia"],
             cbore_depth=spec["cbore_depth"],
+            suffix=spec["suffix"],
             draft=dwg.draft,
         )
-        tip = dwg.at(g.view, *g.anchor)
+        # Point at a member hole for a pattern (the centre has no hole); the hole
+        # itself otherwise.
+        members = getattr(g.feature, "members", ())
+        tip_model = members[0] if members else g.anchor
+        tip = dwg.at(g.view, *tip_model)
         elbow = (tip[0] + 12.0, tip[1] + 8.0, 0)
         out.append(
             Leader(
