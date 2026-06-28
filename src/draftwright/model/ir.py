@@ -107,7 +107,7 @@ class HoleFeature:
     kind: ClassVar[str] = "hole"
 
     def parameters(self) -> list[DimParameter]:
-        loc = (self.frame.origin, self.frame.origin)
+        # Location is the group's anchor (Feature.frame), not a parameter.
         ps = [DimParameter("diameter", "bore", self.diameter)]
         if not self.through and self.depth is not None:
             ps.append(DimParameter("depth", "bore", self.depth))
@@ -119,7 +119,6 @@ class HoleFeature:
             sd, sdp = self.spotface
             ps.append(DimParameter("diameter", "spotface", sd))
             ps.append(DimParameter("depth", "spotface", sdp))
-        ps.append(DimParameter("location", "location", 0.0, span=loc))
         return ps
 
     def references(self) -> list[Datum]:

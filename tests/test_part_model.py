@@ -71,19 +71,23 @@ class TestPlanner:
         assert diams and all(pd.convention == "leader" for pd in diams)
         assert sorted({pd.param.value for pd in diams}) == [8.0, 16.0, 30.0]
 
-    def test_compound_hole_callout_stays_one_group(self):
-        # The bore + counterbore + depth of one hole must land in ONE group, so the
-        # renderer can emit one compound callout (the grouping the review demanded).
+    def test_compound_hole_callout_is_one_group_one_view_with_anchor(self):
+        # bore + counterbore + depth of one hole must be ONE group, in a SINGLE
+        # view, with the feature anchor — so it renders as one placeable callout
+        # (the grouping + per-param-view + missing-anchor issues from review 2).
         part = Box(60, 60, 16) - Pos(0, 0, 0) * Cylinder(4, 30) - Pos(0, 0, 4) * Cylinder(8, 12)
         groups = plan_dimensions(build_part_model(part))
         hole_groups = [g for g in groups if g.feature_kind == "hole"]
         assert len(hole_groups) == 1
-        roles = {(pd.param.kind, pd.param.role) for pd in hole_groups[0].dims}
+        g = hole_groups[0]
+        roles = {(pd.param.kind, pd.param.role) for pd in g.dims}
         assert ("diameter", "bore") in roles and ("diameter", "counterbore") in roles
+        assert isinstance(g.view, str) and g.view  # one view for the whole group
+        assert g.anchor is not None and len(g.anchor) == 3  # placeable
 
-    def test_redundancy_is_feature_aware_not_value_blind(self):
+    def test_no_value_blind_collapse(self):
         # A counterbore ø16 and a boss ø16 share a value but differ in role —
-        # BOTH must survive (the dedup-collapse bug the review found).
+        # BOTH survive (the dedup-collapse bug from review 1).
         hole = HoleFeature(
             Frame((0, 0, 0), "z"), diameter=8.0, depth=None, through=True, cbore=(16.0, 10.0)
         )
@@ -92,7 +96,29 @@ class TestPlanner:
         diam_values = sorted(
             pd.param.value for pd in _all_dims(groups) if pd.param.kind == "diameter"
         )
-        assert diam_values == [8.0, 16.0, 16.0]  # cbore ø16 AND boss ø16 both kept
+        assert diam_values == [8.0, 16.0, 16.0]
+
+    def test_same_value_distinct_params_both_survive(self):
+        # A 10x10 pocket emits two orthogonal 10 mm lengths; both must survive — the
+        # within-feature dedup-by-value bug the review reproduced.
+        @dataclass(frozen=True)
+        class PocketFeature:
+            frame: Frame
+            kind = "pocket"
+
+            def parameters(self):
+                return [
+                    DimParameter("length", "pocket", 10.0, span=((0, 0, 0), (10, 0, 0))),
+                    DimParameter("length", "pocket", 10.0, span=((0, 0, 0), (0, 10, 0))),
+                ]
+
+            def references(self):
+                return []
+
+        groups = plan_dimensions(
+            PartModel(bbox=None, orientation=None, features=[PocketFeature(Frame((0, 0, 0), "z"))])
+        )
+        assert len(_all_dims(groups)) == 2
 
     def test_labels_are_font_safe(self):
         # display() must not emit GD&T glyphs the pinned font lacks (⌴/⌵/↧).
