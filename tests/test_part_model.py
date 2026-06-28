@@ -120,6 +120,24 @@ class TestPlanner:
         )
         assert len(_all_dims(groups)) == 2
 
+    def test_group_view_follows_axis_not_hardcoded(self):
+        # A diameter callout's view is the end-on view of the feature's axis, by
+        # one rule for all axes — so an X-axis hole and a Z-axis hole are NOT both
+        # forced to 'plan' (the orientation-blind bug from the hard re-review).
+        from build123d import Rotation
+
+        z_hole = Box(60, 60, 20) - Pos(0, 0, 0) * Cylinder(5, 40)  # axial bore, Z
+        x_hole = Rotation(0, 90, 0) * z_hole  # same, turned to X
+
+        def hole_view(part):
+            g = next(
+                g for g in plan_dimensions(build_part_model(part)) if g.feature_kind == "hole"
+            )
+            return g.view
+
+        assert hole_view(z_hole) == "plan"  # Z hole seen end-on in plan
+        assert hole_view(x_hole) == "side"  # X hole seen end-on in side — not 'plan'
+
     def test_labels_are_font_safe(self):
         # display() must not emit GD&T glyphs the pinned font lacks (⌴/⌵/↧).
         for sym in ("⌴", "⌵", "↧"):

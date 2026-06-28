@@ -21,7 +21,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from draftwright.model.ir import DimParameter, PartModel, Point
+from draftwright.model.ir import DimParameter, Feature, PartModel, Point
+
+# The view a cylinder is seen end-on (as a circle), by its axis — where a
+# diameter callout belongs. Orientation is data: X and Z go through the same rule.
+_END_ON = {"x": "side", "y": "front", "z": "plan"}
 
 # How each (role, kind) is drawn. Defaults keep the table small.
 _CONVENTION = {
@@ -54,10 +58,15 @@ class DimensionGroup:
     dims: tuple[PlannedDimension, ...]
 
 
-def _group_view(feature_kind: str, orientation: str | None) -> str:
-    """The single view a feature's callout lands on. Turned profile + bosses read
-    on the lengthwise (front) view; holes and the rest default to the plan."""
-    return "front" if feature_kind in ("step", "boss") else "plan"
+def _group_view(feature: Feature) -> str:
+    """The single view a feature's callout lands on — derived from the feature's
+    axis, never hardcoded, so X and Z are handled by the same rule (parity). A
+    turned step's length + OD read on the lengthwise (front) profile view; a
+    diameter callout (hole / boss) reads on the view where the cylinder is end-on
+    (z→plan, x→side, y→front)."""
+    if feature.kind == "step":
+        return "front"
+    return _END_ON.get(feature.frame.axis, "plan")
 
 
 def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
@@ -74,7 +83,7 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
             groups.append(
                 DimensionGroup(
                     feature_kind=feature.kind,
-                    view=_group_view(feature.kind, model.orientation),
+                    view=_group_view(feature),
                     anchor=feature.frame.origin,
                     dims=tuple(dims),
                 )
