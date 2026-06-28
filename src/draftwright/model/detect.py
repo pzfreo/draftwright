@@ -49,7 +49,7 @@ def build_part_model(part) -> PartModel:
     bbox = part.bounding_box()
     features: list[Feature] = []
 
-    # Holes — any orientation.
+    # Holes — any orientation; counterbore/spotface steps come along as params.
     for h in find_holes(part):
         features.append(
             HoleFeature(
@@ -57,6 +57,8 @@ def build_part_model(part) -> PartModel:
                 diameter=h.diameter,
                 depth=h.depth,
                 through=(h.bottom == "through"),
+                cbore=(h.cbore.diameter, h.cbore.depth) if h.cbore else None,
+                spotface=(h.spotface.diameter, h.spotface.depth) if h.spotface else None,
             )
         )
 

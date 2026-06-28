@@ -28,13 +28,15 @@ from draftwright.model.ir import (
     HoleFeature,
     PartModel,
     StepFeature,
+    display,
 )
-from draftwright.model.planner import PlannedDimension, plan_dimensions
+from draftwright.model.planner import DimensionGroup, PlannedDimension, plan_dimensions
 
 __all__ = [
     "BossFeature",
     "Datum",
     "DimParameter",
+    "DimensionGroup",
     "Feature",
     "Frame",
     "HoleFeature",
@@ -42,5 +44,6 @@ __all__ = [
     "PlannedDimension",
     "StepFeature",
     "build_part_model",
+    "display",
     "plan_dimensions",
 ]
