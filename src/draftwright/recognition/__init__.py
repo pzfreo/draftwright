@@ -28,6 +28,7 @@ from draftwright.recognition._features import (
     full_cylinders,
 )
 from draftwright.recognition.slots import Slot, find_slots
+from draftwright.recognition.turned import TurnedProfile, TurnedStep, find_turned_steps
 
 __all__ = [
     "BoltCircle",
@@ -38,11 +39,14 @@ __all__ = [
     "LinearArray",
     "RectGrid",
     "Slot",
+    "TurnedProfile",
+    "TurnedStep",
     "analyse_cylinders",
     "feature_diameters",
     "find_bosses",
     "find_hole_patterns",
     "find_holes",
     "find_slots",
+    "find_turned_steps",
     "full_cylinders",
 ]
