@@ -1,6 +1,7 @@
 """Tests for draftwright.make_drawing."""
 
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -1490,15 +1491,26 @@ def test_generate_script_rejects_build123d_object():
 @pytest.mark.smoke
 def test_make_drawing_module_entrypoint_runs_cli_help():
     """The compat facade remains executable as ``python -m draftwright.make_drawing``."""
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "cp1252"
     result = subprocess.run(
-        [sys.executable, "-m", "draftwright.make_drawing", "--help"],
-        check=True,
+        [
+            sys.executable,
+            "-W",
+            "error::RuntimeWarning",
+            "-m",
+            "draftwright.make_drawing",
+            "--help",
+        ],
         capture_output=True,
+        env=env,
         text=True,
     )
 
+    assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert "usage:" in result.stdout
     assert "step_file" in result.stdout
+    assert result.stdout.isascii()
 
 
 # ---------------------------------------------------------------------------

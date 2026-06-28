@@ -615,7 +615,7 @@ def generate_script(
 
 def _cli():
     ap = argparse.ArgumentParser(
-        description="Zero-AI STEP → technical drawing (SVG + DXF, or editable .py script)",
+        description="Zero-AI STEP -> technical drawing (SVG + DXF, or editable .py script)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     ap.add_argument("step_file", help="Input STEP file (.step / .stp)")
@@ -645,9 +645,9 @@ def _cli():
         default="off",
         choices=["off", "report", "annotate"],
         help=(
-            "AP242 PMI handling: 'off' (default) — ignore; "
-            "'report' — log extracted PMI without annotating; "
-            "'annotate' — add PMI-derived dimensions to the drawing"
+            "AP242 PMI handling: 'off' (default) - ignore; "
+            "'report' - log extracted PMI without annotating; "
+            "'annotate' - add PMI-derived dimensions to the drawing"
         ),
     )
     ap.add_argument(
