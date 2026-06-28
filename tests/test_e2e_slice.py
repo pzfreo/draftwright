@@ -6,11 +6,10 @@ pipeline (`build_drawing(auto_dims=False)` gives only the view scaffold), judged
 **correctness** (lint passes, coverage complete, it exports) — *not* by equivalence
 to the engine.
 
-Scope today: hole callouts. The slice deliberately surfaces what's still missing —
-overall/envelope dims (not yet produced) and layout integration (callouts placed at
-naive offsets, so a `view_annotation_overlap` *warning* can appear; that's the next
-work — route placement through the ADR-0003 solver). Those are warnings/info, not
-errors: the drawing is correct, not yet polished.
+Scope today: hole callouts, **placed clear of the views and of each other** via the
+layout search (no more naive fixed offsets). The remaining gap the slice surfaces is
+overall/envelope + OD dims, which the new path doesn't produce yet — so a part with
+an un-dimensioned OD (e.g. a flange) still lints with `feature_not_dimensioned`.
 """
 
 import os
@@ -26,14 +25,28 @@ def _plate():
     return Box(100, 60, 12) - Pos(-30, 0, 0) * Cylinder(4, 30) - Pos(30, 0, 0) * Cylinder(4, 30)
 
 
-def test_complete_drawing_via_model_pipeline():
+def test_complete_drawing_via_model_pipeline_is_lint_clean():
     part = _plate()
     dwg = build_drawing(part, number="X", auto_dims=False)  # view scaffold only
     n = render_into(dwg, build_part_model(part))
     assert n == 2  # both holes called out by the new pipeline
     s = dwg.lint_summary()
-    assert s["passed"]  # no lint ERRORS — the correctness bar (layout is warning-only)
-    assert s["by_code"].get("feature_not_dimensioned", 0) == 0  # coverage complete
+    assert s["passed"] and s["score"] == 1.0  # fully clean — callouts cleared the views
+    assert s["by_code"] == {}  # no overlap, no missing coverage
+
+
+def test_dense_plate_callouts_dont_collide():
+    # Four holes: collision-aware placement keeps the callouts clear of the views
+    # and each other (the layout-solver integration, not fixed offsets).
+    part = Box(120, 80, 12)
+    for x in (-40, 40):
+        for y in (-20, 20):
+            part -= Pos(x, y, 0) * Cylinder(4, 30)
+    dwg = build_drawing(part, number="X", auto_dims=False)
+    assert render_into(dwg, build_part_model(part)) == 4
+    s = dwg.lint_summary()
+    assert s["by_code"].get("annotation_overlap", 0) == 0
+    assert s["by_code"].get("view_annotation_overlap", 0) == 0
 
 
 def test_model_pipeline_drawing_exports(tmp_path):
