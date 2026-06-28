@@ -224,24 +224,37 @@ def _annotate_turned_lengths(dwg, a: Analysis, prof: TurnedProfile | None) -> No
     page_x = {s: dwg.at("front", s, y_ref, z_top)[0] for s in prof.shoulders}
     witness_y = fy1  # witness lines start at the profile top and rise to the chain
     gap = draft.font_size + 4 * draft.pad_around_text
+    # No room above the profile within the page — skip rather than run the chain
+    # off the top edge (the diameters/lengths then surface via lint as
+    # axial_length_missing). Mirrors the diameter row's room guard.
+    if witness_y + gap + draft.font_size > dwg.page_h - a.margin:
+        _log.info("turned-length chain skipped (no room above the front view)")
+        return
+
+    # Order the steps by their page-x (a front view need not preserve model-X
+    # ordering), so the strip solve and the chain read left to right.
+    steps = sorted(prof.steps, key=lambda s: (page_x[s.lo] + page_x[s.hi]) / 2)
+    labels = [_fmt(s.length) for s in steps]
+    centers = [(page_x[s.lo] + page_x[s.hi]) / 2 for s in steps]
 
     # A chain over closely-spaced steps (the drive-screw's 0.5 mm boss next to a
     # 2 mm disc) crowds its labels. Slide each label along the dim line so the
     # text clears its neighbours: a 1D strip solve (ADR 0003 layer-2, the same
-    # primitive the ø row uses) spreads label centres to ≥ one label-width apart,
-    # symmetric about the profile, then label_offset_x carries each back.
-    labels = [_fmt(s.length) for s in prof.steps]
-    centers = [(page_x[s.lo] + page_x[s.hi]) / 2 for s in prof.steps]
+    # primitive the ø row uses) spreads label centres ≥ one label-width apart
+    # within the page, then label_offset_x carries each back to its step.
     half_w = max(len(label) for label in labels) * draft.font_size * 0.62 / 2
     min_gap = 2 * half_w + 2 * draft.pad_around_text
-    mid = (centers[0] + centers[-1]) / 2
-    span = len(labels) * min_gap
-    solved = (
-        _solve_strip_ys(centers, min_gap, mid - span / 2, mid + span / 2)
-        or _greedy_strip_ys(centers, min_gap, mid - span / 2, mid + span / 2)
-        or centers
+    x_lo, x_hi = a.margin + half_w, dwg.page_w - a.margin - half_w
+    solved = _solve_strip_ys(centers, min_gap, x_lo, x_hi) or _greedy_strip_ys(
+        centers, min_gap, x_lo, x_hi
     )
-    for i, step in enumerate(prof.steps):
+    if solved is None:
+        # The labels do not fit the page width even greedily — skip rather than
+        # place an off-page chain; lint reports axial_length_missing (no coverage
+        # is recorded below).
+        _log.info("turned-length chain skipped (%d labels will not fit the page)", len(labels))
+        return
+    for i, step in enumerate(steps):
         dwg.add(
             _dim(
                 (page_x[step.lo], witness_y, 0),
@@ -255,4 +268,4 @@ def _annotate_turned_lengths(dwg, a: Analysis, prof: TurnedProfile | None) -> No
             f"dim_len{i}",
             view="front",
         )
-    dwg._coverage.cover_axial(len(prof.steps))
+    dwg._coverage.cover_axial(len(steps))

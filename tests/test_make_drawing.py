@@ -4433,6 +4433,22 @@ class TestTurnedLengths:
         dwg = build_drawing(Box(80, 60, 20))
         assert not any(n.startswith("dim_len") for n in dwg._named)
 
+    def test_chain_skips_gracefully_when_no_room(self):
+        # Forced onto a too-small page, the chain must SKIP rather than run off the
+        # page edge (the parity guard the diameter row has). Lint then reports the
+        # gap instead of the engine emitting off-page dims.
+        from build123d import Cylinder, Pos, Rotation
+
+        z = 0.0
+        part = None
+        for i in range(10):
+            seg = Pos(0, 0, z + 1.0) * Cylinder((12 - 0.6 * i) / 2, 2.0)
+            part = seg if part is None else part + seg
+            z += 2.0
+        dwg = build_drawing(Rotation(0, 90, 0) * part, page="90x70", scale=4.0)
+        assert not any(n.startswith("dim_len") for n in dwg._named)  # skipped, not off-page
+        assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) >= 1
+
 
 class TestAxialCoverageLint:
     """lint_axial_coverage — the scoring signal for undimensioned turned steps."""
