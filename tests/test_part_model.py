@@ -19,6 +19,7 @@ from draftwright.model import (
     Frame,
     HoleFeature,
     PartModel,
+    PatternFeature,
     StepFeature,
     build_part_model,
     display,
@@ -59,6 +60,63 @@ class TestBuildPartModel:
         assert model.orientation is None
         assert any(isinstance(f, BossFeature) for f in model.features)
         assert not any(isinstance(f, StepFeature) for f in model.features)
+
+    def test_bolt_circle_is_one_pattern_not_six_holes(self):
+        import math
+
+        part = Cylinder(40, 8)
+        for i in range(6):
+            a = i * math.pi / 3
+            part -= Pos(25 * math.cos(a), 25 * math.sin(a), 0) * Cylinder(3, 20)
+        model = build_part_model(part)
+        pats = [f for f in model.features if isinstance(f, PatternFeature)]
+        assert len(pats) == 1
+        p = pats[0]
+        assert p.pattern == "bolt_circle" and p.count == 6
+        assert p.member.diameter == 6.0 and p.bcd == 50.0
+        # the 6 member holes are NOT also emitted individually
+        assert not any(isinstance(f, HoleFeature) for f in model.features)
+
+    def test_counterbored_pattern_keeps_its_counterbore(self):
+        # A counterbored bolt circle must NOT lose the counterbore (the adversarial
+        # review found PatternFeature dropping it). Composing the member HoleFeature
+        # carries bore + counterbore through to the pattern's parameters.
+        import math
+
+        part = Cylinder(40, 12)
+        for i in range(6):
+            a = i * math.pi / 3
+            cx, cy = 25 * math.cos(a), 25 * math.sin(a)
+            part -= Pos(cx, cy, 0) * Cylinder(3, 30)  # ø6 bore
+            part -= Pos(cx, cy, 4) * Cylinder(6, 12)  # ø12 counterbore
+        pat = next(f for f in build_part_model(part).features if isinstance(f, PatternFeature))
+        params = {(dp.kind, dp.role): dp.value for dp in pat.parameters()}
+        assert params[("diameter", "bore")] == 6.0  # the n× bore
+        assert params[("diameter", "counterbore")] == 12.0  # counterbore kept
+        assert params[("diameter", "bolt_circle")] == 50.0  # BCD
+
+    def test_linear_array_carries_pitch_and_arrangement(self):
+        part = Box(100, 20, 10)
+        for x in (-30, -10, 10, 30):
+            part -= Pos(x, 0, 0) * Cylinder(3, 20)
+        pats = [f for f in build_part_model(part).features if isinstance(f, PatternFeature)]
+        assert pats
+        p = pats[0]
+        assert p.pattern == "linear" and p.pitch == 20.0
+        # arrangement geometry the renderer needs is NOT discarded:
+        assert p.direction is not None and len(p.members) == 4
+
+    def test_rect_grid_carries_pitches_and_lattice(self):
+        part = Box(80, 80, 10)
+        for x in (-20, 0, 20):
+            for y in (-20, 0, 20):
+                part -= Pos(x, y, 0) * Cylinder(3, 20)
+        pats = [f for f in build_part_model(part).features if isinstance(f, PatternFeature)]
+        assert pats
+        p = pats[0]
+        assert p.pattern == "grid" and p.grid == (20.0, 20.0)
+        # rows/cols/angle + member locations survive (the gratuitous-loss the review found):
+        assert p.rows == 3 and p.cols == 3 and p.angle is not None and len(p.members) == 9
 
 
 class TestPlanner:
@@ -137,6 +195,21 @@ class TestPlanner:
 
         assert hole_view(z_hole) == "plan"  # Z hole seen end-on in plan
         assert hole_view(x_hole) == "side"  # X hole seen end-on in side — not 'plan'
+
+    def test_pattern_count_survives_the_planner(self):
+        # The planned group must still expose the feature metadata (count, pattern)
+        # so a renderer can emit "6× ø6", not just ø6 + ø50 (the narrow-waist gap
+        # the review found). The plan carries the source feature.
+        import math
+
+        part = Box(100, 100, 10)
+        for i in range(6):
+            a = i * math.pi / 3
+            part -= Pos(25 * math.cos(a), 25 * math.sin(a), 0) * Cylinder(3, 20)
+        g = next(g for g in plan_dimensions(build_part_model(part)) if g.feature_kind == "pattern")
+        assert g.feature.count == 6
+        assert g.feature.pattern == "bolt_circle"
+        assert g.feature.bcd == 50.0
 
     def test_labels_are_font_safe(self):
         # display() must not emit GD&T glyphs the pinned font lacks (⌴/⌵/↧).

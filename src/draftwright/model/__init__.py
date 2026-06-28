@@ -27,6 +27,7 @@ from draftwright.model.ir import (
     Frame,
     HoleFeature,
     PartModel,
+    PatternFeature,
     StepFeature,
     display,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "Frame",
     "HoleFeature",
     "PartModel",
+    "PatternFeature",
     "PlannedDimension",
     "StepFeature",
     "build_part_model",
