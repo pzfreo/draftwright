@@ -44,42 +44,43 @@ def _pt(loc) -> Point:
     return (float(x), float(y), float(z))
 
 
+def _member_hole(h, frame: Frame) -> HoleFeature:
+    """A recogniser hole → an IR `HoleFeature` (bore + counterbore/spotface)."""
+    return HoleFeature(
+        frame=frame,
+        diameter=h.diameter,
+        depth=h.depth,
+        through=(h.bottom == "through"),
+        cbore=(h.cbore.diameter, h.cbore.depth) if h.cbore else None,
+        spotface=(h.spotface.diameter, h.spotface.depth) if h.spotface else None,
+    )
+
+
 def _pattern_feature(pat, members) -> PatternFeature:
-    """Map a recognised pattern + its member holes to a `PatternFeature`."""
+    """Map a recognised pattern + its member holes to a `PatternFeature`,
+    composing a representative member hole so its counterbore/spotface survive."""
     axis = _axis_letter(members[0])
-    dia = members[0].diameter
     n = len(members)
     if isinstance(pat, BoltCircle):
+        frame = Frame(_pt(pat.center), axis)
         return PatternFeature(
-            frame=Frame(_pt(pat.center), axis),
-            pattern="bolt_circle",
-            count=n,
-            hole_diameter=dia,
-            bcd=pat.diameter,
+            frame, "bolt_circle", n, _member_hole(members[0], frame), bcd=pat.diameter
         )
     if isinstance(pat, LinearArray):
-        cx = sum(m.location[0] for m in members) / n
-        cy = sum(m.location[1] for m in members) / n
-        cz = sum(m.location[2] for m in members) / n
-        return PatternFeature(
-            frame=Frame((cx, cy, cz), axis),
-            pattern="linear",
-            count=n,
-            hole_diameter=dia,
-            pitch=pat.pitch,
+        c = (
+            sum(m.location[0] for m in members) / n,
+            sum(m.location[1] for m in members) / n,
+            sum(m.location[2] for m in members) / n,
         )
+        frame = Frame(c, axis)
+        return PatternFeature(frame, "linear", n, _member_hole(members[0], frame), pitch=pat.pitch)
     if isinstance(pat, RectGrid):
+        frame = Frame(_pt(pat.center), axis)
         return PatternFeature(
-            frame=Frame(_pt(pat.center), axis),
-            pattern="grid",
-            count=pat.rows * pat.cols,
-            hole_diameter=dia,
-            grid=(pat.row_pitch, pat.col_pitch),
+            frame, "grid", n, _member_hole(members[0], frame), grid=(pat.row_pitch, pat.col_pitch)
         )
-    # Unknown pattern type — represent it as a plain count× callout.
-    return PatternFeature(
-        frame=Frame(_pt(members[0].location), axis), pattern="other", count=n, hole_diameter=dia
-    )
+    frame = Frame(_pt(members[0].location), axis)  # unknown type — plain count× callout
+    return PatternFeature(frame, "other", n, _member_hole(members[0], frame))
 
 
 def _distinct_by_diameter(bosses, tol: float = 0.15):
@@ -109,16 +110,7 @@ def build_part_model(part) -> PartModel:
     for h in holes:
         if id(h) in patterned:
             continue
-        features.append(
-            HoleFeature(
-                frame=Frame(origin=_pt(h.location), axis=_axis_letter(h)),
-                diameter=h.diameter,
-                depth=h.depth,
-                through=(h.bottom == "through"),
-                cbore=(h.cbore.diameter, h.cbore.depth) if h.cbore else None,
-                spotface=(h.spotface.diameter, h.spotface.depth) if h.spotface else None,
-            )
-        )
+        features.append(_member_hole(h, Frame(origin=_pt(h.location), axis=_axis_letter(h))))
 
     # Turned profile → step segments; else external bosses → diameters.
     prof = find_turned_steps(part)

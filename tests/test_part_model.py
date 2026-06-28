@@ -73,9 +73,27 @@ class TestBuildPartModel:
         assert len(pats) == 1
         p = pats[0]
         assert p.pattern == "bolt_circle" and p.count == 6
-        assert p.hole_diameter == 6.0 and p.bcd == 50.0
+        assert p.member.diameter == 6.0 and p.bcd == 50.0
         # the 6 member holes are NOT also emitted individually
         assert not any(isinstance(f, HoleFeature) for f in model.features)
+
+    def test_counterbored_pattern_keeps_its_counterbore(self):
+        # A counterbored bolt circle must NOT lose the counterbore (the adversarial
+        # review found PatternFeature dropping it). Composing the member HoleFeature
+        # carries bore + counterbore through to the pattern's parameters.
+        import math
+
+        part = Cylinder(40, 12)
+        for i in range(6):
+            a = i * math.pi / 3
+            cx, cy = 25 * math.cos(a), 25 * math.sin(a)
+            part -= Pos(cx, cy, 0) * Cylinder(3, 30)  # ø6 bore
+            part -= Pos(cx, cy, 4) * Cylinder(6, 12)  # ø12 counterbore
+        pat = next(f for f in build_part_model(part).features if isinstance(f, PatternFeature))
+        params = {(dp.kind, dp.role): dp.value for dp in pat.parameters()}
+        assert params[("diameter", "bore")] == 6.0  # the n× bore
+        assert params[("diameter", "counterbore")] == 12.0  # counterbore kept
+        assert params[("diameter", "bolt_circle")] == 50.0  # BCD
 
     def test_linear_array_carries_pitch(self):
         part = Box(100, 20, 10)

@@ -147,22 +147,24 @@ class StepFeature:
 
 @dataclass(frozen=True)
 class PatternFeature:
-    """A recognised hole pattern (bolt circle / linear array / rect grid). It owns
-    the pattern-defining dimensions (BCD / pitch / grid pitches) and the shared
-    member-hole diameter as one ``count``× callout; the member holes are NOT also
-    emitted individually (mirrors the engine's grouped ``n× ø`` callout)."""
+    """A recognised hole pattern (bolt circle / linear array / rect grid) =
+    ``count`` × a `member` hole arranged by the pattern. It composes the member
+    `HoleFeature` (so the member's bore + counterbore/spotface/depth all come
+    along — a counterbored bolt circle keeps its counterbore) and adds the
+    pattern-defining dims (BCD / pitch / grid pitches). The member holes are NOT
+    emitted individually (the engine's grouped ``n× ø`` callout)."""
 
     frame: Frame
     pattern: str  # "bolt_circle" | "linear" | "grid"
     count: int
-    hole_diameter: float
+    member: HoleFeature
     bcd: float | None = None  # bolt-circle diameter
     pitch: float | None = None  # linear pitch
     grid: tuple[float, float] | None = None  # (row_pitch, col_pitch)
     kind: ClassVar[str] = "pattern"
 
     def parameters(self) -> list[DimParameter]:
-        ps = [DimParameter("diameter", "pattern_hole", self.hole_diameter)]
+        ps = list(self.member.parameters())  # bore (+ counterbore / spotface / depth)
         if self.bcd is not None:
             ps.append(DimParameter("diameter", "bolt_circle", self.bcd))
         if self.pitch is not None:
