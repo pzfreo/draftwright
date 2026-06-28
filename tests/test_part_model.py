@@ -19,6 +19,7 @@ from draftwright.model import (
     Frame,
     HoleFeature,
     PartModel,
+    PatternFeature,
     StepFeature,
     build_part_model,
     display,
@@ -59,6 +60,37 @@ class TestBuildPartModel:
         assert model.orientation is None
         assert any(isinstance(f, BossFeature) for f in model.features)
         assert not any(isinstance(f, StepFeature) for f in model.features)
+
+    def test_bolt_circle_is_one_pattern_not_six_holes(self):
+        import math
+
+        part = Cylinder(40, 8)
+        for i in range(6):
+            a = i * math.pi / 3
+            part -= Pos(25 * math.cos(a), 25 * math.sin(a), 0) * Cylinder(3, 20)
+        model = build_part_model(part)
+        pats = [f for f in model.features if isinstance(f, PatternFeature)]
+        assert len(pats) == 1
+        p = pats[0]
+        assert p.pattern == "bolt_circle" and p.count == 6
+        assert p.hole_diameter == 6.0 and p.bcd == 50.0
+        # the 6 member holes are NOT also emitted individually
+        assert not any(isinstance(f, HoleFeature) for f in model.features)
+
+    def test_linear_array_carries_pitch(self):
+        part = Box(100, 20, 10)
+        for x in (-30, -10, 10, 30):
+            part -= Pos(x, 0, 0) * Cylinder(3, 20)
+        pats = [f for f in build_part_model(part).features if isinstance(f, PatternFeature)]
+        assert pats and pats[0].pattern == "linear" and pats[0].pitch == 20.0
+
+    def test_rect_grid_carries_pitches(self):
+        part = Box(80, 80, 10)
+        for x in (-20, 0, 20):
+            for y in (-20, 0, 20):
+                part -= Pos(x, y, 0) * Cylinder(3, 20)
+        pats = [f for f in build_part_model(part).features if isinstance(f, PatternFeature)]
+        assert pats and pats[0].pattern == "grid" and pats[0].grid == (20.0, 20.0)
 
 
 class TestPlanner:

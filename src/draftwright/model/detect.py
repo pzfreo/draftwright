@@ -21,10 +21,19 @@ from draftwright.model.ir import (
     Frame,
     HoleFeature,
     PartModel,
+    PatternFeature,
     Point,
     StepFeature,
 )
-from draftwright.recognition import find_bosses, find_holes, find_turned_steps
+from draftwright.recognition import (
+    BoltCircle,
+    LinearArray,
+    RectGrid,
+    find_bosses,
+    find_hole_patterns,
+    find_holes,
+    find_turned_steps,
+)
 
 
 def _pt(loc) -> Point:
@@ -33,6 +42,44 @@ def _pt(loc) -> Point:
         return (loc.X, loc.Y, loc.Z)
     x, y, z = loc
     return (float(x), float(y), float(z))
+
+
+def _pattern_feature(pat, members) -> PatternFeature:
+    """Map a recognised pattern + its member holes to a `PatternFeature`."""
+    axis = _axis_letter(members[0])
+    dia = members[0].diameter
+    n = len(members)
+    if isinstance(pat, BoltCircle):
+        return PatternFeature(
+            frame=Frame(_pt(pat.center), axis),
+            pattern="bolt_circle",
+            count=n,
+            hole_diameter=dia,
+            bcd=pat.diameter,
+        )
+    if isinstance(pat, LinearArray):
+        cx = sum(m.location[0] for m in members) / n
+        cy = sum(m.location[1] for m in members) / n
+        cz = sum(m.location[2] for m in members) / n
+        return PatternFeature(
+            frame=Frame((cx, cy, cz), axis),
+            pattern="linear",
+            count=n,
+            hole_diameter=dia,
+            pitch=pat.pitch,
+        )
+    if isinstance(pat, RectGrid):
+        return PatternFeature(
+            frame=Frame(_pt(pat.center), axis),
+            pattern="grid",
+            count=pat.rows * pat.cols,
+            hole_diameter=dia,
+            grid=(pat.row_pitch, pat.col_pitch),
+        )
+    # Unknown pattern type — represent it as a plain count× callout.
+    return PatternFeature(
+        frame=Frame(_pt(members[0].location), axis), pattern="other", count=n, hole_diameter=dia
+    )
 
 
 def _distinct_by_diameter(bosses, tol: float = 0.15):
@@ -49,8 +96,19 @@ def build_part_model(part) -> PartModel:
     bbox = part.bounding_box()
     features: list[Feature] = []
 
-    # Holes — any orientation; counterbore/spotface steps come along as params.
-    for h in find_holes(part):
+    # Holes and hole patterns. A recognised pattern becomes one PatternFeature
+    # (count× member-diameter + pattern dims); its member holes are NOT also
+    # emitted individually — the grouped-callout rule the engine uses.
+    holes = find_holes(part)
+    patterns = find_hole_patterns(holes)
+    patterned: set[int] = set()
+    for pat in patterns:
+        members = list(pat.holes)
+        patterned.update(id(h) for h in members)
+        features.append(_pattern_feature(pat, members))
+    for h in holes:
+        if id(h) in patterned:
+            continue
         features.append(
             HoleFeature(
                 frame=Frame(origin=_pt(h.location), axis=_axis_letter(h)),

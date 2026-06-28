@@ -146,6 +146,38 @@ class StepFeature:
 
 
 @dataclass(frozen=True)
+class PatternFeature:
+    """A recognised hole pattern (bolt circle / linear array / rect grid). It owns
+    the pattern-defining dimensions (BCD / pitch / grid pitches) and the shared
+    member-hole diameter as one ``count``× callout; the member holes are NOT also
+    emitted individually (mirrors the engine's grouped ``n× ø`` callout)."""
+
+    frame: Frame
+    pattern: str  # "bolt_circle" | "linear" | "grid"
+    count: int
+    hole_diameter: float
+    bcd: float | None = None  # bolt-circle diameter
+    pitch: float | None = None  # linear pitch
+    grid: tuple[float, float] | None = None  # (row_pitch, col_pitch)
+    kind: ClassVar[str] = "pattern"
+
+    def parameters(self) -> list[DimParameter]:
+        ps = [DimParameter("diameter", "pattern_hole", self.hole_diameter)]
+        if self.bcd is not None:
+            ps.append(DimParameter("diameter", "bolt_circle", self.bcd))
+        if self.pitch is not None:
+            ps.append(DimParameter("length", "pitch", self.pitch))
+        if self.grid is not None:
+            rp, cp = self.grid
+            ps.append(DimParameter("length", "grid_pitch", rp))
+            ps.append(DimParameter("length", "grid_pitch", cp))
+        return ps
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class BossFeature:
     """An external cylindrical boss/OD on a non-turned part — its diameter."""
 
