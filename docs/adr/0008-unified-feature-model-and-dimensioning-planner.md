@@ -113,11 +113,14 @@ filtering is centralised in the model.
 - **The phantom-bore shoulder is fixed structurally**, not patched per-pass.
 - **Incremental, low-risk path.** Each migration PR is small and test-gated; the
   engine keeps working throughout. No big-bang.
-- **Cost is real.** This is weeks of incremental work, not hours, and there is no
-  longer a golden gate (ADR 0005 §3 retired) — so each step leans on the
-  geometry-level + `test_e2e_standards` suites and targeted behavioural tests.
-  Worth it only because turned/stepped dimensioning is an active growth area; if
-  it were a one-off, the accreted code would be left alone.
+- **Cost is real.** This is weeks of incremental work, not hours. Each step is
+  gated by the geometry-level + `test_e2e_standards` suites and targeted
+  behavioural tests. If a particular step is risky (the sizing-path migration is
+  the obvious one), stand up a **scoped, disposable** golden gate for that step
+  alone and delete it afterwards — draftwright keeps no standing general golden
+  gate by design (ADR 0005 §3), since a permanent one freezes improvement. Worth
+  it only because turned/stepped dimensioning is an active growth area; if it were
+  a one-off, the accreted code would be left alone.
 
 ## Risks
 
