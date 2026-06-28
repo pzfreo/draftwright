@@ -96,6 +96,10 @@ The planner emits placement *intents*; the existing `Placeable`/solver (ADR 0003
 
 ## Migration — strangler, anchored on the protocol (no rewrite)
 
+Full execution plan (all detectors + drawing components, with a scoped golden gate
+and X/Z parity as standing criteria):
+[`docs/plans/0008-compiler-migration-roadmap.md`](../plans/0008-compiler-migration-roadmap.md).
+
 1. **Define the waist** (`DimParameter`, `Feature`, `Datum`, `PartModel`) and
    **prototype** a vertical slice: build the model from a real part via adapted
    detectors and run a minimal planner, proving diverse features (holes + steps +
