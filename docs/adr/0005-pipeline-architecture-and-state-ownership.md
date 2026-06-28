@@ -155,6 +155,19 @@ matrix (Linux/macOS/Windows):
   case is likewise out: too heavy for a routine gate, and its overlap acceptance
   is already pinned by `test_e2e_standards`.)
 
+> **Amended 2026-06-28 — golden harness retired.** `tests/test_golden.py` and
+> its `tests/golden/*.json` snapshots have been removed. The harness did its job:
+> it was Step 0 *characterisation* scaffolding to prove the 0005 module split (now
+> complete) changed no behaviour. With the migration done, the engine is in a
+> phase of *deliberate* output evolution (ADR 0007 ownership move + new features
+> such as turned-part axial dims), where a byte-exact digest is high-maintenance
+> regeneration friction with low signal — and, being pinned to three primitives +
+> one prismatic part, it covered none of the turned-part work it nominally
+> "passed". Regression coverage now rests where it belongs: the geometry-level
+> tests (edge/face counts, bbox placement, lint-clean) and the property-based
+> `test_e2e_standards` real-part suite. The "leave the snapshots identical" rule
+> above no longer applies.
+
 ### 4. Compatibility facade is transitional, with a deletion deadline
 
 `make_drawing.py` stays as a re-export facade, and `_named`/`_anno_view`/… remain

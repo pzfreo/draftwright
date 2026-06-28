@@ -53,7 +53,7 @@ jobs:
         # `test-slow` job below.
         # `-n auto --dist loadscope`: run across all cores (#153). The suite is
         # build-bound and parallel-safe; loadscope keeps a class/module on one
-        # worker so test ordering and the module-scoped golden fixture hold.
+        # worker so test ordering and module-scoped fixtures hold.
         # No --timeout here: it would override the 300 s set in
         # [tool.pytest.ini_options]. The heaviest test (full specimen-sheet SVG
         # export) can exceed 120 s on the slower macOS runners.
@@ -67,9 +67,9 @@ jobs:
     #
     # POST-MERGE ONLY — runs on push to main, not on pull_request, so it no
     # longer gates PR merge (#153). Rationale: since #149 pinned the fonts,
-    # generated layout is deterministic, so the cross-platform CTC golden check
-    # rarely catches anything a PR's fast-tier golden digests miss. It stays as a
-    # safety net on main; a regression here is caught right after merge.
+    # generated layout is deterministic, so these heavy real-part standards builds
+    # rarely catch anything the PR fast tier misses. They stay as a safety net on
+    # main; a regression here is caught right after merge.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
