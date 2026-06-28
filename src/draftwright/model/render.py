@@ -18,7 +18,7 @@ from __future__ import annotations
 from build123d_drafting.helpers import HoleCallout, Leader
 
 from draftwright._core import _fmt
-from draftwright.model.planner import DimensionGroup
+from draftwright.model.planner import DimensionGroup, plan_dimensions
 
 
 def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
@@ -66,35 +66,44 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     }
 
 
+def _callout_leader(dwg, group) -> Leader | None:
+    """A placed `HoleCallout` leader for a hole/pattern group, or ``None``. Tips at
+    a real member hole (not the empty pattern centre), projected into the group's
+    view."""
+    spec = hole_callout_spec(group)
+    if spec is None:
+        return None
+    callout = HoleCallout(
+        spec["diameter"],
+        count=spec["count"],
+        through=spec["through"],
+        depth=spec["depth"],
+        cbore_dia=spec["cbore_dia"],
+        cbore_depth=spec["cbore_depth"],
+        suffix=spec["suffix"],
+        draft=dwg.draft,
+    )
+    members = getattr(group.feature, "members", ())
+    tip_model = members[0] if members else group.anchor
+    tip = dwg.at(group.view, *tip_model)
+    elbow = (tip[0] + 12.0, tip[1] + 8.0, 0)
+    return Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label="", draft=dwg.draft, callout=callout)
+
+
 def render_callouts(dwg, groups) -> list[Leader]:
-    """Build placed `HoleCallout` leaders for the hole/pattern groups. The leader
-    tips at a real member hole (not the empty pattern centre), projected into the
-    group's view. Returns the annotations; does not mutate *dwg* (the swap-in that
-    adds them is #201)."""
-    out: list[Leader] = []
-    for g in groups:
-        spec = hole_callout_spec(g)
-        if spec is None:
-            continue
-        callout = HoleCallout(
-            spec["diameter"],
-            count=spec["count"],
-            through=spec["through"],
-            depth=spec["depth"],
-            cbore_dia=spec["cbore_dia"],
-            cbore_depth=spec["cbore_depth"],
-            suffix=spec["suffix"],
-            draft=dwg.draft,
-        )
-        # Point at a member hole for a pattern (the centre has no hole); the hole
-        # itself otherwise.
-        members = getattr(g.feature, "members", ())
-        tip_model = members[0] if members else g.anchor
-        tip = dwg.at(g.view, *tip_model)
-        elbow = (tip[0] + 12.0, tip[1] + 8.0, 0)
-        out.append(
-            Leader(
-                tip=(tip[0], tip[1], 0), elbow=elbow, label="", draft=dwg.draft, callout=callout
-            )
-        )
-    return out
+    """The hole/pattern callout leaders for *groups* (does not mutate *dwg*)."""
+    return [ldr for g in groups if (ldr := _callout_leader(dwg, g)) is not None]
+
+
+def render_into(dwg, model) -> int:
+    """The end-to-end seam: plan *model* and **add** its annotations to *dwg*
+    (which must already have its views, e.g. ``build_drawing(part, auto_dims=False)``).
+    Returns the count added. Hole/pattern callouts today; other feature kinds are
+    added as the framework out-grows the engine. Lint *dwg* to judge correctness."""
+    n = 0
+    for g in plan_dimensions(model):
+        leader = _callout_leader(dwg, g)
+        if leader is not None:
+            dwg.add(leader, f"m_callout{n}", view=g.view)
+            n += 1
+    return n
