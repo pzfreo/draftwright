@@ -26,10 +26,6 @@ from build123d import (
     Text,
     Vector,
 )
-from build123d_drafting.features import (
-    HoleSpec,
-    analyse_cylinders,
-)
 from build123d_drafting.helpers import (
     Leader,
     LintIssue,
@@ -70,6 +66,10 @@ from draftwright.linting import CoverageState, _suggest_fix, lint_feature_covera
 from draftwright.projection import (
     _exactify_silhouettes,
     _raw_view_projector,
+)
+from draftwright.recognition import (
+    HoleSpec,
+    analyse_cylinders,
 )
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing

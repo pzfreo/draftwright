@@ -15,9 +15,6 @@ from __future__ import annotations
 
 import math
 
-from build123d_drafting.features import (
-    full_cylinders,
-)
 from build123d_drafting.helpers import (
     Centerline,
     CenterMark,
@@ -50,6 +47,9 @@ from draftwright.annotations.holes import (
 from draftwright.annotations.pmi import _annotate_pmi
 from draftwright.annotations.sections import _add_detail_view, _add_section_view
 from draftwright.annotations.turned import _annotate_turned_diameters
+from draftwright.recognition import (
+    full_cylinders,
+)
 
 
 def _wrap_rows(header, data, ncols):

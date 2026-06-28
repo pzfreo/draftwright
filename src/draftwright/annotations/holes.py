@@ -10,12 +10,6 @@ from __future__ import annotations
 
 import math
 
-from build123d_drafting.features import (
-    BoltCircle,
-    HoleSpec,
-    LinearArray,
-    RectGrid,
-)
 from build123d_drafting.helpers import (
     CenterlineCircle,
     HoleCallout,
@@ -36,6 +30,12 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
 from draftwright.layout import LayoutSolver, Placeable
+from draftwright.recognition import (
+    BoltCircle,
+    HoleSpec,
+    LinearArray,
+    RectGrid,
+)
 
 
 def _legible_locations(positions, scale):
