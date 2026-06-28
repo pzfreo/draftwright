@@ -38,6 +38,17 @@ class TestBuildPartModel:
         assert any(isinstance(f, StepFeature) for f in model.features)
         assert any(isinstance(f, HoleFeature) for f in model.features)
 
+    def test_counterbored_hole_emits_cbore_parameters(self):
+        # A counterbored through hole: ø8 bore + ø16 counterbore. The cbore must
+        # surface as its own diameter + depth DimParameters on the HoleFeature.
+        part = Box(60, 60, 16) - Pos(0, 0, 0) * Cylinder(4, 30) - Pos(0, 0, 4) * Cylinder(8, 12)
+        model = build_part_model(part)
+        hole = next(f for f in model.features if isinstance(f, HoleFeature))
+        assert hole.cbore is not None
+        diams = {p.value for p in hole.parameters() if p.kind == "diameter"}
+        assert 8.0 in diams and 16.0 in diams  # bore + counterbore
+        assert any(p.kind == "depth" and p.label.startswith("⌴") for p in hole.parameters())
+
     def test_prismatic_part_yields_bosses_not_steps(self):
         # A plate with one cylindrical boss — not a turned part.
         model = build_part_model(Box(80, 60, 10) + Pos(0, 0, 10) * Cylinder(10, 8))

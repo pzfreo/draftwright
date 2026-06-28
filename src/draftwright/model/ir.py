@@ -73,13 +73,18 @@ class Feature(Protocol):
 
 @dataclass(frozen=True)
 class HoleFeature:
-    """A drilled hole — bore diameter, depth (blind), and location from datums."""
+    """A drilled hole — bore diameter, depth (blind), optional counterbore /
+    spotface steps, and location from datums. ``cbore``/``spotface`` are
+    ``(diameter, depth)`` or ``None`` (kept as plain tuples so the IR doesn't
+    depend on the recogniser's types)."""
 
     frame: Frame
     diameter: float
     depth: float | None
     through: bool
     count: int = 1
+    cbore: tuple[float, float] | None = None
+    spotface: tuple[float, float] | None = None
     kind: ClassVar[str] = "hole"
 
     def parameters(self) -> list[DimParameter]:
@@ -87,6 +92,14 @@ class HoleFeature:
         ps = [DimParameter("diameter", self.diameter, f"{n}ø{_fmt(self.diameter)}")]
         if not self.through and self.depth is not None:
             ps.append(DimParameter("depth", self.depth, f"↧{_fmt(self.depth)}"))
+        if self.cbore is not None:
+            cd, cdp = self.cbore
+            ps.append(DimParameter("diameter", cd, f"⌴ø{_fmt(cd)}"))
+            ps.append(DimParameter("depth", cdp, f"⌴↧{_fmt(cdp)}"))
+        if self.spotface is not None:
+            sd, sdp = self.spotface
+            ps.append(DimParameter("diameter", sd, f"⌵ø{_fmt(sd)}"))
+            ps.append(DimParameter("depth", sdp, f"⌵↧{_fmt(sdp)}"))
         ps.append(
             DimParameter("location", 0.0, "loc", span=(self.frame.origin, self.frame.origin))
         )
