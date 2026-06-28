@@ -1,153 +1,154 @@
-# ADR 0008 — Unified feature model and a dimensioning planner
+# ADR 0008 — The part-drawing compiler: a Feature/DimParameter IR and a dimensioning planner
 
-- **Status:** Accepted (migration in progress — step 1 landed: #191)
+- **Status:** Accepted (migration in progress — step 1 landed; prototype landed)
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
+- **Supersedes the original 0008** ("unified feature model") with a concrete
+  architecture. Step 1 (unify Z step recognition, #191/#193) stands.
 
 ## Context
 
-draftwright recognises a part's features and then dimensions them. Both halves
-grew by accretion — one issue at a time — and the shape now shows it.
+draftwright recognises a part's features and dimensions them. Both halves grew by
+accretion, and the failure vector is now clear: **N recognisers × M dimensioning
+passes, directly coupled, with orientation encoded as code branches.** Every new
+shape (keyway, taper, groove, gear, knurl, T-slot, chamfered-counterbored bore…)
+tempts another recogniser + another placement pass + another `is_rotational` /
+`axis == "x"` gate. That is quadratic coupling growth — the ball of mud.
 
-**Recognition is fragmented across overlapping scanners.** Each rescans
-`part.faces()` (or the cylinder set) with its *own* tolerances and filters:
+Concrete symptoms already seen: the `analyse_face_levels` vs `find_turned_steps`
+duplication (#191); a phantom bore-floor shoulder from two recognisers filtering
+differently; "dimension a turned part's steps" implemented three times by
+orientation; and the realisation (the `find_bosses` review) that recognisers are
+*plural and complementary*, not a thing to collapse into one function.
 
-- `analyse_cylinders` — cylinder bands (radius, axial span, `external`).
-- `find_bosses` — external cylinders → bosses (diameter, *chamfer-shortened*
-  height).
-- `find_holes` — bores / counterbores / spotfaces.
-- `analyse_face_levels` — transverse Z-face levels (area-filtered) → `step_zs`.
-- `find_turned_steps` — axis-general step segments (cylinder bands + transverse
-  faces, OD-silhouette-filtered).
-- `find_slots` — milled slots.
-
-**Dimensioning is fragmented across orientation-gated passes.** "Dimension a
-turned part's steps" is implemented *three times*, each for a different
-orientation and convention, gated by `is_rotational` / `axis == "x"` /
-`axis == "z"`:
-
-- step **diameters**: X gets a row below the front view (#77), Z a column to the
-  left (#131);
-- step **heights**: a Z-only ordinate ladder (`dim_step_*`);
-- step **lengths**: an X-only chain (`dim_len_*`, ADR 0007 PR-C).
-
-These are not independent designs; they are strata. The recurring problems are
-all symptoms of one missing abstraction:
-
-- **Duplicate recognition** (the `analyse_face_levels` vs `find_turned_steps`
-  overlap, issue #191).
-- **Inconsistent filtering → silent bugs.** A blind bore's flat floor is excluded
-  by `find_turned_steps`' OD-silhouette filter but admitted as a *phantom OD
-  shoulder* by `analyse_face_levels`' area filter (verified: a bored Z shaft gets
-  a spurious step-height dim at the bore floor; lint is silent).
-- **Orientation as branches, not data.** Each new orientation (the "what about
-  Y/Z?" question) means another gated pass, not a parameter — so coverage and
-  quality differ by axis.
-
-Asked "would you design it this way from scratch?", the answer is no. This ADR
-records the design we *would* choose and how to migrate to it without a rewrite.
+The original 0008 ("one model, retire `find_bosses`") had the right instinct but
+named the wrong abstraction. The thing that actually stops the growth is a
+**stable intermediate representation** between recognition and dimensioning — the
+compiler/LLVM hourglass: many front-ends → one narrow IR → many back-ends.
 
 ## Decision
 
-Split recognition and dimensioning into two layers, each with one job, and make
-**orientation a property of the model, not a branch in the code**.
+Build draftwright as a **part-drawing compiler** with four layers and a stable IR
+at the waist. Orientation and feature *kind* become **data in the IR**, never
+branches in the back-end.
 
-### 1. One feature-recognition pass → a single part model
+```
+  Geometry-query layer        faces/edges/cylinders/axes/silhouettes, computed once
+        │
+  Feature detectors (plug-in) find_holes, find_bosses, find_turned_steps, find_slots…
+        │   each adapts its heuristics to emit typed Feature objects; none rescans
+        ▼
+  ┌────────────────────────┐
+  │  PART MODEL  (the IR)   │  oriented part + Feature set + Datums  ← the narrow waist
+  └────────────────────────┘
+        │
+  Dimensioning planner        consumes the IR; applies ISO/ASME convention rules
+        │   asks each Feature for its DimParameters + references
+        ▼
+  Layout / render             EXISTING (ADR 0003 Placeable + solver, 0004 pack, helpers)
+```
 
-A single pass classifies the part's orientation **once** and produces a
-structured, view-independent model built on **one** low-level scan with **one**
-consistent set of tolerances and filters:
+### 1. Two small protocols are the waist (this is the load-bearing decision)
 
-- Turned part: a `Profile` — an ordered list of `Segment(length, diameter,
-  external)` along the turning axis — plus concentric bores and off-axis features
-  (holes, slots, patterns).
-- Prismatic part: envelope + step levels + faces + holes.
+```python
+class Feature(Protocol):              # hole, step, boss, slot, chamfer, gear, …
+    kind: str
+    frame: Frame                      # position + orientation in part space
+    def parameters(self) -> list[DimParameter]: ...   # what a drawing MUST show
+    def references(self) -> list[Datum]: ...           # datums it measures from/provides
 
-The OD-silhouette / internal-vs-external test is applied **once, here**, so an
-internal feature face (a bore floor) is never a shoulder *anywhere* downstream,
-by construction. No later stage rescans the solid; they read the model.
+@dataclass(frozen=True)
+class DimParameter:                   # the universal currency of dimensioning
+    kind: Literal["diameter","length","depth","radius","angle","location","thread"]
+    value: float
+    label: str                        # rendered text, e.g. "ø8", "20", "M3"
+    span: tuple[Point, Point] | None  # model-space extent, for placement
+    refs: tuple[str, ...] = ()        # datum ids it is measured from
+```
 
-### 2. One dimensioning planner → a plan
+A `PartModel` holds the oriented part, the `Feature` list, and the `Datum` set.
 
-A planner consumes the model + the chosen views and applies ISO rules to decide
-*what* to dimension, *which convention* (chain / ordinate / leader), and *where*.
-The orientation-specific behaviour that is three passes today becomes **one rule
-parameterised by the model**: "a turned part: dimension its segment lengths and
-diameters on whichever view shows it lengthwise; use ordinate when the chain is
-crowded." X / Y / Z stop being special cases — Y falls out naturally (no view
-shows the length → nothing to plan).
+### 2. Why this survives arbitrary new shapes — Open/Closed by construction
 
-### 3. Migrate by strangler, not rewrite
+- A new shape = **a new `Feature` subtype + a detector that emits it**, exposing
+  `DimParameter`s of *existing kinds*. **Zero changes** to the planner, the layout,
+  or any other feature. The 30th feature type costs the same as the 3rd.
+- **Orientation is data, not branches.** `frame` carries it; the planner reasons
+  geometrically, so X/Y/Z/turned/prismatic are inputs, not `if`s. The
+  orientation-gate proliferation cannot recur.
+- **Recognisers are front-ends.** `find_bosses` (diameters/bosses) and
+  `find_turned_steps` (axial profile) are complementary detectors emitting into the
+  IR — exactly as the #191 review concluded. The duplicate-recogniser problem
+  cannot recur because dimensioning consumes the IR, not the recognisers.
 
-A clean target is **not** a licence to rewrite working code (the same trap as
-preferring the design one would write over the code that works). Instead:
+### 3. The planner is one rule set over DimParameters
 
-1. **Introduce the model** as a new single recogniser (likely generalising
-   `find_turned_steps` into the `Profile`, and `analyse_face_levels` into the
-   prismatic branch — keeping the *more general* primitive where it is more
-   general, per the #191 review).
-2. **Migrate consumers one at a time** onto the model: the step ladder, the step
-   chain, the diameter row/column, then page sizing — each its own releasable PR,
-   verified against the existing tests.
-3. **Retire the redundant recognisers** (`find_bosses` for steps,
-   `analyse_face_levels` for steps, `find_turned_steps` as a standalone) as their
-   last consumer moves.
-4. The dimensioning planner emerges **last**, once the passes already read a
-   common model — it is then a refactor of placement, not a rewrite of
-   recognition.
+For each feature, for each `DimParameter`, the planner applies convention rules —
+chain vs ordinate, datum selection, redundancy/duplication avoidance, view choice —
+**uniformly**. "A turned part's step lengths", "a hole's depth", "a slot's width"
+are all `DimParameter`s flowing through one planner. This is the logic currently
+reimplemented per-pass; centralising it is where the back-end stops rotting.
 
-### 4. #191 is the first step of this, not a standalone dedup
+### 4. The layout layer is untouched
 
-Doing #191 in isolation (route the ladder through `find_turned_steps`) just adds a
-*fourth* orientation special-case — more of the same disease. Re-scope it as
-"introduce the `Profile` model and move the step ladder + step chain onto it",
-the first migration step above. The phantom-bore bug is fixed for free once
-filtering is centralised in the model.
+The planner emits placement *intents*; the existing `Placeable`/solver (ADR 0003)
++ compose-then-pack (0004) + helpers primitives place them. No change there.
+
+## Migration — strangler, anchored on the protocol (no rewrite)
+
+Full execution plan (all detectors + drawing components, with a scoped golden gate
+and X/Z parity as standing criteria):
+[`docs/plans/0008-compiler-migration-roadmap.md`](../plans/0008-compiler-migration-roadmap.md).
+
+1. **Define the waist** (`DimParameter`, `Feature`, `Datum`, `PartModel`) and
+   **prototype** a vertical slice: build the model from a real part via adapted
+   detectors and run a minimal planner, proving diverse features (holes + steps +
+   bosses) flow through one pipeline. *(Landed — see `src/draftwright/model/` and
+   `tests/test_part_model.py`; not yet wired into `build_drawing`.)*
+2. **Adapt, don't rewrite, the heuristics.** Wrap `find_holes`/`find_bosses`/
+   `find_turned_steps`/`find_slots` so they emit `Feature` objects; their B-rep
+   logic stays.
+3. **Introduce the planner in production** for one feature end-to-end (holes — the
+   most mature), proving it carries real placement through the existing layout.
+4. **Move features onto the planner one PR at a time**, retiring each
+   orientation-gated pass as its feature lands.
+5. **Generalise planner rules only after ~3 feature types** have stressed the
+   `DimParameter` set — don't build a speculative rule engine (that is just
+   framework-shaped spaghetti).
 
 ## Consequences
 
-- **One source of truth** for features, computed once, consistently filtered —
-  the duplicate-recogniser and inconsistent-filter bug classes disappear.
-- **Orientation coverage becomes uniform.** Adding an orientation or a feature is
-  data in the model + a planner rule, not a new gated pass.
-- **The phantom-bore shoulder is fixed structurally**, not patched per-pass.
-- **Incremental, low-risk path.** Each migration PR is small and test-gated; the
-  engine keeps working throughout. No big-bang.
-- **Cost is real.** This is weeks of incremental work, not hours. Each step is
-  gated by the geometry-level + `test_e2e_standards` suites and targeted
-  behavioural tests. If a particular step is risky (the sizing-path migration is
-  the obvious one), stand up a **scoped, disposable** golden gate for that step
-  alone and delete it afterwards — draftwright keeps no standing general golden
-  gate by design (ADR 0005 §3), since a permanent one freezes improvement. Worth
-  it only because turned/stepped dimensioning is an active growth area; if it were
-  a one-off, the accreted code would be left alone.
+- New shapes are **new types, never new branches** — the property the product
+  needs to absorb complex shape requirements over time.
+- One source of truth (the IR), one dimensioning rule set; the duplicate-recogniser
+  and orientation-gate bug classes are designed out.
+- Incremental and low-risk: each step ships value; the engine keeps working; the
+  prototype de-risks the protocol before any production rewiring.
 
 ## Risks
 
-- **Sizing path is load-bearing.** `analyse_face_levels` → `step_zs` drives page
-  and scale selection. Migrating it risks layout shifts; do it late, with spot
-  checks, after the placement consumers are already on the model.
-- **Scope creep into a rewrite.** Mitigation: each step must be a small,
-  independently-revertable PR with a clear before/after; if a step balloons,
-  stop and re-plan rather than pressing on.
-- **Model over-design.** The `Profile` should capture only what current passes
-  need (segments, diameters, bores, off-axis features); resist speculative
-  generality (ADR-less features). Grow it as consumers demand.
+- **Recognition stays heuristic.** A chamfered bore in a tapered section will not
+  recognise itself cleanly. The architecture *contains* that mess inside detectors
+  behind the IR; it does not eliminate it. That is the realistic goal.
+- **Over-abstraction.** Resist a speculative planner rule engine or a maximal
+  `DimParameter` taxonomy before real features demand them. Grow the IR from
+  consumers, not from imagination.
+- **The sizing path is load-bearing** (`step_zs` → scale/page). Migrate it late;
+  if a step is genuinely risky, stand up a *scoped, disposable* golden gate for
+  that step only and delete it — draftwright keeps no standing general gate by
+  design (ADR 0005 §3), since a permanent one freezes improvement.
 
 ## Impact on other ADRs
 
-- **0003** (constraint layout) — unchanged; the planner still emits boxes the
-  layout solver places.
-- **0004** (compose-then-pack) — unchanged; the planner feeds the same blocks.
-- **0005** (pipeline modules) — extended: this carries the compiler-pipeline
-  separation into the recognition/dimensioning stages 0005 left as a single
-  `analysis`/`annotations` lump. Import direction (DAG) is preserved.
-- **0007** (draftwright owns recognition) — built on: the model lives in the
-  now-owned `recognition/`, the planner alongside `annotations/`.
+- **0003 / 0004** — unchanged; the planner feeds the existing layout/pack.
+- **0005** — extended: this carries the compiler-pipeline separation into the
+  recognition/dimensioning stages 0005 left as an `analysis`/`annotations` lump.
+- **0007** — built on: the IR and detectors live in the now-owned `recognition/`;
+  the planner alongside `annotations/`.
 
 ## Related
 
-- Issue #191 (the recogniser-duplication trigger; re-scoped as step 1 here).
-- The drive-screw thread (ADR 0007 PR-C): the X step-length chain that, added as
-  yet another orientation-gated pass, made the accretion obvious.
-- ADR 0005 (compiler-pipeline module boundaries and single-owner state).
+- Issue #191 (step 1 — unify Z step recognition; landed #193).
+- The drive-screw thread (ADR 0007 PR-C) that made the accretion obvious.
+- Prototype: `src/draftwright/model/` (`ir`, `detect`, `planner`),
+  `tests/test_part_model.py`.
