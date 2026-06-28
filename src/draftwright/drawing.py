@@ -28,11 +28,8 @@ from build123d import (
 )
 from build123d_drafting.helpers import (
     Leader,
-    LintIssue,
     ViewCoordinates,
     annotate,
-    lint_drawing,
-    set_page,
     view_axes,
 )
 
@@ -62,7 +59,13 @@ from draftwright.layout import (
     _solve_strip_1d,
     fit_box,
 )
-from draftwright.linting import CoverageState, _suggest_fix, lint_feature_coverage
+from draftwright.linting import (
+    CoverageState,
+    LintIssue,
+    _suggest_fix,
+    lint_drawing,
+    lint_feature_coverage,
+)
 from draftwright.projection import (
     _exactify_silhouettes,
     _raw_view_projector,
@@ -932,7 +935,10 @@ class Drawing:
         When :attr:`part` is set, also runs :func:`lint_feature_coverage`.
         Build-time drops recorded via :meth:`_record_build_issue` are included.
         """
-        set_page(self.page_w, self.page_h, margin=10)
+        # Drawable area (page minus the 10 mm margin), passed explicitly to
+        # lint_drawing for bounds checks — draftwright owns linting now and no
+        # longer relies on the helpers set_page module-global (ADR 0007).
+        page_bbox = (10, 10, self.page_w - 10, self.page_h - 10)
         view_shapes = [vis for vis, _ in self.views.values()]
         # Most annotations are at sheet scale, but a non-sheet-scale view (the
         # enlarged detail view, #42) tags its dims with `_dw_scale`. Lint each
@@ -944,6 +950,7 @@ class Drawing:
         if len(by_scale) <= 1:
             issues = lint_drawing(
                 self.items,
+                page_bbox=page_bbox,
                 drawing_scale=self.scale,
                 view_shapes=view_shapes,
                 view_edge_cache=self._view_edge_cache,
@@ -953,6 +960,7 @@ class Drawing:
             for _scale, _anns in by_scale.items():
                 issues += lint_drawing(
                     _anns,
+                    page_bbox=page_bbox,
                     drawing_scale=_scale,
                     view_shapes=view_shapes,
                     view_edge_cache=self._view_edge_cache,
