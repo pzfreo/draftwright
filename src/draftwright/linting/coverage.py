@@ -206,9 +206,12 @@ def lint_axial_coverage(part, covered: int, assembly=None) -> list:
     placed (from :attr:`CoverageState.axial_covered`). A shortfall yields one
     ``axial_length_missing`` issue.
 
-    Scoped to X-axis turning — the orientation the step-length pass dimensions; a
-    vertical (Z-axis) stepped shaft is out of scope here so lint and placement
-    stay consistent (no perpetually-dirty Z parts). Severity mirrors
+    Scoped to **X-axis** turning (a shaft drawn on its side) — the gap the
+    step-length pass fills. The other orientations are covered elsewhere, so
+    flagging them here would be a false positive: a **Z-axis** (vertical) stepped
+    shaft is dimensioned by the orchestrator's existing step-height ladder
+    (``dim_step_*``, with its own ``step_dim_dropped`` signal), and a **Y-axis**
+    part is drawn end-on (no view shows its length). Severity mirrors
     :func:`lint_feature_coverage`: ``info`` for an assembly, else ``warning``.
     """
     prof = find_turned_steps(part)

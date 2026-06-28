@@ -199,19 +199,27 @@ def _turned_diameters_beside(dwg, a: Analysis, todo):
 
 
 def _annotate_turned_lengths(dwg, a: Analysis, prof: TurnedProfile | None) -> None:
-    """Axial step-length chain for an X-axis turned part, above the front view.
+    """Axial step-length chain for an **X-axis** turned part, above the front view.
 
     A turned part can have every diameter called out yet be unmanufacturable: with
     no shoulder located, the step lengths are unknown (the drive-screw gap). This
     places a complete chain — one dimension per step, end to end — so every
     shoulder is located. The chain is complete, so the orchestrator drops the
-    redundant overall length (``dim_width``) for these parts (no double
+    redundant overall width dim (``dim_width``) for these parts (no double
     dimensioning, ISO 129).
 
-    Scoped to X-axis turning (a shaft drawn on its side): the chain runs above the
-    front-view profile, clear of the ø-callout row the diameter pass places below.
-    Z-axis (vertical) shafts are out of scope here, matching
-    :func:`lint_axial_coverage`. Each dim is built with :func:`_dim` so the repair
+    **Only X-axis turning** (a shaft drawn on its side), because the other
+    orientations are already handled:
+
+    - **Z-axis** (a vertical stepped shaft) is dimensioned by the *existing*
+      step-height ordinate ladder in the orchestrator (``dim_step_*`` + the
+      overall ``dim_height``, with its own ``step_dim_dropped`` signal). A chain
+      here would double-dimension it.
+    - **Y-axis** is drawn end-on (concentric circles), so no view shows the
+      length — there is nothing to chain.
+
+    The chain runs above the front-view profile, clear of the ø-callout row the
+    diameter pass places below. Each dim is built with :func:`_dim` so the repair
     loop can re-place it.
     """
     if prof is None or prof.axis != "x":
@@ -225,8 +233,8 @@ def _annotate_turned_lengths(dwg, a: Analysis, prof: TurnedProfile | None) -> No
     witness_y = fy1  # witness lines start at the profile top and rise to the chain
     gap = draft.font_size + 4 * draft.pad_around_text
     # No room above the profile within the page — skip rather than run the chain
-    # off the top edge (the diameters/lengths then surface via lint as
-    # axial_length_missing). Mirrors the diameter row's room guard.
+    # off the top edge (the lengths then surface via lint as axial_length_missing).
+    # Mirrors the diameter row's room guard.
     if witness_y + gap + draft.font_size > dwg.page_h - a.margin:
         _log.info("turned-length chain skipped (no room above the front view)")
         return
