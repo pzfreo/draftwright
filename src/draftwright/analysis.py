@@ -36,6 +36,7 @@ from draftwright.recognition import (
     find_hole_patterns,
     find_holes,
     find_slots,
+    find_turned_steps,
     full_cylinders,
 )
 from draftwright.sheet import (
@@ -291,8 +292,20 @@ def _analyse(
     if z_diams and not is_rotational:
         _log.info("Part classified prismatic; skipping OD/centreline/bore annotations")
 
-    face_zs = analyse_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)
-    step_zs = [z for z in face_zs if z > bb.min.Z + 0.6 and z < bb.max.Z - 0.6]
+    # Step Z-levels feed both the step-height ladder and the page-sizing step
+    # count. For a vertical (Z-axis) turned part, take them from the unified
+    # turned-step model (ADR 0008 step 1): it filters shoulders by the OD
+    # silhouette, so an internal feature face — a blind bore's flat floor — is
+    # never read as a phantom OD shoulder (the area-only filter in
+    # analyse_face_levels admitted it). Prismatic and other parts keep the
+    # general face-level scan, which find_turned_steps cannot replace (no
+    # cylinders → no profile).
+    _turned = find_turned_steps(part)
+    if _turned is not None and _turned.axis == "z":
+        step_zs = [z for z in _turned.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
+    else:
+        face_zs = analyse_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)
+        step_zs = [z for z in face_zs if z > bb.min.Z + 0.6 and z < bb.max.Z - 0.6]
 
     # Pass 1 (two-pass layout, #131): measure annotation strip depths before
     # view positions are fixed.  font_size=3.0 is a fixed page-mm constant so
