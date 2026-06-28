@@ -132,8 +132,13 @@ Current ADRs:
   (`"Arial"`) substitutes a different font on Linux, drifting the whole sheet ~1 mm.
   draftwright vendors IBM Plex (OFL) and pins it by `font_path` (Plex Mono for
   dimensions, Plex Sans Condensed for title blocks); the helper renders via
-  `font_path` (needs `>=0.13.0`). Output changed once for every drawing (goldens
-  regenerated); the 0005 golden gate now pins a real part (CTC-01).
+  `font_path` (needs `>=0.13.0`). Output changed once for every drawing.
+- **0007** — **Accepted** (deprecate-and-vendor): draftwright owns feature
+  recognition (`recognition/`) and linting (`linting/`); `build123d-drafting-helpers`
+  becomes the rendering library. (The 0005 golden harness, `tests/test_golden.py`,
+  was **retired** here — byte-exact digests are friction during deliberate output
+  evolution; regression coverage rests on the geometry-level + `test_e2e_standards`
+  suites. See ADR 0005 §3's retirement note.)
 
 ## Dependencies
 

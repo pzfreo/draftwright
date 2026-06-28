@@ -178,7 +178,11 @@ Decisions:
 1. **Status → Accepted.** Build steps 2–5 of the Roadmap for real.
 2. **Drop the "byte-identical per step" rule.** Output *will* change on many
    drawings, by design. The golden/geometry suite is no longer the contract;
-   it is updated to the new, correct output.
+   it is updated to the new, correct output. *(Further amended 2026-06-28: the
+   golden harness `tests/test_golden.py` has since been removed entirely — see
+   ADR 0005 §3's retirement note. With output evolving by design, a byte-exact
+   digest was friction without signal; the geometry-level and `test_e2e_standards`
+   suites carry regression coverage.)*
 3. **Acceptance test = the inter-view overlap.** A step is correct when
    **plan-view labels do not overlap front-view dimensions** (and lint is clean)
    on the hard case (NIST CTC-02), *not* when output is unchanged.
