@@ -188,6 +188,21 @@ class TestPlanner:
         assert hole_view(z_hole) == "plan"  # Z hole seen end-on in plan
         assert hole_view(x_hole) == "side"  # X hole seen end-on in side — not 'plan'
 
+    def test_pattern_count_survives_the_planner(self):
+        # The planned group must still expose the feature metadata (count, pattern)
+        # so a renderer can emit "6× ø6", not just ø6 + ø50 (the narrow-waist gap
+        # the review found). The plan carries the source feature.
+        import math
+
+        part = Box(100, 100, 10)
+        for i in range(6):
+            a = i * math.pi / 3
+            part -= Pos(25 * math.cos(a), 25 * math.sin(a), 0) * Cylinder(3, 20)
+        g = next(g for g in plan_dimensions(build_part_model(part)) if g.feature_kind == "pattern")
+        assert g.feature.count == 6
+        assert g.feature.pattern == "bolt_circle"
+        assert g.feature.bcd == 50.0
+
     def test_labels_are_font_safe(self):
         # display() must not emit GD&T glyphs the pinned font lacks (⌴/⌵/↧).
         for sym in ("⌴", "⌵", "↧"):

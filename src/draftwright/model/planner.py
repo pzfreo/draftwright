@@ -49,13 +49,25 @@ class PlannedDimension:
 
 @dataclass(frozen=True)
 class DimensionGroup:
-    """A feature's planned dimensions, kept together with the feature's anchor and a
-    single view so a compound callout renders as one callout in one place."""
+    """A feature's planned dimensions, kept together with the source feature and a
+    single view so a compound callout renders as one callout in one place.
 
-    feature_kind: str
+    Carrying the source `feature` (rather than copying selected fields) keeps the
+    plan Open/Closed: a grouped renderer reads whatever metadata it needs —
+    `count`/`pattern` for a pattern, a thread spec later — without the plan
+    contract growing a field per feature type."""
+
+    feature: Feature
     view: str  # one view for the whole group
-    anchor: Point  # the feature's location (Feature.frame.origin)
     dims: tuple[PlannedDimension, ...]
+
+    @property
+    def feature_kind(self) -> str:
+        return self.feature.kind
+
+    @property
+    def anchor(self) -> Point:
+        return self.feature.frame.origin
 
 
 def _group_view(feature: Feature) -> str:
@@ -81,11 +93,6 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
         ]
         if dims:
             groups.append(
-                DimensionGroup(
-                    feature_kind=feature.kind,
-                    view=_group_view(feature),
-                    anchor=feature.frame.origin,
-                    dims=tuple(dims),
-                )
+                DimensionGroup(feature=feature, view=_group_view(feature), dims=tuple(dims))
             )
     return groups
