@@ -51,7 +51,6 @@ from draftwright.annotations.pmi import _annotate_pmi
 from draftwright.annotations.sections import _add_detail_view, _add_section_view
 from draftwright.model import build_part_model
 from draftwright.recognition import (
-    find_turned_steps,
     full_cylinders,
 )
 
@@ -252,7 +251,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     # The part model — built once and rendered from for the IR-migrated passes
     # (centre marks, turned diameters/lengths); ADR 0008 convergence / #229.
-    _model = build_part_model(a.part)
+    _model = build_part_model(
+        a.part, holes=a.holes, patterns=a.patterns, slots=a.slots, prof=a.prof
+    )
 
     # Centre marks for every hole (all part classes) — IR renderer.
     render_centermarks(dwg, _model)
@@ -288,7 +289,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # this engine ladder is skipped for turned parts.
     #   If the steps form a uniform staircase (#45) place a single representative
     #   dim labelled "N× rise"; otherwise the per-step ladder (legibility-gated, #41).
-    _turned_prof = find_turned_steps(a.part)
+    _turned_prof = a.prof  # detected once in _analyse (one inventory, #244)
     _step_rep = (
         None
         if _turned_prof is not None

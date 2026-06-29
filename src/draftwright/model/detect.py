@@ -108,16 +108,27 @@ def _distinct_by_diameter(bosses, tol: float = 0.15):
     return list(out.values())
 
 
-def build_part_model(part) -> PartModel:
-    """Run the detectors and assemble the :class:`PartModel` IR for *part*."""
+_UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
+
+
+def build_part_model(part, *, holes=None, patterns=None, slots=None, prof=_UNSET) -> PartModel:
+    """Run the detectors and assemble the :class:`PartModel` IR for *part*.
+
+    The detected feature sets may be **supplied** by the caller (from `_analyse`,
+    which already ran them) so detection happens **once per build** — the single
+    feature inventory (ADR 0008 Amendment 5, #244). Omitted sets are detected here,
+    so a standalone ``build_part_model(part)`` still works. ``prof`` uses a sentinel
+    because ``None`` is a valid value (a non-turned part)."""
     bbox = part.bounding_box()
     features: list[Feature] = []
 
     # Holes and hole patterns. A recognised pattern becomes one PatternFeature
     # (count× member-diameter + pattern dims); its member holes are NOT also
     # emitted individually — the grouped-callout rule the engine uses.
-    holes = find_holes(part)
-    patterns = find_hole_patterns(holes)
+    if holes is None:
+        holes = find_holes(part)
+    if patterns is None:
+        patterns = find_hole_patterns(holes)
     patterned: set[int] = set()
     for pat in patterns:
         members = list(pat.holes)
@@ -129,7 +140,9 @@ def build_part_model(part) -> PartModel:
         features.append(_member_hole(h, Frame(origin=_xyz(h.location), axis=_axis_letter(h))))
 
     # Milled slots / reduced across-flats sections (detected for any part).
-    for sl in find_slots(part):
+    if slots is None:
+        slots = find_slots(part)
+    for sl in slots:
         idx = "xyz".index(sl.long_axis)
         origin = [bbox.center().X, bbox.center().Y, bbox.center().Z]
         origin[idx] = (sl.lo + sl.hi) / 2
@@ -147,7 +160,8 @@ def build_part_model(part) -> PartModel:
         )
 
     # Turned profile → step segments; else external bosses → diameters.
-    prof = find_turned_steps(part)
+    if prof is _UNSET:
+        prof = find_turned_steps(part)
     orientation = prof.axis if prof is not None else None
     if prof is not None:
         idx = "xyz".index(prof.axis)
