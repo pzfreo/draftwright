@@ -39,7 +39,7 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
 from draftwright.model.ir import HoleFeature, PatternFeature
-from draftwright.model.planner import DimensionGroup, plan_dimensions, plan_locations
+from draftwright.model.planner import DimensionGroup, plan_locations
 
 
 def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
@@ -377,12 +377,12 @@ def render_locations(dwg, model, a) -> int:
     return n
 
 
-def render_centermarks(dwg, model) -> int:
+def render_centermarks(dwg, groups) -> int:
     """A centre mark on every hole (plain holes + each pattern member), in the view
     normal to the hole's axis (`_END_ON`), sized by its diameter — the IR migration
     of the engine's inline centre-mark loop. Returns the count placed."""
     n = 0
-    for g in plan_dimensions(model):
+    for g in groups:
         feat = g.feature
         if not isinstance(feat, HoleFeature | PatternFeature):
             continue
@@ -494,7 +494,7 @@ def _diameter_column_left(dwg, items) -> int:
     return placed
 
 
-def render_diameters(dwg, model, tol: float = 0.15) -> int:
+def render_diameters(dwg, groups, tol: float = 0.15) -> int:
     """ø leaders for a turned part's external step/boss diameters, from the IR —
     one distinct callout per diameter, in a tidy row below the front view
     (X-turning) or a column to its left (Z-turning). Orientation is the feature
@@ -504,7 +504,7 @@ def render_diameters(dwg, model, tol: float = 0.15) -> int:
     seen: set[tuple[str, float]] = set()
     rows: list = []  # X-turned (anchor, dia)
     cols: list = []  # Z-turned (anchor, dia)
-    for g in plan_dimensions(model):
+    for g in groups:
         if g.feature_kind not in ("step", "boss"):
             continue
         dia = next((pd.param.value for pd in g.dims if pd.param.kind == "diameter"), None)
@@ -527,14 +527,14 @@ def _env_pd(group, role):
     return next((pd for pd in group.dims if pd.param.role == role), None)
 
 
-def render_envelope(dwg, model, a) -> int:
+def render_envelope(dwg, groups, a) -> int:
     """Overall width (plan, below) + depth (side, below) envelope dims via the IR,
     placed through the engine's below-strip zone allocators (the zone-aware render
     stage — so a migrated dim still coordinates with the un-migrated passes sharing
     those strips). The **planner** decides suppression (square footprint / X-turned;
     #250); this renderer just skips suppressed dims and places the rest. Returns the
     count placed."""
-    env = next((g for g in plan_dimensions(model) if g.feature_kind == "envelope"), None)
+    env = next((g for g in groups if g.feature_kind == "envelope"), None)
     if env is None:
         return 0
     n = 0
@@ -581,7 +581,7 @@ def render_envelope(dwg, model, a) -> int:
     return n
 
 
-def render_step_lengths(dwg, model) -> int:
+def render_step_lengths(dwg, groups) -> int:
     """Unified turned step-length chain (ADR 0008 #223) — one IR-driven path that
     replaces the engine's asymmetric X-chain / Z-ladder. Each `StepFeature`'s length
     span is projected into the front view; the chain runs *along the projected axis*
@@ -593,7 +593,7 @@ def render_step_lengths(dwg, model) -> int:
     end, so every shoulder is located. Crowded labels are spread along the line by
     the ADR-0003 strip solve (the primitive the engine's X chain already used)."""
     segs = []  # (page_lo, page_hi, value), in axis order
-    for g in plan_dimensions(model):
+    for g in groups:
         if g.feature_kind != "step":
             continue
         length = next(

@@ -31,7 +31,6 @@ from draftwright._core import (
 from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
 from draftwright.layout import LayoutSolver, Placeable
-from draftwright.model import plan_dimensions
 from draftwright.model.ir import HoleFeature, PatternFeature
 
 
@@ -422,7 +421,7 @@ def _solve_strip_via_layout(naturals, min_gap, lo, hi, key_prefix):
     return [placed[k] for k in keys]
 
 
-def _annotate_holes(dwg, a: Analysis, view_of_axis, model, feature_keys):
+def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
     Identical holes share one callout with an ``n×`` count prefix (#92's
@@ -459,14 +458,15 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, feature_keys):
     # When present, its extension lines overhang the plan view boundary by
     # ~arrow_length, so plan-view elbow must sit that far outside to clear them.
     # Room-check failures may still skip the section, but the offset is harmless.
-    def _bore(f):  # the bore-carrying HoleFeature (a pattern's representative member)
-        return f.member if f.kind == "pattern" else f
+    def _needs_section(feat: HoleFeature | PatternFeature) -> bool:
+        bore = feat.member if isinstance(feat, PatternFeature) else feat
+        return bore.cbore is not None or bore.spotface is not None or not bore.through
 
     will_have_section_line = any(
-        f.frame.axis == "z"
-        and (_bore(f).cbore is not None or _bore(f).spotface is not None or not _bore(f).through)
-        for f in model.features
-        if f.kind in ("hole", "pattern")
+        isinstance(g.feature, HoleFeature | PatternFeature)
+        and g.feature.frame.axis == "z"
+        and _needs_section(g.feature)
+        for g in groups
     )
 
     # The IR is the single grouping + geometry authority (#238 B2/B3, Amendment 6):
@@ -476,7 +476,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, feature_keys):
     # surviving feature-hole positions, supplied by the orchestrator) gates which
     # members are dimensioned; no recogniser Hole/Pattern object is used.
     by_view: dict = {}
-    for g in plan_dimensions(model):
+    for g in groups:
         feat = g.feature
         if not isinstance(feat, HoleFeature | PatternFeature):
             continue

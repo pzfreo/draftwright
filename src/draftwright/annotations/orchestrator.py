@@ -50,7 +50,7 @@ from draftwright.annotations.holes import (
 )
 from draftwright.annotations.pmi import _annotate_pmi
 from draftwright.annotations.sections import _add_detail_view, _add_section_view
-from draftwright.model import build_part_model, plan_sections
+from draftwright.model import build_part_model, plan_dimensions, plan_sections
 from draftwright.recognition import (
     full_cylinders,
 )
@@ -257,9 +257,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     _model = build_part_model(
         a.part, holes=a.holes, patterns=a.patterns, bosses=a.bosses, slots=a.slots, prof=a.prof
     )
+    # Plan the dimensions ONCE and thread the groups to every renderer that reads them
+    # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
+    _groups = plan_dimensions(_model)
 
     # Centre marks for every hole (all part classes) — IR renderer.
-    render_centermarks(dwg, _model)
+    render_centermarks(dwg, _groups)
 
     # Hole callouts, location dims, and the section view fire on *feature
     # presence*, independent of the turned/prismatic class (#10): the
@@ -278,7 +281,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # no recogniser Hole object crosses into the renderers (Amendment 6, #263/#207).
     feature_keys = {HoleRef.of(h.location) for h in feature_holes}
     if feature_holes:
-        _annotate_holes(dwg, a, view_of_axis, _model, feature_keys)
+        _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys)
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.
     render_locations(dwg, _model, a)
@@ -393,7 +396,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # placed through the same below-strip zone allocators the engine used (zone-aware
     # render stage, ADR 0008). Suppression (square footprint / X-turned width) is now
     # the planner's decision (#250); the renderer just skips suppressed dims.
-    render_envelope(dwg, _model, a)
+    render_envelope(dwg, _groups, a)
 
     # The section view goes last: its room check clears every annotation already
     # placed right of the side view (callout labels, height/step dim ladders). The
@@ -416,9 +419,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     #    (#223). Replaces the old X-only chain + the Z step-height ladder (skipped
     #    above for turned parts); the envelope dim along the turning axis was
     #    suppressed so the chain does not double-dimension the length.
-    render_diameters(dwg, _model)
+    render_diameters(dwg, _groups)
     if _turned_prof is not None:
-        render_step_lengths(dwg, _model)
+        render_step_lengths(dwg, _groups)
 
     # Side-drilled (X/Y-axis) hole locations — last, so the envelope and
     # turned-diameter dims claim their strip space first and are never evicted (#133).
