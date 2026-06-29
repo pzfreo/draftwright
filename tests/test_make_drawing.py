@@ -3488,20 +3488,26 @@ class TestLayoutGeneralisation:
         # (_MIN_STEP_DIM_MM), not an incidental cutoff: a shoulder whose
         # page-projected height falls just below the gate gets no step dim;
         # just above, it does. Pin the gate, not a magic millimetre value.
-        from build123d import Cylinder, Pos
+        #
+        # Exercised on a *prismatic* stepped block: the engine's Z step-height
+        # ladder (and its legibility gate) still governs prismatic parts. Turned
+        # parts now route through the unified IR step-length chain instead (#223),
+        # which is sized to fit rather than gated, so they no longer exercise this.
+        from build123d import Box, Pos
 
         from draftwright import build_drawing
         from draftwright._core import _MIN_STEP_DIM_MM
 
-        def shaft_with_shoulder_at(length):
-            # Lower segment height == `length`; shoulder sits `length` above the
-            # base (bb.min.Z), so legibility = length * SCALE.
-            return Pos(0, 0, length / 2) * Cylinder(22, length) + Pos(
-                0, 0, length + 12.5
-            ) * Cylinder(11, 25)
+        def block_with_shoulder_at(length):
+            # Square (non-rotational) so it is not a turned part; lower segment
+            # height == `length`, shoulder `length` above the base → legibility
+            # = length * SCALE.
+            return Pos(0, 0, length / 2) * Box(44, 44, length) + Pos(0, 0, length + 12.5) * Box(
+                22, 22, 25
+            )
 
         for length, expect in ((12.0, False), (13.0, True)):
-            dwg = build_drawing(shaft_with_shoulder_at(length))
+            dwg = build_drawing(block_with_shoulder_at(length))
             a = dwg._analysis
             legible = length * a.SCALE >= _MIN_STEP_DIM_MM
             assert legible is expect, (
@@ -4462,7 +4468,7 @@ class TestTurnedLengths:
 
     def test_each_step_length_is_dimensioned(self):
         dwg = build_drawing(_x_stepped_shaft())  # ø30 l40 then ø16 l30
-        labels = {o.label for n, o in dwg._named.items() if n.startswith("dim_len")}
+        labels = {o.label for n, o in dwg._named.items() if n.startswith("m_steplen")}
         assert labels == {"40", "30"}
 
     def test_overall_width_suppressed_for_turned_part(self):
@@ -4484,11 +4490,11 @@ class TestTurnedLengths:
             Cylinder(10, 10) + Pos(0, 0, 10) * Cylinder(7, 10) + Pos(0, 0, 20) * Cylinder(4, 10)
         )
         dwg = build_drawing(shaft)
-        assert len([n for n in dwg._named if n.startswith("dim_len")]) == 3
+        assert len([n for n in dwg._named if n.startswith("m_steplen")]) == 3
 
     def test_prismatic_part_has_no_step_lengths(self):
         dwg = build_drawing(Box(80, 60, 20))
-        assert not any(n.startswith("dim_len") for n in dwg._named)
+        assert not any(n.startswith("m_steplen") for n in dwg._named)
 
     def test_chain_skips_gracefully_when_no_room(self):
         # Forced onto a too-small page, the chain must SKIP rather than run off the
@@ -4503,7 +4509,7 @@ class TestTurnedLengths:
             part = seg if part is None else part + seg
             z += 2.0
         dwg = build_drawing(Rotation(0, 90, 0) * part, page="90x70", scale=4.0)
-        assert not any(n.startswith("dim_len") for n in dwg._named)  # skipped, not off-page
+        assert not any(n.startswith("m_steplen") for n in dwg._named)  # skipped, not off-page
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) >= 1
 
 
@@ -4520,14 +4526,22 @@ class TestStepLadderRecognition:
         shaft = Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)
         part = shaft - Pos(0, 0, 45) * Cylinder(5, 30)
         dwg = build_drawing(part, number="D-1")
-        labels = [o.label for n, o in dwg._named.items() if n.startswith("dim_step")]
-        assert labels == ["30"]  # the real shoulder only; no '45' bore-floor phantom
+        # The turned part is now dimensioned by the unified IR step-length chain
+        # (#223): two real OD segments (each length 30), and crucially NO '45'
+        # bore-floor phantom — find_turned_steps excludes the internal bore.
+        labels = [o.label for n, o in dwg._named.items() if n.startswith("m_steplen")]
+        assert labels == ["30", "30"]  # both real segments
+        assert "45" not in labels  # no bore-floor phantom
 
-    def test_plain_z_stepped_shaft_still_laddered(self):
+    def test_plain_z_stepped_shaft_dimensioned_by_ir_chain(self):
         from build123d import Cylinder, Pos
 
+        # A Z-turned stepped shaft is now located by the unified IR step-length
+        # chain (#223), not the old engine ladder. Both segments are dimensioned.
         dwg = build_drawing(Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30), number="D-1")
-        assert [o.label for n, o in dwg._named.items() if n.startswith("dim_step")] == ["30"]
+        labels = [o.label for n, o in dwg._named.items() if n.startswith("m_steplen")]
+        assert labels == ["30", "30"]
+        assert not any(n.startswith("dim_step") for n in dwg._named)  # ladder retired for turned
 
 
 class TestAxialCoverageLint:
@@ -4559,6 +4573,28 @@ class TestAxialCoverageLint:
         part = Box(80, 60, 20)
         dwg = build_drawing(part, number="D-1", auto_dims=False)
         assert lint_axial_coverage(part, dwg) == []
+
+    def test_z_turned_chain_is_covered(self):
+        # A Z-turned shaft is now located by the vertical IR chain (#223), so axial
+        # coverage must recognise it (no false positive on a correctly chained Z part).
+        from build123d import Cylinder, Pos
+
+        from draftwright.linting import lint_axial_coverage
+
+        part = Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)
+        dwg = build_drawing(part, number="D-1")
+        assert lint_axial_coverage(part, dwg) == []
+
+    def test_z_turned_flags_when_uncovered(self):
+        # The X-only restriction is gone (#223): a Z-turned shaft with no chain
+        # (bare scaffold) is flagged, not silently under-dimensioned.
+        from build123d import Cylinder, Pos
+
+        from draftwright.linting import lint_axial_coverage
+
+        part = Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)
+        dwg = build_drawing(part, number="D-1", auto_dims=False)
+        assert [i.code for i in lint_axial_coverage(part, dwg)] == ["axial_length_missing"]
 
     def test_coverage_survives_repair_and_is_idempotent(self):
         # Drawing-derived coverage must stay clean after the repair loop re-places

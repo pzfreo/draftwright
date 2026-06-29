@@ -48,8 +48,9 @@ from draftwright.annotations.pmi import _annotate_pmi
 from draftwright.annotations.sections import _add_detail_view, _add_section_view
 from draftwright.annotations.turned import (
     _annotate_turned_diameters,
-    _annotate_turned_lengths,
 )
+from draftwright.model import build_part_model
+from draftwright.model.render import render_step_lengths
 from draftwright.recognition import (
     find_turned_steps,
     full_cylinders,
@@ -281,11 +282,21 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             _fmt(a.cross_diams[0]),
         )
 
-    # Step heights.  If the steps form a uniform staircase (#45) place a single
-    # representative dim labelled "N× rise" instead of one dim per step.
-    # Otherwise fall back to the per-step ladder (legibility-gated, #41).
-    _step_rep = _detect_step_repeat(a.step_zs, a.bb.min.Z, a.bb.max.Z)
-    if _step_rep is not None:
+    # Step heights (prismatic stepped parts).  A turned part — X *and* Z — instead
+    # gets the unified IR step-length chain (render_step_lengths below): one path,
+    # orientation as data, replacing this Z ladder and the old X chain (#223). So
+    # this engine ladder is skipped for turned parts.
+    #   If the steps form a uniform staircase (#45) place a single representative
+    #   dim labelled "N× rise"; otherwise the per-step ladder (legibility-gated, #41).
+    _turned_prof = find_turned_steps(a.part)
+    _step_rep = (
+        None
+        if _turned_prof is not None
+        else _detect_step_repeat(a.step_zs, a.bb.min.Z, a.bb.max.Z)
+    )
+    if _turned_prof is not None:
+        pass  # turned → IR step-length chain (render_step_lengths) handles this
+    elif _step_rep is not None:
         n_rep, rise_mm = _step_rep
         first_step_z = sorted(a.step_zs)[0]
         _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
@@ -348,7 +359,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             _right_ladder = _px
 
     # Overall height — placed last so it sits OUTERMOST, beyond the step dims.
-    _px = a.fv_zones.right.allocate(_SLOT_DIM_HEIGHT)
+    # Suppressed for a Z-turned part: its IR step-length chain (vertical, right of
+    # the front view) already tiles the full height, so a separate overall dim
+    # would double-dimension it (ISO 129) — the mirror of the X-turned dim_width
+    # suppression below.
+    _z_turned = _turned_prof is not None and _turned_prof.axis == "z"
+    _px = None if _z_turned else a.fv_zones.right.allocate(_SLOT_DIM_HEIGHT)
     if _px is not None:
         dwg.add(
             _dim(
@@ -363,13 +379,13 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             view="front",
         )
         _right_ladder = _px
-    else:
+    elif not _z_turned:
         _log.warning("dim_height skipped: fv_zones.right strip full")
 
     # An X-axis turned (stepped-shaft) part gets a full axial step-length chain
-    # below (the step-length pass); that chain already conveys the overall length,
-    # so the envelope width dim would double-dimension it (ISO 129). Suppress it.
-    _turned_prof = find_turned_steps(a.part)
+    # below (the IR step-length pass); that chain already conveys the overall
+    # length, so the envelope width dim would double-dimension it (ISO 129).
+    # Suppress it. (_turned_prof was computed at the step-height section above.)
     _x_turned = _turned_prof is not None and _turned_prof.axis == "x"
 
     # Width (non-round / non-square parts only) — routed through pv_zones.below
@@ -426,10 +442,14 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # External turned diameters (X-axis turning) the passes above do not cover.
     _annotate_turned_diameters(dwg, a)
 
-    # Axial step lengths for an X-axis turned part — the chain above the front
-    # view that locates every shoulder (the overall width dim was suppressed
-    # above for these parts so the chain does not double-dimension it).
-    _annotate_turned_lengths(dwg, a, _turned_prof)
+    # Axial step lengths for a turned part — the unified IR step-length chain that
+    # locates every shoulder, for X *and* Z from one path (orientation is the
+    # projected span direction, not two passes — #223). Replaces the old X-only
+    # _annotate_turned_lengths and the Z step-height ladder (skipped above for
+    # turned parts). The overall envelope dim was suppressed for X so the chain
+    # does not double-dimension the length.
+    if _turned_prof is not None:
+        render_step_lengths(dwg, build_part_model(a.part))
 
     # Side-drilled (X/Y-axis) hole locations — last, so the envelope and
     # turned-diameter dims claim their strip space first and are never evicted (#133).
