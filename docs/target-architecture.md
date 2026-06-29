@@ -161,9 +161,11 @@ prerequisite for migrating the callouts.
 - ✅ **Planner render-intents**
   ([#250](https://github.com/pzfreo/draftwright/issues/250), PR #255) — model-level
   suppression moved into the planner; `datum` slot added (consumed by #238).
-- ⏳ **Delete `render_into`**
-  ([#251](https://github.com/pzfreo/draftwright/issues/251)) — the test-only
-  parallel, once the holes callout-placement migration supersedes it.
+- ✅ **Delete `render_into`**
+  ([#251](https://github.com/pzfreo/draftwright/issues/251)) — the test-only parallel
+  (`render_into`/`render_callouts` + their leader helpers) is removed; the seam/e2e
+  tests are repointed at the production renderers. The **foundation track is
+  complete.**
 
 **Inherent (not a migration gap):** recognition is heuristic — a chamfered bore in
 a tapered section will not recognise itself cleanly. The architecture *contains*
