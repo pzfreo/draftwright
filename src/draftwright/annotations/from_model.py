@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 
-from build123d_drafting.helpers import CenterMark, Dimension, HoleCallout, Leader, TitleBlock
+from build123d_drafting.helpers import CenterMark, HoleCallout, Leader, TitleBlock
 
 from draftwright._core import (
     _CONCENTRIC_TOL_MM,
@@ -38,14 +38,8 @@ from draftwright._core import (
     _solve_strip_ys,
 )
 from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
+from draftwright.model.ir import HoleFeature, PatternFeature
 from draftwright.model.planner import DimensionGroup, plan_dimensions, plan_locations
-
-# Which view + side an overall (envelope) dimension lands on, by its role.
-_ENVELOPE_PLACEMENT = {
-    "width": ("plan", "below"),  # X extent
-    "height": ("front", "right"),  # Z extent
-    "depth": ("side", "below"),  # Y extent
-}
 
 
 def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
@@ -65,22 +59,20 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     counterbore precedence (``step = cbore or spotface``, as the engine does);
     ``through`` inferred from the absence of a bore-depth param; ``count`` and the
     pattern *suffix* (``EQ SP ON ø50 BC`` / ``(3×3)``) from the source feature."""
-    if group.feature_kind not in ("hole", "pattern"):
+    feat = group.feature
+    if not isinstance(feat, HoleFeature | PatternFeature):
         return None
     bore = _first(group, "diameter", "bore")
     if bore is None:
         return None
     depth = _first(group, "depth", "bore")
-    feat = group.feature
-    count = getattr(feat, "count", 1)
+    count = feat.count
     suffix = None
-    pattern = getattr(feat, "pattern", None)
-    bcd = getattr(feat, "bcd", None)
-    rows, cols = getattr(feat, "rows", None), getattr(feat, "cols", None)
-    if pattern == "bolt_circle" and bcd is not None:
-        suffix = f"EQ SP ON ø{_fmt(bcd)} BC"
-    elif pattern == "grid" and rows and cols:
-        suffix = f"({rows}×{cols})"
+    if isinstance(feat, PatternFeature):
+        if feat.pattern == "bolt_circle" and feat.bcd is not None:
+            suffix = f"EQ SP ON ø{_fmt(feat.bcd)} BC"
+        elif feat.pattern == "grid" and feat.rows and feat.cols:
+            suffix = f"({feat.rows}×{feat.cols})"
     return {
         "diameter": bore,
         "count": count if count and count > 1 else None,
@@ -391,12 +383,13 @@ def render_centermarks(dwg, model) -> int:
     of the engine's inline centre-mark loop. Returns the count placed."""
     n = 0
     for g in plan_dimensions(model):
-        if g.feature_kind not in ("hole", "pattern"):
+        feat = g.feature
+        if not isinstance(feat, HoleFeature | PatternFeature):
             continue
         dia = _first(g, "diameter", "bore") or 0.0
         size = max(2.5, dia * dwg.scale + 2.0)
-        view = _END_ON.get(g.feature.frame.axis, "plan")
-        members = getattr(g.feature, "members", ()) or [g.anchor]
+        view = _END_ON.get(feat.frame.axis, "plan")
+        members = feat.members or (g.anchor,)
         for loc in members:
             px, py, *_ = dwg.at(view, *loc)
             dwg.add(CenterMark((px, py, 0), size, dwg.draft), f"m_cm{n}", view=view)
@@ -586,23 +579,6 @@ def render_envelope(dwg, model, a) -> int:
             )
             n += 1
     return n
-
-
-def _envelope_dims(dwg, group) -> list[tuple[Dimension, str]]:
-    """Overall (width/height/depth) linear dims, each placed just outside its view."""
-    out: list[tuple[Dimension, str]] = []
-    for pd in group.dims:
-        place = _ENVELOPE_PLACEMENT.get(pd.param.role)
-        if place is None or pd.param.span is None:
-            continue
-        view, side = place
-        a, b = pd.param.span
-        p1, p2 = dwg.at(view, *a), dwg.at(view, *b)
-        dim = _dim(
-            (p1[0], p1[1], 0), (p2[0], p2[1], 0), side, 9.0, dwg.draft, label=_fmt(pd.param.value)
-        )
-        out.append((dim, view))
-    return out
 
 
 def render_step_lengths(dwg, model) -> int:

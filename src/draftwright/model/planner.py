@@ -23,7 +23,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from draftwright._core import _END_ON, HoleRef
-from draftwright.model.ir import Datum, DimParameter, Feature, PartModel, Point
+from draftwright.model.ir import (
+    Datum,
+    DimParameter,
+    Feature,
+    HoleFeature,
+    PartModel,
+    PatternFeature,
+    Point,
+)
 
 # How each (role, kind) is drawn. Defaults keep the table small.
 _CONVENTION = {
@@ -145,16 +153,15 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     for f in model.features:
         if f.frame.axis != "z":
             continue
-        if f.kind == "hole":
+        if isinstance(f, HoleFeature):
             # un-patterned holes — a HoleFeature may group identical holes
-            for m in getattr(f, "members", ()) or (f.frame.origin,):
+            for m in f.members or (f.frame.origin,):
                 refs.append((m, "location"))
-        elif f.kind == "pattern":
-            members = getattr(f, "members", ())
-            if getattr(f, "pattern", None) == "bolt_circle":
+        elif isinstance(f, PatternFeature):
+            if f.pattern == "bolt_circle":
                 refs.append((f.frame.origin, "location_pattern"))
-            elif members:
-                near = min(members, key=lambda m: (m[0] - dx) ** 2 + (m[1] - dy) ** 2)
+            elif f.members:
+                near = min(f.members, key=lambda m: (m[0] - dx) ** 2 + (m[1] - dy) ** 2)
                 refs.append((near, "location_pattern"))
     unique: list[tuple[Point, str]] = []
     for r, role in refs:
@@ -225,13 +232,12 @@ def plan_sections(model: PartModel, feature_keys: set[HoleRef]) -> SectionPlan |
     warranted."""
     qual_ys: list[float] = []
     for f in model.features:
-        if f.kind not in ("hole", "pattern") or f.frame.axis != "z":
+        if not isinstance(f, HoleFeature | PatternFeature) or f.frame.axis != "z":
             continue
-        bore = getattr(f, "member", f)  # a pattern's representative HoleFeature, else f
-        cbore, spotface = getattr(bore, "cbore", None), getattr(bore, "spotface", None)
-        if cbore is None and spotface is None and getattr(bore, "through", True):
+        bore = f.member if isinstance(f, PatternFeature) else f  # the bore-carrying HoleFeature
+        if bore.cbore is None and bore.spotface is None and bore.through:
             continue
-        for m in getattr(f, "members", ()) or (f.frame.origin,):
+        for m in f.members or (f.frame.origin,):
             if HoleRef.of(m) in feature_keys:
                 qual_ys.append(m[1])
     if not qual_ys:
