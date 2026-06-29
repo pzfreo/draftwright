@@ -29,6 +29,7 @@ from draftwright.model.ir import (
 )
 from draftwright.recognition import (
     BoltCircle,
+    HoleSpec,
     LinearArray,
     RectGrid,
     find_bosses,
@@ -39,13 +40,17 @@ from draftwright.recognition import (
 )
 
 
-def _member_hole(h, frame: Frame) -> HoleFeature:
-    """A recogniser hole → an IR `HoleFeature` (bore + counterbore/spotface)."""
+def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFeature:
+    """A recogniser hole → an IR `HoleFeature` (bore + counterbore/spotface). When
+    *h* represents a machining-spec group of identical holes, *members* are their
+    locations and *count* their number."""
     return HoleFeature(
         frame=frame,
         diameter=h.diameter,
         depth=h.depth,
         through=(h.bottom == "through"),
+        count=count,
+        members=members,
         cbore=(h.cbore.diameter, h.cbore.depth) if h.cbore else None,
         spotface=(h.spotface.diameter, h.spotface.depth) if h.spotface else None,
     )
@@ -135,10 +140,19 @@ def build_part_model(part, *, holes=None, patterns=None, slots=None, prof=_UNSET
         members = list(pat.holes)
         patterned.update(id(h) for h in members)
         features.append(_pattern_feature(pat, members))
+    # Un-patterned holes: group by machining spec so identical holes share one
+    # count× callout (the engine's grouped-callout rule); HoleSpec keys on the
+    # snapped axis too, so opposite-face drillings stay distinct.
+    spec_groups: dict = {}
     for h in holes:
         if id(h) in patterned:
             continue
-        features.append(_member_hole(h, Frame(origin=_xyz(h.location), axis=_axis_letter(h))))
+        spec_groups.setdefault(HoleSpec.from_hole(h), []).append(h)
+    for grp in spec_groups.values():
+        rep = grp[0]
+        frame = Frame(origin=_xyz(rep.location), axis=_axis_letter(rep))
+        mem_locs = tuple(_xyz(h.location) for h in grp)
+        features.append(_member_hole(rep, frame, members=mem_locs, count=len(grp)))
 
     # Milled slots / reduced across-flats sections (detected for any part).
     if slots is None:

@@ -102,6 +102,11 @@ class HoleFeature:
     depth: float | None
     through: bool
     count: int = 1
+    # Member locations when identical holes are grouped by machining spec into one
+    # ``count×`` callout (the engine's grouped-callout rule). Empty for a singleton
+    # (the one hole sits at ``frame.origin``). Consumers iterate ``members or
+    # (frame.origin,)`` so a centre mark / location dim lands on every hole.
+    members: tuple[Point, ...] = ()
     cbore: tuple[float, float] | None = None
     spotface: tuple[float, float] | None = None
     kind: ClassVar[str] = "hole"

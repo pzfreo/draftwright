@@ -70,7 +70,9 @@ class TestRender:
         part = Box(80, 60, 12) - Pos(20, 0, 0) * Cylinder(4, 30) - Pos(-20, 0, 0) * Cylinder(4, 30)
         dwg = build_drawing(part, number="X")
         anns = render_callouts(dwg, _groups(part))
-        assert len(anns) == 2 and all(isinstance(a, Leader) for a in anns)  # one per hole, placed
+        # The two identical holes group into one ``2×`` callout (machining-spec
+        # grouping in the IR), so one placed leader — not one per hole.
+        assert len(anns) == 1 and all(isinstance(a, Leader) for a in anns)
 
     def test_bolt_circle_renders_one_leader_pointing_at_a_member(self):
         part = Cylinder(40, 8)

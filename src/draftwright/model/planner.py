@@ -146,7 +146,9 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
         if f.frame.axis != "z":
             continue
         if f.kind == "hole":
-            refs.append((f.frame.origin, "location"))  # un-patterned holes only
+            # un-patterned holes — a HoleFeature may group identical holes
+            for m in getattr(f, "members", ()) or (f.frame.origin,):
+                refs.append((m, "location"))
         elif f.kind == "pattern":
             members = getattr(f, "members", ())
             if getattr(f, "pattern", None) == "bolt_circle":
