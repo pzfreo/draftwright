@@ -470,31 +470,36 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, holes_in=None):
     def _key(loc):
         return (round(loc[0], 3), round(loc[1], 3), round(loc[2], 3))
 
-    loc_to_hole = {_key(h.location): h for h in (a.holes if holes_in is None else holes_in)}
+    feature_keys = {_key(h.location) for h in (a.holes if holes_in is None else holes_in)}
 
     by_view: dict = {}
     for g in plan_dimensions(model):
         if g.feature_kind not in ("hole", "pattern"):
             continue
         members = getattr(g.feature, "members", ()) or (g.anchor,)
-        subholes = [loc_to_hole[k] for m in members if (k := _key(m)) in loc_to_hole]
-        if not subholes:  # all members filtered out (e.g. concentric bore, rotational)
+        # surviving member *locations* (IR geometry — no recogniser Hole, Amendment 6)
+        locs = [m for m in members if _key(m) in feature_keys]
+        if not locs:  # all members filtered out (e.g. concentric bore, rotational)
             continue
         # A pattern earns its sheet furniture (centre-line / pitch dims) only if ALL
         # its members survived the feature-holes filter — the engine's feature_patterns
         # gate. Otherwise the surviving members are placed as plain holes. The callout
         # itself always comes from the IR group (so a grouped suffix is preserved).
-        feat = g.feature if g.feature_kind == "pattern" and len(subholes) == len(members) else None
-        count = len(subholes) if len(subholes) > 1 else None
-        callout = callout_from_spec(hole_callout_spec(g), draft, count)
+        feat = g.feature if g.feature_kind == "pattern" and len(locs) == len(members) else None
+        spec = hole_callout_spec(g)
+        if spec is None:  # not a hole-bearing callout
+            continue
+        dia = spec["diameter"]  # bore diameter (mm), for the leader rim tip
+        count = len(locs) if len(locs) > 1 else None
+        callout = callout_from_spec(spec, draft, count)
         if callout is None:
             continue
-        view = view_of_axis[_axis_letter(subholes[0])][0]
-        by_view.setdefault(view, []).append((subholes, callout, feat))
+        view = view_of_axis[g.feature.frame.axis][0]
+        by_view.setdefault(view, []).append((locs, dia, callout, feat))
 
-    def _rim_tip(centre, elbow, holes):
-        """Pull the tip from the hole centre to its circumference."""
-        r = holes[0].diameter * a.SCALE / 2
+    def _rim_tip(centre, elbow, dia):
+        """Pull the tip from the hole centre to its circumference (bore *dia* mm)."""
+        r = dia * a.SCALE / 2
         dx, dy = elbow[0] - centre[0], elbow[1] - centre[1]
         norm = math.hypot(dx, dy)
         if norm <= r:
@@ -517,54 +522,49 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, holes_in=None):
 
     for view, view_groups in by_view.items():
         to_page = view_of_axis[{"plan": "z", "front": "y", "side": "x"}[view]][1]
-        specs = list(view_groups)  # (subholes, callout, pattern), from the IR groups
+        specs = list(view_groups)  # (locs, dia, callout, feat), from the IR groups
         # No fixed cap (#36): every spec is attempted; the per-view placement
         # bounds below (front-view shaft rows, plan/side strip Y-solver) are the
         # real limit, and any callout that genuinely doesn't fit surfaces as
         # callout_dropped. Largest diameters first so the most significant
         # features win the available room.
-        specs.sort(key=lambda s: s[0][0].diameter, reverse=True)
+        specs.sort(key=lambda s: s[1], reverse=True)
 
         if view == "front":
             # Below the view, vertical shafts. Rows are assigned right-to-
             # left so a deeper row's shaft never crosses a shallower row's
             # right-running label; left-side labels get an explicit guard.
-            specs.sort(key=lambda s: max(to_page(h.location)[0] for h in s[0]), reverse=True)
+            specs.sort(key=lambda s: max(to_page(loc)[0] for loc in s[0]), reverse=True)
             occupied: list[tuple] = []  # (x0, x1, row_y) of placed labels
-            for i, (holes, callout, feat) in enumerate(specs):
+            for i, (locs, dia, callout, feat) in enumerate(specs):
                 w = callout.callout_width
-                centre = to_page(max(holes, key=lambda h: to_page(h.location)[0]).location)
+                centre = to_page(max(locs, key=lambda loc: to_page(loc)[0]))
                 elbow_y = front_bottom - 0.6 * a.DIM_PAD - i * min_gap
                 if centre[0] + gap + w <= a.PAGE_W - a.margin:
                     side, x0, x1 = "right", centre[0] + gap, centre[0] + gap + w
                 elif centre[0] - gap - w >= a.margin:
                     side, x0, x1 = "left", centre[0] - gap - w, centre[0] - gap
                 else:
-                    _log.info("Hole callout ø%s skipped (no room)", _fmt(holes[0].diameter))
-                    _record_callout_drop(dwg, view, holes[0].diameter, "no room beside the view")
+                    _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
+                    _record_callout_drop(dwg, view, dia, "no room beside the view")
                     continue
                 # the title block only constrains rows that reach its x-range
                 floor = (tb_top + 4) if x1 > tb_left - 4 else a.margin + 4
                 if elbow_y < floor:
-                    _log.info(
-                        "Hole callout ø%s skipped (front strip full)", _fmt(holes[0].diameter)
-                    )
-                    _record_callout_drop(dwg, view, holes[0].diameter, "front strip full")
+                    _log.info("Hole callout ø%s skipped (front strip full)", _fmt(dia))
+                    _record_callout_drop(dwg, view, dia, "front strip full")
                     continue
                 if any(
                     ox0 <= centre[0] <= ox1 and row_y > elbow_y for ox0, ox1, row_y in occupied
                 ):
                     _log.info(
-                        "Hole callout ø%s skipped (shaft would cross another callout)",
-                        _fmt(holes[0].diameter),
+                        "Hole callout ø%s skipped (shaft would cross another callout)", _fmt(dia)
                     )
-                    _record_callout_drop(
-                        dwg, view, holes[0].diameter, "shaft would cross another callout"
-                    )
+                    _record_callout_drop(dwg, view, dia, "shaft would cross another callout")
                     continue
                 elbow = (centre[0], elbow_y)
                 occupied.append((x0, x1, elbow_y))
-                _add(view, i, _rim_tip(centre, elbow, holes), elbow, side, callout)
+                _add(view, i, _rim_tip(centre, elbow, dia), elbow, side, callout)
                 _add_furniture(dwg, a, view, i, feat, to_page)
             continue
 
@@ -591,18 +591,18 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, holes_in=None):
             y_min, y_max = a.SV_Y - a.fv_hh, a.SV_Y + a.fv_hh
 
         # --- Pass 1: boundary assignment ---
-        right_queue = []  # (holes, callout, feat, natural_y, rep)
+        right_queue = []  # (locs, dia, callout, feat, natural_y, rep)
         left_queue = []
 
-        for holes, callout, feat in specs:
+        for locs, dia, callout, feat in specs:
             w = callout.callout_width
-            rep_r = max(holes, key=lambda h: to_page(h.location)[0])
-            centre_r = to_page(rep_r.location)
+            rep_r = max(locs, key=lambda loc: to_page(loc)[0])
+            centre_r = to_page(rep_r)
             d_right = edge_right - centre_r[0]
 
             if edge_left is not None:
-                rep_l = min(holes, key=lambda h: to_page(h.location)[0])
-                centre_l = to_page(rep_l.location)
+                rep_l = min(locs, key=lambda loc: to_page(loc)[0])
+                centre_l = to_page(rep_l)
                 d_left = centre_l[0] - edge_left
             else:
                 rep_l = centre_l = None
@@ -619,30 +619,30 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, holes_in=None):
             can_left = edge_left is not None and (edge_left - elbow_dx) - gap - w >= a.margin
 
             if not can_right and not can_left:
-                _log.info("Hole callout ø%s skipped (no room)", _fmt(holes[0].diameter))
-                _record_callout_drop(dwg, view, holes[0].diameter, "no room beside the view")
+                _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
+                _record_callout_drop(dwg, view, dia, "no room beside the view")
                 continue
 
             if can_right and (not can_left or d_right <= d_left):
-                right_queue.append((holes, callout, feat, centre_r[1], rep_r))
+                right_queue.append((locs, dia, callout, feat, centre_r[1], rep_r))
             else:
-                left_queue.append((holes, callout, feat, centre_l[1], rep_l))
+                left_queue.append((locs, dia, callout, feat, centre_l[1], rep_l))
 
         # Sort each queue by natural Y so leaders don't cross.
-        right_queue.sort(key=lambda s: s[3])
-        left_queue.sort(key=lambda s: s[3])
+        right_queue.sort(key=lambda s: s[4])
+        left_queue.sort(key=lambda s: s[4])
 
         # --- Pass 2: Y placement (through the LayoutSolver, #80) ---
         right_ys = _solve_strip_via_layout(
-            [s[3] for s in right_queue], min_gap, y_min, y_max, "hc_r"
+            [s[4] for s in right_queue], min_gap, y_min, y_max, "hc_r"
         )
         left_ys = _solve_strip_via_layout(
-            [s[3] for s in left_queue], min_gap, y_min, y_max, "hc_l"
+            [s[4] for s in left_queue], min_gap, y_min, y_max, "hc_l"
         )
 
         if right_ys is None and right_queue:
             right_ys = _greedy_strip_ys(
-                [s[3] for s in right_queue], min_gap, y_min, y_max, prefix=True
+                [s[4] for s in right_queue], min_gap, y_min, y_max, prefix=True
             )
             n_drop = len(right_queue) - len(right_ys)
             if n_drop:
@@ -651,12 +651,12 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, holes_in=None):
                     n_drop,
                     len(right_queue),
                 )
-                for holes, *_ in right_queue[len(right_ys) :]:
-                    _record_callout_drop(dwg, view, holes[0].diameter, "right strip full")
+                for _locs, dia, *_ in right_queue[len(right_ys) :]:
+                    _record_callout_drop(dwg, view, dia, "right strip full")
             right_queue = right_queue[: len(right_ys)]
         if left_ys is None and left_queue:
             left_ys = _greedy_strip_ys(
-                [s[3] for s in left_queue], min_gap, y_min, y_max, prefix=True
+                [s[4] for s in left_queue], min_gap, y_min, y_max, prefix=True
             )
             n_drop = len(left_queue) - len(left_ys)
             if n_drop:
@@ -665,28 +665,28 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, holes_in=None):
                     n_drop,
                     len(left_queue),
                 )
-                for holes, *_ in left_queue[len(left_ys) :]:
-                    _record_callout_drop(dwg, view, holes[0].diameter, "left strip full")
+                for _locs, dia, *_ in left_queue[len(left_ys) :]:
+                    _record_callout_drop(dwg, view, dia, "left strip full")
             left_queue = left_queue[: len(left_ys)]
 
-        for i, ((holes, callout, feat, _, rep), elbow_y) in enumerate(
+        for i, ((locs, dia, callout, feat, _, rep), elbow_y) in enumerate(
             zip(right_queue, right_ys, strict=True)
         ):
-            centre = to_page(rep.location)
+            centre = to_page(rep)
             elbow = (edge_right + elbow_dx, elbow_y)
-            tip = _rim_tip(centre, elbow, holes)
+            tip = _rim_tip(centre, elbow, dia)
             # Safety clamp: arrowhead must sit inside the view boundary.
             tip = (min(tip[0], edge_right - draft.arrow_length), tip[1])
             _add(view, i, tip, elbow, "right", callout)
             _add_furniture(dwg, a, view, i, feat, to_page)
 
         assert edge_left is not None or not left_queue  # populated only when edge_left is set
-        for i, ((holes, callout, feat, _, rep), elbow_y) in enumerate(
+        for i, ((locs, dia, callout, feat, _, rep), elbow_y) in enumerate(
             zip(left_queue, left_ys, strict=True), start=len(right_queue)
         ):
-            centre = to_page(rep.location)
+            centre = to_page(rep)
             elbow = (edge_left - elbow_dx, elbow_y)  # type: ignore[operator]
-            tip = _rim_tip(centre, elbow, holes)
+            tip = _rim_tip(centre, elbow, dia)
             tip = (max(tip[0], edge_left + draft.arrow_length), tip[1])
             _add(view, i, tip, elbow, "left", callout)
             _add_furniture(dwg, a, view, i, feat, to_page)
