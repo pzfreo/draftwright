@@ -26,6 +26,7 @@ from draftwright._core import (
     _SLOT_DIM_STEP,
     _TABULATE_MIN_HOLES,
     Analysis,
+    HoleRef,
     _add_title_block,
     _axis_letter,
     _dim,
@@ -502,7 +503,11 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # pattern dimension, so they must not become table rows or per-hole balloons
     # (#92).  Excluding them is also what keeps a densely-but-regularly drilled
     # part (e.g. NIST CTC-02) off the 61-row escalation (#111).
-    holes = [h for h in a.holes if _axis_letter(h) == "z" and not dwg._is_hole_patterned(h)]
+    holes = [
+        h
+        for h in a.holes
+        if _axis_letter(h) == "z" and not dwg._is_hole_patterned(HoleRef.of(h.location))
+    ]
     # A chart is warranted only for a *genuinely* dense plan view — a part that
     # merely dropped one too-close location ref keeps its individual dims (the
     # legibility gate already handled it). #93.
