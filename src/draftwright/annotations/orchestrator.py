@@ -38,7 +38,7 @@ from draftwright._core import (
     _log,
     _tag_sequence,
 )
-from draftwright.annotations.from_model import render_step_lengths
+from draftwright.annotations.from_model import render_diameters, render_step_lengths
 from draftwright.annotations.holes import (
     _add_location_dims,
     _annotate_holes,
@@ -47,9 +47,6 @@ from draftwright.annotations.holes import (
 )
 from draftwright.annotations.pmi import _annotate_pmi
 from draftwright.annotations.sections import _add_detail_view, _add_section_view
-from draftwright.annotations.turned import (
-    _annotate_turned_diameters,
-)
 from draftwright.model import build_part_model
 from draftwright.recognition import (
     find_turned_steps,
@@ -439,17 +436,18 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     if detail_view:
         _add_detail_view(dwg, a)
 
-    # External turned diameters (X-axis turning) the passes above do not cover.
-    _annotate_turned_diameters(dwg, a)
-
-    # Axial step lengths for a turned part — the unified IR step-length chain that
-    # locates every shoulder, for X *and* Z from one path (orientation is the
-    # projected span direction, not two passes — #223). Replaces the old X-only
-    # _annotate_turned_lengths and the Z step-height ladder (skipped above for
-    # turned parts). The overall envelope dim was suppressed for X so the chain
-    # does not double-dimension the length.
+    # Turned-part dimensions via the IR (ADR 0008 convergence). The model is built
+    # once and fed to both renderers (#229 — no per-pass rebuild):
+    #  - diameters: ø leaders, row below (X) / column left (Z), one path by frame
+    #    axis. Replaces _annotate_turned_diameters.
+    #  - step lengths: the chain that locates every shoulder, X and Z from one path
+    #    (#223). Replaces the old X-only chain + the Z step-height ladder (skipped
+    #    above for turned parts); the envelope dim along the turning axis was
+    #    suppressed so the chain does not double-dimension the length.
+    _model = build_part_model(a.part)
+    render_diameters(dwg, _model)
     if _turned_prof is not None:
-        render_step_lengths(dwg, build_part_model(a.part))
+        render_step_lengths(dwg, _model)
 
     # Side-drilled (X/Y-axis) hole locations — last, so the envelope and
     # turned-diameter dims claim their strip space first and are never evicted (#133).
