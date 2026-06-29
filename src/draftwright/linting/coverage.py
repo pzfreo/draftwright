@@ -20,16 +20,28 @@ from __future__ import annotations
 
 from typing import Literal
 
-from build123d_drafting.helpers import TitleBlock
+from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
 
-from draftwright._core import _DIAM_RE, _fmt
+from draftwright._core import _DIAM_RE, _axis_letter, _fmt
 from draftwright.linting.issues import LintIssue
 from draftwright.recognition import (
     analyse_cylinders,
     feature_diameters,
+    find_hole_patterns,
     find_holes,
     find_turned_steps,
 )
+
+# A hole/circular feature is dimensioned end-on in the view normal to its axis.
+_END_ON = {"x": "side", "y": "front", "z": "plan"}
+
+
+def _loc_xyz(loc) -> tuple[float, float, float]:
+    """A recogniser hole location (Vector or sequence) → an (x, y, z) tuple."""
+    if hasattr(loc, "X"):
+        return (loc.X, loc.Y, loc.Z)
+    x, y, z = loc
+    return (float(x), float(y), float(z))
 
 
 class CoverageState:
@@ -194,6 +206,94 @@ def lint_feature_coverage(
                     ),
                 )
             )
+    return issues
+
+
+def lint_location_coverage(part, dwg, cyls=None, assembly=None, tol: float = 0.6) -> list:
+    """Report holes with no **centre mark** or no **locating dimension**, derived
+    from the drawing itself (not a build-time side channel — so it judges any
+    producer, the engine or the model pipeline alike). Closes the location-coverage
+    gap left out of :func:`lint_feature_coverage` (#218).
+
+    *dwg* is the drawing, duck-typed: it must offer ``at(view, x, y, z)`` projection,
+    a ``_named`` mapping, and ``_anno_view``. For each hole, project its centre into
+    the view normal to its axis (:data:`_END_ON`) and check the placed annotations:
+
+    - **centre mark** — a ``CenterMark`` whose centre coincides with the projected
+      hole centre (every hole, including pattern members, gets one);
+    - **location** — some ``Dimension`` whose witness is aligned to the hole centre
+      (a witness sits *on* the hole's projected coordinate; envelope dims sit at the
+      part edges, so they don't false-match). **Patterned holes are exempt** — a
+      bolt circle / array is located by its BCD / pitch, not per-hole dims.
+
+    Coarse by design (a hole with *no* locating witness at all is the signal); severity
+    mirrors :func:`lint_feature_coverage` (``info`` for an assembly, else ``warning``).
+    """
+    holes = find_holes(part, cyls=cyls) if cyls is not None else find_holes(part)
+    if not holes:
+        return []
+    if assembly is None:
+        assembly = len(part.solids()) > 1
+    severity: Literal["info", "warning"] = "info" if assembly else "warning"
+    patterned = {id(h) for pat in find_hole_patterns(holes) for h in pat.holes}
+
+    marks: dict[str, list] = {}
+    dim_verts: dict[str, list] = {}
+    for name, ann in dwg._named.items():
+        view = dwg._anno_view.get(name)
+        if view is None:
+            continue
+        if isinstance(ann, CenterMark):
+            c = ann.center()
+            marks.setdefault(view, []).append((c.X, c.Y))
+        elif isinstance(ann, Dimension):
+            try:
+                pts = [(p.X, p.Y) for p in ann.vertices()]
+            except Exception:  # noqa: BLE001 — a dim whose vertices won't evaluate is skipped
+                pts = []
+            dim_verts.setdefault(view, []).extend(pts)
+
+    bb = part.bounding_box()
+    centre = (bb.center().X, bb.center().Y, bb.center().Z)
+
+    no_mark = no_loc = 0
+    for h in holes:
+        x, y, z = _loc_xyz(h.location)
+        axis = _axis_letter(h)
+        view = _END_ON.get(axis, "plan")
+        px, py, *_ = dwg.at(view, x, y, z)
+        if not any(abs(cx - px) <= tol and abs(cy - py) <= tol for cx, cy in marks.get(view, ())):
+            no_mark += 1
+        # A hole coaxial with the part centre (the turning axis / a symmetry axis)
+        # is located by centrelines, not a position dim — exempt from location.
+        perp = [(c, q) for ax, c, q in zip("xyz", (x, y, z), centre) if ax != axis]
+        coaxial = all(abs(c - q) <= 1.0 for c, q in perp)
+        if (
+            id(h) not in patterned
+            and not coaxial
+            and not any(
+                abs(vx - px) <= tol or abs(vy - py) <= tol for vx, vy in dim_verts.get(view, ())
+            )
+        ):
+            no_loc += 1
+
+    issues = []
+    if no_mark:
+        issues.append(
+            LintIssue(
+                severity=severity,
+                code="feature_no_centermark",
+                message=f"{no_mark} hole(s) have no centre mark",
+            )
+        )
+    if no_loc:
+        issues.append(
+            LintIssue(
+                severity=severity,
+                code="feature_not_located",
+                message=f"{no_loc} hole(s) have no locating dimension",
+            )
+        )
     return issues
 
 

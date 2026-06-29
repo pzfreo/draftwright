@@ -20,6 +20,7 @@ from draftwright.linting.coverage import (
     CoverageState,
     lint_axial_coverage,
     lint_feature_coverage,
+    lint_location_coverage,
 )
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import lint_drawing
@@ -32,4 +33,5 @@ __all__ = [
     "lint_axial_coverage",
     "lint_drawing",
     "lint_feature_coverage",
+    "lint_location_coverage",
 ]

@@ -29,17 +29,22 @@ def _labels(dwg):
     return sorted(str(o.label) for o in dwg._named.values() if getattr(o, "label", None))
 
 
-def test_prismatic_plate_complete_and_clean():
+def test_prismatic_plate_sized_and_error_free():
     part = _plate()  # 100×60×12 with two ø8 holes
     dwg = build_drawing(part, number="X", auto_dims=False)  # view scaffold only
     render_into(dwg, build_part_model(part))
     s = dwg.lint_summary()
-    assert s["passed"] and s["score"] == 1.0 and s["by_code"] == {}  # clean
-    # complete: the overall envelope dims are present (plus the two hole callouts)
-    assert {"100", "60", "12"} <= set(_labels(dwg))
+    assert s["passed"]  # no lint ERRORS
+    assert s["by_code"].get("feature_not_dimensioned", 0) == 0  # all sizes covered
+    assert {"100", "60", "12"} <= set(_labels(dwg))  # overall dims present
+    # The strengthened lint (#218) correctly flags the new pipeline's remaining
+    # completeness gap — no center marks / location dims. #220 closes these; this
+    # assertion documents the gap and flips when it lands.
+    assert s["by_code"].get("feature_no_centermark", 0) == 1  # one aggregated issue
+    assert s["by_code"].get("feature_not_located", 0) == 1
 
 
-def test_flange_od_and_pattern_complete_and_clean():
+def test_flange_od_sized_and_error_free():
     import math
 
     part = Cylinder(40, 8)  # round body, OD ø80
@@ -49,8 +54,13 @@ def test_flange_od_and_pattern_complete_and_clean():
     dwg = build_drawing(part, number="X", auto_dims=False)
     render_into(dwg, build_part_model(part))
     s = dwg.lint_summary()
-    assert s["passed"] and s["score"] == 1.0 and s["by_code"] == {}  # OD covered → clean
+    assert s["passed"]  # no errors
+    assert s["by_code"].get("feature_not_dimensioned", 0) == 0  # OD covered
     assert "ø80" in _labels(dwg)  # the OD, not a width×depth box
+    # bolt-circle holes are located by the pattern, so no feature_not_located;
+    # they still lack center marks until #220.
+    assert s["by_code"].get("feature_no_centermark", 0) == 1  # one issue, covers 6 holes
+    assert s["by_code"].get("feature_not_located", 0) == 0
 
 
 def test_dense_plate_callouts_dont_collide():

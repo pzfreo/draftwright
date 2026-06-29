@@ -67,6 +67,7 @@ from draftwright.linting import (
     lint_axial_coverage,
     lint_drawing,
     lint_feature_coverage,
+    lint_location_coverage,
 )
 from draftwright.projection import (
     _exactify_silhouettes,
@@ -165,6 +166,8 @@ _GEOMETRY_AWARE_CODES = frozenset(
     {
         "feature_not_dimensioned",
         "feature_count_mismatch",
+        "feature_not_located",
+        "feature_no_centermark",
         "missing_principal_dimension",
         "label_vs_measured",
         "dim_inside_part",
@@ -980,6 +983,12 @@ class Drawing:
             issues += lint_axial_coverage(
                 self.part,
                 self._coverage.axial_covered,
+                assembly=self.assembly,
+            )
+            issues += lint_location_coverage(
+                self.part,
+                self,
+                cyls=self._cyl_cache,
                 assembly=self.assembly,
             )
         issues += list(self._build_issues)
