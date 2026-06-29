@@ -42,29 +42,36 @@ Every migration PR must:
   coordinates with un-migrated passes) (PR #236).
 - **Slots** — `SlotFeature` + `render_slots`; engine `_annotate_slots` *deleted*;
   a genuinely new feature type end-to-end (PR #242).
+- **Hole location dims** — `_add_location_dims` *deleted*; the default min-corner
+  `Datum` + `plan_locations` (intent) + `render_locations` (tier/legibility/zone
+  layout). First consumer of the #250 datum slot (#238 part 1, PR #256).
+- **IR hole grouping** — `HoleFeature.members` + `count`; `build_part_model` groups
+  un-patterned holes by `HoleSpec` (the engine's grouped-callout key). The
+  prerequisite for migrating the callouts (#238, PR #257).
 
 The mechanically-tractable migrate-and-delete work is done. **What remains needs
-new IR modelling, not a mechanical loop.**
+new IR modelling, not a mechanical loop** — and the hardest remainder is the hole
+**callout placement** migration (see [#238 remaining](#238-remaining--hole-callout-placement)).
 
 ## Foundation hardening — do FIRST (ADR 0008 Amendment 5, umbrella #241)
 
 A mid-migration review (#241) found the foundation must catch up before the last
 epics, because the IR is now load-bearing for 6 production passes. Each item is a
-discrete sub-issue under #241. **Ordered:**
+discrete sub-issue under #241. **The foundation track is complete** (except #251,
+which waits on the holes epic):
 
-1. ✅ **Unify the feature inventory** — *keystone, done* (#244: PR #246 build-time,
-   #247 lint). `_analyse` detects once; `build_part_model` + `Drawing.lint()`
-   consume its products. Residual: bosses still detected independently.
-2. **Docs/comment sweep** (**#248**) — `model/__init__` "prototype, not wired";
-   `target-architecture.md` re #244; `test_e2e_slice`; `from_model` Amendment-2
-   wording; `README`. Cheap; do next.
-3. **Annotation-ownership accessor** (**#249**) — a registry-backed API for
-   ownership/iteration/build-issues so production stops reading `dwg._named`/
-   `_anno_view` directly. No new aliases.
-4. **Planner render-intent increment** (**#250**) — suppression/view/datum/grouping
-   move into the planner output (not layout; Amendment 4). Makes #238 cleaner.
-5. **Delete `render_into`** (**#251**) — the test-only parallel; superseded in
-   production by `render_envelope`/`render_diameters`; retire once #238 lands.
+1. ✅ **Unify the feature inventory** — *keystone* (#244: PR #246 build-time, #247
+   lint). `_analyse` detects once; `build_part_model` + `Drawing.lint()` consume its
+   products. Residual: bosses still detected independently.
+2. ✅ **Docs/comment sweep** (#248, PR #253).
+3. ✅ **Annotation-ownership accessor** (#249, PR #254) — registry-backed
+   `iter_annotations`/`view_of`/`annotations_in_view` + `replace_object`/`snapshot`/
+   `restore`; no production code reads `dwg._named`/`_anno_view` directly.
+4. ✅ **Planner render-intent increment** (#250, PR #255) — `PlannedDimension` carries
+   `suppressed`/`reason` (model-level suppression moved into the planner) + a `datum`
+   slot (consumed by #238 location dims).
+5. ⏳ **Delete `render_into`** (**#251**) — the test-only parallel; retire once the
+   holes callout migration supersedes its remaining hole-callout capability.
 
 ## Remaining — feature epics (need IR modelling; AFTER the foundation track)
 
@@ -74,13 +81,62 @@ envelope width/depth are already done — see [Done](#done).)
 
 | Issue | Engine pass (to delete) | Prereq (new IR modelling) | Priority |
 |---|---|---|---|
-| **#238** | **holes**: callouts + location dims + `n×` grouping + pitch + balloons (`_annotate_holes` ~1063 lines, `_add_location_dims`) | **location datums** + pattern pitch in the IR; **feed** the existing table/balloon escalation (don't rebuild it, Amend. 4). Centre marks already done (#235) | **highest** — do first; #250 (planner intents) makes it cleaner |
+| **#238** | **holes**: callout *placement* + pitch/balloons (`_annotate_holes`, `_build_callout`/`_subspecs`). *Done:* location dims (`_add_location_dims` deleted, #256); centre marks (#235); IR hole grouping (#257) | callout placement fed from the grouped IR; **feed** the existing strip/balloon/**table** escalation (don't rebuild it, Amend. 4). See [#238 remaining](#238-remaining--hole-callout-placement) | **highest** — partially landed; placement is the hard remainder |
 | **#207** | **sections / detail views** (`_add_section_view`, `_add_detail_view`) | planner **section-trigger** (which features need a section); rendering stays shared infra | medium |
 | **#200 → #208** | **PMI / GD&T** (`_annotate_pmi`) | a **PMI/thread detector** → GD&T `Feature`s | medium |
 | **#237** | **prismatic step-height ladder + envelope height + OD** (`dim_step_*`, `_detect_step_repeat`, `_legible_steps`, `dim_height`, `dim_od`) — coupled via the `fv_zones.right` / `_right_ladder` cursor | a **prismatic-step `Feature`** (`analyse_face_levels` → `step_zs`) + rotational classification/OD. Folds in #230, #222 | **deferred** — lowest frequency, highest complexity, worst ROI |
 
 When these land, the orchestrator's per-feature calls are gone and it reduces to
 `build model → plan → render`.
+
+## #238 remaining — hole-callout placement
+
+Location dims, centre marks, and IR hole grouping have landed (above). The remaining
+piece is the hole **callout placement** itself — the largest, most-coupled migration
+in the convergence. Reading `_annotate_holes` surfaced *why* it is not a swap:
+
+- **The placement is shared infra, not feature logic.** `_solve_strip_via_layout`
+  (Cassowary strip + per-view deconfliction) and the front-view shaft-row packing are
+  mature layout machinery. Per **Amendment 4** they **stay** — the IR *feeds* them.
+  (The test-only `render_into` elbow-ring search is materially weaker — it already
+  needed an on-page guard, #257 — so it is **not** the production placement.)
+- **Balloons + the table escalation are coupled to recognition objects.**
+  `_add_furniture` (bolt-circle centre-lines, linear/grid pitch dims) and
+  `_cover_pattern` (which feeds `_maybe_tabulate_holes`) consume the recognition
+  `Pattern` and `Hole` objects — `_cover_pattern` matches covered holes against
+  `a.holes` for the table. `PatternFeature` already carries `members`/`bcd`/`pitch`/
+  `rows`/`cols`; the open question is hole **identity** for the table match.
+
+### Proposed approach (decomposed, each its own PR)
+
+- **B1 — callout spec from the IR (dedup, low risk).** In `_annotate_holes`, build the
+  `HoleCallout` from the IR's `hole_callout_spec` instead of `_build_callout`. The IR
+  now groups identically (#257), so each engine spec-group maps 1:1 to its IR
+  hole/pattern feature by representative location + diameter (thread `_model` in).
+  **Delete `_build_callout`.** Grouping, placement, furniture unchanged. Removes the
+  spec duplication (engine vs IR) with no placement risk.
+- **B2 — drive the callout loop from the IR (the real migration).** Replace the engine
+  `HoleSpec` grouping + `_subspecs` with iteration over the IR hole/pattern groups;
+  the placement loop consumes `(members, callout, pattern)` sourced from features.
+  Resolve the furniture/`_cover_pattern` recognition-`Pattern` dependency — either map
+  IR `PatternFeature` → recognition `Pattern` (1:1 from the same `find_hole_patterns`)
+  or carry a hole-identity ref on the feature. **Delete `_subspecs` + the HoleSpec
+  grouping.**
+- **B3 — pitch/grid intent to the IR (optional follow-on).** `PatternFeature` already
+  has `pitch`/`grid`; move the *which-pitch-dim* decision into the planner, keep
+  `_place_pitch_dim`/`_add_grid_pitch_dims` as the (shared) placement.
+
+After B2, `_annotate_holes` is reduced to **placement only** (shared infra) fed by the
+IR; the recognition→spec logic is gone, and **#251** (delete `render_into`) unblocks.
+
+### Verification bar (this migration specifically)
+
+- **Dense-part visual regression** — multi-hole plate, bolt circle, rect grid,
+  counterbore, mixed spec groups, and a part heavy enough to trigger the **hole
+  table** — placement quality + no overlap/OOB, by eye.
+- The table-escalation tests (`_maybe_tabulate_holes` / `cover_pattern`) stay green —
+  the coupling above is the main regression risk.
+- Lint-clean + X/Z parity; full fast suite; CI green.
 
 ## Cross-cutting (remaining)
 

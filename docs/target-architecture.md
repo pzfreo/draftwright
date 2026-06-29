@@ -121,13 +121,19 @@ partial. Tracked under epic [#195](https://github.com/pzfreo/draftwright/issues/
 
 **On the IR path in production (migrated + engine code deleted):**
 turned step lengths, turned diameters, hole centre marks, envelope width/depth,
-slots. Each was migrate-and-delete; `annotations/turned.py` is gone.
+slots, **hole location dims** (`_add_location_dims` deleted, #256). Each was
+migrate-and-delete; `annotations/turned.py` is gone. The IR also now **groups
+identical holes** by machining spec (`HoleFeature.members`/`count`, #257) — the
+prerequisite for migrating the callouts.
 
 **Still produced by the legacy engine passes (not yet migrated):**
 
-- **Hole callouts + location dims + `n×` grouping + pitch + balloons + table
-  escalation** (`annotations/holes.py`) — the largest pass; needs location-datum
-  modelling in the IR. ([#238](https://github.com/pzfreo/draftwright/issues/238))
+- **Hole callout *placement* + pitch + balloons + table escalation**
+  (`annotations/holes.py`) — the largest, most-coupled pass. Location dims, centre
+  marks, and IR hole grouping are done; the remaining callout-placement migration
+  feeds the existing strip/balloon/table machinery from the grouped IR (Amendment 4),
+  not a rewrite. Plan: [`plans/0008-convergence-roadmap.md`](plans/0008-convergence-roadmap.md#238-remaining--hole-callout-placement).
+  ([#238](https://github.com/pzfreo/draftwright/issues/238))
 - **Prismatic step-height ladder + envelope height + OD** — coupled via the shared
   right-strip cursor; needs a prismatic-step `Feature`.
   ([#237](https://github.com/pzfreo/draftwright/issues/237))
@@ -144,17 +150,18 @@ slots. Each was migrate-and-delete; `annotations/turned.py` is gone.
   `_analyse` detects once; `build_part_model` and `Drawing.lint()` consume its
   results — each detector runs once per build, zero extra in lint. *Residual:*
   bosses are still detected independently in the feature-diameter path.
-- **Docs/comment sweep** ([#248](https://github.com/pzfreo/draftwright/issues/248))
-  — stale `model/__init__` "prototype", `from_model` Amendment-2 wording, etc.
-- **Annotation-ownership accessor**
-  ([#249](https://github.com/pzfreo/draftwright/issues/249)) — stop production
-  reading `dwg._named`/`_anno_view` directly.
-- **Planner render-intents**
-  ([#250](https://github.com/pzfreo/draftwright/issues/250)) — suppression /
-  view / datum / grouping into the planner (not layout).
-- **Delete `render_into`**
+- ✅ **Docs/comment sweep** ([#248](https://github.com/pzfreo/draftwright/issues/248),
+  PR #253).
+- ✅ **Annotation-ownership accessor**
+  ([#249](https://github.com/pzfreo/draftwright/issues/249), PR #254) — production no
+  longer reads `dwg._named`/`_anno_view` directly; registry-backed accessors +
+  mutation API.
+- ✅ **Planner render-intents**
+  ([#250](https://github.com/pzfreo/draftwright/issues/250), PR #255) — model-level
+  suppression moved into the planner; `datum` slot added (consumed by #238).
+- ⏳ **Delete `render_into`**
   ([#251](https://github.com/pzfreo/draftwright/issues/251)) — the test-only
-  parallel, once the holes epic supersedes it.
+  parallel, once the holes callout-placement migration supersedes it.
 
 **Inherent (not a migration gap):** recognition is heuristic — a chamfered bore in
 a tapered section will not recognise itself cleanly. The architecture *contains*
