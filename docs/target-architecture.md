@@ -150,10 +150,10 @@ prerequisite for migrating the callouts.
 [#241](https://github.com/pzfreo/draftwright/issues/241); ADR Amendment 5):
 
 - ✅ **One feature inventory** (keystone,
-  [#244](https://github.com/pzfreo/draftwright/issues/244), done via #246/#247).
-  `_analyse` detects once; `build_part_model` and `Drawing.lint()` consume its
-  results — each detector runs once per build, zero extra in lint. *Residual:*
-  bosses are still detected independently in the feature-diameter path.
+  [#244](https://github.com/pzfreo/draftwright/issues/244), done via #246/#247;
+  bosses threaded too in #264). `_analyse` detects holes/patterns/bosses/turned-steps
+  **once**; `build_part_model` and `Drawing.lint()` consume its results — each
+  detector runs once per build, zero extra in lint.
 - ✅ **Docs/comment sweep** ([#248](https://github.com/pzfreo/draftwright/issues/248),
   PR #253).
 - ✅ **Annotation-ownership accessor**

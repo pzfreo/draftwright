@@ -1000,15 +1000,17 @@ class Drawing:
             a = self._analysis
             holes: list | None
             patterns: list | None
+            bosses: list | None
             prof_kw: dict
             if a is not None:
                 cyls = a.cyls
-                holes, patterns, prof_kw = a.holes, a.patterns, {"prof": a.prof}
+                holes, patterns, bosses = a.holes, a.patterns, a.bosses
+                prof_kw = {"prof": a.prof}
             else:
                 if self._cyl_cache is None:
                     self._cyl_cache = analyse_cylinders(self.part)
                 cyls = self._cyl_cache
-                holes = patterns = None
+                holes = patterns = bosses = None
                 prof_kw = {}
             issues += lint_feature_coverage(
                 self.part,
@@ -1017,6 +1019,7 @@ class Drawing:
                 exclude=self._coverage.dropped_diams,
                 assembly=self.assembly,
                 holes=holes,
+                bosses=bosses,
             )
             issues += lint_axial_coverage(
                 self.part,

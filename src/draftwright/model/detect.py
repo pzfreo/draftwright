@@ -117,7 +117,9 @@ def _distinct_by_diameter(bosses, tol: float = 0.15):
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
-def build_part_model(part, *, holes=None, patterns=None, slots=None, prof=_UNSET) -> PartModel:
+def build_part_model(
+    part, *, holes=None, patterns=None, bosses=None, slots=None, prof=_UNSET
+) -> PartModel:
     """Run the detectors and assemble the :class:`PartModel` IR for *part*.
 
     The detected feature sets may be **supplied** by the caller (from `_analyse`,
@@ -198,8 +200,9 @@ def build_part_model(part, *, holes=None, patterns=None, slots=None, prof=_UNSET
                 )
             )
     else:
-        bosses = _distinct_by_diameter(find_bosses(part))
-        for b in bosses:
+        raw_bosses = find_bosses(part) if bosses is None else bosses
+        bosses_d = _distinct_by_diameter(raw_bosses)
+        for b in bosses_d:
             features.append(
                 BossFeature(
                     frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
@@ -209,7 +212,7 @@ def build_part_model(part, *, holes=None, patterns=None, slots=None, prof=_UNSET
         # Overall envelope dims for a *prismatic* part — not a round single-OD body
         # (a boss whose diameter fills the footprint is the body, dimensioned by its
         # OD, not a box).
-        if not _is_round(bbox, bosses):
+        if not _is_round(bbox, bosses_d):
             c = bbox.center()
             features.append(
                 EnvelopeFeature(

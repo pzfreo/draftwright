@@ -255,7 +255,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # The part model — built once and rendered from for the IR-migrated passes
     # (centre marks, turned diameters/lengths); ADR 0008 convergence / #229.
     _model = build_part_model(
-        a.part, holes=a.holes, patterns=a.patterns, slots=a.slots, prof=a.prof
+        a.part, holes=a.holes, patterns=a.patterns, bosses=a.bosses, slots=a.slots, prof=a.prof
     )
 
     # Centre marks for every hole (all part classes) — IR renderer.
