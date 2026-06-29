@@ -50,7 +50,7 @@ from draftwright.annotations.holes import (
 )
 from draftwright.annotations.pmi import _annotate_pmi
 from draftwright.annotations.sections import _add_detail_view, _add_section_view
-from draftwright.model import build_part_model
+from draftwright.model import build_part_model, plan_sections
 from draftwright.recognition import (
     full_cylinders,
 )
@@ -273,12 +273,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     feature_holes = a.holes
     if a.is_rotational:
         feature_holes = [h for h in a.holes if not _is_concentric_hole(h, a)]
+    # The surviving feature-hole *positions* (concentric bores excluded on rotational
+    # parts) — the IR gates callouts/furniture/sections on membership in this set, so
+    # no recogniser Hole object crosses into the renderers (Amendment 6, #263/#207).
+    feature_keys = {HoleRef.of(h.location) for h in feature_holes}
     if feature_holes:
-        # _annotate_holes is fed purely by the IR (`_model`) — the only recognition-
-        # derived input is `feature_keys`, the surviving feature-hole *positions*
-        # (concentric bores excluded on rotational parts), not Hole objects. The IR
-        # gates callouts/furniture on membership in this set (Amendment 6, #263).
-        feature_keys = {HoleRef.of(h.location) for h in feature_holes}
         _annotate_holes(dwg, a, view_of_axis, _model, feature_keys)
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.
@@ -396,12 +395,14 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # the planner's decision (#250); the renderer just skips suppressed dims.
     render_envelope(dwg, _model, a)
 
-    # The section view goes last: its room check clears every annotation
-    # already placed right of the side view (callout labels, height/step
-    # dim ladders).  Fires on feature presence, not class (#10); concentric
-    # bores on a turned part are excluded (the ldr_z leaders cover them).
-    if feature_holes:
-        _add_section_view(dwg, a, holes=feature_holes)
+    # The section view goes last: its room check clears every annotation already
+    # placed right of the side view (callout labels, height/step dim ladders). The
+    # *trigger* + cut-plane row are the planner's decision (`plan_sections`, #207);
+    # the renderer just draws the planned section. Concentric bores on a turned part
+    # are excluded via feature_keys (the ldr_z leaders cover them).
+    section = plan_sections(_model, feature_keys)
+    if section is not None:
+        _add_section_view(dwg, a, section)
 
     # Detail view: only when explicitly requested via build_drawing(detail_view=True).
     if detail_view:

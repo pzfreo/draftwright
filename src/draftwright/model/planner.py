@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from draftwright._core import _END_ON
+from draftwright._core import _END_ON, HoleRef
 from draftwright.model.ir import Datum, DimParameter, Feature, PartModel, Point
 
 # How each (role, kind) is drawn. Defaults keep the table small.
@@ -201,3 +201,44 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
                 DimensionGroup(feature=feature, view=_group_view(feature), dims=tuple(dims))
             )
     return groups
+
+
+@dataclass(frozen=True)
+class SectionPlan:
+    """A planned full section A–A: the plane is normal to Y at ``cut_y``, parallel to
+    the front view. The *intent* (does the part need a section, and where the plane
+    sits) — the rendering machinery (cut / hatch / cutting-plane arrows) stays shared
+    infrastructure that consumes this (ADR 0008 Amendment 4 / #207)."""
+
+    cut_y: float
+
+
+def plan_sections(model: PartModel, feature_keys: set[HoleRef]) -> SectionPlan | None:
+    """Decide whether a part needs a full section A–A, and where the plane cuts.
+
+    Trigger: any Z-axis hole/pattern whose bore has a counterbore, spotface, or a
+    non-through bottom — its internal profile is hidden-line-only in every standard
+    view. The cut plane passes through the **densest row** of qualifying hole axes
+    (ISO practice), tie-broken toward the part centre. Only holes whose positions are
+    in *feature_keys* count (so a rotational part's concentric bores, dimensioned by
+    the centreline leaders, don't drive a section). ``None`` when no section is
+    warranted."""
+    qual_ys: list[float] = []
+    for f in model.features:
+        if f.kind not in ("hole", "pattern") or f.frame.axis != "z":
+            continue
+        bore = getattr(f, "member", f)  # a pattern's representative HoleFeature, else f
+        cbore, spotface = getattr(bore, "cbore", None), getattr(bore, "spotface", None)
+        if cbore is None and spotface is None and getattr(bore, "through", True):
+            continue
+        for m in getattr(f, "members", ()) or (f.frame.origin,):
+            if HoleRef.of(m) in feature_keys:
+                qual_ys.append(m[1])
+    if not qual_ys:
+        return None
+    cy = model.bbox.center().Y  # type: ignore[attr-defined]  # build123d BoundBox
+    cut_y = max(
+        {round(y, 1) for y in qual_ys},
+        key=lambda v: (sum(1 for y in qual_ys if abs(y - v) <= 0.5), -abs(v - cy)),
+    )
+    return SectionPlan(cut_y=cut_y)

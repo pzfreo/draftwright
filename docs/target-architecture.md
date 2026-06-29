@@ -139,8 +139,10 @@ prerequisite for migrating the callouts.
 - **Prismatic step-height ladder + envelope height + OD** — coupled via the shared
   right-strip cursor; needs a prismatic-step `Feature`.
   ([#237](https://github.com/pzfreo/draftwright/issues/237))
-- **Section / detail views** — the *trigger* needs to move into the planner; the
-  rendering machinery stays shared. ([#207](https://github.com/pzfreo/draftwright/issues/207))
+- ~~**Section views** — trigger into the planner~~ ✅ **done** (#207): `plan_sections`
+  decides the section A–A trigger + cut-plane row from the IR; `_add_section_view`
+  is the shared rendering machinery it feeds. (The detail view stays user/lint-
+  triggered, not feature-driven.) ([#207](https://github.com/pzfreo/draftwright/issues/207))
 - **PMI / GD&T placement** — needs a PMI/thread detector emitting GD&T `Feature`s.
   ([#208](https://github.com/pzfreo/draftwright/issues/208))
 

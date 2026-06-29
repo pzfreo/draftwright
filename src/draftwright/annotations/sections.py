@@ -33,7 +33,6 @@ from draftwright._core import (
     _TB_CLEAR,
     _TB_H,
     Analysis,
-    _axis_letter,
     _dim,
     _fmt,
     _iso_bbox,
@@ -126,31 +125,18 @@ def _fuzzy_cut(body, cutter, fuzzy: float = 1e-3):
     return solids[0] if len(solids) == 1 else Compound(children=list(solids))
 
 
-def _add_section_view(dwg, a: Analysis, holes=None):
-    """Full section A–A when blind or stepped holes hide their structure (#94).
+def _add_section_view(dwg, a: Analysis, section):
+    """Render the planned full section A–A (#94, #207).
 
-    Trigger: any Z-axis hole with a counterbore/spotface or a non-through
-    bottom — its internal profile is hidden-line-only in every standard
-    view. The cut plane passes through the densest row of qualifying hole
-    axes, parallel to the front view; material on the viewer's side is
-    removed so the cut face shows the hole profiles as visible line-work.
-    The section is placed right of the side view when there is room
-    (skipped with a log otherwise), captioned, marked with ISO 128-44
-    cutting-plane arrows and 'A' letters on the plan view, and filled with
-    ISO 128-50 45° hatching on the cut face.
+    The *trigger* + cut-plane row are decided by the planner (`plan_sections` →
+    `SectionPlan`, ADR 0008 Amendment 4); this is the shared rendering machinery it
+    feeds. The cut plane (normal Y at ``section.cut_y``, parallel to the front view)
+    removes material on the viewer's side so the cut face shows the hole profiles as
+    visible line-work. Placed right of the side view when there is room (skipped with
+    a log otherwise), captioned, marked with ISO 128-44 cutting-plane arrows and 'A'
+    letters on the plan view, and filled with ISO 128-50 45° hatching on the cut face.
     """
-    cands = [
-        h
-        for h in (a.holes if holes is None else holes)
-        if _axis_letter(h) == "z" and (h.cbore or h.spotface or h.bottom != "through")
-    ]
-    if not cands:
-        return
-    ys = [h.location[1] for h in cands]
-    y_star = max(
-        {round(y, 1) for y in ys},
-        key=lambda v: (sum(1 for y in ys if abs(y - v) <= 0.5), -abs(v - a.cy)),
-    )
+    y_star = section.cut_y
 
     # room check: same row as the front/side views, to the right — past any
     # side-view callout labels already placed there.

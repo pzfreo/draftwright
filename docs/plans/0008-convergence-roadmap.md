@@ -84,7 +84,7 @@ envelope width/depth are already done — see [Done](#done).)
 | Issue | Engine pass (to delete) | Prereq (new IR modelling) | Priority |
 |---|---|---|---|
 | **#238** | **holes**: callout *placement* + pitch/balloons (`_annotate_holes`, `_build_callout`/`_subspecs`). *Done:* location dims (`_add_location_dims` deleted, #256); centre marks (#235); IR hole grouping (#257) | callout placement fed from the grouped IR; **feed** the existing strip/balloon/**table** escalation (don't rebuild it, Amend. 4). See [#238 remaining](#238-remaining--hole-callout-placement) | **highest** — partially landed; placement is the hard remainder |
-| **#207** | **sections / detail views** (`_add_section_view`, `_add_detail_view`) | planner **section-trigger** (which features need a section); rendering stays shared infra | medium |
+| ~~**#207**~~ ✅ | **section view** trigger | **done** — `plan_sections(model, feature_keys)` decides the A–A trigger + cut-plane row from the IR; `_add_section_view` is the shared rendering it feeds. Detail view stays user/lint-triggered | done |
 | **#200 → #208** | **PMI / GD&T** (`_annotate_pmi`) | a **PMI/thread detector** → GD&T `Feature`s | medium |
 | **#237** | **prismatic step-height ladder + envelope height + OD** (`dim_step_*`, `_detect_step_repeat`, `_legible_steps`, `dim_height`, `dim_od`) — coupled via the `fv_zones.right` / `_right_ladder` cursor | a **prismatic-step `Feature`** (`analyse_face_levels` → `step_zs`) + rotational classification/OD. Folds in #230, #222 | **deferred** — lowest frequency, highest complexity, worst ROI |
 
