@@ -46,19 +46,31 @@ Every migration PR must:
   `Datum` + `plan_locations` (intent) + `render_locations` (tier/legibility/zone
   layout). First consumer of the #250 datum slot (#238 part 1, PR #256).
 - **IR hole grouping** — `HoleFeature.members` + `count`; `build_part_model` groups
-  un-patterned holes by `HoleSpec` (the engine's grouped-callout key). The
-  prerequisite for migrating the callouts (#238, PR #257).
+  un-patterned holes by `HoleSpec` (#238, PR #257).
+- **Hole callouts** — the engine's spec/grouping logic *deleted*; the callout is
+  built from the IR's `hole_callout_spec` (B1, PR #259) and the callout loop is
+  driven by the IR groups (B2, PR #260). `_annotate_holes` is now placement-only,
+  fed by the IR.
+- **IR-typed interface** (ADR Amendment 6, #263) — cover/table (B3.1 #266),
+  furniture + projector (B3.2 #267), placement geometry (B3.3 #268), and the last
+  `a.holes` read (B3.4 #269) all go IR-typed: `_annotate_holes` has **zero**
+  recogniser `Hole`/`Pattern` references; the only recognition-derived input is a
+  `HoleRef` position-key set.
+- **Section A–A trigger** — `plan_sections(model, feature_keys)` decides the trigger
+  + cut-plane row; `_add_section_view` is the shared rendering it feeds (#207, PR #271).
+- **Bosses detected once** — threaded through the one inventory; `find_bosses` runs
+  once per build, closing the #244 residual (#264, PR #272).
 
-The mechanically-tractable migrate-and-delete work is done. **What remains needs
-new IR modelling, not a mechanical loop** — and the hardest remainder is the hole
-**callout placement** migration (see [#238 remaining](#238-remaining--hole-callout-placement)).
+**The ADR-0008 convergence is substantially complete.** The holes pass, sections,
+turned parts, slots, centre marks, envelope, and the foundation track are all on the
+IR. What remains needs **new feature modelling**: PMI/GD&T (#208) and the prismatic
+step-ladder + envelope-height + OD group (#237, deferred).
 
-## Foundation hardening — do FIRST (ADR 0008 Amendment 5, umbrella #241)
+## Foundation hardening — ✅ complete (ADR 0008 Amendment 5, umbrella #241)
 
 A mid-migration review (#241) found the foundation must catch up before the last
-epics, because the IR is now load-bearing for 6 production passes. Each item is a
-discrete sub-issue under #241. **The foundation track is complete** (except #251,
-which waits on the holes epic):
+epics, because the IR is now load-bearing for the production passes. Each item is a
+discrete sub-issue under #241; **all are done** (umbrella #241 closed):
 
 1. ✅ **Unify the feature inventory** — *keystone* (#244: PR #246 build-time, #247
    lint; bosses threaded in #264). `_analyse` detects holes/patterns/bosses/turned-
@@ -70,10 +82,11 @@ which waits on the holes epic):
 4. ✅ **Planner render-intent increment** (#250, PR #255) — `PlannedDimension` carries
    `suppressed`/`reason` (model-level suppression moved into the planner) + a `datum`
    slot (consumed by #238 location dims).
-5. ✅ **Delete `render_into`** (#251, PR pending) — the test-only parallel
+5. ✅ **Delete `render_into`** (#251, PR #270) — the test-only parallel
    (`render_into`/`render_callouts` + their leader helpers) is removed; the seam +
-   e2e-slice tests are repointed at the production renderers. **Foundation track
-   complete.**
+   e2e-slice tests are repointed at the production renderers.
+6. ✅ **IR-typed interface** (#263, PR #266–#269) — ADR Amendment 6: the data
+   crossing IR→shared-infra is a `HoleRef` key, not recogniser objects.
 
 ## Remaining — feature epics (need IR modelling; AFTER the foundation track)
 
@@ -83,7 +96,7 @@ envelope width/depth are already done — see [Done](#done).)
 
 | Issue | Engine pass (to delete) | Prereq (new IR modelling) | Priority |
 |---|---|---|---|
-| **#238** | **holes**: callout *placement* + pitch/balloons (`_annotate_holes`, `_build_callout`/`_subspecs`). *Done:* location dims (`_add_location_dims` deleted, #256); centre marks (#235); IR hole grouping (#257) | callout placement fed from the grouped IR; **feed** the existing strip/balloon/**table** escalation (don't rebuild it, Amend. 4). See [#238 remaining](#238-remaining--hole-callout-placement) | **highest** — partially landed; placement is the hard remainder |
+| ~~**#238**~~ ✅ | **holes** — callouts + location dims + grouping + pitch/furniture + cover/table | **done** — fully on the IR (location dims #256, grouping #257, callout spec #259, callout loop #260, IR-typed interface #263). `_annotate_holes` is placement-only, fed by the IR | done |
 | ~~**#207**~~ ✅ | **section view** trigger | **done** — `plan_sections(model, feature_keys)` decides the A–A trigger + cut-plane row from the IR; `_add_section_view` is the shared rendering it feeds. Detail view stays user/lint-triggered | done |
 | **#200 → #208** | **PMI / GD&T** (`_annotate_pmi`) | a **PMI/thread detector** → GD&T `Feature`s | medium |
 | **#237** | **prismatic step-height ladder + envelope height + OD** (`dim_step_*`, `_detect_step_repeat`, `_legible_steps`, `dim_height`, `dim_od`) — coupled via the `fv_zones.right` / `_right_ladder` cursor | a **prismatic-step `Feature`** (`analyse_face_levels` → `step_zs`) + rotational classification/OD. Folds in #230, #222 | **deferred** — lowest frequency, highest complexity, worst ROI |
@@ -91,67 +104,29 @@ envelope width/depth are already done — see [Done](#done).)
 When these land, the orchestrator's per-feature calls are gone and it reduces to
 `build model → plan → render`.
 
-## #238 remaining — hole-callout placement
+## #238 holes — done (how it landed)
 
-Location dims, centre marks, and IR hole grouping have landed (above). The remaining
-piece is the hole **callout placement** itself — the largest, most-coupled migration
-in the convergence. Reading `_annotate_holes` surfaced *why* it is not a swap:
+The largest, most-coupled pass, migrated in sequenced behaviour-equivalent PRs (each
+with a dense-part visual gate). The placement / balloon / hole-table machinery stayed
+**shared infrastructure** (Amendment 4); the recognition→intent logic moved to the IR
+and the interface across the boundary was made IR-typed (Amendment 6):
 
-- **The placement is shared infra, not feature logic.** `_solve_strip_via_layout`
-  (Cassowary strip + per-view deconfliction) and the front-view shaft-row packing are
-  mature layout machinery. Per **Amendment 4** they **stay** — the IR *feeds* them.
-  (The test-only `render_into` elbow-ring search is materially weaker — it already
-  needed an on-page guard, #257 — so it is **not** the production placement.)
-- **Balloons + the table escalation are coupled to recognition objects.**
-  `_add_furniture` (bolt-circle centre-lines, linear/grid pitch dims) and
-  `_cover_pattern` (which feeds `_maybe_tabulate_holes`) consume the recognition
-  `Pattern` and `Hole` objects — `_cover_pattern` matches covered holes against
-  `a.holes` for the table. `PatternFeature` already carries `members`/`bcd`/`pitch`/
-  `rows`/`cols`; the open question is hole **identity** for the table match.
+- **B1** (PR #259) — callout built from the IR's `hole_callout_spec` via a shared
+  `callout_from_spec`; `_build_callout` deleted. (Found+fixed #261: `HoleCallout`
+  renders a float wider than the `_fmt` string — the IR stays float-clean, the
+  renderer formats.)
+- **B2** (PR #260) — the IR is the single grouping authority; `HoleSpec` grouping +
+  `_subspecs` deleted; `_annotate_holes` iterates the IR groups.
+- **B3 — IR-typed interface** (#263, Amendment 6): cover-by-location (B3.1 #266),
+  furniture + projector from `PatternFeature` (B3.2 #267), placement on IR geometry
+  (B3.3 #268), and the last `a.holes` read removed (B3.4 #269). `_annotate_holes`
+  now has **zero** recogniser `Hole`/`Pattern` references — fed by the IR + a
+  `HoleRef` position-key set.
 
-### Approach (decomposed, each its own PR)
+## Cross-cutting
 
-- ✅ **B1 — callout spec from the IR** (PR #259). The `HoleCallout` is built from the
-  IR's `hole_callout_spec` via a shared `callout_from_spec`; the duplicated engine-side
-  extraction (`_build_callout`) is gone. (Found+fixed: `HoleCallout` renders a float
-  wider than the `_fmt` string — #261; the IR stays float-clean, the renderer formats.)
-- ✅ **B2 — drive the callout loop from the IR** (PR #260). The IR is the single
-  grouping authority; the engine's `HoleSpec` grouping + `_subspecs` are deleted.
-  `_annotate_holes` iterates the IR groups, mapping back to recognition `Hole`/`Pattern`
-  objects to feed the (still shared) placement + furniture + table machinery.
-- **B3 — IR-typed interface (Amendment 6, #263): retire the recognition-object
-  mapping.** B2's `loc_to_hole` / `pat_by_key` mapping is a **scaffold, not the steady
-  state** — recognition objects must not stay load-bearing downstream of the IR.
-  Sequence (each a PR, behaviour-equivalent, dense-part visual gate):
-  1. **Cover-by-location** — `CoverageState.cover_pattern`/`is_pattern_covered` match by
-     location key, not `Hole` identity, so `_maybe_tabulate_holes` no longer needs
-     `Hole` objects. *(Riskiest — the table-escalation matching.)*
-  2. **Furniture from `PatternFeature`** — `_add_furniture` reads the IR feature
-     (members/bcd/pitch/rows/cols); the *which-pitch-dim* intent moves to the planner,
-     `_place_pitch_dim`/`_add_grid_pitch_dims` stay as the shared placement.
-  3. **Placement on IR geometry** — `to_page` over member locations, `_rim_tip` from the
-     feature diameter; drop `loc_to_hole`.
-  4. **Remove `a.holes`/`found_patterns`** from `_annotate_holes` — only the IR flows in.
-
-After B3, `_annotate_holes` is fed **purely by the IR** (Amendment 6 satisfied);
-recognition objects stop at detection, and **#251** (delete `render_into`) unblocks.
-Per the project stance: *do it right or not at all* — B3 is on the path, not optional.
-
-### Verification bar (this migration specifically)
-
-- **Dense-part visual regression** — multi-hole plate, bolt circle, rect grid,
-  counterbore, mixed spec groups, and a part heavy enough to trigger the **hole
-  table** — placement quality + no overlap/OOB, by eye.
-- The table-escalation tests (`_maybe_tabulate_holes` / `cover_pattern`) stay green —
-  the coupling above is the main regression risk.
-- Lint-clean + X/Z parity; full fast suite; CI green.
-
-## Cross-cutting (remaining)
-
-- **Retire `render_into`'s test-only parallel** — its hole/envelope/OD capability
-  is superseded *in production* as the holes + envelope-height epics land; delete
-  the scaffold then so no divergent path lingers. (`render_callouts`/`render_into`
-  currently drive only the seam + e2e-slice tests.)
+- ✅ **Retire `render_into`'s test-only parallel** (#251, PR #270) — removed; the
+  seam + e2e-slice tests are repointed at the production renderers. No divergent path.
 
 ## The IR / infrastructure boundary (ADR 0008 Amendment 4)
 
@@ -171,11 +146,15 @@ not "rebuild the infra."
 
 ## Definition of done (the whole ADR)
 
-- The per-feature **recognition + placement** passes deleted —
-  `annotations/{holes,sections,pmi}` and the inline envelope/OD/step-ladder code in
-  the orchestrator; orchestrator reduced to `build model → plan → render`.
-- **Shared layout/table/section/projection/export infrastructure intact** (fed by
-  the IR, per Amendment 4) — not rewritten.
-- No `render_into` test-only parallel; no engine/IR duplication.
+- The per-feature **recognition + dimension-intent** logic moved to the IR/planner,
+  and the engine recognition/grouping/spec code deleted — so each pass is fed by the
+  IR. Per Amendment 4 the shared **rendering** machinery (layout/strips, table/balloon
+  escalation, section drawing, projection, export) **stays** and is fed by the IR.
+  - ✅ done: holes, sections (trigger), turned, slots, centre marks, envelope w/d,
+    diameters, location dims; foundation track; IR-typed interface.
+  - 🔲 remaining: PMI/GD&T (#208), the prismatic step-ladder + envelope-height + OD
+    group (#237) — then the orchestrator's inline OD/step-ladder code goes too.
+- **Shared infrastructure intact** (fed by the IR, per Amendment 4) — not rewritten.
+- ✅ No `render_into` test-only parallel; no engine/IR duplication in the migrated passes.
 - Full standards + geometry suites green; X/Z parity tests per feature.
-- ADR 0008 status → "migration complete; one path".
+- ADR 0008 status → "migration complete; one path" (after #208 + #237).

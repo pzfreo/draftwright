@@ -131,8 +131,10 @@ draftwright
 
 It owns feature recognition (`recognition/`) and linting (`linting/`); annotation
 primitives (`Dimension`, `Leader`, etc.) live in `build123d-drafting-helpers` and can
-be used independently. The compiler is converging in production (turned dims/lengths,
-centre marks, envelope, slots are on the IR; holes/sections/PMI are migrating) — see
+be used independently. The compiler is largely converged in production — turned
+dims/lengths, centre marks, envelope, slots, holes (callouts/locations/grouping),
+and the section A–A trigger are all on the IR; PMI/GD&T (#208) and the prismatic
+step-ladder (#237) are the remaining feature epics. See
 [`docs/target-architecture.md`](docs/target-architecture.md) and
 [`docs/adr/`](docs/adr/). The engine handles view layout (strip/zone model), scale
-selection, annotation placement, and section views.
+selection, annotation placement, and section rendering.
