@@ -604,7 +604,7 @@ def find_bosses(part, cyls=None) -> list:
     return bosses
 
 
-def feature_diameters(part, cyls=None) -> list:
+def feature_diameters(part, cyls=None, holes=None) -> list:
     """Sorted unique diameters of the *recognised* dimensionable cylindrical
     features on *part*: every hole bore, each hole's counterbore/spotface step,
     and every boss.
@@ -618,11 +618,15 @@ def feature_diameters(part, cyls=None) -> list:
     counterbore/spotface steps are kept. (#158)
 
     Pass *cyls* — a precomputed ``analyse_cylinders(part)`` result — to share one
-    scan between ``find_holes`` and ``find_bosses``.
+    scan between ``find_holes`` and ``find_bosses``. Pass *holes* — a precomputed
+    ``find_holes`` result — to reuse the single feature inventory instead of
+    re-detecting (ADR 0008 Amendment 5, #244).
     """
     cyls = analyse_cylinders(part) if cyls is None else cyls
+    if holes is None:
+        holes = find_holes(part, cyls=cyls)
     diams: list[float] = []
-    for h in find_holes(part, cyls=cyls):
+    for h in holes:
         diams.append(h.diameter)
         if h.cbore is not None:
             diams.append(h.cbore.diameter)

@@ -272,3 +272,30 @@ def test_feature_detection_runs_once_per_build(monkeypatch):
     assert counts.get("find_hole_patterns") == 1
     assert counts.get("find_slots") == 1
     assert counts.get("find_turned_steps") == 1
+
+
+def test_lint_reuses_the_build_inventory(monkeypatch):
+    """#244 part 2 — linting consumes the one inventory: after a build, dwg.lint()
+    must not re-detect holes / patterns / turned steps (it reuses dwg._analysis)."""
+    from build123d import Box, Cylinder, Pos
+
+    import draftwright.linting.coverage as cov
+    from draftwright import build_drawing
+
+    part = Box(100, 60, 12) - Pos(-30, 0, 0) * Cylinder(4, 30) - Pos(30, 0, 0) * Cylinder(4, 30)
+    dwg = build_drawing(part)
+
+    calls: dict[str, int] = {}
+    for name in ("find_holes", "find_hole_patterns", "find_turned_steps"):
+        orig = getattr(cov, name)
+
+        def wrap(*a, _orig=orig, _n=name, **k):
+            calls[_n] = calls.get(_n, 0) + 1
+            return _orig(*a, **k)
+
+        monkeypatch.setattr(cov, name, wrap)
+
+    dwg.lint()
+    assert calls.get("find_holes", 0) == 0
+    assert calls.get("find_hole_patterns", 0) == 0
+    assert calls.get("find_turned_steps", 0) == 0

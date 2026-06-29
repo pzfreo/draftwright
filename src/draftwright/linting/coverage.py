@@ -32,6 +32,8 @@ from draftwright.recognition import (
     find_turned_steps,
 )
 
+_UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
+
 
 def _dim_vertices(ann) -> list[tuple[float, float]]:
     """A ``Dimension``'s vertices as ``(x, y)`` page points; ``[]`` if they won't
@@ -91,7 +93,7 @@ class CoverageState:
 
 
 def lint_feature_coverage(
-    part, annotations, tol: float = 0.15, cyls=None, exclude=None, assembly=None
+    part, annotations, tol: float = 0.15, cyls=None, exclude=None, assembly=None, holes=None
 ) -> list:
     """Coarse completeness check: report part diameters with no callout (#80).
 
@@ -131,13 +133,16 @@ def lint_feature_coverage(
     count semantics. Location coverage remains out of scope (#93).
     """
     z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
+    if holes is None:
+        holes = find_holes(part, cyls=(z_cyls, cross_cyls))
     # Coverage inventory: the *recognised* dimensionable diameters (bores,
     # cbore/spotface steps, bosses) from feature_diameters — built via
     # find_holes/find_bosses, so slot ends and interrupted recesses (partial
     # cylinders that an angle-only test mistakes for full bores) are excluded.
     # Replaces the raw full_cylinders patch list, which over-reported those as
-    # undimensioned features (helpers #158/#159).
-    inventory = feature_diameters(part, cyls=(z_cyls, cross_cyls))
+    # undimensioned features (helpers #158/#159). *holes* reuses the single
+    # inventory (#244); find_bosses inside feature_diameters is the one residual.
+    inventory = feature_diameters(part, cyls=(z_cyls, cross_cyls), holes=holes)
 
     if assembly is None:
         assembly = len(part.solids()) > 1
@@ -171,7 +176,7 @@ def lint_feature_coverage(
     ]
 
     required: dict[float, int] = {}
-    for h in find_holes(part, cyls=(z_cyls, cross_cyls)):
+    for h in holes:
         for d in (h.diameter, *(s.diameter for s in (h.cbore, h.spotface) if s)):
             key = next((k for k in required if abs(k - d) <= tol), d)
             required[key] = required.get(key, 0) + 1
@@ -192,7 +197,9 @@ def lint_feature_coverage(
     return issues
 
 
-def lint_location_coverage(part, dwg, cyls=None, assembly=None, tol: float = 0.6) -> list:
+def lint_location_coverage(
+    part, dwg, cyls=None, assembly=None, tol: float = 0.6, holes=None, patterns=None
+) -> list:
     """Report holes with no **centre mark** or no **locating dimension**, derived
     from the drawing itself (not a build-time side channel — so it judges any
     producer, the engine or the model pipeline alike). Closes the location-coverage
@@ -212,13 +219,16 @@ def lint_location_coverage(part, dwg, cyls=None, assembly=None, tol: float = 0.6
     Coarse by design (a hole with *no* locating witness at all is the signal); severity
     mirrors :func:`lint_feature_coverage` (``info`` for an assembly, else ``warning``).
     """
-    holes = find_holes(part, cyls=cyls) if cyls is not None else find_holes(part)
+    if holes is None:
+        holes = find_holes(part, cyls=cyls) if cyls is not None else find_holes(part)
     if not holes:
         return []
     if assembly is None:
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
-    patterned = {id(h) for pat in find_hole_patterns(holes) for h in pat.holes}
+    if patterns is None:
+        patterns = find_hole_patterns(holes)
+    patterned = {id(h) for pat in patterns for h in pat.holes}
 
     marks: dict[str, list] = {}
     dim_verts: dict[str, list] = {}
@@ -315,7 +325,7 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
     return covered
 
 
-def lint_axial_coverage(part, dwg, assembly=None) -> list:
+def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     """Report a stepped turned part whose axial step lengths are undimensioned.
 
     A turned part can have every diameter called out yet be unmanufacturable: with
@@ -331,8 +341,12 @@ def lint_axial_coverage(part, dwg, assembly=None) -> list:
     (e.g. the chain skipped for want of page room). Only **Y-axis** turning is
     excluded — it is drawn end-on, so no view shows its length. Severity mirrors
     :func:`lint_feature_coverage`: ``info`` for an assembly, else ``warning``.
+    *prof* may be supplied (the single inventory, #244) to skip re-detection;
+    omitted, it is detected here. A sentinel distinguishes "not supplied" from a
+    valid ``prof=None`` (non-turned part).
     """
-    prof = find_turned_steps(part)
+    if prof is _UNSET:
+        prof = find_turned_steps(part)
     if prof is None or prof.axis == "y":
         return []
     if assembly is None:
