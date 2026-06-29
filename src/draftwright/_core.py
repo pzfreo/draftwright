@@ -36,6 +36,21 @@ _MARGIN = 10.0
 
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
 
+# The orthographic view a feature is dimensioned end-on in — the view normal to its
+# axis. Single source of truth shared by the planner (view choice) and the lint
+# coverage checks (where to look for a feature's dims). Orientation is data.
+_END_ON = {"x": "side", "y": "front", "z": "plan"}
+
+
+def _xyz(loc) -> tuple[float, float, float]:
+    """A build123d ``Vector`` (has ``.X/.Y/.Z``) or an ``(x, y, z)`` sequence → an
+    ``(x, y, z)`` float tuple. Shared by the detectors and the lint coverage checks
+    so the Vector-unpacking idiom lives in one place."""
+    if hasattr(loc, "X"):
+        return (loc.X, loc.Y, loc.Z)
+    x, y, z = loc
+    return (float(x), float(y), float(z))
+
 
 _FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
 

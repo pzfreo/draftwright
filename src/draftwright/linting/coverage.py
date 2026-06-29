@@ -22,7 +22,7 @@ from typing import Literal
 
 from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
 
-from draftwright._core import _DIAM_RE, _axis_letter, _fmt
+from draftwright._core import _DIAM_RE, _END_ON, _axis_letter, _fmt, _xyz
 from draftwright.linting.issues import LintIssue
 from draftwright.recognition import (
     analyse_cylinders,
@@ -32,16 +32,15 @@ from draftwright.recognition import (
     find_turned_steps,
 )
 
-# A hole/circular feature is dimensioned end-on in the view normal to its axis.
-_END_ON = {"x": "side", "y": "front", "z": "plan"}
 
-
-def _loc_xyz(loc) -> tuple[float, float, float]:
-    """A recogniser hole location (Vector or sequence) → an (x, y, z) tuple."""
-    if hasattr(loc, "X"):
-        return (loc.X, loc.Y, loc.Z)
-    x, y, z = loc
-    return (float(x), float(y), float(z))
+def _dim_vertices(ann) -> list[tuple[float, float]]:
+    """A ``Dimension``'s vertices as ``(x, y)`` page points; ``[]`` if they won't
+    evaluate. The shared, error-tolerant harvest both drawing-derived coverage
+    checks use to read placed dimensions back off the drawing."""
+    try:
+        return [(p.X, p.Y) for p in ann.vertices()]
+    except Exception:  # noqa: BLE001 — a dim whose vertices won't evaluate is skipped
+        return []
 
 
 class CoverageState:
@@ -231,18 +230,14 @@ def lint_location_coverage(part, dwg, cyls=None, assembly=None, tol: float = 0.6
             c = ann.center()
             marks.setdefault(view, []).append((c.X, c.Y))
         elif isinstance(ann, Dimension):
-            try:
-                pts = [(p.X, p.Y) for p in ann.vertices()]
-            except Exception:  # noqa: BLE001 — a dim whose vertices won't evaluate is skipped
-                pts = []
-            dim_verts.setdefault(view, []).extend(pts)
+            dim_verts.setdefault(view, []).extend(_dim_vertices(ann))
 
     bb = part.bounding_box()
     centre = (bb.center().X, bb.center().Y, bb.center().Z)
 
     no_mark = no_loc = 0
     for h in holes:
-        x, y, z = _loc_xyz(h.location)
+        x, y, z = _xyz(h.location)
         axis = _axis_letter(h)
         view = _END_ON.get(axis, "plan")
         px, py, *_ = dwg.at(view, x, y, z)
@@ -304,14 +299,11 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
         return float(px if use_x else py)
 
     shoulder_c = {s: shoulder_coord(s) for s in prof.shoulders}
-    dim_csets: list[set[float]] = []
-    for name, ann in dwg._named.items():
-        if dwg._anno_view.get(name) != "front" or not isinstance(ann, Dimension):
-            continue
-        try:
-            dim_csets.append({(p.X if use_x else p.Y) for p in ann.vertices()})
-        except Exception:  # noqa: BLE001 — a dim whose vertices won't evaluate is skipped
-            pass
+    dim_csets: list[set[float]] = [
+        {(x if use_x else y) for x, y in _dim_vertices(ann)}
+        for name, ann in dwg._named.items()
+        if dwg._anno_view.get(name) == "front" and isinstance(ann, Dimension)
+    ]
     covered = 0
     for step in prof.steps:
         clo, chi = shoulder_c[step.lo], shoulder_c[step.hi]
