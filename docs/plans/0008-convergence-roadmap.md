@@ -107,27 +107,33 @@ in the convergence. Reading `_annotate_holes` surfaced *why* it is not a swap:
   `a.holes` for the table. `PatternFeature` already carries `members`/`bcd`/`pitch`/
   `rows`/`cols`; the open question is hole **identity** for the table match.
 
-### Proposed approach (decomposed, each its own PR)
+### Approach (decomposed, each its own PR)
 
-- **B1 — callout spec from the IR (dedup, low risk).** In `_annotate_holes`, build the
-  `HoleCallout` from the IR's `hole_callout_spec` instead of `_build_callout`. The IR
-  now groups identically (#257), so each engine spec-group maps 1:1 to its IR
-  hole/pattern feature by representative location + diameter (thread `_model` in).
-  **Delete `_build_callout`.** Grouping, placement, furniture unchanged. Removes the
-  spec duplication (engine vs IR) with no placement risk.
-- **B2 — drive the callout loop from the IR (the real migration).** Replace the engine
-  `HoleSpec` grouping + `_subspecs` with iteration over the IR hole/pattern groups;
-  the placement loop consumes `(members, callout, pattern)` sourced from features.
-  Resolve the furniture/`_cover_pattern` recognition-`Pattern` dependency — either map
-  IR `PatternFeature` → recognition `Pattern` (1:1 from the same `find_hole_patterns`)
-  or carry a hole-identity ref on the feature. **Delete `_subspecs` + the HoleSpec
-  grouping.**
-- **B3 — pitch/grid intent to the IR (optional follow-on).** `PatternFeature` already
-  has `pitch`/`grid`; move the *which-pitch-dim* decision into the planner, keep
-  `_place_pitch_dim`/`_add_grid_pitch_dims` as the (shared) placement.
+- ✅ **B1 — callout spec from the IR** (PR #259). The `HoleCallout` is built from the
+  IR's `hole_callout_spec` via a shared `callout_from_spec`; the duplicated engine-side
+  extraction (`_build_callout`) is gone. (Found+fixed: `HoleCallout` renders a float
+  wider than the `_fmt` string — #261; the IR stays float-clean, the renderer formats.)
+- ✅ **B2 — drive the callout loop from the IR** (PR #260). The IR is the single
+  grouping authority; the engine's `HoleSpec` grouping + `_subspecs` are deleted.
+  `_annotate_holes` iterates the IR groups, mapping back to recognition `Hole`/`Pattern`
+  objects to feed the (still shared) placement + furniture + table machinery.
+- **B3 — IR-typed interface (Amendment 6, #263): retire the recognition-object
+  mapping.** B2's `loc_to_hole` / `pat_by_key` mapping is a **scaffold, not the steady
+  state** — recognition objects must not stay load-bearing downstream of the IR.
+  Sequence (each a PR, behaviour-equivalent, dense-part visual gate):
+  1. **Cover-by-location** — `CoverageState.cover_pattern`/`is_pattern_covered` match by
+     location key, not `Hole` identity, so `_maybe_tabulate_holes` no longer needs
+     `Hole` objects. *(Riskiest — the table-escalation matching.)*
+  2. **Furniture from `PatternFeature`** — `_add_furniture` reads the IR feature
+     (members/bcd/pitch/rows/cols); the *which-pitch-dim* intent moves to the planner,
+     `_place_pitch_dim`/`_add_grid_pitch_dims` stay as the shared placement.
+  3. **Placement on IR geometry** — `to_page` over member locations, `_rim_tip` from the
+     feature diameter; drop `loc_to_hole`.
+  4. **Remove `a.holes`/`found_patterns`** from `_annotate_holes` — only the IR flows in.
 
-After B2, `_annotate_holes` is reduced to **placement only** (shared infra) fed by the
-IR; the recognition→spec logic is gone, and **#251** (delete `render_into`) unblocks.
+After B3, `_annotate_holes` is fed **purely by the IR** (Amendment 6 satisfied);
+recognition objects stop at detection, and **#251** (delete `render_into`) unblocks.
+Per the project stance: *do it right or not at all* — B3 is on the path, not optional.
 
 ### Verification bar (this migration specifically)
 

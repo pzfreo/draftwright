@@ -108,7 +108,9 @@ verification — detection happens once, three consumers read it.
   (`Feature.frame`), never code paths.
 - **Correctness, not equivalence** — judged by lint/standards, not byte-identity.
 - **The IR feeds shared infrastructure; it doesn't reabsorb it** (Amendment 4) —
-  layout, tables, sections, projection, export stay shared.
+  layout, tables, sections, projection, export stay shared — **through an IR-typed
+  interface: no recognition objects cross the boundary** (Amendment 6). The IR is
+  the single representation downstream of detection.
 - **One feature inventory per build** (Amendment 5) — detect once.
 - **Deterministic generation — no model in the pipeline** (ADR 0001).
 - **Lint is the single correctness judge** (no standing golden gate).
