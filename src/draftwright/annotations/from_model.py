@@ -99,23 +99,35 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     }
 
 
+def callout_from_spec(spec, draft, count) -> HoleCallout | None:
+    """Build a `HoleCallout` from a :func:`hole_callout_spec` dict. *count* is passed
+    explicitly (the bare/test path uses the spec's own count; the engine pass uses its
+    view-local hole count) — the single callout builder both the IR and the migrating
+    engine pass share, so the bore/cbore/suffix mapping lives in one place (#238 B1)."""
+    if spec is None:
+        return None
+
+    def f(v):  # the IR carries clean floats (no baked labels); the renderer formats
+        return _fmt(v) if v is not None else None
+
+    return HoleCallout(
+        f(spec["diameter"]),
+        count=count,
+        through=spec["through"],
+        depth=f(spec["depth"]),
+        cbore_dia=f(spec["cbore_dia"]),
+        cbore_depth=f(spec["cbore_depth"]),
+        suffix=spec["suffix"],
+        draft=draft,
+    )
+
+
 def _hole_callout(dwg, group) -> HoleCallout | None:
     """The `HoleCallout` for a hole/pattern group from its planned spec, or ``None``
     if the group is not hole-bearing. The shared callout builder for both the placed
     (`render_into`) and the bare (`render_callouts`) paths."""
     spec = hole_callout_spec(group)
-    if spec is None:
-        return None
-    return HoleCallout(
-        spec["diameter"],
-        count=spec["count"],
-        through=spec["through"],
-        depth=spec["depth"],
-        cbore_dia=spec["cbore_dia"],
-        cbore_depth=spec["cbore_depth"],
-        suffix=spec["suffix"],
-        draft=dwg.draft,
-    )
+    return callout_from_spec(spec, dwg.draft, spec["count"]) if spec is not None else None
 
 
 def _place_leader(dwg, view, tip_model, obstacles, *, label="", callout=None) -> Leader | None:
