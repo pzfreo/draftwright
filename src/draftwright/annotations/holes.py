@@ -32,11 +32,6 @@ from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxe
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
 from draftwright.layout import LayoutSolver, Placeable
 from draftwright.model import plan_dimensions
-from draftwright.recognition import (
-    BoltCircle,
-    LinearArray,
-    RectGrid,
-)
 
 
 def _legible_locations(positions, scale):
@@ -209,44 +204,45 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
             _drop("Z", order[0][1])
 
 
-def _add_furniture(dwg, a: Analysis, view, j, pattern, to_page):
-    """Pattern sheet furniture, added once its callout is placed (#92)."""
-    if pattern is not None:
-        # Remember the bore-callout name AND the holes it documents, so a later
-        # hole-table escalation leaves the grouped pattern callout standing and
-        # tabulates only the holes no *placed* pattern callout covers (#92).
-        # Recording here (callout already placed) — not from a.patterns — means a
-        # pattern dropped for lack of room, or filtered off a rotational part,
-        # correctly falls back to the table instead of going undocumented. Cover is
-        # keyed by position (HoleRef), not the recogniser Hole (Amendment 6).
-        dwg._cover_pattern(f"hc_{view}{j}", [HoleRef.of(h.location) for h in pattern.holes])
-    if isinstance(pattern, BoltCircle):
-        cx = sum(to_page(h)[0] for h in pattern.holes) / len(pattern.holes)
-        cy = sum(to_page(h)[1] for h in pattern.holes) / len(pattern.holes)
-        dwg.add(CenterlineCircle((cx, cy), pattern.diameter * a.SCALE), f"bc_{view}{j}", view=view)
-    elif isinstance(pattern, LinearArray):
+def _add_furniture(dwg, a: Analysis, view, j, feat, to_page):
+    """Pattern sheet furniture, added once its callout is placed (#92). Driven by the
+    IR `PatternFeature` *feat* (members / bcd / pitch / grid), not a recogniser
+    `Pattern` — ADR 0008 Amendment 6."""
+    if feat is None:
+        return
+    members = feat.members
+    # Remember the bore-callout name AND the holes it documents (by position), so a
+    # later hole-table escalation leaves the grouped pattern callout standing and
+    # tabulates only the holes no *placed* pattern callout covers (#92).
+    dwg._cover_pattern(f"hc_{view}{j}", [HoleRef.of(m) for m in members])
+    if feat.pattern == "bolt_circle":
+        cx = sum(to_page(m)[0] for m in members) / len(members)
+        cy = sum(to_page(m)[1] for m in members) / len(members)
+        dwg.add(CenterlineCircle((cx, cy), feat.bcd * a.SCALE), f"bc_{view}{j}", view=view)
+    elif feat.pattern == "linear":
         _place_pitch_dim(
             dwg,
             a,
             view,
-            pattern.holes[0],
-            pattern.holes[-1],
-            len(pattern.holes),
-            pattern.pitch,
+            members[0],
+            members[-1],
+            len(members),
+            feat.pitch,
             to_page,
             f"dim_pitch_{view}{j}",
         )
-    elif isinstance(pattern, RectGrid):
-        _add_grid_pitch_dims(dwg, a, view, j, pattern, to_page)
+    elif feat.pattern == "grid":
+        _add_grid_pitch_dims(dwg, a, view, j, members, feat.grid, to_page)
 
 
-def _add_grid_pitch_dims(dwg, a: Analysis, view, j, grid, to_page):
+def _add_grid_pitch_dims(dwg, a: Analysis, view, j, members, nominals, to_page):
     """Both pitch dimensions of a rectangular grid — one along each lattice axis,
     each labelled ``(n-1)× pitch`` (#92).  The two axes are recovered as the two
     shortest near-orthogonal inter-hole page vectors (the recogniser's own
     basis); this is used only to pick the dimension endpoints and the per-axis
-    count, not to re-recognise the grid (recognition stays upstream)."""
-    pts = [to_page(h) for h in grid.holes]
+    count, not to re-recognise the grid (recognition stays upstream). *members* are
+    the grid's member locations; *nominals* is ``(row_pitch, col_pitch)``."""
+    pts = [to_page(m) for m in members]
     diffs = []
     for ia in range(len(pts)):
         for ib in range(len(pts)):
@@ -273,7 +269,6 @@ def _add_grid_pitch_dims(dwg, a: Analysis, view, j, grid, to_page):
         return
     l2, bx, by = basis2
     u2 = (bx / l2, by / l2)
-    nominals = (grid.row_pitch, grid.col_pitch)
 
     def _axis_dim(u, pitch_page, sub):
         perp = (-u[1], u[0])
@@ -306,8 +301,8 @@ def _add_grid_pitch_dims(dwg, a: Analysis, view, j, grid, to_page):
             dwg,
             a,
             view,
-            grid.holes[lo],
-            grid.holes[hi],
+            members[lo],
+            members[hi],
             n,
             pitch,
             to_page,
@@ -318,12 +313,12 @@ def _add_grid_pitch_dims(dwg, a: Analysis, view, j, grid, to_page):
     _axis_dim(u2, l2, 1)
 
 
-def _place_pitch_dim(dwg, a: Analysis, view, h1, h2, n, pitch, to_page, name):
-    """Pitch dimension between two hole centres ``h1``→``h2``, labelled
+def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name):
+    """Pitch dimension between two hole-centre *locations* ``loc1``→``loc2``, labelled
     ``(n-1)× pitch``, placed just outside the view on the side of the row's
     outward perpendicular (#92)."""
-    p1 = to_page(h1)
-    p2 = to_page(h2)
+    p1 = to_page(loc1)
+    p2 = to_page(loc2)
     ux, uy = p2[0] - p1[0], p2[1] - p1[1]
     norm = math.hypot(ux, uy)
     if norm < 1e-9:
@@ -423,7 +418,7 @@ def _solve_strip_via_layout(naturals, min_gap, lo, hi, key_prefix):
     return [placed[k] for k in keys]
 
 
-def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, model, holes_in=None):
+def _annotate_holes(dwg, a: Analysis, view_of_axis, model, holes_in=None):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
     Identical holes share one callout with an ``n×`` count prefix (#92's
@@ -476,7 +471,6 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, model, holes
         return (round(loc[0], 3), round(loc[1], 3), round(loc[2], 3))
 
     loc_to_hole = {_key(h.location): h for h in (a.holes if holes_in is None else holes_in)}
-    pat_by_key = {frozenset(_key(h.location) for h in p.holes): p for p in found_patterns}
 
     by_view: dict = {}
     for g in plan_dimensions(model):
@@ -486,17 +480,17 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, model, holes
         subholes = [loc_to_hole[k] for m in members if (k := _key(m)) in loc_to_hole]
         if not subholes:  # all members filtered out (e.g. concentric bore, rotational)
             continue
-        pattern = (
-            pat_by_key.get(frozenset(_key(m) for m in members))
-            if g.feature_kind == "pattern"
-            else None
-        )
+        # A pattern earns its sheet furniture (centre-line / pitch dims) only if ALL
+        # its members survived the feature-holes filter — the engine's feature_patterns
+        # gate. Otherwise the surviving members are placed as plain holes. The callout
+        # itself always comes from the IR group (so a grouped suffix is preserved).
+        feat = g.feature if g.feature_kind == "pattern" and len(subholes) == len(members) else None
         count = len(subholes) if len(subholes) > 1 else None
         callout = callout_from_spec(hole_callout_spec(g), draft, count)
         if callout is None:
             continue
         view = view_of_axis[_axis_letter(subholes[0])][0]
-        by_view.setdefault(view, []).append((subholes, callout, pattern))
+        by_view.setdefault(view, []).append((subholes, callout, feat))
 
     def _rim_tip(centre, elbow, holes):
         """Pull the tip from the hole centre to its circumference."""
@@ -535,11 +529,11 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, model, holes
             # Below the view, vertical shafts. Rows are assigned right-to-
             # left so a deeper row's shaft never crosses a shallower row's
             # right-running label; left-side labels get an explicit guard.
-            specs.sort(key=lambda s: max(to_page(h)[0] for h in s[0]), reverse=True)
+            specs.sort(key=lambda s: max(to_page(h.location)[0] for h in s[0]), reverse=True)
             occupied: list[tuple] = []  # (x0, x1, row_y) of placed labels
-            for i, (holes, callout, pattern) in enumerate(specs):
+            for i, (holes, callout, feat) in enumerate(specs):
                 w = callout.callout_width
-                centre = to_page(max(holes, key=lambda h: to_page(h)[0]))
+                centre = to_page(max(holes, key=lambda h: to_page(h.location)[0]).location)
                 elbow_y = front_bottom - 0.6 * a.DIM_PAD - i * min_gap
                 if centre[0] + gap + w <= a.PAGE_W - a.margin:
                     side, x0, x1 = "right", centre[0] + gap, centre[0] + gap + w
@@ -571,7 +565,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, model, holes
                 elbow = (centre[0], elbow_y)
                 occupied.append((x0, x1, elbow_y))
                 _add(view, i, _rim_tip(centre, elbow, holes), elbow, side, callout)
-                _add_furniture(dwg, a, view, i, pattern, to_page)
+                _add_furniture(dwg, a, view, i, feat, to_page)
             continue
 
         # plan / side: two-pass leader placement.
@@ -597,18 +591,18 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, model, holes
             y_min, y_max = a.SV_Y - a.fv_hh, a.SV_Y + a.fv_hh
 
         # --- Pass 1: boundary assignment ---
-        right_queue = []  # (holes, callout, pattern, natural_y, rep)
+        right_queue = []  # (holes, callout, feat, natural_y, rep)
         left_queue = []
 
-        for holes, callout, pattern in specs:
+        for holes, callout, feat in specs:
             w = callout.callout_width
-            rep_r = max(holes, key=lambda h: to_page(h)[0])
-            centre_r = to_page(rep_r)
+            rep_r = max(holes, key=lambda h: to_page(h.location)[0])
+            centre_r = to_page(rep_r.location)
             d_right = edge_right - centre_r[0]
 
             if edge_left is not None:
-                rep_l = min(holes, key=lambda h: to_page(h)[0])
-                centre_l = to_page(rep_l)
+                rep_l = min(holes, key=lambda h: to_page(h.location)[0])
+                centre_l = to_page(rep_l.location)
                 d_left = centre_l[0] - edge_left
             else:
                 rep_l = centre_l = None
@@ -630,9 +624,9 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, model, holes
                 continue
 
             if can_right and (not can_left or d_right <= d_left):
-                right_queue.append((holes, callout, pattern, centre_r[1], rep_r))
+                right_queue.append((holes, callout, feat, centre_r[1], rep_r))
             else:
-                left_queue.append((holes, callout, pattern, centre_l[1], rep_l))
+                left_queue.append((holes, callout, feat, centre_l[1], rep_l))
 
         # Sort each queue by natural Y so leaders don't cross.
         right_queue.sort(key=lambda s: s[3])
@@ -675,24 +669,24 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, model, holes
                     _record_callout_drop(dwg, view, holes[0].diameter, "left strip full")
             left_queue = left_queue[: len(left_ys)]
 
-        for i, ((holes, callout, pattern, _, rep), elbow_y) in enumerate(
+        for i, ((holes, callout, feat, _, rep), elbow_y) in enumerate(
             zip(right_queue, right_ys, strict=True)
         ):
-            centre = to_page(rep)
+            centre = to_page(rep.location)
             elbow = (edge_right + elbow_dx, elbow_y)
             tip = _rim_tip(centre, elbow, holes)
             # Safety clamp: arrowhead must sit inside the view boundary.
             tip = (min(tip[0], edge_right - draft.arrow_length), tip[1])
             _add(view, i, tip, elbow, "right", callout)
-            _add_furniture(dwg, a, view, i, pattern, to_page)
+            _add_furniture(dwg, a, view, i, feat, to_page)
 
         assert edge_left is not None or not left_queue  # populated only when edge_left is set
-        for i, ((holes, callout, pattern, _, rep), elbow_y) in enumerate(
+        for i, ((holes, callout, feat, _, rep), elbow_y) in enumerate(
             zip(left_queue, left_ys, strict=True), start=len(right_queue)
         ):
-            centre = to_page(rep)
+            centre = to_page(rep.location)
             elbow = (edge_left - elbow_dx, elbow_y)  # type: ignore[operator]
             tip = _rim_tip(centre, elbow, holes)
             tip = (max(tip[0], edge_left + draft.arrow_length), tip[1])
             _add(view, i, tip, elbow, "left", callout)
-            _add_furniture(dwg, a, view, i, pattern, to_page)
+            _add_furniture(dwg, a, view, i, feat, to_page)
