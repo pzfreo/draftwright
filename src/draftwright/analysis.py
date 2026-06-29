@@ -437,6 +437,7 @@ def _analyse(
         z_diams=z_diams,
         cross_diams=cross_diams,
         cyls=(z_cyls, cross_cyls),
+        prof=_turned,
         od_diam=od_diam,
         is_rotational=is_rotational,
         step_zs=step_zs,

@@ -16,6 +16,10 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from draftwright.recognition import TurnedProfile
 
 from build123d import Align, BoundBox, Location, Mode, Shape, Text
 from build123d_drafting.helpers import (
@@ -420,6 +424,7 @@ class Analysis:
     z_diams: list[float]
     cross_diams: list[float]
     cyls: tuple[list, list]
+    prof: TurnedProfile | None  # turned step profile (find_turned_steps), detected once
     od_diam: float | None
     is_rotational: bool
     step_zs: list[float]

@@ -243,3 +243,32 @@ class TestOpenClosed:
         groups = plan_dimensions(model)  # planner never heard of keyways
         assert isinstance(groups[0], DimensionGroup) and groups[0].feature_kind == "keyway"
         assert sorted(pd.param.value for pd in _all_dims(groups)) == [4.0, 20.0]
+
+
+def test_feature_detection_runs_once_per_build(monkeypatch):
+    """ADR 0008 Amendment 5 / #244 — one feature inventory: _analyse detects, and
+    build_part_model consumes those results, so each find_* runs ONCE per build
+    (was: holes/patterns/slots 2×, turned steps 3×)."""
+    from build123d import Cylinder, Pos, Rotation
+
+    import draftwright.analysis as anmod
+    import draftwright.model.detect as dmod
+    from draftwright import build_drawing
+
+    counts: dict[str, int] = {}
+    for name in ("find_holes", "find_hole_patterns", "find_slots", "find_turned_steps"):
+        for mod in (anmod, dmod):
+            orig = getattr(mod, name)
+
+            def wrap(*a, _orig=orig, _n=name, **k):
+                counts[_n] = counts.get(_n, 0) + 1
+                return _orig(*a, **k)
+
+            monkeypatch.setattr(mod, name, wrap)
+
+    # A turned X shaft exercises holes/patterns/slots + the turned profile.
+    build_drawing(Rotation(0, 90, 0) * (Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)))
+    assert counts.get("find_holes") == 1
+    assert counts.get("find_hole_patterns") == 1
+    assert counts.get("find_slots") == 1
+    assert counts.get("find_turned_steps") == 1
