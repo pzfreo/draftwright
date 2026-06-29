@@ -488,6 +488,12 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, feature_keys):
         spec = hole_callout_spec(g)
         if spec is None:  # not a hole-bearing callout
             continue
+        # A pattern only partially surviving the feature-holes filter (a member is a
+        # concentric bore on a rotational part) is rendered as plain holes — drop its
+        # pattern suffix too, so the callout doesn't claim "EQ SP ON … BC" / "(r×c)"
+        # for a subset with no centre-line/pitch furniture (#262; matches the engine).
+        if g.feature_kind == "pattern" and feat is None:
+            spec = {**spec, "suffix": None}
         dia = spec["diameter"]  # bore diameter (mm), for the leader rim tip
         count = len(locs) if len(locs) > 1 else None
         callout = callout_from_spec(spec, draft, count)
