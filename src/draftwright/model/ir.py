@@ -185,6 +185,33 @@ class PatternFeature:
 
 
 @dataclass(frozen=True)
+class EnvelopeFeature:
+    """The part's overall bounding dimensions — width (X), height (Z), depth (Y) —
+    for a prismatic part. Each is a length parameter whose span is a bbox edge, so
+    the renderer places it outside the matching view."""
+
+    frame: Frame
+    width: float
+    height: float
+    depth: float
+    bbox_min: Point
+    bbox_max: Point
+    kind: ClassVar[str] = "envelope"
+
+    def parameters(self) -> list[DimParameter]:
+        x0, y0, z0 = self.bbox_min
+        x1, y1, z1 = self.bbox_max
+        return [
+            DimParameter("length", "width", self.width, span=((x0, y0, z0), (x1, y0, z0))),
+            DimParameter("length", "height", self.height, span=((x1, y0, z0), (x1, y0, z1))),
+            DimParameter("length", "depth", self.depth, span=((x0, y0, z0), (x0, y1, z0))),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class BossFeature:
     """An external cylindrical boss/OD on a non-turned part — its diameter."""
 

@@ -25,14 +25,32 @@ def _plate():
     return Box(100, 60, 12) - Pos(-30, 0, 0) * Cylinder(4, 30) - Pos(30, 0, 0) * Cylinder(4, 30)
 
 
-def test_complete_drawing_via_model_pipeline_is_lint_clean():
-    part = _plate()
+def _labels(dwg):
+    return sorted(str(o.label) for o in dwg._named.values() if getattr(o, "label", None))
+
+
+def test_prismatic_plate_complete_and_clean():
+    part = _plate()  # 100×60×12 with two ø8 holes
     dwg = build_drawing(part, number="X", auto_dims=False)  # view scaffold only
-    n = render_into(dwg, build_part_model(part))
-    assert n == 2  # both holes called out by the new pipeline
+    render_into(dwg, build_part_model(part))
     s = dwg.lint_summary()
-    assert s["passed"] and s["score"] == 1.0  # fully clean — callouts cleared the views
-    assert s["by_code"] == {}  # no overlap, no missing coverage
+    assert s["passed"] and s["score"] == 1.0 and s["by_code"] == {}  # clean
+    # complete: the overall envelope dims are present (plus the two hole callouts)
+    assert {"100", "60", "12"} <= set(_labels(dwg))
+
+
+def test_flange_od_and_pattern_complete_and_clean():
+    import math
+
+    part = Cylinder(40, 8)  # round body, OD ø80
+    for i in range(6):
+        a = i * math.pi / 3
+        part -= Pos(25 * math.cos(a), 25 * math.sin(a), 0) * Cylinder(3, 20)
+    dwg = build_drawing(part, number="X", auto_dims=False)
+    render_into(dwg, build_part_model(part))
+    s = dwg.lint_summary()
+    assert s["passed"] and s["score"] == 1.0 and s["by_code"] == {}  # OD covered → clean
+    assert "ø80" in _labels(dwg)  # the OD, not a width×depth box
 
 
 def test_dense_plate_callouts_dont_collide():
@@ -43,7 +61,8 @@ def test_dense_plate_callouts_dont_collide():
         for y in (-20, 20):
             part -= Pos(x, y, 0) * Cylinder(4, 30)
     dwg = build_drawing(part, number="X", auto_dims=False)
-    assert render_into(dwg, build_part_model(part)) == 4
+    n = render_into(dwg, build_part_model(part))
+    assert n >= 4  # at least the four hole callouts (plus overall dims)
     s = dwg.lint_summary()
     assert s["by_code"].get("annotation_overlap", 0) == 0
     assert s["by_code"].get("view_annotation_overlap", 0) == 0

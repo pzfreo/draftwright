@@ -17,6 +17,7 @@ from __future__ import annotations
 from draftwright._core import _axis_letter
 from draftwright.model.ir import (
     BossFeature,
+    EnvelopeFeature,
     Feature,
     Frame,
     HoleFeature,
@@ -157,12 +158,37 @@ def build_part_model(part) -> PartModel:
                 )
             )
     else:
-        for b in _distinct_by_diameter(find_bosses(part)):
+        bosses = _distinct_by_diameter(find_bosses(part))
+        for b in bosses:
             features.append(
                 BossFeature(
                     frame=Frame(origin=_pt(b.location), axis=_axis_letter(b)),
                     diameter=b.diameter,
                 )
             )
+        # Overall envelope dims for a *prismatic* part — not a round single-OD body
+        # (a boss whose diameter fills the footprint is the body, dimensioned by its
+        # OD, not a box).
+        if not _is_round(bbox, bosses):
+            c = bbox.center()
+            features.append(
+                EnvelopeFeature(
+                    frame=Frame((c.X, c.Y, c.Z), "z"),
+                    width=bbox.size.X,
+                    height=bbox.size.Z,
+                    depth=bbox.size.Y,
+                    bbox_min=(bbox.min.X, bbox.min.Y, bbox.min.Z),
+                    bbox_max=(bbox.max.X, bbox.max.Y, bbox.max.Z),
+                )
+            )
 
     return PartModel(bbox=bbox, orientation=orientation, features=features)
+
+
+def _is_round(bbox, bosses, tol: float = 0.5) -> bool:
+    """True when a boss's OD fills the part footprint — a round body of revolution,
+    dimensioned by its OD rather than a width×depth box."""
+    return any(
+        abs(b.diameter - bbox.size.X) <= tol and abs(b.diameter - bbox.size.Y) <= tol
+        for b in bosses
+    )
