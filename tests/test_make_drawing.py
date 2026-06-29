@@ -2032,7 +2032,9 @@ class TestPrismaticClassification:
         dwg = build_drawing(shaft)
         diam_labels = {o.label for o in dwg.items if getattr(o, "label", "") and "ø" in o.label}
         assert "ø30" in diam_labels and "ø20" in diam_labels
-        assert any(name.startswith("ldr_dz") for name in dwg._named)
+        # The step diameter is placed by the IR renderer's left-hand column (#131,
+        # migrated to from_model.render_diameters → m_dia_z names).
+        assert any(name.startswith("m_dia_z") for name in dwg._named)
         assert not [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
 
     @pytest.mark.timeout(60)
@@ -4417,11 +4419,13 @@ def _x_stepped_shaft():
 
 
 class TestTurnedDiameters:
-    """#77: external turned diameters (X-axis turning) get ø leader callouts."""
+    """#77/#131: external turned diameters get ø leader callouts. Migrated onto the
+    IR renderer (from_model.render_diameters, names ``m_dia_*``) — one path, row
+    below (X) / column left (Z) by frame axis (ADR 0008 convergence)."""
 
     def test_each_external_diameter_gets_a_callout(self):
         dwg = build_drawing(_x_stepped_shaft())
-        labels = {o.label for n, o in dwg._named.items() if n.startswith("ldr_d")}
+        labels = {o.label for n, o in dwg._named.items() if n.startswith("m_dia")}
         assert "ø30" in labels
         assert "ø16" in labels
 
@@ -4436,30 +4440,29 @@ class TestTurnedDiameters:
         # diameters never share an x and never collide: label xs are min_gap
         # apart and inside the front view's page bounds.
         dwg = build_drawing(_x_stepped_shaft())
-        leaders = [o for n, o in dwg._named.items() if n.startswith("ldr_d")]
+        leaders = [o for n, o in dwg._named.items() if n.startswith("m_dia")]
         assert len(leaders) >= 2
         xs = sorted(ldr.elbow[0] for ldr in leaders)
         assert all(b - a > 1.0 for a, b in zip(xs, xs[1:]))  # spread, not stacked
 
     def test_z_rotational_part_is_untouched(self):
-        # A Z-axis turned part keeps its existing OD/bore path: the new pass is
-        # a no-op (no X-axis bosses), so no ldr_d callouts appear.
+        # A plain Z disc's OD is covered by dim_od (rotational), so render_diameters
+        # skips it (already mentioned) — no m_dia callouts appear.
         dwg = build_drawing(Cylinder(15, 40))  # plain Z disc/shaft
-        assert not any(n.startswith("ldr_d") for n in dwg._named)
+        assert not any(n.startswith("m_dia") for n in dwg._named)
 
     def test_unfittable_row_skips_without_crashing(self, monkeypatch):
         # When the labels do not fit the row, both solvers return None; the pass
         # must skip gracefully, not crash the whole build on a None unpack.
         import sys
 
-        # The turned-diameter pass looks the strip solvers up in its own module's
-        # namespace (#98 Phase C; the pass moved to annotations.turned in #164) —
-        # so patch them there, not on make_drawing.
-        m = sys.modules["draftwright.annotations.turned"]
+        # render_diameters looks the strip solvers up in its own module's namespace
+        # (annotations.from_model) — patch them there.
+        m = sys.modules["draftwright.annotations.from_model"]
         monkeypatch.setattr(m, "_solve_strip_ys", lambda *a, **k: None)
         monkeypatch.setattr(m, "_greedy_strip_ys", lambda *a, **k: None)
         dwg = build_drawing(_x_stepped_shaft())  # must not raise
-        assert not any(n.startswith("ldr_d") for n in dwg._named)
+        assert not any(n.startswith("m_dia") for n in dwg._named)
 
 
 class TestTurnedLengths:

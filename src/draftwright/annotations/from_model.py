@@ -15,10 +15,10 @@ not equivalence to the engine. `render_step_lengths` is wired into production;
 
 from __future__ import annotations
 
-from build123d_drafting.helpers import Dimension, HoleCallout, Leader
+from build123d_drafting.helpers import Dimension, HoleCallout, Leader, TitleBlock
 
-from draftwright._core import _MARGIN, _dim, _fmt, _greedy_strip_ys, _solve_strip_ys
-from draftwright.annotations._common import _anno_box, _box_hits
+from draftwright._core import _DIAM_RE, _MARGIN, _dim, _fmt, _greedy_strip_ys, _solve_strip_ys
+from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
 from draftwright.model.planner import DimensionGroup, plan_dimensions
 
 # Which view + side an overall (envelope) dimension lands on, by its role.
@@ -149,6 +149,131 @@ def _diameter_leader(dwg, group, obstacles) -> Leader | None:
     if dia is None:
         return None
     return _place_leader(dwg, group.view, group.anchor, obstacles, label=f"ø{_fmt(dia)}")
+
+
+def _mentioned_diameters(dwg) -> set[float]:
+    """Diameters already called out on the drawing (ø-labels + ``covers_diameters``)
+    — so a diameter another annotation already documents is not repeated."""
+    diams: set[float] = set()
+    for ann in dwg._named.values():
+        if isinstance(ann, TitleBlock):
+            continue
+        for m in _DIAM_RE.finditer(getattr(ann, "label", None) or ""):
+            diams.add(float(m.group(1)))
+        for v in getattr(ann, "covers_diameters", ()):
+            diams.add(float(v))
+    return diams
+
+
+def _diameter_row_below(dwg, items) -> int:
+    """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
+    *items* is ``[(anchor, diameter), ...]``. The row is dropped clear of anything
+    already below the profile; labels spread along page-x by the ADR-0003 strip
+    solve. Skips (returns 0) if there is no room — the diameters then surface as
+    ``feature_not_dimensioned``."""
+    if not items:
+        return 0
+    draft = dwg.draft
+    fx0, fy0, fx1, _ = dwg.view_bounds("front")
+    obstacle_bottom = fy0
+    for o in dwg.items:
+        try:
+            ob = o.bounding_box()
+        except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+            continue
+        if ob.min.Y < fy0 and ob.max.X > fx0 and ob.min.X < fx1:
+            obstacle_bottom = min(obstacle_bottom, ob.min.Y)
+    label_y = obstacle_bottom - (draft.font_size + 4 * draft.pad_around_text)
+    if label_y < _MARGIN + draft.font_size:
+        return 0
+    specs = []  # (tip_page, label), tip on the step's bottom silhouette
+    for anchor, dia in items:
+        ax, ay, az = anchor
+        tip = dwg.at("front", ax, ay, az - dia / 2)
+        specs.append((tip, f"ø{_fmt(dia)}"))
+    specs.sort(key=lambda s: s[0][0])
+    half_w = max(len(label) for _, label in specs) * draft.font_size * 0.62 / 2
+    min_gap = 2 * half_w + 2 * draft.pad_around_text
+    naturals = [tip[0] for tip, _ in specs]
+    xs = _solve_strip_ys(naturals, min_gap, fx0 + half_w, fx1 - half_w) or _greedy_strip_ys(
+        naturals, min_gap, fx0 + half_w, fx1 - half_w
+    )
+    if xs is None:
+        return 0
+    for i, ((tip, label), lx) in enumerate(zip(specs, xs, strict=True)):
+        dwg.add(
+            Leader(tip=(tip[0], tip[1], 0), elbow=(lx, label_y, 0), label=label, draft=draft),
+            f"m_dia_x{i}",
+            view="front",
+        )
+    return len(specs)
+
+
+def _diameter_column_left(dwg, items) -> int:
+    """ø-callout column to the LEFT of the front view for Z-turned step/boss
+    diameters (#131) — the page-Y mirror of the row-below. A per-label occupancy
+    gate drops only a label that would overprint a bore leader / existing callout
+    sharing the left region (#144), never the whole column. Returns the count placed."""
+    if not items:
+        return 0
+    draft = dwg.draft
+    fx0, fy0, _, fy1 = dwg.view_bounds("front")
+    label_w = max(len(f"ø{_fmt(dia)}") for _, dia in items) * draft.font_size * 0.62
+    elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
+    if elbow_x - label_w < _MARGIN:
+        return 0
+    specs = []  # (tip_page, label), tip on the step's left silhouette
+    for anchor, dia in items:
+        ax, ay, az = anchor
+        tip = dwg.at("front", ax - dia / 2, ay, az)
+        specs.append((tip, f"ø{_fmt(dia)}"))
+    specs.sort(key=lambda s: s[0][1])
+    half_h = draft.font_size / 2 + draft.pad_around_text
+    min_gap = 2 * half_h
+    naturals = [tip[1] for tip, _ in specs]
+    ys = _solve_strip_ys(naturals, min_gap, fy0 + half_h, fy1 - half_h) or _greedy_strip_ys(
+        naturals, min_gap, fy0 + half_h, fy1 - half_h
+    )
+    if ys is None:
+        return 0
+    occupied = _occupied_boxes(dwg)  # bore leaders + other left-column callouts
+    placed = 0
+    for i, ((tip, label), ly) in enumerate(zip(specs, ys, strict=True)):
+        ldr = Leader(tip=(tip[0], tip[1], 0), elbow=(elbow_x, ly, 0), label=label, draft=draft)
+        if _box_hits(_anno_box(ldr), occupied):
+            continue  # would overprint a bore leader / existing callout — drop just this one
+        dwg.add(ldr, f"m_dia_z{i}", view="front")
+        occupied.append(_anno_box(ldr))
+        placed += 1
+    return placed
+
+
+def render_diameters(dwg, model, tol: float = 0.15) -> int:
+    """ø leaders for a turned part's external step/boss diameters, from the IR —
+    one distinct callout per diameter, in a tidy row below the front view
+    (X-turning) or a column to its left (Z-turning). Orientation is the feature
+    frame's axis, not two passes. Replaces the engine's ``_annotate_turned_diameters``
+    (ADR 0008 convergence). Diameters another annotation already covers are skipped."""
+    mentioned = _mentioned_diameters(dwg)
+    seen: set[tuple[str, float]] = set()
+    rows: list = []  # X-turned (anchor, dia)
+    cols: list = []  # Z-turned (anchor, dia)
+    for g in plan_dimensions(model):
+        if g.feature_kind not in ("step", "boss"):
+            continue
+        dia = next((pd.param.value for pd in g.dims if pd.param.kind == "diameter"), None)
+        if dia is None or any(abs(dia - m) <= tol for m in mentioned):
+            continue
+        axis = g.feature.frame.axis
+        key = (axis, round(dia, 2))
+        if key in seen:  # one distinct callout per diameter
+            continue
+        seen.add(key)
+        if axis == "x":
+            rows.append((g.anchor, dia))
+        elif axis == "z":
+            cols.append((g.anchor, dia))
+    return _diameter_row_below(dwg, rows) + _diameter_column_left(dwg, cols)
 
 
 def _envelope_dims(dwg, group) -> list[tuple[Dimension, str]]:
