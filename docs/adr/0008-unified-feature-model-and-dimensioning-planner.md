@@ -3,11 +3,12 @@
 - **Status:** Accepted — architecture stands; **migration is a correctness-judged
   strangler that converges on ONE feature→dimension path** (Amendment 3), which
   *feeds* the engine's shared layout/table/section/projection/export infrastructure
-  rather than reabsorbing it (Amendment 4). Not reproduce-and-swap (Amendment 2),
-  not two permanent paths — incremental migration where each step deletes the
-  per-feature engine pass it replaces. The equivalence golden gate is retired.
-  **One path implies one feature inventory** (Amendment 5): `_analyse` and the IR
-  must not re-detect independently — keystone of the remaining migration (#241).
+  rather than reabsorbing it (Amendment 4), **through an IR-typed interface — no
+  recognition objects cross the boundary** (Amendment 6). Not reproduce-and-swap
+  (Amendment 2), not two permanent paths — incremental migration where each step
+  deletes the per-feature engine pass it replaces. The equivalence golden gate is
+  retired. **One path implies one feature inventory** (Amendment 5): `_analyse` and
+  the IR must not re-detect independently — keystone of the remaining migration (#241).
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Supersedes the original 0008** ("unified feature model") with a concrete
@@ -322,6 +323,51 @@ continues (tracked in #241):
 Order: **unify the inventory first** (keystone), then the docs sweep, the accessor
 boundary, the planner-intent increment, and finally delete the `render_into`
 test-only parallel once the holes epic supersedes it.
+
+## Amendment 6 (2026-06-29) — the IR→infra interface is IR-typed
+
+Amendment 4 drew the *boundary* (the IR decides *what/where*; the shared infra
+decides *how it is drawn*) but did not specify the **interface** across it. The
+holes migration exposed the gap: the shared hole-table / balloon escalation
+(`cover_pattern` / `_maybe_tabulate_holes`) matches on the recogniser's `Hole`
+objects, so the IR-driven callout loop (#260) has to map IR groups **back** to
+recognition `Hole`/`Pattern` objects (`loc_to_hole` / `pat_by_key`) to feed it.
+That leaves recognition objects **load-bearing downstream of the IR** — which
+contradicts the whole point: the IR is supposed to be the *single representation*
+after detection.
+
+**Decision.** The data that crosses the IR→infrastructure boundary is **IR-typed** —
+model-space locations, `DimParameter`s, feature kinds, and stable feature/datum
+keys — **not recognition objects.** Concretely:
+
+- The hole-table / cover bookkeeping matches by **location key**, not `Hole`
+  identity, so the escalation no longer needs `Hole` objects.
+- Placement consumes member **locations** + the feature **diameter**, not `Hole`s.
+- Sheet furniture (bolt-circle centre-line, pitch dims) reads the **`PatternFeature`**
+  (members / bcd / pitch / rows / cols), not the recognition `Pattern`.
+- End state: `a.holes` / `found_patterns` are **not threaded into the render layer**;
+  detection feeds the IR, and only the IR flows downstream.
+
+The shared *services* still stay shared (Amendment 4 stands — we do not reabsorb
+the layout solver, projector, exporter). This amendment only fixes **what type of
+data** the renderer hands them.
+
+**Enforcement — by the type system, not a written rule.** The boundary is enforced
+by **IR-typed signatures** (mypy): a shared service accepts IR types only, so a
+recognition object simply *cannot be passed* — the norm becomes a compile-time
+guarantee. Where the data is structured and identity-bearing, use a **small frozen
+value type** (e.g. a `HoleRef`/feature key for the cover/table bookkeeping), not a
+raw `Hole`. Do **not** invent a single universal "render-item" dataclass spanning the
+whole boundary: the sub-channels are genuinely different services (allocate a float,
+project a point, place a primitive, record coverage) — type each at its own
+signature. Grow a shared emit-type only if the renderers later converge and a real
+consumer demands it (the ADR's anti-over-abstraction rule, below).
+
+**Standing norm:** a migration **may not add new recognition-object coupling across
+the boundary.** Where it exists today (the holes/table path) it is **debt on a
+defined path to removal (#263)** — not an acceptable steady state. Per the project
+stance at this stage: *do it right or not at all — incrementally, no accumulated
+debt.*
 
 ## Consequences
 
