@@ -4560,6 +4560,22 @@ class TestAxialCoverageLint:
         dwg = build_drawing(part, number="D-1", auto_dims=False)
         assert lint_axial_coverage(part, dwg) == []
 
+    def test_coverage_survives_repair_and_is_idempotent(self):
+        # Drawing-derived coverage must stay clean after the repair loop re-places
+        # dims (witnesses stay anchored to geometry) and across repeated lint()s.
+        part = _x_stepped_shaft()
+        dwg = build_drawing(part, number="D-1")  # repair on
+        first = [i.code for i in dwg.lint() if i.code == "axial_length_missing"]
+        again = [i.code for i in dwg.lint() if i.code == "axial_length_missing"]
+        assert first == [] and again == []
+
+    def test_axial_length_missing_is_geometry_aware(self):
+        # It is a completeness/standards code, so lint_summary must count it under
+        # geometry_issues, not as layout (#226 review follow-through).
+        from draftwright.drawing import _GEOMETRY_AWARE_CODES
+
+        assert "axial_length_missing" in _GEOMETRY_AWARE_CODES
+
 
 def _multi_hole_plate():
     """A plate with three spec-groups of Z-holes (two ø10, one ø16)."""

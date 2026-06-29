@@ -168,6 +168,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "feature_count_mismatch",
         "feature_not_located",
         "feature_no_centermark",
+        "axial_length_missing",
         "missing_principal_dimension",
         "label_vs_measured",
         "dim_inside_part",
