@@ -1,38 +1,31 @@
 """The annotation orchestrator (#138 / ADR 0005, P5e).
 
-`_auto_annotate` is the single entry point: it classifies the part, places the
-envelope/OD dimensions inline, and drives the capability passes
-(annotations.{sections,turned,pmi,holes}) plus the title block. Takes a
-duck-typed `dwg` and the `Analysis` namespace `a`. Imports only `_core`,
+`_auto_annotate` is the single entry point: it builds the IR (`build_part_model`),
+plans the dimensions once, and drives the IR renderers (`from_model.render_*`) +
+the capability passes (annotations.{sections,turned,pmi,holes}) + the title block.
+Takes a duck-typed `dwg` and the `Analysis` namespace `a`. Imports only `_core`,
 `layout`, the annotations passes, and third-party libs -- never make_drawing --
 so the module graph stays a DAG.
 
-NB: the envelope dims (OD/width/depth/height/step) remain inline here; pulling
-them into annotations/envelope.py is a behaviour-sensitive follow-up (#164).
+The OD/centreline/bore furniture and the prismatic step-height + overall-height
+ladder are now IR renderers (`render_rotational`/`render_height_ladder`, #237), not
+inline. What remains inline is the orchestration/classification glue (concentric
+bore set, side-drilled locations, the hole table) + the section/PMI passes.
 """
 
 from __future__ import annotations
 
 import math
 
-from build123d_drafting.helpers import (
-    Centerline,
-    Leader,
-)
-
 from draftwright._core import (
     _CONCENTRIC_TOL_MM,
-    _SLOT_DIM_HEIGHT,
-    _SLOT_DIM_STEP,
     _TABULATE_MIN_HOLES,
     Analysis,
     HoleRef,
     _add_title_block,
     _axis_letter,
-    _dim,
     _fmt,
     _iso_bbox,
-    _legible_steps,
     _log,
     _tag_sequence,
 )
@@ -40,7 +33,9 @@ from draftwright.annotations.from_model import (
     render_centermarks,
     render_diameters,
     render_envelope,
+    render_height_ladder,
     render_locations,
+    render_rotational,
     render_slots,
     render_step_lengths,
 )
@@ -98,30 +93,6 @@ def _concentric_bore_diams(a: Analysis) -> list:
     return [d for d in a.z_diams if d != a.od_diam and any(abs(d - c) <= 0.15 for c in concentric)]
 
 
-def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
-    """Return (n, rise) if step_zs form a uniform staircase, else None.
-
-    A uniform staircase has all inter-step rises (including from bb_min_z to the
-    first step) within *tol_frac* of their mean.  Requires ≥3 detected interior
-    steps to avoid false positives.  *n* is len(step_zs) + 1 when the top gap
-    (bb_max_z − last step) also matches the mean, otherwise len(step_zs).
-    """
-    if len(step_zs) < 3:
-        return None
-    sorted_zs = sorted(step_zs)
-    rises = [sorted_zs[0] - bb_min_z] + [
-        sorted_zs[i + 1] - sorted_zs[i] for i in range(len(sorted_zs) - 1)
-    ]
-    mean_rise = sum(rises) / len(rises)
-    if mean_rise <= 0:
-        return None
-    if not all(abs(r - mean_rise) / mean_rise <= tol_frac for r in rises):
-        return None
-    top_gap = bb_max_z - sorted_zs[-1]
-    n = len(rises) + (1 if abs(top_gap - mean_rise) / mean_rise <= tol_frac else 0)
-    return n, mean_rise
-
-
 def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     """Add the standard automatic dimensions, centrelines, and title block."""
     draft = dwg.draft
@@ -166,82 +137,6 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                 _iso_x_limit,
             )
 
-    # Height dimensions stack to the right of the front view, smallest nearest
-    # the part and the overall height OUTERMOST so extension lines nest without
-    # leapfrogging (#staircase review). _right_ladder tracks the witness x; each
-    # successive dim witnesses from the previous dim's line. The step dims are
-    # placed first (inner) below; the overall height is placed last (outer).
-    _right_ladder = FX(a.bb.max.X) + 2
-
-    # Outer diameter — only for rotational (turned) parts, and from the
-    # classified external OD cylinder, never a bore that happens to be the
-    # largest diameter (#81)
-    if a.is_rotational:
-        od = a.od_diam
-        assert od is not None  # is_rotational ⇒ od_diam is set (see _is_rotational)
-        dwg.add(
-            _dim(
-                (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
-                (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
-                "above",
-                8,
-                draft,
-                label=f"ø{_fmt(od)}",
-            ),
-            "dim_od",
-            view="front",
-        )
-        # Centreline through the rotation axis — front and side views
-        dwg.add(
-            Centerline(
-                (FX(a.cx), FZ(a.bb.min.Z) - 5, 0),
-                (FX(a.cx), FZ(a.bb.max.Z) + 5, 0),
-            ),
-            "centerline_front",
-            view="front",
-        )
-        dwg.add(
-            Centerline(
-                (SX(a.cy), SZ(a.bb.min.Z) - 5, 0),
-                (SX(a.cy), SZ(a.bb.max.Z) + 5, 0),
-            ),
-            "centerline_side",
-            view="side",
-        )
-
-    # Z-axis bore leaders to the left of the front view — these assume bores
-    # concentric with the rotation axis, so rotational only (#81).  z_diams
-    # carries *every* Z cylinder diameter including off-axis ones (e.g. a bolt
-    # circle's holes), so the bore set is restricted to diameters that actually
-    # belong to an internal cylinder on the rotation axis (#10): an off-axis
-    # ø8 bolt hole must not surface as a phantom concentric bore leader.
-    bores = _concentric_bore_diams(a) if a.is_rotational else []
-    if a.is_rotational and bores:
-        left_edge = FX(a.bb.min.X)
-        left_space = left_edge - a.margin
-        if left_space >= a.DIM_PAD:
-            ldr_length = a.DIM_PAD * 0.6
-            elbow_x = left_edge - ldr_length
-            # Stack all distinct bores, centred on the axis (generalised beyond
-            # the old hard cap of 3 — #10); any not annotated would surface via
-            # the coverage lint, but all are placed here.
-            n = len(bores)
-            pitch = max(10.0, draft.font_size * 3.0)
-            for i, d in enumerate(bores):
-                tip_z = FZ(a.cz) + (i - (n - 1) / 2) * pitch
-                dwg.add(
-                    Leader(
-                        tip=(FX(a.cx - d / 2), tip_z, 0),
-                        elbow=(elbow_x, tip_z, 0),
-                        label=f"ø{_fmt(d)}",
-                        draft=draft,
-                    ),
-                    f"ldr_z{i}",
-                    view="front",
-                )
-        else:
-            _log.info("Additional diameters %s not annotated (insufficient left margin)", bores)
-
     # Per-hole annotations from the feature records (#91, #92, #95): each
     # hole is annotated in the view its axis is normal to.
     # to_page maps a model-space *location* (x, y, z) → page coords (IR-typed, not a
@@ -254,12 +149,24 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     # The part model — built once and rendered from for the IR-migrated passes
     # (centre marks, turned diameters/lengths); ADR 0008 convergence / #229.
+    _bores = tuple(_concentric_bore_diams(a)) if a.is_rotational else ()
     _model = build_part_model(
-        a.part, holes=a.holes, patterns=a.patterns, bosses=a.bosses, slots=a.slots, prof=a.prof
+        a.part,
+        holes=a.holes,
+        patterns=a.patterns,
+        bosses=a.bosses,
+        slots=a.slots,
+        prof=a.prof,
+        step_zs=a.step_zs,
+        rotational=(a.od_diam, _bores) if a.is_rotational else None,
     )
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
     _groups = plan_dimensions(_model)
+
+    # Rotational furniture — OD dim + axis centrelines + concentric bore leaders — IR
+    # renderer (#237), placed early like the engine's inline block it replaces.
+    render_rotational(dwg, _model, a)
 
     # Centre marks for every hole (all part classes) — IR renderer.
     render_centermarks(dwg, _groups)
@@ -292,105 +199,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             _fmt(a.cross_diams[0]),
         )
 
-    # Step heights (prismatic stepped parts).  A turned part — X *and* Z — instead
-    # gets the unified IR step-length chain (render_step_lengths below): one path,
-    # orientation as data, replacing this Z ladder and the old X chain (#223). So
-    # this engine ladder is skipped for turned parts.
-    #   If the steps form a uniform staircase (#45) place a single representative
-    #   dim labelled "N× rise"; otherwise the per-step ladder (legibility-gated, #41).
-    _turned_prof = a.prof  # detected once in _analyse (one inventory, #244)
-    _step_rep = (
-        None
-        if _turned_prof is not None
-        else _detect_step_repeat(a.step_zs, a.bb.min.Z, a.bb.max.Z)
-    )
-    if _turned_prof is not None:
-        pass  # turned → IR step-length chain (render_step_lengths) handles this
-    elif _step_rep is not None:
-        n_rep, rise_mm = _step_rep
-        first_step_z = sorted(a.step_zs)[0]
-        _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
-        if _px is not None:
-            dwg.add(
-                _dim(
-                    (_right_ladder, FZ(a.bb.min.Z), 0),
-                    (_right_ladder, FZ(first_step_z), 0),
-                    "right",
-                    _px - _right_ladder,
-                    draft,
-                    label=f"{n_rep}× {_fmt(rise_mm)}",
-                ),
-                "dim_step_typ",
-                view="front",
-            )
-            _right_ladder = _px
-        else:
-            _log.warning("dim_step_typ skipped: fv_zones.right strip full")
-            dwg._record_build_issue(
-                "error",
-                "placement_unsatisfiable",
-                "representative step-height dimension dropped (front-view right strip full)",
-            )
-    else:
-        # Per-step ladder: only steps tall enough AND far enough apart on the
-        # page (#41). Extension lines witness from the previous dim's line so
-        # they are adjacent rather than coincident.
-        _step_zs, _n_too_close = _legible_steps(a.step_zs, a.bb.min.Z, a.SCALE)
-        if _n_too_close:
-            dwg._record_build_issue(
-                "warning",
-                "step_dim_dropped",
-                f"{_n_too_close} step height(s) too closely spaced to dimension at this "
-                "scale (use a detail view)",
-            )
-        for col, z in enumerate(_step_zs):
-            _px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
-            if _px is None:
-                _log.warning("dim_step_%d skipped: fv_zones.right strip full", col)
-                dwg._record_build_issue(
-                    "error",
-                    "placement_unsatisfiable",
-                    f"{len(_step_zs) - col} step-height dimension(s) dropped "
-                    "(front-view right strip full)",
-                )
-                break
-            dwg.add(
-                _dim(
-                    (_right_ladder, FZ(a.bb.min.Z), 0),
-                    (_right_ladder, FZ(z), 0),
-                    "right",
-                    _px - _right_ladder,
-                    draft,
-                    label=_fmt(z - a.bb.min.Z),
-                ),
-                f"dim_step_{col}",
-                view="front",
-            )
-            _right_ladder = _px
-
-    # Overall height — placed last so it sits OUTERMOST, beyond the step dims.
-    # Suppressed for a Z-turned part: its IR step-length chain (vertical, right of
-    # the front view) already tiles the full height, so a separate overall dim
-    # would double-dimension it (ISO 129) — the mirror of the X-turned dim_width
-    # suppression below.
-    _z_turned = _turned_prof is not None and _turned_prof.axis == "z"
-    _px = None if _z_turned else a.fv_zones.right.allocate(_SLOT_DIM_HEIGHT)
-    if _px is not None:
-        dwg.add(
-            _dim(
-                (_right_ladder, FZ(a.bb.min.Z), 0),
-                (_right_ladder, FZ(a.bb.max.Z), 0),
-                "right",
-                _px - _right_ladder,
-                draft,
-                label=_fmt(a.z_size),
-            ),
-            "dim_height",
-            view="front",
-        )
-        _right_ladder = _px
-    elif not _z_turned:
-        _log.warning("dim_height skipped: fv_zones.right strip full")
+    # Front-view right ladder: prismatic step heights + overall height — IR renderer,
+    # through fv_zones.right preserving the leapfrog cursor (#237). Replaces the inline
+    # dim_step_* + dim_height; the turned step-length chain (render_step_lengths) handles
+    # turned parts, and a Z-turned overall height is suppressed there (ISO 129).
+    render_height_ladder(dwg, _model, a)
 
     # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
     # placed through the same below-strip zone allocators the engine used (zone-aware
@@ -420,7 +233,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     #    above for turned parts); the envelope dim along the turning axis was
     #    suppressed so the chain does not double-dimension the length.
     render_diameters(dwg, _groups)
-    if _turned_prof is not None:
+    if a.prof is not None:
         render_step_lengths(dwg, _groups)
 
     # Side-drilled (X/Y-axis) hole locations — last, so the envelope and

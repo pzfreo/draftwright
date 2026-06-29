@@ -32,8 +32,10 @@ from draftwright.model.ir import (
     HoleFeature,
     PartModel,
     PatternFeature,
+    RotationalFeature,
     SlotFeature,
     StepFeature,
+    StepLevelFeature,
     display,
 )
 from draftwright.model.planner import (
@@ -55,9 +57,11 @@ __all__ = [
     "HoleFeature",
     "PartModel",
     "PatternFeature",
+    "RotationalFeature",
     "PlannedDimension",
     "SlotFeature",
     "StepFeature",
+    "StepLevelFeature",
     "build_part_model",
     "display",
     "SectionPlan",

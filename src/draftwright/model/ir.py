@@ -258,6 +258,47 @@ class BossFeature:
         return []
 
 
+@dataclass(frozen=True)
+class StepLevelFeature:
+    """The prismatic height profile — horizontal face levels (Z) dimensioned from the
+    base, stacked right of the front view (#237). The turned analogue is `StepFeature`
+    (length + OD per segment); this is the prismatic *height* ladder. ``levels`` are the
+    interior step Z-coords (ascending); ``base`` is the part's bottom (bbox min Z)."""
+
+    frame: Frame
+    base: float
+    levels: tuple[float, ...]
+    kind: ClassVar[str] = "step_level"
+
+    def parameters(self) -> list[DimParameter]:
+        return [DimParameter("length", "step_height", z - self.base) for z in self.levels]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class RotationalFeature:
+    """A turned/rotational part's axial furniture (#237): the outer diameter, the
+    rotation-axis centrelines, and the concentric bore diameters (dimensioned by
+    centred leaders). Its presence marks the part rotational — the renderer places the
+    OD dim + centrelines + bore leaders from it."""
+
+    frame: Frame  # at the rotation axis
+    od: float
+    bores: tuple[float, ...] = ()  # concentric bore diameters, in display order
+    kind: ClassVar[str] = "rotational"
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("diameter", "od", self.od),
+            *[DimParameter("diameter", "bore", b) for b in self.bores],
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
 @dataclass
 class PartModel:
     """The whole-part IR: the oriented part plus its features and datums."""
