@@ -136,23 +136,25 @@ slots. Each was migrate-and-delete; `annotations/turned.py` is gone.
 - **PMI / GD&T placement** — needs a PMI/thread detector emitting GD&T `Feature`s.
   ([#208](https://github.com/pzfreo/draftwright/issues/208))
 
-**Foundation gaps to close before the remaining epics** (review
-[#241](https://github.com/pzfreo/draftwright/issues/241)):
+**Foundation track — close before the feature epics** (umbrella
+[#241](https://github.com/pzfreo/draftwright/issues/241); ADR Amendment 5):
 
-- **One inventory not yet realised** *(keystone,
-  [#244](https://github.com/pzfreo/draftwright/issues/244)).* Feature detection
-  currently runs in **three** places — `_analyse()`, `build_part_model()`, and
-  linting — so some features are detected 3–4× per build, and `a.slots` is now
-  computed with no reader. The `PartModel` must become the single inventory all
-  three consume. This is the prerequisite for #237/#238.
-- **Private `Drawing` state still read across production** (`_named`,
-  `_anno_view`, …) — needs a registry-backed accessor so the state-bus surface
-  stops widening.
-- **The planner is still thin** — suppression / view / datum / grouping decisions
-  largely live in the renderers; they should become explicit planner render-intents
-  (without absorbing layout).
-- **`render_into` is a test-only parallel path** — superseded in production by the
-  per-feature renderers; delete once the holes epic lands.
+- ✅ **One feature inventory** (keystone,
+  [#244](https://github.com/pzfreo/draftwright/issues/244), done via #246/#247).
+  `_analyse` detects once; `build_part_model` and `Drawing.lint()` consume its
+  results — each detector runs once per build, zero extra in lint. *Residual:*
+  bosses are still detected independently in the feature-diameter path.
+- **Docs/comment sweep** ([#248](https://github.com/pzfreo/draftwright/issues/248))
+  — stale `model/__init__` "prototype", `from_model` Amendment-2 wording, etc.
+- **Annotation-ownership accessor**
+  ([#249](https://github.com/pzfreo/draftwright/issues/249)) — stop production
+  reading `dwg._named`/`_anno_view` directly.
+- **Planner render-intents**
+  ([#250](https://github.com/pzfreo/draftwright/issues/250)) — suppression /
+  view / datum / grouping into the planner (not layout).
+- **Delete `render_into`**
+  ([#251](https://github.com/pzfreo/draftwright/issues/251)) — the test-only
+  parallel, once the holes epic supersedes it.
 
 **Inherent (not a migration gap):** recognition is heuristic — a chamfered bore in
 a tapered section will not recognise itself cleanly. The architecture *contains*

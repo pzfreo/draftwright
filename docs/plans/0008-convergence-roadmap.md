@@ -46,37 +46,38 @@ Every migration PR must:
 The mechanically-tractable migrate-and-delete work is done. **What remains needs
 new IR modelling, not a mechanical loop.**
 
-## Foundation hardening — do FIRST (ADR 0008 Amendment 5, review #241)
+## Foundation hardening — do FIRST (ADR 0008 Amendment 5, umbrella #241)
 
 A mid-migration review (#241) found the foundation must catch up before the last
-epics, because the IR is now load-bearing for 6 production passes. **Ordered:**
+epics, because the IR is now load-bearing for 6 production passes. Each item is a
+discrete sub-issue under #241. **Ordered:**
 
-1. **Unify the feature inventory** — *keystone.* `_analyse` and `build_part_model`
-   both re-detect (turned steps 3× per build; `a.slots` now has no reader). Build
-   the `PartModel` from `_analyse`'s products (or `_analyse` builds+caches it once
-   and threads it) — one inventory, no divergence. Prereq for the epics below.
-2. **Docs/comment sweep** — `model/__init__` still says "prototype, not wired";
-   `test_e2e_slice` + some `from_model` comments carry Amendment-2 framing. Cheap.
-3. **Annotation-ownership accessor** — a registry-backed API for
+1. ✅ **Unify the feature inventory** — *keystone, done* (#244: PR #246 build-time,
+   #247 lint). `_analyse` detects once; `build_part_model` + `Drawing.lint()`
+   consume its products. Residual: bosses still detected independently.
+2. **Docs/comment sweep** (**#248**) — `model/__init__` "prototype, not wired";
+   `target-architecture.md` re #244; `test_e2e_slice`; `from_model` Amendment-2
+   wording; `README`. Cheap; do next.
+3. **Annotation-ownership accessor** (**#249**) — a registry-backed API for
    ownership/iteration/build-issues so production stops reading `dwg._named`/
-   `_anno_view` directly (the new renderers added more reads). No new aliases.
-4. **Planner render-intent increment** — suppression/view/datum/grouping move into
-   the planner output (not layout; Amendment 4). After the inventory is unified.
-5. **Delete `render_into`** — the test-only parallel; superseded in production by
-   `render_envelope`/`render_diameters`; retire once the holes epic (#238) lands.
+   `_anno_view` directly. No new aliases.
+4. **Planner render-intent increment** (**#250**) — suppression/view/datum/grouping
+   move into the planner output (not layout; Amendment 4). Makes #238 cleaner.
+5. **Delete `render_into`** (**#251**) — the test-only parallel; superseded in
+   production by `render_envelope`/`render_diameters`; retire once #238 lands.
 
-## Remaining — feature epics (need IR modelling; AFTER foundation #1–#2)
+## Remaining — feature epics (need IR modelling; AFTER the foundation track)
 
-Ordered by value / readiness. Each needs the modelling in its **Prereq** before the
-migrate-and-delete is even possible.
+Ordered by value / readiness. Each needs the **Prereq** modelling before the
+migrate-and-delete is possible. (Slots, turned diameters/lengths, centre marks, and
+envelope width/depth are already done — see [Done](#done).)
 
-| Engine pass (to delete) | Lives in | Prereq (new IR modelling) | Issue |
+| Issue | Engine pass (to delete) | Prereq (new IR modelling) | Priority |
 |---|---|---|---|
-| **prismatic step-height ladder** + **envelope height** + **OD** (`dim_step_*`, `_detect_step_repeat`, `_legible_steps`, `dim_height`, `dim_od`) — all coupled via the shared `fv_zones.right` ladder / `_right_ladder` cursor | orchestrator inline | a **prismatic-step `Feature`** (detection half-exists in `analyse_face_levels` → `step_zs`); rotational-OD modelling. Migrate the whole right-strip group together (zone-aware), folds in #230 (`N× rise`) + #222 (OD on profile) | NEW |
-| **holes**: callouts + location dims + `n×` grouping + pitch dims + balloons (`_annotate_holes` 1063 lines, `_add_location_dims`) | `holes.py` | **location datums** + **pattern pitch** + **hole-table escalation** in the IR — the largest single piece. Centre marks already done (#235) | #220 (+ NEW for tables/location) |
-| **slots** `_annotate_slots` | `holes.py` | a **slot detector** → `SlotFeature` | #199 → #206 |
-| **sections / detail views** `_add_section_view`, `_add_detail_view` | `sections.py` | planner **section-trigger** modelling (which features need a section) | #207 |
-| **PMI / GD&T** `_annotate_pmi` | `pmi.py` | a **PMI/thread detector** → GD&T `Feature`s | #200 → #208 |
+| **#238** | **holes**: callouts + location dims + `n×` grouping + pitch + balloons (`_annotate_holes` ~1063 lines, `_add_location_dims`) | **location datums** + pattern pitch in the IR; **feed** the existing table/balloon escalation (don't rebuild it, Amend. 4). Centre marks already done (#235) | **highest** — do first; #250 (planner intents) makes it cleaner |
+| **#207** | **sections / detail views** (`_add_section_view`, `_add_detail_view`) | planner **section-trigger** (which features need a section); rendering stays shared infra | medium |
+| **#200 → #208** | **PMI / GD&T** (`_annotate_pmi`) | a **PMI/thread detector** → GD&T `Feature`s | medium |
+| **#237** | **prismatic step-height ladder + envelope height + OD** (`dim_step_*`, `_detect_step_repeat`, `_legible_steps`, `dim_height`, `dim_od`) — coupled via the `fv_zones.right` / `_right_ladder` cursor | a **prismatic-step `Feature`** (`analyse_face_levels` → `step_zs`) + rotational classification/OD. Folds in #230, #222 | **deferred** — lowest frequency, highest complexity, worst ROI |
 
 When these land, the orchestrator's per-feature calls are gone and it reduces to
 `build model → plan → render`.
