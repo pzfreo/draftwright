@@ -101,8 +101,8 @@ def _annotations_out_of_bounds(dwg, a, tol: float = 1.0) -> bool:
     (#92).  Only view-owned annotations count — those are what a repack can move
     by escalating the sheet."""
     lo, hi_x, hi_y = a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin
-    for name, o in dwg._named.items():
-        if dwg._anno_view.get(name) not in ("front", "plan", "side"):
+    for name, o in dwg.iter_annotations():
+        if dwg.view_of(name) not in ("front", "plan", "side"):
             continue
         # Match the lint, which tests each item's FULL bounding_box (extension
         # lines, arrowheads, leader + balloon ring) — not just the label rect —

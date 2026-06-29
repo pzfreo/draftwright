@@ -163,7 +163,7 @@ def _add_section_view(dwg, a: Analysis, holes=None):
     if side_hid:
         side_right = max(side_right, side_hid.bounding_box().max.X)
     left_edge = side_right + 10
-    for name, ann in dwg._named.items():
+    for name, ann in dwg.iter_annotations():
         # past side-view callout labels and the height/step dim ladder
         if name.startswith(("hc_side", "dim_height", "dim_step")) and getattr(
             ann, "label_bbox", None
@@ -219,7 +219,7 @@ def _add_section_view(dwg, a: Analysis, holes=None):
     # the line and its letters must clear pattern centrelines that sweep
     # past the part outline (a corner-hole bolt circle is always wider)
     ext_x0, ext_x1 = PX(a.bb.min.X), PX(a.bb.max.X)
-    for name, ann in dwg._named.items():
+    for name, ann in dwg.iter_annotations():
         if name.startswith("bc_plan"):
             cb = ann.bounding_box()
             if cb.min.Y - 3 < y_page < cb.max.Y + 3:

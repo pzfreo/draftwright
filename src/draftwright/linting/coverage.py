@@ -232,8 +232,8 @@ def lint_location_coverage(
 
     marks: dict[str, list] = {}
     dim_verts: dict[str, list] = {}
-    for name, ann in dwg._named.items():
-        view = dwg._anno_view.get(name)
+    for name, ann in dwg.iter_annotations():
+        view = dwg.view_of(name)
         if view is None:
             continue
         if isinstance(ann, CenterMark):
@@ -311,8 +311,8 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
     shoulder_c = {s: shoulder_coord(s) for s in prof.shoulders}
     dim_csets: list[set[float]] = [
         {(x if use_x else y) for x, y in _dim_vertices(ann)}
-        for name, ann in dwg._named.items()
-        if dwg._anno_view.get(name) == "front" and isinstance(ann, Dimension)
+        for _name, ann in dwg.annotations_in_view("front")
+        if isinstance(ann, Dimension)
     ]
     covered = 0
     for step in prof.steps:

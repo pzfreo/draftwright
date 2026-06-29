@@ -523,11 +523,11 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # their space for the table and shrinks the obstacle set fit_box scans (the
     # dense parts have dozens), which is the dominant cost on heavy sheets (#93).
     replaced = {
-        n: dwg._named[n]
-        for n in list(dwg._named)
+        n: o
+        for n, o in list(dwg.iter_annotations())
         if n.startswith(("hc_plan", "dim_locx", "dim_locy")) and not dwg._is_pattern_callout(n)
     }
-    replaced_view = {n: dwg._anno_view.get(n) for n in replaced}
+    replaced_view = {n: dwg.view_of(n) for n in replaced}
     for n in replaced:
         dwg.remove(n)
 

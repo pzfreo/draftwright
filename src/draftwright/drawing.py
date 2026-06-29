@@ -591,6 +591,27 @@ class Drawing:
         """
         return self._registry.annotations()
 
+    def iter_annotations(self):
+        """Iterate ``(name, annotation object)`` for every named annotation.
+
+        The encapsulated read path for production code (lint, sheet, sections,
+        renderers): use this instead of reaching into ``dwg._named`` directly so the
+        registry stays the single owner of annotation identity (#241).
+        """
+        return self._registry.iter_named()
+
+    def view_of(self, name):
+        """The owning orthographic view for *name* ("front"/"plan"/"side"), or
+        ``None`` — instead of reading ``dwg._anno_view`` directly (#241)."""
+        return self._registry.view_of(name)
+
+    def annotations_in_view(self, view):
+        """Yield ``(name, annotation object)`` for the named annotations owned by
+        *view* — the common filter-by-view read (#241)."""
+        return (
+            (n, o) for n, o in self._registry.iter_named() if self._registry.view_of(n) == view
+        )
+
     def get_annotation(self, name):
         """Return the named annotation object, or ``None`` if no such name (#27)."""
         return self._registry.named(name)

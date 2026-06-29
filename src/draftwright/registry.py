@@ -55,6 +55,27 @@ class AnnotationRegistry:
         """The owning view for *name* ("front"/"plan"/"side"), or ``None``."""
         return self._anno_view.get(name)
 
+    def iter_named(self):
+        """Iterate ``(name, annotation object)`` for every named annotation — the
+        encapsulated read path (callers no longer touch ``_named`` directly, #241)."""
+        return self._named.items()
+
+    def replace_object(self, old, new) -> None:
+        """Swap annotation object *old* for *new* wherever it is named, keeping the
+        name → view binding (the repair loop's re-placement; #241)."""
+        for name, obj in self._named.items():
+            if obj is old:
+                self._named[name] = new
+
+    def snapshot(self) -> dict:
+        """An opaque snapshot of the name → object map, for restore() (repair undo)."""
+        return dict(self._named)
+
+    def restore(self, snap: dict) -> None:
+        """Restore a :meth:`snapshot` (repair undo of a net-worsening pass)."""
+        self._named.clear()
+        self._named.update(snap)
+
     def add(self, obj, name, view):
         """Register *obj* under *name* and record its owning *view*.
 
