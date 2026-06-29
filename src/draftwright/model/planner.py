@@ -127,6 +127,53 @@ def _datum_for(model: PartModel, param: DimParameter) -> Datum | None:
     return next((d for d in model.datums if d.id in param.refs), None)
 
 
+def plan_locations(model: PartModel) -> list[PlannedDimension]:
+    """Plan hole **location** dimensions — the *intent*: which features get located
+    and from which datum. The renderer owns the tier/legibility/zone layout
+    (Amendment 4). One ref per un-patterned Z-hole + one per Z-pattern (bolt-circle
+    centre, else the array member nearest the datum); coincident refs deduped. Each
+    returned `PlannedDimension` carries the datum and a `span` of datum → ref; the
+    renderer derives the X (plan) and Y (side) distances from it (#238)."""
+    datum = next((d for d in model.datums if d.id == "datum_xy"), None)
+    if datum is None:
+        return []
+    dx, dy, dz = datum.at
+    # (ref_point, role): role distinguishes a hole ref from a pattern ref — the
+    # renderer's concentric-bore exclusion applies to holes only (a bolt circle on
+    # the axis is still located by its centre), matching the engine.
+    refs: list[tuple[Point, str]] = []
+    for f in model.features:
+        if f.frame.axis != "z":
+            continue
+        if f.kind == "hole":
+            refs.append((f.frame.origin, "location"))  # un-patterned holes only
+        elif f.kind == "pattern":
+            members = getattr(f, "members", ())
+            if getattr(f, "pattern", None) == "bolt_circle":
+                refs.append((f.frame.origin, "location_pattern"))
+            elif members:
+                near = min(members, key=lambda m: (m[0] - dx) ** 2 + (m[1] - dy) ** 2)
+                refs.append((near, "location_pattern"))
+    unique: list[tuple[Point, str]] = []
+    for r, role in refs:
+        if not any(abs(r[0] - u[0]) < 0.5 and abs(r[1] - u[1]) < 0.5 for u, _ in unique):
+            unique.append((r, role))
+    return [
+        PlannedDimension(
+            param=DimParameter(
+                kind="location",
+                role=role,
+                value=0.0,  # a location is a 2-D offset; the renderer reads the span
+                span=((dx, dy, dz), (r[0], r[1], r[2])),
+                refs=(datum.id,),
+            ),
+            convention="location",
+            datum=datum,
+        )
+        for r, role in unique
+    ]
+
+
 def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
     view + planned dims, each carrying its render intent — convention, model-level

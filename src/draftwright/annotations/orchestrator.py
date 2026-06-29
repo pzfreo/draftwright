@@ -39,11 +39,11 @@ from draftwright.annotations.from_model import (
     render_centermarks,
     render_diameters,
     render_envelope,
+    render_locations,
     render_slots,
     render_step_lengths,
 )
 from draftwright.annotations.holes import (
-    _add_location_dims,
     _annotate_holes,
     _locate_off_axis_holes,
 )
@@ -275,7 +275,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         feature_patterns = [p for p in a.patterns if all(id(h) in present for h in p.holes)]
     if feature_holes:
         _annotate_holes(dwg, a, view_of_axis, feature_patterns, holes_in=feature_holes)
-        _add_location_dims(dwg, a, feature_patterns, holes_in=feature_holes)
+    # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
+    # through the existing above-view strips. Replaces the engine's _add_location_dims.
+    render_locations(dwg, _model, a)
 
     if a.cross_diams and a.is_rotational and not feature_holes:
         _log.info(
@@ -519,7 +521,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     replaced = {
         n: o
         for n, o in list(dwg.iter_annotations())
-        if n.startswith(("hc_plan", "dim_locx", "dim_locy")) and not dwg._is_pattern_callout(n)
+        if n.startswith(("hc_plan", "m_locx", "m_locy")) and not dwg._is_pattern_callout(n)
     }
     replaced_view = {n: dwg.view_of(n) for n in replaced}
     for n in replaced:

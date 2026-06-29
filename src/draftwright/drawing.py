@@ -711,7 +711,7 @@ class Drawing:
         # centrelines (bc_*) are crossable, not obstructions, so they are
         # excluded — their bolt-circle bbox would otherwise re-inflate the band.
         # Left/right/bottom are NOT stale: the deleted X-location dims only ever
-        # allocated into the above strip (dim_locy tiers above the *side* view,
+        # allocated into the above strip (m_locy tiers (the IR location renderer) above the *side* view,
         # the width dim below is never removed), so those keep their correct
         # shallow strip depth.
         top_dim = 0.0

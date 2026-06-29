@@ -15,9 +15,12 @@ not equivalence to the engine. `render_step_lengths` is wired into production;
 
 from __future__ import annotations
 
+import math
+
 from build123d_drafting.helpers import CenterMark, Dimension, HoleCallout, Leader, TitleBlock
 
 from draftwright._core import (
+    _CONCENTRIC_TOL_MM,
     _DIAM_RE,
     _END_ON,
     _MARGIN,
@@ -26,10 +29,13 @@ from draftwright._core import (
     _dim,
     _fmt,
     _greedy_strip_ys,
+    _iso_bbox,
+    _legible_locations,
+    _log,
     _solve_strip_ys,
 )
 from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
-from draftwright.model.planner import DimensionGroup, plan_dimensions
+from draftwright.model.planner import DimensionGroup, plan_dimensions, plan_locations
 
 # Which view + side an overall (envelope) dimension lands on, by its role.
 _ENVELOPE_PLACEMENT = {
@@ -280,6 +286,147 @@ def render_slots(dwg, model, a) -> int:
             else:
                 _drop("position", i, name)
     return count
+
+
+def render_locations(dwg, model, a) -> int:
+    """Baseline X/Y hole-location dims from the IR (#238). The planner decides the
+    intent (`plan_locations`: which refs, from which datum); this renderer owns the
+    layout (Amendment 4) — X dims tier above the plan view, Y dims above the side
+    view, nearest-datum-first, legibility-gated, allocated from the existing strips;
+    a ref with no room is dropped as `location_ref_dropped`. Replaces the engine's
+    `_add_location_dims`. Returns the count placed."""
+    planned = plan_locations(model)
+    if not planned:
+        return 0
+    draft = dwg.draft
+    datum = planned[0].datum
+    assert datum is not None  # plan_locations always sets the datum
+    datum_x, datum_y = datum.at[0], datum.at[1]
+    refs = []
+    for pd in planned:
+        if pd.param.span is None:
+            continue
+        rx, ry = pd.param.span[1][0], pd.param.span[1][1]
+        # A rotational part's on-axis (concentric) *hole* bore is located by the
+        # centreline, not a position dim (matches the engine's feature_holes
+        # filter). A pattern ref (role "location_pattern" — e.g. a bolt-circle
+        # centre) is NOT filtered, even on the axis.
+        if (
+            pd.param.role == "location"
+            and a.is_rotational
+            and math.hypot(rx - a.cx, ry - a.cy) <= _CONCENTRIC_TOL_MM
+        ):
+            continue
+        refs.append((rx, ry))
+    if not refs:
+        return 0
+    tier = draft.font_size + 2 * draft.pad_around_text
+    n = 0
+
+    # --- X locations: tier above the plan view ---
+    PX, PY = a.proj.plan_x, a.proj.plan_y
+    plan_top = PY(a.bb.max.Y)
+    x_refs: list = []
+    for r in refs:
+        if not any(abs(r[0] - u[0]) < 0.5 for u in x_refs):
+            x_refs.append(r)
+    _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
+    _kept_x, _n_x_close = _legible_locations(_x_drawable, a.SCALE)
+    if _n_x_close:
+        dwg._record_build_issue(
+            "warning",
+            "location_ref_dropped",
+            f"{_n_x_close} X location dim(s) too closely spaced to dimension legibly "
+            "(use a detail view)",
+        )
+    _kept_x_set = set(_kept_x)
+    x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
+    for nm, ann in dwg.iter_annotations():
+        if nm.startswith("dim_pitch_plan") and getattr(ann, "dim_level_y", 0) > plan_top:
+            a.pv_zones.above.allocate(10.0)  # consume space used by a pitch dim
+    for i, (rx, ry) in enumerate(sorted(x_refs, key=lambda r: abs(r[0] - datum_x))):
+        if abs(rx - datum_x) * a.SCALE < 1.0:
+            continue  # on the datum edge — nothing to dimension
+        _py = a.pv_zones.above.allocate(tier)
+        if _py is None:
+            dwg._record_build_issue(
+                "warning",
+                "location_ref_dropped",
+                f"X location dim for x={_fmt(rx)} not placed (no room above the plan view)",
+            )
+            continue
+        dwg.add(
+            _dim(
+                (PX(datum_x), PY(ry), 0),
+                (PX(rx), PY(ry), 0),
+                "above",
+                _py - PY(ry),
+                draft,
+                label=_fmt(rx - datum_x),
+            ),
+            f"m_locx{i}",
+            view="plan",
+        )
+        n += 1
+
+    # --- Y locations: tier above the side view (which maps world-Y horizontally) ---
+    SX, SZ = a.proj.side_x, a.proj.side_z
+    side_top = SZ(a.bb.max.Z)
+    iso_x0, iso_y0, _, _ = _iso_bbox(dwg)
+    y_refs: list = []
+    for r in refs:
+        if not any(abs(r[1] - u[1]) < 0.5 for u in y_refs):
+            y_refs.append(r)
+    _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
+    _kept_y, _n_y_close = _legible_locations(_y_drawable, a.SCALE)
+    if _n_y_close:
+        dwg._record_build_issue(
+            "warning",
+            "location_ref_dropped",
+            f"{_n_y_close} Y location dim(s) too closely spaced to dimension legibly "
+            "(use a detail view)",
+        )
+    _kept_y_set = set(_kept_y)
+    y_refs = [r for r in y_refs if r[1] not in _y_drawable or r[1] in _kept_y_set]
+    for nm, ann in dwg.iter_annotations():
+        if nm.startswith("dim_pitch_side") and getattr(ann, "dim_level_y", 0) > side_top:
+            a.sv_zones.above.allocate(10.0)
+    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry in y_refs):
+        cap = iso_y0 - 4
+        above = a.sv_zones.above
+        if cap > above._cursor:
+            above.outer_limit = min(above.outer_limit, cap)
+        else:
+            _log.warning(
+                "sv_zones.above cursor %.1f >= iso_y0 cap %.1f: Y-location dims may overlap iso",
+                above._cursor,
+                cap,
+            )
+    for i, (rx, ry) in enumerate(sorted(y_refs, key=lambda r: abs(r[1] - datum_y))):
+        if abs(ry - datum_y) * a.SCALE < 1.0:
+            continue
+        _py = a.sv_zones.above.allocate(tier)
+        if _py is None:
+            dwg._record_build_issue(
+                "warning",
+                "location_ref_dropped",
+                f"Y location dim for y={_fmt(ry)} not placed (no room above the side view)",
+            )
+            continue
+        dwg.add(
+            _dim(
+                (SX(datum_y), SZ(a.bb.max.Z), 0),
+                (SX(ry), SZ(a.bb.max.Z), 0),
+                "above",
+                _py - side_top,
+                draft,
+                label=_fmt(ry - datum_y),
+            ),
+            f"m_locy{i}",
+            view="side",
+        )
+        n += 1
+    return n
 
 
 def render_centermarks(dwg, model) -> int:
