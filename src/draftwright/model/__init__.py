@@ -1,14 +1,17 @@
-"""The part-drawing compiler IR — prototype (ADR 0008).
+"""The part-drawing compiler IR (ADR 0008).
 
-A vertical slice proving the architecture: a stable intermediate representation
-(`PartModel` of `Feature` objects exposing `DimParameter`s) sitting between the
-feature *detectors* (front-ends adapting the recognition heuristics) and a
-*dimensioning planner* (back-end). The narrow waist that lets new shapes be new
-types, not new branches.
+A stable intermediate representation (`PartModel` of `Feature` objects exposing
+`DimParameter`s) sitting between the feature *detectors* (front-ends adapting the
+recognition heuristics) and a *dimensioning planner* (back-end). The narrow waist
+that lets new shapes be new types, not new branches.
 
-**Prototype status:** not yet wired into `build_drawing`. It builds a model from a
-real solid and plans dimensions, exercised by `tests/test_part_model.py`, to
-de-risk the protocol before any production rewiring (ADR 0008 migration step 1).
+**Status:** wired into `build_drawing` in production (ADR 0008 convergence,
+in progress). `build_part_model` is built once per build from `_analyse`'s single
+feature inventory (Amendment 5) and consumed by the renderers in
+`annotations/from_model.py` (turned step lengths/diameters, centre marks, envelope
+width/depth, slots) and by the lint coverage checks. Remaining engine passes
+(holes, sections, PMI, the prismatic step-ladder) are migrating onto it — see
+`docs/plans/0008-convergence-roadmap.md`.
 
 - :mod:`.ir` — the IR: `DimParameter`, `Datum`, `Frame`, the `Feature` protocol,
   the concrete feature types, and `PartModel`.

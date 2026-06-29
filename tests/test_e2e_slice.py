@@ -6,10 +6,11 @@ pipeline (`build_drawing(auto_dims=False)` gives only the view scaffold), judged
 **correctness** (lint passes, coverage complete, it exports) — *not* by equivalence
 to the engine.
 
-Scope today: hole callouts, **placed clear of the views and of each other** via the
-layout search (no more naive fixed offsets). The remaining gap the slice surfaces is
-overall/envelope + OD dims, which the new path doesn't produce yet — so a part with
-an un-dimensioned OD (e.g. a flange) still lints with `feature_not_dimensioned`.
+Scope: the IR-driven hole callouts + envelope width/depth (`render_into`), **placed
+clear of the views and of each other** via the layout search. The drawing lints
+clean for prismatic plates and simple rotational parts. `render_into` is the
+test-only demonstration path (production uses the per-feature renderers wired into
+the orchestrator); it is retired once the holes epic supersedes it (#251).
 """
 
 import os

@@ -1,4 +1,4 @@
-"""Prototype tests for the part-drawing compiler IR (ADR 0008).
+"""Tests for the part-drawing compiler IR (ADR 0008).
 
 Proves the architecture's claims on real geometry:
 1. Diverse features (holes + turned steps + bosses), from different detectors,
