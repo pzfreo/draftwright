@@ -27,37 +27,45 @@ Every migration PR must:
 
 - IR + planner + detectors + renderer seam + lint-as-correctness-judge
   (#194, #211, #212, #213, #218, #219).
-- **Turned step lengths** — engine X-chain + Z-ladder *deleted*, replaced by one
-  IR chain (orientation = projected span direction). The template (#223 / #231).
+- **Cross-cutting cleanup** — `render` moved out of `model/`; duplication
+  consolidated (`_END_ON`/`_xyz`/leader paths); the `PartModel` is built **once**
+  per drawing and threaded (#221 / #229, PR #233).
+- **Turned step lengths** — engine X-chain + Z-ladder *deleted*, one IR chain
+  (orientation = projected span direction). The template (#223 / #231).
+- **Turned diameters** — `_annotate_turned_diameters` *deleted*;
+  `annotations/turned.py` gone; ø leaders row-below (X) / column-left (Z) from the
+  IR (PR #234).
+- **Hole centre marks** — inline `cm_` loop *deleted*; IR `render_centermarks`
+  (PR #235).
+- **Envelope width/depth** — inline blocks *deleted*; the **first zone-aware** IR
+  renderer (`render_envelope`, places through the engine's below-strips so it
+  coordinates with un-migrated passes) (PR #236).
 
-## The convergence backlog (engine passes still to migrate + delete)
+The mechanically-tractable migrate-and-delete work is done. **What remains needs
+new IR modelling, not a mechanical loop** — each is a design epic (below).
 
-Ordered worst-handled-first (most value / de-risk first). Each row is one (or a
-few) migrate-and-delete PRs.
+## Remaining — design epics (need IR modelling, not loop iterations)
 
-| # | Engine pass (to delete) | Lives in | Migrates to | Notes |
-|---|---|---|---|---|
-| 1 | turned **diameters** `_annotate_turned_diameters` | `turned.py` | `StepFeature`/`BossFeature` diameter render | pairs naturally with the step-length chain already migrated |
-| 2 | **holes**: callouts + centre marks + location dims + `n×` grouping (`_annotate_holes`, `_add_location_dims`, inline `cm_`) | `holes.py`, orchestrator | `HoleFeature`/`PatternFeature` + planner location rule + render (folds in #220) | the largest pass; needs datum/location modelling in the IR. **Migrate-and-delete, not the `render_into` parallel.** |
-| 3 | **envelope** dims (`dim_width`/`dim_height`/`dim_depth`) + **OD** (`dim_od`) | orchestrator inline | `EnvelopeFeature` (exists) + planner/render | partly prototyped in `render_into`; wire to production and delete the inline code. Fixes #222 (rotational OD on profile). |
-| 4 | **prismatic step-height ladder** (`dim_step_*`, `_detect_step_repeat`, `_legible_steps`) | orchestrator inline | a prismatic step `Feature` + planner rule | the last turned/stepped remnant; reunifies with the step chain. Folds in #230 (`N× rise`). |
-| 5 | **slots** `_annotate_slots` | `holes.py` | `SlotFeature` + planner/render | needs the slot detector (#199) → render (#206). |
-| 6 | **sections / detail views** `_add_section_view`, `_add_detail_view` | `sections.py` | planner-triggered from features needing them | #207; the planner decides when a feature needs a section. |
-| 7 | **PMI / GD&T** `_annotate_pmi` | `pmi.py` | thread/GD&T `Feature`s + planner/render | needs the PMI detector (#200) → placement (#208). |
+Ordered by value / readiness. Each needs the modelling in its **Prereq** before the
+migrate-and-delete is even possible.
 
-When rows 1–7 land, the orchestrator's per-feature calls are gone and it reduces to
+| Engine pass (to delete) | Lives in | Prereq (new IR modelling) | Issue |
+|---|---|---|---|
+| **prismatic step-height ladder** + **envelope height** + **OD** (`dim_step_*`, `_detect_step_repeat`, `_legible_steps`, `dim_height`, `dim_od`) — all coupled via the shared `fv_zones.right` ladder / `_right_ladder` cursor | orchestrator inline | a **prismatic-step `Feature`** (detection half-exists in `analyse_face_levels` → `step_zs`); rotational-OD modelling. Migrate the whole right-strip group together (zone-aware), folds in #230 (`N× rise`) + #222 (OD on profile) | NEW |
+| **holes**: callouts + location dims + `n×` grouping + pitch dims + balloons (`_annotate_holes` 1063 lines, `_add_location_dims`) | `holes.py` | **location datums** + **pattern pitch** + **hole-table escalation** in the IR — the largest single piece. Centre marks already done (#235) | #220 (+ NEW for tables/location) |
+| **slots** `_annotate_slots` | `holes.py` | a **slot detector** → `SlotFeature` | #199 → #206 |
+| **sections / detail views** `_add_section_view`, `_add_detail_view` | `sections.py` | planner **section-trigger** modelling (which features need a section) | #207 |
+| **PMI / GD&T** `_annotate_pmi` | `pmi.py` | a **PMI/thread detector** → GD&T `Feature`s | #200 → #208 |
+
+When these land, the orchestrator's per-feature calls are gone and it reduces to
 `build model → plan → render`.
 
-## Cross-cutting (do alongside, not after)
+## Cross-cutting (remaining)
 
-- **#221** — move `render` out of `model/` + consolidate the duplication that
-  accreted (the two leader paths, `_END_ON`, `_pt`/`_loc_xyz`, drawing-introspection
-  helpers). Do early — before more renderers pile on.
-- **#229** — build the `PartModel` once per drawing and thread it (the orchestrator
-  currently rebuilds it); kills per-pass recompute as more passes consume the IR.
-- **Retire `render_into`'s test-only parallel** — its hole/envelope/OD capability is
-  superseded by rows 2–3 *in production*; once those land, delete the scaffold so no
-  divergent path lingers.
+- **Retire `render_into`'s test-only parallel** — its hole/envelope/OD capability
+  is superseded *in production* as the holes + envelope-height epics land; delete
+  the scaffold then so no divergent path lingers. (`render_callouts`/`render_into`
+  currently drive only the seam + e2e-slice tests.)
 
 ## Definition of done (the whole ADR)
 
