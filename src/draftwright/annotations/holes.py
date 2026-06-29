@@ -20,6 +20,7 @@ from draftwright._core import (
     _TB_CLEAR,
     _TB_H,
     Analysis,
+    HoleRef,
     _axis_letter,
     _dim,
     _fmt,
@@ -216,8 +217,9 @@ def _add_furniture(dwg, a: Analysis, view, j, pattern, to_page):
         # tabulates only the holes no *placed* pattern callout covers (#92).
         # Recording here (callout already placed) — not from a.patterns — means a
         # pattern dropped for lack of room, or filtered off a rotational part,
-        # correctly falls back to the table instead of going undocumented.
-        dwg._cover_pattern(f"hc_{view}{j}", pattern.holes)
+        # correctly falls back to the table instead of going undocumented. Cover is
+        # keyed by position (HoleRef), not the recogniser Hole (Amendment 6).
+        dwg._cover_pattern(f"hc_{view}{j}", [HoleRef.of(h.location) for h in pattern.holes])
     if isinstance(pattern, BoltCircle):
         cx = sum(to_page(h)[0] for h in pattern.holes) / len(pattern.holes)
         cy = sum(to_page(h)[1] for h in pattern.holes) / len(pattern.holes)

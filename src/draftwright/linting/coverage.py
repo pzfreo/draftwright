@@ -18,11 +18,12 @@ Part of the :mod:`draftwright.linting` package (ADR 0007):
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Literal
 
 from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
 
-from draftwright._core import _DIAM_RE, _END_ON, _axis_letter, _fmt, _xyz
+from draftwright._core import _DIAM_RE, _END_ON, HoleRef, _axis_letter, _fmt, _xyz
 from draftwright.linting.issues import LintIssue
 from draftwright.recognition import (
     analyse_cylinders,
@@ -62,19 +63,21 @@ class CoverageState:
 
     # -- pattern coverage -----------------------------------------------------
 
-    def cover_pattern(self, callout_name, holes) -> None:
-        """Record that placed *callout_name* documents *holes* (a grouped
-        pattern callout) — so neither becomes a table row or per-hole balloon."""
+    def cover_pattern(self, callout_name, refs: Iterable[HoleRef]) -> None:
+        """Record that placed *callout_name* documents the holes at *refs* (a grouped
+        pattern callout) — so neither becomes a table row or per-hole balloon. *refs*
+        are :class:`HoleRef` position keys, not recogniser ``Hole`` objects, so the
+        shared escalation stays IR-typed (ADR 0008 Amendment 6)."""
         self._pattern_callouts.add(callout_name)
-        self._patterned_holes.update(holes)
+        self._patterned_holes.update(refs)
 
     def is_pattern_callout(self, name) -> bool:
         """Is *name* a placed pattern (grouped ``n× ⌀``) callout?"""
         return name in self._pattern_callouts
 
-    def is_hole_patterned(self, hole) -> bool:
-        """Is *hole* already documented by a placed pattern callout?"""
-        return hole in self._patterned_holes
+    def is_hole_patterned(self, ref: HoleRef) -> bool:
+        """Is the hole at *ref* already documented by a placed pattern callout?"""
+        return ref in self._patterned_holes
 
     # -- dropped diameters ----------------------------------------------------
 

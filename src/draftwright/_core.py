@@ -56,6 +56,23 @@ def _xyz(loc) -> tuple[float, float, float]:
     return (float(x), float(y), float(z))
 
 
+@dataclass(frozen=True)
+class HoleRef:
+    """A position-keyed reference to a hole — the IR-typed value the cover / hole-table
+    bookkeeping matches on, so the shared escalation never needs a recogniser ``Hole``
+    object (ADR 0008 Amendment 6). Built from any location via :meth:`of` (rounded, so
+    two references at the same position compare equal)."""
+
+    x: float
+    y: float
+    z: float
+
+    @classmethod
+    def of(cls, loc) -> HoleRef:
+        x, y, z = _xyz(loc)
+        return cls(round(x, 3), round(y, 3), round(z, 3))
+
+
 _FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
 
 
