@@ -251,9 +251,9 @@ def test_feature_detection_runs_once_per_build(monkeypatch):
     (was: holes/patterns/slots 2×, turned steps 3×)."""
     from build123d import Cylinder, Pos, Rotation
 
-    from draftwright import build_drawing
     import draftwright.analysis as anmod
     import draftwright.model.detect as dmod
+    from draftwright import build_drawing
 
     counts: dict[str, int] = {}
     for name in ("find_holes", "find_hole_patterns", "find_slots", "find_turned_steps"):
