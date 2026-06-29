@@ -2404,7 +2404,7 @@ class TestAutoHoleAnnotations:
 
     @pytest.mark.timeout(120)
     def test_every_hole_gets_a_centre_mark(self, plate_drawing):
-        cm = [n for n in plate_drawing._named if n.startswith("cm_")]
+        cm = [n for n in plate_drawing._named if n.startswith("m_cm")]
         assert len(cm) == 7  # 6 z-holes in plan + 1 x-hole in side
         assert all(plate_drawing._named[n].is_centerline for n in cm)
 
@@ -2483,7 +2483,7 @@ class TestAutoHoleAnnotations:
         assert "ldr_z0" in dwg._named
         assert not any(n.startswith("hc_") for n in dwg._named)
         # the central bore still gets a centre mark in the plan view
-        assert any(n.startswith("cm_plan") for n in dwg._named)
+        assert any(n.startswith("m_cm") and dwg._anno_view.get(n) == "plan" for n in dwg._named)
 
     @pytest.mark.timeout(60)
     def test_plan_bore_leaders_elbow_outside_view(self):

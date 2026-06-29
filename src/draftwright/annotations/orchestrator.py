@@ -17,7 +17,6 @@ import math
 
 from build123d_drafting.helpers import (
     Centerline,
-    CenterMark,
     Leader,
 )
 
@@ -38,7 +37,11 @@ from draftwright._core import (
     _log,
     _tag_sequence,
 )
-from draftwright.annotations.from_model import render_diameters, render_step_lengths
+from draftwright.annotations.from_model import (
+    render_centermarks,
+    render_diameters,
+    render_step_lengths,
+)
 from draftwright.annotations.holes import (
     _add_location_dims,
     _annotate_holes,
@@ -248,11 +251,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         "x": ("side", lambda h: (SX(h.location[1]), SZ(h.location[2]))),
     }
 
-    # Centre marks for every hole (all part classes)
-    for i, h in enumerate(a.holes):
-        view, to_page = view_of_axis[_axis_letter(h)]
-        size = max(2.5, h.diameter * a.SCALE + 2.0)
-        dwg.add(CenterMark(to_page(h), size, draft), f"cm_{view}{i}", view=view)
+    # The part model — built once and rendered from for the IR-migrated passes
+    # (centre marks, turned diameters/lengths); ADR 0008 convergence / #229.
+    _model = build_part_model(a.part)
+
+    # Centre marks for every hole (all part classes) — IR renderer.
+    render_centermarks(dwg, _model)
 
     # Hole callouts, location dims, and the section view fire on *feature
     # presence*, independent of the turned/prismatic class (#10): the
@@ -444,7 +448,6 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     #    (#223). Replaces the old X-only chain + the Z step-height ladder (skipped
     #    above for turned parts); the envelope dim along the turning axis was
     #    suppressed so the chain does not double-dimension the length.
-    _model = build_part_model(a.part)
     render_diameters(dwg, _model)
     if _turned_prof is not None:
         render_step_lengths(dwg, _model)
