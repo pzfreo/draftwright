@@ -21,6 +21,8 @@ from draftwright._core import (
     _DIAM_RE,
     _END_ON,
     _MARGIN,
+    _SLOT_DIM_DEPTH,
+    _SLOT_DIM_WIDTH,
     _dim,
     _fmt,
     _greedy_strip_ys,
@@ -301,6 +303,70 @@ def render_diameters(dwg, model, tol: float = 0.15) -> int:
         elif axis == "z":
             cols.append((g.anchor, dia))
     return _diameter_row_below(dwg, rows) + _diameter_column_left(dwg, cols)
+
+
+def _env_param(group, role):
+    """The EnvelopeFeature DimParameter with the given role (width/depth/height)."""
+    return next((pd.param for pd in group.dims if pd.param.role == role), None)
+
+
+def render_envelope(dwg, model, a, *, suppress_width: bool = False) -> int:
+    """Overall width (plan, below) + depth (side, below) envelope dims via the IR,
+    placed through the engine's below-strip zone allocators (the zone-aware render
+    stage — so a migrated dim still coordinates with the un-migrated passes sharing
+    those strips). Sources values/spans from `EnvelopeFeature`. Skips a square
+    footprint (a single dim suffices) and, when *suppress_width*, the width (an
+    X-turned part's step chain already conveys the length, ISO 129). Returns the
+    count placed."""
+    env = next((g for g in plan_dimensions(model) if g.feature_kind == "envelope"), None)
+    if env is None:
+        return 0
+    width, depth = _env_param(env, "width"), _env_param(env, "depth")
+    if width is None or depth is None:
+        return 0
+    # Square footprint: width ≈ depth → one dim suffices (the engine's gate).
+    if abs(width.value - depth.value) <= max(width.value, depth.value) * 0.05:
+        return 0
+    n = 0
+    if not suppress_width and width.span is not None:
+        (x0, y0, z0), (x1, _, _) = width.span
+        p1, p2 = dwg.at("plan", x0, y0, z0), dwg.at("plan", x1, y0, z0)
+        witness = p1[1] - 2
+        py = a.pv_zones.below.allocate(_SLOT_DIM_WIDTH)
+        if py is not None:
+            dwg.add(
+                _dim(
+                    (p1[0], witness, 0),
+                    (p2[0], witness, 0),
+                    "below",
+                    witness - py,
+                    dwg.draft,
+                    label=_fmt(width.value),
+                ),
+                "m_env_width",
+                view="plan",
+            )
+            n += 1
+    if depth.span is not None:
+        (x0, y0, z0), (_, y1, _) = depth.span
+        p1, p2 = dwg.at("side", x0, y0, z0), dwg.at("side", x0, y1, z0)
+        witness = p1[1] - 2
+        pd = a.sv_zones.below.allocate(_SLOT_DIM_DEPTH)
+        if pd is not None:
+            dwg.add(
+                _dim(
+                    (p1[0], witness, 0),
+                    (p2[0], witness, 0),
+                    "below",
+                    witness - pd,
+                    dwg.draft,
+                    label=_fmt(depth.value),
+                ),
+                "m_env_depth",
+                view="side",
+            )
+            n += 1
+    return n
 
 
 def _envelope_dims(dwg, group) -> list[tuple[Dimension, str]]:
