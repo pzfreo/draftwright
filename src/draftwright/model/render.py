@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from build123d_drafting.helpers import Dimension, HoleCallout, Leader
 
-from draftwright._core import _dim, _fmt
+from draftwright._core import _MARGIN, _dim, _fmt, _greedy_strip_ys, _solve_strip_ys
 from draftwright.annotations._common import _anno_box, _box_hits
 from draftwright.model.planner import DimensionGroup, plan_dimensions
 
@@ -179,6 +179,81 @@ def _envelope_dims(dwg, group) -> list[tuple[Dimension, str]]:
         )
         out.append((dim, view))
     return out
+
+
+def render_step_lengths(dwg, model) -> int:
+    """Unified turned step-length chain (ADR 0008 #223) — one IR-driven path that
+    replaces the engine's asymmetric X-chain / Z-ladder. Each `StepFeature`'s length
+    span is projected into the front view; the chain runs *along the projected axis*
+    just outside the view — **horizontal** for an X-turned part, **vertical** for a
+    Z-turned part. Orientation is the projected span direction, not a branch, so X
+    and Z get the same complete chain. Returns the number of step dims placed.
+
+    The chain is collinear (all segments share one offset line) and tiles end to
+    end, so every shoulder is located. Crowded labels are spread along the line by
+    the ADR-0003 strip solve (the primitive the engine's X chain already used)."""
+    segs = []  # (page_lo, page_hi, value), in axis order
+    for g in plan_dimensions(model):
+        if g.feature_kind != "step":
+            continue
+        length = next(
+            (pd.param for pd in g.dims if pd.param.kind == "length" and pd.param.span is not None),
+            None,
+        )
+        if length is None or length.span is None:
+            continue
+        a, b = length.span
+        pa, pb = dwg.at("front", *a), dwg.at("front", *b)
+        segs.append((pa, pb, length.value))
+    if not segs:
+        return 0
+    vb = dwg.view_bounds("front")
+    if vb is None:
+        return 0
+    x0, y0, x1, y1 = vb
+    draft = dwg.draft
+    gap = draft.font_size + 4 * draft.pad_around_text
+    # Orientation is data: the projected span direction. Horizontal → X-turned
+    # (chain above the view); vertical → Z-turned (chain left of the view).
+    horizontal = abs(segs[0][1][0] - segs[0][0][0]) >= abs(segs[0][1][1] - segs[0][0][1])
+
+    # Spread crowded labels along a horizontal chain (ADR-0003 strip solve), then
+    # carry each label back to its segment via label_offset_x (the only along-line
+    # offset the Dimension primitive supports). A vertical chain places plain dims.
+    offsets = [0.0] * len(segs)
+    if horizontal:
+        centers = [(pa[0] + pb[0]) / 2 for pa, pb, _ in segs]
+        half_w = max(len(_fmt(v)) for *_, v in segs) * draft.font_size * 0.62 / 2
+        min_gap = 2 * half_w + 2 * draft.pad_around_text
+        solved = _solve_strip_ys(centers, min_gap, x0 + half_w, x1 - half_w) or _greedy_strip_ys(
+            centers, min_gap, x0 + half_w, x1 - half_w
+        )
+        if solved:
+            offsets = [s - c for s, c in zip(solved, centers)]
+
+    candidates = []
+    for i, (pa, pb, value) in enumerate(segs):
+        if horizontal:  # X-turned: chain above the view, witnesses rise from the top
+            p1, p2, side = (pa[0], y1, 0), (pb[0], y1, 0), "above"
+            kw = {"label": _fmt(value), "label_offset_x": offsets[i]}
+        else:  # Z-turned: chain right of the view (the clear zone), witnesses from the right edge
+            p1, p2, side = (x1, pa[1], 0), (x1, pb[1], 0), "right"
+            kw = {"label": _fmt(value)}
+        candidates.append((f"m_steplen{i}", _dim(p1, p2, side, gap, draft, **kw)))
+
+    # Room guard (the engine's contract): if any dim would fall off the drawable
+    # page, place NONE and let lint report axial_length_missing — never run the
+    # chain off the page edge.
+    page = (_MARGIN, _MARGIN, dwg.page_w - _MARGIN, dwg.page_h - _MARGIN)
+    for _, dim in candidates:
+        box = _anno_box(dim)
+        if box is not None and not (
+            page[0] <= box[0] and box[2] <= page[2] and page[1] <= box[1] and box[3] <= page[3]
+        ):
+            return 0
+    for name, dim in candidates:
+        dwg.add(dim, name, view="front")
+    return len(candidates)
 
 
 def render_into(dwg, model) -> int:

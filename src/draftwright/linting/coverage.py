@@ -282,27 +282,42 @@ def lint_location_coverage(part, dwg, cyls=None, assembly=None, tol: float = 0.6
 
 
 def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
-    """How many of an X-turned part's step lengths are dimensioned **in the
-    drawing** — a step counts as covered when some front-view ``Dimension`` has
-    witnesses at both of its shoulders' page-x positions. Drawing-derived, so it
-    judges any producer (not the engine's :class:`CoverageState` side channel)."""
+    """How many of a turned part's step lengths are dimensioned **in the drawing**
+    — a step counts as covered when some front-view ``Dimension`` has witnesses at
+    both of its shoulders' page positions. Drawing-derived, so it judges any
+    producer (not the engine's :class:`CoverageState` side channel).
+
+    Works for both turning axes (orientation is data): an X-turned shaft's chain is
+    horizontal, so shoulders separate along page-x; a Z-turned shaft's chain is
+    vertical, so they separate along page-y. We match along whichever the chain
+    runs (page-x for X, page-y for Z)."""
     bb = part.bounding_box()
-    y_ref, z_top = bb.center().Y, bb.max.Z
-    shoulder_x = {s: dwg.at("front", s, y_ref, z_top)[0] for s in prof.shoulders}
-    dim_xsets: list[set[float]] = []
+    c = bb.center()
+    idx = "xyz".index(prof.axis)
+    base = [c.X, c.Y, c.Z]
+    use_x = prof.axis == "x"  # horizontal chain → match page-x; else vertical → page-y
+
+    def shoulder_coord(s: float) -> float:
+        pt = list(base)
+        pt[idx] = s
+        px, py, *_ = dwg.at("front", *pt)
+        return float(px if use_x else py)
+
+    shoulder_c = {s: shoulder_coord(s) for s in prof.shoulders}
+    dim_csets: list[set[float]] = []
     for name, ann in dwg._named.items():
         if dwg._anno_view.get(name) != "front" or not isinstance(ann, Dimension):
             continue
         try:
-            dim_xsets.append({p.X for p in ann.vertices()})
+            dim_csets.append({(p.X if use_x else p.Y) for p in ann.vertices()})
         except Exception:  # noqa: BLE001 — a dim whose vertices won't evaluate is skipped
             pass
     covered = 0
     for step in prof.steps:
-        xlo, xhi = shoulder_x[step.lo], shoulder_x[step.hi]
+        clo, chi = shoulder_c[step.lo], shoulder_c[step.hi]
         if any(
-            any(abs(x - xlo) <= tol for x in xs) and any(abs(x - xhi) <= tol for x in xs)
-            for xs in dim_xsets
+            any(abs(v - clo) <= tol for v in cs) and any(abs(v - chi) <= tol for v in cs)
+            for cs in dim_csets
         ):
             covered += 1
     return covered
@@ -319,16 +334,14 @@ def lint_axial_coverage(part, dwg, assembly=None) -> list:
 
     *dwg* is the drawing, duck-typed (needs ``at``/``_named``/``_anno_view``).
 
-    Scoped to **X-axis** turning (a shaft drawn on its side) — the gap the
-    step-length pass fills. The other orientations are covered elsewhere, so
-    flagging them here would be a false positive: a **Z-axis** (vertical) stepped
-    shaft is dimensioned by the orchestrator's existing step-height ladder
-    (``dim_step_*``, with its own ``step_dim_dropped`` signal), and a **Y-axis**
-    part is drawn end-on (no view shows its length). Severity mirrors
+    Covers **X- and Z-axis** turning: both are now located by the unified IR
+    step-length chain (ADR 0008 #223), so a missing chain on either is a real gap
+    (e.g. the chain skipped for want of page room). Only **Y-axis** turning is
+    excluded — it is drawn end-on, so no view shows its length. Severity mirrors
     :func:`lint_feature_coverage`: ``info`` for an assembly, else ``warning``.
     """
     prof = find_turned_steps(part)
-    if prof is None or prof.axis != "x":
+    if prof is None or prof.axis == "y":
         return []
     if assembly is None:
         assembly = len(part.solids()) > 1
