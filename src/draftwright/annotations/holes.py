@@ -32,6 +32,7 @@ from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxe
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
 from draftwright.layout import LayoutSolver, Placeable
 from draftwright.model import plan_dimensions
+from draftwright.model.ir import HoleFeature, PatternFeature
 
 
 def _legible_locations(positions, scale):
@@ -204,7 +205,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
             _drop("Z", order[0][1])
 
 
-def _add_furniture(dwg, a: Analysis, view, j, feat, to_page):
+def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_page):
     """Pattern sheet furniture, added once its callout is placed (#92). Driven by the
     IR `PatternFeature` *feat* (members / bcd / pitch / grid), not a recogniser
     `Pattern` — ADR 0008 Amendment 6."""
@@ -216,10 +217,12 @@ def _add_furniture(dwg, a: Analysis, view, j, feat, to_page):
     # tabulates only the holes no *placed* pattern callout covers (#92).
     dwg._cover_pattern(f"hc_{view}{j}", [HoleRef.of(m) for m in members])
     if feat.pattern == "bolt_circle":
+        assert feat.bcd is not None  # a bolt circle always carries its BCD
         cx = sum(to_page(m)[0] for m in members) / len(members)
         cy = sum(to_page(m)[1] for m in members) / len(members)
         dwg.add(CenterlineCircle((cx, cy), feat.bcd * a.SCALE), f"bc_{view}{j}", view=view)
     elif feat.pattern == "linear":
+        assert feat.pitch is not None  # a linear array always carries its pitch
         _place_pitch_dim(
             dwg,
             a,
@@ -232,6 +235,7 @@ def _add_furniture(dwg, a: Analysis, view, j, feat, to_page):
             f"dim_pitch_{view}{j}",
         )
     elif feat.pattern == "grid":
+        assert feat.grid is not None  # a grid always carries its (row, col) pitch
         _add_grid_pitch_dims(dwg, a, view, j, members, feat.grid, to_page)
 
 
@@ -473,18 +477,18 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, feature_keys):
     # members are dimensioned; no recogniser Hole/Pattern object is used.
     by_view: dict = {}
     for g in plan_dimensions(model):
-        if g.feature_kind not in ("hole", "pattern"):
+        feat = g.feature
+        if not isinstance(feat, HoleFeature | PatternFeature):
             continue
-        members = getattr(g.feature, "members", ()) or (g.anchor,)
+        members = feat.members or (g.anchor,)
         # surviving member *locations* (IR geometry — no recogniser Hole, Amendment 6)
         locs = [m for m in members if HoleRef.of(m) in feature_keys]
         if not locs:  # all members filtered out (e.g. concentric bore, rotational)
             continue
         # A pattern earns its sheet furniture (centre-line / pitch dims) only if ALL
         # its members survived the feature-holes filter — the engine's feature_patterns
-        # gate. Otherwise the surviving members are placed as plain holes. The callout
-        # itself always comes from the IR group (so a grouped suffix is preserved).
-        feat = g.feature if g.feature_kind == "pattern" and len(locs) == len(members) else None
+        # gate. Otherwise the surviving members are placed as plain holes.
+        pat = feat if isinstance(feat, PatternFeature) and len(locs) == len(members) else None
         spec = hole_callout_spec(g)
         if spec is None:  # not a hole-bearing callout
             continue
@@ -492,15 +496,15 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, feature_keys):
         # concentric bore on a rotational part) is rendered as plain holes — drop its
         # pattern suffix too, so the callout doesn't claim "EQ SP ON … BC" / "(r×c)"
         # for a subset with no centre-line/pitch furniture (#262; matches the engine).
-        if g.feature_kind == "pattern" and feat is None:
+        if isinstance(feat, PatternFeature) and pat is None:
             spec = {**spec, "suffix": None}
         dia = spec["diameter"]  # bore diameter (mm), for the leader rim tip
         count = len(locs) if len(locs) > 1 else None
         callout = callout_from_spec(spec, draft, count)
         if callout is None:
             continue
-        view = view_of_axis[g.feature.frame.axis][0]
-        by_view.setdefault(view, []).append((locs, dia, callout, feat))
+        view = view_of_axis[feat.frame.axis][0]
+        by_view.setdefault(view, []).append((locs, dia, callout, pat))
 
     def _rim_tip(centre, elbow, dia):
         """Pull the tip from the hole centre to its circumference (bore *dia* mm)."""
