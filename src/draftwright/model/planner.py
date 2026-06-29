@@ -13,8 +13,9 @@ contract was tightened twice under adversarial review of the counterbore work:
   do not emit spurious duplicates. Genuine redundancy/count of *repeated identical
   features* ("3× ø8") is upstream (pattern detection), not here.
 
-Prototype scope: convention + group view selection. The full ISO/ASME rule set
-grows here as real features demand it.
+Current scope: convention + group view selection. Richer render intents
+(suppression / datum / grouping) are the next planned increment (#250); the full
+ISO/ASME rule set grows here as real features demand it.
 """
 
 from __future__ import annotations

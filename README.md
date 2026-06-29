@@ -118,7 +118,10 @@ generation, the lint→repair loop, and the constraint-based layout engine).
 
 ## Architecture
 
-draftwright is a single module (`make_drawing.py`) on top of two libraries:
+draftwright is structured as a **part-drawing compiler** (ADR 0008): feature
+detectors → a `PartModel` IR (`Feature`s exposing `DimParameter`s) → a dimensioning
+planner → renderers, feeding a shared layout/projection/export stack. It builds on
+two libraries:
 
 ```
 draftwright
@@ -126,7 +129,10 @@ draftwright
     └── build123d                   — CAD kernel
 ```
 
-The engine handles view layout (strip/zone model), scale selection, feature recognition
-(holes, bosses, bolt circles), annotation placement, and section view generation.
-Annotation primitives (`Dimension`, `Leader`, `lint_drawing`, etc.) live in
-`build123d-drafting-helpers` and can be used independently.
+It owns feature recognition (`recognition/`) and linting (`linting/`); annotation
+primitives (`Dimension`, `Leader`, etc.) live in `build123d-drafting-helpers` and can
+be used independently. The compiler is converging in production (turned dims/lengths,
+centre marks, envelope, slots are on the IR; holes/sections/PMI are migrating) — see
+[`docs/target-architecture.md`](docs/target-architecture.md) and
+[`docs/adr/`](docs/adr/). The engine handles view layout (strip/zone model), scale
+selection, annotation placement, and section views.

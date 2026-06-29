@@ -583,12 +583,16 @@ def render_step_lengths(dwg, model) -> int:
 
 
 def render_into(dwg, model) -> int:
-    """The end-to-end seam: plan *model* and **add** its annotations to *dwg*
-    (which must already have its views, e.g. ``build_drawing(part, auto_dims=False)``).
-    Diameter callouts (holes/patterns/bosses) are placed clear of the views and of
-    each other (ADR-0003 layout); overall envelope dims sit just outside their view.
-    Returns the count added; lint *dwg* to judge correctness. Turned stepped parts
-    remain the engine's domain (out-grow, not reproduce — ADR 0008 Amendment 2)."""
+    """End-to-end demonstration seam: plan *model* and **add** its annotations to
+    *dwg* (which must already have its views, e.g. ``build_drawing(part,
+    auto_dims=False)``). Diameter callouts (holes/patterns/bosses) are placed clear
+    of the views and of each other (ADR-0003 layout); overall envelope dims sit just
+    outside their view. Returns the count added; lint *dwg* to judge correctness.
+
+    **Test-only.** This drives the e2e-slice tests; production uses the per-feature
+    renderers (``render_diameters``/``render_step_lengths``/``render_envelope``/…)
+    wired into the orchestrator. To be retired once the holes epic supersedes its
+    remaining hole-callout capability (#251)."""
     view_boxes = [vb for v in dwg.views if (vb := dwg.view_bounds(v)) is not None]
     placed: list = []
     n = 0
