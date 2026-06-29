@@ -67,11 +67,29 @@ When these land, the orchestrator's per-feature calls are gone and it reduces to
   the scaffold then so no divergent path lingers. (`render_callouts`/`render_into`
   currently drive only the seam + e2e-slice tests.)
 
+## The IR / infrastructure boundary (ADR 0008 Amendment 4)
+
+Migrate the **feature→dimension-intent** logic only. The **shared infrastructure**
+stays — the IR *feeds* it, never reabsorbs it:
+
+- **IR path (migrate + delete):** detectors, `Feature`s/`DimParameter`s, planner
+  convention rules, render intent (which callout/dim, which view, which datum).
+- **Shared infra (keep; the renderer calls it):** zone-strip allocators, the
+  hole-table/balloon escalation (`add_table`/`_maybe_tabulate_holes`), section/detail
+  *rendering*, projection (`Drawing.at`), export.
+
+So a section is *triggered* by the planner but *drawn* by the existing section
+machinery; a dense hole field is *modelled* as a hole set but *tabulated* by the
+existing escalation. This is why #238/#207 are "model the intent + feed the infra,"
+not "rebuild the infra."
+
 ## Definition of done (the whole ADR)
 
-- `annotations/{holes,turned,sections,pmi}` per-feature passes deleted; the inline
-  envelope/OD/centre-mark/step-ladder code gone from the orchestrator.
-- One path: detectors → IR → planner → render-intents → shared layout/export.
+- The per-feature **recognition + placement** passes deleted —
+  `annotations/{holes,sections,pmi}` and the inline envelope/OD/step-ladder code in
+  the orchestrator; orchestrator reduced to `build model → plan → render`.
+- **Shared layout/table/section/projection/export infrastructure intact** (fed by
+  the IR, per Amendment 4) — not rewritten.
 - No `render_into` test-only parallel; no engine/IR duplication.
 - Full standards + geometry suites green; X/Z parity tests per feature.
 - ADR 0008 status → "migration complete; one path".

@@ -1,10 +1,11 @@
 # ADR 0008 — The part-drawing compiler: a Feature/DimParameter IR and a dimensioning planner
 
 - **Status:** Accepted — architecture stands; **migration is a correctness-judged
-  strangler that converges on ONE path** (Amendment 3, superseding Amendment 2's
-  divergence implication). Not reproduce-and-swap (Amendment 2), not two permanent
-  paths — incremental migration where each step deletes the engine pass it replaces.
-  The equivalence golden gate is retired.
+  strangler that converges on ONE feature→dimension path** (Amendment 3), which
+  *feeds* the engine's shared layout/table/section/projection/export infrastructure
+  rather than reabsorbing it (Amendment 4). Not reproduce-and-swap (Amendment 2),
+  not two permanent paths — incremental migration where each step deletes the
+  per-feature engine pass it replaces. The equivalence golden gate is retired.
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Supersedes the original 0008** ("unified feature model") with a concrete
@@ -249,6 +250,37 @@ Net effect vs the two rejected approaches: not a big-bang equivalence swap
 incremental, correctness-judged convergence that ends with one architecture and the
 engine's per-feature passes deleted. Tracked in
 [`docs/plans/0008-convergence-roadmap.md`](../plans/0008-convergence-roadmap.md).
+
+## Amendment 4 (2026-06-29) — the IR/infrastructure boundary
+
+"One path" (Amendment 3) is about the **feature→dimension-intent** path, not a
+rewrite of the drawing engine's *shared infrastructure*. Reviewing the remaining
+migrations showed several were mis-scoped as "model X in the IR" when X is actually
+shared infra the IR should **feed**, not absorb. Draw the line explicitly:
+
+- **Belongs in the IR path (migrate + delete the per-feature code):** feature
+  *recognition* (detectors → `Feature`s) and *what to dimension* (`DimParameter`s,
+  the planner's convention rules, the render intent — which callout/dim, which
+  view, which datum).
+- **Stays as shared infrastructure (the IR feeds it; do NOT reabsorb or rewrite):**
+  the zone-strip layout allocators (ADR 0003), the hole-table / balloon escalation
+  (`add_table`/`add_hole_table`/`_maybe_tabulate_holes`), the section/detail-view
+  *rendering* machinery, projection (`Drawing.at`), and export. These are
+  feature-agnostic services. A migrated renderer *calls* them (e.g. the zone-aware
+  `render_envelope` allocates from `fv/pv/sv` strips); it does not replace them.
+
+Consequences for scope:
+- **Definition of done** is "the per-feature *recognition + placement* passes
+  (`annotations/{holes,sections,pmi}`, inline envelope/OD/step-ladder) are deleted
+  and the orchestrator is `build model → plan → render`" — **with the shared
+  layout/table/section/projection/export infrastructure intact.**
+- A feature that needs a *section* contributes a **trigger** to the planner; the
+  existing section machinery renders it. A dense hole field contributes its **hole
+  set**; the existing escalation tabulates it. The IR decides *what/where*; the
+  infra decides *how it is drawn*.
+
+This shrinks the holes (#238) and sections (#207) epics from "rebuild the
+infrastructure" to "model the feature intent and feed the existing services."
 
 ## Consequences
 
