@@ -1,8 +1,10 @@
 # ADR 0008 — The part-drawing compiler: a Feature/DimParameter IR and a dimensioning planner
 
-- **Status:** Accepted — architecture stands; **migration strategy pivoted**
-  (Amendment 2): out-grow the engine, don't reproduce-and-swap it. The equivalence
-  golden gate is retired.
+- **Status:** Accepted — architecture stands; **migration is a correctness-judged
+  strangler that converges on ONE path** (Amendment 3, superseding Amendment 2's
+  divergence implication). Not reproduce-and-swap (Amendment 2), not two permanent
+  paths — incremental migration where each step deletes the engine pass it replaces.
+  The equivalence golden gate is retired.
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Supersedes the original 0008** ("unified feature model") with a concrete
@@ -103,8 +105,12 @@ The planner emits placement *intents*; the existing `Placeable`/solver (ADR 0003
 
 ## Migration — strangler, anchored on the protocol (no rewrite)
 
-Full execution plan (all detectors + drawing components, with a scoped golden gate
-and X/Z parity as standing criteria):
+> **Plan of record: [`docs/plans/0008-convergence-roadmap.md`](../plans/0008-convergence-roadmap.md)**
+> (Amendment 3). The original scoped-golden-gate roadmap is retired; the section
+> below records the initial thinking.
+
+Initial execution sketch (all detectors + drawing components, originally with a
+scoped golden gate and X/Z parity as standing criteria):
 [`docs/plans/0008-compiler-migration-roadmap.md`](../plans/0008-compiler-migration-roadmap.md).
 
 1. **Define the waist** (`DimParameter`, `Feature`, `Datum`, `PartModel`) and
@@ -197,6 +203,52 @@ a byte-equivalence golden gate) was wrong, and building it exposed why:
 The earlier roadmap (`docs/plans/0008-compiler-migration-roadmap.md`) and the
 reproduce-and-swap framing of issues #197–#209 are superseded by this; the epic
 (#195) is re-scoped to value-first deployment.
+
+## Amendment 3 (2026-06-29) — converge on ONE path (corrects Amendment 2)
+
+Amendment 2 fixed the *reproduce-and-swap* mistake but, read literally ("the engine
+keeps its responsibilities and is migrated only opportunistically"), it implied a
+**second, permanent failure mode: two divergent paths** — the accreted per-feature
+engine passes *and* a parallel IR pipeline doing overlapping work, drifting apart
+forever. That betrays the entire point of ADR 0008, which is **one consistent
+architecture** replacing the N×M coupled mess. Two permanent paths are worse than
+either pure option.
+
+The destination is, and always was, **a single path**:
+
+```
+detectors → IR (PartModel) → planner → render-intents → [shared layout / projection / export]
+```
+
+The per-feature annotation passes (`annotations/{holes,turned,sections,pmi,slots}`,
+the inline envelope/OD/centre-mark/step-ladder code in the orchestrator) **all
+migrate onto this path and are deleted.** The orchestrator's end state is
+`build model → plan → render` — no per-feature pile. The shared layout/projection/
+export stack is *not* rewritten (ADR 0008 always fed the existing layout); what
+disappears is the duplicated feature→dimensioning logic.
+
+**Migration is a strangler, governed by three rules:**
+
+1. **Convergence, not divergence — each migration DELETES the engine pass it
+   replaces.** This is the load-bearing discipline. Adding an IR renderer while
+   leaving the engine equivalent in place (as `render_into` currently sits, used
+   only in tests) is the divergence smell and is *not* a completed migration. A
+   step is done only when the old code is gone. #231 (turned step lengths) is the
+   template: it deleted `_annotate_turned_lengths` and bypassed the Z ladder.
+2. **Judged by correctness, not equivalence** (kept from Amendment 2). The new path
+   is held to lint-clean + ISO/ASME-compliant + coverage-complete (now a real bar,
+   since lint is drawing-derived — #218/#219), *not* byte-identity with the engine.
+   The output may be *better* (the Z step chain is). No standing equivalence gate.
+3. **Ordered worst-handled-first.** Migrate where the IR adds the most value and
+   de-risks fastest (the engine's asymmetric/awkward features) before the
+   already-clean ones — but *all* of it migrates; "pain-point ordering" is sequence,
+   never a licence to leave a feature on the engine permanently.
+
+Net effect vs the two rejected approaches: not a big-bang equivalence swap
+(Amendment 1), not two forever-paths (a literal reading of Amendment 2) — an
+incremental, correctness-judged convergence that ends with one architecture and the
+engine's per-feature passes deleted. Tracked in
+[`docs/plans/0008-convergence-roadmap.md`](../plans/0008-convergence-roadmap.md).
 
 ## Consequences
 
