@@ -58,10 +58,6 @@ class CoverageState:
         # redundant feature_not_dimensioned for them. Reset at the top of
         # _auto_annotate so re-annotation does not accumulate.
         self._dropped_callout_diams: list = []
-        # Count of turned-part axial step lengths the step-length pass dimensioned,
-        # so lint_axial_coverage knows how many shoulders are located. Reset with
-        # the dropped diameters at the top of _auto_annotate.
-        self._axial_covered: int = 0
 
     # -- pattern coverage -----------------------------------------------------
 
@@ -82,9 +78,8 @@ class CoverageState:
     # -- dropped diameters ----------------------------------------------------
 
     def reset_dropped(self) -> None:
-        """Clear dropped-diameter and axial tracking (top of _auto_annotate)."""
+        """Clear dropped-diameter tracking (top of _auto_annotate)."""
         self._dropped_callout_diams = []
-        self._axial_covered = 0
 
     def drop_diam(self, diam) -> None:
         """Record a diameter dropped by the per-view callout cap."""
@@ -94,17 +89,6 @@ class CoverageState:
     def dropped_diams(self) -> list:
         """Diameters dropped by the cap (passed to lint_feature_coverage)."""
         return self._dropped_callout_diams
-
-    # -- axial step coverage --------------------------------------------------
-
-    def cover_axial(self, count: int = 1) -> None:
-        """Record that the step-length pass dimensioned *count* axial steps."""
-        self._axial_covered += count
-
-    @property
-    def axial_covered(self) -> int:
-        """Number of turned-part axial steps dimensioned (for lint_axial_coverage)."""
-        return self._axial_covered
 
 
 def lint_feature_coverage(
@@ -297,14 +281,43 @@ def lint_location_coverage(part, dwg, cyls=None, assembly=None, tol: float = 0.6
     return issues
 
 
-def lint_axial_coverage(part, covered: int, assembly=None) -> list:
+def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
+    """How many of an X-turned part's step lengths are dimensioned **in the
+    drawing** — a step counts as covered when some front-view ``Dimension`` has
+    witnesses at both of its shoulders' page-x positions. Drawing-derived, so it
+    judges any producer (not the engine's :class:`CoverageState` side channel)."""
+    bb = part.bounding_box()
+    y_ref, z_top = bb.center().Y, bb.max.Z
+    shoulder_x = {s: dwg.at("front", s, y_ref, z_top)[0] for s in prof.shoulders}
+    dim_xsets: list[set[float]] = []
+    for name, ann in dwg._named.items():
+        if dwg._anno_view.get(name) != "front" or not isinstance(ann, Dimension):
+            continue
+        try:
+            dim_xsets.append({p.X for p in ann.vertices()})
+        except Exception:  # noqa: BLE001 — a dim whose vertices won't evaluate is skipped
+            pass
+    covered = 0
+    for step in prof.steps:
+        xlo, xhi = shoulder_x[step.lo], shoulder_x[step.hi]
+        if any(
+            any(abs(x - xlo) <= tol for x in xs) and any(abs(x - xhi) <= tol for x in xs)
+            for xs in dim_xsets
+        ):
+            covered += 1
+    return covered
+
+
+def lint_axial_coverage(part, dwg, assembly=None) -> list:
     """Report a stepped turned part whose axial step lengths are undimensioned.
 
     A turned part can have every diameter called out yet be unmanufacturable: with
     no shoulder located, the lengths are unknown (the drive-screw gap). A complete
-    chain dimensions all ``n`` steps; *covered* is how many the step-length pass
-    placed (from :attr:`CoverageState.axial_covered`). A shortfall yields one
-    ``axial_length_missing`` issue.
+    chain dimensions all ``n`` steps; coverage is counted **from the drawing**
+    (:func:`_axial_covered_from_drawing`), not a build-time side channel — so it
+    judges any producer. A shortfall yields one ``axial_length_missing`` issue.
+
+    *dwg* is the drawing, duck-typed (needs ``at``/``_named``/``_anno_view``).
 
     Scoped to **X-axis** turning (a shaft drawn on its side) — the gap the
     step-length pass fills. The other orientations are covered elsewhere, so
@@ -320,6 +333,7 @@ def lint_axial_coverage(part, covered: int, assembly=None) -> list:
     if assembly is None:
         assembly = len(part.solids()) > 1
     n = len(prof.steps)
+    covered = _axial_covered_from_drawing(part, dwg, prof)
     if covered >= n:
         return []
     return [

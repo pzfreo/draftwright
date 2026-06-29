@@ -4531,25 +4531,50 @@ class TestStepLadderRecognition:
 
 
 class TestAxialCoverageLint:
-    """lint_axial_coverage — the scoring signal for undimensioned turned steps."""
+    """lint_axial_coverage — the scoring signal for undimensioned turned steps,
+    now counted from the drawing (not the CoverageState side channel, #219)."""
 
     def test_flags_uncovered_turned_part(self):
         from draftwright.linting import lint_axial_coverage
 
-        issues = lint_axial_coverage(_x_stepped_shaft(), covered=0)
+        # A bare scaffold (views, no step-length dims) → all steps uncovered.
+        part = _x_stepped_shaft()
+        dwg = build_drawing(part, number="D-1", auto_dims=False)
+        issues = lint_axial_coverage(part, dwg)
         assert [i.code for i in issues] == ["axial_length_missing"]
         assert issues[0].severity == "warning"
 
     def test_clean_when_all_steps_covered(self):
         from draftwright.linting import lint_axial_coverage
 
-        # _x_stepped_shaft has 2 steps; covering both clears the check.
-        assert lint_axial_coverage(_x_stepped_shaft(), covered=2) == []
+        # The engine places the full step-length chain → drawing-derived coverage
+        # finds every step located.
+        part = _x_stepped_shaft()
+        dwg = build_drawing(part, number="D-1")
+        assert lint_axial_coverage(part, dwg) == []
 
     def test_silent_for_non_turned_part(self):
         from draftwright.linting import lint_axial_coverage
 
-        assert lint_axial_coverage(Box(80, 60, 20), covered=0) == []
+        part = Box(80, 60, 20)
+        dwg = build_drawing(part, number="D-1", auto_dims=False)
+        assert lint_axial_coverage(part, dwg) == []
+
+    def test_coverage_survives_repair_and_is_idempotent(self):
+        # Drawing-derived coverage must stay clean after the repair loop re-places
+        # dims (witnesses stay anchored to geometry) and across repeated lint()s.
+        part = _x_stepped_shaft()
+        dwg = build_drawing(part, number="D-1")  # repair on
+        first = [i.code for i in dwg.lint() if i.code == "axial_length_missing"]
+        again = [i.code for i in dwg.lint() if i.code == "axial_length_missing"]
+        assert first == [] and again == []
+
+    def test_axial_length_missing_is_geometry_aware(self):
+        # It is a completeness/standards code, so lint_summary must count it under
+        # geometry_issues, not as layout (#226 review follow-through).
+        from draftwright.drawing import _GEOMETRY_AWARE_CODES
+
+        assert "axial_length_missing" in _GEOMETRY_AWARE_CODES
 
 
 def _multi_hole_plate():

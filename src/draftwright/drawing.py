@@ -168,6 +168,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "feature_count_mismatch",
         "feature_not_located",
         "feature_no_centermark",
+        "axial_length_missing",
         "missing_principal_dimension",
         "label_vs_measured",
         "dim_inside_part",
@@ -982,7 +983,7 @@ class Drawing:
             )
             issues += lint_axial_coverage(
                 self.part,
-                self._coverage.axial_covered,
+                self,
                 assembly=self.assembly,
             )
             issues += lint_location_coverage(
