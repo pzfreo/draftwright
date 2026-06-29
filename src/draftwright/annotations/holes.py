@@ -418,7 +418,7 @@ def _solve_strip_via_layout(naturals, min_gap, lo, hi, key_prefix):
     return [placed[k] for k in keys]
 
 
-def _annotate_holes(dwg, a: Analysis, view_of_axis, model, holes_in=None):
+def _annotate_holes(dwg, a: Analysis, view_of_axis, model, feature_keys):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
     Identical holes share one callout with an ``n×`` count prefix (#92's
@@ -455,30 +455,29 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, model, holes_in=None):
     # When present, its extension lines overhang the plan view boundary by
     # ~arrow_length, so plan-view elbow must sit that far outside to clear them.
     # Room-check failures may still skip the section, but the offset is harmless.
+    def _bore(f):  # the bore-carrying HoleFeature (a pattern's representative member)
+        return f.member if f.kind == "pattern" else f
+
     will_have_section_line = any(
-        _axis_letter(h) == "z" and (h.cbore or h.spotface or h.bottom != "through")
-        for h in a.holes
+        f.frame.axis == "z"
+        and (_bore(f).cbore is not None or _bore(f).spotface is not None or not _bore(f).through)
+        for f in model.features
+        if f.kind in ("hole", "pattern")
     )
 
-    # The IR is the single grouping authority (#238 B2): build_part_model already
-    # split the holes into one DimensionGroup per pattern + one per machining-spec
-    # group of un-patterned holes (the same HoleSpec / find_hole_patterns rule the
-    # engine used). Iterate those groups and assemble each view's callout specs —
-    # mapping member locations back to the recogniser's `Hole` objects (and the
-    # recognition `Pattern`) for the placement + sheet-furniture machinery, which
-    # stays shared infra (Amendment 4).
-    def _key(loc):
-        return (round(loc[0], 3), round(loc[1], 3), round(loc[2], 3))
-
-    feature_keys = {_key(h.location) for h in (a.holes if holes_in is None else holes_in)}
-
+    # The IR is the single grouping + geometry authority (#238 B2/B3, Amendment 6):
+    # build_part_model already split the holes into one DimensionGroup per pattern +
+    # one per machining-spec group of un-patterned holes. Iterate those groups and
+    # assemble each view's callout specs from IR data only — *feature_keys* (the
+    # surviving feature-hole positions, supplied by the orchestrator) gates which
+    # members are dimensioned; no recogniser Hole/Pattern object is used.
     by_view: dict = {}
     for g in plan_dimensions(model):
         if g.feature_kind not in ("hole", "pattern"):
             continue
         members = getattr(g.feature, "members", ()) or (g.anchor,)
         # surviving member *locations* (IR geometry — no recogniser Hole, Amendment 6)
-        locs = [m for m in members if _key(m) in feature_keys]
+        locs = [m for m in members if HoleRef.of(m) in feature_keys]
         if not locs:  # all members filtered out (e.g. concentric bore, rotational)
             continue
         # A pattern earns its sheet furniture (centre-line / pitch dims) only if ALL

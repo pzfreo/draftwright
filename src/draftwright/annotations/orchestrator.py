@@ -274,9 +274,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     if a.is_rotational:
         feature_holes = [h for h in a.holes if not _is_concentric_hole(h, a)]
     if feature_holes:
-        # _annotate_holes groups + builds callouts from the IR (`_model`); a pattern's
-        # furniture is gated on all its members surviving the feature-holes filter.
-        _annotate_holes(dwg, a, view_of_axis, _model, holes_in=feature_holes)
+        # _annotate_holes is fed purely by the IR (`_model`) — the only recognition-
+        # derived input is `feature_keys`, the surviving feature-hole *positions*
+        # (concentric bores excluded on rotational parts), not Hole objects. The IR
+        # gates callouts/furniture on membership in this set (Amendment 6, #263).
+        feature_keys = {HoleRef.of(h.location) for h in feature_holes}
+        _annotate_holes(dwg, a, view_of_axis, _model, feature_keys)
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.
     render_locations(dwg, _model, a)
