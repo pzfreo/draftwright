@@ -24,8 +24,10 @@ from draftwright.model.ir import (
     HoleFeature,
     PartModel,
     PatternFeature,
+    RotationalFeature,
     SlotFeature,
     StepFeature,
+    StepLevelFeature,
 )
 from draftwright.recognition import (
     BoltCircle,
@@ -118,7 +120,15 @@ _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=No
 
 
 def build_part_model(
-    part, *, holes=None, patterns=None, bosses=None, slots=None, prof=_UNSET
+    part,
+    *,
+    holes=None,
+    patterns=None,
+    bosses=None,
+    slots=None,
+    prof=_UNSET,
+    step_zs=None,
+    rotational=None,
 ) -> PartModel:
     """Run the detectors and assemble the :class:`PartModel` IR for *part*.
 
@@ -126,7 +136,12 @@ def build_part_model(
     which already ran them) so detection happens **once per build** — the single
     feature inventory (ADR 0008 Amendment 5, #244). Omitted sets are detected here,
     so a standalone ``build_part_model(part)`` still works. ``prof`` uses a sentinel
-    because ``None`` is a valid value (a non-turned part)."""
+    because ``None`` is a valid value (a non-turned part).
+
+    ``step_zs`` (prismatic horizontal face levels) and ``rotational`` (``(od, bores)``
+    or ``None``) are *classification* inputs from `_analyse` — the IR can't derive
+    them from geometry alone — feeding the prismatic step ladder (#237) and the
+    rotational OD/bore furniture (#237)."""
     bbox = part.bounding_box()
     features: list[Feature] = []
 
@@ -224,6 +239,27 @@ def build_part_model(
                     bbox_max=(bbox.max.X, bbox.max.Y, bbox.max.Z),
                 )
             )
+
+    # Prismatic step-height ladder — horizontal face levels on a NON-turned part
+    # (a turned part's steps are StepFeatures, dimensioned by the IR length chain).
+    if prof is None and step_zs:
+        c = bbox.center()
+        features.append(
+            StepLevelFeature(
+                frame=Frame((c.X, c.Y, bbox.min.Z), "z"),
+                base=bbox.min.Z,
+                levels=tuple(sorted(step_zs)),
+            )
+        )
+
+    # Rotational furniture — OD + centrelines + concentric bore leaders (#237). Its
+    # presence marks the part rotational; emitted from the classification (od, bores).
+    if rotational is not None:
+        od, bores = rotational
+        c = bbox.center()
+        features.append(
+            RotationalFeature(frame=Frame((c.X, c.Y, c.Z), "z"), od=od, bores=tuple(bores))
+        )
 
     # The default location datum — the part's min-X/min-Y/min-Z corner (lower-left
     # in the plan view), per inspection practice. Hole location dims measure from

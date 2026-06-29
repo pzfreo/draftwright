@@ -6,8 +6,8 @@ the orchestrator entry point and the two helpers still referenced by name elsewh
 so `from draftwright.annotate import _auto_annotate` keeps working.
 """
 
+from draftwright.annotations.from_model import _detect_step_repeat  # noqa: F401
 from draftwright.annotations.orchestrator import (  # noqa: F401
     _auto_annotate,
-    _detect_step_repeat,
     _wrap_rows,
 )
