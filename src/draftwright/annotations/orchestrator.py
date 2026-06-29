@@ -22,10 +22,8 @@ from build123d_drafting.helpers import (
 
 from draftwright._core import (
     _CONCENTRIC_TOL_MM,
-    _SLOT_DIM_DEPTH,
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
-    _SLOT_DIM_WIDTH,
     _TABULATE_MIN_HOLES,
     Analysis,
     _add_title_block,
@@ -40,6 +38,7 @@ from draftwright._core import (
 from draftwright.annotations.from_model import (
     render_centermarks,
     render_diameters,
+    render_envelope,
     render_step_lengths,
 )
 from draftwright.annotations.holes import (
@@ -389,45 +388,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Suppress it. (_turned_prof was computed at the step-height section above.)
     _x_turned = _turned_prof is not None and _turned_prof.axis == "x"
 
-    # Width (non-round / non-square parts only) — routed through pv_zones.below
-    if not _x_turned and abs(a.x_size - a.y_size) > max(a.x_size, a.y_size) * 0.05:
-        _below_witness = PY(a.bb.min.Y) - 2
-        _py = a.pv_zones.below.allocate(_SLOT_DIM_WIDTH)
-        if _py is not None:
-            dwg.add(
-                _dim(
-                    (PX(a.bb.min.X), _below_witness, 0),
-                    (PX(a.bb.max.X), _below_witness, 0),
-                    "below",
-                    _below_witness - _py,
-                    draft,
-                    label=_fmt(a.x_size),
-                ),
-                "dim_width",
-                view="plan",
-            )
-        else:
-            _log.warning("dim_width skipped: pv_zones.below strip full")
-
-    # Depth (Y envelope) — same guard as dim_width; routed through sv_zones.below
-    if abs(a.x_size - a.y_size) > max(a.x_size, a.y_size) * 0.05:
-        _below_witness_d = SZ(a.bb.min.Z) - 2
-        _pd = a.sv_zones.below.allocate(_SLOT_DIM_DEPTH)
-        if _pd is not None:
-            dwg.add(
-                _dim(
-                    (SX(a.bb.min.Y), _below_witness_d, 0),
-                    (SX(a.bb.max.Y), _below_witness_d, 0),
-                    "below",
-                    _below_witness_d - _pd,
-                    draft,
-                    label=_fmt(a.y_size),
-                ),
-                "dim_depth",
-                view="side",
-            )
-        else:
-            _log.warning("dim_depth skipped: sv_zones.below strip full")
+    # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
+    # placed through the same below-strip zone allocators the engine used (zone-aware
+    # render stage, ADR 0008). Width is suppressed for an X-turned part (its step
+    # chain conveys the length); a square footprint gets neither (one dim suffices).
+    render_envelope(dwg, _model, a, suppress_width=_x_turned)
 
     # The section view goes last: its room check clears every annotation
     # already placed right of the side view (callout labels, height/step

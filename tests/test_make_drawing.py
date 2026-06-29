@@ -419,12 +419,13 @@ class TestStripZones:
 
         from draftwright import build_drawing
 
-        # non-square part → x_size != y_size → dim_width should appear
+        # non-square part → width != depth → the width dim should appear (IR
+        # renderer m_env_width, still routed through pv_zones.below).
         part = Box(80, 40, 20)
         dwg = build_drawing(part)
         a = dwg._analysis
-        assert "dim_width" in dwg._named
-        ann = dwg._named["dim_width"]
+        assert "m_env_width" in dwg._named
+        ann = dwg._named["m_env_width"]
         assert ann.label == "80"
         assert a.pv_zones.below.depth_used > 0
 
@@ -586,13 +587,14 @@ class TestStripZones:
 
         from draftwright import build_drawing
 
-        # 80×40×20 box: x_size=80, y_size=40 — differ by > 5%, so dim_depth fires
+        # 80×40×20 box: width=80, depth=40 — differ by > 5%, so the depth dim fires
+        # (IR renderer m_env_depth, still routed through sv_zones.below).
         part = Box(80, 40, 20)
         dwg = build_drawing(part)
         a = dwg._analysis
-        assert "dim_depth" in dwg._named, "expected dim_depth for part with x_size != y_size"
-        ann = dwg._named["dim_depth"]
-        assert ann.label == "40", f"dim_depth label should be y_size=40, got {ann.label!r}"
+        assert "m_env_depth" in dwg._named, "expected m_env_depth for part with width != depth"
+        ann = dwg._named["m_env_depth"]
+        assert ann.label == "40", f"depth label should be y_size=40, got {ann.label!r}"
         assert a.sv_zones.below.depth_used > 0
 
     def test_dim_depth_absent_for_square_plan(self):
@@ -603,7 +605,7 @@ class TestStripZones:
 
         part = Box(60, 60, 20)  # square plan: x_size == y_size
         dwg = build_drawing(part)
-        assert "dim_depth" not in dwg._named, "dim_depth should be skipped for square plan"
+        assert "m_env_depth" not in dwg._named, "depth dim should be skipped for square plan"
 
 
 # ---------------------------------------------------------------------------
@@ -1090,7 +1092,7 @@ class TestTwoPassLayout:
         assert available > needed, (
             f"pv_zones.below available {available:.1f} mm must exceed needed {needed:.1f} mm"
         )
-        assert "dim_width" in dwg._named, "dim_width must not be skipped"
+        assert "m_env_width" in dwg._named, "width dim must not be skipped"
 
 
 class TestComposeThenPackRepack:
@@ -4478,7 +4480,7 @@ class TestTurnedLengths:
         # The complete chain conveys the overall length, so the envelope width dim
         # is dropped — no double dimensioning (ISO 129).
         dwg = build_drawing(_x_stepped_shaft())
-        assert "dim_width" not in dwg._named
+        assert "m_env_width" not in dwg._named
 
     def test_turned_part_lints_clean(self):
         dwg = build_drawing(_x_stepped_shaft())
