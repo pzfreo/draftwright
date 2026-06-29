@@ -150,10 +150,10 @@ waist. The decisions, now in `src/draftwright/model/`:
    `front`) — orientation is data, so X and Z are symmetric. The anchor is the
    feature's frame origin.
 
-Still open (tracked, gate-protected, for the wiring phases): the view/routing must
-become *model-aware* for turned concentric bores (front bore-leader + section, not
-the generic end-on rule — #201) and for a rotational OD on a single-OD turned part
-(profile view, not end-on — #205).
+Still open (tracked as out-grow issues — *not* gate-protected; the gate is retired):
+the view/routing must become *model-aware* for turned concentric bores (front
+bore-leader + section, not the generic end-on rule — #207) and for a rotational OD
+on a single-OD turned part (profile view, not end-on — #222).
 
 ## Amendment 2 (2026-06-28) — strategy pivot: out-grow, don't reproduce-and-swap
 
