@@ -97,11 +97,18 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     """Build a `HoleCallout` from a :func:`hole_callout_spec` dict. *count* is passed
     explicitly (the bare/test path uses the spec's own count; the engine pass uses its
     view-local hole count) — the single callout builder both the IR and the migrating
-    engine pass share, so the bore/cbore/suffix mapping lives in one place (#238 B1)."""
+    engine pass share, so the bore/cbore/suffix mapping lives in one place (#238 B1).
+
+    **This is the only place draftwright constructs a `HoleCallout`** — and it MUST
+    pass each numeric value as a `_fmt` string, never a raw float: `HoleCallout`
+    renders a float (``ø8.0``) wider than the equivalent string (``ø8``), which
+    shifts placement and can drop callouts (#261). Keep the formatting here; the IR
+    carries clean floats (no baked labels). The robust fix — `HoleCallout` formatting
+    its own numeric inputs — is upstream in build123d-drafting-helpers."""
     if spec is None:
         return None
 
-    def f(v):  # the IR carries clean floats (no baked labels); the renderer formats
+    def f(v):  # see the #261 note above — every value crosses as a formatted string
         return _fmt(v) if v is not None else None
 
     return HoleCallout(
