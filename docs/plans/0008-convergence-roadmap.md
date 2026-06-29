@@ -70,8 +70,10 @@ which waits on the holes epic):
 4. ✅ **Planner render-intent increment** (#250, PR #255) — `PlannedDimension` carries
    `suppressed`/`reason` (model-level suppression moved into the planner) + a `datum`
    slot (consumed by #238 location dims).
-5. ⏳ **Delete `render_into`** (**#251**) — the test-only parallel; retire once the
-   holes callout migration supersedes its remaining hole-callout capability.
+5. ✅ **Delete `render_into`** (#251, PR pending) — the test-only parallel
+   (`render_into`/`render_callouts` + their leader helpers) is removed; the seam +
+   e2e-slice tests are repointed at the production renderers. **Foundation track
+   complete.**
 
 ## Remaining — feature epics (need IR modelling; AFTER the foundation track)
 

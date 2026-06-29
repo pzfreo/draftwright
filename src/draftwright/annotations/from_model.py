@@ -9,8 +9,11 @@ exactly why the IR carries semantic `role`s, not glyph strings.
 This lives in `annotations/` (not `model/`) so the IR package stays pure — it
 imports *down* into `model` + `_core`, and is called by the orchestrator (ADR 0008
 Amendment 3: one path, this is its render stage). Judged by **correctness** (lint),
-not equivalence to the engine. `render_step_lengths` is wired into production;
-`render_into`/`render_callouts` drive the end-to-end slice + seam tests.
+not equivalence to the engine. All renderers here (`render_diameters`/`render_envelope`/
+`render_locations`/`render_centermarks`/`render_step_lengths`/`render_slots`, and the
+shared `hole_callout_spec`/`callout_from_spec` consumed by the holes pass) are wired
+into production — the test-only `render_into`/`render_callouts` parallel was retired
+once the holes epic landed (#251).
 """
 
 from __future__ import annotations
@@ -43,15 +46,6 @@ _ENVELOPE_PLACEMENT = {
     "height": ("front", "right"),  # Z extent
     "depth": ("side", "below"),  # Y extent
 }
-
-# Candidate leader-elbow offsets from the hole, in rings of increasing radius and
-# eight directions — the renderer's local placement search (ADR 0003 layout: keep
-# the callout near its feature but clear of the views and other callouts).
-_ELBOW_OFFSETS = [
-    (r * ux, r * uy)
-    for r in (14.0, 22.0, 34.0, 50.0, 72.0)
-    for ux, uy in ((1, 1), (-1, 1), (1, -1), (-1, -1), (1, 0), (0, 1), (-1, 0), (0, -1))
-]
 
 
 def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
@@ -120,72 +114,6 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         suffix=spec["suffix"],
         draft=draft,
     )
-
-
-def _hole_callout(dwg, group) -> HoleCallout | None:
-    """The `HoleCallout` for a hole/pattern group from its planned spec, or ``None``
-    if the group is not hole-bearing. The shared callout builder for both the placed
-    (`render_into`) and the bare (`render_callouts`) paths."""
-    spec = hole_callout_spec(group)
-    return callout_from_spec(spec, dwg.draft, spec["count"]) if spec is not None else None
-
-
-def _place_leader(dwg, view, tip_model, obstacles, *, label="", callout=None) -> Leader | None:
-    """A leader (callout or plain ø label) placed clear of *obstacles* by searching
-    outward from the feature (ADR 0003 layout): the first elbow whose label box is
-    on-page and non-colliding wins; the farthest candidate is the fallback. With no
-    obstacles the first on-page ring wins, so a bare call is deterministic."""
-    tx, ty, *_ = dwg.at(view, *tip_model)
-
-    def _on_page(b) -> bool:
-        return bool(
-            b[0] >= _MARGIN
-            and b[1] >= _MARGIN
-            and b[2] <= dwg.page_w - _MARGIN
-            and b[3] <= dwg.page_h - _MARGIN
-        )
-
-    fallback = None
-    for dx, dy in _ELBOW_OFFSETS:
-        leader = Leader(
-            tip=(tx, ty, 0),
-            elbow=(tx + dx, ty + dy, 0),
-            label=label,
-            draft=dwg.draft,
-            callout=callout,
-        )
-        box = _anno_box(leader)
-        if box is None:
-            return leader
-        if _on_page(box) and not _box_hits(box, obstacles):
-            return leader
-        fallback = leader
-    return fallback
-
-
-def _hole_leader(dwg, group, obstacles) -> Leader | None:
-    """A `HoleCallout` leader for a hole/pattern group, placed clear of *obstacles*.
-    Tips at a real member hole (not the empty pattern centre)."""
-    callout = _hole_callout(dwg, group)
-    if callout is None:
-        return None
-    members = getattr(group.feature, "members", ())
-    tip = members[0] if members else group.anchor
-    return _place_leader(dwg, group.view, tip, obstacles, callout=callout)
-
-
-def render_callouts(dwg, groups) -> list[Leader]:
-    """The hole/pattern callout leaders for *groups* (does not mutate *dwg*). The
-    bare path: placed against no obstacles, so deterministic."""
-    return [ldr for g in groups if (ldr := _hole_leader(dwg, g, [])) is not None]
-
-
-def _diameter_leader(dwg, group, obstacles) -> Leader | None:
-    """A plain ø diameter callout for a boss/step group (the external diameter)."""
-    dia = _first(group, "diameter", "boss", "step")
-    if dia is None:
-        return None
-    return _place_leader(dwg, group.view, group.anchor, obstacles, label=f"ø{_fmt(dia)}")
 
 
 def render_slots(dwg, model, a) -> int:
@@ -743,39 +671,3 @@ def render_step_lengths(dwg, model) -> int:
     for name, dim in candidates:
         dwg.add(dim, name, view="front")
     return len(candidates)
-
-
-def render_into(dwg, model) -> int:
-    """End-to-end demonstration seam: plan *model* and **add** its annotations to
-    *dwg* (which must already have its views, e.g. ``build_drawing(part,
-    auto_dims=False)``). Diameter callouts (holes/patterns/bosses) are placed clear
-    of the views and of each other (ADR-0003 layout); overall envelope dims sit just
-    outside their view. Returns the count added; lint *dwg* to judge correctness.
-
-    **Test-only.** This drives the e2e-slice tests; production uses the per-feature
-    renderers (``render_diameters``/``render_step_lengths``/``render_envelope``/…)
-    wired into the orchestrator. To be retired once the holes epic supersedes its
-    remaining hole-callout capability (#251)."""
-    view_boxes = [vb for v in dwg.views if (vb := dwg.view_bounds(v)) is not None]
-    placed: list = []
-    n = 0
-    for g in plan_dimensions(model):
-        if g.feature_kind in ("hole", "pattern"):
-            ann = _hole_leader(dwg, g, view_boxes + placed)
-        elif g.feature_kind in ("boss", "step"):
-            ann = _diameter_leader(dwg, g, view_boxes + placed)
-        elif g.feature_kind == "envelope":
-            for dim, view in _envelope_dims(dwg, g):
-                dwg.add(dim, f"m_env{n}", view=view)
-                n += 1
-            continue
-        else:
-            ann = None
-        if ann is None:
-            continue
-        dwg.add(ann, f"m_callout{n}", view=g.view)
-        n += 1
-        box = _anno_box(ann)
-        if box is not None:
-            placed.append(box)
-    return n
