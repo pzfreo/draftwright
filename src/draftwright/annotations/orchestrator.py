@@ -39,12 +39,12 @@ from draftwright.annotations.from_model import (
     render_centermarks,
     render_diameters,
     render_envelope,
+    render_slots,
     render_step_lengths,
 )
 from draftwright.annotations.holes import (
     _add_location_dims,
     _annotate_holes,
-    _annotate_slots,
     _locate_off_axis_holes,
 )
 from draftwright.annotations.pmi import _annotate_pmi
@@ -423,8 +423,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         _locate_off_axis_holes(dwg, a, holes_in=feature_holes)
 
     # Non-cylindrical machined features: slots / reduced across-flats sections
-    # (#135). Runs after every hole/diameter pass so it claims strip space last.
-    _annotate_slots(dwg, a)
+    # (#135) — IR renderer, placed through the zone strips (shared infra). Runs
+    # after every hole/diameter pass so it claims strip space last.
+    render_slots(dwg, _model, a)
 
     # Phase 7 — strip footprint debug logging + post-placement overflow check.
     # Overflow can only occur when outer_limit was tightened after allocations
