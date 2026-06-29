@@ -120,10 +120,19 @@ def _hole_callout(dwg, group) -> HoleCallout | None:
 
 def _place_leader(dwg, view, tip_model, obstacles, *, label="", callout=None) -> Leader | None:
     """A leader (callout or plain ø label) placed clear of *obstacles* by searching
-    outward from the feature (ADR 0003 layout): first non-colliding elbow wins; the
-    farthest candidate is the fallback. With no obstacles the first ring wins, so a
-    bare call is deterministic."""
+    outward from the feature (ADR 0003 layout): the first elbow whose label box is
+    on-page and non-colliding wins; the farthest candidate is the fallback. With no
+    obstacles the first on-page ring wins, so a bare call is deterministic."""
     tx, ty, *_ = dwg.at(view, *tip_model)
+
+    def _on_page(b) -> bool:
+        return bool(
+            b[0] >= _MARGIN
+            and b[1] >= _MARGIN
+            and b[2] <= dwg.page_w - _MARGIN
+            and b[3] <= dwg.page_h - _MARGIN
+        )
+
     fallback = None
     for dx, dy in _ELBOW_OFFSETS:
         leader = Leader(
@@ -136,7 +145,7 @@ def _place_leader(dwg, view, tip_model, obstacles, *, label="", callout=None) ->
         box = _anno_box(leader)
         if box is None:
             return leader
-        if not _box_hits(box, obstacles):
+        if _on_page(box) and not _box_hits(box, obstacles):
             return leader
         fallback = leader
     return fallback
