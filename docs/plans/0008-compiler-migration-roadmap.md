@@ -8,6 +8,7 @@
 > the path for new/poorly-handled shapes, judged by *correctness* not equivalence;
 > the engine is migrated only opportunistically. The scoped golden gate (Phase 0)
 > is retired. Kept for history; do not execute the phases below as written.
+> **Live plan: epic #195** (out-grow Done / Now / Next / Backlog).
 
 Execution plan for ADR 0008 (the part-drawing compiler). Moves **every** detector
 and **every** drawing component onto the `Feature`/`DimParameter` IR + planner,
