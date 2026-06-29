@@ -96,7 +96,14 @@ class CoverageState:
 
 
 def lint_feature_coverage(
-    part, annotations, tol: float = 0.15, cyls=None, exclude=None, assembly=None, holes=None
+    part,
+    annotations,
+    tol: float = 0.15,
+    cyls=None,
+    exclude=None,
+    assembly=None,
+    holes=None,
+    bosses=None,
 ) -> list:
     """Coarse completeness check: report part diameters with no callout (#80).
 
@@ -145,7 +152,7 @@ def lint_feature_coverage(
     # Replaces the raw full_cylinders patch list, which over-reported those as
     # undimensioned features (helpers #158/#159). *holes* reuses the single
     # inventory (#244); find_bosses inside feature_diameters is the one residual.
-    inventory = feature_diameters(part, cyls=(z_cyls, cross_cyls), holes=holes)
+    inventory = feature_diameters(part, cyls=(z_cyls, cross_cyls), holes=holes, bosses=bosses)
 
     if assembly is None:
         assembly = len(part.solids()) > 1

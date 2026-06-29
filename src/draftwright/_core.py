@@ -460,6 +460,7 @@ class Analysis:
     bbox_max: float
     holes: list
     patterns: list
+    bosses: list  # external bosses (find_bosses), detected once — the one inventory (#244)
     slots: list
     z_diams: list[float]
     cross_diams: list[float]

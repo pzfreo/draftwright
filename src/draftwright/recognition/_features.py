@@ -604,7 +604,7 @@ def find_bosses(part, cyls=None) -> list:
     return bosses
 
 
-def feature_diameters(part, cyls=None, holes=None) -> list:
+def feature_diameters(part, cyls=None, holes=None, bosses=None) -> list:
     """Sorted unique diameters of the *recognised* dimensionable cylindrical
     features on *part*: every hole bore, each hole's counterbore/spotface step,
     and every boss.
@@ -632,7 +632,7 @@ def feature_diameters(part, cyls=None, holes=None) -> list:
             diams.append(h.cbore.diameter)
         if h.spotface is not None:
             diams.append(h.spotface.diameter)
-    for b in find_bosses(part, cyls=cyls):
+    for b in find_bosses(part, cyls=cyls) if bosses is None else bosses:
         diams.append(b.diameter)
     return sorted(set(diams))
 

@@ -61,8 +61,8 @@ discrete sub-issue under #241. **The foundation track is complete** (except #251
 which waits on the holes epic):
 
 1. ✅ **Unify the feature inventory** — *keystone* (#244: PR #246 build-time, #247
-   lint). `_analyse` detects once; `build_part_model` + `Drawing.lint()` consume its
-   products. Residual: bosses still detected independently.
+   lint; bosses threaded in #264). `_analyse` detects holes/patterns/bosses/turned-
+   steps once; `build_part_model` + `Drawing.lint()` consume its products.
 2. ✅ **Docs/comment sweep** (#248, PR #253).
 3. ✅ **Annotation-ownership accessor** (#249, PR #254) — registry-backed
    `iter_annotations`/`view_of`/`annotations_in_view` + `replace_object`/`snapshot`/

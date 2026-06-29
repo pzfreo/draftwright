@@ -33,6 +33,7 @@ from draftwright._core import (
 )
 from draftwright.recognition import (
     analyse_cylinders,
+    find_bosses,
     find_hole_patterns,
     find_holes,
     find_slots,
@@ -318,6 +319,7 @@ def _analyse(
     _pad_around_text = _draft_est.pad_around_text
     holes = find_holes(part, cyls=(z_cyls, cross_cyls))
     patterns = find_hole_patterns(holes)
+    bosses = find_bosses(part, cyls=(z_cyls, cross_cyls))  # detect once — the one inventory (#264)
     slots = find_slots(part)
 
     # Choose scale/page, iterating so the reserved step corridor matches the
@@ -433,6 +435,7 @@ def _analyse(
         bbox_max=bbox_max,
         holes=holes,
         patterns=patterns,
+        bosses=bosses,
         slots=slots,
         z_diams=z_diams,
         cross_diams=cross_diams,
