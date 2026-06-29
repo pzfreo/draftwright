@@ -40,11 +40,32 @@ Every migration PR must:
 - **Envelope width/depth** — inline blocks *deleted*; the **first zone-aware** IR
   renderer (`render_envelope`, places through the engine's below-strips so it
   coordinates with un-migrated passes) (PR #236).
+- **Slots** — `SlotFeature` + `render_slots`; engine `_annotate_slots` *deleted*;
+  a genuinely new feature type end-to-end (PR #242).
 
 The mechanically-tractable migrate-and-delete work is done. **What remains needs
-new IR modelling, not a mechanical loop** — each is a design epic (below).
+new IR modelling, not a mechanical loop.**
 
-## Remaining — design epics (need IR modelling, not loop iterations)
+## Foundation hardening — do FIRST (ADR 0008 Amendment 5, review #241)
+
+A mid-migration review (#241) found the foundation must catch up before the last
+epics, because the IR is now load-bearing for 6 production passes. **Ordered:**
+
+1. **Unify the feature inventory** — *keystone.* `_analyse` and `build_part_model`
+   both re-detect (turned steps 3× per build; `a.slots` now has no reader). Build
+   the `PartModel` from `_analyse`'s products (or `_analyse` builds+caches it once
+   and threads it) — one inventory, no divergence. Prereq for the epics below.
+2. **Docs/comment sweep** — `model/__init__` still says "prototype, not wired";
+   `test_e2e_slice` + some `from_model` comments carry Amendment-2 framing. Cheap.
+3. **Annotation-ownership accessor** — a registry-backed API for
+   ownership/iteration/build-issues so production stops reading `dwg._named`/
+   `_anno_view` directly (the new renderers added more reads). No new aliases.
+4. **Planner render-intent increment** — suppression/view/datum/grouping move into
+   the planner output (not layout; Amendment 4). After the inventory is unified.
+5. **Delete `render_into`** — the test-only parallel; superseded in production by
+   `render_envelope`/`render_diameters`; retire once the holes epic (#238) lands.
+
+## Remaining — feature epics (need IR modelling; AFTER foundation #1–#2)
 
 Ordered by value / readiness. Each needs the modelling in its **Prereq** before the
 migrate-and-delete is even possible.
