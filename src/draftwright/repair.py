@@ -4,7 +4,7 @@ After the greedy initial placement, re-place the engine-built dimensions behind
 the mechanically-clear violations (a dim on the wrong side, two overlapping
 labels) and re-lint — bounded and monotonic, so it terminates and never worsens a
 sheet. `Drawing.repair()` is the public wrapper; these helpers take the drawing as
-`dwg` (duck-typed — `lint` / `items` / `_named` / `_registry`), so this module
+`dwg` (duck-typed — `lint` / `items` / `_registry`), so this module
 imports only `_core`, never `make_drawing` — no cycle.
 """
 
@@ -43,9 +43,7 @@ def _replace_dim(dwg, old, new):
     if getattr(old, "_dw_scale", None) is not None:
         new._dw_scale = old._dw_scale
     dwg.items[dwg.items.index(old)] = new
-    for n, o in dwg._named.items():
-        if o is old:
-            dwg._named[n] = new
+    dwg._registry.replace_object(old, new)
 
 
 def _repair_dim_inside_part(dwg, issue) -> bool:
@@ -85,7 +83,7 @@ def repair_drawing(dwg, max_iter: int = 3):
         if not before:
             break
         snap_annotations = list(dwg.items)
-        snap_named = dict(dwg._named)
+        snap_named = dwg._registry.snapshot()
         changed = False
         for issue in before:
             if issue.code not in _REPAIRABLE_CODES:
@@ -105,7 +103,6 @@ def repair_drawing(dwg, max_iter: int = 3):
         if len(dwg.lint()) > len(before):
             # The repairs net-worsened the sheet — undo this pass and stop.
             dwg.items[:] = snap_annotations
-            dwg._named.clear()
-            dwg._named.update(snap_named)
+            dwg._registry.restore(snap_named)
             break
     return dwg

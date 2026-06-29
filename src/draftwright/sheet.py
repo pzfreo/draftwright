@@ -537,7 +537,7 @@ def _anno_bbox(o):
 
 def _attribute_annotations(dwg, a):
     """Yield ``(name, view, bbox, is_label)`` for every annotation OWNED by an
-    orthographic view, per the view recorded at creation (``dwg._anno_view``).
+    orthographic view, per the view recorded at creation (``dwg.view_of``).
 
     Ownership is authoritative — the annotation pass that drew it knew which view
     it belonged to and tagged it (#121) — so a front-view step dimension sitting
@@ -547,8 +547,8 @@ def _attribute_annotations(dwg, a):
     is true when the annotation carries a text ``label_bbox`` (a dimension value
     or balloon tag) rather than bare geometry (a centreline/leader line).
     """
-    for name, o in dwg._named.items():
-        view = dwg._anno_view.get(name)
+    for name, o in dwg.iter_annotations():
+        view = dwg.view_of(name)
         if view not in ("front", "plan", "side"):
             continue
         label = getattr(o, "label_bbox", None)

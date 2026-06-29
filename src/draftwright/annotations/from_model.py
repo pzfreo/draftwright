@@ -305,7 +305,7 @@ def _mentioned_diameters(dwg) -> set[float]:
     """Diameters already called out on the drawing (ø-labels + ``covers_diameters``)
     — so a diameter another annotation already documents is not repeated."""
     diams: set[float] = set()
-    for ann in dwg._named.values():
+    for _, ann in dwg.iter_annotations():
         if isinstance(ann, TitleBlock):
             continue
         for m in _DIAM_RE.finditer(getattr(ann, "label", None) or ""):

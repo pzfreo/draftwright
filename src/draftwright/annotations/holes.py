@@ -155,7 +155,7 @@ def _add_location_dims(dwg, a: Analysis, patterns, holes_in=None):
         )
     _kept_x_set = set(_kept_x)
     x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
-    for n, ann in dwg._named.items():
+    for n, ann in dwg.iter_annotations():
         if n.startswith("dim_pitch_plan") and getattr(ann, "dim_level_y", 0) > plan_top:
             a.pv_zones.above.allocate(10.0)  # consume space used by pitch dim
     for i, (rx, ry, _) in enumerate(sorted(x_refs, key=lambda r: abs(r[0] - datum_x))):
@@ -212,7 +212,7 @@ def _add_location_dims(dwg, a: Analysis, patterns, holes_in=None):
     y_refs = [r for r in y_refs if r[1] not in _y_drawable or r[1] in _kept_y_set]
     # Y locations: dims above the side view, routed through sv_zones.above.
     # Pre-advance past any pitch dims already placed above side_top.
-    for n, ann in dwg._named.items():
+    for n, ann in dwg.iter_annotations():
         if n.startswith("dim_pitch_side") and getattr(ann, "dim_level_y", 0) > side_top:
             a.sv_zones.above.allocate(10.0)  # consume space used by pitch dim
     # Tighten outer_limit if any witness line approaches the iso view boundary.
@@ -542,7 +542,7 @@ def _place_pitch_dim(dwg, a: Analysis, view, h1, h2, n, pitch, to_page, name):
         pref = (-0.3, 1.0) if view == "plan" else (-0.3, -1.0)
         side, reach = max(cands, key=lambda c: c[0][0] * pref[0] + c[0][1] * pref[1])
     # stack further pitch dims in this view on outer tiers
-    prior = sum(1 for nm in dwg._named if nm.startswith(f"dim_pitch_{view}"))
+    prior = sum(1 for nm, _ in dwg.iter_annotations() if nm.startswith(f"dim_pitch_{view}"))
     offset = reach + 8 + 10 * prior
     # never force-place: skip (and log) when the dim line would leave the page
     ox = mid[0] + side[0] * (offset + 6)

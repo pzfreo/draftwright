@@ -29,7 +29,7 @@ def _occupied_boxes(dwg):
     hatch.  Bare centrelines/leaders are excluded — those legitimately cross a
     dimension and lint does not flag them."""
     boxes = []
-    for name, o in dwg._named.items():
+    for name, o in dwg.iter_annotations():
         if getattr(o, "label_bbox", None) is None and name != "section_hatch":
             continue
         bb = _anno_box(o)

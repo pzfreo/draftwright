@@ -1125,7 +1125,15 @@ class TestComposeThenPackRepack:
     def _fake_dwg(self, named, views):
         from types import SimpleNamespace
 
-        return SimpleNamespace(_named=named, _anno_view=views)
+        # Mirror Drawing's annotation read surface (#249) so stage helpers that now
+        # call dwg.iter_annotations()/view_of() work against the fake.
+        return SimpleNamespace(
+            _named=named,
+            _anno_view=views,
+            iter_annotations=lambda: named.items(),
+            view_of=lambda n: views.get(n),
+            annotations_in_view=lambda v: ((n, o) for n, o in named.items() if views.get(n) == v),
+        )
 
     def test_overlap_counts_label_vs_label_across_views(self):
         from draftwright.builder import _cross_view_overlaps
