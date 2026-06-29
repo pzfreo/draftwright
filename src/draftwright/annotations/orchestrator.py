@@ -244,10 +244,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     # Per-hole annotations from the feature records (#91, #92, #95): each
     # hole is annotated in the view its axis is normal to.
+    # to_page maps a model-space *location* (x, y, z) → page coords (IR-typed, not a
+    # recogniser Hole — ADR 0008 Amendment 6).
     view_of_axis = {
-        "z": ("plan", lambda h: (PX(h.location[0]), PY(h.location[1]))),
-        "y": ("front", lambda h: (FX(h.location[0]), FZ(h.location[2]))),
-        "x": ("side", lambda h: (SX(h.location[1]), SZ(h.location[2]))),
+        "z": ("plan", lambda loc: (PX(loc[0]), PY(loc[1]))),
+        "y": ("front", lambda loc: (FX(loc[0]), FZ(loc[2]))),
+        "x": ("side", lambda loc: (SX(loc[1]), SZ(loc[2]))),
     }
 
     # The part model — built once and rendered from for the IR-migrated passes
@@ -269,13 +271,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # duplicate hole callout; only the off-axis features get callouts.  On a
     # prismatic part every hole flows through unchanged.
     feature_holes = a.holes
-    feature_patterns = a.patterns
     if a.is_rotational:
         feature_holes = [h for h in a.holes if not _is_concentric_hole(h, a)]
-        present = set(map(id, feature_holes))
-        feature_patterns = [p for p in a.patterns if all(id(h) in present for h in p.holes)]
     if feature_holes:
-        _annotate_holes(dwg, a, view_of_axis, feature_patterns, _model, holes_in=feature_holes)
+        # _annotate_holes groups + builds callouts from the IR (`_model`); a pattern's
+        # furniture is gated on all its members surviving the feature-holes filter.
+        _annotate_holes(dwg, a, view_of_axis, _model, holes_in=feature_holes)
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.
     render_locations(dwg, _model, a)
