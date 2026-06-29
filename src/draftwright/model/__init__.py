@@ -36,7 +36,13 @@ from draftwright.model.ir import (
     StepFeature,
     display,
 )
-from draftwright.model.planner import DimensionGroup, PlannedDimension, plan_dimensions
+from draftwright.model.planner import (
+    DimensionGroup,
+    PlannedDimension,
+    SectionPlan,
+    plan_dimensions,
+    plan_sections,
+)
 
 __all__ = [
     "BossFeature",
@@ -54,5 +60,7 @@ __all__ = [
     "StepFeature",
     "build_part_model",
     "display",
+    "SectionPlan",
     "plan_dimensions",
+    "plan_sections",
 ]
