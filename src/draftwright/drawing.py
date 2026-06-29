@@ -972,25 +972,44 @@ class Drawing:
                     view_edge_cache=self._view_edge_cache,
                 )
         if self.part is not None:
-            if self._cyl_cache is None:
-                self._cyl_cache = analyse_cylinders(self.part)
+            # Reuse the single feature inventory from the build (#244) when present,
+            # so lint does not re-detect holes/patterns/turned-steps; fall back to
+            # detecting when there is no analysis (a manually-built Drawing, or lint
+            # called mid-build before _analysis is attached).
+            a = self._analysis
+            holes: list | None
+            patterns: list | None
+            prof_kw: dict
+            if a is not None:
+                cyls = a.cyls
+                holes, patterns, prof_kw = a.holes, a.patterns, {"prof": a.prof}
+            else:
+                if self._cyl_cache is None:
+                    self._cyl_cache = analyse_cylinders(self.part)
+                cyls = self._cyl_cache
+                holes = patterns = None
+                prof_kw = {}
             issues += lint_feature_coverage(
                 self.part,
                 self.items,
-                cyls=self._cyl_cache,
+                cyls=cyls,
                 exclude=self._coverage.dropped_diams,
                 assembly=self.assembly,
+                holes=holes,
             )
             issues += lint_axial_coverage(
                 self.part,
                 self,
                 assembly=self.assembly,
+                **prof_kw,
             )
             issues += lint_location_coverage(
                 self.part,
                 self,
-                cyls=self._cyl_cache,
+                cyls=cyls,
                 assembly=self.assembly,
+                holes=holes,
+                patterns=patterns,
             )
         issues += list(self._build_issues)
         # Attach a ready-to-paste fix snippet where one is computable (#29).
