@@ -274,7 +274,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         present = set(map(id, feature_holes))
         feature_patterns = [p for p in a.patterns if all(id(h) in present for h in p.holes)]
     if feature_holes:
-        _annotate_holes(dwg, a, view_of_axis, feature_patterns, holes_in=feature_holes)
+        _annotate_holes(dwg, a, view_of_axis, feature_patterns, _model, holes_in=feature_holes)
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.
     render_locations(dwg, _model, a)

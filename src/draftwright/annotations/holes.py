@@ -12,7 +12,6 @@ import math
 
 from build123d_drafting.helpers import (
     CenterlineCircle,
-    HoleCallout,
     Leader,
 )
 
@@ -29,7 +28,9 @@ from draftwright._core import (
     _log,
 )
 from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
+from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
 from draftwright.layout import LayoutSolver, Placeable
+from draftwright.model import plan_dimensions
 from draftwright.recognition import (
     BoltCircle,
     HoleSpec,
@@ -421,7 +422,7 @@ def _solve_strip_via_layout(naturals, min_gap, lo, hi, key_prefix):
     return [placed[k] for k in keys]
 
 
-def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=None):
+def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, model, holes_in=None):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
     Identical holes share one callout with an ``n×`` count prefix (#92's
@@ -481,6 +482,17 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=Non
     # one callout PER pattern + one for the leftover unpatterned holes (#92).
     hole_pattern = {h: p for p in found_patterns for h in p.holes}
 
+    # Map each hole location → its IR hole/pattern DimensionGroup so the callout's
+    # bore/cbore/suffix come from the single IR spec (hole_callout_spec), not a
+    # second engine-side extraction (#238 B1). The IR groups holes the same way the
+    # engine does (HoleSpec / find_hole_patterns), so every hole has a group.
+    _loc_to_group: dict = {}
+    for g in plan_dimensions(model):
+        if g.feature_kind not in ("hole", "pattern"):
+            continue
+        for m in getattr(g.feature, "members", ()) or (g.anchor,):
+            _loc_to_group[(round(m[0], 3), round(m[1], 3), round(m[2], 3))] = g
+
     def _subspecs(holes):
         """Split a spec group's holes into ``(subholes, pattern)`` entries — one
         per recognised pattern (its full hole set) plus a trailing ``(rest,
@@ -499,31 +511,18 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=Non
         return out
 
     def _build_callout(holes, pattern):
-        h = holes[0]
-        step = h.cbore or h.spotface
-        if h.cbore and h.spotface:
-            _log.info(
-                "Hole ø%s has both cbore and spotface; spotface not in the callout",
-                _fmt(h.diameter),
-            )
-            step = h.cbore
-        through = h.bottom == "through"
-        if isinstance(pattern, BoltCircle):
-            suffix = f"EQ SP ON ø{_fmt(pattern.diameter)} BC"
-        elif isinstance(pattern, RectGrid):
-            suffix = f"({pattern.rows}×{pattern.cols})"
-        else:
-            suffix = None
-        return HoleCallout(
-            _fmt(h.diameter),
-            count=len(holes) if len(holes) > 1 else None,
-            through=through,
-            depth=None if through else _fmt(h.depth),
-            cbore_dia=_fmt(step.diameter) if step else None,
-            cbore_depth=_fmt(step.depth) if step else None,
-            suffix=suffix,
-            draft=draft,
-        )
+        """The `HoleCallout` for a spec group, built from its IR group's planned spec
+        (bore/cbore/through/suffix) with the engine's view-local hole count. The
+        cbore-precedence and pattern-suffix logic lives once, in `hole_callout_spec`
+        (#238 B1). *pattern* is unused here — the IR group carries the suffix; it
+        stays in the spec tuple for placement + sheet furniture."""
+        key = holes[0].location
+        group = _loc_to_group.get((round(key[0], 3), round(key[1], 3), round(key[2], 3)))
+        if group is None:  # every hole is in build_part_model; guard, don't crash
+            _log.warning("no IR group for hole at %s; callout skipped", _fmt(holes[0].diameter))
+            return None
+        count = len(holes) if len(holes) > 1 else None
+        return callout_from_spec(hole_callout_spec(group), draft, count)
 
     def _rim_tip(centre, elbow, holes):
         """Pull the tip from the hole centre to its circumference."""
@@ -553,7 +552,9 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, found_patterns, holes_in=Non
         specs = []
         for holes in view_groups:
             for subholes, pattern in _subspecs(holes):
-                specs.append((subholes, _build_callout(subholes, pattern), pattern))
+                callout = _build_callout(subholes, pattern)
+                if callout is not None:
+                    specs.append((subholes, callout, pattern))
         # No fixed cap (#36): every spec is attempted; the per-view placement
         # bounds below (front-view shaft rows, plan/side strip Y-solver) are the
         # real limit, and any callout that genuinely doesn't fit surfaces as
