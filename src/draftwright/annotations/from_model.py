@@ -15,9 +15,17 @@ not equivalence to the engine. `render_step_lengths` is wired into production;
 
 from __future__ import annotations
 
-from build123d_drafting.helpers import Dimension, HoleCallout, Leader, TitleBlock
+from build123d_drafting.helpers import CenterMark, Dimension, HoleCallout, Leader, TitleBlock
 
-from draftwright._core import _DIAM_RE, _MARGIN, _dim, _fmt, _greedy_strip_ys, _solve_strip_ys
+from draftwright._core import (
+    _DIAM_RE,
+    _END_ON,
+    _MARGIN,
+    _dim,
+    _fmt,
+    _greedy_strip_ys,
+    _solve_strip_ys,
+)
 from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
 from draftwright.model.planner import DimensionGroup, plan_dimensions
 
@@ -149,6 +157,25 @@ def _diameter_leader(dwg, group, obstacles) -> Leader | None:
     if dia is None:
         return None
     return _place_leader(dwg, group.view, group.anchor, obstacles, label=f"ø{_fmt(dia)}")
+
+
+def render_centermarks(dwg, model) -> int:
+    """A centre mark on every hole (plain holes + each pattern member), in the view
+    normal to the hole's axis (`_END_ON`), sized by its diameter — the IR migration
+    of the engine's inline centre-mark loop. Returns the count placed."""
+    n = 0
+    for g in plan_dimensions(model):
+        if g.feature_kind not in ("hole", "pattern"):
+            continue
+        dia = _first(g, "diameter", "bore") or 0.0
+        size = max(2.5, dia * dwg.scale + 2.0)
+        view = _END_ON.get(g.feature.frame.axis, "plan")
+        members = getattr(g.feature, "members", ()) or [g.anchor]
+        for loc in members:
+            px, py, *_ = dwg.at(view, *loc)
+            dwg.add(CenterMark((px, py, 0), size, dwg.draft), f"m_cm{n}", view=view)
+            n += 1
+    return n
 
 
 def _mentioned_diameters(dwg) -> set[float]:
