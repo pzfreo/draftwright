@@ -121,32 +121,26 @@ Where the codebase is **today** vs the target above (as of 2026-06-29). The
 architecture and pipeline exist and are load-bearing in production; convergence is
 partial. Tracked under epic [#195](https://github.com/pzfreo/draftwright/issues/195).
 
-**On the IR path in production (migrated + engine code deleted):**
+**On the IR path in production (migrated + engine recognition/placement deleted):**
 turned step lengths, turned diameters, hole centre marks, envelope width/depth,
-slots, **hole location dims** (`_add_location_dims` deleted, #256). Each was
-migrate-and-delete; `annotations/turned.py` is gone. The IR also now **groups
-identical holes** by machining spec (`HoleFeature.members`/`count`, #257) — the
-prerequisite for migrating the callouts.
+slots, hole **location dims** (`_add_location_dims` deleted, #256), and the full
+hole **callout** pass — grouping by machining spec (#257), the callout spec
+(#259), the callout loop (#260), and the **IR-typed interface** (#263, ADR
+Amendment 6: cover/table, furniture, placement, and the section trigger all consume
+IR data — no recogniser `Hole`/`Pattern` object crosses into the renderers). The
+**section A–A trigger** is planner-decided too (`plan_sections`, #207); the cut /
+hatch / arrow rendering stays shared infrastructure it feeds. `annotations/turned.py`
+and the `render_into` test-only parallel are gone.
 
 **Still produced by the legacy engine passes (not yet migrated):**
 
-- **Hole callout *placement* + pitch + balloons + table escalation**
-  (`annotations/holes.py`) — the largest, most-coupled pass. Location dims, centre
-  marks, and IR hole grouping are done; the remaining callout-placement migration
-  feeds the existing strip/balloon/table machinery from the grouped IR (Amendment 4),
-  not a rewrite. Plan: [`plans/0008-convergence-roadmap.md`](plans/0008-convergence-roadmap.md#238-remaining--hole-callout-placement).
-  ([#238](https://github.com/pzfreo/draftwright/issues/238))
 - **Prismatic step-height ladder + envelope height + OD** — coupled via the shared
   right-strip cursor; needs a prismatic-step `Feature`.
   ([#237](https://github.com/pzfreo/draftwright/issues/237))
-- ~~**Section views** — trigger into the planner~~ ✅ **done** (#207): `plan_sections`
-  decides the section A–A trigger + cut-plane row from the IR; `_add_section_view`
-  is the shared rendering machinery it feeds. (The detail view stays user/lint-
-  triggered, not feature-driven.) ([#207](https://github.com/pzfreo/draftwright/issues/207))
 - **PMI / GD&T placement** — needs a PMI/thread detector emitting GD&T `Feature`s.
   ([#208](https://github.com/pzfreo/draftwright/issues/208))
 
-**Foundation track — close before the feature epics** (umbrella
+**Foundation track — ✅ complete** (umbrella
 [#241](https://github.com/pzfreo/draftwright/issues/241); ADR Amendment 5):
 
 - ✅ **One feature inventory** (keystone,
@@ -166,8 +160,10 @@ prerequisite for migrating the callouts.
 - ✅ **Delete `render_into`**
   ([#251](https://github.com/pzfreo/draftwright/issues/251)) — the test-only parallel
   (`render_into`/`render_callouts` + their leader helpers) is removed; the seam/e2e
-  tests are repointed at the production renderers. The **foundation track is
-  complete.**
+  tests are repointed at the production renderers.
+- ✅ **IR-typed interface** ([#263](https://github.com/pzfreo/draftwright/issues/263),
+  ADR Amendment 6) — the data crossing IR→shared-infra is IR-typed (a `HoleRef`
+  position key), not recogniser objects; enforced by typed signatures.
 
 **Inherent (not a migration gap):** recognition is heuristic — a chamfered bore in
 a tapered section will not recognise itself cleanly. The architecture *contains*
