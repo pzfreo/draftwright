@@ -3864,10 +3864,10 @@ class TestSlotDimensioning:
         # the near (lo) edge is -10-(-30) = 20.
         part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20)
         dwg = build_drawing(part)
-        labels = {n: dwg._named[n].label for n in dwg._named if n.startswith("slot")}
-        assert labels.get("slot0_width") == "8"
-        assert labels.get("slot0_length") == "20"
-        assert labels.get("slot0_pos") == "20"
+        labels = {n: dwg._named[n].label for n in dwg._named if n.startswith("m_slot")}
+        assert labels.get("m_slot0_width") == "8"
+        assert labels.get("m_slot0_length") == "20"
+        assert labels.get("m_slot0_pos") == "20"
 
     @pytest.mark.timeout(60)
     def test_slot_sheet_is_lint_clean(self):
@@ -3881,7 +3881,7 @@ class TestSlotDimensioning:
         # to the displayed value or the label-vs-measured lint trips (#135).
         part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 4.75, 20)
         dwg = build_drawing(part)
-        assert dwg._named["slot0_width"].label == "4.8"
+        assert dwg._named["m_slot0_width"].label == "4.8"
         assert [i for i in dwg.lint() if i.code == "label_vs_measured"] == []
 
     @pytest.mark.timeout(60)
@@ -3900,11 +3900,11 @@ class TestSlotDimensioning:
         external = [
             o.label_bbox
             for n, o in dwg._named.items()
-            if not n.startswith("slot") and getattr(o, "label_bbox", None) is not None
+            if not n.startswith("m_slot") and getattr(o, "label_bbox", None) is not None
         ]
         assert external  # the holes produced callouts
         for n, o in dwg._named.items():
-            if not n.startswith("slot"):
+            if not n.startswith("m_slot"):
                 continue
             g = o.bounding_box()
             full = (g.min.X, g.min.Y, g.max.X, g.max.Y)

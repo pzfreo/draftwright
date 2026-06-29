@@ -23,6 +23,7 @@ from draftwright.model.ir import (
     HoleFeature,
     PartModel,
     PatternFeature,
+    SlotFeature,
     StepFeature,
 )
 from draftwright.recognition import (
@@ -32,6 +33,7 @@ from draftwright.recognition import (
     find_bosses,
     find_hole_patterns,
     find_holes,
+    find_slots,
     find_turned_steps,
 )
 
@@ -125,6 +127,24 @@ def build_part_model(part) -> PartModel:
         if id(h) in patterned:
             continue
         features.append(_member_hole(h, Frame(origin=_xyz(h.location), axis=_axis_letter(h))))
+
+    # Milled slots / reduced across-flats sections (detected for any part).
+    for sl in find_slots(part):
+        idx = "xyz".index(sl.long_axis)
+        origin = [bbox.center().X, bbox.center().Y, bbox.center().Z]
+        origin[idx] = (sl.lo + sl.hi) / 2
+        features.append(
+            SlotFeature(
+                frame=Frame(origin=(origin[0], origin[1], origin[2]), axis=sl.long_axis),
+                width_axis=sl.width_axis,
+                long_axis=sl.long_axis,
+                width=sl.width,
+                length=sl.length,
+                w_center=sl.w_center,
+                lo=sl.lo,
+                hi=sl.hi,
+            )
+        )
 
     # Turned profile → step segments; else external bosses → diameters.
     prof = find_turned_steps(part)

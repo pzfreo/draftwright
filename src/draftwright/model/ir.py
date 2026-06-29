@@ -212,6 +212,33 @@ class EnvelopeFeature:
 
 
 @dataclass(frozen=True)
+class SlotFeature:
+    """A milled slot / reduced across-flats section — width (the defining size,
+    across ``width_axis``) + length (along ``long_axis``). Carries the slot's
+    in-plane geometry so the renderer can place the size + position dims in the
+    view the two axes span (the recogniser's `Slot`, normalised into the IR)."""
+
+    frame: Frame
+    width_axis: str
+    long_axis: str
+    width: float
+    length: float
+    w_center: float
+    lo: float
+    hi: float
+    kind: ClassVar[str] = "slot"
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("length", "slot_width", self.width),
+            DimParameter("length", "slot_length", self.length),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class BossFeature:
     """An external cylindrical boss/OD on a non-turned part — its diameter."""
 

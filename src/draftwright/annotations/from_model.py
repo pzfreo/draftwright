@@ -161,6 +161,127 @@ def _diameter_leader(dwg, group, obstacles) -> Leader | None:
     return _place_leader(dwg, group.view, group.anchor, obstacles, label=f"ø{_fmt(dia)}")
 
 
+def render_slots(dwg, model, a) -> int:
+    """Dimension milled slots from the IR — width (the defining size, across
+    ``width_axis``) + length (along ``long_axis``) + a position dim from the part
+    datum, in the view the two axes span. Places through the engine's zone strips
+    (shared infra, ADR 0008 Amend. 4); a dim with no clear room is dropped and
+    recorded at info severity (place-what-fits). Sources `SlotFeature`s from the
+    model; replaces the engine's `_annotate_slots`. Returns the count placed."""
+    slots = [f for f in model.features if f.kind == "slot"]
+    if not slots:
+        return 0
+    draft = dwg.draft
+    external = _occupied_boxes(dwg)  # tested against candidate's full geometry
+    placed: list = []  # this pass's own dims, tested label-box to label-box
+    tier = draft.font_size + 2 * draft.pad_around_text
+    views = {
+        frozenset("xy"): ("plan", a.pv_zones, "x", a.proj.plan_x, "y", a.proj.plan_y),
+        frozenset("xz"): ("front", a.fv_zones, "x", a.proj.front_x, "z", a.proj.front_z),
+        frozenset("yz"): ("side", a.sv_zones, "y", a.proj.side_x, "z", a.proj.side_z),
+    }
+
+    def _bb(axis, hi):
+        return getattr(a.bb.max if hi else a.bb.min, axis.upper())
+
+    def _drop(kind, idx, view):
+        dwg._record_build_issue(
+            "info",
+            "slot_dim_dropped",
+            f"slot{idx} {kind} dim not placed (no room beside the {view})",
+        )
+
+    count = 0
+    for i, s in enumerate(slots):
+        view = views[frozenset((s.width_axis, s.long_axis))]
+        name, zones, h_axis, h_proj, _v_axis, v_proj = view
+
+        def _place(
+            meas_axis,
+            p_lo,
+            p_hi,
+            perp_lo,
+            perp_hi,
+            label,
+            kind,
+            anchor="center",
+            vw=view,
+            zn=zones,
+            ha=h_axis,
+            hp=h_proj,
+            vp=v_proj,
+            idx=i,
+        ):
+            # Snap the geometric span to the displayed (1-dp) value so drawn length
+            # matches the label (else label-vs-measured lint trips).
+            disp = float(_fmt(label))
+            sgn = 1.0 if p_hi >= p_lo else -1.0
+            if anchor == "center":
+                mid = (p_lo + p_hi) / 2
+                p_lo, p_hi = mid - sgn * disp / 2, mid + sgn * disp / 2
+            else:
+                p_hi = p_lo + sgn * disp
+            if meas_axis == ha:
+                meas_proj, perp_proj = hp, vp
+                cands = (("above", zn.above, True), ("below", zn.below, False))
+            else:
+                meas_proj, perp_proj = vp, hp
+                cands = (("right", zn.right, True), ("left", zn.left, False))
+            for side, strip, hi in cands:
+                if strip is None:
+                    continue
+                coord = strip.peek(tier)  # peek, don't allocate until it clears
+                if coord is None:
+                    continue
+                witness = perp_proj(perp_hi if hi else perp_lo)  # off the slot's own edge
+                if side in ("above", "below"):
+                    e_lo = (meas_proj(p_lo), witness, 0)
+                    e_hi = (meas_proj(p_hi), witness, 0)
+                else:
+                    e_lo = (witness, meas_proj(p_lo), 0)
+                    e_hi = (witness, meas_proj(p_hi), 0)
+                dim = _dim(e_lo, e_hi, side, abs(coord - witness), draft, label=_fmt(label))
+                gbb = dim.bounding_box()
+                full = (gbb.min.X, gbb.min.Y, gbb.max.X, gbb.max.Y)
+                if _box_hits(full, external) or _box_hits(_anno_box(dim), placed):
+                    continue
+                strip.allocate(tier)
+                dwg.add(dim, f"m_slot{idx}_{kind}", view=vw[0])
+                placed.append(_anno_box(dim))
+                return True
+            return False
+
+        half = s.width / 2
+        if _place(
+            s.width_axis, s.w_center - half, s.w_center + half, s.lo, s.hi, s.width, "width"
+        ):
+            count += 1
+        else:
+            _drop("width", i, name)
+        if _place(
+            s.long_axis, s.lo, s.hi, s.w_center - half, s.w_center + half, s.length, "length"
+        ):
+            count += 1
+        else:
+            _drop("length", i, name)
+        datum = _bb(s.long_axis, False)
+        if (s.lo - datum) * a.SCALE >= 1.0:
+            if _place(
+                s.long_axis,
+                datum,
+                s.lo,
+                s.w_center - half,
+                s.w_center + half,
+                s.lo - datum,
+                "pos",
+                anchor="lo",
+            ):
+                count += 1
+            else:
+                _drop("position", i, name)
+    return count
+
+
 def render_centermarks(dwg, model) -> int:
     """A centre mark on every hole (plain holes + each pattern member), in the view
     normal to the hole's axis (`_END_ON`), sized by its diameter — the IR migration
