@@ -982,7 +982,7 @@ class Drawing:
             )
             issues += lint_axial_coverage(
                 self.part,
-                self._coverage.axial_covered,
+                self,
                 assembly=self.assembly,
             )
             issues += lint_location_coverage(

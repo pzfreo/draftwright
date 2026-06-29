@@ -276,4 +276,3 @@ def _annotate_turned_lengths(dwg, a: Analysis, prof: TurnedProfile | None) -> No
             f"dim_len{i}",
             view="front",
         )
-    dwg._coverage.cover_axial(len(steps))
