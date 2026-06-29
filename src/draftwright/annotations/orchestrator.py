@@ -383,17 +383,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     elif not _z_turned:
         _log.warning("dim_height skipped: fv_zones.right strip full")
 
-    # An X-axis turned (stepped-shaft) part gets a full axial step-length chain
-    # below (the IR step-length pass); that chain already conveys the overall
-    # length, so the envelope width dim would double-dimension it (ISO 129).
-    # Suppress it. (_turned_prof was computed at the step-height section above.)
-    _x_turned = _turned_prof is not None and _turned_prof.axis == "x"
-
     # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
     # placed through the same below-strip zone allocators the engine used (zone-aware
-    # render stage, ADR 0008). Width is suppressed for an X-turned part (its step
-    # chain conveys the length); a square footprint gets neither (one dim suffices).
-    render_envelope(dwg, _model, a, suppress_width=_x_turned)
+    # render stage, ADR 0008). Suppression (square footprint / X-turned width) is now
+    # the planner's decision (#250); the renderer just skips suppressed dims.
+    render_envelope(dwg, _model, a)
 
     # The section view goes last: its room check clears every annotation
     # already placed right of the side view (callout labels, height/step

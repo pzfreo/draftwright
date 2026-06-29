@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from draftwright._core import _END_ON
-from draftwright.model.ir import DimParameter, Feature, PartModel, Point
+from draftwright.model.ir import Datum, DimParameter, Feature, PartModel, Point
 
 # How each (role, kind) is drawn. Defaults keep the table small.
 _CONVENTION = {
@@ -44,8 +44,20 @@ _CONVENTION = {
 
 @dataclass(frozen=True)
 class PlannedDimension:
+    """A parameter plus its render *intent* — the planner's decision about how/whether
+    it is drawn, leaving the layout (zones/sides/coordinates) to the renderer
+    (ADR 0008 Amendment 4). `suppressed`/`reason` carry *model-level* suppression
+    (the planner sees the model, not the drawing-in-progress, so render-state
+    suppression like "diameter already mentioned" stays in the renderer). `datum` is
+    the reference a positional dim measures from, resolved from `param.refs` against
+    `model.datums` — reserved for the location-dimension work (#238); ``None`` until
+    a feature emits datum-referenced params."""
+
     param: DimParameter
-    convention: str  # "chain" | "ordinate" | "leader" | "linear"
+    convention: str  # "chain" | "ordinate" | "leader" | "linear" | "pitch"
+    suppressed: bool = False
+    reason: str | None = None
+    datum: Datum | None = None
 
 
 @dataclass(frozen=True)
@@ -82,16 +94,59 @@ def _group_view(feature: Feature) -> str:
     return _END_ON.get(feature.frame.axis, "plan")
 
 
+def _square_footprint(model: PartModel) -> bool:
+    """In-plane width ≈ depth (within 5%) — a single overall dim suffices."""
+    size = model.bbox.size  # type: ignore[attr-defined]  # build123d BoundBox
+    w, d = float(size.X), float(size.Y)
+    return abs(w - d) <= max(w, d) * 0.05
+
+
+def _suppression(model: PartModel, feature: Feature, param: DimParameter):
+    """Model-level suppression intent → ``(suppressed, reason)``. Decisions the
+    planner can make from the model alone (ISO 129 no-double-dimensioning):
+    a square footprint needs one overall dim, not width+depth; a turned part's
+    step-length chain already conveys the length (X) / height (Z), so the envelope
+    dim along the turning axis is redundant."""
+    if feature.kind != "envelope":
+        return False, None
+    if param.role in ("width", "depth") and _square_footprint(model):
+        return True, "square footprint (single overall dim suffices)"
+    if param.role == "width" and model.orientation == "x":
+        return True, "X-turned (step-length chain conveys the length)"
+    if param.role == "height" and model.orientation == "z":
+        return True, "Z-turned (step-length chain conveys the height)"
+    return False, None
+
+
+def _datum_for(model: PartModel, param: DimParameter) -> Datum | None:
+    """The datum a positional param measures from — resolved from ``param.refs``
+    against ``model.datums``. ``None`` until a feature emits datum-referenced
+    params (the location-dimension work, #238)."""
+    if not param.refs:
+        return None
+    return next((d for d in model.datums if d.id in param.refs), None)
+
+
 def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
-    view + planned dims). No cross- or within-feature value de-duplication."""
+    view + planned dims, each carrying its render intent — convention, model-level
+    suppression, datum). No cross- or within-feature value de-duplication."""
     groups: list[DimensionGroup] = []
     for feature in model.features:
-        dims = [
-            PlannedDimension(param=p, convention=_CONVENTION.get((p.role, p.kind), "linear"))
-            for p in feature.parameters()
-            if p.kind != "location"
-        ]
+        dims = []
+        for p in feature.parameters():
+            if p.kind == "location":
+                continue
+            suppressed, reason = _suppression(model, feature, p)
+            dims.append(
+                PlannedDimension(
+                    param=p,
+                    convention=_CONVENTION.get((p.role, p.kind), "linear"),
+                    suppressed=suppressed,
+                    reason=reason,
+                    datum=_datum_for(model, p),
+                )
+            )
         if dims:
             groups.append(
                 DimensionGroup(feature=feature, view=_group_view(feature), dims=tuple(dims))
