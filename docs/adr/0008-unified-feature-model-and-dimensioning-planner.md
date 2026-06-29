@@ -6,6 +6,8 @@
   rather than reabsorbing it (Amendment 4). Not reproduce-and-swap (Amendment 2),
   not two permanent paths — incremental migration where each step deletes the
   per-feature engine pass it replaces. The equivalence golden gate is retired.
+  **One path implies one feature inventory** (Amendment 5): `_analyse` and the IR
+  must not re-detect independently — keystone of the remaining migration (#241).
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Supersedes the original 0008** ("unified feature model") with a concrete
@@ -281,6 +283,45 @@ Consequences for scope:
 
 This shrinks the holes (#238) and sections (#207) epics from "rebuild the
 infrastructure" to "model the feature intent and feed the existing services."
+
+## Amendment 5 (2026-06-29) — ONE feature inventory; foundation hardening (#241)
+
+A mid-migration review (#241) surfaced that "one path" (Amendment 3) needs a
+companion invariant: **one feature inventory.** As production passes migrate onto
+the IR, the engine's `_analyse()` and the IR's `build_part_model()` were left
+*both* running feature detection — `find_holes`/`find_turned_steps`/`find_bosses`/
+`find_slots` are now run by `_analyse`, by `build_part_model`, *and* (for turned
+steps) by the orchestrator — detecting some features 3×. That is a performance
+cost and, worse, a **divergence risk**: two inventories that can disagree while
+both are live. With the engine slot/diameter/length passes now deleted, parts of
+`_analyse`'s feature set (`a.slots`) have no remaining reader — pure duplication.
+
+**Invariant:** there is **one** feature inventory per build. `_analyse()` and
+`build_part_model()` must not independently re-detect; the IR is built *from*
+`_analyse`'s products (or `_analyse` builds and caches the `PartModel` once and
+threads it). This is the **keystone** of the remaining migration — the unmigrated
+epics (#237, #238) will consume the model, so the model must be the single source
+first.
+
+The review also named three foundation smells to hold the line on as migration
+continues (tracked in #241):
+
+- **No new private-`Drawing`-state reads.** `_named`/`_anno_view`/`_pinned`/
+  `_build_issues`/`_pattern_callouts`/… remain as ADR-0005 migration aliases;
+  production code (incl. the new renderers) should reach annotation
+  ownership/iteration/build-issues through a small **registry-backed accessor**,
+  not the raw aliases. Don't widen the state-bus surface.
+- **The planner grows render *intents*, not layout.** Suppression reason,
+  preferred view, semantic datum/reference, and feature grouping belong in the
+  planner's output; *how* it is drawn stays in layout/render infra (Amendment 4).
+  This is the next planner-contract increment (after the inventory is unified).
+- **Docs/comments track the live state.** The architecture is moving fast; stale
+  "prototype / not yet wired" / Amendment-2 framing must be swept after each
+  convergence PR so it does not misdirect the next one.
+
+Order: **unify the inventory first** (keystone), then the docs sweep, the accessor
+boundary, the planner-intent increment, and finally delete the `render_into`
+test-only parallel once the holes epic supersedes it.
 
 ## Consequences
 
