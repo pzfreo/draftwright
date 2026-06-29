@@ -1,18 +1,16 @@
-"""render — the renderer seam: DimensionGroup → placed annotations (ADR 0008).
+"""from_model — render planner output into placed annotations (ADR 0008).
 
-The **first real consumer** of the planner output, validating the IR/planner
-contract end-to-end. A hole/pattern group is read *purely from its planned
-parameters* (+ the feature's `count`) and turned into a placed `HoleCallout`
-leader via the existing projection (`Drawing.at`) and rendering primitives. GD&T
-symbols (⌴/↧) are the helper's geometry, which is exactly why the IR carries
-semantic `role`s, not glyph strings.
+The renderer back-end of the compiler: a `DimensionGroup` (read *purely from its
+planned parameters* + the feature's metadata) becomes placed `HoleCallout` /
+`Dimension` annotations via the existing projection (`Drawing.at`), layout search,
+and rendering primitives. GD&T symbols (⌴/↧) are the helper's geometry, which is
+exactly why the IR carries semantic `role`s, not glyph strings.
 
-This is the planner→layout seam: `render_into` places each callout clear of the
-views and of other callouts via the ADR-0003 layout search. The pipeline runs
-end-to-end and is judged by **correctness** (lint), per the out-grow strategy
-(ADR 0008 Amendment 2) — it is the path for new/poorly-handled shapes, not a
-reproduce-and-swap of the engine. Kept out of `draftwright.model.__init__` so the
-pure IR stays free of any helpers/annotations import.
+This lives in `annotations/` (not `model/`) so the IR package stays pure — it
+imports *down* into `model` + `_core`, and is called by the orchestrator (ADR 0008
+Amendment 3: one path, this is its render stage). Judged by **correctness** (lint),
+not equivalence to the engine. `render_step_lengths` is wired into production;
+`render_into`/`render_callouts` drive the end-to-end slice + seam tests.
 """
 
 from __future__ import annotations
@@ -85,14 +83,14 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     }
 
 
-def _callout_leader(dwg, group) -> Leader | None:
-    """A placed `HoleCallout` leader for a hole/pattern group, or ``None``. Tips at
-    a real member hole (not the empty pattern centre), projected into the group's
-    view."""
+def _hole_callout(dwg, group) -> HoleCallout | None:
+    """The `HoleCallout` for a hole/pattern group from its planned spec, or ``None``
+    if the group is not hole-bearing. The shared callout builder for both the placed
+    (`render_into`) and the bare (`render_callouts`) paths."""
     spec = hole_callout_spec(group)
     if spec is None:
         return None
-    callout = HoleCallout(
+    return HoleCallout(
         spec["diameter"],
         count=spec["count"],
         through=spec["through"],
@@ -102,22 +100,13 @@ def _callout_leader(dwg, group) -> Leader | None:
         suffix=spec["suffix"],
         draft=dwg.draft,
     )
-    members = getattr(group.feature, "members", ())
-    tip_model = members[0] if members else group.anchor
-    tip = dwg.at(group.view, *tip_model)
-    elbow = (tip[0] + 12.0, tip[1] + 8.0, 0)
-    return Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label="", draft=dwg.draft, callout=callout)
-
-
-def render_callouts(dwg, groups) -> list[Leader]:
-    """The hole/pattern callout leaders for *groups* (does not mutate *dwg*)."""
-    return [ldr for g in groups if (ldr := _callout_leader(dwg, g)) is not None]
 
 
 def _place_leader(dwg, view, tip_model, obstacles, *, label="", callout=None) -> Leader | None:
     """A leader (callout or plain ø label) placed clear of *obstacles* by searching
     outward from the feature (ADR 0003 layout): first non-colliding elbow wins; the
-    farthest candidate is the fallback."""
+    farthest candidate is the fallback. With no obstacles the first ring wins, so a
+    bare call is deterministic."""
     tx, ty, *_ = dwg.at(view, *tip_model)
     fallback = None
     for dx, dy in _ELBOW_OFFSETS:
@@ -138,22 +127,20 @@ def _place_leader(dwg, view, tip_model, obstacles, *, label="", callout=None) ->
 
 
 def _hole_leader(dwg, group, obstacles) -> Leader | None:
-    spec = hole_callout_spec(group)
-    if spec is None:
+    """A `HoleCallout` leader for a hole/pattern group, placed clear of *obstacles*.
+    Tips at a real member hole (not the empty pattern centre)."""
+    callout = _hole_callout(dwg, group)
+    if callout is None:
         return None
-    callout = HoleCallout(
-        spec["diameter"],
-        count=spec["count"],
-        through=spec["through"],
-        depth=spec["depth"],
-        cbore_dia=spec["cbore_dia"],
-        cbore_depth=spec["cbore_depth"],
-        suffix=spec["suffix"],
-        draft=dwg.draft,
-    )
     members = getattr(group.feature, "members", ())
     tip = members[0] if members else group.anchor
     return _place_leader(dwg, group.view, tip, obstacles, callout=callout)
+
+
+def render_callouts(dwg, groups) -> list[Leader]:
+    """The hole/pattern callout leaders for *groups* (does not mutate *dwg*). The
+    bare path: placed against no obstacles, so deterministic."""
+    return [ldr for g in groups if (ldr := _hole_leader(dwg, g, [])) is not None]
 
 
 def _diameter_leader(dwg, group, obstacles) -> Leader | None:

@@ -14,7 +14,7 @@ for any part.
 
 from __future__ import annotations
 
-from draftwright._core import _axis_letter
+from draftwright._core import _axis_letter, _xyz
 from draftwright.model.ir import (
     BossFeature,
     EnvelopeFeature,
@@ -23,7 +23,6 @@ from draftwright.model.ir import (
     HoleFeature,
     PartModel,
     PatternFeature,
-    Point,
     StepFeature,
 )
 from draftwright.recognition import (
@@ -35,14 +34,6 @@ from draftwright.recognition import (
     find_holes,
     find_turned_steps,
 )
-
-
-def _pt(loc) -> Point:
-    """A build123d Vector or sequence → an (x, y, z) tuple."""
-    if hasattr(loc, "X"):
-        return (loc.X, loc.Y, loc.Z)
-    x, y, z = loc
-    return (float(x), float(y), float(z))
 
 
 def _member_hole(h, frame: Frame) -> HoleFeature:
@@ -62,9 +53,9 @@ def _pattern_feature(pat, members) -> PatternFeature:
     composing a representative member hole so its counterbore/spotface survive."""
     axis = _axis_letter(members[0])
     n = len(members)
-    locs = tuple(_pt(m.location) for m in members)  # raw arrangement — never discarded
+    locs = tuple(_xyz(m.location) for m in members)  # raw arrangement — never discarded
     if isinstance(pat, BoltCircle):
-        frame = Frame(_pt(pat.center), axis)
+        frame = Frame(_xyz(pat.center), axis)
         return PatternFeature(
             frame,
             "bolt_circle",
@@ -90,7 +81,7 @@ def _pattern_feature(pat, members) -> PatternFeature:
             direction=tuple(pat.direction),
         )
     if isinstance(pat, RectGrid):
-        frame = Frame(_pt(pat.center), axis)
+        frame = Frame(_xyz(pat.center), axis)
         return PatternFeature(
             frame,
             "grid",
@@ -102,7 +93,7 @@ def _pattern_feature(pat, members) -> PatternFeature:
             cols=pat.cols,
             angle=pat.angle,
         )
-    frame = Frame(_pt(members[0].location), axis)  # unknown type — plain count× callout
+    frame = Frame(_xyz(members[0].location), axis)  # unknown type — plain count× callout
     return PatternFeature(frame, "other", n, _member_hole(members[0], frame), members=locs)
 
 
@@ -133,7 +124,7 @@ def build_part_model(part) -> PartModel:
     for h in holes:
         if id(h) in patterned:
             continue
-        features.append(_member_hole(h, Frame(origin=_pt(h.location), axis=_axis_letter(h))))
+        features.append(_member_hole(h, Frame(origin=_xyz(h.location), axis=_axis_letter(h))))
 
     # Turned profile → step segments; else external bosses → diameters.
     prof = find_turned_steps(part)
@@ -162,7 +153,7 @@ def build_part_model(part) -> PartModel:
         for b in bosses:
             features.append(
                 BossFeature(
-                    frame=Frame(origin=_pt(b.location), axis=_axis_letter(b)),
+                    frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
                     diameter=b.diameter,
                 )
             )

@@ -13,8 +13,8 @@ from build123d import Box, Cylinder, Pos
 from build123d_drafting.helpers import Leader
 
 from draftwright import build_drawing
+from draftwright.annotations.from_model import hole_callout_spec, render_callouts
 from draftwright.model import build_part_model, plan_dimensions
-from draftwright.model.render import hole_callout_spec, render_callouts
 
 
 def _groups(part):

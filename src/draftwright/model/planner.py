@@ -21,11 +21,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from draftwright._core import _END_ON
 from draftwright.model.ir import DimParameter, Feature, PartModel, Point
-
-# The view a cylinder is seen end-on (as a circle), by its axis — where a
-# diameter callout belongs. Orientation is data: X and Z go through the same rule.
-_END_ON = {"x": "side", "y": "front", "z": "plan"}
 
 # How each (role, kind) is drawn. Defaults keep the table small.
 _CONVENTION = {

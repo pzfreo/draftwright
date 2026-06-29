@@ -38,6 +38,7 @@ from draftwright._core import (
     _log,
     _tag_sequence,
 )
+from draftwright.annotations.from_model import render_step_lengths
 from draftwright.annotations.holes import (
     _add_location_dims,
     _annotate_holes,
@@ -50,7 +51,6 @@ from draftwright.annotations.turned import (
     _annotate_turned_diameters,
 )
 from draftwright.model import build_part_model
-from draftwright.model.render import render_step_lengths
 from draftwright.recognition import (
     find_turned_steps,
     full_cylinders,

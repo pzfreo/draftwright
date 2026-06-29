@@ -17,8 +17,8 @@ import os
 from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
+from draftwright.annotations.from_model import render_into
 from draftwright.model import build_part_model
-from draftwright.model.render import render_into
 
 
 def _plate():
