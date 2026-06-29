@@ -130,15 +130,15 @@ Amendment 6: cover/table, furniture, placement, and the section trigger all cons
 IR data — no recogniser `Hole`/`Pattern` object crosses into the renderers). The
 **section A–A trigger** is planner-decided too (`plan_sections`, #207); the cut /
 hatch / arrow rendering stays shared infrastructure it feeds. `annotations/turned.py`
-and the `render_into` test-only parallel are gone.
+and the `render_into` test-only parallel are gone. The prismatic step-height ladder,
+overall height, and the rotational OD/centreline/bore furniture are on the IR too
+(`StepLevelFeature`/`RotationalFeature` + `render_height_ladder`/`render_rotational`,
+#237) — the orchestrator's inline `_right_ladder` block is deleted.
 
 **Still produced by the legacy engine passes (not yet migrated):**
 
-- **Prismatic step-height ladder + envelope height + OD** — coupled via the shared
-  right-strip cursor; needs a prismatic-step `Feature`.
-  ([#237](https://github.com/pzfreo/draftwright/issues/237))
 - **PMI / GD&T placement** — needs a PMI/thread detector emitting GD&T `Feature`s.
-  ([#208](https://github.com/pzfreo/draftwright/issues/208))
+  ([#208](https://github.com/pzfreo/draftwright/issues/208)) — the last feature epic.
 
 **Foundation track — ✅ complete** (umbrella
 [#241](https://github.com/pzfreo/draftwright/issues/241); ADR Amendment 5):
