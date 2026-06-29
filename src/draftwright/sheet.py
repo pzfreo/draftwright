@@ -870,7 +870,7 @@ def _build_zones(g, margin, page_h):
     pv_zones = ViewZones(
         # Outer limit = sv_left_edge (not iso_right_limit) so bore callouts in
         # the plan view are bounded by the same hard wall as the FV right strip,
-        # preventing labels from crossing dim_locy extension lines in the side
+        # preventing labels from crossing m_locy extension lines in the side
         # view.  gap_fv_sv is sized by _measure_strips to accommodate the widest
         # callout, so well-estimated labels will always fit within this bound.
         right=Strip(pv_right_edge, sv_left_edge, direction=1),

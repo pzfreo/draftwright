@@ -296,6 +296,29 @@ def _legible_steps(step_zs, bb_min_z, scale):
     return kept, n_too_close
 
 
+def _legible_locations(positions, scale):
+    """Axis positions far enough apart on the page to dimension legibly.
+
+    Given world-coordinate *positions* along one axis, keep a position only if it
+    is at least ``_MIN_LOC_SEP_MM`` page-mm from the previously kept one;
+    consecutive holes closer than that produce baseline witness lines that read
+    as a single busy cluster (#43). Returns ``(kept, n_too_close)``: the positions
+    to dimension and the count dropped for spacing (the caller surfaces these via
+    ``location_ref_dropped`` lint; the full-fidelity answer is a detail view, #42).
+    Mirrors :func:`_legible_steps` for hole locations.
+    """
+    kept: list[float] = []
+    n_too_close = 0
+    last = None
+    for p in sorted(positions):
+        if last is not None and (p - last) * scale < _MIN_LOC_SEP_MM:
+            n_too_close += 1
+            continue
+        kept.append(p)
+        last = p
+    return kept, n_too_close
+
+
 def _largest_empty_rect(drawable, obstacles):
     """Largest axis-aligned empty rectangle in *drawable* avoiding *obstacles*.
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 from draftwright._core import _axis_letter, _xyz
 from draftwright.model.ir import (
     BossFeature,
+    Datum,
     EnvelopeFeature,
     Feature,
     Frame,
@@ -207,7 +208,11 @@ def build_part_model(part, *, holes=None, patterns=None, slots=None, prof=_UNSET
                 )
             )
 
-    return PartModel(bbox=bbox, orientation=orientation, features=features)
+    # The default location datum — the part's min-X/min-Y/min-Z corner (lower-left
+    # in the plan view), per inspection practice. Hole location dims measure from
+    # it (#238); a human/LLM pass can re-anchor.
+    datums = [Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))]
+    return PartModel(bbox=bbox, orientation=orientation, features=features, datums=datums)
 
 
 def _is_round(bbox, bosses, tol: float = 0.5) -> bool:

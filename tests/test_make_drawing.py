@@ -438,8 +438,8 @@ class TestStripZones:
         part = Box(80, 60, 20) - Pos(20, 10, 0) * Cylinder(5, 20)
         dwg = build_drawing(part)
         a = dwg._analysis
-        locx_dims = [v for n, v in dwg._named.items() if n.startswith("dim_locx")]
-        assert len(locx_dims) >= 1, "expected dim_locx0 to be generated for off-datum cylinder"
+        locx_dims = [v for n, v in dwg._named.items() if n.startswith("m_locx")]
+        assert len(locx_dims) >= 1, "expected m_locx0 to be generated for off-datum cylinder"
         plan_top = dwg.views["plan"][0].bounding_box().max.Y
         assert all(d.dim_level_y > plan_top for d in locx_dims)
         assert a.pv_zones.above.depth_used > 0
@@ -454,8 +454,8 @@ class TestStripZones:
         part = Box(80, 60, 20) - Pos(0, 10, 0) * Cylinder(5, 20)
         dwg = build_drawing(part)
         a = dwg._analysis
-        locy_dims = [v for n, v in dwg._named.items() if n.startswith("dim_locy")]
-        assert len(locy_dims) >= 1, "expected dim_locy0 to be generated for off-datum cylinder"
+        locy_dims = [v for n, v in dwg._named.items() if n.startswith("m_locy")]
+        assert len(locy_dims) >= 1, "expected m_locy0 to be generated for off-datum cylinder"
         side_top = dwg.views["side"][0].bounding_box().max.Y
         assert all(d.dim_level_y > side_top for d in locy_dims)
         assert a.sv_zones.above.depth_used > 0
@@ -2706,24 +2706,24 @@ class TestLocationDimsAndSection:
 
     @pytest.mark.timeout(120)
     def test_x_dims_above_the_plan_view(self, plate_drawing):
-        labels = {a.label for n, a in plate_drawing._named.items() if n.startswith("dim_locx")}
+        labels = {a.label for n, a in plate_drawing._named.items() if n.startswith("m_locx")}
         assert labels == {"50", "30"}
         plan_top = plate_drawing.views["plan"][0].bounding_box().max.Y
         assert all(
             a.dim_level_y > plan_top
             for n, a in plate_drawing._named.items()
-            if n.startswith("dim_locx")
+            if n.startswith("m_locx")
         )
 
     @pytest.mark.timeout(120)
     def test_y_dims_above_the_side_view(self, plate_drawing):
-        labels = {a.label for n, a in plate_drawing._named.items() if n.startswith("dim_locy")}
+        labels = {a.label for n, a in plate_drawing._named.items() if n.startswith("m_locy")}
         assert labels == {"50", "40"}
         side_top = plate_drawing.views["side"][0].bounding_box().max.Y
         assert all(
             a.dim_level_y > side_top
             for n, a in plate_drawing._named.items()
-            if n.startswith("dim_locy")
+            if n.startswith("m_locy")
         )
 
     @pytest.mark.timeout(120)
@@ -2774,7 +2774,7 @@ class TestLocationDimsAndSection:
         assert "section_aa" not in dwg.views
         assert "section_line" not in dwg._named
         # but it still gets located
-        assert any(n.startswith("dim_locx") for n in dwg._named)
+        assert any(n.startswith("m_locx") for n in dwg._named)
 
     @pytest.mark.timeout(120)
     def test_underside_cbore_triggers_a_section(self):
@@ -2817,7 +2817,7 @@ class TestLocationDimsAndSection:
         for x in (-30, -10, 10, 30):
             part = part - Pos(x, 0, 6) * Cylinder(4, 8)
         dwg = build_drawing(part)
-        labels = sorted(a.label for n, a in dwg._named.items() if n.startswith("dim_locx"))
+        labels = sorted(a.label for n, a in dwg._named.items() if n.startswith("m_locx"))
         assert labels == ["20"]
 
     @pytest.mark.timeout(120)
@@ -2836,7 +2836,7 @@ class TestLocationDimsAndSection:
         for y in (-12, 0, 12):
             part = part - Pos(15, y, 8) * Cylinder(2, 60, rotation=(0, 90, 0))
         dwg = build_drawing(part)
-        locy = [a.dim_level_y for n, a in dwg._named.items() if n.startswith("dim_locy")]
+        locy = [a.dim_level_y for n, a in dwg._named.items() if n.startswith("m_locy")]
         pitch = [a.dim_level_y for n, a in dwg._named.items() if n.startswith("dim_pitch_side")]
         assert locy and pitch
         assert min(abs(ly - py) for ly in locy for py in pitch) >= 8
@@ -2861,7 +2861,7 @@ class TestLocationDimsAndSection:
     def test_rotational_part_gets_neither(self):
         dwg = build_drawing(Cylinder(30, 40) - Cylinder(10, 40))
         assert "section_aa" not in dwg.views
-        assert not any(n.startswith("dim_loc") for n in dwg._named)
+        assert not any(n.startswith(("m_loc", "dim_loc")) for n in dwg._named)
 
 
 class TestIsRotational:
@@ -3013,7 +3013,7 @@ class TestTurnedPlusDrilledFlange:
         assert "dim_od" in dwg._named
         # Feature-driven furniture for the bolt circle — withheld today.
         assert any(n.startswith("hc_") for n in dwg._named), "expected hole callouts"
-        assert any(n.startswith("dim_loc") for n in dwg._named), "expected location dims"
+        assert any(n.startswith("m_loc") for n in dwg._named), "expected location dims"
         assert any(n.startswith("bc_") for n in dwg._named), "expected bolt-circle furniture"
 
 
@@ -3311,7 +3311,7 @@ class TestLintSummaryAndDrops:
         ]:
             plate -= Pos(x, y, 0) * Cylinder(r, 8)
         dwg = build_drawing(plate)
-        n_loc = len([n for n in dwg._named if n.startswith(("dim_locx", "dim_locy"))])
+        n_loc = len([n for n in dwg._named if n.startswith(("m_locx", "m_locy"))])
         assert n_loc > 4, f"expected adaptive >4 location dims, got {n_loc}"
         assert "location_ref_dropped" not in {i.code for i in dwg.lint()}
 
@@ -3357,8 +3357,8 @@ class TestLintSummaryAndDrops:
             plate -= Pos(x, y, 0) * Cylinder(1.2, 8)
         dwg = build_drawing(plate)
         codes = {i.code for i in dwg.lint()}
-        n_locx = len([n for n in dwg._named if n.startswith("dim_locx")])
-        n_locy = len([n for n in dwg._named if n.startswith("dim_locy")])
+        n_locx = len([n for n in dwg._named if n.startswith("m_locx")])
+        n_locy = len([n for n in dwg._named if n.startswith("m_locy")])
         assert "location_ref_dropped" in codes  # closely-spaced refs were trimmed
         assert not any(i.severity == "error" for i in dwg.lint())
         # The kept set is strictly fewer than the ten holes per axis.
@@ -3379,7 +3379,7 @@ class TestLintSummaryAndDrops:
         part -= Pos(-36.5, 0, 0) * Cylinder(1.5, 20)  # ~2.8 mm from the edge hole
         dwg = build_drawing(part)
         # The real neighbour is dimensioned...
-        assert any(n.startswith("dim_locx") for n in dwg._named)
+        assert any(n.startswith("m_locx") for n in dwg._named)
         # ...and the gate did not record a spurious X spacing drop.
         x_spacing_drops = [
             i for i in dwg.lint() if i.code == "location_ref_dropped" and "X location" in i.message
@@ -4783,7 +4783,7 @@ class TestEscalation:
         assert "hole_table_plan" not in ann
         assert not any(n.startswith("balloon_") for n in ann)
         assert sum(1 for n in ann if n.startswith("hc_plan")) >= 1  # spec-group callouts
-        assert any(n.startswith("dim_locx") for n in ann)  # location dims placed, not dropped
+        assert any(n.startswith("m_locx") for n in ann)  # location dims placed, not dropped
         assert [i for i in dwg.lint() if i.severity in ("warning", "error")] == []
 
     def test_escalation_clears_density_lint(self):
