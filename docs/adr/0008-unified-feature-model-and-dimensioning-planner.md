@@ -352,6 +352,17 @@ The shared *services* still stay shared (Amendment 4 stands — we do not reabso
 the layout solver, projector, exporter). This amendment only fixes **what type of
 data** the renderer hands them.
 
+**Enforcement — by the type system, not a written rule.** The boundary is enforced
+by **IR-typed signatures** (mypy): a shared service accepts IR types only, so a
+recognition object simply *cannot be passed* — the norm becomes a compile-time
+guarantee. Where the data is structured and identity-bearing, use a **small frozen
+value type** (e.g. a `HoleRef`/feature key for the cover/table bookkeeping), not a
+raw `Hole`. Do **not** invent a single universal "render-item" dataclass spanning the
+whole boundary: the sub-channels are genuinely different services (allocate a float,
+project a point, place a primitive, record coverage) — type each at its own
+signature. Grow a shared emit-type only if the renderers later converge and a real
+consumer demands it (the ADR's anti-over-abstraction rule, below).
+
 **Standing norm:** a migration **may not add new recognition-object coupling across
 the boundary.** Where it exists today (the holes/table path) it is **debt on a
 defined path to removal (#263)** — not an acceptable steady state. Per the project
