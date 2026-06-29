@@ -35,6 +35,7 @@ from draftwright.annotations.from_model import (
     render_envelope,
     render_height_ladder,
     render_locations,
+    render_pmi,
     render_rotational,
     render_slots,
     render_step_lengths,
@@ -43,7 +44,6 @@ from draftwright.annotations.holes import (
     _annotate_holes,
     _locate_off_axis_holes,
 )
-from draftwright.annotations.pmi import _annotate_pmi
 from draftwright.annotations.sections import _add_detail_view, _add_section_view
 from draftwright.model import build_part_model, plan_dimensions, plan_sections
 from draftwright.recognition import (
@@ -95,7 +95,6 @@ def _concentric_bore_diams(a: Analysis) -> list:
 
 def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     """Add the standard automatic dimensions, centrelines, and title block."""
-    draft = dwg.draft
     # Idempotent: clear build-time lint state so a second annotation pass does
     # not accumulate duplicate drop records.
     dwg._reset_build_issues()
@@ -159,6 +158,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         prof=a.prof,
         step_zs=a.step_zs,
         rotational=(a.od_diam, _bores) if a.is_rotational else None,
+        pmi=a.pmi,
     )
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
@@ -292,7 +292,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                 )
 
     if a.pmi_mode == "annotate":
-        _annotate_pmi(dwg, a, draft)
+        render_pmi(dwg, _model, a)
 
     _add_title_block(dwg, a)
 
