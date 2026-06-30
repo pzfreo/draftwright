@@ -150,8 +150,8 @@ def lint_feature_coverage(
     # find_holes/find_bosses, so slot ends and interrupted recesses (partial
     # cylinders that an angle-only test mistakes for full bores) are excluded.
     # Replaces the raw full_cylinders patch list, which over-reported those as
-    # undimensioned features (helpers #158/#159). *holes* reuses the single
-    # inventory (#244); find_bosses inside feature_diameters is the one residual.
+    # undimensioned features (helpers #158/#159). Both *holes* and *bosses* reuse
+    # the single feature inventory (#244/#264) — no detector runs twice here.
     inventory = feature_diameters(part, cyls=(z_cyls, cross_cyls), holes=holes, bosses=bosses)
 
     if assembly is None:
