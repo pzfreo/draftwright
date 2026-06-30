@@ -520,21 +520,26 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
 
         A bore on the turning axis is led out along the view's horizontal centre
         axis, so the centre mark / centreline runs straight through the "⌀… ↓…"
-        callout text. Detect that one bore — a rotational part, hole at the view
-        centre — and lift its row a clearance off the axis (an angled leader to a
-        central feature is standard practice), toward the roomier side. Off-axis
+        callout text. Detect that one bore — a **turned/rotational** part, hole at
+        the view centre — and lift its row a clearance off the axis (an angled leader
+        to a central feature is standard practice), toward the roomier side. Off-axis
         holes and every prismatic-part hole are untouched (front-view round parts
         place coaxial bores as vertical shafts below the view, not along an axis,
         so they can't hit this and are exempt by construction).
+
+        The "turned/rotational" gate is ``is_rotational OR prof`` — a *stepped*
+        turned shaft (e.g. the GRM-03 drive screw) has a turned step profile but is
+        not ``is_rotational`` (its varying OD doesn't fill a square cross-section),
+        yet its coaxial bore hits exactly this defect. A prismatic part has neither,
+        so it stays excluded (the regression the original gate guarded against, #305).
 
         Tactical: the principled fix is to not draw the crossing line at all — a
         centred bore is located by the axis, so its linear location dims are
         redundant (#309) — or to make this a layout-solver separation constraint
         (ADR 0003). This nudge becomes dead code once either lands."""
         tol = draft.font_size  # "hole at the view centre" tolerance (page mm)
-        if not (
-            a.is_rotational and abs(centre[0] - view_cx) < tol and abs(centre[1] - view_cy) < tol
-        ):
+        turned = a.is_rotational or a.prof is not None
+        if not (turned and abs(centre[0] - view_cx) < tol and abs(centre[1] - view_cy) < tol):
             return ny
         # Lift the row a full text height + padding clear of the axis: enough for
         # the text box (half a font tall) to sit wholly off the centre line with a
