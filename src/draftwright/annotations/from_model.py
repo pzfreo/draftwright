@@ -623,26 +623,42 @@ def render_step_lengths(dwg, groups) -> int:
     # Spread crowded labels along a horizontal chain (ADR-0003 strip solve), then
     # carry each label back to its segment via label_offset_x (the only along-line
     # offset the Dimension primitive supports). A vertical chain places plain dims.
-    offsets = [0.0] * len(segs)
-    if horizontal:
-        centers = [(pa[0] + pb[0]) / 2 for pa, pb, _ in segs]
-        half_w = max(len(_fmt(v)) for *_, v in segs) * draft.font_size * 0.62 / 2
-        min_gap = 2 * half_w + 2 * draft.pad_around_text
-        solved = _solve_strip_ys(centers, min_gap, x0 + half_w, x1 - half_w) or _greedy_strip_ys(
-            centers, min_gap, x0 + half_w, x1 - half_w
-        )
-        if solved:
-            offsets = [s - c for s, c in zip(solved, centers)]
+    # Uniform staircase → one representative "N× length" dim spanning the whole run
+    # (#230), instead of N identical segment dims. Mirrors the prismatic ladder's
+    # _detect_step_repeat: ≥3 segments, all within 10% of the mean (so a 2-step part
+    # or a mixed chain still dimensions each segment).
+    vals = [v for *_, v in segs]
+    mean_v = sum(vals) / len(vals)
+    if len(segs) >= 3 and (max(vals) - min(vals)) <= 0.10 * mean_v:
+        label = f"{len(segs)}× {_fmt(mean_v)}"
+        xs = [p[0] for pa, pb, _ in segs for p in (pa, pb)]
+        ys = [p[1] for pa, pb, _ in segs for p in (pa, pb)]
+        if horizontal:
+            dim = _dim((min(xs), y1, 0), (max(xs), y1, 0), "above", gap, draft, label=label)
+        else:
+            dim = _dim((x1, min(ys), 0), (x1, max(ys), 0), "right", gap, draft, label=label)
+        candidates = [("m_steplen_typ", dim)]
+    else:
+        offsets = [0.0] * len(segs)
+        if horizontal:
+            centers = [(pa[0] + pb[0]) / 2 for pa, pb, _ in segs]
+            half_w = max(len(_fmt(v)) for *_, v in segs) * draft.font_size * 0.62 / 2
+            min_gap = 2 * half_w + 2 * draft.pad_around_text
+            solved = _solve_strip_ys(
+                centers, min_gap, x0 + half_w, x1 - half_w
+            ) or _greedy_strip_ys(centers, min_gap, x0 + half_w, x1 - half_w)
+            if solved:
+                offsets = [s - c for s, c in zip(solved, centers)]
 
-    candidates = []
-    for i, (pa, pb, value) in enumerate(segs):
-        if horizontal:  # X-turned: chain above the view, witnesses rise from the top
-            p1, p2, side = (pa[0], y1, 0), (pb[0], y1, 0), "above"
-            kw = {"label": _fmt(value), "label_offset_x": offsets[i]}
-        else:  # Z-turned: chain right of the view (the clear zone), witnesses from the right edge
-            p1, p2, side = (x1, pa[1], 0), (x1, pb[1], 0), "right"
-            kw = {"label": _fmt(value)}
-        candidates.append((f"m_steplen{i}", _dim(p1, p2, side, gap, draft, **kw)))
+        candidates = []
+        for i, (pa, pb, value) in enumerate(segs):
+            if horizontal:  # X-turned: chain above the view, witnesses rise from the top
+                p1, p2, side = (pa[0], y1, 0), (pb[0], y1, 0), "above"
+                kw = {"label": _fmt(value), "label_offset_x": offsets[i]}
+            else:  # Z-turned: chain right of the view, witnesses from the right edge
+                p1, p2, side = (x1, pa[1], 0), (x1, pb[1], 0), "right"
+                kw = {"label": _fmt(value)}
+            candidates.append((f"m_steplen{i}", _dim(p1, p2, side, gap, draft, **kw)))
 
     # Room guard (the engine's contract): if any dim would fall off the drawable
     # page, place NONE and let lint report axial_length_missing — never run the

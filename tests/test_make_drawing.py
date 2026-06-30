@@ -4513,13 +4513,32 @@ class TestTurnedLengths:
         assert codes.get("annotation_overlap", 0) == 0
 
     def test_three_step_shaft_dimensions_all_steps(self):
-        from build123d import Cylinder, Pos, Rotation
+        # Non-uniform step lengths (10/8/12), base-stacked so they sit flush → each
+        # segment dimensioned individually (the uniform-run collapse, #230, is
+        # exercised separately below).
+        from build123d import Align, Cylinder, Pos, Rotation
 
-        shaft = Rotation(0, 90, 0) * (
-            Cylinder(10, 10) + Pos(0, 0, 10) * Cylinder(7, 10) + Pos(0, 0, 20) * Cylinder(4, 10)
-        )
-        dwg = build_drawing(shaft)
+        b = Align.MIN
+        stack = Cylinder(10, 10, align=(Align.CENTER, Align.CENTER, b))
+        stack += Pos(0, 0, 10) * Cylinder(7, 8, align=(Align.CENTER, Align.CENTER, b))
+        stack += Pos(0, 0, 18) * Cylinder(4, 12, align=(Align.CENTER, Align.CENTER, b))
+        dwg = build_drawing(Rotation(0, 90, 0) * stack)
         assert len([n for n in dwg._named if n.startswith("m_steplen")]) == 3
+
+    def test_uniform_staircase_collapses_to_n_times(self):
+        # A uniform run (4 equal-length steps) collapses to one "N× length" dim
+        # instead of four identical segment dims (#230) — and the collapsed dim must
+        # still satisfy axial coverage (lint clean, every shoulder located).
+        from build123d import Align, Cylinder, Pos
+
+        b = Align.MIN
+        shaft = Cylinder(30, 10, align=(Align.CENTER, Align.CENTER, b))
+        for i, r in enumerate([25, 20, 15], start=1):
+            shaft += Pos(0, 0, 10 * i) * Cylinder(r, 10, align=(Align.CENTER, Align.CENTER, b))
+        dwg = build_drawing(shaft)
+        steplen = {n: o.label for n, o in dwg._named.items() if n.startswith("m_steplen")}
+        assert steplen == {"m_steplen_typ": "4× 10"}, steplen
+        assert "axial_length_missing" not in {i.code for i in dwg.lint()}
 
     def test_prismatic_part_has_no_step_lengths(self):
         dwg = build_drawing(Box(80, 60, 20))
