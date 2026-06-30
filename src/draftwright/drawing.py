@@ -1119,7 +1119,9 @@ class Drawing:
         if svg:
             svg_exp = ExportSVG(margin=10)
             svg_exp.add_layer("part", line_color=blk, line_weight=0.5)
-            svg_exp.add_layer("hidden", line_color=grey, line_weight=0.25, line_type=LineType.HIDDEN)
+            svg_exp.add_layer(
+                "hidden", line_color=grey, line_weight=0.25, line_type=LineType.HIDDEN
+            )
             svg_exp.add_layer("dims", line_color=blue, fill_color=blue, line_weight=0.05)
             self._add_shapes(svg_exp)
             svg_path = out + ".svg"
@@ -1127,7 +1129,9 @@ class Drawing:
             fix_svg_page_size(svg_path, self.page_w, self.page_h)
             n_arcs = sanitize_svg_arcs(svg_path)
             if n_arcs:
-                _log.info("Rewrote %d degenerate (near-zero-radius) arc(s) as line segments", n_arcs)
+                _log.info(
+                    "Rewrote %d degenerate (near-zero-radius) arc(s) as line segments", n_arcs
+                )
             link_rect = getattr(self, "_draftwright_link_rect", None)
             if link_rect is not None:
                 add_svg_hyperlink(svg_path, link_rect)
