@@ -9,8 +9,10 @@ catches any unintended placement change those phases must not introduce. At P2
 snapshots **in that PR** as a reviewed diff.
 
 It is deliberately coarser than the retired byte-exact golden harness (ADR 0007):
-it characterises *placement* (the thing the refactor touches), rounded to 0.01 mm,
-which is cross-platform-deterministic given the pinned fonts (ADR 0006).
+it characterises *placement* (the thing the refactor touches), quantised to a
+0.1 mm grid (with a small bias so values on a rounding boundary stay stable under
+floating-point reordering — see `_round_bbox`), which is cross-platform-
+deterministic given the pinned fonts (ADR 0006).
 
 **This file and `tests/layout_snapshots/` are throwaway — delete them at P5 (#319).**
 
@@ -117,14 +119,22 @@ CORPUS = {
 # --- signature -------------------------------------------------------------
 
 
-# Round to 0.1 mm, not 0.01: the placement drift this gate cares about is ≥ ~1 mm,
-# and font-metric half-widths land *exactly* on 0.01-grid boundaries — where the
-# refactor's reordered floating-point sums could flip the rounding and false-FAIL
-# with no real change. 0.1 mm is comfortably above that noise floor.
+# Quantise to a 0.1 mm grid with a 1e-6 bias.
+#
+# Two reasons for each part. (a) 0.1 mm, not finer: the placement drift this gate
+# cares about is ≥ ~1 mm. (b) the bias: a Dimension's *geometry* box edges land
+# *exactly* on the .X5 round-half boundary (the label centre ± a fixed font-derived
+# extent), and a leader/witness reroute or the refactor's reordered floating-point
+# placement sums shift a value by ~1 ULP — which would flip an on-boundary value's
+# rounding and false-FAIL with no real change. 1e-6 is far above the ~1e-13 FP-noise
+# floor and far below the 0.1 mm grid, so every on-boundary value resolves the same
+# way regardless of that noise. (Cross-platform stability of the *un*-biased values
+# is already proven by CI; the bias guards against the refactor's intra-platform FP
+# reordering.)
 def _round_bbox(box):
     if box is None:
         return None
-    return [round(float(v), 1) for v in box]
+    return [round(float(v) + 1e-6, 1) for v in box]
 
 
 def _label_box(o):
