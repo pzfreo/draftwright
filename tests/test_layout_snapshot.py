@@ -61,6 +61,20 @@ def _bracket():
     return Box(90, 60, 20) - Cylinder(4, 20) - Pos(10, 5, -7) * Cylinder(6, 6)
 
 
+def _side_drilled():
+    # radial (X-axis) through-holes at two heights → the contended side/below
+    # strip: off-axis location dims (#133/#225) sharing space with callouts.
+    part = Box(60, 40, 30)
+    for z in (8, 20):
+        part -= Pos(0, 0, z) * Rotation(0, 90, 0) * Cylinder(3, 80)
+    return part
+
+
+def _slotted():
+    # an enclosed through-slot (#135) → slot width/length/position dims.
+    return Box(50, 30, 20) - Box(20, 8, 30)
+
+
 def _turned_shaft():
     # Z-turned stepped cylinder → step diameters + axial length chain.
     base = (Align.CENTER, Align.CENTER, Align.MIN)
@@ -92,6 +106,8 @@ CORPUS = {
     "box": _box,
     "plate_holes": _plate_holes,
     "bracket": _bracket,
+    "side_drilled": _side_drilled,
+    "slotted": _slotted,
     "turned_shaft": _turned_shaft,
     "drive_screw_x": _drive_screw_x,
     "flange": _flange,
@@ -101,19 +117,27 @@ CORPUS = {
 # --- signature -------------------------------------------------------------
 
 
-def _round_bbox(x0, y0, x1, y1):
-    return [round(float(x0), 2), round(float(y0), 2), round(float(x1), 2), round(float(y1), 2)]
+# Round to 0.1 mm, not 0.01: the placement drift this gate cares about is ≥ ~1 mm,
+# and font-metric half-widths land *exactly* on 0.01-grid boundaries — where the
+# refactor's reordered floating-point sums could flip the rounding and false-FAIL
+# with no real change. 0.1 mm is comfortably above that noise floor.
+def _round_bbox(box):
+    if box is None:
+        return None
+    return [round(float(v), 1) for v in box]
 
 
-def _anno_bbox(o):
-    """The placement bbox of one annotation: its label box if it has one, else
-    its rendered geometry bbox (leaders, centrelines, hatch)."""
-    bb = getattr(o, "label_bbox", None)
-    if bb is not None:
-        return _round_bbox(*bb)
+def _label_box(o):
+    return getattr(o, "label_bbox", None)
+
+
+def _geom_box(o):
+    # The FULL rendered geometry bbox — leader shafts/arrow tips, dimension witness
+    # and extension lines, hatch — none of which the label box covers. The leader-
+    # routing the refactor reroutes (ADR 0009 P4) is only visible here.
     try:
         b = o.bounding_box()
-        return _round_bbox(b.min.X, b.min.Y, b.max.X, b.max.Y)
+        return (b.min.X, b.min.Y, b.max.X, b.max.Y)
     except Exception:
         return None
 
@@ -126,7 +150,8 @@ def _signature(dwg) -> dict:
                 "view": dwg.view_of(name),
                 "type": type(o).__name__,
                 "label": getattr(o, "label", "") or "",
-                "bbox": _anno_bbox(o),
+                "label_bbox": _round_bbox(_label_box(o)),
+                "geom_bbox": _round_bbox(_geom_box(o)),
             }
             for name, o in dwg.iter_annotations()
         ),
@@ -135,12 +160,10 @@ def _signature(dwg) -> dict:
     views = {}
     for vname, shapes in dwg.views.items():
         vis = shapes[0] if isinstance(shapes, (tuple, list)) else shapes
-        try:
-            b = vis.bounding_box()
-            views[vname] = _round_bbox(b.min.X, b.min.Y, b.max.X, b.max.Y)
-        except Exception:
-            views[vname] = None
-    return {"views": views, "annotations": annotations}
+        views[vname] = _round_bbox(_geom_box(vis))
+    # Total render-list size catches drift in *unnamed* annotations too, which
+    # iter_annotations() (named only) would otherwise hide.
+    return {"views": views, "annotations": annotations, "item_count": len(dwg.items)}
 
 
 @pytest.mark.parametrize("name", list(CORPUS))
