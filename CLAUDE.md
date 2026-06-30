@@ -17,10 +17,11 @@ It sits on top of two Apache 2.0 libraries:
 ## Architecture
 
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
-top: leaf modules (`layout.py`, `registry.py`, `linting.py`, `fonts.py`, the
-`recognition/` subpackage) → `_core.py` → stage modules (`export.py`, `repair.py`,
-`projection.py`, `sheet.py`, `analysis.py`, `drawing.py`, the `annotations/`
-subpackage) → `builder.py` → the `make_drawing.py` / `annotate.py` compat facades.
+top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, the `linting/` and
+`recognition/` subpackages) → `_core.py` → stage modules (`export.py`,
+`repair.py`, `projection.py`, `sheet.py`, `analysis.py`, `drawing.py`, the
+`model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
+`make_drawing.py` / `annotate.py` compat facades and the `cli.py` entry point.
 No lower module imports an upper one.
 
 - **`make_drawing.py`** — thin compat facade (~17 lines) re-exporting the public
@@ -28,9 +29,14 @@ No lower module imports an upper one.
   `FeatureInfo`, `fix_svg_page_size`, `lint_feature_coverage`) so existing imports
   and the `draftwright` CLI entry point keep working. The engine lives in:
   - **`builder.py`** — build orchestration: `build_drawing` (analyse → assemble →
-    measure-and-repack → `Drawing`), `make_drawing` (+ export), the editable-script
-    generator (`generate_script`), and the CLI (`_cli`). Imports `drawing`/`analysis`/
+    measure-and-repack → `Drawing`), `make_drawing` (+ export), and the
+    editable-script generator (`generate_script`). Imports `drawing`/`analysis`/
     the annotation orchestrator/the stage modules — never `make_drawing` (a DAG).
+    *(The CLI moved out to `cli.py`; `_cli` is now a thin shim.)*
+  - **`cli.py`** — the Typer command-line interface (#289): argument parsing,
+    `--version`, shell completion, `--format`, rich help. The engine (build123d)
+    is imported **lazily inside the command body** so completion/`--help`/
+    `--version` stay sub-second (#313). Entry point: `draftwright.cli:app`.
   - **`drawing.py`** — the `Drawing` result object (`.lint()`/`.add()`/`.place_dim()`/
     `.repair()`/`.export*()`; delegates identity to `registry`, coverage to `lint`)
     plus `_build_table` and `FeatureInfo`. Sits below `builder` (which constructs it).
@@ -40,20 +46,20 @@ No lower module imports an upper one.
   orchestrator) from `annotations/`. The annotation passes were split into the
   **`annotations/`** subpackage (#164 / ADR 0005, P5):
   - **`annotations/orchestrator.py`** — `_auto_annotate`, the single entry point
-    (called by `build_drawing`); classifies the part, places envelope/OD dims
-    inline, drives the capability passes + title block. (Envelope dims remain
-    inline here; pulling them into `annotations/envelope.py` is a deferred
-    follow-up.)
+    (called by `build_drawing`); classifies the part and drives the render passes
+    + title block. End state (ADR 0008) is `build model → plan → render`; a little
+    inline engine code (some envelope/step-ladder placement) remains here pending
+    the last convergence steps.
+  - **`annotations/from_model.py`** — the **IR render layer** (largest annotations
+    module): turns the planner's `DimensionGroup`/render-intents into placed
+    dimensions/callouts/centre marks/section triggers. This is where the turned,
+    PMI/GD&T, envelope/OD, centre-mark and step-length passes converged (ADR 0008,
+    #200/#208/#237) — the old per-feature `annotations/{turned,pmi}.py` modules
+    were deleted as each migrated here.
   - **`annotations/holes.py`** — hole/pattern callouts, balloons, location dims
-    (incl. side-drilled #133), pitch/grid dims, slots (the largest pass).
+    (incl. side-drilled #133), pitch/grid dims, slots (the largest *pass*).
   - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
     ISO 128-50 hatching).
-  - **`annotations/turned.py`** — turned-part step-diameter callouts and the
-    axial step-length chain (X-axis turned parts; `find_turned_steps` +
-    `lint_axial_coverage` close the drive-screw gap — diameters dimensioned but
-    shoulders unlocatable).
-  - **`annotations/pmi.py`** — the PMI/GD&T annotation pass (distinct from the
-    STEP-side extraction in `pmi.py`).
   - **`annotations/_common.py`** — shared placement helpers (`_anno_box`,
     `_occupied_boxes`, `_box_hits`) at the bottom of the annotations DAG.
   Each submodule imports only `_core`/`layout`/`projection`/third-party — never
@@ -69,11 +75,17 @@ No lower module imports an upper one.
   identity/ownership/pins/build-issues (#138 / ADR 0005, Step 2). `Drawing`
   delegates here and keeps the render list; `_named`/`_anno_view`/`_pinned`/
   `_build_issues` remain `Drawing` properties during the migration.
-- **`linting.py`** — the lint module (#138 / ADR 0005): `lint_feature_coverage`
-  (feature-coverage completeness check), `_suggest_fix` (#29 fix snippets), and
-  `CoverageState` (the coverage signal — pattern callouts, patterned holes,
-  dropped diameters). Depends only on `_core` + build123d_drafting. `_QUOTED_RE`
-  (a lint-message label regex shared with the repair loop) lives in `_core`.
+- **`linting/`** — the lint subpackage (#138 / ADR 0005; ADR 0007: draftwright
+  owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
+  `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
+  `suggest.py` (`_suggest_fix`, #29 snippets). Depends only on `_core` +
+  build123d_drafting. `_QUOTED_RE` (a lint-message label regex shared with the
+  repair loop) lives in `_core`.
+- **`model/`** — the ADR 0008 IR waist: `ir.py` (the `Feature`/`DimParameter`/
+  `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
+  `Feature` objects, adapting `recognition/`), `planner.py` (`plan_dimensions` —
+  one rule set → a `DimensionGroup` per feature, + `plan_sections`). The narrow
+  middle of the compiler hourglass; consumed by `annotations/from_model.py`.
 - **`recognition/`** — feature recognition (ADR 0007: draftwright owns it, not
   helpers). `_features.py` (vendored from `build123d_drafting.features`; the
   hole/boss/cylinder/pattern recognisers — `find_holes`/`find_bosses`/
@@ -87,7 +99,8 @@ No lower module imports an upper one.
   cross-platform layout (ADR 0006).
 - **`export.py`** — SVG/DXF/PDF export + post-processing (page-size fix,
   attribution hyperlink/metadata, DXF metadata, arc sanitisation, element-wise
-  shape-export degradation, cairo PDF render). The first **module-split** step of
+  shape-export degradation, pure-Python PDF render via svglib + reportlab — no
+  native cairo, #288). The first **module-split** step of
   #138 (ADR 0005): `Drawing.export()` / `export_pdf()` stay as thin wrappers.
   Sits below `make_drawing.py`, above `_core.py`.
 - **`repair.py`** — the deterministic lint→repair loop (#30 / ADR 0002): the
@@ -120,19 +133,15 @@ Current ADRs:
   front-view dimensions (CTC-02) + lint clean. Execution tracked as **#121**
   (the current order — annotations placed *after* views, into shared corridors —
   is the root cause of cross-view overlap).
-- **0005** — **Accepted, in progress** (#138): compiler-pipeline module boundaries
-  + single-owner build state. `Drawing` stops being the implicit state bus;
-  annotation identity/pins/build-issues move to a `registry.py`, coverage state to
-  lint, build context (`Analysis`, edge cache) to the pipeline. Stages split into
-  `builder`/`analysis`/`sheet`/`projection`/`linting`/`repair`/`export`/`annotations/`;
-  `layout.py` unchanged. **Roadmap + per-phase issues:**
-  `docs/plans/138-module-split-roadmap.md`. **Landed** (`make_drawing.py`
-  3,907 → 3,476): golden gate (Step 0), public helper APIs (#139), `registry.py`
-  (Step 2), `linting.py` (`CoverageState` + lint functions, Step 3), `repair.py`,
-  `export.py`. **Still ahead:** P1 `_text_width`→`_core` (#160), P2 `projection.py`
-  (#161), P3 `sheet.py` (#162), P4 `analysis.py` (#163), P5 `annotations/` (#164),
-  P6 `builder.py` + build-context threading (#165), P7 mypy (#166). The module list
-  above is the *current* tree; the remaining stage modules do not exist yet.
+- **0005** — **Accepted (split complete)** (#138): compiler-pipeline module
+  boundaries + single-owner build state. `Drawing` stops being the implicit state
+  bus; annotation identity/pins/build-issues moved to `registry.py`, coverage
+  state to `linting/`, build context (`Analysis`, edge cache) into the pipeline.
+  Stages split into `builder`/`analysis`/`sheet`/`projection`/`linting/`/`repair`/
+  `export`/`annotations/` (all #160–#166 landed; `make_drawing.py` 3,907 → ~17
+  facade). `layout.py` unchanged. **Roadmap:** `docs/plans/138-module-split-roadmap.md`.
+  Two deferred follow-ups: inline envelope dims → `annotations/envelope.py`, and
+  full build-context threading off `Drawing` (§2).
 - **0006** — **Accepted** (#149): deterministic cross-platform layout via bundled,
   path-pinned fonts. Layout depends on measured text width; resolving a font *name*
   (`"Arial"`) substitutes a different font on Linux, drifting the whole sheet ~1 mm.
@@ -145,6 +154,20 @@ Current ADRs:
   was **retired** here — byte-exact digests are friction during deliberate output
   evolution; regression coverage rests on the geometry-level + `test_e2e_standards`
   suites. See ADR 0005 §3's retirement note.)
+- **0008** — **Accepted, migration complete** (one path, 2026-06-30): the
+  part-drawing **compiler** — detectors → a Feature/DimParameter **IR/PartModel**
+  → a dimensioning **planner** → render-intents → the shared layout/projection/
+  export infra. One feature inventory, detected once; orientation/feature-kind are
+  *data in the IR*, not code branches. Roadmaps: `docs/plans/0008-*-roadmap.md`.
+- **0009** — **Accepted** (decision; work pending — supersedes/subsumes #150):
+  **collect-then-solve** per-strip annotation placement (boundary labeling).
+  Strip passes stop placing-as-they-go;
+  every strip occupant is collected as a candidate and one solve per strip does
+  select → assign → order(=feature order ⇒ crossing-free) → space. Removes the
+  invisible-occupant collision class (#133/#225/#305) by construction; the inner
+  per-view layer to 0004's outer block packing; consumes 0008's render-intents.
+  Research: `docs/research/annotation-placement-boundary-labeling.md`. Roadmap:
+  `docs/plans/strip-layout-boundary-labeling-roadmap.md`.
 
 ## Dependencies
 

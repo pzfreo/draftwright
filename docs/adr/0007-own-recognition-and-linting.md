@@ -1,6 +1,7 @@
 # ADR 0007 — draftwright owns feature recognition and linting; helpers becomes the rendering library
 
-- **Status:** Proposed
+- **Status:** Accepted (recognition + linting vendored; `recognition/` and
+  `linting/` are the live homes; the golden harness was retired here)
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 

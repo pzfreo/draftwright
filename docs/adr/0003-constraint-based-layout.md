@@ -1,6 +1,11 @@
 # ADR 0003 — Constraint-based layout: one solver for every placeable
 
-- **Status:** Proposed
+- **Status:** Accepted (core implemented; the unifying *global 2-D* solve stays
+  deferred — #94). The `Placeable`/`LayoutSolver` model, the 1-D strip solve,
+  `place_box`/`fit_box`, and pins (#89) have shipped. The **assignment layer**
+  and **escalation ladder** for per-view strip placement are made concrete by
+  [ADR 0009](0009-boundary-labeling-strip-placement.md) (collect-then-solve
+  boundary labeling).
 - **Date:** 2026-06-18
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -95,7 +100,10 @@ drops: zone A → zone B → **tabulate** (callouts → hole table) → **detail
 → **reduce scale**. Today's `callout_dropped` / `step_dim_dropped` /
 `location_ref_dropped` are the scattered manual version; "unsatisfiable" becomes
 a real solver outcome that drives the ladder, and a genuine drop is still
-surfaced as lint.
+surfaced as lint. *[ADR 0009](0009-boundary-labeling-strip-placement.md) makes
+this concrete for the strips: the per-strip solve's **selection** step is the
+ladder's first rung — a priority-ranked keep/escalate decision over the full
+candidate set, replacing the arrival-order drops.]*
 
 ## Consequences
 
@@ -135,10 +143,10 @@ required mitigations:
   survives every later re-solve and stays local — never re-derive over a
   deliberate placement. _Partly landed (#89):_ `dwg.pin(name)` / `dwg.unpin(name)`
   are the domain verbs, `Placeable.locked` is the solver-side flag, and
-  `repair()` already refuses to move a pinned annotation. _(The pin **state**
-  itself — today `Drawing._pinned` — is planned to move into `registry.py` as its
-  single owner per [ADR 0005](0005-pipeline-architecture-and-state-ownership.md),
-  proposed; the override contract here is unchanged, only its home.)_ **Still owed
+  `repair()` already refuses to move a pinned annotation. _(The pin **state** now
+  lives in `registry.py` as its single owner per
+  [ADR 0005](0005-pipeline-architecture-and-state-ownership.md) (split complete);
+  the override contract here is unchanged, only its home.)_ **Still owed
   by #82:**
   the global 2D solve must honour `locked` (keep it at `natural`, solve the rest
   around it). This remains a hard prerequisite for that solve, not a later nicety.
@@ -205,6 +213,10 @@ never be needed.** This is a deliberate scope correction, not an omission.
 - [ADR 0005](0005-pipeline-architecture-and-state-ownership.md) — module
   boundaries and single-owner build state; `layout.py` is unchanged, but pin
   state moves to `registry.py`.
+- [ADR 0009](0009-boundary-labeling-strip-placement.md) — makes this ADR's
+  assignment layer and escalation ladder concrete for per-view strip placement
+  (collect-then-solve boundary labeling); the per-view inner layer to ADR 0004's
+  outer block packing.
 - Issue #77 (external turned diameters — the first `Placeable`); the phased
   layout issues (protocol/solver → port callouts → port dims → tables/GD&T);
   #61/#62 (GD&T — beneficiaries of the unified placement).

@@ -7,12 +7,14 @@
   [`docs/plans/138-module-split-roadmap.md`](../plans/138-module-split-roadmap.md).
   **Landed** (`make_drawing.py` 3,907 → 3,476): the golden gate (Step 0, made
   cross-platform-deterministic by the #149 font pinning), public helper APIs
-  (#139), `registry.py` (annotation identity, Step 2), `linting.py`
+  (#139), `registry.py` (annotation identity, Step 2), `linting/`
   (`CoverageState` + `lint_feature_coverage` + `_suggest_fix`, Step 3), `repair.py`
-  (the lint→repair loop), and `export.py`. **Remaining** (deeply-coupled stage
-  splits, sequenced prerequisite-first): P1 `_text_width`→`_core` (#160, done), P2
-  `projection.py` (#161), P3 `sheet.py` (#162, done; repack deferred to P6), P4 `analysis.py` (#163, done), P5
-  `annotations/` (#164), P6 `builder.py`+`drawing.py` (#165, done; context-threading deferred), P7 mypy (#166, done). All phases landed: make_drawing.py 3,907 → ~17 (facade).
+  (the lint→repair loop), and `export.py`. **Then** (the deeply-coupled stage
+  splits, sequenced prerequisite-first — **all since landed**): P1 `_text_width`→`_core`
+  (#160), P2 `projection.py` (#161), P3 `sheet.py` (#162; repack deferred to P6),
+  P4 `analysis.py` (#163), P5 `annotations/` (#164), P6 `builder.py`+`drawing.py`
+  (#165; context-threading deferred), P7 mypy (#166). All phases landed:
+  make_drawing.py 3,907 → ~17 (facade).
   Deferred follow-ups: annotations/envelope.py + build-context threading (§2). Build context (`_analysis`, edge cache) is threaded through
   `builder`/`projection` in P6, **not** parked on `Drawing` as a standalone owner.
 

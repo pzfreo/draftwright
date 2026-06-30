@@ -105,9 +105,11 @@ table size, halo) collapse into one composer per view.
 ### Relationship to ADR 0003 and the deferred 2D solve
 
 - ADR 0003 governs the **inner** layout (placing a view's own annotations in its
-  zones via the `Placeable`/Cassowary system). This ADR governs the **outer**
-  layout (composing view+annotation blocks and packing them on the page). A
-  block's footprint is produced by running the ADR-0003 inner layout in
+  zones via the `Placeable`/Cassowary system) — now made concrete by
+  [ADR 0009](0009-boundary-labeling-strip-placement.md) (collect-then-solve
+  boundary labeling per strip). This ADR governs the **outer** layout (composing
+  view+annotation blocks and packing them on the page). A block's footprint is
+  the deterministic bounding box that the ADR-0009 inner solve produces in
   view-local space.
 - The **page-level packing stays fixed-topology** (plan above front sharing X;
   side beside front sharing Y; iso and table in free rectangles via
