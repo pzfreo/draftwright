@@ -2319,6 +2319,30 @@ class TestPrismaticClassification:
         assert min(ymid(o) for o in loc) > ymid(env), "location must stack inside the envelope"
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
+    def test_envelope_depth_survives_many_side_location_dims(self):
+        # The mandatory overall depth dim must always be placed, even when several
+        # side-drilled holes fill the side-below strip with location dims. The
+        # location pass now runs before the envelope (for ISO stacking), so the
+        # orchestrator reserves the envelope's tier first — best-effort location dims
+        # can never starve it (the #316-review regression).
+        from build123d import Cylinder, Pos, Rot
+
+        part = Box(12, 24, 60)
+        for y, z in [(-9, -20), (-5, -8), (7, 4), (10, 16)]:
+            part -= Pos(0, y, z) * Rot(0, 90, 0) * Cylinder(1.5, 12)
+        dwg = build_drawing(part)
+        ylocs = [n for n in dwg._named if n.startswith("dim_loc_side_y")]
+        assert len(ylocs) >= 2, "expected several side-below location dims for strip pressure"
+        assert "m_env_depth" in dwg._named, "the mandatory overall depth dim was starved"
+        assert dwg.lint_summary()["by_code"].get("missing_principal_dimension", 0) == 0
+
+        def ymid(o):
+            bb = o.bounding_box()
+            return (bb.min.Y + bb.max.Y) / 2
+
+        env = dwg._named["m_env_depth"]
+        assert all(ymid(dwg._named[n]) > ymid(env) for n in ylocs), "locations must stack inside"
+
     @pytest.mark.timeout(60)
     def test_locates_every_side_drilled_hole_not_just_the_first(self):
         # Two side-drilled (Y-axis) holes at distinct x: each must get its own

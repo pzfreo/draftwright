@@ -73,7 +73,7 @@ def _record_callout_drop(dwg, view, diam, reason):
     )
 
 
-def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, which="all"):
+def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
     """Location dimensions for side-drilled holes (#133).
 
     An X-axis hole is a circle in the SIDE view (locate its Y below the view and
@@ -83,17 +83,19 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, which="all"):
     with no room is dropped and recorded as ``off_axis_location_dropped`` — never
     force-stacked. Holes already covered by a pattern callout are skipped.
 
-    Run in two phases (``which``) so each dim stacks in the ISO order — overall dim
-    OUTERMOST, feature/location dims nearer the view:
+    Run in two phases (``which`` is ``"across"`` or ``"along"``) so each dim stacks in
+    the ISO order — overall dim OUTERMOST, feature/location dims nearer the view:
 
-    - ``"across"`` — the in-plane (below-strip) Y/X location, placed BEFORE the
-      envelope so the overall width/depth dim lands outside it (the side-view
+    - ``"across"`` — an X-axis hole's in-plane (Y, side-below) location, placed BEFORE
+      the envelope so the overall depth dim lands outside it (the side-view
       counterpart of the plan view, where location dims already precede the
       envelope). Fixes the inverted stack where the overall dim sat innermost and
-      forced the shorter location dim's arrows outside.
-    - ``"along"`` — the height (right-strip Z) location, placed AFTER the envelope
-      and the turned-diameter passes so it never evicts those overall dims from the
-      contended right strips (#133). ``"all"`` runs both.
+      forced the shorter location dim's arrows outside. The orchestrator reserves the
+      envelope's tier first, so these best-effort dims can't starve it.
+    - ``"along"`` — a Y-axis hole's X (front-below) location and every hole's height
+      (Z, right-strip), placed AFTER the envelope and the turned-diameter passes so
+      they never evict those overall dims from the contended front-below / right
+      strips (#133).
     """
     draft = dwg.draft
     all_holes = a.holes if holes_in is None else holes_in
@@ -160,28 +162,42 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, which="all"):
         ):
             _drop(axis, view)
 
-    # In-plane offset: X-axis hole -> Y below the side view; Y-axis hole -> X
-    # below the front view (each view's below strip is its own, uncontended).
-    if which in ("across", "all"):
-        yw, xw = SZ(dz) - 2, FZ(dz) - 2
-        seen_y, seen_x = set(), set()
+    # "across" phase — an X-axis hole's Y position below the SIDE view, placed BEFORE
+    # the envelope so the overall depth dim stacks outside it (ISO order). Confined to
+    # the side view: a Y-axis hole's X position contends the FRONT-below strip with the
+    # turned-diameter ø-row, so it stays in the "along" phase (after the diameter pass),
+    # preserving the #133 priority. The orchestrator reserves one sv_zones.below tier
+    # for the mandatory envelope depth before calling this, so these best-effort
+    # location dims can never starve it.
+    if which == "across":
+        yw = SZ(dz) - 2
+        seen_y: set = set()
         for h in (h for h in off if _axis_letter(h) == "x"):
             yo = round(abs(h.location[1] - dy), 2)
             if yo * a.SCALE >= 1.0 and yo not in seen_y:
                 seen_y.add(yo)
                 _below(
-                    a.sv_zones.below, "side", (SX(dy), yw, 0), (SX(h.location[1]), yw, 0), yw, yo, "y"
+                    a.sv_zones.below,
+                    "side",
+                    (SX(dy), yw, 0),
+                    (SX(h.location[1]), yw, 0),
+                    yw,
+                    yo,
+                    "y",
                 )
-        for h in (h for h in off if _axis_letter(h) == "y"):
-            xo = round(abs(h.location[0] - dx), 2)
-            if xo * a.SCALE >= 1.0 and xo not in seen_x:
-                seen_x.add(xo)
-                _below(
-                    a.fv_zones.below, "front", (FX(dx), xw, 0), (FX(h.location[0]), xw, 0), xw, xo, "x"
-                )
-
-    if which not in ("along", "all"):
         return
+
+    # "along" phase (after the envelope + turned-diameter passes): a Y-axis hole's X
+    # position below the FRONT view, then every hole's height (Z) to the right.
+    xw = FZ(dz) - 2
+    seen_x: set = set()
+    for h in (h for h in off if _axis_letter(h) == "y"):
+        xo = round(abs(h.location[0] - dx), 2)
+        if xo * a.SCALE >= 1.0 and xo not in seen_x:
+            seen_x.add(xo)
+            _below(
+                a.fv_zones.below, "front", (FX(dx), xw, 0), (FX(h.location[0]), xw, 0), xw, xo, "x"
+            )
 
     # Height offset (Z): a hole's height is visible to the RIGHT of both the side
     # and the front view. Neither right strip is universally free — the side

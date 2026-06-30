@@ -19,6 +19,7 @@ import math
 
 from draftwright._core import (
     _CONCENTRIC_TOL_MM,
+    _SLOT_DIM_DEPTH,
     _TABULATE_MIN_HOLES,
     Analysis,
     HoleRef,
@@ -213,13 +214,20 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # turned parts, and a Z-turned overall height is suppressed there (ISO 129).
     render_height_ladder(dwg, _model, a)
 
-    # Side-drilled holes' in-plane (below-strip) locations FIRST, so the overall
-    # envelope width/depth lands OUTSIDE them — ISO stacks the overall dim outermost,
+    # Side-drilled holes' in-plane (side-below) locations FIRST, so the overall
+    # envelope depth lands OUTSIDE them — ISO stacks the overall dim outermost,
     # feature/location dims nearer the view (matches the plan view, where location
-    # dims precede the envelope). The height (right-strip) locations stay after the
-    # diameter passes (the "along" phase below) so they never evict an overall dim.
+    # dims precede the envelope). To keep the #133 guarantee that the MANDATORY
+    # envelope dim is never starved, reserve its tier in the side-below strip first
+    # (shrink the strip by one depth slot for the location pass, then restore) — so
+    # the best-effort locations fill inner tiers and the envelope always gets the
+    # outermost. The height (right-strip) locations stay in the "along" phase.
     if feature_holes:
+        _below = a.sv_zones.below
+        _saved_limit = _below.outer_limit
+        _below.outer_limit -= _below.direction * (_SLOT_DIM_DEPTH + _below.spacing)
         _locate_off_axis_holes(dwg, a, holes_in=feature_holes, which="across")
+        _below.outer_limit = _saved_limit
 
     # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
     # placed through the same below-strip zone allocators the engine used (zone-aware
