@@ -38,9 +38,18 @@ _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=No
 
 
 def _dim_vertices(ann) -> list[tuple[float, float]]:
-    """A ``Dimension``'s vertices as ``(x, y)`` page points; ``[]`` if they won't
-    evaluate. The shared, error-tolerant harvest both drawing-derived coverage
-    checks use to read placed dimensions back off the drawing."""
+    """A ``Dimension``'s witness endpoints as ``(x, y)`` page points; ``[]`` if they
+    won't evaluate. The shared, error-tolerant harvest both drawing-derived coverage
+    checks use to read placed dimensions back off the drawing.
+
+    Prefers the recorded ``_dw_spec`` endpoints (the two points the dimension was
+    built from — the shoulder/feature positions) over ``ann.vertices()``: the latter
+    returns *every* geometry vertex, including the text-glyph outline, whose points
+    scatter across the span and can falsely satisfy a shoulder match for a wide dim
+    (e.g. a head-block dim whose centred label sits over interior shoulders, #304)."""
+    spec = getattr(ann, "_dw_spec", None)
+    if spec is not None:
+        return [(spec.p1[0], spec.p1[1]), (spec.p2[0], spec.p2[1])]
     try:
         return [(p.X, p.Y) for p in ann.vertices()]
     except Exception:  # noqa: BLE001 — a dim whose vertices won't evaluate is skipped
@@ -313,43 +322,47 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
     base = [c.X, c.Y, c.Z]
     use_x = prof.axis == "x"  # horizontal chain → match page-x; else vertical → page-y
 
-    def shoulder_coord(s: float) -> float:
+    def shoulder_coord(view: str, s: float) -> float:
         pt = list(base)
         pt[idx] = s
-        px, py, *_ = dwg.at("front", *pt)
+        px, py, *_ = dwg.at(view, *pt)
         return float(px if use_x else py)
 
-    shoulder_c = {s: shoulder_coord(s) for s in prof.shoulders}
-    dims = [
-        (
-            str(getattr(ann, "label", "") or ""),
-            {(x if use_x else y) for x, y in _dim_vertices(ann)},
-        )
-        for _name, ann in dwg.annotations_in_view("front")
-        if isinstance(ann, Dimension)
-    ]
-    # A collapsed uniform-staircase dim ("N× v", #230) spans the whole run with
-    # witnesses only at the extreme shoulders, yet locates *every* shoulder of the
-    # uniform chain — the collapse fires only when all steps are equal. Count it as
-    # full coverage when such a dim spans the shoulder extent.
-    coords = list(shoulder_c.values())
-    cmin, cmax = min(coords), max(coords)
-    for label, cs in dims:
-        if (
-            re.match(r"^\s*\d+\s*×", label)
-            and any(abs(v - cmin) <= tol for v in cs)
-            and any(abs(v - cmax) <= tol for v in cs)
-        ):
-            return len(prof.steps)
-    covered = 0
-    for step in prof.steps:
-        clo, chi = shoulder_c[step.lo], shoulder_c[step.hi]
-        if any(
-            any(abs(v - clo) <= tol for v in cs) and any(abs(v - chi) <= tol for v in cs)
-            for _label, cs in dims
-        ):
-            covered += 1
-    return covered
+    # A crowded X-turned head is dimensioned in the enlarged detail view (#304), not
+    # the front chain — so a shoulder counts as located when matched in EITHER view.
+    views = ["front"] + (["detail_a"] if "detail_a" in dwg.views else [])
+    covered_steps: set[int] = set()
+    for view in views:
+        shoulder_c = {s: shoulder_coord(view, s) for s in prof.shoulders}
+        dims = [
+            (
+                str(getattr(ann, "label", "") or ""),
+                {(x if use_x else y) for x, y in _dim_vertices(ann)},
+            )
+            for _name, ann in dwg.annotations_in_view(view)
+            if isinstance(ann, Dimension)
+        ]
+        # A collapsed uniform-staircase dim ("N× v", #230) spans the whole run with
+        # witnesses only at the extreme shoulders, yet locates *every* shoulder of the
+        # uniform chain — the collapse fires only when all steps are equal. Count it as
+        # full coverage when such a dim spans the shoulder extent.
+        coords = list(shoulder_c.values())
+        cmin, cmax = min(coords), max(coords)
+        for label, cs in dims:
+            if (
+                re.match(r"^\s*\d+\s*×", label)
+                and any(abs(v - cmin) <= tol for v in cs)
+                and any(abs(v - cmax) <= tol for v in cs)
+            ):
+                return len(prof.steps)
+        for i, step in enumerate(prof.steps):
+            clo, chi = shoulder_c[step.lo], shoulder_c[step.hi]
+            if any(
+                any(abs(v - clo) <= tol for v in cs) and any(abs(v - chi) <= tol for v in cs)
+                for _label, cs in dims
+            ):
+                covered_steps.add(i)
+    return len(covered_steps)
 
 
 def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:

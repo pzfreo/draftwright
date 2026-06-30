@@ -584,7 +584,7 @@ def render_envelope(dwg, groups, a) -> int:
     return n
 
 
-def render_step_lengths(dwg, groups) -> int:
+def render_step_lengths(dwg, groups, head_band=None) -> int:
     """Unified turned step-length chain (ADR 0008 #223) — one IR-driven path that
     replaces the engine's asymmetric X-chain / Z-ladder. Each `StepFeature`'s length
     span is projected into the front view; the chain runs *along the projected axis*
@@ -594,8 +594,14 @@ def render_step_lengths(dwg, groups) -> int:
 
     The chain is collinear (all segments share one offset line) and tiles end to
     end, so every shoulder is located. Crowded labels are spread along the line by
-    the ADR-0003 strip solve (the primitive the engine's X chain already used)."""
-    segs = []  # (page_lo, page_hi, value), in axis order
+    the ADR-0003 strip solve (the primitive the engine's X chain already used).
+
+    ``head_band`` ``(band_lo, band_hi, _)`` (#304): when an X-turned head is too
+    crowded to dimension in line and gets an enlarged detail view, the steps inside
+    the band are NOT chained here — the main view shows the head as one block dim
+    (located against the shaft), and the detail breaks it down. ``None`` (default)
+    keeps the full chain."""
+    segs = []  # (page_lo, page_hi, value, world_lo, world_hi), in axis order
     for g in groups:
         if g.feature_kind != "step":
             continue
@@ -607,13 +613,37 @@ def render_step_lengths(dwg, groups) -> int:
             continue
         a, b = length.span
         pa, pb = dwg.at("front", *a), dwg.at("front", *b)
-        segs.append((pa, pb, length.value))
+        segs.append((pa, pb, length.value, min(a[0], b[0]), max(a[0], b[0])))
     if not segs:
         return 0
     vb = dwg.view_bounds("front")
     if vb is None:
         return 0
     x0, y0, x1, y1 = vb
+
+    # Detail-view coordination (#304): drop the head steps from the main chain and
+    # replace them with a single head-block dim, so the head is located as a unit
+    # here and broken down in the detail (no double-dimensioning).
+    if head_band is not None:
+        band_lo, band_hi, _ = head_band
+        head = [s for s in segs if band_lo - 1e-6 <= s[3] and s[4] <= band_hi + 1e-6]
+        segs = [s for s in segs if s not in head]
+        if head:
+            hlo, hhi = min(s[3] for s in head), max(s[4] for s in head)
+            ha, hb = dwg.at("front", hlo, 0, 0), dwg.at("front", hhi, 0, 0)
+            block_gap = dwg.draft.font_size + 4 * dwg.draft.pad_around_text
+            block = _dim(
+                (ha[0], y1, 0),
+                (hb[0], y1, 0),
+                "above",
+                block_gap,
+                dwg.draft,
+                label=_fmt(hhi - hlo),
+            )
+            dwg.add(block, "m_steplen_head", view="front")
+            if not segs:
+                return 1
+    segs = [(pa, pb, v) for pa, pb, v, _wlo, _whi in segs]
     draft = dwg.draft
     gap = draft.font_size + 4 * draft.pad_around_text
     # Orientation is data: the projected span direction. Horizontal → X-turned

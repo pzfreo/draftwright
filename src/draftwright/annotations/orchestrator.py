@@ -44,7 +44,12 @@ from draftwright.annotations.holes import (
     _annotate_holes,
     _locate_off_axis_holes,
 )
-from draftwright.annotations.sections import _add_detail_view, _add_section_view
+from draftwright.annotations.sections import (
+    _add_detail_view,
+    _add_section_view,
+    _add_turned_detail_view,
+    _turned_head_band,
+)
 from draftwright.model import build_part_model, plan_dimensions, plan_sections
 from draftwright.recognition import (
     full_cylinders,
@@ -237,7 +242,15 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     #    suppressed so the chain does not double-dimension the length.
     render_diameters(dwg, _groups)
     if a.prof is not None:
-        render_step_lengths(dwg, _groups)
+        # A turned head whose shoulders are too close to dimension legibly even
+        # staggered gets an auto enlarged detail view (#304) — the textbook fix for
+        # a fine head + long shaft. The band is computed once: the main chain shows
+        # the head as one block (located against the shaft), the detail breaks it
+        # down. ``None`` when nothing is sub-floor → the full staggered chain.
+        head_band = _turned_head_band(a, dwg.draft.arrow_length)
+        render_step_lengths(dwg, _groups, head_band=head_band)
+        if head_band is not None:
+            _add_turned_detail_view(dwg, a, head_band)
 
     # Side-drilled (X/Y-axis) hole locations — last, so the envelope and
     # turned-diameter dims claim their strip space first and are never evicted (#133).

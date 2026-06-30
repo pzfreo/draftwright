@@ -259,6 +259,209 @@ def _add_section_view(dwg, a: Analysis, section):
         dwg.add(hatch, "section_hatch")
 
 
+def _turned_head_band(a: Analysis, arrow_length: float):
+    """The crowded X-band of an X-turned part: the contiguous span covering every
+    step whose length is below the page legibility floor (two arrowheads can't fit
+    between its shoulders at sheet scale), extended by one bracketing shoulder each
+    side for context, padded and clamped to the bbox. Returns ``(band_lo, band_hi,
+    detail_scale)`` or ``None`` when the part is not X-turned or nothing is
+    sub-floor (the staggered main-view chain already handles it). (#304)"""
+    prof = a.prof
+    if prof is None or prof.axis != "x" or len(prof.steps) < 2:
+        return None
+    floor = 2 * arrow_length / a.SCALE  # part-mm: below this, arrowheads collide
+    steps = sorted(prof.steps, key=lambda s: s.lo)
+    sub_idx = [i for i, s in enumerate(steps) if s.length < floor]
+    if not sub_idx:
+        return None
+    # Grow the crowded cluster outward from the sub-floor steps over *contiguous*
+    # near-floor neighbours (length < 2x floor) so the head reads as a unit — but
+    # STOP at a clearly larger step (e.g. the long shaft), or the band would swallow
+    # it and there'd be nothing left to locate the head against.
+    cluster_floor = 2 * floor
+    i0, i1 = min(sub_idx), max(sub_idx)
+    while i0 > 0 and steps[i0 - 1].length < cluster_floor:
+        i0 -= 1
+    while i1 < len(steps) - 1 and steps[i1 + 1].length < cluster_floor:
+        i1 += 1
+    lo, hi = steps[i0].lo, steps[i1].hi
+    pad = 0.08 * (hi - lo) + 1.0
+    band_lo = max(a.bb.min.X, lo - pad)
+    band_hi = min(a.bb.max.X, hi + pad)
+    # Detail scale: smallest standard multiple of sheet scale that separates the
+    # closest in-band shoulder pair to >= _MIN_STEP_SEP_MM (always >= 2x).
+    in_band = [s.length for s in prof.steps if band_lo - pad <= s.lo and s.hi <= band_hi + pad]
+    min_gap = min(in_band) if in_band else min(steps[i].length for i in sub_idx)
+    need = _MIN_STEP_SEP_MM / min_gap if min_gap > 0 else float("inf")
+    detail_scale = a.SCALE * 2
+    for factor in (2, 5, 10):
+        detail_scale = a.SCALE * factor
+        if detail_scale >= need:
+            break
+    return band_lo, band_hi, detail_scale
+
+
+def _add_turned_detail_view(dwg, a: Analysis, band):
+    """Enlarged detail of an X-turned part's crowded head (#304).
+
+    The X-axis sibling of :func:`_add_detail_view`: when the front-view step-length
+    chain has shoulders too close to dimension legibly even staggered, crop the
+    dense X-band, project it front-on at a larger standard scale into the largest
+    free rectangle, mark the region on the front view, and caption it "DETAIL A".
+    Every risky boolean/projection is wrapped and skips-with-log rather than
+    aborting the drawing; returns early (unchanged) when nothing needs detailing.
+    The head's step dimensions are drawn into the detail here."""
+    if band is None:
+        return
+    band_lo, band_hi, detail_scale = band
+
+    # Crop to the X-band (remove x<band_lo and x>band_hi); solids only — a mixed
+    # compound (PMI curves) cannot be cut.
+    solids = a.part.solids()
+    if not solids:
+        _log.info("Turned detail skipped (no solid bodies to crop)")
+        return
+    body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
+    big = 4 * a.bbox_max
+    try:
+        cropped = _fuzzy_cut(body, Pos(band_lo - big / 2, a.cy, a.cz) * Box(big, big, big))
+        if cropped is not None:
+            cropped = _fuzzy_cut(cropped, Pos(band_hi + big / 2, a.cy, a.cz) * Box(big, big, big))
+    except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
+        _log.warning("Turned detail skipped (crop failed: %s)", exc)
+        return
+    if cropped is None:
+        _log.warning("Turned detail skipped (boolean crop produced no solid)")
+        return
+
+    # Placement: largest empty rectangle avoiding every placed view + title block.
+    drawable = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    obstacles = []
+    for vis, hid in dwg.views.values():
+        for shp in (vis, hid):
+            if shp is None:
+                continue
+            vb = shp.bounding_box()
+            obstacles.append((vb.min.X, vb.min.Y, vb.max.X, vb.max.Y))
+    obstacles.append(
+        (a.PAGE_W - a.TB_W - _TB_CLEAR, a.margin, a.PAGE_W - _TB_CLEAR, _TB_CLEAR + _TB_H)
+    )
+    rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles)
+    rect_w, rect_h = rx1 - rx0, ry1 - ry0
+
+    # Footprint at the chosen scale: band width + a two-tier chain above + caption
+    # below. Shrink the scale to fit if necessary (never below 1.2x — a genuine
+    # enlargement).
+    tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
+    chain_h = 2 * tier + a.DIM_PAD
+    band_w = band_hi - band_lo
+    while detail_scale > a.SCALE * 1.2:
+        detail_w = band_w * detail_scale + 2 * a.DIM_PAD
+        detail_h = a.z_size * detail_scale + chain_h + a.DIM_PAD + 8
+        if detail_w <= rect_w and detail_h <= rect_h:
+            break
+        detail_scale -= a.SCALE
+    detail_w = band_w * detail_scale + 2 * a.DIM_PAD
+    detail_h = a.z_size * detail_scale + chain_h + a.DIM_PAD + 8
+    if detail_scale <= a.SCALE * 1.2 or detail_w > rect_w or detail_h > rect_h:
+        _log.info("Turned detail skipped (no room)")
+        return
+
+    DX = (rx0 + rx1) / 2
+    DY = (ry0 + ry1) / 2
+
+    # Project the cropped band front-on (look from −Y, up +Z), at detail_scale
+    # around the band's own centroid, mirroring _add_detail_view.
+    cb = cropped.bounding_box()
+    dcx = (cb.min.X + cb.max.X) / 2
+    dcy = (cb.min.Y + cb.max.Y) / 2
+    dcz = (cb.min.Z + cb.max.Z) / 2
+    la = (dcx * detail_scale, dcy * detail_scale, dcz * detail_scale)
+    dist_d = a.bbox_max * detail_scale + 100
+    camera = (la[0], la[1] - dist_d, la[2])
+    try:
+        band_s = cropped.scale(detail_scale)
+        dwg.add_view("detail_a", band_s, camera, (0, 0, 1), (DX, DY), look_at=la, scaled=True)
+    except Exception as exc:  # noqa: BLE001 — projection raises broadly on cast geometry
+        _log.warning("Turned detail skipped (projection failed: %s)", exc)
+        return
+    dwg._coords["detail_a"] = ViewCoordinates(
+        view_axes(camera, (0, 0, 1), la), DX, DY, dcx, dcy, dcz, detail_scale
+    )
+
+    # Marker on the front view: a rectangle around the X-band, captioned 'A'.
+    FX = a.proj.front_x
+    FZ = a.proj.front_z
+    mx0, mx1 = FX(band_lo), FX(band_hi)
+    my0, my1 = FZ(a.bb.min.Z), FZ(a.bb.max.Z)
+    marker = Compound(
+        children=[
+            Edge.make_line(Vector(mx0, my0, 0), Vector(mx1, my0, 0)),
+            Edge.make_line(Vector(mx1, my0, 0), Vector(mx1, my1, 0)),
+            Edge.make_line(Vector(mx1, my1, 0), Vector(mx0, my1, 0)),
+            Edge.make_line(Vector(mx0, my1, 0), Vector(mx0, my0, 0)),
+        ]
+    )
+    marker.is_centerline = True  # furniture, not a dimension — exempt from overlap lint
+    dwg.add(marker, "detail_marker")
+    dwg.add(Note("A", (mx1 + 3, my1 + 2), dwg.draft), "detail_marker_label")
+
+    # Step-length chain in the detail: a staggered horizontal chain above the
+    # detail view (same ISO 129-1 staggering as the main chain), at detail_scale
+    # where the head's shoulders separate. Tag each dim with the detail scale so
+    # label-vs-measured lint compares against the right scale (#42).
+    z_top = a.bb.max.Z
+    head_steps = [s for s in a.prof.steps if band_lo - 1e-6 <= s.lo and s.hi <= band_hi + 1e-6]
+    draft = dwg.draft
+    tier_step = draft.font_size + 2 * draft.pad_around_text
+    cw = [
+        (
+            (dwg.at("detail_a", s.lo, dcy, z_top)[0] + dwg.at("detail_a", s.hi, dcy, z_top)[0])
+            / 2,
+            len(_fmt(s.length)) * draft.font_size * 0.62,
+        )
+        for s in head_steps
+    ]
+
+    def _clear(items):
+        return all(
+            c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
+            for (c1, w1), (c2, w2) in zip(items, items[1:])
+        )
+
+    tiers = [0] * len(head_steps)
+    if not _clear(cw) and _clear(cw[0::2]) and _clear(cw[1::2]):
+        tiers = [i % 2 for i in range(len(head_steps))]
+    det_top = dwg.at("detail_a", band_lo, dcy, z_top)[1]
+    for i, s in enumerate(head_steps):
+        try:
+            p1 = dwg.at("detail_a", s.lo, dcy, z_top)
+            p2 = dwg.at("detail_a", s.hi, dcy, z_top)
+            det_dim = _dim(
+                (p1[0], det_top, 0),
+                (p2[0], det_top, 0),
+                "above",
+                a.DIM_PAD + tiers[i] * tier_step,
+                draft,
+                label=_fmt(s.length),
+            )
+            det_dim._dw_scale = detail_scale
+            dwg.add(det_dim, f"dim_detail_steplen_{i}", view="detail_a")
+        except Exception as exc:  # noqa: BLE001 — placement may fail on degenerate geometry
+            _log.info("dim_detail_steplen_%d skipped (%s)", i, exc)
+
+    # Caption below the detail, anchored to the view's real footprint.
+    dvb = dwg.views["detail_a"][0].bounding_box()
+    dwg.add(
+        Note(
+            f"DETAIL A — SCALE {format_drawing_scale(detail_scale)}",
+            ((dvb.min.X + dvb.max.X) / 2, dvb.min.Y - 8),
+            dwg.draft,
+        ),
+        "detail_caption",
+    )
+
+
 def _add_detail_view(dwg, a: Analysis):
     """Enlarged detail of a stepped region whose shoulders the legibility gate
     dropped (#42).

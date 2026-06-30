@@ -4834,25 +4834,25 @@ class TestTurnedLengths:
         ), "step-length dims overprint — chain crammed instead of skipping"
 
     def test_crowded_chain_staggers_into_two_tiers_at_current_scale(self):
-        # The gramel thumbwheel drive screw (GRM-03): fine steps near the head + one
-        # long shaft. Rather than skip (wasting the empty sheet) or cram, the chain
-        # staggers successive dims between a near and a far tier (ISO 129-1) so every
-        # step length is legible at the drawing's own scale (#293). All segments are
-        # dimensioned, the labels don't overprint each other, and axial coverage is
-        # satisfied — no rescale needed.
+        # A *moderately* crowded chain — steps just ABOVE the arrowhead floor (so no
+        # detail view is triggered), but with labels that would collide on one tier.
+        # Rather than cram, the chain staggers successive dims between a near and a
+        # far tier (ISO 129-1) so every step length is legible at the drawing's own
+        # scale (#293). Scale pinned so the crowding regime is deterministic.
         from build123d import Align, Cylinder, Pos, Rotation
 
         from draftwright.annotations._common import _anno_box
 
         b = Align.MIN
-        specs = [(8, 1.0), (12, 1.0), (8, 1.0), (12, 1.0), (6, 30.0)]
+        specs = [(8, 3.1), (12, 2.9), (8, 3.2), (12, 2.8), (6, 3.0)]  # ~3 mm, > floor
         shaft = None
         z = 0.0
         for d, ln in specs:
             seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
             shaft = seg if shaft is None else shaft + seg
             z += ln
-        dwg = build_drawing(Rotation(0, 90, 0) * shaft)
+        dwg = build_drawing(Rotation(0, 90, 0) * shaft, scale=2.0)
+        assert "detail_a" not in dwg.views  # above floor → no detail, staggered in place
         steps = {n: o for n, o in dwg._named.items() if n.startswith("m_steplen")}
         assert len(steps) == 5  # every segment dimensioned, none dropped
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
@@ -4870,6 +4870,39 @@ class TestTurnedLengths:
             for i in range(len(boxes))
             for j in range(i + 1, len(boxes))
         ), "staggered step-length labels overprint"
+
+    def test_subfloor_head_gets_detail_view(self):
+        # The gramel GRM-03 pattern: a fine head (sub-floor steps) + a long shaft.
+        # The head can't be dimensioned legibly in line at sheet scale, so it gets an
+        # enlarged DETAIL A: the main view locates the head as one block + the shaft,
+        # the detail breaks the head into its individual steps, and axial coverage is
+        # satisfied across the two views (no double-dimensioning). (#304)
+        #
+        # Head steps are 2 mm — sub-floor at the pinned 2:1 (4 mm < 2x arrow), but
+        # legible once the detail enlarges them — so the detail genuinely resolves
+        # them (an ultra-fine head can still out-run the detail's room; that is the
+        # scaler/room limit, #300).
+        from build123d import Align, Cylinder, Pos, Rotation
+
+        b = Align.MIN
+        specs = [(4, 2.0), (6, 2.0), (4, 2.0), (3, 25.0)]
+        shaft = None
+        z = 0.0
+        for d, ln in specs:
+            seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
+            shaft = seg if shaft is None else shaft + seg
+            z += ln
+        dwg = build_drawing(Rotation(0, 90, 0) * shaft, scale=2.0)
+        assert "detail_a" in dwg.views  # crowded head → enlarged detail
+        # Main view: head block + shaft, not the fine head steps.
+        main = {o.label for n, o in dwg._named.items() if n.startswith("m_steplen")}
+        assert "m_steplen_head" in dwg._named
+        assert "25" in main  # the legible shaft stays in the main chain
+        # Detail view carries the head breakdown (the three 2 mm steps).
+        det = [n for n in dwg._named if n.startswith("dim_detail_steplen")]
+        assert len(det) >= 3
+        # Coverage satisfied across both views — no false axial_length_missing.
+        assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
 
 class TestStepLadderRecognition:
