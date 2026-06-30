@@ -13,6 +13,7 @@ from __future__ import annotations
 import functools
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -418,9 +419,9 @@ class DetailRequest:
     lo: float
     hi: float
     scale_needed: float
-    redraw: object
+    redraw: Callable[..., int]
     pad_top: float = 0.0
-    pads: object = None
+    pads: Callable[[float], tuple[float, float]] | None = None
     kind: str = "detail"
 
 
