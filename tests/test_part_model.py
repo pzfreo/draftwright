@@ -70,6 +70,22 @@ class TestBuildPartModel:
         assert step_dias, "expected step features for the stepped shaft"
         assert all(d > 0 for d in step_dias), f"phantom zero-diameter step: {step_dias}"
 
+    def test_prismatic_with_incidental_cylinders_is_not_turned(self):
+        # A prismatic part with small incidental cross-axis cylinders (e.g. a case
+        # shell's side screw-holes) — two distinct external diameters in a large
+        # oblong bbox — must NOT be read as a stepped turned shaft, or unrelated
+        # feature faces become a spurious multi-step chain (#293).
+        from build123d import Rot
+
+        part = (
+            Box(120, 80, 14)
+            + Pos(-30, 0, 9) * Rot(0, 90, 0) * Cylinder(3, 130)
+            + Pos(30, 0, 9) * Rot(0, 90, 0) * Cylinder(4, 130)
+        )
+        model = build_part_model(part)
+        assert model.orientation is None  # prismatic, not turned
+        assert not any(isinstance(f, StepFeature) for f in model.features)
+
     def test_bolt_circle_is_one_pattern_not_six_holes(self):
         import math
 
