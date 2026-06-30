@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Changed
+
+- **The CLI now writes a PDF by default** and takes a `--format` selector (#288).
+  Previously `draftwright part.step` emitted SVG + DXF; it now emits a single PDF.
+  Choose outputs with `--format` (a comma-list, with an `all` alias) —
+  `--format pdf,dxf`, `--format svg`, `--format all`. The library API is
+  unchanged: `make_drawing(...)` / `Drawing.export()` still write SVG + DXF.
+- **PDF export is now pure-Python and a core capability** (#288). The renderer
+  moved from `cairosvg` (which `dlopen`s the native `libcairo` system library —
+  absent on stock macOS/Windows, so PDF-by-default would have crashed there) to
+  `svglib` + `reportlab`, both pip-installable wheels with no system dependency.
+  PDF therefore works out of the box on every platform. The `[pdf]` install extra
+  is removed (PDF is always available); output is byte-different from the cairo
+  renderer but visually identical.
+
+### Removed
+
+- **The `--pdf` flag** (use `--format pdf`, the new default), the **`[pdf]`
+  install extra**, and the **`cairosvg` dependency** (#288).
+
 ## v0.1.13 — 2026-06-27
 
 ### Changed

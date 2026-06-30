@@ -1537,6 +1537,107 @@ def test_cli_version_reports_installed_version():
 
 
 # ---------------------------------------------------------------------------
+# --format selector (#288) — pure logic, no OCP build needed
+# ---------------------------------------------------------------------------
+
+
+class TestFormatSelector:
+    def test_parse_default_is_pdf(self):
+        from draftwright.cli import _parse_formats
+
+        assert _parse_formats("pdf") == ["pdf"]
+
+    def test_parse_comma_list_keeps_order_and_dedupes(self):
+        from draftwright.cli import _parse_formats
+
+        assert _parse_formats("dxf, pdf ,dxf") == ["dxf", "pdf"]
+
+    def test_parse_all_expands_to_three(self):
+        from draftwright.cli import _parse_formats
+
+        assert _parse_formats("all") == ["pdf", "svg", "dxf"]
+
+    def test_parse_unknown_format_raises(self):
+        import typer
+
+        from draftwright.cli import _parse_formats
+
+        with pytest.raises(typer.BadParameter, match="unknown format 'jpg'"):
+            _parse_formats("pdf,jpg")
+
+    def test_parse_empty_raises(self):
+        import typer
+
+        from draftwright.cli import _parse_formats
+
+        with pytest.raises(typer.BadParameter, match="no output format"):
+            _parse_formats(" , ")
+
+    class _FakeDwg:
+        """Records export() calls and writes real placeholder files so _emit's
+        temp-SVG cleanup can be observed."""
+
+        def __init__(self, tmp):
+            self.tmp = tmp
+            self.calls = []
+            self.svg_path = None
+
+        def export(self, *, svg=True, dxf=True):
+            self.calls.append(("export", svg, dxf))
+            sp = str(self.tmp / "o.svg") if svg else None
+            dp = str(self.tmp / "o.dxf") if dxf else None
+            for p in (sp, dp):
+                if p:
+                    open(p, "w").close()
+            self.svg_path = sp
+            return sp, dp
+
+        def export_pdf(self):
+            self.calls.append(("export_pdf",))
+            pp = str(self.tmp / "o.pdf")
+            open(pp, "w").close()
+            return pp
+
+    def test_emit_pdf_only_discards_temp_svg(self, tmp_path):
+        from draftwright.cli import _emit
+
+        dwg = self._FakeDwg(tmp_path)
+        out = _emit(dwg, ["pdf"])
+
+        assert out == [str(tmp_path / "o.pdf")]
+        # SVG was written to drive the PDF, then removed; DXF never written.
+        assert dwg.calls == [("export", True, False), ("export_pdf",)]
+        assert not (tmp_path / "o.svg").exists()
+        assert not (tmp_path / "o.dxf").exists()
+        assert (tmp_path / "o.pdf").exists()
+
+    def test_emit_svg_dxf_skips_pdf(self, tmp_path):
+        from draftwright.cli import _emit
+
+        dwg = self._FakeDwg(tmp_path)
+        out = _emit(dwg, ["svg", "dxf"])
+
+        assert out == [str(tmp_path / "o.svg"), str(tmp_path / "o.dxf")]
+        assert dwg.calls == [("export", True, True)]
+        assert (tmp_path / "o.svg").exists()
+        assert (tmp_path / "o.dxf").exists()
+
+    def test_emit_all_keeps_requested_svg(self, tmp_path):
+        from draftwright.cli import _emit
+
+        dwg = self._FakeDwg(tmp_path)
+        out = _emit(dwg, ["pdf", "svg", "dxf"])
+
+        assert out == [
+            str(tmp_path / "o.pdf"),
+            str(tmp_path / "o.svg"),
+            str(tmp_path / "o.dxf"),
+        ]
+        # SVG requested → kept, not discarded.
+        assert (tmp_path / "o.svg").exists()
+
+
+# ---------------------------------------------------------------------------
 # ViewCoordinates (pure-Python, no OCP needed)
 # ---------------------------------------------------------------------------
 
@@ -4975,13 +5076,13 @@ class TestDraftwrightAttribution:
         assert "GeneratedBy" in dxf and "draftwright" in dxf
 
     def test_export_pdf_carries_clickable_link(self, tmp_path):
-        # Exercises the load-bearing SVG->PDF coordinate transform + cairo link
-        # annotation. The URI lives in a FlateDecode object stream, so scan the
-        # decompressed streams too.
+        # Exercises the load-bearing SVG->PDF coordinate transform + reportlab
+        # link annotation. svglib + reportlab are core deps (pure Python, no
+        # native cairo), so this runs on every platform. The URI may live in a
+        # FlateDecode object stream, so scan the decompressed streams too.
         import re as _re
         import zlib
 
-        pytest.importorskip("cairocffi")
         dwg = build_drawing(Box(60, 40, 20))
         pdf_path = dwg.export_pdf(str(tmp_path / "p"))
         data = Path(pdf_path).read_bytes()

@@ -454,7 +454,7 @@ def make_drawing(
     To add or remove annotations or add section/auxiliary views before export,
     call :func:`build_drawing` and use the returned :class:`Drawing`.
     """
-    return build_drawing(
+    svg_path, dxf_path = build_drawing(
         step_file,
         out=out,
         title=title,
@@ -468,6 +468,8 @@ def make_drawing(
         pmi=pmi,
         assembly=assembly,
     ).export()
+    assert svg_path is not None and dxf_path is not None  # export() writes both by default
+    return svg_path, dxf_path
 
 
 # ---------------------------------------------------------------------------
