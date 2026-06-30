@@ -1516,9 +1516,24 @@ def test_make_drawing_module_entrypoint_runs_cli_help():
     )
 
     assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    assert "usage:" in result.stdout
+    assert "Usage:" in result.stdout  # Typer/rich help capitalises (was argparse "usage:")
     assert "step_file" in result.stdout
+    # rich degrades its box-drawing to ASCII on a cp1252 stream, so help stays safe.
     assert result.stdout.isascii()
+
+
+def test_cli_version_reports_installed_version():
+    """``--version`` prints the installed distribution version (the PyPI version
+    once pip-installed) and exits cleanly, without needing a STEP file."""
+    from importlib.metadata import version as _pkg_version
+
+    result = subprocess.run(
+        [sys.executable, "-m", "draftwright.make_drawing", "--version"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.stdout.strip() == f"draftwright {_pkg_version('draftwright')}"
 
 
 # ---------------------------------------------------------------------------
