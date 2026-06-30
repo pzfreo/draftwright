@@ -118,25 +118,24 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
         )
 
     def _place(strip, view, p_lo, p_hi, dist, label, name, side):
-        # The strip cursor only tracks dims it allocated; the right strips are
-        # SHARED with hole callouts (``hc_side``) and the section hatch, which
-        # use other placers and are invisible to the cursor (#133). So a clean
-        # allocation is necessary but not sufficient — verify the candidate's box
-        # does not collide with an already-placed occupant before committing.
-        # Returns True on success, False if there was no room/a collision (the
-        # caller decides whether to fall back to another strip or drop).
-        coord = strip.allocate(tier) if strip is not None else None
-        if coord is None:
+        # The strip cursor only tracks dims it allocated; the right/below strips are
+        # SHARED with hole callouts (``hc_*``) and the section hatch, which use other
+        # placers and are invisible to the cursor (#133). So a clean allocation is
+        # necessary but not sufficient — verify the candidate's box does not collide
+        # with an already-placed occupant before committing. On a collision, advance
+        # to the next tier and retry rather than giving up: a hole's own callout often
+        # sits in this strip, and a tier past it would fit — a single collision must
+        # not drop the dim (#225). The strip cursor naturally bounds the retry (it
+        # returns None once exhausted). Returns True on success, False if no tier fits.
+        if strip is None:
             return False
-        dim = _dim(p_lo, p_hi, side, dist(coord), draft, label=_fmt(label))
-        if _box_hits(_anno_box(dim), occupied):
-            # The allocated tier is consumed even though we reject it here; that
-            # only pushes later same-strip dims one tier outward (which then drop
-            # cleanly if they overflow), so it is a benign waste, not a bug.
-            return False
-        dwg.add(dim, name, view=view)
-        occupied.append(_anno_box(dim))
-        return True
+        while (coord := strip.allocate(tier)) is not None:
+            dim = _dim(p_lo, p_hi, side, dist(coord), draft, label=_fmt(label))
+            if not _box_hits(_anno_box(dim), occupied):
+                dwg.add(dim, name, view=view)
+                occupied.append(_anno_box(dim))
+                return True
+        return False
 
     def _below(strip, view, p_lo, p_hi, witness, label, axis):
         if not _place(
