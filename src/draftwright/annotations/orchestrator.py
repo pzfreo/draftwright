@@ -223,9 +223,21 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # the best-effort locations fill inner tiers and the envelope always gets the
     # outermost. The height (right-strip) locations stay in the "along" phase.
     if feature_holes:
+        # Only reserve when render_envelope will actually place the depth dim — the
+        # planner suppresses it for a square footprint / X-turned part (#250); reserving
+        # a tier it never claims would needlessly shrink the strip and drop a location
+        # dim that would otherwise fit (#316 review).
+        _env_g = next((g for g in _groups if g.feature_kind == "envelope"), None)
+        _depth_pd = (
+            next((pd for pd in _env_g.dims if pd.param.role == "depth"), None) if _env_g else None
+        )
+        _reserve = (
+            _depth_pd is not None and not _depth_pd.suppressed and _depth_pd.param.span is not None
+        )
         _below = a.sv_zones.below
         _saved_limit = _below.outer_limit
-        _below.outer_limit -= _below.direction * (_SLOT_DIM_DEPTH + _below.spacing)
+        if _reserve:
+            _below.outer_limit -= _below.direction * (_SLOT_DIM_DEPTH + _below.spacing)
         _locate_off_axis_holes(dwg, a, holes_in=feature_holes, which="across")
         _below.outer_limit = _saved_limit
 

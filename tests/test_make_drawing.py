@@ -2343,6 +2343,19 @@ class TestPrismaticClassification:
         env = dwg._named["m_env_depth"]
         assert all(ymid(dwg._named[n]) > ymid(env) for n in ylocs), "locations must stack inside"
 
+    def test_square_footprint_does_not_reserve_a_suppressed_envelope_tier(self):
+        # When the planner suppresses the depth dim (square footprint / X-turned),
+        # the side-below envelope-tier reservation must NOT fire — reserving a tier
+        # render_envelope never claims would needlessly shrink the strip and drop a
+        # side location that otherwise fits (#316 review).
+        from build123d import Cylinder, Pos, Rot
+
+        part = Box(20, 20, 40) - Pos(0, 4, 0) * Rot(0, 90, 0) * Cylinder(2, 20)
+        dwg = build_drawing(part)
+        assert "m_env_depth" not in dwg._named  # square footprint → depth suppressed
+        assert [n for n in dwg._named if n.startswith("dim_loc_side_y")], "location was dropped"
+        assert dwg.lint_summary()["by_code"].get("off_axis_location_dropped", 0) == 0
+
     @pytest.mark.timeout(60)
     def test_locates_every_side_drilled_hole_not_just_the_first(self):
         # Two side-drilled (Y-axis) holes at distinct x: each must get its own
