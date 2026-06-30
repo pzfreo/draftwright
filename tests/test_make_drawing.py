@@ -4914,6 +4914,27 @@ class TestTurnedLengths:
         assert any(n.startswith("dim_detail_b_") for n in names)
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
+    def test_head_block_does_not_collapse_main_chain_to_n_times(self):
+        # When the head-block extent happens to match the legible step lengths, the main
+        # chain (block + steps) must NOT collapse to a uniform "N× v" — the block is a
+        # compound region, not a repeated step, and "N× v" would be a false claim of N
+        # equal steps (#307 review).
+        from build123d import Align, Cylinder, Pos, Rotation
+
+        b = Align.MIN
+        # head 1.5/2.0/2.5 (sub-floor, sums to 6) + two legible 6 mm steps
+        specs = [(4, 1.5), (6, 2.0), (4, 2.5), (7, 6.0), (5, 6.0)]
+        shaft = None
+        z = 0.0
+        for d, ln in specs:
+            seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
+            shaft = seg if shaft is None else shaft + seg
+            z += ln
+        dwg = build_drawing(Rotation(0, 90, 0) * shaft, scale=2.0)
+        main = {o.label for n, o in dwg._named.items() if n.startswith("m_steplen")}
+        assert not any("×" in v for v in main)  # no false uniform-staircase collapse
+        assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
+
 
 class TestStepLadderRecognition:
     """ADR 0008 step 1: the Z step-height ladder draws its step levels from the

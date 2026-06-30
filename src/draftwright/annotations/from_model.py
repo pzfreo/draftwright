@@ -586,7 +586,7 @@ def render_envelope(dwg, groups, a) -> int:
     return n
 
 
-def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None) -> int:
+def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None, allow_collapse=True) -> int:
     """Place a turned step-length chain in *view* from *segs* — each ``(pa, pb,
     value)`` already projected to *view*'s page coords, in axis order. Orientation is
     data (the projected span direction): horizontal → chain above the view, vertical
@@ -594,7 +594,10 @@ def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None) -> int:
     per-segment chain, staggered into a near/far tier only when crowded (ISO 129-1,
     #293); skipped if even two tiers can't separate the labels, or if any dim would
     fall off the page. ``detail_scale`` tags the dims for label-vs-measured lint when
-    drawing inside a scaled detail view. Returns the count placed."""
+    drawing inside a scaled detail view. ``allow_collapse=False`` disables the ``N× v``
+    collapse — used when the chain mixes a synthetic head-*block* with real steps, where
+    a uniform-staircase representative would be a false claim of N equal steps (#307
+    review). Returns the count placed."""
     if not segs:
         return 0
     vb = dwg.view_bounds(view)
@@ -606,7 +609,7 @@ def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None) -> int:
     horizontal = abs(segs[0][1][0] - segs[0][0][0]) >= abs(segs[0][1][1] - segs[0][0][1])
     vals = [v for *_, v in segs]
     mean_v = sum(vals) / len(vals)
-    if len(segs) >= 3 and (max(vals) - min(vals)) <= 0.10 * mean_v:
+    if allow_collapse and len(segs) >= 3 and (max(vals) - min(vals)) <= 0.10 * mean_v:
         label = f"{len(segs)}× {_fmt(mean_v)}"
         xs = [p[0] for pa, pb, _ in segs for p in (pa, pb)]
         ys = [p[1] for pa, pb, _ in segs for p in (pa, pb)]
@@ -743,7 +746,9 @@ def render_step_lengths(dwg, groups) -> int:
             head = {i for run in heads for i in run}
             main = [fsegs[i] for i in range(len(fsegs)) if i not in head] + blocks
             main.sort(key=lambda s: s[0][0])
-            return _draw_step_chain(dwg, "front", main, "m_steplen")
+            # The chain now mixes head-block(s) with real steps — never collapse it to a
+            # uniform "N× v" representative (a block is not a repeated step, #307 review).
+            return _draw_step_chain(dwg, "front", main, "m_steplen", allow_collapse=False)
 
     return _draw_step_chain(dwg, "front", fsegs, "m_steplen")
 

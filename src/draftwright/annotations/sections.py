@@ -334,7 +334,7 @@ def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter:
     cap_h = 8.0
 
     def _pads(s):  # annotation bands may depend on the scale (the prismatic ladder)
-        return req.pads(s) if req.pads is not None else (req.pad_right, req.pad_top)
+        return req.pads(s) if req.pads is not None else (0.0, req.pad_top)
 
     def _fits(s):
         pr, pt = _pads(s)
@@ -413,22 +413,20 @@ def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter:
 
 def _resolve_details(dwg, a: Analysis) -> None:
     """Resolve every queued :class:`DetailRequest` (#307) through the one generic
-    detailer. On a successful placement the request's ``redraw`` draws the detail;
-    on a placement bail-out the request's ``fallback`` draws the dims inline so
-    coverage is never silently lost (the transactional contract the bespoke turned
-    detailer lacked). Clears the queue."""
+    detailer, lettering DETAIL A/B/… On a placement bail-out nothing is drawn for that
+    request — the main view already carries the located head/block inline, so lint
+    reports any un-located interior rather than coverage being silently lost. Clears
+    the queue."""
     reqs = list(getattr(dwg, "_detail_requests", ()) or ())
     dwg._detail_requests = []
     n_placed = 0  # letters advance only on a successful placement — no A/B gaps (#307 review)
     for req in reqs:
-        letter = _DETAIL_LETTERS[n_placed] if n_placed < len(_DETAIL_LETTERS) else None
-        placed = letter is not None and _render_detail(
-            dwg, a, req, f"detail_{letter.lower()}", letter
-        )
-        if placed:
+        if n_placed >= len(_DETAIL_LETTERS):
+            _log.info("detail request '%s' dropped: detail letters A–H exhausted", req.kind)
+            continue
+        letter = _DETAIL_LETTERS[n_placed]
+        if _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter):
             n_placed += 1
-        elif req.fallback is not None:
-            req.fallback(dwg)
 
 
 def _request_prismatic_detail(dwg, a: Analysis) -> None:
