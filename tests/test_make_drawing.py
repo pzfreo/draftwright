@@ -3687,6 +3687,32 @@ class TestLintSummaryAndDrops:
 
 
 class TestLayoutGeneralisation:
+    @staticmethod
+    def _lines_crossing_label(dwg, callout_name, label_bbox):
+        """Horizontal lines (other than the callout's own shelf) that cross the
+        callout's text box — the #305 'line through the callout text' defect. Shared
+        by the coaxial-bore tests."""
+        tx0, ty0, tx1, ty1 = label_bbox
+        crossings = []
+        for n, o in dwg._named.items():
+            if n == callout_name:
+                continue
+            try:
+                edges = list(o.edges())
+            except Exception:
+                continue
+            for e in edges:
+                vs = e.vertices()
+                if len(vs) != 2:
+                    continue
+                (x0, y0), (x1, y1) = (vs[0].X, vs[0].Y), (vs[1].X, vs[1].Y)
+                if abs(y0 - y1) < 0.05 and abs(x0 - x1) > 1.0:  # a horizontal line
+                    ym = (y0 + y1) / 2
+                    xa, xb = min(x0, x1), max(x0, x1)
+                    if ty0 + 0.3 < ym < ty1 - 0.3 and xb > tx0 + 0.3 and xa < tx1 - 0.3:
+                        crossings.append((n, round(ym, 2)))
+        return crossings
+
     @pytest.mark.timeout(120)
     def test_turned_flange_gets_both_od_and_hole_furniture(self):
         # A turned-and-drilled flange (cylinder OD + centre bore + bolt circle)
@@ -3756,26 +3782,32 @@ class TestLayoutGeneralisation:
         hc = [(n, o) for n, o in dwg._named.items() if n.startswith("hc_side")]
         assert hc, "expected a bore callout on the round (side) view"
         name, leader = hc[0]
-        tx0, ty0, tx1, ty1 = leader.label_bbox
+        crossings = self._lines_crossing_label(dwg, name, leader.label_bbox)
+        assert not crossings, f"line(s) cross the bore callout text: {crossings}"
 
-        crossings = []
-        for n, o in dwg._named.items():
-            if n == name:
-                continue  # the callout's own shelf ends before its text
-            try:
-                edges = list(o.edges())
-            except Exception:
-                continue
-            for e in edges:
-                vs = e.vertices()
-                if len(vs) != 2:
-                    continue
-                (x0, y0), (x1, y1) = (vs[0].X, vs[0].Y), (vs[1].X, vs[1].Y)
-                if abs(y0 - y1) < 0.05 and abs(x0 - x1) > 1.0:  # a horizontal line
-                    ym = (y0 + y1) / 2
-                    xa, xb = min(x0, x1), max(x0, x1)
-                    if ty0 + 0.3 < ym < ty1 - 0.3 and xb > tx0 + 0.3 and xa < tx1 - 0.3:
-                        crossings.append((n, round(ym, 2)))
+    def test_coaxial_bore_callout_clears_centre_axis_on_stepped_shaft(self):
+        # #305 regression: the lift must also fire for a *stepped* turned shaft (the
+        # GRM-03 drive screw), which has a turned step profile but is NOT
+        # is_rotational (its varying OD doesn't fill a square cross-section) — the
+        # original is_rotational-only gate missed it, leaving the bore callout led
+        # straight along the centre axis. Assert no horizontal line crosses the text.
+        from build123d import Align, Cylinder, Pos, Rotation
+
+        from draftwright import build_drawing
+
+        b = Align.MIN
+        part = (
+            Cylinder(6, 12, align=(Align.CENTER, Align.CENTER, b))
+            + Pos(0, 0, 12) * Cylinder(4, 12, align=(Align.CENTER, Align.CENTER, b))
+            - Cylinder(0.8, 8, align=(Align.CENTER, Align.CENTER, b))
+        )
+        dwg = build_drawing(Rotation(0, 90, 0) * part, scale=2.0)
+        assert dwg._analysis.prof is not None and not dwg._analysis.is_rotational
+
+        hc = [(n, o) for n, o in dwg._named.items() if n.startswith("hc_side")]
+        assert hc, "expected a bore callout on the round (side) view"
+        name, leader = hc[0]
+        crossings = self._lines_crossing_label(dwg, name, leader.label_bbox)
         assert not crossings, f"line(s) cross the bore callout text: {crossings}"
 
     def test_prismatic_central_hole_callout_not_lifted(self):
