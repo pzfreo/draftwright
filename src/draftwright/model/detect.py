@@ -257,10 +257,10 @@ def build_part_model(
     # Rotational furniture — OD + centrelines + concentric bore leaders (#237). Its
     # presence marks the part rotational; emitted from the classification (od, bores).
     if rotational is not None:
-        od, bores = rotational
+        od, bores, rot_axis = rotational
         c = bbox.center()
         features.append(
-            RotationalFeature(frame=Frame((c.X, c.Y, c.Z), "z"), od=od, bores=tuple(bores))
+            RotationalFeature(frame=Frame((c.X, c.Y, c.Z), rot_axis), od=od, bores=tuple(bores))
         )
 
     # Pre-authored PMI annotations (STEP AP242) — re-homed into the IR as features

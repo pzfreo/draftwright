@@ -775,9 +775,13 @@ def render_height_ladder(dwg, model, a) -> int:
             n += 1
 
     # Overall height — placed last so it sits OUTERMOST; suppressed for a Z-turned
-    # part (its IR step-length chain already tiles the full height, ISO 129).
-    z_turned = model.orientation == "z"
-    px = None if z_turned else a.fv_zones.right.allocate(_SLOT_DIM_HEIGHT)
+    # part (its IR step-length chain already tiles the full height, ISO 129) and for
+    # an X/Y rotational body (its Z extent IS the OD, dimensioned by render_rotational
+    # — #222).
+    rot = next((f for f in model.features if f.kind == "rotational"), None)
+    od_is_height = rot is not None and rot.frame.axis in ("x", "y")
+    suppress_height = model.orientation == "z" or od_is_height
+    px = None if suppress_height else a.fv_zones.right.allocate(_SLOT_DIM_HEIGHT)
     if px is not None:
         dwg.add(
             _dim(
@@ -792,7 +796,7 @@ def render_height_ladder(dwg, model, a) -> int:
             view="front",
         )
         n += 1
-    elif not z_turned:
+    elif not suppress_height:
         _log.warning("dim_height skipped: fv_zones.right strip full")
     return n
 
@@ -808,57 +812,117 @@ def render_rotational(dwg, model, a) -> int:
     draft = dwg.draft
     FX, FZ = a.proj.front_x, a.proj.front_z
     SX, SZ = a.proj.side_x, a.proj.side_z
+    PX, PY = a.proj.plan_x, a.proj.plan_y
     n = 0
     od = rot.od
-    dwg.add(
-        _dim(
-            (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
-            (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
-            "above",
-            8,
-            draft,
-            label=f"ø{_fmt(od)}",
-        ),
-        "dim_od",
-        view="front",
-    )
-    n += 1
-    dwg.add(
-        Centerline((FX(a.cx), FZ(a.bb.min.Z) - 5, 0), (FX(a.cx), FZ(a.bb.max.Z) + 5, 0)),
-        "centerline_front",
-        view="front",
-    )
-    dwg.add(
-        Centerline((SX(a.cy), SZ(a.bb.min.Z) - 5, 0), (SX(a.cy), SZ(a.bb.max.Z) + 5, 0)),
-        "centerline_side",
-        view="side",
-    )
+    axis = rot.frame.axis
 
-    # Concentric bore leaders to the left of the front view, centred on the axis.
-    if rot.bores:
-        left_edge = FX(a.bb.min.X)
-        if left_edge - a.margin >= a.DIM_PAD:
-            elbow_x = left_edge - a.DIM_PAD * 0.6
-            nb = len(rot.bores)
-            pitch = max(10.0, draft.font_size * 3.0)
-            for i, d in enumerate(rot.bores):
-                tip_z = FZ(a.cz) + (i - (nb - 1) / 2) * pitch
-                dwg.add(
-                    Leader(
-                        tip=(FX(a.cx - d / 2), tip_z, 0),
-                        elbow=(elbow_x, tip_z, 0),
-                        label=f"ø{_fmt(d)}",
-                        draft=draft,
-                    ),
-                    f"ldr_z{i}",
-                    view="front",
+    if axis == "z":
+        # Vertical turning axis (the common case): OD across the top of the front
+        # (profile) view; axis centrelines vertical on front + side.
+        dwg.add(
+            _dim(
+                (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
+                (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
+                "above",
+                8,
+                draft,
+                label=f"ø{_fmt(od)}",
+            ),
+            "dim_od",
+            view="front",
+        )
+        n += 1
+        dwg.add(
+            Centerline((FX(a.cx), FZ(a.bb.min.Z) - 5, 0), (FX(a.cx), FZ(a.bb.max.Z) + 5, 0)),
+            "centerline_front",
+            view="front",
+        )
+        dwg.add(
+            Centerline((SX(a.cy), SZ(a.bb.min.Z) - 5, 0), (SX(a.cy), SZ(a.bb.max.Z) + 5, 0)),
+            "centerline_side",
+            view="side",
+        )
+
+        # Concentric bore leaders to the left of the front view, centred on the axis.
+        if rot.bores:
+            left_edge = FX(a.bb.min.X)
+            if left_edge - a.margin >= a.DIM_PAD:
+                elbow_x = left_edge - a.DIM_PAD * 0.6
+                nb = len(rot.bores)
+                pitch = max(10.0, draft.font_size * 3.0)
+                for i, d in enumerate(rot.bores):
+                    tip_z = FZ(a.cz) + (i - (nb - 1) / 2) * pitch
+                    dwg.add(
+                        Leader(
+                            tip=(FX(a.cx - d / 2), tip_z, 0),
+                            elbow=(elbow_x, tip_z, 0),
+                            label=f"ø{_fmt(d)}",
+                            draft=draft,
+                        ),
+                        f"ldr_z{i}",
+                        view="front",
+                    )
+                    n += 1
+            else:
+                _log.info(
+                    "Additional diameters %s not annotated (insufficient left margin)",
+                    list(rot.bores),
                 )
-                n += 1
-        else:
-            _log.info(
-                "Additional diameters %s not annotated (insufficient left margin)",
-                list(rot.bores),
-            )
+    elif axis == "x":
+        # Horizontal turning axis along X (#222): the OD is the Z extent — a vertical
+        # ø dim left of the front (profile) view; axis centrelines run horizontally
+        # through z=cz on front and y=cy on plan.
+        dwg.add(
+            _dim(
+                (FX(a.bb.min.X) - 2, FZ(a.cz - od / 2), 0),
+                (FX(a.bb.min.X) - 2, FZ(a.cz + od / 2), 0),
+                "left",
+                8,
+                draft,
+                label=f"ø{_fmt(od)}",
+            ),
+            "dim_od",
+            view="front",
+        )
+        n += 1
+        dwg.add(
+            Centerline((FX(a.bb.min.X) - 5, FZ(a.cz), 0), (FX(a.bb.max.X) + 5, FZ(a.cz), 0)),
+            "centerline_front",
+            view="front",
+        )
+        dwg.add(
+            Centerline((PX(a.bb.min.X) - 5, PY(a.cy), 0), (PX(a.bb.max.X) + 5, PY(a.cy), 0)),
+            "centerline_plan",
+            view="plan",
+        )
+    elif axis == "y":
+        # Horizontal turning axis along Y (#222): the OD is the Z extent — a vertical
+        # ø dim left of the side (profile) view; axis centrelines run horizontally
+        # through z=cz on side and vertically through x=cx on plan.
+        dwg.add(
+            _dim(
+                (SX(a.bb.min.Y) - 2, SZ(a.cz - od / 2), 0),
+                (SX(a.bb.min.Y) - 2, SZ(a.cz + od / 2), 0),
+                "left",
+                8,
+                draft,
+                label=f"ø{_fmt(od)}",
+            ),
+            "dim_od",
+            view="side",
+        )
+        n += 1
+        dwg.add(
+            Centerline((SX(a.bb.min.Y) - 5, SZ(a.cz), 0), (SX(a.bb.max.Y) + 5, SZ(a.cz), 0)),
+            "centerline_side",
+            view="side",
+        )
+        dwg.add(
+            Centerline((PX(a.cx), PY(a.bb.min.Y) - 5, 0), (PX(a.cx), PY(a.bb.max.Y) + 5, 0)),
+            "centerline_plan",
+            view="plan",
+        )
     return n
 
 

@@ -117,6 +117,15 @@ def _suppression(model: PartModel, feature: Feature, param: DimParameter):
     dim along the turning axis is redundant."""
     if feature.kind != "envelope":
         return False, None
+    # A rotational part's OD already conveys its cross-axis extent(s); the envelope
+    # dim(s) perpendicular to the turning axis would double-dimension it (#222). The
+    # axis-aligned envelope dim (the length) is kept. (The overall *height* dim is the
+    # height-ladder renderer's call — it skips it for an X/Y rotational part likewise.)
+    rot = next((f for f in model.features if f.kind == "rotational"), None)
+    if rot is not None:
+        od_perp = {"x": {"depth"}, "y": {"width"}, "z": {"width", "depth"}}[rot.frame.axis]
+        if param.role in od_perp:
+            return True, f"rotational OD ({rot.frame.axis}-axis) conveys this extent"
     if param.role in ("width", "depth") and _square_footprint(model):
         return True, "square footprint (single overall dim suffices)"
     if param.role == "width" and model.orientation == "x":
