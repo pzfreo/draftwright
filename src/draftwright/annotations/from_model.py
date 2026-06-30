@@ -640,6 +640,11 @@ def render_step_lengths(dwg, groups) -> int:
         candidates = [("m_steplen_typ", dim)]
     else:
         offsets = [0.0] * len(segs)
+        # Legibility guard (#293): a too-dense chain must SKIP, not overprint. Placing
+        # an unreadable wall of overlapping dims is worse than none — lint then reports
+        # axial_length_missing, and the user resolves it with a larger scale or a detail
+        # view. The room guard's sibling, for crowding rather than page overflow.
+        gap_min = draft.font_size + 2 * draft.pad_around_text
         if horizontal:
             centers = [(pa[0] + pb[0]) / 2 for pa, pb, _ in segs]
             half_w = max(len(_fmt(v)) for *_, v in segs) * draft.font_size * 0.62 / 2
@@ -647,8 +652,19 @@ def render_step_lengths(dwg, groups) -> int:
             solved = _solve_strip_ys(
                 centers, min_gap, x0 + half_w, x1 - half_w
             ) or _greedy_strip_ys(centers, min_gap, x0 + half_w, x1 - half_w)
+            placed = sorted(solved) if solved else sorted(centers)
+            if any(b - a < min_gap - 0.01 for a, b in zip(placed, placed[1:])):
+                _log.info("step-length chain skipped: %d labels too dense to space", len(segs))
+                return 0
             if solved:
                 offsets = [s - c for s, c in zip(solved, centers)]
+        else:
+            # Z-turned chain places plain dims at the shoulders (no along-line spread is
+            # available vertically), so its legibility is the raw shoulder spacing.
+            shoulder_ys = sorted({c for pa, pb, _ in segs for c in (pa[1], pb[1])})
+            if any(b - a < gap_min for a, b in zip(shoulder_ys, shoulder_ys[1:])):
+                _log.info("step-length chain skipped: shoulders too close to dimension")
+                return 0
 
         candidates = []
         for i, (pa, pb, value) in enumerate(segs):

@@ -4591,6 +4591,35 @@ class TestTurnedLengths:
         assert not any(n.startswith("m_steplen") for n in dwg._named)  # skipped, not off-page
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) >= 1
 
+    def test_dense_chain_skips_instead_of_cramming(self):
+        # A genuinely dense turned shaft (many fine non-uniform steps) whose labels
+        # cannot be spaced legibly must SKIP the chain, not overprint a wall of
+        # overlapping dims (#293). Any placed step-length dims must not overlap.
+        from build123d import Align, Cylinder, Pos, Rotation
+
+        from draftwright.annotations._common import _anno_box
+
+        b = Align.MIN
+        shaft = None
+        z = 0.0
+        for i in range(16):
+            d = 20 if i % 2 == 0 else 16  # alternating ø → truly stepped, fine pitch
+            ln = 3.0 + (i % 3) * 0.4  # non-uniform (no N× collapse)
+            seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
+            shaft = seg if shaft is None else shaft + seg
+            z += ln
+        dwg = build_drawing(Rotation(0, 90, 0) * shaft)
+        boxes = [_anno_box(o) for n, o in dwg._named.items() if n.startswith("m_steplen")]
+
+        def overlap(a, c):
+            return a and c and not (a[2] <= c[0] or a[0] >= c[2] or a[3] <= c[1] or a[1] >= c[3])
+
+        assert not any(
+            overlap(boxes[i], boxes[j])
+            for i in range(len(boxes))
+            for j in range(i + 1, len(boxes))
+        ), "step-length dims overprint — chain crammed instead of skipping"
+
 
 class TestStepLadderRecognition:
     """ADR 0008 step 1: the Z step-height ladder draws its step levels from the
