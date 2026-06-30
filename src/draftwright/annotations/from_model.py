@@ -639,25 +639,32 @@ def render_step_lengths(dwg, groups) -> int:
             dim = _dim((x1, min(ys), 0), (x1, max(ys), 0), "right", gap, draft, label=label)
         candidates = [("m_steplen_typ", dim)]
     else:
-        offsets = [0.0] * len(segs)
-        # Legibility guard (#293): a too-dense chain must SKIP, not overprint. Placing
-        # an unreadable wall of overlapping dims is worse than none — lint then reports
-        # axial_length_missing, and the user resolves it with a larger scale or a detail
-        # view. The room guard's sibling, for crowding rather than page overflow.
         gap_min = draft.font_size + 2 * draft.pad_around_text
+        tier_step = draft.font_size + 2 * draft.pad_around_text
+        tiers = [0] * len(segs)
         if horizontal:
-            centers = [(pa[0] + pb[0]) / 2 for pa, pb, _ in segs]
-            half_w = max(len(_fmt(v)) for *_, v in segs) * draft.font_size * 0.62 / 2
-            min_gap = 2 * half_w + 2 * draft.pad_around_text
-            solved = _solve_strip_ys(
-                centers, min_gap, x0 + half_w, x1 - half_w
-            ) or _greedy_strip_ys(centers, min_gap, x0 + half_w, x1 - half_w)
-            placed = sorted(solved) if solved else sorted(centers)
-            if any(b - a < min_gap - 0.01 for a, b in zip(placed, placed[1:])):
-                _log.info("step-length chain skipped: %d labels too dense to space", len(segs))
+            # ISO 129-1 staggering, applied only as a response to crowding: keep the
+            # whole chain on one tier when the labels already clear; alternate them
+            # between a near and a far tier only when they would collide; skip when even
+            # two tiers can't separate them (then lint reports the gap, #293). build123d
+            # flips a narrow segment's arrowheads outside the extension lines for us.
+            cw = [
+                ((pa[0] + pb[0]) / 2, len(_fmt(v)) * draft.font_size * 0.62) for pa, pb, v in segs
+            ]
+
+            def _clear(items):  # (center, width) pairs in x order — labels don't overlap
+                return all(
+                    c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
+                    for (c1, w1), (c2, w2) in zip(items, items[1:])
+                )
+
+            if _clear(cw):
+                pass  # one tier suffices — no needless zig-zag for a roomy chain
+            elif _clear(cw[0::2]) and _clear(cw[1::2]):
+                tiers = [i % 2 for i in range(len(segs))]  # alternate to make room
+            else:
+                _log.info("step-length chain skipped: too dense even when staggered")
                 return 0
-            if solved:
-                offsets = [s - c for s, c in zip(solved, centers)]
         else:
             # Z-turned chain places plain dims at the shoulders (no along-line spread is
             # available vertically), so its legibility is the raw shoulder spacing.
@@ -668,13 +675,15 @@ def render_step_lengths(dwg, groups) -> int:
 
         candidates = []
         for i, (pa, pb, value) in enumerate(segs):
-            if horizontal:  # X-turned: chain above the view, witnesses rise from the top
+            if horizontal:  # X-turned: chain above the view (staggered only if crowded)
                 p1, p2, side = (pa[0], y1, 0), (pb[0], y1, 0), "above"
-                kw = {"label": _fmt(value), "label_offset_x": offsets[i]}
+                dist = gap + tiers[i] * tier_step
             else:  # Z-turned: chain right of the view, witnesses from the right edge
                 p1, p2, side = (x1, pa[1], 0), (x1, pb[1], 0), "right"
-                kw = {"label": _fmt(value)}
-            candidates.append((f"m_steplen{i}", _dim(p1, p2, side, gap, draft, **kw)))
+                dist = gap
+            candidates.append(
+                (f"m_steplen{i}", _dim(p1, p2, side, dist, draft, label=_fmt(value)))
+            )
 
     # Room guard (the engine's contract): if any dim would fall off the drawable
     # page, place NONE and let lint report axial_length_missing — never run the

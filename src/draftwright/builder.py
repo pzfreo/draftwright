@@ -90,6 +90,31 @@ def _cross_view_overlaps(dwg, a) -> int:
     return n
 
 
+def _annotation_view_overlaps(dwg, a) -> int:
+    """Count view-owned annotation *labels* whose box overlaps a **different**
+    view's geometry box — a dimension that has grown into a neighbouring view's
+    line-work (the staggered step chain bumping the plan view above the front
+    view). A third repack trigger besides cross-annotation overlap and page
+    overflow: the measured blocks already capture the annotation's real depth, so
+    a repack lifts the neighbouring view clear into the headroom (#293). Bare
+    extension/leader lines crossing a view are normal drafting and don't count —
+    only a text label landing on another view's geometry does.
+    """
+    geom = _view_geom(a)
+    boxes = {v: (cx - hw, cy - hh, cx + hw, cy + hh) for v, (cx, cy, hw, hh) in geom.items()}
+    n = 0
+    for _name, v, bb, label in _attribute_annotations(dwg, a):
+        if not label:
+            continue
+        for ov, gb in boxes.items():
+            if ov == v:
+                continue
+            if min(bb[2], gb[2]) > max(bb[0], gb[0]) and min(bb[3], gb[3]) > max(bb[1], gb[1]):
+                n += 1
+                break
+    return n
+
+
 def _annotations_out_of_bounds(dwg, a, tol: float = 1.0) -> bool:
     """True when any view-owned annotation's footprint extends past the drawable
     area — the second repack trigger besides cross-view overlap.  A ballooned
@@ -257,7 +282,11 @@ def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None):
     byte-identical) or when the repack would change nothing (same sheet/scale and
     no view actually moves).
     """
-    if _cross_view_overlaps(dwg, a) == 0 and not _annotations_out_of_bounds(dwg, a):
+    if (
+        _cross_view_overlaps(dwg, a) == 0
+        and _annotation_view_overlaps(dwg, a) == 0
+        and not _annotations_out_of_bounds(dwg, a)
+    ):
         return None
     blocks = _measure_blocks(dwg, a)
 
