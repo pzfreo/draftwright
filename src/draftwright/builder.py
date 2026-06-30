@@ -9,8 +9,6 @@ stage modules -- never make_drawing -- so the graph stays a DAG.
 
 from __future__ import annotations
 
-import argparse
-import logging
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal
@@ -614,91 +612,16 @@ def generate_script(
 
 
 def _cli():
-    ap = argparse.ArgumentParser(
-        description="Zero-AI STEP -> technical drawing (SVG + DXF, or editable .py script)",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    ap.add_argument("step_file", help="Input STEP file (.step / .stp)")
-    ap.add_argument("--out", default=None, help="Output prefix (default: input stem)")
-    ap.add_argument("--title", default=None, help="Part title for title block")
-    ap.add_argument("--number", default="DWG-001", help="Drawing number")
-    ap.add_argument("--tolerance", default="ISO 2768-m", help="General tolerance")
-    ap.add_argument("--drawn-by", default="", help="Designer name")
-    ap.add_argument(
-        "--scale",
-        type=float,
-        default=None,
-        help="Drawing-scale override, e.g. 5 for 5:1 or 0.5 for 1:2 (default: auto)",
-    )
-    ap.add_argument(
-        "--page",
-        default=None,
-        help="Page-size override: A4..A0 or WIDTHxHEIGHT in mm, e.g. 420x297 (default: auto)",
-    )
-    ap.add_argument(
-        "--script",
-        action="store_true",
-        help="Write an editable .py drawing script instead of SVG+DXF",
-    )
-    ap.add_argument(
-        "--pmi",
-        default="off",
-        choices=["off", "report", "annotate"],
-        help=(
-            "AP242 PMI handling: 'off' (default) - ignore; "
-            "'report' - log extracted PMI without annotating; "
-            "'annotate' - add PMI-derived dimensions to the drawing"
-        ),
-    )
-    ap.add_argument(
-        "--pdf",
-        action="store_true",
-        help="Also write a PDF (requires draftwright[pdf] / cairosvg)",
-    )
-    ap.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Show detailed progress (default: warnings and errors only)",
-    )
-    args = ap.parse_args()
+    """Compat shim: the CLI moved to the Typer app in ``draftwright.cli`` (#289).
 
-    logging.basicConfig(
-        level=logging.INFO if args.verbose else logging.WARNING,
-        format="%(message)s",
-    )
+    Kept so ``python -m draftwright.make_drawing`` and existing
+    ``from draftwright... import _cli`` imports keep working; the engine entry
+    point (``[project.scripts]``) points straight at ``draftwright.cli:app``.
+    Imported lazily so a bare ``import draftwright.builder`` does not pull Typer.
+    """
+    from draftwright.cli import app
 
-    if args.script and (args.scale is not None or args.page is not None):
-        ap.error("--scale/--page only apply to direct output; edit the generated script instead")
-
-    if args.script:
-        py_path = generate_script(
-            step_file=args.step_file,
-            out=args.out,
-            title=args.title,
-            number=args.number,
-            tolerance=args.tolerance,
-            drawn_by=args.drawn_by,
-            pmi=args.pmi,
-        )
-        print(py_path)
-    else:
-        dwg = build_drawing(
-            step_file=args.step_file,
-            out=args.out,
-            title=args.title,
-            number=args.number,
-            tolerance=args.tolerance,
-            drawn_by=args.drawn_by,
-            scale=args.scale,
-            page=args.page,
-            pmi=args.pmi,
-        )
-        svg_path, dxf_path = dwg.export()
-        print(svg_path)
-        print(dxf_path)
-        if args.pdf:
-            print(dwg.export_pdf())
+    app()
 
 
 if __name__ == "__main__":
