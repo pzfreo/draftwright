@@ -123,10 +123,21 @@ def find_turned_steps(part) -> TurnedProfile | None:
     planes = sorted(shoulders)
     if len(planes) < 3:  # fewer than two steps
         return None
+    # A segment whose midpoint has no external band over it (`local_od` → 0) is a
+    # gap between disconnected bands, not a real step — drop it so it never renders
+    # as a phantom ø0 diameter (#279).
     steps = tuple(
-        TurnedStep(
-            lo=planes[i], hi=planes[i + 1], diameter=2 * local_od((planes[i] + planes[i + 1]) / 2)
-        )
+        s
         for i in range(len(planes) - 1)
+        if (
+            s := TurnedStep(
+                lo=planes[i],
+                hi=planes[i + 1],
+                diameter=2 * local_od((planes[i] + planes[i + 1]) / 2),
+            )
+        ).diameter
+        > 0
     )
+    if len(steps) < 2:  # fewer than two real steps → nothing to dimension axially
+        return None
     return TurnedProfile(axis=axis, steps=steps)

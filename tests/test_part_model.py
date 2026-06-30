@@ -61,6 +61,15 @@ class TestBuildPartModel:
         assert any(isinstance(f, BossFeature) for f in model.features)
         assert not any(isinstance(f, StepFeature) for f in model.features)
 
+    def test_no_phantom_zero_diameter_step(self):
+        # A gapped (disconnected) shaft has an axial segment with no OD over it;
+        # find_turned_steps must drop it, not emit a ø0 step (#279).
+        gapped = Cylinder(20, 40) + Pos(0, 0, 40) * Cylinder(13, 30)
+        model = build_part_model(gapped)
+        step_dias = [f.diameter for f in model.features if isinstance(f, StepFeature)]
+        assert step_dias, "expected step features for the stepped shaft"
+        assert all(d > 0 for d in step_dias), f"phantom zero-diameter step: {step_dias}"
+
     def test_bolt_circle_is_one_pattern_not_six_holes(self):
         import math
 
