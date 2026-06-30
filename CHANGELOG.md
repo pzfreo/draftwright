@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+## v0.2.1 — 2026-06-30
+
+A patch release focused on **turned-part dimensioning legibility**: crowded
+step-length chains and fine turned heads are now drawn legibly instead of crammed.
+Drawing output changes for affected turned parts.
+
+### Added
+
+- **Automatic enlarged detail view for a crowded turned head** (#304). A turned
+  part with a fine cluster of steps near one end and a long shaft (e.g. a thumbwheel
+  drive screw) cannot have its head dimensioned legibly in line at any sensible
+  scale. The head is now located as one block on the main view and broken out into
+  an enlarged **DETAIL A — SCALE n:1** — the textbook treatment — firing
+  automatically when a head's shoulders fall below the page legibility floor.
+
+### Changed
+
+- **Crowded turned step-length chains stagger across two tiers** (#293) instead of
+  cramming or being skipped. When the labels would collide on one line, the ISO
+  129-1 staggered convention alternates them between a near and a far tier so every
+  step length stays legible at the drawing's own scale — no rescale needed. A roomy
+  chain stays on a single tier.
+- **Detail views are now one unified pipeline** (#307). The prismatic step-height
+  detail and the new turned-head detail flow through a single
+  detect → request → render path; several crowded regions become DETAIL A/B/…
+- **Output changes** for turned parts whose step chains were previously crammed, or
+  whose fine heads are now broken out into a detail view.
+
+### Fixed
+
+- **A coaxial bore callout no longer overlaps the round view's centreline** (#305):
+  its leader is angled off the centre axis so the callout text sits in clear space.
+
+### Internal
+
+- A new **layout-cleanliness invariant test** asserts that finished drawings have no
+  view/annotation collisions across representative part archetypes, and the
+  measure-and-repack pass gained a trigger for an annotation growing into a
+  neighbouring view's line-work (so the views spread to make room).
+
 ## v0.2.0 — 2026-06-30
 
 A major release. draftwright took ownership of feature recognition and linting
