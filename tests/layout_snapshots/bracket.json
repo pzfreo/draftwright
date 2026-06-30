@@ -1,0 +1,388 @@
+{
+  "annotations": [
+    {
+      "geom_bbox": [
+        125.4,
+        99.5,
+        131.4,
+        119.6
+      ],
+      "label": "20",
+      "label_bbox": [
+        128.3,
+        107.9,
+        130.5,
+        111.1
+      ],
+      "name": "dim_height",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        80.4,
+        166.2,
+        140.0,
+        168.8
+      ],
+      "label": "",
+      "label_bbox": [
+        126.1,
+        166.2,
+        140.0,
+        168.8
+      ],
+      "name": "hc_plan0",
+      "type": "Leader",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        92.4,
+        172.1,
+        140.7,
+        175.8
+      ],
+      "label": "",
+      "label_bbox": [
+        126.1,
+        173.2,
+        140.7,
+        175.8
+      ],
+      "name": "hc_plan1",
+      "type": "Leader",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        71.4,
+        162.5,
+        81.4,
+        172.5
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "m_cm0",
+      "type": "CenterMark",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        79.4,
+        165.5,
+        93.4,
+        179.5
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "m_cm1",
+      "type": "CenterMark",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        142.8,
+        89.5,
+        202.9,
+        95.5
+      ],
+      "label": "60",
+      "label_bbox": [
+        171.2,
+        90.4,
+        174.5,
+        92.6
+      ],
+      "name": "m_env_depth",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
+        31.4,
+        127.5,
+        121.5,
+        133.5
+      ],
+      "label": "90",
+      "label_bbox": [
+        74.8,
+        128.4,
+        78.0,
+        130.6
+      ],
+      "name": "m_env_width",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        31.4,
+        169.5,
+        76.5,
+        207.5
+      ],
+      "label": "45",
+      "label_bbox": [
+        52.3,
+        204.4,
+        55.6,
+        206.6
+      ],
+      "name": "m_locx0",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        31.4,
+        174.5,
+        86.5,
+        218.5
+      ],
+      "label": "55",
+      "label_bbox": [
+        57.3,
+        215.4,
+        60.5,
+        217.6
+      ],
+      "name": "m_locx1",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        142.8,
+        121.5,
+        172.9,
+        129.5
+      ],
+      "label": "30",
+      "label_bbox": [
+        156.2,
+        126.4,
+        159.5,
+        128.6
+      ],
+      "name": "m_locy0",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
+        142.8,
+        121.5,
+        177.9,
+        140.5
+      ],
+      "label": "35",
+      "label_bbox": [
+        158.7,
+        137.4,
+        162.0,
+        139.6
+      ],
+      "name": "m_locy1",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
+        303.3,
+        162.0,
+        327.6,
+        164.7
+      ],
+      "label": "ISO VIEW (NTS)",
+      "label_bbox": [
+        303.3,
+        162.0,
+        327.6,
+        164.7
+      ],
+      "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        23.6,
+        175.7,
+        25.2,
+        177.7
+      ],
+      "label": "A",
+      "label_bbox": [
+        23.6,
+        175.7,
+        25.2,
+        177.7
+      ],
+      "name": "section_a_left",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        127.6,
+        175.7,
+        129.2,
+        177.7
+      ],
+      "label": "A",
+      "label_bbox": [
+        127.6,
+        175.7,
+        129.2,
+        177.7
+      ],
+      "name": "section_a_right",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        26.5,
+        165.8,
+        28.3,
+        172.5
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "section_arrow_left",
+      "type": "Compound",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        124.5,
+        165.8,
+        126.3,
+        172.5
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "section_arrow_right",
+      "type": "Compound",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        248.0,
+        91.4,
+        267.6,
+        93.6
+      ],
+      "label": "SECTION A\u2013A",
+      "label_bbox": [
+        248.0,
+        91.4,
+        267.6,
+        93.6
+      ],
+      "name": "section_caption",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        212.8,
+        99.5,
+        302.8,
+        119.5
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "section_hatch",
+      "type": "Compound",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        27.4,
+        172.4,
+        125.4,
+        172.6
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "section_line",
+      "type": "Centerline",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        27.4,
+        165.8,
+        27.4,
+        172.5
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "section_wing_left",
+      "type": "Compound",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        125.4,
+        165.8,
+        125.4,
+        172.5
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "section_wing_right",
+      "type": "Compound",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        258.9,
+        10.9,
+        409.1,
+        27.1
+      ],
+      "label": "DRAWING",
+      "label_bbox": null,
+      "name": "title_block",
+      "type": "TitleBlock",
+      "view": null
+    }
+  ],
+  "item_count": 22,
+  "views": {
+    "front": [
+      31.4,
+      99.5,
+      121.4,
+      119.5
+    ],
+    "iso": [
+      307.0,
+      169.4,
+      323.8,
+      181.6
+    ],
+    "plan": [
+      31.4,
+      137.5,
+      121.4,
+      197.5
+    ],
+    "section_aa": [
+      212.8,
+      99.5,
+      302.8,
+      119.5
+    ],
+    "side": [
+      142.8,
+      99.5,
+      202.8,
+      119.5
+    ]
+  }
+}
