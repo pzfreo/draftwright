@@ -124,7 +124,9 @@ scoped golden gate and X/Z parity as standing criteria):
    **prototype** a vertical slice: build the model from a real part via adapted
    detectors and run a minimal planner, proving diverse features (holes + steps +
    bosses) flow through one pipeline. *(Landed — see `src/draftwright/model/` and
-   `tests/test_part_model.py`; not yet wired into `build_drawing`.)*
+   `tests/test_part_model.py`; this initial slice was not yet wired into
+   `build_drawing` — the later amendments completed that, and the IR is now the
+   production path. See the header and Amendment 3.)*
 2. **Adapt, don't rewrite, the heuristics.** Wrap `find_holes`/`find_bosses`/
    `find_turned_steps`/`find_slots` so they emit `Feature` objects; their B-rep
    logic stays.
@@ -232,7 +234,10 @@ the inline envelope/OD/centre-mark/step-ladder code in the orchestrator) **all
 migrate onto this path and are deleted.** The orchestrator's end state is
 `build model → plan → render` — no per-feature pile. The shared layout/projection/
 export stack is *not* rewritten (ADR 0008 always fed the existing layout); what
-disappears is the duplicated feature→dimensioning logic.
+disappears is the duplicated feature→dimensioning logic. *(How that shared layout
+itself places annotations into a view's strips is settled separately by
+[ADR 0009](0009-boundary-labeling-strip-placement.md): the render-intents become
+the candidates its collect-then-solve stage consumes per strip.)*
 
 **Migration is a strangler, governed by three rules:**
 
