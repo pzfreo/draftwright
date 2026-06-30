@@ -4721,6 +4721,26 @@ class TestTurnedLengths:
             for j in range(i + 1, len(boxes))
         ), "step-length dims overprint — chain crammed instead of skipping"
 
+    def test_short_segment_arrows_cram_skips_even_when_labels_fit(self):
+        # The gramel thumbwheel drive screw (GRM-03): fine steps near the head + one
+        # long shaft. The strip solver CAN spread the labels into the shaft's empty
+        # space (so the label-overlap guard passes), but the head segments are
+        # narrower than two arrowheads, so the dimension-line arrows overprint at the
+        # shoulders regardless. The raw segment width must gate the chain too (#293).
+        from build123d import Align, Cylinder, Pos, Rotation
+
+        b = Align.MIN
+        specs = [(8, 1.0), (12, 1.0), (8, 1.0), (12, 1.0), (6, 30.0)]
+        shaft = None
+        z = 0.0
+        for d, ln in specs:
+            seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
+            shaft = seg if shaft is None else shaft + seg
+            z += ln
+        dwg = build_drawing(Rotation(0, 90, 0) * shaft)
+        assert not any(n.startswith("m_steplen") for n in dwg._named)  # skipped, not crammed
+        assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) >= 1
+
 
 class TestStepLadderRecognition:
     """ADR 0008 step 1: the Z step-height ladder draws its step levels from the

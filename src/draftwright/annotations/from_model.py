@@ -646,6 +646,15 @@ def render_step_lengths(dwg, groups) -> int:
         # view. The room guard's sibling, for crowding rather than page overflow.
         gap_min = draft.font_size + 2 * draft.pad_around_text
         if horizontal:
+            # Arrowhead legibility: a segment carries an inward-pointing arrowhead at
+            # each end, so a segment narrower than 2× arrow_length overprints them no
+            # matter how the labels are spread along the line (#293 — the gramel drive
+            # screw's 0.5 mm step). Spreading labels can't fix overlapping dimension-line
+            # arrows, so the raw segment width gates the horizontal chain just as the
+            # shoulder spacing gates the vertical chain below.
+            if any(abs(pb[0] - pa[0]) < 2 * draft.arrow_length for pa, pb, _ in segs):
+                _log.info("step-length chain skipped: a segment is too short to dimension")
+                return 0
             centers = [(pa[0] + pb[0]) / 2 for pa, pb, _ in segs]
             half_w = max(len(_fmt(v)) for *_, v in segs) * draft.font_size * 0.62 / 2
             min_gap = 2 * half_w + 2 * draft.pad_around_text
