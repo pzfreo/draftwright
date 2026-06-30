@@ -514,6 +514,37 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
             return centre
         return (centre[0] + dx / norm * r, centre[1] + dy / norm * r)
 
+    def _coaxial_lift(centre, ny, view_cx, view_cy, y_min, y_max):
+        """Leader row for a hole, lifted clear of the round view's centre axis when
+        the hole is a *coaxial bore* (#305); *ny* unchanged otherwise.
+
+        A bore on the turning axis is led out along the view's horizontal centre
+        axis, so the centre mark / centreline runs straight through the "⌀… ↓…"
+        callout text. Detect that one bore — a rotational part, hole at the view
+        centre — and lift its row a clearance off the axis (an angled leader to a
+        central feature is standard practice), toward the roomier side. Off-axis
+        holes and every prismatic-part hole are untouched (front-view round parts
+        place coaxial bores as vertical shafts below the view, not along an axis,
+        so they can't hit this and are exempt by construction).
+
+        Tactical: the principled fix is to not draw the crossing line at all — a
+        centred bore is located by the axis, so its linear location dims are
+        redundant (#309) — or to make this a layout-solver separation constraint
+        (ADR 0003). This nudge becomes dead code once either lands."""
+        tol = draft.font_size  # "hole at the view centre" tolerance (page mm)
+        if not (
+            a.is_rotational and abs(centre[0] - view_cx) < tol and abs(centre[1] - view_cy) < tol
+        ):
+            return ny
+        # Lift the row a full text height + padding clear of the axis: enough for
+        # the text box (half a font tall) to sit wholly off the centre line with a
+        # pad of margin, giving a legible leader angle rather than a near-flat one.
+        lift = draft.font_size + 3 * draft.pad_around_text
+        # Toward the roomier half-view (geometric, not occupancy-aware — safe here
+        # because the round view of a coaxial bore is otherwise near-empty).
+        up = (y_max - view_cy) >= (view_cy - y_min)
+        return min(view_cy + lift, y_max) if up else max(view_cy - lift, y_min)
+
     def _add(view, i, tip, elbow, side, callout):
         dwg.add(
             Leader(
@@ -598,6 +629,12 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         else:
             y_min, y_max = a.SV_Y - a.fv_hh, a.SV_Y + a.fv_hh
 
+        # Round view's horizontal centre axis — a coaxial bore led out along it has
+        # its callout text crossed by the centre mark / centreline (#305); see
+        # _coaxial_lift.
+        view_cx = a.PV_X if view == "plan" else a.SV_X
+        view_cy = a.PV_Y if view == "plan" else a.SV_Y
+
         # --- Pass 1: boundary assignment ---
         right_queue = []  # (locs, dia, callout, feat, natural_y, rep)
         left_queue = []
@@ -632,9 +669,11 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                 continue
 
             if can_right and (not can_left or d_right <= d_left):
-                right_queue.append((locs, dia, callout, feat, centre_r[1], rep_r))
+                ny = _coaxial_lift(centre_r, centre_r[1], view_cx, view_cy, y_min, y_max)
+                right_queue.append((locs, dia, callout, feat, ny, rep_r))
             else:
-                left_queue.append((locs, dia, callout, feat, centre_l[1], rep_l))
+                ny = _coaxial_lift(centre_l, centre_l[1], view_cx, view_cy, y_min, y_max)
+                left_queue.append((locs, dia, callout, feat, ny, rep_l))
 
         # Sort each queue by natural Y so leaders don't cross.
         right_queue.sort(key=lambda s: s[4])
