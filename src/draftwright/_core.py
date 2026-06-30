@@ -13,6 +13,7 @@ from __future__ import annotations
 import functools
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -380,6 +381,48 @@ def _largest_empty_rect(drawable, obstacles):
         )
         return drawable
     return best
+
+
+@dataclass
+class DetailRequest:
+    """A renderer's request for an enlarged detail of a region it could not draw
+    legibly at sheet scale (#307). Renderers append these to ``dwg._detail_requests``
+    instead of building bespoke detail views; ``_resolve_details`` resolves them all
+    through one generic detailer (crop → project → place → caption → marker), then
+    calls ``redraw`` to draw the feature's own dims inside the placed detail view.
+
+    The single ``detect → request → generic render`` path that folds the prismatic
+    step detail (#42) and the turned-head detail (#304) into one, mirroring the
+    section pipeline (``plan_sections``/``SectionPlan``).
+
+    Fields:
+        axis:         part axis the band spans / is cropped along ("x"/"y"/"z").
+        lo, hi:       band bounds along ``axis`` (world mm).
+        scale_needed: detail world→page scale that makes the region legible.
+        redraw:       ``redraw(dwg, view_name, detail_scale) -> int`` — draws the
+                      detail's dimensions in the placed detail view's coordinate system
+                      and returns the count placed (0 → the detailer rolls the view
+                      back rather than leave an empty box). Called once the detail is
+                      placed; the main view always carries the located head/block
+                      inline regardless, so a placement failure loses no coverage (lint
+                      reports the un-located interior instead).
+        pad_top:      page-mm band reserved above the detail view (a horizontal
+                      chain); reserved in the fit + placement.
+        pads:         optional ``pads(detail_scale) -> (pad_right, pad_top)`` for a
+                      footprint that depends on the chosen scale (the prismatic
+                      ladder reserves one rung per *legible-at-that-scale* step, so it
+                      shrinks with the scale during the fit). Overrides ``pad_top``.
+        kind:         short label for logging.
+    """
+
+    axis: str
+    lo: float
+    hi: float
+    scale_needed: float
+    redraw: Callable[..., int]
+    pad_top: float = 0.0
+    pads: Callable[[float], tuple[float, float]] | None = None
+    kind: str = "detail"
 
 
 @dataclass(frozen=True)

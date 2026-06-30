@@ -27,10 +27,12 @@ from draftwright._core import (
     _DIAM_RE,
     _END_ON,
     _MARGIN,
+    _MIN_STEP_SEP_MM,
     _SLOT_DIM_DEPTH,
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
     _SLOT_DIM_WIDTH,
+    DetailRequest,
     _dim,
     _fmt,
     _greedy_strip_ys,
@@ -584,52 +586,30 @@ def render_envelope(dwg, groups, a) -> int:
     return n
 
 
-def render_step_lengths(dwg, groups) -> int:
-    """Unified turned step-length chain (ADR 0008 #223) — one IR-driven path that
-    replaces the engine's asymmetric X-chain / Z-ladder. Each `StepFeature`'s length
-    span is projected into the front view; the chain runs *along the projected axis*
-    just outside the view — **horizontal** for an X-turned part, **vertical** for a
-    Z-turned part. Orientation is the projected span direction, not a branch, so X
-    and Z get the same complete chain. Returns the number of step dims placed.
-
-    The chain is collinear (all segments share one offset line) and tiles end to
-    end, so every shoulder is located. Crowded labels are spread along the line by
-    the ADR-0003 strip solve (the primitive the engine's X chain already used)."""
-    segs = []  # (page_lo, page_hi, value), in axis order
-    for g in groups:
-        if g.feature_kind != "step":
-            continue
-        length = next(
-            (pd.param for pd in g.dims if pd.param.kind == "length" and pd.param.span is not None),
-            None,
-        )
-        if length is None or length.span is None:
-            continue
-        a, b = length.span
-        pa, pb = dwg.at("front", *a), dwg.at("front", *b)
-        segs.append((pa, pb, length.value))
+def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None, allow_collapse=True) -> int:
+    """Place a turned step-length chain in *view* from *segs* — each ``(pa, pb,
+    value)`` already projected to *view*'s page coords, in axis order. Orientation is
+    data (the projected span direction): horizontal → chain above the view, vertical
+    → chain to the right. A uniform run collapses to one ``N× v`` dim (#230); else a
+    per-segment chain, staggered into a near/far tier only when crowded (ISO 129-1,
+    #293); skipped if even two tiers can't separate the labels, or if any dim would
+    fall off the page. ``detail_scale`` tags the dims for label-vs-measured lint when
+    drawing inside a scaled detail view. ``allow_collapse=False`` disables the ``N× v``
+    collapse — used when the chain mixes a synthetic head-*block* with real steps, where
+    a uniform-staircase representative would be a false claim of N equal steps (#307
+    review). Returns the count placed."""
     if not segs:
         return 0
-    vb = dwg.view_bounds("front")
+    vb = dwg.view_bounds(view)
     if vb is None:
         return 0
     x0, y0, x1, y1 = vb
     draft = dwg.draft
     gap = draft.font_size + 4 * draft.pad_around_text
-    # Orientation is data: the projected span direction. Horizontal → X-turned
-    # (chain above the view); vertical → Z-turned (chain left of the view).
     horizontal = abs(segs[0][1][0] - segs[0][0][0]) >= abs(segs[0][1][1] - segs[0][0][1])
-
-    # Spread crowded labels along a horizontal chain (ADR-0003 strip solve), then
-    # carry each label back to its segment via label_offset_x (the only along-line
-    # offset the Dimension primitive supports). A vertical chain places plain dims.
-    # Uniform staircase → one representative "N× length" dim spanning the whole run
-    # (#230), instead of N identical segment dims. Mirrors the prismatic ladder's
-    # _detect_step_repeat: ≥3 segments, all within 10% of the mean (so a 2-step part
-    # or a mixed chain still dimensions each segment).
     vals = [v for *_, v in segs]
     mean_v = sum(vals) / len(vals)
-    if len(segs) >= 3 and (max(vals) - min(vals)) <= 0.10 * mean_v:
+    if allow_collapse and len(segs) >= 3 and (max(vals) - min(vals)) <= 0.10 * mean_v:
         label = f"{len(segs)}× {_fmt(mean_v)}"
         xs = [p[0] for pa, pb, _ in segs for p in (pa, pb)]
         ys = [p[1] for pa, pb, _ in segs for p in (pa, pb)]
@@ -637,17 +617,11 @@ def render_step_lengths(dwg, groups) -> int:
             dim = _dim((min(xs), y1, 0), (max(xs), y1, 0), "above", gap, draft, label=label)
         else:
             dim = _dim((x1, min(ys), 0), (x1, max(ys), 0), "right", gap, draft, label=label)
-        candidates = [("m_steplen_typ", dim)]
+        candidates = [(f"{name_prefix}_typ", dim)]
     else:
-        gap_min = draft.font_size + 2 * draft.pad_around_text
         tier_step = draft.font_size + 2 * draft.pad_around_text
         tiers = [0] * len(segs)
         if horizontal:
-            # ISO 129-1 staggering, applied only as a response to crowding: keep the
-            # whole chain on one tier when the labels already clear; alternate them
-            # between a near and a far tier only when they would collide; skip when even
-            # two tiers can't separate them (then lint reports the gap, #293). build123d
-            # flips a narrow segment's arrowheads outside the extension lines for us.
             cw = [
                 ((pa[0] + pb[0]) / 2, len(_fmt(v)) * draft.font_size * 0.62) for pa, pb, v in segs
             ]
@@ -666,28 +640,24 @@ def render_step_lengths(dwg, groups) -> int:
                 _log.info("step-length chain skipped: too dense even when staggered")
                 return 0
         else:
-            # Z-turned chain places plain dims at the shoulders (no along-line spread is
-            # available vertically), so its legibility is the raw shoulder spacing.
             shoulder_ys = sorted({c for pa, pb, _ in segs for c in (pa[1], pb[1])})
-            if any(b - a < gap_min for a, b in zip(shoulder_ys, shoulder_ys[1:])):
+            if any(b - a < tier_step for a, b in zip(shoulder_ys, shoulder_ys[1:])):
                 _log.info("step-length chain skipped: shoulders too close to dimension")
                 return 0
 
         candidates = []
         for i, (pa, pb, value) in enumerate(segs):
-            if horizontal:  # X-turned: chain above the view (staggered only if crowded)
+            if horizontal:
                 p1, p2, side = (pa[0], y1, 0), (pb[0], y1, 0), "above"
                 dist = gap + tiers[i] * tier_step
-            else:  # Z-turned: chain right of the view, witnesses from the right edge
+            else:
                 p1, p2, side = (x1, pa[1], 0), (x1, pb[1], 0), "right"
                 dist = gap
             candidates.append(
-                (f"m_steplen{i}", _dim(p1, p2, side, dist, draft, label=_fmt(value)))
+                (f"{name_prefix}{i}", _dim(p1, p2, side, dist, draft, label=_fmt(value)))
             )
 
-    # Room guard (the engine's contract): if any dim would fall off the drawable
-    # page, place NONE and let lint report axial_length_missing — never run the
-    # chain off the page edge.
+    # Room guard: if any dim would fall off the drawable page, place NONE.
     page = (_MARGIN, _MARGIN, dwg.page_w - _MARGIN, dwg.page_h - _MARGIN)
     for _, dim in candidates:
         box = _anno_box(dim)
@@ -696,8 +666,91 @@ def render_step_lengths(dwg, groups) -> int:
         ):
             return 0
     for name, dim in candidates:
-        dwg.add(dim, name, view="front")
+        if detail_scale is not None:
+            dim._dw_scale = detail_scale
+        dwg.add(dim, name, view=view)
     return len(candidates)
+
+
+def render_step_lengths(dwg, groups) -> int:
+    """Unified turned step-length chain (ADR 0008 #223): each `StepFeature`'s length
+    span projects into the front view and joins the chain that tiles the turning axis
+    so every shoulder is located. X-turned → horizontal chain above the view;
+    Z-turned → vertical chain to the right.
+
+    A crowded **X-turned head** — a contiguous run of steps too short to dimension
+    legibly even staggered (shoulders below the page arrowhead floor) — is not crammed
+    in line: the main view locates that run as one *block* dim and an enlarged
+    `DetailRequest` (#304/#307) is queued to break it down. If the detail later can't
+    place, the block still locates the head extent and lint reports the un-located
+    interior shoulders — never worse than the prior skip. Returns the count placed on
+    the front view."""
+    rows = []  # (a_world, b_world, value) in axis order
+    for g in groups:
+        if g.feature_kind != "step":
+            continue
+        length = next(
+            (pd.param for pd in g.dims if pd.param.kind == "length" and pd.param.span is not None),
+            None,
+        )
+        if length is None or length.span is None:
+            continue
+        rows.append((length.span[0], length.span[1], length.value))
+    if not rows:
+        return 0
+    draft = dwg.draft
+    fsegs = [(dwg.at("front", *a), dwg.at("front", *b), v) for a, b, v in rows]
+    horizontal = abs(fsegs[0][1][0] - fsegs[0][0][0]) >= abs(fsegs[0][1][1] - fsegs[0][0][1])
+
+    # X-turned crowded-head detour (#307): split off each contiguous *run of ≥2*
+    # sub-floor steps (segment narrower than two arrowheads on the page), locate it as
+    # a block, and queue an enlarged detail. A single isolated thin step is left in the
+    # main chain — a one-step block would just be that step at its sub-floor width
+    # (#307 review). The legible steps + blocks stay as the main chain.
+    if horizontal:
+        floor_pg = 2 * draft.arrow_length
+        sub = [i for i, (pa, pb, _) in enumerate(fsegs) if abs(pb[0] - pa[0]) < floor_pg]
+        runs: list[list[int]] = []
+        for j in sub:
+            (runs[-1].append(j) if runs and j == runs[-1][-1] + 1 else runs.append([j]))
+        heads = [run for run in runs if len(run) >= 2]
+        if heads:
+            blocks = []
+            for run in heads:
+                ra = [rows[i] for i in run]
+                hlo = min(min(a[0], b[0]) for a, b, _ in ra)
+                hhi = max(max(a[0], b[0]) for a, b, _ in ra)
+                minlen = min(v for *_, v in ra)
+                # World→page scale for the detail (no sheet factor — detail_scale is an
+                # absolute world→page scale). (#307 review)
+                scale_needed = _MIN_STEP_SEP_MM / minlen if minlen > 0 else float("inf")
+                blocks.append((dwg.at("front", hlo, 0, 0), dwg.at("front", hhi, 0, 0), hhi - hlo))
+
+                def _redraw(dwg, view, detail_scale, _hw=ra):
+                    # View-scoped name prefix so two detail views never collide (#307 review).
+                    hsegs = [(dwg.at(view, *a), dwg.at(view, *b), v) for a, b, v in _hw]
+                    return _draw_step_chain(dwg, view, hsegs, f"dim_{view}_steplen", detail_scale)
+
+                dwg._detail_requests.append(
+                    DetailRequest(
+                        axis="x",
+                        lo=hlo,
+                        hi=hhi,
+                        scale_needed=scale_needed,
+                        redraw=_redraw,
+                        pad_top=2 * (draft.font_size + 2 * draft.pad_around_text)
+                        + draft.arrow_length,
+                        kind="turned-head",
+                    )
+                )
+            head = {i for run in heads for i in run}
+            main = [fsegs[i] for i in range(len(fsegs)) if i not in head] + blocks
+            main.sort(key=lambda s: s[0][0])
+            # The chain now mixes head-block(s) with real steps — never collapse it to a
+            # uniform "N× v" representative (a block is not a repeated step, #307 review).
+            return _draw_step_chain(dwg, "front", main, "m_steplen", allow_collapse=False)
+
+    return _draw_step_chain(dwg, "front", fsegs, "m_steplen")
 
 
 def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
