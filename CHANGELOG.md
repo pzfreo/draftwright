@@ -2,9 +2,32 @@
 
 ## Unreleased
 
+## v0.2.0 — 2026-06-30
+
+A major release. draftwright took ownership of feature recognition and linting
+(ADR 0007) and was re-architected onto a feature-IR + dimensioning-planner
+"compiler" (ADR 0008), gaining a Typer CLI and a portable, pure-Python PDF path
+along the way. **Generated drawings change** versus v0.1.13: the new pipeline
+dimensions parts more completely and consistently, so placement and the set of
+dimensions can differ — output is not byte-compatible with prior releases.
+
 ### Changed
 
-- **The CLI now writes a PDF by default** and takes a `--format` selector (#288).
+- **Re-architected onto a feature-IR + dimensioning planner** (ADR 0008). The
+  engine is now a compiler: detectors build one feature inventory → a typed IR /
+  `PartModel` → a dimensioning planner emits render-intents → shared
+  layout/projection/export. Orientation and feature-kind are *data in the IR*,
+  not code branches, and every feature class (holes, patterns, counterbores,
+  slots, turned diameters/steps, centre marks, location dims, envelope/OD,
+  section A–A, PMI/GD&T) was migrated onto this one path; the old parallel
+  recognisers and placement passes were deleted as each was replaced. Net effect
+  for users: more complete, more consistent drawings — but output differs from
+  v0.1.13.
+- **draftwright owns feature recognition and linting** (ADR 0007). The hole/
+  boss/cylinder/pattern recognisers, the slot/turned-step recognisers, and the
+  feature-coverage lint engine are vendored into `recognition/` and `linting.py`;
+  `build123d-drafting-helpers` is now purely the rendering library.
+- **The CLI writes a PDF by default** and takes a `--format` selector (#288).
   Previously `draftwright part.step` emitted SVG + DXF; it now emits a single PDF.
   Choose outputs with `--format` (a comma-list, with an `all` alias) —
   `--format pdf,dxf`, `--format svg`, `--format all`. The library API is
@@ -13,14 +36,39 @@
   moved from `cairosvg` (which `dlopen`s the native `libcairo` system library —
   absent on stock macOS/Windows, so PDF-by-default would have crashed there) to
   `svglib` + `reportlab`, both pip-installable wheels with no system dependency.
-  PDF therefore works out of the box on every platform. The `[pdf]` install extra
-  is removed (PDF is always available); output is byte-different from the cairo
-  renderer but visually identical.
+  PDF therefore works out of the box on every platform; output is visually
+  identical to the cairo renderer.
+
+### Added
+
+- **A Typer command-line interface** (#289/#291): shell completion
+  (`--install-completion` / `--show-completion`), rich `--help`, and `--version`
+  (reports the installed distribution version). All existing flags are preserved.
+- **`--format` output selector** (#288) — `pdf` (default), `svg`, `dxf`, or `all`,
+  as a comma-list.
+- **Turned-part dimensioning**: axial step-length recognition and chains
+  (#188/#189/#231), step-diameter callouts, collapse of a uniform step
+  staircase to an "N× length" note (#290), and OD of a horizontal (X/Y) round
+  body dimensioned on the profile view (#292).
+- **Slot recognition and dimensioning** converged onto the IR as `SlotFeature`
+  (#242), and **section A–A** is now triggered by the planner (#271).
+- **A Contributor License Agreement** (#183).
 
 ### Removed
 
 - **The `--pdf` flag** (use `--format pdf`, the new default), the **`[pdf]`
   install extra**, and the **`cairosvg` dependency** (#288).
+- The byte-exact golden-output test harness (#190) — regression coverage rests on
+  the geometry-level and standards suites (ADR 0005 §3 / ADR 0007).
+
+### Fixed
+
+- Locate **every** side-drilled (off-axis) hole, not just the first (#225/#286).
+- Don't mis-detect a prismatic part with incidental cylinders as a turned part
+  (#293/#294); drop phantom zero-diameter turned steps (#279/#284); skip an
+  illegibly-dense step-length chain rather than cram it (#293/#296).
+- Degraded hole-pattern callout consistency (#262/#274).
+- Windows `python -m draftwright.make_drawing` CLI smoke / entrypoint (#181/#182).
 
 ## v0.1.13 — 2026-06-27
 
