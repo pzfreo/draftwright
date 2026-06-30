@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## v0.2.2 — 2026-06-30
+
+A patch release of turned-part dimension-placement fixes and a CLI start-up
+speed-up. Drawing output changes for the affected turned/cross-drilled parts.
+
+### Fixed
+
+- **A coaxial bore callout on a *stepped* turned shaft is now lifted off the round
+  view's centre axis** (#305). The earlier fix only triggered for a uniform
+  (`is_rotational`) cylinder; a stepped shaft (e.g. the gramel GRM-03 drive screw)
+  has a turned step profile but isn't classified rotational, so its `⌀… ↓…` bore
+  callout was still leadered straight along the centreline, with the centre mark
+  running through the text. The lift now also fires for a turned-profile part.
+- **A side-drilled hole's location dimension now stacks *inside* the overall
+  envelope dimension** (ISO order — overall dim outermost, feature/location dims
+  nearer the view). It was placed *outside* the envelope, which forced the shorter
+  location dim's arrowheads to flip outward and clash (seen on GRM-01 and GRM-02).
+  The mandatory overall dimension is still guaranteed placement.
+
+### Changed
+
+- **CLI shell completion and `--help` are fast again** (#313). The Typer CLI and
+  the heavy CAD engine are now imported lazily, so tab-completion and `--help` no
+  longer pay a ~6 s engine-import cost; a real drawing run is unaffected.
+
 ## v0.2.1 — 2026-06-30
 
 A patch release focused on **turned-part dimensioning legibility**: crowded
