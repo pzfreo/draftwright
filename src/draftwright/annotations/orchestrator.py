@@ -148,7 +148,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     # The part model — built once and rendered from for the IR-migrated passes
     # (centre marks, turned diameters/lengths); ADR 0008 convergence / #229.
-    _bores = tuple(_concentric_bore_diams(a)) if a.is_rotational else ()
+    # Concentric bore leaders are a Z-axis construction (bores on the vertical
+    # rotation axis); a horizontal (X/Y) round body gets OD + centrelines only
+    # (#222), so its bore set is empty.
+    _bores = tuple(_concentric_bore_diams(a)) if a.is_rotational and a.od_axis == "z" else ()
     _model = build_part_model(
         a.part,
         holes=a.holes,
@@ -157,7 +160,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         slots=a.slots,
         prof=a.prof,
         step_zs=a.step_zs,
-        rotational=(a.od_diam, _bores) if a.is_rotational else None,
+        rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
         pmi=a.pmi,
     )
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them

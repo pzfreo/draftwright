@@ -253,6 +253,32 @@ def _analyse(
         math.hypot(od_cyl["axis_xyz"][0] - cx, od_cyl["axis_xyz"][1] - cy) if od_cyl else 0.0
     )
     is_rotational = _is_rotational(x_size, y_size, od_diam, od_axis_offset)
+    od_axis = "z"
+    if not is_rotational:
+        # Fallback: a *horizontal* (X/Y) round body — its OD is a cross-axis cylinder
+        # filling the square envelope perpendicular to that axis (#222). The Z check
+        # above is untouched, so vertical parts classify exactly as before; this only
+        # fires when Z-rotational fails and a cross-axis round body is present.
+        sizes = {"x": x_size, "y": y_size, "z": z_size}
+        ctr = {"x": cx, "y": cy, "z": cz}
+        cross_full = full_cylinders(cross_cyls)
+        for ax in ("x", "y"):
+            ext = [c for c in cross_full if c.get("axis") == ax and c["external"]]
+            # #222 targets a *single-OD* round body. A stepped shaft (multiple distinct
+            # cross diameters) stays on the turned-diameter path, not the OD furniture.
+            if len({round(c["diameter"], 1) for c in ext}) != 1:
+                continue
+            oc = max(ext, key=lambda c: c["diameter"], default=None)
+            if oc is None:
+                continue
+            p0, p1 = (a for a in "xyz" if a != ax)
+            off = math.hypot(
+                oc["axis_xyz"]["xyz".index(p0)] - ctr[p0],
+                oc["axis_xyz"]["xyz".index(p1)] - ctr[p1],
+            )
+            if _is_rotational(sizes[p0], sizes[p1], oc["diameter"], off):
+                od_diam, od_axis_offset, od_axis, is_rotational = oc["diameter"], off, ax, True
+                break
     if z_diams and not is_rotational:
         _log.info("Part classified prismatic; skipping OD/centreline/bore annotations")
 
@@ -406,6 +432,7 @@ def _analyse(
         prof=_turned,
         od_diam=od_diam,
         is_rotational=is_rotational,
+        od_axis=od_axis,
         step_zs=step_zs,
         sv_right=sv_right,
         iso_right_limit=iso_right_limit,

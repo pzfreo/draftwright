@@ -468,6 +468,7 @@ class Analysis:
     prof: TurnedProfile | None  # turned step profile (find_turned_steps), detected once
     od_diam: float | None
     is_rotational: bool
+    od_axis: str  # rotation/turning axis of a rotational part ("z" default; "x"/"y" #222)
     step_zs: list[float]
     sv_right: float
     iso_right_limit: float

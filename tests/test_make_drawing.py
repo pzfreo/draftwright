@@ -4477,6 +4477,22 @@ class TestTurnedDiameters:
         dwg = build_drawing(Cylinder(15, 40))  # plain Z disc/shaft
         assert not any(n.startswith("m_dia") for n in dwg._named)
 
+    def test_horizontal_round_body_od_on_profile(self):
+        # A horizontal (X-axis) single-OD cylinder shows its OD as a clean profile-view
+        # diameter dim (dim_od) — not an end-on/corner boss leader — with the envelope
+        # dims that duplicate the OD suppressed, so no double-dimensioning (#222).
+        from build123d import Rot
+
+        for rot, axis in ((Rot(0, 90, 0), "x"), (Rot(90, 0, 0), "y")):
+            dwg = build_drawing(rot * Cylinder(25, 40), number="X")
+            assert dwg._analysis.od_axis == axis
+            assert "dim_od" in dwg._named, f"{axis}: OD not on profile"
+            assert not any(n.startswith("m_dia") for n in dwg._named), f"{axis}: end-on leader"
+            # the OD (50) appears once (ø50), not also as a bare envelope "50"
+            labels = [str(o.label) for o in dwg._named.values() if getattr(o, "label", None)]
+            assert "50" not in labels, f"{axis}: OD double-dimensioned as envelope"
+            assert [i for i in dwg.lint() if i.severity != "info"] == []
+
     def test_unfittable_row_skips_without_crashing(self, monkeypatch):
         # When the labels do not fit the row, both solvers return None; the pass
         # must skip gracefully, not crash the whole build on a None unpack.
