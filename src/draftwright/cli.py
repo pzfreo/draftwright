@@ -17,8 +17,6 @@ from importlib.metadata import version as _pkg_version
 
 import typer
 
-from draftwright.builder import build_drawing, generate_script
-
 app = typer.Typer(
     add_completion=True,
     # Plain tracebacks on an engine error, matching the old argparse CLI — a rich
@@ -143,6 +141,12 @@ def main(
         )
 
     formats = _parse_formats(output_format)
+
+    # Import the engine lazily, only on the build path: it pulls in build123d/OCP
+    # (~5 s of CAD-kernel import). Keeping it out of module scope means shell
+    # completion, --help and --version (which import this module but never call
+    # the command) stay sub-second instead of paying for the kernel every time.
+    from draftwright.builder import build_drawing, generate_script
 
     if script:
         py_path = generate_script(
