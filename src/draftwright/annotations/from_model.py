@@ -699,30 +699,34 @@ def render_step_lengths(dwg, groups) -> int:
     fsegs = [(dwg.at("front", *a), dwg.at("front", *b), v) for a, b, v in rows]
     horizontal = abs(fsegs[0][1][0] - fsegs[0][0][0]) >= abs(fsegs[0][1][1] - fsegs[0][0][1])
 
-    # X-turned crowded-head detour (#307): split off each contiguous run of sub-floor
-    # steps (segment narrower than two arrowheads on the page), locate it as a block,
-    # and queue an enlarged detail. The legible steps + blocks stay as the main chain.
+    # X-turned crowded-head detour (#307): split off each contiguous *run of ≥2*
+    # sub-floor steps (segment narrower than two arrowheads on the page), locate it as
+    # a block, and queue an enlarged detail. A single isolated thin step is left in the
+    # main chain — a one-step block would just be that step at its sub-floor width
+    # (#307 review). The legible steps + blocks stay as the main chain.
     if horizontal:
         floor_pg = 2 * draft.arrow_length
         sub = [i for i, (pa, pb, _) in enumerate(fsegs) if abs(pb[0] - pa[0]) < floor_pg]
-        if sub:
-            runs: list[list[int]] = [[sub[0]]]
-            for j in sub[1:]:
-                (runs[-1].append(j) if j == runs[-1][-1] + 1 else runs.append([j]))
+        runs: list[list[int]] = []
+        for j in sub:
+            (runs[-1].append(j) if runs and j == runs[-1][-1] + 1 else runs.append([j]))
+        heads = [run for run in runs if len(run) >= 2]
+        if heads:
             blocks = []
-            for run in runs:
+            for run in heads:
                 ra = [rows[i] for i in run]
                 hlo = min(min(a[0], b[0]) for a, b, _ in ra)
                 hhi = max(max(a[0], b[0]) for a, b, _ in ra)
                 minlen = min(v for *_, v in ra)
-                scale_needed = (
-                    dwg.scale * _MIN_STEP_SEP_MM / minlen if minlen > 0 else float("inf")
-                )
+                # World→page scale for the detail (no sheet factor — detail_scale is an
+                # absolute world→page scale). (#307 review)
+                scale_needed = _MIN_STEP_SEP_MM / minlen if minlen > 0 else float("inf")
                 blocks.append((dwg.at("front", hlo, 0, 0), dwg.at("front", hhi, 0, 0), hhi - hlo))
 
                 def _redraw(dwg, view, detail_scale, _hw=ra):
+                    # View-scoped name prefix so two detail views never collide (#307 review).
                     hsegs = [(dwg.at(view, *a), dwg.at(view, *b), v) for a, b, v in _hw]
-                    _draw_step_chain(dwg, view, hsegs, "dim_detail_steplen", detail_scale)
+                    return _draw_step_chain(dwg, view, hsegs, f"dim_{view}_steplen", detail_scale)
 
                 dwg._detail_requests.append(
                     DetailRequest(
@@ -736,7 +740,7 @@ def render_step_lengths(dwg, groups) -> int:
                         kind="turned-head",
                     )
                 )
-            head = {i for run in runs for i in run}
+            head = {i for run in heads for i in run}
             main = [fsegs[i] for i in range(len(fsegs)) if i not in head] + blocks
             main.sort(key=lambda s: s[0][0])
             return _draw_step_chain(dwg, "front", main, "m_steplen")

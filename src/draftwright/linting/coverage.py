@@ -358,26 +358,27 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
             for _name, ann in dwg.annotations_in_view(view)
             if isinstance(ann, Dimension)
         ]
-        # A collapsed uniform-staircase dim ("N× v", #230) spans the whole run with
-        # witnesses only at the extreme shoulders, yet locates *every* shoulder of the
-        # uniform chain — the collapse fires only when all steps are equal. Count it as
-        # full coverage when such a dim spans the shoulder extent.
-        coords = list(shoulder_c.values())
-        cmin, cmax = min(coords), max(coords)
-        for label, cs in dims:
-            if (
-                re.match(r"^\s*\d+\s*×", label)
-                and any(abs(v - cmin) <= tol for v in cs)
-                and any(abs(v - cmax) <= tol for v in cs)
-            ):
-                return len(prof.steps)
         for i, step in enumerate(prof.steps):
             clo, chi = shoulder_c[step.lo], shoulder_c[step.hi]
-            if any(
-                any(abs(v - clo) <= tol for v in cs) and any(abs(v - chi) <= tol for v in cs)
-                for _label, cs in dims
-            ):
-                covered_steps.add(i)
+            for label, cs in dims:
+                if not cs:
+                    continue
+                # A plain dim locates the step when it has a witness at each shoulder.
+                if any(abs(v - clo) <= tol for v in cs) and any(abs(v - chi) <= tol for v in cs):
+                    covered_steps.add(i)
+                    break
+                # A collapsed uniform-staircase dim ("N× v", #230) carries witnesses only
+                # at the extremes of its run yet locates *every* shoulder within that run
+                # (the collapse fires only when all steps are equal). Credit a step whose
+                # both shoulders fall within the dim's span — works whether the run is the
+                # whole front chain or just the head inside a detail view (#307 review).
+                if (
+                    re.match(r"^\s*\d+\s*×", label)
+                    and min(cs) - tol <= clo
+                    and chi <= max(cs) + tol
+                ):
+                    covered_steps.add(i)
+                    break
     return len(covered_steps)
 
 

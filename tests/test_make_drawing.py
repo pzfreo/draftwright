@@ -3816,7 +3816,7 @@ class TestDetailView:
         # The detail view, its caption, and at least one detail step dim exist.
         assert "detail_a" in dwg.views
         assert "detail_caption_A" in dwg._named
-        assert any(n.startswith("dim_detail_step") for n in dwg._named)
+        assert any(n.startswith("dim_detail_a_step") for n in dwg._named)
         # Drawn at a larger scale than the sheet.
         assert dwg._coords["detail_a"]._scale > a.SCALE
         # No error-severity lint introduced.
@@ -4889,7 +4889,29 @@ class TestTurnedLengths:
         dwg = build_drawing(Rotation(0, 90, 0) * shaft, scale=2.0)
         assert "detail_a" in dwg.views  # crowded head → enlarged detail
         assert "25" in {o.label for n, o in dwg._named.items() if n.startswith("m_steplen")}
-        assert len([n for n in dwg._named if n.startswith("dim_detail_steplen")]) >= 3
+        assert len([n for n in dwg._named if n.startswith("dim_detail_a_steplen")]) >= 3
+        assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
+
+    def test_two_sub_floor_runs_get_separate_non_colliding_details(self):
+        # Two separated fine-step clusters → two detail views (A, B). Their dims use
+        # view-scoped names, so detail B's dims don't evict detail A's (the #307-review
+        # name-collision regression) and axial coverage holds across all views.
+        from build123d import Align, Cylinder, Pos, Rotation
+
+        b = Align.MIN
+        specs = [(4, 1.5), (6, 2.0), (4, 2.5), (3, 22), (6, 1.5), (4, 2.0), (5, 2.5), (2, 22)]
+        shaft = None
+        z = 0.0
+        for d, ln in specs:
+            seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
+            shaft = seg if shaft is None else shaft + seg
+            z += ln
+        dwg = build_drawing(Rotation(0, 90, 0) * shaft, page="A2", scale=2.0)
+        assert {"detail_a", "detail_b"} <= set(dwg.views)
+        names = [n for n in dwg._named if "steplen" in n and "detail" in n]
+        assert len(names) == len(set(names))  # no eviction — all detail dims survive
+        assert any(n.startswith("dim_detail_a_") for n in names)
+        assert any(n.startswith("dim_detail_b_") for n in names)
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
 

@@ -371,6 +371,15 @@ def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter:
         view_axes(camera, (0, 0, 1), la), DX, DY, dcx, dcy, dcz, detail_scale
     )
 
+    # The feature draws its own dims inside the detail. If nothing legible lands even
+    # at the detail scale, roll the view back rather than committing an empty DETAIL
+    # box — the request's fallback (if any) then runs (#307 review).
+    if not req.redraw(dwg, view_name, detail_scale):
+        dwg.views.pop(view_name, None)
+        dwg._coords.pop(view_name, None)
+        _log.info("Detail %s skipped (no legible dims at the detail scale)", letter)
+        return False
+
     # Marker on the front view around the band (axis-aware) + letter.
     FX, FZ = a.proj.front_x, a.proj.front_z
     if req.axis == "z":  # band runs along page-y
@@ -399,10 +408,6 @@ def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter:
         ),
         f"detail_caption_{letter}",
     )
-
-    # The feature draws its own dims inside the detail (and any on-success furniture
-    # on the main views, e.g. the head-block dim).
-    req.redraw(dwg, view_name, detail_scale)
     return True
 
 
@@ -414,12 +419,15 @@ def _resolve_details(dwg, a: Analysis) -> None:
     detailer lacked). Clears the queue."""
     reqs = list(getattr(dwg, "_detail_requests", ()) or ())
     dwg._detail_requests = []
-    for i, req in enumerate(reqs):
-        letter = _DETAIL_LETTERS[i] if i < len(_DETAIL_LETTERS) else None
+    n_placed = 0  # letters advance only on a successful placement — no A/B gaps (#307 review)
+    for req in reqs:
+        letter = _DETAIL_LETTERS[n_placed] if n_placed < len(_DETAIL_LETTERS) else None
         placed = letter is not None and _render_detail(
             dwg, a, req, f"detail_{letter.lower()}", letter
         )
-        if not placed and req.fallback is not None:
+        if placed:
+            n_placed += 1
+        elif req.fallback is not None:
             req.fallback(dwg)
 
 
@@ -438,7 +446,9 @@ def _request_prismatic_detail(dwg, a: Analysis) -> None:
     band_lo, band_hi = max(a.bb.min.Z, z0 - pad), min(a.bb.max.Z, z1 + pad)
     s_zs = sorted(a.step_zs)
     min_gap = min(b - aa for aa, b in zip(s_zs, s_zs[1:]))
-    scale_needed = a.SCALE * _MIN_STEP_SEP_MM / min_gap if min_gap > 0 else float("inf")
+    # World→page scale that renders the closest gap at the legibility floor — no sheet
+    # factor (detail_scale is itself an absolute world→page scale). (#307 review)
+    scale_needed = _MIN_STEP_SEP_MM / min_gap if min_gap > 0 else float("inf")
     step_pad = _MIN_STEP_SEP_MM
 
     def pads(detail_scale):  # one ladder rung per step legible at this scale, + overall
@@ -447,9 +457,10 @@ def _request_prismatic_detail(dwg, a: Analysis) -> None:
             0.0,
         )
 
-    def redraw(dwg, view, detail_scale):
+    def redraw(dwg, view, detail_scale):  # returns the count placed (for rollback, #307)
         det_kept, _ = _legible_steps(a.step_zs, a.bb.min.Z, detail_scale)
         ladder = dwg.at(view, a.bb.max.X, a.cy, a.bb.min.Z)[0] + 2
+        placed = 0
         for i, z in enumerate([*det_kept, a.bb.max.Z]):
             label = _fmt(a.z_size) if z == a.bb.max.Z else _fmt(z - a.bb.min.Z)
             try:
@@ -464,10 +475,14 @@ def _request_prismatic_detail(dwg, a: Analysis) -> None:
                     label=label,
                 )
                 det_dim._dw_scale = detail_scale  # detail scale, for label-vs-measured lint (#42)
-                dwg.add(det_dim, f"dim_detail_step_{i}", view=view)
+                dwg.add(
+                    det_dim, f"dim_{view}_step{i}", view=view
+                )  # view-scoped name (#307 review)
                 ladder += step_pad
+                placed += 1
             except Exception as exc:  # noqa: BLE001 — placement may fail on degenerate geometry
-                _log.info("dim_detail_step_%d skipped (%s)", i, exc)
+                _log.info("detail step dim %d skipped (%s)", i, exc)
+        return placed
 
     dwg._detail_requests.append(
         DetailRequest(
