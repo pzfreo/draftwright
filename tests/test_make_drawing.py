@@ -2067,6 +2067,25 @@ class TestPrismaticClassification:
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(60)
+    def test_locates_every_side_drilled_hole_not_just_the_first(self):
+        # Two side-drilled (Y-axis) holes at distinct x: each must get its own
+        # in-plane (X) location dim. The first hole's own front-view callout sits
+        # in the below strip, so the location dim collided and was DROPPED after a
+        # single tier — only the first hole ended up located (#225). _place now
+        # retries the next tier past the callout, so both are located.
+        from build123d import Rot
+
+        part = (
+            Box(80, 40, 30)
+            - Pos(-20, 0, 5) * Rot(90, 0, 0) * Cylinder(2.5, 50)
+            - Pos(25, 0, -5) * Rot(90, 0, 0) * Cylinder(4, 50)
+        )
+        dwg = build_drawing(part)
+        xlocs = {n for n in dwg._named if n.startswith("dim_loc_front_x")}
+        assert len(xlocs) == 2, f"both side-drilled holes must be located, got {xlocs}"
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    @pytest.mark.timeout(60)
     def test_corner_fillets_do_not_make_a_plate_rotational(self):
         # Big quarter-cylinder corner fillets on a square plate must not be
         # mistaken for an OD.
@@ -2464,12 +2483,9 @@ class TestAutoHoleAnnotations:
         )
         dwg = build_drawing(part)
         assert len([n for n in dwg._named if n.startswith("hc_front")]) == 2
-        # This test is about callout placement. The engine under-locates the second
-        # side-drilled hole (a real gap, tracked in #225); filter that one warning.
-        issues = [
-            i for i in dwg.lint() if i.severity != "info" and i.code != "feature_not_located"
-        ]
-        assert issues == []
+        # Both side-drilled holes are now located (#225 fixed), so the sheet is
+        # fully lint-clean — no filtered feature_not_located warning.
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(60)
     def test_all_distinct_bores_get_callouts(self):
