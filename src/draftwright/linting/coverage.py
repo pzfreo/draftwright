@@ -18,6 +18,7 @@ Part of the :mod:`draftwright.linting` package (ADR 0007):
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from typing import Literal
 
@@ -319,17 +320,33 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
         return float(px if use_x else py)
 
     shoulder_c = {s: shoulder_coord(s) for s in prof.shoulders}
-    dim_csets: list[set[float]] = [
-        {(x if use_x else y) for x, y in _dim_vertices(ann)}
+    dims = [
+        (
+            str(getattr(ann, "label", "") or ""),
+            {(x if use_x else y) for x, y in _dim_vertices(ann)},
+        )
         for _name, ann in dwg.annotations_in_view("front")
         if isinstance(ann, Dimension)
     ]
+    # A collapsed uniform-staircase dim ("N× v", #230) spans the whole run with
+    # witnesses only at the extreme shoulders, yet locates *every* shoulder of the
+    # uniform chain — the collapse fires only when all steps are equal. Count it as
+    # full coverage when such a dim spans the shoulder extent.
+    coords = list(shoulder_c.values())
+    cmin, cmax = min(coords), max(coords)
+    for label, cs in dims:
+        if (
+            re.match(r"^\s*\d+\s*×", label)
+            and any(abs(v - cmin) <= tol for v in cs)
+            and any(abs(v - cmax) <= tol for v in cs)
+        ):
+            return len(prof.steps)
     covered = 0
     for step in prof.steps:
         clo, chi = shoulder_c[step.lo], shoulder_c[step.hi]
         if any(
             any(abs(v - clo) <= tol for v in cs) and any(abs(v - chi) <= tol for v in cs)
-            for cs in dim_csets
+            for _label, cs in dims
         ):
             covered += 1
     return covered
