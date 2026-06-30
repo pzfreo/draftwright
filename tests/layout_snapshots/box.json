@@ -1,0 +1,90 @@
+{
+  "annotations": [
+    {
+      "bbox": [
+        114.93,
+        64.37,
+        117.07,
+        67.63
+      ],
+      "label": "12",
+      "name": "dim_height",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "bbox": [
+        154.36,
+        44.92,
+        157.64,
+        47.08
+      ],
+      "label": "30",
+      "name": "m_env_depth",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "bbox": [
+        66.33,
+        86.92,
+        69.67,
+        89.08
+      ],
+      "label": "40",
+      "name": "m_env_width",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        194.33,
+        93.85,
+        218.67,
+        96.55
+      ],
+      "label": "ISO VIEW (NTS)",
+      "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "bbox": [
+        165.92,
+        10.92,
+        286.08,
+        27.07
+      ],
+      "label": "DRAWING",
+      "name": "title_block",
+      "type": "TitleBlock",
+      "view": null
+    }
+  ],
+  "views": {
+    "front": [
+      28.0,
+      54.0,
+      108.0,
+      78.0
+    ],
+    "iso": [
+      146.14,
+      101.2,
+      266.86,
+      194.8
+    ],
+    "plan": [
+      28.0,
+      96.0,
+      108.0,
+      156.0
+    ],
+    "side": [
+      126.0,
+      54.0,
+      186.0,
+      78.0
+    ]
+  }
+}

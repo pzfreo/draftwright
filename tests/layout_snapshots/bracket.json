@@ -1,0 +1,300 @@
+{
+  "annotations": [
+    {
+      "bbox": [
+        128.33,
+        107.88,
+        130.5,
+        111.12
+      ],
+      "label": "20",
+      "name": "dim_height",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "bbox": [
+        126.12,
+        166.16,
+        140.01,
+        168.84
+      ],
+      "label": "",
+      "name": "hc_plan0",
+      "type": "Leader",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        126.12,
+        173.16,
+        140.67,
+        175.84
+      ],
+      "label": "",
+      "name": "hc_plan1",
+      "type": "Leader",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        71.42,
+        162.5,
+        81.42,
+        172.5
+      ],
+      "label": "",
+      "name": "m_cm0",
+      "type": "CenterMark",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        79.42,
+        165.5,
+        93.42,
+        179.5
+      ],
+      "label": "",
+      "name": "m_cm1",
+      "type": "CenterMark",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        171.22,
+        90.42,
+        174.46,
+        92.58
+      ],
+      "label": "60",
+      "name": "m_env_depth",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "bbox": [
+        74.8,
+        128.42,
+        78.04,
+        130.58
+      ],
+      "label": "90",
+      "name": "m_env_width",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        52.27,
+        204.43,
+        55.57,
+        206.57
+      ],
+      "label": "45",
+      "name": "m_locx0",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        57.33,
+        215.43,
+        60.51,
+        217.57
+      ],
+      "label": "55",
+      "name": "m_locx1",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        156.19,
+        126.42,
+        159.48,
+        128.58
+      ],
+      "label": "30",
+      "name": "m_locy0",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "bbox": [
+        158.71,
+        137.42,
+        161.96,
+        139.58
+      ],
+      "label": "35",
+      "name": "m_locy1",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "bbox": [
+        303.25,
+        162.01,
+        327.58,
+        164.7
+      ],
+      "label": "ISO VIEW (NTS)",
+      "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "bbox": [
+        23.61,
+        175.65,
+        25.23,
+        177.75
+      ],
+      "label": "A",
+      "name": "section_a_left",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "bbox": [
+        127.61,
+        175.65,
+        129.23,
+        177.75
+      ],
+      "label": "A",
+      "name": "section_a_right",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "bbox": [
+        26.52,
+        165.75,
+        28.32,
+        172.5
+      ],
+      "label": "",
+      "name": "section_arrow_left",
+      "type": "Compound",
+      "view": null
+    },
+    {
+      "bbox": [
+        124.52,
+        165.75,
+        126.32,
+        172.5
+      ],
+      "label": "",
+      "name": "section_arrow_right",
+      "type": "Compound",
+      "view": null
+    },
+    {
+      "bbox": [
+        248.05,
+        91.42,
+        267.62,
+        93.58
+      ],
+      "label": "SECTION A\u2013A",
+      "name": "section_caption",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "bbox": [
+        212.84,
+        99.5,
+        302.84,
+        119.5
+      ],
+      "label": "",
+      "name": "section_hatch",
+      "type": "Compound",
+      "view": null
+    },
+    {
+      "bbox": [
+        27.42,
+        172.43,
+        125.42,
+        172.57
+      ],
+      "label": "",
+      "name": "section_line",
+      "type": "Centerline",
+      "view": null
+    },
+    {
+      "bbox": [
+        27.42,
+        165.75,
+        27.42,
+        172.5
+      ],
+      "label": "",
+      "name": "section_wing_left",
+      "type": "Compound",
+      "view": null
+    },
+    {
+      "bbox": [
+        125.42,
+        165.75,
+        125.42,
+        172.5
+      ],
+      "label": "",
+      "name": "section_wing_right",
+      "type": "Compound",
+      "view": null
+    },
+    {
+      "bbox": [
+        258.93,
+        10.92,
+        409.07,
+        27.07
+      ],
+      "label": "DRAWING",
+      "name": "title_block",
+      "type": "TitleBlock",
+      "view": null
+    }
+  ],
+  "views": {
+    "front": [
+      31.42,
+      99.5,
+      121.42,
+      119.5
+    ],
+    "iso": [
+      307.01,
+      169.35,
+      323.82,
+      181.65
+    ],
+    "plan": [
+      31.42,
+      137.5,
+      121.42,
+      197.5
+    ],
+    "section_aa": [
+      212.84,
+      99.5,
+      302.84,
+      119.5
+    ],
+    "side": [
+      142.84,
+      99.5,
+      202.84,
+      119.5
+    ]
+  }
+}

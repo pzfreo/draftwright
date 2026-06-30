@@ -1,0 +1,198 @@
+{
+  "annotations": [
+    {
+      "bbox": [
+        132.26,
+        107.88,
+        134.42,
+        111.12
+      ],
+      "label": "20",
+      "name": "dim_height",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "bbox": [
+        127.34,
+        148.16,
+        145.98,
+        150.84
+      ],
+      "label": "",
+      "name": "hc_plan0",
+      "type": "Leader",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        45.34,
+        144.5,
+        55.34,
+        154.5
+      ],
+      "label": "",
+      "name": "m_cm0",
+      "type": "CenterMark",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        105.34,
+        144.5,
+        115.34,
+        154.5
+      ],
+      "label": "",
+      "name": "m_cm1",
+      "type": "CenterMark",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        45.34,
+        180.5,
+        55.34,
+        190.5
+      ],
+      "label": "",
+      "name": "m_cm2",
+      "type": "CenterMark",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        105.34,
+        180.5,
+        115.34,
+        190.5
+      ],
+      "label": "",
+      "name": "m_cm3",
+      "type": "CenterMark",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        179.06,
+        90.42,
+        182.3,
+        92.58
+      ],
+      "label": "60",
+      "name": "m_env_depth",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "bbox": [
+        78.72,
+        128.42,
+        81.96,
+        130.58
+      ],
+      "label": "90",
+      "name": "m_env_width",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        41.22,
+        204.43,
+        44.46,
+        206.57
+      ],
+      "label": "15",
+      "name": "m_locx0",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        71.24,
+        215.43,
+        74.44,
+        217.57
+      ],
+      "label": "75",
+      "name": "m_locx1",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "bbox": [
+        155.05,
+        126.43,
+        158.3,
+        128.57
+      ],
+      "label": "12",
+      "name": "m_locy0",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "bbox": [
+        173.01,
+        137.42,
+        176.34,
+        139.58
+      ],
+      "label": "48",
+      "name": "m_locy1",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "bbox": [
+        307.17,
+        117.73,
+        331.51,
+        120.43
+      ],
+      "label": "ISO VIEW (NTS)",
+      "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "bbox": [
+        258.93,
+        10.92,
+        409.07,
+        27.07
+      ],
+      "label": "DRAWING",
+      "name": "title_block",
+      "type": "TitleBlock",
+      "view": null
+    }
+  ],
+  "views": {
+    "front": [
+      35.34,
+      99.5,
+      125.34,
+      119.5
+    ],
+    "iso": [
+      250.4,
+      125.08,
+      388.28,
+      225.92
+    ],
+    "plan": [
+      35.34,
+      137.5,
+      125.34,
+      197.5
+    ],
+    "side": [
+      150.68,
+      99.5,
+      210.68,
+      119.5
+    ]
+  }
+}

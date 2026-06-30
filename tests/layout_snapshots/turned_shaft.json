@@ -1,0 +1,150 @@
+{
+  "annotations": [
+    {
+      "bbox": [
+        39.92,
+        59.0,
+        40.08,
+        109.0
+      ],
+      "label": "",
+      "name": "centerline_front",
+      "type": "Centerline",
+      "view": "front"
+    },
+    {
+      "bbox": [
+        117.92,
+        59.0,
+        118.08,
+        109.0
+      ],
+      "label": "",
+      "name": "centerline_side",
+      "type": "Centerline",
+      "view": "side"
+    },
+    {
+      "bbox": [
+        37.43,
+        112.87,
+        42.57,
+        115.13
+      ],
+      "label": "\u00f824",
+      "name": "dim_od",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "bbox": [
+        13.93,
+        85.89,
+        19.0,
+        88.11
+      ],
+      "label": "\u00f816",
+      "name": "m_dia_z0",
+      "type": "Leader",
+      "view": "front"
+    },
+    {
+      "bbox": [
+        13.91,
+        97.87,
+        19.0,
+        100.13
+      ],
+      "label": "\u00f810",
+      "name": "m_dia_z1",
+      "type": "Leader",
+      "view": "front"
+    },
+    {
+      "bbox": [
+        61.94,
+        70.38,
+        64.07,
+        73.62
+      ],
+      "label": "16",
+      "name": "m_steplen0",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "bbox": [
+        61.95,
+        85.34,
+        64.05,
+        88.66
+      ],
+      "label": "14",
+      "name": "m_steplen1",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "bbox": [
+        61.92,
+        97.36,
+        64.08,
+        100.64
+      ],
+      "label": "10",
+      "name": "m_steplen2",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "bbox": [
+        205.33,
+        94.42,
+        229.67,
+        97.11
+      ],
+      "label": "ISO VIEW (NTS)",
+      "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "bbox": [
+        165.92,
+        10.92,
+        286.08,
+        27.07
+      ],
+      "label": "DRAWING",
+      "name": "title_block",
+      "type": "TitleBlock",
+      "view": null
+    }
+  ],
+  "views": {
+    "front": [
+      28.0,
+      64.0,
+      52.0,
+      104.0
+    ],
+    "iso": [
+      201.9,
+      101.76,
+      233.1,
+      156.98
+    ],
+    "plan": [
+      28.0,
+      122.0,
+      52.0,
+      146.0
+    ],
+    "side": [
+      106.0,
+      64.0,
+      130.0,
+      104.0
+    ]
+  }
+}
