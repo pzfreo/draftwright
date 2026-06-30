@@ -10,6 +10,7 @@ home the event-stream / TUI work (#276) wraps its sink + renderer around.
 from __future__ import annotations
 
 import logging
+import os
 from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
@@ -24,8 +25,12 @@ app = typer.Typer(
     # source-panel traceback buries clean domain errors (e.g. "could not read STEP
     # file") in developer noise.
     pretty_exceptions_enable=False,
-    help="Zero-AI STEP -> technical drawing (SVG + DXF, or an editable .py script).",
+    help="Zero-AI STEP -> technical drawing (PDF by default; SVG/DXF via --format, "
+    "or an editable .py script).",
 )
+
+# Output formats the --format selector understands ('all' expands to all three).
+_FORMATS = ("pdf", "svg", "dxf")
 
 
 class PmiMode(str, Enum):
@@ -34,6 +39,40 @@ class PmiMode(str, Enum):
     off = "off"
     report = "report"
     annotate = "annotate"
+
+
+def _parse_formats(value: str) -> list[str]:
+    """Parse a ``--format`` value (comma-list, with an ``all`` alias) into an
+    ordered, de-duplicated list of formats. Raises on an unknown token."""
+    out: list[str] = []
+    for raw in value.split(","):
+        tok = raw.strip().lower()
+        if not tok:
+            continue
+        names = _FORMATS if tok == "all" else (tok,)
+        for name in names:
+            if name not in _FORMATS:
+                raise typer.BadParameter(
+                    f"unknown format {tok!r}; choose from {', '.join(_FORMATS)} (or 'all')"
+                )
+            if name not in out:
+                out.append(name)
+    if not out:
+        raise typer.BadParameter("no output format given")
+    return out
+
+
+def _emit(dwg, formats: list[str]) -> list[str]:
+    """Write the requested formats and return their paths in *formats* order.
+    PDF renders from an on-disk SVG, so the SVG is written to drive the PDF even
+    when it wasn't itself requested — and removed again afterwards."""
+    want = {f: f in formats for f in _FORMATS}
+    svg_path, dxf_path = dwg.export(svg=want["svg"] or want["pdf"], dxf=want["dxf"])
+    pdf_path = dwg.export_pdf() if want["pdf"] else None
+    if want["pdf"] and not want["svg"] and svg_path is not None:
+        os.remove(svg_path)  # temp SVG, written only to render the PDF
+    paths = {"pdf": pdf_path, "svg": svg_path, "dxf": dxf_path}
+    return [paths[f] for f in formats]
 
 
 def _installed_version() -> str:
@@ -75,8 +114,11 @@ def main(
             "annotating; 'annotate' add PMI-derived dimensions to the drawing"
         ),
     ),
-    pdf: bool = typer.Option(
-        False, "--pdf", help="Also write a PDF (requires draftwright[pdf] / cairosvg)"
+    output_format: str = typer.Option(
+        "pdf",
+        "--format",
+        "-f",
+        help="Comma-list of output formats: pdf, svg, dxf (or 'all'). E.g. --format pdf,dxf",
     ),
     verbose: bool = typer.Option(
         False,
@@ -99,6 +141,8 @@ def main(
         raise typer.BadParameter(
             "--scale/--page only apply to direct output; edit the generated script instead"
         )
+
+    formats = _parse_formats(output_format)
 
     if script:
         py_path = generate_script(
@@ -124,8 +168,5 @@ def main(
         page=page,
         pmi=pmi.value,
     )
-    svg_path, dxf_path = dwg.export()
-    print(svg_path)
-    print(dxf_path)
-    if pdf:
-        print(dwg.export_pdf())
+    for path in _emit(dwg, formats):
+        print(path)

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Changed
+
+- **The CLI now writes a PDF by default** and takes a `--format` selector (#288).
+  Previously `draftwright part.step` emitted SVG + DXF; it now emits a single PDF.
+  Choose outputs with `--format` (a comma-list, with an `all` alias) —
+  `--format pdf,dxf`, `--format svg`, `--format all`. The library API is
+  unchanged: `make_drawing(...)` / `Drawing.export()` still write SVG + DXF.
+- **`cairosvg` is now a core dependency** (#288). PDF export worked only after
+  `pip install draftwright[pdf]`; the `[pdf]` extra is removed and cairo is always
+  installed. cairo is incremental weight next to the OCP/OpenCASCADE wheel
+  build123d already pulls in.
+
+### Removed
+
+- **The `--pdf` flag** (use `--format pdf`, the new default) and the **`[pdf]`
+  install extra** (#288).
+
 ## v0.1.13 — 2026-06-27
 
 ### Changed

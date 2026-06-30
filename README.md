@@ -24,6 +24,9 @@ Or from the command line:
 
 ```
 draftwright my_part.step --title "Mounting Block" --number DWG-001
+# writes my_part.pdf (the default); add --format to choose:
+draftwright my_part.step --format pdf,dxf    # PDF + DXF
+draftwright my_part.step --format all        # PDF + SVG + DXF
 ```
 
 ## What it produces
