@@ -61,10 +61,11 @@ Every migration PR must:
 - **Bosses detected once** — threaded through the one inventory; `find_bosses` runs
   once per build, closing the #244 residual (#264, PR #272).
 
-**The ADR-0008 convergence is nearly complete.** The holes pass, sections, turned
-parts, slots, centre marks, envelope, the prismatic step-ladder + height + rotational
-OD/bore furniture (#237), and the foundation track are all on the IR. **The only
-remaining feature epic is PMI/GD&T (#208)**, which needs a new PMI/thread detector.
+**The ADR-0008 convergence is COMPLETE (2026-06-30).** Every feature pass — holes,
+sections, turned dims/lengths, slots, centre marks, envelope, the prismatic step-ladder
++ height + rotational OD/bore furniture (#237), and PMI/GD&T (#208) — is on the IR, and
+the foundation track is done. The orchestrator is `build model → plan → render` + the
+shared section/table passes; no per-feature engine pass remains.
 
 ## Foundation hardening — ✅ complete (ADR 0008 Amendment 5, umbrella #241)
 
@@ -98,7 +99,7 @@ envelope width/depth are already done — see [Done](#done).)
 |---|---|---|---|
 | ~~**#238**~~ ✅ | **holes** — callouts + location dims + grouping + pitch/furniture + cover/table | **done** — fully on the IR (location dims #256, grouping #257, callout spec #259, callout loop #260, IR-typed interface #263). `_annotate_holes` is placement-only, fed by the IR | done |
 | ~~**#207**~~ ✅ | **section view** trigger | **done** — `plan_sections(model, feature_keys)` decides the A–A trigger + cut-plane row from the IR; `_add_section_view` is the shared rendering it feeds. Detail view stays user/lint-triggered | done |
-| **#200 → #208** | **PMI / GD&T** (`_annotate_pmi`) | a **PMI/thread detector** → GD&T `Feature`s | medium |
+| ~~**#200 → #208**~~ ✅ | **PMI / GD&T** (`_annotate_pmi`) | **done** (PR #282) — `PmiFeature` + `render_pmi`; `extract_pmi`'s records re-homed into the IR; `_annotate_pmi`/`annotations/pmi.py` deleted. PMI is pre-authored so it bypasses the planner (empty `parameters()`), rendered directly like slots | done |
 | ~~**#237**~~ ✅ | **prismatic step-ladder + height + OD/centreline/bore** | **done** (PR #280) — `StepLevelFeature` + `RotationalFeature` + `render_height_ladder`/`render_rotational`; the inline `_right_ladder` block is deleted. #230 (turned `N×`-rise) + #222 (OD on profile) remain as deferred *enhancements*; #279 (phantom ø0) filed |
 
 When these land, the orchestrator's per-feature calls are gone and it reduces to
@@ -153,8 +154,9 @@ not "rebuild the infra."
   - ✅ done: holes, sections (trigger), turned, slots, centre marks, envelope,
     diameters, location dims, the prismatic step-ladder + height + OD/bore (#237);
     foundation track; IR-typed interface. The orchestrator's inline OD/step-ladder is gone.
-  - 🔲 remaining: PMI/GD&T (#208).
+  - ✅ done: **all feature passes** — holes, sections, turned, slots, centre marks,
+    envelope, the step-ladder + OD/bore (#237), PMI (#208). Nothing remains.
 - **Shared infrastructure intact** (fed by the IR, per Amendment 4) — not rewritten.
 - ✅ No `render_into` test-only parallel; no engine/IR duplication in the migrated passes.
 - Full standards + geometry suites green; X/Z parity tests per feature.
-- ADR 0008 status → "migration complete; one path" (after #208).
+- ✅ ADR 0008 status → **"migration complete; one path"** (2026-06-30, after #208).

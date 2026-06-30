@@ -1,14 +1,17 @@
 # ADR 0008 — The part-drawing compiler: a Feature/DimParameter IR and a dimensioning planner
 
-- **Status:** Accepted — architecture stands; **migration is a correctness-judged
-  strangler that converges on ONE feature→dimension path** (Amendment 3), which
-  *feeds* the engine's shared layout/table/section/projection/export infrastructure
-  rather than reabsorbing it (Amendment 4), **through an IR-typed interface — no
-  recognition objects cross the boundary** (Amendment 6). Not reproduce-and-swap
-  (Amendment 2), not two permanent paths — incremental migration where each step
-  deletes the per-feature engine pass it replaces. The equivalence golden gate is
-  retired. **One path implies one feature inventory** (Amendment 5): `_analyse` and
-  the IR must not re-detect independently — keystone of the remaining migration (#241).
+- **Status:** Accepted — **migration complete; one path** (2026-06-30). The
+  correctness-judged strangler converged on ONE feature→dimension path (Amendment 3),
+  which *feeds* the engine's shared layout/table/section/projection/export
+  infrastructure rather than reabsorbing it (Amendment 4), **through an IR-typed
+  interface — no recognition objects cross the boundary** (Amendment 6). Not
+  reproduce-and-swap (Amendment 2), not two permanent paths — each step deleted the
+  per-feature engine pass it replaced. **One path, one feature inventory**
+  (Amendment 5): `_analyse` detects once and the IR consumes its products. Every
+  feature pass — holes, sections, turned dims/lengths, slots, centre marks, envelope,
+  the prismatic step-ladder + rotational OD/bore furniture (#237), and PMI (#208) — is
+  now on the IR; the orchestrator is `build model → plan → render`. The equivalence
+  golden gate is retired. (Deferred *enhancements*, not migrations: #230, #222, #279.)
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Supersedes the original 0008** ("unified feature model") with a concrete

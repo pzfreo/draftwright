@@ -133,12 +133,15 @@ hatch / arrow rendering stays shared infrastructure it feeds. `annotations/turne
 and the `render_into` test-only parallel are gone. The prismatic step-height ladder,
 overall height, and the rotational OD/centreline/bore furniture are on the IR too
 (`StepLevelFeature`/`RotationalFeature` + `render_height_ladder`/`render_rotational`,
-#237) — the orchestrator's inline `_right_ladder` block is deleted.
+#237) — the orchestrator's inline `_right_ladder` block is deleted. Finally, **PMI/GD&T**
+is on the IR (`PmiFeature` + `render_pmi`, #208): `extract_pmi`'s AP242 records are
+re-homed as features and rendered directly (PMI is pre-authored, so it bypasses the
+planner — empty `parameters()`); `_annotate_pmi`/`annotations/pmi.py` are deleted.
 
-**Still produced by the legacy engine passes (not yet migrated):**
-
-- **PMI / GD&T placement** — needs a PMI/thread detector emitting GD&T `Feature`s.
-  ([#208](https://github.com/pzfreo/draftwright/issues/208)) — the last feature epic.
+**Migration complete (2026-06-30).** Every feature pass is on the IR; no engine
+feature pass remains. The orchestrator is `build model → plan → render` + the shared
+section/table/PMI rendering it feeds. Remaining open items are *enhancements*, not
+migrations: #230 (turned `N×`-rise), #222 (OD on the profile view), #279 (phantom ø0).
 
 **Foundation track — ✅ complete** (umbrella
 [#241](https://github.com/pzfreo/draftwright/issues/241); ADR Amendment 5):
