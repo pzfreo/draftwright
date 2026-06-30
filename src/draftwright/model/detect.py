@@ -24,6 +24,7 @@ from draftwright.model.ir import (
     HoleFeature,
     PartModel,
     PatternFeature,
+    PmiFeature,
     RotationalFeature,
     SlotFeature,
     StepFeature,
@@ -129,6 +130,7 @@ def build_part_model(
     prof=_UNSET,
     step_zs=None,
     rotational=None,
+    pmi=None,
 ) -> PartModel:
     """Run the detectors and assemble the :class:`PartModel` IR for *part*.
 
@@ -260,6 +262,28 @@ def build_part_model(
         features.append(
             RotationalFeature(frame=Frame((c.X, c.Y, c.Z), "z"), od=od, bores=tuple(bores))
         )
+
+    # Pre-authored PMI annotations (STEP AP242) — re-homed into the IR as features
+    # (#208). Rendered directly by render_pmi (the planner adds nothing — see PmiFeature).
+    if pmi:
+        for r in pmi:
+            if r.ref_bbox is not None:
+                x0, y0, z0, x1, y1, z1 = r.ref_bbox
+                pmi_origin = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+            else:
+                pmi_origin = (bbox.center().X, bbox.center().Y, bbox.center().Z)
+            ax = r.dominant_axis.lower() if r.dominant_axis in ("X", "Y", "Z") else "z"
+            features.append(
+                PmiFeature(
+                    frame=Frame(origin=pmi_origin, axis=ax),
+                    pmi_kind=r.kind,
+                    value=r.value,
+                    label=r.label,
+                    dominant_axis=r.dominant_axis,
+                    ref_bbox=r.ref_bbox,
+                    ref_pts=tuple(r.ref_pts),
+                )
+            )
 
     # The default location datum — the part's min-X/min-Y/min-Z corner (lower-left
     # in the plan view), per inspection practice. Hole location dims measure from

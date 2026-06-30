@@ -299,6 +299,34 @@ class RotationalFeature:
         return []
 
 
+@dataclass(frozen=True)
+class PmiFeature:
+    """A *pre-authored* PMI annotation extracted from a STEP AP242 file (#208) — its
+    value, label, tolerances, and referenced geometry were set by the CAD author.
+
+    Unlike the geometric features, the planner derives nothing here (no convention or
+    view selection): the label is baked and the view follows from `dominant_axis` +
+    `ref_bbox`. So `parameters()` is empty — PMI does not flow through the planner; the
+    renderer (`render_pmi`) consumes `PmiFeature`s directly from the model, the same way
+    `render_slots` reads `SlotFeature`s. This keeps PMI on the one path (it is an IR
+    feature) without pretending it benefits from the dimension planner."""
+
+    frame: Frame
+    pmi_kind: str  # the PMI category: "linear" | "diameter" | "radius" | "angular" | ...
+    value: float
+    label: str
+    dominant_axis: str
+    ref_bbox: tuple[float, float, float, float, float, float] | None = None
+    ref_pts: tuple[Point, ...] = ()
+    kind: ClassVar[str] = "pmi"
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
 @dataclass
 class PartModel:
     """The whole-part IR: the oriented part plus its features and datums."""
