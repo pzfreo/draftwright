@@ -13,7 +13,6 @@ import logging
 from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
-from pathlib import Path
 
 import typer
 
@@ -21,7 +20,11 @@ from draftwright.builder import build_drawing, generate_script
 
 app = typer.Typer(
     add_completion=True,
-    help="Zero-AI STEP → technical drawing (SVG + DXF, or an editable .py script).",
+    # Plain tracebacks on an engine error, matching the old argparse CLI — a rich
+    # source-panel traceback buries clean domain errors (e.g. "could not read STEP
+    # file") in developer noise.
+    pretty_exceptions_enable=False,
+    help="Zero-AI STEP -> technical drawing (SVG + DXF, or an editable .py script).",
 )
 
 
@@ -50,7 +53,7 @@ def _version_callback(value: bool) -> None:
 
 @app.command()
 def main(
-    step_file: Path = typer.Argument(..., help="Input STEP file (.step / .stp)"),
+    step_file: str = typer.Argument(..., help="Input STEP file (.step / .stp)"),
     out: str | None = typer.Option(None, help="Output prefix (default: input stem)"),
     title: str | None = typer.Option(None, help="Part title for title block"),
     number: str = typer.Option("DWG-001", help="Drawing number"),
@@ -97,10 +100,9 @@ def main(
             "--scale/--page only apply to direct output; edit the generated script instead"
         )
 
-    step = str(step_file)
     if script:
         py_path = generate_script(
-            step_file=step,
+            step_file=step_file,
             out=out,
             title=title,
             number=number,
@@ -112,7 +114,7 @@ def main(
         return
 
     dwg = build_drawing(
-        step_file=step,
+        step_file=step_file,
         out=out,
         title=title,
         number=number,
