@@ -78,8 +78,11 @@ No lower module imports an upper one.
   helpers). `_features.py` (vendored from `build123d_drafting.features`; the
   hole/boss/cylinder/pattern recognisers — `find_holes`/`find_bosses`/
   `analyse_cylinders`/`feature_diameters`/`find_hole_patterns`/`full_cylinders`
-  + the feature/pattern types) and `slots.py` (the milled-slot recogniser, #135).
-  Bottom of the DAG: depends only on build123d/OCP. Import via the package surface.
+  + the feature/pattern types), `slots.py` (the milled-slot recogniser, #135),
+  `turned.py` (`find_turned_steps` — turned-shaft shoulders, OD-silhouette filtered),
+  and `levels.py` (`analyse_face_levels` — prismatic horizontal face levels; the
+  complement of `turned.py`, dispatched by part class, #191). Bottom of the DAG:
+  depends only on build123d/OCP. Import via the package surface.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
 - **`export.py`** — SVG/DXF/PDF export + post-processing (page-size fix,
