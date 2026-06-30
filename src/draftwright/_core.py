@@ -382,6 +382,52 @@ def _largest_empty_rect(drawable, obstacles):
     return best
 
 
+@dataclass
+class DetailRequest:
+    """A renderer's request for an enlarged detail of a region it could not draw
+    legibly at sheet scale (#307). Renderers append these to ``dwg._detail_requests``
+    instead of building bespoke detail views; ``_resolve_details`` resolves them all
+    through one generic detailer (crop → project → place → caption → marker), then
+    calls ``redraw`` to draw the feature's own dims inside the placed detail view.
+
+    The single ``detect → request → generic render`` path that folds the prismatic
+    step detail (#42) and the turned-head detail (#304) into one, mirroring the
+    section pipeline (``plan_sections``/``SectionPlan``).
+
+    Fields:
+        axis:         part axis the band spans / is cropped along ("x"/"y"/"z").
+        lo, hi:       band bounds along ``axis`` (world mm).
+        scale_needed: detail world→page scale that makes the region legible.
+        redraw:       ``redraw(dwg, view_name, detail_scale)`` — draws the detail's
+                      dimensions in the placed detail view's coordinate system, and
+                      any on-success furniture on the main views (e.g. a head-block
+                      dim). Called only when the detail actually places.
+        fallback:     ``fallback(dwg)`` — draws the dims inline on the main view when
+                      the detail can NOT place (transactional: coverage is never
+                      silently lost). ``None`` if there is nothing to fall back to.
+        pad_right:    page-mm band reserved right of the detail view for its dims
+                      (a vertical ladder); reserved in the fit + placement.
+        pad_top:      page-mm band reserved above the detail view (a horizontal
+                      chain); reserved in the fit + placement.
+        pads:         optional ``pads(detail_scale) -> (pad_right, pad_top)`` for a
+                      footprint that depends on the chosen scale (the prismatic
+                      ladder reserves one rung per *legible-at-that-scale* step, so it
+                      shrinks with the scale during the fit). Overrides the constants.
+        kind:         short label for logging.
+    """
+
+    axis: str
+    lo: float
+    hi: float
+    scale_needed: float
+    redraw: object
+    fallback: object = None
+    pad_right: float = 0.0
+    pad_top: float = 0.0
+    pads: object = None
+    kind: str = "detail"
+
+
 @dataclass(frozen=True)
 class _Projector:
     """Model → page coordinate projection for the orthographic views.

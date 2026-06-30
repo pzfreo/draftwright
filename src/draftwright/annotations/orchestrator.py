@@ -44,7 +44,11 @@ from draftwright.annotations.holes import (
     _annotate_holes,
     _locate_off_axis_holes,
 )
-from draftwright.annotations.sections import _add_detail_view, _add_section_view
+from draftwright.annotations.sections import (
+    _add_section_view,
+    _request_prismatic_detail,
+    _resolve_details,
+)
 from draftwright.model import build_part_model, plan_dimensions, plan_sections
 from draftwright.recognition import (
     full_cylinders,
@@ -99,6 +103,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # not accumulate duplicate drop records.
     dwg._reset_build_issues()
     dwg._reset_dropped_callout_diams()
+    dwg._detail_requests = []  # renderers queue enlarged-detail requests here (#307)
 
     FX = a.proj.front_x
     FZ = a.proj.front_z
@@ -223,18 +228,19 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     if section is not None:
         _add_section_view(dwg, a, section)
 
-    # Detail view: only when explicitly requested via build_drawing(detail_view=True).
+    # Prismatic step-height detail: queue it (only when build_drawing(detail_view=True))
+    # — resolved with every other detail request below (#307).
     if detail_view:
-        _add_detail_view(dwg, a)
+        _request_prismatic_detail(dwg, a)
 
     # Turned-part dimensions via the IR (ADR 0008 convergence). The model is built
     # once and fed to both renderers (#229 — no per-pass rebuild):
     #  - diameters: ø leaders, row below (X) / column left (Z), one path by frame
     #    axis. Replaces _annotate_turned_diameters.
     #  - step lengths: the chain that locates every shoulder, X and Z from one path
-    #    (#223). Replaces the old X-only chain + the Z step-height ladder (skipped
-    #    above for turned parts); the envelope dim along the turning axis was
-    #    suppressed so the chain does not double-dimension the length.
+    #    (#223). A crowded X-turned head queues an enlarged detail request (#304/#307)
+    #    instead of cramming; the envelope dim along the turning axis was suppressed
+    #    so the chain does not double-dimension the length.
     render_diameters(dwg, _groups)
     if a.prof is not None:
         render_step_lengths(dwg, _groups)
@@ -248,6 +254,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (#135) — IR renderer, placed through the zone strips (shared infra). Runs
     # after every hole/diameter pass so it claims strip space last.
     render_slots(dwg, _model, a)
+
+    # Resolve every queued enlarged-detail request (#307) — prismatic step bands and
+    # crowded turned heads alike — through the one generic detailer, now that all
+    # views and main-view annotations are placed (so the detail avoids them).
+    _resolve_details(dwg, a)
 
     # Phase 7 — strip footprint debug logging + post-placement overflow check.
     # Overflow can only occur when outer_limit was tightened after allocations

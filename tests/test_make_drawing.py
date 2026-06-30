@@ -3815,7 +3815,7 @@ class TestDetailView:
         assert n_dropped >= 1
         # The detail view, its caption, and at least one detail step dim exist.
         assert "detail_a" in dwg.views
-        assert "detail_caption" in dwg._named
+        assert "detail_caption_A" in dwg._named
         assert any(n.startswith("dim_detail_step") for n in dwg._named)
         # Drawn at a larger scale than the sheet.
         assert dwg._coords["detail_a"]._scale > a.SCALE
@@ -4834,25 +4834,25 @@ class TestTurnedLengths:
         ), "step-length dims overprint — chain crammed instead of skipping"
 
     def test_crowded_chain_staggers_into_two_tiers_at_current_scale(self):
-        # The gramel thumbwheel drive screw (GRM-03): fine steps near the head + one
-        # long shaft. Rather than skip (wasting the empty sheet) or cram, the chain
-        # staggers successive dims between a near and a far tier (ISO 129-1) so every
-        # step length is legible at the drawing's own scale (#293). All segments are
-        # dimensioned, the labels don't overprint each other, and axial coverage is
-        # satisfied — no rescale needed.
+        # A *moderately* crowded chain — steps just ABOVE the arrowhead floor (so no
+        # detail view is triggered), but with labels that would collide on one tier.
+        # Rather than cram, the chain staggers successive dims between a near and a far
+        # tier (ISO 129-1) so every step length stays legible at the drawing's own
+        # scale (#293). Scale pinned so the crowding regime is deterministic.
         from build123d import Align, Cylinder, Pos, Rotation
 
         from draftwright.annotations._common import _anno_box
 
         b = Align.MIN
-        specs = [(8, 1.0), (12, 1.0), (8, 1.0), (12, 1.0), (6, 30.0)]
+        specs = [(8, 3.1), (12, 2.9), (8, 3.2), (12, 2.8), (6, 3.0)]  # ~3 mm, > floor
         shaft = None
         z = 0.0
         for d, ln in specs:
             seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
             shaft = seg if shaft is None else shaft + seg
             z += ln
-        dwg = build_drawing(Rotation(0, 90, 0) * shaft)
+        dwg = build_drawing(Rotation(0, 90, 0) * shaft, scale=2.0)
+        assert "detail_a" not in dwg.views  # above floor → no detail, staggered in place
         steps = {n: o for n, o in dwg._named.items() if n.startswith("m_steplen")}
         assert len(steps) == 5  # every segment dimensioned, none dropped
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
@@ -4870,6 +4870,27 @@ class TestTurnedLengths:
             for i in range(len(boxes))
             for j in range(i + 1, len(boxes))
         ), "staggered step-length labels overprint"
+
+    def test_subfloor_head_gets_detail_view(self):
+        # A fine head (sub-floor steps) + a long shaft (the GRM-03 pattern). The head
+        # can't be dimensioned legibly in line, so the unified detail pipeline (#307)
+        # locates it as one block on the main view + breaks it down in DETAIL A, with
+        # axial coverage satisfied across the two views (no double-dimensioning).
+        from build123d import Align, Cylinder, Pos, Rotation
+
+        b = Align.MIN
+        specs = [(4, 1.5), (6, 2.0), (4, 2.5), (3, 25.0)]  # non-uniform sub-floor head
+        shaft = None
+        z = 0.0
+        for d, ln in specs:
+            seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
+            shaft = seg if shaft is None else shaft + seg
+            z += ln
+        dwg = build_drawing(Rotation(0, 90, 0) * shaft, scale=2.0)
+        assert "detail_a" in dwg.views  # crowded head → enlarged detail
+        assert "25" in {o.label for n, o in dwg._named.items() if n.startswith("m_steplen")}
+        assert len([n for n in dwg._named if n.startswith("dim_detail_steplen")]) >= 3
+        assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
 
 class TestStepLadderRecognition:
