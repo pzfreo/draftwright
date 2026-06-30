@@ -5047,13 +5047,13 @@ class TestDraftwrightAttribution:
         assert "GeneratedBy" in dxf and "draftwright" in dxf
 
     def test_export_pdf_carries_clickable_link(self, tmp_path):
-        # Exercises the load-bearing SVG->PDF coordinate transform + cairo link
-        # annotation. The URI lives in a FlateDecode object stream, so scan the
-        # decompressed streams too.
+        # Exercises the load-bearing SVG->PDF coordinate transform + reportlab
+        # link annotation. svglib + reportlab are core deps (pure Python, no
+        # native cairo), so this runs on every platform. The URI may live in a
+        # FlateDecode object stream, so scan the decompressed streams too.
         import re as _re
         import zlib
 
-        pytest.importorskip("cairocffi")
         dwg = build_drawing(Box(60, 40, 20))
         pdf_path = dwg.export_pdf(str(tmp_path / "p"))
         data = Path(pdf_path).read_bytes()

@@ -3,7 +3,7 @@
 The free functions the public `Drawing.export()` / `Drawing.export_pdf()` wrappers
 drive: SVG page-size fixing, the attribution hyperlink and metadata, DXF metadata,
 near-degenerate arc sanitisation, the element-wise shape-export degradation, and
-the cairo PDF render. Moved out of `make_drawing.py` so the orchestration there
+the svglib + reportlab PDF render. Moved out of `make_drawing.py` so the orchestration there
 stays thin; this module mostly *consumes* drawing contents (paths, exporters,
 shapes), so it sits below `make_drawing` in the import DAG and depends only on
 `_core` (the shared `_DRAFTWRIGHT_URL`) and build123d.
@@ -130,7 +130,7 @@ def sanitize_svg_arcs(svg_path: str) -> int:
     fillet rim whose plane is parallel to the view direction) as an elliptical
     arc with a vanishing minor radius (``ry`` ≈ 1e-7).  The SVG spec says a
     zero-radius arc is a straight line, but because the radius is not *exactly*
-    zero, renderers (librsvg, cairosvg) treat it as a hugely eccentric ellipse
+    zero, many SVG renderers treat it as a hugely eccentric ellipse
     and draw a spurious full-page line.  Each such arc (``A rx ry rot lf sf x
     y``) with ``rx`` or ``ry`` below :data:`_MIN_ARC_RADIUS` is replaced by
     ``L x y`` — its true geometry.  Returns the number of arcs rewritten.
@@ -151,53 +151,48 @@ def sanitize_svg_arcs(svg_path: str) -> int:
     return n
 
 
-def _render_pdf(svg_path: str, pdf_path: str, page_h: float, link_rect=None) -> None:
-    """Render *svg_path* to *pdf_path* via cairosvg, adding draftwright metadata
-    and — when *link_rect* (drawing page coords, Y up) is given — a clickable
-    PDF link annotation over that rectangle.
+def _render_pdf(svg_path: str, pdf_path: str, link_rect=None) -> None:
+    """Render *svg_path* to *pdf_path* via svglib + reportlab, adding draftwright
+    metadata and — when *link_rect* (drawing page coords, Y up) is given — a
+    clickable PDF link annotation over that rectangle.
 
-    cairosvg does not translate the SVG ``<a>`` element into a PDF link, so the
-    link is added with cairo's ``CAIRO_TAG_LINK``. The drawing page maps to PDF
-    points at 72/25.4 pt·mm⁻¹; PDF user space is top-left origin (Y down) while
-    the page is Y up, so a page rect ``(x0, y0, x1, y1)`` has its top edge at
-    ``page_h - y1``. Falls back to a plain render if the richer path is
-    unavailable for any reason."""
-    import cairosvg
+    svglib does not translate the SVG ``<a>`` element into a PDF link, so the
+    link is added with reportlab's ``Canvas.linkURL``. The drawing page maps to
+    PDF points at 72/25.4 pt·mm⁻¹; both the page and PDF user space are Y up with
+    a bottom-left origin, so the page rect ``(x0, y0, x1, y1)`` scales straight
+    through with no flip. Pure Python — no native cairo — so PDF works on every
+    platform. Falls back to a plain render if the richer path fails for any
+    reason."""
+    from reportlab.pdfgen.canvas import Canvas
+    from svglib.svglib import svg2rlg
 
-    try:
-        import cairocffi
-        from cairosvg.parser import Tree
-        from cairosvg.surface import PDFSurface
-    except Exception:
-        cairosvg.svg2pdf(url=svg_path, write_to=pdf_path)
-        return
+    drawing = svg2rlg(svg_path)
+    if drawing is None:
+        raise ValueError(f"could not parse SVG for PDF render: {svg_path}")
 
     try:
-        instance = PDFSurface(Tree(url=svg_path), pdf_path, dpi=96)
-        surface = instance.cairo
-        try:
-            surface.set_metadata(cairocffi.PDF_METADATA_CREATOR, _GENERATED_BY)
-            surface.set_metadata(cairocffi.PDF_METADATA_TITLE, _GENERATED_BY)
-        except Exception:
-            pass  # older cairo without per-field metadata
+        from reportlab.graphics import renderPDF
+
+        canvas = Canvas(pdf_path, pagesize=(drawing.width, drawing.height))
+        canvas.setCreator(_GENERATED_BY)
+        canvas.setTitle(_GENERATED_BY)
+        renderPDF.draw(drawing, canvas, 0, 0)
         if link_rect is not None:
             k = 72.0 / 25.4
             x0, y0, x1, y1 = link_rect
-            rx, ry, rw, rh = x0 * k, (page_h - y1) * k, (x1 - x0) * k, (y1 - y0) * k
-            ctx = cairocffi.Context(surface)
-            ctx.identity_matrix()
-            ctx.tag_begin(
-                cairocffi.TAG_LINK,
-                f"uri='{_DRAFTWRIGHT_URL}' rect=[{rx:.2f} {ry:.2f} {rw:.2f} {rh:.2f}]",
+            canvas.linkURL(
+                _DRAFTWRIGHT_URL, (x0 * k, y0 * k, x1 * k, y1 * k), relative=0, thickness=0
             )
-            ctx.tag_end(cairocffi.TAG_LINK)
-        instance.finish()
+        canvas.showPage()
+        canvas.save()
     except Exception:
         # Never fail the export over the link/metadata extras; degrade to a
         # plain render. Logged at debug so a regression in the link annotation
         # is diagnosable (in normal use only the dedicated test would catch it).
         _log.debug("PDF link/metadata extras failed; rendered a plain PDF", exc_info=True)
-        cairosvg.svg2pdf(url=svg_path, write_to=pdf_path)
+        from reportlab.graphics import renderPDF
+
+        renderPDF.drawToFile(drawing, pdf_path)
 
 
 def _elements(shape):
