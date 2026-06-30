@@ -2294,6 +2294,31 @@ class TestPrismaticClassification:
         # the right strips — the sheet stays lint-clean (#133 rework).
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
+    def test_side_view_location_dim_stacks_inside_the_envelope(self):
+        # ISO stacking: the overall (envelope) dim sits OUTERMOST, the feature/location
+        # dim nearer the view. A side-drilled hole's in-plane location must therefore
+        # be CLOSER to the side view than the envelope-depth dim. The inverted stack
+        # (envelope innermost) forced the shorter location dim's arrows to flip outward
+        # and clash with the envelope (GRM-01 / GRM-02).
+        from build123d import Rot
+
+        # Off-centre hole (y=2, not the centreline) so the location dim is real, not a
+        # redundant centred one — this isolates the stacking order.
+        part = Box(12, 11, 40) - Pos(0, 2, 6) * Rot(0, 90, 0) * Cylinder(3, 12)
+        dwg = build_drawing(part)
+        env = dwg._named.get("m_env_depth")
+        loc = [o for n, o in dwg._named.items() if n.startswith("dim_loc_side_y")]
+        assert env is not None and loc, "expected an envelope-depth dim and a side location dim"
+
+        def ymid(o):
+            bb = o.bounding_box()
+            return (bb.min.Y + bb.max.Y) / 2
+
+        # The below strip extends downward from the side view, so nearer the view =
+        # higher Y. The location dim must sit nearer the view than the overall dim.
+        assert min(ymid(o) for o in loc) > ymid(env), "location must stack inside the envelope"
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
     @pytest.mark.timeout(60)
     def test_locates_every_side_drilled_hole_not_just_the_first(self):
         # Two side-drilled (Y-axis) holes at distinct x: each must get its own

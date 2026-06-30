@@ -73,17 +73,27 @@ def _record_callout_drop(dwg, view, diam, reason):
     )
 
 
-def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
+def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, which="all"):
     """Location dimensions for side-drilled holes (#133).
 
     An X-axis hole is a circle in the SIDE view (locate its Y below the view and
     its Z to the right — the side view has no left strip); a Y-axis hole is a
     circle in the FRONT view (locate its X below and its Z to the right). Each
-    offset is allocated from the view's strip so dims stack without overlap, and
-    this pass runs AFTER the envelope and turned-diameter passes so it can never
-    evict an overall dimension. A tier with no room is dropped and recorded as
-    ``off_axis_location_dropped`` — never force-stacked. Holes already covered by
-    a pattern callout are skipped, as in the plan path.
+    offset is allocated from the view's strip so dims stack without overlap. A tier
+    with no room is dropped and recorded as ``off_axis_location_dropped`` — never
+    force-stacked. Holes already covered by a pattern callout are skipped.
+
+    Run in two phases (``which``) so each dim stacks in the ISO order — overall dim
+    OUTERMOST, feature/location dims nearer the view:
+
+    - ``"across"`` — the in-plane (below-strip) Y/X location, placed BEFORE the
+      envelope so the overall width/depth dim lands outside it (the side-view
+      counterpart of the plan view, where location dims already precede the
+      envelope). Fixes the inverted stack where the overall dim sat innermost and
+      forced the shorter location dim's arrows outside.
+    - ``"along"`` — the height (right-strip Z) location, placed AFTER the envelope
+      and the turned-diameter passes so it never evicts those overall dims from the
+      contended right strips (#133). ``"all"`` runs both.
     """
     draft = dwg.draft
     all_holes = a.holes if holes_in is None else holes_in
@@ -152,22 +162,26 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None):
 
     # In-plane offset: X-axis hole -> Y below the side view; Y-axis hole -> X
     # below the front view (each view's below strip is its own, uncontended).
-    yw, xw = SZ(dz) - 2, FZ(dz) - 2
-    seen_y, seen_x = set(), set()
-    for h in (h for h in off if _axis_letter(h) == "x"):
-        yo = round(abs(h.location[1] - dy), 2)
-        if yo * a.SCALE >= 1.0 and yo not in seen_y:
-            seen_y.add(yo)
-            _below(
-                a.sv_zones.below, "side", (SX(dy), yw, 0), (SX(h.location[1]), yw, 0), yw, yo, "y"
-            )
-    for h in (h for h in off if _axis_letter(h) == "y"):
-        xo = round(abs(h.location[0] - dx), 2)
-        if xo * a.SCALE >= 1.0 and xo not in seen_x:
-            seen_x.add(xo)
-            _below(
-                a.fv_zones.below, "front", (FX(dx), xw, 0), (FX(h.location[0]), xw, 0), xw, xo, "x"
-            )
+    if which in ("across", "all"):
+        yw, xw = SZ(dz) - 2, FZ(dz) - 2
+        seen_y, seen_x = set(), set()
+        for h in (h for h in off if _axis_letter(h) == "x"):
+            yo = round(abs(h.location[1] - dy), 2)
+            if yo * a.SCALE >= 1.0 and yo not in seen_y:
+                seen_y.add(yo)
+                _below(
+                    a.sv_zones.below, "side", (SX(dy), yw, 0), (SX(h.location[1]), yw, 0), yw, yo, "y"
+                )
+        for h in (h for h in off if _axis_letter(h) == "y"):
+            xo = round(abs(h.location[0] - dx), 2)
+            if xo * a.SCALE >= 1.0 and xo not in seen_x:
+                seen_x.add(xo)
+                _below(
+                    a.fv_zones.below, "front", (FX(dx), xw, 0), (FX(h.location[0]), xw, 0), xw, xo, "x"
+                )
+
+    if which not in ("along", "all"):
+        return
 
     # Height offset (Z): a hole's height is visible to the RIGHT of both the side
     # and the front view. Neither right strip is universally free — the side

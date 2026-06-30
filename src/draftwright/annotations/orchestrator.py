@@ -213,6 +213,14 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # turned parts, and a Z-turned overall height is suppressed there (ISO 129).
     render_height_ladder(dwg, _model, a)
 
+    # Side-drilled holes' in-plane (below-strip) locations FIRST, so the overall
+    # envelope width/depth lands OUTSIDE them — ISO stacks the overall dim outermost,
+    # feature/location dims nearer the view (matches the plan view, where location
+    # dims precede the envelope). The height (right-strip) locations stay after the
+    # diameter passes (the "along" phase below) so they never evict an overall dim.
+    if feature_holes:
+        _locate_off_axis_holes(dwg, a, holes_in=feature_holes, which="across")
+
     # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
     # placed through the same below-strip zone allocators the engine used (zone-aware
     # render stage, ADR 0008). Suppression (square footprint / X-turned width) is now
@@ -245,10 +253,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     if a.prof is not None:
         render_step_lengths(dwg, _groups)
 
-    # Side-drilled (X/Y-axis) hole locations — last, so the envelope and
-    # turned-diameter dims claim their strip space first and are never evicted (#133).
+    # Side-drilled (X/Y-axis) hole HEIGHT locations — last, so the envelope and
+    # turned-diameter dims claim their (contended right) strip space first and are
+    # never evicted (#133). The in-plane locations were placed before the envelope.
     if feature_holes:
-        _locate_off_axis_holes(dwg, a, holes_in=feature_holes)
+        _locate_off_axis_holes(dwg, a, holes_in=feature_holes, which="along")
 
     # Non-cylindrical machined features: slots / reduced across-flats sections
     # (#135) — IR renderer, placed through the zone strips (shared infra). Runs
