@@ -64,16 +64,35 @@ def test_strip_obstacles_captures_full_leader_footprint_not_just_label():
     assert not any(_same(x, full) for x in occ)
 
 
-def test_strip_obstacles_view_filter():
-    # A box with a side-drilled hole: side-view occupancy excludes front/plan items.
+def test_strip_obstacles_view_filter_drops_other_ortho_views():
+    # A box with a side-drilled hole: the side query excludes front/plan-owned
+    # blocks (compose-then-pack keeps them disjoint) but is narrower than the whole.
     part = Box(60, 40, 30) - Pos(0, 0, 8) * Rotation(0, 90, 0) * Cylinder(3, 80)
     dwg = build_drawing(part)
 
     everywhere = strip_obstacles(dwg)
     side = strip_obstacles(dwg, view="side")
-    side_annos = list(dwg.annotations_in_view("side"))
+    assert 0 < len(side) < len(everywhere), "view filter should narrow the set"
 
-    assert side, "expected some side-view obstacles"
-    assert len(side) < len(everywhere), "view filter should narrow the set"
-    # one obstacle per side-view annotation that bbox-es (≤ the annotation count)
-    assert len(side) <= len(side_annos)
+    # a front/plan-owned annotation is present overall but excluded from the side query
+    other = next(
+        (n for n, _ in dwg.iter_annotations() if dwg.view_of(n) in ("front", "plan")), None
+    )
+    assert other is not None, "fixture should place a front/plan annotation"
+    b = dwg._named[other].bounding_box()
+    obox = (b.min.X, b.min.Y, b.max.X, b.max.Y)
+    assert any(_same(x, obox) for x in everywhere)
+    assert not any(_same(x, obox) for x in side), f"{other} (other ortho view) leaked into side"
+
+
+def test_strip_obstacles_keeps_section_hatch_in_every_per_view_query():
+    # The section hatch is owned by no ortho view (view_of is None); a per-view
+    # strip solve must still avoid it — _occupied_boxes special-cased it by name,
+    # and restricting it to view=None would re-open that blind spot (review S1).
+    part = Box(80, 60, 20) - Cylinder(4, 20) - Pos(10, 5, -7) * Cylinder(6, 6)
+    dwg = build_drawing(part)
+    assert "section_hatch" in dwg._named and dwg.view_of("section_hatch") is None
+    b = dwg._named["section_hatch"].bounding_box()
+    hbox = (b.min.X, b.min.Y, b.max.X, b.max.Y)
+    for v in ("front", "plan", "side"):
+        assert any(_same(x, hbox) for x in strip_obstacles(dwg, view=v)), f"hatch dropped from {v}"
