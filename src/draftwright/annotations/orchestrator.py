@@ -31,6 +31,9 @@ from draftwright._core import (
     _tag_sequence,
 )
 from draftwright.annotations.from_model import (
+    _env_pd,
+    env_dim_placed,
+    envelope_group,
     render_centermarks,
     render_diameters,
     render_envelope,
@@ -226,14 +229,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Only reserve when render_envelope will actually place the depth dim — the
         # planner suppresses it for a square footprint / X-turned part (#250); reserving
         # a tier it never claims would needlessly shrink the strip and drop a location
-        # dim that would otherwise fit (#316 review).
-        _env_g = next((g for g in _groups if g.feature_kind == "envelope"), None)
-        _depth_pd = (
-            next((pd for pd in _env_g.dims if pd.param.role == "depth"), None) if _env_g else None
-        )
-        _reserve = (
-            _depth_pd is not None and not _depth_pd.suppressed and _depth_pd.param.span is not None
-        )
+        # dim that would otherwise fit (#316 review). Uses render_envelope's own
+        # place-predicate (env_dim_placed) so the two can never drift.
+        _env_g = envelope_group(_groups)
+        _reserve = _env_g is not None and env_dim_placed(_env_pd(_env_g, "depth"))
         _below = a.sv_zones.below
         _saved_limit = _below.outer_limit
         if _reserve:

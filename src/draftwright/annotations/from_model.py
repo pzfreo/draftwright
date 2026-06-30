@@ -532,6 +532,20 @@ def _env_pd(group, role):
     return next((pd for pd in group.dims if pd.param.role == role), None)
 
 
+def envelope_group(groups):
+    """The envelope `DimensionGroup` in *groups*, or None."""
+    return next((g for g in groups if g.feature_kind == "envelope"), None)
+
+
+def env_dim_placed(pd) -> bool:
+    """Whether :func:`render_envelope` will actually place an envelope dim for the
+    PlannedDimension *pd* — present, not suppressed by the planner (square footprint /
+    X-turned, #250), and carrying a span. The single source of truth for that
+    decision, shared with the orchestrator's side-below tier reservation so the two
+    can never drift (#316 review)."""
+    return pd is not None and not pd.suppressed and pd.param.span is not None
+
+
 def render_envelope(dwg, groups, a) -> int:
     """Overall width (plan, below) + depth (side, below) envelope dims via the IR,
     placed through the engine's below-strip zone allocators (the zone-aware render
@@ -539,12 +553,12 @@ def render_envelope(dwg, groups, a) -> int:
     those strips). The **planner** decides suppression (square footprint / X-turned;
     #250); this renderer just skips suppressed dims and places the rest. Returns the
     count placed."""
-    env = next((g for g in groups if g.feature_kind == "envelope"), None)
+    env = envelope_group(groups)
     if env is None:
         return 0
     n = 0
     width = _env_pd(env, "width")
-    if width is not None and not width.suppressed and width.param.span is not None:
+    if env_dim_placed(width):
         (x0, y0, z0), (x1, _, _) = width.param.span
         p1, p2 = dwg.at("plan", x0, y0, z0), dwg.at("plan", x1, y0, z0)
         witness = p1[1] - 2
@@ -564,7 +578,7 @@ def render_envelope(dwg, groups, a) -> int:
             )
             n += 1
     depth = _env_pd(env, "depth")
-    if depth is not None and not depth.suppressed and depth.param.span is not None:
+    if env_dim_placed(depth):
         (x0, y0, z0), (_, y1, _) = depth.param.span
         p1, p2 = dwg.at("side", x0, y0, z0), dwg.at("side", x0, y1, z0)
         witness = p1[1] - 2
