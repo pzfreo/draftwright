@@ -373,7 +373,8 @@ def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter:
 
     # The feature draws its own dims inside the detail. If nothing legible lands even
     # at the detail scale, roll the view back rather than committing an empty DETAIL
-    # box — the request's fallback (if any) then runs (#307 review).
+    # box — the request is then simply dropped (the main view already locates the
+    # head/block inline, so lint reports any un-located interior) (#307 review).
     if not req.redraw(dwg, view_name, detail_scale):
         dwg.views.pop(view_name, None)
         dwg._coords.pop(view_name, None)

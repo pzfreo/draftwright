@@ -352,15 +352,16 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
         shoulder_c = {s: shoulder_coord(view, s) for s in prof.shoulders}
         dims = [
             (
+                name,
                 str(getattr(ann, "label", "") or ""),
                 {(x if use_x else y) for x, y in _dim_vertices(ann)},
             )
-            for _name, ann in dwg.annotations_in_view(view)
+            for name, ann in dwg.annotations_in_view(view)
             if isinstance(ann, Dimension)
         ]
         for i, step in enumerate(prof.steps):
             clo, chi = shoulder_c[step.lo], shoulder_c[step.hi]
-            for label, cs in dims:
+            for name, label, cs in dims:
                 if not cs:
                     continue
                 # A plain dim locates the step when it has a witness at each shoulder.
@@ -370,10 +371,12 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
                 # A collapsed uniform-staircase dim ("N× v", #230) carries witnesses only
                 # at the extremes of its run yet locates *every* shoulder within that run
                 # (the collapse fires only when all steps are equal). Credit a step whose
-                # both shoulders fall within the dim's span — works whether the run is the
-                # whole front chain or just the head inside a detail view (#307 review).
+                # both shoulders fall within the dim's span — but ONLY for an actual
+                # step-length chain dim (name contains "steplen"), never an unrelated
+                # "n× pitch" hole-array dim that happens to span the shoulders (#307 review).
                 if (
-                    re.match(r"^\s*\d+\s*×", label)
+                    "steplen" in name
+                    and re.match(r"^\s*\d+\s*×", label)
                     and min(cs) - tol <= clo
                     and chi <= max(cs) + tol
                 ):
