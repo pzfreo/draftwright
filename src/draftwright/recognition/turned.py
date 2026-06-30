@@ -47,6 +47,12 @@ _OD_SPAN_PAD = 0.7
 # less than the gap between an internal bore radius and the OD.
 _CHAMFER_ALLOWANCE_ABS = 0.5
 _CHAMFER_ALLOWANCE_FRAC = 0.12
+# A genuine turned body is round about its axis: the perpendicular cross-section is
+# roughly square and the OD silhouette fills it (#293). Looser than the rotational
+# classifier's gate (chamfers/features perturb the bbox), but firmly rejects an
+# incidental cylinder on a prismatic part (a tiny OD in a large oblong bbox).
+_SQUARENESS_TOL = 0.15
+_OD_FILL_MIN = 0.6
 
 
 @dataclass(frozen=True)
@@ -92,6 +98,22 @@ def find_turned_steps(part) -> TurnedProfile | None:
     if len({round(c["diameter"], 2) for c in bands}) < 2:
         return None  # one OD → not a stepped turned part
     idx = "xyz".index(axis)
+
+    # A genuine turned shaft is a body of revolution about *axis*: its OD silhouette
+    # (largest external band) fills a roughly-square cross-section perpendicular to the
+    # axis. Reject incidental small cylinders on a prismatic part — e.g. a case shell's
+    # side screw-holes — whose unrelated feature faces would otherwise be read as a
+    # spurious multi-step profile (#293).
+    pbb = part.bounding_box()
+    perp = [s for i, s in enumerate((pbb.size.X, pbb.size.Y, pbb.size.Z)) if i != idx]
+    cross = max(perp)
+    max_od = max(c["diameter"] for c in bands)
+    if (
+        cross <= 0
+        or max_od < _OD_FILL_MIN * cross
+        or abs(perp[0] - perp[1]) > _SQUARENESS_TOL * cross
+    ):
+        return None
 
     def local_od(pos: float) -> float:
         radii = [
