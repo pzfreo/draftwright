@@ -38,6 +38,42 @@ def _occupied_boxes(dwg):
     return boxes
 
 
+def _geom_box(o):
+    """Full rendered-geometry bbox ``(x0, y0, x1, y1)`` of an annotation — leader
+    shafts and arrow tips, dimension witness/extension lines, centrelines, hatch —
+    *not* just its label box. ``None`` if it does not bbox cleanly."""
+    try:
+        b = o.bounding_box()
+        return (b.min.X, b.min.Y, b.max.X, b.max.Y)
+    except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+        return None
+
+
+def strip_obstacles(dwg, view=None):
+    """The COMPLETE occupancy for strip placement (ADR 0009): every placed
+    annotation's full rendered footprint, optionally restricted to *view*.
+
+    Unlike :func:`_occupied_boxes` (label boxes only, with bare centrelines
+    excluded), this captures the geometry a label box hides — leader shafts and
+    arrow tips, dimension witness/extension lines, centrelines, and the section
+    hatch. That hidden geometry is the 'invisible occupant' class behind the
+    recurring strip overlaps (#133/#225/#305): a placer that consults only label
+    boxes commits a callout into space a leader or extension line already crosses.
+
+    Returns a list of ``(x0, y0, x1, y1)`` AABBs (use with :func:`_box_hits`).
+
+    Not yet consumed in production — the collect-then-solve strip stage wires this
+    in at P1 (#321). Kept additive here so P0 stays behaviour-preserving."""
+    boxes = []
+    for name, o in dwg.iter_annotations():
+        if view is not None and dwg.view_of(name) != view:
+            continue
+        bb = _geom_box(o)
+        if bb is not None:
+            boxes.append(bb)
+    return boxes
+
+
 def _box_hits(bb, boxes):
     """True when ``bb`` overlaps any box in ``boxes`` (strict AABB test). Slightly
     more conservative than the within-view label lint (which tolerates a 0.5 mm
