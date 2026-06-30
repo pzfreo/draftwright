@@ -1185,6 +1185,36 @@ class TestComposeThenPackRepack:
         )
         assert _cross_view_overlaps(dwg, None) == 0
 
+    # --- annotation-over-view-linework trigger (#293) ---------------------
+
+    def test_annotation_view_overlap_counts_label_over_other_view(self):
+        # The third repack trigger: a view-owned LABEL grown into a *different*
+        # view's geometry box (the staggered step chain bumping the plan view).
+        # A bare line over another view is normal drafting; a label in its OWN
+        # view is fine. Only a label over another view's box counts.
+        from types import SimpleNamespace
+
+        from draftwright.builder import _annotation_view_overlaps
+
+        a = SimpleNamespace(
+            FV_X=0.0,
+            FV_Y=0.0,
+            fv_hw=10.0,
+            fv_hh=10.0,
+            PV_X=0.0,
+            PV_Y=40.0,
+            pv_hh=10.0,
+            SV_X=40.0,
+            SV_Y=0.0,
+            sv_hw=10.0,
+        )  # plan box spans x[-10,10] y[30,50]
+        over = self._fake_dwg({"d": self._label((-5, 32, 5, 42))}, {"d": "front"})
+        assert _annotation_view_overlaps(over, a) == 1  # front label inside plan box
+        bare = self._fake_dwg({"d": self._line((-5, 32, 5, 42))}, {"d": "front"})
+        assert _annotation_view_overlaps(bare, a) == 0  # bare line — normal drafting
+        own = self._fake_dwg({"d": self._label((-5, -5, 5, 5))}, {"d": "front"})
+        assert _annotation_view_overlaps(own, a) == 0  # inside its own view
+
     # --- out-of-bounds escalation trigger (#92) ---------------------------
 
     def test_out_of_bounds_trigger(self):
@@ -1299,6 +1329,88 @@ class TestComposeThenPackRepack:
         dwg.add(_leader("D"), "tag3", view="side")
         dwg.clear_annotations()  # keeps title_block only
         assert "tag3" not in dwg._anno_view
+
+
+class TestLayoutCleanlinessInvariant:
+    """End-to-end invariant (#293): for a spread of representative part shapes the
+    *finished* drawing must place its views and annotations without layout
+    collisions — the OUTCOME, not just the trigger mechanics the unit tests above
+    cover. This is the check that would have caught the GRM-03 staggered chain
+    bumping the plan view: the trigger unit tests were green while a real part
+    rendered with overlapping annotations. A regression here means the layout
+    engine (estimate → measure-and-repack) let a real collision through."""
+
+    # Genuine layout defects — NOT view_annotation_inside_extents, the soft info
+    # code for a callout legitimately sitting inside a large face.
+    _DEFECTS = {
+        "view_annotation_overlap",
+        "view_overlap",
+        "view_out_of_bounds",
+        "annotation_out_of_bounds",
+        "annotation_overlap",
+    }
+
+    @staticmethod
+    def _x_simple():
+        from build123d import Align, Cylinder, Pos, Rotation
+
+        b = Align.MIN
+        s = Cylinder(8, 20, align=(Align.CENTER, Align.CENTER, b)) + Pos(0, 0, 20) * Cylinder(
+            5, 20, align=(Align.CENTER, Align.CENTER, b)
+        )
+        return Rotation(0, 90, 0) * s  # roomy X-turned chain → one tier, no zig-zag
+
+    @staticmethod
+    def _x_crowded():
+        from build123d import Align, Cylinder, Pos, Rotation
+
+        b = Align.MIN  # GRM-03 shape: fine head steps + long shaft → stagger + view lift
+        s = None
+        z = 0.0
+        for d, ln in [(8, 1.0), (12, 1.0), (8, 1.0), (12, 1.0), (6, 30.0)]:
+            seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
+            s = seg if s is None else s + seg
+            z += ln
+        return Rotation(0, 90, 0) * s
+
+    @staticmethod
+    def _z_stepped():
+        from build123d import Cylinder, Pos
+
+        return Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)  # Z-turned ladder
+
+    @staticmethod
+    def _prism_holes():
+        part = Box(80, 60, 20)  # a row of holes → location dims above the plan view
+        for x in (-30, -10, 10, 30):
+            part -= Pos(x, 20, 0) * Cylinder(3, 30)
+        return part
+
+    @staticmethod
+    def _bolt_circle():
+        import math
+
+        part = Box(60, 60, 15)  # 6-hole bolt circle → ballooned plan-view halo
+        for i in range(6):
+            a = i * math.pi / 3
+            part -= Pos(20 * math.cos(a), 20 * math.sin(a), 0) * Cylinder(2.5, 30)
+        return part
+
+    @staticmethod
+    def _counterbored():
+        part = Box(60, 40, 20)  # counterbore → full section A-A
+        part -= Cylinder(4, 30)
+        part -= Pos(0, 0, 2) * Cylinder(7, 20)
+        return part
+
+    @pytest.mark.parametrize(
+        "factory",
+        ["_x_simple", "_x_crowded", "_z_stepped", "_prism_holes", "_bolt_circle", "_counterbored"],
+    )
+    def test_finished_sheet_has_no_layout_collisions(self, factory):
+        dwg = build_drawing(getattr(self, factory)())
+        hits = sorted({i.code for i in dwg.lint()} & self._DEFECTS)
+        assert not hits, f"{factory}: layout defects in finished drawing: {hits}"
 
 
 class TestHolePatternCallouts:
@@ -4721,13 +4833,16 @@ class TestTurnedLengths:
             for j in range(i + 1, len(boxes))
         ), "step-length dims overprint — chain crammed instead of skipping"
 
-    def test_short_segment_arrows_cram_skips_even_when_labels_fit(self):
+    def test_crowded_chain_staggers_into_two_tiers_at_current_scale(self):
         # The gramel thumbwheel drive screw (GRM-03): fine steps near the head + one
-        # long shaft. The strip solver CAN spread the labels into the shaft's empty
-        # space (so the label-overlap guard passes), but the head segments are
-        # narrower than two arrowheads, so the dimension-line arrows overprint at the
-        # shoulders regardless. The raw segment width must gate the chain too (#293).
+        # long shaft. Rather than skip (wasting the empty sheet) or cram, the chain
+        # staggers successive dims between a near and a far tier (ISO 129-1) so every
+        # step length is legible at the drawing's own scale (#293). All segments are
+        # dimensioned, the labels don't overprint each other, and axial coverage is
+        # satisfied — no rescale needed.
         from build123d import Align, Cylinder, Pos, Rotation
+
+        from draftwright.annotations._common import _anno_box
 
         b = Align.MIN
         specs = [(8, 1.0), (12, 1.0), (8, 1.0), (12, 1.0), (6, 30.0)]
@@ -4738,8 +4853,23 @@ class TestTurnedLengths:
             shaft = seg if shaft is None else shaft + seg
             z += ln
         dwg = build_drawing(Rotation(0, 90, 0) * shaft)
-        assert not any(n.startswith("m_steplen") for n in dwg._named)  # skipped, not crammed
-        assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) >= 1
+        steps = {n: o for n, o in dwg._named.items() if n.startswith("m_steplen")}
+        assert len(steps) == 5  # every segment dimensioned, none dropped
+        assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
+        # Two tiers: the dims sit at (at least) two distinct offset rows.
+        boxes = [_anno_box(o) for o in steps.values()]
+        rows = {round((bb[1] + bb[3]) / 2, 1) for bb in boxes if bb}
+        assert len(rows) >= 2, "chain did not stagger into multiple tiers"
+
+        # Labels don't overprint each other.
+        def overlap(a, c):
+            return a and c and not (a[2] <= c[0] or a[0] >= c[2] or a[3] <= c[1] or a[1] >= c[3])
+
+        assert not any(
+            overlap(boxes[i], boxes[j])
+            for i in range(len(boxes))
+            for j in range(i + 1, len(boxes))
+        ), "staggered step-length labels overprint"
 
 
 class TestStepLadderRecognition:
