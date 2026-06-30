@@ -3738,6 +3738,68 @@ class TestLayoutGeneralisation:
         assert n_callouts > 4, f"expected adaptive >4 callouts, got {n_callouts}"
         assert "callout_dropped" not in {i.code for i in dwg.lint()}
 
+    def test_coaxial_bore_callout_clears_centre_axis(self):
+        # #305: a coaxial axial bore on the round (end) view must be leadered OFF
+        # the view's horizontal centre axis. Led out along it, the centre mark and
+        # the bore's own location-dim extension line run straight through the
+        # "⌀… ↓…" callout text (a drafting defect). Assert no horizontal line
+        # crosses the callout text box.
+        from build123d import BuildPart, Cylinder, Hole, Rotation
+
+        from draftwright import build_drawing
+
+        with BuildPart() as p:
+            Cylinder(radius=6, height=20)
+            Hole(0.8, depth=8)  # coaxial axial bore: ⌀1.6, depth 8
+        dwg = build_drawing(Rotation(0, 90, 0) * p.part, scale=2.0)  # axis along X
+
+        hc = [(n, o) for n, o in dwg._named.items() if n.startswith("hc_side")]
+        assert hc, "expected a bore callout on the round (side) view"
+        name, leader = hc[0]
+        tx0, ty0, tx1, ty1 = leader.label_bbox
+
+        crossings = []
+        for n, o in dwg._named.items():
+            if n == name:
+                continue  # the callout's own shelf ends before its text
+            try:
+                edges = list(o.edges())
+            except Exception:
+                continue
+            for e in edges:
+                vs = e.vertices()
+                if len(vs) != 2:
+                    continue
+                (x0, y0), (x1, y1) = (vs[0].X, vs[0].Y), (vs[1].X, vs[1].Y)
+                if abs(y0 - y1) < 0.05 and abs(x0 - x1) > 1.0:  # a horizontal line
+                    ym = (y0 + y1) / 2
+                    xa, xb = min(x0, x1), max(x0, x1)
+                    if ty0 + 0.3 < ym < ty1 - 0.3 and xb > tx0 + 0.3 and xa < tx1 - 0.3:
+                        crossings.append((n, round(ym, 2)))
+        assert not crossings, f"line(s) cross the bore callout text: {crossings}"
+
+    def test_prismatic_central_hole_callout_not_lifted(self):
+        # Scope-lock for #305: the coaxial-bore lift is gated to rotational parts.
+        # A *prismatic* part's central hole stays on the plan-view centre row —
+        # lifting it (the over-broad first cut of this fix) regressed the section /
+        # cbore layouts, because only the rotational round view carries the crossing
+        # centre axis. Without the is_rotational gate this callout jumps a
+        # font-height off the axis; assert it does not.
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import build_drawing
+
+        part = Box(80, 60, 20) - Cylinder(4, 20) - Pos(10, 5, -7) * Cylinder(6, 6)
+        dwg = build_drawing(part)
+        assert not dwg._analysis.is_rotational
+        plan_mids = [
+            (o.label_bbox[1] + o.label_bbox[3]) / 2
+            for n, o in dwg._named.items()
+            if n.startswith("hc_plan") and getattr(o, "label_bbox", None)
+        ]
+        assert plan_mids, "expected plan-view hole callouts"
+        assert min(abs(m - dwg._analysis.PV_Y) for m in plan_mids) < dwg.draft.font_size
+
     @pytest.mark.timeout(120)
     def test_step_height_legibility_threshold(self):
         # The step-height dimension gate is the legibility constant
