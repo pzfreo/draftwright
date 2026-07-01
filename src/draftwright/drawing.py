@@ -702,35 +702,36 @@ class Drawing:
         sv_left = a.SV_X - a.sv_hw
         margin, ph = a.margin, a.PAGE_H
 
-        # Stack the balloon ring *beyond* the annotations already placed around
-        # the plan view, not on top of them (#121).
-        za = a.pv_zones
-        bot_dim = za.below.depth_used if za and za.below else 0.0
-        left_dim = za.left.depth_used if za and za.left else 0.0
-        right_dim = za.right.depth_used if za and za.right else 0.0
-        # The TOP band is the one that goes stale: the hole-table escalation
-        # deletes the X-location dims but never rewinds the above-strip cursor, so
-        # za.above.depth_used keeps their high-water mark (~240 mm of phantom
-        # corridor on CTC-02) and the top ring floats ~150 mm over empty space
-        # (#125). Top balloons vary in X at a fixed Y, so they must clear the
-        # DIMENSIONS spanning the plan's width above it — measure the real depth
-        # of those (pitch dims dim_* AND PMI bore dims pmi_*). Construction
-        # centrelines (bc_*) are crossable, not obstructions, so they are
-        # excluded — their bolt-circle bbox would otherwise re-inflate the band.
-        # Left/right/bottom are NOT stale: the deleted X-location dims only ever
-        # allocated into the above strip (m_locy tiers (the IR location renderer) above the *side* view,
-        # the width dim below is never removed), so those keep their correct
-        # shallow strip depth.
-        top_dim = 0.0
+        # Stack the balloon ring *beyond* the annotations already placed around the
+        # plan view, not on top of them (#121). Measure the REAL depth the dimensions
+        # extend into each band from their placed bounding boxes — the strip cursor's
+        # `depth_used` is retired (ADR 0009 / #150) and would report a constant gap.
+        # (This is what the top band already did because `depth_used` went stale under
+        # the hole-table escalation, #125; now every side measures the same way.) Match
+        # on DIMENSION type (not a `dim_` name prefix — that would drop the m_env_*/
+        # m_loc*/m_slot* dims below/beside the view), plus PMI leaders (pmi_*). Balloons,
+        # the table, construction centrelines (bc_*) and callouts are not Dimensions and
+        # are correctly excluded (centrelines are crossable; callouts route separately).
+        top_dim = bot_dim = left_dim = right_dim = 0.0
         for nm, obj in self._named.items():
-            if not nm.startswith(("dim_", "pmi_")) or self._anno_view.get(nm) != view:
+            if self._anno_view.get(nm) != view:
+                continue
+            if type(obj).__name__ != "Dimension" and not nm.startswith("pmi_"):
                 continue
             try:
                 ob = obj.bounding_box()
             except Exception:  # noqa: BLE001 — a mark with no bbox can't obstruct
                 continue
-            if ob.max.X > pl and ob.min.X < pr and ob.max.Y > pt:
-                top_dim = max(top_dim, ob.max.Y - pt)
+            if ob.max.X > pl and ob.min.X < pr:  # spans the plan's width → top/bottom bands
+                if ob.max.Y > pt:
+                    top_dim = max(top_dim, ob.max.Y - pt)
+                if ob.min.Y < pb:
+                    bot_dim = max(bot_dim, pb - ob.min.Y)
+            if ob.max.Y > pb and ob.min.Y < pt:  # spans the plan's height → left/right bands
+                if ob.min.X < pl:
+                    left_dim = max(left_dim, pl - ob.min.X)
+                if ob.max.X > pr:
+                    right_dim = max(right_dim, ob.max.X - pr)
 
         # A bottom band (below PV, beyond the overall-width dim) is usable only
         # when the FV↔PV gap has room for the width dim *and* a balloon row;
