@@ -27,7 +27,7 @@ from draftwright._core import (
     _iso_bbox,
     _log,
 )
-from draftwright.annotations._common import place_strip_candidates
+from draftwright.annotations._common import Escalation, place_strip_candidates
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model.ir import HoleFeature, PatternFeature
@@ -70,6 +70,10 @@ def _record_callout_drop(dwg, view, diam, reason):
         "callout_dropped",
         f"hole callout ø{_fmt(diam)} dropped from the {view} view ({reason})",
     )
+    # First-class escalation object alongside the lint code (ADR 0009 Amdt 1, #351 PR-2).
+    # The resolver (`_maybe_tabulate_holes`) triggers on these; the lint code stays for
+    # coverage. 1:1 with the code emit, so the object trigger is byte-identical.
+    dwg._escalations.append(Escalation(kind="callout", view=view, feature=diam, reason=reason))
 
 
 def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):

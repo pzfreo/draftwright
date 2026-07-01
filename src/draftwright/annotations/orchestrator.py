@@ -307,7 +307,12 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     If the table itself will not fit, nothing is removed and the drop lint is
     kept — the sheet is never left with neither.
     """
-    if not any(i.code in ("callout_dropped", "location_ref_dropped") for i in dwg._build_issues):
+    # Trigger on the first-class Escalation objects the hole placers collect (ADR 0009
+    # Amdt 1, #351 PR-2), not by grepping the `*_dropped` lint strings. Byte-identical:
+    # a "callout"/"location" Escalation is emitted 1:1 with each callout_dropped/
+    # location_ref_dropped code. `getattr` default guards the auto_dims=False path (which
+    # skips this whole pass anyway). The lint codes stay as the coverage surface.
+    if not any(e.kind in ("callout", "location") for e in getattr(dwg, "_escalations", ())):
         return
 
     # Tabulate only the genuinely UNpatterned plan-view holes: holes in a

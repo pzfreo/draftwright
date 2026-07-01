@@ -44,6 +44,7 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
+    Escalation,
     _anno_box,
     _box_hits,
     _occupied_boxes,
@@ -301,6 +302,7 @@ def render_locations(dwg, model, a) -> int:
             f"{_n_x_close} X location dim(s) too closely spaced to dimension legibly "
             "(use a detail view)",
         )
+        dwg._escalations.append(Escalation("location", "plan", None, "illegible"))
     _kept_x_set = set(_kept_x)
     x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
     # Collect X-location dims nearest-datum-first and place them through the shared
@@ -334,6 +336,7 @@ def render_locations(dwg, model, a) -> int:
             "location_ref_dropped",
             f"{_name} not placed (no room above the plan view)",
         )
+        dwg._escalations.append(Escalation("location", "plan", _name, "strip_full"))
     n += len(x_cands) - len(_left)
 
     # --- Y locations: tier above the side view (which maps world-Y horizontally) ---
@@ -353,6 +356,7 @@ def render_locations(dwg, model, a) -> int:
             f"{_n_y_close} Y location dim(s) too closely spaced to dimension legibly "
             "(use a detail view)",
         )
+        dwg._escalations.append(Escalation("location", "side", None, "illegible"))
     _kept_y_set = set(_kept_y)
     y_refs = [r for r in y_refs if r[1] not in _y_drawable or r[1] in _kept_y_set]
     # Cap the side-above strip below the iso view so Y-location dims never run under it
@@ -385,6 +389,7 @@ def render_locations(dwg, model, a) -> int:
             "location_ref_dropped",
             f"{_name} not placed (no room above the side view)",
         )
+        dwg._escalations.append(Escalation("location", "side", _name, "strip_full"))
     n += len(y_cands) - len(_left)
     return n
 
