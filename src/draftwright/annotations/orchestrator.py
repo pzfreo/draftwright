@@ -108,6 +108,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     dwg._reset_build_issues()
     dwg._reset_dropped_callout_diams()
     dwg._detail_requests = []  # renderers queue enlarged-detail requests here (#307)
+    dwg._escalations = []  # placers collect Escalation objects here (ADR 0009 Amdt 1, #351)
 
     FX = a.proj.front_x
     FZ = a.proj.front_z

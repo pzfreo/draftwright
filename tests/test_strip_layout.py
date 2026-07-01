@@ -104,6 +104,32 @@ def test_strip_obstacles_keeps_section_hatch_in_every_per_view_query():
         assert any(_same(x, hbox) for x in strip_obstacles(dwg, view=v)), f"hatch dropped from {v}"
 
 
+# --- Escalation objects (ADR 0009 Amendment 1, P5-strand-2 scaffolding, #351) -----
+
+
+def test_escalation_is_a_frozen_value_with_default_remedies():
+    import dataclasses
+
+    import pytest
+
+    from draftwright.annotations._common import Escalation
+
+    e = Escalation(kind="callout", view="plan", feature=("hole", 1), reason="strip_full")
+    assert (e.kind, e.view, e.reason) == ("callout", "plan", "strip_full")
+    assert e.remedies == ()  # default: the resolver's ladder decides
+    e2 = Escalation("location", None, None, "no_room", ("table", "drop"))
+    assert e2.view is None and e2.remedies == ("table", "drop")
+    with pytest.raises(dataclasses.FrozenInstanceError):  # immutable value object
+        e.kind = "x"
+
+
+def test_build_initialises_empty_escalations_collector():
+    # Scaffolding only: the collector exists and starts empty; no placer emits into it
+    # yet, so the build stays behaviour-preserving.
+    dwg = build_drawing(Box(40, 30, 10))
+    assert dwg._escalations == []
+
+
 # --- plan_strip: the collect-then-solve seam (pure geometry, no OCC) --------
 
 
