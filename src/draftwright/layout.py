@@ -22,7 +22,7 @@ The only solve phase 1 performs correctly is the 1D strip solve.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, NamedTuple
 
 Axis = Literal["x", "y"]
 
@@ -182,6 +182,16 @@ class StripCandidate:
     priority: int = 0
 
 
+class StripPlacement(NamedTuple):
+    """Result of :func:`plan_strip`: ``placed`` maps each placed candidate's key to
+    its solved position along the strip axis; ``dropped`` is the keys the strip
+    could not hold, lowest-priority first (the caller escalates them — detail view,
+    table — or surfaces them as lint)."""
+
+    placed: dict
+    dropped: tuple
+
+
 def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     """Collect-then-solve placement of *candidates* along one strip (ADR 0009).
 
@@ -190,32 +200,41 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     coordinates. Sites that share that coordinate are ordered deterministically by
     ``key``; that tie-break is *not* crossing-optimal (it doesn't see the
     perpendicular coordinate that decides those crossings) — resolving ties
-    crossing-optimally is the P4 assign/order step (#318). This matches the
-    engine's current natural-Y strip sort. Then spaces the labels within
-    ``[lo, hi]`` at least *min_gap* apart via :func:`_solve_strip_1d`. Returns
-    ``{key: position}`` for the placed candidates, or ``None`` when the strip
-    cannot hold them all. Candidate *keys* must be unique (they key the result).
+    crossing-optimally is the P4 assign/order step (#318). Then spaces the labels
+    within ``[lo, hi]`` at least *min_gap* apart via :func:`_solve_strip_1d`.
 
-    This is the P0 seam (#317): order-by-site + 1-D spacing, reproducing the
-    engine's current all-or-nothing strip contract. Spacing is the caller's single
-    *min_gap* (as the engine's strips do today) — the candidate's ``size`` is
-    carried for the per-pair, label-height-aware gaps that come with the optimal
-    packing (P4, #318), and is not consulted here, so *min_gap* must clear the
-    tallest label. The *priority* selection + escalation for an over-full strip is
-    P2 (#322). Deterministic: candidates are ordered by ``(anchor-along-axis, key)``
-    and the 1-D solve is deterministic in input order.
+    **Selection (P2, #322):** when the strip cannot hold everything, the
+    lowest-priority candidates are dropped (ties by key, deterministic) until the
+    rest fit — keeping the most important. Returns a :class:`StripPlacement`
+    (``placed`` {key: position}, ``dropped`` keys). This is the ranked, priority-
+    aware replacement for the engine's arrival-order / prefix drops.
+
+    Spacing is the caller's single *min_gap* (as the engine's strips do today) — the
+    candidate's ``size`` is carried for the per-pair, label-height-aware gaps that
+    come with the optimal packing (P4, #318), and is not consulted here, so
+    *min_gap* must clear the tallest label. Candidate *keys* must be unique (they
+    key the result). Deterministic throughout.
     """
     if not candidates:
-        return {}
+        return StripPlacement({}, ())
     keys = [c.key for c in candidates]
     if len(set(keys)) != len(keys):  # like LayoutSolver.register — never silently drop
         raise ValueError("plan_strip: candidate keys must be unique")
     idx = 1 if axis == "y" else 0
-    ordered = sorted(candidates, key=lambda c: (c.anchor[idx], c.key))
-    positions = _solve_strip_1d([c.anchor[idx] for c in ordered], min_gap, lo, hi)
-    if positions is None:
-        return None
-    return {c.key: p for c, p in zip(ordered, positions, strict=True)}
+
+    keep = list(candidates)
+    dropped: list[str] = []
+    while keep:
+        ordered = sorted(keep, key=lambda c: (c.anchor[idx], c.key))
+        positions = _solve_strip_1d([c.anchor[idx] for c in ordered], min_gap, lo, hi)
+        if positions is not None:
+            placed = {c.key: p for c, p in zip(ordered, positions, strict=True)}
+            return StripPlacement(placed, tuple(dropped))
+        # over capacity → drop the lowest-priority candidate (ties by key) and retry
+        victim = min(keep, key=lambda c: (c.priority, c.key))
+        keep.remove(victim)
+        dropped.append(victim.key)
+    return StripPlacement({}, tuple(dropped))
 
 
 # ---------------------------------------------------------------------------
