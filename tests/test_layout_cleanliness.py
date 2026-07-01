@@ -68,12 +68,20 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
         frozenset({"m_locy0", "m_locy1"}),
         frozenset({"hc_plan0", "section_arrow_right"}),
     },
-    # PENDING #321 (P1b): a bore-callout leader and an envelope depth dim still cross
-    # the side-drilled location dims — the carve+plan_strip migration removes these.
+    # side_drilled: one BENIGN datum overlap PLUS one PENDING defect.
+    #  - BENIGN {dim_loc_side_y2000, m_env_depth}: the envelope depth (dy→y1) and the
+    #    location (dy→hole_y) are a dimension chain off the common `dy` datum — they
+    #    share the view-edge witness corridor, exactly like the datum pairs above.
+    #    The cursor→carve envelope migration (#321) moves the depth dim to its
+    #    box-consistent tier but the shared witness corridor persists — structural,
+    #    not a placer defect. (Was mislabelled PENDING before the migration measured it.)
+    #  - PENDING #321 (P1b): {hc_side0, dim_loc_side_z2300} — a bore-callout leader
+    #    crosses the Z location dim; the location-dim carve+plan_strip pass removes it.
     "side_drilled": {
         frozenset({"hc_side0", "dim_loc_side_z2300"}),
         frozenset({"dim_loc_side_y2000", "m_env_depth"}),
     },
+    # BENIGN (as side_drilled): envelope depth + location share the datum witness corridor.
     "dshape": {frozenset({"dim_loc_side_y200", "m_env_depth"})},
 }
 
