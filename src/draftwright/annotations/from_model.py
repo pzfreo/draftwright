@@ -48,6 +48,7 @@ from draftwright.annotations._common import (
     _box_hits,
     _occupied_boxes,
     carve_free_segments,
+    place_strip_candidates,
     strip_free_span,
     strip_obstacles,
 )
@@ -286,7 +287,6 @@ def render_locations(dwg, model, a) -> int:
 
     # --- X locations: tier above the plan view ---
     PX, PY = a.proj.plan_x, a.proj.plan_y
-    plan_top = PY(a.bb.max.Y)
     x_refs: list = []
     for r in refs:
         if not any(abs(r[0] - u[0]) < 0.5 for u in x_refs):
@@ -302,33 +302,38 @@ def render_locations(dwg, model, a) -> int:
         )
     _kept_x_set = set(_kept_x)
     x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
-    for nm, ann in dwg.iter_annotations():
-        if nm.startswith("dim_pitch_plan") and getattr(ann, "dim_level_y", 0) > plan_top:
-            a.pv_zones.above.allocate(10.0)  # consume space used by a pitch dim
+    # Collect X-location dims nearest-datum-first and place them through the shared
+    # carve (P3, #150): the dim_pitch_plan dims above the view are now obstacles the
+    # carve avoids structurally, retiring the old manual pv_zones.above.allocate(10.0)
+    # pitch reservation + the per-dim cursor. No alternate view for a plan-X location,
+    # so a corridor-blocked dim is kept (force pass) rather than relocated; only a
+    # physically full strip drops (→ location_ref_dropped, escalates the hole table).
+    x_cands = []
     for i, (rx, ry) in enumerate(sorted(x_refs, key=lambda r: abs(r[0] - datum_x))):
         if abs(rx - datum_x) * a.SCALE < 1.0:
             continue  # on the datum edge — nothing to dimension
-        _py = a.pv_zones.above.allocate(tier)
-        if _py is None:
-            dwg._record_build_issue(
-                "warning",
-                "location_ref_dropped",
-                f"X location dim for x={_fmt(rx)} not placed (no room above the plan view)",
+        x_cands.append(
+            (
+                f"m_locx{i}",
+                lambda pos, _rx=rx, _ry=ry: _dim(
+                    (PX(datum_x), PY(_ry), 0),
+                    (PX(_rx), PY(_ry), 0),
+                    "above",
+                    pos - PY(_ry),
+                    draft,
+                    label=_fmt(_rx - datum_x),
+                ),
             )
-            continue
-        dwg.add(
-            _dim(
-                (PX(datum_x), PY(ry), 0),
-                (PX(rx), PY(ry), 0),
-                "above",
-                _py - PY(ry),
-                draft,
-                label=_fmt(rx - datum_x),
-            ),
-            f"m_locx{i}",
-            view="plan",
         )
-        n += 1
+    _left = place_strip_candidates(dwg, a.pv_zones.above, "plan", "y", x_cands, tier)
+    _left = place_strip_candidates(dwg, a.pv_zones.above, "plan", "y", _left, tier, force=True)
+    for _name, _ in _left:
+        dwg._record_build_issue(
+            "warning",
+            "location_ref_dropped",
+            f"{_name} not placed (no room above the plan view)",
+        )
+    n += len(x_cands) - len(_left)
 
     # --- Y locations: tier above the side view (which maps world-Y horizontally) ---
     SX, SZ = a.proj.side_x, a.proj.side_z
@@ -349,44 +354,37 @@ def render_locations(dwg, model, a) -> int:
         )
     _kept_y_set = set(_kept_y)
     y_refs = [r for r in y_refs if r[1] not in _y_drawable or r[1] in _kept_y_set]
-    for nm, ann in dwg.iter_annotations():
-        if nm.startswith("dim_pitch_side") and getattr(ann, "dim_level_y", 0) > side_top:
-            a.sv_zones.above.allocate(10.0)
+    # Cap the side-above strip below the iso view so Y-location dims never run under it
+    # (the carve respects outer_limit); the dim_pitch_side dims are obstacles the carve
+    # avoids structurally, retiring the old manual allocate(10.0) reservation + cursor.
     if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry in y_refs):
-        cap = iso_y0 - 4
-        above = a.sv_zones.above
-        if cap > above._cursor:
-            above.outer_limit = min(above.outer_limit, cap)
-        else:
-            _log.warning(
-                "sv_zones.above cursor %.1f >= iso_y0 cap %.1f: Y-location dims may overlap iso",
-                above._cursor,
-                cap,
-            )
+        a.sv_zones.above.outer_limit = min(a.sv_zones.above.outer_limit, iso_y0 - 4)
+    y_cands = []
     for i, (rx, ry) in enumerate(sorted(y_refs, key=lambda r: abs(r[1] - datum_y))):
         if abs(ry - datum_y) * a.SCALE < 1.0:
             continue
-        _py = a.sv_zones.above.allocate(tier)
-        if _py is None:
-            dwg._record_build_issue(
-                "warning",
-                "location_ref_dropped",
-                f"Y location dim for y={_fmt(ry)} not placed (no room above the side view)",
+        y_cands.append(
+            (
+                f"m_locy{i}",
+                lambda pos, _ry=ry: _dim(
+                    (SX(datum_y), SZ(a.bb.max.Z), 0),
+                    (SX(_ry), SZ(a.bb.max.Z), 0),
+                    "above",
+                    pos - side_top,
+                    draft,
+                    label=_fmt(_ry - datum_y),
+                ),
             )
-            continue
-        dwg.add(
-            _dim(
-                (SX(datum_y), SZ(a.bb.max.Z), 0),
-                (SX(ry), SZ(a.bb.max.Z), 0),
-                "above",
-                _py - side_top,
-                draft,
-                label=_fmt(ry - datum_y),
-            ),
-            f"m_locy{i}",
-            view="side",
         )
-        n += 1
+    _left = place_strip_candidates(dwg, a.sv_zones.above, "side", "y", y_cands, tier)
+    _left = place_strip_candidates(dwg, a.sv_zones.above, "side", "y", _left, tier, force=True)
+    for _name, _ in _left:
+        dwg._record_build_issue(
+            "warning",
+            "location_ref_dropped",
+            f"{_name} not placed (no room above the side view)",
+        )
+    n += len(y_cands) - len(_left)
     return n
 
 
