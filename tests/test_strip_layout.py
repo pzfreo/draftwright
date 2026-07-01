@@ -107,6 +107,30 @@ def test_strip_obstacles_keeps_section_hatch_in_every_per_view_query():
 # --- Escalation objects (ADR 0009 Amendment 1, P5-strand-2 scaffolding, #351) -----
 
 
+def test_record_callout_drop_emits_a_callout_escalation():
+    # PR-2 routing: a dropped hole callout emits a first-class Escalation into
+    # dwg._escalations (which the tabulation resolver now triggers on), alongside the
+    # `callout_dropped` lint code (kept for coverage). 1:1 with the code → byte-identical.
+    from draftwright.annotations.holes import _record_callout_drop
+
+    class _Dwg:
+        def __init__(s):
+            s._escalations, s._codes, s._dropped = [], [], []
+
+        def _drop_callout_diam(s, d):
+            s._dropped.append(d)
+
+        def _record_build_issue(s, sev, code, msg):
+            s._codes.append(code)
+
+    d = _Dwg()
+    _record_callout_drop(d, "plan", 6.0, "no room beside the view")
+    assert d._codes == ["callout_dropped"] and d._dropped == [6.0]
+    assert len(d._escalations) == 1
+    e = d._escalations[0]
+    assert e.kind == "callout" and e.view == "plan" and e.feature == 6.0
+
+
 def test_escalation_is_a_frozen_value_with_default_remedies():
     import dataclasses
 
