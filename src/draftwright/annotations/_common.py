@@ -229,8 +229,22 @@ def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False):
     else:
         lo += tier
     idx = 1 if axis == "y" else 0
+    perp = 0 if axis == "y" else 1  # the axis the dims do NOT stack along
     pad = tier + strip.spacing  # min separation between stacked dim lines
+    # Perpendicular band of these candidates. The 1-D carve projects obstacles onto the
+    # stacking axis only, so an obstacle on ANOTHER strip of this view — disjoint in the
+    # perpendicular axis, never actually touching — would falsely block (e.g. the overall
+    # width dim below the view blocking a slot-width dim on the right strip). Filter such
+    # obstacles out first. The perpendicular extent is independent of the tier position,
+    # so a single probe build per candidate suffices; the corridor check below already
+    # uses the full 2-D box, so it needs no such filter.
+    pbands = [
+        (b[perp], b[perp + 2]) for _n, build in cands if (b := _geom_box(build(lo))) is not None
+    ]
     occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+    if pbands:
+        band_lo, band_hi = min(p[0] for p in pbands), max(p[1] for p in pbands)
+        occupied = [b for b in occupied if b[perp] < band_hi and b[perp + 2] > band_lo]
     blockers = () if force else corridor_blockers(dwg, view)
     segs = carve_free_segments(lo, hi, [(b[idx], b[idx + 2]) for b in occupied], pad)
     # Fill innermost-first (nearest the view), matching the old cursor's stack order.
