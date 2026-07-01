@@ -1193,9 +1193,9 @@ def render_pmi(dwg, model, a) -> int:
         if strip is None:
             return False
         witness_y = max(p1[1], p2[1]) + 2
-        if strip.peek(_SLOT) is None or strip.peek(_SLOT) <= witness_y:
+        slot = carve_free_position(dwg, strip, view, "y", _SLOT, tuple(sorted((p1[0], p2[0]))))
+        if slot is None or slot <= witness_y:
             return False
-        slot = strip.allocate(_SLOT)
         dwg.add(
             _dim(
                 (p1[0], witness_y, 0),
@@ -1215,9 +1215,9 @@ def render_pmi(dwg, model, a) -> int:
         if strip is None:
             return False
         witness_y = min(p1[1], p2[1]) - 2
-        if strip.peek(_SLOT) is None or strip.peek(_SLOT) >= witness_y:
+        slot = carve_free_position(dwg, strip, view, "y", _SLOT, tuple(sorted((p1[0], p2[0]))))
+        if slot is None or slot >= witness_y:
             return False
-        slot = strip.allocate(_SLOT)
         dwg.add(
             _dim(
                 (p1[0], witness_y, 0),
@@ -1237,9 +1237,9 @@ def render_pmi(dwg, model, a) -> int:
         if strip is None:
             return False
         witness_x = max(p1[0], p2[0]) + 2
-        if strip.peek(_SLOT) is None or strip.peek(_SLOT) <= witness_x:
+        slot = carve_free_position(dwg, strip, view, "x", _SLOT, tuple(sorted((p1[1], p2[1]))))
+        if slot is None or slot <= witness_x:
             return False
-        slot = strip.allocate(_SLOT)
         dwg.add(
             _dim(
                 (witness_x, p1[1], 0),
@@ -1259,9 +1259,9 @@ def render_pmi(dwg, model, a) -> int:
         if strip is None:
             return False
         witness_x = min(p1[0], p2[0]) - 2
-        if strip.peek(_SLOT) is None or strip.peek(_SLOT) >= witness_x:
+        slot = carve_free_position(dwg, strip, view, "x", _SLOT, tuple(sorted((p1[1], p2[1]))))
+        if slot is None or slot >= witness_x:
             return False
-        slot = strip.allocate(_SLOT)
         dwg.add(
             _dim(
                 (witness_x, p1[1], 0),
@@ -1313,14 +1313,18 @@ def render_pmi(dwg, model, a) -> int:
                     ) or _try_below(p1, p2, a.pv_zones.below, label, name_d, "plan")
                 else:
                     tip = (PX(cx_f), PY(cy_f) + half_pg, 0)
-                    slot = a.pv_zones.above.allocate(_SLOT)
+                    slot = carve_free_position(
+                        dwg, a.pv_zones.above, "plan", "y", _SLOT, (PX(cx_f), PX(cx_f))
+                    )
                     if slot is not None:
                         dwg.add(
                             Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d, view="plan"
                         )
                         placed = True
                     else:
-                        slot = a.pv_zones.below.allocate(_SLOT)
+                        slot = carve_free_position(
+                            dwg, a.pv_zones.below, "plan", "y", _SLOT, (PX(cx_f), PX(cx_f))
+                        )
                         if slot is not None:
                             tip = (PX(cx_f), PY(cy_f) - half_pg, 0)
                             dwg.add(
@@ -1338,14 +1342,18 @@ def render_pmi(dwg, model, a) -> int:
                     ) or _try_below(p1, p2, a.sv_zones.below, label, name_d, "side")
                 else:
                     tip = (SX(cy_f), SZ(cz_f) + half_pg, 0)
-                    slot = a.sv_zones.above.allocate(_SLOT)
+                    slot = carve_free_position(
+                        dwg, a.sv_zones.above, "side", "y", _SLOT, (SX(cy_f), SX(cy_f))
+                    )
                     if slot is not None:
                         dwg.add(
                             Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d, view="side"
                         )
                         placed = True
                     else:
-                        slot = a.sv_zones.below.allocate(_SLOT)
+                        slot = carve_free_position(
+                            dwg, a.sv_zones.below, "side", "y", _SLOT, (SX(cy_f), SX(cy_f))
+                        )
                         if slot is not None:
                             tip = (SX(cy_f), SZ(cz_f) - half_pg, 0)
                             dwg.add(
@@ -1364,14 +1372,18 @@ def render_pmi(dwg, model, a) -> int:
                 else:
                     # Narrow bore: leader from bore bottom into the below strip.
                     tip = (FX(cx_f), FZ(cz_f) - half_pg, 0)
-                    slot = a.fv_zones.below.allocate(_SLOT)
+                    slot = carve_free_position(
+                        dwg, a.fv_zones.below, "front", "y", _SLOT, (FX(cx_f), FX(cx_f))
+                    )
                     if slot is not None:
                         elbow = (FX(cx_f), slot, 0)
                         dwg.add(Leader(tip, elbow, label, draft), name_d, view="front")
                         placed = True
                     else:
                         # Fall back: leader upward into the above strip.
-                        slot = a.fv_zones.above.allocate(_SLOT)
+                        slot = carve_free_position(
+                            dwg, a.fv_zones.above, "front", "y", _SLOT, (FX(cx_f), FX(cx_f))
+                        )
                         if slot is not None:
                             tip = (FX(cx_f), FZ(cz_f) + half_pg, 0)
                             elbow = (FX(cx_f), slot, 0)
