@@ -52,21 +52,44 @@ collision class by construction while keeping determinism (ADR 0001).
 
 ## Status
 
-Foundation landed (2026-07-01):
+Updated 2026-07-01.
 
 - **P0 (#317)** — done: characterization gate (#326), `strip_obstacles` complete
   per-strip occupancy (#327), `StripCandidate` + `plan_strip` + `StripPlacement`
-  collect→solve→emit seam (#328).
-- **P2 core (#322)** — landed: `plan_strip` priority selection / ranked over-capacity
-  drops (#330). Feature-ordered assignment + escalation signal still pending routing.
-- **P1 (#321)** — in progress. #329 migrated off-axis dims onto the complete
-  occupancy; #331 fixed the D-profile / `side_drilled` coaxial overlap on the model
-  (`_coaxial_lift` generalised to cause-driven `reserved_rows`). **P1a** routes the
-  bore-callout Pass-2 through `plan_strip` (byte-identical; deletes
-  `_solve_strip_via_layout` + the greedy prefix-drop) — the first production placer
-  on the seam. **P1b** (next) routes `_locate_off_axis_holes`, builds the occupancy
-  carve, and deletes the tier-retry hack + `_coaxial_lift`.
-- **P3 (#323) / P4 (#318) / P5 (#319)** — not started.
+  collect→solve→emit seam (#328). Cleanliness invariants (determinism + overlap
+  ratchet) pulled forward (#333).
+- **P1 (#321)** — **done.** #329/#331 landed the occupancy model; **P1a** routed the
+  bore-callout Pass-2 through `plan_strip`; **P1b (#335)** routed `_locate_off_axis_holes`
+  onto the carve + added **corridor-aware relocate-or-keep** (policy B — never drop a
+  real dim; a leader in a right/below dim's witness corridor routes it to the other
+  view, else keeps it). Deleted the tier-retry `_box_hits` hack.
+- **P2 (#322)** — **done.** Core priority selection landed earlier (#330); **D3 (#336)**
+  routed the real per-feature priority (bore diameter — largest wins) into the
+  selection. The **escalation ladder was already in place** from prior work (#92/#93/#307):
+  a ranked drop records `callout_dropped`/`location_ref_dropped`, `_maybe_tabulate_holes`
+  escalates to the hole table + balloons; detail views stay step-legibility-only; holes
+  and steps escalate on disjoint feature classes (no double-escalation). *Refinement
+  (user, 2026-07-01):* make dropped keys **first-class escalation objects**, not just
+  `*_dropped` build-issue codes — a structured signal the table/detail escalators
+  consume. Tracked into P5.
+- **P3 (#323)** — **in progress.** Envelope dims decoupled from the cursor (#334). The
+  shared collect-then-solve placer extracted to `_common.place_strip_candidates` (#337),
+  which now reserves the outermost label's `tier` at the strip boundary (#338 review
+  fix). `render_locations` (plan-view X/Y locations) migrated (#338). **Remaining
+  `Strip.allocate` production paths, one renderer at a time:** the front-view
+  height/step ladder (`render_height_ladder` — note its leapfrog witness cursor), the
+  turned step-length chain, PMI/GD&T (`render_pmi`), milled slots (`render_slots`), and
+  `drawing.py`. When the last is migrated, delete `Strip.allocate` and close #150.
+- **P4 (#318)** — **not started, and intentionally deferred until P3 completes** (user,
+  2026-07-01): optimising leader assignment while some placers still use the cursor
+  would optimise around mixed placement semantics.
+- **P5 (#319)** — **not started.** Delete dead patches + the cursor; promote the
+  escalation signal to first-class objects (see P2 refinement); **burn down the
+  `_KNOWN_OVERLAPS` allowlist** (relocate/rescale the remaining real crossings — e.g.
+  `side_drilled` `{hc_side0, dim_loc_side_z2300}`, an outer-layout concern) then convert
+  the cleanliness ratchet from an allowlist into an **absolute** no-overlap invariant.
 
-Key gap: until P1b, `plan_strip` is load-bearing only for the bore-callout Pass-2;
-the off-axis dims still use the tier-retry + post-hoc `_box_hits` hack.
+Overlap allowlist classes (`tests/test_layout_cleanliness.py`): **BENIGN** (permanent
+datum-chain witness corridors), **SPACE-CONSTRAINED** (real crossing, no roomy
+alternate — needs outer-layout rescale), **PENDING** (a placer defect a named phase
+removes). P5's burn-down empties SPACE-CONSTRAINED + PENDING.
