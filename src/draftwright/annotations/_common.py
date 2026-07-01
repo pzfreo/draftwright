@@ -56,9 +56,18 @@ def _geom_box(o):
         return None
 
 
-def strip_obstacles(dwg, view=None):
+CROSSABLE_TYPES = frozenset({"Centerline", "CenterlineCircle", "CenterMark"})
+"""Annotation types a *dimension* may legitimately cross (ISO 128): centre lines
+and centre marks. A **leader**, by contrast, must avoid them (#305) — so this is a
+per-consumer choice, passed as ``crossable`` to :func:`strip_obstacles`."""
+
+
+def strip_obstacles(dwg, view=None, *, crossable=()):
     """The COMPLETE occupancy for strip placement (ADR 0009): every placed
-    annotation's full rendered footprint, optionally restricted to *view*.
+    annotation's full rendered footprint, optionally restricted to *view*, minus
+    any annotation whose type name is in *crossable* (things this particular
+    consumer may legitimately overlap — e.g. a location dim crosses a centre line
+    but a leader does not; see :data:`CROSSABLE_TYPES`).
 
     Unlike :func:`_occupied_boxes` (label boxes only, with bare centrelines
     excluded), this captures the geometry a label box hides — leader shafts and
@@ -88,6 +97,8 @@ def strip_obstacles(dwg, view=None):
             owner = dwg.view_of(name)
             if owner is not None and owner != view:
                 continue  # owned by a different ortho view → its own (disjoint) block
+        if type(o).__name__ in crossable:
+            continue  # this consumer may cross it (centre lines/marks for a dim)
         bb = _geom_box(o)
         if bb is not None:
             boxes.append(bb)

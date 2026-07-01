@@ -28,7 +28,12 @@ from draftwright._core import (
     _iso_bbox,
     _log,
 )
-from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
+from draftwright.annotations._common import (
+    CROSSABLE_TYPES,
+    _anno_box,
+    _box_hits,
+    strip_obstacles,
+)
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
 from draftwright.layout import LayoutSolver, Placeable
 from draftwright.model.ir import HoleFeature, PatternFeature
@@ -107,7 +112,12 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
     FX, FZ = a.proj.front_x, a.proj.front_z
     dx, dy, dz = a.bb.min.X, a.bb.min.Y, a.bb.min.Z
     tier = draft.font_size + 2 * draft.pad_around_text
-    occupied = _occupied_boxes(dwg)
+    # Complete occupancy (#321): the full footprint of every placed annotation a
+    # location dim must not overprint — crucially the bore-callout LEADER SHAFTS
+    # the old label-only `_occupied_boxes` missed (#133/#225) — minus the centre
+    # lines/marks a dim may legitimately cross. This is the P1 migration onto the
+    # ADR 0009 occupancy model.
+    occupied = strip_obstacles(dwg, crossable=CROSSABLE_TYPES)
 
     def _drop(axis, view):
         # Recorded at INFO under a code DISTINCT from the plan path's
