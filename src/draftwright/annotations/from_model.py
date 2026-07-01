@@ -47,6 +47,7 @@ from draftwright.annotations._common import (
     _anno_box,
     _box_hits,
     _occupied_boxes,
+    carve_free_position,
     carve_free_segments,
     place_strip_candidates,
     strip_free_span,
@@ -849,7 +850,8 @@ def render_height_ladder(dwg, model, a) -> int:
     if rep is not None:
         n_rep, rise = rep
         first = sorted(levels)[0]
-        px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
+        perp = tuple(sorted((FZ(a.bb.min.Z), FZ(first))))
+        px = carve_free_position(dwg, a.fv_zones.right, "front", "x", _SLOT_DIM_STEP, perp)
         if px is not None:
             dwg.add(
                 _dim(
@@ -881,7 +883,8 @@ def render_height_ladder(dwg, model, a) -> int:
                 "(use a detail view)",
             )
         for col, z in enumerate(kept):
-            px = a.fv_zones.right.allocate(_SLOT_DIM_STEP)
+            perp = tuple(sorted((FZ(a.bb.min.Z), FZ(z))))
+            px = carve_free_position(dwg, a.fv_zones.right, "front", "x", _SLOT_DIM_STEP, perp)
             if px is None:
                 dwg._record_build_issue(
                     "error",
@@ -912,7 +915,19 @@ def render_height_ladder(dwg, model, a) -> int:
     rot = next((f for f in model.features if f.kind == "rotational"), None)
     od_is_height = rot is not None and rot.frame.axis in ("x", "y")
     suppress_height = model.orientation == "z" or od_is_height
-    px = None if suppress_height else a.fv_zones.right.allocate(_SLOT_DIM_HEIGHT)
+    px = (
+        None
+        if suppress_height
+        else carve_free_position(
+            dwg,
+            a.fv_zones.right,
+            "front",
+            "x",
+            _SLOT_DIM_HEIGHT,
+            tuple(sorted((FZ(a.bb.min.Z), FZ(a.bb.max.Z)))),
+            outermost=True,
+        )
+    )
     if px is not None:
         dwg.add(
             _dim(

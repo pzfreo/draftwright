@@ -281,3 +281,43 @@ def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False):
                 continue
             dwg.add(dim, name, view=view)
     return todo
+
+
+def carve_free_position(dwg, strip, view, axis, tier, perp_span, *, outermost=False):
+    """The single free tier POSITION on *strip* at which a dim of height *tier* spanning
+    *perp_span* ``(lo, hi)`` on the perpendicular axis clears every placed obstacle in
+    *view* — the innermost (nearest the view) tier by default, or the outermost fitting
+    one when *outermost*. Returns the dim-line page coord, or None if the strip is full.
+
+    The position-returning counterpart of :func:`place_strip_candidates` (which batches,
+    builds and adds): a caller that needs a dim's assigned position BEFORE building the
+    next — the height-ladder leapfrog chain, where each step dim's witness base is the
+    previous dim's line — uses this. Same carve: outer-label tier reservation, the
+    perpendicular-band filter (*perp_span* drops obstacles disjoint from this dim's own
+    perpendicular extent), and innermost-first fill. No corridor check (a single-strip
+    ladder has no alternate view to route to; obstacle tiers are still avoided)."""
+    if strip is None:
+        return None
+    lo, hi, inner = strip_free_span(strip)
+    idx = 1 if axis == "y" else 0
+    perp = 0 if axis == "y" else 1
+    pad = tier + strip.spacing
+    band_lo, band_hi = perp_span
+    occ = [
+        b
+        for b in strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        if b[perp] < band_hi and b[perp + 2] > band_lo
+    ]
+    segs = carve_free_segments(lo, hi, [(b[idx], b[idx + 2]) for b in occ], pad)
+    # A segment holds the dim iff it is at least `tier` wide (the label height). This IS
+    # the outer-label reservation — inclusive at the boundary (a strip exactly `gap+tier`
+    # wide fits one dim, as the old `allocate` did) — so it must NOT be combined with a
+    # separate `hi -= tier` pull-in, which would double-reserve and drop that dim.
+    fitting = [s for s in segs if s[1] - s[0] >= tier - 1e-9]
+    if not fitting:
+        return None
+    if inner == lo:  # inner edge = seg lo; outermost = the segment reaching furthest out
+        seg = max(fitting, key=lambda s: s[1]) if outermost else min(fitting, key=lambda s: s[0])
+        return seg[0]
+    seg = min(fitting, key=lambda s: s[0]) if outermost else max(fitting, key=lambda s: s[1])
+    return seg[1]

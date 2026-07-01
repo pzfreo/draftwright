@@ -294,6 +294,31 @@ def test_place_strip_candidates_ignores_perpendicular_disjoint_obstacle():
     assert not left and len(dwg.added) == 1, "perpendicular-disjoint obstacle must not block"
 
 
+def test_carve_free_position_exact_fit_and_innermost_outermost():
+    # carve_free_position must place on a strip EXACTLY gap+tier wide — the label reaches
+    # outer_limit inclusively, as the old Strip.allocate did (the double-reserve bug
+    # dropped it). And it returns the innermost tier by default, outermost when asked.
+    from draftwright._core import Strip
+    from draftwright.annotations._common import carve_free_position
+
+    class _Dwg:
+        def iter_annotations(s):
+            return []
+
+        def view_of(s, n):
+            return "front"
+
+    # right strip near=116 .. outer=126: exactly one 10 mm tier fits
+    tight = Strip(anchor=108.0, outer_limit=126.0, direction=1.0, gap=8.0, spacing=4.0)
+    assert carve_free_position(_Dwg(), tight, "front", "x", 10.0, (0.0, 50.0)) == 116.0
+
+    # a roomy strip: innermost is the inner edge (near); outermost still fits within bounds
+    wide = Strip(anchor=108.0, outer_limit=160.0, direction=1.0, gap=8.0, spacing=4.0)  # near=116
+    inner = carve_free_position(_Dwg(), wide, "front", "x", 10.0, (0.0, 50.0))
+    outer = carve_free_position(_Dwg(), wide, "front", "x", 10.0, (0.0, 50.0), outermost=True)
+    assert inner == 116.0 and outer + 10.0 <= 160.0 and outer >= inner
+
+
 def test_plan_strip_empty():
     res = plan_strip([], 0, 100, 5)
     assert res.placed == {} and res.dropped == ()
