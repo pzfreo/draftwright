@@ -571,8 +571,15 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         When *ny* is within a clearance of any such line, lift it one clearance off
         toward the roomier half of the strip — the leader becomes a legible angled
         leader whose "⌀… ↓…" text sits wholly clear of the line (standard practice
-        for a central feature). Clamped to the strip, so ``ny`` is unchanged if there
-        is no room to lift (then lint reports the residual overlap)."""
+        for a central feature). The lifted row is clamped to the strip bounds, so a
+        strip too shallow to lift a full clearance pins the callout at its edge —
+        the roomier-half pick makes that rare, and lint reports any residual overlap.
+
+        A single fixed-offset lift, not a gap search: it can land within a clearance
+        of a *second* reserved row when two are <~clearance apart on the page. Rare
+        for real parts (the recogniser rarely keeps radial bores that close), and
+        superseded by the ADR 0009 collect-then-solve pass (#318) that will retire
+        this heuristic entirely."""
         tol = draft.font_size  # "hole at the view centre" tolerance (page mm)
         rows = list(reserved_rows)
         if (a.is_rotational or a.prof is not None) and (
@@ -683,9 +690,19 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         # the front view. A callout on one of these rows gets crossed by that line
         # (#321), so lift it off. Computed from hole geometry (no feature link, which
         # the callout doesn't carry): the callout's own row equals its bore's row.
+        # Skip patterned holes to match `_locate_off_axis_holes` (which excludes them,
+        # `h not in patterned`) — they carry no per-hole location dim, so reserving
+        # their rows would only cause needless lifts. This is a superset guard, not an
+        # exact match: rows for dims that hit dedup/drop/sub-mm gating may still be
+        # over-reserved (conservative — a spurious lift stays valid), never under.
+        patterned = {h for p in a.patterns for h in p.holes}
         off_axis_letter = {"side": "x", "front": "y"}.get(view)
         reserved_rows = (
-            [to_page(h.location)[1] for h in a.holes if _axis_letter(h) == off_axis_letter]
+            [
+                to_page(h.location)[1]
+                for h in a.holes
+                if _axis_letter(h) == off_axis_letter and h not in patterned
+            ]
             if off_axis_letter
             else []
         )
