@@ -45,6 +45,7 @@ from draftwright._core import (
     _tag_sequence,
     _text_width,
 )
+from draftwright.annotations._common import carve_free_position
 from draftwright.export import (
     _export_shape,
     _render_pdf,
@@ -533,9 +534,15 @@ class Drawing:
                 strip = getattr(zones, side, None)
         dist = slot
         if strip is not None:
-            coord = strip.allocate(slot)
+            # Cursor-free tier placement (ADR 0009, #150): find a free tier that clears
+            # every placed annotation, replacing Strip.allocate. axis = the stacking axis
+            # (X for left/right, Y for above/below); perp_span = the dim's cross-axis span
+            # so a perpendicular-disjoint occupant does not false-block.
+            ax = 0 if side in ("left", "right") else 1
+            axis = "x" if ax == 0 else "y"
+            perp = tuple(sorted((p1[1 - ax], p2[1 - ax])))
+            coord = carve_free_position(self, strip, view, axis, slot, perp)
             if coord is not None:
-                ax = 0 if side in ("left", "right") else 1
                 if side in ("right", "above"):
                     dist = coord - max(p[ax] for p in (p1, p2))
                 else:
