@@ -54,8 +54,9 @@ phases:
 
 1. **Collect.** The stage consumes the planner's **render-intents** for this view
    (ADR 0008) and *measures* each into a placement **candidate** — a geometry-only
-   `StripCandidate` carrying the site anchor, label-box size, priority, and
-   eligible side(s). The candidate **is a measured render-intent**: the collect
+   `StripCandidate` carrying the site anchor, label-box size, and priority (and an
+   eligible-sides field once the multi-side *assign* step lands, P2). The candidate
+   **is a measured render-intent**: the collect
    step (in `annotations/`, which may depend on the IR) projects intent → page
    geometry, and hands the solver only that geometry, so the solver stays a leaf
    with no dependency on the IR. Fixed obstacles that are *not* placed — the

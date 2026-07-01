@@ -145,3 +145,12 @@ def test_plan_strip_x_axis():
 
 def test_plan_strip_empty():
     assert plan_strip([], 0, 100, 5) == {}
+
+
+def test_plan_strip_rejects_duplicate_keys():
+    # keys key the result — a silent overwrite would drop a candidate (cf.
+    # LayoutSolver.register, which also raises).
+    import pytest
+
+    with pytest.raises(ValueError, match="unique"):
+        plan_strip([_cand("a", 10), _cand("a", 20)], lo=0, hi=100, min_gap=5)
