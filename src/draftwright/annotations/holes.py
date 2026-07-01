@@ -29,8 +29,11 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
-    _anno_box,
     _box_hits,
+    _geom_box,
+    carve_free_segments,
+    corridor_blockers,
+    strip_free_span,
     strip_obstacles,
 )
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
@@ -83,9 +86,12 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
     An X-axis hole is a circle in the SIDE view (locate its Y below the view and
     its Z to the right — the side view has no left strip); a Y-axis hole is a
     circle in the FRONT view (locate its X below and its Z to the right). Each
-    offset is allocated from the view's strip so dims stack without overlap. A tier
-    with no room is dropped and recorded as ``off_axis_location_dropped`` — never
-    force-stacked. Holes already covered by a pattern callout are skipped.
+    view's strip is carved around the annotations already placed on it and the dims
+    are spaced within the free segments by one ``plan_strip`` solve (ADR 0009 / #321
+    P1b — the collect-then-solve seam replacing the old ``allocate`` + ``_box_hits``
+    tier-retry). A dim that finds no room is dropped and recorded as
+    ``off_axis_location_dropped`` — never force-stacked. Holes already covered by a
+    pattern callout are skipped.
 
     Run in two phases (``which`` is ``"across"`` or ``"along"``) so each dim stacks in
     the ISO order — overall dim OUTERMOST, feature/location dims nearer the view:
@@ -111,12 +117,6 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
     FX, FZ = a.proj.front_x, a.proj.front_z
     dx, dy, dz = a.bb.min.X, a.bb.min.Y, a.bb.min.Z
     tier = draft.font_size + 2 * draft.pad_around_text
-    # Complete occupancy (#321): the full footprint of every placed annotation a
-    # location dim must not overprint — crucially the bore-callout LEADER SHAFTS
-    # the old label-only `_occupied_boxes` missed (#133/#225) — minus the centre
-    # lines/marks a dim may legitimately cross. This is the P1 migration onto the
-    # ADR 0009 occupancy model.
-    occupied = strip_obstacles(dwg, crossable=CROSSABLE_TYPES)
 
     def _drop(axis, view):
         # Recorded at INFO under a code DISTINCT from the plan path's
@@ -138,38 +138,69 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
             f"{axis} location dim for a {view}-view hole not placed (no room beside the view)",
         )
 
-    def _place(strip, view, p_lo, p_hi, dist, label, name, side):
-        # The strip cursor only tracks dims it allocated; the right/below strips are
-        # SHARED with hole callouts (``hc_*``) and the section hatch, which use other
-        # placers and are invisible to the cursor (#133). So a clean allocation is
-        # necessary but not sufficient — verify the candidate's box does not collide
-        # with an already-placed occupant before committing. On a collision, advance
-        # to the next tier and retry rather than giving up: a hole's own callout often
-        # sits in this strip, and a tier past it would fit — a single collision must
-        # not drop the dim (#225). The strip cursor naturally bounds the retry (it
-        # returns None once exhausted). Returns True on success, False if no tier fits.
-        if strip is None:
-            return False
-        while (coord := strip.allocate(tier)) is not None:
-            dim = _dim(p_lo, p_hi, side, dist(coord), draft, label=_fmt(label))
-            if not _box_hits(_anno_box(dim), occupied):
+    def _emit(strip, view, axis, cands, force=False):
+        # Collect-then-solve placement (ADR 0009 / #321 P1b): each candidate location
+        # dim in *cands* — an ``(name, build(pos)->dim)`` pair — is spaced by one
+        # ``plan_strip`` solve per free segment of the CARVED strip, replacing the old
+        # per-dim ``allocate`` + ``_box_hits`` tier-retry. Occupancy is THIS view's own
+        # placed annotations plus the drawing-level obstacles no ortho view owns (the
+        # section hatch), recomputed per call so a dim placed earlier in this pass is
+        # avoided; other ortho views are disjoint (ADR 0004) and excluded so their rows
+        # never over-carve this strip. This makes the old post-hoc collision retry
+        # structural: a dim can never land on a bore-callout leader shaft the label-only
+        # occupancy missed (#133/#225/#305).
+        #
+        # A right/below dim also occupies the 2-D corridor back to the view edge, which
+        # the 1-D strip carve cannot represent: a leader in that corridor is crossed no
+        # matter how far out the dim line lands. By default such a placement is rejected
+        # so the caller can route the dim to the other view (its disjoint block cannot
+        # cross this leader). ``force=True`` skips that corridor check — the caller's
+        # last resort when no view took the dim cleanly: keep it on its natural view and
+        # accept the (same-feature) leader crossing rather than drop a real dimension
+        # (policy B). Candidates that find no strip tier AT ALL are still returned (a
+        # physically full strip — the caller records the genuine drop).
+        if strip is None or not cands:
+            return list(cands)
+        lo, hi, inner = strip_free_span(strip)
+        idx = 1 if axis == "y" else 0
+        pad = tier + strip.spacing  # min separation between stacked dim lines
+        occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        blockers = () if force else corridor_blockers(dwg, view)
+        segs = carve_free_segments(lo, hi, [(b[idx], b[idx + 2]) for b in occupied], pad)
+        # Fill innermost-first (nearest the view), matching the old cursor's stack order.
+        segs.sort(key=lambda s: abs((s[0] if inner == lo else s[1]) - inner))
+        todo = list(cands)
+        for seg_lo, seg_hi in segs:
+            if not todo:
+                break
+            cap = int((seg_hi - seg_lo) / pad) + 1
+            take, todo = todo[:cap], todo[cap:]
+            nat = seg_lo if inner == lo else seg_hi
+            anch = (0.0, nat) if axis == "y" else (nat, 0.0)
+            # Keys order the tiers so the FIRST candidate lands on the inner tier: for an
+            # inner=lo strip that is the lowest position (ascending keys); for a below
+            # strip (inner=hi) it is the highest, so the keys reverse.
+            triples = [
+                (
+                    StripCandidate(
+                        f"{(k if inner == lo else len(take) - 1 - k):04d}", anch, (tier, tier)
+                    ),
+                    nb,
+                )
+                for k, nb in enumerate(take)
+            ]
+            res = plan_strip([sc for sc, _ in triples], seg_lo, seg_hi, pad, axis=axis)
+            for sc, (name, build) in triples:
+                pos = res.placed.get(sc.key)
+                if pos is None:  # segment over its estimated capacity (shouldn't occur)
+                    todo.append((name, build))
+                    continue
+                dim = build(pos)
+                if not force and _box_hits(_geom_box(dim), blockers):  # corridor crosses a leader
+                    todo.append((name, build))
+                    continue
                 dwg.add(dim, name, view=view)
-                occupied.append(_anno_box(dim))
-                return True
-        return False
-
-    def _below(strip, view, p_lo, p_hi, witness, label, axis):
-        if not _place(
-            strip,
-            view,
-            p_lo,
-            p_hi,
-            lambda c: witness - c,
-            label,
-            f"dim_loc_{view}_{axis}{round(label * 100)}",
-            "below",
-        ):
-            _drop(axis, view)
+        return todo
 
     # "across" phase — an X-axis hole's Y position below the SIDE view, placed BEFORE
     # the envelope so the overall depth dim stacks outside it (ISO order). Confined to
@@ -181,40 +212,58 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
     if which == "across":
         yw = SZ(dz) - 2
         seen_y: set = set()
+        cands = []
         for h in (h for h in off if _axis_letter(h) == "x"):
             yo = round(abs(h.location[1] - dy), 2)
             if yo * a.SCALE >= 1.0 and yo not in seen_y:
                 seen_y.add(yo)
-                _below(
-                    a.sv_zones.below,
-                    "side",
-                    (SX(dy), yw, 0),
-                    (SX(h.location[1]), yw, 0),
-                    yw,
-                    yo,
-                    "y",
+                p_lo, p_hi = (SX(dy), yw, 0), (SX(h.location[1]), yw, 0)
+                cands.append(
+                    (
+                        f"dim_loc_side_y{round(yo * 100)}",
+                        lambda pos, pl=p_lo, ph=p_hi, lb=yo: _dim(
+                            pl, ph, "below", yw - pos, draft, label=_fmt(lb)
+                        ),
+                    )
                 )
+        leftover = _emit(a.sv_zones.below, "side", "y", cands)
+        leftover = _emit(a.sv_zones.below, "side", "y", leftover, force=True)  # keep, don't drop
+        for _ in leftover:
+            _drop("y", "side")
         return
 
     # "along" phase (after the envelope + turned-diameter passes): a Y-axis hole's X
     # position below the FRONT view, then every hole's height (Z) to the right.
     xw = FZ(dz) - 2
     seen_x: set = set()
+    x_cands = []
     for h in (h for h in off if _axis_letter(h) == "y"):
         xo = round(abs(h.location[0] - dx), 2)
         if xo * a.SCALE >= 1.0 and xo not in seen_x:
             seen_x.add(xo)
-            _below(
-                a.fv_zones.below, "front", (FX(dx), xw, 0), (FX(h.location[0]), xw, 0), xw, xo, "x"
+            p_lo, p_hi = (FX(dx), xw, 0), (FX(h.location[0]), xw, 0)
+            x_cands.append(
+                (
+                    f"dim_loc_front_x{round(xo * 100)}",
+                    lambda pos, pl=p_lo, ph=p_hi, lb=xo: _dim(
+                        pl, ph, "below", xw - pos, draft, label=_fmt(lb)
+                    ),
+                )
             )
+    x_leftover = _emit(a.fv_zones.below, "front", "y", x_cands)
+    x_leftover = _emit(a.fv_zones.below, "front", "y", x_leftover, force=True)  # keep, don't drop
+    for _ in x_leftover:
+        _drop("x", "front")
 
-    # Height offset (Z): a hole's height is visible to the RIGHT of both the side
-    # and the front view. Neither right strip is universally free — the side
-    # view's is contended by hole callouts (hc_side) + the section hatch, the
-    # front view's by the dim_height/dim_step ladder — so try the natural strip
-    # first and FALL BACK to the other before giving up (#133 rework). The
-    # occupancy check in _place drops a candidate that would overprint a callout
-    # or hatch the strip cursor cannot see, so neither strip overprints.
+    # Height offset (Z): a hole's height is visible to the RIGHT of both the side and
+    # the front view. Neither right strip is universally free — the side view's is
+    # contended by hole callouts (hc_side) + the section hatch, the front view's by the
+    # dim_height/dim_step ladder — so try the natural strip first, then RELOCATE to the
+    # other view (a disjoint block that cannot cross the natural view's leader) if a
+    # bore-callout leader sits in the natural corridor. If neither view takes it cleanly,
+    # KEEP it on the natural view (force) accepting the same-feature leader crossing —
+    # never drop a real dimension (policy B, #133 rework); only a physically full strip
+    # still drops.
     zr, zrf = SX(a.bb.max.Y), FX(a.bb.max.X)
     seen_z = set()
     for h in off:
@@ -223,23 +272,25 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
             continue
         seen_z.add(zo)
         hz = h.location[2]
+
+        def _zc(view, p_lo, p_hi, edge, _zo=zo):
+            return (
+                f"dim_loc_{view}_z{round(_zo * 100)}",
+                lambda pos, pl=p_lo, ph=p_hi, e=edge: _dim(
+                    pl, ph, "right", pos - e, draft, label=_fmt(_zo)
+                ),
+            )
+
         side_cand = (a.sv_zones.right, "side", (zr, SZ(dz), 0), (zr, SZ(hz), 0), zr)
         front_cand = (a.fv_zones.right, "front", (zrf, FZ(dz), 0), (zrf, FZ(hz), 0), zrf)
         order = (side_cand, front_cand) if _axis_letter(h) == "x" else (front_cand, side_cand)
-        if not any(
-            _place(
-                strip,
-                view,
-                p_lo,
-                p_hi,
-                lambda c, e=edge: c - e,
-                zo,
-                f"dim_loc_{view}_z{round(zo * 100)}",
-                "right",
-            )
-            for strip, view, p_lo, p_hi, edge in order
-        ):
-            _drop("Z", order[0][1])
+        for strip, view, p_lo, p_hi, edge in order:
+            if not _emit(strip, view, "x", [_zc(view, p_lo, p_hi, edge)]):
+                break
+        else:
+            strip, view, p_lo, p_hi, edge = order[0]
+            if _emit(strip, view, "x", [_zc(view, p_lo, p_hi, edge)], force=True):
+                _drop("Z", view)
 
 
 def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_page):

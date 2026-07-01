@@ -147,6 +147,35 @@ def carve_free_segments(lo, hi, intervals, pad):
     return free
 
 
+def corridor_blockers(dwg, view):
+    """Boxes of annotations a dimension's *witness corridor* (the span from the view
+    edge out to its dim line) must not cross — leaders/callouts, the section hatch, the
+    title block: everything that is neither a datum-chained ``Dimension`` nor a
+    crossable centre line/mark (:data:`CROSSABLE_TYPES`).
+
+    :func:`strip_obstacles` carves the 1-D strip so a dim *line* clears every occupant,
+    but a right/below dim also occupies the 2-D corridor back to the view — and a bore
+    callout's leader sitting in that corridor is crossed however far out the line is
+    placed (the #133/#225/#305 leader class, in its witness-corridor form). A dim whose
+    full footprint hits one of these must route to another view, not overprint it (ISO
+    128). Sibling location/envelope dims are excluded: they chain off the shared datum
+    and legitimately share the corridor. View scoping mirrors :func:`strip_obstacles`
+    (this view's own annotations + drawing-level occupants that no ortho view owns)."""
+    boxes = []
+    for name, o in dwg.iter_annotations():
+        if view is not None:
+            owner = dwg.view_of(name)
+            if owner is not None and owner != view:
+                continue
+        tn = type(o).__name__
+        if tn == "Dimension" or tn in CROSSABLE_TYPES:
+            continue  # datum-chained dims share the corridor; centre lines are crossable
+        bb = _geom_box(o)
+        if bb is not None:
+            boxes.append(bb)
+    return boxes
+
+
 def _box_hits(bb, boxes):
     """True when ``bb`` overlaps any box in ``boxes`` (strict AABB test). Slightly
     more conservative than the within-view label lint (which tolerates a 0.5 mm

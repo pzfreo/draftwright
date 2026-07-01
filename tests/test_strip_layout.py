@@ -197,9 +197,11 @@ def test_plan_strip_rejects_duplicate_keys():
 # --- _envelope_tier: overall dim stacks OUTSIDE every obstacle (#321 P3a-envelope) ---
 
 
-def _fake_dwg(obstacles, view="side"):
-    # Minimal dwg for strip_obstacles/_envelope_tier: named annotations exposing a
-    # bounding_box() and a single owning view. obstacles: {name: (x0, y0, x1, y1)}.
+def _fake_dwg(obstacles, view="side", types=None):
+    # Minimal dwg for strip_obstacles/_envelope_tier/corridor_blockers: named
+    # annotations exposing a bounding_box() and a single owning view. obstacles:
+    # {name: (x0, y0, x1, y1)}; *types* optionally maps a name to its annotation
+    # class name (default "_Obst") so corridor_blockers' type filter can be exercised.
     class _P:
         def __init__(s, x, y):
             s.X, s.Y = x, y
@@ -208,21 +210,43 @@ def _fake_dwg(obstacles, view="side"):
         def __init__(s, x0, y0, x1, y1):
             s.min, s.max = _P(x0, y0), _P(x1, y1)
 
-    class _Obst:
-        def __init__(s, bb):
-            s._bb = bb
-
-        def bounding_box(s):
-            return s._bb
+    def _make(name, bb):
+        tn = (types or {}).get(name, "_Obst")
+        return type(tn, (), {"bounding_box": lambda s, _b=_BB(*bb): _b})()
 
     class _Dwg:
         def iter_annotations(s):
-            return [(n, _Obst(_BB(*b))) for n, b in obstacles.items()]
+            return [(n, _make(n, b)) for n, b in obstacles.items()]
 
         def view_of(s, n):
             return view
 
     return _Dwg()
+
+
+def test_corridor_blockers_keeps_leaders_excludes_dim_chains_and_centrelines():
+    # A dimension's witness corridor may cross datum-chained dims and centre lines but
+    # NOT a leader (#321 P1b). corridor_blockers returns only the blocking geometry.
+    from draftwright.annotations._common import corridor_blockers
+
+    dwg = _fake_dwg(
+        {"dim_loc_side_y100": (0, 0, 5, 3), "m_cl": (0, 0, 5, 3), "hc_side0": (10, 10, 20, 15)},
+        types={"dim_loc_side_y100": "Dimension", "m_cl": "Centerline", "hc_side0": "Leader"},
+    )
+    assert corridor_blockers(dwg, "side") == [(10.0, 10.0, 20.0, 15.0)]
+
+
+def test_side_hole_z_dim_is_kept_not_dropped_under_policy_b():
+    # side_drilled's bore-callout leader crosses the Z-location corridor and the front
+    # alternate is too narrow to relocate into — policy B KEEPS the dim on its natural
+    # view (never drop a real dimension) rather than clearing the overlap by dropping.
+    from test_layout_snapshot import CORPUS
+
+    from draftwright import build_drawing
+
+    dwg = build_drawing(CORPUS["side_drilled"]())
+    names = {n for n, _ in dwg.iter_annotations()}
+    assert any(n.startswith("dim_loc_") and "_z" in n for n in names), "Z location dim was dropped"
 
 
 def test_envelope_tier_stacks_outside_a_middle_tier_obstacle():
