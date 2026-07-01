@@ -72,22 +72,28 @@ Updated 2026-07-01.
   (user, 2026-07-01):* make dropped keys **first-class escalation objects**, not just
   `*_dropped` build-issue codes — a structured signal the table/detail escalators
   consume. Tracked into P5.
-- **P3 (#323)** — **in progress.** Envelope dims decoupled from the cursor (#334). The
-  shared collect-then-solve placer extracted to `_common.place_strip_candidates` (#337),
-  which now reserves the outermost label's `tier` at the strip boundary (#338 review
-  fix). `render_locations` (plan-view X/Y locations) migrated (#338). **Remaining
-  `Strip.allocate` production paths, one renderer at a time:** the front-view
-  height/step ladder (`render_height_ladder` — note its leapfrog witness cursor), the
-  turned step-length chain, PMI/GD&T (`render_pmi`), milled slots (`render_slots`), and
-  `drawing.py`. When the last is migrated, delete `Strip.allocate` and close #150.
-- **P4 (#318)** — **not started, and intentionally deferred until P3 completes** (user,
-  2026-07-01): optimising leader assignment while some placers still use the cursor
-  would optimise around mixed placement semantics.
-- **P5 (#319)** — **not started.** Delete dead patches + the cursor; promote the
-  escalation signal to first-class objects (see P2 refinement); **burn down the
-  `_KNOWN_OVERLAPS` allowlist** (relocate/rescale the remaining real crossings — e.g.
-  `side_drilled` `{hc_side0, dim_loc_side_z2300}`, an outer-layout concern) then convert
-  the cleanliness ratchet from an allowlist into an **absolute** no-overlap invariant.
+- **P3 (#323)** — **DONE.** Every placer migrated to the shared carve, one renderer at a
+  time: envelope (#334), P1b locations (#335), the shared placer + tier reservation
+  (#337/#340), `render_locations` (#338), `render_slots` + perpendicular-band filter
+  (#341), the height/step ladder with its leapfrog preserved via a position-returning
+  carve (#342), `render_pmi` (#343), and the public `place_dim` (#344). Shared primitives
+  in `annotations/_common.py`: `place_strip_candidates`, `carve_free_position`,
+  `strip_free_span`/`carve_free_segments`/`corridor_blockers`/`strip_obstacles`.
+- **P5 (#319)** — **in progress.**
+  - **Strand 1 — DONE (#349, closes #150):** deleted the `Strip.allocate`/`peek`/`_cursor`
+    machinery + the dead orchestrator overflow check; migrated the last state consumer
+    (the balloon-ring depth) from `depth_used` to real placed-geometry measurement.
+  - **Strand 2 — escalation objects** (see **Amendment 1** in the ADR; tracker **#351**):
+    `*_dropped` string codes → first-class `Escalation` objects + one resolver that picks
+    a remedy per group (ISO pattern-grouped balloons, fixing #348; table + balloons for
+    scattered holes; zone grid-ref #352 deferred).
+  - **Strand 3 — burn down the `_KNOWN_OVERLAPS` allowlist** (SPACE-CONSTRAINED + PENDING —
+    e.g. `side_drilled` `{hc_side0, dim_loc_side_z2300}`, an outer-layout concern) then flip
+    the cleanliness ratchet from an allowlist into an **absolute** no-overlap invariant.
+  - **Strand 4 — strengthen the property/fuzz cleanliness tests.**
+- **P4 (#318)** — **not started, and intentionally deferred until P5** (user, 2026-07-01):
+  optimising leader assignment before the placement model is fully settled would optimise
+  around a moving target.
 
 Overlap allowlist classes (`tests/test_layout_cleanliness.py`): **BENIGN** (permanent
 datum-chain witness corridors), **SPACE-CONSTRAINED** (real crossing, no roomy

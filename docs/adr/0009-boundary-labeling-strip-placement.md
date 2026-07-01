@@ -159,6 +159,56 @@ is validated on the exact recurring bug before the broad sweep. Tracking issue
 #318, #319) live in
 [`plans/strip-layout-boundary-labeling-roadmap.md`](../plans/strip-layout-boundary-labeling-roadmap.md).
 
+## Amendment 1 — Escalation objects (P5-strand-2, 2026-07-01)
+
+**Status:** Accepted (design); scaffolding first. Tracker **#351**.
+
+**Problem.** Today "this couldn't be placed" is a stringly-typed side effect: seven
+scattered codes (`callout_dropped`, `location_ref_dropped`, `off_axis_location_dropped`,
+`slot_dim_dropped`, `step_dim_dropped`, `placement_unsatisfiable`, `table_dropped`) are
+emitted via `_record_build_issue(...)`, and the escalators *pattern-match the strings* to
+act — `_maybe_tabulate_holes` greps for two of them and always applies **one** remedy
+(hole table + **one balloon per hole**), while step crowding routes through a separate
+channel (`_detail_requests`/`_resolve_details`). So the escalation *policy* is entangled
+with lint text, and the remedy is one-size — the root cause of the CTC-02 balloon ring
+that cannot fit (#348).
+
+**Decision.** Make "couldn't place" a **first-class object** emitted at the failure point,
+and separate *collecting* failures from *deciding* remedies.
+
+```
+Escalation(kind, view, feature, reason, remedies)
+  kind:     "callout" | "location" | "slot" | "step" | "pmi"
+  feature:  IR feature/key ref — carries PATTERN membership
+  reason:   "strip_full" | "illegible" | "corridor_blocked" | "no_room"
+  remedies: ranked candidates the resolver may pick, e.g. ("group_balloon","table","detail","drop")
+```
+
+- **Placers collect, don't decide:** append an `Escalation` to `dwg._escalations` instead
+  of recording a `*_dropped` string. The strip carve already knows *why* it failed, so
+  `reason` is free.
+- **One resolver pass** (subsuming `_maybe_tabulate_holes` + detail resolution): group by
+  `(view, feature-or-pattern)`; pick a remedy per group by a fixed policy ladder (the D4
+  order); execute it; and emit the **same `*_dropped` codes only for what stays
+  unresolved** — so coverage lint + the cleanliness ratchet keep working unchanged (the
+  strings remain the lint *surface*; the *decision* is now object-driven).
+
+**Ratified sub-decisions (user, 2026-07-01):**
+1. **Pattern grouping = ISO** — a recognised bolt-circle / linear / grid escalates to
+   **one balloon tagging the pattern once** (with an `n×` count) near the feature, not one
+   balloon per member. CTC-02 is largely patterned, so its ring collapses from dozens to a
+   handful — this is the #348 fix.
+2. **Scattered-hole fallback = table + balloons** (today's behaviour) for now; a **zone
+   grid reference** (A1/B2) is a separate, later option — filed as its own issue (**#352**).
+3. **PR-1 = scaffolding only** (the `Escalation` type + `dwg._escalations` collector, no
+   routing) so the first diff is byte-identical; routing + the ISO grouping follow.
+
+**Migration (each its own gated PR).** (1) scaffolding — type + collector, no behaviour
+change; (2) route the hole path (callouts + locations) through it, resolver *reproduces*
+`_maybe_tabulate_holes` → byte-identical; (3) add ISO pattern-grouping (`group_balloon`) →
+first intended drift, fixes #348, re-bless CTC-02; (4) fold in slots/step/pmi, delete the
+string-grep. Keeps the byte-identity tripwire through steps 1–2.
+
 ## Related
 
 - [ADR 0001](0001-deterministic-generation-over-editable-dsl.md) — determinism;
