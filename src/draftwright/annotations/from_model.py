@@ -42,7 +42,15 @@ from draftwright._core import (
     _log,
     _solve_strip_ys,
 )
-from draftwright.annotations._common import _anno_box, _box_hits, _occupied_boxes
+from draftwright.annotations._common import (
+    CROSSABLE_TYPES,
+    _anno_box,
+    _box_hits,
+    _occupied_boxes,
+    carve_free_segments,
+    strip_free_span,
+    strip_obstacles,
+)
 from draftwright.model.ir import HoleFeature, PatternFeature
 from draftwright.model.planner import DimensionGroup, plan_locations
 
@@ -546,13 +554,46 @@ def env_dim_placed(pd) -> bool:
     return pd is not None and not pd.suppressed and pd.param.span is not None
 
 
+def _envelope_tier(dwg, strip, view, size):
+    """The page-coord at which an envelope dim of *size* stacks OUTSIDE every placed
+    obstacle in *view* on *strip* — the outermost free tier that fits, placed at its
+    inner (view-facing) edge — or None if no free tier fits.
+
+    Cursor-free (ADR 0009 carve), unlike the ``Strip.allocate`` it replaces: the
+    envelope dim lands beyond the feature/location dims already placed on this strip
+    (they become obstacles here), giving the ISO 'overall dim outermost' stack **by
+    construction**. That is enforced here by choosing the *outermost* fitting free
+    segment — NOT merely the one nearest the view, which would land the envelope
+    inside any obstacle sitting in a middle/outer tier (a callout label, a leader
+    shaft) whenever an inner tier happened to be free, inverting the stack. The old
+    ``allocate`` gave the right order only because an earlier pass had advanced a
+    shared cursor; that coupling inverted the moment the location pass moved to
+    ``plan_strip`` (#321), which never advances the cursor. Reading obstacle boxes
+    decouples the two passes. #133 mandatory-dim starvation is still guarded upstream
+    by the orchestrator's tier reservation.
+
+    Assumes a below/above strip (Y stacking axis) — the only strips ``render_envelope``
+    uses; a left/right strip would need the X interval of each obstacle box."""
+    lo, hi, inner = strip_free_span(strip)
+    obst = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+    segs = carve_free_segments(lo, hi, [(b[1], b[3]) for b in obst], strip.spacing)
+    # Fit tolerant of float error at the reservation boundary (#133): the guaranteed
+    # segment is exactly `size` wide in the saturated worst case.
+    fitting = [s for s in segs if s[1] - s[0] >= size - 1e-9]
+    if not fitting:
+        return None
+    if inner == hi:  # below/left: outermost = smallest coords; place at seg inner (hi) edge
+        return min(fitting, key=lambda s: s[0])[1]
+    return max(fitting, key=lambda s: s[1])[0]  # above/right: outermost = largest coords
+
+
 def render_envelope(dwg, groups, a) -> int:
     """Overall width (plan, below) + depth (side, below) envelope dims via the IR,
-    placed through the engine's below-strip zone allocators (the zone-aware render
-    stage — so a migrated dim still coordinates with the un-migrated passes sharing
-    those strips). The **planner** decides suppression (square footprint / X-turned;
-    #250); this renderer just skips suppressed dims and places the rest. Returns the
-    count placed."""
+    placed by carving each below-strip around the feature/location dims already on it
+    (ADR 0009) — so the overall dim stacks outermost by construction, no longer via a
+    shared strip cursor an earlier pass had to advance. The **planner** decides
+    suppression (square footprint / X-turned; #250); this renderer just skips
+    suppressed dims and places the rest. Returns the count placed."""
     env = envelope_group(groups)
     if env is None:
         return 0
@@ -562,7 +603,7 @@ def render_envelope(dwg, groups, a) -> int:
         (x0, y0, z0), (x1, _, _) = width.param.span
         p1, p2 = dwg.at("plan", x0, y0, z0), dwg.at("plan", x1, y0, z0)
         witness = p1[1] - 2
-        py = a.pv_zones.below.allocate(_SLOT_DIM_WIDTH)
+        py = _envelope_tier(dwg, a.pv_zones.below, "plan", _SLOT_DIM_WIDTH)
         if py is not None:
             dwg.add(
                 _dim(
@@ -582,7 +623,7 @@ def render_envelope(dwg, groups, a) -> int:
         (x0, y0, z0), (_, y1, _) = depth.param.span
         p1, p2 = dwg.at("side", x0, y0, z0), dwg.at("side", x0, y1, z0)
         witness = p1[1] - 2
-        pd = a.sv_zones.below.allocate(_SLOT_DIM_DEPTH)
+        pd = _envelope_tier(dwg, a.sv_zones.below, "side", _SLOT_DIM_DEPTH)
         if pd is not None:
             dwg.add(
                 _dim(

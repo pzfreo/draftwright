@@ -192,3 +192,58 @@ def test_plan_strip_rejects_duplicate_keys():
 
     with pytest.raises(ValueError, match="unique"):
         plan_strip([_cand("a", 10), _cand("a", 20)], lo=0, hi=100, min_gap=5)
+
+
+# --- _envelope_tier: overall dim stacks OUTSIDE every obstacle (#321 P3a-envelope) ---
+
+
+def _fake_dwg(obstacles, view="side"):
+    # Minimal dwg for strip_obstacles/_envelope_tier: named annotations exposing a
+    # bounding_box() and a single owning view. obstacles: {name: (x0, y0, x1, y1)}.
+    class _P:
+        def __init__(s, x, y):
+            s.X, s.Y = x, y
+
+    class _BB:
+        def __init__(s, x0, y0, x1, y1):
+            s.min, s.max = _P(x0, y0), _P(x1, y1)
+
+    class _Obst:
+        def __init__(s, bb):
+            s._bb = bb
+
+        def bounding_box(s):
+            return s._bb
+
+    class _Dwg:
+        def iter_annotations(s):
+            return [(n, _Obst(_BB(*b))) for n, b in obstacles.items()]
+
+        def view_of(s, n):
+            return view
+
+    return _Dwg()
+
+
+def test_envelope_tier_stacks_outside_a_middle_tier_obstacle():
+    # A below strip (anchor 61, gap 8 → inner tier at 53, outer_limit 10). An obstacle
+    # sits in a MIDDLE tier [30,36] with the inner tier [40,53] left FREE. The overall
+    # dim must land OUTSIDE it (≤ 30 − spacing), not in the nearer-the-view free tier —
+    # picking the innermost free segment would invert the ISO stack (review #1).
+    from draftwright._core import Strip
+    from draftwright.annotations.from_model import _envelope_tier
+
+    strip = Strip(anchor=61.0, outer_limit=10.0, direction=-1.0)  # gap 8, spacing 4
+    dwg = _fake_dwg({"mid": (100.0, 30.0, 120.0, 36.0)})
+    pd = _envelope_tier(dwg, strip, "side", size=8.0)
+    assert pd is not None and pd <= 30.0, f"envelope inverted into inner tier: pd={pd}"
+
+
+def test_envelope_tier_uses_inner_tier_when_strip_is_clear():
+    # No obstacles → the overall dim takes the innermost tier (anchor − gap = 53),
+    # matching the first Strip.allocate it replaces (byte-identity on hole-free parts).
+    from draftwright._core import Strip
+    from draftwright.annotations.from_model import _envelope_tier
+
+    strip = Strip(anchor=61.0, outer_limit=10.0, direction=-1.0)
+    assert _envelope_tier(_fake_dwg({}), strip, "side", size=8.0) == 53.0

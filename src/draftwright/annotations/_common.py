@@ -105,6 +105,48 @@ def strip_obstacles(dwg, view=None, *, crossable=()):
     return boxes
 
 
+def strip_free_span(strip):
+    """``(lo, hi, inner)`` page coords of *strip* along its stacking axis, where
+    *inner* is the end nearest the view edge (the first tier a dim fills). Reads the
+    live ``outer_limit`` so an orchestrator reservation (#133) stays honoured. The
+    cursor-free counterpart of :meth:`Strip.allocate` — a collect-then-solve pass
+    (ADR 0009) reads these bounds and carves, rather than advancing a mutable cursor."""
+    near = strip.anchor + strip.direction * strip.gap
+    if strip.direction == 1:
+        return near, strip.outer_limit, near  # lo, hi, inner (=lo)
+    return strip.outer_limit, near, near  # lo, hi, inner (=hi)
+
+
+def carve_free_segments(lo, hi, intervals, pad):
+    """``[lo, hi]`` minus every obstacle interval inflated by *pad*, merged and
+    complemented — the option-(c) occupancy carve (ADR 0009 / #321). A dim is then
+    spaced only WITHIN a clear segment, so it can never overprint a placed occupant
+    (a leader shaft, the section hatch, a location-dim tier): the old per-tier
+    ``allocate`` + post-hoc ``_box_hits`` retry becomes structural. *intervals* are
+    ``(a, b)`` pairs along the strip's stacking axis (e.g. ``(box_y0, box_y1)`` for a
+    below strip). Returns a list of ``(seg_lo, seg_hi)`` free segments, lo→hi."""
+    blocked = []
+    for a0, b0 in intervals:
+        a1, b1 = max(lo, a0 - pad), min(hi, b0 + pad)
+        if b1 > a1:
+            blocked.append((a1, b1))
+    blocked.sort()
+    merged: list[list[float]] = []
+    for a0, b0 in blocked:
+        if merged and a0 <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b0)
+        else:
+            merged.append([a0, b0])
+    free, cur = [], lo
+    for a0, b0 in merged:
+        if a0 > cur:
+            free.append((cur, a0))
+        cur = b0
+    if cur < hi:
+        free.append((cur, hi))
+    return free
+
+
 def _box_hits(bb, boxes):
     """True when ``bb`` overlaps any box in ``boxes`` (strict AABB test). Slightly
     more conservative than the within-view label lint (which tolerates a 0.5 mm
