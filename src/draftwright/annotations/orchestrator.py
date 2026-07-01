@@ -137,13 +137,6 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             _right_strips.append(_rs)
     for _rs in _right_strips:
         _rs.outer_limit = min(_rs.outer_limit, _iso_x_limit)
-        if _rs._cursor >= _iso_x_limit:
-            _log.warning(
-                "right-strip cursor %.1f >= iso_x limit %.1f: right-strip dims"
-                " may overlap iso view (iso view overflows into annotation zone)",
-                _rs._cursor,
-                _iso_x_limit,
-            )
 
     # Per-hole annotations from the feature records (#91, #92, #95): each
     # hole is annotated in the view its axis is normal to.
@@ -287,51 +280,6 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # crowded turned heads alike — through the one generic detailer, now that all
     # views and main-view annotations are placed (so the detail avoids them).
     _resolve_details(dwg, a)
-
-    # Phase 7 — strip footprint debug logging + post-placement overflow check.
-    # Overflow can only occur when outer_limit was tightened after allocations
-    # were already committed (e.g. iso-x tightening or iso-y cap guard).
-    _all_strips = [
-        ("fv.right", a.fv_zones.right),
-        ("fv.left", a.fv_zones.left),
-        ("fv.above", a.fv_zones.above),
-        ("fv.below", a.fv_zones.below),
-        ("pv.right", a.pv_zones.right),
-        ("pv.left", a.pv_zones.left),
-        ("pv.above", a.pv_zones.above),
-        ("pv.below", a.pv_zones.below),
-        ("sv.right", a.sv_zones.right),
-        ("sv.left", a.sv_zones.left),
-        ("sv.above", a.sv_zones.above),
-        ("sv.below", a.sv_zones.below),
-    ]
-    for _sn, _st in _all_strips:
-        if _st is None:
-            continue
-        _log.debug(
-            "strip %-10s  anchor=%.1f  limit=%.1f  used=%.1f/%.1f mm",
-            _sn,
-            _st.anchor,
-            _st.outer_limit,
-            _st.depth_used,
-            _st.available,
-        )
-        # Overflow check: if at least one allocation was made, the end of the
-        # last slot must not have exceeded outer_limit.
-        _initial = _st.anchor + _st.direction * _st.gap
-        if abs(_st._cursor - _initial) > 0.1:  # at least one allocation
-            _last_end = _st._cursor - _st.direction * _st.spacing
-            _over = _st.direction * (_last_end - _st.outer_limit)
-            if _over > 0.5:
-                _log.warning(
-                    "strip %s overflowed outer_limit by %.1f mm "
-                    "(limit=%.1f, last-slot-end=%.1f) — limit was likely "
-                    "tightened after allocations were committed",
-                    _sn,
-                    _over,
-                    _st.outer_limit,
-                    _last_end,
-                )
 
     if a.pmi_mode == "annotate":
         render_pmi(dwg, _model, a)

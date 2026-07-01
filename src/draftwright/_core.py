@@ -14,7 +14,7 @@ import functools
 import logging
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -166,16 +166,17 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
 class Strip:
     """A one-dimensional annotation band adjacent to an orthographic view.
 
-    Annotations are stacked outward from the view edge by calling
-    :meth:`allocate`.  The cursor starts at ``anchor + direction * gap`` and
-    advances after each successful allocation.
+    A plain geometry record: the collect-then-solve placers (ADR 0009) read its
+    bounds (:func:`~draftwright.annotations._common.strip_free_span`) and carve
+    around the placed annotations. The mutable ``allocate``/``peek`` cursor was
+    retired once every placer moved to the carve (#150).
 
     Attributes:
         anchor:      Page coordinate of the view edge this strip starts from.
         outer_limit: Page coordinate at which the strip ends (page margin,
                      neighbouring view, or title-block boundary).
-        direction:   ``+1`` — cursor moves away from anchor (right/above);
-                     ``-1`` — cursor retreats from anchor (left/below).
+        direction:   ``+1`` — stacks away from anchor (right/above);
+                     ``-1`` — stacks back toward smaller coords (left/below).
         gap:         Clearance between the view edge and the first annotation.
         spacing:     Clearance between successive annotations.
     """
@@ -185,55 +186,11 @@ class Strip:
     direction: float = 1.0
     gap: float = 8.0
     spacing: float = 4.0
-    _cursor: float = field(init=False, compare=False, repr=False)
-
-    def __post_init__(self):
-        self._cursor = self.anchor + self.direction * self.gap
-
-    # ------------------------------------------------------------------
-    # Public API
 
     @property
     def available(self) -> float:
         """Total space available in this strip (mm)."""
         return abs(self.outer_limit - self.anchor)
-
-    @property
-    def depth_used(self) -> float:
-        """How far the cursor has advanced from the anchor (mm)."""
-        return abs(self._cursor - self.anchor)
-
-    def peek(self, size: float) -> float | None:
-        """Return what ``allocate(size)`` would return without advancing the cursor."""
-        if self.direction == 1:
-            start = self._cursor
-            return start if (start + size) <= self.outer_limit else None
-        else:
-            end = self._cursor
-            return end if (end - size) >= self.outer_limit else None
-
-    def allocate(self, size: float) -> float | None:
-        """Reserve *size* mm; return the near-edge page coordinate, or ``None`` if full.
-
-        The returned value is the page coordinate of the annotation's
-        dimension line (or leader elbow).  Convert to a relative offset with::
-
-            distance = abs(page_coord - strip.anchor)
-        """
-        if self.direction == 1:
-            start = self._cursor
-            end = start + size
-            if end > self.outer_limit:
-                return None
-            self._cursor = end + self.spacing
-            return start
-        else:
-            end = self._cursor
-            start = end - size
-            if start < self.outer_limit:
-                return None
-            self._cursor = start - self.spacing
-            return end
 
 
 @dataclass

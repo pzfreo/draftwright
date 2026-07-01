@@ -311,44 +311,11 @@ class TestStripZones:
     def test_strip_import(self):
         pass
 
-    def test_outward_strip_allocates_and_advances(self):
-        from draftwright._core import Strip
-
-        s = Strip(anchor=100.0, outer_limit=200.0, direction=1, gap=8.0, spacing=4.0)
-        pos = s.allocate(10.0)
-        assert pos == pytest.approx(108.0)  # anchor + gap
-        pos2 = s.allocate(10.0)
-        assert pos2 == pytest.approx(122.0)  # 108 + 10 + 4
-
-    def test_inward_strip_allocates_and_retreats(self):
-        from draftwright._core import Strip
-
-        s = Strip(anchor=100.0, outer_limit=0.0, direction=-1, gap=8.0, spacing=4.0)
-        pos = s.allocate(10.0)
-        assert pos == pytest.approx(92.0)  # anchor - gap (near edge of first slot)
-        pos2 = s.allocate(10.0)
-        assert pos2 == pytest.approx(78.0)  # 92 - 10 - 4
-
-    def test_strip_returns_none_when_full(self):
-        from draftwright._core import Strip
-
-        s = Strip(anchor=0.0, outer_limit=20.0, direction=1, gap=2.0, spacing=2.0)
-        assert s.allocate(10.0) is not None  # fits: 2..12
-        assert s.allocate(10.0) is None  # would need 14..24, over limit=20
-
     def test_strip_available(self):
         from draftwright._core import Strip
 
         s = Strip(anchor=50.0, outer_limit=150.0, direction=1)
         assert s.available == pytest.approx(100.0)
-
-    def test_strip_depth_used(self):
-        from draftwright._core import Strip
-
-        s = Strip(anchor=100.0, outer_limit=200.0, direction=1, gap=8.0, spacing=4.0)
-        s.allocate(10.0)
-        # cursor is now at 108 + 10 + 4 = 122; depth_used = 122 - 100 = 22
-        assert s.depth_used == pytest.approx(22.0)
 
     def test_analyse_returns_view_zones(self):
         from build123d import Box, Cylinder
@@ -390,11 +357,8 @@ class TestStripZones:
 
         part = Box(60, 40, 30)
         dwg = build_drawing(part)
-        a = dwg._analysis
         assert "dim_height" in dwg._named
         ann = dwg._named["dim_height"]
-        # The strip consumed at least one slot: cursor has advanced past anchor+gap
-        assert a.fv_zones.right.depth_used > 0
         # label is the part height
         assert ann.label == "30"
 
@@ -423,11 +387,9 @@ class TestStripZones:
         # renderer m_env_width, still routed through pv_zones.below).
         part = Box(80, 40, 20)
         dwg = build_drawing(part)
-        a = dwg._analysis
         assert "m_env_width" in dwg._named
         ann = dwg._named["m_env_width"]
         assert ann.label == "80"
-        assert a.pv_zones.below.depth_used > 0
 
     def test_dim_locx_routed_through_pv_above_strip(self):
         # dim_locx dims must be above plan_top and allocated from pv_zones.above
@@ -437,12 +399,10 @@ class TestStripZones:
 
         part = Box(80, 60, 20) - Pos(20, 10, 0) * Cylinder(5, 20)
         dwg = build_drawing(part)
-        a = dwg._analysis
         locx_dims = [v for n, v in dwg._named.items() if n.startswith("m_locx")]
         assert len(locx_dims) >= 1, "expected m_locx0 to be generated for off-datum cylinder"
         plan_top = dwg.views["plan"][0].bounding_box().max.Y
         assert all(d.dim_level_y > plan_top for d in locx_dims)
-        assert a.pv_zones.above.depth_used > 0
 
     def test_dim_locy_routed_through_sv_above_strip(self):
         # dim_locy dims must be above side_top and allocated from sv_zones.above
@@ -453,12 +413,10 @@ class TestStripZones:
         # Cylinder at Y=10 → offset from datum_y=bb.min.Y → generates dim_locy0
         part = Box(80, 60, 20) - Pos(0, 10, 0) * Cylinder(5, 20)
         dwg = build_drawing(part)
-        a = dwg._analysis
         locy_dims = [v for n, v in dwg._named.items() if n.startswith("m_locy")]
         assert len(locy_dims) >= 1, "expected m_locy0 to be generated for off-datum cylinder"
         side_top = dwg.views["side"][0].bounding_box().max.Y
         assert all(d.dim_level_y > side_top for d in locy_dims)
-        assert a.sv_zones.above.depth_used > 0
 
     def test_dim_step_placed_after_phase3_corridor_widening(self):
         # Phase 3 widens fv_zones.right dynamically for stepped parts.
@@ -591,11 +549,9 @@ class TestStripZones:
         # (IR renderer m_env_depth, still routed through sv_zones.below).
         part = Box(80, 40, 20)
         dwg = build_drawing(part)
-        a = dwg._analysis
         assert "m_env_depth" in dwg._named, "expected m_env_depth for part with width != depth"
         ann = dwg._named["m_env_depth"]
         assert ann.label == "40", f"depth label should be y_size=40, got {ann.label!r}"
-        assert a.sv_zones.below.depth_used > 0
 
     def test_dim_depth_absent_for_square_plan(self):
         # dim_depth must be omitted when x_size == y_size (within 5%).
@@ -658,32 +614,26 @@ class TestDepthEstimators:
         assert _est_pv_below_depth() == pytest.approx(16.0, abs=0.01)
 
     def test_right_depth_fits_in_exact_corridor(self):
-        # A Strip whose available width equals _est_right_strip_depth(n) must
-        # accept exactly n+1 allocations (dim_height + n dim_steps).
-        from draftwright._core import _SLOT_DIM_HEIGHT, _SLOT_DIM_STEP, Strip
+        # _est_right_strip_depth(n) must reserve enough corridor for dim_height + n
+        # dim_steps stacked from the view edge (gap, then `spacing` between dims) — the
+        # cursor-free capacity condition the carve places into (ADR 0009 / #150).
+        from draftwright._core import _SLOT_DIM_HEIGHT, _SLOT_DIM_STEP, _STRIP_SPACING
         from draftwright.drawing import _STRIP_GAP
         from draftwright.sheet import _est_right_strip_depth
 
         for n_steps in (0, 1, 3):
             est = _est_right_strip_depth(n_steps)
-            s = Strip(anchor=0.0, outer_limit=est, direction=1, gap=_STRIP_GAP)
-            assert s.allocate(_SLOT_DIM_HEIGHT) is not None, (
-                f"dim_height must fit for n_steps={n_steps}"
-            )
-            for i in range(n_steps):
-                assert s.allocate(_SLOT_DIM_STEP) is not None, (
-                    f"dim_step_{i} must fit for n_steps={n_steps}"
-                )
+            sizes = [_SLOT_DIM_HEIGHT] + [_SLOT_DIM_STEP] * n_steps
+            needed = _STRIP_GAP + sum(sizes) + _STRIP_SPACING * (len(sizes) - 1)
+            assert needed <= est + 1e-9, f"n_steps={n_steps}: needs {needed} > est {est}"
 
     def test_pv_below_depth_fits_in_exact_corridor(self):
-        # A Strip of _est_pv_below_depth() width must accept one dim_width allocation.
-        from draftwright._core import _SLOT_DIM_WIDTH, Strip
+        # _est_pv_below_depth() must reserve enough for one dim_width from the view edge.
+        from draftwright._core import _SLOT_DIM_WIDTH
         from draftwright.drawing import _STRIP_GAP
         from draftwright.sheet import _est_pv_below_depth
 
-        est = _est_pv_below_depth()
-        s = Strip(anchor=100.0, outer_limit=100.0 - est, direction=-1, gap=_STRIP_GAP)
-        assert s.allocate(_SLOT_DIM_WIDTH) is not None, "dim_width must fit in pv_below corridor"
+        assert _STRIP_GAP + _SLOT_DIM_WIDTH <= _est_pv_below_depth() + 1e-9
 
 
 # ---------------------------------------------------------------------------
