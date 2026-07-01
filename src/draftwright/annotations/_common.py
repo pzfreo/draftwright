@@ -218,6 +218,16 @@ def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False):
     if strip is None or not cands:
         return list(cands)
     lo, hi, inner = strip_free_span(strip)
+    # Reserve the outermost label's height at the strip boundary. plan_strip bounds the
+    # dim-LINE position, but the label extends `tier` OUTWARD from it — so without this
+    # the last tier's label overshoots outer_limit (into the iso view / page margin),
+    # unlike the old Strip.allocate which checked `start + tier <= outer_limit` (#338
+    # review). The strip edge is not an obstacle (obstacles carry their own footprint +
+    # pad), so only the boundary needs it; obstacle-bounded segments are unaffected.
+    if inner == lo:
+        hi -= tier
+    else:
+        lo += tier
     idx = 1 if axis == "y" else 0
     pad = tier + strip.spacing  # min separation between stacked dim lines
     occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
