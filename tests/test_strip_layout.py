@@ -2,7 +2,9 @@
 
 Grows with the boundary-labeling migration (tracking #320). P0b (#317): the
 complete per-strip occupancy model — `strip_obstacles` — that closes the
-`_occupied_boxes` blind spots behind #133/#225/#305.
+`_occupied_boxes` blind spots behind #133/#225/#305. P0c (#317): the
+collect-then-solve seam — `StripCandidate` (a measured render-intent) + `plan_strip`
+(order = site order ⇒ crossing-free, then 1-D spacing).
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from draftwright.annotations._common import (
     _occupied_boxes,
     strip_obstacles,
 )
+from draftwright.layout import StripCandidate, plan_strip
 
 
 def _same(a, b, tol=1e-6):
@@ -96,3 +99,49 @@ def test_strip_obstacles_keeps_section_hatch_in_every_per_view_query():
     hbox = (b.min.X, b.min.Y, b.max.X, b.max.Y)
     for v in ("front", "plan", "side"):
         assert any(_same(x, hbox) for x in strip_obstacles(dwg, view=v)), f"hatch dropped from {v}"
+
+
+# --- plan_strip: the collect-then-solve seam (pure geometry, no OCC) --------
+
+
+def _cand(key, y, w=6.0, h=3.0, priority=0):
+    return StripCandidate(key=key, anchor=(0.0, y), size=(w, h), priority=priority)
+
+
+def test_plan_strip_places_in_site_order_spaced_and_in_bounds():
+    pos = plan_strip([_cand("a", 10), _cand("b", 12), _cand("c", 14)], lo=0, hi=100, min_gap=5)
+    assert set(pos) == {"a", "b", "c"}
+    assert pos["a"] <= pos["b"] <= pos["c"], "site order (crossing-free) not preserved"
+    ys = sorted(pos.values())
+    assert all(b - a >= 5 - 1e-9 for a, b in zip(ys, ys[1:])), "min_gap violated"
+    assert all(0 <= v <= 100 for v in pos.values()), "out of bounds"
+
+
+def test_plan_strip_orders_by_site_regardless_of_input_order():
+    # shuffled input still resolves to site (anchor) order — the crossing-free move
+    pos = plan_strip([_cand("c", 14), _cand("a", 10), _cand("b", 12)], lo=0, hi=100, min_gap=5)
+    assert pos["a"] <= pos["b"] <= pos["c"]
+
+
+def test_plan_strip_deterministic_key_tiebreak():
+    cands = [_cand("b", 10), _cand("a", 10)]  # equal anchors → ordered by key
+    p1 = plan_strip(cands, 0, 100, 5)
+    p2 = plan_strip(list(reversed(cands)), 0, 100, 5)
+    assert p1 == p2
+    assert p1["a"] <= p1["b"]
+
+
+def test_plan_strip_returns_none_when_over_capacity():
+    # three labels, 5 mm gaps, into a 6 mm strip → cannot fit (all-or-nothing, P0)
+    over = [_cand("a", 0), _cand("b", 0), _cand("c", 0)]
+    assert plan_strip(over, lo=0, hi=6, min_gap=5) is None
+
+
+def test_plan_strip_x_axis():
+    cands = [StripCandidate("a", (10, 0), (6, 3)), StripCandidate("b", (14, 0), (6, 3))]
+    pos = plan_strip(cands, 0, 100, 5, axis="x")
+    assert pos["a"] <= pos["b"]
+
+
+def test_plan_strip_empty():
+    assert plan_strip([], 0, 100, 5) == {}
