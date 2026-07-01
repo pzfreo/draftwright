@@ -174,10 +174,55 @@ def test_plan_strip_drops_at_exact_feasibility_boundary_not_greedy():
     assert len(loose.placed) == 4 and loose.dropped == ()
 
 
+def test_plan_strip_priority_is_a_float_magnitude_drops_smallest():
+    # D3 (#322): priority is a per-feature magnitude (a hole's diameter) — a float, not
+    # just an int rank. Over capacity, the smallest-bore candidate drops first.
+    cands = [
+        StripCandidate("big", (0.0, 0.0), (6, 3), priority=6.0),
+        StripCandidate("mid", (0.0, 2.0), (6, 3), priority=3.2),
+        StripCandidate("small", (0.0, 4.0), (6, 3), priority=1.5),
+    ]
+    res = plan_strip(cands, lo=0, hi=6, min_gap=5)  # 6 mm strip holds ~2 at 5 mm gap
+    assert res.dropped == ("small",), "smallest bore should drop first"
+    assert set(res.placed) == {"big", "mid"}
+
+
 def test_plan_strip_x_axis():
     cands = [StripCandidate("a", (10, 0), (6, 3)), StripCandidate("b", (14, 0), (6, 3))]
     p = plan_strip(cands, 0, 100, 5, axis="x").placed
     assert p["a"] <= p["b"]
+
+
+def test_bore_callout_priority_is_the_hole_diameter(monkeypatch):
+    # D3 (#322) wiring: each bore-callout StripCandidate's priority is the hole
+    # DIAMETER (largest wins over-capacity), not the old n-j prefix-keep placeholder.
+    # Spy on plan_strip because the corpus never over-fills a callout strip, so the
+    # policy is otherwise unobservable (byte-identical output).
+    from build123d import Box, BuildPart, Cylinder, Mode, Pos
+
+    import draftwright.annotations.holes as holes_mod
+
+    captured = []
+    orig = holes_mod.plan_strip
+
+    def _spy(cands, *a, **k):
+        captured.extend(cands)
+        return orig(cands, *a, **k)
+
+    monkeypatch.setattr(holes_mod, "plan_strip", _spy)
+
+    with BuildPart() as p:
+        Box(80, 60, 10)
+        with BuildPart(mode=Mode.SUBTRACT):
+            Pos(-25, 15, 0) * Cylinder(radius=3, height=12)  # ø6
+        with BuildPart(mode=Mode.SUBTRACT):
+            Pos(20, -18, 0) * Cylinder(radius=1.5, height=12)  # ø3
+    build_drawing(p.part)
+
+    pri = {round(c.priority, 1) for c in captured if c.key.startswith("hc_")}
+    assert pri, "no bore-callout candidates were routed through plan_strip"
+    assert pri <= {3.0, 6.0}, f"priorities should be hole diameters, got {pri}"
+    assert 6.0 in pri, "the ø6 bore's priority should be its diameter, not an n-j rank"
 
 
 def test_plan_strip_empty():
