@@ -53,9 +53,12 @@ _TOL_MM = 0.5
 
 
 # Every non-crossable full-geometry overlap present on HEAD, as {part: {frozenset
-# of the two annotation names}}. BENIGN = permanent (shared-datum witness lines);
-# PENDING <issue> = a real invisible-occupant defect the named phase removes (delete
-# the entry in that PR). Empty PENDING set (post-P4) ⇒ the ratchet becomes absolute.
+# of the two annotation names}}. Three kinds:
+#   BENIGN            = permanent (shared-datum witness corridors of a dimension chain).
+#   SPACE-CONSTRAINED = a real crossing that placement cannot clear without dropping a
+#                       dim; kept under policy B until an outer-layout rescale (ADR 0004).
+#   PENDING <issue>   = a real invisible-occupant defect the named phase removes (delete
+#                       the entry in that PR).
 _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
     # BENIGN: two location dims off a common datum share their extension-line span.
     "plate_holes": {frozenset({"m_locx0", "m_locx1"}), frozenset({"m_locy0", "m_locy1"})},
@@ -75,8 +78,14 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
     #    The cursor→carve envelope migration (#321) moves the depth dim to its
     #    box-consistent tier but the shared witness corridor persists — structural,
     #    not a placer defect. (Was mislabelled PENDING before the migration measured it.)
-    #  - PENDING #321 (P1b): {hc_side0, dim_loc_side_z2300} — a bore-callout leader
-    #    crosses the Z location dim; the location-dim carve+plan_strip pass removes it.
+    #  - SPACE-CONSTRAINED {hc_side0, dim_loc_side_z2300}: the bore-callout leader
+    #    crosses the Z location dim's witness corridor. The #321 P1b corridor-aware pass
+    #    rejects the side strip and tries to RELOCATE the dim to the front view — but for
+    #    this part the front-right slot (≈10.7 mm between dim_height and the side view) is
+    #    too narrow for a tier (≈11 mm). With no roomy alternate, policy B KEEPS the dim
+    #    on its natural view (never drop a real dimension) and accepts the same-feature
+    #    crossing. Not a placer blind spot — a tight-packing constraint that only an
+    #    outer-layout rescale (ADR 0004) or a roomier part would let the pass clear.
     "side_drilled": {
         frozenset({"hc_side0", "dim_loc_side_z2300"}),
         frozenset({"dim_loc_side_y2000", "m_env_depth"}),
