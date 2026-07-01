@@ -251,9 +251,11 @@ class TestFitBox:
 
 
 def test_layout_engine_is_wired_into_the_drawing_path():
-    # Phase 2 (#80): hole-callout placement now flows through the LayoutSolver.
-    # The hole pass that wires it in moved to annotations/holes.py (#164, P5d).
+    # The hole-callout Y-stack flows through the shared layout engine. Phase 2 (#80)
+    # wired it via the LayoutSolver; ADR 0009 P1a (#321) re-routed it through the
+    # collect-then-solve seam — plan_strip over StripCandidates — so this guard now
+    # tracks that seam (the first production placer on it).
     src = (L.__file__).replace("layout.py", "annotations/holes.py")
     text = open(src).read()
-    assert "Placeable(" in text
-    assert "LayoutSolver(" in text
+    assert "StripCandidate(" in text
+    assert "plan_strip(" in text
