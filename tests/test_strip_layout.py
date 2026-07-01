@@ -4,7 +4,10 @@ Grows with the boundary-labeling migration (tracking #320). P0b (#317): the
 complete per-strip occupancy model — `strip_obstacles` — that closes the
 `_occupied_boxes` blind spots behind #133/#225/#305. P0c (#317): the
 collect-then-solve seam — `StripCandidate` (a measured render-intent) + `plan_strip`
-(order = site order ⇒ crossing-free, then 1-D spacing).
+(order = site order ⇒ crossing-free, then 1-D spacing). P2 (#322): `plan_strip`
+priority selection — drop the lowest-priority candidates until the rest fit, the
+ranked replacement for the engine's arrival-order drops (prerequisite for routing a
+production placer without regressing busy strips).
 """
 
 from __future__ import annotations
@@ -109,18 +112,21 @@ def _cand(key, y, w=6.0, h=3.0, priority=0):
 
 
 def test_plan_strip_places_in_site_order_spaced_and_in_bounds():
-    pos = plan_strip([_cand("a", 10), _cand("b", 12), _cand("c", 14)], lo=0, hi=100, min_gap=5)
-    assert set(pos) == {"a", "b", "c"}
-    assert pos["a"] <= pos["b"] <= pos["c"], "site order (crossing-free) not preserved"
-    ys = sorted(pos.values())
+    res = plan_strip([_cand("a", 10), _cand("b", 12), _cand("c", 14)], lo=0, hi=100, min_gap=5)
+    assert set(res.placed) == {"a", "b", "c"} and res.dropped == ()
+    p = res.placed
+    assert p["a"] <= p["b"] <= p["c"], "site order (crossing-free) not preserved"
+    ys = sorted(p.values())
     assert all(b - a >= 5 - 1e-9 for a, b in zip(ys, ys[1:])), "min_gap violated"
-    assert all(0 <= v <= 100 for v in pos.values()), "out of bounds"
+    assert all(0 <= v <= 100 for v in p.values()), "out of bounds"
 
 
 def test_plan_strip_orders_by_site_regardless_of_input_order():
     # shuffled input still resolves to site (anchor) order — the crossing-free move
-    pos = plan_strip([_cand("c", 14), _cand("a", 10), _cand("b", 12)], lo=0, hi=100, min_gap=5)
-    assert pos["a"] <= pos["b"] <= pos["c"]
+    p = plan_strip(
+        [_cand("c", 14), _cand("a", 10), _cand("b", 12)], lo=0, hi=100, min_gap=5
+    ).placed
+    assert p["a"] <= p["b"] <= p["c"]
 
 
 def test_plan_strip_deterministic_key_tiebreak():
@@ -128,23 +134,39 @@ def test_plan_strip_deterministic_key_tiebreak():
     p1 = plan_strip(cands, 0, 100, 5)
     p2 = plan_strip(list(reversed(cands)), 0, 100, 5)
     assert p1 == p2
-    assert p1["a"] <= p1["b"]
+    assert p1.placed["a"] <= p1.placed["b"]
 
 
-def test_plan_strip_returns_none_when_over_capacity():
-    # three labels, 5 mm gaps, into a 6 mm strip → cannot fit (all-or-nothing, P0)
-    over = [_cand("a", 0), _cand("b", 0), _cand("c", 0)]
-    assert plan_strip(over, lo=0, hi=6, min_gap=5) is None
+def test_plan_strip_selection_drops_lowest_priority():
+    # three 5 mm-gapped labels can't fit a 6 mm strip → keep the two highest-priority
+    cands = [
+        StripCandidate("hi", (0.0, 0.0), (6, 3), priority=5),
+        StripCandidate("mid", (0.0, 2.0), (6, 3), priority=3),
+        StripCandidate("lo", (0.0, 4.0), (6, 3), priority=1),
+    ]
+    res = plan_strip(cands, lo=0, hi=6, min_gap=5)
+    assert res.dropped == ("lo",), "should drop only the lowest-priority candidate"
+    assert set(res.placed) == {"hi", "mid"}
+
+
+def test_plan_strip_selection_drops_are_lowest_first_and_deterministic():
+    # a zero-width strip fits exactly one → drop the two lowest priorities, in
+    # lowest-first order; the highest-priority survivor is kept
+    cands = [_cand("a", 0, priority=2), _cand("b", 0, priority=1), _cand("c", 0, priority=3)]
+    res = plan_strip(cands, lo=0, hi=0, min_gap=5)
+    assert set(res.placed) == {"c"}, "highest priority should survive"
+    assert res.dropped == ("b", "a"), "dropped lowest-priority first (1, then 2)"
 
 
 def test_plan_strip_x_axis():
     cands = [StripCandidate("a", (10, 0), (6, 3)), StripCandidate("b", (14, 0), (6, 3))]
-    pos = plan_strip(cands, 0, 100, 5, axis="x")
-    assert pos["a"] <= pos["b"]
+    p = plan_strip(cands, 0, 100, 5, axis="x").placed
+    assert p["a"] <= p["b"]
 
 
 def test_plan_strip_empty():
-    assert plan_strip([], 0, 100, 5) == {}
+    res = plan_strip([], 0, 100, 5)
+    assert res.placed == {} and res.dropped == ()
 
 
 def test_plan_strip_rejects_duplicate_keys():
