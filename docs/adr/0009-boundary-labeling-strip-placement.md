@@ -52,10 +52,17 @@ The load-bearing change is a **control-flow inversion**. Today each pass commits
 real geometry (`dwg.add(...)`) as it runs. Instead, for each view, run three
 phases:
 
-1. **Collect.** Every contributor — bore callouts, location dims, step/
-   turned-diameter dims, the section-hatch footprint (as a fixed obstacle) —
-   emits a *candidate* (`Placeable` + priority + eligible side(s)). **Nothing is
-   placed.** This consumes the **full** per-strip set at once.
+1. **Collect.** The stage consumes the planner's **render-intents** for this view
+   (ADR 0008) and *measures* each into a placement **candidate** — a geometry-only
+   `StripCandidate` carrying the site anchor, label-box size, and priority (and an
+   eligible-sides field once the multi-side *assign* step lands, P2). The candidate
+   **is a measured render-intent**: the collect
+   step (in `annotations/`, which may depend on the IR) projects intent → page
+   geometry, and hands the solver only that geometry, so the solver stays a leaf
+   with no dependency on the IR. Fixed obstacles that are *not* placed — the
+   section-hatch footprint, the title block (`strip_obstacles`, P0b) — enter the
+   solve as things to avoid, not as candidates. **Nothing is placed yet**; this
+   consumes the **full** per-strip set at once.
 2. **Solve.** One optimisation over that set:
    - **Select** — if the strip cannot hold everything, keep the highest-priority
      set that fits; the rest produce a first-class **escalation** signal.

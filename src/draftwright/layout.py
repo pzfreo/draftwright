@@ -147,6 +147,78 @@ def _solve_strip_1d_var(naturals, gaps, lo, hi):
 
 
 # ---------------------------------------------------------------------------
+# Collect-then-solve strip stage (ADR 0009)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StripCandidate:
+    """One *measured render-intent* ready for strip placement (ADR 0009).
+
+    The boundary-labeling solve reasons over geometry, not semantics: the collect
+    step (in ``annotations/``, which may depend on the IR) projects each planner
+    render-intent to its page geometry and hands the solver only this — so the
+    solver stays a leaf, with no dependency on the IR. A ``StripCandidate`` *is*
+    that measured intent.
+
+    Attributes:
+        key: stable id — deterministic ordering tie-break and result lookup.
+        anchor: the site the leader connects to, in page coords ``(x, y)``. Its
+            position along the strip axis sets the label order; placing labels in
+            site order keeps leaders crossing-free **for sites with distinct
+            strip-axis coordinates** (sites sharing that coordinate are a tie — see
+            :func:`plan_strip`).
+        size: the label box ``(width, height)`` in page-mm.
+        priority: higher wins when the strip is over capacity — the *selection*
+            step's ranking (P2, #322). Unused by the P0 seam (all-or-nothing).
+
+    An ``eligible_sides`` field joins when the multi-side *assign* step lands
+    (P2, #322); the P0 seam places on a single, caller-chosen strip.
+    """
+
+    key: str
+    anchor: tuple[float, float]
+    size: tuple[float, float]
+    priority: int = 0
+
+
+def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
+    """Collect-then-solve placement of *candidates* along one strip (ADR 0009).
+
+    Orders the labels in **site order** along *axis* — placing them in site order
+    keeps leaders crossing-free when the sites have **distinct** strip-axis
+    coordinates. Sites that share that coordinate are ordered deterministically by
+    ``key``; that tie-break is *not* crossing-optimal (it doesn't see the
+    perpendicular coordinate that decides those crossings) — resolving ties
+    crossing-optimally is the P4 assign/order step (#318). This matches the
+    engine's current natural-Y strip sort. Then spaces the labels within
+    ``[lo, hi]`` at least *min_gap* apart via :func:`_solve_strip_1d`. Returns
+    ``{key: position}`` for the placed candidates, or ``None`` when the strip
+    cannot hold them all. Candidate *keys* must be unique (they key the result).
+
+    This is the P0 seam (#317): order-by-site + 1-D spacing, reproducing the
+    engine's current all-or-nothing strip contract. Spacing is the caller's single
+    *min_gap* (as the engine's strips do today) — the candidate's ``size`` is
+    carried for the per-pair, label-height-aware gaps that come with the optimal
+    packing (P4, #318), and is not consulted here, so *min_gap* must clear the
+    tallest label. The *priority* selection + escalation for an over-full strip is
+    P2 (#322). Deterministic: candidates are ordered by ``(anchor-along-axis, key)``
+    and the 1-D solve is deterministic in input order.
+    """
+    if not candidates:
+        return {}
+    keys = [c.key for c in candidates]
+    if len(set(keys)) != len(keys):  # like LayoutSolver.register — never silently drop
+        raise ValueError("plan_strip: candidate keys must be unique")
+    idx = 1 if axis == "y" else 0
+    ordered = sorted(candidates, key=lambda c: (c.anchor[idx], c.key))
+    positions = _solve_strip_1d([c.anchor[idx] for c in ordered], min_gap, lo, hi)
+    if positions is None:
+        return None
+    return {c.key: p for c, p in zip(ordered, positions, strict=True)}
+
+
+# ---------------------------------------------------------------------------
 # Placeable protocol + solver
 # ---------------------------------------------------------------------------
 
