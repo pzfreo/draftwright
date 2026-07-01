@@ -759,6 +759,9 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                 )
                 for k in res.dropped:
                     _record_callout_drop(dwg, view, by_key[k][1], f"{side} strip full")
+            # Emit survivors in natural-Y order (== plan_strip's solve order, since
+            # keys are Y-monotonic) so the hc_{view}{i} names + centre-mark indices
+            # land on the same callouts as the old queue-order emit.
             i = start_i
             for k, elbow_y in sorted(res.placed.items(), key=lambda kv: (by_key[kv[0]][4], kv[0])):
                 _locs, dia, callout, feat, _ny, rep = by_key[k]

@@ -158,6 +158,22 @@ def test_plan_strip_selection_drops_are_lowest_first_and_deterministic():
     assert res.dropped == ("b", "a"), "dropped lowest-priority first (1, then 2)"
 
 
+def test_plan_strip_drops_at_exact_feasibility_boundary_not_greedy():
+    # At (n-1)*min_gap == hi-lo the exact 1-D solve is infeasible (strict); a greedy
+    # pack from lo would just fit all n, but plan_strip DROPS one and re-solves. This
+    # is the one intended behaviour change when the bore-callout Pass-2 moved off the
+    # old greedy prefix-drop onto plan_strip (#321 P1a) — pin it against drift. The
+    # numbers are the deleted adapter test's knife-edge case: gap 4.73 in [8.44, 22.63]
+    # gives (4-1)*4.73 == 14.19 == hi-lo, the exact boundary.
+    anchors = [4.52, 5.29, 16.07, 22.13]
+    cands = [StripCandidate(f"c{i}", (0.0, y), (6, 3)) for i, y in enumerate(anchors)]
+    res = plan_strip(cands, lo=8.44, hi=22.63, min_gap=4.73)
+    assert len(res.placed) == 3 and len(res.dropped) == 1, "must drop at the exact boundary"
+    # a strictly looser strip fits all four (proves the boundary, not a blanket drop)
+    loose = plan_strip(cands, lo=8.44, hi=22.64, min_gap=4.73)
+    assert len(loose.placed) == 4 and loose.dropped == ()
+
+
 def test_plan_strip_x_axis():
     cands = [StripCandidate("a", (10, 0), (6, 3)), StripCandidate("b", (14, 0), (6, 3))]
     p = plan_strip(cands, 0, 100, 5, axis="x").placed
