@@ -254,6 +254,46 @@ def test_place_strip_candidates_reserves_outermost_label_within_bounds():
     assert len(left) == 1, "the unplaceable candidate must be returned, not dropped silently"
 
 
+def test_place_strip_candidates_ignores_perpendicular_disjoint_obstacle():
+    # A right strip stacks along X; the carve projects obstacles onto X. An obstacle that
+    # overlaps in X (even after pad inflation) but is DISJOINT in Y — a dim on ANOTHER
+    # strip of the view — must NOT block (the slot-width false-collision fix). Without the
+    # perpendicular-band filter the X-projection wipes the strip and drops the candidate.
+    from draftwright._core import Strip
+    from draftwright.annotations._common import place_strip_candidates
+
+    def _obj(x0, y0, x1, y1, tname="Dimension"):
+        class _P:
+            def __init__(s, x, y):
+                s.X, s.Y = x, y
+
+        class _BB:
+            def __init__(s):
+                s.min, s.max = _P(x0, y0), _P(x1, y1)
+
+        return type(tname, (), {"bounding_box": lambda s: _BB()})()
+
+    class _Dwg:
+        def __init__(s, obst):
+            s._o, s.added = obst, []
+
+        def iter_annotations(s):
+            return list(s._o) + s.added
+
+        def view_of(s, n):
+            return "plan"
+
+        def add(s, o, n, view=None):
+            s.added.append((n, o))
+
+    # obstacle spans the whole strip in X but sits at y=[0,5]; the candidate dim is y=[30,40]
+    dwg = _Dwg([("m_env", _obj(0.0, 0.0, 100.0, 5.0))])
+    strip = Strip(anchor=6.0, outer_limit=60.0, direction=1.0, gap=2.0, spacing=4.0)  # near=8
+    cand = ("m_slot", lambda pos: _obj(pos - 1, 30.0, pos + 1, 40.0))
+    left = place_strip_candidates(dwg, strip, "plan", "x", [cand], tier=5.0)
+    assert not left and len(dwg.added) == 1, "perpendicular-disjoint obstacle must not block"
+
+
 def test_plan_strip_empty():
     res = plan_strip([], 0, 100, 5)
     assert res.placed == {} and res.dropped == ()

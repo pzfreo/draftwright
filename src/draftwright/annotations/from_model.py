@@ -140,8 +140,6 @@ def render_slots(dwg, model, a) -> int:
     if not slots:
         return 0
     draft = dwg.draft
-    external = _occupied_boxes(dwg)  # tested against candidate's full geometry
-    placed: list = []  # this pass's own dims, tested label-box to label-box
     tier = draft.font_size + 2 * draft.pad_around_text
     views = {
         frozenset("xy"): ("plan", a.pv_zones, "x", a.proj.plan_x, "y", a.proj.plan_y),
@@ -195,28 +193,30 @@ def render_slots(dwg, model, a) -> int:
             else:
                 meas_proj, perp_proj = vp, hp
                 cands = (("right", zn.right, True), ("left", zn.left, False))
+            # Try each candidate side through the shared carve (P3, #150): occupancy is
+            # every placed annotation's FULL footprint (strip_obstacles) — not the old
+            # label-box `external`/`placed` check, which missed leader shafts a slot dim
+            # could overprint. A side whose carve/corridor rejects the dim falls through
+            # to the next; if none takes it, the caller drops it (place-what-fits).
             for side, strip, hi in cands:
                 if strip is None:
                     continue
-                coord = strip.peek(tier)  # peek, don't allocate until it clears
-                if coord is None:
-                    continue
                 witness = perp_proj(perp_hi if hi else perp_lo)  # off the slot's own edge
+                axis = "y" if side in ("above", "below") else "x"
                 if side in ("above", "below"):
                     e_lo = (meas_proj(p_lo), witness, 0)
                     e_hi = (meas_proj(p_hi), witness, 0)
                 else:
                     e_lo = (witness, meas_proj(p_lo), 0)
                     e_hi = (witness, meas_proj(p_hi), 0)
-                dim = _dim(e_lo, e_hi, side, abs(coord - witness), draft, label=_fmt(label))
-                gbb = dim.bounding_box()
-                full = (gbb.min.X, gbb.min.Y, gbb.max.X, gbb.max.Y)
-                if _box_hits(full, external) or _box_hits(_anno_box(dim), placed):
-                    continue
-                strip.allocate(tier)
-                dwg.add(dim, f"m_slot{idx}_{kind}", view=vw[0])
-                placed.append(_anno_box(dim))
-                return True
+                cand = (
+                    f"m_slot{idx}_{kind}",
+                    lambda pos, _el=e_lo, _eh=e_hi, _s=side, _w=witness: _dim(
+                        _el, _eh, _s, abs(pos - _w), draft, label=_fmt(label)
+                    ),
+                )
+                if not place_strip_candidates(dwg, strip, vw[0], axis, [cand], tier):
+                    return True
             return False
 
         half = s.width / 2
