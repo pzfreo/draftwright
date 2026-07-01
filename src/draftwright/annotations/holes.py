@@ -24,7 +24,6 @@ from draftwright._core import (
     _axis_letter,
     _dim,
     _fmt,
-    _greedy_strip_ys,
     _iso_bbox,
     _log,
 )
@@ -35,7 +34,7 @@ from draftwright.annotations._common import (
     strip_obstacles,
 )
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
-from draftwright.layout import LayoutSolver, Placeable
+from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model.ir import HoleFeature, PatternFeature
 
 
@@ -428,38 +427,6 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
     )
 
 
-def _solve_strip_via_layout(naturals, min_gap, lo, hi, key_prefix):
-    """Place a pre-sorted, uniform-gap 1D stack through the shared LayoutSolver
-    (ADR 0003 phase 2, #80), returning positions in input order, or ``None`` if
-    the stack does not fit.
-
-    *naturals* must be ascending (the caller sorts the queue), so the solver's
-    ``(natural, key)`` ordering — with the zero-padded keys built here — is the
-    identity, and the result is byte-identical to the bare ``_solve_strip_1d``
-    this replaces. The label width is irrelevant to a vertical stack, so each
-    placeable carries the uniform ``min_gap`` as its height.
-    """
-    solver = LayoutSolver()
-    keys = [f"{key_prefix}{j:04d}" for j in range(len(naturals))]
-    for key, nat in zip(keys, naturals, strict=True):
-        solver.register(
-            Placeable(
-                key=key,
-                anchors=((0.0, nat),),
-                size=(0.0, min_gap),
-                dof_axis="y",
-                natural=nat,
-                min_gap=min_gap,
-            )
-        )
-    # greedy_fallback=False so this returns exactly what the bare primitive did:
-    # None when the strip is full, leaving the caller's prefix-drop to fire (#80).
-    placed = solver.solve_strip(lo=lo, hi=hi, axis="y", greedy_fallback=False)
-    if placed is None:
-        return None
-    return [placed[k] for k in keys]
-
-
 def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
@@ -755,61 +722,61 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         right_queue.sort(key=lambda s: s[4])
         left_queue.sort(key=lambda s: s[4])
 
-        # --- Pass 2: Y placement (through the LayoutSolver, #80) ---
-        right_ys = _solve_strip_via_layout(
-            [s[4] for s in right_queue], min_gap, y_min, y_max, "hc_r"
-        )
-        left_ys = _solve_strip_via_layout(
-            [s[4] for s in left_queue], min_gap, y_min, y_max, "hc_l"
-        )
-
-        if right_ys is None and right_queue:
-            right_ys = _greedy_strip_ys(
-                [s[4] for s in right_queue], min_gap, y_min, y_max, prefix=True
-            )
-            n_drop = len(right_queue) - len(right_ys)
-            if n_drop:
-                _log.warning(
-                    "plan/side right strip: %d of %d bore callouts skipped (strip full)",
-                    n_drop,
-                    len(right_queue),
+        # --- Pass 2: Y placement + selection via the collect-then-solve seam ---
+        # Each queued callout becomes a StripCandidate (a measured render-intent);
+        # one plan_strip per side does the site-ordered spacing and the over-capacity
+        # drop (ADR 0009 / #321 P1a). This is the first *production* placer routed
+        # through plan_strip — it replaces the bespoke _solve_strip_via_layout + the
+        # greedy prefix-drop. Byte-identical to that path by construction: plan_strip
+        # bottoms out in the same _solve_strip_1d, the queue is pre-sorted by natural
+        # Y (so plan_strip's (anchor_y, key) order is the queue order), and
+        # priority=n-j reproduces the old "lowest natural Y survives" prefix drop.
+        # (_coaxial_lift still pre-adjusts each anchor row; folding that into a
+        # plan_strip occupancy carve — and routing the off-axis location dims through
+        # the same seam, deleting their tier-retry hack — is P1b.)
+        def _place_queue(queue, edge, side, key_prefix, start_i):
+            if not queue:
+                return start_i
+            n = len(queue)
+            cands = [
+                StripCandidate(
+                    key=f"{key_prefix}{j:04d}",
+                    anchor=(edge, s[4]),
+                    size=(s[2].callout_width, min_gap),
+                    priority=n - j,  # smaller j = lower natural Y = drops last, i.e.
+                    # the old prefix-keep policy; real per-feature priorities are P2.
                 )
-                for _locs, dia, *_ in right_queue[len(right_ys) :]:
-                    _record_callout_drop(dwg, view, dia, "right strip full")
-            right_queue = right_queue[: len(right_ys)]
-        if left_ys is None and left_queue:
-            left_ys = _greedy_strip_ys(
-                [s[4] for s in left_queue], min_gap, y_min, y_max, prefix=True
-            )
-            n_drop = len(left_queue) - len(left_ys)
-            if n_drop:
+                for j, s in enumerate(queue)
+            ]
+            res = plan_strip(cands, y_min, y_max, min_gap)
+            by_key = {c.key: s for c, s in zip(cands, queue, strict=True)}
+            if res.dropped:
                 _log.warning(
-                    "plan/side left strip: %d of %d bore callouts skipped (strip full)",
-                    n_drop,
-                    len(left_queue),
+                    "plan/side %s strip: %d of %d bore callouts skipped (strip full)",
+                    side,
+                    len(res.dropped),
+                    n,
                 )
-                for _locs, dia, *_ in left_queue[len(left_ys) :]:
-                    _record_callout_drop(dwg, view, dia, "left strip full")
-            left_queue = left_queue[: len(left_ys)]
+                for k in res.dropped:
+                    _record_callout_drop(dwg, view, by_key[k][1], f"{side} strip full")
+            i = start_i
+            for k, elbow_y in sorted(res.placed.items(), key=lambda kv: (by_key[kv[0]][4], kv[0])):
+                _locs, dia, callout, feat, _ny, rep = by_key[k]
+                centre = to_page(rep)
+                if side == "right":
+                    elbow = (edge + elbow_dx, elbow_y)
+                    tip = _rim_tip(centre, elbow, dia)
+                    # Safety clamp: arrowhead must sit inside the view boundary.
+                    tip = (min(tip[0], edge - draft.arrow_length), tip[1])
+                else:
+                    elbow = (edge - elbow_dx, elbow_y)
+                    tip = _rim_tip(centre, elbow, dia)
+                    tip = (max(tip[0], edge + draft.arrow_length), tip[1])
+                _add(view, i, tip, elbow, side, callout)
+                _add_furniture(dwg, a, view, i, feat, to_page)
+                i += 1
+            return i
 
-        for i, ((locs, dia, callout, feat, _, rep), elbow_y) in enumerate(
-            zip(right_queue, right_ys, strict=True)
-        ):
-            centre = to_page(rep)
-            elbow = (edge_right + elbow_dx, elbow_y)
-            tip = _rim_tip(centre, elbow, dia)
-            # Safety clamp: arrowhead must sit inside the view boundary.
-            tip = (min(tip[0], edge_right - draft.arrow_length), tip[1])
-            _add(view, i, tip, elbow, "right", callout)
-            _add_furniture(dwg, a, view, i, feat, to_page)
-
+        next_i = _place_queue(right_queue, edge_right, "right", "hc_r", 0)
         assert edge_left is not None or not left_queue  # populated only when edge_left is set
-        for i, ((locs, dia, callout, feat, _, rep), elbow_y) in enumerate(
-            zip(left_queue, left_ys, strict=True), start=len(right_queue)
-        ):
-            centre = to_page(rep)
-            elbow = (edge_left - elbow_dx, elbow_y)  # type: ignore[operator]
-            tip = _rim_tip(centre, elbow, dia)
-            tip = (max(tip[0], edge_left + draft.arrow_length), tip[1])
-            _add(view, i, tip, elbow, "left", callout)
-            _add_furniture(dwg, a, view, i, feat, to_page)
+        _place_queue(left_queue, edge_left, "left", "hc_l", next_i)
