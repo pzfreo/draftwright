@@ -94,6 +94,20 @@ def _drive_screw_x():
     return Rotation(0, 90, 0) * p.part
 
 
+def _dshape():
+    # D-profile bar (circle + flat) with a coaxial stepped bore. Its callout must
+    # clear the coaxial bore's location-dim line even though the flat makes the part
+    # non-rotational and offsets the bore off centre — the #321 case the shape gate
+    # missed. Locks in the occupancy/row-driven lift.
+    body = Cylinder(radius=4, height=24)
+    body -= Pos(0, -5, 0) * Box(12, 6, 26)
+    body -= Cylinder(radius=1.65, height=26)
+    body -= Pos(0, 0, 12) * Cylinder(
+        radius=0.8, height=3.5, align=(Align.CENTER, Align.CENTER, Align.MAX)
+    )
+    return Rotation(0, 90, 0) * body
+
+
 def _flange():
     import math
 
@@ -110,6 +124,7 @@ CORPUS = {
     "bracket": _bracket,
     "side_drilled": _side_drilled,
     "slotted": _slotted,
+    "dshape": _dshape,
     "turned_shaft": _turned_shaft,
     "drive_screw_x": _drive_screw_x,
     "flange": _flange,

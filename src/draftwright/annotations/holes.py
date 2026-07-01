@@ -554,41 +554,46 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
             return centre
         return (centre[0] + dx / norm * r, centre[1] + dy / norm * r)
 
-    def _coaxial_lift(centre, ny, view_cx, view_cy, y_min, y_max):
-        """Leader row for a hole, lifted clear of the round view's centre axis when
-        the hole is a *coaxial bore* (#305); *ny* unchanged otherwise.
+    def _coaxial_lift(centre, ny, view_cx, view_cy, y_min, y_max, reserved_rows):
+        """Leader row for a hole's callout, moved clear of every horizontal line
+        that will cross its "⌀… ↓…" text (#305/#321); *ny* unchanged when already
+        clear.
 
-        A bore on the turning axis is led out along the view's horizontal centre
-        axis, so the centre mark / centreline runs straight through the "⌀… ↓…"
-        callout text. Detect that one bore — a **turned/rotational** part, hole at
-        the view centre — and lift its row a clearance off the axis (an angled leader
-        to a central feature is standard practice), toward the roomier side. Off-axis
-        holes and every prismatic-part hole are untouched (front-view round parts
-        place coaxial bores as vertical shafts below the view, not along an axis,
-        so they can't hit this and are exempt by construction).
+        The lines to clear are keyed on the *cause*, not the part's shape (the old
+        ``is_rotational``-only gate was circle-specific and missed a D-profile, #321):
 
-        The "turned/rotational" gate is ``is_rotational OR prof`` — a *stepped*
-        turned shaft (e.g. the GRM-03 drive screw) has a turned step profile but is
-        not ``is_rotational`` (its varying OD doesn't fill a square cross-section),
-        yet its coaxial bore hits exactly this defect. A prismatic part has neither,
-        so it stays excluded (the regression the original gate guarded against, #305).
+        - **location-dim extension lines** — *reserved_rows*, the page rows where
+          ``_locate_off_axis_holes`` will draw the off-axis bores' height/offset dims
+          (computed from hole geometry, so any profile works, incl. a D); and
+        - the **centre line** of a turned/rotational round view, when this bore is the
+          coaxial one at the view centre (``is_rotational OR prof``).
 
-        Tactical: the principled fix is to not draw the crossing line at all — a
-        centred bore is located by the axis, so its linear location dims are
-        redundant (#309) — or to make this a layout-solver separation constraint
-        (ADR 0003). This nudge becomes dead code once either lands."""
+        When *ny* is within a clearance of any such line, lift it one clearance off
+        toward the roomier half of the strip — the leader becomes a legible angled
+        leader whose "⌀… ↓…" text sits wholly clear of the line (standard practice
+        for a central feature). The lifted row is clamped to the strip bounds, so a
+        strip too shallow to lift a full clearance pins the callout at its edge —
+        the roomier-half pick makes that rare, and lint reports any residual overlap.
+
+        A single fixed-offset lift, not a gap search: it can land within a clearance
+        of a *second* reserved row when two are <~clearance apart on the page. Rare
+        for real parts (the recogniser rarely keeps radial bores that close), and
+        superseded by the ADR 0009 collect-then-solve pass (#318) that will retire
+        this heuristic entirely."""
         tol = draft.font_size  # "hole at the view centre" tolerance (page mm)
-        turned = a.is_rotational or a.prof is not None
-        if not (turned and abs(centre[0] - view_cx) < tol and abs(centre[1] - view_cy) < tol):
+        rows = list(reserved_rows)
+        if (a.is_rotational or a.prof is not None) and (
+            abs(centre[0] - view_cx) < tol and abs(centre[1] - view_cy) < tol
+        ):
+            rows.append(view_cy)  # the centreline row
+
+        clr = draft.font_size + 3 * draft.pad_around_text  # clearance off a line
+        if all(abs(ny - r) >= clr for r in rows):
             return ny
-        # Lift the row a full text height + padding clear of the axis: enough for
-        # the text box (half a font tall) to sit wholly off the centre line with a
-        # pad of margin, giving a legible leader angle rather than a near-flat one.
-        lift = draft.font_size + 3 * draft.pad_around_text
-        # Toward the roomier half-view (geometric, not occupancy-aware — safe here
-        # because the round view of a coaxial bore is otherwise near-empty).
-        up = (y_max - view_cy) >= (view_cy - y_min)
-        return min(view_cy + lift, y_max) if up else max(view_cy - lift, y_min)
+        # Lift off the row toward the roomier half — the leader becomes a legible
+        # angled leader whose text sits wholly clear of the line.
+        up = (y_max - ny) >= (ny - y_min)
+        return min(ny + clr, y_max) if up else max(ny - clr, y_min)
 
     def _add(view, i, tip, elbow, side, callout):
         dwg.add(
@@ -680,6 +685,28 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         view_cx = a.PV_X if view == "plan" else a.SV_X
         view_cy = a.PV_Y if view == "plan" else a.SV_Y
 
+        # Rows where `_locate_off_axis_holes` will draw a location-dim extension line
+        # in THIS view — an X-axis bore is located on the side view, a Y-axis bore on
+        # the front view. A callout on one of these rows gets crossed by that line
+        # (#321), so lift it off. Computed from hole geometry (no feature link, which
+        # the callout doesn't carry): the callout's own row equals its bore's row.
+        # Skip patterned holes to match `_locate_off_axis_holes` (which excludes them,
+        # `h not in patterned`) — they carry no per-hole location dim, so reserving
+        # their rows would only cause needless lifts. This is a superset guard, not an
+        # exact match: rows for dims that hit dedup/drop/sub-mm gating may still be
+        # over-reserved (conservative — a spurious lift stays valid), never under.
+        patterned = {h for p in a.patterns for h in p.holes}
+        off_axis_letter = {"side": "x", "front": "y"}.get(view)
+        reserved_rows = (
+            [
+                to_page(h.location)[1]
+                for h in a.holes
+                if _axis_letter(h) == off_axis_letter and h not in patterned
+            ]
+            if off_axis_letter
+            else []
+        )
+
         # --- Pass 1: boundary assignment ---
         right_queue = []  # (locs, dia, callout, feat, natural_y, rep)
         left_queue = []
@@ -714,10 +741,14 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                 continue
 
             if can_right and (not can_left or d_right <= d_left):
-                ny = _coaxial_lift(centre_r, centre_r[1], view_cx, view_cy, y_min, y_max)
+                ny = _coaxial_lift(
+                    centre_r, centre_r[1], view_cx, view_cy, y_min, y_max, reserved_rows
+                )
                 right_queue.append((locs, dia, callout, feat, ny, rep_r))
             else:
-                ny = _coaxial_lift(centre_l, centre_l[1], view_cx, view_cy, y_min, y_max)
+                ny = _coaxial_lift(
+                    centre_l, centre_l[1], view_cx, view_cy, y_min, y_max, reserved_rows
+                )
                 left_queue.append((locs, dia, callout, feat, ny, rep_l))
 
         # Sort each queue by natural Y so leaders don't cross.
