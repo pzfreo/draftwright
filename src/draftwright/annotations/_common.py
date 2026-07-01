@@ -8,10 +8,43 @@ and an AABB overlap test (`_box_hits`). Bottom of the annotations DAG.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 
 from draftwright.layout import StripCandidate, plan_strip
 
 _log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Escalation:
+    """A first-class "could not place this here" signal (ADR 0009 Amendment 1, P5-strand-2).
+
+    Placers *collect* one of these into ``dwg._escalations`` at the point of failure —
+    instead of recording a stringly-typed ``*_dropped`` lint code and letting the escalators
+    grep for it — and one later resolver pass groups them by ``(view, feature-or-pattern)``,
+    picks a remedy per group (ISO pattern-grouped balloon / table / detail / drop), and emits
+    the ``*_dropped`` lint codes only for what stays unresolved (so coverage lint + the
+    cleanliness ratchet keep working). See the ADR / epic #351.
+
+    Scaffolding only (#351 PR-1): the type + the ``dwg._escalations`` collector exist, but no
+    placer emits and nothing consumes them yet — so this PR is behaviour-preserving.
+
+    Attributes:
+        kind:     what could not be placed — ``"callout" | "location" | "slot" | "step" | "pmi"``.
+        view:     the owning orthographic view (``None`` for drawing-level).
+        feature:  reference to the IR feature / ``HoleRef`` / key it belongs to — carries the
+                  pattern membership the resolver groups on. Left untyped to keep this module a
+                  leaf (no dependency on ``model.ir``).
+        reason:   why placement failed — ``"strip_full" | "illegible" | "corridor_blocked" | "no_room"``.
+        remedies: ranked candidate remedies the resolver may pick, e.g.
+                  ``("group_balloon", "table", "detail", "drop")``. Empty = resolver's default ladder.
+    """
+
+    kind: str
+    view: str | None
+    feature: object
+    reason: str
+    remedies: tuple[str, ...] = field(default_factory=tuple)
 
 
 def _anno_box(o):
