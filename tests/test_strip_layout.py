@@ -319,6 +319,51 @@ def test_carve_free_position_exact_fit_and_innermost_outermost():
     assert inner == 116.0 and outer + 10.0 <= 160.0 and outer >= inner
 
 
+def test_carve_free_position_zero_width_perp_band_leader():
+    # A narrow-bore PMI Leader queries with a ZERO-WIDTH perp band (px, px) at the leader's
+    # x-line. An obstacle straddling px blocks the tier; one perpendicular-disjoint (off to
+    # the side) is filtered out and does NOT block. Guards the six Leader sites in
+    # render_pmi, which the PMI test fixtures (all wide bores) never exercise.
+    from draftwright._core import Strip
+    from draftwright.annotations._common import carve_free_position
+
+    def _obj(x0, y0, x1, y1):
+        class _P:
+            def __init__(s, x, y):
+                s.X, s.Y = x, y
+
+        class _BB:
+            def __init__(s):
+                s.min, s.max = _P(x0, y0), _P(x1, y1)
+
+        return type("Dimension", (), {"bounding_box": lambda s: _BB()})()
+
+    class _Dwg:
+        def __init__(s, obst):
+            s._o = obst
+
+        def iter_annotations(s):
+            return list(s._o)
+
+        def view_of(s, n):
+            return "plan"
+
+    # above strip (axis y, perp X): near=108 .. outer=145; leader at px=50
+    strip = Strip(anchor=100.0, outer_limit=145.0, direction=1.0, gap=8.0, spacing=4.0)
+    # obstacle covering the inner tier [108,118] and STRADDLING x=50 → blocks → pushed out
+    blocked = carve_free_position(
+        _Dwg([("o", _obj(45, 108, 55, 118))]), strip, "plan", "y", 10.0, (50.0, 50.0)
+    )
+    # same obstacle shifted off to x=[70,80] → perp-disjoint from px=50 → filtered, not blocking
+    free = carve_free_position(
+        _Dwg([("o", _obj(70, 108, 80, 118))]), strip, "plan", "y", 10.0, (50.0, 50.0)
+    )
+    assert free == 108.0, "perp-disjoint obstacle must not block a zero-width-band leader"
+    assert blocked != 108.0, (
+        "obstacle straddling the leader's x-line must push it off the inner tier"
+    )
+
+
 def test_plan_strip_empty():
     res = plan_strip([], 0, 100, 5)
     assert res.placed == {} and res.dropped == ()
