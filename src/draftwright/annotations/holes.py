@@ -778,24 +778,22 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         # one plan_strip per side does the site-ordered spacing and the over-capacity
         # drop (ADR 0009 / #321 P1a). This is the first *production* placer routed
         # through plan_strip — it replaces the bespoke _solve_strip_via_layout + the
-        # greedy prefix-drop. Byte-identical to that path by construction: plan_strip
-        # bottoms out in the same _solve_strip_1d, the queue is pre-sorted by natural
-        # Y (so plan_strip's (anchor_y, key) order is the queue order), and
-        # priority=n-j reproduces the old "lowest natural Y survives" prefix drop.
-        # (_coaxial_lift still pre-adjusts each anchor row; folding that into a
-        # plan_strip occupancy carve — and routing the off-axis location dims through
-        # the same seam, deleting their tier-retry hack — is P1b.)
+        # greedy prefix-drop. plan_strip bottoms out in the same _solve_strip_1d, and
+        # the queue is pre-sorted by natural Y (so plan_strip's (anchor_y, key) order is
+        # the queue order → leaders stay crossing-free). Over-capacity selection is now
+        # by real per-feature priority — the hole DIAMETER (D3/#322): when the strip
+        # cannot hold every callout, the smallest-bore features drop first so the most
+        # significant survive (the same "largest wins" policy the front-view shaft rows
+        # already use, line 638). Ties (equal bore) fall back to key = natural-Y order.
         def _place_queue(queue, edge, side, key_prefix, start_i):
             if not queue:
                 return start_i
-            n = len(queue)
             cands = [
                 StripCandidate(
                     key=f"{key_prefix}{j:04d}",
                     anchor=(edge, s[4]),
                     size=(s[2].callout_width, min_gap),
-                    priority=n - j,  # smaller j = lower natural Y = drops last, i.e.
-                    # the old prefix-keep policy; real per-feature priorities are P2.
+                    priority=s[1],  # bore diameter — largest wins over-capacity (D3)
                 )
                 for j, s in enumerate(queue)
             ]
@@ -806,7 +804,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                     "plan/side %s strip: %d of %d bore callouts skipped (strip full)",
                     side,
                     len(res.dropped),
-                    n,
+                    len(queue),
                 )
                 for k in res.dropped:
                     _record_callout_drop(dwg, view, by_key[k][1], f"{side} strip full")

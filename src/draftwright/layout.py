@@ -170,7 +170,9 @@ class StripCandidate:
             :func:`plan_strip`).
         size: the label box ``(width, height)`` in page-mm.
         priority: higher wins when the strip is over capacity — the *selection*
-            step's ranking (P2, #322). Unused by the P0 seam (all-or-nothing).
+            step's ranking (P2, #322). A magnitude (e.g. a hole's diameter), so it
+            is a ``float``; ``int`` ranks remain valid (the numeric tower). Unused by
+            the P0 seam (all-or-nothing).
 
     An ``eligible_sides`` field joins when the multi-side *assign* step lands
     (P2, #322); the P0 seam places on a single, caller-chosen strip.
@@ -179,7 +181,7 @@ class StripCandidate:
     key: str
     anchor: tuple[float, float]
     size: tuple[float, float]
-    priority: int = 0
+    priority: float = 0
 
 
 class StripPlacement(NamedTuple):
