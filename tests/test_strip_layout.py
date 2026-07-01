@@ -225,6 +225,35 @@ def test_bore_callout_priority_is_the_hole_diameter(monkeypatch):
     assert 6.0 in pri, "the ø6 bore's priority should be its diameter, not an n-j rank"
 
 
+def test_place_strip_candidates_reserves_outermost_label_within_bounds():
+    # #338: the outermost label extends `tier` beyond its dim line; place_strip_candidates
+    # must keep it within outer_limit (the old Strip.allocate checked start+tier<=limit).
+    # An above-strip near=8..limit=20 (range 12) fits 2 dim LINES at pad=9 (8, 17), but the
+    # 2nd label [17,22] overshoots 20 — so only 1 may be placed; the 2nd is returned.
+    from draftwright._core import Strip
+    from draftwright.annotations._common import place_strip_candidates
+
+    class _Dwg:
+        def __init__(s):
+            s.added = []
+
+        def iter_annotations(s):
+            return list(s.added)
+
+        def view_of(s, n):
+            return "plan"
+
+        def add(s, obj, name, view=None):
+            s.added.append((name, obj))
+
+    strip = Strip(anchor=0.0, outer_limit=20.0, direction=1.0, gap=8.0, spacing=4.0)  # near=8
+    dwg = _Dwg()
+    cands = [("a", lambda pos: ("dim", pos)), ("b", lambda pos: ("dim", pos))]
+    left = place_strip_candidates(dwg, strip, "plan", "y", cands, tier=5.0, force=True)
+    assert len(dwg.added) == 1, "outermost label would overshoot outer_limit — must not place it"
+    assert len(left) == 1, "the unplaceable candidate must be returned, not dropped silently"
+
+
 def test_plan_strip_empty():
     res = plan_strip([], 0, 100, 5)
     assert res.placed == {} and res.dropped == ()
