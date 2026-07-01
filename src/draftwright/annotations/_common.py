@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 
+from draftwright.layout import StripCandidate, plan_strip
+
 _log = logging.getLogger(__name__)
 
 
@@ -187,3 +189,71 @@ def _box_hits(bb, boxes):
         if min(bb[2], c[2]) > max(bb[0], c[0]) and min(bb[3], c[3]) > max(bb[1], c[1]):
             return True
     return False
+
+
+def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False):
+    """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
+    The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
+    P3): each candidate in *cands* — an ``(name, build(pos)->dim)`` pair — is spaced by
+    one :func:`plan_strip` solve per free segment of the CARVED strip (`strip` carved
+    around :func:`strip_obstacles`), replacing the per-dim ``allocate`` + ``_box_hits``
+    tier-retry. *tier* is the label height (sets the inter-dim gap ``tier + spacing``).
+
+    Occupancy is THIS view's own placed annotations plus the drawing-level obstacles no
+    ortho view owns (the section hatch), recomputed per call so a dim placed earlier in
+    the pass is avoided; other ortho views are disjoint (ADR 0004) and excluded so their
+    rows never over-carve this strip. This makes the old post-hoc collision retry
+    structural: a dim can never land on a bore-callout leader shaft the label-only
+    occupancy missed (#133/#225/#305).
+
+    A right/below dim also occupies the 2-D corridor back to the view edge, which the
+    1-D strip carve cannot represent: a leader in that corridor is crossed no matter how
+    far out the dim line lands. By default such a placement is rejected so the caller can
+    route the dim to the other view (its disjoint block cannot cross this leader).
+    ``force=True`` skips that corridor check — the caller's last resort when no view took
+    the dim cleanly: keep it on its natural view and accept the (same-feature) leader
+    crossing rather than drop a real dimension (policy B). Candidates that find no strip
+    tier AT ALL are still returned (a physically full strip — the caller records the
+    genuine drop)."""
+    if strip is None or not cands:
+        return list(cands)
+    lo, hi, inner = strip_free_span(strip)
+    idx = 1 if axis == "y" else 0
+    pad = tier + strip.spacing  # min separation between stacked dim lines
+    occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+    blockers = () if force else corridor_blockers(dwg, view)
+    segs = carve_free_segments(lo, hi, [(b[idx], b[idx + 2]) for b in occupied], pad)
+    # Fill innermost-first (nearest the view), matching the old cursor's stack order.
+    segs.sort(key=lambda s: abs((s[0] if inner == lo else s[1]) - inner))
+    todo = list(cands)
+    for seg_lo, seg_hi in segs:
+        if not todo:
+            break
+        cap = int((seg_hi - seg_lo) / pad) + 1
+        take, todo = todo[:cap], todo[cap:]
+        nat = seg_lo if inner == lo else seg_hi
+        anch = (0.0, nat) if axis == "y" else (nat, 0.0)
+        # Keys order the tiers so the FIRST candidate lands on the inner tier: for an
+        # inner=lo strip that is the lowest position (ascending keys); for a below strip
+        # (inner=hi) it is the highest, so the keys reverse.
+        triples = [
+            (
+                StripCandidate(
+                    f"{(k if inner == lo else len(take) - 1 - k):04d}", anch, (tier, tier)
+                ),
+                nb,
+            )
+            for k, nb in enumerate(take)
+        ]
+        res = plan_strip([sc for sc, _ in triples], seg_lo, seg_hi, pad, axis=axis)
+        for sc, (name, build) in triples:
+            pos = res.placed.get(sc.key)
+            if pos is None:  # segment over its estimated capacity (shouldn't occur)
+                todo.append((name, build))
+                continue
+            dim = build(pos)
+            if not force and _box_hits(_geom_box(dim), blockers):  # corridor crosses a leader
+                todo.append((name, build))
+                continue
+            dwg.add(dim, name, view=view)
+    return todo
