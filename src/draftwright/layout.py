@@ -148,6 +148,58 @@ def _solve_strip_1d_var(naturals, gaps, lo, hi):
         return None
 
 
+def _solve_strip_1d_lp(naturals, gaps, lo, hi):
+    """Minimum-total-leader-length 1D placement with per-pair gaps (ADR 0009
+    Amendment 3, P4b, #318).
+
+    Unlike :func:`_solve_strip_1d_var` (a Cassowary constraint-*satisfaction*
+    solve, which only needs to satisfy order/gap/bounds), this finds the
+    placement that *minimises* total leader length
+    (``sum(abs(p_i - naturals[i]))``, L1 — leader length is a real distance,
+    not a squared one) subject to the same constraints. Solved directly as a
+    linear program via ``scipy.optimize.linprog`` (HiGHS): the standard
+    L1-as-LP reformulation (auxiliary ``t_i >= |p_i - naturals[i]|``) plus the
+    monotone/gap/box constraints as linear inequalities.
+
+    Same contract as :func:`_solve_strip_1d_var`: *naturals* must be sorted
+    ascending, ``len(gaps) == max(len(naturals) - 1, 0)``, and this returns
+    ``None`` (not an exception) when the fixed candidate set is provably
+    infeasible — the caller's drop-and-retry loop depends on that.
+    """
+    if not naturals:
+        return []
+    n = len(naturals)
+    if sum(gaps) > hi - lo:
+        return None  # provably infeasible
+
+    from scipy.optimize import linprog
+
+    # Variables: p_0..p_{n-1} (position), t_0..t_{n-1} (abs-deviation slack).
+    c = [0.0] * n + [1.0] * n
+    a_ub = []
+    b_ub = []
+    for i, nat in enumerate(naturals):
+        row = [0.0] * (2 * n)
+        row[i], row[n + i] = 1.0, -1.0  # p_i - t_i <= nat
+        a_ub.append(row)
+        b_ub.append(nat)
+        row = [0.0] * (2 * n)
+        row[i], row[n + i] = -1.0, -1.0  # -p_i - t_i <= -nat
+        a_ub.append(row)
+        b_ub.append(-nat)
+    for i, gap in enumerate(gaps):
+        row = [0.0] * (2 * n)
+        row[i], row[i + 1] = 1.0, -1.0  # p_i - p_{i+1} <= -gap
+        a_ub.append(row)
+        b_ub.append(-gap)
+    bounds = [(lo, hi)] * n + [(0.0, None)] * n
+
+    result = linprog(c, A_ub=a_ub, b_ub=b_ub, bounds=bounds, method="highs")
+    if not result.success:
+        return None
+    return result.x[:n].tolist()
+
+
 # ---------------------------------------------------------------------------
 # Collect-then-solve strip stage (ADR 0009)
 # ---------------------------------------------------------------------------
@@ -221,10 +273,10 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     ``Placeable``s, applied here to ``StripCandidate.size`` instead of an
     explicit per-item ``min_gap`` field. *min_gap* is therefore a floor (minimum
     clearance/padding regardless of label size), not the whole story; solved via
-    :func:`_solve_strip_1d_var`. When every candidate's ``size[idx]`` is the same
-    value (every current caller), this reduces exactly to the old uniform-gap
-    solve. Candidate *keys* must be unique (they key the result). Deterministic
-    throughout.
+    :func:`_solve_strip_1d_lp` (P4b, ADR 0009 Amendment 3), which finds the
+    *minimum-total-leader-length* placement rather than merely one that
+    satisfies the constraints. Candidate *keys* must be unique (they key the
+    result). Deterministic throughout.
     """
     if not candidates:
         return StripPlacement({}, ())
@@ -242,7 +294,7 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
             max(ordered[i].size[idx], ordered[i + 1].size[idx], min_gap)
             for i in range(len(ordered) - 1)
         ]
-        positions = _solve_strip_1d_var(naturals, gaps, lo, hi)
+        positions = _solve_strip_1d_lp(naturals, gaps, lo, hi)
         if positions is not None:
             placed = {c.key: p for c, p in zip(ordered, positions, strict=True)}
             return StripPlacement(placed, tuple(dropped))

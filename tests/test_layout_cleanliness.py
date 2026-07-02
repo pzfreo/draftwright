@@ -70,17 +70,23 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
     #    AABB-only) leader-footprint geometry (_segment_hits_box for the diagonal
     #    tip->elbow shaft) — so a callout is never dropped or misjudged just for
     #    being NEAR an obstacle.
-    #  - SPACE-CONSTRAINED {hc_plan0, section_arrow_right}: for THIS hole, avoiding
-    #    the section row costs a large relocation (the free segment is far from its
-    #    natural row); policy B (user, 2026-07-02, matching the existing
-    #    side_drilled precedent below) keeps it at its natural, near-original
-    #    position and accepts the crossing rather than pay that cost or drop a
-    #    real callout. Reproduces the exact pre-#351 placement — not a
-    #    regression, a confirmed-correct trade-off.
+    #  - SPACE-CONSTRAINED {hc_plan0, section_arrow_right} and
+    #    {hc_plan1, section_arrow_right}: BOTH plan callouts have wide label boxes
+    #    (X≈80–140) that straddle the thin section arrow (X≈124–126), whose Y-band
+    #    (≈166–172) is exactly where the two holes sit — the crossing is unavoidable
+    #    for this cramped part without an outer-layout rescale (ADR 0004). Policy B
+    #    (user, 2026-07-02) keeps both callouts near their natural rows rather than
+    #    pay a large relocation or drop a real callout.
+    #    P4b (#318) shortened/rebalanced the two leaders: it REDUCED total arrow
+    #    crossing (main 2.68+0.44 = 3.12 mm → P4b 1.43+1.34 = 2.77 mm) but nudged
+    #    hc_plan1 from 0.44 mm (a hair under the 0.5 mm tolerance) to 1.34 mm, so the
+    #    ratchet now counts it too. Not a new blind spot — the same space-constrained
+    #    band hc_plan0 already crosses, one callout more now over the tolerance line.
     "bracket": {
         frozenset({"m_locx0", "m_locx1"}),
         frozenset({"m_locy0", "m_locy1"}),
         frozenset({"hc_plan0", "section_arrow_right"}),
+        frozenset({"hc_plan1", "section_arrow_right"}),
     },
     # side_drilled: one BENIGN datum overlap PLUS one PENDING defect.
     #  - BENIGN {dim_loc_side_y2000, m_env_depth}: the envelope depth (dy→y1) and the
