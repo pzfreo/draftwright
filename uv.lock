@@ -576,8 +576,6 @@ dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "reportlab" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "svglib" },
     { name = "typer" },
 ]
@@ -599,7 +597,6 @@ requires-dist = [
     { name = "kiwisolver", specifier = ">=1.4,<2" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "reportlab", specifier = ">=4.0" },
-    { name = "scipy", specifier = ">=1.11" },
     { name = "svglib", specifier = ">=1.5" },
     { name = "typer", specifier = ">=0.12" },
 ]

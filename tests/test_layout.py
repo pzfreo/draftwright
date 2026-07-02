@@ -8,12 +8,13 @@ import pytest
 
 import draftwright.layout as L
 from draftwright.layout import (
+    _ANCHOR_WEIGHT,
     LayoutSolver,
     Placeable,
     _greedy_strip_1d,
     _greedy_strip_1d_var,
     _solve_strip_1d,
-    _solve_strip_1d_lp,
+    _solve_strip_1d_pava,
     _solve_strip_1d_var,
     fit_box,
 )
@@ -97,28 +98,29 @@ class TestPerPairGaps:
         assert out == [0.0, 4.0]
 
 
-class TestSolveStrip1dLp:
-    """P4b (#318, ADR 0009 Amendment 3): minimum-total-leader-length placement
-    via ``scipy.optimize.linprog``, replacing the Cassowary satisfaction-only
-    solve for ``plan_strip``'s inner spacing step."""
+class TestSolveStrip1dPava:
+    """P4b (#318, ADR 0009 Amendment 4): minimum-total-leader-length placement via
+    weighted-median PAVA — the exact L1 optimum the earlier ``scipy.optimize.linprog``
+    prototype computed, but deterministic **by construction** (no solver-vertex
+    ambiguity on the common non-unique optimum), and with anchoring support."""
 
     def test_empty_and_single(self):
-        assert _solve_strip_1d_lp([], [], 0.0, 10.0) == []
-        assert _solve_strip_1d_lp([5.0], [], 0.0, 10.0) == [5.0]
+        assert _solve_strip_1d_pava([], [], 0.0, 10.0) == []
+        assert _solve_strip_1d_pava([5.0], [], 0.0, 10.0) == [5.0]
 
     def test_already_spaced_naturals_are_untouched(self):
         # No pull needed anywhere → the L1-optimal placement is the naturals
         # themselves, same as the satisfaction solve would give.
-        out = _solve_strip_1d_lp([0.0, 20.0, 40.0], [5.0, 5.0], -50.0, 50.0)
+        out = _solve_strip_1d_pava([0.0, 20.0, 40.0], [5.0, 5.0], -50.0, 50.0)
         assert out == pytest.approx([0.0, 20.0, 40.0])
 
     def test_infeasible_returns_none(self):
         # sum(gaps) = 14 > span 10 → None, same provably-infeasible contract
         # as _solve_strip_1d_var.
-        assert _solve_strip_1d_lp([0.0, 0.0, 0.0], [4.0, 10.0], 0.0, 10.0) is None
+        assert _solve_strip_1d_pava([0.0, 0.0, 0.0], [4.0, 10.0], 0.0, 10.0) is None
 
     def test_honours_bounds_and_gaps(self):
-        out = _solve_strip_1d_lp([10.0, 11.0, 12.0], [5.0, 5.0], 0.0, 100.0)
+        out = _solve_strip_1d_pava([10.0, 11.0, 12.0], [5.0, 5.0], 0.0, 100.0)
         assert out is not None
         assert out[1] - out[0] == pytest.approx(5.0)
         assert out[2] - out[1] == pytest.approx(5.0)
@@ -126,29 +128,45 @@ class TestSolveStrip1dLp:
 
     def test_minimises_total_leader_length_not_just_satisfies(self):
         # Cassowary's "strong pull toward natural" can settle on any feasible
-        # point; the LP must find the true L1-minimising one. For naturals
+        # point; PAVA must find the true L1-minimising one. For naturals
         # [10, 7, 4] needing >=5 gap apart (crowded, conflicting pulls), the
         # weighted-median-of-shifted-naturals optimum is [2, 7, 12] (total
-        # deviation 16) — verified against a hand-derived isotonic-regression
-        # reduction (shift q_i = x_i - cumulative gap, pool the resulting
-        # strictly-decreasing [10, 2, -6] to its median -6..10 -> 2), not just
-        # "some feasible placement".
-        out = _solve_strip_1d_lp([10.0, 7.0, 4.0], [5.0, 5.0], -100.0, 100.0)
+        # deviation 16) — the shift q_i = x_i - cumulative gap gives the
+        # strictly-decreasing [10, 2, -6]; one pool, weighted median -6..10 -> 2.
+        out = _solve_strip_1d_pava([10.0, 7.0, 4.0], [5.0, 5.0], -100.0, 100.0)
         assert out == pytest.approx([2.0, 7.0, 12.0])
 
-    def test_deterministic_across_runs(self):
-        args = ([1.0, 1.0, 1.0, 1.0], [3.0, 3.0, 3.0], 0.0, 100.0)
-        assert _solve_strip_1d_lp(*args) == _solve_strip_1d_lp(*args)
+    def test_box_clamp_is_exact_not_post_hoc(self):
+        # All naturals below lo: the whole block clamps up to lo (exact for L1
+        # after the gap-shift, since the box reduces to a GLOBAL [lo, hi-Σgap]).
+        out = _solve_strip_1d_pava([-5.0, -4.0], [3.0], 0.0, 100.0)
+        assert out == pytest.approx([0.0, 3.0])
 
-    def test_degenerate_tie_break_regression(self):
-        # Mitigation for the accepted risk documented in ADR 0009 Amendment 3:
-        # x=[4,3,2,1] with no gap requirement has a non-unique L1-optimum (any
-        # constant in [2,3] is equally optimal); HiGHS consistently picks 3.0.
-        # Pin that known result so a future scipy/HiGHS upgrade that silently
-        # shifts tie-break behaviour is caught here, not absorbed unnoticed
-        # into changed drawing output.
-        out = _solve_strip_1d_lp([4.0, 3.0, 2.0, 1.0], [0.0, 0.0, 0.0], -100.0, 100.0)
-        assert out == pytest.approx([3.0, 3.0, 3.0, 3.0])
+    def test_deterministic_by_construction(self):
+        # No solver, no platform-dependent vertex choice: the non-unique-optimum
+        # case x=[4,3,2,1] (any constant in [2,3] is equally L1-optimal) resolves
+        # to the SAME value every call/platform — the lower weighted median (2.0).
+        # This is what the scipy/HiGHS route could NOT guarantee (its tie-break
+        # diverged across the CI matrix's two scipy builds — Amendment 4).
+        out = _solve_strip_1d_pava([4.0, 3.0, 2.0, 1.0], [0.0, 0.0, 0.0], -100.0, 100.0)
+        assert out == pytest.approx([2.0, 2.0, 2.0, 2.0])
+        assert out == _solve_strip_1d_pava([4.0, 3.0, 2.0, 1.0], [0.0, 0.0, 0.0], -100.0, 100.0)
+
+    def test_anchor_weight_pins_a_candidate_on_a_tie(self):
+        # naturals [100, 102] need a 7 mm gap; total-leader-length is a tie
+        # between [95,102] (move #0) and [100,107] (move #1). A dominating weight
+        # on a candidate keeps IT at its natural and flows the other around it —
+        # how a central hole's callout stays on the view-centre row (Amendment 4).
+        assert _solve_strip_1d_pava([100.0, 102.0], [7.0], 0.0, 200.0, [_ANCHOR_WEIGHT, 1.0]) == (
+            pytest.approx([100.0, 107.0])
+        )
+        assert _solve_strip_1d_pava([100.0, 102.0], [7.0], 0.0, 200.0, [1.0, _ANCHOR_WEIGHT]) == (
+            pytest.approx([95.0, 102.0])
+        )
+        # unweighted default keeps the deterministic lower-median vertex
+        assert _solve_strip_1d_pava([100.0, 102.0], [7.0], 0.0, 200.0) == pytest.approx(
+            [95.0, 102.0]
+        )
 
 
 class TestLayoutSolver:

@@ -284,12 +284,17 @@ involved.
 
 ## Amendment 3 — Min-total-leader-length via L1 isotonic regression (P4b, #318)
 
-**Status:** Accepted (2026-07-02) — algorithm (L1 isotonic regression with
-gap/box constraints) and implementation (`scipy.optimize.linprog`, HiGHS)
-both signed off by the user after an evidence-based library evaluation and
-direct empirical verification (real solver runs, not literature alone).
-Implementation not yet started. The two "Open, not yet decided" items below
-are non-blocking follow-ups, not implementation gates.
+**Status:** **Superseded by Amendment 4** (2026-07-02). The *algorithm* it
+settled — L1 isotonic regression with gap/box constraints, minimise total
+leader length — stands and is what shipped. The *implementation choice*
+(`scipy.optimize.linprog`, HiGHS) did not survive first contact: the L1
+optimum is non-unique far more often than the "one bounded degenerate case"
+this amendment assumed, and HiGHS resolves those ties differently across the
+two scipy builds in the CI matrix — an ADR 0001 determinism violation that
+broke every CI job. Amendment 4 keeps the algorithm and swaps the solver for
+a deterministic weighted-median PAVA (the fallback this amendment had already
+verified). Retained below as the decision record and the reason the switch
+was needed.
 
 **Problem.** `plan_strip`'s current position solve (`_solve_strip_1d_var`, via
 kiwisolver/Cassowary) is a constraint-*satisfaction* solve with a strength
@@ -361,6 +366,68 @@ caught by CI, not silently absorbed into a changed drawing output.
    merely-constraint-satisfying one — same "dense sheets re-pack; covered by
    invariants" class of change P3 already established, not a regression by
    itself, but worth calling out explicitly since it touches real output.
+
+## Amendment 4 — Deterministic weighted-median PAVA + central-hole anchoring (P4b, #318)
+
+**Status:** Accepted (2026-07-02) — implemented and verified. Supersedes
+Amendment 3's *implementation* (not its algorithm).
+
+**Problem (why Amendment 3's `linprog` route failed).** Amendment 3 shipped as
+`scipy.optimize.linprog` and CI failed on **every** OS/Python job. Two symptoms,
+one root cause:
+
+1. **Determinism (ADR 0001).** The L1 objective (minimise `Σ|p_i − x_i|`) is a
+   median-type objective and is **non-unique whenever a crowded pair is pushed
+   apart by the gap constraint** — an entire interval of positions is equally
+   optimal, and HiGHS returns one arbitrary vertex. The vertex differs between
+   the two scipy builds the lockfile pins across the matrix (1.15.3 on py3.10,
+   1.17.1 on py3.11+): e.g. `naturals=[1.99,2.76,5.06,5.25], gaps=[3,0,5]` →
+   `[0,3,3,8]` on one, `[0,3,5,10]` on the other, both L1-cost 7.04, ~2 mm apart
+   (far above the 0.1 mm snapshot grid). A 4000-case fuzz found this on
+   realistic (strictly-positive-gap) strips. So `build_drawing` was no longer a
+   pure function across the matrix. Amendment 3's mitigation — pinning the one
+   degenerate case `[4,3,2,1]` — gave false confidence: it addressed a single
+   corner, not the structural non-uniqueness. *(Found by the PR's adversarial
+   review and confirmed against both pinned scipy versions.)*
+2. **Domain-wrong tie-break.** The same non-uniqueness let the solver place a
+   **central** hole's callout off the view-centre row: for two callouts whose
+   naturals are close, `[keep #0, move #1]` and `[move #0, keep #1]` have equal
+   total length, and HiGHS chose the one that shifts the central label
+   (`test_prismatic_central_hole_callout_not_lifted`: 5 mm off, > the 3 mm
+   font-height rule).
+
+**Decision.** Keep Amendment 3's algorithm; make two changes.
+
+1. **Solve with weighted-median PAVA, not an LP.** `_solve_strip_1d_pava`
+   (`layout.py`) computes the exact same L1 optimum via the Pool Adjacent
+   Violators Algorithm: shift `s_i = x_i − Σ_{j<i} gap_j` (min-gap chain → plain
+   monotone), weighted-median PAVA for the L1 isotonic fit, then clamp to the
+   **global** box `[lo, hi − Σgap]` the shift reduces the per-point bounds to
+   (an exact clamp, since after the shift the box is global — verified, not the
+   post-hoc-clip the research note warned is inexact) and unshift. It is
+   **deterministic by construction** — the median's tie is resolved by a fixed
+   *lower-median* convention, no solver vertex choice, so no cross-version drift.
+   Verified: total-leader-length matches `linprog` on all 4000 fuzz cases;
+   feasibility (gaps/box) and the `None`-on-infeasible contract hold. This is the
+   hand-rolled route Amendment 3 had *already* verified and kept "as the
+   fallback if the caveat ever proves troublesome" — it did, on day one.
+   **`scipy` is dropped** as a dependency (it was only added for `linprog`).
+2. **Anchor central features.** A new `StripCandidate.anchored` flag maps to a
+   dominating weight in the weighted median, pinning that candidate at its
+   natural position while the rest flow around it. `annotations/holes.py` marks
+   the coaxial/central hole's callout anchored (same centre test `_coaxial_lift`
+   uses), so "central hole stays on the centre row" is now a **domain decision
+   the solve honours by construction**, not an accident of which tied vertex a
+   solver happened to pick. It remains a spacing hint, not a hard pin — an
+   anchored candidate can still be *dropped* when the strip is over capacity.
+
+**Consequences.** `build_drawing` is again pure across the matrix. Snapshot
+re-blessed where the deterministic optimum differs from the old Cassowary
+placement (a reviewed diff, the P4 output-improvement `test_layout_snapshot`
+anticipates). The `test_deterministic_by_construction` unit test pins the
+lower-median convention so any future change to it is a conscious, reviewed one
+(replacing Amendment 3's brittle solver-vertex pin). No new runtime dependency;
+the solve is O(n) per strip for the <20-candidate strips in practice.
 
 ## Related
 
