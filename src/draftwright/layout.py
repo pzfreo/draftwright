@@ -205,7 +205,8 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     ``key``; that tie-break is *not* crossing-optimal (it doesn't see the
     perpendicular coordinate that decides those crossings) — resolving ties
     crossing-optimally is the P4 assign/order step (#318). Then spaces the labels
-    within ``[lo, hi]`` at least *min_gap* apart via :func:`_solve_strip_1d`.
+    within ``[lo, hi]``, at least *min_gap* apart, via the per-pair solve
+    described below.
 
     **Selection (P2, #322):** when the strip cannot hold everything, the
     lowest-priority candidates are dropped (ties by key, deterministic) until the
@@ -213,11 +214,17 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     (``placed`` {key: position}, ``dropped`` keys). This is the ranked, priority-
     aware replacement for the engine's arrival-order / prefix drops.
 
-    Spacing is the caller's single *min_gap* (as the engine's strips do today) — the
-    candidate's ``size`` is carried for the per-pair, label-height-aware gaps that
-    come with the optimal packing (P4, #318), and is not consulted here, so
-    *min_gap* must clear the tallest label. Candidate *keys* must be unique (they
-    key the result). Deterministic throughout.
+    **Spacing (P4a, #318):** each adjacent pair's required gap is the larger of
+    the two candidates' strip-axis extents (``size[idx]``), floored at the
+    caller's *min_gap* — the same "larger of the two neighbours' requirements"
+    rule :meth:`LayoutSolver.solve_strip` already uses for heterogeneous
+    ``Placeable``s, applied here to ``StripCandidate.size`` instead of an
+    explicit per-item ``min_gap`` field. *min_gap* is therefore a floor (minimum
+    clearance/padding regardless of label size), not the whole story; solved via
+    :func:`_solve_strip_1d_var`. When every candidate's ``size[idx]`` is the same
+    value (every current caller), this reduces exactly to the old uniform-gap
+    solve. Candidate *keys* must be unique (they key the result). Deterministic
+    throughout.
     """
     if not candidates:
         return StripPlacement({}, ())
@@ -230,7 +237,12 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     dropped: list[str] = []
     while keep:
         ordered = sorted(keep, key=lambda c: (c.anchor[idx], c.key))
-        positions = _solve_strip_1d([c.anchor[idx] for c in ordered], min_gap, lo, hi)
+        naturals = [c.anchor[idx] for c in ordered]
+        gaps = [
+            max(ordered[i].size[idx], ordered[i + 1].size[idx], min_gap)
+            for i in range(len(ordered) - 1)
+        ]
+        positions = _solve_strip_1d_var(naturals, gaps, lo, hi)
         if positions is not None:
             placed = {c.key: p for c, p in zip(ordered, positions, strict=True)}
             return StripPlacement(placed, tuple(dropped))

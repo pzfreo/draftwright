@@ -735,7 +735,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         # one plan_strip per side does the site-ordered spacing and the over-capacity
         # drop (ADR 0009 / #321 P1a). This is the first *production* placer routed
         # through plan_strip — it replaces the bespoke _solve_strip_via_layout + the
-        # greedy prefix-drop. plan_strip bottoms out in the same _solve_strip_1d, and
+        # greedy prefix-drop. plan_strip bottoms out in _solve_strip_1d_var, and
         # the queue is pre-sorted by natural Y (so plan_strip's (anchor_y, key) order is
         # the queue order → leaders stay crossing-free). Over-capacity selection is now
         # by real per-feature priority — the hole DIAMETER (D3/#322): when the strip

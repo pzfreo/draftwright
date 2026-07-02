@@ -147,15 +147,18 @@ Updated 2026-07-02.
     tracked as a P349 follow-up, landing separately. Lesson: the slow tier's "catch it
     right after merge, not on every PR" tradeoff (README/CLAUDE.md) only works if
     someone actually looks at `gh run list` after merging — nothing was, for 12 pushes.
-- **P4 (#318)** — **not started, and intentionally deferred until P5** (user, 2026-07-01):
-  optimising leader assignment before the placement model is fully settled would optimise
-  around a moving target. *Sequencing reconfirmed 2026-07-02:* still holds — P5 strands
-  3–4 (the allowlist burn-down + property tests) are the "settle the model" work P4 was
-  waiting on, so they land **before** P4 starts, not after. Once P5 is fully done, P4
-  splits into three gated PRs (mirroring the P1a/b and PR-4a/b/c pattern):
-  - **P4a** — wire per-candidate label-size gaps into `plan_strip` (use the already-tested
-    `_solve_strip_1d_var`/`_greedy_strip_1d_var` per-pair-gap primitives instead of one
-    caller-supplied uniform `min_gap` per strip). Low risk, no new algorithm.
+- **P4 (#318)** — P5 is done; P4 splits into three gated PRs (mirroring the P1a/b and
+  PR-4a/b/c pattern):
+  - **P4a — DONE (2026-07-02):** wired per-candidate label-size gaps into `plan_strip`.
+    Each adjacent pair's required gap is now `max(size[idx] of the two neighbours,
+    caller's min_gap)` — the same "larger of the two neighbours' requirements" rule
+    `LayoutSolver.solve_strip` already used for heterogeneous `Placeable`s (#81), applied
+    to `StripCandidate.size` — solved via the already-tested `_solve_strip_1d_var`
+    primitive instead of the uniform-gap `_solve_strip_1d`. No caller was changed to pass
+    heterogeneous sizes (that is deliberately out of scope, deferred with P4b/P4c below),
+    so every current call site still passes a uniform `size[idx]` per strip and the floor
+    dominates — confirmed byte-identical on the full `tests/test_layout_snapshot.py`
+    corpus and the full fast tier.
   - **P4b** — replace `plan_strip`'s "pull toward natural position" Cassowary spacing
     objective with a proper min-total-leader-length solve (isotonic regression / DP) —
     order stays fixed by anchor position (crossing-free, already established by P2), this
