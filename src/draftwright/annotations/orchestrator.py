@@ -382,11 +382,10 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
         # Remove the callouts and location dims the table replaces FIRST: it frees
         # their space for the table and shrinks the obstacle set fit_box scans (the
         # dense parts have dozens), which is the dominant cost on heavy sheets (#93).
-        replaced = {
-            n: o
-            for n, o in list(dwg.iter_annotations())
-            if n.startswith(("hc_plan", "m_locx", "m_locy")) and not dwg._is_pattern_callout(n)
-        }
+        # Structured coverage state (registered at placement time, #351 PR-4c), not
+        # an annotation-name-prefix grep — the last stringly-typed inference this
+        # resolver relied on (ADR 0009 Amdt 1).
+        replaced = {n: o for n, o in list(dwg.iter_annotations()) if dwg._is_scattered_hole_doc(n)}
         replaced_view = {n: dwg.view_of(n) for n in replaced}
         for n in replaced:
             dwg.remove(n)

@@ -241,6 +241,11 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
     IR `PatternFeature` *feat* (members / bcd / pitch / grid), not a recogniser
     `Pattern` — ADR 0008 Amendment 6."""
     if feat is None:
+        if view == "plan":
+            # A plain (unpatterned) plan-view callout — a candidate the scattered-hole
+            # table may replace (#351 PR-4c). Scoped to plan only, matching the table's
+            # own scope: front/side callouts are never table-replaceable.
+            dwg._cover_scattered_hole_doc(f"hc_{view}{j}")
         return
     members = feat.members
     # Remember the bore-callout name AND the holes it documents (by position), so a

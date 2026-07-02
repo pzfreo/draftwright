@@ -354,13 +354,17 @@ class Drawing:
         """Record that placed *callout_name* documents *holes* (#92)."""
         self._coverage.cover_pattern(callout_name, holes)
 
-    def _is_pattern_callout(self, name) -> bool:
-        """Is *name* a placed pattern (grouped ``n× ⌀``) callout?"""
-        return self._coverage.is_pattern_callout(name)
-
     def _is_hole_patterned(self, hole) -> bool:
         """Is *hole* already documented by a placed pattern callout?"""
         return self._coverage.is_hole_patterned(hole)
+
+    def _cover_scattered_hole_doc(self, name) -> None:
+        """Record that placed *name* is a scattered hole callout / location dim (#351 PR-4c)."""
+        self._coverage.cover_scattered_hole_doc(name)
+
+    def _is_scattered_hole_doc(self, name) -> bool:
+        """Is *name* a placed scattered hole callout / location dim?"""
+        return self._coverage.is_scattered_hole_doc(name)
 
     def _reset_dropped_callout_diams(self):
         """Clear dropped-diameter tracking (top of :func:`_auto_annotate`)."""
