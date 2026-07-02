@@ -549,6 +549,13 @@ def _fake_dwg(obstacles, view="side", types=None):
     # annotations exposing a bounding_box() and a single owning view. obstacles:
     # {name: (x0, y0, x1, y1)}; *types* optionally maps a name to its annotation
     # class name (default "_Obst") so corridor_blockers' type filter can be exercised.
+    # "Dimension"/"SafeDimension" build a real *subclass* (so the `isinstance` filter,
+    # not a name string-match, is exercised — #335/#349 hardening); other names build a
+    # plain class of that name (for the crossable/leader name checks).
+    from build123d_drafting.helpers import Dimension, SafeDimension
+
+    _dim_bases = {"Dimension": (Dimension,), "SafeDimension": (SafeDimension,)}
+
     class _P:
         def __init__(s, x, y):
             s.X, s.Y = x, y
@@ -559,7 +566,9 @@ def _fake_dwg(obstacles, view="side", types=None):
 
     def _make(name, bb):
         tn = (types or {}).get(name, "_Obst")
-        return type(tn, (), {"bounding_box": lambda s, _b=_BB(*bb): _b})()
+        bases = _dim_bases.get(tn, ())
+        body = {"bounding_box": lambda s, _b=_BB(*bb): _b, "__init__": lambda s: None}
+        return type(tn, bases, body)()
 
     class _Dwg:
         def iter_annotations(s):
@@ -574,11 +583,24 @@ def _fake_dwg(obstacles, view="side", types=None):
 def test_corridor_blockers_keeps_leaders_excludes_dim_chains_and_centrelines():
     # A dimension's witness corridor may cross datum-chained dims and centre lines but
     # NOT a leader (#321 P1b). corridor_blockers returns only the blocking geometry.
+    # A SafeDimension (helper sibling of Dimension, NOT a subclass) must be excluded
+    # exactly like a Dimension — the #335/#349 isinstance-not-string-name hardening; a
+    # bare name match would have wrongly kept it as a blocker.
     from draftwright.annotations._common import corridor_blockers
 
     dwg = _fake_dwg(
-        {"dim_loc_side_y100": (0, 0, 5, 3), "m_cl": (0, 0, 5, 3), "hc_side0": (10, 10, 20, 15)},
-        types={"dim_loc_side_y100": "Dimension", "m_cl": "Centerline", "hc_side0": "Leader"},
+        {
+            "dim_loc_side_y100": (0, 0, 5, 3),
+            "m_env_depth_safe": (1, 1, 6, 4),
+            "m_cl": (0, 0, 5, 3),
+            "hc_side0": (10, 10, 20, 15),
+        },
+        types={
+            "dim_loc_side_y100": "Dimension",
+            "m_env_depth_safe": "SafeDimension",
+            "m_cl": "Centerline",
+            "hc_side0": "Leader",
+        },
     )
     assert corridor_blockers(dwg, "side") == [(10.0, 10.0, 20.0, 15.0)]
 

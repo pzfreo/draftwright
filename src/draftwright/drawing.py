@@ -27,7 +27,9 @@ from build123d import (
     Vector,
 )
 from build123d_drafting.helpers import (
+    Dimension,
     Leader,
+    SafeDimension,
     ViewCoordinates,
     annotate,
     view_axes,
@@ -721,7 +723,7 @@ class Drawing:
         for nm, obj in self._named.items():
             if self._anno_view.get(nm) != view:
                 continue
-            if type(obj).__name__ != "Dimension" and not nm.startswith("pmi_"):
+            if not isinstance(obj, (Dimension, SafeDimension)) and not nm.startswith("pmi_"):
                 continue
             try:
                 ob = obj.bounding_box()
