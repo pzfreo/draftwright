@@ -27,7 +27,16 @@ from draftwright._core import (
     _iso_bbox,
     _log,
 )
-from draftwright.annotations._common import Escalation, place_strip_candidates
+from draftwright.annotations._common import (
+    CROSSABLE_TYPES,
+    Escalation,
+    _box_hits,
+    _geom_box,
+    _segment_hits_box,
+    carve_free_segments,
+    place_strip_candidates,
+    strip_obstacles,
+)
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model.ir import HoleFeature, PatternFeature
@@ -733,48 +742,213 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         # cannot hold every callout, the smallest-bore features drop first so the most
         # significant survive (the same "largest wins" policy the front-view shaft rows
         # already use, line 638). Ties (equal bore) fall back to key = natural-Y order.
+        def _build_leader_at(s, edge, side, y):
+            """The Leader `_add` would draw for queue entry *s* at elbow-Y *y* —
+            built but not placed, so its footprint can be checked before
+            committing (ADR 0009 P5 strand 3). Returns ``(leader, tip, elbow)``."""
+            _locs, dia, callout, _feat, _ny, rep = s
+            centre = to_page(rep)
+            if side == "right":
+                elbow = (edge + elbow_dx, y)
+                tip = _rim_tip(centre, elbow, dia)
+                tip = (min(tip[0], edge - draft.arrow_length), tip[1])
+            else:
+                elbow = (edge - elbow_dx, y)
+                tip = _rim_tip(centre, elbow, dia)
+                tip = (max(tip[0], edge + draft.arrow_length), tip[1])
+            leader = Leader(
+                tip=(tip[0], tip[1], 0),
+                elbow=(elbow[0], elbow[1], 0),
+                label="",
+                draft=draft,
+                text_side=side,
+                callout=callout,
+            )
+            return leader, tip, elbow
+
+        def _leader_hits(leader, tip, elbow, side, obstacles):
+            """True when *leader*'s rendered footprint truly overlaps any
+            *obstacles* box — split into the diagonal tip→elbow SHAFT (checked
+            precisely via `_segment_hits_box`, since its AABB over-claims the
+            empty triangle it doesn't occupy — #305, precise angled-leader
+            geometry is P4/#318) and the elbow→label shelf+text (genuinely
+            axis-aligned, so the coarse AABB check there is already exact)."""
+            full_box = _geom_box(leader)
+            if full_box is None or not _box_hits(full_box, obstacles):
+                return False  # fast reject: nowhere near any obstacle
+            if any(_segment_hits_box(tip, elbow, o) for o in obstacles):
+                return True
+            label_box = (
+                (elbow[0], full_box[1], full_box[2], full_box[3])
+                if side == "right"
+                else (full_box[0], full_box[1], elbow[0], full_box[3])
+            )
+            return _box_hits(label_box, obstacles)
+
         def _place_queue(queue, edge, side, key_prefix, start_i):
             if not queue:
                 return start_i
-            cands = [
+
+            # Baseline: the single full-range solve the pre-#351-P5-strand-3 code
+            # always did, ignoring drawing-level obstacles entirely — every
+            # candidate pulled toward its own natural Y, respecting only min_gap
+            # from its queue siblings. Used below as the "cost of NOT avoiding"
+            # reference a carve-based relocation must beat to be worth taking.
+            base_cands = [
                 StripCandidate(
                     key=f"{key_prefix}{j:04d}",
                     anchor=(edge, s[4]),
                     size=(s[2].callout_width, min_gap),
-                    priority=s[1],  # bore diameter — largest wins over-capacity (D3)
+                    priority=s[1],
                 )
                 for j, s in enumerate(queue)
             ]
-            res = plan_strip(cands, y_min, y_max, min_gap)
-            by_key = {c.key: s for c, s in zip(cands, queue, strict=True)}
-            if res.dropped:
+            base_res = plan_strip(base_cands, y_min, y_max, min_gap)
+            base_by_key = {c.key: s for c, s in zip(base_cands, queue, strict=True)}
+            base_y = {id(base_by_key[k]): y for k, y in base_res.placed.items()}
+            base_dropped = {id(base_by_key[k]) for k in base_res.dropped}
+
+            # Carve [y_min, y_max] around drawing-level obstacles this column's
+            # leaders would cross (e.g. the section cutting-plane arrow — #351 P5
+            # strand 3): a Y-only solve can't see an obstacle it never measures,
+            # the textbook invisible-occupant defect. Probed at each candidate's
+            # OWN natural Y, not a shared reference — a callout's leader shaft is
+            # position-dependent geometry (it runs from the fixed hole location to
+            # the elbow), so probing everyone at one far-away Y badly misjudges it.
+            def _probe_box(s):
+                # Unlike the old code (which only ever built a Leader for a
+                # candidate already chosen for placement), this probes EVERY
+                # queued candidate up front, including ones that may end up
+                # dropped — so a degenerate geometry unreachable before now
+                # (e.g. a hole essentially coincident with the strip edge) gets
+                # a defensive catch here too, matching _geom_box's own
+                # established "not every annotation bbox-es cleanly" idiom.
+                try:
+                    leader, _, _ = _build_leader_at(s, edge, side, s[4])
+                except Exception as exc:  # noqa: BLE001 — geometry construction raises broadly
+                    _log.debug("plan/side %s strip: probe leader failed (%s); omitted", side, exc)
+                    return None
+                return _geom_box(leader)
+
+            probe_boxes = [b for s in queue if (b := _probe_box(s)) is not None]
+            occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+            if probe_boxes:
+                band_lo = min(b[0] for b in probe_boxes)
+                band_hi = max(b[2] for b in probe_boxes)
+                occupied = [o for o in occupied if o[0] < band_hi and o[2] > band_lo]
+            segs = carve_free_segments(y_min, y_max, [(o[1], o[3]) for o in occupied], min_gap)
+
+            # Assign each candidate to the free segment nearest its natural Y
+            # (containing it if possible, else the closer boundary) — the
+            # multi-segment analogue of the single plan_strip call this replaces.
+            # In practice at most one obstacle (the section arrow) ever splits
+            # this column, so a per-segment solve stays close to the
+            # single-segment optimum while never overprinting the carved gap.
+            def _nearest_seg(ny):
+                for lo, hi in segs:
+                    if lo <= ny <= hi:
+                        return (lo, hi)
+                return min(
+                    segs, key=lambda sg: min(abs(ny - sg[0]), abs(ny - sg[1])), default=None
+                )
+
+            by_seg: dict = {seg: [] for seg in segs}
+            for s in queue:
+                seg = _nearest_seg(s[4])
+                if seg is not None:
+                    by_seg[seg].append(s)
+            # A candidate whose natural Y fell outside every free segment (the
+            # whole column blocked, or between two far-apart obstacles) is simply
+            # absent from `by_seg` — the final per-candidate loop below already
+            # falls back to the baseline position for it (no special "unassigned"
+            # bucket needed; `plan_strip`'s own dropped set, from a segment truly
+            # out of capacity, is likewise just absent from `seg_y` below).
+
+            seg_y: dict = {}  # id(s) -> elbow_y, from the carve-aware per-segment solves
+
+            def _solve_segment(cands_in, lo, hi, key_prefix_local):
+                cands = [
+                    StripCandidate(
+                        key=f"{key_prefix_local}{j:04d}",
+                        anchor=(edge, s[4]),
+                        size=(s[2].callout_width, min_gap),
+                        priority=s[1],  # bore diameter — largest wins over-capacity (D3)
+                    )
+                    for j, s in enumerate(cands_in)
+                ]
+                res = plan_strip(cands, lo, hi, min_gap)
+                by_key = {c.key: s for c, s in zip(cands, cands_in, strict=True)}
+                for k, y in res.placed.items():
+                    seg_y[id(by_key[k])] = y
+
+            for (seg_lo, seg_hi), members in by_seg.items():
+                if members:
+                    _solve_segment(members, seg_lo, seg_hi, key_prefix)
+            # A candidate whose natural Y fell outside every free segment (the
+            # whole column blocked, or between two far-apart obstacles) never
+            # entered `by_seg` — it has no carve-aware position to compare below,
+            # so the baseline (with crossing accepted, policy B) is its only shot.
+
+            # Decide per candidate: take the carve-aware (obstacle-avoiding)
+            # position ONLY when a free one exists AND it doesn't cost much more
+            # displacement than simply accepting a crossing at the natural-pull
+            # baseline (user, 2026-07-02 — a large relocation to dodge a thin
+            # obstacle is worse than a small, visible, correctable crossing,
+            # matching the existing side_drilled corridor-relocate precedent).
+            # A tight avoidance win is still taken: it is a genuine improvement.
+            # One row's worth of nudge (min_gap, the smallest spacing unit this
+            # placer already reasons in) is "cheap"; more than that is a real
+            # repositioning, not a nudge.
+            _RELOCATE_TOLERANCE = min_gap
+            placed: list = []  # (s, elbow_y, leader) — leader built once, reused at emit
+            crossing: list = []  # ditto, kept despite an obstacle crossing (policy B)
+            dropped: list = []  # s — genuinely no room anywhere, not just a crossing
+            for s in queue:
+                sid = id(s)
+                natural = s[4]
+                cand_y = seg_y.get(sid)
+                base_ok = sid in base_y and sid not in base_dropped
+                if cand_y is not None and base_ok:
+                    d_seg = abs(cand_y - natural)
+                    d_base = abs(base_y[sid] - natural)
+                    y = cand_y if d_seg <= d_base + _RELOCATE_TOLERANCE else base_y[sid]
+                elif cand_y is not None:
+                    y = cand_y  # baseline dropped it outright — the carve saved it
+                elif base_ok:
+                    y = base_y[sid]  # no free segment took it — fall back to baseline
+                else:
+                    dropped.append(s)
+                    continue
+                leader, tip, elbow = _build_leader_at(s, edge, side, y)
+                if _leader_hits(leader, tip, elbow, side, occupied):
+                    crossing.append((s, y, leader))
+                else:
+                    placed.append((s, y, leader))
+
+            if dropped:
                 _log.warning(
                     "plan/side %s strip: %d of %d bore callouts skipped (strip full)",
                     side,
-                    len(res.dropped),
+                    len(dropped),
                     len(queue),
                 )
-                for k in res.dropped:
-                    _record_callout_drop(
-                        dwg, view, by_key[k][1], f"{side} strip full", by_key[k][3]
-                    )
-            # Emit survivors in natural-Y order (== plan_strip's solve order, since
-            # keys are Y-monotonic) so the hc_{view}{i} names + centre-mark indices
-            # land on the same callouts as the old queue-order emit.
+                for s in dropped:
+                    _record_callout_drop(dwg, view, s[1], f"{side} strip full", s[3])
+            if crossing:
+                _log.info(
+                    "plan/side %s strip: %d bore callout(s) placed despite crossing an "
+                    "obstacle (policy B — kept, not dropped)",
+                    side,
+                    len(crossing),
+                )
+            placed.extend(crossing)
+            # Emit survivors in natural-Y order so the hc_{view}{i} names + centre-
+            # mark indices land on the same callouts as the old queue-order emit
+            # (the queue itself was already sorted by natural Y before Pass 2).
             i = start_i
-            for k, elbow_y in sorted(res.placed.items(), key=lambda kv: (by_key[kv[0]][4], kv[0])):
-                _locs, dia, callout, feat, _ny, rep = by_key[k]
-                centre = to_page(rep)
-                if side == "right":
-                    elbow = (edge + elbow_dx, elbow_y)
-                    tip = _rim_tip(centre, elbow, dia)
-                    # Safety clamp: arrowhead must sit inside the view boundary.
-                    tip = (min(tip[0], edge - draft.arrow_length), tip[1])
-                else:
-                    elbow = (edge - elbow_dx, elbow_y)
-                    tip = _rim_tip(centre, elbow, dia)
-                    tip = (max(tip[0], edge + draft.arrow_length), tip[1])
-                _add(view, i, tip, elbow, side, callout)
+            for s, _elbow_y, leader in sorted(placed, key=lambda p: p[0][4]):
+                _locs, dia, callout, feat, _ny, rep = s
+                dwg.add(leader, f"hc_{view}{i}", view=view)
                 _add_furniture(dwg, a, view, i, feat, to_page)
                 i += 1
             return i

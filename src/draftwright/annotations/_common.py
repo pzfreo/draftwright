@@ -227,6 +227,47 @@ def _box_hits(bb, boxes):
     return False
 
 
+def _segment_hits_box(p1, p2, box) -> bool:
+    """True when line segment *p1*-*p2* intersects axis-aligned *box*
+    ``(x0, y0, x1, y1)`` — the precise counterpart of :func:`_box_hits` for a
+    genuinely diagonal shaft (ADR 0009 P4/#318, #305: "a diagonal leader's box
+    over-claims its empty triangle"). Boxing an angled segment for a coarse
+    reject is correct and cheap; boxing it for the final accept/reject decision
+    over-avoids free space a real diagonal never crosses. Endpoint-in-box and
+    the 4 edge-crossing cases (a standard segment/AABB test).
+
+    The crossing test uses strict inequality deliberately, not an inclusive
+    ``<= 0`` — an inclusive test also treats a segment merely COLLINEAR with
+    one of the box's (infinite) edge lines as a hit, regardless of whether it
+    is anywhere near the box along that line (verified: a vertical segment at
+    ``x == box.x0`` but far outside ``[y0, y1]`` false-hits under `<=`). That
+    false-positive class is common (any axis-aligned shaft sharing an X or Y
+    coordinate with an edge), unlike the strict form's own known gap — a
+    segment passing exactly through two opposite corners is a measure-zero
+    event for the continuous, non-integer leader positions this computes over
+    (review finding, #351 P5 strand 3: tried the inclusive form, reverted)."""
+    x0, y0, x1, y1 = box
+
+    def _inside(p):
+        return x0 <= p[0] <= x1 and y0 <= p[1] <= y1
+
+    if _inside(p1) or _inside(p2):
+        return True
+
+    def _cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    def _seg_seg(a1, a2, b1, b2):
+        d1, d2 = _cross(b1, b2, a1), _cross(b1, b2, a2)
+        d3, d4 = _cross(a1, a2, b1), _cross(a1, a2, b2)
+        return ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and (
+            (d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)
+        )
+
+    corners = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    return any(_seg_seg(p1, p2, corners[i], corners[(i + 1) % 4]) for i in range(4))
+
+
 def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
