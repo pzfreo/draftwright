@@ -421,10 +421,12 @@ one root cause:
    solver happened to pick. It remains a spacing hint, not a hard pin — an
    anchored candidate can still be *dropped* when the strip is over capacity.
 
-**Consequences.** `build_drawing` is again pure across the matrix. Snapshot
-re-blessed where the deterministic optimum differs from the old Cassowary
-placement (a reviewed diff, the P4 output-improvement `test_layout_snapshot`
-anticipates). The `test_deterministic_by_construction` unit test pins the
+**Consequences.** `build_drawing` is again pure across the matrix. Corpus
+output is unchanged — all snapshots stay byte-identical to `main` (the PAVA +
+anchoring solve reproduces the old Cassowary placement exactly on every corpus
+strip, including the crowded/anchored bracket strips). Anchoring and the
+deterministic optimum are a determinism-and-correctness guard, not an
+output-improvement change here. The `test_deterministic_by_construction` unit test pins the
 lower-median convention so any future change to it is a conscious, reviewed one
 (replacing Amendment 3's brittle solver-vertex pin). No new runtime dependency;
 the solve is O(n) per strip for the <20-candidate strips in practice.
