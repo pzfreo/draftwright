@@ -161,7 +161,9 @@ is validated on the exact recurring bug before the broad sweep. Tracking issue
 
 ## Amendment 1 — Escalation objects (P5-strand-2, 2026-07-01)
 
-**Status:** Accepted (design); scaffolding first. Tracker **#351**.
+**Status:** Accepted; **fully landed (2026-07-02)**. Tracker **#351**, closed —
+6 PRs (#354, #355, #356, #361, #363, #364), full history and side-discoveries
+in [`plans/strip-layout-boundary-labeling-roadmap.md`](../plans/strip-layout-boundary-labeling-roadmap.md#status).
 
 **Problem.** Today "this couldn't be placed" is a stringly-typed side effect: seven
 scattered codes (`callout_dropped`, `location_ref_dropped`, `off_axis_location_dropped`,
@@ -207,7 +209,78 @@ Escalation(kind, view, feature, reason, remedies)
 change; (2) route the hole path (callouts + locations) through it, resolver *reproduces*
 `_maybe_tabulate_holes` → byte-identical; (3) add ISO pattern-grouping (`group_balloon`) →
 first intended drift, fixes #348, re-bless CTC-02; (4) fold in slots/step/pmi, delete the
-string-grep. Keeps the byte-identity tripwire through steps 1–2.
+string-grep. Keeps the byte-identity tripwire through steps 1–2. **Landed as PR-1 through
+PR-4c**, (4) split further into 4a/4b/4c once its real scope proved bigger than one PR —
+see the roadmap doc.
+
+## Amendment 2 — Precise leader geometry + Policy B (P5-strand-3, 2026-07-02)
+
+**Status:** Accepted; landed (#368). Two findings from finishing the strip-3
+allowlist burn-down (`tests/test_layout_cleanliness.py`'s `_KNOWN_OVERLAPS`)
+turned out to be load-bearing for the rest of ADR 0009, not local fixes — recorded
+here so P4 and any future placer migration don't rediscover them the hard way.
+
+**Finding 1 — AABB occupancy is provably too coarse for a diagonal leader, and
+this is exactly what P4 exists to fix.** `strip_obstacles`'s occupancy model
+(P0, `_common.py`) represents every occupant as an axis-aligned bounding box —
+correct and cheap for rectilinear geometry (dimension lines, tables, hatching),
+but a **diagonal leader shaft**'s AABB over-claims the empty triangle on either
+side of the true line (this was already flagged, prophetically, in
+`_geom_box`'s own docstring and in this ADR's Consequences: *"angled leaders are
+first-class but weaken the guarantees where mixed"*). Migrating
+`_annotate_holes`'s hole-callout placer onto `strip_obstacles` (P5 strand 3)
+made this concrete and costly: a plain AABB collision check caused **5 real
+regressions** on ordinary fixtures with no actual crossing, because a callout's
+diagonal shaft merely *near* an obstacle registered as blocked.
+
+The fix, `_segment_hits_box` (`annotations/_common.py`) — a precise
+line-segment-vs-AABB intersection test, used for the diagonal shaft portion of
+a leader only (the elbow→label shelf+text stays an ordinary AABB check, since
+it genuinely is axis-aligned) — is a **direct, reusable building block for P4**
+("fold the #305 angled-leader nudge into the model as a first-class leader
+style," `docs/plans/strip-layout-boundary-labeling-roadmap.md`). P4b/P4c should
+start from this primitive rather than re-deriving it, and should audit whether
+`strip_obstacles`'s AABB representation needs a general precise-geometry escape
+hatch for *any* future non-rectilinear occupant, not just hole-callout leaders.
+Two narrower residual gaps in the current implementation are filed, not fixed:
+**#366** (the section-row reservation's un-widened extent can miss later
+bolt-circle-driven widening) and **#367** (the precise shaft check still treats
+the leader as a zero-width line, ignoring the rendered arrowhead's flare/line
+width) — both real, both currently unexercised by any corpus fixture.
+
+**Finding 2 — "Policy B": prefer a bounded, visible crossing over an unbounded
+relocation or a silent drop.** This pattern first appeared informally for
+`side_drilled`'s `{hc_side0, dim_loc_side_z2300}` SPACE-CONSTRAINED entry (P1b):
+when relocating a dimension to avoid a corridor conflict isn't cleanly possible,
+keep it on its natural view and accept the same-feature crossing rather than
+drop a real dimension. P5 strand 3 needed the *same* decision again, independently,
+for hole callouts avoiding the section cutting-plane arrow — and this time made
+it an explicit, reusable comparison: **a candidate is only relocated when doing
+so costs no more than one `min_gap` of extra displacement from its natural
+position; otherwise it stays put and the crossing is accepted (logged, never
+silently dropped)** — never an unbounded search for *some* clear spot regardless
+of cost. Ratified by the user (2026-07-02): *"I would rather have a crossing
+leader line than drop the callout... especially if I have hand-tweaked the
+design."*
+
+This is now a **named, two-precedent pattern**, not a one-off special case —
+treat it as the default answer whenever a future placer migration (P4, or any
+new strip occupant) faces "avoid vs. relocate vs. drop": bound the relocation
+cost, accept a cheap crossing beyond that bound, never drop a real annotation
+for a placement reason alone. The `_KNOWN_OVERLAPS` allowlist's steady state is
+therefore **not** an empty PENDING set converging to zero — it is a permanent
+allowlist of `BENIGN` (structural, ISO-legitimate) and `SPACE-CONSTRAINED`
+(policy-B-accepted) entries, with `PENDING` (a genuine unaddressed placer
+defect) the only category a phase is obligated to empty.
+
+**Process note.** Both findings surfaced only because the actual migration was
+attempted, not from analysis — three rounds of independent adversarial review
+were needed to converge (round 1 found the AABB-precision gap after the naive
+reservation-only fix proved insufficient; round 2 and 3 found smaller residual
+issues). The roadmap's original strand-3 estimate ("audit the allowlist, one
+PR") undersold this badly; treat future "should be a small placer migration"
+estimates with the same caution, especially where diagonal/angled geometry is
+involved.
 
 ## Related
 
@@ -224,4 +297,7 @@ string-grep. Keeps the byte-identity tripwire through steps 1–2.
 - Research note: [`research/annotation-placement-boundary-labeling.md`](../research/annotation-placement-boundary-labeling.md).
 - Issues: #150 (consolidate 1-D placement — subsumed here), #301/#302/#303
   (layout-cleanliness/convergence — closed out by the new invariants),
-  #306/#54 (detail-view escalation — the "doesn't fit" target).
+  #306/#54 (detail-view escalation — the "doesn't fit" target), #305 (the
+  original angled-leader-vs-centreline case Amendment 2's Finding 1 traces back
+  to), #318 (P4 — the direct consumer of Amendment 2's `_segment_hits_box` and
+  "policy B" findings), #366/#367 (Amendment 2's filed residual gaps).
