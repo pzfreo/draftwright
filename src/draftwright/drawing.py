@@ -705,7 +705,7 @@ class Drawing:
         pl, pr = a.PV_X - a.fv_hw, a.PV_X + a.fv_hw
         pt, pb = a.PV_Y + a.pv_hh, a.PV_Y - a.pv_hh
         sv_left = a.SV_X - a.sv_hw
-        margin, ph = a.margin, a.PAGE_H
+        margin, ph, pw = a.margin, a.PAGE_H, a.PAGE_W
 
         # Stack the balloon ring *beyond* the annotations already placed around the
         # plan view, not on top of them (#121). Measure the REAL depth the dimensions
@@ -737,6 +737,18 @@ class Drawing:
                     left_dim = max(left_dim, pl - ob.min.X)
                 if ob.max.X > pr:
                     right_dim = max(right_dim, ob.max.X - pr)
+
+        # A dense part can stack many pitch dims on one side (holes._place_pitch_dim
+        # pushes each successive one 10 mm further out, #92), so the measured depth
+        # can exceed the room between the view and the page edge. Clamp each band so
+        # its *ring itself* never lands off the drawable area (#349 follow-up) — the
+        # ring then sits at the margin and overlaps the far witness lines instead,
+        # which is only a tolerated warning (structural.py compares label_bbox, not
+        # the full bbox, for overlap), never the out_of_bounds error.
+        left_dim = min(left_dim, max(0.0, pl - standoff - 2 * r - margin))
+        right_dim = min(right_dim, max(0.0, pw - margin - pr - standoff - 2 * r))
+        top_dim = min(top_dim, max(0.0, ph - margin - pt - standoff - 2 * r))
+        bot_dim = min(bot_dim, max(0.0, pb - standoff - 2 * r - margin))
 
         # A bottom band (below PV, beyond the overall-width dim) is usable only
         # when the FV↔PV gap has room for the width dim *and* a balloon row;
