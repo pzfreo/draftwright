@@ -14,9 +14,11 @@ library, so it is unit-testable without building a drawing.
 
 Explicitly deferred to later phases (so the surface is honest about its limits):
 global 2D non-overlap (the disjunctive constraint ADR 0003 notes is non-linear),
-the assignment layer (which zone/side — still ``Strip.allocate``), the escalation
-ladder, leader-length minimisation, alignment groups, and connector crossing.
-The only solve phase 1 performs correctly is the 1D strip solve.
+the assignment layer (which zone/side — the collect-then-solve carve,
+``place_strip_candidates`` in ``annotations/_common.py``, since #150/P3 retired
+``Strip.allocate``), the escalation ladder, leader-length minimisation, alignment
+groups, and connector crossing. The only solve phase 1 performs correctly is the
+1D strip solve.
 """
 
 from __future__ import annotations
