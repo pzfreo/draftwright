@@ -334,16 +334,21 @@ def _solve_strip_1d_pava_banded(naturals, gaps, lo, hi, weights, bands):
     for seg_lo, seg_hi in segments:
         nxt = dict(best)  # carry every state forward = put no labels in this segment
         for k, (cost, pos) in best.items():
+            if k >= n:
+                continue  # all labels already placed in earlier segments → no run here
+            # Lower bound for this segment's run: the cross-segment min-gap to the
+            # last label placed in an earlier segment. Tighten seg_lo up to it (a
+            # still-convex box) rather than solving against raw seg_lo and rejecting
+            # a too-close result — rejecting would discard a valid, strictly-cheaper
+            # placement that a shift up would reach (parking a label on the band edge
+            # or forcing the fallback; #379 review).
+            run_lo = seg_lo if not pos else max(seg_lo, pos[-1] + gaps[k - 1])
             for j in range(k + 1, n + 1):
                 sol = _solve_strip_1d_pava(
-                    naturals[k:j], gaps[k : j - 1], seg_lo, seg_hi, weights[k:j]
+                    naturals[k:j], gaps[k : j - 1], run_lo, seg_hi, weights[k:j]
                 )
                 if sol is None:
                     break  # a longer run only needs more room → also infeasible
-                # gap to the last label placed in an earlier segment (the band
-                # between them usually guarantees it, but a thin band may not)
-                if pos and sol[0] - pos[-1] < gaps[k - 1] - 1e-9:
-                    continue
                 total = cost + sum(
                     w * abs(p - nat)
                     for p, nat, w in zip(sol, naturals[k:j], weights[k:j], strict=True)

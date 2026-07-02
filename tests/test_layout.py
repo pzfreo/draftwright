@@ -232,6 +232,18 @@ class TestSolveStrip1dPavaBanded:
             pytest.approx([98.0])
         )
 
+    def test_cross_segment_gap_shifts_the_run_up_not_reject(self):
+        # #379 review regression: when the next segment's run at its natural would
+        # violate the cross-segment gap to the label already placed below the band,
+        # the run must be SHIFTED UP (its lower bound tightened) to the min-cost
+        # band-clear placement — not rejected outright (which parked the label on the
+        # band edge at higher cost). naturals [29, 34], gap 10, band (30,33): the
+        # optimum is [29, 39] (label 0 at its natural below, label 1 shifted up clear
+        # of the band), cost 5 — NOT [20, 30] (cost 13, label 1 on the 30 edge).
+        assert _solve_strip_1d_pava_banded(
+            [29.0, 34.0], [10.0], 0.0, 100.0, None, [(30.0, 33.0)]
+        ) == pytest.approx([29.0, 39.0])
+
     def test_genuine_over_capacity_still_returns_none(self):
         # Three labels needing 50 mm gaps can't fit an 80 mm strip regardless of
         # bands → None, preserving the caller's drop-and-retry contract.
