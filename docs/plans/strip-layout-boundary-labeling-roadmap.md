@@ -79,7 +79,8 @@ Updated 2026-07-02.
   carve (#342), `render_pmi` (#343), and the public `place_dim` (#344). Shared primitives
   in `annotations/_common.py`: `place_strip_candidates`, `carve_free_position`,
   `strip_free_span`/`carve_free_segments`/`corridor_blockers`/`strip_obstacles`.
-- **P5 (#319)** — **in progress.**
+- **P5 (#319)** — **DONE (2026-07-02, closes #319).** All four strands landed, plus the
+  CTC-02 CI-regression side-discovery below (fixed separately, #349 follow-up, PR #373).
   - **Strand 1 — DONE (#349, closes #150):** deleted the `Strip.allocate`/`peek`/`_cursor`
     machinery + the dead orchestrator overflow check; migrated the last state consumer
     (the balloon-ring depth) from `depth_used` to real placed-geometry measurement.
@@ -139,26 +140,26 @@ Updated 2026-07-02.
     strand 1 (`d1cb16a`, #349), invisible because the slow tier isn't a PR gate. Root
     cause: `_add_balloons`'s #349 switch to real-geometry band-depth measurement
     correctly (and newly) picks up `holes._place_pitch_dim`'s pre-existing uncapped
-    outward stacking (#92 — the 11th pitch dim on the dense CTC-02 fixture lands 100mm
-    out), which the old stale cursor-based measurement never saw. Fix: clamp each band's
+    outward stacking (the 11th pitch dim on the dense CTC-02 fixture lands 100mm out —
+    tracked, along with a second ad-hoc stacking placer found on audit, as #374), which
+    the old stale cursor-based measurement never saw. Fix: clamp each band's
     measured depth to the room actually left on the page before it feeds the ring
     position, so the ring itself never lands past the drawable margin (accepting a
     tolerated witness-line overlap instead of an `annotation_out_of_bounds` error) —
     tracked as a P349 follow-up, landing separately. Lesson: the slow tier's "catch it
     right after merge, not on every PR" tradeoff (README/CLAUDE.md) only works if
     someone actually looks at `gh run list` after merging — nothing was, for 12 pushes.
-- **P4 (#318)** — P5 is done; P4 splits into three gated PRs (mirroring the P1a/b and
-  PR-4a/b/c pattern):
-  - **P4a — DONE (2026-07-02):** wired per-candidate label-size gaps into `plan_strip`.
-    Each adjacent pair's required gap is now `max(size[idx] of the two neighbours,
-    caller's min_gap)` — the same "larger of the two neighbours' requirements" rule
-    `LayoutSolver.solve_strip` already used for heterogeneous `Placeable`s (#81), applied
-    to `StripCandidate.size` — solved via the already-tested `_solve_strip_1d_var`
-    primitive instead of the uniform-gap `_solve_strip_1d`. No caller was changed to pass
-    heterogeneous sizes (that is deliberately out of scope, deferred with P4b/P4c below),
-    so every current call site still passes a uniform `size[idx]` per strip and the floor
-    dominates — confirmed byte-identical on the full `tests/test_layout_snapshot.py`
-    corpus and the full fast tier.
+- **P4 (#318)** — was intentionally deferred until P5 (user, 2026-07-01): optimising
+  leader assignment before the placement model is fully settled would optimise around a
+  moving target. P5 is now fully done, so P4 has started, split into three gated PRs
+  (mirroring the P1a/b and PR-4a/b/c pattern):
+  - **P4a — DONE (2026-07-02, #375):** wired per-candidate label-size gaps into
+    `plan_strip`, reusing the already-tested `_solve_strip_1d_var`/`_greedy_strip_1d_var`
+    per-pair-gap primitives instead of one caller-supplied uniform `min_gap` per strip.
+    No-op for every current caller (verified by tracing all 3 real `StripCandidate` call
+    sites — each already passes a uniform `size[idx]` equal to its own `min_gap`); pure
+    groundwork for P4b/c. Two independent adversarial review passes found no correctness
+    bugs, only a stale comment (fixed in the same PR).
   - **P4b** — replace `plan_strip`'s "pull toward natural position" Cassowary spacing
     objective with a proper min-total-leader-length solve (isotonic regression / DP) —
     order stays fixed by anchor position (crossing-free, already established by P2), this
