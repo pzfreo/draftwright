@@ -5339,6 +5339,101 @@ class TestEscalation:
         assert wide[3] == ("c", "3", "", "")  # ragged tail padded blank
 
 
+class TestPatternGroupBalloon:
+    """#351 PR-3 (ADR 0009 Amdt 1 decision 1, the #348 fix): a dropped ISO
+    pattern callout gets ONE balloon tagging the whole pattern, not one per
+    member. Exercised directly against the resolver with a synthetic dropped
+    Escalation — forcing a real drop needs a part crowded enough that even the
+    auto-grown page can't fit it (the CTC-02 slow-tier fixture is the
+    naturally-occurring case)."""
+
+    @staticmethod
+    def _fake_pattern(count, diameter, origin=(0.0, 0.0, 0.0)):
+        from draftwright.model import Frame, HoleFeature, PatternFeature
+
+        member = HoleFeature(
+            frame=Frame(origin=origin, axis="z"), diameter=diameter, depth=None, through=True
+        )
+        # Real recognised patterns always populate `members` (detect.py's
+        # `_pattern_feature`) — the resolver anchors the balloon on a real member,
+        # not the pattern's abstract centre, so the fixture must match.
+        members = tuple((origin[0] + i, origin[1], origin[2]) for i in range(count))
+        return PatternFeature(
+            frame=Frame(origin=origin, axis="z"),
+            pattern="bolt_circle",
+            count=count,
+            member=member,
+            members=members,
+        )
+
+    def test_dropped_pattern_gets_one_grouped_balloon(self):
+        from draftwright.annotations._common import Escalation
+        from draftwright.annotations.orchestrator import _maybe_tabulate_holes
+
+        dwg = build_drawing(_multi_hole_plate())  # sparse — density gate stays shut
+        before = set(dwg.annotations())
+        feat = self._fake_pattern(count=6, diameter=5.0)
+        dwg._escalations.append(
+            Escalation(kind="callout", view="plan", feature=feat, reason="strip_full")
+        )
+        # Mirror what _record_callout_drop does in production, so clearing it below
+        # actually exercises the resolve path rather than trivially passing.
+        dwg._record_build_issue("warning", "callout_dropped", "synthetic plan-view drop")
+        _maybe_tabulate_holes(dwg, dwg._analysis)
+
+        assert "hole_table_plan" not in dwg.annotations()  # density gate untouched
+        new_balloons = [
+            n for n in dwg.annotations() if n.startswith("balloon_") and n not in before
+        ]
+        assert len(new_balloons) == 1
+        assert new_balloons[0].split("_")[2] == "6×A"
+        assert "callout_dropped" not in {i.code for i in dwg.lint()}  # resolved, not just hidden
+
+    def test_multiple_dropped_patterns_get_distinct_non_overlapping_balloons(self):
+        from draftwright.annotations._common import Escalation
+        from draftwright.annotations.orchestrator import _maybe_tabulate_holes
+
+        dwg = build_drawing(_multi_hole_plate())
+        feats = [
+            self._fake_pattern(count=4, diameter=3.0, origin=(-15.0, -8.0, 0.0)),
+            self._fake_pattern(count=6, diameter=5.0, origin=(15.0, 8.0, 0.0)),
+        ]
+        for feat in feats:
+            dwg._escalations.append(
+                Escalation(kind="callout", view="plan", feature=feat, reason="strip_full")
+            )
+        _maybe_tabulate_holes(dwg, dwg._analysis)
+
+        balloons = [n for n in dwg.annotations() if n.startswith("balloon_plan_")]
+        assert {n.split("_")[2] for n in balloons} == {"4×A", "6×B"}
+        # The shared-band placement (one _add_balloons call) must not stack them.
+        boxes = [dwg._named[n].bounding_box() for n in balloons]
+        b0, b1 = boxes
+        overlaps = (
+            b0.min.X < b1.max.X
+            and b1.min.X < b0.max.X
+            and (b0.min.Y < b1.max.Y and b1.min.Y < b0.max.Y)
+        )
+        assert not overlaps
+
+    def test_unresolved_pattern_in_other_view_keeps_the_drop_lint(self):
+        # A pattern drop the resolver does not cover (a non-plan view) must not
+        # have its callout_dropped warning silently cleared.
+        from draftwright.annotations._common import Escalation
+        from draftwright.annotations.orchestrator import _maybe_tabulate_holes
+
+        dwg = build_drawing(_multi_hole_plate())
+        feat = self._fake_pattern(count=3, diameter=4.0)
+        dwg._escalations.append(
+            Escalation(kind="callout", view="front", feature=feat, reason="front strip full")
+        )
+        dwg._record_build_issue("warning", "callout_dropped", "synthetic front-view drop")
+        _maybe_tabulate_holes(dwg, dwg._analysis)
+
+        assert not any(n.startswith("balloon_") for n in dwg.annotations())
+        assert "callout_dropped" in {i.code for i in dwg.lint()}
+
+
 class TestDraftwrightAttribution:
     """draftwright self-attribution in the title block + clickable SVG link."""
 

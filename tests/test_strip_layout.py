@@ -111,6 +111,9 @@ def test_record_callout_drop_emits_a_callout_escalation():
     # PR-2 routing: a dropped hole callout emits a first-class Escalation into
     # dwg._escalations (which the tabulation resolver now triggers on), alongside the
     # `callout_dropped` lint code (kept for coverage). 1:1 with the code → byte-identical.
+    # PR-3 (#351): `feature` now carries the dropped group's IR feature (a PatternFeature
+    # when it's a fully-surviving recognised pattern, else None) rather than the diameter —
+    # the resolver groups pattern balloons on it.
     from draftwright.annotations.holes import _record_callout_drop
 
     class _Dwg:
@@ -128,7 +131,12 @@ def test_record_callout_drop_emits_a_callout_escalation():
     assert d._codes == ["callout_dropped"] and d._dropped == [6.0]
     assert len(d._escalations) == 1
     e = d._escalations[0]
-    assert e.kind == "callout" and e.view == "plan" and e.feature == 6.0
+    assert e.kind == "callout" and e.view == "plan" and e.feature is None
+
+    d2 = _Dwg()
+    sentinel = object()
+    _record_callout_drop(d2, "plan", 6.0, "no room beside the view", sentinel)
+    assert d2._escalations[0].feature is sentinel
 
 
 def test_escalation_is_a_frozen_value_with_default_remedies():
