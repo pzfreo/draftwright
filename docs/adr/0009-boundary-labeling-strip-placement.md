@@ -326,16 +326,33 @@ composed steps:
 3. **Weighted-median PAVA**, not weighted-mean PAVA, to get true L1 —
    textbook (Robertson/Wright/Dykstra, *Order Restricted Statistical
    Inference*, 1988; Chakravarti, "Isotonic Median Regression: A Linear
-   Programming Approach," *Math. of OR* 14(2), 1989) but not something we
-   already have: `scipy.optimize.isotonic_regression` (scipy is already a
-   transitive dependency via build123d, so free to use) is **L2-only**, has
-   no box-constraint parameter, and no adequate lightweight L1/median-PAVA
-   package exists on PyPI (closest is a heavier econometrics/LP package, not
-   a fit; an sklearn issue proposing native L1 support was closed unlanded).
-   **Recommendation: hand-roll it** — pure Python, no new dependency, ~30-40
-   lines, small enough that this codebase's existing bias toward lean
-   self-contained implementations over new solver dependencies (e.g. the PDF
-   export path avoiding cairo) applies here too.
+   Programming Approach," *Math. of OR* 14(2), 1989), evaluated below against
+   every library alternative a reviewer of this amendment asked about, with
+   evidence rather than recollection.
+
+   | Library | Verdict | Evidence |
+   |---|---|---|
+   | `scipy.optimize.isotonic_regression` | not suitable | L2-only, no box-constraint parameter (scipy is already a transitive dependency via build123d, so this isn't a cost objection — a capability one). |
+   | `sklearn.isotonic.IsotonicRegression` | not suitable | Also L2-only; native L1 support was proposed and closed unlanded upstream (scikit-learn#14569). |
+   | `cvxpy` | not suitable | The formulation is trivial (~8 lines), but `pip install --dry-run cvxpy` pulls **14 packages, 85MB+** (numpy, scipy, scs, highspy, clarabel, osqp, qdldl, …) — and, decisively, its **default solver changed between versions** (ECOS → Clarabel, ECOS dropped as a bundled dep in 1.6); different bundled solvers are documented to return numerically different optima for the same problem (iterative ADMM/interior-point tolerances, not an exact combinatorial algorithm). That's disqualifying against ADR 0001's determinism requirement specifically, not merely "heavy." |
+   | Google OR-Tools | not suitable | Could model the problem (LP/CP-SAT), but the wheel alone is ~30MB plus 8 more deps (pandas, protobuf, absl-py, …) — enterprise-scale tooling for a sub-millisecond, <20-item problem. Wrong scale for what we need. |
+   | NetworkX | not suitable, for a principled reason | No LP/PAVA implementation, and L1 isotonic regression doesn't reduce to a graph shortest-path/matching problem the way L∞ isotonic regression does (L∞ is a bottleneck/max-type objective with a known graph reduction, arXiv:1507.02226; L1 is a separable *sum* of convex terms — natively an LP or a PAVA fixed-point, not a graph problem). |
+   | `pyStoNED` (PyPI) | not suitable | Confirmed dependency tree: pyomo, mosek, pandas, matplotlib — a full econometrics/LP stack, not a fit for a single positioning primitive. |
+   | `stucchio/isotonic` (GitHub) | not suitable | Does support Lp losses including L1, but has no gap/box-constraint support, isn't published to PyPI, and is unmaintained (12 commits, no releases). |
+   | Other PyPI hits (`cir-model`, `MOBPY`, `calibre`, `netcal`, `torchsort`, `regressio`, `constrained-linear-regression`) | not suitable | Probability-calibration/smoothing tools or constrained *linear regression* (bounding coefficients, not per-point isotonic values) — none address gap/box-constrained L1 isotonic regression. |
+
+   Every alternative either lacks L1 + gap + box support outright, or brings a
+   large, version-drifting solver stack whose determinism guarantees are
+   weaker than an exact combinatorial algorithm — the CVXPY/OR-Tools
+   rejection rests on ADR 0001's determinism requirement specifically, not on
+   dependency size alone (size is corroborating, not the deciding factor).
+
+   **Decision: implement the positioning solve using the standard
+   weighted-median PAVA algorithm** (pure Python, ~30-40 lines; this is a
+   well-known algorithm, not new research). A third-party implementation may
+   replace the hand-rolled one if a suitable lightweight, maintained,
+   deterministic L1/gap/box-constrained implementation becomes available —
+   this amendment fixes the *algorithm*, not the *implementation vendor*.
 
 **Verification, not just citation.** Before recommending this, the reduction
 was checked against a real solver rather than trusted on the literature
