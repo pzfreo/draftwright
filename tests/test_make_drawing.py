@@ -3937,6 +3937,35 @@ class TestDetailView:
         # No error-severity lint introduced.
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
+    def test_prismatic_detail_gates_on_the_step_escalation_not_raw_legibility(self):
+        # #351 PR-4b: _request_prismatic_detail previously recomputed the legibility
+        # gate straight from a.step_zs as its own trigger — independent of whether
+        # render_height_ladder actually dropped anything. A uniform staircase
+        # (_detect_step_repeat) collapses to ONE representative dim with no drop at
+        # all even when the raw z-list would look "illegible" in isolation, so the old
+        # trigger could queue a spurious, unused detail view. Now it gates on the
+        # "step"/"illegible" Escalation render_height_ladder emits instead.
+        from types import SimpleNamespace
+
+        from draftwright.annotations._common import Escalation
+        from draftwright.annotations.sections import _request_prismatic_detail
+
+        a = SimpleNamespace(
+            step_zs=[1.0, 1.1, 1.2, 1.3],  # tightly spaced — "illegible" if recomputed raw
+            bb=SimpleNamespace(min=SimpleNamespace(Z=0.0), max=SimpleNamespace(Z=2.0)),
+            SCALE=1.0,
+        )
+        no_escalation = SimpleNamespace(_escalations=[], _detail_requests=[])
+        _request_prismatic_detail(no_escalation, a)
+        assert no_escalation._detail_requests == []
+
+        with_escalation = SimpleNamespace(
+            _escalations=[Escalation(kind="step", view="front", feature=None, reason="illegible")],
+            _detail_requests=[],
+        )
+        _request_prismatic_detail(with_escalation, a)
+        assert len(with_escalation._detail_requests) == 1
+
     def test_plain_part_gets_no_detail_view(self):
         dwg = build_drawing(Box(60, 40, 20))
         assert "detail_a" not in dwg.views

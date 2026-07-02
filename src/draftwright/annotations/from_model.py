@@ -899,6 +899,15 @@ def render_height_ladder(dwg, model, a) -> int:
                 f"{n_close} step height(s) too closely spaced to dimension at this scale "
                 "(use a detail view)",
             )
+            # First-class escalation alongside the lint code (ADR 0009 Amdt 1, #351
+            # PR-4b) — `_request_prismatic_detail` (sections.py) triggers the detail-view
+            # remedy on this instead of independently recomputing the same legibility
+            # gate, which previously could queue a spurious detail even when the uniform-
+            # staircase branch above already fully documented the part with one
+            # representative dim (a real bug this routing fixes as a side effect).
+            dwg._escalations.append(
+                Escalation(kind="step", view="front", feature=step, reason="illegible")
+            )
         for col, z in enumerate(kept):
             perp = tuple(sorted((FZ(a.bb.min.Z), FZ(z))))
             px = carve_free_position(dwg, a.fv_zones.right, "front", "x", _SLOT_DIM_STEP, perp)
