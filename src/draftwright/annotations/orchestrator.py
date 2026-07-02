@@ -52,6 +52,7 @@ from draftwright.annotations.holes import (
 from draftwright.annotations.sections import (
     _add_section_view,
     _request_prismatic_detail,
+    _reserve_section_row,
     _resolve_details,
 )
 from draftwright.model import PatternFeature, build_part_model, plan_dimensions, plan_sections
@@ -194,6 +195,19 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # parts) — the IR gates callouts/furniture/sections on membership in this set, so
     # no recogniser Hole object crosses into the renderers (Amendment 6, #263/#207).
     feature_keys = {HoleRef.of(h.location) for h in feature_holes}
+    # Decide the section trigger + cut-plane row now (pure function of _model/
+    # feature_keys, no placement dependency) and reserve its cutting-plane arrows'
+    # row BEFORE the plan-view hole callouts place (ADR 0009 P5 strand 3) — the
+    # section itself still renders last (its own room check clears everything else
+    # placed), this only gives the (now strip_obstacles-aware) callout carve a
+    # real obstacle to see and, where a cheap relocation exists, avoid — instead
+    # of an invisible one it could never even detect. When avoiding would cost a
+    # large relocation, policy B keeps the callout at its natural position and
+    # accepts the crossing rather than pay that cost or drop it (holes.py); the
+    # `bracket` fixture's known hc_plan0/section_arrow_right overlap
+    # (tests/test_layout_cleanliness.py) is exactly this accepted case.
+    _section = plan_sections(_model, feature_keys)
+    _reserve_section_row(dwg, a, _section)
     if feature_holes:
         _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys)
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
@@ -243,10 +257,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     # The section view goes last: its room check clears every annotation already
     # placed right of the side view (callout labels, height/step dim ladders). The
-    # *trigger* + cut-plane row are the planner's decision (`plan_sections`, #207);
-    # the renderer just draws the planned section. Concentric bores on a turned part
-    # are excluded via feature_keys (the ldr_z leaders cover them).
-    section = plan_sections(_model, feature_keys)
+    # *trigger* + cut-plane row were already decided (`_section`, above — reused so
+    # the pure planner call isn't repeated); the renderer just draws the planned
+    # section. Concentric bores on a turned part are excluded via feature_keys (the
+    # ldr_z leaders cover them).
+    section = _section
     if section is not None:
         _add_section_view(dwg, a, section)
 

@@ -62,10 +62,21 @@ _TOL_MM = 0.5
 _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
     # BENIGN: two location dims off a common datum share their extension-line span.
     "plate_holes": {frozenset({"m_locx0", "m_locx1"}), frozenset({"m_locy0", "m_locy1"})},
-    # bracket: two BENIGN datum pairs (as plate_holes) PLUS one PENDING defect —
-    # PENDING (P3/P4): a plan-view hole-callout leader runs under the drawing-level
-    # section cutting-plane arrow (a view=None occupant). An invisible-occupant
-    # overlap that clears once this callout's placer consults the full strip_obstacles.
+    # bracket: two BENIGN datum pairs (as plate_holes) PLUS one SPACE-CONSTRAINED
+    # crossing (reclassified from PENDING, #351 P5 strand 3):
+    #  - _annotate_holes's plan/side callout placer now carves the column around
+    #    strip_obstacles (the section arrow reserved early via _reserve_section_row,
+    #    sections.py) and verifies each solved position with PRECISE (not
+    #    AABB-only) leader-footprint geometry (_segment_hits_box for the diagonal
+    #    tip->elbow shaft) — so a callout is never dropped or misjudged just for
+    #    being NEAR an obstacle.
+    #  - SPACE-CONSTRAINED {hc_plan0, section_arrow_right}: for THIS hole, avoiding
+    #    the section row costs a large relocation (the free segment is far from its
+    #    natural row); policy B (user, 2026-07-02, matching the existing
+    #    side_drilled precedent below) keeps it at its natural, near-original
+    #    position and accepts the crossing rather than pay that cost or drop a
+    #    real callout. Reproduces the exact pre-#351 placement — not a
+    #    regression, a confirmed-correct trade-off.
     "bracket": {
         frozenset({"m_locx0", "m_locx1"}),
         frozenset({"m_locy0", "m_locy1"}),

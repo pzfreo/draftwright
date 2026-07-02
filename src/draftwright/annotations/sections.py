@@ -166,12 +166,14 @@ def _add_section_view(dwg, a: Analysis, section):
     tb_left = a.PAGE_W - a.TB_W - _TB_CLEAR
     if a.FV_Y - half_h - 10 < _TB_CLEAR + _TB_H and pos_x + half_w > tb_left - 4:
         _log.info("Section A–A skipped (would collide with the title block)")
+        _clear_section_reservation(dwg)
         return
     if pos_x + half_w > right_limit:
         _log.warning(
             "Section A–A skipped (no room right of the side view; "
             "a wider step-dimension corridor may have reduced the available space)"
         )
+        _clear_section_reservation(dwg)
         return
 
     big = 4 * a.bbox_max
@@ -181,6 +183,7 @@ def _add_section_view(dwg, a: Analysis, section):
     solids = a.part.solids()
     if not solids:
         _log.info("Section A–A skipped (no solid bodies to cut)")
+        _clear_section_reservation(dwg)
         return
     body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
     try:
@@ -189,9 +192,11 @@ def _add_section_view(dwg, a: Analysis, section):
         keep_behind = _fuzzy_cut(body, Pos(a.cx, y_star - big / 2, a.cz) * Box(big, big, big))
     except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
         _log.warning("Section A–A skipped (cut failed: %s)", exc)
+        _clear_section_reservation(dwg)
         return
     if keep_behind is None:
         _log.warning("Section A–A skipped (boolean cut produced no solid)")
+        _clear_section_reservation(dwg)
         return
     camera = (dwg.look_at[0], dwg.look_at[1] - dwg.dist, dwg.look_at[2])
     dwg.add_view("section_aa", keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
@@ -217,8 +222,39 @@ def _add_section_view(dwg, a: Analysis, section):
     x0, x1 = ext_x0 - 4, ext_x1 + 4
     dwg.add(Centerline((x0, y_page, 0), (x1, y_page, 0)), "section_line")
 
-    # ISO 128-44: cutting-plane end indicators — thick wing stubs with solid
-    # filled arrowheads at the tips pointing in the viewing direction (−Y).
+    # The row was reserved early (ADR 0009 P5 strand 3) with a conservative
+    # (unwidened) x-extent so the plan-view hole-callout carve could avoid it
+    # before this function runs — replace it with the final, possibly-wider
+    # geometry now that the bolt-circle extent is known.
+    _clear_section_reservation(dwg)
+    _add_cutting_plane_arrows(dwg, y_page, x0, x1)
+    _add_section_letters(dwg, y_page, x0, x1)
+
+    # ISO 128-50: 45° hatching on the cut face, in page coordinates. The section
+    # is drawn in its own frame: X is offset to the section's page slot (pos_x),
+    # while the height axis matches the front view — so SZ is exactly front_z.
+    def SX(wx):
+        return pos_x + (wx - a.cx) * a.SCALE
+
+    SZ = a.proj.front_z
+
+    hatch_spacing = dwg.draft.font_size * 1.5
+    cut_faces = [f for f in keep_behind.faces() if f.normal_at().Y < -0.9]
+    hatch_edges = []
+    for cf in cut_faces:
+        hatch_edges.extend(_section_hatch_edges(cf, SX, SZ, hatch_spacing))
+    if hatch_edges:
+        hatch = Compound(children=hatch_edges)
+        hatch.is_section_hatch = True  # exempt from view_annotation_overlap lint
+        dwg.add(hatch, "section_hatch")
+
+
+def _add_cutting_plane_arrows(dwg, y_page, x0, x1):
+    """ISO 128-44 cutting-plane end indicators at ``(x0, y_page)``/``(x1, y_page)`` —
+    thick wing stubs with solid filled arrowheads pointing in the viewing direction
+    (−Y). Named ``section_arrow_{left,right}``/``section_wing_{left,right}``, shared
+    between the early row reservation (:func:`_reserve_section_row`) and the final
+    section render (:func:`_add_section_view`, ADR 0009 P5 strand 3)."""
     arrow_sz = dwg.draft.arrow_length
     wing_h = 2.5 * arrow_sz  # perpendicular stub length
     for x_end, side in ((x0, "left"), (x1, "right")):
@@ -238,28 +274,69 @@ def _add_section_view(dwg, a: Analysis, section):
             f"section_wing_{side}",
         )
 
-    # 'A' letters sit above the line ends, clear of any callout leaders
+
+def _add_section_letters(dwg, y_page, x0, x1):
+    """The 'A' identification letters above the cutting-plane line ends, clear of
+    any callout leaders. Named ``section_a_{left,right}`` — shared between the
+    early row reservation and the final section render, same as
+    :func:`_add_cutting_plane_arrows` (ADR 0009 P5 strand 3): a callout's full
+    footprint can land on the letters just as easily as on the arrows, so both
+    need to be visible to the plan-view callout carve before it places."""
     lift = dwg.draft.font_size * 1.4
     dwg.add(Note("A", (x0 - 3, y_page + lift), dwg.draft), "section_a_left")
     dwg.add(Note("A", (x1 + 3, y_page + lift), dwg.draft), "section_a_right")
 
-    # ISO 128-50: 45° hatching on the cut face, in page coordinates. The section
-    # is drawn in its own frame: X is offset to the section's page slot (pos_x),
-    # while the height axis matches the front view — so SZ is exactly front_z.
-    def SX(wx):
-        return pos_x + (wx - a.cx) * a.SCALE
 
-    SZ = a.proj.front_z
+def _clear_section_reservation(dwg) -> None:
+    """Remove the placeholder :func:`_reserve_section_row` may have added, if
+    present (idempotent — a no-op once :func:`_add_section_view` has already
+    replaced it, or if no section ever triggered)."""
+    existing = dwg.annotations()
+    for name in (
+        "section_arrow_left",
+        "section_arrow_right",
+        "section_wing_left",
+        "section_wing_right",
+        "section_a_left",
+        "section_a_right",
+    ):
+        if name in existing:
+            dwg.remove(name)
 
-    hatch_spacing = dwg.draft.font_size * 1.5
-    cut_faces = [f for f in keep_behind.faces() if f.normal_at().Y < -0.9]
-    hatch_edges = []
-    for cf in cut_faces:
-        hatch_edges.extend(_section_hatch_edges(cf, SX, SZ, hatch_spacing))
-    if hatch_edges:
-        hatch = Compound(children=hatch_edges)
-        hatch.is_section_hatch = True  # exempt from view_annotation_overlap lint
-        dwg.add(hatch, "section_hatch")
+
+def _reserve_section_row(dwg, a: Analysis, section) -> None:
+    """Reserve the section A–A cutting-plane arrows' row BEFORE the plan-view hole
+    callouts place (ADR 0009 P5 strand 3, burns down the ``bracket`` fixture's
+    ``hc_plan0``/``section_arrow_right`` overlap in ``tests/test_layout_cleanliness.py``).
+
+    ``_add_section_view`` runs last deliberately (its own room check clears
+    everything already placed) — so until now, the plan-view hole-callout carve's
+    ``strip_obstacles`` had no way to see the section arrows it hadn't drawn yet,
+    the textbook invisible-occupant defect ADR 0009 targets. Placing a conservative
+    placeholder early (the arrows' actual row, at the un-widened part-bbox extent —
+    the bolt-circle widening in ``_add_section_view`` depends on furniture
+    ``_annotate_holes`` hasn't placed yet either, so it is not yet knowable) gives
+    the carve a real obstacle to avoid; ``_add_section_view`` replaces it with the
+    final, possibly-wider geometry once that furniture exists.
+
+    A no-op when *section* is ``None`` (no section triggers) — nothing is reserved,
+    and ``_add_section_view`` is never called either.
+
+    **Known residual (review finding, #351 P5 strand 3, filed as #366):** the
+    un-widened reservation is a real gap, not just a conservative approximation
+    — for a part whose bolt-circle centreline crosses this exact Y-row, the
+    FINAL arrow can widen beyond what was reserved, and the callout carve never
+    re-checks against that later growth. Rare in practice (needs a bolt-circle
+    pattern at the precise section-cut row) and no corpus fixture exercises it
+    today; a full fix needs a second, post-widen verification pass, which is
+    out of scope for this PR."""
+    if section is None:
+        return
+    PX, PY = a.proj.plan_x, a.proj.plan_y
+    y_page = PY(section.cut_y)
+    x0, x1 = PX(a.bb.min.X) - 4, PX(a.bb.max.X) + 4
+    _add_cutting_plane_arrows(dwg, y_page, x0, x1)
+    _add_section_letters(dwg, y_page, x0, x1)
 
 
 def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str) -> bool:
