@@ -37,7 +37,7 @@ collision class by construction while keeping determinism (ADR 0001).
 | P2 | #322 | **Feature-ordered assignment + priority selection + escalation.** The solve fixes order = feature order (crossing-free) and turns over-capacity into a priority-ranked selection that emits an escalation signal (→ detail view #306/#54, → table), replacing the scattered `*_dropped` arrival-order decisions. | Drop *policy* changes (ranked, not arrival-order) | P1 |
 | P3 | #323 | **Migrate the remaining strip placers; retire the `Strip` cursor (#150).** Envelope dims, step-height / turned-diameter ladders, and the section-hatch footprint all become candidates; standalone `Strip.allocate` usages are retired. Fully realises #150. | Dense sheets re-pack; covered by invariants | P2 |
 | P4 | #318 | **Optimal leader assignment + angled leaders.** Replace greedy ordering/spacing with the min-cost-matching / DP optimal assignment (minimise total leader length); fold the #305 angled-leader nudge into the model as a first-class leader style. *Scheduling correction (user, 2026-07-01, reconfirmed 2026-07-02):* run **after P5**, not before — optimising leaders before the placement model is fully settled would optimise around a moving target. Split into **P4a** (per-candidate label-size gaps into `plan_strip`), **P4b** (min-total-leader-length isotonic/DP solve, replacing the pull-toward-natural objective), **P4c** (fold the #305 angled-leader nudge in as a first-class constraint). | Leader positions may improve | P3, and in practice P5 |
-| P5 | #319 | **Remove dead patches; strengthen the cleanliness invariants.** Delete superseded occupancy patches, tier-retry loops, and ad-hoc drop codes; extend the layout-cleanliness / property tests (#301/#302/#303) to assert the new guarantees: no invisible-occupant overlap, crossing-free leaders, deterministic output. Four strands (see Status): cursor deletion (done), escalation objects (done, #351), `_KNOWN_OVERLAPS` burn-down (not started), property/fuzz tests (not started). | None (cleanup + tests) | P3 |
+| P5 | #319 | **Remove dead patches; strengthen the cleanliness invariants.** Delete superseded occupancy patches, tier-retry loops, and ad-hoc drop codes; extend the layout-cleanliness / property tests (#301/#302/#303) to assert the new guarantees: no invisible-occupant overlap, crossing-free leaders, deterministic output. Four strands (see Status): cursor deletion (done), escalation objects (done, #351), `_KNOWN_OVERLAPS` burn-down (done, #368), property/fuzz tests (not started). | None (cleanup + tests) | P3 |
 
 ## Acceptance (overall)
 
@@ -95,12 +95,31 @@ Updated 2026-07-02.
     on pre-carve occupancy idioms), #360 (PMI bore-diameter witness span 2× too wide —
     `rec.kind`/`rec.pmi_kind` mixup), #362 (Z-turned crowded shoulders silently drop the
     whole step-length chain, no lint at all).
-  - **Strand 3 — burn down the `_KNOWN_OVERLAPS` allowlist** (SPACE-CONSTRAINED + PENDING —
-    e.g. `side_drilled` `{hc_side0, dim_loc_side_z2300}`, an outer-layout concern) then flip
-    the cleanliness ratchet from an allowlist into an **absolute** no-overlap invariant.
-    **Not started.** Plan: audit each allowlisted entry against the now-complete P0–P3 +
-    P5-strand-2 carve/escalation machinery — some may already be resolved incidentally;
-    remove what's fixed, then flip the ratchet. One PR.
+  - **Strand 3 — burn down the `_KNOWN_OVERLAPS` allowlist — DONE (2026-07-02, #368):**
+    the `bracket` fixture's PENDING overlap (`hc_plan0`/`section_arrow_right`) is fixed —
+    `_annotate_holes`'s plan/side hole-callout placer (`holes.py`) now consults
+    `strip_obstacles` (it never had, predating the P0–P3 carve migration), with a new
+    precise line-segment-vs-box intersection test (`_segment_hits_box`, `_common.py`) for
+    the diagonal leader shaft — a plain AABB check over-claims a diagonal's empty
+    triangle and caused 5 real regressions before the precise geometry landed. Plus
+    **policy B** (user, 2026-07-02): a callout is only relocated to avoid an obstacle
+    when it costs at most one `min_gap` of extra displacement; otherwise it stays at its
+    natural position and the crossing is accepted (logged, never silently dropped) —
+    matching the existing `side_drilled` corridor-relocate precedent. `bracket`'s entry
+    stays in `_KNOWN_OVERLAPS`, reclassified PENDING→SPACE-CONSTRAINED (that specific
+    hole's avoidance cost exceeds the tolerance, so policy B reproduces the exact
+    pre-existing placement — confirmed correct, not a regression). This did **not** flip
+    the ratchet to fully absolute — `side_drilled`'s SPACE-CONSTRAINED entry (ADR
+    0004-dependent) and `bracket`'s new one remain legitimate, permanent exceptions; the
+    ratchet's *shape* (an allowlist of BENIGN/SPACE-CONSTRAINED entries, zero PENDING) is
+    now the intended steady state, not a transitional one emptying to nothing. Three
+    rounds of independent adversarial review; two narrow, currently-unexercised residual
+    gaps filed rather than fixed: #366 (the early section-row reservation can miss
+    bolt-circle-driven widening — no corpus fixture combines both features) and #367 (the
+    precise shaft check ignores the rendered arrowhead's flare — no corpus fixture clips
+    only that). Took substantially longer than planned — the original "audit + burn down,
+    one PR" estimate undersold the actual defect (`_annotate_holes` needed a real
+    migration + new geometry primitive, not an audit).
   - **Strand 4 — strengthen the property/fuzz cleanliness tests** (#301/#302/#303).
     **Not started.** Plan: generative/property-based coverage (varied hole counts,
     patterns, slot/step mixes) asserting no invisible-occupant overlap, crossing-free
