@@ -120,11 +120,33 @@ Updated 2026-07-02.
     only that). Took substantially longer than planned — the original "audit + burn down,
     one PR" estimate undersold the actual defect (`_annotate_holes` needed a real
     migration + new geometry primitive, not an audit).
-  - **Strand 4 — strengthen the property/fuzz cleanliness tests** (#301/#302/#303).
-    **Not started.** Plan: generative/property-based coverage (varied hole counts,
-    patterns, slot/step mixes) asserting no invisible-occupant overlap, crossing-free
-    leaders, and determinism — beyond today's fixed fixture set. One PR, after strand 3
-    so the absolute ratchet is what gets property-tested, not the allowlisted one.
+  - **Strand 4 — strengthen the property/fuzz cleanliness tests — DONE (2026-07-02,
+    #371, closes the property-test half of #301):** `tests/test_layout_property.py`
+    adds 30 seeded, reproducible generated-part cases across 6 shape templates
+    (scattered holes, bolt circle, grid, turned steps, counterbore/section, slot),
+    asserting the same two invariants `TestLayoutCleanlinessInvariant` (#293) proved on
+    6 fixed archetypes — no genuine layout-collision lint code, and `build_drawing`
+    determinism. #302 (iterative measure-repack convergence) and #303 (repack-trigger
+    overlap-area threshold) stay deferred, unchanged — both are framed in their own
+    issue text as hardening for a defect that doesn't exist yet. Two real generator bugs
+    found and fixed in review: the bolt-circle template's hole diameter had no box-edge
+    clearance bound (confirmed ~7mm overshoot possible at parameter extremes) and the
+    scattered-holes template had no pairwise hole-separation check (could fuse adjacent
+    holes) — both fixed, re-verified clean on a second review round.
+  - **Side discovery while closing out strand 4 — main's slow tier had been red for ~15
+    hours (2026-07-02):** checking `gh run list` (prompted by the user noticing "CI is
+    red") found `test_ctc_ap242_meets_standards[02]` failing on every push-to-main since
+    strand 1 (`d1cb16a`, #349), invisible because the slow tier isn't a PR gate. Root
+    cause: `_add_balloons`'s #349 switch to real-geometry band-depth measurement
+    correctly (and newly) picks up `holes._place_pitch_dim`'s pre-existing uncapped
+    outward stacking (#92 — the 11th pitch dim on the dense CTC-02 fixture lands 100mm
+    out), which the old stale cursor-based measurement never saw. Fix: clamp each band's
+    measured depth to the room actually left on the page before it feeds the ring
+    position, so the ring itself never lands past the drawable margin (accepting a
+    tolerated witness-line overlap instead of an `annotation_out_of_bounds` error) —
+    tracked as a P349 follow-up, landing separately. Lesson: the slow tier's "catch it
+    right after merge, not on every PR" tradeoff (README/CLAUDE.md) only works if
+    someone actually looks at `gh run list` after merging — nothing was, for 12 pushes.
 - **P4 (#318)** — **not started, and intentionally deferred until P5** (user, 2026-07-01):
   optimising leader assignment before the placement model is fully settled would optimise
   around a moving target. *Sequencing reconfirmed 2026-07-02:* still holds — P5 strands
