@@ -307,79 +307,54 @@ until the rest fit, P2/#322) is untouched, and this must keep the same
 crossing-free by P2), a required minimum gap between each adjacent pair
 (`gap_i`, from P4a), a closed bound `[lo, hi]`, minimise total leader length
 (`Σ|p_i − x_i|`, i.e. **L1**, not L2 — leader length is a real distance, not
-a squared one) — reduces exactly to **L1 isotonic regression**, via three
-composed steps:
-
-1. **Gap-shift.** `q_i = p_i − Σ_{j<i} gap_j` turns "monotone with per-pair
-   minimum gaps" into plain "monotone, no gap" on the shifted naturals
-   `y_i = x_i − Σ_{j<i} gap_j`. (This is the reduction already sketched in
-   conversation before this amendment was written; the research pass below
-   confirmed it's sound and standard, not just plausible.)
-2. **Boundary-pinning, not clipping, for the `[lo,hi]` bound.** Add two
-   fictitious endpoints pinned at `lo` and `hi − Σgap` (effectively infinite
-   weight) rather than clamping the unconstrained result afterward.
-   Boundary-pinning is exact by construction for both L1 and L2; post-hoc
-   clipping happens to also be exact **for L2 only** (verified empirically,
-   see below) — not a coincidence worth relying on for L1, so the
-   implementation should pin, not clip, to stay correct under either loss if
-   the choice is ever revisited.
-3. **Weighted-median PAVA**, not weighted-mean PAVA, to get true L1 —
-   textbook (Robertson/Wright/Dykstra, *Order Restricted Statistical
-   Inference*, 1988; Chakravarti, "Isotonic Median Regression: A Linear
-   Programming Approach," *Math. of OR* 14(2), 1989), evaluated below against
-   every library alternative a reviewer of this amendment asked about, with
-   evidence rather than recollection.
+a squared one) — is mathematically **L1 isotonic regression with a minimum-gap
+and box constraint**, and is small enough (well under 20 candidates per strip)
+to solve directly as a **linear program** via `scipy.optimize.linprog`
+(HiGHS backend): the standard L1-as-LP trick (auxiliary variables
+`t_i ≥ p_i−x_i`, `t_i ≥ x_i−p_i`, minimise `Σt_i`) plus the monotone/gap/box
+constraints encoded directly as linear inequalities (`p_i + gap_i ≤
+p_{i+1}`, `lo ≤ p_i ≤ hi`) — no reduction trick needed, unlike the
+gap-shift/PAVA route below. Every library alternative was evaluated below
+with evidence rather than recollection.
 
    | Library | Verdict | Evidence |
    |---|---|---|
-   | `scipy.optimize.isotonic_regression` | not suitable | L2-only, no box-constraint parameter (scipy is already a transitive dependency via build123d, so this isn't a cost objection — a capability one). |
+   | `scipy.optimize.isotonic_regression` | not suitable | L2-only, no box-constraint parameter. |
    | `sklearn.isotonic.IsotonicRegression` | not suitable | Also L2-only; native L1 support was proposed and closed unlanded upstream (scikit-learn#14569). |
-   | `cvxpy` | not suitable | The formulation is trivial (~8 lines), but `pip install --dry-run cvxpy` pulls **14 packages, 85MB+** (numpy, scipy, scs, highspy, clarabel, osqp, qdldl, …) — and, decisively, its **default solver changed between versions** (ECOS → Clarabel, ECOS dropped as a bundled dep in 1.6); different bundled solvers are documented to return numerically different optima for the same problem (iterative ADMM/interior-point tolerances, not an exact combinatorial algorithm). That's disqualifying against ADR 0001's determinism requirement specifically, not merely "heavy." |
+   | `scipy.optimize.linprog` (HiGHS) | **selected** | Already a transitive dependency (build123d → scipy); solves the *direct* problem formulation, no reduction needed. Verified correct on hand-built cases; deterministic across 30 repeated calls and both HiGHS sub-methods (`highs-ds` simplex, `highs-ipm` interior-point) — including on a deliberately degenerate case. See caveat below. |
+   | `cvxpy` | not suitable | The formulation is trivial (~8 lines), but `pip install --dry-run cvxpy` pulls **14 packages, 85MB+** (numpy, scipy, scs, highspy, clarabel, osqp, qdldl, …) — and, decisively, its **default solver changed between versions** (ECOS → Clarabel, ECOS dropped as a bundled dep in 1.6); different bundled solvers are documented to return numerically different optima for the same problem (iterative ADMM/interior-point tolerances, not an exact combinatorial algorithm). |
    | Google OR-Tools | not suitable | Could model the problem (LP/CP-SAT), but the wheel alone is ~30MB plus 8 more deps (pandas, protobuf, absl-py, …) — enterprise-scale tooling for a sub-millisecond, <20-item problem. Wrong scale for what we need. |
-   | NetworkX | not suitable, for a principled reason | No LP/PAVA implementation, and L1 isotonic regression doesn't reduce to a graph shortest-path/matching problem the way L∞ isotonic regression does (L∞ is a bottleneck/max-type objective with a known graph reduction, arXiv:1507.02226; L1 is a separable *sum* of convex terms — natively an LP or a PAVA fixed-point, not a graph problem). |
+   | NetworkX | not suitable, for a principled reason | No LP/PAVA implementation, and L1 isotonic regression doesn't reduce to a graph shortest-path/matching problem the way L∞ isotonic regression does (L∞ is a bottleneck/max-type objective with a known graph reduction, arXiv:1507.02226; L1 is a separable *sum* of convex terms — natively an LP, not a graph problem). |
    | `pyStoNED` (PyPI) | not suitable | Confirmed dependency tree: pyomo, mosek, pandas, matplotlib — a full econometrics/LP stack, not a fit for a single positioning primitive. |
    | `stucchio/isotonic` (GitHub) | not suitable | Does support Lp losses including L1, but has no gap/box-constraint support, isn't published to PyPI, and is unmaintained (12 commits, no releases). |
    | Other PyPI hits (`cir-model`, `MOBPY`, `calibre`, `netcal`, `torchsort`, `regressio`, `constrained-linear-regression`) | not suitable | Probability-calibration/smoothing tools or constrained *linear regression* (bounding coefficients, not per-point isotonic values) — none address gap/box-constrained L1 isotonic regression. |
+   | Hand-rolled weighted-median PAVA | not selected | Textbook algorithm (Robertson/Wright/Dykstra 1988; Chakravarti 1989), verified sound via the gap-shift + boundary-pinning reduction (300+ randomised trials vs. a real QP/L1 solve, worst-case gap ~2.6e-7). Fully eliminates the tie-break risk below by construction — but superseded by `linprog` per the user's explicit call (2026-07-02): scipy is already a dependency, and the smaller/simpler implementation outweighs a narrower, bounded version of the same risk class. Kept here as the fallback if the caveat below ever proves troublesome in practice. |
 
-   Every alternative either lacks L1 + gap + box support outright, or brings a
-   large, version-drifting solver stack whose determinism guarantees are
-   weaker than an exact combinatorial algorithm — the CVXPY/OR-Tools
-   rejection rests on ADR 0001's determinism requirement specifically, not on
-   dependency size alone (size is corroborating, not the deciding factor).
-
-   **Decision: implement the positioning solve using the standard
-   weighted-median PAVA algorithm** (pure Python, ~30-40 lines; this is a
-   well-known algorithm, not new research). A third-party implementation may
-   replace the hand-rolled one if a suitable lightweight, maintained,
-   deterministic L1/gap/box-constrained implementation becomes available —
-   this amendment fixes the *algorithm*, not the *implementation vendor*.
-
-**Verification, not just citation.** Before recommending this, the reduction
-was checked against a real solver rather than trusted on the literature
-alone: 300+ randomised trials comparing (gap-shift + boundary-pin +
-weighted-median-PAVA) against a genuine convex QP/L1 solve of the original
-(un-reduced) problem — worst-case gap ~2.6e-7 (solver tolerance), i.e.
-effectively exact. Two findings worth keeping on record for whoever writes
-the real test:
-- A first attempt at "ground truth" via `scipy.optimize.minimize(SLSQP)`
-  silently produced a non-monotonic "optimum" — SLSQP violated its own
-  constraints without raising. **Use a real QP/LP solver as ground truth for
-  this class of problem, not a general nonlinear optimiser.**
-- The L2-clip-is-exact result (sklearn's `y_min`/`y_max` is literally
-  `np.clip()` after unconstrained PAVA) also checked out empirically (400
-  trials, worst gap ~1.8e-6) — included here because it's surprising enough
-  to have been worth doubting, and because it's *why* clipping is tempting
-  but should not be assumed to generalise to L1 without its own check.
+**Accepted risk: solver-internal tie-breaking on degenerate optima.** On a
+constructed case with a non-unique L1-optimum (`x = [4,3,2,1]`, no gap
+requirement — any constant in `[2,3]` is equally optimal), HiGHS
+consistently picked `3.0` (the upper end), stable across repeated calls and
+both sub-methods *within scipy 1.17.1*. This is the same *category* of risk
+that disqualified CVXPY (a solver's internal vertex-selection on a degenerate
+LP is not a documented contract — a future HiGHS/scipy version could pick a
+different point in the tie without notice), just narrower in practice: one
+fixed solver, already pinned via the project's lockfile, not a
+configurable-default meta-package. **Ratified by the user (2026-07-02):**
+accept this bounded risk in exchange for the dependency-free, simpler
+implementation. **Mitigation for the implementer:** add a regression test
+that pins the exact degenerate case above and asserts today's known result —
+so a future scipy/HiGHS upgrade that silently shifts tie-break behaviour is
+caught by CI, not silently absorbed into a changed drawing output.
 
 **Open, not yet decided:**
-1. Whether to port the QP-comparison harness into the permanent test suite
-   as a property test (in the spirit of `test_layout_property.py`) — this
-   would add `cvxpy` (a real QP/LP solver) as a **test-only** dependency,
-   which is heavier than anything currently in the dev/test dependency set.
-   Alternative: keep the QP comparison as a one-time development-time check
-   (not committed) and rely on smaller hand-verified example cases plus the
-   existing layout-cleanliness/determinism property tests for ongoing
-   regression coverage. Needs a decision before implementation starts.
+1. Whether the general-correctness verification (the gap-shift/PAVA route's
+   300+-trial QP comparison, done during design to confirm the problem
+   shape) is worth porting into the permanent test suite as an *independent*
+   correctness check on `linprog`'s output — this would add `cvxpy` as a
+   **test-only** dependency. Given `linprog` solves the direct formulation
+   (no reduction to trust), this is now a lower-priority nice-to-have rather
+   than load-bearing; the degenerate-case regression test above is the one
+   that actually matters and needs no extra dependency.
 2. Expected behaviour change: some strips will re-pack to a tighter, truly
    optimal arrangement where the current Cassowary solve settled for a
    merely-constraint-satisfying one — same "dense sheets re-pack; covered by
