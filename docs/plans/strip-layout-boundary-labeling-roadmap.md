@@ -169,7 +169,7 @@ Updated 2026-07-02.
     are **anchored** (a dominating weight) so a tie can't slide them off the centre row.
     ADR 0009 Amendments 3 (LP design, superseded) + 4 (PAVA + anchoring). Clean
     adversarial review; the one finding was a doc contradiction, fixed.
-  - **P4c — DONE (2026-07-02, #NNN):** folded the #305/#321 coaxial-lift (a pre-solve
+  - **P4c — DONE (2026-07-02, #379):** folded the #305/#321 coaxial-lift (a pre-solve
     nudge that the P4b solve could re-crowd) into the solve as first-class **keep-out
     bands**: `plan_strip(forbidden=...)` → `_solve_strip_1d_pava_banded`, which splits
     the strip into the feasible segments *between* bands and runs the exact PAVA atom
