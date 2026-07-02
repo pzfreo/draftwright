@@ -16,6 +16,7 @@ bore set, side-drilled locations, the hole table) + the section/PMI passes.
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 from draftwright._core import (
     _CONCENTRIC_TOL_MM,
@@ -53,7 +54,7 @@ from draftwright.annotations.sections import (
     _request_prismatic_detail,
     _resolve_details,
 )
-from draftwright.model import build_part_model, plan_dimensions, plan_sections
+from draftwright.model import PatternFeature, build_part_model, plan_dimensions, plan_sections
 from draftwright.recognition import (
     full_cylinders,
 )
@@ -295,7 +296,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
 def _maybe_tabulate_holes(dwg, a: Analysis):
     """Escalate to a per-instance hole table + balloons when the plan view is too
-    dense to dimension every hole individually (#93).
+    dense to dimension every hole individually (#93); a dropped ISO pattern
+    callout gets one grouped balloon of its own (#351 PR-3, ADR 0009 Amdt 1
+    decision 1 — the #348 fix).
 
     When callouts or location references had to be dropped, the individual
     plan-view callouts and X/Y location dims are removed and replaced by a
@@ -306,14 +309,31 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
 
     If the table itself will not fit, nothing is removed and the drop lint is
     kept — the sheet is never left with neither.
+
+    Independent of that density gate: a recognised pattern (bolt circle / linear
+    array / grid) whose own grouped ``n×`` callout could not be placed inline
+    gets **one balloon tagging the whole pattern**, not one balloon per member —
+    a dropped pattern is a real coverage gap on any part, not just a dense one.
+    Both kinds of balloon share one strip-solved band per side (one
+    ``_add_balloons`` call) so they never overlap each other.
     """
     # Trigger on the first-class Escalation objects the hole placers collect (ADR 0009
     # Amdt 1, #351 PR-2), not by grepping the `*_dropped` lint strings. Byte-identical:
     # a "callout"/"location" Escalation is emitted 1:1 with each callout_dropped/
     # location_ref_dropped code. `getattr` default guards the auto_dims=False path (which
     # skips this whole pass anyway). The lint codes stay as the coverage surface.
-    if not any(e.kind in ("callout", "location") for e in getattr(dwg, "_escalations", ())):
+    escalations = getattr(dwg, "_escalations", ())
+    if not any(e.kind in ("callout", "location") for e in escalations):
         return
+
+    # A "callout" escalation's feature is the dropped group's PatternFeature only when
+    # it is a fully-surviving recognised pattern (_annotate_holes's `pat`, holes.py) —
+    # scoped to the plan view, the only one `_add_balloons`'s halo covers.
+    pattern_feats = [
+        e.feature
+        for e in escalations
+        if e.kind == "callout" and e.view == "plan" and isinstance(e.feature, PatternFeature)
+    ]
 
     # Tabulate only the genuinely UNpatterned plan-view holes: holes in a
     # recognised pattern are documented by their grouped ``n× ⌀`` callout +
@@ -328,45 +348,100 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # A chart is warranted only for a *genuinely* dense plan view — a part that
     # merely dropped one too-close location ref keeps its individual dims (the
     # legibility gate already handled it). #93.
-    if len(holes) < _TABULATE_MIN_HOLES:
+    tabulate_scattered = len(holes) >= _TABULATE_MIN_HOLES
+    if not tabulate_scattered and not pattern_feats:
         return
-    dx, dy = a.bb.min.X, a.bb.min.Y
-    tags = _tag_sequence(len(holes))
-    header = ("TAG", "⌀", "X", "Y")
-    data = [
-        (tag, f"ø{_fmt(h.diameter)}", _fmt(h.location[0] - dx), _fmt(h.location[1] - dy))
-        for tag, h in zip(tags, holes, strict=True)
-    ]
-    # Remove the callouts and location dims the table replaces FIRST: it frees
-    # their space for the table and shrinks the obstacle set fit_box scans (the
-    # dense parts have dozens), which is the dominant cost on heavy sheets (#93).
-    replaced = {
-        n: o
-        for n, o in list(dwg.iter_annotations())
-        if n.startswith(("hc_plan", "m_locx", "m_locy")) and not dwg._is_pattern_callout(n)
-    }
-    replaced_view = {n: dwg.view_of(n) for n in replaced}
-    for n in replaced:
-        dwg.remove(n)
 
-    # Widen the chart into more column-blocks until it fits the page.
-    table = None
-    for ncols in (1, 2, 3, 4):
-        table = dwg.add_table(
-            _wrap_rows(header, data, ncols), name="hole_table_plan", block_cols=len(header)
+    dx, dy = a.bb.min.X, a.bb.min.Y
+    n_scattered = len(holes) if tabulate_scattered else 0
+    tags = _tag_sequence(n_scattered + len(pattern_feats))
+    scattered_tags, pattern_tags = tags[:n_scattered], tags[n_scattered:]
+    # One balloon per pattern, tagged with its member count so the ring reads
+    # "6×A" rather than one glyph per member (#348) — no table row needed, the
+    # count + diameter travel with the balloon itself.
+    pattern_specs = [
+        (
+            f"{feat.count}×{tag}",
+            0,
+            # Anchor on an actual member hole, not `feat.frame.origin` — for a
+            # bolt circle / grid that's the pattern's geometric centre, which
+            # isn't a hole, so the leader would point at solid material instead
+            # of the pattern it documents.
+            SimpleNamespace(location=feat.members[0], diameter=feat.member.diameter),
         )
-        if table is not None:
-            break
-    dwg._drop_build_issues("table_dropped")
-    if table is None:
-        # Even wrapped it will not fit — restore the callouts/dims and keep the
-        # drop lint, so the sheet is never left with neither.
-        for n, obj in replaced.items():
-            dwg.add(obj, n, view=replaced_view.get(n))
-        dwg._record_build_issue("warning", "table_dropped", "hole table did not fit the sheet")
-        return
-    # One entry per hole (with repeats) so the coverage *count* check sees that
-    # the table documents every instance, not just each distinct diameter.
-    table.covers_diameters = tuple(h.diameter for h in holes)
-    dwg._add_balloons("plan", [(tag, 0, h) for tag, h in zip(tags, holes, strict=True)])
-    dwg._drop_build_issues("callout_dropped", "location_ref_dropped")
+        for tag, feat in zip(pattern_tags, pattern_feats, strict=True)
+    ]
+
+    scattered_specs: list = []
+    if tabulate_scattered:
+        header = ("TAG", "⌀", "X", "Y")
+        data = [
+            (tag, f"ø{_fmt(h.diameter)}", _fmt(h.location[0] - dx), _fmt(h.location[1] - dy))
+            for tag, h in zip(scattered_tags, holes, strict=True)
+        ]
+        # Remove the callouts and location dims the table replaces FIRST: it frees
+        # their space for the table and shrinks the obstacle set fit_box scans (the
+        # dense parts have dozens), which is the dominant cost on heavy sheets (#93).
+        replaced = {
+            n: o
+            for n, o in list(dwg.iter_annotations())
+            if n.startswith(("hc_plan", "m_locx", "m_locy")) and not dwg._is_pattern_callout(n)
+        }
+        replaced_view = {n: dwg.view_of(n) for n in replaced}
+        for n in replaced:
+            dwg.remove(n)
+
+        # Widen the chart into more column-blocks until it fits the page.
+        table = None
+        for ncols in (1, 2, 3, 4):
+            table = dwg.add_table(
+                _wrap_rows(header, data, ncols), name="hole_table_plan", block_cols=len(header)
+            )
+            if table is not None:
+                break
+        dwg._drop_build_issues("table_dropped")
+        if table is None:
+            # Even wrapped it will not fit — restore the callouts/dims and keep the
+            # drop lint, so the sheet is never left with neither. The pattern
+            # balloons below are unaffected — nothing of theirs was removed.
+            for n, obj in replaced.items():
+                dwg.add(obj, n, view=replaced_view.get(n))
+            dwg._record_build_issue("warning", "table_dropped", "hole table did not fit the sheet")
+        else:
+            # One entry per hole (with repeats) so the coverage *count* check sees
+            # that the table documents every instance, not just each distinct
+            # diameter.
+            table.covers_diameters = tuple(h.diameter for h in holes)
+            scattered_specs = [(tag, 0, h) for tag, h in zip(scattered_tags, holes, strict=True)]
+            dwg._drop_build_issues("callout_dropped", "location_ref_dropped")
+
+    balloon_specs = scattered_specs + pattern_specs
+    placed_names: set = set()
+    if balloon_specs:
+        # One call: the strip solver must see every band member together, or two
+        # independent _add_balloons calls could stack a pattern balloon on a
+        # per-hole one in the same band.
+        dwg._add_balloons("plan", balloon_specs)
+        placed_names = {n for n, _ in dwg.iter_annotations()}
+
+    # Pattern balloons resolve their own "callout_dropped" issues only for patterns
+    # whose balloon actually landed on the sheet — a crowded band can silently drop
+    # the tail (_place_band's strip-solver prefix fallback, layout.py) with no
+    # signal back here — AND only when no OTHER callout drop is left unaddressed
+    # (the scattered-table success path above already cleared them when it ran).
+    # Never hide a genuine remaining drop (a table that didn't fit, a pattern
+    # balloon that didn't fit its band, or a dropped pattern in a non-plan view,
+    # which this resolver does not cover).
+    if pattern_specs and not scattered_specs:
+        resolved_feats = {
+            feat
+            for (full_tag, _, _), feat in zip(pattern_specs, pattern_feats, strict=True)
+            if f"balloon_plan_{full_tag}_0" in placed_names
+        }
+        unresolved = [
+            e
+            for e in escalations
+            if e.kind == "callout" and not (e.view == "plan" and e.feature in resolved_feats)
+        ]
+        if not unresolved:
+            dwg._drop_build_issues("callout_dropped")

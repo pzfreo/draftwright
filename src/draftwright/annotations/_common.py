@@ -26,15 +26,18 @@ class Escalation:
     the ``*_dropped`` lint codes only for what stays unresolved (so coverage lint + the
     cleanliness ratchet keep working). See the ADR / epic #351.
 
-    Scaffolding only (#351 PR-1): the type + the ``dwg._escalations`` collector exist, but no
-    placer emits and nothing consumes them yet — so this PR is behaviour-preserving.
+    The hole callout/location placers emit these (#351 PR-2); the resolver in
+    ``annotations/orchestrator.py`` (``_maybe_tabulate_holes``) consumes them, including
+    the ISO pattern-grouped balloon fallback for a dropped pattern callout (#351 PR-3).
 
     Attributes:
         kind:     what could not be placed — ``"callout" | "location" | "slot" | "step" | "pmi"``.
         view:     the owning orthographic view (``None`` for drawing-level).
         feature:  reference to the IR feature / ``HoleRef`` / key it belongs to — carries the
-                  pattern membership the resolver groups on. Left untyped to keep this module a
-                  leaf (no dependency on ``model.ir``).
+                  pattern membership the resolver groups on (a ``"callout"`` escalation's
+                  feature is the dropped group's ``PatternFeature`` when it is a
+                  fully-surviving recognised pattern, else ``None``). Left untyped to keep
+                  this module a leaf (no dependency on ``model.ir``).
         reason:   why placement failed — ``"strip_full" | "illegible" | "corridor_blocked" | "no_room"``.
         remedies: ranked candidate remedies the resolver may pick, e.g.
                   ``("group_balloon", "table", "detail", "drop")``. Empty = resolver's default ladder.

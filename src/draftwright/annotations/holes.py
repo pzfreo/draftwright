@@ -56,13 +56,18 @@ def _legible_locations(positions, scale):
     return kept, n_too_close
 
 
-def _record_callout_drop(dwg, view, diam, reason):
+def _record_callout_drop(dwg, view, diam, reason, feat=None):
     """Record a hole callout the layout could not place (#36).
 
     A warning (the drawing is incomplete, not invalid), whose diameter is
     excluded from ``feature_not_dimensioned`` like the old per-view cap drop —
     so a callout that genuinely doesn't fit is surfaced once, with a reason,
     and not double-reported.
+
+    *feat* is the dropped group's ``PatternFeature`` when it is a fully-surviving
+    recognised pattern (the ``pat`` value threaded through ``_annotate_holes``),
+    else ``None`` — carried on the Escalation so the resolver can group by pattern
+    identity (#351 PR-3).
     """
     dwg._drop_callout_diam(diam)
     dwg._record_build_issue(
@@ -73,7 +78,7 @@ def _record_callout_drop(dwg, view, diam, reason):
     # First-class escalation object alongside the lint code (ADR 0009 Amdt 1, #351 PR-2).
     # The resolver (`_maybe_tabulate_holes`) triggers on these; the lint code stays for
     # coverage. 1:1 with the code emit, so the object trigger is byte-identical.
-    dwg._escalations.append(Escalation(kind="callout", view=view, feature=diam, reason=reason))
+    dwg._escalations.append(Escalation(kind="callout", view=view, feature=feat, reason=reason))
 
 
 def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
@@ -591,13 +596,13 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                     side, x0, x1 = "left", centre[0] - gap - w, centre[0] - gap
                 else:
                     _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
-                    _record_callout_drop(dwg, view, dia, "no room beside the view")
+                    _record_callout_drop(dwg, view, dia, "no room beside the view", feat)
                     continue
                 # the title block only constrains rows that reach its x-range
                 floor = (tb_top + 4) if x1 > tb_left - 4 else a.margin + 4
                 if elbow_y < floor:
                     _log.info("Hole callout ø%s skipped (front strip full)", _fmt(dia))
-                    _record_callout_drop(dwg, view, dia, "front strip full")
+                    _record_callout_drop(dwg, view, dia, "front strip full", feat)
                     continue
                 if any(
                     ox0 <= centre[0] <= ox1 and row_y > elbow_y for ox0, ox1, row_y in occupied
@@ -605,7 +610,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                     _log.info(
                         "Hole callout ø%s skipped (shaft would cross another callout)", _fmt(dia)
                     )
-                    _record_callout_drop(dwg, view, dia, "shaft would cross another callout")
+                    _record_callout_drop(dwg, view, dia, "shaft would cross another callout", feat)
                     continue
                 elbow = (centre[0], elbow_y)
                 occupied.append((x0, x1, elbow_y))
@@ -693,7 +698,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
 
             if not can_right and not can_left:
                 _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
-                _record_callout_drop(dwg, view, dia, "no room beside the view")
+                _record_callout_drop(dwg, view, dia, "no room beside the view", feat)
                 continue
 
             if can_right and (not can_left or d_right <= d_left):
@@ -745,7 +750,9 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                     len(queue),
                 )
                 for k in res.dropped:
-                    _record_callout_drop(dwg, view, by_key[k][1], f"{side} strip full")
+                    _record_callout_drop(
+                        dwg, view, by_key[k][1], f"{side} strip full", by_key[k][3]
+                    )
             # Emit survivors in natural-Y order (== plan_strip's solve order, since
             # keys are Y-monotonic) so the hc_{view}{i} names + centre-mark indices
             # land on the same callouts as the old queue-order emit.
