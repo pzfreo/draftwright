@@ -308,6 +308,35 @@ def test_plan_strip_x_axis():
     assert p["a"] <= p["b"]
 
 
+def test_plan_strip_uses_per_pair_gaps_for_heterogeneous_sizes():
+    # P4a (#318): candidates with different strip-axis sizes are spaced by the
+    # LARGER of each pair's own size (or the floor min_gap), not one global gap —
+    # the same rule LayoutSolver.solve_strip already uses for heterogeneous
+    # Placeables (#81). Exercises plan_strip's own gap-list wiring (ordered[i]/
+    # [i+1] indexing, idx selection), not just the underlying _solve_strip_1d_var
+    # primitive (which is already covered elsewhere, in isolation).
+    cands = [
+        StripCandidate("a", (0.0, 0.0), (6, 4), priority=0),
+        StripCandidate("b", (0.0, 0.0), (6, 4), priority=0),
+        StripCandidate("c", (0.0, 0.0), (6, 12), priority=0),
+    ]
+    res = plan_strip(cands, lo=0, hi=100, min_gap=1)
+    p = res.placed
+    assert abs((p["b"] - p["a"]) - 4) < 1e-6  # max(4, 4, floor 1)
+    assert abs((p["c"] - p["b"]) - 12) < 1e-6  # max(4, 12, floor 1)
+
+
+def test_plan_strip_min_gap_floors_a_pair_smaller_than_it():
+    # A pair whose sizes are both below the caller's min_gap floor must still get
+    # at least min_gap of separation — min_gap is a floor, not just a fallback.
+    cands = [
+        StripCandidate("a", (0.0, 0.0), (6, 1), priority=0),
+        StripCandidate("b", (0.0, 0.0), (6, 1), priority=0),
+    ]
+    res = plan_strip(cands, lo=0, hi=100, min_gap=5)
+    assert abs((res.placed["b"] - res.placed["a"]) - 5) < 1e-6
+
+
 def test_bore_callout_priority_is_the_hole_diameter(monkeypatch):
     # D3 (#322) wiring: each bore-callout StripCandidate's priority is the hole
     # DIAMETER (largest wins over-capacity), not the old n-j prefix-keep placeholder.
