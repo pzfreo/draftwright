@@ -148,6 +148,106 @@ def _solve_strip_1d_var(naturals, gaps, lo, hi):
         return None
 
 
+_ANCHOR_WEIGHT = 1.0e6
+"""Weight that pins an anchored candidate at its natural position in the weighted
+median (:func:`_solve_strip_1d_pava`). Any value that dwarfs the sum of a strip's
+non-anchored weights (unit each, at most a few dozen per strip) makes the anchored
+point win every pool median, so the solve keeps it put — see :func:`plan_strip`."""
+
+
+def _weighted_median(members):
+    """Lower weighted median of ``(value, weight)`` pairs — the smallest value at
+    which the cumulative weight reaches half the total. The L1-minimising point of
+    a pool; picking the *lower* end of the (possibly interval-valued) median makes
+    the choice deterministic regardless of platform or solver (ADR 0001)."""
+    ordered = sorted(members)
+    half = sum(w for _, w in ordered) / 2.0
+    cum = 0.0
+    for value, weight in ordered:
+        cum += weight
+        if cum >= half:
+            return value
+    return ordered[-1][0]
+
+
+def _solve_strip_1d_pava(naturals, gaps, lo, hi, weights=None):
+    """Minimum-(weighted-)total-leader-length 1D placement with per-pair gaps
+    (ADR 0009 Amendment 4, P4b, #318).
+
+    Unlike :func:`_solve_strip_1d_var` (a Cassowary constraint-*satisfaction*
+    solve, which only needs to satisfy order/gap/bounds), this finds the
+    placement minimising the (weighted) total leader length
+    (``sum(w_i * abs(p_i - naturals[i]))``, L1 — leader length is a real
+    distance, not a squared one) subject to the same constraints. It is the
+    exact solve the earlier ``scipy.optimize.linprog`` P4b prototype computed,
+    but via the **Pool Adjacent Violators Algorithm** with weighted medians, so
+    it is **deterministic by construction** — no dependence on a solver's
+    arbitrary vertex choice on the (very common) non-unique L1 optimum, which
+    diverged across the scipy versions in the CI matrix (the defect Amendment 4
+    records).
+
+    Method: the per-pair min-gap folds away with the shift ``s_i = naturals_i −
+    Σ_{j<i} gaps_j`` (so "monotone with gaps" becomes plain non-decreasing);
+    weighted-median PAVA gives the exact L1 isotonic fit of the shifted values;
+    the box ``[lo, hi]`` on ``p`` reduces (via the same shift, using
+    monotonicity) to a **global** box ``[lo, hi − Σgaps]`` on ``s`` that an
+    exact clamp of each fitted value satisfies; unshifting restores ``p`` with
+    every gap met by construction.
+
+    *weights* (default all ``1``) let a caller **anchor** a candidate: a weight
+    that dwarfs the others (``_ANCHOR_WEIGHT``) makes that point win every pool
+    median, pinning it at its natural position while the rest flow around it.
+
+    Same contract as :func:`_solve_strip_1d_var`: *naturals* sorted ascending,
+    ``len(gaps) == max(len(naturals) - 1, 0)``, and returns ``None`` (never
+    raises) when the fixed set is provably infeasible — the caller's
+    drop-and-retry loop depends on that.
+    """
+    if not naturals:
+        return []
+    n = len(naturals)
+    if sum(gaps) > hi - lo:
+        return None  # provably infeasible
+    if weights is None:
+        weights = [1.0] * n
+
+    # Shift naturals so the min-gap chain becomes a plain monotone constraint.
+    prefix = 0.0
+    shifted = []
+    for i, nat in enumerate(naturals):
+        if i:
+            prefix += gaps[i - 1]
+        shifted.append(nat - prefix)
+    total_gap = prefix  # Σ gaps
+
+    # Weighted-median PAVA: each block holds its member (value, weight) pairs and
+    # its current fitted value; merge adjacent blocks while they violate the
+    # non-decreasing order, recomputing the merged block's weighted median.
+    blocks: list[list] = []  # each: [fitted_value, [(value, weight), ...]]
+    for value, weight in zip(shifted, weights, strict=True):
+        block = [value, [(value, weight)]]
+        while blocks and blocks[-1][0] > block[0]:
+            prev = blocks.pop()
+            merged = prev[1] + block[1]
+            block = [_weighted_median(merged), merged]
+        blocks.append(block)
+
+    # Clamp the (global) box on the shifted axis, then unshift back to positions.
+    s_lo, s_hi = lo, hi - total_gap
+    fitted = []
+    for value, members in blocks:
+        clamped = min(max(value, s_lo), s_hi)
+        fitted.extend([clamped] * len(members))
+
+    prefix = 0.0
+    positions = []
+    for i, s in enumerate(fitted):
+        if i:
+            prefix += gaps[i - 1]
+        positions.append(s + prefix)
+    return positions
+
+
 # ---------------------------------------------------------------------------
 # Collect-then-solve strip stage (ADR 0009)
 # ---------------------------------------------------------------------------
@@ -175,6 +275,15 @@ class StripCandidate:
             step's ranking (P2, #322). A magnitude (e.g. a hole's diameter), so it
             is a ``float``; ``int`` ranks remain valid (the numeric tower). Unused by
             the P0 seam (all-or-nothing).
+        anchored: when ``True`` the spacing solve keeps this candidate at its
+            natural position (its ``anchor`` along the strip axis) and flows the
+            rest around it (ADR 0009 Amendment 4, P4b). For a central/coaxial hole
+            whose callout belongs on the view-centre row: without it the exact
+            minimum-total-leader-length solve is free, on a tie, to move the
+            central label off centre (the two equal-cost vertices differ only in
+            *which* label absorbs the shift). Realised as a dominating weight in
+            :func:`_solve_strip_1d_pava`, so it stays a spacing hint, not a hard
+            pin (an anchored candidate can still be *dropped* when over capacity).
 
     An ``eligible_sides`` field joins when the multi-side *assign* step lands
     (P2, #322); the P0 seam places on a single, caller-chosen strip.
@@ -184,6 +293,7 @@ class StripCandidate:
     anchor: tuple[float, float]
     size: tuple[float, float]
     priority: float = 0
+    anchored: bool = False
 
 
 class StripPlacement(NamedTuple):
@@ -221,9 +331,12 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     ``Placeable``s, applied here to ``StripCandidate.size`` instead of an
     explicit per-item ``min_gap`` field. *min_gap* is therefore a floor (minimum
     clearance/padding regardless of label size), not the whole story; solved via
-    :func:`_solve_strip_1d_var`. When every candidate's ``size[idx]`` is the same
-    value (every current caller), this reduces exactly to the old uniform-gap
-    solve. Candidate *keys* must be unique (they key the result). Deterministic
+    :func:`_solve_strip_1d_pava` (P4b, ADR 0009 Amendment 4), which finds the
+    *minimum-total-leader-length* placement rather than merely one that satisfies
+    the constraints, deterministically. A candidate marked ``anchored`` is kept at
+    its natural position (a dominating weight into the solve) so a tie in that
+    minimum can't slide it off — e.g. a central hole's callout off the view-centre
+    row. Candidate *keys* must be unique (they key the result). Deterministic
     throughout.
     """
     if not candidates:
@@ -242,7 +355,8 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
             max(ordered[i].size[idx], ordered[i + 1].size[idx], min_gap)
             for i in range(len(ordered) - 1)
         ]
-        positions = _solve_strip_1d_var(naturals, gaps, lo, hi)
+        weights = [_ANCHOR_WEIGHT if c.anchored else 1.0 for c in ordered]
+        positions = _solve_strip_1d_pava(naturals, gaps, lo, hi, weights)
         if positions is not None:
             placed = {c.key: p for c, p in zip(ordered, positions, strict=True)}
             return StripPlacement(placed, tuple(dropped))

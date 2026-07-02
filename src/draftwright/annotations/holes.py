@@ -735,7 +735,8 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         # one plan_strip per side does the site-ordered spacing and the over-capacity
         # drop (ADR 0009 / #321 P1a). This is the first *production* placer routed
         # through plan_strip — it replaces the bespoke _solve_strip_via_layout + the
-        # greedy prefix-drop. plan_strip bottoms out in _solve_strip_1d_var, and
+        # greedy prefix-drop. plan_strip bottoms out in the min-leader PAVA solve
+        # (_solve_strip_1d_pava, Amendment 4), and
         # the queue is pre-sorted by natural Y (so plan_strip's (anchor_y, key) order is
         # the queue order → leaders stay crossing-free). Over-capacity selection is now
         # by real per-feature priority — the hole DIAMETER (D3/#322): when the strip
@@ -785,6 +786,22 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
             )
             return _box_hits(label_box, obstacles)
 
+        def _is_central(s):
+            """The coaxial hole whose callout belongs on the view-centre row.
+            Anchored (ADR 0009 Amendment 4) so the exact minimum-leader spacing
+            solve can't slide it off centre on a tie — the equal-cost placements
+            differ only in *which* callout absorbs the shift, and for a central
+            feature that must not be the central one. Same centre test
+            :func:`_coaxial_lift` uses; ``s[5]`` is the callout's representative
+            hole location (``None`` only for a left-queue entry with no left
+            edge, which never happens for a placed callout)."""
+            rep = s[5]
+            if rep is None:
+                return False
+            cx, cy = to_page(rep)
+            tol = draft.font_size
+            return abs(cx - view_cx) < tol and abs(cy - view_cy) < tol
+
         def _place_queue(queue, edge, side, key_prefix, start_i):
             if not queue:
                 return start_i
@@ -800,6 +817,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                     anchor=(edge, s[4]),
                     size=(s[2].callout_width, min_gap),
                     priority=s[1],
+                    anchored=_is_central(s),
                 )
                 for j, s in enumerate(queue)
             ]
@@ -873,6 +891,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                         anchor=(edge, s[4]),
                         size=(s[2].callout_width, min_gap),
                         priority=s[1],  # bore diameter — largest wins over-capacity (D3)
+                        anchored=_is_central(s),
                     )
                     for j, s in enumerate(cands_in)
                 ]

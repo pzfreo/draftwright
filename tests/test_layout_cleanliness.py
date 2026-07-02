@@ -70,13 +70,16 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
     #    AABB-only) leader-footprint geometry (_segment_hits_box for the diagonal
     #    tip->elbow shaft) — so a callout is never dropped or misjudged just for
     #    being NEAR an obstacle.
-    #  - SPACE-CONSTRAINED {hc_plan0, section_arrow_right}: for THIS hole, avoiding
-    #    the section row costs a large relocation (the free segment is far from its
-    #    natural row); policy B (user, 2026-07-02, matching the existing
-    #    side_drilled precedent below) keeps it at its natural, near-original
-    #    position and accepts the crossing rather than pay that cost or drop a
-    #    real callout. Reproduces the exact pre-#351 placement — not a
-    #    regression, a confirmed-correct trade-off.
+    #  - SPACE-CONSTRAINED {hc_plan0, section_arrow_right}: hc_plan0 is the
+    #    CENTRAL bore's callout, anchored on the plan-view centre row (ADR 0009
+    #    Amendment 4). Its wide label box (X≈80–140) straddles the thin section
+    #    arrow (X≈124–126), whose Y-band sits on that same centre row — the
+    #    crossing is unavoidable for this cramped part without an outer-layout
+    #    rescale (ADR 0004). Policy B (user, 2026-07-02) keeps the central callout
+    #    on its row rather than drop it or pay a large relocation. The offset
+    #    cbore callout (hc_plan1) now flows clear of the arrow — P4b's min-leader
+    #    PAVA solve, with the central bore anchored, no longer crosses it (the
+    #    scipy-LP prototype briefly did; Amendment 4).
     "bracket": {
         frozenset({"m_locx0", "m_locx1"}),
         frozenset({"m_locy0", "m_locy1"}),

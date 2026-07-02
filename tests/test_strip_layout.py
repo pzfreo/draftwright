@@ -326,6 +326,25 @@ def test_plan_strip_uses_per_pair_gaps_for_heterogeneous_sizes():
     assert abs((p["c"] - p["b"]) - 12) < 1e-6  # max(4, 12, floor 1)
 
 
+def test_plan_strip_anchored_candidate_stays_on_its_natural():
+    # P4b (#318, Amendment 4): an `anchored` candidate is kept at its natural
+    # position while the rest flow around it. Two callouts 2 mm apart naturally
+    # but needing a 7 mm gap → a total-leader-length tie; anchoring the first
+    # pins it (how a central hole's callout stays on the view-centre row).
+    import pytest
+
+    anchored = StripCandidate("mid", (0.0, 100.0), (6, 3), anchored=True)
+    other = StripCandidate("off", (0.0, 102.0), (6, 3))
+    res = plan_strip([anchored, other], lo=0, hi=200, min_gap=7)
+    assert res.placed["mid"] == pytest.approx(100.0), "anchored candidate slid off its natural"
+    assert res.placed["off"] == pytest.approx(107.0)
+    # Without the anchor the min-leader tie resolves to the other vertex.
+    plain = plan_strip(
+        [StripCandidate("mid", (0.0, 100.0), (6, 3)), other], lo=0, hi=200, min_gap=7
+    )
+    assert plain.placed["mid"] == pytest.approx(95.0)
+
+
 def test_plan_strip_min_gap_floors_a_pair_smaller_than_it():
     # A pair whose sizes are both below the caller's min_gap floor must still get
     # at least min_gap of separation — min_gap is a floor, not just a fallback.
