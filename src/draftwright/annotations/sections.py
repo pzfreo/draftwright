@@ -432,13 +432,33 @@ def _resolve_details(dwg, a: Analysis) -> None:
 
 def _request_prismatic_detail(dwg, a: Analysis) -> None:
     """Queue a detail of a prismatic part's crowded step-height band (#42), routed
-    through the unified pipeline (#307). Fires when the step-height legibility gate
-    drops a shoulder at sheet scale; the redraw re-draws the step-height ladder in
-    the detail view at the enlarged scale."""
+    through the unified pipeline (#307).
+
+    Fires on the "step"/"illegible" ``Escalation`` `render_height_ladder`
+    (from_model.py) appends (ADR 0009 Amdt 1, #351 PR-4b) rather than
+    independently recomputing the legibility gate from ``a.step_zs`` — a uniform
+    staircase (``_detect_step_repeat``) collapses to one representative dim with
+    no drop at all, and re-deriving legibility straight from the raw z-list here
+    missed that case, queuing a spurious detail even though nothing was actually
+    dropped (a real bug the escalation routing fixes as a side effect).
+
+    Prismatic only, by construction: `render_height_ladder` never emits this
+    escalation for a turned part (no `StepLevelFeature`). A crowded **Z-turned**
+    step-length chain has its own, separate, still-silent drop in
+    `_draw_step_chain`'s vertical branch (`return 0`, no lint/escalation at
+    all) — this function no longer accidentally, unreliably papers over that
+    with prismatic-semantics dims (wrong anchor/labeling for a turned chain);
+    see #362 for the real fix (a Z-turned-appropriate detail remedy, analogous
+    to the X-turned crowded-head block + `DetailRequest` this docstring's
+    sibling, `render_step_lengths`, already has).
+
+    The redraw re-draws the step-height ladder in the detail view at the
+    enlarged scale."""
     if len(a.step_zs) < 2:
         return
-    kept, _ = _legible_steps(a.step_zs, a.bb.min.Z, a.SCALE)
-    if not [z for z in a.step_zs if z not in set(kept)]:
+    if not any(
+        e.kind == "step" and e.reason == "illegible" for e in getattr(dwg, "_escalations", ())
+    ):
         return
     z0, z1 = min(a.step_zs), max(a.step_zs)
     pad = 0.08 * (z1 - z0) + 1.0
