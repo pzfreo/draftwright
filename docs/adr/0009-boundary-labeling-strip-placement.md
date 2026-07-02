@@ -284,11 +284,12 @@ involved.
 
 ## Amendment 3 — Min-total-leader-length via L1 isotonic regression (P4b, #318)
 
-**Status:** Proposed — design only, not yet implemented. Recommendation below
-reached in a design discussion with the user (2026-07-02) and backed by an
-empirical verification pass (real QP-solver comparison, not just literature
-citation); flagged decisions below still need explicit sign-off before coding
-starts.
+**Status:** Accepted (2026-07-02) — algorithm (L1 isotonic regression with
+gap/box constraints) and implementation (`scipy.optimize.linprog`, HiGHS)
+both signed off by the user after an evidence-based library evaluation and
+direct empirical verification (real solver runs, not literature alone).
+Implementation not yet started. The two "Open, not yet decided" items below
+are non-blocking follow-ups, not implementation gates.
 
 **Problem.** `plan_strip`'s current position solve (`_solve_strip_1d_var`, via
 kiwisolver/Cassowary) is a constraint-*satisfaction* solve with a strength
