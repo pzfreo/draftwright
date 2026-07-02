@@ -282,6 +282,86 @@ PR") undersold this badly; treat future "should be a small placer migration"
 estimates with the same caution, especially where diagonal/angled geometry is
 involved.
 
+## Amendment 3 — Min-total-leader-length via L1 isotonic regression (P4b, #318)
+
+**Status:** Accepted (2026-07-02) — algorithm (L1 isotonic regression with
+gap/box constraints) and implementation (`scipy.optimize.linprog`, HiGHS)
+both signed off by the user after an evidence-based library evaluation and
+direct empirical verification (real solver runs, not literature alone).
+Implementation not yet started. The two "Open, not yet decided" items below
+are non-blocking follow-ups, not implementation gates.
+
+**Problem.** `plan_strip`'s current position solve (`_solve_strip_1d_var`, via
+kiwisolver/Cassowary) is a constraint-*satisfaction* solve with a strength
+hierarchy — "pull toward natural position" is a `strong` constraint, not a
+minimised objective. It can settle on a placement that satisfies every
+constraint (order, per-pair gap from P4a, `[lo,hi]` bounds) without finding
+the placement that minimises total leader length, especially once a strip is
+crowded and several candidates get pulled off their natural position at once.
+P4b replaces *only this inner positioning step* with an exact solve — the
+outer selection/drop loop (priority-ranked, over-capacity candidates dropped
+until the rest fit, P2/#322) is untouched, and this must keep the same
+"return `None` when the fixed candidate set is provably infeasible" contract
+`_solve_strip_1d_var` has today, since the drop-and-retry loop depends on it.
+
+**Decision.** The exact problem — fixed order (already established
+crossing-free by P2), a required minimum gap between each adjacent pair
+(`gap_i`, from P4a), a closed bound `[lo, hi]`, minimise total leader length
+(`Σ|p_i − x_i|`, i.e. **L1**, not L2 — leader length is a real distance, not
+a squared one) — is mathematically **L1 isotonic regression with a minimum-gap
+and box constraint**, and is small enough (well under 20 candidates per strip)
+to solve directly as a **linear program** via `scipy.optimize.linprog`
+(HiGHS backend): the standard L1-as-LP trick (auxiliary variables
+`t_i ≥ p_i−x_i`, `t_i ≥ x_i−p_i`, minimise `Σt_i`) plus the monotone/gap/box
+constraints encoded directly as linear inequalities (`p_i + gap_i ≤
+p_{i+1}`, `lo ≤ p_i ≤ hi`) — no reduction trick needed, unlike the
+gap-shift/PAVA route below. Every library alternative was evaluated below
+with evidence rather than recollection.
+
+   | Library | Verdict | Evidence |
+   |---|---|---|
+   | `scipy.optimize.isotonic_regression` | not suitable | L2-only, no box-constraint parameter. |
+   | `sklearn.isotonic.IsotonicRegression` | not suitable | Also L2-only; native L1 support was proposed and closed unlanded upstream (scikit-learn#14569). |
+   | `scipy.optimize.linprog` (HiGHS) | **selected** | Already a transitive dependency (build123d → scipy); solves the *direct* problem formulation, no reduction needed. Verified correct on hand-built cases; deterministic across 30 repeated calls and both HiGHS sub-methods (`highs-ds` simplex, `highs-ipm` interior-point) — including on a deliberately degenerate case. See caveat below. |
+   | `cvxpy` | not suitable | The formulation is trivial (~8 lines), but `pip install --dry-run cvxpy` pulls **14 packages, 85MB+** (numpy, scipy, scs, highspy, clarabel, osqp, qdldl, …) — and, decisively, its **default solver changed between versions** (ECOS → Clarabel, ECOS dropped as a bundled dep in 1.6); different bundled solvers are documented to return numerically different optima for the same problem (iterative ADMM/interior-point tolerances, not an exact combinatorial algorithm). |
+   | Google OR-Tools | not suitable | Could model the problem (LP/CP-SAT), but the wheel alone is ~30MB plus 8 more deps (pandas, protobuf, absl-py, …) — enterprise-scale tooling for a sub-millisecond, <20-item problem. Wrong scale for what we need. |
+   | NetworkX | not suitable, for a principled reason | No LP/PAVA implementation, and L1 isotonic regression doesn't reduce to a graph shortest-path/matching problem the way L∞ isotonic regression does (L∞ is a bottleneck/max-type objective with a known graph reduction, arXiv:1507.02226; L1 is a separable *sum* of convex terms — natively an LP, not a graph problem). |
+   | `pyStoNED` (PyPI) | not suitable | Confirmed dependency tree: pyomo, mosek, pandas, matplotlib — a full econometrics/LP stack, not a fit for a single positioning primitive. |
+   | `stucchio/isotonic` (GitHub) | not suitable | Does support Lp losses including L1, but has no gap/box-constraint support, isn't published to PyPI, and is unmaintained (12 commits, no releases). |
+   | Other PyPI hits (`cir-model`, `MOBPY`, `calibre`, `netcal`, `torchsort`, `regressio`, `constrained-linear-regression`) | not suitable | Probability-calibration/smoothing tools or constrained *linear regression* (bounding coefficients, not per-point isotonic values) — none address gap/box-constrained L1 isotonic regression. |
+   | Hand-rolled weighted-median PAVA | not selected | Textbook algorithm (Robertson/Wright/Dykstra 1988; Chakravarti 1989), verified sound via the gap-shift + boundary-pinning reduction (300+ randomised trials vs. a real QP/L1 solve, worst-case gap ~2.6e-7). Fully eliminates the tie-break risk below by construction — but superseded by `linprog` per the user's explicit call (2026-07-02): scipy is already a dependency, and the smaller/simpler implementation outweighs a narrower, bounded version of the same risk class. Kept here as the fallback if the caveat below ever proves troublesome in practice. |
+
+**Accepted risk: solver-internal tie-breaking on degenerate optima.** On a
+constructed case with a non-unique L1-optimum (`x = [4,3,2,1]`, no gap
+requirement — any constant in `[2,3]` is equally optimal), HiGHS
+consistently picked `3.0` (the upper end), stable across repeated calls and
+both sub-methods *within scipy 1.17.1*. This is the same *category* of risk
+that disqualified CVXPY (a solver's internal vertex-selection on a degenerate
+LP is not a documented contract — a future HiGHS/scipy version could pick a
+different point in the tie without notice), just narrower in practice: one
+fixed solver, already pinned via the project's lockfile, not a
+configurable-default meta-package. **Ratified by the user (2026-07-02):**
+accept this bounded risk in exchange for the dependency-free, simpler
+implementation. **Mitigation for the implementer:** add a regression test
+that pins the exact degenerate case above and asserts today's known result —
+so a future scipy/HiGHS upgrade that silently shifts tie-break behaviour is
+caught by CI, not silently absorbed into a changed drawing output.
+
+**Open, not yet decided:**
+1. Whether the general-correctness verification (the gap-shift/PAVA route's
+   300+-trial QP comparison, done during design to confirm the problem
+   shape) is worth porting into the permanent test suite as an *independent*
+   correctness check on `linprog`'s output — this would add `cvxpy` as a
+   **test-only** dependency. Given `linprog` solves the direct formulation
+   (no reduction to trust), this is now a lower-priority nice-to-have rather
+   than load-bearing; the degenerate-case regression test above is the one
+   that actually matters and needs no extra dependency.
+2. Expected behaviour change: some strips will re-pack to a tighter, truly
+   optimal arrangement where the current Cassowary solve settled for a
+   merely-constraint-satisfying one — same "dense sheets re-pack; covered by
+   invariants" class of change P3 already established, not a regression by
+   itself, but worth calling out explicitly since it touches real output.
+
 ## Related
 
 - [ADR 0001](0001-deterministic-generation-over-editable-dsl.md) — determinism;
@@ -300,4 +380,5 @@ involved.
   #306/#54 (detail-view escalation — the "doesn't fit" target), #305 (the
   original angled-leader-vs-centreline case Amendment 2's Finding 1 traces back
   to), #318 (P4 — the direct consumer of Amendment 2's `_segment_hits_box` and
-  "policy B" findings), #366/#367 (Amendment 2's filed residual gaps).
+  "policy B" findings, and the subject of Amendment 3), #366/#367 (Amendment
+  2's filed residual gaps).
