@@ -81,6 +81,12 @@ class CoverageState:
         # holes no placed pattern callout documents (#92).
         self._pattern_callouts: set = set()
         self._patterned_holes: set = set()
+        # Names of placed plan-view hole callouts / X/Y location dims that are NOT
+        # part of a recognised pattern — the scattered-hole table (#93) replaces
+        # exactly these. Registered at placement time (holes.py/from_model.py) so
+        # the resolver reads structured coverage state instead of inferring
+        # "table-replaceable" from annotation NAME PREFIXES (#351 PR-4c).
+        self._scattered_hole_docs: set = set()
         # Diameters dropped by the per-view callout cap, so lint can suppress the
         # redundant feature_not_dimensioned for them. Reset at the top of
         # _auto_annotate so re-annotation does not accumulate.
@@ -103,6 +109,15 @@ class CoverageState:
     def is_hole_patterned(self, ref: HoleRef) -> bool:
         """Is the hole at *ref* already documented by a placed pattern callout?"""
         return ref in self._patterned_holes
+
+    def cover_scattered_hole_doc(self, name) -> None:
+        """Record that placed *name* is a scattered (unpatterned) plan-view hole
+        callout or X/Y location dim — a candidate the hole table may replace."""
+        self._scattered_hole_docs.add(name)
+
+    def is_scattered_hole_doc(self, name) -> bool:
+        """Is *name* a placed scattered hole callout / location dim (#351 PR-4c)?"""
+        return name in self._scattered_hole_docs
 
     # -- dropped diameters ----------------------------------------------------
 

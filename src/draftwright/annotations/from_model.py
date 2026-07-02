@@ -342,6 +342,11 @@ def render_locations(dwg, model, a) -> int:
         )
     _left = place_strip_candidates(dwg, a.pv_zones.above, "plan", "y", x_cands, tier)
     _left = place_strip_candidates(dwg, a.pv_zones.above, "plan", "y", _left, tier, force=True)
+    _dropped_x = {_name for _name, _ in _left}
+    for _name, _ in x_cands:
+        if _name not in _dropped_x:
+            # A candidate the scattered-hole table may replace (#351 PR-4c).
+            dwg._cover_scattered_hole_doc(_name)
     for _name, _ in _left:
         dwg._record_build_issue(
             "warning",
@@ -395,6 +400,11 @@ def render_locations(dwg, model, a) -> int:
         )
     _left = place_strip_candidates(dwg, a.sv_zones.above, "side", "y", y_cands, tier)
     _left = place_strip_candidates(dwg, a.sv_zones.above, "side", "y", _left, tier, force=True)
+    _dropped_y = {_name for _name, _ in _left}
+    for _name, _ in y_cands:
+        if _name not in _dropped_y:
+            # A candidate the scattered-hole table may replace (#351 PR-4c).
+            dwg._cover_scattered_hole_doc(_name)
     for _name, _ in _left:
         dwg._record_build_issue(
             "warning",
