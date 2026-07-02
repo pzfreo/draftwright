@@ -127,8 +127,8 @@ def strip_obstacles(dwg, view=None, *, crossable=()):
     notes angled leaders weaken the bound), which only ever over-avoids, never
     under-avoids.
 
-    Not yet consumed in production — the collect-then-solve strip stage wires this
-    in at P1 (#321). Kept additive here so P0 stays behaviour-preserving."""
+    The occupancy source for the collect-then-solve carve — every migrated renderer's
+    ``place_strip_candidates`` call wires this in (#321/#150/P3)."""
     boxes = []
     for name, o in dwg.iter_annotations():
         if view is not None:
