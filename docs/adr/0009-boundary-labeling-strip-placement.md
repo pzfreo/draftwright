@@ -282,6 +282,93 @@ PR") undersold this badly; treat future "should be a small placer migration"
 estimates with the same caution, especially where diagonal/angled geometry is
 involved.
 
+## Amendment 3 — Min-total-leader-length via L1 isotonic regression (P4b, #318)
+
+**Status:** Proposed — design only, not yet implemented. Recommendation below
+reached in a design discussion with the user (2026-07-02) and backed by an
+empirical verification pass (real QP-solver comparison, not just literature
+citation); flagged decisions below still need explicit sign-off before coding
+starts.
+
+**Problem.** `plan_strip`'s current position solve (`_solve_strip_1d_var`, via
+kiwisolver/Cassowary) is a constraint-*satisfaction* solve with a strength
+hierarchy — "pull toward natural position" is a `strong` constraint, not a
+minimised objective. It can settle on a placement that satisfies every
+constraint (order, per-pair gap from P4a, `[lo,hi]` bounds) without finding
+the placement that minimises total leader length, especially once a strip is
+crowded and several candidates get pulled off their natural position at once.
+P4b replaces *only this inner positioning step* with an exact solve — the
+outer selection/drop loop (priority-ranked, over-capacity candidates dropped
+until the rest fit, P2/#322) is untouched, and this must keep the same
+"return `None` when the fixed candidate set is provably infeasible" contract
+`_solve_strip_1d_var` has today, since the drop-and-retry loop depends on it.
+
+**Decision.** The exact problem — fixed order (already established
+crossing-free by P2), a required minimum gap between each adjacent pair
+(`gap_i`, from P4a), a closed bound `[lo, hi]`, minimise total leader length
+(`Σ|p_i − x_i|`, i.e. **L1**, not L2 — leader length is a real distance, not
+a squared one) — reduces exactly to **L1 isotonic regression**, via three
+composed steps:
+
+1. **Gap-shift.** `q_i = p_i − Σ_{j<i} gap_j` turns "monotone with per-pair
+   minimum gaps" into plain "monotone, no gap" on the shifted naturals
+   `y_i = x_i − Σ_{j<i} gap_j`. (This is the reduction already sketched in
+   conversation before this amendment was written; the research pass below
+   confirmed it's sound and standard, not just plausible.)
+2. **Boundary-pinning, not clipping, for the `[lo,hi]` bound.** Add two
+   fictitious endpoints pinned at `lo` and `hi − Σgap` (effectively infinite
+   weight) rather than clamping the unconstrained result afterward.
+   Boundary-pinning is exact by construction for both L1 and L2; post-hoc
+   clipping happens to also be exact **for L2 only** (verified empirically,
+   see below) — not a coincidence worth relying on for L1, so the
+   implementation should pin, not clip, to stay correct under either loss if
+   the choice is ever revisited.
+3. **Weighted-median PAVA**, not weighted-mean PAVA, to get true L1 —
+   textbook (Robertson/Wright/Dykstra, *Order Restricted Statistical
+   Inference*, 1988; Chakravarti, "Isotonic Median Regression: A Linear
+   Programming Approach," *Math. of OR* 14(2), 1989) but not something we
+   already have: `scipy.optimize.isotonic_regression` (scipy is already a
+   transitive dependency via build123d, so free to use) is **L2-only**, has
+   no box-constraint parameter, and no adequate lightweight L1/median-PAVA
+   package exists on PyPI (closest is a heavier econometrics/LP package, not
+   a fit; an sklearn issue proposing native L1 support was closed unlanded).
+   **Recommendation: hand-roll it** — pure Python, no new dependency, ~30-40
+   lines, small enough that this codebase's existing bias toward lean
+   self-contained implementations over new solver dependencies (e.g. the PDF
+   export path avoiding cairo) applies here too.
+
+**Verification, not just citation.** Before recommending this, the reduction
+was checked against a real solver rather than trusted on the literature
+alone: 300+ randomised trials comparing (gap-shift + boundary-pin +
+weighted-median-PAVA) against a genuine convex QP/L1 solve of the original
+(un-reduced) problem — worst-case gap ~2.6e-7 (solver tolerance), i.e.
+effectively exact. Two findings worth keeping on record for whoever writes
+the real test:
+- A first attempt at "ground truth" via `scipy.optimize.minimize(SLSQP)`
+  silently produced a non-monotonic "optimum" — SLSQP violated its own
+  constraints without raising. **Use a real QP/LP solver as ground truth for
+  this class of problem, not a general nonlinear optimiser.**
+- The L2-clip-is-exact result (sklearn's `y_min`/`y_max` is literally
+  `np.clip()` after unconstrained PAVA) also checked out empirically (400
+  trials, worst gap ~1.8e-6) — included here because it's surprising enough
+  to have been worth doubting, and because it's *why* clipping is tempting
+  but should not be assumed to generalise to L1 without its own check.
+
+**Open, not yet decided:**
+1. Whether to port the QP-comparison harness into the permanent test suite
+   as a property test (in the spirit of `test_layout_property.py`) — this
+   would add `cvxpy` (a real QP/LP solver) as a **test-only** dependency,
+   which is heavier than anything currently in the dev/test dependency set.
+   Alternative: keep the QP comparison as a one-time development-time check
+   (not committed) and rely on smaller hand-verified example cases plus the
+   existing layout-cleanliness/determinism property tests for ongoing
+   regression coverage. Needs a decision before implementation starts.
+2. Expected behaviour change: some strips will re-pack to a tighter, truly
+   optimal arrangement where the current Cassowary solve settled for a
+   merely-constraint-satisfying one — same "dense sheets re-pack; covered by
+   invariants" class of change P3 already established, not a regression by
+   itself, but worth calling out explicitly since it touches real output.
+
 ## Related
 
 - [ADR 0001](0001-deterministic-generation-over-editable-dsl.md) — determinism;
@@ -300,4 +387,5 @@ involved.
   #306/#54 (detail-view escalation — the "doesn't fit" target), #305 (the
   original angled-leader-vs-centreline case Amendment 2's Finding 1 traces back
   to), #318 (P4 — the direct consumer of Amendment 2's `_segment_hits_box` and
-  "policy B" findings), #366/#367 (Amendment 2's filed residual gaps).
+  "policy B" findings, and the subject of Amendment 3), #366/#367 (Amendment
+  2's filed residual gaps).
