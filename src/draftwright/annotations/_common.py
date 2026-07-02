@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from build123d_drafting.helpers import Dimension, SafeDimension
+
 from draftwright.layout import StripCandidate, plan_strip
 
 _log = logging.getLogger(__name__)
@@ -205,8 +207,7 @@ def corridor_blockers(dwg, view):
             owner = dwg.view_of(name)
             if owner is not None and owner != view:
                 continue
-        tn = type(o).__name__
-        if tn == "Dimension" or tn in CROSSABLE_TYPES:
+        if isinstance(o, (Dimension, SafeDimension)) or type(o).__name__ in CROSSABLE_TYPES:
             continue  # datum-chained dims share the corridor; centre lines are crossable
         bb = _geom_box(o)
         if bb is not None:
