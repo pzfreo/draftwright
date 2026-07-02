@@ -139,6 +139,63 @@ def test_record_callout_drop_emits_a_callout_escalation():
     assert d2._escalations[0].feature is sentinel
 
 
+def test_record_slot_drop_emits_a_slot_escalation():
+    # #351 PR-4a: a dropped slot dim (width/length/position) emits a first-class
+    # "slot" Escalation alongside the existing slot_dim_dropped lint code — purely
+    # additive, no resolver consumes it yet (slots have no natural grouping remedy).
+    from draftwright.annotations.from_model import _record_slot_drop
+
+    class _Dwg:
+        def __init__(s):
+            s._escalations, s._codes = [], []
+
+        def _record_build_issue(s, sev, code, msg):
+            s._codes.append((sev, code))
+
+    d = _Dwg()
+    sentinel = object()
+    _record_slot_drop(d, "width", 0, "plan", sentinel)
+    assert d._codes == [("info", "slot_dim_dropped")]
+    assert len(d._escalations) == 1
+    e = d._escalations[0]
+    assert e.kind == "slot" and e.view == "plan" and e.feature is sentinel
+
+
+def test_record_pmi_drop_emits_a_pmi_escalation():
+    # #351 PR-4a: a PMI dim that finds no strip space was previously silent (no lint
+    # code at all). Now records pmi_dropped + a first-class "pmi" Escalation.
+    from types import SimpleNamespace
+
+    from draftwright.annotations.from_model import _record_pmi_drop
+
+    class _Dwg:
+        def __init__(s):
+            s._escalations, s._codes = [], []
+
+        def _record_build_issue(s, sev, code, msg):
+            s._codes.append((sev, code))
+
+    d = _Dwg()
+    rec = SimpleNamespace(pmi_kind="linear")
+    _record_pmi_drop(d, "X", "12.0", rec)
+    assert d._codes == [("warning", "pmi_dropped")]
+    assert len(d._escalations) == 1
+    e = d._escalations[0]
+    assert e.kind == "pmi" and e.view == "front" and e.feature is rec
+
+    d2 = _Dwg()
+    _record_pmi_drop(d2, "Y", "12.0", SimpleNamespace(pmi_kind="linear"))
+    assert d2._escalations[0].view == "side"
+
+    # A bore diameter/radius uses a DIFFERENT view table (the view where the bore
+    # appears as a circle) from linear dims — conflating the two mislabelled every
+    # dropped bore diameter/radius (caught by review, #351 PR-4a).
+    for ax, want_view in (("Z", "plan"), ("X", "side"), ("Y", "front")):
+        d3 = _Dwg()
+        _record_pmi_drop(d3, ax, "ø12.0", SimpleNamespace(pmi_kind="diameter"))
+        assert d3._escalations[0].view == want_view, ax
+
+
 def test_escalation_is_a_frozen_value_with_default_remedies():
     import dataclasses
 

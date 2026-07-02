@@ -131,6 +131,25 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     )
 
 
+def _record_slot_drop(dwg, kind, idx, view, feat):
+    """Record a slot dim the layout could not place (#135).
+
+    Info severity — a dim with no clear room is dropped as "place what fits",
+    not an error. Alongside the lint code, appends a first-class ``Escalation``
+    (ADR 0009 Amdt 1, #351 PR-4a) so the drop is object-visible too; slots have
+    no natural grouping remedy like a recognised hole pattern, so no resolver
+    consumes this yet — purely additive.
+    """
+    dwg._record_build_issue(
+        "info",
+        "slot_dim_dropped",
+        f"slot{idx} {kind} dim not placed (no room beside the {view})",
+    )
+    dwg._escalations.append(
+        Escalation(kind="slot", view=view, feature=feat, reason=f"no room beside the {view}")
+    )
+
+
 def render_slots(dwg, model, a) -> int:
     """Dimension milled slots from the IR — width (the defining size, across
     ``width_axis``) + length (along ``long_axis``) + a position dim from the part
@@ -151,13 +170,6 @@ def render_slots(dwg, model, a) -> int:
 
     def _bb(axis, hi):
         return getattr(a.bb.max if hi else a.bb.min, axis.upper())
-
-    def _drop(kind, idx, view):
-        dwg._record_build_issue(
-            "info",
-            "slot_dim_dropped",
-            f"slot{idx} {kind} dim not placed (no room beside the {view})",
-        )
 
     count = 0
     for i, s in enumerate(slots):
@@ -227,13 +239,13 @@ def render_slots(dwg, model, a) -> int:
         ):
             count += 1
         else:
-            _drop("width", i, name)
+            _record_slot_drop(dwg, "width", i, name, s)
         if _place(
             s.long_axis, s.lo, s.hi, s.w_center - half, s.w_center + half, s.length, "length"
         ):
             count += 1
         else:
-            _drop("length", i, name)
+            _record_slot_drop(dwg, "length", i, name, s)
         datum = _bb(s.long_axis, False)
         if (s.lo - datum) * a.SCALE >= 1.0:
             if _place(
@@ -248,7 +260,7 @@ def render_slots(dwg, model, a) -> int:
             ):
                 count += 1
             else:
-                _drop("position", i, name)
+                _record_slot_drop(dwg, "position", i, name, s)
     return count
 
 
@@ -1077,6 +1089,33 @@ def render_rotational(dwg, model, a) -> int:
     return n
 
 
+def _record_pmi_drop(dwg, ax, label, rec):
+    """Record a PMI dim the layout could not place (#208).
+
+    Previously silent (#351 PR-4a) — a PMI dim that found no strip space just
+    vanished with no trace beyond a debug log line, unlike every other placer.
+    Now records a warning-severity lint code plus a first-class ``Escalation``
+    (ADR 0009 Amdt 1). No resolver remedy yet — purely additive visibility.
+
+    *ax* is ``rec.dominant_axis`` (resolved, never ``"?"`` — see the bore-diameter
+    call site). The view table differs by ``rec.pmi_kind``: a bore diameter/radius
+    is placed in the view where the bore appears as a circle (Z→plan, X→side,
+    Y→front — the bbox-perpendicular view), while a linear dim follows the
+    dominant-axis table above (X/Z→front, Y→side primary). Conflating the two
+    mislabels every dropped bore diameter/radius (review finding, #351 PR-4a).
+    """
+    if rec.pmi_kind in ("diameter", "radius"):
+        view = {"Z": "plan", "X": "side", "Y": "front"}.get(ax, "front")
+    else:
+        view = "front" if ax in ("X", "Z") else "side"
+    dwg._record_build_issue(
+        "warning", "pmi_dropped", f"PMI {label!r} not placed (no room beside the {view})"
+    )
+    dwg._escalations.append(
+        Escalation(kind="pmi", view=view, feature=rec, reason="no room beside the view")
+    )
+
+
 def render_pmi(dwg, model, a) -> int:
     """Render pre-authored PMI annotations (STEP AP242) from the IR `PmiFeature`s
     into remaining strip space (#208). Replaces the engine's `_annotate_pmi`.
@@ -1299,6 +1338,11 @@ def render_pmi(dwg, model, a) -> int:
                 _log.debug("PMI dim[%d] diam: no ref_bbox, skip", idx)
                 continue
             bore_axis, cx_f, cy_f, cz_f = info
+            # Resolved axis (handles the '?' degenerate-bbox fallback _bore_info does
+            # internally) — reused below for the drop escalation's view, since the
+            # bore-diameter view table (Z→plan, X→side, Y→front) differs from the
+            # linear-dim one just below (#351 PR-4a review).
+            ax = bore_axis
             half = rec.value / 2 if rec.kind == "diameter" else rec.value
 
             # Bore diameter page span = diameter × scale.  When the span is
@@ -1438,6 +1482,7 @@ def render_pmi(dwg, model, a) -> int:
             _log.info("PMI dim[%d] %s %.3g → annotated (%s)", idx, ax, rec.value, label)
         else:
             _log.info("PMI dim[%d] %s %.3g → no strip space", idx, ax, rec.value)
+            _record_pmi_drop(dwg, ax, label, rec)
 
     _log.info("PMI annotate: %d/%d dims placed", emitted, len(usable))
     return emitted
