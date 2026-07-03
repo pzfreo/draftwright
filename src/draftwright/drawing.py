@@ -770,7 +770,8 @@ class Drawing:
         # left/right balloons vary in Y at a fixed X just outside the part; top
         # and bottom balloons vary in X at a fixed Y just beyond it. Each line is
         # offset by its side's dim depth so the ring sits clear of the dims.
-        self._place_band(
+        dropped = 0
+        dropped += self._place_band(
             view,
             bands["left"],
             "y",
@@ -781,7 +782,7 @@ class Drawing:
             fs,
             r,
         )
-        self._place_band(
+        dropped += self._place_band(
             view,
             bands["right"],
             "y",
@@ -792,7 +793,7 @@ class Drawing:
             fs,
             r,
         )
-        self._place_band(
+        dropped += self._place_band(
             view,
             bands["top"],
             "x",
@@ -803,7 +804,7 @@ class Drawing:
             fs,
             r,
         )
-        self._place_band(
+        dropped += self._place_band(
             view,
             bands["bottom"],
             "x",
@@ -814,17 +815,30 @@ class Drawing:
             fs,
             r,
         )
+        # A band too crowded to hold every balloon drops its tail (the strip solver's
+        # prefix fallback) — record it instead of letting the balloons vanish silently
+        # (review follow-up). The resolver keeps the callout_dropped lint for a pattern
+        # whose balloon did not land, so a missing pattern balloon is still a coverage gap.
+        if dropped:
+            self._record_build_issue(
+                "warning",
+                "balloon_dropped",
+                f"{dropped} balloon(s) could not fit their reserved band and were dropped",
+            )
 
-    def _place_band(self, view, members, axis, line, lo, hi, gap, fs, r):
+    def _place_band(self, view, members, axis, line, lo, hi, gap, fs, r) -> int:
         """Spread *members* (``(tag, j, hole, cx, cy)``) along one reserved band
         with the strip solver, then render a leadered balloon for each (#111).
 
         *axis* is the band's free axis (``"y"`` for the left/right bands, ``"x"``
         for the top); *line* is the fixed coordinate of the other axis.  Overflow
         beyond ``[lo, hi]`` drops the tail rather than running balloons off-page.
+        Returns the number of members dropped, so the caller can surface it as lint
+        (a silently truncated balloon leaves a hole undocumented — the resolver
+        must know, review follow-up).
         """
         if not members:
-            return
+            return 0
         k = 4 if axis == "y" else 3  # index of cy / cx in the member tuple
         members.sort(key=lambda m: m[k])
         naturals = [m[k] for m in members]
@@ -836,6 +850,7 @@ class Drawing:
         for (tag, j, hole, cx, cy), c in zip(members, coords):
             bx, by = (line, c) if axis == "y" else (c, line)
             self._render_balloon(view, tag, j, hole, cx, cy, bx, by, fs, r)
+        return len(members) - len(coords)
 
     def _render_balloon(self, view, tag, j, hole, cx, cy, bx, by, fs, r):
         """Build and add one balloon glyph + leader at solved centre ``(bx, by)``
