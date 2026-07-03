@@ -4201,6 +4201,47 @@ def _holed_plate():
     )
 
 
+def _model_signature(m):
+    """Provenance-agnostic structural signature of a PartModel: orientation + sorted
+    (feature-kind, count) + datum count. Byte coordinates differ across a STEP round-trip;
+    the semantic structure must not."""
+    kinds: dict = {}
+    for f in m.features:
+        kinds[f.kind] = kinds.get(f.kind, 0) + 1
+    return (m.orientation, tuple(sorted(kinds.items())), len(m.datums))
+
+
+class TestModel:
+    """#397: dwg.model() exposes the detected ADR-0008 PartModel as the read surface."""
+
+    def test_model_exposes_detected_features(self):
+        m = build_drawing(_holed_plate()).model()
+        assert m is not None
+        assert m.orientation is None  # prismatic plate
+        kinds = {f.kind for f in m.features}
+        assert "hole" in kinds
+        assert len(m.datums) >= 1
+
+    def test_model_none_without_auto_dims(self):
+        # D1 (documented limitation): detection runs inside the annotation pass, so a
+        # manual-mode build has no model yet. Hoisting detection is the #398 prerequisite.
+        assert build_drawing(_holed_plate(), auto_dims=False).model() is None
+
+    def test_model_structurally_equivalent_across_step_and_b123d_input(self, tmp_path):
+        # D5 / the convergence property (ADR 0001 Amendment 1): a STEP import re-tessellates
+        # the solid, so coordinates differ — but the DETECTED feature structure must be the
+        # same whether the input was a build123d object or a STEP file of that object.
+        part = _holed_plate()
+        step = tmp_path / "plate.step"
+        export_step(part, str(step))
+        m_obj = build_drawing(part).model()
+        m_step = build_drawing(str(step)).model()
+        assert _model_signature(m_obj) == _model_signature(m_step), (
+            f"model diverged across provenance: obj={_model_signature(m_obj)} "
+            f"step={_model_signature(m_step)}"
+        )
+
+
 class TestFeatures:
     """#26: dwg.features(view) exposes analysis to scripts."""
 

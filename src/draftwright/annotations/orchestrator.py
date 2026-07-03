@@ -170,6 +170,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
         pmi=a.pmi,
     )
+    # Retain the IR on the drawing as the read surface for semantic edits (#397). On a
+    # repack this runs again on the final (pass-2) drawing, so dwg.model() always
+    # reflects the drawing that was actually rendered.
+    dwg._part_model = _model
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
     _groups = plan_dimensions(_model)
