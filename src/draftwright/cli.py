@@ -135,11 +135,6 @@ def main(
     """Generate a fully-annotated technical drawing from a STEP file."""
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING, format="%(message)s")
 
-    if script and (scale is not None or page is not None):
-        raise typer.BadParameter(
-            "--scale/--page only apply to direct output; edit the generated script instead"
-        )
-
     formats = _parse_formats(output_format)
 
     # Import the engine lazily, only on the build path: it pulls in build123d/OCP
@@ -157,6 +152,8 @@ def main(
             tolerance=tolerance,
             drawn_by=drawn_by,
             pmi=pmi.value,
+            scale=scale,
+            page=page,
         )
         print(py_path)
         return

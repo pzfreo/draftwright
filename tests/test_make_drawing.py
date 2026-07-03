@@ -2270,6 +2270,76 @@ def test_generate_script_emits_build_drawing(tmp_path):
     assert "Customise here" in content
 
 
+def test_generate_script_preserves_pmi_scale_page(tmp_path):
+    # #388: the generated script must carry the CLI's build intent — pmi/scale/page as
+    # config fields AND threaded into the emitted build_drawing() call — so running the
+    # script reproduces what the CLI would have built.
+    step = tmp_path / "p.step"
+    export_step(Box(30, 20, 10), str(step))
+    py = generate_script(str(step), out=str(tmp_path / "p"), pmi="annotate", scale=5.0, page="A3")
+    content = Path(py).read_text(encoding="utf-8")
+    assert "PMI = 'annotate'" in content
+    assert "SCALE = 5.0" in content
+    assert "PAGE = 'A3'" in content
+    assert "pmi=PMI," in content and "scale=SCALE," in content and "page=PAGE," in content
+
+
+def test_generate_script_defaults_are_auto(tmp_path):
+    # Defaults: no overrides → PMI off, SCALE/PAGE None (auto) — still emitted so the
+    # fields exist for the user to set.
+    step = tmp_path / "p.step"
+    export_step(Box(30, 20, 10), str(step))
+    content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text()
+    assert "PMI = 'off'" in content
+    assert "SCALE = None" in content and "PAGE = None" in content
+
+
+def test_generate_script_imports_lint_suggestion_classes(tmp_path):
+    # #388: lint suggestions (dwg.lint_summary()) reference Leader/HoleCallout/Dimension;
+    # the script must import them so a suggestion pastes+runs without manual imports.
+    step = tmp_path / "p.step"
+    export_step(Box(30, 20, 10), str(step))
+    content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text()
+    assert "from build123d_drafting import Dimension, HoleCallout, Leader" in content
+
+
+def test_generate_script_defers_invalid_scale_page(tmp_path):
+    # #388/#401: an out-of-range scale/page must NOT crash generation — the script is
+    # written with the value embedded and validation deferred to run time (consistent
+    # with a large unfittable scale, which already defers).
+    step = tmp_path / "p.step"
+    export_step(Box(30, 20, 10), str(step))
+    py = generate_script(str(step), out=str(tmp_path / "p"), scale=0.001, page="A9")
+    content = Path(py).read_text()
+    assert "SCALE = 0.001" in content and "PAGE = 'A9'" in content
+
+
+@pytest.mark.timeout(180)
+def test_generated_script_runs_and_preserves_pmi(tmp_path):
+    # #388 acceptance: a generated --pmi annotate script preserves pmi when RUN — execute
+    # it in a subprocess and assert it builds output without error.
+    import os
+    import subprocess
+    import sys
+
+    step = tmp_path / "p.step"
+    export_step(Box(80, 50, 8), str(step))
+    py = generate_script(str(step), out=str(tmp_path / "p"), pmi="annotate")
+    # Force an ASCII stdout so a non-ASCII char in the script's own print() (e.g. a
+    # Unicode arrow) fails HERE on every platform, not only on a Windows cp1252 console.
+    env = {**os.environ, "PYTHONIOENCODING": "ascii"}
+    r = subprocess.run(
+        [sys.executable, py],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
+        timeout=150,
+        env=env,
+    )
+    assert r.returncode == 0, f"generated script failed:\n{r.stderr[-1500:]}"
+    assert (tmp_path / "p.svg").exists(), "generated script did not write the SVG"
+
+
 # ---------------------------------------------------------------------------
 # Part classification (#81) — prismatic parts skip turned-part annotations
 # ---------------------------------------------------------------------------
