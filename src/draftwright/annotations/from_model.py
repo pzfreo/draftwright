@@ -427,6 +427,10 @@ def render_locations(dwg, model, a) -> int:
         if abs(rx - datum_x) * a.SCALE < 1.0:
             continue  # on the datum edge — nothing to dimension
         n += 1
+        # A single X-location dim shared by two *distinct* features at this X belongs to
+        # neither exclusively — leave it unowned so drop() cannot over-strip a sibling's
+        # dimension and annotations_of never over-claims it (review #406, ADR 0010).
+        _xfeat = None if any(abs(o[0] - rx) < 0.5 and o[2] != feat for o in refs) else feat
         register_corridor(
             dwg,
             ("plan", "above"),
@@ -448,7 +452,7 @@ def render_locations(dwg, model, a) -> int:
                     draft,
                     label=_fmt(_rx - datum_x),
                 ),
-                feature=feat,
+                feature=_xfeat,
             ),
         )
 
@@ -481,6 +485,8 @@ def render_locations(dwg, model, a) -> int:
         if abs(ry - datum_y) * a.SCALE < 1.0:
             continue
         n += 1
+        # Shared-Y location dim → unowned (see the X loop; review #406).
+        _yfeat = None if any(abs(o[1] - ry) < 0.5 and o[2] != feat for o in refs) else feat
         register_corridor(
             dwg,
             ("side", "above"),
@@ -502,7 +508,7 @@ def render_locations(dwg, model, a) -> int:
                     draft,
                     label=_fmt(_ry - datum_y),
                 ),
-                feature=feat,
+                feature=_yfeat,
             ),
         )
     return n

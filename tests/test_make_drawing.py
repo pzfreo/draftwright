@@ -4278,6 +4278,27 @@ class TestFeatureEdits:
         assert set(dwg.drop(slot)) == owned
         assert dwg.annotations_of(slot) == {}
 
+    def test_shared_coordinate_location_dim_is_unowned(self):
+        # #398c review (#406): a single location dim shared by two DISTINCT holes at the
+        # same X belongs to neither — it must be unowned so drop(one) can't over-strip the
+        # dim the sibling still needs.
+        from build123d import Box, Cylinder, Pos
+
+        part = (
+            Box(80, 60, 20) - Pos(30, -20, 0) * Cylinder(6, 20) - Pos(30, 20, 0) * Cylinder(4, 20)
+        )
+        dwg = build_drawing(part)
+        holes = [f for f in dwg.model().features if f.kind == "hole"]
+        assert len(holes) == 2  # distinct specs → not grouped
+        locx = {n for n in dwg.annotations() if n.startswith("m_locx")}
+        assert locx, "expected a shared X-location dim"
+        # Neither hole owns the shared X dim...
+        for h in holes:
+            assert not (locx & set(dwg.annotations_of(h)))
+        # ...so dropping one leaves it in place for the other.
+        dwg.drop(holes[0])
+        assert locx <= set(dwg.annotations()), "shared location dim was over-stripped by drop"
+
     def test_drop_feature_with_no_annotations_is_noop(self):
         dwg = build_drawing(_holed_plate())
         # An envelope feature carries no centre marks (its dims aren't tagged yet).

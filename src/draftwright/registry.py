@@ -69,10 +69,13 @@ class AnnotationRegistry:
         """Every annotation name owned by *feature* (matched by value equality, so a
         feature from ``dwg.model()`` finds the annotations rendered for it) (#398).
 
-        Value equality is safe because IR features are location-distinct — every
-        ``Feature`` is a frozen dataclass whose ``frame.origin`` participates in ``==``,
-        so two genuinely different features never compare equal. If a location-less
-        feature type is ever added, switch this to identity (``f is feature``)."""
+        Value equality is safe because IR features are value-distinct: every ``Feature``
+        is a frozen dataclass in which *all* fields participate in ``==``, including the
+        one(s) that encode position (``frame.origin`` for a hole; ``w_center``/``lo``/
+        ``hi`` for a slot whose ``frame.origin`` is the *bbox centre*, not the slot's
+        offset). So two physically distinct features never compare equal. If a feature
+        type is ever added that can be field-for-field equal for distinct instances,
+        switch this to identity (``f is feature``)."""
         return [n for n, f in self._anno_feature.items() if f == feature]
 
     def iter_named(self):
