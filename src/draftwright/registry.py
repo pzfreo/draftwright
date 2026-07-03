@@ -68,13 +68,24 @@ class AnnotationRegistry:
                 self._named[name] = new
 
     def snapshot(self) -> dict:
-        """An opaque snapshot of the name → object map, for restore() (repair undo)."""
-        return dict(self._named)
+        """An opaque snapshot of the annotation identity state — the name → object map
+        AND its per-name view/pin metadata — for restore() (repair undo). Snapshotting
+        only ``_named`` would let a rolled-back pass leave ``_anno_view``/``_pinned``
+        referencing names it added (or the wrong view for a re-placed dim)."""
+        return {
+            "named": dict(self._named),
+            "anno_view": dict(self._anno_view),
+            "pinned": set(self._pinned),
+        }
 
     def restore(self, snap: dict) -> None:
         """Restore a :meth:`snapshot` (repair undo of a net-worsening pass)."""
         self._named.clear()
-        self._named.update(snap)
+        self._named.update(snap["named"])
+        self._anno_view.clear()
+        self._anno_view.update(snap["anno_view"])
+        self._pinned.clear()
+        self._pinned.update(snap["pinned"])
 
     def add(self, obj, name, view):
         """Register *obj* under *name* and record its owning *view*.

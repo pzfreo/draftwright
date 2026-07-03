@@ -103,3 +103,31 @@ def test_drop_issues_by_code_and_reset():
     r.record_issue(_Issue("x"))
     r.reset_issues()
     assert r._build_issues == []
+
+
+def test_snapshot_restore_round_trips_view_and_pin_metadata():
+    # Repair-undo (repair.py) restores a snapshot when a pass net-worsens the sheet.
+    # The snapshot must carry the view/pin metadata, not only the name->object map —
+    # else a rolled-back pass leaves `_anno_view`/`_pinned` referencing names it added
+    # or the wrong view for a re-placed dim (the identity state would be inconsistent
+    # with the restored objects).
+    r = AnnotationRegistry()
+    a, b = object(), object()
+    r.add(a, "d1", "front")
+    r.add(b, "d2", "plan")
+    r.pin("d1")
+    snap = r.snapshot()
+
+    # A worsening pass: move d2 to another view, add a new dim, pin it, unpin d1.
+    r.add(object(), "d2", "side")  # d2 re-placed onto a different view
+    r.add(object(), "d3", "front")  # a brand-new annotation
+    r.pin("d3")
+    r.unpin("d1")
+
+    r.restore(snap)
+
+    assert r.named("d1") is a and r.named("d2") is b
+    assert "d3" not in r  # the added annotation is gone from identity
+    assert r.view_of("d2") == "plan"  # NOT the repaired "side"
+    assert r.view_of("d3") is None  # its stale view entry is gone
+    assert r.is_pinned("d1") and not r.is_pinned("d3")  # pins restored exactly
