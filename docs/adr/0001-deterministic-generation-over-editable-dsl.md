@@ -95,6 +95,46 @@ necessary editing happen in a vocabulary the editor already speaks. Concretely:
 - The lint score/`lint_summary()` is the contract the repair loop and any
   external editor consume; keep it stable and domain-meaningful.
 
+## Amendment 1 — Both inputs converge at the detected IR; the edit surface is the model, not the emitted script
+
+- **Status:** Accepted
+- **Date:** 2026-07-03
+
+**Why.** draftwright has two input scenarios: a STEP file (the CLI path) and
+build123d objects (the library path). Revisiting the "editable script" question
+(#388) surfaced that these should not have *separate* edit stories — and the
+architecture already unifies them. `make_drawing(step)` lifts the STEP to a
+build123d solid; `build_drawing(solid)` takes one directly; both then run the
+ADR-0008 hourglass `detect → PartModel (IR) → plan → render`. So by the time
+anything is dimensioned, **both inputs are the same detected feature model.**
+
+**Decision — reaffirm and sharpen §2/§3.** The editable surface is neither the
+rejected primitive dump (§3) nor a bespoke serialized DSL, but the **detected
+`PartModel` IR itself**, exposed read-only on the `Drawing`:
+
+- **One representation for both inputs.** Normalize any input to a solid → detect
+  once → the `PartModel` is the provenance-agnostic "what is here and why." This
+  is deliberately *not* raw build123d topology: a STEP import yields anonymous
+  B-rep faces/edges (no tags/names), semantically poorer than authored objects;
+  the detected model is uniform and semantic for both. (This is the concrete form
+  of "get me from a STEP input to somewhere like if I had build123d objects.")
+- **Edit against the model, re-solve deterministically.** Tweaks reference feature
+  handles from `dwg.model()` (read half, #397) via a feature-targeted write API
+  (#398), and `finalize_drawing(dwg)` (#388) re-runs the ADR-0009 layout. No dead
+  coordinates; edits survive a re-draft — the property §3 rejected primitive dumps
+  for lacking.
+- **Topology is an optional accelerant, not a dependency.** When the caller
+  authored the part (the b123d scenario) they may *also* reference a raw
+  `Face`/`Edge`/tag (§4's "edit the solid" made concrete for annotation);
+  STEP-in never depends on it, so it stays first-class.
+
+**Consequence — recognition breadth becomes dual-purpose.** The edit surface can
+only name what the recognizers detect, so `recognition/` breadth *equals*
+editable-vocabulary breadth for **both** scenarios. Feature recognition (ADR 0007)
+is thereby reframed as serving both auto-dimensioning quality *and* the semantic
+edit surface. This does not reopen §3's primitive-expansion rejection; it
+specifies *what* the domain-semantic layer (§2) is anchored to.
+
 ## Related
 
 - `docs/plans/right-first-time-roadmap.md` — the deterministic-core + Cluster B
@@ -102,3 +142,6 @@ necessary editing happen in a vocabulary the editor already speaks. Concretely:
 - Issues #26 (`features()`), #25 (`place_dim()`), #27 (`annotations()`),
   #29 (lint suggestions), #30 (lint→repair loop) — the domain-semantic /
   self-correction layer.
+- **Amendment 1 surface:** #388 (`--script`/`finalize`), #397 (`dwg.model()` read
+  surface), #398 (edit-by-feature write surface), #396 (`place_dim` limits);
+  ADR 0008 (the `PartModel` IR both inputs converge on).
