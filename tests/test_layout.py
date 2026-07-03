@@ -219,9 +219,9 @@ class TestSolveStrip1dPavaBanded:
 
     def test_two_labels_already_clear_are_untouched(self):
         # both naturals already sit outside a thin interior band → unchanged.
-        assert _solve_strip_1d_pava_banded([40.0, 60.0], [5.0], 0.0, 120.0, None, [(48.0, 52.0)]) == (
-            pytest.approx([40.0, 60.0])
-        )
+        assert _solve_strip_1d_pava_banded(
+            [40.0, 60.0], [5.0], 0.0, 120.0, None, [(48.0, 52.0)]
+        ) == (pytest.approx([40.0, 60.0]))
 
     def test_shallow_strip_degrades_to_minimal_intrusion_not_a_drop(self):
         # The band (81, 99) is WIDER than the whole strip [82, 98] (the dshape side
@@ -248,7 +248,9 @@ class TestSolveStrip1dPavaBanded:
         # Three labels needing 50 mm gaps can't fit an 80 mm strip regardless of
         # bands → None, preserving the caller's drop-and-retry contract.
         assert (
-            _solve_strip_1d_pava_banded([10.0, 20.0, 30.0], [50.0, 50.0], 0.0, 80.0, None, [(40.0, 45.0)])
+            _solve_strip_1d_pava_banded(
+                [10.0, 20.0, 30.0], [50.0, 50.0], 0.0, 80.0, None, [(40.0, 45.0)]
+            )
             is None
         )
 
