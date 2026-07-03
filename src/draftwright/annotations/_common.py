@@ -269,6 +269,113 @@ def _segment_hits_box(p1, p2, box) -> bool:
     return any(_seg_seg(p1, p2, corners[i], corners[(i + 1) % 4]) for i in range(4))
 
 
+@dataclass
+class CorridorCandidate:
+    """One datum-referenced linear dim collected for a shared corridor's single solve
+    (ADR 0009 end state, #345/#346). Multiple render passes (`render_locations`,
+    `render_slots`) feed the SAME above-view strip; committing per-pass interleaves the
+    dims and cannot dedup coincident spans. Each pass instead registers a candidate here;
+    one :func:`solve_corridor` per strip dedups, orders, and places the whole set.
+
+    Attributes:
+        name/build: the ``(name, pos->Dimension)`` pair :func:`place_strip_candidates`
+            consumes — unchanged.
+        order:      sort key placing the candidate in the corridor ladder. Location dims
+            key on datum distance (the monotonic ISO ladder); size dims form a separate
+            contiguous run so a slot length never lands mid-ladder (#346).
+        dedup:      coincidence key ``(view, meas-origin, meas-endpoint)`` on the MEASURED
+            axis, or ``None`` to never dedup (size dims). Two candidates with equal keys are
+            the same physical dimension; the higher-``precedence`` one survives (#345).
+        precedence: dedup survivor rank — a hole *location* dim (feeds coverage/table
+            escalation) outranks a coincident slot *position* line.
+        on_place/on_drop: the pass's own post-placement bookkeeping — coverage
+            registration / drop lint + `Escalation`, or a slot's below-side fallthrough.
+        force:      policy-B force-keep after the corridor-respecting pass (locations have
+            no alternate view); size/position slot dims fall through instead (``on_drop``).
+    """
+
+    name: str
+    build: object
+    order: tuple
+    on_place: object
+    on_drop: object
+    dedup: tuple | None = None
+    precedence: int = 0
+    force: bool = False
+
+
+def solve_corridor(dwg, strip, view, axis, cands, tier):
+    """One collect-then-solve over every :class:`CorridorCandidate` a shared strip
+    accumulated across passes (ADR 0009 end state). Dedup → order → one non-force
+    :func:`place_strip_candidates` pass → a force pass for the force-eligible leftovers →
+    dispatch each candidate's ``on_place``/``on_drop``. This is what removes the duplicate
+    span (#345) and the interleaved ladder (#346) by construction: a single solve sees the
+    full set, so coincident spans collapse and the order is one monotonic chain."""
+    if not cands:
+        return
+    # Dedup: keep the highest-precedence candidate per coincidence key (tie-break on name,
+    # deterministic — ADR 0001). A displaced duplicate is silently dropped: it was never
+    # starved, so firing its pass's drop lint would be a false report.
+    winners: dict = {}
+    for c in cands:
+        if c.dedup is None:
+            continue
+        prev = winners.get(c.dedup)
+        # Winner: highest precedence, ties broken by the lexicographically smaller name.
+        if (
+            prev is None
+            or c.precedence > prev.precedence
+            or (c.precedence == prev.precedence and c.name < prev.name)
+        ):
+            winners[c.dedup] = c
+    kept = [c for c in cands if c.dedup is None or winners.get(c.dedup) is c]
+    kept.sort(key=lambda c: c.order)
+    if strip is None:  # no such strip on this drawing — every candidate drops
+        for c in kept:
+            c.on_drop(c.name)
+        return
+    pairs = [(c.name, c.build) for c in kept]
+    left = {n for n, _ in place_strip_candidates(dwg, strip, view, axis, pairs, tier)}
+    force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
+    still = (
+        {
+            n
+            for n, _ in place_strip_candidates(
+                dwg, strip, view, axis, force_pairs, tier, force=True
+            )
+        }
+        if force_pairs
+        else set()
+    )
+    for c in kept:
+        if c.name not in left:
+            c.on_place(c.name)  # placed in the corridor-respecting pass
+        elif c.force:
+            (c.on_drop if c.name in still else c.on_place)(
+                c.name
+            )  # placed in the force pass, or dropped
+        else:
+            c.on_drop(c.name)  # not force-kept — the pass's fallthrough/drop handler runs
+
+
+def register_corridor(dwg, key, strip, view, axis, tier, cand):
+    """Queue a :class:`CorridorCandidate` under a shared corridor *key* so one
+    :func:`drain_corridors` places the whole cross-pass set together (ADR 0009 end state).
+    The first registration for a key fixes its ``(strip, view, axis, tier)``."""
+    b = dwg._corridor_batch.setdefault(
+        key, {"strip": strip, "view": view, "axis": axis, "tier": tier, "cands": []}
+    )
+    b["cands"].append(cand)
+
+
+def drain_corridors(dwg):
+    """Solve every registered corridor (one :func:`solve_corridor` per strip), then clear
+    the batch. Called once, after all corridor-feeding passes have registered."""
+    for b in dwg._corridor_batch.values():
+        solve_corridor(dwg, b["strip"], b["view"], b["axis"], b["cands"], b["tier"])
+    dwg._corridor_batch = {}
+
+
 def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,

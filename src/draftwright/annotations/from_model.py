@@ -44,12 +44,14 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
+    CorridorCandidate,
     Escalation,
     _anno_box,
     _box_hits,
     carve_free_position,
     carve_free_segments,
     place_strip_candidates,
+    register_corridor,
     strip_free_span,
     strip_obstacles,
 )
@@ -263,6 +265,40 @@ def render_slots(dwg, model, a) -> int:
     return count
 
 
+# Corridor-ladder ordering (ADR 0009 end state, #346): feature-SIZE dims sit nearer the
+# view (inner run), datum-referenced LOCATION dims stack outward (a single ascending chain
+# by datum distance). Segregating the two runs keeps a slot length from landing mid-ladder.
+_SIZE_SUBCHAIN = 0
+_LOC_SUBCHAIN = 1
+
+
+def _location_candidate(dwg, name, *, view, span_key, distance, build):
+    """A :class:`CorridorCandidate` for a datum-referenced hole/pattern location dim.
+    Location dims outrank a coincident slot-position line in dedup (#345) and form the
+    outer, datum-distance-ordered run of the ladder (#346). Force-kept (policy B): a plan-X
+    / side-Y location has no alternate view, so a corridor block keeps it rather than drops
+    it; only a physically full strip drops (``location_ref_dropped`` → hole-table escalate)."""
+
+    def _drop(nm):
+        edge = "plan view" if view == "plan" else "side view"
+        dwg._record_build_issue(
+            "warning", "location_ref_dropped", f"{nm} not placed (no room above the {edge})"
+        )
+        dwg._escalations.append(Escalation("location", view, nm, "strip_full"))
+
+    return CorridorCandidate(
+        name=name,
+        build=build,
+        order=(_LOC_SUBCHAIN, distance, name),
+        # A placed location may later be replaced by the scattered-hole table (#351 PR-4c).
+        on_place=lambda nm: dwg._cover_scattered_hole_doc(nm),
+        on_drop=_drop,
+        dedup=(view, span_key[0], span_key[1]),
+        precedence=2,
+        force=True,
+    )
+
+
 def render_locations(dwg, model, a) -> int:
     """Baseline X/Y hole-location dims from the IR (#238). The planner decides the
     intent (`plan_locations`: which refs, from which datum); this renderer owns the
@@ -316,20 +352,30 @@ def render_locations(dwg, model, a) -> int:
         dwg._escalations.append(Escalation("location", "plan", None, "illegible"))
     _kept_x_set = set(_kept_x)
     x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
-    # Collect X-location dims nearest-datum-first and place them through the shared
-    # carve (P3, #150): the dim_pitch_plan dims above the view are now obstacles the
-    # carve avoids structurally, retiring the old manual pv_zones.above.allocate(10.0)
-    # pitch reservation + the per-dim cursor. No alternate view for a plan-X location,
-    # so a corridor-blocked dim is kept (force pass) rather than relocated; only a
+    # Register X-location dims into the shared plan-above corridor (ADR 0009 end state,
+    # #345/#346): the slot pass feeds the SAME strip, so a single solve_corridor drain
+    # dedups a coincident slot-position line and orders the whole ladder — instead of each
+    # pass carving around the other and interleaving. No alternate view for a plan-X
+    # location, so a corridor-blocked dim is force-kept (policy B), not relocated; only a
     # physically full strip drops (→ location_ref_dropped, escalates the hole table).
-    x_cands = []
     for i, (rx, ry) in enumerate(sorted(x_refs, key=lambda r: abs(r[0] - datum_x))):
         if abs(rx - datum_x) * a.SCALE < 1.0:
             continue  # on the datum edge — nothing to dimension
-        x_cands.append(
-            (
+        n += 1
+        register_corridor(
+            dwg,
+            ("plan", "above"),
+            a.pv_zones.above,
+            "plan",
+            "y",
+            tier,
+            _location_candidate(
+                dwg,
                 f"m_locx{i}",
-                lambda pos, _rx=rx, _ry=ry: _dim(
+                view="plan",
+                span_key=(round(PX(datum_x), 1), round(PX(rx), 1)),
+                distance=abs(rx - datum_x),
+                build=lambda pos, _rx=rx, _ry=ry: _dim(
                     (PX(datum_x), PY(_ry), 0),
                     (PX(_rx), PY(_ry), 0),
                     "above",
@@ -337,23 +383,8 @@ def render_locations(dwg, model, a) -> int:
                     draft,
                     label=_fmt(_rx - datum_x),
                 ),
-            )
+            ),
         )
-    _left = place_strip_candidates(dwg, a.pv_zones.above, "plan", "y", x_cands, tier)
-    _left = place_strip_candidates(dwg, a.pv_zones.above, "plan", "y", _left, tier, force=True)
-    _dropped_x = {_name for _name, _ in _left}
-    for _name, _ in x_cands:
-        if _name not in _dropped_x:
-            # A candidate the scattered-hole table may replace (#351 PR-4c).
-            dwg._cover_scattered_hole_doc(_name)
-    for _name, _ in _left:
-        dwg._record_build_issue(
-            "warning",
-            "location_ref_dropped",
-            f"{_name} not placed (no room above the plan view)",
-        )
-        dwg._escalations.append(Escalation("location", "plan", _name, "strip_full"))
-    n += len(x_cands) - len(_left)
 
     # --- Y locations: tier above the side view (which maps world-Y horizontally) ---
     SX, SZ = a.proj.side_x, a.proj.side_z
@@ -380,14 +411,24 @@ def render_locations(dwg, model, a) -> int:
     # avoids structurally, retiring the old manual allocate(10.0) reservation + cursor.
     if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry in y_refs):
         a.sv_zones.above.outer_limit = min(a.sv_zones.above.outer_limit, iso_y0 - 4)
-    y_cands = []
     for i, (rx, ry) in enumerate(sorted(y_refs, key=lambda r: abs(r[1] - datum_y))):
         if abs(ry - datum_y) * a.SCALE < 1.0:
             continue
-        y_cands.append(
-            (
+        n += 1
+        register_corridor(
+            dwg,
+            ("side", "above"),
+            a.sv_zones.above,
+            "side",
+            "y",
+            tier,
+            _location_candidate(
+                dwg,
                 f"m_locy{i}",
-                lambda pos, _ry=ry: _dim(
+                view="side",
+                span_key=(round(SX(datum_y), 1), round(SX(ry), 1)),
+                distance=abs(ry - datum_y),
+                build=lambda pos, _ry=ry: _dim(
                     (SX(datum_y), SZ(a.bb.max.Z), 0),
                     (SX(_ry), SZ(a.bb.max.Z), 0),
                     "above",
@@ -395,23 +436,8 @@ def render_locations(dwg, model, a) -> int:
                     draft,
                     label=_fmt(_ry - datum_y),
                 ),
-            )
+            ),
         )
-    _left = place_strip_candidates(dwg, a.sv_zones.above, "side", "y", y_cands, tier)
-    _left = place_strip_candidates(dwg, a.sv_zones.above, "side", "y", _left, tier, force=True)
-    _dropped_y = {_name for _name, _ in _left}
-    for _name, _ in y_cands:
-        if _name not in _dropped_y:
-            # A candidate the scattered-hole table may replace (#351 PR-4c).
-            dwg._cover_scattered_hole_doc(_name)
-    for _name, _ in _left:
-        dwg._record_build_issue(
-            "warning",
-            "location_ref_dropped",
-            f"{_name} not placed (no room above the side view)",
-        )
-        dwg._escalations.append(Escalation("location", "side", _name, "strip_full"))
-    n += len(y_cands) - len(_left)
     return n
 
 

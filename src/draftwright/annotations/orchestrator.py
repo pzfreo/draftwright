@@ -31,6 +31,7 @@ from draftwright._core import (
     _log,
     _tag_sequence,
 )
+from draftwright.annotations._common import drain_corridors
 from draftwright.annotations.from_model import (
     _env_pd,
     env_dim_placed,
@@ -111,6 +112,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     dwg._reset_dropped_callout_diams()
     dwg._detail_requests = []  # renderers queue enlarged-detail requests here (#307)
     dwg._escalations = []  # placers collect Escalation objects here (ADR 0009 Amdt 1, #351)
+    dwg._corridor_batch = {}  # passes register CorridorCandidates here; one drain solves each strip (#345/#346)
 
     FX = a.proj.front_x
     FZ = a.proj.front_z
@@ -213,6 +215,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.
     render_locations(dwg, _model, a)
+    drain_corridors(dwg)  # CHECKPOINT: drain here keeps location placement byte-identical
 
     if a.cross_diams and a.is_rotational and not feature_holes:
         _log.info(
