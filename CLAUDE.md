@@ -168,6 +168,14 @@ Current ADRs:
   per-view layer to 0004's outer block packing; consumes 0008's render-intents.
   Research: `docs/research/annotation-placement-boundary-labeling.md`. Roadmap:
   `docs/plans/strip-layout-boundary-labeling-roadmap.md`.
+- **0010** — **Accepted** (decision; work pending): **annotation provenance seam**.
+  The editable-surface epic needs "which annotations did this feature/intent
+  produce?" (for `drop`/`dimension`/`finalize`/the #400 emitter). Rather than
+  tagging each render pass (the link is lost at the corridor placer, the
+  diameter-spec flattening, and the recognition→IR boundary), record
+  `intent → [names]` **once** at the intent→render seam, with an `origin` back-link
+  on IR features. The registry's `_anno_feature` (#398b) is the sink; the seam is
+  the automatic populator. Re-plans #398c–e, enables #400.
 
 ## Dependencies
 
