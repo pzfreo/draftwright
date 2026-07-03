@@ -374,13 +374,21 @@ def carve_free_position(dwg, strip, view, axis, tier, perp_span, *, outermost=Fa
     perpendicular-band filter (*perp_span* drops obstacles disjoint from this dim's own
     perpendicular extent), and innermost-first fill.
 
-    **No corridor check** — unlike :func:`place_strip_candidates`, this avoids obstacle
-    *tiers* on the strip but does not reject a position whose witness *corridor* back to
-    the view would cross a leader/callout, nor relocate to an alternate view. That is
-    correct for the height ladder (a single-strip chain with no alternate view), but this
-    is now also called by the PMI/slot renderers and public ``Drawing.place_dim``, which
-    therefore do NOT get corridor semantics — a known gap (whether those callers should
-    is a design call, tracked separately)."""
+    **No corridor check, by construction — not just omission.** This avoids obstacle
+    *tiers* on the strip but does not reject a position whose witness *corridor* (feature
+    → dim line, across *perp_span*) crosses a leader/callout. Crucially, a single-position
+    return *cannot* fix a corridor crossing by choosing a different tier: every tier on
+    one side shares that corridor, and a farther tier's corridor is a **superset** of a
+    nearer one's, so the innermost free tier this already returns has the shortest
+    corridor and the fewest crossings — moving outward only adds crossings. Corridor
+    avoidance is therefore inherently a **relocation** problem (reject this position →
+    place on another view/side), which is :func:`place_strip_candidates`' job and out of
+    scope for a position return. Per caller: the height-ladder chain has no alternate
+    view (correct to omit); public ``Drawing.place_dim`` takes the view AND side from the
+    caller, so it cannot relocate; the PMI dim helpers already fall through sides
+    (``_try_above(...) or _try_below(...)``) and are where a corridor-reject would go if
+    ever wanted. Left as a documented known-limitation — the crossing is unobserved on
+    the corpus (the cleanliness ratchet would catch it)."""
     if strip is None:
         return None
     lo, hi, inner = strip_free_span(strip)
