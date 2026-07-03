@@ -5387,10 +5387,19 @@ class TestHoleTable:
             assert self._area(tb, dwg.view_bounds(v)) == 0.0, v
 
 
+@pytest.fixture(scope="module")
+def dense_plate_dwg():
+    """Shared **read-only** build of ``_dense_plate()`` for the escalation assertions
+    that only inspect the finished drawing (#153 — each rebuilt the ~20 s dense-plate
+    just to read a different property). Tests that mutate the drawing (append an
+    escalation, record an issue, run the resolver) must build their own."""
+    return build_drawing(_dense_plate())
+
+
 class TestEscalation:
     """#93: a too-dense plan view auto-escalates to a hole chart + balloons."""
 
-    def test_dense_part_groups_and_types(self):
+    def test_dense_part_groups_and_types(self, dense_plate_dwg):
         # Sized honestly for its real annotation footprint (#121, ADR 0004), the
         # sheet grows so the X-location dims + grouped spec-callouts fit — so this
         # moderately-dense plate no longer escalates to a per-hole table + balloon
@@ -5398,7 +5407,7 @@ class TestEscalation:
         # group-and-types instead: spec-group callouts (5× ⌀…) + location dims,
         # lint clean. The table/balloon escalation path remains for parts too
         # dense to fit even that — covered by the CTC-02 slow-tier test.
-        dwg = build_drawing(_dense_plate())
+        dwg = dense_plate_dwg
         ann = dwg.annotations()
         assert "hole_table_plan" not in ann
         assert not any(n.startswith("balloon_") for n in ann)
@@ -5406,11 +5415,11 @@ class TestEscalation:
         assert any(n.startswith("m_locx") for n in ann)  # location dims placed, not dropped
         assert [i for i in dwg.lint() if i.severity in ("warning", "error")] == []
 
-    def test_escalation_clears_density_lint(self):
+    def test_escalation_clears_density_lint(self, dense_plate_dwg):
         # No callout_dropped / location_ref_dropped / count-mismatch warnings
         # survive once the dense plate is dimensioned — whether by group-and-type
         # (now, on the auto-sized sheet) or by the table escalation it used to need.
-        dwg = build_drawing(_dense_plate())
+        dwg = dense_plate_dwg
         warns = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
         assert "callout_dropped" not in warns
         assert "location_ref_dropped" not in warns
