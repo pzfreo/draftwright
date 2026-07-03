@@ -215,7 +215,6 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.
     render_locations(dwg, _model, a)
-    drain_corridors(dwg)  # CHECKPOINT: drain here keeps location placement byte-identical
 
     if a.cross_diams and a.is_rotational and not feature_holes:
         _log.info(
@@ -295,6 +294,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (#135) — IR renderer, placed through the zone strips (shared infra). Runs
     # after every hole/diameter pass so it claims strip space last.
     render_slots(dwg, _model, a)
+
+    # Now every feeder pass (locations + slots) has registered; solve each shared above
+    # corridor once (ADR 0009 end state, #345/#346) — dedup coincident spans, order the
+    # ladder — BEFORE detail views and PMI, so they see the placed ladder as an obstacle.
+    drain_corridors(dwg)
 
     # Resolve every queued enlarged-detail request (#307) — prismatic step bands and
     # crowded turned heads alike — through the one generic detailer, now that all

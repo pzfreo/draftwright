@@ -204,33 +204,85 @@ def render_slots(dwg, model, a) -> int:
                 p_hi = p_lo + sgn * disp
             if meas_axis == ha:
                 meas_proj, perp_proj = hp, vp
-                cands = (("above", zn.above, True), ("below", zn.below, False))
+                sides = (("above", zn.above, True), ("below", zn.below, False))
             else:
                 meas_proj, perp_proj = vp, hp
-                cands = (("right", zn.right, True), ("left", zn.left, False))
-            # Try each candidate side through the shared carve (P3, #150): occupancy is
-            # every placed annotation's FULL footprint (strip_obstacles) — not the old
-            # label-box `external`/`placed` check, which missed leader shafts a slot dim
-            # could overprint. A side whose carve/corridor rejects the dim falls through
-            # to the next; if none takes it, the caller drops it (place-what-fits).
-            for side, strip, hi in cands:
-                if strip is None:
-                    continue
-                witness = perp_proj(perp_hi if hi else perp_lo)  # off the slot's own edge
-                axis = "y" if side in ("above", "below") else "x"
+                sides = (("right", zn.right, True), ("left", zn.left, False))
+            cname = f"m_slot{idx}_{kind}"
+
+            def _cand_for(side, hi):
+                # (name, build) for one side; witness is off the slot's own edge (the near
+                # edge for the far side, the far edge for the near side).
+                witness = perp_proj(perp_hi if hi else perp_lo)
                 if side in ("above", "below"):
-                    e_lo = (meas_proj(p_lo), witness, 0)
-                    e_hi = (meas_proj(p_hi), witness, 0)
+                    e_lo, e_hi = (meas_proj(p_lo), witness, 0), (meas_proj(p_hi), witness, 0)
                 else:
-                    e_lo = (witness, meas_proj(p_lo), 0)
-                    e_hi = (witness, meas_proj(p_hi), 0)
-                cand = (
-                    f"m_slot{idx}_{kind}",
+                    e_lo, e_hi = (witness, meas_proj(p_lo), 0), (witness, meas_proj(p_hi), 0)
+                return (
+                    cname,
                     lambda pos, _el=e_lo, _eh=e_hi, _s=side, _w=witness: _dim(
                         _el, _eh, _s, abs(pos - _w), draft, label=_fmt(label)
                     ),
                 )
-                if not place_strip_candidates(dwg, strip, vw[0], axis, [cand], tier):
+
+            # Unified above corridor (ADR 0009 end state, #345/#346): a plan/side slot dim
+            # measured along the horizontal axis shares the SAME strip as the hole-location
+            # ladder, so it registers into the corridor batch instead of committing here.
+            # One solve then dedups a slot POSITION line coincident with a hole location
+            # (#345) and orders size + location as segregated, monotonic runs (#346). The
+            # on_drop falls through to the below strip (place-what-fits) before recording a
+            # genuine drop; a *deduped* position fires no drop (it was never starved).
+            if meas_axis == ha and vw[0] in ("plan", "side"):
+                is_pos = kind == "pos"
+                drop_word = "position" if is_pos else kind
+                _, below_strip, below_hi = sides[1]
+
+                def _below_or_drop(nm, _bs=below_strip, _bh=below_hi, _feat=s, _dw=drop_word):
+                    if _bs is not None and not place_strip_candidates(
+                        dwg, _bs, vw[0], "y", [_cand_for("below", _bh)], tier
+                    ):
+                        return  # placed on the below strip
+                    _record_slot_drop(dwg, _dw, idx, vw[0], _feat)
+
+                register_corridor(
+                    dwg,
+                    (vw[0], "above"),
+                    zn.above,
+                    vw[0],
+                    "y",
+                    tier,
+                    CorridorCandidate(
+                        name=cname,
+                        build=_cand_for("above", sides[0][2])[1],
+                        # A position nests in the datum-distance location ladder; a size dim
+                        # forms the inner run, ordered left-to-right by its span midpoint.
+                        order=(
+                            (_LOC_SUBCHAIN, disp, cname)
+                            if is_pos
+                            else (_SIZE_SUBCHAIN, (p_lo + p_hi) / 2, cname)
+                        ),
+                        on_place=lambda nm: None,
+                        on_drop=_below_or_drop,
+                        dedup=(
+                            (vw[0], round(meas_proj(p_lo), 1), round(meas_proj(p_hi), 1))
+                            if is_pos
+                            else None
+                        ),
+                        precedence=1 if is_pos else 0,
+                        force=False,
+                    ),
+                )
+                return True  # deferred — the callback owns the drop; caller's else must not fire
+
+            # Immediate path: right/left dims, and any front-view above/below. Try each side
+            # through the shared carve; the first that takes the dim wins, else the caller drops.
+            for side, strip, hi in sides:
+                if strip is None:
+                    continue
+                axis = "y" if side in ("above", "below") else "x"
+                if not place_strip_candidates(
+                    dwg, strip, vw[0], axis, [_cand_for(side, hi)], tier
+                ):
                     return True
             return False
 

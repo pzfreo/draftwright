@@ -671,3 +671,72 @@ def test_envelope_tier_uses_inner_tier_when_strip_is_clear():
 
     strip = Strip(anchor=61.0, outer_limit=10.0, direction=-1.0)
     assert _envelope_tier(_fake_dwg({}), strip, "side", size=8.0) == 53.0
+
+
+# --- unified above-corridor solve (ADR 0009 end state, #345/#346) -----------
+
+
+def _holed_slot():
+    # A hole whose X-location coincides with the slot's near edge (both measure datum→"20").
+    from build123d import Box, BuildPart, Hole, Locations, Mode
+
+    with BuildPart() as p:
+        Box(60, 40, 20)
+        Box(20, 8, 30, mode=Mode.SUBTRACT)  # slot: long_axis X, near edge x=-10
+        with Locations((-10, 14, 0), (20, 14, 0), (8, -14, 0)):
+            Hole(3, depth=20)
+    return p.part
+
+
+def _plan_above_ladder(dwg):
+    """(name, dim) for every plan-view dimension with a horizontal witness — the plan-above
+    corridor the location + slot passes share."""
+    out = []
+    for name in dwg._named:
+        o = dwg.get_annotation(name)
+        spec = getattr(o, "_dw_spec", None)
+        if spec is None or dwg._anno_view.get(name) != "plan":
+            continue
+        if abs(spec.p1[1] - spec.p2[1]) > 1e-6:
+            continue  # vertical witness → a right/left dim, not the above ladder
+        out.append((name, o))
+    return out
+
+
+def test_corridor_dedups_coincident_hole_and_slot_span():
+    # #345: a hole location and a slot position measuring the same datum span collapse to
+    # ONE dim. Before the unified corridor solve, m_locx0 and m_slot0_pos both drew "20"
+    # over datum→x=-10, a visible duplicate.
+    dwg = build_drawing(_holed_slot())
+    ladder = _plan_above_ladder(dwg)
+    names = {n for n, _ in ladder}
+    assert "m_slot0_pos" not in names, "coincident slot position was not deduped away (#345)"
+    # No two datum-referenced dims share a measured span (the datum is the leftmost origin).
+    datum_x = min(min(o._dw_spec.p1[0], o._dw_spec.p2[0]) for _, o in ladder)
+    spans = [
+        (
+            round(min(o._dw_spec.p1[0], o._dw_spec.p2[0]), 1),
+            round(max(o._dw_spec.p1[0], o._dw_spec.p2[0]), 1),
+        )
+        for _, o in ladder
+        if abs(min(o._dw_spec.p1[0], o._dw_spec.p2[0]) - datum_x) < 0.5
+    ]
+    assert len(spans) == len(set(spans)), f"duplicate datum span in the plan-above ladder: {spans}"
+
+
+def test_corridor_orders_location_ladder_monotonically():
+    # #346: hole-location dims sharing the datum origin nest in span order — their dim lines
+    # stack outward monotonically as the measured value grows, not interleaved.
+    dwg = build_drawing(_holed_slot())
+    rungs = []
+    for name in dwg._named:
+        if not name.startswith("m_locx"):
+            continue
+        o = dwg.get_annotation(name)
+        span = abs(o._dw_spec.p2[0] - o._dw_spec.p1[0])
+        rungs.append((span, o.bounding_box().max.Y))  # tier proxy: the dim line's page Y
+    assert len(rungs) >= 3, f"need >=3 location rungs to test ordering, got {len(rungs)}"
+    tiers = [t for _, t in sorted(rungs)]  # ordered by span
+    assert tiers == sorted(tiers) or tiers == sorted(tiers, reverse=True), (
+        f"location ladder not monotonic by span (interleaved, #346): {sorted(rungs)}"
+    )
