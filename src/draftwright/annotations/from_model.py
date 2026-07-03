@@ -1135,6 +1135,16 @@ def _record_pmi_drop(dwg, ax, label, rec):
     )
 
 
+def _bore_half_span(pmi_kind: str, value: float) -> float:
+    """Half the perpendicular span of a bore-size dim from the bore centroid — the
+    distance to each witness base point. A ``"diameter"`` record stores the full
+    diameter (so half = radius = value/2); a ``"radius"`` record already stores the
+    radius (half = value). Keyed on ``PmiFeature.pmi_kind`` (the PMI category), NOT
+    ``.kind`` (the feature kind, always ``"pmi"``) — the #360 bug used the latter, so
+    the diameter branch was dead and every diameter dim spanned ±diameter (2× wide)."""
+    return value / 2 if pmi_kind == "diameter" else value
+
+
 def render_pmi(dwg, model, a) -> int:
     """Render pre-authored PMI annotations (STEP AP242) from the IR `PmiFeature`s
     into remaining strip space (#208). Replaces the engine's `_annotate_pmi`.
@@ -1362,7 +1372,7 @@ def render_pmi(dwg, model, a) -> int:
             # bore-diameter view table (Z→plan, X→side, Y→front) differs from the
             # linear-dim one just below (#351 PR-4a review).
             ax = bore_axis
-            half = rec.value / 2 if rec.kind == "diameter" else rec.value
+            half = _bore_half_span(rec.pmi_kind, rec.value)
 
             # Bore diameter page span = diameter × scale.  When the span is
             # narrower than ~8 mm the centred label text overflows the gap

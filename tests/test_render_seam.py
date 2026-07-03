@@ -61,3 +61,39 @@ class TestCalloutSpec:
         g = plan_dimensions(PartModel(bbox=None, orientation=None, features=[hole]))[0]
         s = hole_callout_spec(g)
         assert s["cbore_dia"] == 14.0 and s["cbore_depth"] == 1.0
+
+
+class TestBoreHalfSpan:
+    """#360: a PMI bore-size dim's half-span from the bore centroid. A diameter
+    record stores the diameter (half = radius); a radius record stores the radius
+    (half = value). The bug keyed on the feature `.kind` (always 'pmi') instead of
+    `.pmi_kind`, so the diameter branch was dead and every diameter dim spanned
+    ±diameter — 2× too wide."""
+
+    def test_diameter_halves_to_the_radius(self):
+        from draftwright.annotations.from_model import _bore_half_span
+
+        assert _bore_half_span("diameter", 35.0) == 17.5
+
+    def test_radius_is_used_as_is(self):
+        from draftwright.annotations.from_model import _bore_half_span
+
+        assert _bore_half_span("radius", 8.0) == 8.0
+
+    def test_the_pmifeature_kind_attr_never_triggers_the_diameter_branch(self):
+        # The regression itself: a PmiFeature's `.kind` is always "pmi" (a ClassVar),
+        # so keying on it (as the old code did) never halves. Pin that pmi_kind is
+        # the right key and .kind is the wrong one.
+        from draftwright.annotations.from_model import _bore_half_span
+        from draftwright.model import Frame, PmiFeature
+
+        rec = PmiFeature(
+            frame=Frame((0, 0, 0), "z"),
+            pmi_kind="diameter",
+            value=35.0,
+            label="ø35",
+            dominant_axis="Z",
+        )
+        assert rec.kind == "pmi"  # feature kind (ClassVar), NOT the PMI category
+        assert _bore_half_span(rec.kind, rec.value) == 35.0  # the old bug: no halving
+        assert _bore_half_span(rec.pmi_kind, rec.value) == 17.5  # the fix: radius
