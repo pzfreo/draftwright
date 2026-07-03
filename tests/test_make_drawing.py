@@ -5244,6 +5244,20 @@ class TestHoleTable:
         dwg.add_hole_table("plan", balloons=False)
         assert not any(n.startswith("balloon_") for n in dwg.annotations())
 
+    def test_place_band_reports_dropped_overflow(self):
+        # #1a review follow-up: a band too small for every balloon drops its tail
+        # (the strip solver's prefix fallback) — _place_band must REPORT the dropped
+        # count so _add_balloons can surface it as `balloon_dropped` lint, instead of
+        # the balloons vanishing silently. 5 balloons needing a 10 mm gap in a 20 mm
+        # band fit only 3 (at 0, 10, 20); the other 2 are dropped and reported.
+        from types import SimpleNamespace
+
+        rendered: list = []
+        stub = SimpleNamespace(_render_balloon=lambda *a: rendered.append(a))
+        members = [("t", 0, object(), 0.0, float(i)) for i in range(5)]
+        dropped = Drawing._place_band(stub, "plan", members, "y", 50.0, 0.0, 20.0, 10.0, 3.0, 5.0)
+        assert dropped == 2 and len(rendered) == 3
+
     def test_table_and_balloons_keep_lint_clean(self):
         # covers_diameters lets coverage lint count the tabulated holes, and the
         # balloons are furniture (is_centerline) so they do not trip overlap lint.

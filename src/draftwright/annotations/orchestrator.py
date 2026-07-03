@@ -388,6 +388,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     ]
 
     scattered_specs: list = []
+    table_placed = False
     if tabulate_scattered:
         header = ("TAG", "⌀", "X", "Y")
         data = [
@@ -427,7 +428,14 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
             # diameter.
             table.covers_diameters = tuple(h.diameter for h in holes)
             scattered_specs = [(tag, 0, h) for tag, h in zip(scattered_tags, holes, strict=True)]
-            dwg._drop_build_issues("callout_dropped", "location_ref_dropped")
+            table_placed = True
+            # The table's X/Y columns document every scattered hole's location, so the
+            # location refs ARE resolved here. `callout_dropped`, however, is cleared
+            # below — only after the balloons are placed and per feature — because a
+            # pattern balloon sharing this resolver's combined band can still drop
+            # (review follow-up: this used to clear callout_dropped wholesale here,
+            # masking a dropped pattern balloon).
+            dwg._drop_build_issues("location_ref_dropped")
 
     balloon_specs = scattered_specs + pattern_specs
     placed_names: set = set()
@@ -438,24 +446,29 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
         dwg._add_balloons("plan", balloon_specs)
         placed_names = {n for n, _ in dwg.iter_annotations()}
 
-    # Pattern balloons resolve their own "callout_dropped" issues only for patterns
-    # whose balloon actually landed on the sheet — a crowded band can silently drop
-    # the tail (_place_band's strip-solver prefix fallback, layout.py) with no
-    # signal back here — AND only when no OTHER callout drop is left unaddressed
-    # (the scattered-table success path above already cleared them when it ran).
-    # Never hide a genuine remaining drop (a table that didn't fit, a pattern
-    # balloon that didn't fit its band, or a dropped pattern in a non-plan view,
-    # which this resolver does not cover).
-    if pattern_specs and not scattered_specs:
-        resolved_feats = {
-            feat
-            for (full_tag, _, _), feat in zip(pattern_specs, pattern_feats, strict=True)
-            if f"balloon_plan_{full_tag}_0" in placed_names
-        }
-        unresolved = [
-            e
-            for e in escalations
-            if e.kind == "callout" and not (e.view == "plan" and e.feature in resolved_feats)
-        ]
-        if not unresolved:
-            dwg._drop_build_issues("callout_dropped")
+    # Clear `callout_dropped` only when EVERY dropped plan-view callout is now
+    # documented — one unified check across both remedies (the scattered table and the
+    # pattern balloons), so neither hides the other. A plan-view callout escalation is
+    # resolved iff:
+    #   - it is a pattern whose balloon actually LANDED on the sheet (a crowded band
+    #     can drop the tail — _place_band's strip-solver prefix fallback — leaving the
+    #     pattern undocumented), or
+    #   - it is a scattered hole and the table was placed (its X/Y row documents it).
+    # A drop this resolver does not cover — a table that didn't fit, a balloon that
+    # didn't land, or any callout dropped in a non-plan view — leaves the lint standing.
+    resolved_feats = {
+        feat
+        for (full_tag, _, _), feat in zip(pattern_specs, pattern_feats, strict=True)
+        if f"balloon_plan_{full_tag}_0" in placed_names
+    }
+
+    def _resolved(e) -> bool:
+        if e.view != "plan":
+            return False
+        if isinstance(e.feature, PatternFeature):
+            return e.feature in resolved_feats
+        return table_placed  # a scattered plan-hole callout is documented by the table
+
+    unresolved = [e for e in escalations if e.kind == "callout" and not _resolved(e)]
+    if not unresolved:
+        dwg._drop_build_issues("callout_dropped")
