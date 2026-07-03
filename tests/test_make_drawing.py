@@ -4241,9 +4241,9 @@ class TestModel:
 
 # Annotation-name prefixes that are always owned by exactly ONE feature (never a shared
 # span), so every one of them on the sheet MUST have a provenance owner. Location dims
-# (m_locx/m_locy, dim_loc_*) are excluded — a coordinate shared by two distinct features
-# is intentionally unowned (#398c/#406). Turned-diameter callouts (m_dia_*) are excluded:
-# their spec-flattening render pass does not yet carry the feature (a tracked gap, #411).
+# (m_locx/m_locy, dim_loc_*) and turned-diameter callouts (m_dia_*) are excluded from the
+# blanket rule — a coordinate OR a diameter shared by two distinct features is
+# intentionally unowned (#398c/#406/#412). Their owned cases are checked in dedicated tests.
 _ALWAYS_OWNED = ("hc_", "bc_", "m_cm", "dim_pitch", "balloon_", "m_slot")
 
 
@@ -4391,6 +4391,19 @@ class TestFeatureEdits:
 
         shaft = Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25))
         _assert_drop_is_complete(build_drawing(shaft))
+
+    def test_drop_step_clears_its_diameter_callout(self):
+        # #412: a turned step owns its ⌀ callout (m_dia_) — the spec-flattening render pass
+        # now carries the feature. Without it, m_dia was feature=None and drop left it.
+        from build123d import Cylinder
+
+        dwg = build_drawing(Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)))
+        mdia = [n for n in dwg.annotations() if n.startswith("m_dia")]
+        assert mdia, "expected turned-diameter callouts"
+        for n in mdia:
+            assert dwg._registry.feature_of(n) is not None, f"{n} unowned (#412 regression)"
+        owner = dwg._registry.feature_of(mdia[0])
+        assert mdia[0] in dwg.drop(owner)
 
     def test_drop_is_complete_for_side_drilled_holes(self):
         # #410 review F1: a side-drilled (X/Y-axis) hole's location dims (dim_loc_side/
