@@ -531,8 +531,14 @@ def make_drawing(
 # ---------------------------------------------------------------------------
 
 
-def _write_script(a: Analysis) -> str:
-    """Write an editable script at ``a.out + '.py'`` that calls make_drawing()."""
+def _write_script(a: Analysis, scale: float | None = None, page: str | None = None) -> str:
+    """Write an editable script at ``a.out + '.py'`` that calls make_drawing().
+
+    ``scale``/``page`` are the caller's *overrides* (``None`` = auto); ``pmi`` is
+    carried from the analysis (``a.pmi_mode``). All three are preserved as config
+    fields and threaded into the emitted ``build_drawing(...)`` call so the script
+    reproduces the CLI's intent (#388).
+    """
     py_path = a.out + ".py"
     py_name = Path(py_path).name
 
@@ -543,6 +549,9 @@ def _write_script(a: Analysis) -> str:
             f"NUMBER = {a.number!r}",
             f"TOLERANCE = {a.tolerance!r}",
             f"DRAWN_BY = {a.drawn_by!r}",
+            f"PMI = {a.pmi_mode!r}",
+            f"SCALE = {scale!r}",
+            f"PAGE = {page!r}",
         ]
     )
 
@@ -554,12 +563,16 @@ def _write_script(a: Analysis) -> str:
         f"_NUMBER    = {a.number!r}\n"
         f"_TOLERANCE = {a.tolerance!r}\n"
         f"_DRAWN_BY  = {a.drawn_by!r}\n"
+        f"_PMI       = {a.pmi_mode!r}   # 'off' | 'report' | 'annotate'\n"
+        f"_SCALE     = {scale!r}   # None = auto; e.g. 5 for 5:1, 0.5 for 1:2\n"
+        f"_PAGE      = {page!r}   # None = auto; e.g. 'A3' or (297, 210)\n"
         "try:\n"
         "    cog  # NameError → not under cog\n"
         "    for _k, _v in [\n"
         "        ('STEP_FILE', repr(_STEP_FILE)), ('TITLE', repr(_TITLE)),\n"
         "        ('NUMBER', repr(_NUMBER)), ('TOLERANCE', repr(_TOLERANCE)),\n"
-        "        ('DRAWN_BY', repr(_DRAWN_BY)),\n"
+        "        ('DRAWN_BY', repr(_DRAWN_BY)), ('PMI', repr(_PMI)),\n"
+        "        ('SCALE', repr(_SCALE)), ('PAGE', repr(_PAGE)),\n"
         "    ]:\n"
         "        cog.outl(f'{_k} = {_v}')\n"
         "except NameError:\n"
@@ -586,6 +599,9 @@ def _write_script(a: Analysis) -> str:
         f"import os as _os\n"
         f"from draftwright import build_drawing\n"
         f"\n"
+        f"# Available for lint-suggestion snippets (dwg.lint_summary()); unused otherwise.\n"
+        f"from build123d_drafting import Dimension, HoleCallout, Leader  # noqa: F401\n"
+        f"\n"
         f"# ── Config (auto-updated by cog) ──────────────────────────────────────────────\n"
     )
 
@@ -600,6 +616,9 @@ def _write_script(a: Analysis) -> str:
         "    number=NUMBER,\n"
         "    tolerance=TOLERANCE,\n"
         "    drawn_by=DRAWN_BY,\n"
+        "    pmi=PMI,\n"
+        "    scale=SCALE,\n"
+        "    page=PAGE,\n"
         ")\n"
         "\n"
         "# ── Customise here — runs BEFORE export, so edits land in the output ───────────\n"
@@ -639,6 +658,8 @@ def generate_script(
     tolerance: str = "ISO 2768-m",
     drawn_by: str = "",
     pmi: Literal["off", "report", "annotate"] = "off",
+    scale: float | None = None,
+    page: str | None = None,
 ) -> str:
     """Generate an editable Cog-enabled drawing script from a STEP file.
 
@@ -658,8 +679,10 @@ def generate_script(
             out = out[: -len(_ext)]
             break
     title = title or stem.replace("_", " ").upper()
-    a = _analyse(step_file, title, number, tolerance, drawn_by, out, pmi=pmi)
-    return _write_script(a)
+    a = _analyse(
+        step_file, title, number, tolerance, drawn_by, out, scale=scale, page=page, pmi=pmi
+    )
+    return _write_script(a, scale=scale, page=page)
 
 
 # ---------------------------------------------------------------------------
