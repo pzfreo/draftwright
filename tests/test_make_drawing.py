@@ -4246,12 +4246,14 @@ class TestFeatureEdits:
     locations, callouts and diameters thread `feature` in follow-up PRs. annotations_of()
     returns exactly the covered set, so drop() is transparent about what it removes."""
 
-    def test_annotations_of_returns_a_features_centermarks(self):
+    def test_annotations_of_returns_a_features_centermarks_and_locations(self):
+        # #398c broadened coverage: a hole owns its centre mark(s) AND its location dims
+        # (the corridor-placed m_locx/m_locy), now that provenance threads the corridor.
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
         owned = dwg.annotations_of(hole)
-        assert owned, "hole should own at least its centre mark(s)"
-        assert all(n.startswith("m_cm") for n in owned)
+        assert any(n.startswith("m_cm") for n in owned), "hole should own its centre mark(s)"
+        assert all(n.startswith(("m_cm", "m_loc")) for n in owned)
 
     def test_drop_removes_a_features_annotations(self):
         dwg = build_drawing(_holed_plate())
@@ -4262,6 +4264,19 @@ class TestFeatureEdits:
         assert dwg.annotations_of(hole) == {}
         for n in names:
             assert n not in dwg.annotations()  # gone from the registry + render list
+
+    def test_drop_removes_all_slot_dims(self):
+        # #398c: slot dims flow through the ADR-0009 corridor; provenance now threads it,
+        # so drop(slot) removes the whole set (length + width + position).
+        from build123d import Box, Mode, Pos
+
+        part = Box(80, 60, 20) - Pos(0, 0, 0) * Box(24, 8, 30, mode=Mode.SUBTRACT)
+        dwg = build_drawing(part)
+        slot = next(f for f in dwg.model().features if f.kind == "slot")
+        owned = set(dwg.annotations_of(slot))
+        assert owned and all(n.startswith("m_slot") for n in owned)
+        assert set(dwg.drop(slot)) == owned
+        assert dwg.annotations_of(slot) == {}
 
     def test_drop_feature_with_no_annotations_is_noop(self):
         dwg = build_drawing(_holed_plate())

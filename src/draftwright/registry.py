@@ -67,7 +67,12 @@ class AnnotationRegistry:
 
     def names_for_feature(self, feature) -> list:
         """Every annotation name owned by *feature* (matched by value equality, so a
-        feature from ``dwg.model()`` finds the annotations rendered for it) (#398)."""
+        feature from ``dwg.model()`` finds the annotations rendered for it) (#398).
+
+        Value equality is safe because IR features are location-distinct — every
+        ``Feature`` is a frozen dataclass whose ``frame.origin`` participates in ``==``,
+        so two genuinely different features never compare equal. If a location-less
+        feature type is ever added, switch this to identity (``f is feature``)."""
         return [n for n, f in self._anno_feature.items() if f == feature]
 
     def iter_named(self):

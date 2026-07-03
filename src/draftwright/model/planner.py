@@ -66,6 +66,9 @@ class PlannedDimension:
     suppressed: bool = False
     reason: str | None = None
     datum: Datum | None = None
+    # The source IR feature this dim locates — carried so the renderer can record
+    # provenance (ADR 0010). ``None`` for dims not tied to a single feature.
+    feature: Feature | None = None
 
 
 @dataclass(frozen=True)
@@ -158,24 +161,26 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     # (ref_point, role): role distinguishes a hole ref from a pattern ref — the
     # renderer's concentric-bore exclusion applies to holes only (a bolt circle on
     # the axis is still located by its centre), matching the engine.
-    refs: list[tuple[Point, str]] = []
+    # (ref_point, role, source feature): the feature is carried so the renderer can
+    # record provenance on the placed location dim (ADR 0010).
+    refs: list[tuple[Point, str, object]] = []
     for f in model.features:
         if f.frame.axis != "z":
             continue
         if isinstance(f, HoleFeature):
             # un-patterned holes — a HoleFeature may group identical holes
             for m in f.members or (f.frame.origin,):
-                refs.append((m, "location"))
+                refs.append((m, "location", f))
         elif isinstance(f, PatternFeature):
             if f.pattern == "bolt_circle":
-                refs.append((f.frame.origin, "location_pattern"))
+                refs.append((f.frame.origin, "location_pattern", f))
             elif f.members:
                 near = min(f.members, key=lambda m: (m[0] - dx) ** 2 + (m[1] - dy) ** 2)
-                refs.append((near, "location_pattern"))
-    unique: list[tuple[Point, str]] = []
-    for r, role in refs:
-        if not any(abs(r[0] - u[0]) < 0.5 and abs(r[1] - u[1]) < 0.5 for u, _ in unique):
-            unique.append((r, role))
+                refs.append((near, "location_pattern", f))
+    unique: list[tuple[Point, str, object]] = []
+    for r, role, feat in refs:
+        if not any(abs(r[0] - u[0]) < 0.5 and abs(r[1] - u[1]) < 0.5 for u, _, _ in unique):
+            unique.append((r, role, feat))
     return [
         PlannedDimension(
             param=DimParameter(
@@ -187,8 +192,9 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
             ),
             convention="location",
             datum=datum,
+            feature=feat,
         )
-        for r, role in unique
+        for r, role, feat in unique
     ]
 
 
