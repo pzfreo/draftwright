@@ -35,6 +35,12 @@ class AnnotationRegistry:
     def __init__(self) -> None:
         self._named: dict = {}
         self._anno_view: dict = {}
+        # name -> the source IR Feature this annotation was rendered for (#398). Peer to
+        # _anno_view: another ownership axis of annotation identity, set at add time by
+        # the render layer (which knows the feature) and snapshot/restored with the rest,
+        # so a repack/repair preserves provenance. Absent for part-level marks (title
+        # block, section arrows) that belong to no single feature.
+        self._anno_feature: dict = {}
         self._pinned: set = set()
         self._build_issues: list = []
 
@@ -54,6 +60,15 @@ class AnnotationRegistry:
     def view_of(self, name):
         """The owning view for *name* ("front"/"plan"/"side"), or ``None``."""
         return self._anno_view.get(name)
+
+    def feature_of(self, name):
+        """The source IR feature *name* was rendered for, or ``None`` (#398)."""
+        return self._anno_feature.get(name)
+
+    def names_for_feature(self, feature) -> list:
+        """Every annotation name owned by *feature* (matched by value equality, so a
+        feature from ``dwg.model()`` finds the annotations rendered for it) (#398)."""
+        return [n for n, f in self._anno_feature.items() if f == feature]
 
     def iter_named(self):
         """Iterate ``(name, annotation object)`` for every named annotation — the
@@ -75,6 +90,7 @@ class AnnotationRegistry:
         return {
             "named": dict(self._named),
             "anno_view": dict(self._anno_view),
+            "anno_feature": dict(self._anno_feature),
             "pinned": set(self._pinned),
         }
 
@@ -84,11 +100,13 @@ class AnnotationRegistry:
         self._named.update(snap["named"])
         self._anno_view.clear()
         self._anno_view.update(snap["anno_view"])
+        self._anno_feature.clear()
+        self._anno_feature.update(snap.get("anno_feature", {}))
         self._pinned.clear()
         self._pinned.update(snap["pinned"])
 
-    def add(self, obj, name, view):
-        """Register *obj* under *name* and record its owning *view*.
+    def add(self, obj, name, view, feature=None):
+        """Register *obj* under *name* and record its owning *view* (and source *feature*).
 
         Returns the object previously registered under *name* (so the caller can
         drop it from the render list), or ``None``. A replacement under the same
@@ -106,6 +124,12 @@ class AnnotationRegistry:
                 self._anno_view[name] = view
             else:
                 self._anno_view.pop(name, None)
+            # Feature provenance mirrors the view tag: a replacement re-asserts (or
+            # clears, when re-added feature-less) the source feature so it never lags.
+            if feature is not None:
+                self._anno_feature[name] = feature
+            else:
+                self._anno_feature.pop(name, None)
         return displaced
 
     def remove(self, name):
@@ -114,6 +138,7 @@ class AnnotationRegistry:
         if obj is not None:
             self._pinned.discard(name)  # a removed name carries no pin (#89)
             self._anno_view.pop(name, None)
+            self._anno_feature.pop(name, None)
         return obj
 
     def clear(self, keep) -> dict:
@@ -124,6 +149,7 @@ class AnnotationRegistry:
         self._named = kept_named
         self._pinned &= keep_set  # drop pins for cleared names (#89)
         self._anno_view = {n: v for n, v in self._anno_view.items() if n in keep_set}
+        self._anno_feature = {n: f for n, f in self._anno_feature.items() if n in keep_set}
         return kept_named
 
     # -- pins -----------------------------------------------------------------

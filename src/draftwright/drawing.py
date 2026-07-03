@@ -589,7 +589,7 @@ class Drawing:
         return self.add(_dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name)
 
     # -- annotations ----------------------------------------------------------
-    def add(self, obj, name=None, view=None):
+    def add(self, obj, name=None, view=None, feature=None):
         """Register an annotation so lint and export include it; returns ``obj``.
 
         Re-using an existing ``name`` replaces the previously added object (it is
@@ -600,25 +600,50 @@ class Drawing:
         annotations as a single footprint block (#121).  Pass ``None`` for
         drawing-level marks (title block, iso/section notes) that belong to no
         single view.
+
+        ``feature`` records the source IR feature this annotation was rendered for
+        (#398), so :meth:`drop` / :meth:`annotations_of` can operate by feature. The
+        render layer passes it (it knows the feature); ``None`` for part-level marks.
         """
         displaced = self._registry.named(name) if name is not None else None
         if displaced is not None:
             self.items.remove(displaced)
         annotate(obj, name)
         self.items.append(obj)
-        # The registry records name -> obj and the owning view, and drops any pin
-        # the replaced name carried — a replacement is a fresh object (#89) — and
-        # clears a stale ownership tag when re-added view-less (#121).
-        self._registry.add(obj, name, view)
+        # The registry records name -> obj, the owning view, and the source feature,
+        # and drops any pin the replaced name carried — a replacement is a fresh object
+        # (#89) — and clears stale view/feature tags when re-added without them (#121/#398).
+        self._registry.add(obj, name, view, feature)
         return obj
 
     def remove(self, name):
         """Remove a previously named annotation. Raises ``KeyError`` if absent."""
-        obj = self._registry.remove(name)  # forgets object, view, and pin (#89)
+        obj = self._registry.remove(name)  # forgets object, view, feature, and pin (#89)
         if obj is None:
             raise KeyError(f"no annotation named {name!r}")
         self.items.remove(obj)
         return obj
+
+    def annotations_of(self, feature) -> dict:
+        """``{name: object}`` for every annotation rendered for *feature* (#398).
+
+        *feature* is an IR feature from :meth:`model` (``dwg.model().features[i]``).
+        Matched by value, so the exact object is not required. Empty if the feature has
+        no annotations (or its render pass does not yet tag provenance — coverage grows
+        as passes are migrated)."""
+        return {n: self._registry.named(n) for n in self._registry.names_for_feature(feature)}
+
+    def drop(self, feature) -> list:
+        """Remove every annotation rendered for *feature* (#398) — the semantic curation
+        verb: "stop dimensioning this feature". Returns the removed names.
+
+        Use a feature from :meth:`model`: ``dwg.drop(dwg.model().features[0])``. Removing
+        a feature's callout/centre-mark/size-dims is a page-level edit; call
+        :func:`finalize_drawing` afterwards (when available) to recompose the sheet."""
+        names = self._registry.names_for_feature(feature)
+        for n in names:
+            self.remove(n)
+        return names
 
     def annotations(self) -> dict:
         """Return ``{name: type_name}`` for every *named* annotation (#27).
