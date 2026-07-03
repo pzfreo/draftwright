@@ -2303,6 +2303,17 @@ def test_generate_script_imports_lint_suggestion_classes(tmp_path):
     assert "from build123d_drafting import Dimension, HoleCallout, Leader" in content
 
 
+def test_generate_script_defers_invalid_scale_page(tmp_path):
+    # #388/#401: an out-of-range scale/page must NOT crash generation — the script is
+    # written with the value embedded and validation deferred to run time (consistent
+    # with a large unfittable scale, which already defers).
+    step = tmp_path / "p.step"
+    export_step(Box(30, 20, 10), str(step))
+    py = generate_script(str(step), out=str(tmp_path / "p"), scale=0.001, page="A9")
+    content = Path(py).read_text()
+    assert "SCALE = 0.001" in content and "PAGE = 'A9'" in content
+
+
 @pytest.mark.timeout(180)
 def test_generated_script_runs_and_preserves_pmi(tmp_path):
     # #388 acceptance: a generated --pmi annotate script preserves pmi when RUN — execute

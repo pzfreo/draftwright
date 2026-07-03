@@ -679,9 +679,12 @@ def generate_script(
             out = out[: -len(_ext)]
             break
     title = title or stem.replace("_", " ").upper()
-    a = _analyse(
-        step_file, title, number, tolerance, drawn_by, out, scale=scale, page=page, pmi=pmi
-    )
+    # scale/page are NOT passed to this analysis: the script embeds them as literal
+    # config fields and re-validates them at run time inside build_drawing(). Validating
+    # here too would crash generation on an out-of-range value (e.g. --script --scale
+    # 0.001 / --page A9) instead of writing the script and deferring — inconsistent with
+    # a large unfittable scale, which already defers (review #401).
+    a = _analyse(step_file, title, number, tolerance, drawn_by, out, pmi=pmi)
     return _write_script(a, scale=scale, page=page)
 
 
