@@ -87,6 +87,32 @@ each render pass:
 `dwg.add(feature=…)` form are the foundation the seam populates automatically; the
 centre-mark tagging it shipped is simply the first (manual) population.
 
+## Amendment 1 — Consistency is the acceptance bar (2026-07-03)
+
+The seam is only worth having if it is **complete and uniform**: a partially-tagged
+surface (callouts droppable but furniture not, add works for some params but not
+others) is a worse trap than none, because it *looks* whole. So consistency, not
+mere mechanism, is the acceptance bar for the edit surface:
+
+1. **`drop(feature)` is complete for every feature kind** — it removes *everything*
+   the feature produced (callout, centre mark, locations, size dims, pattern
+   furniture, balloons). No "the callout stayed" surprises.
+2. **`annotations_of(feature)` equals what `drop(feature)` removes**, exactly, for
+   every feature — the read set is the remove set.
+3. **`dimension()` is symmetric with `drop()`** — any parameter a feature exposes can
+   be *added back*, not only the span-carrying ones; value-only params (a slot's
+   dims, a hole's diameter/depth) derive their geometry from the feature the way the
+   renderers do.
+4. This is encoded as a **machine-checkable audit test** (a multi-feature part; for
+   every feature, `drop` leaves nothing it owned behind), so a future render pass
+   cannot silently reintroduce a gap.
+
+However each pass *computes* the feature (direct `feature=`, the corridor `features`
+map, a callout `id(callout)→feature` map), it resolves to the **same** registry tag —
+the sink is uniform even where the plumbing to reach it must differ. Tracked as the
+consistency completion (#408), which folds callout/furniture/balloon provenance and
+full `dimension()` coverage into one PR so *add* and *drop* land symmetric.
+
 ## Related
 
 - [ADR 0001](0001-deterministic-generation-over-editable-dsl.md) Amendment 1 — edit the
