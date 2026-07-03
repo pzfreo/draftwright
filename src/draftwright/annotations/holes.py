@@ -529,47 +529,6 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
             return centre
         return (centre[0] + dx / norm * r, centre[1] + dy / norm * r)
 
-    def _coaxial_lift(centre, ny, view_cx, view_cy, y_min, y_max, reserved_rows):
-        """Leader row for a hole's callout, moved clear of every horizontal line
-        that will cross its "⌀… ↓…" text (#305/#321); *ny* unchanged when already
-        clear.
-
-        The lines to clear are keyed on the *cause*, not the part's shape (the old
-        ``is_rotational``-only gate was circle-specific and missed a D-profile, #321):
-
-        - **location-dim extension lines** — *reserved_rows*, the page rows where
-          ``_locate_off_axis_holes`` will draw the off-axis bores' height/offset dims
-          (computed from hole geometry, so any profile works, incl. a D); and
-        - the **centre line** of a turned/rotational round view, when this bore is the
-          coaxial one at the view centre (``is_rotational OR prof``).
-
-        When *ny* is within a clearance of any such line, lift it one clearance off
-        toward the roomier half of the strip — the leader becomes a legible angled
-        leader whose "⌀… ↓…" text sits wholly clear of the line (standard practice
-        for a central feature). The lifted row is clamped to the strip bounds, so a
-        strip too shallow to lift a full clearance pins the callout at its edge —
-        the roomier-half pick makes that rare, and lint reports any residual overlap.
-
-        A single fixed-offset lift, not a gap search: it can land within a clearance
-        of a *second* reserved row when two are <~clearance apart on the page. Rare
-        for real parts (the recogniser rarely keeps radial bores that close), and
-        superseded by the ADR 0009 collect-then-solve pass (#318) that will retire
-        this heuristic entirely."""
-        tol = draft.font_size  # "hole at the view centre" tolerance (page mm)
-        rows = list(reserved_rows)
-        if (a.is_rotational or a.prof is not None) and (
-            abs(centre[0] - view_cx) < tol and abs(centre[1] - view_cy) < tol
-        ):
-            rows.append(view_cy)  # the centreline row
-
-        clr = draft.font_size + 3 * draft.pad_around_text  # clearance off a line
-        if all(abs(ny - r) >= clr for r in rows):
-            return ny
-        # Lift off the row toward the roomier half — the leader becomes a legible
-        # angled leader whose text sits wholly clear of the line.
-        up = (y_max - ny) >= (ny - y_min)
-        return min(ny + clr, y_max) if up else max(ny - clr, y_min)
-
     def _add(view, i, tip, elbow, side, callout):
         dwg.add(
             Leader(
@@ -654,22 +613,28 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         else:
             y_min, y_max = a.SV_Y - a.fv_hh, a.SV_Y + a.fv_hh
 
-        # Round view's horizontal centre axis — a coaxial bore led out along it has
-        # its callout text crossed by the centre mark / centreline (#305); see
-        # _coaxial_lift.
+        # Round view's horizontal centre axis (page coords).
         view_cx = a.PV_X if view == "plan" else a.SV_X
         view_cy = a.PV_Y if view == "plan" else a.SV_Y
 
-        # Rows where `_locate_off_axis_holes` will draw a location-dim extension line
-        # in THIS view — an X-axis bore is located on the side view, a Y-axis bore on
-        # the front view. A callout on one of these rows gets crossed by that line
-        # (#321), so lift it off. Computed from hole geometry (no feature link, which
-        # the callout doesn't carry): the callout's own row equals its bore's row.
-        # Skip patterned holes to match `_locate_off_axis_holes` (which excludes them,
-        # `h not in patterned`) — they carry no per-hole location dim, so reserving
-        # their rows would only cause needless lifts. This is a superset guard, not an
-        # exact match: rows for dims that hit dedup/drop/sub-mm gating may still be
-        # over-reserved (conservative — a spurious lift stays valid), never under.
+        # Keep-out bands (ADR 0009 Amendment 5, P4c, #318) — the page rows a callout's
+        # "⌀… ↓…" text may not sit on, handed to `plan_strip(forbidden=...)` so the
+        # spacing solve avoids them by construction (retiring the old `_coaxial_lift`
+        # pre-solve nudge). Each is `(centre, half_width)`. Two causes, keyed on the
+        # crossing line, not the part's shape:
+        #  - location-dim extension lines: the rows where `_locate_off_axis_holes`
+        #    will draw the off-axis bores' height/offset dims. Computed from hole
+        #    geometry (the callout carries no feature link; its own row equals its
+        #    bore's row). Patterned holes are skipped to match `_locate_off_axis_holes`
+        #    (`h not in patterned`) — they carry no per-hole location dim, so reserving
+        #    their rows would only force needless avoidance. A superset guard, not an
+        #    exact match: rows for dims that later dedup/drop/sub-mm-gate stay
+        #    over-reserved (conservative — a spurious avoidance is still valid), never
+        #    under; and
+        #  - the centre line of a turned/rotational round view — a coaxial bore led
+        #    out along it has its callout text crossed by the centre mark / centreline
+        #    (#305). Only a near-centre callout is close enough for the band to move.
+        clr = draft.font_size + 3 * draft.pad_around_text  # clearance off a crossing line
         patterned = {h for p in a.patterns for h in p.holes}
         off_axis_letter = {"side": "x", "front": "y"}.get(view)
         reserved_rows = (
@@ -681,6 +646,9 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
             if off_axis_letter
             else []
         )
+        forbidden = [(r, clr) for r in reserved_rows]
+        if a.is_rotational or a.prof is not None:
+            forbidden.append((view_cy, clr))
 
         # --- Pass 1: boundary assignment ---
         right_queue = []  # (locs, dia, callout, feat, natural_y, rep)
@@ -715,16 +683,12 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                 _record_callout_drop(dwg, view, dia, "no room beside the view", feat)
                 continue
 
+            # Natural Y is the bore's own row; keep-out-band avoidance is now the
+            # solve's job (`forbidden`, below), not a pre-solve lift.
             if can_right and (not can_left or d_right <= d_left):
-                ny = _coaxial_lift(
-                    centre_r, centre_r[1], view_cx, view_cy, y_min, y_max, reserved_rows
-                )
-                right_queue.append((locs, dia, callout, feat, ny, rep_r))
+                right_queue.append((locs, dia, callout, feat, centre_r[1], rep_r))
             else:
-                ny = _coaxial_lift(
-                    centre_l, centre_l[1], view_cx, view_cy, y_min, y_max, reserved_rows
-                )
-                left_queue.append((locs, dia, callout, feat, ny, rep_l))
+                left_queue.append((locs, dia, callout, feat, centre_l[1], rep_l))
 
         # Sort each queue by natural Y so leaders don't cross.
         right_queue.sort(key=lambda s: s[4])
@@ -787,16 +751,22 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
             return _box_hits(label_box, obstacles)
 
         def _is_central(s):
-            """The coaxial hole whose callout belongs on the view-centre row.
-            Anchored (ADR 0009 Amendment 4) so the exact minimum-leader spacing
-            solve can't slide it off centre on a tie — the equal-cost placements
-            differ only in *which* callout absorbs the shift, and for a central
-            feature that must not be the central one. Same centre test
-            :func:`_coaxial_lift` uses; ``s[5]`` is the callout's representative
-            hole location (``None`` only for a left-queue entry with no left
-            edge, which never happens for a placed callout)."""
+            """The coaxial hole whose callout belongs *on* the view-centre row, and
+            so is anchored there (ADR 0009 Amendment 4) — the exact minimum-leader
+            spacing solve can't then slide it off centre on a tie (the equal-cost
+            placements differ only in *which* callout absorbs the shift, and for a
+            central feature that must not be the central one).
+
+            Prismatic parts only: on a turned/rotational round view the centre-line
+            *itself* runs through this row, so the coaxial bore must be pushed
+            **off** it (the ``forbidden`` centreline band) — the opposite of
+            anchoring. The two are mutually exclusive by part class, so anchoring
+            is gated off exactly when the centreline band is on (ADR 0009
+            Amendment 5, P4c). ``s[5]`` is the callout's representative hole
+            location (``None`` only for a left-queue entry with no left edge, which
+            never happens for a placed callout)."""
             rep = s[5]
-            if rep is None:
+            if rep is None or a.is_rotational or a.prof is not None:
                 return False
             cx, cy = to_page(rep)
             tol = draft.font_size
@@ -821,7 +791,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                 )
                 for j, s in enumerate(queue)
             ]
-            base_res = plan_strip(base_cands, y_min, y_max, min_gap)
+            base_res = plan_strip(base_cands, y_min, y_max, min_gap, forbidden=forbidden)
             base_by_key = {c.key: s for c, s in zip(base_cands, queue, strict=True)}
             base_y = {id(base_by_key[k]): y for k, y in base_res.placed.items()}
             base_dropped = {id(base_by_key[k]) for k in base_res.dropped}
@@ -895,7 +865,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                     )
                     for j, s in enumerate(cands_in)
                 ]
-                res = plan_strip(cands, lo, hi, min_gap)
+                res = plan_strip(cands, lo, hi, min_gap, forbidden=forbidden)
                 by_key = {c.key: s for c, s in zip(cands, cands_in, strict=True)}
                 for k, y in res.placed.items():
                     seg_y[id(by_key[k])] = y

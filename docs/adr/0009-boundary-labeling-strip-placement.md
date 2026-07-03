@@ -415,8 +415,9 @@ one root cause:
 2. **Anchor central features.** A new `StripCandidate.anchored` flag maps to a
    dominating weight in the weighted median, pinning that candidate at its
    natural position while the rest flow around it. `annotations/holes.py` marks
-   the coaxial/central hole's callout anchored (same centre test `_coaxial_lift`
-   uses), so "central hole stays on the centre row" is now a **domain decision
+   the coaxial/central hole's callout anchored (a view-centre test; Amendment 5
+   later gated it to prismatic parts), so "central hole stays on the centre row"
+   is now a **domain decision
    the solve honours by construction**, not an accident of which tied vertex a
    solver happened to pick. It remains a spacing hint, not a hard pin — an
    anchored candidate can still be *dropped* when the strip is over capacity.
@@ -430,6 +431,74 @@ output-improvement change here. The `test_deterministic_by_construction` unit te
 lower-median convention so any future change to it is a conscious, reviewed one
 (replacing Amendment 3's brittle solver-vertex pin). No new runtime dependency;
 the solve is O(n) per strip for the <20-candidate strips in practice.
+
+## Amendment 5 — Band-aware PAVA: fold the coaxial-lift into the solve (P4c, #318)
+
+**Status:** Accepted (2026-07-02). Completes P4 (P4a gaps, P4b optimum, P4c
+this). Retires the last pre-solve placement heuristic in the callout pass.
+
+**Problem.** A callout's "⌀… ↓…" text must not sit *on* certain horizontal lines
+— a turned view's centre-line, or a location dimension's extension line
+(#305/#321). Until now `annotations/holes.py::_coaxial_lift` handled this as a
+**pre-solve nudge**: it lifted a callout's natural row one clearance off any such
+line *before* the strip solve. Two defects made it a "special case" the roadmap
+scheduled for removal: (1) it was pre-solve, so the P4b spacing solve could
+legally **re-crowd** a lifted callout back toward the line while spacing its
+siblings — the constraint was not one the solve honoured; and (2) a fixed lift
+toward the "roomier half" is not the min-leader-length choice.
+
+**Decision.** Make avoidance a property of the solve. A "keep-out **band**"
+`(centre, half_width)` is a row the labels must avoid; `plan_strip` takes a
+`forbidden=` list and routes to `_solve_strip_1d_pava_banded`. A band is a
+**non-convex** keep-out (above *or* below the row) the plain PAVA box can't
+express — but the bands split `[lo, hi]` into disjoint feasible **segments**, and
+*within one segment* the box is convex again, so the exact PAVA atom still
+applies. The fixed label order (crossing-free, from P2) means labels map to
+segments as contiguous runs at non-decreasing indices; a small O(n²·segments) DP
+searches for a low-cost partition, solving each run with `_solve_strip_1d_pava`
+inside its segment. **No bands → byte-identical to the plain solve.** Deterministic
+(each run solve is; equal-cost states break on the lexicographically smaller
+position vector).
+
+The DP is **not globally optimal across ≥2 segments** — it keeps one
+representative per labels-placed count, but a later segment's feasible room
+depends on the last placed position, so a band alongside an `anchored` candidate
+can drag the anchor off centre. Unreachable on the corpus (anchor and band never
+co-occur in a placed strip: the centre-line band is gated to rotational parts,
+which don't anchor), so output is byte-identical; the exact fix — a Pareto
+frontier over `(cost, last_pos)` per count — is a tracked follow-up.
+
+Two supporting changes in `holes.py`:
+- **Bands built from the same causes** `_coaxial_lift` used — the off-axis
+  location-dim rows, plus the centre-line row on a turned/rotational view — and
+  handed to both the baseline and the carve-aware per-segment `plan_strip` calls.
+  `_coaxial_lift` is **deleted**.
+- **Anchoring gated to prismatic parts.** The centre-line band pushes a coaxial
+  bore *off* centre; the Amendment 4 anchor pins a central bore *on* centre — the
+  opposite. They are mutually exclusive by part class, so `_is_central`
+  (anchoring) now returns false exactly when the centre-line band is on
+  (`is_rotational or prof`). A prismatic central bore still anchors on centre; a
+  turned coaxial bore is pushed off it by the band.
+
+**Graceful degradation.** Avoidance is a strong preference, not a hard drop. A
+band can be *wider than the whole strip* (a shallow view — the `dshape` side
+strip is 16 mm, its band 18 mm), leaving no clear segment. Rather than drop a
+real callout to honour the band — against policy B (never drop a real annotation
+just to avoid a crossing) — the DP-can't-place case falls back to a plain solve
+toward band-edge-snapped naturals: the callout sits at the strip edge farthest
+from the row (minimal residual), exactly what the old lift did. A genuinely
+over-capacity strip still returns `None` for the caller's drop-and-retry.
+
+**Consequences.** Most of the corpus is unchanged; `dshape` (shallow-strip
+fallback) stays byte-identical. Two turned parts re-blessed where the solve now
+seats the coaxial callout at the min-leader segment edge instead of the old fixed
+lift: `flange` (callout moves to the roomier segment) and `drive_screw_x` (same,
+which also lets its Z location dim route to the front view). Both are lint-clean
+and pass the layout-cleanliness ratchet (no new overlaps). The tie-break between
+the two equal-cost segments is the lexicographic (lower-position) rule, not the
+old "roomier half" — a reviewed, deterministic choice, not byte-identity chasing
+(ADR 0004: output may change). `_solve_strip_1d_pava` is untouched; the band
+layer is a wrapper.
 
 ## Related
 

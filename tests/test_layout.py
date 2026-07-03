@@ -11,10 +11,13 @@ from draftwright.layout import (
     _ANCHOR_WEIGHT,
     LayoutSolver,
     Placeable,
+    _feasible_segments,
     _greedy_strip_1d,
     _greedy_strip_1d_var,
+    _snap_out_of_bands,
     _solve_strip_1d,
     _solve_strip_1d_pava,
+    _solve_strip_1d_pava_banded,
     _solve_strip_1d_var,
     fit_box,
 )
@@ -167,6 +170,100 @@ class TestSolveStrip1dPava:
         assert _solve_strip_1d_pava([100.0, 102.0], [7.0], 0.0, 200.0) == pytest.approx(
             [95.0, 102.0]
         )
+
+
+class TestFeasibleSegments:
+    """P4c (#318, ADR 0009 Amendment 5): ``[lo, hi]`` minus the keep-out bands."""
+
+    def test_no_bands_is_the_whole_strip(self):
+        assert _feasible_segments(0.0, 100.0, []) == [(0.0, 100.0)]
+
+    def test_single_interior_band_splits_in_two(self):
+        assert _feasible_segments(0.0, 100.0, [(40.0, 60.0)]) == [(0.0, 40.0), (60.0, 100.0)]
+
+    def test_edge_bands_clip_to_the_strip(self):
+        assert _feasible_segments(0.0, 100.0, [(-10.0, 10.0), (90.0, 110.0)]) == [(10.0, 90.0)]
+
+    def test_overlapping_bands_merge(self):
+        assert _feasible_segments(0.0, 100.0, [(30.0, 50.0), (45.0, 70.0)]) == [
+            (0.0, 30.0),
+            (70.0, 100.0),
+        ]
+
+    def test_band_covering_everything_leaves_no_segment(self):
+        assert _feasible_segments(40.0, 60.0, [(30.0, 70.0)]) == []
+
+
+class TestSolveStrip1dPavaBanded:
+    """P4c (#318, ADR 0009 Amendment 5): the min-leader PAVA solve made keep-out-
+    band aware (retiring the ``_coaxial_lift`` pre-solve nudge). Avoidance is by
+    construction where the strip has room, and degrades gracefully to minimal band
+    intrusion (not a drop) where it does not."""
+
+    def test_no_bands_is_byte_identical_to_the_plain_solve(self):
+        for naturals, gaps, lo, hi in [
+            ([10.0, 7.0, 4.0], [5.0, 5.0], -100.0, 100.0),
+            ([-5.0, -4.0], [3.0], 0.0, 100.0),
+            ([], [], 0.0, 10.0),
+        ]:
+            assert _solve_strip_1d_pava_banded(naturals, gaps, lo, hi, None, []) == (
+                _solve_strip_1d_pava(naturals, gaps, lo, hi)
+            )
+
+    def test_label_on_a_band_is_pushed_to_the_nearer_edge(self):
+        # natural 50 sits inside the band (45, 55); the room-available solve seats
+        # it at the nearer segment edge (45), not on the row.
+        assert _solve_strip_1d_pava_banded([50.0], [], 0.0, 100.0, None, [(45.0, 55.0)]) == (
+            pytest.approx([45.0])
+        )
+
+    def test_two_labels_already_clear_are_untouched(self):
+        # both naturals already sit outside a thin interior band → unchanged.
+        assert _solve_strip_1d_pava_banded(
+            [40.0, 60.0], [5.0], 0.0, 120.0, None, [(48.0, 52.0)]
+        ) == (pytest.approx([40.0, 60.0]))
+
+    def test_shallow_strip_degrades_to_minimal_intrusion_not_a_drop(self):
+        # The band (81, 99) is WIDER than the whole strip [82, 98] (the dshape side
+        # view): no band-clear position exists, so rather than drop a real callout
+        # the solve clamps to the strip edge farthest from the row — 98, an 8 mm
+        # residual, exactly what the old _coaxial_lift did. NOT None.
+        assert _solve_strip_1d_pava_banded([90.0], [], 82.0, 98.0, None, [(81.0, 99.0)]) == (
+            pytest.approx([98.0])
+        )
+
+    def test_cross_segment_gap_shifts_the_run_up_not_reject(self):
+        # #379 review regression: when the next segment's run at its natural would
+        # violate the cross-segment gap to the label already placed below the band,
+        # the run must be SHIFTED UP (its lower bound tightened) to the min-cost
+        # band-clear placement — not rejected outright (which parked the label on the
+        # band edge at higher cost). naturals [29, 34], gap 10, band (30,33): the
+        # optimum is [29, 39] (label 0 at its natural below, label 1 shifted up clear
+        # of the band), cost 5 — NOT [20, 30] (cost 13, label 1 on the 30 edge).
+        assert _solve_strip_1d_pava_banded(
+            [29.0, 34.0], [10.0], 0.0, 100.0, None, [(30.0, 33.0)]
+        ) == pytest.approx([29.0, 39.0])
+
+    def test_genuine_over_capacity_still_returns_none(self):
+        # Three labels needing 50 mm gaps can't fit an 80 mm strip regardless of
+        # bands → None, preserving the caller's drop-and-retry contract.
+        assert (
+            _solve_strip_1d_pava_banded(
+                [10.0, 20.0, 30.0], [50.0, 50.0], 0.0, 80.0, None, [(40.0, 45.0)]
+            )
+            is None
+        )
+
+    def test_deterministic_across_calls(self):
+        args = ([40.0, 50.0, 60.0], [4.0, 4.0], 0.0, 120.0, None, [(48.0, 58.0)])
+        assert _solve_strip_1d_pava_banded(*args) == _solve_strip_1d_pava_banded(*args)
+
+    def test_snap_out_of_bands_prefers_the_roomier_half(self):
+        # equidistant from both edges of a strip-engulfing band → toward the
+        # roomier half (up), then clamped: matches _coaxial_lift's old direction.
+        assert _snap_out_of_bands(90.0, [(81.0, 99.0)], 82.0, 98.0) == 98.0
+        # natural clear of every band is returned unchanged.
+        assert _snap_out_of_bands(30.0, [(45.0, 55.0)], 0.0, 100.0) == 30.0
 
 
 class TestLayoutSolver:

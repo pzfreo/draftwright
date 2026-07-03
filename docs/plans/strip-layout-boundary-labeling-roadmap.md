@@ -160,13 +160,26 @@ Updated 2026-07-02.
     sites — each already passes a uniform `size[idx]` equal to its own `min_gap`); pure
     groundwork for P4b/c. Two independent adversarial review passes found no correctness
     bugs, only a stale comment (fixed in the same PR).
-  - **P4b** — replace `plan_strip`'s "pull toward natural position" Cassowary spacing
-    objective with a proper min-total-leader-length solve (isotonic regression / DP) —
-    order stays fixed by anchor position (crossing-free, already established by P2), this
-    only changes *where within that order* each label sits. The algorithmic core.
-  - **P4c** — fold the #305 angled-leader nudge (today a bespoke post-hoc special case)
-    into the P4b solve as a first-class ≥30°-from-horizontal constraint/penalty; retire
-    the special case.
+  - **P4b — DONE (2026-07-02, #378):** replaced `plan_strip`'s "pull toward natural"
+    Cassowary spacing with the exact min-total-leader-length L1 solve, via a
+    deterministic weighted-median **PAVA** (`_solve_strip_1d_pava`) rather than the
+    initially-prototyped `scipy.optimize.linprog` — the LP's non-unique-optimum vertex
+    choice diverged across the CI matrix's two scipy builds (a determinism defect); PAVA
+    is deterministic by construction, and `scipy` is dropped. Central/coaxial callouts
+    are **anchored** (a dominating weight) so a tie can't slide them off the centre row.
+    ADR 0009 Amendments 3 (LP design, superseded) + 4 (PAVA + anchoring). Clean
+    adversarial review; the one finding was a doc contradiction, fixed.
+  - **P4c — DONE (2026-07-02, #379):** folded the #305/#321 coaxial-lift (a pre-solve
+    nudge that the P4b solve could re-crowd) into the solve as first-class **keep-out
+    bands**: `plan_strip(forbidden=...)` → `_solve_strip_1d_pava_banded`, which splits
+    the strip into the feasible segments *between* bands and runs the exact PAVA atom
+    per segment (a min-cost contiguous partition DP; no bands ⇒ byte-identical). Anchoring
+    gated to prismatic parts (the centre-line band and the central anchor are opposites,
+    mutually exclusive by part class). Degrades gracefully to minimal band-intrusion (not
+    a drop) on a strip too shallow to clear a band — policy B. `_coaxial_lift` deleted.
+    ADR 0009 Amendment 5. (The literal "≥30° penalty" framing was reduced to its actual
+    cause — keep the text off specific crossing rows — which the band model expresses
+    exactly.)
 
 Overlap allowlist classes (`tests/test_layout_cleanliness.py`): **BENIGN** (permanent
 datum-chain witness corridors), **SPACE-CONSTRAINED** (real crossing, no roomy

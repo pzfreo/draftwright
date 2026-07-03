@@ -345,6 +345,22 @@ def test_plan_strip_anchored_candidate_stays_on_its_natural():
     assert plain.placed["mid"] == pytest.approx(95.0)
 
 
+def test_plan_strip_forbidden_band_keeps_a_label_off_the_row():
+    # P4c (#318, Amendment 5): a `forbidden` keep-out band (centre, half_width) is a
+    # row the label may not sit on (a centre-line / dim extension line). A callout
+    # whose natural is on the band is seated off it; one already clear stays put.
+    import pytest
+
+    res = plan_strip(
+        [_cand("on", 50), _cand("clear", 80)], lo=0, hi=100, min_gap=5, forbidden=[(50.0, 8.0)]
+    )
+    assert res.placed["on"] == pytest.approx(42.0), "on-row label not moved off the band"
+    assert res.placed["clear"] == pytest.approx(80.0), "already-clear label should not move"
+    # Without the band the on-row label stays on its natural.
+    plain = plan_strip([_cand("on", 50), _cand("clear", 80)], lo=0, hi=100, min_gap=5)
+    assert plain.placed["on"] == pytest.approx(50.0)
+
+
 def test_plan_strip_min_gap_floors_a_pair_smaller_than_it():
     # A pair whose sizes are both below the caller's min_gap floor must still get
     # at least min_gap of separation — min_gap is a floor, not just a fallback.
