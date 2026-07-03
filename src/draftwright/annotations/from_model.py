@@ -47,7 +47,6 @@ from draftwright.annotations._common import (
     Escalation,
     _anno_box,
     _box_hits,
-    _occupied_boxes,
     carve_free_position,
     carve_free_segments,
     place_strip_candidates,
@@ -521,7 +520,11 @@ def _diameter_column_left(dwg, items) -> int:
     )
     if ys is None:
         return 0
-    occupied = _occupied_boxes(dwg)  # bore leaders + other left-column callouts
+    # Full-footprint occupancy (leader shafts, witness/extension lines, hatch) — NOT
+    # the label-box-only `_occupied_boxes`, which is blind to a bore callout's leader
+    # SHAFT, so a ø label could silently overprint it (the #133/#225/#305 invisible-
+    # occupant class, #358). Centre lines stay crossable (a diameter dim may cross one).
+    occupied = strip_obstacles(dwg, view="front", crossable=CROSSABLE_TYPES)
     placed = 0
     for i, ((tip, label), ly) in enumerate(zip(specs, ys, strict=True)):
         ldr = Leader(tip=(tip[0], tip[1], 0), elbow=(elbow_x, ly, 0), label=label, draft=draft)
