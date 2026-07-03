@@ -652,7 +652,9 @@ class Drawing:
             self.remove(n)
         return names
 
-    def dimension(self, feature, param, *, side="above", view=None, name=None, **kwargs):
+    def dimension(
+        self, feature, param, *, role=None, side="above", view=None, name=None, **kwargs
+    ):
         """Add a dimension for *feature*'s *param*, attributed to the feature (#398e).
 
         The feature-referenced **add** verb: pair to :meth:`drop`. *feature* is an IR
@@ -661,32 +663,46 @@ class Drawing:
         dimension is placed into free strip space and tagged with *feature*, so
         :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
-        Value-only parameters (a slot's dims, or a hole's ``"diameter"``/``"depth"`` —
-        which need the feature's own geometry or a leader callout) are not yet supported;
-        that coverage lands with the callout provenance work (#398d).
+        A feature may expose several params of one kind (an envelope's width/height/depth
+        are all ``"length"``); pass ``role=`` to pick one — a bare kind matching more than
+        one raises rather than guessing.
 
-        ``view`` defaults to the feature's end-on view (its ``frame.axis``); ``side``
-        defaults to ``"above"``. ``kwargs`` forward to the dimension (e.g. ``label=``).
+        ``view`` is chosen automatically as the orthographic view (``"front"``/``"plan"``/
+        ``"side"``) where the span projects non-degenerate — a length along the turning
+        axis vanishes in its end-on view, so the view follows the geometry. Pass ``view=``
+        to force one of those three (a non-orthographic view foreshortens the span and is
+        rejected). ``side`` defaults to ``"above"``; ``kwargs`` forward to the dimension.
 
-        Raises ``ValueError`` if the feature has no span-carrying parameter of that kind.
-        Callout-style parameters (``"diameter"``/``"depth"``, which need a leader) are not
-        yet supported here — that path lands with the callout provenance work (#398d).
+        Raises ``ValueError`` if no span-carrying param of that kind/role exists, if the
+        kind is ambiguous, or if *view* is not orthographic. Value-only params (a slot's
+        dims, a hole's ``"diameter"``/``"depth"`` — which need the feature's own geometry
+        or a leader callout) are not yet supported; that lands with the callout work (#398d).
         """
-        p = next(
-            (q for q in feature.parameters() if q.kind == param and q.span is not None),
-            None,
-        )
-        if p is None:
+        _ortho = ("front", "plan", "side")
+        if view is not None and view not in _ortho:
             raise ValueError(
-                f"{type(feature).__name__} has no span-carrying '{param}' parameter to "
+                f"view must be one of {_ortho}, not {view!r} (it foreshortens the span)"
+            )
+        matches = [
+            q
+            for q in feature.parameters()
+            if q.kind == param and q.span is not None and (role is None or q.role == role)
+        ]
+        if not matches:
+            r = f"/{role!r}" if role else ""
+            raise ValueError(
+                f"{type(feature).__name__} has no span-carrying '{param}'{r} parameter to "
                 f"dimension (callout params like diameter/depth are not yet supported — #398d)"
             )
-        # Dimension in a view where the span is VISIBLE (projects non-degenerate): a
-        # length along the turning axis vanishes in the end-on view, so pick by the
-        # geometry, not a fixed axis→view map. The caller can force a specific view.
-        (lo, hi) = p.span
+        if len(matches) > 1:
+            roles = sorted(q.role for q in matches)
+            raise ValueError(
+                f"{type(feature).__name__} has {len(matches)} '{param}' params (roles {roles}) "
+                f"— pass role= to choose one"
+            )
+        (lo, hi) = matches[0].span
         p1 = p2 = None
-        for v in [view] if view else ("front", "plan", "side"):
+        for v in [view] if view else _ortho:
             q1, q2 = self.at(v, *lo), self.at(v, *hi)
             if math.hypot(q2[0] - q1[0], q2[1] - q1[1]) > 1e-6:
                 view, p1, p2 = v, q1, q2
@@ -694,7 +710,7 @@ class Drawing:
         if p1 is None:
             raise ValueError(
                 f"'{param}' span projects to a point in "
-                f"{'the requested view' if view else 'every view'} — nothing to dimension"
+                f"{'the requested view' if view else 'every orthographic view'} — nothing to dimension"
             )
         if name is None:
             i = 0

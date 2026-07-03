@@ -4308,6 +4308,39 @@ class TestFeatureEdits:
         dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="mine", feature=hole)
         assert "mine" in dwg.annotations_of(hole)
 
+    def test_dimension_rejects_non_orthographic_view(self):
+        # #407 review: a linear dim on the foreshortening iso view mislabels the length.
+        from build123d import Cylinder
+
+        dwg = build_drawing(Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)))
+        step = next(f for f in dwg.model().features if f.kind == "step")
+        with pytest.raises(ValueError, match="front"):
+            dwg.dimension(step, "length", view="iso")
+
+    def test_dimension_unknown_view_raises_valueerror_not_keyerror(self):
+        # #407 review: a bad view= must be a clean ValueError, not a bare KeyError.
+        from build123d import Cylinder
+
+        dwg = build_drawing(Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)))
+        step = next(f for f in dwg.model().features if f.kind == "step")
+        with pytest.raises(ValueError):
+            dwg.dimension(step, "length", view="back")
+
+    def test_dimension_ambiguous_kind_requires_role(self):
+        # #407 review: an envelope exposes width/height/depth all as 'length' — a bare
+        # kind must raise (not silently pick width), and role= must disambiguate.
+        from build123d import Box
+
+        dwg = build_drawing(Box(40, 30, 10))
+        env = next((f for f in dwg.model().features if f.kind == "envelope"), None)
+        assert env is not None
+        roles = sorted(q.role for q in env.parameters() if q.kind == "length" and q.span)
+        assert len(roles) > 1
+        with pytest.raises(ValueError, match="role="):
+            dwg.dimension(env, "length")
+        name = dwg.dimension(env, "length", role=roles[0])
+        assert name in dwg.annotations_of(env)
+
     def test_shared_coordinate_location_dim_is_unowned(self):
         # #398c review (#406): a single location dim shared by two DISTINCT holes at the
         # same X belongs to neither — it must be unowned so drop(one) can't over-strip the
