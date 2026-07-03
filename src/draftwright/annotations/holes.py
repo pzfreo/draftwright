@@ -171,11 +171,23 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
             f"{axis} location dim for a {view}-view hole not placed (no room beside the view)",
         )
 
-    def _emit(strip, view, axis, cands, force=False):
+    def _emit(strip, view, axis, cands, force=False, features=None):
         # The collect-then-solve strip placer now lives in _common as the shared
         # place_strip_candidates (P3, retiring the Strip cursor #150); this thin wrapper
         # binds the pass's dwg + tier so the across/along/Z callers below are unchanged.
-        return place_strip_candidates(dwg, strip, view, axis, cands, tier, force=force)
+        # *features* (name -> IR feature) attributes each dim for drop() (#408).
+        return place_strip_candidates(
+            dwg, strip, view, axis, cands, tier, force=force, features=features
+        )
+
+    def _off_axis_owner(hole_locs):
+        # The IR hole feature owning a side-drilled location dim, or None when the dim's
+        # offset is shared by >1 distinct feature (unowned, so drop can't over-strip a
+        # sibling — mirrors the #398c shared-coordinate rule). *hole_locs* are the model
+        # locations of every hole that contributed to this (deduped-by-offset) dim.
+        feats = {dwg._feature_of_hole_at(loc) for loc in hole_locs}
+        feats.discard(None)
+        return next(iter(feats)) if len(feats) == 1 else None
 
     # "across" phase — an X-axis hole's Y position below the SIDE view, placed BEFORE
     # the envelope so the overall depth dim stacks outside it (ISO order). Confined to
@@ -188,21 +200,29 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
         yw = SZ(dz) - 2
         seen_y: set = set()
         cands = []
+        loc_by_name: dict = {}  # dim name -> contributing hole locations (for provenance)
         for h in (h for h in off if _axis_letter(h) == "x"):
             yo = round(abs(h.location[1] - dy), 2)
-            if yo * a.SCALE >= 1.0 and yo not in seen_y:
+            if yo * a.SCALE < 1.0:
+                continue
+            name = f"dim_loc_side_y{round(yo * 100)}"
+            loc_by_name.setdefault(name, []).append(h.location)
+            if yo not in seen_y:
                 seen_y.add(yo)
                 p_lo, p_hi = (SX(dy), yw, 0), (SX(h.location[1]), yw, 0)
                 cands.append(
                     (
-                        f"dim_loc_side_y{round(yo * 100)}",
+                        name,
                         lambda pos, pl=p_lo, ph=p_hi, lb=yo: _dim(
                             pl, ph, "below", yw - pos, draft, label=_fmt(lb)
                         ),
                     )
                 )
-        leftover = _emit(a.sv_zones.below, "side", "y", cands)
-        leftover = _emit(a.sv_zones.below, "side", "y", leftover, force=True)  # keep, don't drop
+        feats = {nm: _off_axis_owner(locs) for nm, locs in loc_by_name.items()}
+        leftover = _emit(a.sv_zones.below, "side", "y", cands, features=feats)
+        leftover = _emit(
+            a.sv_zones.below, "side", "y", leftover, force=True, features=feats
+        )  # keep, don't drop
         for _ in leftover:
             _drop("y", "side")
         return
@@ -212,21 +232,29 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
     xw = FZ(dz) - 2
     seen_x: set = set()
     x_cands = []
+    x_loc_by_name: dict = {}
     for h in (h for h in off if _axis_letter(h) == "y"):
         xo = round(abs(h.location[0] - dx), 2)
-        if xo * a.SCALE >= 1.0 and xo not in seen_x:
+        if xo * a.SCALE < 1.0:
+            continue
+        name = f"dim_loc_front_x{round(xo * 100)}"
+        x_loc_by_name.setdefault(name, []).append(h.location)
+        if xo not in seen_x:
             seen_x.add(xo)
             p_lo, p_hi = (FX(dx), xw, 0), (FX(h.location[0]), xw, 0)
             x_cands.append(
                 (
-                    f"dim_loc_front_x{round(xo * 100)}",
+                    name,
                     lambda pos, pl=p_lo, ph=p_hi, lb=xo: _dim(
                         pl, ph, "below", xw - pos, draft, label=_fmt(lb)
                     ),
                 )
             )
-    x_leftover = _emit(a.fv_zones.below, "front", "y", x_cands)
-    x_leftover = _emit(a.fv_zones.below, "front", "y", x_leftover, force=True)  # keep, don't drop
+    x_feats = {nm: _off_axis_owner(locs) for nm, locs in x_loc_by_name.items()}
+    x_leftover = _emit(a.fv_zones.below, "front", "y", x_cands, features=x_feats)
+    x_leftover = _emit(
+        a.fv_zones.below, "front", "y", x_leftover, force=True, features=x_feats
+    )  # keep, don't drop
     for _ in x_leftover:
         _drop("x", "front")
 
@@ -240,6 +268,11 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
     # never drop a real dimension (policy B, #133 rework); only a physically full strip
     # still drops.
     zr, zrf = SX(a.bb.max.Y), FX(a.bb.max.X)
+    z_locs: dict = {}  # z-offset -> contributing hole locations (for provenance)
+    for h in off:
+        zo = round(abs(h.location[2] - dz), 2)
+        if zo * a.SCALE >= 1.0:
+            z_locs.setdefault(zo, []).append(h.location)
     seen_z = set()
     for h in off:
         zo = round(abs(h.location[2] - dz), 2)
@@ -247,6 +280,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
             continue
         seen_z.add(zo)
         hz = h.location[2]
+        owner = _off_axis_owner(z_locs[zo])
 
         def _zc(view, p_lo, p_hi, edge, _zo=zo):
             return (
@@ -256,15 +290,20 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
                 ),
             )
 
+        def _zf(view, _zo=zo, _owner=owner):  # provenance map for the z dim in this view
+            return {f"dim_loc_{view}_z{round(_zo * 100)}": _owner}
+
         side_cand = (a.sv_zones.right, "side", (zr, SZ(dz), 0), (zr, SZ(hz), 0), zr)
         front_cand = (a.fv_zones.right, "front", (zrf, FZ(dz), 0), (zrf, FZ(hz), 0), zrf)
         order = (side_cand, front_cand) if _axis_letter(h) == "x" else (front_cand, side_cand)
         for strip, view, p_lo, p_hi, edge in order:
-            if not _emit(strip, view, "x", [_zc(view, p_lo, p_hi, edge)]):
+            if not _emit(strip, view, "x", [_zc(view, p_lo, p_hi, edge)], features=_zf(view)):
                 break
         else:
             strip, view, p_lo, p_hi, edge = order[0]
-            if _emit(strip, view, "x", [_zc(view, p_lo, p_hi, edge)], force=True):
+            if _emit(
+                strip, view, "x", [_zc(view, p_lo, p_hi, edge)], force=True, features=_zf(view)
+            ):
                 _drop("Z", view)
 
 

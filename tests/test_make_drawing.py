@@ -4239,11 +4239,28 @@ class TestModel:
         )
 
 
+# Annotation-name prefixes that are always owned by exactly ONE feature (never a shared
+# span), so every one of them on the sheet MUST have a provenance owner. Location dims
+# (m_locx/m_locy, dim_loc_*) are excluded — a coordinate shared by two distinct features
+# is intentionally unowned (#398c/#406). Turned-diameter callouts (m_dia_*) are excluded:
+# their spec-flattening render pass does not yet carry the feature (a tracked gap, #411).
+_ALWAYS_OWNED = ("hc_", "bc_", "m_cm", "dim_pitch", "balloon_", "m_slot")
+
+
 def _assert_drop_is_complete(dwg):
-    """The #408 consistency invariant: for EVERY feature, drop() removes exactly what
-    annotations_of() reports, and nothing the feature owned survives. Distinct features
-    never share an owned annotation (shared spans are left unowned), so dropping each in
+    """The #408 consistency invariant, in two non-tautological parts.
+
+    (1) COMPLETENESS: every single-feature-owned annotation on the sheet has a provenance
+    owner — this catches a render pass that stops tagging (which the drop==annotations_of
+    check alone cannot, since both derive from the same name set; #410 review).
+
+    (2) CONSISTENCY: for every feature, drop() removes exactly annotations_of() and leaves
+    nothing behind. Distinct features never share an owned annotation, so dropping each in
     turn is independent."""
+    reg = dwg._registry
+    for name in dwg.annotations():
+        if name.startswith(_ALWAYS_OWNED):
+            assert reg.feature_of(name) is not None, f"{name}: feature annotation left unowned"
     for f in list(dwg.model().features):
         owned = set(dwg.annotations_of(f))
         removed = set(dwg.drop(f))
@@ -4374,6 +4391,26 @@ class TestFeatureEdits:
 
         shaft = Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25))
         _assert_drop_is_complete(build_drawing(shaft))
+
+    def test_drop_is_complete_for_side_drilled_holes(self):
+        # #410 review F1: a side-drilled (X/Y-axis) hole's location dims (dim_loc_side/
+        # front/z) must be owned so drop clears them — they route through
+        # _locate_off_axis_holes, which now tags via place_strip_candidates(features=).
+        from build123d import Box, Cylinder, Pos, Rot
+
+        part = (
+            Box(120, 90, 40)
+            - Pos(0, 0, 5) * Rot(0, 90, 0) * Cylinder(5, 120)  # X-axis bore
+            - Pos(0, 0, -8) * Rot(90, 0, 0) * Cylinder(5, 90)  # Y-axis bore
+        )
+        dwg = build_drawing(part)
+        side_loc = [n for n in dwg.annotations() if n.startswith("dim_loc_")]
+        assert side_loc, "expected side-drilled location dims"
+        # Directly: each (distinct-offset) side-drilled dim is owned by its hole — the F1
+        # fix. Without it these were feature=None and drop(hole) left them behind.
+        for n in side_loc:
+            assert dwg._registry.feature_of(n) is not None, f"{n} unowned (F1 regression)"
+        _assert_drop_is_complete(dwg)
 
     def test_dimension_rejects_non_orthographic_view(self):
         # #407 review: a linear dim on the foreshortening iso view mislabels the length.
