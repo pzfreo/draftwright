@@ -288,7 +288,13 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
         assert feat.bcd is not None  # a bolt circle always carries its BCD
         cx = sum(to_page(m)[0] for m in members) / len(members)
         cy = sum(to_page(m)[1] for m in members) / len(members)
-        dwg.add(CenterlineCircle((cx, cy), feat.bcd * a.SCALE), f"bc_{view}{j}", view=view)
+        # Furniture provenance (#408): the pattern owns its centre line + pitch dims.
+        dwg.add(
+            CenterlineCircle((cx, cy), feat.bcd * a.SCALE),
+            f"bc_{view}{j}",
+            view=view,
+            feature=feat,
+        )
     elif feat.pattern == "linear":
         assert feat.pitch is not None  # a linear array always carries its pitch
         _place_pitch_dim(
@@ -301,13 +307,14 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
             feat.pitch,
             to_page,
             f"dim_pitch_{view}{j}",
+            feature=feat,
         )
     elif feat.pattern == "grid":
         assert feat.grid is not None  # a grid always carries its (row, col) pitch
-        _add_grid_pitch_dims(dwg, a, view, j, members, feat.grid, to_page)
+        _add_grid_pitch_dims(dwg, a, view, j, members, feat.grid, to_page, feature=feat)
 
 
-def _add_grid_pitch_dims(dwg, a: Analysis, view, j, members, nominals, to_page):
+def _add_grid_pitch_dims(dwg, a: Analysis, view, j, members, nominals, to_page, feature=None):
     """Both pitch dimensions of a rectangular grid — one along each lattice axis,
     each labelled ``(n-1)× pitch`` (#92).  The two axes are recovered as the two
     shortest near-orthogonal inter-hole page vectors (the recogniser's own
@@ -379,16 +386,17 @@ def _add_grid_pitch_dims(dwg, a: Analysis, view, j, members, nominals, to_page):
             pitch,
             to_page,
             f"dim_pitch_{view}{j}_{sub}",
+            feature=feature,
         )
 
     _axis_dim(u1, l1, 0)
     _axis_dim(u2, l2, 1)
 
 
-def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name):
+def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name, feature=None):
     """Pitch dimension between two hole-centre *locations* ``loc1``→``loc2``, labelled
     ``(n-1)× pitch``, placed just outside the view on the side of the row's
-    outward perpendicular (#92)."""
+    outward perpendicular (#92). *feature* attributes it to the source pattern (#408)."""
     p1 = to_page(loc1)
     p2 = to_page(loc2)
     ux, uy = p2[0] - p1[0], p2[1] - p1[1]
@@ -455,6 +463,7 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
         ),
         name,
         view=view,
+        feature=feature,
     )
 
 
@@ -513,6 +522,10 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
     # surviving feature-hole positions, supplied by the orchestrator) gates which
     # members are dimensioned; no recogniser Hole/Pattern object is used.
     by_view: dict = {}
+    # Callout → source IR feature, for provenance (#408 / ADR 0010). The callout object
+    # flows unchanged from here through the by_view/queue tuples to both emit sites, so an
+    # id() map tags it there without threading a feature through the placement machinery.
+    _feat_of_callout: dict[int, object] = {}
     for g in groups:
         feat = g.feature
         if not isinstance(feat, HoleFeature | PatternFeature):
@@ -541,6 +554,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
         if callout is None:
             continue
         view = view_of_axis[feat.frame.axis][0]
+        _feat_of_callout[id(callout)] = feat  # provenance (#408)
         by_view.setdefault(view, []).append((locs, dia, callout, pat))
 
     def _rim_tip(centre, elbow, dia):
@@ -564,6 +578,7 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
             ),
             f"hc_{view}{i}",
             view=view,
+            feature=_feat_of_callout.get(id(callout)),
         )
 
     for view, view_groups in by_view.items():
@@ -960,7 +975,9 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
             i = start_i
             for s, _elbow_y, leader in sorted(placed, key=lambda p: p[0][4]):
                 _locs, dia, callout, feat, _ny, rep = s
-                dwg.add(leader, f"hc_{view}{i}", view=view)
+                dwg.add(
+                    leader, f"hc_{view}{i}", view=view, feature=_feat_of_callout.get(id(callout))
+                )
                 _add_furniture(dwg, a, view, i, feat, to_page)
                 i += 1
             return i

@@ -4239,6 +4239,18 @@ class TestModel:
         )
 
 
+def _assert_drop_is_complete(dwg):
+    """The #408 consistency invariant: for EVERY feature, drop() removes exactly what
+    annotations_of() reports, and nothing the feature owned survives. Distinct features
+    never share an owned annotation (shared spans are left unowned), so dropping each in
+    turn is independent."""
+    for f in list(dwg.model().features):
+        owned = set(dwg.annotations_of(f))
+        removed = set(dwg.drop(f))
+        assert removed == owned, f"{f.kind}: drop removed {removed} != annotations_of {owned}"
+        assert not dwg.annotations_of(f), f"{f.kind}: annotations remain after drop"
+
+
 class TestFeatureEdits:
     """#398b: first-class feature provenance — drop()/annotations_of() by feature.
 
@@ -4247,13 +4259,13 @@ class TestFeatureEdits:
     returns exactly the covered set, so drop() is transparent about what it removes."""
 
     def test_annotations_of_returns_a_features_centermarks_and_locations(self):
-        # #398c broadened coverage: a hole owns its centre mark(s) AND its location dims
-        # (the corridor-placed m_locx/m_locy), now that provenance threads the corridor.
+        # A hole owns its centre mark(s), location dims (#398c, corridor-placed
+        # m_locx/m_locy), and its ⌀ callout (#408, hc_).
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
         owned = dwg.annotations_of(hole)
         assert any(n.startswith("m_cm") for n in owned), "hole should own its centre mark(s)"
-        assert all(n.startswith(("m_cm", "m_loc")) for n in owned)
+        assert all(n.startswith(("m_cm", "m_loc", "hc_")) for n in owned)
 
     def test_drop_removes_a_features_annotations(self):
         dwg = build_drawing(_holed_plate())
@@ -4307,6 +4319,61 @@ class TestFeatureEdits:
         p1, p2 = dwg.at("plan", 0, 0, 0), dwg.at("plan", 20, 0, 0)
         dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="mine", feature=hole)
         assert "mine" in dwg.annotations_of(hole)
+
+    def test_drop_hole_clears_its_callout(self):
+        # #408 A: a hole owns its ⌀ callout, so drop clears it (not just centre marks).
+        dwg = build_drawing(_holed_plate())
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        owned = dwg.annotations_of(hole)
+        assert any(n.startswith("hc_") for n in owned), "hole should own its callout"
+        assert any(n.startswith("hc_") for n in dwg.drop(hole))
+
+    def test_drop_pattern_clears_its_furniture(self):
+        # #408 B: a pattern owns its callout AND its centre line / pitch furniture.
+        import math
+
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(120, 120, 20)
+        for k in range(6):
+            ang = math.radians(60 * k)
+            part -= Pos(35 * math.cos(ang), 35 * math.sin(ang), 0) * Cylinder(4, 20)
+        dwg = build_drawing(part)
+        pat = next(f for f in dwg.model().features if f.kind == "pattern")
+        owned = dwg.annotations_of(pat)
+        assert any(n.startswith("hc_") for n in owned) and any(n.startswith("bc_") for n in owned)
+        removed = set(dwg.drop(pat))
+        assert removed == set(owned)
+
+    def test_balloon_is_owned_by_its_hole(self):
+        # #408 C: a balloon (which carries a recognition hole) attributes to the IR feature.
+        dwg = build_drawing(_holed_plate())
+        a = dwg._analysis
+        hole_obj = a.holes[0]
+        feat = dwg._feature_of_hole_at(hole_obj.location)
+        assert feat is not None
+        dwg._add_balloon("plan", "A", 0, hole_obj)
+        bln = next(n for n in dwg.annotations() if n.startswith("balloon_"))
+        assert bln in dwg.annotations_of(feat)
+
+    def test_drop_is_complete_for_a_multi_feature_prismatic_part(self):
+        # #408 audit: holes + bolt pattern + slot — drop(feature) leaves nothing behind.
+        import math
+
+        from build123d import Box, Cylinder, Mode, Pos
+
+        part = Box(140, 120, 20) - Pos(-45, 0, 0) * Box(24, 8, 30, mode=Mode.SUBTRACT)
+        for k in range(6):
+            ang = math.radians(60 * k)
+            part -= Pos(40 + 25 * math.cos(ang), 25 * math.sin(ang), 0) * Cylinder(4, 20)
+        _assert_drop_is_complete(build_drawing(part))
+
+    def test_drop_is_complete_for_a_turned_part(self):
+        # #408 audit: a turned stepped shaft (steps + OD).
+        from build123d import Cylinder
+
+        shaft = Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25))
+        _assert_drop_is_complete(build_drawing(shaft))
 
     def test_dimension_rejects_non_orthographic_view(self):
         # #407 review: a linear dim on the foreshortening iso view mislabels the length.

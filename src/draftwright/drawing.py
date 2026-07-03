@@ -289,6 +289,9 @@ class Drawing:
         # The detected ADR-0008 PartModel this drawing was built from (attached by
         # the annotation orchestrator). Read surface for semantic edits (#397).
         self._part_model: object | None = None
+        # Lazy model-location → IR hole/pattern feature index (#408), so a balloon —
+        # which holds a recognition hole, not the IR feature — can attribute itself.
+        self._hole_feature_index: dict | None = None
 
     # -- annotation registry (compat accessors, ADR 0005 §4) ------------------
     # The registry owns these four; they are exposed as their live containers so
@@ -976,6 +979,23 @@ class Drawing:
             self._render_balloon(view, tag, j, hole, cx, cy, bx, by, fs, r)
         return len(members) - len(coords)
 
+    def _feature_of_hole_at(self, location):
+        """The IR hole/pattern feature whose member sits at model-space *location*, or
+        ``None`` (#408). Attributes a balloon (which carries a recognition hole, not the
+        IR feature) to its feature so :meth:`drop` clears it. Cached — the model is fixed
+        after build."""
+        m = self._part_model
+        if m is None:
+            return None
+        if self._hole_feature_index is None:
+            idx: dict = {}
+            for f in getattr(m, "features", []):
+                if getattr(f, "kind", None) in ("hole", "pattern"):
+                    for loc in getattr(f, "members", None) or (f.frame.origin,):
+                        idx[tuple(round(c, 3) for c in loc)] = f
+            self._hole_feature_index = idx
+        return self._hole_feature_index.get(tuple(round(c, 3) for c in location))
+
     def _render_balloon(self, view, tag, j, hole, cx, cy, bx, by, fs, r):
         """Build and add one balloon glyph + leader at solved centre ``(bx, by)``
         for hole ``(cx, cy)`` (#111)."""
@@ -1006,7 +1026,12 @@ class Drawing:
         # Furniture that legitimately sits on the view geometry — exempt from the
         # annotation-overlap / centreline lint, as the section arrows do.
         balloon.is_centerline = True
-        self.add(balloon, f"balloon_{view}_{tag}_{j}", view=view)
+        self.add(
+            balloon,
+            f"balloon_{view}_{tag}_{j}",
+            view=view,
+            feature=self._feature_of_hole_at(hole.location),
+        )
 
     def _add_balloon(self, view, tag, j, hole):
         """Single-balloon convenience over :meth:`_add_balloons` (#111)."""
