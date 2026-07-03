@@ -4238,6 +4238,54 @@ class TestModel:
             build_drawing(part, auto_dims=False).model()
         )
 
+
+class TestFeatureEdits:
+    """#398b: first-class feature provenance — drop()/annotations_of() by feature.
+
+    Coverage today is centre marks (the first render pass to carry provenance); slots,
+    locations, callouts and diameters thread `feature` in follow-up PRs. annotations_of()
+    returns exactly the covered set, so drop() is transparent about what it removes."""
+
+    def test_annotations_of_returns_a_features_centermarks(self):
+        dwg = build_drawing(_holed_plate())
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        owned = dwg.annotations_of(hole)
+        assert owned, "hole should own at least its centre mark(s)"
+        assert all(n.startswith("m_cm") for n in owned)
+
+    def test_drop_removes_a_features_annotations(self):
+        dwg = build_drawing(_holed_plate())
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        names = set(dwg.annotations_of(hole))
+        removed = dwg.drop(hole)
+        assert set(removed) == names
+        assert dwg.annotations_of(hole) == {}
+        for n in names:
+            assert n not in dwg.annotations()  # gone from the registry + render list
+
+    def test_drop_feature_with_no_annotations_is_noop(self):
+        dwg = build_drawing(_holed_plate())
+        # An envelope feature carries no centre marks (its dims aren't tagged yet).
+        env = next((f for f in dwg.model().features if f.kind == "envelope"), None)
+        if env is not None:
+            assert dwg.drop(env) == []
+
+    def test_manual_add_records_feature_provenance(self):
+        from build123d_drafting import CenterMark
+
+        dwg = build_drawing(_holed_plate())
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg.add(CenterMark((0, 0, 0), 3.0, dwg.draft), "my_mark", view="plan", feature=hole)
+        assert "my_mark" in dwg.annotations_of(hole)
+
+    def test_provenance_survives_repair(self):
+        # Snapshot/restore (the repair undo path) must preserve feature ownership.
+        dwg = build_drawing(_holed_plate())
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        before = set(dwg.annotations_of(hole))
+        dwg.repair()
+        assert set(dwg.annotations_of(hole)) == before
+
     def test_model_structurally_equivalent_across_step_and_b123d_input(self, tmp_path):
         # D5 / the convergence property (ADR 0001 Amendment 1): a STEP import re-tessellates
         # the solid, so coordinates differ — but the DETECTED feature structure must be the
