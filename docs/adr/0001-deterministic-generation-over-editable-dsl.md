@@ -122,7 +122,12 @@ rejected primitive dump (§3) nor a bespoke serialized DSL, but the **detected
   handles from `dwg.model()` (read half, #397) via a feature-targeted write API
   (#398), and `finalize_drawing(dwg)` (#388) re-runs the ADR-0009 layout. No dead
   coordinates; edits survive a re-draft — the property §3 rejected primitive dumps
-  for lacking.
+  for lacking. This surface has an optional **executable form** (#400): emit the
+  planner's per-feature intents as a readable, editable script of *semantic* calls
+  (not page coordinates). That is a sanctioned narrowing of §3's "de-emphasise
+  code generation" — code generation at the *intent* level dodges the dead-coordinate
+  failure §3 actually rejected — provided the emitter serializes the planner's real
+  intents (faithful by construction) and a round-trip test holds.
 - **Topology is an optional accelerant, not a dependency.** When the caller
   authored the part (the b123d scenario) they may *also* reference a raw
   `Face`/`Edge`/tag (§4's "edit the solid" made concrete for annotation);
@@ -143,5 +148,6 @@ specifies *what* the domain-semantic layer (§2) is anchored to.
   #29 (lint suggestions), #30 (lint→repair loop) — the domain-semantic /
   self-correction layer.
 - **Amendment 1 surface:** #388 (`--script`/`finalize`), #397 (`dwg.model()` read
-  surface), #398 (edit-by-feature write surface), #396 (`place_dim` limits);
-  ADR 0008 (the `PartModel` IR both inputs converge on).
+  surface), #398 (edit-by-feature write surface), #400 (expanded semantic script —
+  the executable form of the surface), #396 (`place_dim` limits); ADR 0008 (the
+  `PartModel` IR both inputs converge on).
