@@ -16,6 +16,7 @@ from build123d_drafting.helpers import (
 )
 
 from draftwright._core import (
+    _CONCENTRIC_TOL_MM,
     _MIN_LOC_SEP_MM,
     _TB_CLEAR,
     _TB_H,
@@ -120,7 +121,29 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
     draft = dwg.draft
     all_holes = a.holes if holes_in is None else holes_in
     patterned = {h for p in a.patterns for h in p.holes}
-    off = [h for h in all_holes if _axis_letter(h) in ("x", "y") and h not in patterned]
+
+    def _coaxial(h):
+        # The turning-axis bore of a rotational part is located by its centreline, not
+        # a position dim (#309) — mirrors render_locations' concentric filter (the
+        # Z-turned/plan case) and coverage.py's coaxial exemption, for the X/Y-turned
+        # case whose dims come through THIS path. Suppresses the redundant offset+height
+        # dims; coverage already credits the bore via its centre mark, so lint stays
+        # clean. Non-rotational parts and genuine off-centre side-drilled holes keep
+        # their dims (the a.od_axis + perpendicular-centre gates).
+        if not a.is_rotational or _axis_letter(h) != a.od_axis:
+            return False
+        centre = (a.cx, a.cy, a.cz)
+        return all(
+            abs(h.location[i] - centre[i]) <= _CONCENTRIC_TOL_MM
+            for i, ax in enumerate("xyz")
+            if ax != a.od_axis
+        )
+
+    off = [
+        h
+        for h in all_holes
+        if _axis_letter(h) in ("x", "y") and h not in patterned and not _coaxial(h)
+    ]
     if not off:
         return
     SX, SZ = a.proj.side_x, a.proj.side_z
