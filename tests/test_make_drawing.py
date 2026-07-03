@@ -1288,6 +1288,23 @@ class TestComposeThenPackRepack:
         cands = _repack_candidates(a, 2.0, "A3")
         assert len(cands) == 1 and cands[0][0] == 2.0
 
+    @pytest.mark.timeout(120)
+    def test_repack_honours_pinned_scale_on_oversized_part(self):
+        # #350 review: when no candidate fits the measured layout, the repack backstop
+        # bisects for a fitting scale ONLY when the scale is not pinned. A user-pinned
+        # scale must be honoured (overflow accepted, as asked) — not silently reduced —
+        # and the backstop must never crash on the degenerate no-positive-scale case.
+        dwg = build_drawing(Box(4200, 1600, 5400), scale=1)
+        assert dwg.scale == 1.0  # pin honoured, not silently rescaled
+
+    @pytest.mark.timeout(120)
+    def test_repack_reduces_an_oversized_part_when_scale_is_free(self):
+        # The complement: with the scale free, an oversized part is reduced to a scale
+        # that fits rather than overflowing (#350) — through the full pass-1 + repack.
+        dwg = build_drawing(Box(4200, 1600, 5400))
+        assert dwg.scale < 0.2  # a deeper ISO 5455 reduction than the old A0 1:5 floor
+        assert not any(i.code.endswith("out_of_bounds") for i in dwg.lint())
+
     # --- ownership-map lifecycle -----------------------------------------
 
     @pytest.mark.timeout(60)

@@ -299,27 +299,40 @@ def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None):
 
     candidates = _repack_candidates(a, scale, page)
     fit = next(((c, gg) for c in candidates if (gg := _geom(c)).fits), None)
-    if fit is None:
-        # No standard ISO 5455 scale fits the measured layout (an out-of-domain-huge
-        # part). Rather than keep an overflowing sheet (#350), bisect for the largest
-        # scale that fits on the largest candidate sheet — the packed layout is monotone
-        # in scale — mirroring choose_scale's backstop.
-        _, pw0, ph0, tb0 = candidates[-1]
-        lo, hi = 0.0, candidates[-1][0]
-        for _ in range(60):
-            mid = (lo + hi) / 2.0
-            if _geom((mid, pw0, ph0, tb0)).fits:
-                lo = mid
-            else:
-                hi = mid
-        chosen = (lo, pw0, ph0, tb0)
-        g = _geom(chosen)
-        _log.warning(
-            "measure-repack: no standard sheet fits the measured layout; using computed %s",
-            format_drawing_scale(lo),
-        )
-    else:
+    if fit is not None:
         chosen, g = fit
+    else:
+        chosen = None
+        # No standard ISO 5455 scale fits the measured layout. When the scale is NOT
+        # pinned, bisect for the largest scale that fits on the largest candidate sheet
+        # (the packed layout is monotone in scale) so we never keep an overflowing sheet
+        # (#350) — mirroring choose_scale's backstop, including its two guards: honour a
+        # pinned scale (may not reduce it), and fall back if no positive scale fits.
+        if scale is None:
+            _, pw0, ph0, tb0 = candidates[-1]
+            lo, hi = 0.0, candidates[-1][0]
+            for _ in range(60):
+                mid = (lo + hi) / 2.0
+                if _geom((mid, pw0, ph0, tb0)).fits:
+                    lo = mid
+                else:
+                    hi = mid
+            if lo > 0.0:
+                chosen = (lo, pw0, ph0, tb0)
+                g = _geom(chosen)
+                _log.warning(
+                    "measure-repack: no standard sheet fits the measured layout; "
+                    "using computed %s",
+                    format_drawing_scale(lo),
+                )
+        if chosen is None:
+            # Pinned scale, or no positive scale fits the measured blocks on this page:
+            # keep the largest candidate and let lint report the overflow (as before).
+            chosen = candidates[-1]
+            g = _geom(chosen)
+            _log.warning(
+                "measure-repack: no sheet/scale fits the measured layout; using %s", chosen
+            )
     s, pw, ph, tb = chosen
     moved = max(
         abs(g.FV_X - a.FV_X),
