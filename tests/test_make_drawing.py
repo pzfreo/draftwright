@@ -4405,6 +4405,18 @@ class TestFeatureEdits:
         owner = dwg._registry.feature_of(mdia[0])
         assert mdia[0] in dwg.drop(owner)
 
+    def test_drop_step_clears_its_diameter_callout_x_turned(self):
+        # #413 review: cover the X-row path (m_dia_x, _diameter_row_below) too — the Z-shaft
+        # above only exercises the m_dia_z column path.
+        from build123d import Cylinder, Rot
+
+        shaft = Rot(0, 90, 0) * (Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)))
+        dwg = build_drawing(shaft)
+        mdia_x = [n for n in dwg.annotations() if n.startswith("m_dia_x")]
+        assert mdia_x, "expected X-turned diameter callouts (row path)"
+        for n in mdia_x:
+            assert dwg._registry.feature_of(n) is not None, f"{n} unowned (#412 row path)"
+
     def test_drop_is_complete_for_side_drilled_holes(self):
         # #410 review F1: a side-drilled (X/Y-axis) hole's location dims (dim_loc_side/
         # front/z) must be owned so drop clears them — they route through
