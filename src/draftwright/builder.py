@@ -35,7 +35,7 @@ from draftwright._core import (
     _tb_width,
 )
 from draftwright.analysis import _analyse
-from draftwright.annotate import _auto_annotate
+from draftwright.annotate import _auto_annotate, build_model
 from draftwright.drawing import Drawing
 from draftwright.fonts import PLEX_MONO
 from draftwright.projection import (
@@ -209,6 +209,10 @@ def _assemble(a, out, assembly, detail_view, auto_dims) -> Drawing:
         assembly=assembly,
     )
     dwg._analysis = a  # expose analysis namespace for testing and future strip access
+    # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
+    # work even in manual mode (#398). _auto_annotate reads this attached model rather
+    # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
+    dwg._part_model = build_model(a)
 
     part_s = a.part.scale(a.SCALE)
     dwg.add_view("front", part_s, (cxs, cys - dist, czs), (0, 0, 1), (a.FV_X, a.FV_Y), scaled=True)

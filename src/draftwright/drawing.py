@@ -531,9 +531,10 @@ class Drawing:
         drawing. **Experimental**: exposes the raw IR dataclasses, which may still
         evolve (a stabilised public projection is deferred to the write surface #398).
 
-        Returns ``None`` when no model is available — before a build, or when built
-        with ``auto_dims=False`` (detection currently runs inside the annotation pass;
-        hoisting it so the model is always present is the #398 prerequisite).
+        Populated for every built drawing, including a manual-mode (``auto_dims=False``)
+        build — detection runs in the pipeline, not the annotation pass (#398), so a
+        script can dimension detected features even when it suppressed the automatic
+        ones. ``None`` only on a bare, unbuilt ``Drawing``.
         """
         return self._part_model
 

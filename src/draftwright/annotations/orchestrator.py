@@ -104,6 +104,31 @@ def _concentric_bore_diams(a: Analysis) -> list:
     return [d for d in a.z_diams if d != a.od_diam and any(abs(d - c) <= 0.15 for c in concentric)]
 
 
+def build_model(a: Analysis):
+    """Build the ADR-0008 :class:`PartModel` from an analysis — the detected feature
+    inventory (a pure function of *a*).
+
+    Extracted from :func:`_auto_annotate` so the pipeline can build the model
+    **regardless of** ``auto_dims`` (#398): the read surface :meth:`Drawing.model` and
+    feature-referenced edits must work even in manual mode, where the annotation pass
+    never runs. Concentric bore leaders are a Z-axis construction (bores on the vertical
+    rotation axis); a horizontal (X/Y) round body gets OD + centrelines only (#222), so
+    its bore set is empty.
+    """
+    _bores = tuple(_concentric_bore_diams(a)) if a.is_rotational and a.od_axis == "z" else ()
+    return build_part_model(
+        a.part,
+        holes=a.holes,
+        patterns=a.patterns,
+        bosses=a.bosses,
+        slots=a.slots,
+        prof=a.prof,
+        step_zs=a.step_zs,
+        rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
+        pmi=a.pmi,
+    )
+
+
 def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     """Add the standard automatic dimensions, centrelines, and title block."""
     # Idempotent: clear build-time lint state so a second annotation pass does
@@ -153,26 +178,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         "x": ("side", lambda loc: (SX(loc[1]), SZ(loc[2]))),
     }
 
-    # The part model — built once and rendered from for the IR-migrated passes
-    # (centre marks, turned diameters/lengths); ADR 0008 convergence / #229.
-    # Concentric bore leaders are a Z-axis construction (bores on the vertical
-    # rotation axis); a horizontal (X/Y) round body gets OD + centrelines only
-    # (#222), so its bore set is empty.
-    _bores = tuple(_concentric_bore_diams(a)) if a.is_rotational and a.od_axis == "z" else ()
-    _model = build_part_model(
-        a.part,
-        holes=a.holes,
-        patterns=a.patterns,
-        bosses=a.bosses,
-        slots=a.slots,
-        prof=a.prof,
-        step_zs=a.step_zs,
-        rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
-        pmi=a.pmi,
-    )
-    # Retain the IR on the drawing as the read surface for semantic edits (#397). On a
-    # repack this runs again on the final (pass-2) drawing, so dwg.model() always
-    # reflects the drawing that was actually rendered.
+    # The part model — the IR-migrated passes (centre marks, turned diameters/lengths)
+    # render from it (ADR 0008 convergence / #229). Built once by the pipeline
+    # (:func:`build_model`, attached to the drawing before this pass) so the read surface
+    # (dwg.model()) and feature edits work even in manual mode (#398); fall back to
+    # building it here for any direct caller that skipped _assemble.
+    _model = dwg._part_model if dwg._part_model is not None else build_model(a)
     dwg._part_model = _model
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
