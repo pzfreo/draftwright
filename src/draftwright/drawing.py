@@ -286,6 +286,9 @@ class Drawing:
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
         self._analysis: Analysis | None = None
+        # The detected ADR-0008 PartModel this drawing was built from (attached by
+        # the annotation orchestrator). Read surface for semantic edits (#397).
+        self._part_model: object | None = None
 
     # -- annotation registry (compat accessors, ADR 0005 §4) ------------------
     # The registry owns these four; they are exposed as their live containers so
@@ -512,6 +515,27 @@ class Drawing:
                 )
             )
         return result
+
+    def model(self):
+        """The detected **PartModel** this drawing was built from (ADR 0008 IR) — the
+        read surface for semantic edits (#397, ADR 0001 Amendment 1).
+
+        Both input scenarios converge here: a STEP file and a build123d solid both
+        normalise to a solid, are detected once, and produce the *same* feature model
+        (``.features`` — holes/slots/steps/patterns, ``.datums``, ``.orientation``,
+        ``.bbox``). This is the provenance-agnostic "what is in this drawing and why"
+        — richer than :meth:`features` (grouped holes, per view) and the future target
+        for feature-referenced edits (#398).
+
+        **Read-only** — a view of what was built; mutating it does not change the
+        drawing. **Experimental**: exposes the raw IR dataclasses, which may still
+        evolve (a stabilised public projection is deferred to the write surface #398).
+
+        Returns ``None`` when no model is available — before a build, or when built
+        with ``auto_dims=False`` (detection currently runs inside the annotation pass;
+        hoisting it so the model is always present is the #398 prerequisite).
+        """
+        return self._part_model
 
     def place_dim(self, p1, p2, side, view, draft, *, name=None, slot=8.0, **kwargs):
         """Add a :class:`~build123d_drafting.helpers.Dimension` that stacks cleanly
