@@ -176,12 +176,16 @@ class TestDiameterColumnOccupancy:
             def view_of(s, n):
                 return "front"
 
-            def add(s, ann, name, view):
+            def add(s, ann, name, view, feature=None):
                 pass
 
         return _Dwg()
 
-    _ITEMS = [((10.0, 0.0, 8.0), 12.0), ((10.0, 0.0, 24.0), 8.0)]  # two Z-turned ø steps
+    # (anchor, dia, feature) — feature=None here (unit test of placement; #412 added the tag)
+    _ITEMS = [
+        ((10.0, 0.0, 8.0), 12.0, None),
+        ((10.0, 0.0, 24.0), 8.0, None),
+    ]  # two Z-turned ø steps
 
     def test_control_no_occupant_places_both(self):
         from draftwright.annotations.from_model import _diameter_column_left
