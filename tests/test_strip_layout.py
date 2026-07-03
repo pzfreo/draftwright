@@ -664,13 +664,12 @@ def test_envelope_tier_stacks_outside_a_middle_tier_obstacle():
 
 
 def test_envelope_tier_uses_inner_tier_when_strip_is_clear():
-    # No obstacles → the overall dim takes the innermost tier (anchor − gap = 53),
-    # matching the first Strip.allocate it replaces (byte-identity on hole-free parts).
+    # No obstacles → the overall dim takes the innermost tier (anchor − gap = 51).
     from draftwright._core import Strip
     from draftwright.annotations.from_model import _envelope_tier
 
     strip = Strip(anchor=61.0, outer_limit=10.0, direction=-1.0)
-    assert _envelope_tier(_fake_dwg({}), strip, "side", size=8.0) == 53.0
+    assert _envelope_tier(_fake_dwg({}), strip, "side", size=8.0) == 51.0
 
 
 # --- unified above-corridor solve (ADR 0009 end state, #345/#346) -----------

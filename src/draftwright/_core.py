@@ -162,6 +162,15 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
     return d
 
 
+# Dimension-line spacing (page-mm, scale-independent), the single source of truth for
+# BOTH the ADR 0009 strip carve (via the `Strip` dataclass defaults below) and the
+# sheet.py halo/depth estimates that must reserve the same space. Per ISO 129-1 / ASME
+# Y14.5, the FIRST dimension line sits furthest from the outline (clears the outline +
+# extension-line origins) and subsequent parallel lines stack tighter and uniform (#347).
+_STRIP_GAP = 10.0  # clearance between the view outline and the first dimension line
+_STRIP_SPACING = 2.5  # clear gap between successive parallel dimension lines (beyond the label)
+
+
 @dataclass
 class Strip:
     """A one-dimensional annotation band adjacent to an orthographic view.
@@ -184,8 +193,8 @@ class Strip:
     anchor: float
     outer_limit: float
     direction: float = 1.0
-    gap: float = 8.0
-    spacing: float = 4.0
+    gap: float = _STRIP_GAP
+    spacing: float = _STRIP_SPACING
 
     @property
     def available(self) -> float:
@@ -220,7 +229,6 @@ _SLOT_DIM_DEPTH = 2 * _FONT_SIZE + _PAD  # sv_zones.below: overall depth dimensi
 _SLOT_DIM_HEIGHT = 2 * _FONT_SIZE + 2 * _PAD  # fv_zones.right: overall height dim
 
 
-_STRIP_SPACING = 4.0  # page-mm between successive annotations in a strip
 _MIN_VIEW_MM = (
     10.0  # min projected view dimension; below it annotation geometry degenerates (#129)
 )
@@ -572,8 +580,11 @@ def _iso_bbox(dwg):
 # Relocated from make_drawing for the sheet.py split (#162). Shared by sheet.py
 # (choose_scale/_layout_geometry) and make_drawing's repack pass, so they live
 # here in the shared base to keep the DAG acyclic.
-_DIM_PAD = 18.0
-_STRIP_GAP = 8.0
+# The base inter-view corridor: one first-line gap + one dimension tier. Tracks
+# _STRIP_GAP so widening the first-line gap (#347) keeps the below-plan / between-view
+# corridors from razor-fitting the first dim line (the #130 slack guarantee): 10 + 10.
+_DIM_PAD = _STRIP_GAP + _SLOT_DIM_HEIGHT  # 20.0
+# _STRIP_GAP / _STRIP_SPACING are defined above (beside the `Strip` dataclass they seed).
 
 _PAGE_SIZES = {
     "A4": (297.0, 210.0),
