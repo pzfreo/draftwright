@@ -154,3 +154,5 @@ build → plan → render). See
 [`docs/target-architecture.md`](docs/target-architecture.md) and
 [`docs/adr/`](docs/adr/). The engine handles view layout (strip/zone model), scale
 selection, annotation placement, and section rendering.
+
+The codebase has been entirely written by LLM (Claude Code) under detailed guidance from a person.
