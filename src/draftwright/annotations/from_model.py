@@ -244,7 +244,13 @@ def render_slots(dwg, model, a) -> int:
 
                 def _below_or_drop(nm, _bs=below_strip, _bh=below_hi, _feat=s, _dw=drop_word):
                     if _bs is not None and not place_strip_candidates(
-                        dwg, _bs, vw[0], "y", [_cand_for("below", _bh)], tier, features={cname: _feat}
+                        dwg,
+                        _bs,
+                        vw[0],
+                        "y",
+                        [_cand_for("below", _bh)],
+                        tier,
+                        features={cname: _feat},
                     ):
                         return  # placed on the below strip
                     _record_slot_drop(dwg, _dw, idx, vw[0], _feat)
