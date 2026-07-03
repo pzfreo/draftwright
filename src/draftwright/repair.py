@@ -83,7 +83,7 @@ def repair_drawing(dwg, max_iter: int = 3):
         if not before:
             break
         snap_annotations = list(dwg.items)
-        snap_named = dwg._registry.snapshot()
+        snap_registry = dwg._registry.snapshot()
         changed = False
         for issue in before:
             if issue.code not in _REPAIRABLE_CODES:
@@ -103,6 +103,6 @@ def repair_drawing(dwg, max_iter: int = 3):
         if len(dwg.lint()) > len(before):
             # The repairs net-worsened the sheet — undo this pass and stop.
             dwg.items[:] = snap_annotations
-            dwg._registry.restore(snap_named)
+            dwg._registry.restore(snap_registry)
             break
     return dwg

@@ -521,13 +521,13 @@ def _request_prismatic_detail(dwg, a: Analysis) -> None:
 
     Prismatic only, by construction: `render_height_ladder` never emits this
     escalation for a turned part (no `StepLevelFeature`). A crowded **Z-turned**
-    step-length chain has its own, separate, still-silent drop in
-    `_draw_step_chain`'s vertical branch (`return 0`, no lint/escalation at
-    all) — this function no longer accidentally, unreliably papers over that
-    with prismatic-semantics dims (wrong anchor/labeling for a turned chain);
-    see #362 for the real fix (a Z-turned-appropriate detail remedy, analogous
-    to the X-turned crowded-head block + `DetailRequest` this docstring's
-    sibling, `render_step_lengths`, already has).
+    step-length chain has its own, separate drop in `_draw_step_chain`'s vertical
+    branch (`return 0`) — this function no longer accidentally, unreliably papers
+    over that with prismatic-semantics dims (wrong anchor/labeling for a turned
+    chain). That drop is now reported (a `step_dim_dropped` lint warning, #362);
+    still outstanding is a Z-turned-appropriate *detail* remedy, analogous to the
+    X-turned crowded-head block + `DetailRequest` this docstring's sibling,
+    `render_step_lengths`, already has.
 
     The redraw re-draws the step-height ladder in the detail view at the
     enlarged scale."""

@@ -1372,7 +1372,6 @@ def render_pmi(dwg, model, a) -> int:
             view=view,
         )
         return True
-        return False
 
     emitted = 0
     for idx, rec in enumerate(usable):
