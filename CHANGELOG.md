@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+## v0.2.3 — 2026-07-03
+
+A large patch release: the **annotation-placement engine was rebuilt** as a
+collect-then-solve *boundary-labeling* stage (ADR 0009). Placement is now
+deterministic and minimises total leader length, and the recurring class of
+overlaps where a label was drawn on top of an "invisible" occupant — a leader
+shaft, a witness/extension line, the section hatch — is removed by construction.
+Drawing output changes for many turned, cross-drilled, and multi-feature parts.
+
+### Changed
+
+- **Every annotation in a view's margin is now placed by one collect-then-solve
+  pass** (ADR 0009, #317–#323). Dimensions, hole callouts, turned-diameter
+  leaders, and the section hatch share a single occupancy model instead of several
+  independent passes each blind to the others. When a strip is over capacity it now
+  drops the *lowest-priority* annotation (smallest bore first) rather than whichever
+  pass happened to run last. The legacy strip cursor is retired.
+- **Leader placement minimises total leader length, deterministically** (P4,
+  #318). A per-strip solve places each label at the shortest-leader position that
+  keeps the labels in order and clear of keep-out rows (a view centre-line, a
+  dimension's extension line); central/coaxial callouts are anchored to the
+  view-centre row. Output is reproducible across platforms and Python versions.
+- **`scipy` is no longer a dependency** — the leader solve is a small deterministic
+  algorithm (weighted-median isotonic regression), not a linear program.
+- **Output changes** for turned, cross-drilled, and multi-feature parts whose
+  margin annotations are now positioned by the unified solver.
+
+### Fixed
+
+- **A PMI bore-diameter dimension spans the bore radius, not the full diameter**
+  (#360). A `pmi="annotate"` diameter callout drew its witness lines at ±diameter
+  from the centre — twice too wide, missing the bore edges.
+- **A bore coaxial with a rotational part's turning axis is no longer
+  over-dimensioned** (#309). It carried a redundant offset *and* height location
+  dimension even though its centre mark already locates it.
+- **A dropped turned step-length chain is no longer silent** (#362). When a turned
+  head's shoulders are too crowded to dimension, the drop is now reported
+  (`step_dim_dropped`) instead of vanishing with no lint or on-sheet signal.
+- **A diameter callout can no longer overprint a bore callout's leader shaft**
+  (#358). The turned-diameter column now avoids the *full* footprint of existing
+  annotations, not just their text boxes.
+- **The balloon ring hugs its dimensions on a cramped sheet** (#349) — its band
+  depth is clamped to the drawable area.
+- **Dimension detection is robust to `SafeDimension`** (#335/#349) — the corridor
+  and balloon-ring filters test the dimension *type*, not a class-name string, so a
+  future dimension subclass can't slip through.
+
 ## v0.2.2 — 2026-06-30
 
 A patch release of turned-part dimension-placement fixes and a CLI start-up
