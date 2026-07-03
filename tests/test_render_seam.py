@@ -97,3 +97,45 @@ class TestBoreHalfSpan:
         assert rec.kind == "pmi"  # feature kind (ClassVar), NOT the PMI category
         assert _bore_half_span(rec.kind, rec.value) == 35.0  # the old bug: no halving
         assert _bore_half_span(rec.pmi_kind, rec.value) == 17.5  # the fix: radius
+
+
+class TestStepChainDrop:
+    """#362: dropping a whole turned step-length chain (shoulders too crowded to
+    dimension) must record the `step_dim_dropped` lint warning — it was silent
+    (debug log only), leaving the user a drawing with no step dims and no signal.
+    Must NOT emit an Escalation(kind='step') (that is the prismatic-detail consumer,
+    wrong semantics for a turned chain)."""
+
+    def _stub_dwg(self):
+        from types import SimpleNamespace
+
+        class _Dwg:
+            def __init__(s):
+                s.draft = SimpleNamespace(font_size=3.0, pad_around_text=0.5)
+                s.issues = []
+                # NOTE: deliberately no _escalations — if the code tried to append a
+                # step Escalation it would AttributeError, so a clean run proves it doesn't.
+
+            def view_bounds(s, view):
+                return (0.0, 0.0, 100.0, 100.0)
+
+            def _record_build_issue(s, sev, code, msg):
+                s.issues.append((sev, code, msg))
+
+        return _Dwg()
+
+    def test_crowded_vertical_chain_records_the_drop(self):
+        from draftwright.annotations.from_model import _draw_step_chain
+
+        dwg = self._stub_dwg()
+        # Vertical (chain-to-the-right) segs whose shoulder Ys are 0.1 mm apart —
+        # far below tier_step (= font_size + 2*pad = 4). Values differ so the
+        # uniform-collapse path is not taken. The chain is dropped whole.
+        segs = [
+            ((80.0, 10.0, 0), (80.0, 10.1, 0), 5.0),
+            ((80.0, 10.1, 0), (80.0, 10.2, 0), 8.0),
+        ]
+        placed = _draw_step_chain(dwg, "front", segs, "m_steplen")
+        assert placed == 0
+        codes = [code for _sev, code, _msg in dwg.issues]
+        assert "step_dim_dropped" in codes, "silent drop no longer allowed (#362)"
