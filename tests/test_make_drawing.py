@@ -4222,10 +4222,21 @@ class TestModel:
         assert "hole" in kinds
         assert len(m.datums) >= 1
 
-    def test_model_none_without_auto_dims(self):
-        # D1 (documented limitation): detection runs inside the annotation pass, so a
-        # manual-mode build has no model yet. Hoisting detection is the #398 prerequisite.
-        assert build_drawing(_holed_plate(), auto_dims=False).model() is None
+    def test_model_present_without_auto_dims(self):
+        # #398 detect-hoist: detection runs in the pipeline, not the annotation pass, so a
+        # manual-mode build still exposes the model — a script can dimension detected
+        # features even when it suppressed the automatic ones.
+        m = build_drawing(_holed_plate(), auto_dims=False).model()
+        assert m is not None
+        assert any(f.kind == "hole" for f in m.features)
+
+    def test_model_identical_across_auto_and_manual(self):
+        # Same detection regardless of whether dimensions were auto-placed — the model is
+        # a property of the part, not the annotation pass.
+        part = _holed_plate()
+        assert _model_signature(build_drawing(part).model()) == _model_signature(
+            build_drawing(part, auto_dims=False).model()
+        )
 
     def test_model_structurally_equivalent_across_step_and_b123d_input(self, tmp_path):
         # D5 / the convergence property (ADR 0001 Amendment 1): a STEP import re-tessellates
