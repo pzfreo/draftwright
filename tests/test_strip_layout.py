@@ -650,27 +650,26 @@ def test_side_hole_z_dim_is_kept_not_dropped_under_policy_b():
 
 
 def test_envelope_tier_stacks_outside_a_middle_tier_obstacle():
-    # A below strip (anchor 61, gap 8 → inner tier at 53, outer_limit 10). An obstacle
-    # sits in a MIDDLE tier [30,36] with the inner tier [40,53] left FREE. The overall
+    # A below strip (anchor 61, gap 10 → inner tier at 51, outer_limit 10). An obstacle
+    # sits in a MIDDLE tier [30,36] with the inner tier [40,51] left FREE. The overall
     # dim must land OUTSIDE it (≤ 30 − spacing), not in the nearer-the-view free tier —
     # picking the innermost free segment would invert the ISO stack (review #1).
     from draftwright._core import Strip
     from draftwright.annotations.from_model import _envelope_tier
 
-    strip = Strip(anchor=61.0, outer_limit=10.0, direction=-1.0)  # gap 8, spacing 4
+    strip = Strip(anchor=61.0, outer_limit=10.0, direction=-1.0)  # gap 10, spacing 2.5
     dwg = _fake_dwg({"mid": (100.0, 30.0, 120.0, 36.0)})
     pd = _envelope_tier(dwg, strip, "side", size=8.0)
     assert pd is not None and pd <= 30.0, f"envelope inverted into inner tier: pd={pd}"
 
 
 def test_envelope_tier_uses_inner_tier_when_strip_is_clear():
-    # No obstacles → the overall dim takes the innermost tier (anchor − gap = 53),
-    # matching the first Strip.allocate it replaces (byte-identity on hole-free parts).
+    # No obstacles → the overall dim takes the innermost tier (anchor − gap = 51).
     from draftwright._core import Strip
     from draftwright.annotations.from_model import _envelope_tier
 
     strip = Strip(anchor=61.0, outer_limit=10.0, direction=-1.0)
-    assert _envelope_tier(_fake_dwg({}), strip, "side", size=8.0) == 53.0
+    assert _envelope_tier(_fake_dwg({}), strip, "side", size=8.0) == 51.0
 
 
 # --- unified above-corridor solve (ADR 0009 end state, #345/#346) -----------

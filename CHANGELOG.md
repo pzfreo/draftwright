@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- **Dimension-line spacing now follows ISO 129-1 / ASME Y14.5 convention** (#347).
+  The first dimension line sits further from the view outline (first-line gap
+  8 → 10 mm) and successive parallel lines stack tighter and uniform (between-line
+  clear gap 4 → 2.5 mm). The inter-view corridor widens in step (`_DIM_PAD`
+  18 → 20 mm) so the wider first-line gap does not crowd the between-view
+  dimensions. Re-drifts the layout of every drawing.
+
 ## v0.2.4 — 2026-07-03
 
 A follow-up patch on the ADR 0009 placement rebuild in 0.2.3: it finishes unifying

@@ -611,20 +611,20 @@ class TestDepthEstimators:
         from draftwright._core import _DIM_PAD
         from draftwright.sheet import _est_right_strip_depth
 
-        # 0 steps → dim_height only → gap(8) + slot(10) = 18 = _DIM_PAD
+        # 0 steps → dim_height only → gap(10) + slot(10) = 20 = _DIM_PAD
         assert _est_right_strip_depth(0) == pytest.approx(_DIM_PAD, abs=0.01)
 
     def test_right_depth_one_step(self):
         from draftwright.sheet import _est_right_strip_depth
 
-        # dim_height (10) + spacing (4) + 1×dim_step (14) = 8 + 10 + 4 + 14 = 36
-        assert _est_right_strip_depth(1) == pytest.approx(36.0, abs=0.01)
+        # gap(10) + dim_height(10) + spacing(2.5) + 1×dim_step(14) = 10 + 10 + 2.5 + 14 = 36.5
+        assert _est_right_strip_depth(1) == pytest.approx(36.5, abs=0.01)
 
     def test_right_depth_three_steps(self):
         from draftwright.sheet import _est_right_strip_depth
 
-        # dim_height (10) + 3×dim_step (14 each) + 3×spacing (4 each) = 8+10+4+14+4+14+4+14 = 72
-        assert _est_right_strip_depth(3) == pytest.approx(72.0, abs=0.01)
+        # gap(10) + dim_height(10) + 3×dim_step(14) + 3×spacing(2.5) = 10+10+3×(2.5+14) = 69.5
+        assert _est_right_strip_depth(3) == pytest.approx(69.5, abs=0.01)
 
     def test_right_depth_grows_per_step_uncapped(self):
         from draftwright._core import _SLOT_DIM_STEP
@@ -645,8 +645,8 @@ class TestDepthEstimators:
     def test_pv_below_depth(self):
         from draftwright.sheet import _est_pv_below_depth
 
-        # gap(8) + dim_width slot(8) = 16
-        assert _est_pv_below_depth() == pytest.approx(16.0, abs=0.01)
+        # gap(10) + dim_width slot(8) = 18
+        assert _est_pv_below_depth() == pytest.approx(18.0, abs=0.01)
 
     def test_right_depth_fits_in_exact_corridor(self):
         # _est_right_strip_depth(n) must reserve enough corridor for dim_height + n
@@ -887,14 +887,14 @@ class TestDynamicCorridors:
     """Phase 3 (#118): SV_X and _fits() use the depth estimator for the FV→SV gap."""
 
     def test_fits_widens_required_space_for_stepped_part(self):
-        # x=5, y=100, z=100 at 1:1 on A3 (420×297, tb=150):
-        #   n_steps=0 (gap=18): w=417 ≤ 420 → direct fit
-        #   n_steps=3 (gap=72): w=471 > 420; views_bottom=39.5 < 45 so
+        # x=5, y=90, z=100 at 1:1 on A3 (420×297, tb=150):
+        #   n_steps=0 (gap_fv_sv=20): w≈415 ≤ 420 → direct fit
+        #   n_steps=3 (gap_fv_sv=69.5): w≈465 > 420; views_bottom < _TB_H so
         #     the iso-over-title-block fallback cannot apply → False
         from draftwright.sheet import _fits
 
-        assert _fits(5.0, 100.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=0)
-        assert not _fits(5.0, 100.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=3)
+        assert _fits(5.0, 90.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=0)
+        assert not _fits(5.0, 90.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=3)
 
     def test_fits_zero_steps_same_as_default(self):
         # n_steps=0 must produce the same result as the old signature (no kwarg).
@@ -920,14 +920,14 @@ class TestDynamicCorridors:
         assert sv_left - fv_right == pytest.approx(_DIM_PAD, abs=0.1)
 
     def test_choose_scale_picks_larger_page_for_deep_step_corridor(self):
-        # With n_steps=0, x=5 y=z=100 fits A3 at 1:1 (420 mm wide).
-        # With n_steps=3, gap_fv_sv jumps to 72 mm — A3 no longer fits and
+        # With n_steps=0, x=5 y=90 z=100 fits A3 at 1:1 (420 mm wide).
+        # With n_steps=3, gap_fv_sv jumps to 69.5 mm — A3 no longer fits and
         # choose_scale must return A2.  This verifies that the conservative
         # n_steps_ub path in _analyse() ensures the page is never too small.
         from draftwright.sheet import choose_scale
 
-        _, page_w_flat, _, _ = choose_scale(5.0, 100.0, 100.0, n_steps=0)
-        _, page_w_deep, _, _ = choose_scale(5.0, 100.0, 100.0, n_steps=3)
+        _, page_w_flat, _, _ = choose_scale(5.0, 90.0, 100.0, n_steps=0)
+        _, page_w_deep, _, _ = choose_scale(5.0, 90.0, 100.0, n_steps=3)
         assert page_w_deep > page_w_flat, (
             "n_steps=3 corridor must force a larger page than n_steps=0"
         )
