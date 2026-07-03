@@ -372,8 +372,15 @@ def carve_free_position(dwg, strip, view, axis, tier, perp_span, *, outermost=Fa
     next — the height-ladder leapfrog chain, where each step dim's witness base is the
     previous dim's line — uses this. Same carve: outer-label tier reservation, the
     perpendicular-band filter (*perp_span* drops obstacles disjoint from this dim's own
-    perpendicular extent), and innermost-first fill. No corridor check (a single-strip
-    ladder has no alternate view to route to; obstacle tiers are still avoided)."""
+    perpendicular extent), and innermost-first fill.
+
+    **No corridor check** — unlike :func:`place_strip_candidates`, this avoids obstacle
+    *tiers* on the strip but does not reject a position whose witness *corridor* back to
+    the view would cross a leader/callout, nor relocate to an alternate view. That is
+    correct for the height ladder (a single-strip chain with no alternate view), but this
+    is now also called by the PMI/slot renderers and public ``Drawing.place_dim``, which
+    therefore do NOT get corridor semantics — a known gap (whether those callers should
+    is a design call, tracked separately)."""
     if strip is None:
         return None
     lo, hi, inner = strip_free_span(strip)
