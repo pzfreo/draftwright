@@ -583,7 +583,11 @@ _PAGE_SIZES = {
     "A0": (1189.0, 841.0),
 }
 
-_SCALES = [10.0, 5.0, 2.0, 1.0, 0.5, 0.2]
+# ISO 5455 scale series (1-2-5 decades). Enlargements + 1:1 first, then reductions
+# down to 1:10000 so a very large part still gets a scale that FITS rather than an
+# overflowing layout (#350). Ordered largest-scale-first for "least reduction first".
+_SCALES = [10.0, 5.0, 2.0, 1.0]
+_SCALES += [0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001, 0.0005, 0.0002, 0.0001]
 
 # Horizontal page budget to reserve for the isometric view during scale
 # selection and view placement, as a fraction of bbox_max * scale.  This is a
@@ -634,6 +638,19 @@ _LADDER = [
     (0.2, 841.0, 594.0, 150.0),  # A1 1:5
     (0.5, 1189.0, 841.0, 150.0),  # A0 1:2
     (0.2, 1189.0, 841.0, 150.0),  # A0 1:5
+    # Past 1:5 keep reducing on A0 (the largest sheet) through the rest of the ISO 5455
+    # series, so a part too big for A0 1:5 still gets a scale that FITS rather than an
+    # overflowing layout (#350). A0 1:10000 holds anything up to ~8.4 m of drawn height.
+    (0.1, 1189.0, 841.0, 150.0),  # A0 1:10
+    (0.05, 1189.0, 841.0, 150.0),  # A0 1:20
+    (0.02, 1189.0, 841.0, 150.0),  # A0 1:50
+    (0.01, 1189.0, 841.0, 150.0),  # A0 1:100
+    (0.005, 1189.0, 841.0, 150.0),  # A0 1:200
+    (0.002, 1189.0, 841.0, 150.0),  # A0 1:500
+    (0.001, 1189.0, 841.0, 150.0),  # A0 1:1000
+    (0.0005, 1189.0, 841.0, 150.0),  # A0 1:2000
+    (0.0002, 1189.0, 841.0, 150.0),  # A0 1:5000
+    (0.0001, 1189.0, 841.0, 150.0),  # A0 1:10000
 ]
 
 
