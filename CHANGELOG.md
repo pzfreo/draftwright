@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## v0.2.4 — 2026-07-03
+
+A follow-up patch on the ADR 0009 placement rebuild in 0.2.3: it finishes unifying
+the shared "above-view" dimension corridor, adds a layout-overflow safety net, and
+makes two more drop paths non-silent.
+
+### Changed
+
+- **Plan-view X location dimensions, side-view Y location dimensions, and a
+  coincident slot-position dimension now share one collect-then-solve pass** (ADR
+  0009 Amendment 6, #345/#346). Previously each pass carved the strip independently,
+  so a hole location and a slot position measuring the same datum span could both be
+  drawn, and the location ladder could come out non-monotonic. One solve now dedups
+  the coincident span (keeping the higher-priority location dimension) and orders the
+  whole ladder as segregated, monotonic runs — feature-size dimensions nearest the
+  view, datum locations nesting outward by distance.
+
+### Fixed
+
+- **`choose_scale` never returns an overflowing layout** (#350). Scale selection
+  could pick a scale whose composed block layout exceeded the drawable area; it now
+  rejects any overflowing candidate.
+- **A hole location and a coincident slot position are no longer drawn twice** (#345),
+  including at fractional datum distances where a display-value snap gap previously let
+  the duplicate escape deduplication.
+- **The plan-view location ladder is monotonic** (#346) — running dimensions off a
+  shared datum stack outward in ascending order instead of interleaving.
+- **A dropped balloon is non-silent** (#387). A balloon that cannot be placed now
+  reports the drop and clears its `callout_dropped` state precisely, instead of
+  vanishing with no on-sheet signal.
+
 ## v0.2.3 — 2026-07-03
 
 A large patch release: the **annotation-placement engine was rebuilt** as a

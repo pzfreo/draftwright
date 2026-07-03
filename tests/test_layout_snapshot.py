@@ -34,6 +34,7 @@ from build123d import (
     Cylinder,
     Hole,
     Locations,
+    Mode,
     Pos,
     Rotation,
 )
@@ -75,6 +76,22 @@ def _side_drilled():
 def _slotted():
     # an enclosed through-slot (#135) → slot width/length/position dims.
     return Box(50, 30, 20) - Box(20, 8, 30)
+
+
+def _holed_slot():
+    # A hole whose X-location coincides with the slot's near edge (both measure datum→"20"):
+    # the #345 duplicate + #346 interleave. Locks the unified corridor solve — one solve
+    # over the plan-above strip dedups the coincident slot-position line and orders the
+    # ladder (size dim innermost, hole locations nesting outward, monotonically). Three
+    # non-collinear holes (so no linear-array pattern collapses the X-locations) give a
+    # real 3-rung ladder to order.
+    with BuildPart() as p:
+        Box(60, 40, 20)
+        Box(20, 8, 30, mode=Mode.SUBTRACT)  # slot: long_axis X, near edge x=-10
+        # hole @ x=-10 coincides with the slot edge; the others give distinct X-locations.
+        with Locations((-10, 14, 0), (20, 14, 0), (8, -14, 0)):
+            Hole(3, depth=20)
+    return p.part
 
 
 def _turned_shaft():
@@ -124,6 +141,7 @@ CORPUS = {
     "bracket": _bracket,
     "side_drilled": _side_drilled,
     "slotted": _slotted,
+    "holed_slot": _holed_slot,
     "dshape": _dshape,
     "turned_shaft": _turned_shaft,
     "drive_screw_x": _drive_screw_x,

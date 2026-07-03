@@ -500,6 +500,61 @@ old "roomier half" — a reviewed, deterministic choice, not byte-identity chasi
 (ADR 0004: output may change). `_solve_strip_1d_pava` is untouched; the band
 layer is a wrapper.
 
+## Amendment 6 — Unify the shared above corridors: one solve across passes (#345/#346)
+
+**Status:** Accepted (2026-07-03). Delivers the ADR's "**consume the full per-strip
+intent set before committing**" (Decision, phase 1) for the two contended above
+corridors — the first place two *different render passes* feed one strip.
+
+**Problem.** The collect-then-solve inversion had been applied *within* each pass but
+never *across* passes. `render_locations` (hole X/Y-location ladder) and `render_slots`
+(slot size + position) both write the SAME `pv_zones.above` / `sv_zones.above` strip, at
+different points in the orchestrator, each committing its own `place_strip_candidates`
+solve. So the later pass only carved around the earlier one's placed dims. Two CTC-01
+defects followed directly: **#345** a hole location and a slot position that measure the
+same datum span each drew their own dim (the duplicate "75"); **#346** the two passes'
+dims interleaved into a non-monotonic ladder (75, 80, 725, 560, 240, 75) because neither
+solve saw the other's candidates.
+
+**Decision.** A per-strip **`CorridorCandidate` batch** on the drawing that both passes
+*register* into instead of committing, drained once (`solve_corridor`) after both have run
+— one `place_strip_candidates` solve over the whole set, so the full intent set is seen
+before anything is placed. Two properties fall out by construction:
+
+- **Dedup (#345).** Candidates carry a coincidence key on the measured span; the
+  higher-precedence one survives (a hole *location*, which feeds coverage + the table
+  escalation, outranks a coincident slot *position* line). The displaced duplicate is
+  dropped **silently** — it was never starved, so firing `slot_dim_dropped` would be a
+  false report. The key is built from the **raw (pre-snap) endpoints** on both sides —
+  the location key uses the raw ref, so the slot key must too. Keying the slot side on
+  its *snapped* endpoint (`datum + round(span, 1)`) let a ~0.05 mm snap gap cross a
+  0.1 mm page-rounding bin at fractional datum distances, so a genuinely coincident span
+  escaped dedup and the duplicate survived (adversarial-review finding, fixed in the same
+  PR; regression-tested at a fractional 20.15 distance).
+- **Ordering (#346).** Candidates carry an `order` key with two segregated runs: feature
+  **size** dims nearest the view, datum **location** dims nesting outward in ascending
+  datum-distance order — so a slot length never lands mid-ladder and the location chain is
+  one monotonic run.
+
+Each candidate keeps its pass's own bookkeeping as `on_place`/`on_drop` callbacks, so
+every existing drop code, `Escalation`, the hole-table trigger, the force-keep policy-B
+(a plan-X/side-Y location has no alternate view), and the slot's below-side fallthrough
+(now inside `on_drop`) are preserved. The drain runs before detail views and PMI so they
+still see the placed ladder as an obstacle.
+
+**Scope + follow-up.** Deliberately the two contended above corridors, where both bugs
+live. **PMI's above-corridor writes** (`render_pmi`, `carve_free_position`) are *not* yet
+in the batch — a PMI-annotated part can still interleave a PMI dim in that corridor. That
+is a tracked follow-up: fold PMI into the same batch to finish the corridor. The below /
+right ladders (envelope, height leapfrog, step lengths) are untouched — they carry no
+datum-location ladder and share no candidates, so unifying them would be scope without a
+bug to fix.
+
+**Consequences.** Only `slotted` re-blessed (its position dim re-tiered ~2 mm by the
+shared solve); the pure-location and hole-free fixtures stay byte-identical. A `holed_slot`
+corpus fixture (a hole X coincident with a slot edge) plus explicit dedup + monotonic-order
+assertions lock both bugs; 85 layout/e2e tests unchanged green.
+
 ## Related
 
 - [ADR 0001](0001-deterministic-generation-over-editable-dsl.md) — determinism;
