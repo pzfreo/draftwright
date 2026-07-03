@@ -4278,6 +4278,36 @@ class TestFeatureEdits:
         assert set(dwg.drop(slot)) == owned
         assert dwg.annotations_of(slot) == {}
 
+    def test_dimension_adds_and_tags_a_feature(self):
+        # #398e: the add verb — dimension a span-carrying param (a turned step's length),
+        # tagged with the feature so it pairs with drop/annotations_of.
+        from build123d import Cylinder
+
+        shaft = Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25))
+        dwg = build_drawing(shaft)
+        step = next(f for f in dwg.model().features if f.kind == "step")
+        name = dwg.dimension(step, "length")
+        assert isinstance(name, str)
+        assert name in dwg.annotations()
+        assert name in dwg.annotations_of(step)
+        assert name in set(dwg.drop(step))
+        assert name not in dwg.annotations()  # drop removed it
+
+    def test_dimension_rejects_non_span_param(self):
+        from build123d import Cylinder
+
+        dwg = build_drawing(Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)))
+        step = next(f for f in dwg.model().features if f.kind == "step")
+        with pytest.raises(ValueError, match="span"):
+            dwg.dimension(step, "diameter")  # value-only param, needs a callout (#398d)
+
+    def test_place_dim_feature_kwarg_tags_provenance(self):
+        dwg = build_drawing(_holed_plate())
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        p1, p2 = dwg.at("plan", 0, 0, 0), dwg.at("plan", 20, 0, 0)
+        dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="mine", feature=hole)
+        assert "mine" in dwg.annotations_of(hole)
+
     def test_shared_coordinate_location_dim_is_unowned(self):
         # #398c review (#406): a single location dim shared by two DISTINCT holes at the
         # same X belongs to neither — it must be unowned so drop(one) can't over-strip the
