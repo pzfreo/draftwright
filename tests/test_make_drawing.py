@@ -2318,14 +2318,23 @@ def test_generate_script_defers_invalid_scale_page(tmp_path):
 def test_generated_script_runs_and_preserves_pmi(tmp_path):
     # #388 acceptance: a generated --pmi annotate script preserves pmi when RUN — execute
     # it in a subprocess and assert it builds output without error.
+    import os
     import subprocess
     import sys
 
     step = tmp_path / "p.step"
     export_step(Box(80, 50, 8), str(step))
     py = generate_script(str(step), out=str(tmp_path / "p"), pmi="annotate")
+    # Force an ASCII stdout so a non-ASCII char in the script's own print() (e.g. a
+    # Unicode arrow) fails HERE on every platform, not only on a Windows cp1252 console.
+    env = {**os.environ, "PYTHONIOENCODING": "ascii"}
     r = subprocess.run(
-        [sys.executable, py], capture_output=True, text=True, cwd=str(tmp_path), timeout=150
+        [sys.executable, py],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
+        timeout=150,
+        env=env,
     )
     assert r.returncode == 0, f"generated script failed:\n{r.stderr[-1500:]}"
     assert (tmp_path / "p.svg").exists(), "generated script did not write the SVG"

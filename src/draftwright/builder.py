@@ -640,8 +640,10 @@ def _write_script(a: Analysis, scale: float | None = None, page: str | None = No
         "\n"
         "# ── Export ────────────────────────────────────────────────────────────────────\n"
         "svg_path, dxf_path = dwg.export(_stem)\n"
-        'print(f"SVG \\u2192 {svg_path}")\n'
-        'print(f"DXF \\u2192 {dxf_path}")\n'
+        # ASCII arrow: a Unicode → crashes the print on a Windows cp1252 console
+        # (UnicodeEncodeError) — the generated script must run everywhere.
+        'print(f"SVG -> {svg_path}")\n'
+        'print(f"DXF -> {dxf_path}")\n'
     )
 
     content = header + cog_block + run_section
