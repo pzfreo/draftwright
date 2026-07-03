@@ -163,7 +163,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     # the axis is still located by its centre), matching the engine.
     # (ref_point, role, source feature): the feature is carried so the renderer can
     # record provenance on the placed location dim (ADR 0010).
-    refs: list[tuple[Point, str, object]] = []
+    refs: list[tuple[Point, str, Feature]] = []
     for f in model.features:
         if f.frame.axis != "z":
             continue
@@ -177,7 +177,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
             elif f.members:
                 near = min(f.members, key=lambda m: (m[0] - dx) ** 2 + (m[1] - dy) ** 2)
                 refs.append((near, "location_pattern", f))
-    unique: list[tuple[Point, str, object]] = []
+    unique: list[tuple[Point, str, Feature]] = []
     for r, role, feat in refs:
         if not any(abs(r[0] - u[0]) < 0.5 and abs(r[1] - u[1]) < 0.5 for u, _, _ in unique):
             unique.append((r, role, feat))
