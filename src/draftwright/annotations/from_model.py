@@ -569,25 +569,26 @@ def _diameter_row_below(dwg, items) -> int:
     label_y = obstacle_bottom - (draft.font_size + 4 * draft.pad_around_text)
     if label_y < _MARGIN + draft.font_size:
         return 0
-    specs = []  # (tip_page, label), tip on the step's bottom silhouette
-    for anchor, dia in items:
+    specs = []  # (tip_page, label, feature), tip on the step's bottom silhouette
+    for anchor, dia, feat in items:
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
-        specs.append((tip, f"ø{_fmt(dia)}"))
+        specs.append((tip, f"ø{_fmt(dia)}", feat))
     specs.sort(key=lambda s: s[0][0])
-    half_w = max(len(label) for _, label in specs) * draft.font_size * 0.62 / 2
+    half_w = max(len(label) for _, label, _ in specs) * draft.font_size * 0.62 / 2
     min_gap = 2 * half_w + 2 * draft.pad_around_text
-    naturals = [tip[0] for tip, _ in specs]
+    naturals = [tip[0] for tip, _, _ in specs]
     xs = _solve_strip_ys(naturals, min_gap, fx0 + half_w, fx1 - half_w) or _greedy_strip_ys(
         naturals, min_gap, fx0 + half_w, fx1 - half_w
     )
     if xs is None:
         return 0
-    for i, ((tip, label), lx) in enumerate(zip(specs, xs, strict=True)):
+    for i, ((tip, label, feat), lx) in enumerate(zip(specs, xs, strict=True)):
         dwg.add(
             Leader(tip=(tip[0], tip[1], 0), elbow=(lx, label_y, 0), label=label, draft=draft),
             f"m_dia_x{i}",
             view="front",
+            feature=feat,
         )
     return len(specs)
 
@@ -601,19 +602,19 @@ def _diameter_column_left(dwg, items) -> int:
         return 0
     draft = dwg.draft
     fx0, fy0, _, fy1 = dwg.view_bounds("front")
-    label_w = max(len(f"ø{_fmt(dia)}") for _, dia in items) * draft.font_size * 0.62
+    label_w = max(len(f"ø{_fmt(dia)}") for _, dia, _ in items) * draft.font_size * 0.62
     elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
     if elbow_x - label_w < _MARGIN:
         return 0
-    specs = []  # (tip_page, label), tip on the step's left silhouette
-    for anchor, dia in items:
+    specs = []  # (tip_page, label, feature), tip on the step's left silhouette
+    for anchor, dia, feat in items:
         ax, ay, az = anchor
         tip = dwg.at("front", ax - dia / 2, ay, az)
-        specs.append((tip, f"ø{_fmt(dia)}"))
+        specs.append((tip, f"ø{_fmt(dia)}", feat))
     specs.sort(key=lambda s: s[0][1])
     half_h = draft.font_size / 2 + draft.pad_around_text
     min_gap = 2 * half_h
-    naturals = [tip[1] for tip, _ in specs]
+    naturals = [tip[1] for tip, _, _ in specs]
     ys = _solve_strip_ys(naturals, min_gap, fy0 + half_h, fy1 - half_h) or _greedy_strip_ys(
         naturals, min_gap, fy0 + half_h, fy1 - half_h
     )
@@ -625,11 +626,11 @@ def _diameter_column_left(dwg, items) -> int:
     # occupant class, #358). Centre lines stay crossable (a diameter dim may cross one).
     occupied = strip_obstacles(dwg, view="front", crossable=CROSSABLE_TYPES)
     placed = 0
-    for i, ((tip, label), ly) in enumerate(zip(specs, ys, strict=True)):
+    for i, ((tip, label, feat), ly) in enumerate(zip(specs, ys, strict=True)):
         ldr = Leader(tip=(tip[0], tip[1], 0), elbow=(elbow_x, ly, 0), label=label, draft=draft)
         if _box_hits(_anno_box(ldr), occupied):
             continue  # would overprint a bore leader / existing callout — drop just this one
-        dwg.add(ldr, f"m_dia_z{i}", view="front")
+        dwg.add(ldr, f"m_dia_z{i}", view="front", feature=feat)
         occupied.append(_anno_box(ldr))
         placed += 1
     return placed
@@ -642,25 +643,30 @@ def render_diameters(dwg, groups, tol: float = 0.15) -> int:
     frame's axis, not two passes. Replaces the engine's ``_annotate_turned_diameters``
     (ADR 0008 convergence). Diameters another annotation already covers are skipped."""
     mentioned = _mentioned_diameters(dwg)
-    seen: set[tuple[str, float]] = set()
-    rows: list = []  # X-turned (anchor, dia)
-    cols: list = []  # Z-turned (anchor, dia)
+    # One distinct callout per (axis, diameter). Accumulate EVERY feature that shares a
+    # diameter (insertion-ordered), so provenance (#412) can tag the callout with its
+    # single owner — or leave it unowned when two distinct features share the diameter
+    # (the #398c/#406 shared-value rule, so drop can't over-strip a sibling).
+    row_buckets: dict = {}  # round(dia,2) -> [anchor, dia, {features}]  (X-turned)
+    col_buckets: dict = {}  # Z-turned
     for g in groups:
         if g.feature_kind not in ("step", "boss"):
             continue
         dia = next((pd.param.value for pd in g.dims if pd.param.kind == "diameter"), None)
         if dia is None or any(abs(dia - m) <= tol for m in mentioned):
             continue
-        axis = g.feature.frame.axis
-        key = (axis, round(dia, 2))
-        if key in seen:  # one distinct callout per diameter
+        bucket = {"x": row_buckets, "z": col_buckets}.get(g.feature.frame.axis)
+        if bucket is None:
             continue
-        seen.add(key)
-        if axis == "x":
-            rows.append((g.anchor, dia))
-        elif axis == "z":
-            cols.append((g.anchor, dia))
-    return _diameter_row_below(dwg, rows) + _diameter_column_left(dwg, cols)
+        dkey = round(dia, 2)
+        bucket.setdefault(dkey, [g.anchor, dia, set()])[2].add(g.feature)
+
+    def _items(buckets):
+        return [(a, d, next(iter(fs)) if len(fs) == 1 else None) for a, d, fs in buckets.values()]
+
+    return _diameter_row_below(dwg, _items(row_buckets)) + _diameter_column_left(
+        dwg, _items(col_buckets)
+    )
 
 
 def _env_pd(group, role):
