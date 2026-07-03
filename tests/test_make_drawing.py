@@ -144,6 +144,41 @@ class TestChooseScale:
         assert scale == 10.0
         assert int(pw) == 297
 
+    # #350 — never return an overflowing layout for an oversized part.
+
+    def test_oversized_part_gets_a_fitting_reduction(self):
+        # 4200 × 1600 × 5400 mm (a civil/weldment-scale part) overflowed A0 1:5 before —
+        # the ladder floored at 1:5, so choose_scale returned a layout it had just proved
+        # did not fit. It now walks the rest of the ISO 5455 reductions to A0 1:10.
+        x, y, z = 4200.0, 1600.0, 5400.0
+        scale, pw, ph, tbw = choose_scale(x, y, z)
+        assert scale == 0.1 and (pw, ph) == (1189.0, 841.0)  # A0 1:10
+        assert _fits(x, y, z, scale, pw, ph, tbw)
+
+    def test_choose_scale_never_overflows_across_the_size_range(self):
+        # The invariant: automatic choose_scale never hands back a (scale, page) that
+        # _fits reports as overflowing — from tiny to absurdly large (#350).
+        for x, y, z in [
+            (5, 5, 5),
+            (300, 300, 300),
+            (4200, 1600, 5400),
+            (40000, 2000, 60000),
+            (500000, 5000, 800000),
+        ]:
+            scale, pw, ph, tbw = choose_scale(x, y, z)
+            assert _fits(x, y, z, scale, pw, ph, tbw), (
+                f"{(x, y, z)} -> {(scale, pw, ph)} overflows"
+            )
+
+    def test_backstop_computes_a_fit_beyond_the_ladder(self):
+        # A part too large even for A0 1:10000 falls to the bisection backstop and still
+        # returns a scale that fits — a non-standard scale is acceptable for an
+        # out-of-domain part; anything beats an overflowing layout.
+        x, y, z = 20_000_000.0, 5000.0, 30_000_000.0  # ~30 km — deliberately absurd
+        scale, pw, ph, tbw = choose_scale(x, y, z)
+        assert 0.0 < scale < 0.0001
+        assert _fits(x, y, z, scale, pw, ph, tbw)
+
 
 class TestChooseScaleOverrides:
     def test_scale_and_page_used_verbatim(self):

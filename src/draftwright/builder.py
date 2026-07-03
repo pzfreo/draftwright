@@ -18,6 +18,7 @@ from build123d import (
 )
 from build123d_drafting.helpers import (
     draft_preset,
+    format_drawing_scale,
 )
 
 from draftwright._core import (
@@ -299,12 +300,23 @@ def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None):
     candidates = _repack_candidates(a, scale, page)
     fit = next(((c, gg) for c in candidates if (gg := _geom(c)).fits), None)
     if fit is None:
-        # Nothing fits — keep the largest candidate and let lint report the
-        # overflow (mirrors choose_scale's fallback rather than crashing).
-        chosen = candidates[-1]
+        # No standard ISO 5455 scale fits the measured layout (an out-of-domain-huge
+        # part). Rather than keep an overflowing sheet (#350), bisect for the largest
+        # scale that fits on the largest candidate sheet — the packed layout is monotone
+        # in scale — mirroring choose_scale's backstop.
+        _, pw0, ph0, tb0 = candidates[-1]
+        lo, hi = 0.0, candidates[-1][0]
+        for _ in range(60):
+            mid = (lo + hi) / 2.0
+            if _geom((mid, pw0, ph0, tb0)).fits:
+                lo = mid
+            else:
+                hi = mid
+        chosen = (lo, pw0, ph0, tb0)
         g = _geom(chosen)
         _log.warning(
-            "measure-repack: no standard sheet fits the measured layout; using %s", chosen
+            "measure-repack: no standard sheet fits the measured layout; using computed %s",
+            format_drawing_scale(lo),
         )
     else:
         chosen, g = fit

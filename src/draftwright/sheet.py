@@ -16,6 +16,8 @@ import logging
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+from build123d_drafting.helpers import format_drawing_scale
+
 from draftwright._core import (
     _DIM_PAD,
     _FONT_SIZE,
@@ -427,6 +429,34 @@ def _fits(
     return bool(iso_fit >= _ISO_MIN_FIT_FRAC * g.iso_natural)
 
 
+def _bisect_fit_scale(x_size, y_size, z_size, pw, ph, tb, n_steps, strips, pack_iso_2d):
+    """Largest scale at which the 4-view layout fits ``(pw, ph)``, found by bisection —
+    the layout is monotone in scale (a smaller scale never fits worse). Used only as the
+    #350 backstop when even the smallest ISO 5455 ladder scale (1:10000) overflows, i.e.
+    an out-of-domain-huge part. Returns ``None`` only if the page cannot hold the layout
+    at any positive scale (a degenerate page)."""
+    hi = _SCALES[-1]  # 1:10000 — the smallest laddered scale, already known not to fit
+    lo = 0.0
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if _fits(
+            x_size,
+            y_size,
+            z_size,
+            mid,
+            pw,
+            ph,
+            tb,
+            n_steps=n_steps,
+            strips=strips,
+            pack_iso_2d=pack_iso_2d,
+        ):
+            lo = mid
+        else:
+            hi = mid
+    return lo if lo > 0.0 else None
+
+
 def choose_scale(
     x_size: float,
     y_size: float,
@@ -494,6 +524,23 @@ def choose_scale(
             x_size, y_size, z_size, *cand, n_steps=n_steps, strips=strips, pack_iso_2d=pack_iso_2d
         ):
             return cand
+    # The ISO 5455 ladder exhausted with no standard fit (a part too large even for
+    # A0 1:10000). Rather than return a layout that overflows (#350), bisect for the
+    # largest scale that genuinely fits on the largest candidate sheet — the layout is
+    # monotone in scale — so choose_scale never hands back an overflowing (scale, page).
+    # A pinned scale is the one thing we may not reduce (that path returned above).
+    if scale is None:
+        _pw, _ph, _tb = candidates[-1][1], candidates[-1][2], candidates[-1][3]
+        s = _bisect_fit_scale(x_size, y_size, z_size, _pw, _ph, _tb, n_steps, strips, pack_iso_2d)
+        if s is not None:
+            _log.warning(
+                "No standard scale fits %.0f × %.0f × %.0f mm; using computed %s",
+                x_size,
+                y_size,
+                z_size,
+                format_drawing_scale(s),
+            )
+            return s, _pw, _ph, _tb
     _log.warning(
         "No layout fits %.0f × %.0f × %.0f mm; falling back to %s",
         x_size,
