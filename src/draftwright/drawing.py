@@ -538,7 +538,7 @@ class Drawing:
         """
         return self._part_model
 
-    def place_dim(self, p1, p2, side, view, draft, *, name=None, slot=8.0, **kwargs):
+    def place_dim(self, p1, p2, side, view, draft, *, name=None, slot=8.0, feature=None, **kwargs):
         """Add a :class:`~build123d_drafting.helpers.Dimension` that stacks cleanly
         with the auto-generated dimensions by delegating to the same strip-allocation
         system (:class:`Strip`) that :func:`build_drawing` uses internally.
@@ -551,7 +551,14 @@ class Drawing:
             draft: the drawing's :attr:`draft` preset.
             name: optional annotation name for later :meth:`remove` / replace.
             slot: strip slot depth (mm); the perpendicular space reserved per dim.
+            feature: optional source IR feature to attribute this dim to, so
+                :meth:`drop` / :meth:`annotations_of` can find it (#398).
             **kwargs: forwarded to ``Dimension`` (e.g. ``label=``, ``tolerance=``).
+
+        Uses the single-position strip carve, not the ADR-0009 collect-then-solve
+        path the automatic placers use — fine for adding a dimension into free
+        space, but it does not re-solve the strip or dedup against existing dims
+        (#396). Prefer :meth:`dimension` for a feature-referenced edit.
 
         Falls back to a fixed ``slot`` offset when the strip is full or when no
         layout analysis is available (e.g. when ``auto_dims=False`` was not used
@@ -586,7 +593,7 @@ class Drawing:
         if "label" not in kwargs:
             page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
             kwargs["label"] = _fmt(page_len / self.scale)
-        return self.add(_dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name)
+        return self.add(_dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name, feature=feature)
 
     # -- annotations ----------------------------------------------------------
     def add(self, obj, name=None, view=None, feature=None):
@@ -644,6 +651,73 @@ class Drawing:
         for n in names:
             self.remove(n)
         return names
+
+    def dimension(
+        self, feature, param, *, role=None, side="above", view=None, name=None, **kwargs
+    ):
+        """Add a dimension for *feature*'s *param*, attributed to the feature (#398e).
+
+        The feature-referenced **add** verb: pair to :meth:`drop`. *feature* is an IR
+        feature from :meth:`model`; *param* is a parameter kind it exposes that carries a
+        two-point ``span`` — a linear dimension (e.g. a turned step's ``"length"``). The
+        dimension is placed into free strip space and tagged with *feature*, so
+        :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
+
+        A feature may expose several params of one kind (an envelope's width/height/depth
+        are all ``"length"``); pass ``role=`` to pick one — a bare kind matching more than
+        one raises rather than guessing.
+
+        ``view`` is chosen automatically as the orthographic view (``"front"``/``"plan"``/
+        ``"side"``) where the span projects non-degenerate — a length along the turning
+        axis vanishes in its end-on view, so the view follows the geometry. Pass ``view=``
+        to force one of those three (a non-orthographic view foreshortens the span and is
+        rejected). ``side`` defaults to ``"above"``; ``kwargs`` forward to the dimension.
+
+        Raises ``ValueError`` if no span-carrying param of that kind/role exists, if the
+        kind is ambiguous, or if *view* is not orthographic. Value-only params (a slot's
+        dims, a hole's ``"diameter"``/``"depth"`` — which need the feature's own geometry
+        or a leader callout) are not yet supported; that lands with the callout work (#398d).
+        """
+        _ortho = ("front", "plan", "side")
+        if view is not None and view not in _ortho:
+            raise ValueError(
+                f"view must be one of {_ortho}, not {view!r} (it foreshortens the span)"
+            )
+        matches = [
+            q
+            for q in feature.parameters()
+            if q.kind == param and q.span is not None and (role is None or q.role == role)
+        ]
+        if not matches:
+            r = f"/{role!r}" if role else ""
+            raise ValueError(
+                f"{type(feature).__name__} has no span-carrying '{param}'{r} parameter to "
+                f"dimension (callout params like diameter/depth are not yet supported — #398d)"
+            )
+        if len(matches) > 1:
+            roles = sorted(q.role for q in matches)
+            raise ValueError(
+                f"{type(feature).__name__} has {len(matches)} '{param}' params (roles {roles}) "
+                f"— pass role= to choose one"
+            )
+        (lo, hi) = matches[0].span
+        p1 = p2 = None
+        for v in [view] if view else _ortho:
+            q1, q2 = self.at(v, *lo), self.at(v, *hi)
+            if math.hypot(q2[0] - q1[0], q2[1] - q1[1]) > 1e-6:
+                view, p1, p2 = v, q1, q2
+                break
+        if p1 is None:
+            raise ValueError(
+                f"'{param}' span projects to a point in "
+                f"{'the requested view' if view else 'every orthographic view'} — nothing to dimension"
+            )
+        if name is None:
+            i = 0
+            while (name := f"dim_{param}{i}") in self._named:
+                i += 1
+        self.place_dim(p1, p2, side, view, self.draft, name=name, feature=feature, **kwargs)
+        return name
 
     def annotations(self) -> dict:
         """Return ``{name: type_name}`` for every *named* annotation (#27).
