@@ -28,42 +28,6 @@
     },
     {
       "geom_bbox": [
-        77.0,
-        72.0,
-        85.0,
-        84.1
-      ],
-      "label": "6",
-      "label_bbox": [
-        82.0,
-        77.3,
-        84.1,
-        78.7
-      ],
-      "name": "dim_loc_front_z600",
-      "type": "Dimension",
-      "view": "front"
-    },
-    {
-      "geom_bbox": [
-        100.0,
-        62.0,
-        112.1,
-        68.0
-      ],
-      "label": "6",
-      "label_bbox": [
-        105.4,
-        62.9,
-        106.8,
-        65.1
-      ],
-      "name": "dim_loc_side_y600",
-      "type": "Dimension",
-      "view": "side"
-    },
-    {
-      "geom_bbox": [
         23.0,
         72.0,
         31.0,
@@ -161,7 +125,7 @@
       "view": null
     }
   ],
-  "item_count": 10,
+  "item_count": 8,
   "views": {
     "front": [
       35.0,

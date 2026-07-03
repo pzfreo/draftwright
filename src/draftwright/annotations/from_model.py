@@ -667,6 +667,22 @@ def render_envelope(dwg, groups, a) -> int:
     return n
 
 
+def _record_step_chain_drop(dwg, why: str) -> None:
+    """Record the ``step_dim_dropped`` lint warning when a turned step-length chain
+    is dropped whole (#362). These drops were silent (debug log only) — the user got
+    a drawing with no step-length dimensioning and no signal. Mirrors
+    ``render_height_ladder``'s prismatic drop, but records ONLY the lint code (not an
+    ``Escalation(kind="step")``): that escalation is consumed by
+    ``_request_prismatic_detail`` (sections.py), which would redraw *prismatic*
+    height-above-base dims for a *turned* chain — the wrong semantics #351 PR-4b
+    removed. A Z-turned-appropriate detail-view remedy is a tracked follow-up."""
+    dwg._record_build_issue(
+        "warning",
+        "step_dim_dropped",
+        f"step-length chain dropped: {why} at this scale (use a detail view)",
+    )
+
+
 def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None, allow_collapse=True) -> int:
     """Place a turned step-length chain in *view* from *segs* — each ``(pa, pb,
     value)`` already projected to *view*'s page coords, in axis order. Orientation is
@@ -719,11 +735,15 @@ def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None, allow_coll
                 tiers = [i % 2 for i in range(len(segs))]  # alternate to make room
             else:
                 _log.info("step-length chain skipped: too dense even when staggered")
+                _record_step_chain_drop(
+                    dwg, "shoulders too dense to dimension even when staggered"
+                )
                 return 0
         else:
             shoulder_ys = sorted({c for pa, pb, _ in segs for c in (pa[1], pb[1])})
             if any(b - a < tier_step for a, b in zip(shoulder_ys, shoulder_ys[1:])):
                 _log.info("step-length chain skipped: shoulders too close to dimension")
+                _record_step_chain_drop(dwg, "turned shoulders too closely spaced to dimension")
                 return 0
 
         candidates = []
@@ -745,6 +765,7 @@ def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None, allow_coll
         if box is not None and not (
             page[0] <= box[0] and box[2] <= page[2] and page[1] <= box[1] and box[3] <= page[3]
         ):
+            _record_step_chain_drop(dwg, "a dimension would fall off the drawable page")
             return 0
     for name, dim in candidates:
         if detail_scale is not None:

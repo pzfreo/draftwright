@@ -70,6 +70,21 @@ def test_strip_obstacles_captures_full_leader_footprint_not_just_label():
     assert not any(_same(x, full) for x in occ)
 
 
+def test_coaxial_bore_on_rotational_part_is_not_over_located():
+    # #309: the turning-axis bore of a rotational part is located by its centreline,
+    # not a redundant position dim. The X-turned drive screw's coaxial bore emitted a
+    # y-offset dim (side-below) AND a z-height dim (right) both reading its offset from
+    # the datum — the "6"/"6" over-dimensioning. `_locate_off_axis_holes` now excludes
+    # the coaxial bore, so no dim_loc_* is placed, and lint stays clean because
+    # coverage already credits the bore via its centre mark. (Non-rotational parts and
+    # genuine off-centre side-drilled holes are unaffected — the byte-identical
+    # side_drilled/dshape/plate_holes snapshots guard that.)
+    dwg = build_drawing(_drive_screw_x())
+    locs = [n for n, _ in dwg.iter_annotations() if n.startswith("dim_loc")]
+    assert locs == [], f"coaxial bore over-located: {locs}"
+    assert not any(getattr(i, "code", None) == "feature_not_located" for i in dwg.lint())
+
+
 def test_strip_obstacles_view_filter_drops_other_ortho_views():
     # A box with a side-drilled hole: the side query excludes front/plan-owned
     # blocks (compose-then-pack keeps them disjoint) but is narrower than the whole.
