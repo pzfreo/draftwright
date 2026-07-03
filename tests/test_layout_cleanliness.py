@@ -106,6 +106,19 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
     },
     # BENIGN (as side_drilled): envelope depth + location share the datum witness corridor.
     "dshape": {frozenset({"dim_loc_side_y200", "m_env_depth"})},
+    # holed_slot (#345/#346): all BENIGN datum-chain / shared-corridor overlaps — the
+    # unified above-corridor solve places three X-location dims + the slot length as one
+    # nested ladder off the common datum, so their extension-line spans share the corridor
+    # (exactly the plate_holes class). Labels never collide (verified) and lint is clean;
+    # this is standard running-dimension presentation, not an invisible-occupant overlap.
+    "holed_slot": {
+        frozenset({"m_locx0", "m_locx1"}),
+        frozenset({"m_locx0", "m_locx2"}),
+        frozenset({"m_locx1", "m_locx2"}),
+        frozenset({"m_slot0_length", "m_locx1"}),
+        frozenset({"m_slot0_length", "m_locx2"}),
+        frozenset({"m_locy0", "m_locy1"}),
+    },
 }
 
 
