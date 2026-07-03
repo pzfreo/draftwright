@@ -455,10 +455,18 @@ express — but the bands split `[lo, hi]` into disjoint feasible **segments**, 
 *within one segment* the box is convex again, so the exact PAVA atom still
 applies. The fixed label order (crossing-free, from P2) means labels map to
 segments as contiguous runs at non-decreasing indices; a small O(n²·segments) DP
-picks the min-total-cost partition, solving each run with `_solve_strip_1d_pava`
+searches for a low-cost partition, solving each run with `_solve_strip_1d_pava`
 inside its segment. **No bands → byte-identical to the plain solve.** Deterministic
-(each run solve is; equal-cost partitions break on the lexicographically smaller
+(each run solve is; equal-cost states break on the lexicographically smaller
 position vector).
+
+The DP is **not globally optimal across ≥2 segments** — it keeps one
+representative per labels-placed count, but a later segment's feasible room
+depends on the last placed position, so a band alongside an `anchored` candidate
+can drag the anchor off centre. Unreachable on the corpus (anchor and band never
+co-occur in a placed strip: the centre-line band is gated to rotational parts,
+which don't anchor), so output is byte-identical; the exact fix — a Pareto
+frontier over `(cost, last_pos)` per count — is a tracked follow-up.
 
 Two supporting changes in `holes.py`:
 - **Bands built from the same causes** `_coaxial_lift` used — the off-axis

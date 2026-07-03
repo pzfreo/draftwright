@@ -303,11 +303,22 @@ def _solve_strip_1d_pava_banded(naturals, gaps, lo, hi, weights, bands):
     box is convex again — so the exact PAVA atom still applies. The labels keep
     their fixed ascending order (crossing-free, established upstream), so they map to
     the segments as **contiguous runs at non-decreasing segment indices**; a small
-    DP over ``(segment, labels-placed)`` picks the min-total-cost such partition,
+    DP over ``(segment, labels-placed)`` searches for a low-cost such partition,
     solving each run with :func:`_solve_strip_1d_pava` inside its segment. With no
     bands it is exactly the plain solve (byte-identical). Deterministic: each run
-    solve is, and ties between equal-cost partitions break on the lexicographically
+    solve is, and ties between equal-cost states break on the lexicographically
     smaller position vector.
+
+    **Not globally optimal across ≥2 segments.** The DP keeps one representative
+    per labels-placed count, but a run's feasible room in a later segment depends
+    on the *last placed position*, not just the count — so a costlier prefix that
+    lowers the last label can unlock a cheaper suffix the DP won't find, and (the
+    reachable symptom) a band present alongside an ``anchored`` candidate can drag
+    the anchor off its natural. Unreachable on the corpus today (anchor and band
+    never co-occur in a placed strip — the centre-line band is gated to rotational
+    parts, where :func:`plan_strip`'s caller does not anchor), so output is
+    byte-identical; the exact fix (a Pareto frontier over ``(cost, last_pos)`` per
+    count) is tracked as a follow-up.
 
     **Graceful degradation.** Avoidance is a strong preference, not a hard drop: a
     band can be *wider than the whole strip* (a shallow view), leaving no segment to
