@@ -244,7 +244,13 @@ def render_slots(dwg, model, a) -> int:
 
                 def _below_or_drop(nm, _bs=below_strip, _bh=below_hi, _feat=s, _dw=drop_word):
                     if _bs is not None and not place_strip_candidates(
-                        dwg, _bs, vw[0], "y", [_cand_for("below", _bh)], tier
+                        dwg,
+                        _bs,
+                        vw[0],
+                        "y",
+                        [_cand_for("below", _bh)],
+                        tier,
+                        features={cname: _feat},
                     ):
                         return  # placed on the below strip
                     _record_slot_drop(dwg, _dw, idx, vw[0], _feat)
@@ -275,6 +281,7 @@ def render_slots(dwg, model, a) -> int:
                         ),
                         precedence=1 if is_pos else 0,
                         force=False,
+                        feature=s,  # provenance (ADR 0010): this dim belongs to the slot
                     ),
                 )
                 return True  # deferred — the callback owns the drop; caller's else must not fire
@@ -286,7 +293,7 @@ def render_slots(dwg, model, a) -> int:
                     continue
                 axis = "y" if side in ("above", "below") else "x"
                 if not place_strip_candidates(
-                    dwg, strip, vw[0], axis, [_cand_for(side, hi)], tier
+                    dwg, strip, vw[0], axis, [_cand_for(side, hi)], tier, features={cname: s}
                 ):
                     return True
             return False
@@ -329,7 +336,7 @@ _SIZE_SUBCHAIN = 0
 _LOC_SUBCHAIN = 1
 
 
-def _location_candidate(dwg, name, *, view, span_key, distance, build):
+def _location_candidate(dwg, name, *, view, span_key, distance, build, feature=None):
     """A :class:`CorridorCandidate` for a datum-referenced hole/pattern location dim.
     Location dims outrank a coincident slot-position line in dedup (#345) and form the
     outer, datum-distance-ordered run of the ladder (#346). Force-kept (policy B): a plan-X
@@ -353,6 +360,7 @@ def _location_candidate(dwg, name, *, view, span_key, distance, build):
         dedup=(view, span_key[0], span_key[1]),
         precedence=2,
         force=True,
+        feature=feature,  # provenance (ADR 0010): the located hole/pattern
     )
 
 
@@ -385,7 +393,7 @@ def render_locations(dwg, model, a) -> int:
             and math.hypot(rx - a.cx, ry - a.cy) <= _CONCENTRIC_TOL_MM
         ):
             continue
-        refs.append((rx, ry))
+        refs.append((rx, ry, pd.feature))  # carry the source feature for provenance (ADR 0010)
     if not refs:
         return 0
     tier = draft.font_size + 2 * draft.pad_around_text
@@ -415,10 +423,14 @@ def render_locations(dwg, model, a) -> int:
     # pass carving around the other and interleaving. No alternate view for a plan-X
     # location, so a corridor-blocked dim is force-kept (policy B), not relocated; only a
     # physically full strip drops (→ location_ref_dropped, escalates the hole table).
-    for i, (rx, ry) in enumerate(sorted(x_refs, key=lambda r: abs(r[0] - datum_x))):
+    for i, (rx, ry, feat) in enumerate(sorted(x_refs, key=lambda r: abs(r[0] - datum_x))):
         if abs(rx - datum_x) * a.SCALE < 1.0:
             continue  # on the datum edge — nothing to dimension
         n += 1
+        # A single X-location dim shared by two *distinct* features at this X belongs to
+        # neither exclusively — leave it unowned so drop() cannot over-strip a sibling's
+        # dimension and annotations_of never over-claims it (review #406, ADR 0010).
+        _xfeat = None if any(abs(o[0] - rx) < 0.5 and o[2] != feat for o in refs) else feat
         register_corridor(
             dwg,
             ("plan", "above"),
@@ -440,6 +452,7 @@ def render_locations(dwg, model, a) -> int:
                     draft,
                     label=_fmt(_rx - datum_x),
                 ),
+                feature=_xfeat,
             ),
         )
 
@@ -466,12 +479,14 @@ def render_locations(dwg, model, a) -> int:
     # Cap the side-above strip below the iso view so Y-location dims never run under it
     # (the carve respects outer_limit); the dim_pitch_side dims are obstacles the carve
     # avoids structurally, retiring the old manual allocate(10.0) reservation + cursor.
-    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry in y_refs):
+    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _ in y_refs):
         a.sv_zones.above.outer_limit = min(a.sv_zones.above.outer_limit, iso_y0 - 4)
-    for i, (rx, ry) in enumerate(sorted(y_refs, key=lambda r: abs(r[1] - datum_y))):
+    for i, (rx, ry, feat) in enumerate(sorted(y_refs, key=lambda r: abs(r[1] - datum_y))):
         if abs(ry - datum_y) * a.SCALE < 1.0:
             continue
         n += 1
+        # Shared-Y location dim → unowned (see the X loop; review #406).
+        _yfeat = None if any(abs(o[1] - ry) < 0.5 and o[2] != feat for o in refs) else feat
         register_corridor(
             dwg,
             ("side", "above"),
@@ -493,6 +508,7 @@ def render_locations(dwg, model, a) -> int:
                     draft,
                     label=_fmt(_ry - datum_y),
                 ),
+                feature=_yfeat,
             ),
         )
     return n

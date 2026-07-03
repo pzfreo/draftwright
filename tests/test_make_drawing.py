@@ -4246,12 +4246,14 @@ class TestFeatureEdits:
     locations, callouts and diameters thread `feature` in follow-up PRs. annotations_of()
     returns exactly the covered set, so drop() is transparent about what it removes."""
 
-    def test_annotations_of_returns_a_features_centermarks(self):
+    def test_annotations_of_returns_a_features_centermarks_and_locations(self):
+        # #398c broadened coverage: a hole owns its centre mark(s) AND its location dims
+        # (the corridor-placed m_locx/m_locy), now that provenance threads the corridor.
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
         owned = dwg.annotations_of(hole)
-        assert owned, "hole should own at least its centre mark(s)"
-        assert all(n.startswith("m_cm") for n in owned)
+        assert any(n.startswith("m_cm") for n in owned), "hole should own its centre mark(s)"
+        assert all(n.startswith(("m_cm", "m_loc")) for n in owned)
 
     def test_drop_removes_a_features_annotations(self):
         dwg = build_drawing(_holed_plate())
@@ -4262,6 +4264,40 @@ class TestFeatureEdits:
         assert dwg.annotations_of(hole) == {}
         for n in names:
             assert n not in dwg.annotations()  # gone from the registry + render list
+
+    def test_drop_removes_all_slot_dims(self):
+        # #398c: slot dims flow through the ADR-0009 corridor; provenance now threads it,
+        # so drop(slot) removes the whole set (length + width + position).
+        from build123d import Box, Mode, Pos
+
+        part = Box(80, 60, 20) - Pos(0, 0, 0) * Box(24, 8, 30, mode=Mode.SUBTRACT)
+        dwg = build_drawing(part)
+        slot = next(f for f in dwg.model().features if f.kind == "slot")
+        owned = set(dwg.annotations_of(slot))
+        assert owned and all(n.startswith("m_slot") for n in owned)
+        assert set(dwg.drop(slot)) == owned
+        assert dwg.annotations_of(slot) == {}
+
+    def test_shared_coordinate_location_dim_is_unowned(self):
+        # #398c review (#406): a single location dim shared by two DISTINCT holes at the
+        # same X belongs to neither — it must be unowned so drop(one) can't over-strip the
+        # dim the sibling still needs.
+        from build123d import Box, Cylinder, Pos
+
+        part = (
+            Box(80, 60, 20) - Pos(30, -20, 0) * Cylinder(6, 20) - Pos(30, 20, 0) * Cylinder(4, 20)
+        )
+        dwg = build_drawing(part)
+        holes = [f for f in dwg.model().features if f.kind == "hole"]
+        assert len(holes) == 2  # distinct specs → not grouped
+        locx = {n for n in dwg.annotations() if n.startswith("m_locx")}
+        assert locx, "expected a shared X-location dim"
+        # Neither hole owns the shared X dim...
+        for h in holes:
+            assert not (locx & set(dwg.annotations_of(h)))
+        # ...so dropping one leaves it in place for the other.
+        dwg.drop(holes[0])
+        assert locx <= set(dwg.annotations()), "shared location dim was over-stripped by drop"
 
     def test_drop_feature_with_no_annotations_is_noop(self):
         dwg = build_drawing(_holed_plate())

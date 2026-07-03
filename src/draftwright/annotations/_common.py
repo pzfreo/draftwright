@@ -302,6 +302,9 @@ class CorridorCandidate:
     dedup: tuple | None = None
     precedence: int = 0
     force: bool = False
+    # The source IR feature this dim was rendered for — recorded as provenance when the
+    # dim is placed at drain (ADR 0010). ``None`` leaves the annotation feature-less.
+    feature: object | None = None
 
 
 def solve_corridor(dwg, strip, view, axis, cands, tier):
@@ -353,13 +356,16 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
                 _promote_losers(c)
         return
     pairs = [(c.name, c.build) for c in kept]
-    left = {n for n, _ in place_strip_candidates(dwg, strip, view, axis, pairs, tier)}
+    feats = {c.name: c.feature for c in kept if c.feature is not None}  # provenance (ADR 0010)
+    left = {
+        n for n, _ in place_strip_candidates(dwg, strip, view, axis, pairs, tier, features=feats)
+    }
     force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
     still = (
         {
             n
             for n, _ in place_strip_candidates(
-                dwg, strip, view, axis, force_pairs, tier, force=True
+                dwg, strip, view, axis, force_pairs, tier, force=True, features=feats
             )
         }
         if force_pairs
@@ -393,7 +399,7 @@ def drain_corridors(dwg):
     dwg._corridor_batch = {}
 
 
-def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False):
+def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False, features=None):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
     P3): each candidate in *cands* — an ``(name, build(pos)->dim)`` pair — is spaced by
@@ -481,7 +487,9 @@ def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False):
             if not force and _box_hits(_geom_box(dim), blockers):  # corridor crosses a leader
                 todo.append((name, build))
                 continue
-            dwg.add(dim, name, view=view)
+            # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed
+            # dims — `features` maps this batch's names to their source IR feature.
+            dwg.add(dim, name, view=view, feature=(features or {}).get(name))
     return todo
 
 
