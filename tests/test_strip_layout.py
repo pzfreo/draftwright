@@ -688,6 +688,22 @@ def _holed_slot():
     return p.part
 
 
+def _holed_slot_frac():
+    # As _holed_slot but the coincident datum→edge span is a FRACTIONAL 20.15, not a round
+    # 20.0. Pre-fix the slot-position dedup key snapped its endpoint to the displayed value
+    # (20.2) while the hole-location key used the raw 20.15, so the ~0.05 mm gap crossed a
+    # 0.1 mm page bin and the #345 duplicate escaped dedup. The raw-basis key closes it.
+    from build123d import Box, BuildPart, Hole, Locations, Mode
+
+    with BuildPart() as p:
+        Box(60, 40, 20)  # bbox min X = -30
+        with Locations((0.15, 0, 0)):
+            Box(20, 8, 30, mode=Mode.SUBTRACT)  # slot near edge x=-9.85 → datum→edge = 20.15
+        with Locations((-9.85, 14, 0), (20, 14, 0), (8, -14, 0)):
+            Hole(3, depth=20)
+    return p.part
+
+
 def _plan_above_ladder(dwg):
     """(name, dim) for every plan-view dimension with a horizontal witness — the plan-above
     corridor the location + slot passes share."""
@@ -722,6 +738,16 @@ def test_corridor_dedups_coincident_hole_and_slot_span():
         if abs(min(o._dw_spec.p1[0], o._dw_spec.p2[0]) - datum_x) < 0.5
     ]
     assert len(spans) == len(set(spans)), f"duplicate datum span in the plan-above ladder: {spans}"
+
+
+def test_corridor_dedups_coincident_span_at_fractional_distance():
+    # #345 follow-up: dedup must be robust to the snap gap. A coincident hole+slot-edge at a
+    # FRACTIONAL 20.15 leaked the duplicate when the two dedup keys used different bases
+    # (raw ref vs snapped endpoint). Guards the raw-basis key against regression.
+    dwg = build_drawing(_holed_slot_frac())
+    ladder = _plan_above_ladder(dwg)
+    names = {n for n, _ in ladder}
+    assert "m_slot0_pos" not in names, "fractional coincident slot position not deduped (#345)"
 
 
 def test_corridor_orders_location_ladder_monotonically():

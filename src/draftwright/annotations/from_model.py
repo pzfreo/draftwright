@@ -193,6 +193,11 @@ def render_slots(dwg, model, a) -> int:
             vp=v_proj,
             idx=i,
         ):
+            # Raw (pre-snap) endpoints — the dedup key must share a basis with the
+            # hole-location key (which uses the raw ref), else the ~0.05 mm snap gap can
+            # push a coincident span into an adjacent 0.1 mm page bin and the #345
+            # duplicate survives.
+            raw_lo, raw_hi = p_lo, p_hi
             # Snap the geometric span to the displayed (1-dp) value so drawn length
             # matches the label (else label-vs-measured lint trips).
             disp = float(_fmt(label))
@@ -264,7 +269,7 @@ def render_slots(dwg, model, a) -> int:
                         on_place=lambda nm: None,
                         on_drop=_below_or_drop,
                         dedup=(
-                            (vw[0], round(meas_proj(p_lo), 1), round(meas_proj(p_hi), 1))
+                            (vw[0], round(meas_proj(raw_lo), 1), round(meas_proj(raw_hi), 1))
                             if is_pos
                             else None
                         ),

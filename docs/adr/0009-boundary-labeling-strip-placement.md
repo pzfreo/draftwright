@@ -525,7 +525,12 @@ before anything is placed. Two properties fall out by construction:
   higher-precedence one survives (a hole *location*, which feeds coverage + the table
   escalation, outranks a coincident slot *position* line). The displaced duplicate is
   dropped **silently** — it was never starved, so firing `slot_dim_dropped` would be a
-  false report.
+  false report. The key is built from the **raw (pre-snap) endpoints** on both sides —
+  the location key uses the raw ref, so the slot key must too. Keying the slot side on
+  its *snapped* endpoint (`datum + round(span, 1)`) let a ~0.05 mm snap gap cross a
+  0.1 mm page-rounding bin at fractional datum distances, so a genuinely coincident span
+  escaped dedup and the duplicate survived (adversarial-review finding, fixed in the same
+  PR; regression-tested at a fractional 20.15 distance).
 - **Ordering (#346).** Candidates carry an `order` key with two segregated runs: feature
   **size** dims nearest the view, datum **location** dims nesting outward in ascending
   datum-distance order — so a slot length never lands mid-ladder and the location chain is
