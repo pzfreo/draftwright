@@ -182,8 +182,9 @@ def add_feature_location(dwg, feature, *, axes: tuple[str, ...] | None = None) -
     position, ``"y"`` = the side-Y position.
 
     Raises ``ValueError`` if the drawing has no detected model/analysis, *feature*
-    is not in the model, is not a Z-axis hole/pattern (side-drilled bores are placed
-    by the auto-pass), or the model has no datum.
+    is not in the model, or is not a Z-axis hole/pattern (side-drilled bores are placed
+    by the auto-pass). A feature with no datum-referenced ref (a datum-less model, a
+    concentric/on-datum bore, or a ref deduped against a sibling) returns ``[]``.
     """
     model = getattr(dwg, "_part_model", None)
     if model is None:
@@ -210,12 +211,15 @@ def add_feature_location(dwg, feature, *, axes: tuple[str, ...] | None = None) -
     if not want <= {"x", "y"}:
         raise ValueError("locate(): axes must be a subset of ('x', 'y')")
 
+    # A feature with no datum-referenced ref — a concentric/on-axis bore (located by a
+    # centre mark), an on-datum hole, or one whose ref coincides with another feature's
+    # (deduped by plan_locations) — has nothing to dimension here. An honest empty
+    # result (as the docstring promises), not an error, so the verb composes: the emitted
+    # #400 Ph2 script calls locate() on every hole and this no-ops the ones the auto-pass
+    # would also skip, matching its dedup rather than crashing.
     mine = [pd for pd in plan_locations(model) if pd.feature is feature]
     if not mine:
-        raise ValueError(
-            "locate(): feature has no datum-referenced location (concentric/on-axis bore?) "
-            "— it is located by a centre mark, not a position dim"
-        )
+        return []
     draft = dwg.draft
     datum = mine[0].datum
     assert datum is not None  # plan_locations always sets the datum
@@ -414,7 +418,11 @@ def add_feature_diameter(dwg, feature) -> str:
         _diameter_column_left(dwg, items, start=start)
     new = sorted(set(dwg.annotations()) - before)
     if not new:
-        raise ValueError(f"callout(): no room to place the ø{_fmt(dia)} step/boss leader")
+        # No room — degrade like the auto-pass (render_diameters places what fits and drops
+        # the overflow to feature_not_dimensioned), NOT a raise: the emitted reconstruction
+        # calls callout() per step, so a crowded turned shaft must not abort (#427 review).
+        _log.info("Step/boss ø%s callout skipped (no room)", _fmt(dia))
+        return ""
     return str(new[0])
 
 

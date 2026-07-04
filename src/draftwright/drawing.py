@@ -769,7 +769,9 @@ class Drawing:
 
         Raises ``ValueError`` if *feature* exposes no callout (use :meth:`dimension` for a
         linear param). Placed reasonably, not via the auto-pass's whole-set solve
-        (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the rest.
+        (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the rest. A
+        step/boss diameter that finds no room returns ``""`` (a warning-level drop, like
+        the auto-pass), rather than raising, so a reconstruction script never aborts.
         """
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
@@ -825,8 +827,10 @@ class Drawing:
         the placed names (0–2 — one per axis with a real offset).
 
         Raises ``ValueError`` if *feature* is not a Z-axis hole/pattern (side-drilled
-        bores are placed by the auto-pass) or the model has no datum. Placed reasonably,
-        not via the auto-pass's corridor solve (byte-identity is not a goal, #400 Ph2).
+        bores are placed by the auto-pass). A feature with no datum-referenced ref (a
+        datum-less model, a concentric/on-datum bore, or a ref deduped against a sibling)
+        returns ``[]``. Placed reasonably, not via the auto-pass's corridor solve
+        (byte-identity is not a goal, #400 Ph2).
         """
         from draftwright.annotations.holes import add_feature_location
 

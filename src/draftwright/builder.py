@@ -36,9 +36,10 @@ from draftwright._core import (
 )
 from draftwright.analysis import _analyse
 from draftwright.annotate import _auto_annotate, build_model
+from draftwright.annotations.sections import feature_hole_keys
 from draftwright.drawing import Drawing
 from draftwright.fonts import PLEX_MONO
-from draftwright.model import display
+from draftwright.model import display, plan_sections
 from draftwright.projection import (
     _fit_iso_view,
     _project_iso,
@@ -545,52 +546,84 @@ def _fmt_pt(p) -> str:
     return ", ".join(f"{round(c)}" if abs(c - round(c)) < 1e-6 else f"{c:.1f}" for c in p)
 
 
-def _feature_listing(a: Analysis) -> str:
-    """An inert, commented listing of the detected features and their dimensionable
-    parameters (#400 Ph1) — developer visibility into what the engine auto-dimensioned.
+# Feature kinds with no intent verb yet — emitted as a flagged comment, never a broken
+# call. The build_drawing(auto_dims=True) pointer recovers the full auto drawing (#424).
+_GAP_KINDS = {
+    "step_level": "auto-pass draws the prismatic height ladder; no intent verb yet "
+    "(dimension() needs a span, which step_height lacks)",
+    "rotational": "auto-pass draws the overall OD + centrelines + concentric bore leaders; "
+    "out of scope for the intent verbs (#419)",
+    "pmi": "pre-authored PMI, rendered by --pmi annotate; an add verb is deferred to #422",
+}
 
-    Each feature is referenced as ``dwg.model().features[i]`` so an uncommented line runs
-    against the real read surface (#397, ADR 0008 IR). A **linear** param becomes an
-    editable ``dwg.dimension(...)`` call; a leader-callout param (a hole's ø/depth, a
-    pattern's furniture) is noted inert — a callout add verb is tracked as #414. The
-    auto-pass already drew these, so *overriding* one means :meth:`~Drawing.drop` then
-    re-add, shown in the header. Pure function of *a*; no annotation pass runs.
+
+def _feature_listing(a: Analysis) -> str:
+    """Emit the detected features as **runnable intent-verb calls** (#400 Ph2) that
+    reconstruct the drawing on the detect-only build (``auto_dims=False``) above.
+
+    Each feature is redrawn by the domain add verbs against the detected model
+    (``dwg.model().features[i]``, the ADR-0008 IR): holes/patterns → ``callout`` +
+    ``locate`` + ``furniture``; steps/bosses → ``callout`` (ø); steps/envelopes/slots →
+    ``dimension(...)`` per linear param. A section A–A is added last when a
+    counterbored/spotfaced/blind Z-hole warrants one. Feature kinds with no verb yet
+    (step_level, rotational, pmi) are emitted as flagged comments naming the gap
+    (#424) — never silently dropped. Commenting any line drops exactly that annotation
+    (nothing is auto-drawn, so there is no double-dimension risk). Pure function of *a*.
     """
-    feats = getattr(build_model(a), "features", [])
+    model = build_model(a)
+    feats = getattr(model, "features", [])
     if not feats:
         return (
-            "# ── Detected features (#400 Ph1) ──────────────────────────────────────────────\n"
+            "# ── Reconstruct the drawing (#400 Ph2) ────────────────────────────────────────\n"
             "# No dimensionable features detected.\n"
         )
     lines = [
-        "# ── Detected features (#400 Ph1) ──────────────────────────────────────────────",
-        "# What the engine detected and auto-dimensioned, listed for visibility. Reference a",
-        "# feature as dwg.model().features[i] (the ADR-0008 IR). A dwg.dimension(...) line",
-        "# below reproduces the dim the engine drew for that param. The auto-pass already",
-        "# drew everything, so to CHANGE a feature, drop it then re-add only the dims you want",
-        "# (an uncommented bare line double-dimensions):",
-        "#     f = dwg.model().features[0]",
-        "#     dwg.drop(f)                             # remove f's auto annotations",
-        '#     dwg.dimension(f, "length", role="...")  # re-add a chosen linear dim',
+        "# ── Reconstruct the drawing at intent level (#400 Ph2) ────────────────────────",
+        "# Each feature is redrawn by domain verbs against the detected model (ADR-0008 IR).",
+        "# Comment any single line to drop exactly that annotation; comment a whole block to",
+        "# stop dimensioning that feature. The build above is detect-only, so nothing is drawn",
+        "# twice. Kinds with no verb yet are flagged inline — build_drawing(auto_dims=True)",
+        "# recovers the full automatic drawing for those.",
         "#",
     ]
     for i, feat in enumerate(feats):
-        lines.append(f"# features[{i}]  {feat.kind} @ ({_fmt_pt(feat.frame.origin)})")
+        kind = feat.kind
+        lines.append(f"# features[{i}]  {kind} @ ({_fmt_pt(feat.frame.origin)})")
+        if kind in _GAP_KINDS:
+            lines.append(f"#     {kind} — {_GAP_KINDS[kind]}. auto_dims=True to keep it.")
+            continue
+        lines.append(f"f = dwg.model().features[{i}]")
+        if kind in ("hole", "pattern"):
+            lines.append("dwg.callout(f)")
+            if feat.frame.axis == "z":
+                lines.append("dwg.locate(f)")
+            else:
+                # locate() is Z-axis only (it rejects side-drilled bores by contract, #133);
+                # an off-axis bore's position is auto-pass-only. Flag it like a gap kind (#424).
+                lines.append(
+                    f"#     locate() is Z-axis only — this {feat.frame.axis}-drilled bore's "
+                    "position is auto-pass-only (#133). auto_dims=True to keep it."
+                )
+            lines.append("dwg.furniture(f)")
+        elif kind in ("step", "boss"):
+            if feat.frame.axis in ("x", "z"):
+                lines.append("dwg.callout(f)")
+            else:
+                # callout() places X/Z-turned diameters only; a Y-turned step/boss is
+                # auto-pass-only (its diameter is not placeable, and the auto-pass skips it too).
+                lines.append(
+                    f"#     callout() places X/Z-turned diameters only — this "
+                    f"{feat.frame.axis}-turned step/boss is auto-pass-only. auto_dims=True to keep it."
+                )
         for p in feat.parameters():
-            if p.span is not None or feat.kind == "slot":  # a linear dim dimension() accepts
-                lines.append(
-                    f'#     dwg.dimension(dwg.model().features[{i}], "{p.kind}", '
-                    f'role="{p.role}")   # {display(p)}'
-                )
-            elif p.kind in ("diameter", "depth"):  # a hole ø/depth — a leader callout
-                lines.append(
-                    f"#     {display(p)} ({p.role}) -> auto leader callout; "
-                    f"a callout() add verb is #414"
-                )
-            else:  # an auto-drawn linear dim (step height, pitch, …) not yet a dimension() target
-                lines.append(
-                    f"#     {display(p)} ({p.role}) -> auto-drawn; not a dimension() target yet"
-                )
+            if p.span is not None or kind == "slot":  # a linear dim dimension() accepts
+                lines.append(f'dwg.dimension(f, "{p.kind}", role="{p.role}")   # {display(p)}')
+    if plan_sections(model, feature_hole_keys(a)) is not None:
+        lines += [
+            "",
+            "# Section A–A (part-level; comment to drop the whole section)",
+            "dwg.section()",
+        ]
     return "\n".join(lines) + "\n"
 
 
@@ -670,7 +703,7 @@ def _write_script(a: Analysis, scale: float | None = None, page: str | None = No
 
     run_section = (
         "\n"
-        "# ── Build drawing (standard 4-view layout + automatic dimensions) ─────────────\n"
+        "# ── Build drawing (detect-only 4-view layout; dimensions added below) ──────────\n"
         "_stem = _os.path.splitext(__file__)[0]\n"
         "dwg = build_drawing(\n"
         "    STEP_FILE,\n"
@@ -682,10 +715,11 @@ def _write_script(a: Analysis, scale: float | None = None, page: str | None = No
         "    pmi=PMI,\n"
         "    scale=SCALE,\n"
         "    page=PAGE,\n"
+        "    auto_dims=False,   # detect-only — the intent verbs below add every dimension\n"
         ")\n"
         "\n"
         "# ── Customise here — runs BEFORE export, so edits land in the output ───────────\n"
-        "# Prefer domain edits (place_dim / features) over page mechanics (at / Leader);\n"
+        "# Prefer domain edits (the intent verbs below) over page mechanics (at / Leader);\n"
         "# the engine places annotations automatically — say WHAT, not WHERE.\n"
         "# dwg.features(view)       → detected features → [FeatureInfo(.diameter .count .page_pos)]\n"
         "# dwg.place_dim(p1, p2, side, view, dwg.draft, name=…)  → add a dimension, auto-placed\n"
@@ -701,6 +735,10 @@ def _write_script(a: Analysis, scale: float | None = None, page: str | None = No
         "#   p1, p2 = dwg.at('front', 0, 0, 0), dwg.at('front', 40, 0, 0)\n"
         "#   dwg.place_dim(p1, p2, 'above', 'front', dwg.draft, name='dim_len')\n"
         "\n" + _feature_listing(a) + "\n"
+        "# Tidy any mechanically-fixable overlaps the incremental verbs left — repair()\n"
+        "# never worsens the sheet (the corridor-free add verbs lean on it, #400 Ph2).\n"
+        "dwg.repair()\n"
+        "\n"
         "# ── Export ────────────────────────────────────────────────────────────────────\n"
         "svg_path, dxf_path = dwg.export(_stem)\n"
         # ASCII arrow: a Unicode → crashes the print on a Windows cp1252 console
