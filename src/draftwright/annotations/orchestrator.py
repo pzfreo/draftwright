@@ -55,6 +55,7 @@ from draftwright.annotations.sections import (
     _request_prismatic_detail,
     _reserve_section_row,
     _resolve_details,
+    feature_holes_of,
 )
 from draftwright.model import PatternFeature, build_part_model, plan_dimensions, plan_sections
 from draftwright.recognition import (
@@ -76,13 +77,6 @@ def _wrap_rows(header, data, ncols):
             row += data[idx] if idx < len(data) else blank
         wide.append(row)
     return wide
-
-
-def _is_concentric_hole(h, a: Analysis) -> bool:
-    """True when *h* is an axial bore on the part centreline (turned base set)."""
-    if _axis_letter(h) != "z":
-        return False
-    return math.hypot(h.location[0] - a.cx, h.location[1] - a.cy) <= _CONCENTRIC_TOL_MM
 
 
 def _concentric_bore_diams(a: Analysis) -> list:
@@ -205,12 +199,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # dimensioned by the ldr_z leaders, so they are excluded here to avoid a
     # duplicate hole callout; only the off-axis features get callouts.  On a
     # prismatic part every hole flows through unchanged.
-    feature_holes = a.holes
-    if a.is_rotational:
-        feature_holes = [h for h in a.holes if not _is_concentric_hole(h, a)]
-    # The surviving feature-hole *positions* (concentric bores excluded on rotational
-    # parts) — the IR gates callouts/furniture/sections on membership in this set, so
-    # no recogniser Hole object crosses into the renderers (Amendment 6, #263/#207).
+    # The surviving feature holes + their *positions* (concentric bores excluded on
+    # rotational parts) — the IR gates callouts/furniture/sections on membership in this
+    # set, so no recogniser Hole object crosses into the renderers (Amendment 6, #263/
+    # #207). feature_holes_of is the single source shared with the section() add verb (#420).
+    feature_holes = feature_holes_of(a)
     feature_keys = {HoleRef.of(h.location) for h in feature_holes}
     # Decide the section trigger + cut-plane row now (pure function of _model/
     # feature_keys, no placement dependency) and reserve its cutting-plane arrows'

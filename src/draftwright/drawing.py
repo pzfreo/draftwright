@@ -795,6 +795,23 @@ class Drawing:
 
         return add_feature_furniture(self, feature, view=view)
 
+    def section(self) -> list[str]:
+        """Add the automatic full **section A–A** (#420) — the section half of the
+        editable surface.
+
+        Part-level, unlike the per-feature verbs: a section fires when a Z-axis
+        hole/pattern has a counterbore, spotface, or blind bottom (its internal
+        profile is hidden-line-only in every ortho view), cutting through the densest
+        qualifying row. Takes no argument (the auto A–A) and is **not** feature-tagged
+        or :meth:`drop`-compatible — a section is atomic, so it is dropped by commenting
+        the call. Returns the placed annotation names, or ``[]`` when no section is
+        warranted or there is no room. Call it *after* the per-feature verbs — the
+        section's room check clears whatever is already placed right of the side view.
+        """
+        from draftwright.annotations.sections import add_section
+
+        return add_section(self)
+
     def locate(self, feature, *, axes=None) -> list[str]:
         """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern
         (#418) — the location half of the feature-referenced **add** surface.

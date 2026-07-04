@@ -4608,6 +4608,25 @@ class TestFeatureEdits:
         dwg.drop(steps[0])
         assert names[1] in dwg.annotations()
 
+    def test_section_reproduces_the_auto_section(self):
+        # #420: section() adds the A–A that a counterbored hole triggers, on a
+        # detect-only build (the auto-pass would draw it, but auto_dims=False skips it).
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(60, 40, 20) - Cylinder(4, 30) - Pos(0, 0, 2) * Cylinder(7, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        names = dwg.section()
+        assert "section_caption" in names and "section_line" in names
+        assert dwg.get_annotation("section_caption").label == "SECTION A–A"
+
+    def test_section_is_a_noop_without_a_trigger(self):
+        # A plain through-hole plate warrants no section → honest empty list.
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(80, 60, 20) - Pos(20, 0, 0) * Cylinder(4, 30)
+        dwg = build_drawing(part, auto_dims=False)
+        assert dwg.section() == []
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
