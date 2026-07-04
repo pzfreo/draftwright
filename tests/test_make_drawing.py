@@ -5083,6 +5083,42 @@ class TestFeatureEdits:
         for n, lbl in survivors.items():
             assert n in after and after[n] == lbl
 
+    def test_finalize_routes_step_lengths_through_render_step_lengths(self):
+        # #426 Phase 4b: a turned shaft's step-length dims route through render_step_lengths'
+        # chain, so the finalize reconstruction reproduces the auto-pass step-length layout
+        # (m_steplen* at the same positions), not the live per-feature independent dims.
+        from build123d import Cylinder, Rot
+
+        shaft = Rot(0, 90, 0) * (
+            Cylinder(20, 12)
+            + Cylinder(15, 18).translate((0, 0, 12))
+            + Cylinder(10, 25).translate((0, 0, 30))
+        )
+        auto = build_drawing(shaft)  # auto_dims=True — the reference
+
+        dwg = build_drawing(shaft, auto_dims=False)
+        dwg._defer_intents = True
+        for f in dwg.model().features:
+            if f.kind == "step":
+                dwg.dimension(f, "length", role="step")
+        dwg.finalize()
+
+        def steplen_pos(d):
+            return sorted(
+                (
+                    n,
+                    round(d.get_annotation(n).bounding_box().center().X, 1),
+                    round(d.get_annotation(n).bounding_box().center().Y, 1),
+                )
+                for n in d.annotations()
+                if n.startswith("m_steplen")
+            )
+
+        assert steplen_pos(dwg) and steplen_pos(dwg) == steplen_pos(auto)  # the chain, not singles
+        assert not any(
+            n.startswith("dim_length") for n in dwg.annotations()
+        )  # no live single dims
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")

@@ -887,6 +887,8 @@ class Drawing:
           ``drain_corridors`` — one crossing-free, deduped, monotone ladder;
         * **(B3, Phase 4a)** X/Z-turned step/boss ø **diameters** through ``render_diameters``
           — the row-below / column-left set-solve;
+        * **(B3b, Phase 4b)** a turned shaft's step-length **chain** through
+          ``render_step_lengths`` — the unified chain / ``N× v`` collapse / staggered tiers;
         * **(C)** the ``section`` renders last (its room check clears the side view's right).
 
         Slots stay on the live path (Phase 2b — a slot's position dim is not a recorded
@@ -904,7 +906,11 @@ class Drawing:
         if not self._intents:
             return
         from draftwright.annotations._common import drain_corridors
-        from draftwright.annotations.from_model import render_diameters, render_locations
+        from draftwright.annotations.from_model import (
+            render_diameters,
+            render_locations,
+            render_step_lengths,
+        )
         from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
         from draftwright.annotations.sections import (
             _add_section_view,
@@ -958,9 +964,24 @@ class Drawing:
             # it on live replay where callout() raises the same clear error (#432 review).
             and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "z")
         }
+        # step LENGTH dimension intents (role="step") → render_step_lengths' chain (Phase 4b),
+        # but only on a TURNED part (a.prof is not None, mirroring the auto-pass guard) — else
+        # they live-replay. Excludes the step's ø (a callout routed in dia_ids above).
+        len_ids = {
+            id(it)
+            for it in self._intents
+            if routable
+            and a is not None
+            and a.prof is not None
+            and it.kind == "dimension"
+            and getattr(it.feature, "kind", None) == "step"
+            and it.kwargs.get("param") == "length"
+            and it.kwargs.get("role") == "step"
+        }
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
         only_callout = {it.feature for it in self._intents if id(it) in callout_ids}
         only_dia = {it.feature for it in self._intents if id(it) in dia_ids}
+        only_len = {it.feature for it in self._intents if id(it) in len_ids}
 
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
@@ -974,7 +995,10 @@ class Drawing:
             i = 0
             while i < len(self._intents):
                 it = self._intents[i]
-                if it.kind == "section" or id(it) in corridor_ids | callout_ids | dia_ids:
+                if (
+                    it.kind == "section"
+                    or id(it) in corridor_ids | callout_ids | dia_ids | len_ids
+                ):
                     i += 1
                     continue
                 self._replay_intent(it)  # resilient: a raise leaves the rest recorded
@@ -1007,6 +1031,12 @@ class Drawing:
                 assert a is not None and isinstance(model, PartModel)  # only_dia ⟹ routable
                 render_diameters(self, plan_dimensions(model), only=only_dia)
             self._intents = [it for it in self._intents if id(it) not in dia_ids]
+            # (B3b) turned step-length CHAIN through render_step_lengths (N× collapse /
+            #       staggered tiers) — auto-pass S11b, after diameters, before section.
+            if only_len:
+                assert a is not None and isinstance(model, PartModel)  # only_len ⟹ routable
+                render_step_lengths(self, plan_dimensions(model), only=only_len)
+            self._intents = [it for it in self._intents if id(it) not in len_ids]
             # (C) render the section LAST, reusing the reserved plan (its room check clears
             #     everything right of the side view; _add_section_view clears the reservation).
             #     A recorded section with no trigger (_section is None) is a no-op.
