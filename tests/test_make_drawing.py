@@ -4779,7 +4779,7 @@ class TestFeatureEdits:
         assert deferred.annotations() == live.annotations()
 
     def test_finalize_is_idempotent(self):
-        # #426 Phase 1: finalize() twice == once (drained list + _finalized guard).
+        # #426 Phase 1: finalize() twice == once — idempotent via the empty-list early-out.
         dwg = build_drawing(_holed_plate(), auto_dims=False)
         dwg._defer_intents = True
         h = next(f for f in dwg.model().features if f.kind == "hole")
@@ -4815,8 +4815,8 @@ class TestFeatureEdits:
         assert dwg.annotations()  # finalize ran during export → the callout got placed
 
     def test_finalize_drains_a_second_batch(self):
-        # #428 review: record → finalize → record-more → finalize drains each batch (the
-        # removed _finalized latch no longer blocks the second).
+        # #428 review: record → finalize → record-more → finalize drains each batch —
+        # idempotency is list-draining only, so a second batch is not blocked.
         dwg = build_drawing(_holed_plate(), auto_dims=False)
         dwg._defer_intents = True
         hole = next(f for f in dwg.model().features if f.kind == "hole")
