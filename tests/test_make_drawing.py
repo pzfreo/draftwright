@@ -4450,7 +4450,7 @@ class TestFeatureEdits:
         labels = {dwg.get_annotation(n).label for n in names}
         assert labels == {"40", "30"}
         assert set(names) <= set(dwg.drop(centre))
-        assert dwg.annotations_of(centre) == []  # drop removed them all
+        assert not dwg.annotations_of(centre)  # drop removed them all
 
     def test_locate_axes_filter(self):
         # axes=("x",) emits only the plan-X position dim.
