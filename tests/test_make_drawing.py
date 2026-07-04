@@ -4499,6 +4499,93 @@ class TestFeatureEdits:
         with pytest.raises(ValueError, match="not from this drawing"):
             dwg.locate(foreign)
 
+    def test_furniture_adds_hole_centre_mark(self):
+        # #419: furniture() places a hole's centre mark(s), tagged + droppable.
+        from build123d_drafting.helpers import CenterMark
+
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        centre = next(f for f in dwg.model().features if f.kind == "hole" and len(f.members) == 1)
+        names = dwg.furniture(centre)
+        assert names and all(n.startswith("m_cm") for n in names)
+        assert all(isinstance(dwg.get_annotation(n), CenterMark) for n in names)
+        assert set(names) <= set(dwg.annotations_of(centre))
+        assert set(names) <= set(dwg.drop(centre))
+
+    def test_furniture_adds_pattern_centre_cross_and_round_trips(self):
+        # A bolt circle's furniture is member centre marks + the bc_ centre-cross.
+        import math
+
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(120, 120, 20)
+        for k in range(6):
+            ang = math.radians(60 * k)
+            part -= Pos(35 * math.cos(ang), 35 * math.sin(ang), 0) * Cylinder(4, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        pat = next(f for f in dwg.model().features if f.kind == "pattern")
+        names = dwg.furniture(pat)
+        assert any(n.startswith("bc_") for n in names)
+        assert set(names) <= set(dwg.annotations_of(pat))
+        assert set(names) <= set(dwg.drop(pat))
+        assert not dwg.annotations_of(pat)  # drop removed them all
+
+    def test_furniture_grid_emits_pitch_dims(self):
+        # A rectangular grid's furniture includes both (n-1)× pitch dims.
+        from build123d import Box, Cylinder, Pos
+        from build123d_drafting.helpers import Dimension
+
+        part = Box(140, 70, 12)
+        for r in range(2):
+            for c in range(4):
+                part -= Pos(-37.5 + c * 25, -10 + r * 20, 0) * Cylinder(4, 12)
+        dwg = build_drawing(part, auto_dims=False)
+        grid = next(f for f in dwg.model().features if f.kind == "pattern")
+        names = dwg.furniture(grid)
+        pitch = [n for n in names if n.startswith("dim_pitch_")]
+        assert len(pitch) == 2
+        assert all(isinstance(dwg.get_annotation(n), Dimension) for n in pitch)
+        assert set(names) <= set(dwg.annotations_of(grid))
+        assert set(names) <= set(dwg.drop(grid))
+
+    def test_furniture_rejects_a_linear_feature(self):
+        # A turned step is not a hole/pattern → point at dimension().
+        from build123d import Cylinder
+
+        dwg = build_drawing(
+            Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)), auto_dims=False
+        )
+        step = next(f for f in dwg.model().features if f.kind == "step")
+        with pytest.raises(ValueError, match="dimension"):
+            dwg.furniture(step)
+
+    def test_callout_adds_a_turned_step_diameter(self):
+        # #419: callout() extended to a turned step's ø leader (Z-turned → column left).
+        from build123d import Cylinder
+        from build123d_drafting.helpers import Leader
+
+        dwg = build_drawing(
+            Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)), auto_dims=False
+        )
+        step = next(f for f in dwg.model().features if f.kind == "step")
+        name = dwg.callout(step)
+        assert name.startswith("m_dia")
+        assert isinstance(dwg.get_annotation(name), Leader)
+        assert name in dwg.annotations_of(step)
+        assert name in dwg.drop(step)
+
+    def test_callout_step_x_turned_uses_row_path(self):
+        # The X-turned path places m_dia_x in the row below the front view.
+        from build123d import Cylinder, Rot
+        from build123d_drafting.helpers import Leader
+
+        shaft = Rot(0, 90, 0) * (Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)))
+        dwg = build_drawing(shaft, auto_dims=False)
+        step = next(f for f in dwg.model().features if f.kind == "step")
+        name = dwg.callout(step)
+        assert name.startswith("m_dia_x")
+        assert isinstance(dwg.get_annotation(name), Leader)
+        assert name in dwg.drop(step)
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")

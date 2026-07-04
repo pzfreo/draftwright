@@ -757,22 +757,43 @@ class Drawing:
         return name
 
     def callout(self, feature, *, view=None, name=None) -> str:
-        """Add a hole/pattern ø-depth **leader callout** for *feature* (#414) — the
-        callout half of the feature-referenced **add** surface, symmetric with :meth:`drop`.
+        """Add a **ø leader callout** for *feature* (#414/#419) — the callout half of the
+        feature-referenced **add** surface, symmetric with :meth:`drop`.
 
-        Where :meth:`dimension` draws a linear dim, ``callout`` draws the hole's ø / ``n×`` /
-        through-or-depth / counterbore leader (the same text the auto-pass builds). *feature*
-        is a hole/pattern from :meth:`model`; ``view`` defaults to the feature's end-on view.
-        The callout is placed into free space beside that view and tagged with *feature* so
-        :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
+        Where :meth:`dimension` draws a linear dim, ``callout`` draws a leader: for a
+        **hole/pattern**, the ø / ``n×`` / through-or-depth / counterbore callout (the same
+        text the auto-pass builds), placed beside the feature's end-on view (``view``
+        defaults to it); for a turned **step/boss**, the ``ø…`` diameter leader in the row
+        below (X-turned) or column left of (Z-turned) the front view. Tagged with *feature*
+        so :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
-        Raises ``ValueError`` if *feature* exposes no hole callout (use :meth:`dimension` for a
-        linear param). A lone added callout is placed reasonably, not via the auto-pass's
-        whole-set solve (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the rest.
+        Raises ``ValueError`` if *feature* exposes no callout (use :meth:`dimension` for a
+        linear param). Placed reasonably, not via the auto-pass's whole-set solve
+        (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the rest.
         """
-        from draftwright.annotations.holes import add_feature_callout
+        from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
+        if getattr(feature, "kind", None) in ("step", "boss"):
+            return add_feature_diameter(self, feature)
         return add_feature_callout(self, feature, view=view, name=name)
+
+    def furniture(self, feature, *, view=None) -> list[str]:
+        """Add a hole/pattern's non-dimensional **sheet furniture** (#419) — centre marks
+        (every member) plus a pattern's centre-cross (bolt circle) or pitch/grid dims.
+
+        The geometric marks a feature carries that no other verb emits: where
+        :meth:`callout` draws the ø leader and :meth:`locate` the position dims, ``furniture``
+        draws the centre marks and pattern furniture. *feature* is a hole/pattern from
+        :meth:`model`; ``view`` defaults to its end-on view. Each mark is tagged with
+        *feature* so :meth:`drop` / :meth:`annotations_of` find it. Returns the placed names
+        (varies by pattern kind — a bolt circle emits a centre-cross, a linear/grid array a
+        pitch dim).
+
+        Raises ``ValueError`` if *feature* is not a hole/pattern (use :meth:`dimension`).
+        """
+        from draftwright.annotations.holes import add_feature_furniture
+
+        return add_feature_furniture(self, feature, view=view)
 
     def locate(self, feature, *, axes=None) -> list[str]:
         """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern

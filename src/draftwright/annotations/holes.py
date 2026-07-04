@@ -12,6 +12,7 @@ import math
 
 from build123d_drafting.helpers import (
     CenterlineCircle,
+    CenterMark,
     Leader,
 )
 
@@ -40,7 +41,12 @@ from draftwright.annotations._common import (
     place_strip_candidates,
     strip_obstacles,
 )
-from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
+from draftwright.annotations.from_model import (
+    _diameter_column_left,
+    _diameter_row_below,
+    callout_from_spec,
+    hole_callout_spec,
+)
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model import plan_dimensions
 from draftwright.model.ir import HoleFeature, PatternFeature
@@ -293,6 +299,108 @@ def add_feature_location(dwg, feature, *, axes: tuple[str, ...] | None = None) -
                 )
             )
     return names
+
+
+def add_feature_furniture(dwg, feature, *, view: str | None = None) -> list[str]:
+    """Add a hole/pattern's non-dimensional **sheet furniture** — the #419 ``furniture()``
+    add verb (symmetric with :meth:`Drawing.drop`).
+
+    Unifies the two geometric marks a feature carries that no other verb emits: per-hole
+    **centre marks** (every member) and, for a pattern, its **centre-cross** (bolt circle)
+    or **pitch/grid dimensions** (linear/grid array). Funnels into the same
+    :func:`render_centermarks` centre-mark math and :func:`_add_furniture` the auto-pass
+    uses — both already corridor-free and feature-tagged — so a detect-only build can
+    reconstruct them. Each mark is tagged with *feature* so :meth:`drop` /
+    :meth:`annotations_of` find it. Returns the placed names (varies by pattern kind).
+
+    Raises ``ValueError`` if the drawing has no detected model/analysis, *feature* is not
+    in it, or *feature* is not a hole/pattern (use :meth:`dimension` for a linear param).
+    """
+    model = getattr(dwg, "_part_model", None)
+    if model is None:
+        raise ValueError("furniture(): no detected model — build the drawing first")
+    if not any(f is feature for f in model.features):
+        raise ValueError(
+            "furniture(): feature is not from this drawing's model — "
+            "pass one from dwg.model().features"
+        )
+    if not isinstance(feature, HoleFeature | PatternFeature):
+        raise ValueError(
+            f"furniture() draws a hole/pattern's centre marks + pattern furniture; "
+            f"{type(feature).__name__} exposes none — use dimension() for a linear param"
+        )
+    a = getattr(dwg, "_analysis", None)
+    if a is None:
+        raise ValueError("furniture(): no analysis — build the drawing first")
+    view = view or _END_ON[feature.frame.axis]
+    before = set(dwg.annotations())
+
+    # Centre marks — one per member, mirroring render_centermarks' size/placement.
+    dia = feature.member.diameter if isinstance(feature, PatternFeature) else feature.diameter
+    size = max(2.5, dia * dwg.scale + 2.0)
+    for loc in feature.members or (feature.frame.origin,):
+        px, py, *_ = dwg.at(view, *loc)
+        j = 0
+        while (nm := f"m_cm{j}") in dwg._named:
+            j += 1
+        dwg.add(CenterMark((px, py, 0), size, dwg.draft), nm, view=view, feature=feature)
+
+    # Pattern furniture — bolt-circle centre-cross / linear-or-grid pitch dims.
+    if isinstance(feature, PatternFeature):
+        j = 0
+        while f"bc_{view}{j}" in dwg._named or f"dim_pitch_{view}{j}" in dwg._named:
+            j += 1
+        _add_furniture(dwg, a, view, j, feature, lambda loc: dwg.at(view, *loc))
+
+    return sorted(set(dwg.annotations()) - before)
+
+
+def add_feature_diameter(dwg, feature) -> str:
+    """Add a turned **step/boss diameter** ø-leader — the #419 extension of the callout
+    add verb to :class:`StepFeature` / :class:`BossFeature`.
+
+    A turned step's diameter is a leader callout the hole-callout path does not reach and
+    :meth:`dimension` rejects (its diameter param carries no span). Funnels into the same
+    :func:`_diameter_row_below` (X-turned) / :func:`_diameter_column_left` (Z-turned) the
+    auto-pass uses — already corridor-free and feature-tagged (#412). Returns the name.
+
+    Raises ``ValueError`` if the feature exposes no step/boss diameter, its turning axis
+    is unsupported, or there is no room to place the leader.
+    """
+    model = getattr(dwg, "_part_model", None)
+    if model is None:
+        raise ValueError("callout(): no detected model — build the drawing first")
+    if not any(f is feature for f in model.features):
+        raise ValueError(
+            "callout(): feature is not from this drawing's model — "
+            "pass one from dwg.model().features"
+        )
+    group = next((g for g in plan_dimensions(model) if g.feature is feature), None)
+    dia = (
+        next((pd.param.value for pd in group.dims if pd.param.kind == "diameter"), None)
+        if group is not None
+        else None
+    )
+    if group is None or dia is None:
+        raise ValueError(
+            f"callout(): {type(feature).__name__} exposes no step/boss diameter callout"
+        )
+    axis = feature.frame.axis
+    if axis not in ("x", "z"):
+        raise ValueError(
+            f"callout(): a {axis!r}-turned step/boss diameter is not placeable "
+            "(only X- and Z-turned parts)"
+        )
+    items = [(group.anchor, dia, feature)]
+    before = set(dwg.annotations())
+    if axis == "x":
+        _diameter_row_below(dwg, items)
+    else:
+        _diameter_column_left(dwg, items)
+    new = sorted(set(dwg.annotations()) - before)
+    if not new:
+        raise ValueError(f"callout(): no room to place the ø{_fmt(dia)} step/boss leader")
+    return str(new[0])
 
 
 def _legible_locations(positions, scale):
