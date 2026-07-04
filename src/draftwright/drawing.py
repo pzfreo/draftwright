@@ -688,8 +688,8 @@ class Drawing:
 
         The feature-referenced **add** verb: pair to :meth:`drop`. *feature* is an IR
         feature from :meth:`model`; *param* is a **linear** parameter kind it exposes — a
-        turned step's ``"length"``, a hole ``"location"``, or a slot's ``"length"`` (which
-        the feature carries as value-only geometry, derived here via :meth:`_derive_span`).
+        turned step's ``"length"`` or a slot's ``"length"``/``"width"`` (which the feature
+        carries as value-only geometry, derived here via :meth:`_derive_span`).
         The dimension is placed into free strip space and tagged with *feature*, so
         :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
