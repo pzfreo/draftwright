@@ -655,20 +655,47 @@ class Drawing:
             self.remove(n)
         return names
 
+    @staticmethod
+    def _derive_span(feature, param):
+        """Model-space ``(lo, hi)`` endpoints for a value-only *linear* param whose geometry
+        the feature carries (#411), or ``None`` for a callout param with no linear span.
+
+        Slots: the width dim spans ``width_axis`` across ``w_center ± width/2`` (at the
+        length midpoint); the length dim spans ``long_axis`` ``lo → hi`` (at the centre
+        line) — the same endpoints ``render_slots`` measures."""
+        if getattr(feature, "kind", None) == "slot":
+            ax = {"x": 0, "y": 1, "z": 2}
+            li, wi = ax[feature.long_axis], ax[feature.width_axis]
+            a = list(feature.frame.origin)
+            b = list(feature.frame.origin)
+            if param.role == "slot_length":
+                a[li], b[li] = feature.lo, feature.hi
+                a[wi] = b[wi] = feature.w_center
+            elif param.role == "slot_width":
+                mid = (feature.lo + feature.hi) / 2
+                half = feature.width / 2
+                a[wi], b[wi] = feature.w_center - half, feature.w_center + half
+                a[li] = b[li] = mid
+            else:
+                return None
+            return tuple(a), tuple(b)
+        return None
+
     def dimension(
         self, feature, param, *, role=None, side="above", view=None, name=None, **kwargs
     ):
         """Add a dimension for *feature*'s *param*, attributed to the feature (#398e).
 
         The feature-referenced **add** verb: pair to :meth:`drop`. *feature* is an IR
-        feature from :meth:`model`; *param* is a parameter kind it exposes that carries a
-        two-point ``span`` — a linear dimension (e.g. a turned step's ``"length"``). The
-        dimension is placed into free strip space and tagged with *feature*, so
+        feature from :meth:`model`; *param* is a **linear** parameter kind it exposes — a
+        turned step's ``"length"`` or a slot's ``"length"``/``"width"`` (which the feature
+        carries as value-only geometry, derived here via :meth:`_derive_span`).
+        The dimension is placed into free strip space and tagged with *feature*, so
         :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
-        A feature may expose several params of one kind (an envelope's width/height/depth
-        are all ``"length"``); pass ``role=`` to pick one — a bare kind matching more than
-        one raises rather than guessing.
+        A feature may expose several params of one kind (an envelope's width/height/depth,
+        or a slot's ``slot_width``/``slot_length``, are all ``"length"``); pass ``role=`` to
+        pick one — a bare kind matching more than one raises rather than guessing.
 
         ``view`` is chosen automatically as the orthographic view (``"front"``/``"plan"``/
         ``"side"``) where the span projects non-degenerate — a length along the turning
@@ -676,10 +703,10 @@ class Drawing:
         to force one of those three (a non-orthographic view foreshortens the span and is
         rejected). ``side`` defaults to ``"above"``; ``kwargs`` forward to the dimension.
 
-        Raises ``ValueError`` if no span-carrying param of that kind/role exists, if the
-        kind is ambiguous, or if *view* is not orthographic. Value-only params (a slot's
-        dims, a hole's ``"diameter"``/``"depth"`` — which need the feature's own geometry
-        or a leader callout) are not yet supported; that lands with the callout work (#398d).
+        Raises ``ValueError`` if the feature has no such param, the kind is ambiguous, or
+        *view* is not orthographic. A hole's ``"diameter"``/``"depth"`` are **leader
+        callouts**, not linear dimensions, so they raise here — a callout add verb is a
+        separate mechanism, tracked apart from this one.
         """
         _ortho = ("front", "plan", "side")
         if view is not None and view not in _ortho:
@@ -687,15 +714,12 @@ class Drawing:
                 f"view must be one of {_ortho}, not {view!r} (it foreshortens the span)"
             )
         matches = [
-            q
-            for q in feature.parameters()
-            if q.kind == param and q.span is not None and (role is None or q.role == role)
+            q for q in feature.parameters() if q.kind == param and (role is None or q.role == role)
         ]
         if not matches:
             r = f"/{role!r}" if role else ""
             raise ValueError(
-                f"{type(feature).__name__} has no span-carrying '{param}'{r} parameter to "
-                f"dimension (callout params like diameter/depth are not yet supported — #398d)"
+                f"{type(feature).__name__} has no '{param}'{r} parameter to dimension"
             )
         if len(matches) > 1:
             roles = sorted(q.role for q in matches)
@@ -703,7 +727,17 @@ class Drawing:
                 f"{type(feature).__name__} has {len(matches)} '{param}' params (roles {roles}) "
                 f"— pass role= to choose one"
             )
-        (lo, hi) = matches[0].span
+        # A span-carrying param (a step length, a location) gives its endpoints directly;
+        # a value-only linear param (a slot's dims) derives them from the feature geometry
+        # (#411). A callout param (a hole's diameter/depth) has no linear span at all.
+        span = matches[0].span or self._derive_span(feature, matches[0])
+        if span is None:
+            raise ValueError(
+                f"'{param}' (role {matches[0].role!r}) is a leader-callout parameter, not a "
+                f"linear dimension — dimension() draws linear dims only (a callout add verb "
+                f"is tracked separately)"
+            )
+        (lo, hi) = span
         p1 = p2 = None
         for v in [view] if view else _ortho:
             q1, q2 = self.at(v, *lo), self.at(v, *hi)

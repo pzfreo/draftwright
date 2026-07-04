@@ -4322,13 +4322,29 @@ class TestFeatureEdits:
         assert name in set(dwg.drop(step))
         assert name not in dwg.annotations()  # drop removed it
 
-    def test_dimension_rejects_non_span_param(self):
+    def test_dimension_rejects_callout_param(self):
+        # A hole/step diameter is a leader callout, not a linear dim — clear ValueError.
         from build123d import Cylinder
 
         dwg = build_drawing(Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)))
         step = next(f for f in dwg.model().features if f.kind == "step")
-        with pytest.raises(ValueError, match="span"):
-            dwg.dimension(step, "diameter")  # value-only param, needs a callout (#398d)
+        with pytest.raises(ValueError, match="callout"):
+            dwg.dimension(step, "diameter")
+
+    def test_dimension_slot_derives_span_and_tags(self):
+        # #411: a slot's dims are value-only; dimension() derives the span from the slot
+        # geometry (role= disambiguates length vs width), tags + drops it.
+        from build123d import Box, Mode, Pos
+
+        part = Box(80, 60, 20) - Pos(0, 0, 0) * Box(24, 8, 30, mode=Mode.SUBTRACT)
+        dwg = build_drawing(part)
+        slot = next(f for f in dwg.model().features if f.kind == "slot")
+        nl = dwg.dimension(slot, "length", role="slot_length")
+        assert dwg.get_annotation(nl).label == "24"  # the long-axis span
+        nw = dwg.dimension(slot, "length", role="slot_width")
+        assert dwg.get_annotation(nw).label == "8"  # the width-axis span
+        assert {nl, nw} <= set(dwg.annotations_of(slot))
+        assert nl in dwg.drop(slot)
 
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
