@@ -312,6 +312,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # every hole — runs last so the table avoids every placed annotation
     # including the title block (#93).
     _maybe_tabulate_holes(dwg, a)
+    # Don't leave the consumed escalations on the drawing: a later deferred edit
+    # (`build_drawing(part)` then `with dwg.deferred(): …`) would otherwise inherit
+    # them and re-fire finalize's leg D against stale drops, relocating the table
+    # (#440). Nothing reads _escalations after the table pass.
+    dwg._escalations = []
 
 
 def _maybe_tabulate_holes(dwg, a: Analysis):

@@ -4995,6 +4995,19 @@ class TestFeatureEdits:
         assert not [n for n in dwg.annotations() if n.startswith("dim_length")]
         assert dwg._intents == []
 
+    def test_finalize_malformed_slot_dimension_surfaces_the_live_valueerror(self):
+        # #439: slot_ids matches only param="length" + role in (slot_width, slot_length),
+        # like len_ids/dia_ids. A malformed slot dim (a param a slot has no parameter for)
+        # must NOT be silently routed through render_slots — it falls through to leg-A live
+        # replay, where dimension() raises the same ValueError the live (non-deferred) path
+        # raises, instead of being swallowed.
+        part = Box(50, 30, 20) - Box(20, 8, 30)  # an enclosed through-slot (#135)
+        dwg = build_drawing(part, auto_dims=False)
+        slot = next(f for f in dwg.model().features if f.kind == "slot")
+        with pytest.raises(ValueError):
+            with dwg.deferred():
+                dwg.dimension(slot, "diameter")  # a slot has no diameter param
+
     def test_finalize_slot_position_dedups_with_a_coincident_hole_location(self):
         # #426 Phase 2b: slots share the location corridor with hole locates and drain in ONE
         # solve. Here the slot's near edge (x=-10) coincides with a hole's X-location, so the
