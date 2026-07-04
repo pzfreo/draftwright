@@ -58,6 +58,7 @@ from draftwright.export import (
     set_dxf_metadata,
 )
 from draftwright.fonts import PLEX_MONO
+from draftwright.intents import Intent
 from draftwright.layout import (
     _greedy_strip_1d,
     _solve_strip_1d,
@@ -292,6 +293,11 @@ class Drawing:
         # Lazy model-location → IR hole/pattern feature index (#408), so a balloon —
         # which holds a recognition hole, not the IR feature — can attribute itself.
         self._hole_feature_index: dict | None = None
+        # Deferred placement intents (#426 Phase 1). When _defer_intents is True the add
+        # verbs record an Intent instead of placing; finalize() drains them (Phase 1
+        # replays through the live helpers). Default off → the live path is unchanged.
+        self._intents: list[Intent] = []
+        self._defer_intents: bool = False
 
     # -- annotation registry (compat accessors, ADR 0005 §4) ------------------
     # The registry owns these four; they are exposed as their live containers so
@@ -708,6 +714,22 @@ class Drawing:
         callouts**, not linear dimensions, so they raise here — a callout add verb is a
         separate mechanism, tracked apart from this one.
         """
+        if self._defer_intents:  # #426: record, don't place — finalize() drains it
+            self._intents.append(
+                Intent(
+                    "dimension",
+                    feature,
+                    {
+                        "param": param,
+                        "role": role,
+                        "side": side,
+                        "view": view,
+                        "name": name,
+                        **kwargs,
+                    },
+                )
+            )
+            return ""
         _ortho = ("front", "plan", "side")
         if view is not None and view not in _ortho:
             raise ValueError(
@@ -773,6 +795,9 @@ class Drawing:
         step/boss diameter that finds no room returns ``""`` (a warning-level drop, like
         the auto-pass), rather than raising, so a reconstruction script never aborts.
         """
+        if self._defer_intents:  # #426: record, don't place — finalize() drains it
+            self._intents.append(Intent("callout", feature, {"view": view, "name": name}))
+            return ""
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
         if getattr(feature, "kind", None) in ("step", "boss"):
@@ -793,6 +818,9 @@ class Drawing:
 
         Raises ``ValueError`` if *feature* is not a hole/pattern (use :meth:`dimension`).
         """
+        if self._defer_intents:  # #426: record, don't place — finalize() drains it
+            self._intents.append(Intent("furniture", feature, {"view": view}))
+            return []
         from draftwright.annotations.holes import add_feature_furniture
 
         return add_feature_furniture(self, feature, view=view)
@@ -810,6 +838,9 @@ class Drawing:
         warranted or there is no room. Call it *after* the per-feature verbs — the
         section's room check clears whatever is already placed right of the side view.
         """
+        if self._defer_intents:  # #426: record, don't place — finalize() drains it
+            self._intents.append(Intent("section", None, {}))
+            return []
         from draftwright.annotations.sections import add_section
 
         return add_section(self)
@@ -832,9 +863,51 @@ class Drawing:
         returns ``[]``. Placed reasonably, not via the auto-pass's corridor solve
         (byte-identity is not a goal, #400 Ph2).
         """
+        if self._defer_intents:  # #426: record, don't place — finalize() drains it
+            self._intents.append(Intent("locate", feature, {"axes": axes}))
+            return []
         from draftwright.annotations.holes import add_feature_location
 
         return add_feature_location(self, feature, axes=axes)
+
+    def finalize(self) -> None:
+        """Drain the recorded placement intents (#426 Phase 1).
+
+        When the drawing was built in **deferred** mode (``_defer_intents``), the add
+        verbs recorded :class:`~draftwright.intents.Intent`\\s instead of placing. This
+        drains them — **Phase 1 replays each through the live verb** (identical to
+        placing live, in recorded order); later phases route the recorded set through the
+        shared ``_auto_annotate`` orchestration for auto-pass-quality packing.
+
+        Idempotent (draining empties the list, so a repeat call — or ``export()`` then
+        ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
+        path), so ``export()`` calls it unconditionally. **Resilient:** each intent is
+        removed only after it places, so a verb that raises mid-drain surfaces the error and
+        leaves the remaining intents recorded for a retry rather than silently dropping them.
+        A record → finalize → record-more → finalize sequence drains each batch (#428 review).
+        """
+        if not self._intents:
+            return
+        deferred, self._defer_intents = self._defer_intents, False  # replay must place
+        try:
+            while self._intents:
+                self._replay_intent(self._intents[0])
+                self._intents.pop(0)  # consumed only after it places — a raise leaves the rest
+        finally:
+            self._defer_intents = deferred
+
+    def _replay_intent(self, it: Intent) -> None:
+        """Place one recorded intent by calling its live verb (#426 Phase 1)."""
+        if it.kind == "callout":
+            self.callout(it.feature, **it.kwargs)
+        elif it.kind == "locate":
+            self.locate(it.feature, **it.kwargs)
+        elif it.kind == "furniture":
+            self.furniture(it.feature, **it.kwargs)
+        elif it.kind == "dimension":
+            self.dimension(it.feature, **it.kwargs)
+        elif it.kind == "section":
+            self.section()
 
     def annotations(self) -> dict:
         """Return ``{name: type_name}`` for every *named* annotation (#27).
@@ -1402,6 +1475,7 @@ class Drawing:
         ``(svg_path, dxf_path)`` — each is ``None`` when that format is skipped.
         Both default on (the unchanged one-shot behaviour; the CLI's ``--format``
         selector is the only caller that turns one off)."""
+        self.finalize()  # #426: drain any recorded intents before export (no-op if none)
         out = out if out is not None else self.out
         for _ext in (".svg", ".dxf"):
             if out.endswith(_ext):
