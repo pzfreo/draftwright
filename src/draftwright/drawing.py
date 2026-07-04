@@ -298,7 +298,6 @@ class Drawing:
         # replays through the live helpers). Default off → the live path is unchanged.
         self._intents: list[Intent] = []
         self._defer_intents: bool = False
-        self._finalized: bool = False
 
     # -- annotation registry (compat accessors, ADR 0005 §4) ------------------
     # The registry owns these four; they are exposed as their live containers so
@@ -878,18 +877,22 @@ class Drawing:
         verbs recorded :class:`~draftwright.intents.Intent`\\s instead of placing. This
         drains them — **Phase 1 replays each through the live verb** (identical to
         placing live, in recorded order); later phases route the recorded set through the
-        shared ``_auto_annotate`` orchestration for auto-pass-quality packing. Idempotent
-        and a no-op when nothing was recorded (the live/auto-pass path), so ``export()``
-        can call it unconditionally.
+        shared ``_auto_annotate`` orchestration for auto-pass-quality packing.
+
+        Idempotent (draining empties the list, so a repeat call — or ``export()`` then
+        ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
+        path), so ``export()`` calls it unconditionally. **Resilient:** each intent is
+        removed only after it places, so a verb that raises mid-drain surfaces the error and
+        leaves the remaining intents recorded for a retry rather than silently dropping them.
+        A record → finalize → record-more → finalize sequence drains each batch (#428 review).
         """
-        if self._finalized or not self._intents:
+        if not self._intents:
             return
-        self._finalized = True
-        intents, self._intents = self._intents, []
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
-            for it in intents:
-                self._replay_intent(it)
+            while self._intents:
+                self._replay_intent(self._intents[0])
+                self._intents.pop(0)  # consumed only after it places — a raise leaves the rest
         finally:
             self._defer_intents = deferred
 

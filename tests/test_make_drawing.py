@@ -4814,6 +4814,33 @@ class TestFeatureEdits:
             dwg.export(str(Path(d) / "x"))
         assert dwg.annotations()  # finalize ran during export → the callout got placed
 
+    def test_finalize_drains_a_second_batch(self):
+        # #428 review: record → finalize → record-more → finalize drains each batch (the
+        # removed _finalized latch no longer blocks the second).
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        dwg._defer_intents = True
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg.callout(hole)
+        dwg.finalize()
+        after_first = set(dwg.annotations())
+        dwg.furniture(hole)  # a second batch recorded after the first finalize
+        dwg.finalize()
+        assert set(dwg.annotations()) > after_first  # the second batch placed too
+
+    def test_finalize_is_resilient_to_a_raising_intent(self):
+        # #428 review: an intent that raises at replay surfaces the error and leaves the
+        # remaining intents recorded (not silently dropped), and does not brick the drawing.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        dwg._defer_intents = True
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg.callout(hole)  # ok
+        dwg.dimension(hole, "diameter")  # a hole ø is a callout → raises at replay
+        dwg.furniture(hole)  # ok — must survive the raise
+        with pytest.raises(ValueError, match="callout"):
+            dwg.finalize()
+        # the callout placed + popped; the failing dimension and the untried furniture remain
+        assert [i.kind for i in dwg._intents] == ["dimension", "furniture"]
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
