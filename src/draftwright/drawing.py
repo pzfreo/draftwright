@@ -875,15 +875,21 @@ class Drawing:
 
         When the drawing was built in **deferred** mode (``_defer_intents``), the add
         verbs recorded :class:`~draftwright.intents.Intent`\\s instead of placing. This
-        drains them. **Phase 2a** routes the ``locate`` intents through the *real*
-        ADR-0009 corridor solve (``render_locations`` + ``drain_corridors``) — one
-        crossing-free, deduped, monotone ladder over the recorded subset, the auto-pass's
-        own machinery — while callouts/furniture/other dimensions/section still replay
-        through their live verbs (later phases move those too). Order mirrors the
-        auto-pass: callouts/furniture first (obstacles for the location carve), then the
-        location corridor, then ``section`` last (its room check clears the side view's
-        right). Slots stay on the live path pending #426 Phase 2b (a slot's position dim
-        is not a recorded intent, so routing it would re-add un-requested dims).
+        drains them, routing what it can through the auto-pass's own solvers:
+
+        * **(A)** live-replays furniture, non-slot dimensions, step/boss ø callouts, and
+          axes-restricted locates (in recorded order, pop-after-success);
+        * **(B1, Phase 3a)** section-free hole/pattern ø **callouts** through
+          ``_annotate_holes`` — the real priority-drop / central-bore-anchoring solve;
+        * **(B2, Phase 2a)** both-axes **locations** through ``render_locations`` +
+          ``drain_corridors`` — one crossing-free, deduped, monotone ladder;
+        * **(C)** ``section`` last (its room check clears the side view's right).
+
+        Slots stay on the live path (Phase 2b — a slot's position dim is not a recorded
+        intent); step/boss ø callouts stay live (Phase 4, a set-solver); a **sectioned**
+        part keeps live callouts (Phase 3b — the callout carve needs the section row
+        reserved first). Only ``only``-set routing is used here; the auto-pass path is
+        untouched.
 
         Idempotent (draining empties the list; a repeat call — or ``export()`` then
         ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
@@ -965,16 +971,15 @@ class Drawing:
                     only=only_callout,
                     place_furniture=False,
                 )
+            # Drop the placed callout intents NOW — before the fallible B2 — so a raise in
+            # B2 can't re-route (and, via first-free hc_ naming, duplicate) them on a retry.
+            self._intents = [it for it in self._intents if id(it) not in callout_ids]
             # (B2) both-axes locations through the location corridor (crossing-free ladder)
             if only_loc:
                 assert a is not None and isinstance(model, PartModel)  # only_loc ⟹ routable
                 render_locations(self, model, a, only=only_loc)
                 drain_corridors(self)
-            self._intents = [
-                it
-                for it in self._intents
-                if id(it) not in corridor_ids and id(it) not in callout_ids
-            ]
+            self._intents = [it for it in self._intents if id(it) not in corridor_ids]
             # (C) section last — its room check clears whatever is right of the side view
             while self._intents:
                 self._replay_intent(self._intents[0])
