@@ -4956,6 +4956,25 @@ class TestFeatureEdits:
         dwg.finalize()
         assert len([n for n in dwg.annotations() if n.startswith("bc_")]) == 1  # not doubled
 
+    def test_finalize_callouts_survive_a_second_batch(self):
+        # #430 review: the batch callout naming is _named-aware, so a second finalize batch
+        # doesn't re-emit hc_plan0 and clobber the first batch's callout (cross-batch seam).
+        part = (
+            Box(120, 80, 20)
+            - Pos(-40, 25, 0) * Cylinder(4, 30)
+            - Pos(40, -25, 0) * Cylinder(6, 30)
+        )
+        dwg = build_drawing(part, auto_dims=False)
+        holes = [f for f in dwg.model().features if f.kind == "hole"]
+        dwg._defer_intents = True
+        dwg.callout(holes[0])
+        dwg.finalize()  # batch 1
+        dwg._defer_intents = True
+        dwg.callout(holes[1])
+        dwg.finalize()  # batch 2 — must not overwrite batch 1's callout
+        assert dwg.annotations_of(holes[0]) and dwg.annotations_of(holes[1])
+        assert len([n for n in dwg.annotations() if n.startswith("hc_")]) == 2
+
     def test_finalize_sectioned_part_keeps_live_callouts(self):
         # #426 Phase 3a: a sectioned part keeps the 2a live-callout replay (the callout carve
         # needs the reserved section row — Phase 3b), so it must still run + place callouts.

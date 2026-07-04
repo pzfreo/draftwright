@@ -1005,6 +1005,18 @@ def _annotate_holes(
             return centre
         return (centre[0] + dx / norm * r, centre[1] + dy / norm * r)
 
+    def _hc_name(view, i):
+        # The auto-pass (only is None) numbers callouts positionally hc_{view}{i} — the
+        # historical byte-identical scheme. The #426 finalize path (only set) may run after
+        # a prior batch already placed hc_ names on this view, so it allocates the first FREE
+        # index to avoid Drawing.add silently replacing an earlier callout (#430 review).
+        if only is None:
+            return f"hc_{view}{i}"
+        j = 0
+        while f"hc_{view}{j}" in dwg._named:
+            j += 1
+        return f"hc_{view}{j}"
+
     def _add(view, i, tip, elbow, side, callout):
         dwg.add(
             Leader(
@@ -1015,7 +1027,7 @@ def _annotate_holes(
                 text_side=side,
                 callout=callout,
             ),
-            f"hc_{view}{i}",
+            _hc_name(view, i),
             view=view,
             feature=_feat_of_callout.get(id(callout)),
         )
@@ -1416,7 +1428,7 @@ def _annotate_holes(
             for s, _elbow_y, leader in sorted(placed, key=lambda p: p[0][4]):
                 _locs, dia, callout, feat, _ny, rep = s
                 dwg.add(
-                    leader, f"hc_{view}{i}", view=view, feature=_feat_of_callout.get(id(callout))
+                    leader, _hc_name(view, i), view=view, feature=_feat_of_callout.get(id(callout))
                 )
                 if place_furniture:  # #426: finalize's furniture() replay owns furniture
                     _add_furniture(dwg, a, view, i, feat, to_page)
