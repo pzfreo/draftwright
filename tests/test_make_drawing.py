@@ -4841,6 +4841,73 @@ class TestFeatureEdits:
         # the callout placed + popped; the failing dimension and the untried furniture remain
         assert [i.kind for i in dwg._intents] == ["dimension", "furniture"]
 
+    def test_finalize_routes_locations_through_the_corridor_dedup(self):
+        # #426 Phase 2a: two DISTINCT holes sharing an X. The live path places a duplicate
+        # m_locx (each locate() is independent); finalize routes them through the real
+        # ADR-0009 corridor solve, which dedups the coincident X span to ONE dim — matching
+        # the auto-pass. The crossing-free / dedup win.
+        part = (
+            Box(100, 80, 20) - Pos(20, 25, 0) * Cylinder(4, 30) - Pos(20, -25, 0) * Cylinder(6, 30)
+        )
+
+        live = build_drawing(part, auto_dims=False)
+        for h in (f for f in live.model().features if f.kind == "hole"):
+            live.locate(h)
+        live_locx = [n for n in live.annotations() if n.startswith("m_locx")]
+
+        deferred = build_drawing(part, auto_dims=False)
+        deferred._defer_intents = True
+        for h in (f for f in deferred.model().features if f.kind == "hole"):
+            deferred.locate(h)
+        deferred.finalize()
+        fin_locx = [n for n in deferred.annotations() if n.startswith("m_locx")]
+
+        assert len(fin_locx) < len(live_locx)  # corridor deduped the coincident X=20 span
+        auto = build_drawing(part)  # auto_dims=True — the reference the corridor matches
+        assert len(fin_locx) == len([n for n in auto.annotations() if n.startswith("m_locx")])
+
+    def test_finalize_honors_locate_axes_restriction(self):
+        # #429 review: a recorded locate(f, axes=("x",)) must place only the X dim. The
+        # per-feature corridor filter can't express an axis subset, so finalize live-replays
+        # axes-restricted locates (routing only both-axes ones through the corridor).
+        part = Box(100, 80, 20) - Pos(20, 15, 0) * Cylinder(4, 30)
+        dwg = build_drawing(part, auto_dims=False)
+        dwg._defer_intents = True
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg.locate(hole, axes=("x",))
+        dwg.finalize()
+        locs = [n for n in dwg.annotations() if n.startswith("m_loc")]
+        assert locs and all(n.startswith("m_locx") for n in locs)  # X only — no m_locy
+
+    def test_finalize_mixes_axes_restricted_and_both_axes_locate(self):
+        # #429 review: an axes-restricted locate (live, names m_locx0) + a both-axes locate
+        # (corridor) must NOT collide — the corridor names its dims against _named, so both
+        # survive. Regression for the silent-overwrite bug.
+        part = (
+            Box(120, 80, 20)
+            - Pos(-40, 25, 0) * Cylinder(4, 30)
+            - Pos(40, -25, 0) * Cylinder(6, 30)
+        )
+        holes = lambda d: [f for f in d.model().features if f.kind == "hole"]  # noqa: E731
+
+        live = build_drawing(part, auto_dims=False)
+        hs = holes(live)
+        live.locate(hs[0], axes=("x",))
+        live.locate(hs[1])
+        live_x = {
+            live.get_annotation(n).label for n in live.annotations() if n.startswith("m_locx")
+        }
+
+        dwg = build_drawing(part, auto_dims=False)
+        dwg._defer_intents = True
+        hs2 = holes(dwg)
+        dwg.locate(hs2[0], axes=("x",))
+        dwg.locate(hs2[1])
+        dwg.finalize()
+        fin_x = {dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_locx")}
+        # both features' X location dims survive — none silently overwritten
+        assert fin_x == live_x and len(fin_x) == 2
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
