@@ -64,6 +64,11 @@ def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | No
     model = getattr(dwg, "_part_model", None)
     if model is None:
         raise ValueError("callout(): no detected model — build the drawing first")
+    if not any(f is feature for f in model.features):
+        raise ValueError(
+            "callout(): feature is not from this drawing's model — "
+            "pass one from dwg.model().features"
+        )
     group = next((g for g in plan_dimensions(model) if g.feature is feature), None)
     spec = hole_callout_spec(group) if group is not None else None
     if spec is None:
@@ -74,10 +79,13 @@ def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | No
     draft = dwg.draft
     a = getattr(dwg, "_analysis", None)
     members = feature.members or (feature.frame.origin,)
-    count = len(members) if len(members) > 1 else None
-    callout = callout_from_spec(spec, draft, count)
+    # count comes from the spec (== feat.count) — the same source the auto-pass's
+    # bare path uses — not re-derived from len(members) (#414 review).
+    callout = callout_from_spec(spec, draft, spec["count"])
     assert callout is not None  # spec is non-None here, so callout_from_spec returns one
     view = view or _END_ON[feature.frame.axis]
+    if view not in getattr(dwg, "_coords", {}):
+        raise ValueError(f"callout(): view {view!r} is not rendered on this drawing")
     gap = draft.pad_around_text
     w = callout.callout_width
     tier = draft.font_size + 2 * gap

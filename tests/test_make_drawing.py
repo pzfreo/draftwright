@@ -4418,6 +4418,15 @@ class TestFeatureEdits:
         assert name in dwg.annotations_of(pat)
         assert name in set(dwg.drop(pat))
 
+    def test_callout_rejects_a_foreign_feature(self):
+        # #414 review: a hole from a *different* build is value-similar but not identity-equal,
+        # so callout() points at model().features rather than the misleading "exposes none".
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        other = build_drawing(_holed_plate(), auto_dims=False)
+        foreign = next(f for f in other.model().features if f.kind == "hole")
+        with pytest.raises(ValueError, match="not from this drawing"):
+            dwg.callout(foreign)
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
