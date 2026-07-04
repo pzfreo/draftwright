@@ -905,11 +905,11 @@ class Drawing:
         # Corridor state the auto-pass creates in _auto_annotate S0 (orchestrator.py) but
         # a detect-only build lacks — render_locations/drain_corridors register/read here.
         if not hasattr(self, "_corridor_batch"):
-            self._corridor_batch = {}
+            self._corridor_batch: dict = {}
         if not hasattr(self, "_escalations"):
-            self._escalations = []
+            self._escalations: list = []
         if not hasattr(self, "_detail_requests"):
-            self._detail_requests = []
+            self._detail_requests: list = []
 
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
