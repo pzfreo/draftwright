@@ -4427,6 +4427,14 @@ class TestFeatureEdits:
         with pytest.raises(ValueError, match="not from this drawing"):
             dwg.callout(foreign)
 
+    def test_callout_rejects_a_non_ortho_view(self):
+        # #414 review: "iso" is a rendered view (in _coords) but not a hole-callout view —
+        # it must raise a clean ValueError, not a raw KeyError from the placement dict.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        with pytest.raises(ValueError, match="hole-callout view"):
+            dwg.callout(hole, view="iso")
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")

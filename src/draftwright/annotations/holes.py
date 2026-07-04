@@ -84,8 +84,8 @@ def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | No
     callout = callout_from_spec(spec, draft, spec["count"])
     assert callout is not None  # spec is non-None here, so callout_from_spec returns one
     view = view or _END_ON[feature.frame.axis]
-    if view not in getattr(dwg, "_coords", {}):
-        raise ValueError(f"callout(): view {view!r} is not rendered on this drawing")
+    if view not in _END_ON.values():  # front/plan/side — the ortho end-on views only
+        raise ValueError(f"callout(): view {view!r} is not a hole-callout view (front/plan/side)")
     gap = draft.pad_around_text
     w = callout.callout_width
     tier = draft.font_size + 2 * gap
