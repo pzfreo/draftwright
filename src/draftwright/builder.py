@@ -537,8 +537,12 @@ def make_drawing(
 
 
 def _fmt_pt(p) -> str:
-    """A compact ``x, y, z`` for a model-space point (integers stay integers)."""
-    return ", ".join(f"{c:.0f}" if abs(c - round(c)) < 1e-6 else f"{c:.1f}" for c in p)
+    """A compact ``x, y, z`` for a model-space point (integers stay integers).
+
+    Near-integer coords round to an ``int`` (not ``f"{c:.0f}"``) so a symmetric part's
+    tiny-negative bbox-centre float (``-1e-16``) prints ``0``, never ``-0`` (#416 review).
+    """
+    return ", ".join(f"{round(c)}" if abs(c - round(c)) < 1e-6 else f"{c:.1f}" for c in p)
 
 
 def _feature_listing(a: Analysis) -> str:
