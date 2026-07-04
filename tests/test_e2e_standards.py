@@ -215,6 +215,10 @@ def test_dense_scattered_reconstruction_rebuilds_the_hole_table():
     auto = build_drawing(part)
     assert "hole_table_plan" in auto.annotations(), "fixture must escalate in the auto-pass"
     auto_codes = {i.code for i in auto.lint() if i.severity in ("warning", "error")}
+    # #440: the escalating build must not leave its consumed escalations on the drawing —
+    # else a later `with dwg.deferred(): …` edit would inherit them and re-fire leg D,
+    # relocating the table. (Here the build collected callout/location drops before tabulating.)
+    assert auto._escalations == []
 
     dwg = build_drawing(part, auto_dims=False)
     with dwg.deferred():
