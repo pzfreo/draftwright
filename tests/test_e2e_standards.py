@@ -239,3 +239,105 @@ def test_dense_scattered_reconstruction_rebuilds_the_hole_table():
     # avoid an incidental view_annotation_overlap the auto-pass leaves.)
     fin_codes = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
     assert fin_codes <= auto_codes
+
+
+def _rt_prismatic_holes():
+    from build123d import Cylinder, Pos
+
+    part = Box(80, 60, 20)  # a row of Z-holes → callouts + location dims + centre marks
+    for x in (-30, -10, 10, 30):
+        part -= Pos(x, 20, 0) * Cylinder(3, 30)
+    return part
+
+
+def _rt_turned_shaft():
+    from build123d import Cylinder, Pos
+
+    return Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)  # Z-turned ladder: ø + length
+
+
+def _rt_bolt_circle():
+    import math
+
+    from build123d import Cylinder, Pos
+
+    part = Box(60, 60, 15)  # 6-hole bolt circle → pattern furniture (centre-cross + pitch)
+    for i in range(6):
+        ang = i * math.pi / 3
+        part -= Pos(20 * math.cos(ang), 20 * math.sin(ang), 0) * Cylinder(2.5, 30)
+    return part
+
+
+def _rt_counterbored_section():
+    from build123d import Cylinder, Pos
+
+    part = Box(60, 40, 20)  # a counterbore → the emitter records dwg.section()
+    part -= Cylinder(4, 30)
+    part -= Pos(0, 0, 2) * Cylinder(7, 20)
+    return part
+
+
+def _rt_rotational_boss():
+    from build123d import Cylinder
+
+    # A plain cylinder: a rotational boss (ø via callout()) plus a flagged "rotational"
+    # gap comment for the OD/centrelines the verbs don't reach (#419). Exercises the
+    # boss-callout path + a gap-comment line, distinct from the turned-shaft step chain.
+    return Cylinder(15, 40)
+
+
+# One fixture per emitter path: hole verbs (callout/locate/furniture), turned step
+# diameter + length chain, pattern furniture, section, and a rotational boss + gap comment.
+# The all-gaps flat (no-`with`) emit and the side-drilled flagged gate are covered by unit
+# tests, not here (no simple build123d part reaches all-verb-gaps — even a cylinder is a boss).
+_ROUNDTRIP_FAMILIES = [
+    ("prismatic_holes", _rt_prismatic_holes),
+    ("turned_shaft", _rt_turned_shaft),
+    ("bolt_circle", _rt_bolt_circle),
+    ("counterbored_section", _rt_counterbored_section),
+    ("rotational_boss", _rt_rotational_boss),
+]
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(600)
+@pytest.mark.parametrize(
+    "name,factory", _ROUNDTRIP_FAMILIES, ids=[n for n, _ in _ROUNDTRIP_FAMILIES]
+)
+def test_generated_script_roundtrip_is_lint_error_free(tmp_path, name, factory):
+    """#436: the STEP → generate_script → run-the-.py → drawing round-trip, exercised
+    end-to-end across part families. The emitted script text is the thing under test (not
+    the in-process `_reconstruct` mirror): it wraps the intent verbs in `with dwg.deferred():`
+    and relies on `finalize()` running on block exit — a behavior only the *executed* script
+    exercises. We append a lint epilogue so the script reports ITS OWN drawing's lint to
+    stdout (no rebuild in this process), then assert exit 0 + SVG/DXF written + no
+    error-severity lint (warnings tolerated, matching _assert_meets_standards)."""
+    import json
+    import subprocess
+    import sys
+
+    from draftwright.make_drawing import generate_script
+
+    step = tmp_path / f"{name}.step"
+    export_step(factory(), str(step))
+    py = generate_script(str(step), out=str(tmp_path / name))
+
+    # Make the executed script print its own drawing's error-severity lint codes.
+    src = Path(py).read_text(encoding="utf-8")
+    src += (
+        "\nimport json as _dwj\n"
+        "_dwerrs = sorted({i.code for i in dwg.lint() if i.severity == 'error'})\n"
+        "print('LINT_ERRORS=' + _dwj.dumps(_dwerrs))\n"
+    )
+    Path(py).write_text(src, encoding="utf-8")
+
+    r = subprocess.run(
+        [sys.executable, py], capture_output=True, text=True, cwd=str(tmp_path), timeout=300
+    )
+    assert r.returncode == 0, f"{name}: generated script failed:\n{r.stderr[-2000:]}"
+    assert (tmp_path / f"{name}.svg").exists(), f"{name}: no SVG written"
+    assert (tmp_path / f"{name}.dxf").exists(), f"{name}: no DXF written"
+    marker = [ln for ln in r.stdout.splitlines() if ln.startswith("LINT_ERRORS=")]
+    assert marker, f"{name}: no LINT_ERRORS line in stdout:\n{r.stdout[-1000:]}"
+    errs = json.loads(marker[-1].split("=", 1)[1])
+    assert errs == [], f"{name}: executed script produced lint errors {errs}"
