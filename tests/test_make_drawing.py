@@ -4972,6 +4972,63 @@ class TestFeatureEdits:
         # both features' X location dims survive — none silently overwritten
         assert fin_x == live_x and len(fin_x) == 2
 
+    def test_finalize_routes_slots_through_render_slots(self):
+        # #426 Phase 2b: a slot's recorded size dims route through render_slots' corridor
+        # placement (m_slot* names), NOT the live dim_length* replay — reaching auto-pass
+        # parity. Routing the feature also regenerates its datum POSITION dim (a superset:
+        # model-derived, not a recorded intent).
+        part = Box(50, 30, 20) - Box(20, 8, 30)  # an enclosed through-slot (#135)
+
+        auto = build_drawing(part)  # auto_dims=True — the reference
+        auto_slot = {n for n in auto.annotations() if n.startswith("m_slot")}
+        assert auto_slot, "auto-pass must place m_slot* dims"
+
+        dwg = build_drawing(part, auto_dims=False)
+        dwg._defer_intents = True
+        slot = next(f for f in dwg.model().features if f.kind == "slot")
+        dwg.dimension(slot, "length", role="slot_width")
+        dwg.dimension(slot, "length", role="slot_length")
+        dwg.finalize()
+        fin_slot = {n for n in dwg.annotations() if n.startswith("m_slot")}
+        assert fin_slot == auto_slot  # same corridor-placed names (m_slot0_width/length/pos)
+        # routed, not live-replayed: no dim_length* singles, and both intents drained
+        assert not [n for n in dwg.annotations() if n.startswith("dim_length")]
+        assert dwg._intents == []
+
+    def test_finalize_slot_position_dedups_with_a_coincident_hole_location(self):
+        # #426 Phase 2b: slots share the location corridor with hole locates and drain in ONE
+        # solve. Here the slot's near edge (x=-10) coincides with a hole's X-location, so the
+        # slot POSITION line and that hole location are the SAME datum→10 span — the #345
+        # dedup collapses them (no m_slot0_pos survives; the hole's m_locx covers it). The
+        # win is exact parity with the auto-pass, which only the combined single drain gives
+        # (draining slots and locations separately would place the un-deduped slot position).
+        part = (
+            Box(60, 40, 20)
+            - Box(20, 8, 30)  # slot: long_axis X, near edge x=-10
+            - Pos(-10, 14, 0) * Cylinder(3, 30)  # hole X coincides with the slot near edge
+            - Pos(20, 14, 0) * Cylinder(3, 30)
+            - Pos(8, -14, 0) * Cylinder(3, 30)
+        )
+        keys = lambda d: {  # noqa: E731
+            n for n in d.annotations() if n.startswith("m_slot") or n.startswith("m_loc")
+        }
+        auto = build_drawing(part)
+
+        dwg = build_drawing(part, auto_dims=False)
+        dwg._defer_intents = True
+        slot = next(f for f in dwg.model().features if f.kind == "slot")
+        dwg.dimension(slot, "length", role="slot_width")
+        dwg.dimension(slot, "length", role="slot_length")
+        for h in (f for f in dwg.model().features if f.kind in ("hole", "pattern")):
+            dwg.locate(h)
+        dwg.finalize()
+
+        # exact parity with the auto-pass: the coincident slot-position + hole-location
+        # collapsed to one in the shared solve (no stray m_slot0_pos), size dims placed.
+        assert keys(dwg) == keys(auto)
+        assert "m_slot0_pos" not in dwg.annotations()  # deduped against the coincident hole
+        assert dwg._intents == []
+
     @staticmethod
     def _hc_ys(d):
         return sorted(

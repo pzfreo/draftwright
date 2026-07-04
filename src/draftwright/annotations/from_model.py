@@ -151,13 +151,19 @@ def _record_slot_drop(dwg, kind, idx, view, feat):
     )
 
 
-def render_slots(dwg, model, a) -> int:
+def render_slots(dwg, model, a, *, only=None) -> int:
     """Dimension milled slots from the IR — width (the defining size, across
     ``width_axis``) + length (along ``long_axis``) + a position dim from the part
     datum, in the view the two axes span. Places through the engine's zone strips
     (shared infra, ADR 0008 Amend. 4); a dim with no clear room is dropped and
     recorded at info severity (place-what-fits). Sources `SlotFeature`s from the
-    model; replaces the engine's `_annotate_slots`. Returns the count placed."""
+    model; replaces the engine's `_annotate_slots`. Returns the count placed.
+
+    ``only`` (a set of `SlotFeature`s, #426 Phase 2b) restricts placement to a recorded
+    subset for ``finalize()``; ``only=None`` (the auto-pass) places all slots, byte-
+    identically. Skips filtered slots **in place** so ``i`` stays the slot's model index
+    (the ``m_slot{i}_*`` names must match the auto-pass — never re-enumerate a compacted
+    list)."""
     slots = [f for f in model.features if f.kind == "slot"]
     if not slots:
         return 0
@@ -174,6 +180,8 @@ def render_slots(dwg, model, a) -> int:
 
     count = 0
     for i, s in enumerate(slots):
+        if only is not None and s not in only:
+            continue  # #426 Ph2b: skip in place — i must stay the model index
         view = views[frozenset((s.width_axis, s.long_axis))]
         name, zones, h_axis, h_proj, _v_axis, v_proj = view
 
