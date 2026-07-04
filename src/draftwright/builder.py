@@ -558,73 +558,88 @@ _GAP_KINDS = {
 
 
 def _feature_listing(a: Analysis) -> str:
-    """Emit the detected features as **runnable intent-verb calls** (#400 Ph2) that
+    """Emit the detected features as **runnable intent-verb calls** (#400 Ph2 / #426) that
     reconstruct the drawing on the detect-only build (``auto_dims=False``) above.
 
-    Each feature is redrawn by the domain add verbs against the detected model
-    (``dwg.model().features[i]``, the ADR-0008 IR): holes/patterns → ``callout`` +
-    ``locate`` + ``furniture``; steps/bosses → ``callout`` (ø); steps/envelopes/slots →
-    ``dimension(...)`` per linear param. A section A–A is added last when a
-    counterbored/spotfaced/blind Z-hole warrants one. Feature kinds with no verb yet
-    (step_level, rotational, pmi) are emitted as flagged comments naming the gap
-    (#424) — never silently dropped. Commenting any line drops exactly that annotation
-    (nothing is auto-drawn, so there is no double-dimension risk). Pure function of *a*.
+    The verb calls run inside a ``with dwg.deferred():`` block: each verb **records** its
+    intent, and on block exit ``finalize()`` drains them through the auto-pass's own batch
+    solvers (#426 Phase 5) — so the reconstruction reaches auto-pass placement quality
+    (crossing-free locations, the priority-drop callout solve, the turned diameter /
+    step-length set-solves) rather than greedy live placement.
+
+    Each feature is redrawn against the detected model (``dwg.model().features[i]``, the
+    ADR-0008 IR): holes/patterns → ``callout`` + ``locate`` + ``furniture``; steps/bosses →
+    ``callout`` (ø); steps/envelopes/slots → ``dimension(...)`` per linear param. A section
+    A–A is recorded when a counterbored/spotfaced/blind Z-hole warrants one (finalize
+    renders it last). Feature kinds with no verb yet (step_level, rotational, pmi) are
+    emitted as flagged comments naming the gap (#424) — never silently dropped. Commenting
+    any line drops exactly that intent (nothing is auto-drawn, so there is no
+    double-dimension risk). Pure function of *a*.
     """
     model = build_model(a)
     feats = getattr(model, "features", [])
     if not feats:
         return (
-            "# ── Reconstruct the drawing (#400 Ph2) ────────────────────────────────────────\n"
+            "# ── Reconstruct the drawing (#400 Ph2 / #426) ─────────────────────────────────\n"
             "# No dimensionable features detected.\n"
         )
-    lines = [
-        "# ── Reconstruct the drawing at intent level (#400 Ph2) ────────────────────────",
-        "# Each feature is redrawn by domain verbs against the detected model (ADR-0008 IR).",
-        "# Comment any single line to drop exactly that annotation; comment a whole block to",
-        "# stop dimensioning that feature. The build above is detect-only, so nothing is drawn",
-        "# twice. Kinds with no verb yet are flagged inline — build_drawing(auto_dims=True)",
-        "# recovers the full automatic drawing for those.",
-        "#",
-    ]
+    # The recorded verb calls + inline gap comments — go inside `with dwg.deferred():`.
+    body: list[str] = []
     for i, feat in enumerate(feats):
         kind = feat.kind
-        lines.append(f"# features[{i}]  {kind} @ ({_fmt_pt(feat.frame.origin)})")
+        body.append(f"# features[{i}]  {kind} @ ({_fmt_pt(feat.frame.origin)})")
         if kind in _GAP_KINDS:
-            lines.append(f"#     {kind} — {_GAP_KINDS[kind]}. auto_dims=True to keep it.")
+            body.append(f"#     {kind} — {_GAP_KINDS[kind]}. auto_dims=True to keep it.")
             continue
-        lines.append(f"f = dwg.model().features[{i}]")
+        body.append(f"f = dwg.model().features[{i}]")
         if kind in ("hole", "pattern"):
-            lines.append("dwg.callout(f)")
+            body.append("dwg.callout(f)")
             if feat.frame.axis == "z":
-                lines.append("dwg.locate(f)")
+                body.append("dwg.locate(f)")
             else:
                 # locate() is Z-axis only (it rejects side-drilled bores by contract, #133);
                 # an off-axis bore's position is auto-pass-only. Flag it like a gap kind (#424).
-                lines.append(
+                body.append(
                     f"#     locate() is Z-axis only — this {feat.frame.axis}-drilled bore's "
                     "position is auto-pass-only (#133). auto_dims=True to keep it."
                 )
-            lines.append("dwg.furniture(f)")
+            body.append("dwg.furniture(f)")
         elif kind in ("step", "boss"):
             if feat.frame.axis in ("x", "z"):
-                lines.append("dwg.callout(f)")
+                body.append("dwg.callout(f)")
             else:
                 # callout() places X/Z-turned diameters only; a Y-turned step/boss is
                 # auto-pass-only (its diameter is not placeable, and the auto-pass skips it too).
-                lines.append(
+                body.append(
                     f"#     callout() places X/Z-turned diameters only — this "
                     f"{feat.frame.axis}-turned step/boss is auto-pass-only. auto_dims=True to keep it."
                 )
         for p in feat.parameters():
             if p.span is not None or kind == "slot":  # a linear dim dimension() accepts
-                lines.append(f'dwg.dimension(f, "{p.kind}", role="{p.role}")   # {display(p)}')
+                body.append(f'dwg.dimension(f, "{p.kind}", role="{p.role}")   # {display(p)}')
     if plan_sections(model, feature_hole_keys(a)) is not None:
-        lines += [
+        body += [
             "",
             "# Section A–A (part-level; comment to drop the whole section)",
             "dwg.section()",
         ]
-    return "\n".join(lines) + "\n"
+    header = [
+        "# ── Reconstruct the drawing at intent level (record → finalize, #426) ─────────",
+        "# The verbs RECORD intents inside `with dwg.deferred()`; on block exit finalize()",
+        "# drains them through the auto-pass's own batch solvers, so the reconstruction",
+        "# reaches auto-pass placement quality — not greedy live placement. Comment any",
+        "# single line to drop exactly that intent; comment a whole block to stop",
+        "# dimensioning that feature. The build above is detect-only, so nothing is drawn",
+        "# twice. Kinds with no verb yet are flagged inline — build_drawing(auto_dims=True)",
+        "# recovers the full automatic drawing for those.",
+        "#",
+    ]
+    # A part whose every feature is a gap kind (and no section) records nothing — emit the
+    # flagged comments flat rather than an empty `with` block (an IndentationError).
+    if not any(ln.strip() and not ln.startswith("#") for ln in body):
+        return "\n".join(header + body) + "\n"
+    indented = ["    " + ln if ln.strip() else ln for ln in body]
+    return "\n".join(header + ["with dwg.deferred():"] + indented) + "\n"
 
 
 def _write_script(a: Analysis, scale: float | None = None, page: str | None = None) -> str:
@@ -735,8 +750,9 @@ def _write_script(a: Analysis, scale: float | None = None, page: str | None = No
         "#   p1, p2 = dwg.at('front', 0, 0, 0), dwg.at('front', 40, 0, 0)\n"
         "#   dwg.place_dim(p1, p2, 'above', 'front', dwg.draft, name='dim_len')\n"
         "\n" + _feature_listing(a) + "\n"
-        "# Tidy any mechanically-fixable overlaps the incremental verbs left — repair()\n"
-        "# never worsens the sheet (the corridor-free add verbs lean on it, #400 Ph2).\n"
+        "# finalize() (auto-run on the `with` exit above, and again by export) batch-solved\n"
+        "# the recorded intents; repair() is now just a peephole net — it never worsens the\n"
+        "# sheet (#426 Phase 5).\n"
         "dwg.repair()\n"
         "\n"
         "# ── Export ────────────────────────────────────────────────────────────────────\n"

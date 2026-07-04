@@ -9,6 +9,7 @@ map and delegates identity to the registry, coverage to lint, and exposes
 
 from __future__ import annotations
 
+import contextlib
 import math
 from dataclasses import dataclass
 
@@ -869,6 +870,34 @@ class Drawing:
         from draftwright.annotations.holes import add_feature_location
 
         return add_feature_location(self, feature, axes=axes)
+
+    @contextlib.contextmanager
+    def deferred(self):
+        """Record add-verb calls as placement intents, then batch-solve on exit (#426).
+
+        Inside the ``with`` block the add verbs (:meth:`callout`/:meth:`locate`/
+        :meth:`furniture`/:meth:`dimension`/:meth:`section`) **record** their intent
+        instead of placing it live; on normal exit :meth:`finalize` drains them through
+        the auto-pass's own solvers, so a reconstruction reaches auto-pass placement
+        quality (crossing-free locations, the priority-drop callout solve, the turned
+        diameter/step-length set-solves) rather than greedy live placement. This is the
+        record-then-finalize surface the generated ``--script`` builds on.
+
+        ``finalize()`` runs on **normal** exit only — if the block raises, the recorded
+        intents are left intact (finalize is skipped) so the error surfaces cleanly and a
+        retry can re-drain. Restores the prior ``_defer_intents`` on exit. Idempotent: a
+        later :meth:`export` (which also finalizes) no-ops once the intents are drained.
+
+        Do **not** nest ``deferred()`` blocks: ``finalize()`` drains the whole recorded
+        list on every exit, so an inner block would place the outer block's still-pending
+        intents early. One block per reconstruction (what the ``--script`` emitter does).
+        """
+        prev, self._defer_intents = self._defer_intents, True
+        try:
+            yield self
+        finally:
+            self._defer_intents = prev
+        self.finalize()
 
     def finalize(self) -> None:
         """Drain the recorded placement intents (#426).
