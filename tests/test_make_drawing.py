@@ -4838,8 +4838,9 @@ class TestFeatureEdits:
         dwg.furniture(hole)  # ok — must survive the raise
         with pytest.raises(ValueError, match="callout"):
             dwg.finalize()
-        # the callout placed + popped; the failing dimension and the untried furniture remain
-        assert [i.kind for i in dwg._intents] == ["dimension", "furniture"]
+        # the raise leaves everything not-yet-placed recorded — nothing silently dropped
+        kinds = [i.kind for i in dwg._intents]
+        assert "dimension" in kinds and "furniture" in kinds
 
     def test_finalize_routes_locations_through_the_corridor_dedup(self):
         # #426 Phase 2a: two DISTINCT holes sharing an X. The live path places a duplicate
@@ -4907,6 +4908,66 @@ class TestFeatureEdits:
         fin_x = {dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_locx")}
         # both features' X location dims survive — none silently overwritten
         assert fin_x == live_x and len(fin_x) == 2
+
+    @staticmethod
+    def _hc_ys(d):
+        return sorted(
+            round(d.get_annotation(n).bounding_box().center().Y, 1)
+            for n in d.annotations()
+            if n.startswith("hc_")
+        )
+
+    def test_finalize_routes_callouts_through_annotate_holes(self):
+        # #426 Phase 3a: hole/pattern ø callouts route through the auto-pass's _annotate_holes
+        # priority-drop/anchoring solve, so the finalize reconstruction reproduces the
+        # auto-pass callout layout exactly (not the live per-feature corridor-free placement).
+        part = (
+            Box(120, 90, 20)
+            - Cylinder(5, 30)  # central ø10 → anchored by the auto-pass
+            - Pos(40, 30, 0) * Cylinder(3, 30)
+            - Pos(-40, -30, 0) * Cylinder(4, 30)
+        )
+        auto = build_drawing(part)  # auto_dims=True — the reference
+
+        dwg = build_drawing(part, auto_dims=False)
+        dwg._defer_intents = True
+        for f in (x for x in dwg.model().features if x.kind in ("hole", "pattern")):
+            dwg.callout(f)
+            dwg.furniture(f)
+        dwg.finalize()
+
+        assert self._hc_ys(dwg) and self._hc_ys(dwg) == self._hc_ys(auto)  # batch == auto-pass
+
+    def test_finalize_does_not_double_place_pattern_furniture(self):
+        # #426 Phase 3a: _annotate_holes places a pattern's callout but NOT its furniture
+        # (place_furniture=False) — the replayed furniture() intent owns it, so bc_ appears
+        # exactly once, not doubled.
+        import math
+
+        part = Box(120, 120, 20)
+        for k in range(6):
+            ang = math.radians(60 * k)
+            part -= Pos(35 * math.cos(ang), 35 * math.sin(ang), 0) * Cylinder(4, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        dwg._defer_intents = True
+        pat = next(f for f in dwg.model().features if f.kind == "pattern")
+        dwg.callout(pat)
+        dwg.furniture(pat)
+        dwg.finalize()
+        assert len([n for n in dwg.annotations() if n.startswith("bc_")]) == 1  # not doubled
+
+    def test_finalize_sectioned_part_keeps_live_callouts(self):
+        # #426 Phase 3a: a sectioned part keeps the 2a live-callout replay (the callout carve
+        # needs the reserved section row — Phase 3b), so it must still run + place callouts.
+        part = Box(60, 40, 20) - Cylinder(4, 30) - Pos(0, 0, 2) * Cylinder(7, 20)  # counterbore
+        dwg = build_drawing(part, auto_dims=False)
+        dwg._defer_intents = True
+        for f in (x for x in dwg.model().features if x.kind in ("hole", "pattern")):
+            dwg.callout(f)
+        dwg.section()
+        dwg.finalize()  # must not raise
+        assert any(n.startswith("hc_") for n in dwg.annotations())
+        assert "section_caption" in dwg.annotations()
 
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())

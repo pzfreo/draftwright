@@ -901,9 +901,12 @@ class Drawing:
             return
         from draftwright.annotations._common import drain_corridors
         from draftwright.annotations.from_model import render_locations
+        from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
+        from draftwright.annotations.sections import feature_hole_keys
+        from draftwright.model import PartModel, plan_dimensions
 
-        # Corridor state the auto-pass creates in _auto_annotate S0 (orchestrator.py) but
-        # a detect-only build lacks — render_locations/drain_corridors register/read here.
+        # Corridor state the auto-pass creates in _auto_annotate S0 but a detect-only build
+        # lacks — render_locations/_annotate_holes/drain_corridors register/read here.
         if not hasattr(self, "_corridor_batch"):
             self._corridor_batch: dict = {}
         if not hasattr(self, "_escalations"):
@@ -911,31 +914,67 @@ class Drawing:
         if not hasattr(self, "_detail_requests"):
             self._detail_requests: list = []
 
-        # Only a BOTH-axes locate (axes=None) can go through the per-feature corridor
-        # filter; an axes-restricted locate(f, axes=…) is honored by live replay, since
-        # render_locations' `only` set can't express an axis subset (#429 review).
+        model, a = self._part_model, self._analysis
+        routable = model is not None and a is not None
+        has_section = any(it.kind == "section" for it in self._intents)
+        # Route through the auto-pass solvers when possible (else everything live-replays):
+        #  - BOTH-axes locate → the ADR-0009 location corridor. An axes-restricted locate
+        #    can't go through the per-feature filter, so it live-replays (#429).
+        #  - hole/pattern CALLOUT → _annotate_holes' priority-drop/anchoring solve, but only
+        #    on a SECTION-FREE part — the callout carve needs the section row reserved first
+        #    (Coupling A, Phase 3b); sectioned parts keep the live callout replay. Step/boss
+        #    ø callouts always live-replay (a set-solver, Phase 4).
         corridor_ids = {
-            id(it) for it in self._intents if it.kind == "locate" and it.kwargs.get("axes") is None
+            id(it)
+            for it in self._intents
+            if routable and it.kind == "locate" and it.kwargs.get("axes") is None
+        }
+        callout_ids = {
+            id(it)
+            for it in self._intents
+            if routable
+            and not has_section
+            and it.kind == "callout"
+            and getattr(it.feature, "kind", None) in ("hole", "pattern")
         }
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
+        only_callout = {it.feature for it in self._intents if id(it) in callout_ids}
 
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
-            # (A) live-replay every intent EXCEPT the corridor-routed locates and section:
-            #     callouts / furniture / non-slot dimensions / axes-restricted locates.
+            # (A) live-replay every intent EXCEPT the routed callouts/locates and section
+            #     (furniture, step/boss callouts, dimensions, axes-restricted locates).
             i = 0
             while i < len(self._intents):
                 it = self._intents[i]
-                if it.kind == "section" or id(it) in corridor_ids:
+                if it.kind == "section" or id(it) in corridor_ids or id(it) in callout_ids:
                     i += 1
                     continue
                 self._replay_intent(it)  # resilient: a raise leaves the rest recorded
                 self._intents.pop(i)
-            # (B) both-axes locations through the REAL ADR-0009 corridor solve (crossing-free)
-            if only_loc and self._part_model is not None and self._analysis is not None:
-                render_locations(self, self._part_model, self._analysis, only=only_loc)
+            # (B1) hole/pattern callouts through the REAL priority-drop/anchoring solve.
+            #      Furniture is owned by the replayed furniture() intents → place_furniture=False.
+            if only_callout:
+                assert a is not None and isinstance(model, PartModel)  # only_callout ⟹ routable
+                _annotate_holes(
+                    self,
+                    a,
+                    build_view_of_axis(a),
+                    plan_dimensions(model),
+                    feature_hole_keys(a),
+                    only=only_callout,
+                    place_furniture=False,
+                )
+            # (B2) both-axes locations through the location corridor (crossing-free ladder)
+            if only_loc:
+                assert a is not None and isinstance(model, PartModel)  # only_loc ⟹ routable
+                render_locations(self, model, a, only=only_loc)
                 drain_corridors(self)
-            self._intents = [it for it in self._intents if id(it) not in corridor_ids]
+            self._intents = [
+                it
+                for it in self._intents
+                if id(it) not in corridor_ids and id(it) not in callout_ids
+            ]
             # (C) section last — its room check clears whatever is right of the side view
             while self._intents:
                 self._replay_intent(self._intents[0])

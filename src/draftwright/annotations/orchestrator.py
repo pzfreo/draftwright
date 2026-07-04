@@ -49,6 +49,7 @@ from draftwright.annotations.from_model import (
 from draftwright.annotations.holes import (
     _annotate_holes,
     _locate_off_axis_holes,
+    build_view_of_axis,
 )
 from draftwright.annotations.sections import (
     _add_section_view,
@@ -133,13 +134,6 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     dwg._escalations = []  # placers collect Escalation objects here (ADR 0009 Amdt 1, #351)
     dwg._corridor_batch = {}  # passes register CorridorCandidates here; one drain solves each strip (#345/#346)
 
-    FX = a.proj.front_x
-    FZ = a.proj.front_z
-    SX = a.proj.side_x
-    SZ = a.proj.side_z
-    PX = a.proj.plan_x
-    PY = a.proj.plan_y
-
     # Tighten right-strip outer_limits to the actual iso view left edge now
     # that the iso has been projected and fitted.  Always apply so that any
     # future allocations are bounded; warn when the cursor has already passed
@@ -166,11 +160,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # hole is annotated in the view its axis is normal to.
     # to_page maps a model-space *location* (x, y, z) → page coords (IR-typed, not a
     # recogniser Hole — ADR 0008 Amendment 6).
-    view_of_axis = {
-        "z": ("plan", lambda loc: (PX(loc[0]), PY(loc[1]))),
-        "y": ("front", lambda loc: (FX(loc[0]), FZ(loc[2]))),
-        "x": ("side", lambda loc: (SX(loc[1]), SZ(loc[2]))),
-    }
+    view_of_axis = build_view_of_axis(a)
 
     # The part model — the IR-migrated passes (centre marks, turned diameters/lengths)
     # render from it (ADR 0008 convergence / #229). Built once by the pipeline

@@ -889,7 +889,22 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
     )
 
 
-def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
+def build_view_of_axis(a: Analysis):
+    """The ``{axis: (view_name, to_page)}`` map ``_annotate_holes`` consumes — each hole
+    is annotated in the view normal to its axis; ``to_page`` projects a model-space
+    location to page coords. Shared by the auto-pass (``_auto_annotate``) and the #426
+    ``finalize()`` callout routing so both build it identically."""
+    p = a.proj
+    return {
+        "z": ("plan", lambda loc: (p.plan_x(loc[0]), p.plan_y(loc[1]))),
+        "y": ("front", lambda loc: (p.front_x(loc[0]), p.front_z(loc[2]))),
+        "x": ("side", lambda loc: (p.side_x(loc[1]), p.side_z(loc[2]))),
+    }
+
+
+def _annotate_holes(
+    dwg, a: Analysis, view_of_axis, groups, feature_keys, *, only=None, place_furniture=True
+):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
     Identical holes share one callout with an ``n×`` count prefix (#92's
@@ -951,6 +966,8 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
     for g in groups:
         feat = g.feature
         if not isinstance(feat, HoleFeature | PatternFeature):
+            continue
+        if only is not None and feat not in only:  # #426 finalize: recorded callout subset
             continue
         members = feat.members or (g.anchor,)
         # surviving member *locations* (IR geometry — no recogniser Hole, Amendment 6)
@@ -1048,7 +1065,8 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                 elbow = (centre[0], elbow_y)
                 occupied.append((x0, x1, elbow_y))
                 _add(view, i, _rim_tip(centre, elbow, dia), elbow, side, callout)
-                _add_furniture(dwg, a, view, i, feat, to_page)
+                if place_furniture:  # #426: finalize's furniture() replay owns furniture
+                    _add_furniture(dwg, a, view, i, feat, to_page)
             continue
 
         # plan / side: two-pass leader placement.
@@ -1400,7 +1418,8 @@ def _annotate_holes(dwg, a: Analysis, view_of_axis, groups, feature_keys):
                 dwg.add(
                     leader, f"hc_{view}{i}", view=view, feature=_feat_of_callout.get(id(callout))
                 )
-                _add_furniture(dwg, a, view, i, feat, to_page)
+                if place_furniture:  # #426: finalize's furniture() replay owns furniture
+                    _add_furniture(dwg, a, view, i, feat, to_page)
                 i += 1
             return i
 
