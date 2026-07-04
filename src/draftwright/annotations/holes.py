@@ -693,13 +693,10 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
 def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_page):
     """Pattern sheet furniture, added once its callout is placed (#92). Driven by the
     IR `PatternFeature` *feat* (members / bcd / pitch / grid), not a recogniser
-    `Pattern` — ADR 0008 Amendment 6."""
+    `Pattern` — ADR 0008 Amendment 6. Plain (unpatterned) plan callouts carry no
+    furniture; their scattered-hole-table coverage is recorded at the emit site (not
+    here) so it survives finalize's ``place_furniture=False`` (#426 Ph4c)."""
     if feat is None:
-        if view == "plan":
-            # A plain (unpatterned) plan-view callout — a candidate the scattered-hole
-            # table may replace (#351 PR-4c). Scoped to plan only, matching the table's
-            # own scope: front/side callouts are never table-replaceable.
-            dwg._cover_scattered_hole_doc(f"hc_{view}{j}")
         return
     members = feat.members
     # Remember the bore-callout name AND the holes it documents (by position), so a
@@ -1427,9 +1424,15 @@ def _annotate_holes(
             i = start_i
             for s, _elbow_y, leader in sorted(placed, key=lambda p: p[0][4]):
                 _locs, dia, callout, feat, _ny, rep = s
-                dwg.add(
-                    leader, _hc_name(view, i), view=view, feature=_feat_of_callout.get(id(callout))
-                )
+                name = _hc_name(view, i)
+                dwg.add(leader, name, view=view, feature=_feat_of_callout.get(id(callout)))
+                # A plain (unpatterned) plan callout is a scattered-hole-table candidate
+                # (#351): record its coverage against the ACTUAL placed name, regardless of
+                # place_furniture, so finalize (place_furniture=False) still lets
+                # _maybe_tabulate_holes find + replace it (#426 Ph4c). Coverage-only, so the
+                # auto-pass (place_furniture=True) set is unchanged → byte-identical.
+                if view == "plan" and feat is None:
+                    dwg._cover_scattered_hole_doc(name)
                 if place_furniture:  # #426: finalize's furniture() replay owns furniture
                     _add_furniture(dwg, a, view, i, feat, to_page)
                 i += 1

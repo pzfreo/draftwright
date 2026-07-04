@@ -173,3 +173,65 @@ def test_ctc02_top_balloon_ring_hugs_dimensions():
         f"a plan balloon floats {gap:.0f} mm above the dimension stack — the pre-#125 "
         f"stale-cursor phantom corridor was ~150 mm; expected a small standoff"
     )
+
+
+def _dense_scattered_plate():
+    """20 unpatterned Z-holes of distinct diameters — dense enough that even the
+    auto-grown sheet (#121) can't fit their callouts, so the plan view escalates to a
+    hole table + balloon ring (#93). The naturally-occurring escalation trigger in the
+    fast-buildable range (CTC-02 is the STEP-fixture equivalent)."""
+    import itertools
+
+    from build123d import Box, Cylinder, Pos
+
+    cols = [-40 + i * 20 for i in range(5)]  # 5 columns × 4 rows = 20 holes
+    part = Box(90, 60, 12)
+    for i, (c, y) in enumerate(itertools.product(range(5), [-18, -6, 6, 18])):
+        part -= Pos(cols[c], y, 0) * Cylinder(1.0 + i * 0.2, 20)  # distinct radii → unpatterned
+    return part
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(600)
+def test_dense_scattered_reconstruction_rebuilds_the_hole_table():
+    """#426 Phase 4c: a dense scattered plan view escalates to a hole TABLE + balloon ring.
+    A detect-only record→finalize reconstruction (mirroring what the --script emitter writes
+    per hole: callout + locate + furniture) must reproduce the SAME escalation the auto-pass
+    produces — the table, the balloon tag set, and NO orphaned hc_plan* callouts — and stay
+    lint-clean. Before the Phase 4c fix (coverage recorded under place_furniture=False + leg D
+    running _maybe_tabulate_holes), finalize left every plan callout on the sheet alongside the
+    table (duplicate documentation), because the coverage the resolver removes was never
+    registered."""
+    part = _dense_scattered_plate()
+
+    def snap(dwg):
+        ann = dwg.annotations()
+        return (
+            "hole_table_plan" in ann,
+            frozenset(n.split("_")[2] for n in ann if n.startswith("balloon_plan_")),
+            frozenset(n for n in ann if n.startswith("hc_plan")),
+        )
+
+    auto = build_drawing(part)
+    assert "hole_table_plan" in auto.annotations(), "fixture must escalate in the auto-pass"
+    auto_codes = {i.code for i in auto.lint() if i.severity in ("warning", "error")}
+
+    dwg = build_drawing(part, auto_dims=False)
+    with dwg.deferred():
+        for f in dwg.model().features:
+            if getattr(f, "kind", None) in ("hole", "pattern"):
+                dwg.callout(f)
+                dwg.locate(f)
+                dwg.furniture(f)
+
+    assert snap(dwg) == snap(auto)  # same table + balloon tags, no orphaned callouts
+    assert not [n for n in dwg.annotations() if n.startswith("hc_plan")]  # no duplicate callouts
+    assert dwg._intents == []  # drained
+    assert dwg._escalations == []  # leg D cleared the consumed escalations (retry-safe)
+    # Lint no worse than the auto-pass (the epic's soft-acceptance bar): the reconstruction
+    # introduces NO warning/error code the auto-pass doesn't already have — no new
+    # callout_dropped / location_ref_dropped / table_dropped. (It is a strict subset here:
+    # the table covers the tabulated holes identically, but the finalize routing happens to
+    # avoid an incidental view_annotation_overlap the auto-pass leaves.)
+    fin_codes = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
+    assert fin_codes <= auto_codes
