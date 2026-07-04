@@ -774,6 +774,26 @@ class Drawing:
 
         return add_feature_callout(self, feature, view=view, name=name)
 
+    def locate(self, feature, *, axes=None) -> list[str]:
+        """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern
+        (#418) — the location half of the feature-referenced **add** surface.
+
+        Distinct from :meth:`dimension` (a feature's own intrinsic linear params): a
+        location dim measures the *datum → feature-centre* offset, which no feature
+        exposes as a parameter. *feature* is a hole/pattern from :meth:`model`; ``axes``
+        selects the in-plane axes (default both — ``"x"`` above the plan view, ``"y"``
+        above the side view). Each dim is placed into free space beside its view and
+        tagged with *feature* so :meth:`drop` / :meth:`annotations_of` find it. Returns
+        the placed names (0–2 — one per axis with a real offset).
+
+        Raises ``ValueError`` if *feature* is not a Z-axis hole/pattern (side-drilled
+        bores are placed by the auto-pass) or the model has no datum. Placed reasonably,
+        not via the auto-pass's corridor solve (byte-identity is not a goal, #400 Ph2).
+        """
+        from draftwright.annotations.holes import add_feature_location
+
+        return add_feature_location(self, feature, axes=axes)
+
     def annotations(self) -> dict:
         """Return ``{name: type_name}`` for every *named* annotation (#27).
 

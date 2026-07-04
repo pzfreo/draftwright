@@ -4435,6 +4435,70 @@ class TestFeatureEdits:
         with pytest.raises(ValueError, match="hole-callout view"):
             dwg.callout(hole, view="iso")
 
+    def test_locate_adds_position_dims_and_round_trips(self):
+        # #418 / #400 Ph2: locate() places datum-referenced X/Y position dims for a
+        # Z-hole, tagged + droppable. Centre ø6 at (0,0) vs datum at bbox-min (-40,-30)
+        # → X offset 40, Y offset 30.
+        from build123d_drafting.helpers import Dimension
+
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        centre = next(f for f in dwg.model().features if f.kind == "hole" and len(f.members) == 1)
+        names = dwg.locate(centre)
+        assert len(names) == 2
+        assert all(isinstance(dwg.get_annotation(n), Dimension) for n in names)
+        assert set(names) <= set(dwg.annotations_of(centre))
+        labels = {dwg.get_annotation(n).label for n in names}
+        assert labels == {"40", "30"}
+        assert set(names) <= set(dwg.drop(centre))
+        assert dwg.annotations_of(centre) == []  # drop removed them all
+
+    def test_locate_axes_filter(self):
+        # axes=("x",) emits only the plan-X position dim.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        centre = next(f for f in dwg.model().features if f.kind == "hole" and len(f.members) == 1)
+        names = dwg.locate(centre, axes=("x",))
+        assert len(names) == 1 and names[0].startswith("m_locx")
+        assert dwg.get_annotation(names[0]).label == "40"
+
+    def test_locate_dedups_coincident_members(self):
+        # The 4 corner ø10 holes group into one HoleFeature (X∈{25,-25}, Y∈{20,-20});
+        # locate() places one dim per distinct axis position, not one per member.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        corners = next(f for f in dwg.model().features if f.kind == "hole" and len(f.members) == 4)
+        names = dwg.locate(corners)
+        labels = sorted(dwg.get_annotation(n).label for n in names)
+        # X offsets 25→65 / -25→15; Y offsets 20→50 / -20→10 — four distinct dims.
+        assert labels == ["10", "15", "50", "65"]
+
+    def test_locate_rejects_side_drilled_feature(self):
+        # A side-drilled (X-axis) bore has no plan location dim — clear ValueError.
+        from build123d import Box, Cylinder, Pos, Rot
+
+        part = Box(120, 90, 40) - Pos(0, 0, 5) * Rot(0, 90, 0) * Cylinder(5, 120)
+        dwg = build_drawing(part, auto_dims=False)
+        bore = next(f for f in dwg.model().features if f.kind == "hole" and f.frame.axis == "x")
+        with pytest.raises(ValueError, match="side-drilled"):
+            dwg.locate(bore)
+
+    def test_locate_rejects_a_linear_feature(self):
+        # A turned step is not a hole/pattern — point at dimension().
+        from build123d import Cylinder
+
+        dwg = build_drawing(
+            Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)), auto_dims=False
+        )
+        step = next(f for f in dwg.model().features if f.kind == "step")
+        with pytest.raises(ValueError, match="dimension"):
+            dwg.locate(step)
+
+    def test_locate_rejects_a_foreign_feature(self):
+        # A hole from a different build is not identity-equal → point at model().features.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        other = build_drawing(_holed_plate(), auto_dims=False)
+        foreign = next(f for f in other.model().features if f.kind == "hole")
+        with pytest.raises(ValueError, match="not from this drawing"):
+            dwg.locate(foreign)
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
