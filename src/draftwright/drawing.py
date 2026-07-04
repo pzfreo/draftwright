@@ -1025,10 +1025,17 @@ class Drawing:
         # position dim is model-derived, not recorded). Slots share the location corridor,
         # so they register alongside B2's locations and drain in the SAME solve (the #345
         # dedup of a slot position coincident with a hole location needs one combined pass).
+        # Match on param/role like len_ids above (#439): a slot exposes only the two length
+        # params, so a malformed slot dim (e.g. dimension(slot, "diameter")) falls through to
+        # live replay, where the verb raises the same ValueError instead of being swallowed.
         slot_ids = {
             id(it)
             for it in self._intents
-            if routable and it.kind == "dimension" and getattr(it.feature, "kind", None) == "slot"
+            if routable
+            and it.kind == "dimension"
+            and getattr(it.feature, "kind", None) == "slot"
+            and it.kwargs.get("param") == "length"
+            and it.kwargs.get("role") in ("slot_width", "slot_length")
         }
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
         only_callout = {it.feature for it in self._intents if id(it) in callout_ids}
