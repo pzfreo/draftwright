@@ -4586,6 +4586,28 @@ class TestFeatureEdits:
         assert isinstance(dwg.get_annotation(name), Leader)
         assert name in dwg.drop(step)
 
+    def test_callout_multiple_step_diameters_do_not_collide(self):
+        # #419 review F1: each step gets a DISTINCT m_dia name; a second callout() must
+        # not clobber the first's leader or raise a false "no room". X-turned uses the
+        # row placer (no occupancy gate), so both leaders always land.
+        from build123d import Cylinder, Rot
+
+        shaft = Rot(0, 90, 0) * (
+            Cylinder(20, 30)
+            + Cylinder(14, 24).translate((0, 0, 27))
+            + Cylinder(9, 18).translate((0, 0, 48))
+        )
+        dwg = build_drawing(shaft, auto_dims=False)
+        steps = [f for f in dwg.model().features if f.kind == "step"]
+        assert len(steps) >= 2
+        names = [dwg.callout(s) for s in steps[:2]]
+        assert len(set(names)) == 2, f"expected distinct names, got {names}"
+        for s, n in zip(steps[:2], names, strict=False):
+            assert n in dwg.annotations() and n in dwg.annotations_of(s)
+        # dropping the first step leaves the second's leader intact (no clobber)
+        dwg.drop(steps[0])
+        assert names[1] in dwg.annotations()
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")

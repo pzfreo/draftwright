@@ -548,7 +548,7 @@ def _mentioned_diameters(dwg) -> set[float]:
     return diams
 
 
-def _diameter_row_below(dwg, items) -> int:
+def _diameter_row_below(dwg, items, start: int = 0) -> int:
     """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
     *items* is ``[(anchor, diameter), ...]``. The row is dropped clear of anything
     already below the profile; labels spread along page-x by the ADR-0003 strip
@@ -586,14 +586,14 @@ def _diameter_row_below(dwg, items) -> int:
     for i, ((tip, label, feat), lx) in enumerate(zip(specs, xs, strict=True)):
         dwg.add(
             Leader(tip=(tip[0], tip[1], 0), elbow=(lx, label_y, 0), label=label, draft=draft),
-            f"m_dia_x{i}",
+            f"m_dia_x{start + i}",
             view="front",
             feature=feat,
         )
     return len(specs)
 
 
-def _diameter_column_left(dwg, items) -> int:
+def _diameter_column_left(dwg, items, start: int = 0) -> int:
     """ø-callout column to the LEFT of the front view for Z-turned step/boss
     diameters (#131) — the page-Y mirror of the row-below. A per-label occupancy
     gate drops only a label that would overprint a bore leader / existing callout
@@ -630,7 +630,7 @@ def _diameter_column_left(dwg, items) -> int:
         ldr = Leader(tip=(tip[0], tip[1], 0), elbow=(elbow_x, ly, 0), label=label, draft=draft)
         if _box_hits(_anno_box(ldr), occupied):
             continue  # would overprint a bore leader / existing callout — drop just this one
-        dwg.add(ldr, f"m_dia_z{i}", view="front", feature=feat)
+        dwg.add(ldr, f"m_dia_z{start + i}", view="front", feature=feat)
         occupied.append(_anno_box(ldr))
         placed += 1
     return placed

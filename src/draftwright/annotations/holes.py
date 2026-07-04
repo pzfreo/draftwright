@@ -347,8 +347,16 @@ def add_feature_furniture(dwg, feature, *, view: str | None = None) -> list[str]
 
     # Pattern furniture — bolt-circle centre-cross / linear-or-grid pitch dims.
     if isinstance(feature, PatternFeature):
+        # Scan for a free furniture slot j across all three name shapes: a bolt-circle
+        # centre-cross (bc_{view}{j}), a linear pitch (dim_pitch_{view}{j}), and a grid's
+        # two suffixed pitch dims (dim_pitch_{view}{j}_0/_1) — the bare key is never used
+        # by a grid, so probing it alone would collide on a second grid (#419 review F4).
         j = 0
-        while f"bc_{view}{j}" in dwg._named or f"dim_pitch_{view}{j}" in dwg._named:
+        while any(
+            nm in (f"bc_{view}{j}", f"dim_pitch_{view}{j}")
+            or nm.startswith(f"dim_pitch_{view}{j}_")
+            for nm in dwg._named
+        ):
             j += 1
         _add_furniture(dwg, a, view, j, feature, lambda loc: dwg.at(view, *loc))
 
@@ -392,11 +400,18 @@ def add_feature_diameter(dwg, feature) -> str:
             "(only X- and Z-turned parts)"
         )
     items = [(group.anchor, dia, feature)]
+    # The row/column placers name leaders m_dia_{x,z}{start+i} — pass the first FREE
+    # index so a second callout() (or a call on an already-annotated turned part) never
+    # collides on m_dia_x0/z0 and clobbers an existing leader (#419 review F1).
+    prefix = "m_dia_x" if axis == "x" else "m_dia_z"
+    start = 0
+    while f"{prefix}{start}" in dwg._named:
+        start += 1
     before = set(dwg.annotations())
     if axis == "x":
-        _diameter_row_below(dwg, items)
+        _diameter_row_below(dwg, items, start=start)
     else:
-        _diameter_column_left(dwg, items)
+        _diameter_column_left(dwg, items, start=start)
     new = sorted(set(dwg.annotations()) - before)
     if not new:
         raise ValueError(f"callout(): no room to place the ø{_fmt(dia)} step/boss leader")
