@@ -4975,18 +4975,22 @@ class TestFeatureEdits:
         assert dwg.annotations_of(holes[0]) and dwg.annotations_of(holes[1])
         assert len([n for n in dwg.annotations() if n.startswith("hc_")]) == 2
 
-    def test_finalize_sectioned_part_keeps_live_callouts(self):
-        # #426 Phase 3a: a sectioned part keeps the 2a live-callout replay (the callout carve
-        # needs the reserved section row — Phase 3b), so it must still run + place callouts.
+    def test_finalize_sectioned_part_reserves_then_renders_section(self):
+        # #426 Phase 3b: a sectioned part reserves the section row BEFORE the callout carve
+        # (Coupling A), routes callouts through _annotate_holes, and renders the section last
+        # — so the reconstruction reproduces the auto-pass callout layout AND places the section.
         part = Box(60, 40, 20) - Cylinder(4, 30) - Pos(0, 0, 2) * Cylinder(7, 20)  # counterbore
+        auto = build_drawing(part)  # auto_dims=True — the reference
+
         dwg = build_drawing(part, auto_dims=False)
         dwg._defer_intents = True
         for f in (x for x in dwg.model().features if x.kind in ("hole", "pattern")):
             dwg.callout(f)
         dwg.section()
         dwg.finalize()  # must not raise
-        assert any(n.startswith("hc_") for n in dwg.annotations())
-        assert "section_caption" in dwg.annotations()
+        assert "section_caption" in dwg.annotations() and "section_line" in dwg.annotations()
+        # the callout carve saw the reserved section row → callouts match the auto-pass
+        assert self._hc_ys(dwg) and self._hc_ys(dwg) == self._hc_ys(auto)
 
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())

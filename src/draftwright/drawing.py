@@ -879,17 +879,17 @@ class Drawing:
 
         * **(A)** live-replays furniture, non-slot dimensions, step/boss ø callouts, and
           axes-restricted locates (in recorded order, pop-after-success);
-        * **(B1, Phase 3a)** section-free hole/pattern ø **callouts** through
-          ``_annotate_holes`` — the real priority-drop / central-bore-anchoring solve;
+        * **(reserve, Phase 3b)** if a ``section`` was recorded, its cutting-plane row is
+          reserved first so the callout carve sees it as an obstacle (Coupling A);
+        * **(B1, Phase 3a)** hole/pattern ø **callouts** through ``_annotate_holes`` — the
+          real priority-drop / central-bore-anchoring solve;
         * **(B2, Phase 2a)** both-axes **locations** through ``render_locations`` +
           ``drain_corridors`` — one crossing-free, deduped, monotone ladder;
-        * **(C)** ``section`` last (its room check clears the side view's right).
+        * **(C)** the ``section`` renders last (its room check clears the side view's right).
 
         Slots stay on the live path (Phase 2b — a slot's position dim is not a recorded
-        intent); step/boss ø callouts stay live (Phase 4, a set-solver); a **sectioned**
-        part keeps live callouts (Phase 3b — the callout carve needs the section row
-        reserved first). Only ``only``-set routing is used here; the auto-pass path is
-        untouched.
+        intent); step/boss ø callouts stay live (Phase 4, a set-solver). Only ``only``-set
+        routing is used here; the auto-pass path is untouched.
 
         Idempotent (draining empties the list; a repeat call — or ``export()`` then
         ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
@@ -897,19 +897,18 @@ class Drawing:
         intent is removed only after it places, so a verb that raises surfaces the error
         and leaves the rest recorded. A record → finalize → record-more → finalize
         sequence drains each batch (#428 review).
-
-        Known Phase-2a residual: for a part with **both** a section and locations the
-        finalize layout can differ from the auto-pass (the auto-pass reserves the section
-        row *before* the location carve; finalize places the section after) — acceptable
-        until section reservation moves to the batch (Phase 3).
         """
         if not self._intents:
             return
         from draftwright.annotations._common import drain_corridors
         from draftwright.annotations.from_model import render_locations
         from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
-        from draftwright.annotations.sections import feature_hole_keys
-        from draftwright.model import PartModel, plan_dimensions
+        from draftwright.annotations.sections import (
+            _add_section_view,
+            _reserve_section_row,
+            feature_hole_keys,
+        )
+        from draftwright.model import PartModel, plan_dimensions, plan_sections
 
         # Corridor state the auto-pass creates in _auto_annotate S0 but a detect-only build
         # lacks — render_locations/_annotate_holes/drain_corridors register/read here.
@@ -922,14 +921,18 @@ class Drawing:
 
         model, a = self._part_model, self._analysis
         routable = model is not None and a is not None
-        has_section = any(it.kind == "section" for it in self._intents)
+        # The section plan (if a section was recorded) — the ONE plan reserved before the
+        # callout carve sees its row (Coupling A) and rendered last (Phase 3b).
+        _section = None
+        if routable and any(it.kind == "section" for it in self._intents):
+            assert a is not None and isinstance(model, PartModel)
+            _section = plan_sections(model, feature_hole_keys(a))
         # Route through the auto-pass solvers when possible (else everything live-replays):
         #  - BOTH-axes locate → the ADR-0009 location corridor. An axes-restricted locate
         #    can't go through the per-feature filter, so it live-replays (#429).
-        #  - hole/pattern CALLOUT → _annotate_holes' priority-drop/anchoring solve, but only
-        #    on a SECTION-FREE part — the callout carve needs the section row reserved first
-        #    (Coupling A, Phase 3b); sectioned parts keep the live callout replay. Step/boss
-        #    ø callouts always live-replay (a set-solver, Phase 4).
+        #  - hole/pattern CALLOUT → _annotate_holes' priority-drop/anchoring solve (the
+        #    section row, if any, is reserved first below). Step/boss ø callouts always
+        #    live-replay (a set-solver, Phase 4).
         corridor_ids = {
             id(it)
             for it in self._intents
@@ -939,7 +942,6 @@ class Drawing:
             id(it)
             for it in self._intents
             if routable
-            and not has_section
             and it.kind == "callout"
             and getattr(it.feature, "kind", None) in ("hole", "pattern")
         }
@@ -948,6 +950,11 @@ class Drawing:
 
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
+            # Reserve the section's cutting-plane row BEFORE the callout carve so the carve
+            # sees it as an obstacle (Coupling A, ADR 0009 P5 strand 3); rendered last (leg C).
+            if _section is not None:
+                assert a is not None
+                _reserve_section_row(self, a, _section)
             # (A) live-replay every intent EXCEPT the routed callouts/locates and section
             #     (furniture, step/boss callouts, dimensions, axes-restricted locates).
             i = 0
@@ -980,10 +987,13 @@ class Drawing:
                 render_locations(self, model, a, only=only_loc)
                 drain_corridors(self)
             self._intents = [it for it in self._intents if id(it) not in corridor_ids]
-            # (C) section last — its room check clears whatever is right of the side view
-            while self._intents:
-                self._replay_intent(self._intents[0])
-                self._intents.pop(0)
+            # (C) render the section LAST, reusing the reserved plan (its room check clears
+            #     everything right of the side view; _add_section_view clears the reservation).
+            #     A recorded section with no trigger (_section is None) is a no-op.
+            self._intents = [it for it in self._intents if it.kind != "section"]
+            if _section is not None:
+                assert a is not None
+                _add_section_view(self, a, _section)
         finally:
             self._defer_intents = deferred
 
