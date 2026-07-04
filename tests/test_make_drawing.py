@@ -2314,6 +2314,35 @@ def test_generate_script_defers_invalid_scale_page(tmp_path):
     assert "SCALE = 0.001" in content and "PAGE = 'A9'" in content
 
 
+def test_generate_script_lists_detected_features(tmp_path):
+    # #400 Ph1: the script's Customise section carries an inert listing of the detected
+    # features + their dimensionable params. A hole → an inert leader-callout note (#414);
+    # the envelope's length params → editable dwg.dimension(...) lines against model().
+    step = tmp_path / "p.step"
+    export_step(Box(60, 60, 12) - Pos(0, 0, 0) * Cylinder(4, 40), str(step))
+    content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text(encoding="utf-8")
+    assert "# ── Detected features (#400 Ph1)" in content
+    assert "# features[0]  hole @" in content  # detected + indexed by model().features[i]
+    # a hole ø is a leader callout → inert note pointing at the callout add verb (#414)
+    assert "auto leader callout; a callout() add verb is #414" in content
+    # the envelope's width/height/depth are linear → editable dimension() calls
+    assert "dwg.dimension(dwg.model().features[" in content
+    assert 'role="width")' in content
+
+
+def test_feature_listing_is_fully_inert(tmp_path):
+    # #400 Ph1: the whole listing is commented — never executes, so it cannot double-apply
+    # or crash a run. Every non-blank line between the header and the Export banner is a #.
+    step = tmp_path / "p.step"
+    export_step(Box(40, 30, 8) - Pos(0, 0, 0) * Cylinder(3, 20), str(step))
+    content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text(encoding="utf-8")
+    start = content.index("# ── Detected features (#400 Ph1)")
+    end = content.index("# ── Export", start)
+    block = [ln for ln in content[start:end].splitlines() if ln.strip()]
+    assert block, "listing block was empty"
+    assert all(ln.lstrip().startswith("#") for ln in block), "listing must be fully commented"
+
+
 @pytest.mark.timeout(180)
 def test_generated_script_runs_and_preserves_pmi(tmp_path):
     # #388 acceptance: a generated --pmi annotate script preserves pmi when RUN — execute
@@ -2323,7 +2352,9 @@ def test_generated_script_runs_and_preserves_pmi(tmp_path):
     import sys
 
     step = tmp_path / "p.step"
-    export_step(Box(80, 50, 8), str(step))
+    # A hole so the #400 listing carries a non-ASCII ø in a comment — proves the utf-8
+    # source runs even under an ASCII stdout (source encoding is independent of stdout).
+    export_step(Box(80, 50, 8) - Pos(0, 0, 0) * Cylinder(4, 40), str(step))
     py = generate_script(str(step), out=str(tmp_path / "p"), pmi="annotate")
     # Force an ASCII stdout so a non-ASCII char in the script's own print() (e.g. a
     # Unicode arrow) fails HERE on every platform, not only on a Windows cp1252 console.

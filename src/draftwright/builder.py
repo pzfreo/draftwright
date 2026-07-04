@@ -38,6 +38,7 @@ from draftwright.analysis import _analyse
 from draftwright.annotate import _auto_annotate, build_model
 from draftwright.drawing import Drawing
 from draftwright.fonts import PLEX_MONO
+from draftwright.model import display
 from draftwright.projection import (
     _fit_iso_view,
     _project_iso,
@@ -535,6 +536,60 @@ def make_drawing(
 # ---------------------------------------------------------------------------
 
 
+def _fmt_pt(p) -> str:
+    """A compact ``x, y, z`` for a model-space point (integers stay integers)."""
+    return ", ".join(f"{c:.0f}" if abs(c - round(c)) < 1e-6 else f"{c:.1f}" for c in p)
+
+
+def _feature_listing(a: Analysis) -> str:
+    """An inert, commented listing of the detected features and their dimensionable
+    parameters (#400 Ph1) — developer visibility into what the engine auto-dimensioned.
+
+    Each feature is referenced as ``dwg.model().features[i]`` so an uncommented line runs
+    against the real read surface (#397, ADR 0008 IR). A **linear** param becomes an
+    editable ``dwg.dimension(...)`` call; a leader-callout param (a hole's ø/depth, a
+    pattern's furniture) is noted inert — a callout add verb is tracked as #414. The
+    auto-pass already drew these, so *overriding* one means :meth:`~Drawing.drop` then
+    re-add, shown in the header. Pure function of *a*; no annotation pass runs.
+    """
+    feats = getattr(build_model(a), "features", [])
+    if not feats:
+        return (
+            "# ── Detected features (#400 Ph1) ──────────────────────────────────────────────\n"
+            "# No dimensionable features detected.\n"
+        )
+    lines = [
+        "# ── Detected features (#400 Ph1) ──────────────────────────────────────────────",
+        "# What the engine detected and auto-dimensioned, listed for visibility. Reference a",
+        "# feature as dwg.model().features[i] (the ADR-0008 IR). A dwg.dimension(...) line",
+        "# below reproduces the dim the engine drew for that param. The auto-pass already",
+        "# drew everything, so to CHANGE a feature, drop it then re-add only the dims you want",
+        "# (an uncommented bare line double-dimensions):",
+        "#     f = dwg.model().features[0]",
+        "#     dwg.drop(f)                             # remove f's auto annotations",
+        '#     dwg.dimension(f, "length", role="...")  # re-add a chosen linear dim',
+        "#",
+    ]
+    for i, feat in enumerate(feats):
+        lines.append(f"# features[{i}]  {feat.kind} @ ({_fmt_pt(feat.frame.origin)})")
+        for p in feat.parameters():
+            if p.span is not None or feat.kind == "slot":  # a linear dim dimension() accepts
+                lines.append(
+                    f'#     dwg.dimension(dwg.model().features[{i}], "{p.kind}", '
+                    f'role="{p.role}")   # {display(p)}'
+                )
+            elif p.kind in ("diameter", "depth"):  # a hole ø/depth — a leader callout
+                lines.append(
+                    f"#     {display(p)} ({p.role}) -> auto leader callout; "
+                    f"a callout() add verb is #414"
+                )
+            else:  # an auto-drawn linear dim (step height, pitch, …) not yet a dimension() target
+                lines.append(
+                    f"#     {display(p)} ({p.role}) -> auto-drawn; not a dimension() target yet"
+                )
+    return "\n".join(lines) + "\n"
+
+
 def _write_script(a: Analysis, scale: float | None = None, page: str | None = None) -> str:
     """Write an editable script at ``a.out + '.py'`` that calls make_drawing().
 
@@ -641,7 +696,7 @@ def _write_script(a: Analysis, scale: float | None = None, page: str | None = No
         "# Example — add a linear dim (place_dim auto-stacks; endpoints via dwg.at):\n"
         "#   p1, p2 = dwg.at('front', 0, 0, 0), dwg.at('front', 40, 0, 0)\n"
         "#   dwg.place_dim(p1, p2, 'above', 'front', dwg.draft, name='dim_len')\n"
-        "\n"
+        "\n" + _feature_listing(a) + "\n"
         "# ── Export ────────────────────────────────────────────────────────────────────\n"
         "svg_path, dxf_path = dwg.export(_stem)\n"
         # ASCII arrow: a Unicode → crashes the print on a Windows cp1252 console
