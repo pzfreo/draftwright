@@ -756,6 +756,24 @@ class Drawing:
         self.place_dim(p1, p2, side, view, self.draft, name=name, feature=feature, **kwargs)
         return name
 
+    def callout(self, feature, *, view=None, name=None) -> str:
+        """Add a hole/pattern ø-depth **leader callout** for *feature* (#414) — the
+        callout half of the feature-referenced **add** surface, symmetric with :meth:`drop`.
+
+        Where :meth:`dimension` draws a linear dim, ``callout`` draws the hole's ø / ``n×`` /
+        through-or-depth / counterbore leader (the same text the auto-pass builds). *feature*
+        is a hole/pattern from :meth:`model`; ``view`` defaults to the feature's end-on view.
+        The callout is placed into free space beside that view and tagged with *feature* so
+        :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
+
+        Raises ``ValueError`` if *feature* exposes no hole callout (use :meth:`dimension` for a
+        linear param). A lone added callout is placed reasonably, not via the auto-pass's
+        whole-set solve (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the rest.
+        """
+        from draftwright.annotations.holes import add_feature_callout
+
+        return add_feature_callout(self, feature, view=view, name=name)
+
     def annotations(self) -> dict:
         """Return ``{name: type_name}`` for every *named* annotation (#27).
 

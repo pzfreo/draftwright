@@ -4377,6 +4377,47 @@ class TestFeatureEdits:
         assert {nl, nw} <= set(dwg.annotations_of(slot))
         assert nl in dwg.drop(slot)
 
+    def test_callout_adds_a_hole_leader_and_round_trips(self):
+        # #414 / #400 Ph2: the callout add verb — detect-only build, then add the hole's
+        # ø leader explicitly; it is a leader-attached callout, tagged, and drops.
+        from build123d_drafting.helpers import Leader
+
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        name = dwg.callout(hole)
+        assert name.startswith("hc_")
+        assert name in dwg.annotations() and name in dwg.annotations_of(hole)
+        assert isinstance(dwg.get_annotation(name), Leader)  # funnels through callout_from_spec
+        assert name in set(dwg.drop(hole))
+        assert name not in dwg.annotations()  # drop removed it
+
+    def test_callout_rejects_a_linear_feature(self):
+        # A step/envelope has no hole callout — clear ValueError pointing at dimension().
+        from build123d import Cylinder
+
+        dwg = build_drawing(
+            Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)), auto_dims=False
+        )
+        step = next(f for f in dwg.model().features if f.kind == "step")
+        with pytest.raises(ValueError, match="hole"):
+            dwg.callout(step)
+
+    def test_callout_carries_a_pattern_count(self):
+        # A bolt circle → one counted callout for the whole pattern, tagged to the pattern.
+        import math
+
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(120, 120, 20)
+        for k in range(6):
+            ang = math.radians(60 * k)
+            part -= Pos(35 * math.cos(ang), 35 * math.sin(ang), 0) * Cylinder(4, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        pat = next(f for f in dwg.model().features if f.kind == "pattern")
+        name = dwg.callout(pat)
+        assert name in dwg.annotations_of(pat)
+        assert name in set(dwg.drop(pat))
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")

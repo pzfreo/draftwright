@@ -17,6 +17,7 @@ from build123d_drafting.helpers import (
 
 from draftwright._core import (
     _CONCENTRIC_TOL_MM,
+    _END_ON,
     _MIN_LOC_SEP_MM,
     _TB_CLEAR,
     _TB_H,
@@ -34,13 +35,117 @@ from draftwright.annotations._common import (
     _box_hits,
     _geom_box,
     _segment_hits_box,
+    carve_free_position,
     carve_free_segments,
     place_strip_candidates,
     strip_obstacles,
 )
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
 from draftwright.layout import StripCandidate, plan_strip
+from draftwright.model import plan_dimensions
 from draftwright.model.ir import HoleFeature, PatternFeature
+
+
+def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | None = None) -> str:
+    """Add a hole/pattern ø-depth **leader callout** for *feature* — the #414 add verb,
+    the callout-mechanism half of the editable surface (symmetric with :meth:`Drawing.drop`).
+
+    Funnels into the same :func:`hole_callout_spec` / :func:`callout_from_spec` the
+    auto-pass uses, so the callout text (ø, ``n×``, through/depth, cbore, pattern suffix)
+    is identical. Placement is a single reasonable leader beside the feature's end-on view
+    — not the auto-pass's whole-set priority solve (byte-identity is not a goal, #400 Ph2):
+    a lone added callout goes into free strip space and leans on :meth:`Drawing.repair` /
+    the coverage lint for the rest. The leader is tagged with *feature* so :meth:`drop` /
+    :meth:`annotations_of` find it. Returns the annotation name.
+
+    Raises ``ValueError`` if the drawing has no detected model, *feature* is not in it, or
+    the feature exposes no hole callout (use :meth:`dimension` for a linear param instead).
+    """
+    model = getattr(dwg, "_part_model", None)
+    if model is None:
+        raise ValueError("callout(): no detected model — build the drawing first")
+    group = next((g for g in plan_dimensions(model) if g.feature is feature), None)
+    spec = hole_callout_spec(group) if group is not None else None
+    if spec is None:
+        raise ValueError(
+            f"callout() draws a hole/pattern ø-depth leader callout; "
+            f"{type(feature).__name__} exposes none — use dimension() for a linear param"
+        )
+    draft = dwg.draft
+    a = getattr(dwg, "_analysis", None)
+    members = feature.members or (feature.frame.origin,)
+    count = len(members) if len(members) > 1 else None
+    callout = callout_from_spec(spec, draft, count)
+    assert callout is not None  # spec is non-None here, so callout_from_spec returns one
+    view = view or _END_ON[feature.frame.axis]
+    gap = draft.pad_around_text
+    w = callout.callout_width
+    tier = draft.font_size + 2 * gap
+    dia = spec["diameter"]
+
+    def _rim_tip(centre, elbow):
+        # Pull the leader tip from the hole centre to its circumference (bore dia mm).
+        r = dia * dwg.scale / 2
+        dx, dy = elbow[0] - centre[0], elbow[1] - centre[1]
+        norm = math.hypot(dx, dy)
+        return centre if norm <= r else (centre[0] + dx / norm * r, centre[1] + dy / norm * r)
+
+    vb = dwg.view_bounds(view) or (0.0, 0.0, 0.0, 0.0)
+    vx0, vy0, vx1, vy1 = vb
+    # tip on the member nearest the placement side (rightmost in page X)
+    centre = dwg.at(view, *max(members, key=lambda m: dwg.at(view, *m)[0]))[:2]
+
+    if view == "front":  # below the view (matches the auto-pass's front-callout side)
+        zones = getattr(a, "fv_zones", None) if a is not None else None
+        strip = getattr(zones, "below", None) if zones is not None else None
+        elbow_y = vy0 - max(tier, 0.6 * getattr(a, "DIM_PAD", 12.0))
+        if strip is not None:
+            coord = carve_free_position(
+                dwg, strip, view, "y", tier, (centre[0], centre[0] + gap + w)
+            )
+            if coord is not None:
+                elbow_y = coord
+        elbow = (centre[0], elbow_y)
+        room_right = (a.PAGE_W - a.margin) if a is not None else centre[0] + gap + w
+        tside = "right" if centre[0] + gap + w <= room_right else "left"
+    else:  # plan / side → to the right of the view
+        zones = (
+            getattr(a, {"plan": "pv_zones", "side": "sv_zones"}[view], None)
+            if a is not None
+            else None
+        )
+        strip = getattr(zones, "right", None) if zones is not None else None
+        elbow_x = vx1 + gap
+        if strip is not None:
+            coord = carve_free_position(
+                dwg, strip, view, "x", tier, (centre[1] - tier / 2, centre[1] + tier / 2)
+            )
+            if coord is not None:
+                elbow_x = coord
+        elbow = (elbow_x, centre[1])
+        tside = "right"
+
+    if name is None:
+        i = 0
+        name = f"hc_{view}0"
+        while name in dwg._named:
+            i += 1
+            name = f"hc_{view}{i}"
+    tip = _rim_tip(centre, elbow)
+    dwg.add(
+        Leader(
+            tip=(tip[0], tip[1], 0),
+            elbow=(elbow[0], elbow[1], 0),
+            label="",
+            draft=draft,
+            text_side=tside,
+            callout=callout,
+        ),
+        name,
+        view=view,
+        feature=feature,
+    )
+    return name
 
 
 def _legible_locations(positions, scale):
