@@ -911,23 +911,31 @@ class Drawing:
         if not hasattr(self, "_detail_requests"):
             self._detail_requests: list = []
 
+        # Only a BOTH-axes locate (axes=None) can go through the per-feature corridor
+        # filter; an axes-restricted locate(f, axes=…) is honored by live replay, since
+        # render_locations' `only` set can't express an axis subset (#429 review).
+        corridor_ids = {
+            id(it) for it in self._intents if it.kind == "locate" and it.kwargs.get("axes") is None
+        }
+        only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
+
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
-            only_loc = {it.feature for it in self._intents if it.kind == "locate"}
-            # (A) live-replay every non-corridor, non-section intent (callout / furniture /
-            #     non-slot dimension) in recorded order — locate is routed below, section last.
+            # (A) live-replay every intent EXCEPT the corridor-routed locates and section:
+            #     callouts / furniture / non-slot dimensions / axes-restricted locates.
             i = 0
             while i < len(self._intents):
-                if self._intents[i].kind in ("locate", "section"):
+                it = self._intents[i]
+                if it.kind == "section" or id(it) in corridor_ids:
                     i += 1
                     continue
-                self._replay_intent(self._intents[i])  # resilient: a raise leaves the rest
+                self._replay_intent(it)  # resilient: a raise leaves the rest recorded
                 self._intents.pop(i)
-            # (B) locations through the REAL ADR-0009 corridor solve (crossing-free ladder)
+            # (B) both-axes locations through the REAL ADR-0009 corridor solve (crossing-free)
             if only_loc and self._part_model is not None and self._analysis is not None:
                 render_locations(self, self._part_model, self._analysis, only=only_loc)
                 drain_corridors(self)
-            self._intents = [it for it in self._intents if it.kind != "locate"]
+            self._intents = [it for it in self._intents if id(it) not in corridor_ids]
             # (C) section last — its room check clears whatever is right of the side view
             while self._intents:
                 self._replay_intent(self._intents[0])

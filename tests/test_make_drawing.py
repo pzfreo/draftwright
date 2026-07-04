@@ -4866,6 +4866,19 @@ class TestFeatureEdits:
         auto = build_drawing(part)  # auto_dims=True — the reference the corridor matches
         assert len(fin_locx) == len([n for n in auto.annotations() if n.startswith("m_locx")])
 
+    def test_finalize_honors_locate_axes_restriction(self):
+        # #429 review: a recorded locate(f, axes=("x",)) must place only the X dim. The
+        # per-feature corridor filter can't express an axis subset, so finalize live-replays
+        # axes-restricted locates (routing only both-axes ones through the corridor).
+        part = Box(100, 80, 20) - Pos(20, 15, 0) * Cylinder(4, 30)
+        dwg = build_drawing(part, auto_dims=False)
+        dwg._defer_intents = True
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg.locate(hole, axes=("x",))
+        dwg.finalize()
+        locs = [n for n in dwg.annotations() if n.startswith("m_loc")]
+        assert locs and all(n.startswith("m_locx") for n in locs)  # X only — no m_locy
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
