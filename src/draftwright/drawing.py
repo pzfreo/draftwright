@@ -920,7 +920,12 @@ class Drawing:
           — the row-below / column-left set-solve;
         * **(B3b, Phase 4b)** a turned shaft's step-length **chain** through
           ``render_step_lengths`` — the unified chain / ``N× v`` collapse / staggered tiers;
-        * **(C)** the ``section`` renders last (its room check clears the side view's right).
+        * **(C)** the ``section`` renders last (its room check clears the side view's right);
+        * **(D, Phase 4c)** dense-scattered plan holes escalate to the hole **table** + balloon
+          ring via ``_maybe_tabulate_holes`` — last, so it sees the section + title block as
+          obstacles. The density gate counts *all* analysis holes, so this is a full-
+          reconstruction escalation (a partial hand-edit still tabulates the full count, #434);
+          ``_escalations`` is cleared after so a repeat batch can't re-fire the fixed-name table.
 
         A slot records two size dims (``slot_width``/``slot_length``) on one feature; routing
         the feature also regenerates its model-derived datum **position** dim, so finalize
@@ -947,6 +952,7 @@ class Drawing:
             render_step_lengths,
         )
         from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
+        from draftwright.annotations.orchestrator import _maybe_tabulate_holes
         from draftwright.annotations.sections import (
             _add_section_view,
             _reserve_section_row,
@@ -1097,6 +1103,21 @@ class Drawing:
             if _section is not None:
                 assert a is not None
                 _add_section_view(self, a, _section)
+            # (D, Phase 4c) dense-scattered plan-view holes escalate to the hole TABLE +
+            #     balloon ring — LAST, mirroring the auto-pass (_maybe_tabulate_holes runs
+            #     last in _auto_annotate) so the resolver sees the section + title block as
+            #     obstacles. It reads _escalations (the callout/location drops B1/B2 collected)
+            #     and the scattered-hole coverage recorded at the hole emit site even under
+            #     place_furniture=False (#426 Ph4c) to find + replace the plan callouts. The
+            #     density gate counts ALL analysis holes (a.holes), so this is a FULL-
+            #     reconstruction escalation: a partial hand-edit that drops some callout() lines
+            #     still tabulates the full count (documented full-reconstruction scope, #434).
+            #     Clear _escalations after so a repeat finalize batch can't re-fire against stale
+            #     drops and collide on the fixed name hole_table_plan.
+            if routable:
+                assert a is not None
+                _maybe_tabulate_holes(self, a)
+                self._escalations = []
         finally:
             self._defer_intents = deferred
 

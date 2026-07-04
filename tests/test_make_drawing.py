@@ -5029,6 +5029,33 @@ class TestFeatureEdits:
         assert "m_slot0_pos" not in dwg.annotations()  # deduped against the coincident hole
         assert dwg._intents == []
 
+    def test_finalize_records_scattered_hole_coverage_without_furniture(self):
+        # #426 Phase 4c: finalize routes hole callouts through _annotate_holes with
+        # place_furniture=False (furniture is replayed by its own furniture() intents). The
+        # scattered-hole-table COVERAGE — which plan callouts _maybe_tabulate_holes may replace
+        # — used to be recorded ONLY inside _add_furniture, gated behind place_furniture, so
+        # finalize never registered it. The fix records coverage at the callout emit site
+        # regardless of the gate; the finalize scattered-doc set must equal the auto-pass set
+        # (and be non-empty), so the resolver can find + replace those callouts. Coverage-only,
+        # so the auto-pass output is unchanged (guarded by the byte-identity corpus).
+        part = _multi_hole_plate()
+
+        def docs(d):
+            return {n for n in d.annotations() if d._is_scattered_hole_doc(n)}
+
+        auto = build_drawing(part)
+        assert docs(auto), "auto-pass must register scattered-hole-doc coverage"
+
+        dwg = build_drawing(part, auto_dims=False)
+        with dwg.deferred():
+            for f in dwg.model().features:
+                if getattr(f, "kind", None) in ("hole", "pattern"):
+                    dwg.callout(f)
+                    dwg.locate(f)
+        assert docs(dwg) == docs(auto)  # coverage restored under place_furniture=False
+        assert dwg._intents == []  # drained
+        assert dwg._escalations == []  # leg D ran + cleared them for retry safety
+
     @staticmethod
     def _hc_ys(d):
         return sorted(
