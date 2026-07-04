@@ -4391,16 +4391,16 @@ class TestFeatureEdits:
         assert name in set(dwg.drop(hole))
         assert name not in dwg.annotations()  # drop removed it
 
-    def test_callout_rejects_a_linear_feature(self):
-        # A step/envelope has no hole callout — clear ValueError pointing at dimension().
-        from build123d import Cylinder
+    def test_callout_rejects_a_non_callout_feature(self):
+        # A slot has no ø leader callout (a step/boss now does, #419) — clear ValueError
+        # pointing at dimension().
+        from build123d import Box, Mode, Pos
 
-        dwg = build_drawing(
-            Cylinder(20, 30) + Cylinder(12, 20).translate((0, 0, 25)), auto_dims=False
-        )
-        step = next(f for f in dwg.model().features if f.kind == "step")
+        part = Box(80, 60, 20) - Pos(0, 0, 0) * Box(24, 8, 30, mode=Mode.SUBTRACT)
+        dwg = build_drawing(part, auto_dims=False)
+        slot = next(f for f in dwg.model().features if f.kind == "slot")
         with pytest.raises(ValueError, match="hole"):
-            dwg.callout(step)
+            dwg.callout(slot)
 
     def test_callout_carries_a_pattern_count(self):
         # A bolt circle → one counted callout for the whole pattern, tagged to the pattern.
