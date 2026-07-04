@@ -2314,33 +2314,37 @@ def test_generate_script_defers_invalid_scale_page(tmp_path):
     assert "SCALE = 0.001" in content and "PAGE = 'A9'" in content
 
 
-def test_generate_script_lists_detected_features(tmp_path):
-    # #400 Ph1: the script's Customise section carries an inert listing of the detected
-    # features + their dimensionable params. A hole → an inert leader-callout note (#414);
-    # the envelope's length params → editable dwg.dimension(...) lines against model().
+def test_generate_script_reconstructs_features_as_intent_calls(tmp_path):
+    # #400 Ph2: the Customise section is a runnable detect-only reconstruction — each
+    # feature redrawn by the domain add verbs against model().features[i], not the Ph1
+    # inert listing. The build is auto_dims=False and ends with dwg.repair().
     step = tmp_path / "p.step"
     export_step(Box(60, 60, 12) - Pos(0, 0, 0) * Cylinder(4, 40), str(step))
     content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text(encoding="utf-8")
-    assert "# ── Detected features (#400 Ph1)" in content
-    assert "# features[0]  hole @" in content  # detected + indexed by model().features[i]
-    # a hole ø is a leader callout → inert note pointing at the callout add verb (#414)
-    assert "auto leader callout; a callout() add verb is #414" in content
-    # the envelope's width/height/depth are linear → editable dimension() calls
-    assert "dwg.dimension(dwg.model().features[" in content
-    assert 'role="width")' in content
+    assert "# ── Reconstruct the drawing at intent level (#400 Ph2)" in content
+    assert "auto_dims=False" in content  # the build is detect-only
+    assert "# features[0]  hole @" in content  # indexed by model().features[i]
+    assert "dwg.callout(f)" in content  # hole ø via the callout verb
+    assert "dwg.locate(f)" in content  # its datum position
+    assert "dwg.furniture(f)" in content  # its centre mark
+    assert 'dwg.dimension(f, "length", role="width")' in content  # envelope, editable
+    assert "dwg.repair()" in content  # finalize — tidy corridor-free overlaps
 
 
-def test_feature_listing_is_fully_inert(tmp_path):
-    # #400 Ph1: the whole listing is commented — never executes, so it cannot double-apply
-    # or crash a run. Every non-blank line between the header and the Export banner is a #.
+def test_feature_listing_is_live_intent_calls(tmp_path):
+    # #400 Ph2 (was Ph1 "fully inert"): the reconstruction block now contains BARE,
+    # uncommented verb calls — the Ph1 inert guarantee is intentionally replaced. Verify
+    # there are runnable calls and they reference the read surface.
     step = tmp_path / "p.step"
     export_step(Box(40, 30, 8) - Pos(0, 0, 0) * Cylinder(3, 20), str(step))
     content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text(encoding="utf-8")
-    start = content.index("# ── Detected features (#400 Ph1)")
+    start = content.index("# ── Reconstruct the drawing at intent level")
     end = content.index("# ── Export", start)
     block = [ln for ln in content[start:end].splitlines() if ln.strip()]
-    assert block, "listing block was empty"
-    assert all(ln.lstrip().startswith("#") for ln in block), "listing must be fully commented"
+    live = [ln for ln in block if not ln.lstrip().startswith("#")]
+    assert live, "reconstruction must contain runnable (uncommented) calls"
+    assert any(ln.startswith("dwg.") for ln in live)
+    assert any("dwg.model().features[" in ln for ln in live)
 
 
 @pytest.mark.timeout(180)
@@ -4626,6 +4630,73 @@ class TestFeatureEdits:
         part = Box(80, 60, 20) - Pos(20, 0, 0) * Cylinder(4, 30)
         dwg = build_drawing(part, auto_dims=False)
         assert dwg.section() == []
+
+    def test_locate_composes_over_every_feature_without_raising(self):
+        # #420 flip fix: locate() returns [] (not ValueError) when a feature's datum ref is
+        # deduped/concentric — so the emitted script can call it on every hole/pattern. Here
+        # the central hole coincides with the bolt-circle centre, so its ref is deduped.
+        import math
+
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(100, 100, 20)
+        for k in range(6):
+            ang = math.radians(60 * k)
+            part -= Pos(30 * math.cos(ang), 30 * math.sin(ang), 0) * Cylinder(3, 20)
+        part -= Pos(0, 0, 5) * Cylinder(5, 10)  # central hole on the bolt-circle centre
+        dwg = build_drawing(part, auto_dims=False)
+        holes = [f for f in dwg.model().features if f.kind in ("hole", "pattern")]
+        assert len(holes) >= 2
+        results = [dwg.locate(f) for f in holes]  # none may raise
+        assert all(isinstance(r, list) for r in results)
+
+    @staticmethod
+    def _reconstruct(dwg):
+        # The per-feature verb dispatch the #400 Ph2 emitter writes (mirrors
+        # builder._feature_listing) — used to exercise the reconstruction in-process.
+        for f in dwg.model().features:
+            if f.kind in ("hole", "pattern"):
+                dwg.callout(f)
+                dwg.locate(f)
+                dwg.furniture(f)
+            elif f.kind in ("step", "boss"):
+                dwg.callout(f)
+            for p in f.parameters():
+                if p.span is not None or f.kind == "slot":
+                    dwg.dimension(f, p.kind, role=p.role)
+        dwg.section()
+
+    def test_intent_reconstruction_is_error_free(self):
+        # #400 Ph2 soft acceptance: a fully reconstructed prismatic part, after repair(),
+        # has no lint ERRORS. Placement WARNINGS from the corridor-free verbs are the
+        # documented #424 fidelity gap, not a failure.
+        part = (
+            Box(80, 60, 12) - Pos(20, 10, 0) * Cylinder(4, 40) - Pos(-20, -10, 0) * Cylinder(4, 40)
+        )
+        dwg = build_drawing(part, auto_dims=False)
+        self._reconstruct(dwg)
+        dwg.repair()
+        assert dwg.lint_summary()["errors"] == 0, dwg.lint_summary()["by_code"]
+
+    def test_intent_reconstruction_comment_drops_exactly_that(self):
+        # #400 Ph2 soft acceptance: commenting one verb line drops exactly that annotation.
+        # With auto_dims=False nothing is auto-drawn, so omitting callout(f) removes exactly
+        # the callout — no double-dimension, no collateral on locate/furniture.
+        part = Box(80, 60, 12) - Pos(20, 10, 0) * Cylinder(4, 40)
+        full = build_drawing(part, auto_dims=False)
+        hole = next(f for f in full.model().features if f.kind == "hole")
+        full.callout(hole)
+        full.locate(hole)
+        full.furniture(hole)
+        before = set(full.annotations())
+
+        partial = build_drawing(part, auto_dims=False)
+        h2 = next(f for f in partial.model().features if f.kind == "hole")
+        partial.locate(h2)  # callout(h2) "commented out"
+        partial.furniture(h2)
+        dropped = before - set(partial.annotations())
+        assert dropped == {n for n in before if n.startswith("hc_")}
+        assert dropped, "commenting callout() should drop the hole's leader"
 
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())

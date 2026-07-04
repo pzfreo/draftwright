@@ -210,12 +210,15 @@ def add_feature_location(dwg, feature, *, axes: tuple[str, ...] | None = None) -
     if not want <= {"x", "y"}:
         raise ValueError("locate(): axes must be a subset of ('x', 'y')")
 
+    # A feature with no datum-referenced ref — a concentric/on-axis bore (located by a
+    # centre mark), an on-datum hole, or one whose ref coincides with another feature's
+    # (deduped by plan_locations) — has nothing to dimension here. An honest empty
+    # result (as the docstring promises), not an error, so the verb composes: the emitted
+    # #400 Ph2 script calls locate() on every hole and this no-ops the ones the auto-pass
+    # would also skip, matching its dedup rather than crashing.
     mine = [pd for pd in plan_locations(model) if pd.feature is feature]
     if not mine:
-        raise ValueError(
-            "locate(): feature has no datum-referenced location (concentric/on-axis bore?) "
-            "— it is located by a centre mark, not a position dim"
-        )
+        return []
     draft = dwg.draft
     datum = mine[0].datum
     assert datum is not None  # plan_locations always sets the datum
