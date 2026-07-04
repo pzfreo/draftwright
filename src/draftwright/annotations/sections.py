@@ -7,6 +7,8 @@ functions take the drawing duck-typed as `dwg`; imports stay below annotate.
 
 from __future__ import annotations
 
+import math
+
 from build123d import (
     Arrow,
     Box,
@@ -29,11 +31,14 @@ from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.TopTools import TopTools_ListOfShape
 
 from draftwright._core import (
+    _CONCENTRIC_TOL_MM,
     _MIN_STEP_SEP_MM,
     _TB_CLEAR,
     _TB_H,
     Analysis,
     DetailRequest,
+    HoleRef,
+    _axis_letter,
     _dim,
     _fmt,
     _iso_bbox,
@@ -41,8 +46,61 @@ from draftwright._core import (
     _legible_steps,
     _log,
 )
+from draftwright.model import plan_sections
 
 _DETAIL_LETTERS = "ABCDEFGH"
+
+
+def _is_concentric_hole(h, a: Analysis) -> bool:
+    """True when *h* is an axial bore on the part centreline (turned base set)."""
+    if _axis_letter(h) != "z":
+        return False
+    return math.hypot(h.location[0] - a.cx, h.location[1] - a.cy) <= _CONCENTRIC_TOL_MM
+
+
+def feature_holes_of(a: Analysis) -> list:
+    """The feature holes the IR gates callouts / furniture / sections on — a turned
+    part's concentric axial bores (dimensioned by the centreline leaders) excluded,
+    every hole on a prismatic part kept. The single source shared by ``_auto_annotate``
+    and the ``section()`` add verb so their trigger set cannot drift (#420)."""
+    if not a.is_rotational:
+        return list(a.holes)
+    return [h for h in a.holes if not _is_concentric_hole(h, a)]
+
+
+def feature_hole_keys(a: Analysis) -> set[HoleRef]:
+    """The :class:`HoleRef` position keys of :func:`feature_holes_of` — the membership
+    set ``plan_sections`` gates a section trigger on (#420)."""
+    return {HoleRef.of(h.location) for h in feature_holes_of(a)}
+
+
+def add_section(dwg) -> list[str]:
+    """Add the automatic full **section A–A** (ISO 128-44 arrows + ISO 128-50 hatch)
+    — the #420 ``section()`` add verb.
+
+    Part-level, not per-feature: a section fires when a Z-axis hole/pattern has a
+    counterbore, spotface, or blind bottom (its internal profile is hidden-line-only
+    in every ortho view), and cuts through the densest qualifying row (``plan_sections``).
+    Funnels into the same :func:`_add_section_view` the auto-pass uses. Unlike the
+    other add verbs it is **not** feature-tagged and not ``drop``-compatible — a
+    section is atomic (a bare arrow without the cut view is meaningless), so it is
+    dropped by commenting the call. Returns the placed annotation names, or ``[]``
+    when the part warrants no section (an honest no-op) or there is no room.
+
+    Raises ``ValueError`` if the drawing has no detected model / analysis.
+    """
+    model = getattr(dwg, "_part_model", None)
+    if model is None:
+        raise ValueError("section(): no detected model — build the drawing first")
+    a = getattr(dwg, "_analysis", None)
+    if a is None:
+        raise ValueError("section(): no analysis — build the drawing first")
+    plan = plan_sections(model, feature_hole_keys(a))
+    if plan is None:
+        return []  # no counterbore/spotface/blind Z-hole — no section warranted
+    before = set(dwg.annotations())
+    _add_section_view(dwg, a, plan)  # calls _clear_section_reservation itself; no reserve needed
+    return sorted(set(dwg.annotations()) - before)
 
 
 def _section_hatch_edges(face, SX, SZ, spacing):
