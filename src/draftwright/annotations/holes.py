@@ -418,7 +418,11 @@ def add_feature_diameter(dwg, feature) -> str:
         _diameter_column_left(dwg, items, start=start)
     new = sorted(set(dwg.annotations()) - before)
     if not new:
-        raise ValueError(f"callout(): no room to place the ø{_fmt(dia)} step/boss leader")
+        # No room — degrade like the auto-pass (render_diameters places what fits and drops
+        # the overflow to feature_not_dimensioned), NOT a raise: the emitted reconstruction
+        # calls callout() per step, so a crowded turned shaft must not abort (#427 review).
+        _log.info("Step/boss ø%s callout skipped (no room)", _fmt(dia))
+        return ""
     return str(new[0])
 
 

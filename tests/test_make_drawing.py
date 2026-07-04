@@ -4661,7 +4661,8 @@ class TestFeatureEdits:
                     dwg.locate(f)
                 dwg.furniture(f)
             elif f.kind in ("step", "boss"):
-                dwg.callout(f)
+                if f.frame.axis in ("x", "z"):  # callout() places X/Z-turned diameters only
+                    dwg.callout(f)
             for p in f.parameters():
                 if p.span is not None or f.kind == "slot":
                     dwg.dimension(f, p.kind, role=p.role)
@@ -4691,6 +4692,20 @@ class TestFeatureEdits:
         self._reconstruct(dwg)  # must not raise on the side-drilled bore
         dwg.repair()
         assert dwg.lint_summary()["errors"] == 0, dwg.lint_summary()["by_code"]
+
+    def test_intent_reconstruction_runs_on_a_crowded_turned_shaft(self):
+        # #427 review F2: callout() on a step/boss must DEGRADE (drop the overflow leader
+        # like the auto-pass), not raise "no room" — else a multi-step turned shaft's
+        # reconstruction (one callout() per step) aborts. Must run to completion.
+        from build123d import Cylinder
+
+        shaft = Cylinder(24, 12)
+        for k in range(1, 10):  # 10 stacked, decreasing-radius steps along Z
+            shaft += Cylinder(24 - 2 * k, 12).translate((0, 0, 12 * k))
+        dwg = build_drawing(shaft, auto_dims=False)
+        assert sum(f.kind == "step" for f in dwg.model().features) >= 5
+        self._reconstruct(dwg)  # many callout(step) calls — none may raise "no room"
+        dwg.repair()  # the script must reach repair(), not abort before it
 
     def test_generated_script_flags_side_drilled_locate_as_a_comment(self):
         # #427 review F1: the emitted --script must gate dwg.locate(f) on a Z-axis hole —

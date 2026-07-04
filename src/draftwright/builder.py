@@ -606,7 +606,15 @@ def _feature_listing(a: Analysis) -> str:
                 )
             lines.append("dwg.furniture(f)")
         elif kind in ("step", "boss"):
-            lines.append("dwg.callout(f)")
+            if feat.frame.axis in ("x", "z"):
+                lines.append("dwg.callout(f)")
+            else:
+                # callout() places X/Z-turned diameters only; a Y-turned step/boss is
+                # auto-pass-only (its diameter is not placeable, and the auto-pass skips it too).
+                lines.append(
+                    f"#     callout() places X/Z-turned diameters only — this "
+                    f"{feat.frame.axis}-turned step/boss is auto-pass-only. auto_dims=True to keep it."
+                )
         for p in feat.parameters():
             if p.span is not None or kind == "slot":  # a linear dim dimension() accepts
                 lines.append(f'dwg.dimension(f, "{p.kind}", role="{p.role}")   # {display(p)}')
