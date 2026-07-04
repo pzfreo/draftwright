@@ -877,19 +877,22 @@ class Drawing:
         verbs recorded :class:`~draftwright.intents.Intent`\\s instead of placing. This
         drains them, routing what it can through the auto-pass's own solvers:
 
-        * **(A)** live-replays furniture, non-slot dimensions, step/boss ø callouts, and
-          axes-restricted locates (in recorded order, pop-after-success);
+        * **(A)** live-replays furniture, non-slot dimensions, and axes-restricted locates
+          (in recorded order, pop-after-success);
         * **(reserve, Phase 3b)** if a ``section`` was recorded, its cutting-plane row is
           reserved first so the callout carve sees it as an obstacle (Coupling A);
         * **(B1, Phase 3a)** hole/pattern ø **callouts** through ``_annotate_holes`` — the
           real priority-drop / central-bore-anchoring solve;
         * **(B2, Phase 2a)** both-axes **locations** through ``render_locations`` +
           ``drain_corridors`` — one crossing-free, deduped, monotone ladder;
+        * **(B3, Phase 4a)** X/Z-turned step/boss ø **diameters** through ``render_diameters``
+          — the row-below / column-left set-solve;
         * **(C)** the ``section`` renders last (its room check clears the side view's right).
 
         Slots stay on the live path (Phase 2b — a slot's position dim is not a recorded
-        intent); step/boss ø callouts stay live (Phase 4, a set-solver). Only ``only``-set
-        routing is used here; the auto-pass path is untouched.
+        intent); an unsupported-axis (Y-turned) step/boss callout also live-replays, so it
+        surfaces the same ValueError the live verb raises. Only ``only``-set routing is used
+        here; the auto-pass path is untouched.
 
         Idempotent (draining empties the list; a repeat call — or ``export()`` then
         ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
@@ -951,6 +954,9 @@ class Drawing:
             if routable
             and it.kind == "callout"
             and getattr(it.feature, "kind", None) in ("step", "boss")
+            # X/Z-turned only — render_diameters can't place a Y-turned diameter, so leave
+            # it on live replay where callout() raises the same clear error (#432 review).
+            and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "z")
         }
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
         only_callout = {it.feature for it in self._intents if id(it) in callout_ids}
