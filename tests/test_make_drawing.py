@@ -2315,35 +2315,38 @@ def test_generate_script_defers_invalid_scale_page(tmp_path):
 
 
 def test_generate_script_reconstructs_features_as_intent_calls(tmp_path):
-    # #400 Ph2: the Customise section is a runnable detect-only reconstruction — each
-    # feature redrawn by the domain add verbs against model().features[i], not the Ph1
-    # inert listing. The build is auto_dims=False and ends with dwg.repair().
+    # #400 Ph2 / #426 Ph5: the Customise section is a runnable detect-only reconstruction —
+    # each feature redrawn by the domain add verbs against model().features[i]. The verbs
+    # record inside `with dwg.deferred()`; finalize() (on block exit) batch-solves them.
     step = tmp_path / "p.step"
     export_step(Box(60, 60, 12) - Pos(0, 0, 0) * Cylinder(4, 40), str(step))
     content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text(encoding="utf-8")
-    assert "# ── Reconstruct the drawing at intent level (#400 Ph2)" in content
+    assert "# ── Reconstruct the drawing at intent level (record → finalize, #426)" in content
     assert "auto_dims=False" in content  # the build is detect-only
+    assert "with dwg.deferred():" in content  # #426 Ph5: verbs record, finalize on exit
     assert "# features[0]  hole @" in content  # indexed by model().features[i]
-    assert "dwg.callout(f)" in content  # hole ø via the callout verb
-    assert "dwg.locate(f)" in content  # its datum position
-    assert "dwg.furniture(f)" in content  # its centre mark
-    assert 'dwg.dimension(f, "length", role="width")' in content  # envelope, editable
-    assert "dwg.repair()" in content  # finalize — tidy corridor-free overlaps
+    assert "    dwg.callout(f)" in content  # hole ø via the callout verb (indented in block)
+    assert "    dwg.locate(f)" in content  # its datum position
+    assert "    dwg.furniture(f)" in content  # its centre mark
+    assert '    dwg.dimension(f, "length", role="width")' in content  # envelope, editable
+    assert "dwg.repair()" in content  # a peephole net after the batch solve
 
 
-def test_feature_listing_is_live_intent_calls(tmp_path):
-    # #400 Ph2 (was Ph1 "fully inert"): the reconstruction block now contains BARE,
-    # uncommented verb calls — the Ph1 inert guarantee is intentionally replaced. Verify
-    # there are runnable calls and they reference the read surface.
+def test_feature_listing_is_deferred_intent_calls(tmp_path):
+    # #400 Ph2 / #426 Ph5 (was Ph1 "fully inert"): the reconstruction block now contains
+    # BARE, uncommented verb calls recorded inside `with dwg.deferred()`. Verify there are
+    # runnable calls (indented under the with), they reference the read surface, and the
+    # deferred block is present.
     step = tmp_path / "p.step"
     export_step(Box(40, 30, 8) - Pos(0, 0, 0) * Cylinder(3, 20), str(step))
     content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text(encoding="utf-8")
     start = content.index("# ── Reconstruct the drawing at intent level")
     end = content.index("# ── Export", start)
     block = [ln for ln in content[start:end].splitlines() if ln.strip()]
+    assert "with dwg.deferred():" in block  # the record → finalize scope
     live = [ln for ln in block if not ln.lstrip().startswith("#")]
     assert live, "reconstruction must contain runnable (uncommented) calls"
-    assert any(ln.startswith("dwg.") for ln in live)
+    assert any(ln.lstrip().startswith("dwg.") for ln in live)  # indented under the with
     assert any("dwg.model().features[" in ln for ln in live)
 
 
@@ -4756,6 +4759,66 @@ class TestFeatureEdits:
         assert len(dwg._intents) == 3
         assert [i.kind for i in dwg._intents] == ["callout", "locate", "furniture"]
         assert set(dwg.annotations()) == base  # recorded, nothing new drawn
+
+    def test_deferred_context_manager_records_then_finalizes(self):
+        # #426 Phase 5: `with dwg.deferred()` records inside the block (nothing placed) and
+        # runs finalize() on block exit — the record-then-finalize surface the emitter uses.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        base = set(dwg.annotations())
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        with dwg.deferred():
+            dwg.callout(hole)
+            dwg.locate(hole)
+            dwg.furniture(hole)
+            assert set(dwg.annotations()) == base  # still recording inside the block
+            assert len(dwg._intents) == 3
+        assert dwg._intents == []  # finalize drained them on exit
+        assert dwg._defer_intents is False  # mode restored
+        assert set(dwg.annotations()) - base  # annotations placed by the batch solve
+
+    def test_deferred_block_keeps_intents_and_skips_finalize_on_raise(self):
+        # #426 Phase 5: if the block raises, the recorded intents are left intact and
+        # finalize() is NOT run — the error surfaces cleanly and a retry can re-drain.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        base = set(dwg.annotations())
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        with pytest.raises(RuntimeError, match="boom"):
+            with dwg.deferred():
+                dwg.callout(hole)
+                raise RuntimeError("boom")
+        assert [i.kind for i in dwg._intents] == ["callout"]  # kept, not drained
+        assert set(dwg.annotations()) == base  # finalize skipped — nothing placed
+        assert dwg._defer_intents is False  # mode still restored (finally)
+
+    def test_deferred_reconstruction_is_error_free_and_drained(self):
+        # #426 Phase 5 soft acceptance: a full reconstruction through the deferred CM
+        # batch-solves to a lint-error-free sheet and drains every recorded intent.
+        part = (
+            Box(80, 60, 12) - Pos(20, 10, 0) * Cylinder(4, 40) - Pos(-20, -10, 0) * Cylinder(4, 40)
+        )
+        dwg = build_drawing(part, auto_dims=False)
+        with dwg.deferred():
+            self._reconstruct(dwg)  # records every intent inside the block
+            assert dwg._intents, "verbs must record inside the deferred block"
+        assert dwg._intents == []  # finalize drained on exit
+        dwg.repair()
+        assert dwg.lint_summary()["errors"] == 0, dwg.lint_summary()["by_code"]
+
+    def test_deferred_reconstruction_lint_no_worse_than_auto_pass(self):
+        # #426 acceptance: a deferred reconstruction is no worse than the auto-pass — the
+        # recorded intents route through the same batch solvers, so lint score is >= the
+        # auto drawing's (faithful, not merely runnable).
+        part = (
+            Box(80, 60, 12) - Pos(20, 10, 0) * Cylinder(4, 40) - Pos(-20, -10, 0) * Cylinder(4, 40)
+        )
+        auto = build_drawing(part).lint_summary()
+        recon = build_drawing(part, auto_dims=False)
+        with recon.deferred():
+            self._reconstruct(recon)
+        recon.repair()
+        got = recon.lint_summary()
+        assert got["errors"] == 0
+        assert got["score"] >= auto["score"], (got["by_code"], auto["by_code"])
 
     def test_finalize_replay_equals_live_placement(self):
         # #426 Phase 1: record-then-finalize == placing live (identical annotations).
