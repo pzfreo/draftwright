@@ -595,7 +595,15 @@ def _feature_listing(a: Analysis) -> str:
         lines.append(f"f = dwg.model().features[{i}]")
         if kind in ("hole", "pattern"):
             lines.append("dwg.callout(f)")
-            lines.append("dwg.locate(f)")
+            if feat.frame.axis == "z":
+                lines.append("dwg.locate(f)")
+            else:
+                # locate() is Z-axis only (it rejects side-drilled bores by contract, #133);
+                # an off-axis bore's position is auto-pass-only. Flag it like a gap kind (#424).
+                lines.append(
+                    f"#     locate() is Z-axis only — this {feat.frame.axis}-drilled bore's "
+                    "position is auto-pass-only (#133). auto_dims=True to keep it."
+                )
             lines.append("dwg.furniture(f)")
         elif kind in ("step", "boss"):
             lines.append("dwg.callout(f)")

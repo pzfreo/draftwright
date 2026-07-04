@@ -182,8 +182,9 @@ def add_feature_location(dwg, feature, *, axes: tuple[str, ...] | None = None) -
     position, ``"y"`` = the side-Y position.
 
     Raises ``ValueError`` if the drawing has no detected model/analysis, *feature*
-    is not in the model, is not a Z-axis hole/pattern (side-drilled bores are placed
-    by the auto-pass), or the model has no datum.
+    is not in the model, or is not a Z-axis hole/pattern (side-drilled bores are placed
+    by the auto-pass). A feature with no datum-referenced ref (a datum-less model, a
+    concentric/on-datum bore, or a ref deduped against a sibling) returns ``[]``.
     """
     model = getattr(dwg, "_part_model", None)
     if model is None:

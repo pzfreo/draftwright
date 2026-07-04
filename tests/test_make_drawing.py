@@ -4657,7 +4657,8 @@ class TestFeatureEdits:
         for f in dwg.model().features:
             if f.kind in ("hole", "pattern"):
                 dwg.callout(f)
-                dwg.locate(f)
+                if f.frame.axis == "z":  # locate() is Z-axis only (side-drilled → auto-pass)
+                    dwg.locate(f)
                 dwg.furniture(f)
             elif f.kind in ("step", "boss"):
                 dwg.callout(f)
@@ -4677,6 +4678,36 @@ class TestFeatureEdits:
         self._reconstruct(dwg)
         dwg.repair()
         assert dwg.lint_summary()["errors"] == 0, dwg.lint_summary()["by_code"]
+
+    def test_intent_reconstruction_runs_on_a_side_drilled_part(self):
+        # #427 review F1: a side-drilled (non-Z) bore is kind="hole" axis!="z". locate()
+        # rejects it by contract (#133), so the emitter must NOT emit locate() for it —
+        # else the reconstruction crashes. Exercise the (fixed) dispatch: it must not raise.
+        from build123d import Box, Cylinder, Pos, Rot
+
+        part = Box(120, 90, 40) - Pos(0, 0, 5) * Rot(0, 90, 0) * Cylinder(5, 120)
+        dwg = build_drawing(part, auto_dims=False)
+        assert any(f.kind == "hole" and f.frame.axis != "z" for f in dwg.model().features)
+        self._reconstruct(dwg)  # must not raise on the side-drilled bore
+        dwg.repair()
+        assert dwg.lint_summary()["errors"] == 0, dwg.lint_summary()["by_code"]
+
+    def test_generated_script_flags_side_drilled_locate_as_a_comment(self):
+        # #427 review F1: the emitted --script must gate dwg.locate(f) on a Z-axis hole —
+        # a side-drilled bore gets a flagged comment, not a bare locate() that would crash.
+        import tempfile
+        from pathlib import Path
+
+        from build123d import Box, Cylinder, Pos, Rot, export_step
+
+        from draftwright.make_drawing import generate_script
+
+        part = Box(120, 90, 40) - Pos(0, 0, 5) * Rot(0, 90, 0) * Cylinder(5, 120)
+        with tempfile.TemporaryDirectory() as d:
+            step = Path(d) / "sd.step"
+            export_step(part, str(step))
+            content = Path(generate_script(str(step), out=str(Path(d) / "sd"))).read_text()
+        assert "locate() is Z-axis only" in content  # the gate fired, no bare locate() crash
 
     def test_intent_reconstruction_comment_drops_exactly_that(self):
         # #400 Ph2 soft acceptance: commenting one verb line drops exactly that annotation.
