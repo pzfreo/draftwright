@@ -4992,6 +4992,65 @@ class TestFeatureEdits:
         # the callout carve saw the reserved section row → callouts match the auto-pass
         assert self._hc_ys(dwg) and self._hc_ys(dwg) == self._hc_ys(auto)
 
+    @staticmethod
+    def _dia_ys(d):
+        return sorted(
+            round(d.get_annotation(n).bounding_box().center().Y, 1)
+            for n in d.annotations()
+            if n.startswith("m_dia")
+        )
+
+    def test_finalize_routes_step_diameters_through_render_diameters(self):
+        # #426 Phase 4a: step/boss ø callouts route through render_diameters' row/column
+        # set-solve, so each step diameter lands at the same position the auto-pass gives it.
+        # finalize may place ONE EXTRA (the OD/base diameter): the auto-pass suppresses it
+        # because render_rotational already shows it as dim_od, but that rotational furniture
+        # is a gap kind not reconstructed here (#424) — so the auto-pass diameters are a
+        # SUBSET of finalize's, matching where they overlap.
+        from build123d import Cylinder
+
+        shaft = (
+            Cylinder(24, 15)
+            + Cylinder(16, 15).translate((0, 0, 15))
+            + Cylinder(9, 15).translate((0, 0, 30))
+        )
+        auto = build_drawing(shaft)  # auto_dims=True — the reference
+
+        dwg = build_drawing(shaft, auto_dims=False)
+        dwg._defer_intents = True
+        for f in (x for x in dwg.model().features if x.kind in ("step", "boss")):
+            dwg.callout(f)
+        dwg.finalize()
+        assert self._dia_ys(dwg) and set(self._dia_ys(auto)) <= set(self._dia_ys(dwg))
+
+    def test_finalize_step_diameters_survive_a_second_batch(self):
+        # #426 Phase 4a: render_diameters names m_dia_{x,z} _named-aware when only set, so a
+        # second finalize batch does not overwrite the first batch's diameter leader.
+        from build123d import Cylinder
+
+        shaft = (
+            Cylinder(24, 15)
+            + Cylinder(16, 15).translate((0, 0, 15))
+            + Cylinder(9, 15).translate((0, 0, 30))
+        )
+        dwg = build_drawing(shaft, auto_dims=False)
+        steps = [f for f in dwg.model().features if f.kind == "step"]
+        assert len(steps) >= 2
+        dwg._defer_intents = True
+        dwg.callout(steps[0])
+        dwg.finalize()
+        first = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")
+        }
+        dwg._defer_intents = True
+        dwg.callout(steps[1])
+        dwg.finalize()
+        after = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")
+        }
+        for n, lbl in first.items():  # batch 1's leaders survive with their labels
+            assert n in after and after[n] == lbl
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")

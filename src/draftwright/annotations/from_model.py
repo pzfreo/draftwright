@@ -658,12 +658,17 @@ def _diameter_column_left(dwg, items, start: int = 0) -> int:
     return placed
 
 
-def render_diameters(dwg, groups, tol: float = 0.15) -> int:
+def render_diameters(dwg, groups, tol: float = 0.15, *, only=None) -> int:
     """ø leaders for a turned part's external step/boss diameters, from the IR —
     one distinct callout per diameter, in a tidy row below the front view
     (X-turning) or a column to its left (Z-turning). Orientation is the feature
     frame's axis, not two passes. Replaces the engine's ``_annotate_turned_diameters``
-    (ADR 0008 convergence). Diameters another annotation already covers are skipped."""
+    (ADR 0008 convergence). Diameters another annotation already covers are skipped.
+
+    *only*, when given, restricts placement to step/boss features in the set — the #426
+    finalize() path passes the recorded step/boss ``callout`` intents' features. ``None``
+    (the auto-pass) places every diameter with the historical 0-based ``m_dia_{x,z}``
+    naming, byte-identically."""
     mentioned = _mentioned_diameters(dwg)
     # One distinct callout per (axis, diameter). Accumulate EVERY feature that shares a
     # diameter (insertion-ordered), so provenance (#412) can tag the callout with its
@@ -673,6 +678,8 @@ def render_diameters(dwg, groups, tol: float = 0.15) -> int:
     col_buckets: dict = {}  # Z-turned
     for g in groups:
         if g.feature_kind not in ("step", "boss"):
+            continue
+        if only is not None and g.feature not in only:  # #426 finalize: recorded subset
             continue
         dia = next((pd.param.value for pd in g.dims if pd.param.kind == "diameter"), None)
         if dia is None or any(abs(dia - m) <= tol for m in mentioned):
@@ -686,8 +693,18 @@ def render_diameters(dwg, groups, tol: float = 0.15) -> int:
     def _items(buckets):
         return [(a, d, next(iter(fs)) if len(fs) == 1 else None) for a, d, fs in buckets.values()]
 
-    return _diameter_row_below(dwg, _items(row_buckets)) + _diameter_column_left(
-        dwg, _items(col_buckets)
+    # The placers name leaders m_dia_{x,z}{start+i}. The auto-pass (only None) uses start=0
+    # — byte-identical. The finalize path (only set) may run after live-replayed m_dia names
+    # (a step callout, or a prior batch) already exist, so it starts past them (#419/#430
+    # naming seam), else the 0-based names would silently overwrite an earlier leader.
+    start_x = start_z = 0
+    if only is not None:
+        while f"m_dia_x{start_x}" in dwg._named:
+            start_x += 1
+        while f"m_dia_z{start_z}" in dwg._named:
+            start_z += 1
+    return _diameter_row_below(dwg, _items(row_buckets), start=start_x) + _diameter_column_left(
+        dwg, _items(col_buckets), start=start_z
     )
 
 

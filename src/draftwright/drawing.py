@@ -901,7 +901,7 @@ class Drawing:
         if not self._intents:
             return
         from draftwright.annotations._common import drain_corridors
-        from draftwright.annotations.from_model import render_locations
+        from draftwright.annotations.from_model import render_diameters, render_locations
         from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
         from draftwright.annotations.sections import (
             _add_section_view,
@@ -931,8 +931,8 @@ class Drawing:
         #  - BOTH-axes locate → the ADR-0009 location corridor. An axes-restricted locate
         #    can't go through the per-feature filter, so it live-replays (#429).
         #  - hole/pattern CALLOUT → _annotate_holes' priority-drop/anchoring solve (the
-        #    section row, if any, is reserved first below). Step/boss ø callouts always
-        #    live-replay (a set-solver, Phase 4).
+        #    section row, if any, is reserved first below).
+        #  - step/boss ø CALLOUT → render_diameters' row-below/column-left set-solve (Phase 4a).
         corridor_ids = {
             id(it)
             for it in self._intents
@@ -945,8 +945,16 @@ class Drawing:
             and it.kind == "callout"
             and getattr(it.feature, "kind", None) in ("hole", "pattern")
         }
+        dia_ids = {
+            id(it)
+            for it in self._intents
+            if routable
+            and it.kind == "callout"
+            and getattr(it.feature, "kind", None) in ("step", "boss")
+        }
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
         only_callout = {it.feature for it in self._intents if id(it) in callout_ids}
+        only_dia = {it.feature for it in self._intents if id(it) in dia_ids}
 
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
@@ -960,7 +968,7 @@ class Drawing:
             i = 0
             while i < len(self._intents):
                 it = self._intents[i]
-                if it.kind == "section" or id(it) in corridor_ids or id(it) in callout_ids:
+                if it.kind == "section" or id(it) in corridor_ids | callout_ids | dia_ids:
                     i += 1
                     continue
                 self._replay_intent(it)  # resilient: a raise leaves the rest recorded
@@ -987,6 +995,12 @@ class Drawing:
                 render_locations(self, model, a, only=only_loc)
                 drain_corridors(self)
             self._intents = [it for it in self._intents if id(it) not in corridor_ids]
+            # (B3) step/boss ø diameters through render_diameters' set-solve (row-below /
+            #      column-left) — auto-pass S11b, after callouts/locations, before section.
+            if only_dia:
+                assert a is not None and isinstance(model, PartModel)  # only_dia ⟹ routable
+                render_diameters(self, plan_dimensions(model), only=only_dia)
+            self._intents = [it for it in self._intents if id(it) not in dia_ids]
             # (C) render the section LAST, reusing the reserved plan (its room check clears
             #     everything right of the side view; _add_section_view clears the reservation).
             #     A recorded section with no trigger (_section is None) is a no-op.
