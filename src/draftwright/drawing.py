@@ -885,8 +885,12 @@ class Drawing:
 
         ``finalize()`` runs on **normal** exit only — if the block raises, the recorded
         intents are left intact (finalize is skipped) so the error surfaces cleanly and a
-        retry can re-drain. Restores the prior mode on exit, so it nests. Idempotent: a
+        retry can re-drain. Restores the prior ``_defer_intents`` on exit. Idempotent: a
         later :meth:`export` (which also finalizes) no-ops once the intents are drained.
+
+        Do **not** nest ``deferred()`` blocks: ``finalize()`` drains the whole recorded
+        list on every exit, so an inner block would place the outer block's still-pending
+        intents early. One block per reconstruction (what the ``--script`` emitter does).
         """
         prev, self._defer_intents = self._defer_intents, True
         try:
