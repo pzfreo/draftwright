@@ -912,18 +912,23 @@ class Drawing:
           reserved first so the callout carve sees it as an obstacle (Coupling A);
         * **(B1, Phase 3a)** hole/pattern ø **callouts** through ``_annotate_holes`` — the
           real priority-drop / central-bore-anchoring solve;
-        * **(B2, Phase 2a)** both-axes **locations** through ``render_locations`` +
-          ``drain_corridors`` — one crossing-free, deduped, monotone ladder;
+        * **(B2, Phase 2a+2b)** both-axes **locations** (``render_locations``) and
+          **slots** (``render_slots``) through the SHARED corridor + one ``drain_corridors``
+          — one crossing-free, deduped, monotone ladder (a slot position coincident with a
+          hole location collapses to one dim, #345);
         * **(B3, Phase 4a)** X/Z-turned step/boss ø **diameters** through ``render_diameters``
           — the row-below / column-left set-solve;
         * **(B3b, Phase 4b)** a turned shaft's step-length **chain** through
           ``render_step_lengths`` — the unified chain / ``N× v`` collapse / staggered tiers;
         * **(C)** the ``section`` renders last (its room check clears the side view's right).
 
-        Slots stay on the live path (Phase 2b — a slot's position dim is not a recorded
-        intent); an unsupported-axis (Y-turned) step/boss callout also live-replays, so it
-        surfaces the same ValueError the live verb raises. Only ``only``-set routing is used
-        here; the auto-pass path is untouched.
+        A slot records two size dims (``slot_width``/``slot_length``) on one feature; routing
+        the feature also regenerates its model-derived datum **position** dim, so finalize
+        places a *superset* of the recorded slot intents (auto-pass parity by design —
+        commenting one of a slot's two lines still routes the feature). An unsupported-axis
+        (Y-turned) step/boss callout live-replays, so it surfaces the same ValueError the
+        live verb raises. Only ``only``-set routing is used here; the auto-pass path is
+        untouched.
 
         Idempotent (draining empties the list; a repeat call — or ``export()`` then
         ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
@@ -938,6 +943,7 @@ class Drawing:
         from draftwright.annotations.from_model import (
             render_diameters,
             render_locations,
+            render_slots,
             render_step_lengths,
         )
         from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
@@ -1007,10 +1013,22 @@ class Drawing:
             and it.kwargs.get("param") == "length"
             and it.kwargs.get("role") == "step"
         }
+        # SLOT dimension intents (#426 Phase 2b) → render_slots' corridor placement. A slot
+        # records TWO dims (slot_width + slot_length) on ONE SlotFeature; both route the
+        # feature, which regenerates width + length + the datum position (a superset — the
+        # position dim is model-derived, not recorded). Slots share the location corridor,
+        # so they register alongside B2's locations and drain in the SAME solve (the #345
+        # dedup of a slot position coincident with a hole location needs one combined pass).
+        slot_ids = {
+            id(it)
+            for it in self._intents
+            if routable and it.kind == "dimension" and getattr(it.feature, "kind", None) == "slot"
+        }
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
         only_callout = {it.feature for it in self._intents if id(it) in callout_ids}
         only_dia = {it.feature for it in self._intents if id(it) in dia_ids}
         only_len = {it.feature for it in self._intents if id(it) in len_ids}
+        slot_feats = {it.feature for it in self._intents if id(it) in slot_ids}
 
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
@@ -1026,7 +1044,7 @@ class Drawing:
                 it = self._intents[i]
                 if (
                     it.kind == "section"
-                    or id(it) in corridor_ids | callout_ids | dia_ids | len_ids
+                    or id(it) in corridor_ids | callout_ids | dia_ids | len_ids | slot_ids
                 ):
                     i += 1
                     continue
@@ -1048,12 +1066,18 @@ class Drawing:
             # Drop the placed callout intents NOW — before the fallible B2 — so a raise in
             # B2 can't re-route (and, via first-free hc_ naming, duplicate) them on a retry.
             self._intents = [it for it in self._intents if id(it) not in callout_ids]
-            # (B2) both-axes locations through the location corridor (crossing-free ladder)
-            if only_loc:
-                assert a is not None and isinstance(model, PartModel)  # only_loc ⟹ routable
-                render_locations(self, model, a, only=only_loc)
+            # (B2) both-axes locations + slots through the SHARED location corridor — one
+            #      crossing-free ladder, one drain (auto-pass registers locations then slots,
+            #      then a single drain_corridors, so a slot position coincident with a hole
+            #      location dedups, #345). Register both, then drain once (Phase 2a + 2b).
+            if only_loc or slot_feats:
+                assert a is not None and isinstance(model, PartModel)  # either ⟹ routable
+                if only_loc:
+                    render_locations(self, model, a, only=only_loc)
+                if slot_feats:
+                    render_slots(self, model, a, only=slot_feats)
                 drain_corridors(self)
-            self._intents = [it for it in self._intents if id(it) not in corridor_ids]
+            self._intents = [it for it in self._intents if id(it) not in corridor_ids | slot_ids]
             # (B3) step/boss ø diameters through render_diameters' set-solve (row-below /
             #      column-left) — auto-pass S11b, after callouts/locations, before section.
             if only_dia:
