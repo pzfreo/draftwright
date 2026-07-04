@@ -4879,6 +4879,35 @@ class TestFeatureEdits:
         locs = [n for n in dwg.annotations() if n.startswith("m_loc")]
         assert locs and all(n.startswith("m_locx") for n in locs)  # X only — no m_locy
 
+    def test_finalize_mixes_axes_restricted_and_both_axes_locate(self):
+        # #429 review: an axes-restricted locate (live, names m_locx0) + a both-axes locate
+        # (corridor) must NOT collide — the corridor names its dims against _named, so both
+        # survive. Regression for the silent-overwrite bug.
+        part = (
+            Box(120, 80, 20)
+            - Pos(-40, 25, 0) * Cylinder(4, 30)
+            - Pos(40, -25, 0) * Cylinder(6, 30)
+        )
+        holes = lambda d: [f for f in d.model().features if f.kind == "hole"]  # noqa: E731
+
+        live = build_drawing(part, auto_dims=False)
+        hs = holes(live)
+        live.locate(hs[0], axes=("x",))
+        live.locate(hs[1])
+        live_x = {
+            live.get_annotation(n).label for n in live.annotations() if n.startswith("m_locx")
+        }
+
+        dwg = build_drawing(part, auto_dims=False)
+        dwg._defer_intents = True
+        hs2 = holes(dwg)
+        dwg.locate(hs2[0], axes=("x",))
+        dwg.locate(hs2[1])
+        dwg.finalize()
+        fin_x = {dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_locx")}
+        # both features' X location dims survive — none silently overwritten
+        assert fin_x == live_x and len(fin_x) == 2
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")

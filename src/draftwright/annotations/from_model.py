@@ -406,6 +406,21 @@ def render_locations(dwg, model, a, *, only=None) -> int:
     tier = draft.font_size + 2 * draft.pad_around_text
     n = 0
 
+    # Location-dim names. The auto-pass (only is None) numbers them positionally —
+    # m_locx{i}, the historical byte-identical scheme. The finalize() path (only set) may
+    # run AFTER live-replayed locate() dims already hold m_loc names, so there it allocates
+    # the first FREE index to avoid Drawing.add silently replacing one (#429 review).
+    _loc_used = set(dwg._named) if only is not None else None
+
+    def _loc_name(prefix: str, i: int) -> str:
+        if _loc_used is None:
+            return f"{prefix}{i}"  # auto-pass: unchanged, byte-identical
+        j = 0
+        while f"{prefix}{j}" in _loc_used:
+            j += 1
+        _loc_used.add(f"{prefix}{j}")
+        return f"{prefix}{j}"
+
     # --- X locations: tier above the plan view ---
     PX, PY = a.proj.plan_x, a.proj.plan_y
     x_refs: list = []
@@ -447,7 +462,7 @@ def render_locations(dwg, model, a, *, only=None) -> int:
             tier,
             _location_candidate(
                 dwg,
-                f"m_locx{i}",
+                _loc_name("m_locx", i),
                 view="plan",
                 span_key=(round(PX(datum_x), 1), round(PX(rx), 1)),
                 distance=abs(rx - datum_x),
@@ -503,7 +518,7 @@ def render_locations(dwg, model, a, *, only=None) -> int:
             tier,
             _location_candidate(
                 dwg,
-                f"m_locy{i}",
+                _loc_name("m_locy", i),
                 view="side",
                 span_key=(round(SX(datum_y), 1), round(SX(ry), 1)),
                 distance=abs(ry - datum_y),
