@@ -44,6 +44,7 @@ from draftwright.annotations.from_model import callout_from_spec, hole_callout_s
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model import plan_dimensions
 from draftwright.model.ir import HoleFeature, PatternFeature
+from draftwright.model.planner import plan_locations
 
 
 def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | None = None) -> str:
@@ -154,6 +155,144 @@ def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | No
         feature=feature,
     )
     return name
+
+
+def add_feature_location(dwg, feature, *, axes: tuple[str, ...] | None = None) -> list[str]:
+    """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern —
+    the #418 ``locate()`` add verb (symmetric with :meth:`Drawing.drop`).
+
+    Distinct from :meth:`dimension` (a feature's own *intrinsic* linear params):
+    a location dim measures the *datum → feature-centre* offset, which no feature
+    exposes as a ``parameter()``. Reuses the planner's :func:`plan_locations`
+    *intent* (which ref, from which datum) and this renderer's projection, then
+    places each dim into free strip space beside the view (corridor-free, like
+    :meth:`callout` — the auto-pass's shared corridor batch does not exist on a
+    detect-only build). X dims tier above the plan view, Y dims above the side
+    view; each is tagged with *feature* so :meth:`drop` / :meth:`annotations_of`
+    find it. Returns the placed names (0–2 — one per in-plane axis with a real
+    offset; empty for a concentric/on-datum bore that has nothing to dimension).
+
+    ``axes`` selects the in-plane axes to emit (default both); ``"x"`` = the plan-X
+    position, ``"y"`` = the side-Y position.
+
+    Raises ``ValueError`` if the drawing has no detected model/analysis, *feature*
+    is not in the model, is not a Z-axis hole/pattern (side-drilled bores are placed
+    by the auto-pass), or the model has no datum.
+    """
+    model = getattr(dwg, "_part_model", None)
+    if model is None:
+        raise ValueError("locate(): no detected model — build the drawing first")
+    if not any(f is feature for f in model.features):
+        raise ValueError(
+            "locate(): feature is not from this drawing's model — "
+            "pass one from dwg.model().features"
+        )
+    if not isinstance(feature, HoleFeature | PatternFeature):
+        raise ValueError(
+            f"locate() places a hole/pattern's datum-referenced position; "
+            f"{type(feature).__name__} exposes none — use dimension() for a linear param"
+        )
+    if feature.frame.axis != "z":
+        raise ValueError(
+            "locate(): only Z-axis holes/patterns have plan location dims; a side-drilled "
+            "bore is located by the auto-pass, not this verb"
+        )
+    a = getattr(dwg, "_analysis", None)
+    if a is None:
+        raise ValueError("locate(): no analysis — build the drawing first")
+    want = {"x", "y"} if axes is None else {ax.lower() for ax in axes}
+    if not want <= {"x", "y"}:
+        raise ValueError("locate(): axes must be a subset of ('x', 'y')")
+
+    mine = [pd for pd in plan_locations(model) if pd.feature is feature]
+    if not mine:
+        raise ValueError(
+            "locate(): feature has no datum-referenced location (concentric/on-axis bore?) "
+            "— it is located by a centre mark, not a position dim"
+        )
+    draft = dwg.draft
+    datum = mine[0].datum
+    assert datum is not None  # plan_locations always sets the datum
+    dx, dy = datum.at[0], datum.at[1]
+    tier = draft.font_size + 2 * draft.pad_around_text
+    PX, PY = a.proj.plan_x, a.proj.plan_y
+    SX, SZ = a.proj.side_x, a.proj.side_z
+
+    def _uniq(prefix: str) -> str:
+        j = 0
+        nm = f"{prefix}{j}"
+        while nm in dwg._named:
+            j += 1
+            nm = f"{prefix}{j}"
+        return nm
+
+    def _place(view: str, strip, p1, p2, baseline, label: str) -> str:
+        perp = (min(p1, p2), max(p1, p2))
+        pos = carve_free_position(dwg, strip, view, "y", tier, perp) if strip is not None else None
+        if pos is None:  # strip full / absent — fall back just above the view
+            vb = dwg.view_bounds(view) or (0.0, 0.0, 0.0, baseline)
+            pos = vb[3] + tier
+        nm = _uniq("m_locx" if view == "plan" else "m_locy")
+        dwg.add(
+            _dim(
+                (p1, baseline, 0), (p2, baseline, 0), "above", pos - baseline, draft, label=label
+            ),
+            nm,
+            view=view,
+            feature=feature,
+        )
+        return nm
+
+    names: list[str] = []
+    seen_x: list[float] = []
+    seen_y: list[float] = []
+    for pd in mine:
+        if pd.param.span is None:
+            continue
+        rx, ry = pd.param.span[1][0], pd.param.span[1][1]
+        # A rotational part's on-axis *hole* is located by the centreline, not a
+        # position dim (matches render_locations); a pattern ref is never filtered.
+        if (
+            pd.param.role == "location"
+            and a.is_rotational
+            and math.hypot(rx - a.cx, ry - a.cy) <= _CONCENTRIC_TOL_MM
+        ):
+            continue
+        # Coincident X (or Y) across this feature's own members → one dim, not a stack
+        # of identical position dims (matches render_locations' x_refs/y_refs dedup).
+        if (
+            "x" in want
+            and abs(rx - dx) * a.SCALE >= 1.0
+            and not any(abs(rx - s) < 0.5 for s in seen_x)
+        ):
+            seen_x.append(rx)
+            names.append(
+                _place(
+                    "plan",
+                    getattr(a.pv_zones, "above", None),
+                    PX(dx),
+                    PX(rx),
+                    PY(ry),
+                    _fmt(rx - dx),
+                )
+            )
+        if (
+            "y" in want
+            and abs(ry - dy) * a.SCALE >= 1.0
+            and not any(abs(ry - s) < 0.5 for s in seen_y)
+        ):
+            seen_y.append(ry)
+            names.append(
+                _place(
+                    "side",
+                    getattr(a.sv_zones, "above", None),
+                    SX(dy),
+                    SX(ry),
+                    SZ(a.bb.max.Z),
+                    _fmt(ry - dy),
+                )
+            )
+    return names
 
 
 def _legible_locations(positions, scale):
