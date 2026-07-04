@@ -4744,6 +4744,76 @@ class TestFeatureEdits:
         assert dropped == {n for n in before if n.startswith("hc_")}
         assert dropped, "commenting callout() should drop the hole's leader"
 
+    def test_deferred_verbs_record_intents_without_placing(self):
+        # #426 Phase 1: in deferred mode a verb records an Intent and places nothing.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        base = set(dwg.annotations())  # the detect-only build's title block, no dims
+        dwg._defer_intents = True
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        assert dwg.callout(hole) == ""  # nothing placed
+        assert dwg.locate(hole) == []
+        assert dwg.furniture(hole) == []
+        assert len(dwg._intents) == 3
+        assert [i.kind for i in dwg._intents] == ["callout", "locate", "furniture"]
+        assert set(dwg.annotations()) == base  # recorded, nothing new drawn
+
+    def test_finalize_replay_equals_live_placement(self):
+        # #426 Phase 1: record-then-finalize == placing live (identical annotations).
+        part = Box(80, 60, 12) - Pos(20, 10, 0) * Cylinder(4, 40)
+
+        live = build_drawing(part, auto_dims=False)
+        h = next(f for f in live.model().features if f.kind == "hole")
+        live.callout(h)
+        live.locate(h)
+        live.furniture(h)
+
+        deferred = build_drawing(part, auto_dims=False)
+        base = set(deferred.annotations())
+        deferred._defer_intents = True
+        h2 = next(f for f in deferred.model().features if f.kind == "hole")
+        deferred.callout(h2)
+        deferred.locate(h2)
+        deferred.furniture(h2)
+        assert set(deferred.annotations()) == base  # nothing placed yet
+        deferred.finalize()
+        assert deferred.annotations() == live.annotations()
+
+    def test_finalize_is_idempotent(self):
+        # #426 Phase 1: finalize() twice == once (drained list + _finalized guard).
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        dwg._defer_intents = True
+        h = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg.callout(h)
+        dwg.furniture(h)
+        dwg.finalize()
+        once = set(dwg.annotations())
+        dwg.finalize()
+        assert set(dwg.annotations()) == once
+
+    def test_finalize_is_a_noop_on_the_live_path(self):
+        # #426 Phase 1: the default (non-deferred) build records nothing → finalize no-ops,
+        # so the auto-pass / live-verb path is unchanged.
+        dwg = build_drawing(_holed_plate())  # auto_dims=True
+        assert dwg._defer_intents is False and dwg._intents == []
+        before = set(dwg.annotations())
+        dwg.finalize()
+        assert set(dwg.annotations()) == before
+
+    def test_export_triggers_finalize(self):
+        # #426 Phase 1: export() drains recorded intents (calls finalize) before writing.
+        import tempfile
+        from pathlib import Path
+
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        base = set(dwg.annotations())
+        dwg._defer_intents = True
+        h = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg.callout(h)
+        assert set(dwg.annotations()) == base  # deferred — nothing placed
+        with tempfile.TemporaryDirectory() as d:
+            dwg.export(str(Path(d) / "x"))
+        assert dwg.annotations()  # finalize ran during export → the callout got placed
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
