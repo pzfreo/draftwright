@@ -871,28 +871,67 @@ class Drawing:
         return add_feature_location(self, feature, axes=axes)
 
     def finalize(self) -> None:
-        """Drain the recorded placement intents (#426 Phase 1).
+        """Drain the recorded placement intents (#426).
 
         When the drawing was built in **deferred** mode (``_defer_intents``), the add
         verbs recorded :class:`~draftwright.intents.Intent`\\s instead of placing. This
-        drains them — **Phase 1 replays each through the live verb** (identical to
-        placing live, in recorded order); later phases route the recorded set through the
-        shared ``_auto_annotate`` orchestration for auto-pass-quality packing.
+        drains them. **Phase 2a** routes the ``locate`` intents through the *real*
+        ADR-0009 corridor solve (``render_locations`` + ``drain_corridors``) — one
+        crossing-free, deduped, monotone ladder over the recorded subset, the auto-pass's
+        own machinery — while callouts/furniture/other dimensions/section still replay
+        through their live verbs (later phases move those too). Order mirrors the
+        auto-pass: callouts/furniture first (obstacles for the location carve), then the
+        location corridor, then ``section`` last (its room check clears the side view's
+        right). Slots stay on the live path pending #426 Phase 2b (a slot's position dim
+        is not a recorded intent, so routing it would re-add un-requested dims).
 
-        Idempotent (draining empties the list, so a repeat call — or ``export()`` then
+        Idempotent (draining empties the list; a repeat call — or ``export()`` then
         ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
-        path), so ``export()`` calls it unconditionally. **Resilient:** each intent is
-        removed only after it places, so a verb that raises mid-drain surfaces the error and
-        leaves the remaining intents recorded for a retry rather than silently dropping them.
-        A record → finalize → record-more → finalize sequence drains each batch (#428 review).
+        path), so ``export()`` calls it unconditionally. **Resilient:** a live-replayed
+        intent is removed only after it places, so a verb that raises surfaces the error
+        and leaves the rest recorded. A record → finalize → record-more → finalize
+        sequence drains each batch (#428 review).
+
+        Known Phase-2a residual: for a part with **both** a section and locations the
+        finalize layout can differ from the auto-pass (the auto-pass reserves the section
+        row *before* the location carve; finalize places the section after) — acceptable
+        until section reservation moves to the batch (Phase 3).
         """
         if not self._intents:
             return
+        from draftwright.annotations._common import drain_corridors
+        from draftwright.annotations.from_model import render_locations
+
+        # Corridor state the auto-pass creates in _auto_annotate S0 (orchestrator.py) but
+        # a detect-only build lacks — render_locations/drain_corridors register/read here.
+        if not hasattr(self, "_corridor_batch"):
+            self._corridor_batch = {}
+        if not hasattr(self, "_escalations"):
+            self._escalations = []
+        if not hasattr(self, "_detail_requests"):
+            self._detail_requests = []
+
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
+            only_loc = {it.feature for it in self._intents if it.kind == "locate"}
+            # (A) live-replay every non-corridor, non-section intent (callout / furniture /
+            #     non-slot dimension) in recorded order — locate is routed below, section last.
+            i = 0
+            while i < len(self._intents):
+                if self._intents[i].kind in ("locate", "section"):
+                    i += 1
+                    continue
+                self._replay_intent(self._intents[i])  # resilient: a raise leaves the rest
+                self._intents.pop(i)
+            # (B) locations through the REAL ADR-0009 corridor solve (crossing-free ladder)
+            if only_loc and self._part_model is not None and self._analysis is not None:
+                render_locations(self, self._part_model, self._analysis, only=only_loc)
+                drain_corridors(self)
+            self._intents = [it for it in self._intents if it.kind != "locate"]
+            # (C) section last — its room check clears whatever is right of the side view
             while self._intents:
                 self._replay_intent(self._intents[0])
-                self._intents.pop(0)  # consumed only after it places — a raise leaves the rest
+                self._intents.pop(0)
         finally:
             self._defer_intents = deferred
 

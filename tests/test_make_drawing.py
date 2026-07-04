@@ -4841,6 +4841,31 @@ class TestFeatureEdits:
         # the callout placed + popped; the failing dimension and the untried furniture remain
         assert [i.kind for i in dwg._intents] == ["dimension", "furniture"]
 
+    def test_finalize_routes_locations_through_the_corridor_dedup(self):
+        # #426 Phase 2a: two DISTINCT holes sharing an X. The live path places a duplicate
+        # m_locx (each locate() is independent); finalize routes them through the real
+        # ADR-0009 corridor solve, which dedups the coincident X span to ONE dim — matching
+        # the auto-pass. The crossing-free / dedup win.
+        part = (
+            Box(100, 80, 20) - Pos(20, 25, 0) * Cylinder(4, 30) - Pos(20, -25, 0) * Cylinder(6, 30)
+        )
+
+        live = build_drawing(part, auto_dims=False)
+        for h in (f for f in live.model().features if f.kind == "hole"):
+            live.locate(h)
+        live_locx = [n for n in live.annotations() if n.startswith("m_locx")]
+
+        deferred = build_drawing(part, auto_dims=False)
+        deferred._defer_intents = True
+        for h in (f for f in deferred.model().features if f.kind == "hole"):
+            deferred.locate(h)
+        deferred.finalize()
+        fin_locx = [n for n in deferred.annotations() if n.startswith("m_locx")]
+
+        assert len(fin_locx) < len(live_locx)  # corridor deduped the coincident X=20 span
+        auto = build_drawing(part)  # auto_dims=True — the reference the corridor matches
+        assert len(fin_locx) == len([n for n in auto.annotations() if n.startswith("m_locx")])
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")

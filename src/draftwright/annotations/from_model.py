@@ -364,13 +364,18 @@ def _location_candidate(dwg, name, *, view, span_key, distance, build, feature=N
     )
 
 
-def render_locations(dwg, model, a) -> int:
+def render_locations(dwg, model, a, *, only=None) -> int:
     """Baseline X/Y hole-location dims from the IR (#238). The planner decides the
     intent (`plan_locations`: which refs, from which datum); this renderer owns the
     layout (Amendment 4) — X dims tier above the plan view, Y dims above the side
     view, nearest-datum-first, legibility-gated, allocated from the existing strips;
     a ref with no room is dropped as `location_ref_dropped`. Replaces the engine's
-    `_add_location_dims`. Returns the count placed."""
+    `_add_location_dims`. Returns the count placed.
+
+    *only*, when given, restricts placement to refs whose source feature is in the set —
+    the #426 finalize() path passes the recorded ``locate`` intents' features so the
+    corridor solve runs over the user's edited subset. ``None`` (the auto-pass) places
+    every ref, byte-identically."""
     planned = plan_locations(model)
     if not planned:
         return 0
@@ -380,6 +385,8 @@ def render_locations(dwg, model, a) -> int:
     datum_x, datum_y = datum.at[0], datum.at[1]
     refs = []
     for pd in planned:
+        if only is not None and pd.feature not in only:  # #426: recorded subset only
+            continue
         if pd.param.span is None:
             continue
         rx, ry = pd.param.span[1][0], pd.param.span[1][1]
