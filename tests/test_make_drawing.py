@@ -5051,6 +5051,38 @@ class TestFeatureEdits:
         for n, lbl in first.items():  # batch 1's leaders survive with their labels
             assert n in after and after[n] == lbl
 
+    def test_finalize_step_diameters_no_overwrite_after_drop(self):
+        # #432 review: render_diameters starts past the MAX existing m_dia index (not
+        # first-free), so a batch after drop() leaves a GAP can't wrap onto an occupied
+        # higher index and silently overwrite an earlier diameter leader.
+        from build123d import Cylinder
+
+        shaft = Cylinder(26, 10)
+        for k, r in enumerate((22, 18, 14, 10, 6), start=1):
+            shaft += Cylinder(r, 10).translate((0, 0, 10 * k))
+        dwg = build_drawing(shaft, auto_dims=False)
+        steps = [f for f in dwg.model().features if f.kind == "step"]
+        assert len(steps) >= 5
+
+        dwg._defer_intents = True
+        for s in steps[:3]:
+            dwg.callout(s)
+        dwg.finalize()  # m_dia_z0/1/2
+        dwg.drop(steps[1])  # removes its m_dia → a gap in the index sequence
+        survivors = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")
+        }
+
+        dwg._defer_intents = True
+        for s in steps[3:5]:
+            dwg.callout(s)
+        dwg.finalize()  # must start past the max index, not wrap onto a survivor
+        after = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")
+        }
+        for n, lbl in survivors.items():
+            assert n in after and after[n] == lbl
+
     def test_place_dim_feature_kwarg_tags_provenance(self):
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")

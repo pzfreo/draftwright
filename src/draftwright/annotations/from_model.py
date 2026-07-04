@@ -693,16 +693,22 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, only=None) -> int:
     def _items(buckets):
         return [(a, d, next(iter(fs)) if len(fs) == 1 else None) for a, d, fs in buckets.values()]
 
-    # The placers name leaders m_dia_{x,z}{start+i}. The auto-pass (only None) uses start=0
-    # — byte-identical. The finalize path (only set) may run after live-replayed m_dia names
-    # (a step callout, or a prior batch) already exist, so it starts past them (#419/#430
-    # naming seam), else the 0-based names would silently overwrite an earlier leader.
-    start_x = start_z = 0
-    if only is not None:
-        while f"m_dia_x{start_x}" in dwg._named:
-            start_x += 1
-        while f"m_dia_z{start_z}" in dwg._named:
-            start_z += 1
+    # The placers name leaders m_dia_{x,z}{start+i} CONTIGUOUSLY from one start. The auto-pass
+    # (only None) uses start=0 — byte-identical. The finalize path (only set) may run after
+    # existing m_dia names (a prior batch), so it starts past the MAX existing index — NOT the
+    # first-free (which is unsound for a multi-item run when the names are non-contiguous, e.g.
+    # after drop(): a gap below an occupied index would let the run wrap onto it and silently
+    # overwrite an earlier leader — #432 review). Starting past the max keeps the whole run free.
+    def _next_start(prefix):
+        idxs = [
+            int(n[len(prefix) :])
+            for n in dwg._named
+            if n.startswith(prefix) and n[len(prefix) :].isdigit()
+        ]
+        return max(idxs) + 1 if idxs else 0
+
+    start_x = _next_start("m_dia_x") if only is not None else 0
+    start_z = _next_start("m_dia_z") if only is not None else 0
     return _diameter_row_below(dwg, _items(row_buckets), start=start_x) + _diameter_column_left(
         dwg, _items(col_buckets), start=start_z
     )
