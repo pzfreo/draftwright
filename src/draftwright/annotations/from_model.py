@@ -836,7 +836,9 @@ def _record_step_chain_drop(dwg, why: str) -> None:
     )
 
 
-def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None, allow_collapse=True) -> int:
+def _draw_step_chain(
+    dwg, view, segs, name_prefix, detail_scale=None, allow_collapse=True, *, start=0
+) -> int:
     """Place a turned step-length chain in *view* from *segs* — each ``(pa, pb,
     value)`` already projected to *view*'s page coords, in axis order. Orientation is
     data (the projected span direction): horizontal → chain above the view, vertical
@@ -867,7 +869,8 @@ def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None, allow_coll
             dim = _dim((min(xs), y1, 0), (max(xs), y1, 0), "above", gap, draft, label=label)
         else:
             dim = _dim((x1, min(ys), 0), (x1, max(ys), 0), "right", gap, draft, label=label)
-        candidates = [(f"{name_prefix}_typ", dim)]
+        typ_name = f"{name_prefix}_typ" if start == 0 else f"{name_prefix}_typ{start}"
+        candidates = [(typ_name, dim)]
     else:
         tier_step = draft.font_size + 2 * draft.pad_around_text
         tiers = [0] * len(segs)
@@ -908,7 +911,7 @@ def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None, allow_coll
                 p1, p2, side = (x1, pa[1], 0), (x1, pb[1], 0), "right"
                 dist = gap
             candidates.append(
-                (f"{name_prefix}{i}", _dim(p1, p2, side, dist, draft, label=_fmt(value)))
+                (f"{name_prefix}{start + i}", _dim(p1, p2, side, dist, draft, label=_fmt(value)))
             )
 
     # Room guard: if any dim would fall off the drawable page, place NONE.
@@ -927,7 +930,24 @@ def _draw_step_chain(dwg, view, segs, name_prefix, detail_scale=None, allow_coll
     return len(candidates)
 
 
-def render_step_lengths(dwg, groups) -> int:
+def _next_steplen_start(dwg, prefix: str = "m_steplen") -> int:
+    """First free m_steplen index past the MAX existing one — the #426 finalize path names
+    the chain as a contiguous run from one start, so it must clear every existing name (max+1,
+    not first-free: a gap below an occupied index would let the run wrap onto it, #432)."""
+    idxs: list[int] = []
+    for n in dwg._named:
+        if not n.startswith(prefix):
+            continue
+        rest = n[len(prefix) :]
+        if rest.isdigit():
+            idxs.append(int(rest))
+        elif rest.startswith("_typ"):  # the N× collapse name m_steplen_typ{start}
+            tail = rest[4:]
+            idxs.append(int(tail) if tail.isdigit() else 0)
+    return max(idxs) + 1 if idxs else 0
+
+
+def render_step_lengths(dwg, groups, *, only=None) -> int:
     """Unified turned step-length chain (ADR 0008 #223): each `StepFeature`'s length
     span projects into the front view and joins the chain that tiles the turning axis
     so every shoulder is located. X-turned → horizontal chain above the view;
@@ -944,6 +964,8 @@ def render_step_lengths(dwg, groups) -> int:
     for g in groups:
         if g.feature_kind != "step":
             continue
+        if only is not None and g.feature not in only:  # #426 finalize: recorded subset
+            continue
         length = next(
             (pd.param for pd in g.dims if pd.param.kind == "length" and pd.param.span is not None),
             None,
@@ -954,6 +976,9 @@ def render_step_lengths(dwg, groups) -> int:
     if not rows:
         return 0
     draft = dwg.draft
+    # only=None (auto-pass) → start=0, historical m_steplen naming, byte-identical. The
+    # finalize path (only set) starts past existing m_steplen names (#426 naming seam).
+    start = _next_steplen_start(dwg) if only is not None else 0
     fsegs = [(dwg.at("front", *a), dwg.at("front", *b), v) for a, b, v in rows]
     horizontal = abs(fsegs[0][1][0] - fsegs[0][0][0]) >= abs(fsegs[0][1][1] - fsegs[0][0][1])
 
@@ -1003,9 +1028,11 @@ def render_step_lengths(dwg, groups) -> int:
             main.sort(key=lambda s: s[0][0])
             # The chain now mixes head-block(s) with real steps — never collapse it to a
             # uniform "N× v" representative (a block is not a repeated step, #307 review).
-            return _draw_step_chain(dwg, "front", main, "m_steplen", allow_collapse=False)
+            return _draw_step_chain(
+                dwg, "front", main, "m_steplen", allow_collapse=False, start=start
+            )
 
-    return _draw_step_chain(dwg, "front", fsegs, "m_steplen")
+    return _draw_step_chain(dwg, "front", fsegs, "m_steplen", start=start)
 
 
 def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
