@@ -69,24 +69,44 @@ placement API, because **neither the IR nor the renderer has any hook today**:
 Ordered to front-load the cheapest, highest-value item and isolate the
 placement-hard GD&T behind a reusable primitive.
 
-### P2a — Toleranced dimensions (bilateral / limit) · #28
+### P2a — Toleranced dimensions (bilateral / limit) · #28 · **DONE**
 
-The self-contained value-shipping PR.
+The self-contained value-shipping PR. **Full-uniform** scope (per the user's call):
+the tolerance renders on the linear `Dimension` path AND the `Leader` / `HoleCallout`
+⌀ path, so every P2a verb shows a ±.
 
-- Add optional `tolerance: float | tuple[float, float] | None = None` to
-  `DimParameter` (`model/ir.py:52`). ADR 0011 §4 sanctions "tolerance is a property
-  of a `DimParameter`."
-- A `decorations` side-layer `{(feature, role) → tolerance}` (keyed by frozen
-  feature value-equality + `Role`), threaded via
-  `build_drawing(part, model=…, decorations=…)` and through `_repack`.
-- `plan_dimensions` consults it to set the tolerance on the `PlannedDimension` /
-  param (`planner.py:207-220`).
-- `_core._dim` gains a `tolerance` passthrough to `Dimension(tolerance=…)`
-  (`_core.py:149`) — the helpers primitive does the formatting.
-- `Sheet`: `.tolerance(x)` / `.tolerance(lo, hi)` chainable handle on the
-  `diameter` / `step` / `hole` declarations.
-- Tests: bilateral + limit render into the label; decoration survives repack;
-  no-decoration path byte-unchanged.
+- `DimParameter.tolerance: float | tuple[float, float] | None` (`model/ir.py`) — a
+  symmetric float or an `(lower, upper)` limit pair.
+- A `decorations` side-layer `{(feature, kind) → tolerance}` on `PartModel`, threaded
+  via `build_drawing(part, model=…, decorations=…)` and through **both** assemble passes
+  (`_repack`). **Key is `(feature, kind)`, not `(feature, role)`** — a step's length and
+  diameter share `role="step"`, so `kind` is what disambiguates them.
+- `plan_dimensions` reads `model.decorations` (zero call-site changes) and
+  `replace(param, tolerance=…)`.
+- Linear dims: `_core._dim` forwards `tolerance=` to `Dimension(tolerance=…)` (already
+  splats `**kwargs`; also survives repair/repack). Wired in `render_step_lengths` /
+  `_draw_step_chain` (a uniform `N× v` collapse carries no ± — can't tolerance N steps).
+- ⌀ callouts: helpers' `Leader`/`HoleCallout` take no `tolerance=`, so draftwright owns
+  **`_core._tol_suffix`** — the `±t` / `+hi -lo` suffix baked into the label string,
+  byte-matching helpers' `Dimension` `_format_label` (same draft precision). Wired in
+  `render_diameters` (the boss/step OD leaders) and `hole_callout_spec` /
+  `callout_from_spec` (the bore string; `HoleCallout` accepts a diameter carrying tol text).
+- `Sheet`: `.tolerance(x)` / `.tolerance(lo, hi)` on `hole` (bore ⌀), `diameter`/`boss`
+  (OD), and `step` (length by default, `on="diameter"` for the OD). Keyed by feature
+  index so a handle survives a later `.depth()` feature replacement.
+
+**Shipped caveats (document, follow up):**
+- **Precision.** The suffix rounds to the sheet's `decimal_precision` (1 dp today, to
+  match `Dimension`), so a `±0.05` renders `±0.1`. Fine tolerances (≤0.05) need a
+  per-dimension precision knob — a follow-up (likely a helpers change so both paths agree).
+- **A toleranced ⌀ callout is wider** and, in the iso-bounded plan-view strip, can drop
+  via the existing place-what-fits (`callout_dropped` warning) where a plain one fit —
+  the same behaviour as any wide callout. The estimate uses the real `callout_width`, so
+  there is no silent overflow. Tracked as **#450** (prefer the left strip / escalate the
+  sheet for a deliberately-wider toleranced callout — engine layout work).
+- **Extract to helpers.** `_tol_suffix` exists only because `Leader`/`HoleCallout` lack a
+  `tolerance=` param; file an upstream issue to add one, then delete the suffix and pass
+  the tolerance through like `Dimension` does. Tracked as **#449**.
 
 ### P2a.2 — Fit-class deviation (`.fit("h6")`) · #29
 

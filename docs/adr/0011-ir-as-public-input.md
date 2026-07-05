@@ -1,8 +1,10 @@
 # ADR 0011 — The IR as a public input: declare features, don't only detect them
 
 - **Status:** Accepted — Phase 0 (the `model=` seam + object→feature constructors) and
-  Phase 1 (the `Sheet` façade) landed; Phase 2 (aspect renderers — tolerance/GD&T/finish)
-  pending per the #446 roadmap. Phase 2 execution plan:
+  Phase 1 (the `Sheet` façade) landed; Phase 2 (aspect renderers) underway: **P2a
+  toleranced dimensions** (±/limit on a diameter/step/hole, via a `decorations=` side-layer
+  → `DimParameter.tolerance`) landing; P2a.2 fit-class / P2b GD&T+finish / P2c aspect verbs
+  / P2d PMI still pending per the #446 roadmap. Phase 2 execution plan:
   [`docs/plans/0011-phase2-aspects-roadmap.md`](../plans/0011-phase2-aspects-roadmap.md).
 - **Date:** 2026-07-05
 - **Deciders:** Paul Fremantle (pzfreo)

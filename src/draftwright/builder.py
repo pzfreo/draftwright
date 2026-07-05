@@ -190,22 +190,36 @@ def _measure_blocks(dwg, a) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _coerce_model(model, a) -> PartModel:
+def _coerce_model(model, a, decorations=None) -> PartModel:
     """Wrap a caller-supplied ``model=`` (ADR 0011) into a :class:`PartModel`. A
     ``PartModel`` is used verbatim; a sequence of features is wrapped with the part's
     bbox, a default corner location datum (matching ``detect.py``, so hole location
     dims measure from the min corner), and an orientation inferred from any turned
-    ``StepFeature`` (so a declared shaft renders as turned)."""
+    ``StepFeature`` (so a declared shaft renders as turned).
+
+    ``decorations`` (P2a) is the authored aspect side-layer — ``{(feature, kind) ->
+    tolerance}`` — merged onto the model so the planner can read it; only applied when
+    given (a bare ``PartModel`` keeps its own decorations otherwise). A verbatim
+    ``PartModel`` is never mutated — decorations merge into a copy so the caller's
+    reusable public input (ADR 0011) stays clean across builds."""
     if isinstance(model, PartModel):
+        if decorations:
+            return replace(model, decorations={**model.decorations, **decorations})
         return model
     features = list(model)
     bbox = a.part.bounding_box()
     orientation = next((f.frame.axis for f in features if isinstance(f, StepFeature)), None)
     datum = Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))
-    return PartModel(bbox=bbox, orientation=orientation, features=features, datums=[datum])
+    return PartModel(
+        bbox=bbox,
+        orientation=orientation,
+        features=features,
+        datums=[datum],
+        decorations=decorations or {},
+    )
 
 
-def _assemble(a, out, assembly, detail_view, auto_dims, model=None) -> Drawing:
+def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=None) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
     passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
     repacked analysis it is also pass 2 of the measure-and-repack loop (#121)."""
@@ -230,7 +244,7 @@ def _assemble(a, out, assembly, detail_view, auto_dims, model=None) -> Drawing:
     # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
     # work even in manual mode (#398). _auto_annotate reads this attached model rather
     # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
-    dwg._part_model = _coerce_model(model, a) if model is not None else build_model(a)
+    dwg._part_model = _coerce_model(model, a, decorations) if model is not None else build_model(a)
 
     part_s = a.part.scale(a.SCALE)
     dwg.add_view("front", part_s, (cxs, cys - dist, czs), (0, 0, 1), (a.FV_X, a.FV_Y), scaled=True)
@@ -292,7 +306,9 @@ def _repack_candidates(a, scale, page):
     return list(_LADDER[start:])
 
 
-def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None, model=None):
+def _repack(
+    a, dwg, out, assembly, detail_view, scale=None, page=None, model=None, decorations=None
+):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
     when a view collides across views, pack the blocks disjoint — escalating the
     sheet/scale until the packed layout fits — then re-assemble (#121, ADR 0004 —
@@ -407,7 +423,9 @@ def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None, model=Non
         pv_zones=pv_zones,
         sv_zones=sv_zones,
     )
-    dwg2 = _assemble(a2, out, assembly, detail_view, auto_dims=True, model=model)
+    dwg2 = _assemble(
+        a2, out, assembly, detail_view, auto_dims=True, model=model, decorations=decorations
+    )
     return a2, dwg2
 
 
@@ -426,6 +444,7 @@ def build_drawing(
     repair: bool = True,
     assembly: bool | None = None,
     model: Sequence[Feature] | PartModel | None = None,
+    decorations: dict | None = None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -483,9 +502,19 @@ def build_drawing(
     # per-view footprints and re-pack the blocks disjoint if a view actually
     # moves (#121, ADR 0004 — "lay out, don't predict").  Non-ballooned parts
     # measure ≈ estimate, so they skip pass 2 and stand byte-identical.
-    dwg = _assemble(a, out, assembly, detail_view, auto_dims, model=model)
+    dwg = _assemble(a, out, assembly, detail_view, auto_dims, model=model, decorations=decorations)
     if auto_dims:
-        repacked = _repack(a, dwg, out, assembly, detail_view, scale=scale, page=page, model=model)
+        repacked = _repack(
+            a,
+            dwg,
+            out,
+            assembly,
+            detail_view,
+            scale=scale,
+            page=page,
+            model=model,
+            decorations=decorations,
+        )
         if repacked is not None:
             a, dwg = repacked
     if repair:
