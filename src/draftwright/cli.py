@@ -73,6 +73,16 @@ def _emit(dwg, formats: list[str]) -> list[str]:
     return [paths[f] for f in formats]
 
 
+def _looks_like_object_spec(s: str) -> bool:
+    """True when *s* is a ``module:attr`` / ``file.py:attr`` object reference rather than a STEP
+    path (#469). An existing file, or a Windows drive path (``C:\\…``), is never a spec."""
+    import re
+
+    if os.path.exists(s) or re.match(r"^[A-Za-z]:[\\/]", s):
+        return False
+    return re.match(r"^.+:[A-Za-z_][A-Za-z0-9_]*$", s) is not None
+
+
 def _installed_version() -> str:
     """The installed distribution version (the PyPI version once pip-installed);
     ``"unknown"`` when running from a source tree with no installed metadata."""
@@ -154,11 +164,18 @@ def main(
 
     if script:
         if style == "sheet":
-            from draftwright.sheet_emit import generate_sheet_script
+            from draftwright.sheet_emit import generate_sheet_script, resolve_object_spec
 
-            py_path = generate_sheet_script(
-                step_file, out=out, title=title, number=number, pmi=pmi.value
-            )
+            if _looks_like_object_spec(step_file):
+                # STEP_FILE is a `module:attr` / `file.py:attr` spec → reference a live object
+                obj, seam = resolve_object_spec(step_file)
+                py_path = generate_sheet_script(
+                    obj, out=out, title=title, number=number, part_expr=seam
+                )
+            else:
+                py_path = generate_sheet_script(
+                    step_file, out=out, title=title, number=number, pmi=pmi.value
+                )
         else:
             py_path = generate_script(
                 step_file=step_file,

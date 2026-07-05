@@ -156,6 +156,76 @@ def emit_sheet_script(model, part_expr: str, stem: str, *, title: str, number: s
     return "\n".join(lines) + "\n"
 
 
+def resolve_object_spec(spec: str) -> tuple[Shape, str]:
+    """Resolve a ``module:attr`` (or ``path/to/file.py:attr``) spec into ``(build123d object,
+    import seam)`` (ADR 0011, #469). The attribute is imported; a zero-argument callable (a
+    ``make_part()`` factory) is called. The returned seam is the Python that re-binds ``part``
+    in the generated script, so the drawing references your **live parametric source**, not a
+    frozen STEP.
+
+    SECURITY: importing the target executes its module-level code — the same trust as running
+    the file yourself."""
+    import importlib
+    import importlib.util
+    import inspect
+    import os
+    import sys
+
+    mod_ref, sep, name = spec.rpartition(":")
+    if not sep or not name.isidentifier() or not mod_ref:
+        raise ValueError(f"object spec must be 'module:attr' or 'file.py:attr' (got {spec!r})")
+
+    if mod_ref.endswith(".py"):
+        path = Path(mod_ref).resolve()
+        ispec = importlib.util.spec_from_file_location(path.stem, path)
+        if ispec is None or ispec.loader is None:
+            raise ValueError(f"cannot load module from {mod_ref!r}")
+        module = importlib.util.module_from_spec(ispec)
+        ispec.loader.exec_module(module)
+        seam = (
+            "import importlib.util as _ilu\n"
+            f"_spec = _ilu.spec_from_file_location({path.stem!r}, {str(path)!r})\n"
+            "_mod = _ilu.module_from_spec(_spec)\n_spec.loader.exec_module(_mod)"
+        )
+        ref = f"_mod.{name}"
+    else:
+        cwd = os.getcwd()
+        if cwd not in sys.path:
+            sys.path.insert(0, cwd)  # allow a cwd-relative import
+        module = importlib.import_module(mod_ref)
+        # Record the invocation cwd (where the module resolved) on the generated script's path,
+        # so `from mod import …` works from any working directory — Python puts only the
+        # *script's* dir on sys.path, not the cwd, so a bare import would otherwise fail.
+        # (For an installed module the insert is harmless; the import works regardless.)
+        seam = (
+            f"import sys as _sys\nif {cwd!r} not in _sys.path:\n    _sys.path.insert(0, {cwd!r})\n"
+            f"from {mod_ref} import {name} as _obj"
+        )
+        ref = "_obj"
+
+    obj = getattr(module, name, None)
+    if obj is None:
+        raise ValueError(f"{spec!r}: {name!r} not found in {mod_ref!r}")
+
+    called = False
+    if callable(obj) and not isinstance(obj, Shape):
+        required = [
+            p
+            for p in inspect.signature(obj).parameters.values()
+            if p.default is p.empty and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+        ]
+        if required:
+            raise ValueError(
+                f"{spec!r}: {name} needs arguments — reference a built object instead"
+            )
+        obj, called = obj(), True
+
+    if not isinstance(obj, Shape):
+        raise ValueError(f"{spec!r}: resolved to {type(obj).__name__}, not a build123d Shape")
+
+    return obj, f"{seam}\npart = {ref}{'()' if called else ''}"
+
+
 def generate_sheet_script(
     step_file: str | Shape,
     out: str | None = None,
@@ -163,12 +233,15 @@ def generate_sheet_script(
     title: str | None = None,
     number: str = "DWG-001",
     pmi: str = "off",
+    part_expr: str | None = None,
 ) -> str:
     """Write a declarative ``Sheet``-DSL script for *step_file* (a STEP path or a build123d
     object). Returns the path to the generated ``.py``. The mode-3 declarative counterpart of
     :func:`draftwright.builder.generate_script` (which emits the imperative reconstruction).
 
-    ``pmi`` is threaded to detection so AP242 PMI features surface (flagged inline)."""
+    ``pmi`` is threaded to detection so AP242 PMI features surface (flagged inline). *part_expr*,
+    when given, overrides the ``part = …`` seam — e.g. the import seam from
+    :func:`resolve_object_spec` so the script references a live module (#469)."""
     is_shape = isinstance(step_file, Shape)
     stem = out or ("drawing" if is_shape else Path(step_file).stem)
     for _ext in (".py", ".svg", ".dxf"):
@@ -177,7 +250,9 @@ def generate_sheet_script(
             break
     title = title or (Path(stem).name.replace("_", " ").upper() if not is_shape else "DRAWING")
 
-    if is_shape:
+    if part_expr is not None:
+        pass  # caller-supplied seam (e.g. an import of a live module, #469)
+    elif is_shape:
         part_expr = "part = ...   # ← wire in your build123d object (built above)"
     else:
         # absolute so the generated script runs from any working directory
