@@ -339,20 +339,33 @@ class TestModelSeam:
         # just that members were populated
         assert any(n.startswith("bc_") for n in dwg._named), sorted(dwg._named)
 
-    def test_declared_pattern_off_detected_positions_is_flagged_not_rendered(self):
-        # ADR 0011 caveat (widened after review): the hole/pattern render path gates on
-        # feature_keys built from DETECTION (a.holes), so a declared pattern whose members
-        # do not coincide (to 3 dp) with the detected holes is not rendered — it surfaces
-        # as a coverage warning, not silently. Full model-driven hole rendering is a
-        # follow-up (#448). Here the holes sit at 45° but the pattern is declared at 0°.
+    def test_declared_pattern_renders_at_its_declared_position(self):
+        # #448: a declared hole/pattern renders at its DECLARED position even where it does
+        # not coincide with a detected hole — the callout membership is now sourced from the
+        # declared IR, not only detection (was the ADR 0011 caveat: gated on a.holes, so a
+        # detection-missed declaration was silently undrawn). Here the holes physically sit at
+        # 45° but the pattern is declared at 0°; the declared pattern must still render (its
+        # bc_ furniture appears at the declared position), and the coverage lint still flags
+        # the 45° holes the declaration left undimensioned — the declaration is authoritative,
+        # not silently dropped.
         r, z = 25.0, 4.0
         plate, part = self._bolt_circle_part(r, z, (45, 135, 225, 315))
         member = hole(diameter=6, at=(r, 0, z), axis="z")
         pat = pattern(member, kind="bolt_circle", count=4, bcd=2 * r, at=(0, 0, z), angle=0)
         dwg = build_drawing(part, model=[envelope(plate), pat])
-        assert not any(n.startswith("bc_") for n in dwg._named)  # not rendered
+        assert any(n.startswith("bc_") for n in dwg._named), sorted(dwg._named)  # rendered
         warns = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
-        assert warns  # but flagged, not silent
+        assert warns  # the physically-present 45° holes remain flagged as undimensioned
+
+    def test_detection_only_hole_render_unchanged_by_the_declared_gate(self):
+        # The #448 model-driven membership is gated on model= being supplied — a plain
+        # detection build is untouched (a.holes still drives the callouts).
+        plate = Box(80, 50, 8)
+        h1 = Pos(20, 10, 4) * Cylinder(3, 8)
+        part = plate - h1
+        dwg = build_drawing(part)  # no model= → detection path
+        assert dwg._model_declared is False
+        assert not [i for i in dwg.lint() if i.severity == "error"]
 
     def test_pattern_requires_arrangement_dim(self):
         member = hole(diameter=3, at=(0, 0, 0), axis="z")

@@ -93,18 +93,19 @@ detected drawing needs one more thing"). Two complementary modes, one IR.
   is correctly flagged by the coverage lint for the geometry it left undimensioned (the
   drawing is right — those features genuinely have no callout). A full declared-model
   bypass of estimation + coverage is a follow-up, not a blocker.
-- **Known caveat — the hole/pattern render path is gated on detected positions.**
-  Distinct from the diameter/step/boss/envelope path (which renders straight from the IR),
-  the *hole and pattern* renderers gate on `feature_keys` — the set of detected hole
-  positions (`feature_holes_of(a)`, the Amendment-6 invariant that no recogniser `Hole`
-  crosses into the renderers). So a declared hole/pattern only renders where its members
-  coincide (to 3 dp) with a **detected** hole; a hole that detection *missed* renders
-  nothing (it surfaces as a coverage **warning**, not silently). This means declaration
-  fully sidesteps misdetection for the #298 class (a band under an OD — a *diameter*
-  feature, not gated) but **not** for a missed hole. The canonical fix — sourcing
-  `feature_keys` from the declared model when `model=` is supplied — is tracked as a
-  follow-up (**#448**), not a blocker: the common declared-hole case (declared positions
-  match the built geometry) renders correctly.
+- **Hole/pattern render membership is model-driven (#448, resolved).** Originally the
+  *hole and pattern* renderers gated on `feature_keys` — the set of *detected* hole
+  positions (`feature_holes_of(a)`) — so a declared hole/pattern only rendered where its
+  members coincided (to 3 dp) with a detected hole, and a detection-*missed* hole rendered
+  nothing (surfacing only as a coverage warning). When `model=` is supplied, the callout
+  membership set is now sourced from the declared IR groups too (`_declared_feature_keys`),
+  mirroring the exact member source and rotational concentric-bore exclusion of the callout
+  filter — so a declared hole/pattern renders at its **declared** position regardless of
+  detection. Gated on the declared flag, so the detection-only path is byte-identical. The
+  Amendment-6 invariant still holds (no recogniser `Hole` crosses into the renderers — the
+  keys are IR-derived). One detection-dependent bit remains: off-axis side-drilled hole
+  *location* dims (`_locate_off_axis_holes`) still need recogniser-`Hole` geometry a declared
+  feature doesn't carry, so a detection-missed side hole's location dim is a further follow-up.
 
 ## Alternatives considered
 
