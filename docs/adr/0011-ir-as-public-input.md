@@ -2,7 +2,8 @@
 
 - **Status:** Accepted — Phase 0 (the `model=` seam + object→feature constructors) and
   Phase 1 (the `Sheet` façade) landed; Phase 2 (aspect renderers — tolerance/GD&T/finish)
-  pending per the #446 roadmap.
+  pending per the #446 roadmap. Phase 2 execution plan:
+  [`docs/plans/0011-phase2-aspects-roadmap.md`](../plans/0011-phase2-aspects-roadmap.md).
 - **Date:** 2026-07-05
 - **Deciders:** Paul Fremantle (pzfreo)
 
