@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.2.7 — 2026-07-05
+
+**The three authoring modes (ADR 0011 Amendment 1).** Naming how you drive draftwright —
+*just do it* / *auto then tweak* / *generate an editable script* — and filling in the third:
+a declarative `Sheet`-DSL generator, and number-free authoring against the build123d objects
+you built.
+
+### Added
+
+- **`draftwright part.step --script --style sheet`** — generate an **editable declarative
+  `Sheet` script** from a detected part: one commentable line per feature (hole / diameter /
+  step / slot / pattern / envelope), views noted, the auto-section flagged. Comment a line out
+  to drop that feature; the script re-runs to the drawing. The existing `--script` (imperative
+  edit-verb reconstruction) stays the default (#461).
+- **Object-reading `.cbore(tool)` / `.spotface(tool)`** on a declared hole — read the
+  counterbore/spotface's ⌀ **and** depth off the tool object + part (depth measured from the
+  local open face, so a rib/wall elsewhere doesn't skew it). A `Sheet`-declared drawing can now
+  carry **zero magic numbers** and track the geometry parametrically (#462).
+- **`Sheet.of(feature)`** — a fluent handle onto an **existing / detection-seeded** feature (by
+  the build123d object, an index, or the `Feature` itself), so you can `.fit(...)` /
+  `.tolerance(...)` a feature from `Sheet.from_part()` without re-declaring it (#463).
+
+### Docs
+
+- **ADR 0011 Amendment 1** — the three authoring modes and the mode-3 generation surface;
+  records the decision to emit **honest detected numbers** for a detected part rather than
+  fabricate a build123d reconstruction that misrepresents the geometry (#464).
+
 ## v0.2.6 — 2026-07-05
 
 **ADR 0011 — the IR as a public input: declare features, don't only detect them.**
