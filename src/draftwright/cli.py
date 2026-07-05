@@ -105,6 +105,12 @@ def main(
     script: bool = typer.Option(
         False, "--script", help="Write an editable .py drawing script instead of SVG+DXF"
     ),
+    style: str = typer.Option(
+        "imperative",
+        "--style",
+        help="--script flavour: 'imperative' (edit-verb reconstruction) or "
+        "'sheet' (declarative Sheet DSL — one line per feature)",
+    ),
     pmi: PmiMode = typer.Option(
         PmiMode.off,
         help=(
@@ -144,17 +150,26 @@ def main(
     from draftwright.builder import build_drawing, generate_script
 
     if script:
-        py_path = generate_script(
-            step_file=step_file,
-            out=out,
-            title=title,
-            number=number,
-            tolerance=tolerance,
-            drawn_by=drawn_by,
-            pmi=pmi.value,
-            scale=scale,
-            page=page,
-        )
+        if style not in ("imperative", "sheet"):
+            raise typer.BadParameter(
+                "--style must be 'imperative' or 'sheet'", param_hint="--style"
+            )
+        if style == "sheet":
+            from draftwright.sheet_emit import generate_sheet_script
+
+            py_path = generate_sheet_script(step_file, out=out, title=title, number=number)
+        else:
+            py_path = generate_script(
+                step_file=step_file,
+                out=out,
+                title=title,
+                number=number,
+                tolerance=tolerance,
+                drawn_by=drawn_by,
+                pmi=pmi.value,
+                scale=scale,
+                page=page,
+            )
         print(py_path)
         return
 
