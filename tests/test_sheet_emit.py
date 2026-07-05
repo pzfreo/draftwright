@@ -78,6 +78,33 @@ class TestEmit:
         # `hole` is only imported when a pattern line references it
         assert "from draftwright.model import hole" not in _script_for(Box(20, 20, 5))
 
+    def test_slot_line_re_runs_without_the_length_invariant_error(self):
+        # #461 review: declare.slot() checks hi - lo == length to 1e-6; the emitter must derive
+        # length from the emitted lo/hi so the generated slot line doesn't raise on re-run.
+        from draftwright import Sheet
+
+        part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20.33, 8, 20)  # off-round → stresses rounding
+        line = next(ln for ln in _script_for(part).splitlines() if ln.startswith("sheet.slot("))
+        eval(line, {"sheet": Sheet(part)})  # declare.slot() must not raise
+
+    def test_linear_pattern_emits_direction(self):
+        # #461 review: without direction= a non-default linear array recomputes on the wrong axis
+        from draftwright.model import Frame, HoleFeature, PatternFeature
+
+        member = HoleFeature(Frame((0, 0, 0), "z"), 4.0, depth=None, through=True)
+        pat = PatternFeature(
+            frame=Frame((0, 0, 0), "z"),
+            pattern="linear",
+            count=3,
+            member=member,
+            members=((0, -10, 0), (0, 0, 0), (0, 10, 0)),
+            pitch=10,
+            direction=(0, 1, 0),
+        )
+        from draftwright.sheet_emit import _feature_line
+
+        assert "direction=(0, 1, 0)" in _feature_line(pat)
+
 
 class TestGenerate:
     def test_step_input_emits_a_self_contained_import_seam(self, tmp_path):
@@ -107,6 +134,14 @@ class TestGenerate:
         py = generate_sheet_script(str(step), out=str(tmp_path / "gen"))
         src = open(py).read()
         assert "title='GEN'" in src  # basename of out, upper — not the full path
+
+    def test_step_path_is_absolute_for_cwd_independence(self, tmp_path, monkeypatch):
+        export_step(_plate(), str(tmp_path / "plate.step"))
+        monkeypatch.chdir(tmp_path)
+        py = generate_sheet_script("plate.step", out="gen")  # relative input
+        # the emitted import_step path must be absolute so the script runs from any CWD
+        import_line = next(ln for ln in open(py).read().splitlines() if "import_step(" in ln)
+        assert import_line.split("import_step(")[1].startswith("'/")
 
 
 class TestCli:

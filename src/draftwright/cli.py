@@ -142,6 +142,9 @@ def main(
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING, format="%(message)s")
 
     formats = _parse_formats(output_format)
+    if script and style not in ("imperative", "sheet"):
+        # validate before the ~5 s engine import so a typo fails fast
+        raise typer.BadParameter("--style must be 'imperative' or 'sheet'", param_hint="--style")
 
     # Import the engine lazily, only on the build path: it pulls in build123d/OCP
     # (~5 s of CAD-kernel import). Keeping it out of module scope means shell
@@ -150,10 +153,6 @@ def main(
     from draftwright.builder import build_drawing, generate_script
 
     if script:
-        if style not in ("imperative", "sheet"):
-            raise typer.BadParameter(
-                "--style must be 'imperative' or 'sheet'", param_hint="--style"
-            )
         if style == "sheet":
             from draftwright.sheet_emit import generate_sheet_script
 
