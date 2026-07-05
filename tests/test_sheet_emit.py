@@ -6,6 +6,7 @@ Detected input only writes numbers (the part-seam form); we never fabricate geom
 
 import ast
 import math
+import os
 
 from build123d import Box, Cylinder, Pos, export_step
 
@@ -137,12 +138,12 @@ class TestGenerate:
         step = tmp_path / "plate.step"
         export_step(_plate(), str(step))
         py = generate_sheet_script(str(step), out=str(tmp_path / "gen"))
-        src = open(py).read()
+        src = open(py, encoding="utf-8").read()
         assert "import_step(" in src and "part = ..." not in src
 
     def test_shape_input_leaves_a_part_seam(self, tmp_path):
         py = generate_sheet_script(_plate(), out=str(tmp_path / "gen"))
-        src = open(py).read()
+        src = open(py, encoding="utf-8").read()
         assert "part = ..." in src and "import_step(" not in src
 
     def test_generated_step_script_round_trips_to_a_drawing(self, tmp_path):
@@ -151,14 +152,14 @@ class TestGenerate:
         export_step(_plate(), str(step))
         stem = tmp_path / "gen"
         py = generate_sheet_script(str(step), out=str(stem))
-        exec(compile(open(py).read(), py, "exec"), {})
+        exec(compile(open(py, encoding="utf-8").read(), py, "exec"), {})
         assert (tmp_path / "gen.svg").exists()
 
     def test_title_from_basename_not_the_out_path(self, tmp_path):
         step = tmp_path / "widget.step"
         export_step(Box(20, 20, 5), str(step))
         py = generate_sheet_script(str(step), out=str(tmp_path / "gen"))
-        src = open(py).read()
+        src = open(py, encoding="utf-8").read()
         assert "title='GEN'" in src  # basename of out, upper — not the full path
 
     def test_step_path_is_absolute_for_cwd_independence(self, tmp_path, monkeypatch):
@@ -166,8 +167,11 @@ class TestGenerate:
         monkeypatch.chdir(tmp_path)
         py = generate_sheet_script("plate.step", out="gen")  # relative input
         # the emitted import_step path must be absolute so the script runs from any CWD
-        import_line = next(ln for ln in open(py).read().splitlines() if "import_step(" in ln)
-        assert import_line.split("import_step(")[1].startswith("'/")
+        import_line = next(
+            ln for ln in open(py, encoding="utf-8").read().splitlines() if "import_step(" in ln
+        )
+        path = ast.literal_eval(import_line.split("import_step(", 1)[1].rsplit(")", 1)[0])
+        assert os.path.isabs(path)  # platform-agnostic (C:\… on Windows, /… on POSIX)
 
 
 class TestCli:
@@ -182,7 +186,7 @@ class TestCli:
             app, [str(step), "--script", "--style", "sheet", "--out", str(tmp_path / "g")]
         )
         assert r.exit_code == 0, r.output
-        assert "sheet.hole(" in open(tmp_path / "g.py").read()
+        assert "sheet.hole(" in open(tmp_path / "g.py", encoding="utf-8").read()
 
     def test_bad_style_is_rejected(self, tmp_path):
         from typer.testing import CliRunner
