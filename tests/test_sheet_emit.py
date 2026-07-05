@@ -1,0 +1,199 @@
+"""The declarative Sheet-DSL emitter (ADR 0011 Amendment 1, #461).
+
+Generates a `Sheet(...)` script from a detected part — one commentable line per feature.
+Detected input only writes numbers (the part-seam form); we never fabricate geometry.
+"""
+
+import ast
+import math
+import os
+
+from build123d import Box, Cylinder, Pos, export_step
+
+from draftwright.builder import detect_part_model
+from draftwright.sheet_emit import emit_sheet_script, generate_sheet_script
+
+
+def _plate():
+    return Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(4, 20) - Pos(-20, 10, 4) * Cylinder(4, 20)
+
+
+def _script_for(part, part_expr="part = PART", stem="drawing", **kw):
+    return emit_sheet_script(detect_part_model(part), part_expr, stem, title="T", number="N", **kw)
+
+
+class TestEmit:
+    def test_emits_one_declarative_line_per_feature(self):
+        src = _script_for(_plate())
+        assert "sheet = Sheet(part, title='T', number='N')" in src
+        assert "sheet.hole(diameter=8" in src  # the ⌀8 holes
+        assert "sheet.envelope()" in src
+        assert src.rstrip().endswith("sheet.export('drawing')")
+
+    def test_count_group_hole_carries_its_members(self):
+        # a count>1 hole MUST emit members= with every position — without them the render
+        # collapses to a single hole at the anchor (fidelity loss). The plate has two ⌀8 holes.
+        line = next(
+            ln
+            for ln in _script_for(_plate()).splitlines()
+            if ln.startswith("sheet.hole(diameter=8")
+        )
+        call = ast.parse(line, mode="eval").body  # the sheet.hole(...) Call node
+        kw = {k.arg: k.value for k in call.keywords}
+        assert ast.literal_eval(kw["count"]) == 2
+        assert len(kw["members"].elts) == 2  # both hole positions spelled out
+
+    def test_output_is_valid_python(self):
+        # the whole emitted script must parse — a generated script that doesn't is useless
+        ast.parse(_script_for(_plate()))
+
+    def test_counterbore_flags_the_auto_section(self):
+        part = Box(60, 60, 16) - Pos(0, 0, 0) * Cylinder(4, 30) - Pos(0, 0, 4) * Cylinder(8, 12)
+        src = _script_for(part)
+        assert "cbore=(" in src  # the counterbore rides the hole line
+        assert "Section A–A auto-triggers" in src
+
+    def test_blind_hole_gets_depth(self):
+        part = Box(40, 40, 20) - Pos(0, 0, 6) * Cylinder(4, 16)  # blind ⌀8
+        src = _script_for(part)
+        assert ".depth(" in src
+
+    def _bolt_circle(self, cbore=False):
+        part = Cylinder(40, 8)
+        for i in range(6):
+            a = i * math.pi / 3
+            c = Pos(25 * math.cos(a), 25 * math.sin(a), 0)
+            part -= c * Cylinder(3, 20)
+            if cbore:
+                part -= c * Pos(0, 0, 4) * Cylinder(5, 8)
+        return part
+
+    def test_pattern_emits_the_pattern_verb(self):
+        src = _script_for(self._bolt_circle())
+        assert "sheet.pattern(hole(" in src and 'kind="bolt_circle"' in src
+
+    def test_bolt_circle_spells_out_members(self):
+        # #461 review r2: the detector records no start ANGLE, so recomputing members at angle 0
+        # rotates the holes — the emitter must spell out the real member positions.
+        line = next(
+            ln
+            for ln in _script_for(self._bolt_circle()).splitlines()
+            if ln.startswith("sheet.pattern(")
+        )
+        assert "members=[" in line and line.count("(") >= 7  # member hole + 6 positions
+
+    def test_pattern_member_keeps_its_counterbore(self):
+        # #461 review r2: a counterbored bolt circle must keep the member's cbore on re-run
+        line = next(
+            ln
+            for ln in _script_for(self._bolt_circle(cbore=True)).splitlines()
+            if ln.startswith("sheet.pattern(")
+        )
+        assert "cbore=(" in line  # on the member hole(...) template
+
+    def test_non_declarable_kind_is_flagged_not_dropped(self):
+        # a counterbored plate carries a step_level (horizontal face levels) with no Sheet verb —
+        # it must surface as an inline comment, never silently vanish
+        part = Box(100, 70, 24) - Pos(0, 0, 0) * Cylinder(9, 40) - Pos(0, 0, 8) * Cylinder(15, 20)
+        src = _script_for(part)
+        assert any(
+            ln.startswith("#") and "no declarative verb yet" in ln for ln in src.splitlines()
+        )
+
+    def test_needs_hole_import_only_when_a_pattern_is_present(self):
+        # `hole` is only imported when a pattern line references it
+        assert "from draftwright.model import hole" not in _script_for(Box(20, 20, 5))
+
+    def test_slot_line_re_runs_without_the_length_invariant_error(self):
+        # #461 review: declare.slot() checks hi - lo == length to 1e-6; the emitter must derive
+        # length from the emitted lo/hi so the generated slot line doesn't raise on re-run.
+        from draftwright import Sheet
+
+        part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20.33, 8, 20)  # off-round → stresses rounding
+        line = next(ln for ln in _script_for(part).splitlines() if ln.startswith("sheet.slot("))
+        eval(line, {"sheet": Sheet(part)})  # declare.slot() must not raise
+
+    def test_linear_pattern_spells_out_members(self):
+        # #461 review: the arrangement can't be recomputed faithfully (no reliable direction/angle),
+        # so the emitter spells out the exact member positions for every pattern kind.
+        from draftwright.model import Frame, HoleFeature, PatternFeature
+        from draftwright.sheet_emit import _feature_line
+
+        member = HoleFeature(Frame((0, 0, 0), "z"), 4.0, depth=None, through=True)
+        pat = PatternFeature(
+            frame=Frame((0, 0, 0), "z"),
+            pattern="linear",
+            count=3,
+            member=member,
+            members=((0, -10, 0), (0, 0, 0), (0, 10, 0)),
+            pitch=10,
+            direction=(0, 1, 0),
+        )
+        line = _feature_line(pat)
+        assert "members=[(0, -10, 0), (0, 0, 0), (0, 10, 0)]" in line and "pitch=10" in line
+
+
+class TestGenerate:
+    def test_step_input_emits_a_self_contained_import_seam(self, tmp_path):
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        py = generate_sheet_script(str(step), out=str(tmp_path / "gen"))
+        src = open(py, encoding="utf-8").read()
+        assert "import_step(" in src and "part = ..." not in src
+
+    def test_shape_input_leaves_a_part_seam(self, tmp_path):
+        py = generate_sheet_script(_plate(), out=str(tmp_path / "gen"))
+        src = open(py, encoding="utf-8").read()
+        assert "part = ..." in src and "import_step(" not in src
+
+    def test_generated_step_script_round_trips_to_a_drawing(self, tmp_path):
+        # the whole point: the generated script RUNS and produces a real drawing
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        stem = tmp_path / "gen"
+        py = generate_sheet_script(str(step), out=str(stem))
+        exec(compile(open(py, encoding="utf-8").read(), py, "exec"), {})
+        assert (tmp_path / "gen.svg").exists()
+
+    def test_title_from_basename_not_the_out_path(self, tmp_path):
+        step = tmp_path / "widget.step"
+        export_step(Box(20, 20, 5), str(step))
+        py = generate_sheet_script(str(step), out=str(tmp_path / "gen"))
+        src = open(py, encoding="utf-8").read()
+        assert "title='GEN'" in src  # basename of out, upper — not the full path
+
+    def test_step_path_is_absolute_for_cwd_independence(self, tmp_path, monkeypatch):
+        export_step(_plate(), str(tmp_path / "plate.step"))
+        monkeypatch.chdir(tmp_path)
+        py = generate_sheet_script("plate.step", out="gen")  # relative input
+        # the emitted import_step path must be absolute so the script runs from any CWD
+        import_line = next(
+            ln for ln in open(py, encoding="utf-8").read().splitlines() if "import_step(" in ln
+        )
+        path = ast.literal_eval(import_line.split("import_step(", 1)[1].rsplit(")", 1)[0])
+        assert os.path.isabs(path)  # platform-agnostic (C:\… on Windows, /… on POSIX)
+
+
+class TestCli:
+    def test_style_sheet_routes_to_the_declarative_emitter(self, tmp_path):
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(
+            app, [str(step), "--script", "--style", "sheet", "--out", str(tmp_path / "g")]
+        )
+        assert r.exit_code == 0, r.output
+        assert "sheet.hole(" in open(tmp_path / "g.py", encoding="utf-8").read()
+
+    def test_bad_style_is_rejected(self, tmp_path):
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(app, [str(step), "--script", "--style", "bogus"])
+        assert r.exit_code != 0
