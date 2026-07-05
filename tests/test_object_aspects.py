@@ -31,6 +31,15 @@ class TestReadBoreStep:
         assert read_bore_step(part, Pos(0, 0, 6) * Cylinder(10, 12), "z")[0] == pytest.approx(20.0)
         assert read_bore_step(part, Pos(0, 0, 6) * Cylinder(12, 12), "z")[0] == pytest.approx(24.0)
 
+    def test_depth_is_local_not_global_bbox(self):
+        # #462 review: a rib/wall elsewhere on the axis must NOT skew the depth — the open face
+        # is found from the LOCAL part column under the tool, not the whole part bounding box.
+        base = Pos(0, 0, 2.5) * Box(60, 30, 5)  # plate z 0..5
+        wall = Pos(-25, 0, 25) * Box(10, 30, 50)  # a wall rising to z 50, away from the hole
+        tool = Pos(0, 0, 3.5) * Cylinder(7.5, 3)  # counterbore z 2..5 → true depth 3
+        lbr = (base + wall) - Pos(0, 0, 0) * Cylinder(3, 10) - tool
+        assert read_bore_step(lbr, tool, "z") == pytest.approx((15.0, 3.0))  # not (15, 5)
+
 
 class TestCboreVerb:
     def _plate(self):
@@ -63,6 +72,14 @@ class TestCboreVerb:
         s = Sheet(Box(40, 40, 10))
         with pytest.raises(ValueError):
             s.hole(diameter=6, at=(0, 0, 0), axis="z").cbore()
+
+    def test_rejects_nonpositive_cbore(self):
+        # #462 review: match declare.hole()'s positivity guard — a bad explicit value fails loud
+        s = Sheet(Box(40, 40, 10))
+        with pytest.raises(ValueError):
+            s.hole(diameter=6, at=(0, 0, 0), axis="z").cbore(diameter=-5, depth=6)
+        with pytest.raises(ValueError):
+            s.hole(diameter=6, at=(0, 0, 0), axis="z").cbore(diameter=12, depth=0)
 
     def test_spotface_reads_off_the_tool(self):
         part = Box(60, 60, 20)

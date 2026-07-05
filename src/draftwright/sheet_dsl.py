@@ -39,6 +39,7 @@ from draftwright.model import hole as _hole
 from draftwright.model import pattern as _pattern
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
+from draftwright.model.declare import _require_positive
 from draftwright.model.declare import read_bore_step as _read_bore_step
 
 
@@ -125,6 +126,8 @@ class _Hole:
             raise ValueError(
                 "cbore/spotface needs a tool object, or explicit diameter= and depth="
             )
+        # same positivity guard declare.hole() applies to cbore/spotface (#452/#462 review)
+        _require_positive(cbore_diameter=diameter, cbore_depth=depth)
         return (diameter, depth)
 
     def _set(self, **kw) -> _Hole:
