@@ -109,7 +109,7 @@ def main(
         "imperative",
         "--style",
         help="--script flavour: 'imperative' (edit-verb reconstruction) or "
-        "'sheet' (declarative Sheet DSL — one line per feature)",
+        "'sheet' (declarative Sheet DSL - one line per feature)",
     ),
     pmi: PmiMode = typer.Option(
         PmiMode.off,
