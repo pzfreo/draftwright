@@ -171,16 +171,22 @@ The one fork that shapes the whole emitter. From a detected solid we can either 
 a build123d part (so the drawing layer can be reference-based / number-free too), or leave a
 **seam** for the caller's own part and write the detected numbers into the drawing.
 
-**Decided: the part-seam (Option B) only, for now.** It is the honest baseline — the generated
-script says exactly what detection knows, works for *any* geometry however complex, and lets the
-caller plug in their real (parametric) part at the seam. Reconstruction (Option A) is **deferred,
-not rejected**: it is the more beautiful output but a lossy CSG approximation that only round-trips
-for a subset of parts, and it would move numbers into a *synthetic* part the user never wrote — not
-worth the fidelity risk before the emitter itself exists. It can return later as an opt-in
-(`reconstruct=True`) once the seam emitter is solid. Both options are recorded below because the
+**Decided: the part-seam (Option B) only.** It is the honest baseline — the generated script says
+exactly what detection knows, works for *any* geometry however complex, and lets the caller plug in
+their real (parametric) part at the seam. **Magic numbers are acceptable precisely because they are
+honest detected values** — for a STEP file or a recovered solid, a number *is* the ground truth.
+
+Reconstruction (Option A) is **rejected on principle, not just deferred for effort.** The core
+objection: it fabricates build123d objects that *pretend to be the geometry when they are not
+correct*. A synthesised `Cylinder(...)` / `Box(...)` reconstruction silently drops what detection
+did not model — chamfers, fillets, drafts, blends, turned profiles, non-through slots — yet reads as
+authoritative build123d source. A wrong number is visibly a number to check; a wrong *solid* masquerades
+as the part. That is a correctness/honesty failure worse than a magic number, so we do not emit
+reconstructed geometry. (If a caller wants number-free references, they have the real objects already —
+that is 3b, and they wire their part into the seam.) Both options are recorded below because the
 contrast *is* the rationale.
 
-**Option A — reconstruct the part (number-free drawing layer, self-contained) — DEFERRED.**
+**Option A — reconstruct the part (number-free drawing layer, self-contained) — REJECTED (fabricates geometry).**
 
 ```python
 from build123d import Box, Cylinder, Pos
