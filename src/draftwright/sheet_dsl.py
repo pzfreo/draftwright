@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from draftwright.analysis import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.model import boss as _boss
 from draftwright.model import envelope as _envelope
@@ -204,8 +205,10 @@ class Sheet:
         declared features into a :class:`PartModel` **without** rendering a drawing (#453):
         the same wrapping :meth:`build` hands the engine (part bbox + corner datum + step-
         inferred orientation + the P2a decorations), so inspection pays no projection/anno
-        cost and can't hit a layout/render failure."""
-        return _coerce_model(self._features, self._part, self._decorations())
+        cost and can't hit a layout/render failure. Wraps the *solids body* (as :func:`_analyse`
+        does), so the bbox/datum match what ``build()`` draws even when the part carries
+        bbox-extending non-solid geometry."""
+        return _coerce_model(self._features, _solids_body(self._part), self._decorations())
 
     def build(self):
         """Build the :class:`~draftwright.drawing.Drawing` — detection skipped; only the

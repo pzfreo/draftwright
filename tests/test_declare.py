@@ -529,12 +529,32 @@ class TestSheet:
         assert [f.kind for f in m.features] == ["envelope", "hole"]
 
     def test_model_matches_what_build_would_draw(self):
-        # The cheap model() returns the same IR build() hands the engine.
+        # The cheap model() returns the same IR build() hands the engine — features AND the
+        # bbox/datum (the wrapping the engine draws), not just the feature list.
         part = Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(3, 8)
         sheet = Sheet(part)
         sheet.envelope()
         sheet.hole(Pos(20, 10, 4) * Cylinder(3, 8))
-        assert sheet.model().features == sheet.build().model().features
+        m, built = sheet.model(), sheet.build().model()
+        assert m.features == built.features
+        assert m.bbox.min.X == pytest.approx(built.bbox.min.X)
+        assert m.bbox.max.X == pytest.approx(built.bbox.max.X)
+        assert [d.at for d in m.datums] == [d.at for d in built.datums]
+
+    def test_model_wraps_the_solids_body_like_build(self):
+        # #453 review: model() must wrap the SOLIDS body, matching _analyse — else a part
+        # carrying bbox-extending non-solid geometry (a stray edge) gives model() a wider
+        # bbox/datum than build() draws.
+        from build123d import Compound, Edge
+
+        box = Box(40, 40, 8)
+        stray = Edge.make_line((-80, 0, 0), (0, 0, 0))  # extends the min-X corner past the solid
+        part = Compound(children=[*box.solids(), stray])
+        sheet = Sheet(part)
+        sheet.envelope()
+        m, built = sheet.model(), sheet.build().model()
+        assert m.bbox.min.X == pytest.approx(built.bbox.min.X)  # both drop the stray edge
+        assert [d.at for d in m.datums] == [d.at for d in built.datums]
 
     def test_from_part_does_not_render_a_drawing(self, monkeypatch):
         # #453: the hybrid seed detects the model without a full drawing.
