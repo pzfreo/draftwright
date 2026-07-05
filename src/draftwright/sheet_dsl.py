@@ -233,14 +233,16 @@ class Sheet:
         return self._match_object(ref)
 
     def _match_object(self, obj) -> int:
-        """The index of the declared feature the build123d *obj* refers to, by ⌀ + the two
-        in-plane coordinates (the axial position is where they legitimately differ)."""
+        """The index of the declared feature the build123d *obj* refers to, by axis + ⌀ + the
+        two in-plane coordinates (the axial position is where they legitimately differ)."""
         axis, dia, center = _read_cylinder(obj)
-        perp = [k for k in range(3) if k != "xyz".index(_norm_axis(axis))]
+        axis = _norm_axis(axis)
+        perp = [k for k in range(3) if k != "xyz".index(axis)]
         matches = [
             i
             for i, f in enumerate(self._features)
             if getattr(f, "diameter", None) is not None
+            and _norm_axis(f.frame.axis) == axis  # same axis — a cross-hole must not match
             and abs(f.diameter - dia) <= 0.2
             and all(abs(f.frame.origin[k] - center[k]) <= 0.5 for k in perp)
         ]
