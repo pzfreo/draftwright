@@ -242,6 +242,17 @@ class TestModelSeam:
         f = pattern(member, kind="grid", count=4, grid=(10, 10), rows=2, cols=2, at=(0, 0, 0))
         assert len(f.members) == 4
 
+    def test_pattern_zero_arrangement_dim_raises(self):
+        # A zero-valued defining dim collapses every member onto the centre exactly like a
+        # missing one; the guard must reject truthiness, not just is-None.
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="bolt_circle", count=4, bcd=0)
+        with pytest.raises(ValueError):
+            pattern(member, kind="linear", count=3, pitch=0)
+        with pytest.raises(ValueError):
+            pattern(member, kind="grid", count=4, grid=(0, 0), rows=2, cols=2)
+
     def test_pattern_unknown_kind_raises(self):
         # A typo'd / unsupported arrangement name must fail loudly, not fall through to an
         # empty-member degenerate pattern (which renders a wrong count× callout).

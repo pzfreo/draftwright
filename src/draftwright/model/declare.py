@@ -304,13 +304,25 @@ def pattern(
         # pitch=0, or a 1×1 grid) and the pattern would never render. Fail loudly
         # instead, matching the hole/boss/step/slot guards.
         _defining = {"bolt_circle": bcd, "linear": pitch, "grid": grid}
-        if kind not in _defining or _defining[kind] is None:
+        if kind not in _defining:
             raise ValueError(
                 f"pattern(kind={kind!r}) needs a computed arrangement "
                 "(bolt_circle→bcd, linear→pitch, grid→grid), or explicit members="
             )
-        if kind == "grid" and (rows is None or cols is None):
-            raise ValueError("pattern(kind='grid') needs rows= and cols= (or explicit members=)")
+        # Reject a missing OR zero defining dim — both collapse every member onto the
+        # centre (r=0 / pitch=0). Truthiness covers None and 0 for the scalar dims; a
+        # grid needs a nonzero pitch in *both* axes plus rows/cols.
+        if kind == "grid":
+            if not grid or not all(grid) or rows is None or cols is None:
+                raise ValueError(
+                    "pattern(kind='grid') needs a nonzero grid= pitch and rows= and cols= "
+                    "(or explicit members=)"
+                )
+        elif not _defining[kind]:
+            raise ValueError(
+                f"pattern(kind={kind!r}) needs a nonzero arrangement dim "
+                "(bolt_circle→bcd, linear→pitch), or explicit members="
+            )
         members = _pattern_members(
             kind,
             center,
