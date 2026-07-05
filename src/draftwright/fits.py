@@ -17,6 +17,7 @@ number (matching the declaration-constructor discipline, #452). The transition/i
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 # ISO 286 size bands: upper bound (mm) of each step "over prev, up to and including this".
 _BANDS = (3, 6, 10, 18, 30, 50, 80, 120, 180, 250)
@@ -47,6 +48,44 @@ _EI: dict[str, tuple[int, ...]] = {
 }
 
 _CODE_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
+
+
+def _fmt_dev(v: float) -> str:
+    """A single limit deviation for a callout label: signed, trailing-zero trimmed to the
+    µm digit (3 dp), with the half-µm (``js``) case kept at 4 dp; an exact ``0`` renders ``0``
+    (ISO convention). Not the sheet's ``decimal_precision`` — a fit deviation must show its
+    real precision (``±0.05`` must not round to ``±0.1``)."""
+    if abs(v) < 5e-5:
+        return "0"
+    s = f"{v:+.4f}"
+    return s[:-1] if s.endswith("0") else s  # 4 dp -> 3 dp when the µm digit is whole
+
+
+@dataclass(frozen=True)
+class FitClass:
+    """A resolved fit sitting in ``DimParameter.tolerance`` as an aspect marker (P2a.2). It
+    renders through the owned ``_core._tol_suffix`` like any other diameter tolerance, so it
+    reuses all of P2a's threading — either as the class code (``H7``, default) or the signed
+    limit deviations (``+0.021/0``)."""
+
+    code: str
+    lower: float
+    upper: float
+    show: str = "class"  # "class" -> " H7"; "deviation" -> " +0.021/0"
+
+    def suffix(self) -> str:
+        if self.show == "deviation":
+            return f" {_fmt_dev(self.upper)}/{_fmt_dev(self.lower)}"
+        return f" {self.code}"
+
+
+def fit_class(code: str, nominal: float, show: str = "class") -> FitClass:
+    """Resolve *code* at nominal ⌀ into a :class:`FitClass` (raising for a class/size outside
+    the table, so a fit fails at declaration). ``show`` selects the label form."""
+    if show not in ("class", "deviation"):
+        raise ValueError(f"fit show= must be 'class' or 'deviation' (got {show!r})")
+    lower, upper = fit_deviation(code, nominal)
+    return FitClass(code=code, lower=lower, upper=upper, show=show)
 
 
 def parse_fit(code: str) -> tuple[str, int]:

@@ -32,6 +32,7 @@ from dataclasses import replace
 
 from draftwright.analysis import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
+from draftwright.fits import fit_class
 from draftwright.model import boss as _boss
 from draftwright.model import envelope as _envelope
 from draftwright.model import hole as _hole
@@ -88,6 +89,15 @@ class _Hole:
         self._sheet._tolerances[(self._i, "diameter")] = _tol_value(lo, hi)
         return self
 
+    def fit(self, code: str, *, show: str = "class") -> _Hole:
+        """An ISO 286 fit class on the bore ⌀ — ``.fit("H7")`` renders ``ø8 H7`` (the class,
+        default) or, with ``show="deviation"``, the signed deviations ``ø8 +0.015/0`` resolved
+        for the bore's nominal ⌀. Raises for a class/size outside the built-in table (#29)."""
+        self._sheet._tolerances[(self._i, "diameter")] = fit_class(
+            code, self._sheet._features[self._i].diameter, show
+        )
+        return self
+
     def _set(self, **kw) -> _Hole:
         self._sheet._features[self._i] = replace(self._sheet._features[self._i], **kw)
         return self
@@ -108,6 +118,16 @@ class _Dim:
         limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` picks the parameter for
         a multi-dim feature — a step's ``"length"`` (default) vs its ``"diameter"`` (OD)."""
         self._sheet._tolerances[(self._i, on or self._kind)] = _tol_value(lo, hi)
+        return self
+
+    def fit(self, code: str, *, show: str = "class") -> _Dim:
+        """An ISO 286 fit class on this feature's ⌀ (always the diameter — a fit is diametral,
+        so a step's fit is on its OD, not its length). ``.fit("h6")`` renders ``ø12 h6`` (the
+        class, default) or ``show="deviation"`` the signed deviations ``ø12 0/-0.011`` resolved
+        for the nominal ⌀. Raises for a class/size outside the built-in table (#29)."""
+        self._sheet._tolerances[(self._i, "diameter")] = fit_class(
+            code, self._sheet._features[self._i].diameter, show
+        )
         return self
 
 

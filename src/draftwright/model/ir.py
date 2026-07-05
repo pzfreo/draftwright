@@ -21,7 +21,10 @@ stay one callout.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from draftwright.fits import FitClass
 
 Point = tuple[float, float, float]
 ParamKind = Literal["diameter", "length", "depth", "radius", "angle", "location", "thread"]
@@ -60,9 +63,10 @@ class DimParameter:
     span: tuple[Point, Point] | None = None
     refs: tuple[str, ...] = ()
     # An authored ± tolerance (ADR 0011 §4 / P2a): a symmetric ``float`` or an
-    # ``(lower, upper)`` limit pair, ``None`` when the dimension is untoleranced. Set by
-    # the planner from the caller's ``decorations`` — geometry never supplies it.
-    tolerance: float | tuple[float, float] | None = None
+    # ``(lower, upper)`` limit pair; or a resolved fit class (``FitClass``, P2a.2) that
+    # renders its own class-code / deviation suffix; ``None`` when untoleranced. Set by the
+    # planner from the caller's ``decorations`` — geometry never supplies it.
+    tolerance: float | tuple[float, float] | FitClass | None = None
 
 
 def _fmt(v: float) -> str:

@@ -5,8 +5,13 @@ table is pinned against the standard, not against itself.
 """
 
 import pytest
+from build123d import Box, Cylinder, Pos, Rot
 
-from draftwright.fits import fit_deviation, parse_fit
+from draftwright import Sheet
+from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
+from draftwright.fits import FitClass, fit_class, fit_deviation, parse_fit
+from draftwright.model import PartModel, hole
+from draftwright.model.planner import plan_dimensions
 
 
 class TestParseFit:
@@ -92,3 +97,109 @@ class TestFailLoud:
     def test_nonpositive_nominal_raises(self):
         with pytest.raises(ValueError):
             fit_deviation("H7", 0)
+
+
+class TestFitClass:
+    def test_class_suffix_is_the_code(self):
+        assert fit_class("H7", 20).suffix() == " H7"
+
+    def test_deviation_suffix_is_upper_over_lower(self):
+        # H7 @ 20 = (0, +0.021) → upper/lower = "+0.021/0"
+        assert fit_class("H7", 20, show="deviation").suffix() == " +0.021/0"
+
+    def test_deviation_suffix_both_negative(self):
+        # g6 @ 20 = (-0.020, -0.007) → "-0.007/-0.020" (upper over lower)
+        assert fit_class("g6", 20, show="deviation").suffix() == " -0.007/-0.020"
+
+    def test_deviation_keeps_half_micron_precision(self):
+        # js6 @ 20 = ±0.0065 — must NOT round to the sheet's 1 dp
+        assert fit_class("js6", 20, show="deviation").suffix() == " +0.0065/-0.0065"
+
+    def test_carries_the_resolved_deviations(self):
+        f = fit_class("H7", 20)
+        assert isinstance(f, FitClass)
+        assert (f.lower, f.upper) == pytest.approx((0.0, 0.021))
+
+    def test_bad_show_raises(self):
+        with pytest.raises(ValueError):
+            fit_class("H7", 20, show="both")
+
+    def test_bad_code_raises_at_resolution(self):
+        with pytest.raises(ValueError):
+            fit_class("Z9", 20)
+
+
+class TestPlannerFit:
+    def test_fit_decoration_sets_param_tolerance(self):
+        h = hole(diameter=8, at=(20, 10, 4), axis="z")
+        model = PartModel(
+            bbox=Box(40, 40, 8).bounding_box(),
+            orientation=None,
+            features=[h],
+            decorations={(h, "diameter"): fit_class("H7", 8)},
+        )
+        group = next(g for g in plan_dimensions(model) if g.feature_kind == "hole")
+        bore = next(pd for pd in group.dims if pd.param.kind == "diameter")
+        assert isinstance(bore.param.tolerance, FitClass)
+        assert bore.param.tolerance.code == "H7"
+
+
+class TestCalloutFit:
+    @staticmethod
+    def _spec(diameter, **over):
+        base = {
+            "diameter": diameter, "count": None, "through": True, "depth": None,
+            "cbore_dia": None, "cbore_depth": None, "suffix": None, "tolerance": None,
+        }
+        base.update(over)
+        return base
+
+    def test_hole_bore_callout_carries_the_fit_class(self):
+        from build123d_drafting.helpers import draft_preset
+
+        d = draft_preset(font_size=2.5, decimal_precision=1)
+        plain = callout_from_spec(self._spec(8), d, None)
+        fitted = callout_from_spec(self._spec(8, tolerance=fit_class("H7", 8)), d, None)
+        # the fit widens the callout exactly like a ± tolerance (label carries " H7")
+        assert fitted.bounding_box().size.X > plain.bounding_box().size.X
+
+    def test_hole_callout_spec_reads_the_bore_fit(self):
+        h = hole(diameter=8, at=(20, 10, 4), axis="z")
+        model = PartModel(
+            bbox=Box(40, 40, 8).bounding_box(),
+            orientation=None,
+            features=[h],
+            decorations={(h, "diameter"): fit_class("H7", 8)},
+        )
+        group = next(g for g in plan_dimensions(model) if g.feature_kind == "hole")
+        assert hole_callout_spec(group)["tolerance"].code == "H7"
+
+
+class TestSheetFit:
+    @staticmethod
+    def _stepped_shaft():
+        return (Rot(0, 90, 0) * Cylinder(4, 20)) + (Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10))
+
+    def _dias(self, dwg):
+        return {n: dwg._named[n].label for n in dwg._named if n.startswith("m_dia")}
+
+    def test_boss_fit_class_renders_on_leader(self):
+        s = Sheet(self._stepped_shaft())
+        s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
+        s.diameter(diameter=12, at=(15, 0, 0), axis="x").fit("g6")
+        dwg = s.build()
+        assert any(lbl == "ø12 g6" for lbl in self._dias(dwg).values()), self._dias(dwg)
+
+    def test_boss_fit_deviation_renders_on_leader(self):
+        s = Sheet(self._stepped_shaft())
+        s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
+        # h6 @ ⌀12 (10–18 band, IT6=11) = (-0.011, 0) → "0/-0.011"
+        s.diameter(diameter=12, at=(15, 0, 0), axis="x").fit("h6", show="deviation")
+        dwg = s.build()
+        assert any(lbl == "ø12 0/-0.011" for lbl in self._dias(dwg).values()), self._dias(dwg)
+
+    def test_fit_bad_class_raises_at_declaration(self):
+        s = Sheet(self._stepped_shaft())
+        d = s.diameter(diameter=12, at=(15, 0, 0), axis="x")
+        with pytest.raises(ValueError):
+            d.fit("Z9")  # unknown class
