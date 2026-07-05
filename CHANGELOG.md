@@ -1,15 +1,68 @@
 # Changelog
 
-## Unreleased
+## v0.2.6 — 2026-07-05
+
+**ADR 0011 — the IR as a public input: declare features, don't only detect them.**
+Detection stays the default, but the caller can now *supply* the feature model, so a
+part you built parametrically reads as its own drawing and misdetection becomes
+recoverable by construction. Plus the first Phase-2 aspect layer (tolerances + fits).
+
+### Added
+
+- **`build_drawing(part, model=…)`** accepts a caller-supplied `PartModel` (or a
+  `Sequence[Feature]`); when given, **detection is skipped** and the auto-pass dimensions
+  the declared features. Detection and declaration are two producers of the same IR (#447,
+  ADR 0011 Phase 0).
+- **Object → feature constructors** `draftwright.model.hole` / `boss` / `step` / `slot` /
+  `pattern` / `envelope` — read a feature's geometry off the build123d object you built (⌀
+  from the cylindrical face, axis/location from the bbox), or supply explicit values (#447).
+- **The fluent `Sheet` façade** (`draftwright.Sheet`) — reference the objects you built,
+  declare their drawing aspects, `.build()` / `.export()`. `Sheet.from_part()` seeds the
+  hybrid override mode from detection (#447, Phase 1).
+- **Toleranced dimensions** — a `±` / limit tolerance on a diameter, step, or hole bore,
+  rendered on both the linear and ⌀-callout paths (`Sheet.tolerance(...)`, or a
+  `decorations=` side-layer) (#28, Phase 2 P2a).
+- **Fit-class deviation** — `Sheet.fit("H7")` resolves an ISO 286 fit class to its limit
+  deviation for the feature's nominal ⌀, rendered as the class code (`ø20 H7`, default) or
+  the signed deviations (`show="deviation"` → `ø20 +0.021/0`). Common classes; fails loud
+  outside its table (#29, Phase 2 P2a.2).
 
 ### Changed
 
-- **Dimension-line spacing now follows ISO 129-1 / ASME Y14.5 convention** (#347).
-  The first dimension line sits further from the view outline (first-line gap
-  8 → 10 mm) and successive parallel lines stack tighter and uniform (between-line
-  clear gap 4 → 2.5 mm). The inter-view corridor widens in step (`_DIM_PAD`
-  18 → 20 mm) so the wider first-line gap does not crowd the between-view
-  dimensions. Re-drifts the layout of every drawing.
+- **Object constructors honour explicit overrides** — a passed object supplies *defaults*;
+  each explicit keyword overrides that field independently, and invalid public input fails
+  at declaration with a clear `ValueError` (#451, #452).
+- **A declared hole/pattern renders at its declared position** even where detection missed
+  it — the callout membership is sourced from the declared model, not only detection (#448).
+- **`Sheet.model()` / `Sheet.from_part()`** no longer build a full drawing just to return
+  the IR — feature inspection/seeding is now a cheap, no-render path (#453).
+
+### Fixed
+
+- A narrow diameter band hidden under a larger OD silhouette is no longer silently
+  undimensioned (the two feature inventories agreed) (#298).
+
+## v0.2.5 — 2026-07-04
+
+**The editable write API and record-then-finalize.** A detected drawing became an editable
+object, and a generated `--script` became a runnable reconstruction that reaches auto-pass
+quality.
+
+### Added
+
+- **`dwg.model()`** exposes the detected `PartModel` as a read surface, plus feature-
+  referenced add verbs `dimension()` / `callout()` / `locate()` / `furniture()` /
+  `section()` and `drop(feature)`, with a machine-checked completeness audit (#400).
+- **Record-then-finalize** (#426): the verbs record intents in deferred mode and
+  `dwg.finalize()` (auto-run by export) drains them through the auto-pass's own solvers, so
+  a reconstruction reaches auto-pass quality; `--script` now emits a runnable detect-only
+  reconstruction.
+
+### Changed
+
+- **Dimension-line spacing now follows ISO 129-1 / ASME Y14.5 convention** (#347): a wider
+  first-line gap (8 → 10 mm) and tighter, uniform parallel stacking (between-line clear gap
+  4 → 2.5 mm), with the inter-view corridor widened in step. Re-drifts every drawing.
 
 ## v0.2.4 — 2026-07-03
 
