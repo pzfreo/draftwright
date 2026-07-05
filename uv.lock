@@ -567,7 +567,7 @@ wheels = [
 
 [[package]]
 name = "draftwright"
-version = "0.2.7.dev0"
+version = "0.2.8.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "build123d" },
