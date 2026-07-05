@@ -30,6 +30,7 @@ from build123d_drafting.helpers import (
     format_drawing_scale,
 )
 
+from draftwright.fits import FitClass
 from draftwright.fonts import PLEX_MONO, PLEX_SANS_CONDENSED
 from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
 
@@ -95,9 +96,14 @@ def _tol_suffix(tolerance, draft) -> str:
     draftwright owns this suffix ONLY because the pinned helpers' ``Leader`` /
     ``HoleCallout`` take no ``tolerance=`` yet, so we bake it into the label string
     ourselves. Delete this once helpers grows a first-class tolerance parameter for
-    those two (extraction tracked as #449) — ``Dimension`` formats its own (#28 / P2a)."""
+    those two (extraction tracked as #449) — ``Dimension`` formats its own (#28 / P2a).
+
+    A resolved fit (:class:`~draftwright.fits.FitClass`, P2a.2) renders its own class-code
+    or deviation suffix — it rides the same ``tolerance`` field as an aspect marker."""
     if tolerance is None:
         return ""
+    if isinstance(tolerance, FitClass):
+        return tolerance.suffix()
     prec = draft.decimal_precision
     if isinstance(tolerance, (int, float)):
         return f" ±{round(tolerance, prec):.{prec}f}"

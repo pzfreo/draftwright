@@ -108,16 +108,29 @@ the tolerance renders on the linear `Dimension` path AND the `Leader` / `HoleCal
   `tolerance=` param; file an upstream issue to add one, then delete the suffix and pass
   the tolerance through like `Dimension` does. Tracked as **#449**.
 
-### P2a.2 — Fit-class deviation (`.fit("h6")`) · #29
+### P2a.2 — Fit-class deviation (`.fit("h6")`) · #29 · **DONE**
 
 The lone genuine (c) gap — helpers has no fit-code semantics.
 
-- A small ISO 286 table in draftwright: `(fit_code, nominal_⌀) → (lower, upper)`
-  deviation (h6/H7/g6/js… — the common shaft/hole classes), feeding P2a's
-  tolerance path.
-- `Sheet`: `.fit("h6")` on a diameter handle.
-- Optional label form: render `⌀20 H7` (class) vs `⌀20 ±dev` (deviation) — config,
-  default deviation.
+- **`draftwright/fits.py`** — the ISO 286 table `fit_deviation(code, nominal) → (lower,
+  upper)` signed deviations (mm), computed from the standard IT-grade + fundamental-
+  deviation tables over the common classes (holes `H`/`G`/`F` via the EI=−es mirror;
+  shafts `h`/`g`/`f`/`js`/`k`/`n`/`p`) and ⌀ ≤ 250 mm. **Fails loud** outside coverage —
+  never a silent wrong number (the delta-rule K/N/P *holes* are intentionally out). 20
+  tests pin every value against published ISO 286 deviations.
+- **`FitClass`** (in `fits.py`) is a resolved fit that rides `DimParameter.tolerance` as
+  an aspect marker, so it reuses **all** of P2a's threading — `_core._tol_suffix`
+  dispatches it, zero planner / render-tuple changes. It carries the deviations for tooling
+  and renders its own suffix.
+- **`Sheet`**: `.fit("H7")` on a `hole` (bore ⌀) or a `diameter`/`boss`/`step` (the OD — a
+  fit is always diametral). Resolved + validated at declaration against the feature's
+  nominal ⌀.
+- **Label form (decided):** **default the fit-class code** (`ø20 H7`) — the compact,
+  unambiguous, always-correct single-line form — with **`show="deviation"`** for the signed
+  deviations (`ø20 +0.021/0`, both-negative like `g6` → `-0.007/-0.020`). *(Amends the
+  original "default deviation" note: on a single-line ⌀ callout the class code reads
+  cleaner and a shared-sign fit can't use P2a's `+hi/-lo` formatter; the deviation form
+  needs its own precision — fit deviations show 3–4 dp, not the sheet's 1 dp.)*
 
 ### P2b — GD&T + finish placement API (#61) · #30
 
