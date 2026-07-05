@@ -9,6 +9,7 @@ stage modules -- never make_drawing -- so the graph stays a DAG.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal
@@ -39,7 +40,7 @@ from draftwright.annotate import _auto_annotate, build_model
 from draftwright.annotations.sections import feature_hole_keys
 from draftwright.drawing import Drawing
 from draftwright.fonts import PLEX_MONO
-from draftwright.model import display, plan_sections
+from draftwright.model import Datum, Feature, PartModel, StepFeature, display, plan_sections
 from draftwright.projection import (
     _fit_iso_view,
     _project_iso,
@@ -189,7 +190,22 @@ def _measure_blocks(dwg, a) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _assemble(a, out, assembly, detail_view, auto_dims) -> Drawing:
+def _coerce_model(model, a) -> PartModel:
+    """Wrap a caller-supplied ``model=`` (ADR 0011) into a :class:`PartModel`. A
+    ``PartModel`` is used verbatim; a sequence of features is wrapped with the part's
+    bbox, a default corner location datum (matching ``detect.py``, so hole location
+    dims measure from the min corner), and an orientation inferred from any turned
+    ``StepFeature`` (so a declared shaft renders as turned)."""
+    if isinstance(model, PartModel):
+        return model
+    features = list(model)
+    bbox = a.part.bounding_box()
+    orientation = next((f.frame.axis for f in features if isinstance(f, StepFeature)), None)
+    datum = Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))
+    return PartModel(bbox=bbox, orientation=orientation, features=features, datums=[datum])
+
+
+def _assemble(a, out, assembly, detail_view, auto_dims, model=None) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
     passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
     repacked analysis it is also pass 2 of the measure-and-repack loop (#121)."""
@@ -214,7 +230,7 @@ def _assemble(a, out, assembly, detail_view, auto_dims) -> Drawing:
     # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
     # work even in manual mode (#398). _auto_annotate reads this attached model rather
     # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
-    dwg._part_model = build_model(a)
+    dwg._part_model = _coerce_model(model, a) if model is not None else build_model(a)
 
     part_s = a.part.scale(a.SCALE)
     dwg.add_view("front", part_s, (cxs, cys - dist, czs), (0, 0, 1), (a.FV_X, a.FV_Y), scaled=True)
@@ -276,7 +292,7 @@ def _repack_candidates(a, scale, page):
     return list(_LADDER[start:])
 
 
-def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None):
+def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None, model=None):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
     when a view collides across views, pack the blocks disjoint — escalating the
     sheet/scale until the packed layout fits — then re-assemble (#121, ADR 0004 —
@@ -391,7 +407,7 @@ def _repack(a, dwg, out, assembly, detail_view, scale=None, page=None):
         pv_zones=pv_zones,
         sv_zones=sv_zones,
     )
-    dwg2 = _assemble(a2, out, assembly, detail_view, auto_dims=True)
+    dwg2 = _assemble(a2, out, assembly, detail_view, auto_dims=True, model=model)
     return a2, dwg2
 
 
@@ -409,6 +425,7 @@ def build_drawing(
     pmi: Literal["off", "report", "annotate"] = "off",
     repair: bool = True,
     assembly: bool | None = None,
+    model: Sequence[Feature] | PartModel | None = None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -433,6 +450,18 @@ def build_drawing(
             assembly, whose per-part bores are reported at ``info`` rather than
             ``warning`` (a GA omits them by design). Force with ``True``/``False``
             (#69).
+        model: a caller-supplied IR (ADR 0011) — a :class:`PartModel`, or a sequence
+            of :class:`Feature`\\ s (declared with :func:`draftwright.model.hole`,
+            ``boss``, ``step``, … from the objects you built). When given, **feature
+            detection is skipped** and the auto-pass dimensions exactly the declared
+            features; ``None`` (default) detects normally. Detection and declaration are
+            two producers of the same IR — everything downstream is untouched. (Notes:
+            sheet scale/zone estimation and the coverage lint still detect independently,
+            so a *partial* declaration will flag the undeclared geometry; and the
+            hole/pattern renderer gates on detected hole positions, so a declared
+            hole/pattern renders only where it coincides with a detected hole — a missed
+            hole is flagged, not drawn (#448). Diameter/step/boss/envelope features are
+            not gated. See ADR 0011.)
 
     Returns:
         A :class:`Drawing` with the standard front/plan/side/iso views projected
@@ -454,9 +483,9 @@ def build_drawing(
     # per-view footprints and re-pack the blocks disjoint if a view actually
     # moves (#121, ADR 0004 — "lay out, don't predict").  Non-ballooned parts
     # measure ≈ estimate, so they skip pass 2 and stand byte-identical.
-    dwg = _assemble(a, out, assembly, detail_view, auto_dims)
+    dwg = _assemble(a, out, assembly, detail_view, auto_dims, model=model)
     if auto_dims:
-        repacked = _repack(a, dwg, out, assembly, detail_view, scale=scale, page=page)
+        repacked = _repack(a, dwg, out, assembly, detail_view, scale=scale, page=page, model=model)
         if repacked is not None:
             a, dwg = repacked
     if repair:

@@ -391,8 +391,12 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
             # Anchor on an actual member hole, not `feat.frame.origin` — for a
             # bolt circle / grid that's the pattern's geometric centre, which
             # isn't a hole, so the leader would point at solid material instead
-            # of the pattern it documents.
-            SimpleNamespace(location=feat.members[0], diameter=feat.member.diameter),
+            # of the pattern it documents.  Fall back to the centre only if a
+            # declared pattern left `members` empty (detected ones never do).
+            SimpleNamespace(
+                location=(feat.members or (feat.frame.origin,))[0],
+                diameter=feat.member.diameter,
+            ),
         )
         for tag, feat in zip(pattern_tags, pattern_feats, strict=True)
     ]
