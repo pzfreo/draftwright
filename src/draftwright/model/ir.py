@@ -59,6 +59,10 @@ class DimParameter:
     value: float
     span: tuple[Point, Point] | None = None
     refs: tuple[str, ...] = ()
+    # An authored ± tolerance (ADR 0011 §4 / P2a): a symmetric ``float`` or an
+    # ``(lower, upper)`` limit pair, ``None`` when the dimension is untoleranced. Set by
+    # the planner from the caller's ``decorations`` — geometry never supplies it.
+    tolerance: float | tuple[float, float] | None = None
 
 
 def _fmt(v: float) -> str:
@@ -335,3 +339,7 @@ class PartModel:
     orientation: str | None  # turning axis if rotational, else None
     features: list[Feature] = field(default_factory=list)
     datums: list[Datum] = field(default_factory=list)
+    # Authored aspects the frozen features can't carry (ADR 0011 §4). P2a uses it for
+    # per-dimension tolerances: ``{(feature, ParamKind) -> float | (lo, hi)}``. The
+    # planner consults it to set ``DimParameter.tolerance``; empty on a detected model.
+    decorations: dict = field(default_factory=dict)

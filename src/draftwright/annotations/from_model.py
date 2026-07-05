@@ -41,6 +41,7 @@ from draftwright._core import (
     _legible_steps,
     _log,
     _solve_strip_ys,
+    _tol_suffix,
 )
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
@@ -82,6 +83,14 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     bore = _first(group, "diameter", "bore")
     if bore is None:
         return None
+    bore_tol = next(
+        (
+            pd.param.tolerance
+            for pd in group.dims
+            if pd.param.kind == "diameter" and pd.param.role == "bore"
+        ),
+        None,
+    )
     depth = _first(group, "depth", "bore")
     count = feat.count
     suffix = None
@@ -99,6 +108,7 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         "cbore_dia": _first(group, "diameter", "counterbore", "spotface"),
         "cbore_depth": _first(group, "depth", "counterbore", "spotface"),
         "suffix": suffix,
+        "tolerance": bore_tol,  # P2a: ± on the bore ⌀, baked into the callout string below
     }
 
 
@@ -120,8 +130,14 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     def f(v):  # see the #261 note above — every value crosses as a formatted string
         return _fmt(v) if v is not None else None
 
+    dia = f(spec["diameter"])
+    if dia is not None:
+        # P2a: bake the ± tolerance into the bore string (helpers' HoleCallout accepts a
+        # diameter carrying tolerance/fit text, "8 ±0.05"); no tolerance → empty suffix.
+        dia += _tol_suffix(spec.get("tolerance"), draft)
+
     return HoleCallout(
-        f(spec["diameter"]),
+        dia,
         count=count,
         through=spec["through"],
         depth=f(spec["depth"]),
@@ -622,10 +638,10 @@ def _diameter_row_below(dwg, items, start: int = 0) -> int:
     if label_y < _MARGIN + draft.font_size:
         return 0
     specs = []  # (tip_page, dia, label, feature), tip on the step's bottom silhouette
-    for anchor, dia, feat in items:
+    for anchor, dia, feat, dtol in items:
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
-        specs.append((tip, dia, f"ø{_fmt(dia)}", feat))
+        specs.append((tip, dia, f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}", feat))
     half_w = max(len(label) for _, _, label, _ in specs) * draft.font_size * 0.62 / 2
     min_gap = 2 * half_w + 2 * draft.pad_around_text
     # Place what fits; drop the smallest ø first, never the whole row (#298).
@@ -649,15 +665,19 @@ def _diameter_column_left(dwg, items, start: int = 0) -> int:
         return 0
     draft = dwg.draft
     fx0, fy0, _, fy1 = dwg.view_bounds("front")
-    label_w = max(len(f"ø{_fmt(dia)}") for _, dia, _ in items) * draft.font_size * 0.62
+    label_w = (
+        max(len(f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}") for _, dia, _, dtol in items)
+        * draft.font_size
+        * 0.62
+    )
     elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
     if elbow_x - label_w < _MARGIN:
         return 0
     specs = []  # (tip_page, dia, label, feature), tip on the step's left silhouette
-    for anchor, dia, feat in items:
+    for anchor, dia, feat, dtol in items:
         ax, ay, az = anchor
         tip = dwg.at("front", ax - dia / 2, ay, az)
-        specs.append((tip, dia, f"ø{_fmt(dia)}", feat))
+        specs.append((tip, dia, f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}", feat))
     half_h = draft.font_size / 2 + draft.pad_around_text
     min_gap = 2 * half_h
     # Place what fits; drop the smallest ø first, never the whole column (#298).
@@ -694,24 +714,35 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, only=None) -> int:
     # diameter (insertion-ordered), so provenance (#412) can tag the callout with its
     # single owner — or leave it unowned when two distinct features share the diameter
     # (the #398c/#406 shared-value rule, so drop can't over-strip a sibling).
-    row_buckets: dict = {}  # round(dia,2) -> [anchor, dia, {features}]  (X-turned)
+    row_buckets: dict = {}  # round(dia,2) -> [anchor, dia, {features}, tolerance]  (X-turned)
     col_buckets: dict = {}  # Z-turned
     for g in groups:
         if g.feature_kind not in ("step", "boss"):
             continue
         if only is not None and g.feature not in only:  # #426 finalize: recorded subset
             continue
-        dia = next((pd.param.value for pd in g.dims if pd.param.kind == "diameter"), None)
-        if dia is None or any(abs(dia - m) <= tol for m in mentioned):
+        dpd = next((pd for pd in g.dims if pd.param.kind == "diameter"), None)
+        if dpd is None:
+            continue
+        dia = dpd.param.value
+        if any(abs(dia - m) <= tol for m in mentioned):
             continue
         bucket = {"x": row_buckets, "z": col_buckets}.get(g.feature.frame.axis)
         if bucket is None:
             continue
         dkey = round(dia, 2)
-        bucket.setdefault(dkey, [g.anchor, dia, set()])[2].add(g.feature)
+        dtol = dpd.param.tolerance
+        # entry = [anchor, dia, {features}, ± tolerance]. A callout is per (axis, ⌀); the
+        # first authored tolerance on a shared ⌀ wins (P2a — a single callout, one label).
+        entry = bucket.setdefault(dkey, [g.anchor, dia, set(), dtol])
+        entry[2].add(g.feature)
+        if entry[3] is None:
+            entry[3] = dtol
 
     def _items(buckets):
-        return [(a, d, next(iter(fs)) if len(fs) == 1 else None) for a, d, fs in buckets.values()]
+        return [
+            (a, d, next(iter(fs)) if len(fs) == 1 else None, t) for a, d, fs, t in buckets.values()
+        ]
 
     # The placers name leaders m_dia_{x,z}{start+i} CONTIGUOUSLY from one start. The auto-pass
     # (only None) uses start=0 — byte-identical. The finalize path (only set) may run after
@@ -879,12 +910,14 @@ def _draw_step_chain(
     draft = dwg.draft
     gap = draft.font_size + 4 * draft.pad_around_text
     horizontal = abs(segs[0][1][0] - segs[0][0][0]) >= abs(segs[0][1][1] - segs[0][0][1])
-    vals = [v for *_, v in segs]
+    vals = [s[2] for s in segs]  # value is index 2 (segs are 4-tuples: pa, pb, value, tol)
     mean_v = sum(vals) / len(vals)
     if allow_collapse and len(segs) >= 3 and (max(vals) - min(vals)) <= 0.10 * mean_v:
+        # A uniform run collapses to one "N× v" dim; a per-step ± would be a false claim on
+        # N equal steps, so the collapse carries NO tolerance (#28 / P2a).
         label = f"{len(segs)}× {_fmt(mean_v)}"
-        xs = [p[0] for pa, pb, _ in segs for p in (pa, pb)]
-        ys = [p[1] for pa, pb, _ in segs for p in (pa, pb)]
+        xs = [p[0] for pa, pb, *_ in segs for p in (pa, pb)]
+        ys = [p[1] for pa, pb, *_ in segs for p in (pa, pb)]
         if horizontal:
             dim = _dim((min(xs), y1, 0), (max(xs), y1, 0), "above", gap, draft, label=label)
         else:
@@ -896,7 +929,8 @@ def _draw_step_chain(
         tiers = [0] * len(segs)
         if horizontal:
             cw = [
-                ((pa[0] + pb[0]) / 2, len(_fmt(v)) * draft.font_size * 0.62) for pa, pb, v in segs
+                ((pa[0] + pb[0]) / 2, len(_fmt(v)) * draft.font_size * 0.62)
+                for pa, pb, v, *_ in segs
             ]
 
             def _clear(items):  # (center, width) pairs in x order — labels don't overlap
@@ -916,14 +950,14 @@ def _draw_step_chain(
                 )
                 return 0
         else:
-            shoulder_ys = sorted({c for pa, pb, _ in segs for c in (pa[1], pb[1])})
+            shoulder_ys = sorted({c for pa, pb, *_ in segs for c in (pa[1], pb[1])})
             if any(b - a < tier_step for a, b in zip(shoulder_ys, shoulder_ys[1:])):
                 _log.info("step-length chain skipped: shoulders too close to dimension")
                 _record_step_chain_drop(dwg, "turned shoulders too closely spaced to dimension")
                 return 0
 
         candidates = []
-        for i, (pa, pb, value) in enumerate(segs):
+        for i, (pa, pb, value, seg_tol) in enumerate(segs):
             if horizontal:
                 p1, p2, side = (pa[0], y1, 0), (pb[0], y1, 0), "above"
                 dist = gap + tiers[i] * tier_step
@@ -931,7 +965,10 @@ def _draw_step_chain(
                 p1, p2, side = (x1, pa[1], 0), (x1, pb[1], 0), "right"
                 dist = gap
             candidates.append(
-                (f"{name_prefix}{start + i}", _dim(p1, p2, side, dist, draft, label=_fmt(value)))
+                (
+                    f"{name_prefix}{start + i}",
+                    _dim(p1, p2, side, dist, draft, label=_fmt(value), tolerance=seg_tol),
+                )
             )
 
     # Room guard: if any dim would fall off the drawable page, place NONE.
@@ -992,14 +1029,14 @@ def render_step_lengths(dwg, groups, *, only=None) -> int:
         )
         if length is None or length.span is None:
             continue
-        rows.append((length.span[0], length.span[1], length.value))
+        rows.append((length.span[0], length.span[1], length.value, length.tolerance))
     if not rows:
         return 0
     draft = dwg.draft
     # only=None (auto-pass) → start=0, historical m_steplen naming, byte-identical. The
     # finalize path (only set) starts past existing m_steplen names (#426 naming seam).
     start = _next_steplen_start(dwg) if only is not None else 0
-    fsegs = [(dwg.at("front", *a), dwg.at("front", *b), v) for a, b, v in rows]
+    fsegs = [(dwg.at("front", *a), dwg.at("front", *b), v, t) for a, b, v, t in rows]
     horizontal = abs(fsegs[0][1][0] - fsegs[0][0][0]) >= abs(fsegs[0][1][1] - fsegs[0][0][1])
 
     # X-turned crowded-head detour (#307): split off each contiguous *run of ≥2*
@@ -1009,7 +1046,7 @@ def render_step_lengths(dwg, groups, *, only=None) -> int:
     # (#307 review). The legible steps + blocks stay as the main chain.
     if horizontal:
         floor_pg = 2 * draft.arrow_length
-        sub = [i for i, (pa, pb, _) in enumerate(fsegs) if abs(pb[0] - pa[0]) < floor_pg]
+        sub = [i for i, (pa, pb, *_) in enumerate(fsegs) if abs(pb[0] - pa[0]) < floor_pg]
         runs: list[list[int]] = []
         for j in sub:
             (runs[-1].append(j) if runs and j == runs[-1][-1] + 1 else runs.append([j]))
@@ -1018,17 +1055,20 @@ def render_step_lengths(dwg, groups, *, only=None) -> int:
             blocks = []
             for run in heads:
                 ra = [rows[i] for i in run]
-                hlo = min(min(a[0], b[0]) for a, b, _ in ra)
-                hhi = max(max(a[0], b[0]) for a, b, _ in ra)
-                minlen = min(v for *_, v in ra)
+                hlo = min(min(a[0], b[0]) for a, b, *_ in ra)
+                hhi = max(max(a[0], b[0]) for a, b, *_ in ra)
+                minlen = min(r[2] for r in ra)  # value is index 2 (rows are 4-tuples: a,b,v,tol)
                 # World→page scale for the detail (no sheet factor — detail_scale is an
                 # absolute world→page scale). (#307 review)
                 scale_needed = _MIN_STEP_SEP_MM / minlen if minlen > 0 else float("inf")
-                blocks.append((dwg.at("front", hlo, 0, 0), dwg.at("front", hhi, 0, 0), hhi - hlo))
+                # A head *block* is a synthetic span, not one toleranced step — carry no ± (None).
+                blocks.append(
+                    (dwg.at("front", hlo, 0, 0), dwg.at("front", hhi, 0, 0), hhi - hlo, None)
+                )
 
                 def _redraw(dwg, view, detail_scale, _hw=ra):
                     # View-scoped name prefix so two detail views never collide (#307 review).
-                    hsegs = [(dwg.at(view, *a), dwg.at(view, *b), v) for a, b, v in _hw]
+                    hsegs = [(dwg.at(view, *a), dwg.at(view, *b), v, t) for a, b, v, t in _hw]
                     return _draw_step_chain(dwg, view, hsegs, f"dim_{view}_steplen", detail_scale)
 
                 dwg._detail_requests.append(

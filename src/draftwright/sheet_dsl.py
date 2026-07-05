@@ -12,13 +12,14 @@ detection is skipped and the auto-pass dimensions exactly the declared features:
     sheet.diameter(boss_cyl)
     sheet.export("plate")
 
-**Phase 1 scope (this module):** the *feature-declaration* surface over the
-renderers the engine has today — dimensions, ⌀ callouts, holes (through / blind),
-turned steps, slots, patterns, the overall envelope, and the auto section. The
-richer aspect verbs from the #445 vision that need *new* rendering — ``.fit`` /
-``.tolerance`` (toleranced dims), ``.thread``, ``.finish`` (surface symbols) and
-``control(...)`` (GD&T) — are Phase 2 (roadmap #446) and are deliberately **not**
-stubbed here, so the surface only exposes what actually draws.
+**Scope (this module):** the *feature-declaration* surface over the renderers the
+engine has today — dimensions, ⌀ callouts, holes (through / blind), turned steps,
+slots, patterns, the overall envelope, and the auto section — plus the P2a
+**``.tolerance``** aspect (a ± / limit tolerance on a diameter, a step, or a hole
+bore). The remaining #445 aspect verbs that still need new rendering — ``.fit``
+(fit-class → ISO 286 deviation), ``.thread``, ``.finish`` (surface symbols) and
+``control(...)`` (GD&T) — are the later Phase-2 items (roadmap #446) and are
+deliberately **not** stubbed here, so the surface only exposes what actually draws.
 
 **Hybrid.** :meth:`Sheet.from_part` seeds the declared set from *detection*, so you
 can start from the detected model and override specific features (declaration is for
@@ -57,9 +58,16 @@ def _parse_scale(scale):
     raise TypeError(f"scale must be a number, ratio string, or None — got {type(scale).__name__}")
 
 
+def _tol_value(lo, hi):
+    """A ± tolerance value from the handle args: a symmetric ``float`` (``hi is None``) or
+    an ``(lower, upper)`` limit pair. The pair renders ``+upper -lower`` (helpers'
+    convention), so ``.tolerance(0.0, 0.1)`` → ``+0.1 -0.0`` — both magnitudes positive."""
+    return lo if hi is None else (lo, hi)
+
+
 class _Hole:
-    """A fluent handle for one declared hole — the only feature with a Phase-1 aspect
-    (through vs blind, which changes the callout)."""
+    """A fluent handle for one declared hole — through vs blind (which changes the callout),
+    and the P2a ± tolerance on its bore ⌀."""
 
     def __init__(self, sheet: Sheet, index: int) -> None:
         self._sheet = sheet
@@ -73,8 +81,32 @@ class _Hole:
         """A blind hole *d* mm deep — adds a depth callout."""
         return self._set(through=False, depth=d)
 
+    def tolerance(self, lo: float, hi: float | None = None) -> _Hole:
+        """A ± tolerance on the bore ⌀: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
+        limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``)."""
+        self._sheet._tolerances[(self._i, "diameter")] = _tol_value(lo, hi)
+        return self
+
     def _set(self, **kw) -> _Hole:
         self._sheet._features[self._i] = replace(self._sheet._features[self._i], **kw)
+        return self
+
+
+class _Dim:
+    """A fluent handle for a declared dimension-bearing feature (a diameter / boss OD, or a
+    turned step), carrying the P2a ``.tolerance`` aspect. ``default_kind`` is the parameter a
+    bare ``.tolerance(...)`` targets — ``"diameter"`` for an OD, ``"length"`` for a step."""
+
+    def __init__(self, sheet: Sheet, index: int, default_kind: str) -> None:
+        self._sheet = sheet
+        self._i = index
+        self._kind = default_kind
+
+    def tolerance(self, lo: float, hi: float | None = None, *, on: str | None = None) -> _Dim:
+        """A ± tolerance on this dimension: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
+        limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` picks the parameter for
+        a multi-dim feature — a step's ``"length"`` (default) vs its ``"diameter"`` (OD)."""
+        self._sheet._tolerances[(self._i, on or self._kind)] = _tol_value(lo, hi)
         return self
 
 
@@ -91,6 +123,9 @@ class Sheet:
     def __init__(self, part, *, title=None, number="DWG-001", scale=None, page=None, out=None):
         self._part = part
         self._features: list = []
+        # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
+        # feature replacement (e.g. hole().depth()); materialized to (feature, kind) at build.
+        self._tolerances: dict = {}
         self._opts = dict(
             title=title, number=number, scale=_parse_scale(scale), page=page, out=out
         )
@@ -118,21 +153,22 @@ class Sheet:
         self._features.append(_hole(obj, **kw))
         return _Hole(self, len(self._features) - 1)
 
-    def diameter(self, obj=None, **kw) -> Sheet:
+    def diameter(self, obj=None, **kw) -> _Dim:
         """Declare an external cylindrical diameter (a boss / OD) — the ⌀ is read off the
-        object. The turned/external ⌀-callout verb of the #445 vision."""
+        object. Returns a handle: chain ``.tolerance(...)`` for a ± on the ⌀ (P2a)."""
         self._features.append(_boss(obj, **kw))
-        return self
+        return _Dim(self, len(self._features) - 1, "diameter")
 
-    def boss(self, obj=None, **kw) -> Sheet:
+    def boss(self, obj=None, **kw) -> _Dim:
         """Alias of :meth:`diameter` — an external cylindrical boss / OD."""
         return self.diameter(obj, **kw)
 
-    def step(self, obj=None, **kw) -> Sheet:
-        """Declare one axial segment of a turned profile (its OD + length). A model with
-        any step renders as a turned part."""
+    def step(self, obj=None, **kw) -> _Dim:
+        """Declare one axial segment of a turned profile (its OD + length). A model with any
+        step renders as a turned part. Returns a handle: ``.tolerance(...)`` tolerances the
+        step *length* by default, ``.tolerance(..., on="diameter")`` its OD (P2a)."""
         self._features.append(_step(obj, **kw))
-        return self
+        return _Dim(self, len(self._features) - 1, "length")
 
     def slot(self, obj=None, **kw) -> Sheet:
         """Declare a milled slot / reduced across-flats section (width + length)."""
@@ -164,7 +200,15 @@ class Sheet:
     def build(self):
         """Build the :class:`~draftwright.drawing.Drawing` — detection skipped; only the
         declared features are drawn."""
-        return build_drawing(self._part, model=self._features, **self._opts)
+        # Materialize the index-keyed tolerances against the final features (a handle may
+        # have been recorded before a later .depth()/… replaced the feature) → the
+        # (feature, kind) decoration map the planner reads (P2a).
+        decorations = {
+            (self._features[i], kind): tol for (i, kind), tol in self._tolerances.items()
+        }
+        return build_drawing(
+            self._part, model=self._features, decorations=decorations, **self._opts
+        )
 
     def export(self, stem=None):
         """Build and export the drawing (SVG + DXF). *stem* defaults to the drawing

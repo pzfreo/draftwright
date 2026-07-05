@@ -86,6 +86,25 @@ def _fmt(v: float) -> str:
     return str(r) if abs(v - r) < 1e-6 else f"{v:.1f}"
 
 
+def _tol_suffix(tolerance, draft) -> str:
+    """The ``±`` / limit tolerance suffix to append to a **callout** label (a ø leader
+    or a hole callout), matching byte-for-byte what ``Dimension(tolerance=…)`` renders
+    on a linear dim (helpers ``_format_label``): a symmetric ``float`` → ``" ±t"``; an
+    ``(lower, upper)`` pair → ``" +upper -lower"`` — all rounded to the draft precision.
+
+    draftwright owns this suffix ONLY because the pinned helpers' ``Leader`` /
+    ``HoleCallout`` take no ``tolerance=`` yet, so we bake it into the label string
+    ourselves. Delete this once helpers grows a first-class tolerance parameter for
+    those two (extraction tracked as #449) — ``Dimension`` formats its own (#28 / P2a)."""
+    if tolerance is None:
+        return ""
+    prec = draft.decimal_precision
+    if isinstance(tolerance, (int, float)):
+        return f" ±{round(tolerance, prec):.{prec}f}"
+    lo, hi = tolerance
+    return f" +{round(hi, prec):.{prec}f} -{round(lo, prec):.{prec}f}"
+
+
 def _tag_sequence(n):
     """``A, B, …, Z, AA, AB, …`` — deterministic hole-table tags for *n* rows."""
     tags = []
