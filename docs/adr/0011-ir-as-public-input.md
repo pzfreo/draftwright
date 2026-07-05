@@ -91,6 +91,18 @@ detected drawing needs one more thing"). Two complementary modes, one IR.
   is correctly flagged by the coverage lint for the geometry it left undimensioned (the
   drawing is right — those features genuinely have no callout). A full declared-model
   bypass of estimation + coverage is a follow-up, not a blocker.
+- **Known caveat — the hole/pattern render path is gated on detected positions.**
+  Distinct from the diameter/step/boss/envelope path (which renders straight from the IR),
+  the *hole and pattern* renderers gate on `feature_keys` — the set of detected hole
+  positions (`feature_holes_of(a)`, the Amendment-6 invariant that no recogniser `Hole`
+  crosses into the renderers). So a declared hole/pattern only renders where its members
+  coincide (to 3 dp) with a **detected** hole; a hole that detection *missed* renders
+  nothing (it surfaces as a coverage **warning**, not silently). This means declaration
+  fully sidesteps misdetection for the #298 class (a band under an OD — a *diameter*
+  feature, not gated) but **not** for a missed hole. The canonical fix — sourcing
+  `feature_keys` from the declared model when `model=` is supplied — is tracked as a
+  follow-up (**#448**), not a blocker: the common declared-hole case (declared positions
+  match the built geometry) renders correctly.
 
 ## Alternatives considered
 

@@ -177,30 +177,59 @@ class TestModelSeam:
         dwg = build_drawing(shaft, model=[step(diameter=8, length=30, at=(0, 0, 0), axis="x")])
         assert dwg.model().orientation == "x"
 
-    def test_declared_bolt_circle_renders_without_crashing(self):
-        # Regression: declare.pattern once defaulted members=(), so a declared pattern
-        # was shaped unlike a detected one and the balloon / BCD furniture crashed
-        # (IndexError at orchestrator.py:395, ZeroDivisionError at holes.py:708) or
-        # silently under-rendered. Drill the holes where the arrangement puts them so the
-        # declared pattern matches the real geometry.
+    @staticmethod
+    def _bolt_circle_part(r, z, angles):
         import math
 
         plate = Box(80, 80, 8)
-        r, z = 25.0, 4.0
-        centres = [
-            (r * math.cos(math.radians(a)), r * math.sin(math.radians(a)), z)
-            for a in (0, 90, 180, 270)
-        ]
         part = plate
-        for cx, cy, _ in centres:
-            part -= Pos(cx, cy, z) * Cylinder(3, 8)
+        for a in angles:
+            part -= Pos(
+                r * math.cos(math.radians(a)), r * math.sin(math.radians(a)), z
+            ) * Cylinder(3, 8)
+        return plate, part
+
+    def test_declared_bolt_circle_actually_renders(self):
+        # Regression: declare.pattern once defaulted members=(), so a declared pattern
+        # was shaped unlike a detected one and the balloon / BCD furniture crashed
+        # (IndexError at orchestrator.py:395, ZeroDivisionError at holes.py:708) or
+        # silently under-rendered. With the arrangement matching the real holes, the
+        # bolt-circle furniture must actually appear — a wrong _pattern_members basis
+        # would populate members but render nothing, which this asserts against.
+        r, z = 25.0, 4.0
+        plate, part = self._bolt_circle_part(r, z, (0, 90, 180, 270))
         member = hole(diameter=6, at=(r, 0, z), axis="z")
-        pat = pattern(member, kind="bolt_circle", count=4, bcd=50, at=(0, 0, z))
-        # must not raise, and the pattern's member locations must be populated
+        pat = pattern(member, kind="bolt_circle", count=4, bcd=2 * r, at=(0, 0, z))
         dwg = build_drawing(part, model=[envelope(plate), pat])
         assert len(dwg.model().features[-1].members) == 4
-        errors = [i for i in dwg.lint() if i.severity == "error"]
-        assert errors == [], [i.code for i in errors]
+        assert not [i for i in dwg.lint() if i.severity == "error"]
+        # the bolt-circle centreline furniture (bc_*) proves the pattern rendered, not
+        # just that members were populated
+        assert any(n.startswith("bc_") for n in dwg._named), sorted(dwg._named)
+
+    def test_declared_pattern_off_detected_positions_is_flagged_not_rendered(self):
+        # ADR 0011 caveat (widened after review): the hole/pattern render path gates on
+        # feature_keys built from DETECTION (a.holes), so a declared pattern whose members
+        # do not coincide (to 3 dp) with the detected holes is not rendered — it surfaces
+        # as a coverage warning, not silently. Full model-driven hole rendering is a
+        # follow-up (#448). Here the holes sit at 45° but the pattern is declared at 0°.
+        r, z = 25.0, 4.0
+        plate, part = self._bolt_circle_part(r, z, (45, 135, 225, 315))
+        member = hole(diameter=6, at=(r, 0, z), axis="z")
+        pat = pattern(member, kind="bolt_circle", count=4, bcd=2 * r, at=(0, 0, z), angle=0)
+        dwg = build_drawing(part, model=[envelope(plate), pat])
+        assert not any(n.startswith("bc_") for n in dwg._named)  # not rendered
+        warns = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
+        assert warns  # but flagged, not silent
+
+    def test_pattern_requires_arrangement_dim(self):
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="bolt_circle", count=4)  # no bcd
+        with pytest.raises(ValueError):
+            pattern(member, kind="linear", count=3)  # no pitch
+        with pytest.raises(ValueError):
+            pattern(member, kind="other", count=2)  # needs explicit members
 
     def test_partmodel_used_verbatim(self):
         plate = Box(40, 40, 6)

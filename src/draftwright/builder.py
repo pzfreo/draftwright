@@ -455,9 +455,13 @@ def build_drawing(
             ``boss``, ``step``, … from the objects you built). When given, **feature
             detection is skipped** and the auto-pass dimensions exactly the declared
             features; ``None`` (default) detects normally. Detection and declaration are
-            two producers of the same IR — everything downstream is untouched. (Note:
+            two producers of the same IR — everything downstream is untouched. (Notes:
             sheet scale/zone estimation and the coverage lint still detect independently,
-            so a *partial* declaration will flag the undeclared geometry — ADR 0011.)
+            so a *partial* declaration will flag the undeclared geometry; and the
+            hole/pattern renderer gates on detected hole positions, so a declared
+            hole/pattern renders only where it coincides with a detected hole — a missed
+            hole is flagged, not drawn (#448). Diameter/step/boss/envelope features are
+            not gated. See ADR 0011.)
 
     Returns:
         A :class:`Drawing` with the standard front/plan/side/iso views projected

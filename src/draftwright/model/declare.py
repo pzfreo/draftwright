@@ -281,19 +281,30 @@ def pattern(
     ``members=`` explicitly to override the computed layout (required for ``kind="other"``)."""
     axis = axis or member.frame.axis
     center = at if at is not None else member.frame.origin
-    members = tuple(members) or _pattern_members(
-        kind,
-        center,
-        axis,
-        count,
-        bcd=bcd,
-        pitch=pitch,
-        direction=direction,
-        grid=grid,
-        rows=rows,
-        cols=cols,
-        angle=angle,
-    )
+    members = tuple(members)
+    if not members:
+        # Compute the arrangement — but only if its defining dim is present, else the
+        # members would silently collapse onto the centre (r=0 / pitch=0) and the pattern
+        # would never render. Fail loudly instead, matching the hole/boss/step/slot guards.
+        _defining = {"bolt_circle": bcd, "linear": pitch, "grid": grid}
+        if kind == "other" or (kind in _defining and _defining[kind] is None):
+            raise ValueError(
+                f"pattern(kind={kind!r}) needs its arrangement dim "
+                "(bolt_circle→bcd, linear→pitch, grid→grid), or explicit members="
+            )
+        members = _pattern_members(
+            kind,
+            center,
+            axis,
+            count,
+            bcd=bcd,
+            pitch=pitch,
+            direction=direction,
+            grid=grid,
+            rows=rows,
+            cols=cols,
+            angle=angle,
+        )
     return PatternFeature(
         frame=Frame(origin=center, axis=axis),
         pattern=kind,
