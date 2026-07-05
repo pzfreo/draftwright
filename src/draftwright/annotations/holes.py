@@ -698,7 +698,7 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
     here) so it survives finalize's ``place_furniture=False`` (#426 Ph4c)."""
     if feat is None:
         return
-    members = feat.members
+    members = feat.members or (feat.frame.origin,)  # guard a declared pattern's empty members
     # Remember the bore-callout name AND the holes it documents (by position), so a
     # later hole-table escalation leaves the grouped pattern callout standing and
     # tabulates only the holes no *placed* pattern callout covers (#92).

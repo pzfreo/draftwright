@@ -105,6 +105,40 @@ class TestConstructors:
         assert f.pattern == "bolt_circle" and f.count == 6 and f.bcd == 40
         assert f.member is member
 
+    def test_pattern_populates_member_locations(self):
+        # A declared pattern must be shaped like a detected one: members populated with
+        # the arrangement's hole centres (the balloon / BCD furniture anchors on them).
+        member = hole(diameter=3, at=(0, 0, 5), axis="z")
+        f = pattern(member, kind="bolt_circle", count=6, bcd=40, at=(0, 0, 5))
+        assert len(f.members) == 6
+        # every member sits on the ⌀40 bolt circle (r=20) about the centre, in the z-plane
+        for mx, my, mz in f.members:
+            assert (mx**2 + my**2) == pytest.approx(20.0**2)
+            assert mz == pytest.approx(5.0)
+        # the frame origin is the pattern CENTRE (detector convention), not a member
+        assert f.frame.origin == pytest.approx((0, 0, 5))
+
+    def test_pattern_explicit_members_preserved(self):
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        locs = ((10, 0, 0), (-10, 0, 0))
+        f = pattern(member, kind="other", count=2, members=locs)
+        assert f.members == locs
+
+    def test_linear_pattern_members_spaced_by_pitch(self):
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        f = pattern(member, kind="linear", count=3, pitch=15, direction=(1, 0, 0), at=(0, 0, 0))
+        xs = sorted(m[0] for m in f.members)
+        assert xs == pytest.approx([-15, 0, 15])
+
+    def test_constructors_raise_valueerror_not_assert(self):
+        # Under python -O bare asserts vanish; required-arg validation must be a real error.
+        with pytest.raises(ValueError):
+            hole()
+        with pytest.raises(ValueError):
+            boss(diameter=5)  # missing at / axis
+        with pytest.raises(ValueError):
+            slot(width=6, length=20)  # missing axes / lo / hi
+
 
 class TestModelSeam:
     def test_declared_model_skips_detection(self):
@@ -143,6 +177,31 @@ class TestModelSeam:
         dwg = build_drawing(shaft, model=[step(diameter=8, length=30, at=(0, 0, 0), axis="x")])
         assert dwg.model().orientation == "x"
 
+    def test_declared_bolt_circle_renders_without_crashing(self):
+        # Regression: declare.pattern once defaulted members=(), so a declared pattern
+        # was shaped unlike a detected one and the balloon / BCD furniture crashed
+        # (IndexError at orchestrator.py:395, ZeroDivisionError at holes.py:708) or
+        # silently under-rendered. Drill the holes where the arrangement puts them so the
+        # declared pattern matches the real geometry.
+        import math
+
+        plate = Box(80, 80, 8)
+        r, z = 25.0, 4.0
+        centres = [
+            (r * math.cos(math.radians(a)), r * math.sin(math.radians(a)), z)
+            for a in (0, 90, 180, 270)
+        ]
+        part = plate
+        for cx, cy, _ in centres:
+            part -= Pos(cx, cy, z) * Cylinder(3, 8)
+        member = hole(diameter=6, at=(r, 0, z), axis="z")
+        pat = pattern(member, kind="bolt_circle", count=4, bcd=50, at=(0, 0, z))
+        # must not raise, and the pattern's member locations must be populated
+        dwg = build_drawing(part, model=[envelope(plate), pat])
+        assert len(dwg.model().features[-1].members) == 4
+        errors = [i for i in dwg.lint() if i.severity == "error"]
+        assert errors == [], [i.code for i in errors]
+
     def test_partmodel_used_verbatim(self):
         plate = Box(40, 40, 6)
         m = PartModel(
@@ -160,7 +219,14 @@ class TestSheet:
         assert _parse_scale("2:1") == 2.0
         assert _parse_scale("1:2") == 0.5
         assert _parse_scale(3.0) == 3.0
+        assert _parse_scale("3") == 3.0
         assert _parse_scale(None) is None
+
+    def test_parse_scale_rejects_malformed(self):
+        with pytest.raises(ValueError):
+            _parse_scale("2:0")  # zero denominator
+        with pytest.raises(ValueError):
+            _parse_scale("abc")  # not a number, not a ratio
 
     def test_sheet_builds_declared_drawing_lint_clean(self):
         plate = Box(80, 50, 8)

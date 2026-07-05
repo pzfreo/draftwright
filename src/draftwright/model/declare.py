@@ -24,6 +24,8 @@ shape with no cylindrical face, should use the explicit flavour.
 
 from __future__ import annotations
 
+import math
+
 from draftwright.model.ir import (
     BossFeature,
     EnvelopeFeature,
@@ -51,7 +53,11 @@ def _bbox_axis_dia(obj) -> tuple[str, float, Point]:
 def _read_cylinder(obj) -> tuple[str, float, Point]:
     """(axis, diameter, centre) for a cylindrical tool. The diameter is taken from the
     largest cylindrical *face* — robust where a bbox drifts (a chamfered or partial
-    cylinder); axis + centre come from the bbox (sufficient for the letter-based IR)."""
+    cylinder); axis + centre come from the bbox (sufficient for the letter-based IR).
+
+    Caveat: on an object with several cylindrical faces (a counterbore, a tube) the
+    *largest* radius wins — it reads the counterbore / OD, not the bore. Pass an explicit
+    ``diameter=`` for those (a counterbore is declared via the ``cbore=`` param anyway)."""
     axis, dia, center = _bbox_axis_dia(obj)
     try:
         from build123d import GeomType
@@ -93,7 +99,8 @@ def hole(
     describe a machining-spec group drawn as one ``count×`` callout."""
     if obj is not None:
         axis, diameter, at = _read_cylinder(obj)
-    assert diameter is not None and at is not None and axis is not None
+    if diameter is None or at is None or axis is None:
+        raise ValueError("hole() needs an object, or explicit diameter=, at= and axis=")
     return HoleFeature(
         frame=Frame(origin=at, axis=axis),
         diameter=diameter,
@@ -111,7 +118,8 @@ def boss(obj=None, *, diameter=None, at=None, axis=None) -> BossFeature:
     ``boss(diameter=6, at=(0, 0, 0), axis="x")`` (parametric)."""
     if obj is not None:
         axis, diameter, at = _read_cylinder(obj)
-    assert diameter is not None and at is not None and axis is not None
+    if diameter is None or at is None or axis is None:
+        raise ValueError("boss() needs an object, or explicit diameter=, at= and axis=")
     return BossFeature(frame=Frame(origin=at, axis=axis), diameter=diameter)
 
 
@@ -124,7 +132,8 @@ def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None)
         axis, diameter, at = _read_cylinder(obj)
         bb = obj.bounding_box()
         length = [bb.size.X, bb.size.Y, bb.size.Z]["xyz".index(axis)]
-    assert diameter is not None and length is not None and at is not None and axis is not None
+    if diameter is None or length is None or at is None or axis is None:
+        raise ValueError("step() needs an object, or explicit diameter=, length=, at= and axis=")
     if span is None:
         span = _span(at, axis, length)
     return StepFeature(
@@ -147,7 +156,11 @@ def slot(
     """A milled slot / reduced across-flats section. From an object the three bbox spans
     are read as long_axis (longest) / width_axis (middle) / depth (shortest, not stored);
     ``lo``/``hi`` are the extent along the long axis and ``w_center`` the centre across the
-    width axis. Explicit values override any read."""
+    width axis. Explicit values override any read.
+
+    Caveat: the object read assumes width > depth (a slot wider than it is deep). For a
+    slot cut *deeper than it is wide* the middle/shortest spans swap — pass explicit
+    ``width_axis=``/``width=`` for that case."""
     if obj is not None:
         bb = obj.bounding_box()
         c = bb.center()
@@ -162,14 +175,10 @@ def slot(
         )
         (long_axis, length, lo, hi, _), (width_axis, width, _, _, w_center), _ = spans
         at = (c.X, c.Y, c.Z)
-    assert (
-        width is not None
-        and length is not None
-        and long_axis is not None
-        and width_axis is not None
-        and lo is not None
-        and hi is not None
-    )
+    if None in (width, length, long_axis, width_axis, lo, hi):
+        raise ValueError(
+            "slot() needs an object, or explicit width=, length=, long_axis=, width_axis=, lo= and hi="
+        )
     if at is None:
         # Centre on the long axis at the slot midpoint; other coords irrelevant to the size dims.
         origin = [0.0, 0.0, 0.0]
@@ -188,6 +197,64 @@ def slot(
     )
 
 
+def _plane_axes(axis: str) -> tuple[Point, Point]:
+    """The two in-plane unit directions for a pattern lying perpendicular to *axis*."""
+    return {
+        "x": ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+        "y": ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0)),
+        "z": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+    }[axis]
+
+
+def _pattern_members(
+    kind, center: Point, axis: str, count, *, bcd, pitch, direction, grid, rows, cols, angle
+) -> tuple[Point, ...]:
+    """The member-hole centres for an arrangement, so a declared pattern is shaped like a
+    detected one (``detect._pattern_feature`` always populates ``members``; the balloon /
+    BCD / pitch furniture index them). Points are laid out about *center* — matching the
+    detector's convention that a bolt-circle / grid frame origin is the pattern centre."""
+    u, v = _plane_axes(axis)
+
+    def pt(du: float, dv: float) -> Point:
+        return tuple(center[k] + du * u[k] + dv * v[k] for k in range(3))  # type: ignore[return-value]
+
+    if kind == "bolt_circle":
+        r = (bcd or 0.0) / 2
+        a0 = math.radians(angle or 0.0)
+        return tuple(
+            pt(
+                r * math.cos(a0 + 2 * math.pi * i / count),
+                r * math.sin(a0 + 2 * math.pi * i / count),
+            )
+            for i in range(count)
+        )
+    if kind == "linear":
+        d = direction or u
+        n = math.sqrt(sum(c * c for c in d)) or 1.0
+        d = tuple(c / n for c in d)
+        p = pitch or 0.0
+        return tuple(
+            tuple(center[k] + (i - (count - 1) / 2) * p * d[k] for k in range(3))
+            for i in range(count)
+        )
+    if kind == "grid":
+        rp, cp = grid or (0.0, 0.0)
+        a0 = math.radians(angle or 0.0)
+        pts = []
+        for rr in range(rows or 1):
+            for cc in range(cols or 1):
+                gx = (cc - ((cols or 1) - 1) / 2) * cp
+                gy = (rr - ((rows or 1) - 1) / 2) * rp
+                pts.append(
+                    pt(
+                        gx * math.cos(a0) - gy * math.sin(a0),
+                        gx * math.sin(a0) + gy * math.cos(a0),
+                    )
+                )
+        return tuple(pts)
+    return ()  # "other" — no defined arrangement; the caller must pass members explicitly
+
+
 def pattern(
     member: HoleFeature,
     *,
@@ -204,17 +271,35 @@ def pattern(
     cols=None,
     angle=None,
 ) -> PatternFeature:
-    """A hole pattern = ``count`` × a *member* hole (build one with :func:`hole`).
-    Explicit only — the arrangement (``bolt_circle`` / ``linear`` / ``grid``) and its
-    defining dims (``bcd`` / ``pitch`` / ``grid``) are supplied, not read. ``at`` / ``axis``
-    default to the member's frame."""
-    frame = Frame(origin=at, axis=axis) if at is not None and axis is not None else member.frame
+    """A hole pattern = ``count`` × a *member* hole (build one with :func:`hole`). The
+    arrangement (``bolt_circle`` / ``linear`` / ``grid``) and its defining dims (``bcd`` /
+    ``pitch`` / ``grid`` + ``rows``/``cols``/``angle``) are supplied, not read.
+
+    ``at`` (the pattern **centre**) and ``axis`` default to the member's frame. The member
+    centres are computed from the arrangement so the pattern renders like a detected one
+    (its ``count×`` balloon, BCD centreline and pitch dims anchor on ``members``); pass
+    ``members=`` explicitly to override the computed layout (required for ``kind="other"``)."""
+    axis = axis or member.frame.axis
+    center = at if at is not None else member.frame.origin
+    members = tuple(members) or _pattern_members(
+        kind,
+        center,
+        axis,
+        count,
+        bcd=bcd,
+        pitch=pitch,
+        direction=direction,
+        grid=grid,
+        rows=rows,
+        cols=cols,
+        angle=angle,
+    )
     return PatternFeature(
-        frame=frame,
+        frame=Frame(origin=center, axis=axis),
         pattern=kind,
         count=count,
         member=member,
-        members=tuple(members),
+        members=members,
         bcd=bcd,
         pitch=pitch,
         direction=direction,

@@ -40,12 +40,21 @@ from draftwright.model import step as _step
 
 def _parse_scale(scale):
     """Accept a float multiplier, a ratio string (``"2:1"`` → 2.0, ``"1:2"`` → 0.5),
-    or ``None`` (auto). The engine's ``scale=`` is a raw float; the ratio string is the
-    drawing-sheet spelling."""
-    if isinstance(scale, str) and ":" in scale:
-        num, den = scale.split(":", 1)
-        return float(num) / float(den)
-    return scale
+    a bare numeric string, or ``None`` (auto). The engine's ``scale=`` is a raw float;
+    the ratio string is the drawing-sheet spelling. Raises ``ValueError`` on a malformed
+    string so a bad scale fails here, not deep in the engine with a str where a float is
+    expected."""
+    if scale is None or isinstance(scale, (int, float)):
+        return scale
+    if isinstance(scale, str):
+        if ":" in scale:
+            num, den = scale.split(":", 1)
+            denom = float(den)
+            if denom == 0:
+                raise ValueError(f"invalid scale ratio {scale!r}: zero denominator")
+            return float(num) / denom
+        return float(scale)  # a bare numeric string; ValueError if not a number
+    raise TypeError(f"scale must be a number, ratio string, or None — got {type(scale).__name__}")
 
 
 class _Hole:
