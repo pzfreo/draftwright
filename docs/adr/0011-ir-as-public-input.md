@@ -9,8 +9,8 @@
   execution plan:
   [`docs/plans/0011-phase2-aspects-roadmap.md`](../plans/0011-phase2-aspects-roadmap.md).
   **Amendment 1** (2026-07-05): the three authoring modes + the **mode-3 generation surface**
-  (a declarative `Sheet`-DSL emitter, #461/#462/#463) — sequenced *before* P2b; carries one
-  **open decision** (for detected input: reconstruct the part vs. leave a seam).
+  (a declarative `Sheet`-DSL emitter, #461/#462/#463) — sequenced *before* P2b. Decided: for
+  detected input, emit a **part-seam** with detected numbers; reconstruction deferred.
 - **Date:** 2026-07-05
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -165,13 +165,22 @@ Mode 3 has two fundamentally different ceilings, set by whether source objects e
   size-carrying *aspects* still take numbers (a counterbore's `cbore=(30, 14)`) — closed by the
   object-reading aspect verbs (#462).
 
-### Open decision — for 3a, reconstruct the part or leave a seam?
+### Decision — for 3a, a part-seam; reconstruction deferred
 
 The one fork that shapes the whole emitter. From a detected solid we can either **reconstruct**
 a build123d part (so the drawing layer can be reference-based / number-free too), or leave a
 **seam** for the caller's own part and write the detected numbers into the drawing.
 
-**Option A — reconstruct the part (number-free drawing layer, self-contained).**
+**Decided: the part-seam (Option B) only, for now.** It is the honest baseline — the generated
+script says exactly what detection knows, works for *any* geometry however complex, and lets the
+caller plug in their real (parametric) part at the seam. Reconstruction (Option A) is **deferred,
+not rejected**: it is the more beautiful output but a lossy CSG approximation that only round-trips
+for a subset of parts, and it would move numbers into a *synthetic* part the user never wrote — not
+worth the fidelity risk before the emitter itself exists. It can return later as an opt-in
+(`reconstruct=True`) once the seam emitter is solid. Both options are recorded below because the
+contrast *is* the rationale.
+
+**Option A — reconstruct the part (number-free drawing layer, self-contained) — DEFERRED.**
 
 ```python
 from build123d import Box, Cylinder, Pos
@@ -223,12 +232,10 @@ sheet.export("mounting_plate")
 *Pros:* honest (it *is* detected data); works for **any** geometry, however complex; the caller
 plugs in their real (parametric) part at the seam. *Cons:* the drawing layer carries magic
 numbers — the very thing mode 3 wants to avoid — and there is no object to re-read, so it does
-not track a parametric part.
-
-**Recommendation (pending sign-off):** ship **B first** (it is the honest, universal baseline and
-unblocks the emitter), and offer **A as an opt-in** (`reconstruct=True`) for the parts whose
-features reconstruct cleanly (prismatic + holes + simple counterbores), falling back to B when
-reconstruction is lossy. The two are not exclusive; the fork is really *which is the default*.
+not track a parametric part. **This is the chosen baseline.** The magic-number cost is mitigated
+where the caller *does* have objects (3b): they wire their part into the seam and swap the
+number-based lines for `sheet.hole(obj)` references — the emitter's numbers are a starting point,
+not a ceiling.
 
 ### Fidelity contract (proposed)
 
