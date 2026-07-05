@@ -38,6 +38,17 @@ from draftwright.model.ir import (
 )
 
 
+def _norm_axis(axis: str) -> str:
+    """Normalise a user-supplied axis letter to the lowercase ``{x,y,z}`` the IR uses.
+    build123d callers naturally reach for ``"X"``/``"Z"`` (à la ``Axis.X``); the
+    lowercase-letter convention is an IR-internal detail, so accept either and fail
+    clearly on anything else rather than crashing deep in ``"xyz".index(...)``."""
+    a = str(axis).lower()
+    if a not in ("x", "y", "z"):
+        raise ValueError(f"axis must be one of 'x'/'y'/'z' (got {axis!r})")
+    return a
+
+
 def _bbox_axis_dia(obj) -> tuple[str, float, Point]:
     """Read an axis-aligned cylinder's (axis, diameter, centre) off its bounding box:
     the two near-equal spans are the diameter; the odd one out is the bore/OD axis."""
@@ -101,6 +112,7 @@ def hole(
         axis, diameter, at = _read_cylinder(obj)
     if diameter is None or at is None or axis is None:
         raise ValueError("hole() needs an object, or explicit diameter=, at= and axis=")
+    axis = _norm_axis(axis)
     return HoleFeature(
         frame=Frame(origin=at, axis=axis),
         diameter=diameter,
@@ -120,6 +132,7 @@ def boss(obj=None, *, diameter=None, at=None, axis=None) -> BossFeature:
         axis, diameter, at = _read_cylinder(obj)
     if diameter is None or at is None or axis is None:
         raise ValueError("boss() needs an object, or explicit diameter=, at= and axis=")
+    axis = _norm_axis(axis)
     return BossFeature(frame=Frame(origin=at, axis=axis), diameter=diameter)
 
 
@@ -134,6 +147,7 @@ def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None)
         length = [bb.size.X, bb.size.Y, bb.size.Z]["xyz".index(axis)]
     if diameter is None or length is None or at is None or axis is None:
         raise ValueError("step() needs an object, or explicit diameter=, length=, at= and axis=")
+    axis = _norm_axis(axis)
     if span is None:
         span = _span(at, axis, length)
     return StepFeature(
@@ -179,6 +193,8 @@ def slot(
         raise ValueError(
             "slot() needs an object, or explicit width=, length=, long_axis=, width_axis=, lo= and hi="
         )
+    long_axis = _norm_axis(long_axis)
+    width_axis = _norm_axis(width_axis)
     if at is None:
         # Centre on the long axis at the slot midpoint; other coords irrelevant to the size dims.
         origin = [0.0, 0.0, 0.0]
@@ -279,19 +295,22 @@ def pattern(
     centres are computed from the arrangement so the pattern renders like a detected one
     (its ``count×`` balloon, BCD centreline and pitch dims anchor on ``members``); pass
     ``members=`` explicitly to override the computed layout (required for ``kind="other"``)."""
-    axis = axis or member.frame.axis
+    axis = _norm_axis(axis or member.frame.axis)
     center = at if at is not None else member.frame.origin
     members = tuple(members)
     if not members:
-        # Compute the arrangement — but only if its defining dim is present, else the
-        # members would silently collapse onto the centre (r=0 / pitch=0) and the pattern
-        # would never render. Fail loudly instead, matching the hole/boss/step/slot guards.
+        # Compute the arrangement — but only for a known kind with its defining dims
+        # present, else the members would silently collapse onto the centre (r=0 /
+        # pitch=0, or a 1×1 grid) and the pattern would never render. Fail loudly
+        # instead, matching the hole/boss/step/slot guards.
         _defining = {"bolt_circle": bcd, "linear": pitch, "grid": grid}
-        if kind == "other" or (kind in _defining and _defining[kind] is None):
+        if kind not in _defining or _defining[kind] is None:
             raise ValueError(
-                f"pattern(kind={kind!r}) needs its arrangement dim "
+                f"pattern(kind={kind!r}) needs a computed arrangement "
                 "(bolt_circle→bcd, linear→pitch, grid→grid), or explicit members="
             )
+        if kind == "grid" and (rows is None or cols is None):
+            raise ValueError("pattern(kind='grid') needs rows= and cols= (or explicit members=)")
         members = _pattern_members(
             kind,
             center,

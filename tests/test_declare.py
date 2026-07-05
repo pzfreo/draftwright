@@ -231,6 +231,35 @@ class TestModelSeam:
         with pytest.raises(ValueError):
             pattern(member, kind="other", count=2)  # needs explicit members
 
+    def test_pattern_grid_requires_rows_and_cols(self):
+        # A grid pitch alone (grid=) doesn't define the layout — without rows/cols the
+        # member loop collapses to a single 1×1 centre point (count disagrees with members).
+        # Fail loudly instead, like the other arrangements.
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="grid", count=4, grid=(10, 10))  # no rows/cols
+        # a full grid spec succeeds and yields rows×cols members
+        f = pattern(member, kind="grid", count=4, grid=(10, 10), rows=2, cols=2, at=(0, 0, 0))
+        assert len(f.members) == 4
+
+    def test_pattern_unknown_kind_raises(self):
+        # A typo'd / unsupported arrangement name must fail loudly, not fall through to an
+        # empty-member degenerate pattern (which renders a wrong count× callout).
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="circular", count=6, bcd=50)
+
+    def test_constructors_normalize_uppercase_axis(self):
+        # build123d callers naturally write axis="X"/"Z"; the lowercase IR convention is
+        # internal, so uppercase must be accepted (normalized), not crash in "xyz".index().
+        assert hole(diameter=6, at=(0, 0, 0), axis="Z").frame.axis == "z"
+        assert step(diameter=4, length=10, at=(0, 0, 0), axis="X").frame.axis == "x"
+        member = hole(diameter=3, at=(0, 0, 0), axis="Z")
+        assert pattern(member, kind="bolt_circle", count=4, bcd=40).frame.axis == "z"
+        # an invalid axis letter fails clearly
+        with pytest.raises(ValueError):
+            hole(diameter=6, at=(0, 0, 0), axis="w")
+
     def test_partmodel_used_verbatim(self):
         plate = Box(40, 40, 6)
         m = PartModel(
