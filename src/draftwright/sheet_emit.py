@@ -39,6 +39,11 @@ def _hole_line(f) -> str:
     kw = [f"diameter={_n(f.diameter)}", f"at={_pt(f.frame.origin)}", f'axis="{f.frame.axis}"']
     if f.count and f.count > 1:
         kw.append(f"count={f.count}")
+        # A count-group carries its member positions; without them the render collapses to a
+        # single hole at the anchor (fidelity loss). Patterns recompute members from the
+        # arrangement, so only a plain count-group needs them spelled out.
+        if f.members:
+            kw.append("members=[" + ", ".join(_pt(m) for m in f.members) + "]")
     if f.cbore:
         kw.append(f"cbore=({_n(f.cbore[0])}, {_n(f.cbore[1])})")
     if f.spotface:

@@ -29,6 +29,19 @@ class TestEmit:
         assert "sheet.envelope()" in src
         assert src.rstrip().endswith("sheet.export('drawing')")
 
+    def test_count_group_hole_carries_its_members(self):
+        # a count>1 hole MUST emit members= with every position — without them the render
+        # collapses to a single hole at the anchor (fidelity loss). The plate has two ⌀8 holes.
+        line = next(
+            ln
+            for ln in _script_for(_plate()).splitlines()
+            if ln.startswith("sheet.hole(diameter=8")
+        )
+        call = ast.parse(line, mode="eval").body  # the sheet.hole(...) Call node
+        kw = {k.arg: k.value for k in call.keywords}
+        assert ast.literal_eval(kw["count"]) == 2
+        assert len(kw["members"].elts) == 2  # both hole positions spelled out
+
     def test_output_is_valid_python(self):
         # the whole emitted script must parse — a generated script that doesn't is useless
         ast.parse(_script_for(_plate()))
