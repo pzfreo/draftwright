@@ -141,7 +141,10 @@ def fit_deviation(code: str, nominal: float) -> tuple[float, float]:
         es = _ES[letter][i]
         lo, hi = es - it, es
     elif letter in _EI:  # interference shafts k/n/p: ei is the lower deviation, es = ei + IT
-        ei = _EI[letter][i]
+        # k's tabulated fundamental deviation holds ONLY for grades IT4–IT7; for coarser
+        # grades (>IT7) ISO 286 defines ei = 0 (n and p are grade-independent — the standard
+        # tabulates them for all grades). Without this k8+ would silently over-shift (#29 review).
+        ei = 0 if (letter == "k" and grade > 7) else _EI[letter][i]
         lo, hi = ei, ei + it
     else:
         raise ValueError(

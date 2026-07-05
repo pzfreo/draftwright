@@ -71,6 +71,18 @@ class TestOtherBands:
         # F8 hole @ 18–30: EI = -es(f) = +20, ES = +20 + IT8(33) = +53
         assert fit_deviation("F8", 20) == pytest.approx((0.020, 0.053))
 
+    def test_k_grade_dependency(self):
+        # ISO 286: shaft k fundamental deviation ei applies only for IT4–7; for coarser
+        # grades ei = 0. k7 @ 50–80 keeps ei=+2; k8 @ 50–80 drops to ei=0 (#29 review).
+        assert fit_deviation("k7", 60) == pytest.approx((0.002, 0.032))  # ei=+2, IT7=30
+        assert fit_deviation("k8", 60) == pytest.approx((0.0, 0.046))  # ei=0, IT8=46
+        assert fit_deviation("k9", 60) == pytest.approx((0.0, 0.074))  # ei=0, IT9=74
+
+    def test_n_and_p_are_grade_independent(self):
+        # only k has the grade cutoff; n/p keep their tabulated ei at every grade
+        assert fit_deviation("n8", 20) == pytest.approx((0.015, 0.048))  # ei=+15, IT8=33
+        assert fit_deviation("p8", 20) == pytest.approx((0.022, 0.055))  # ei=+22, IT8=33
+
     def test_band_boundary_is_inclusive_upper(self):
         # nominal exactly on a band's upper bound belongs to that band (over-X, up-to-Y]
         assert fit_deviation("H7", 30) == pytest.approx((0.0, 0.021))  # still 18–30
