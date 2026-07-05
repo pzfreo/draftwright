@@ -160,8 +160,14 @@ class TestCalloutFit:
     @staticmethod
     def _spec(diameter, **over):
         base = {
-            "diameter": diameter, "count": None, "through": True, "depth": None,
-            "cbore_dia": None, "cbore_depth": None, "suffix": None, "tolerance": None,
+            "diameter": diameter,
+            "count": None,
+            "through": True,
+            "depth": None,
+            "cbore_dia": None,
+            "cbore_depth": None,
+            "suffix": None,
+            "tolerance": None,
         }
         base.update(over)
         return base
@@ -190,7 +196,9 @@ class TestCalloutFit:
 class TestSheetFit:
     @staticmethod
     def _stepped_shaft():
-        return (Rot(0, 90, 0) * Cylinder(4, 20)) + (Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10))
+        return (Rot(0, 90, 0) * Cylinder(4, 20)) + (
+            Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10)
+        )
 
     def _dias(self, dwg):
         return {n: dwg._named[n].label for n in dwg._named if n.startswith("m_dia")}
