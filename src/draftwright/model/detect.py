@@ -117,6 +117,7 @@ def _distinct_by_diameter(bosses, tol: float = 0.15):
     return list(out.values())
 
 
+_DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
@@ -216,6 +217,21 @@ def build_part_model(
                     span=((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2])),
                 )
             )
+        # A narrow external band nested under / beside a larger OD reads as that OD in
+        # local_od's max(), so it never becomes a step diameter and goes silently
+        # undimensioned (#298). Emit each band the silhouette steps miss as a boss, so
+        # render_diameters still gives it a ø callout — aligning the callout inventory
+        # with the feature_diameters inventory the coverage lint checks against.
+        step_dias = [s.diameter for s in prof.steps]
+        raw_bosses = find_bosses(part) if bosses is None else bosses
+        for b in _distinct_by_diameter(raw_bosses):
+            if all(abs(b.diameter - d) > _DIA_TOL for d in step_dias):
+                features.append(
+                    BossFeature(
+                        frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
+                        diameter=b.diameter,
+                    )
+                )
     else:
         raw_bosses = find_bosses(part) if bosses is None else bosses
         bosses_d = _distinct_by_diameter(raw_bosses)

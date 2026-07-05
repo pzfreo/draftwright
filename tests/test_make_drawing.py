@@ -6277,6 +6277,41 @@ class TestTurnedDiameters:
         dwg = build_drawing(_x_stepped_shaft())  # must not raise
         assert not any(n.startswith("m_dia") for n in dwg._named)
 
+    def test_nested_band_under_silhouette_gets_a_callout(self):
+        # #298: a narrow ø6 external band sits under the ø30 flange silhouette, so
+        # find_turned_steps' local_od max() reads it as ø30 and it never becomes a step
+        # diameter. detect.py now emits the missed band as a boss, so it still gets a ø
+        # callout (matching the feature_diameters coverage inventory) and the part lints
+        # clean. The overall part is large enough for all three callouts to fit the row.
+        from build123d import Align
+
+        def cyl(r, h, z):
+            return Pos(0, 0, z) * Cylinder(r, h, align=(Align.CENTER, Align.CENTER, Align.MIN))
+
+        part = Rotation(0, 90, 0) * (cyl(3, 0.5, 0.0) + cyl(15, 20, 0.5) + cyl(10, 15, 20.5))
+        dwg = build_drawing(part)
+        labels = {o.label for n, o in dwg._named.items() if n.startswith("m_dia")}
+        assert {"ø6", "ø30", "ø20"} <= labels  # the nested ø6 is now called out
+        assert dwg.lint_summary()["by_code"].get("feature_not_dimensioned", 0) == 0
+
+    def test_diameter_row_places_what_fits_not_all_or_nothing(self):
+        # #298 hardening: on a part too small to fit every ø callout in the row, the
+        # placer keeps the significant ODs and drops only the smallest — never the whole
+        # row (the pre-fix all-or-nothing dropped all three). The finest band honestly
+        # surfaces as feature_not_dimensioned.
+        from build123d import Align
+
+        def cyl(r, h, z):
+            return Pos(0, 0, z) * Cylinder(r, h, align=(Align.CENTER, Align.CENTER, Align.MIN))
+
+        # A ~4 mm shaft: ø6 tip, ø10 flange, ø8 body — three callouts won't fit the row.
+        part = Rotation(0, 90, 0) * (cyl(3, 0.5, 0.0) + cyl(5, 1.7, 0.5) + cyl(4, 2.0, 2.2))
+        dwg = build_drawing(part)
+        labels = {o.label for n, o in dwg._named.items() if n.startswith("m_dia")}
+        assert {"ø10", "ø8"} <= labels  # the significant ODs survive, not dropped wholesale
+        undim = {i.message.split()[2] for i in dwg.lint() if i.code == "feature_not_dimensioned"}
+        assert "ø6" in undim  # only the finest band falls to honest lint
+
 
 class TestTurnedLengths:
     """Axial step-length chain for X-axis turned parts (the drive-screw gap:
