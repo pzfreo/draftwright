@@ -75,10 +75,12 @@ def _emit(dwg, formats: list[str]) -> list[str]:
 
 def _looks_like_object_spec(s: str) -> bool:
     """True when *s* is a ``module:attr`` / ``file.py:attr`` object reference rather than a STEP
-    path (#469). An existing file, or a Windows drive path (``C:\\…``), is never a spec."""
+    path (#469). An existing file is never a spec; a plain path — a STEP file, or a Windows
+    ``C:\\…\\part.step`` drive path — has no trailing ``:identifier``, so the pattern rejects it
+    (a Windows drive colon is followed by ``\\``, not an identifier; filenames can't contain ':')."""
     import re
 
-    if os.path.exists(s) or re.match(r"^[A-Za-z]:[\\/]", s):
+    if os.path.exists(s):
         return False
     return re.match(r"^.+:[A-Za-z_][A-Za-z0-9_]*$", s) is not None
 

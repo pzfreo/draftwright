@@ -181,18 +181,29 @@ def resolve_object_spec(spec: str) -> tuple[Shape, str]:
         if ispec is None or ispec.loader is None:
             raise ValueError(f"cannot load module from {mod_ref!r}")
         module = importlib.util.module_from_spec(ispec)
-        ispec.loader.exec_module(module)
+        # Register before exec so a self-referential target resolves (a dataclass whose
+        # forward-ref annotations get typing.get_type_hints'd, a module reading
+        # sys.modules[__name__], import-time pickling). The seam does the same on re-run.
+        sys.modules[ispec.name] = module
+        try:
+            ispec.loader.exec_module(module)
+        except Exception as e:
+            raise ValueError(f"{spec!r}: importing {mod_ref!r} failed: {e}") from e
         seam = (
-            "import importlib.util as _ilu\n"
+            "import importlib.util as _ilu, sys as _sys\n"
             f"_spec = _ilu.spec_from_file_location({path.stem!r}, {str(path)!r})\n"
-            "_mod = _ilu.module_from_spec(_spec)\n_spec.loader.exec_module(_mod)"
+            "_mod = _ilu.module_from_spec(_spec)\n_sys.modules[_spec.name] = _mod\n"
+            "_spec.loader.exec_module(_mod)"
         )
         ref = f"_mod.{name}"
     else:
         cwd = os.getcwd()
         if cwd not in sys.path:
             sys.path.insert(0, cwd)  # allow a cwd-relative import
-        module = importlib.import_module(mod_ref)
+        try:
+            module = importlib.import_module(mod_ref)
+        except ImportError as e:
+            raise ValueError(f"{spec!r}: cannot import module {mod_ref!r}: {e}") from e
         # Record the invocation cwd (where the module resolved) on the generated script's path,
         # so `from mod import …` works from any working directory — Python puts only the
         # *script's* dir on sys.path, not the cwd, so a bare import would otherwise fail.
@@ -203,9 +214,9 @@ def resolve_object_spec(spec: str) -> tuple[Shape, str]:
         )
         ref = "_obj"
 
-    obj = getattr(module, name, None)
-    if obj is None:
+    if not hasattr(module, name):  # `hasattr`, not a None sentinel: a name bound to None exists
         raise ValueError(f"{spec!r}: {name!r} not found in {mod_ref!r}")
+    obj = getattr(module, name)
 
     called = False
     if callable(obj) and not isinstance(obj, Shape):

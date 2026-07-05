@@ -25,6 +25,7 @@ _SOURCE_MODULE = (
     "bracket = Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(4, 20)\n"
     "def make_bracket():\n    return Box(30, 20, 5)\n"
     "NOT_A_SHAPE = 42\n"
+    "NONE_BOUND = None\n"  # exists but bound to None — the wrong-type, not-missing case
     "def needs_args(x):\n    return x\n"
 )
 
@@ -232,6 +233,35 @@ class TestObjectSpec:
         with pytest.raises(ValueError, match="not a build123d Shape"):
             resolve_object_spec(f"{p}:NOT_A_SHAPE")
 
+    def test_none_bound_attr_reports_wrong_type_not_missing(self, tmp_path):
+        # `bracket = None` exists but is None — must report the honest "not a Shape", not "not
+        # found" (a None sentinel on getattr would conflate the two, #469 review).
+        p = self._mod(tmp_path)
+        with pytest.raises(ValueError, match="not a build123d Shape"):
+            resolve_object_spec(f"{p}:NONE_BOUND")
+
+    def test_unimportable_module_raises_a_clean_error(self):
+        # a missing/malformed module surfaces the friendly ValueError, not a raw ImportError
+        with pytest.raises(ValueError, match="cannot import module"):
+            resolve_object_spec("no_such_module_zzz:bracket")
+
+    def test_self_referential_file_module_loads(self, tmp_path):
+        # a target that resolves its own forward-ref annotations via typing.get_type_hints needs
+        # sys.modules registration BEFORE exec — the .py branch must register it (#469 review).
+        src = (
+            "from dataclasses import dataclass\n"
+            "from typing import Optional, get_type_hints\n"
+            "from build123d import Box\n"
+            "@dataclass\n"
+            "class Node:\n    nxt: 'Optional[Node]' = None\n"
+            "get_type_hints(Node)  # NameError unless this module is in sys.modules\n"
+            "part = Box(10, 10, 10)\n"
+        )
+        p = tmp_path / "selfref.py"
+        p.write_text(src, encoding="utf-8")
+        obj, _seam = resolve_object_spec(f"{p}:part")
+        assert isinstance(obj, Shape)
+
     def test_callable_needing_args_raises(self, tmp_path):
         p = self._mod(tmp_path)
         with pytest.raises(ValueError, match="needs arguments"):
@@ -258,10 +288,17 @@ class TestLooksLikeSpec:
         assert not _looks_like_object_spec("part.stp")
         assert not _looks_like_object_spec("dir/sub/part.step")  # a colonless path
 
-    def test_windows_drive_path_is_not_a_spec(self):
+    def test_windows_step_path_is_not_a_spec(self):
         from draftwright.cli import _looks_like_object_spec
 
         assert not _looks_like_object_spec(r"C:\models\part.step")
+
+    def test_windows_absolute_file_spec_is_a_spec(self):
+        # the drive-path guard was removed (#469 review): C:\…\model.py:bracket is a real file
+        # spec and must route to resolve_object_spec, not the STEP path.
+        from draftwright.cli import _looks_like_object_spec
+
+        assert _looks_like_object_spec(r"C:\proj\model.py:bracket")
 
     def test_existing_file_is_never_a_spec(self, tmp_path):
         # a real STEP file that happens to parse spec-like still isn't a spec
