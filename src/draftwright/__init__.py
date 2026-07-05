@@ -30,6 +30,7 @@ _LAZY = {
     "make_drawing": "draftwright.builder",
     "Drawing": "draftwright.drawing",
     "FeatureInfo": "draftwright.drawing",
+    "Sheet": "draftwright.sheet_dsl",
     "fix_svg_page_size": "draftwright.export",
     "lint_feature_coverage": "draftwright.linting",
     "PmiRecord": "draftwright.pmi",
@@ -78,6 +79,7 @@ if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel co
     from draftwright.linting import lint_feature_coverage
     from draftwright.pmi import PmiRecord, extract_pmi
     from draftwright.sheet import choose_scale
+    from draftwright.sheet_dsl import Sheet
 
 
 def __dir__():
@@ -91,6 +93,7 @@ __all__ = [
     "Drawing",
     "FeatureInfo",
     "PmiRecord",
+    "Sheet",
     "analyse_face_levels",
     "build_drawing",
     "choose_scale",

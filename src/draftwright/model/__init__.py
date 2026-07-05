@@ -21,6 +21,7 @@ width/depth, slots) and by the lint coverage checks. Remaining engine passes
 
 from __future__ import annotations
 
+from draftwright.model.declare import boss, envelope, hole, pattern, slot, step
 from draftwright.model.detect import build_part_model
 from draftwright.model.ir import (
     BossFeature,
@@ -65,6 +66,12 @@ __all__ = [
     "StepFeature",
     "StepLevelFeature",
     "build_part_model",
+    "boss",
+    "envelope",
+    "hole",
+    "pattern",
+    "slot",
+    "step",
     "display",
     "SectionPlan",
     "plan_dimensions",
