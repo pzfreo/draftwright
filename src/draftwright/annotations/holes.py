@@ -388,12 +388,13 @@ def add_feature_diameter(dwg, feature) -> str:
             "pass one from dwg.model().features"
         )
     group = next((g for g in plan_dimensions(model) if g.feature is feature), None)
-    dia = (
-        next((pd.param.value for pd in group.dims if pd.param.kind == "diameter"), None)
+    dpd = (
+        next((pd for pd in group.dims if pd.param.kind == "diameter"), None)
         if group is not None
         else None
     )
-    if group is None or dia is None:
+    dia = dpd.param.value if dpd is not None else None
+    if group is None or dpd is None or dia is None:
         raise ValueError(
             f"callout(): {type(feature).__name__} exposes no step/boss diameter callout"
         )
@@ -403,7 +404,9 @@ def add_feature_diameter(dwg, feature) -> str:
             f"callout(): a {axis!r}-turned step/boss diameter is not placeable "
             "(only X- and Z-turned parts)"
         )
-    items = [(group.anchor, dia, feature)]
+    # 4-tuple (anchor, dia, feature, tolerance): a manual callout honours a declared ±
+    # tolerance too, like the auto-pass (P2a, #28).
+    items = [(group.anchor, dia, feature, dpd.param.tolerance)]
     # The row/column placers name leaders m_dia_{x,z}{start+i} — pass the first FREE
     # index so a second callout() (or a call on an already-annotated turned part) never
     # collides on m_dia_x0/z0 and clobbers an existing leader (#419 review F1).

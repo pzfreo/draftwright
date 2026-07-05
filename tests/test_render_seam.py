@@ -181,10 +181,11 @@ class TestDiameterColumnOccupancy:
 
         return _Dwg()
 
-    # (anchor, dia, feature) — feature=None here (unit test of placement; #412 added the tag)
+    # (anchor, dia, feature, tolerance) — feature=None (unit test of placement; #412 added the
+    # tag); tolerance=None (untoleranced — the item grew a P2a ± field, #28)
     _ITEMS = [
-        ((10.0, 0.0, 8.0), 12.0, None),
-        ((10.0, 0.0, 24.0), 8.0, None),
+        ((10.0, 0.0, 8.0), 12.0, None, None),
+        ((10.0, 0.0, 24.0), 8.0, None, None),
     ]  # two Z-turned ø steps
 
     def test_control_no_occupant_places_both(self):
