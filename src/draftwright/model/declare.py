@@ -50,7 +50,7 @@ def _norm_axis(axis: str) -> str:
 
 
 def _is_positive(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0
 
 
 def _require_positive(**named) -> None:
@@ -69,6 +69,13 @@ def _positive(name: str, v) -> None:
         raise ValueError(f"{name} must be a positive number (got {v!r})")
 
 
+def _require_count(name: str, count) -> None:
+    """A count must be a positive *int* — a fractional/None count is nonsensical and would
+    otherwise store silently or crash later in ``range(count)`` with a raw TypeError (#452)."""
+    if not (isinstance(count, int) and not isinstance(count, bool) and count >= 1):
+        raise ValueError(f"{name} needs count >= 1 as an int (got {count!r})")
+
+
 def _require_point(name: str, pt) -> None:
     """A location/point kwarg must be an ``(x, y, z)`` triple of numbers."""
     if not (
@@ -85,7 +92,8 @@ def _require_pair_positive(name: str, pair) -> None:
         return
     if not (isinstance(pair, (tuple, list)) and len(pair) == 2):
         raise ValueError(f"{name} must be a (diameter, depth) pair (got {pair!r})")
-    _require_positive(**{f"{name} diameter": pair[0], f"{name} depth": pair[1]})
+    _positive(f"{name} diameter", pair[0])  # both required — a None slot must fail too
+    _positive(f"{name} depth", pair[1])
 
 
 def _bbox_axis_dia(obj) -> tuple[str, float, Point]:
@@ -161,8 +169,7 @@ def hole(
     _require_pair_positive("cbore", cbore)
     _require_pair_positive("spotface", spotface)
     _require_point("at", at)
-    if count < 1:
-        raise ValueError(f"hole() needs count >= 1 (got {count!r})")
+    _require_count("hole()", count)
     return HoleFeature(
         frame=Frame(origin=at, axis=axis),
         diameter=diameter,
@@ -392,8 +399,7 @@ def pattern(
         raise ValueError(
             f"pattern(kind={kind!r}) is not a known arrangement (bolt_circle / linear / grid / other)"
         )
-    if count < 1:
-        raise ValueError(f"pattern() needs count >= 1 (got {count!r})")
+    _require_count("pattern()", count)
     if members and len(members) != count:
         raise ValueError(f"pattern() count={count} must equal len(members)={len(members)}")
 
@@ -401,8 +407,10 @@ def pattern(
         _positive("pattern(kind='bolt_circle') bcd=", bcd)  # furniture reads it even w/ members=
     elif kind == "linear":
         _positive("pattern(kind='linear') pitch=", pitch)  # pitch dim reads it even w/ members=
-        if direction is not None and not any(direction):
-            raise ValueError("pattern(kind='linear') direction= must be nonzero")
+        if direction is not None:
+            _require_point("direction", direction)  # a (dx, dy, dz) triple of numbers
+            if not any(direction):
+                raise ValueError("pattern(kind='linear') direction= must be nonzero")
     elif kind == "grid":
         if grid is None or rows is None or cols is None:
             raise ValueError("pattern(kind='grid') needs grid= pitch and rows= and cols=")

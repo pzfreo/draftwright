@@ -249,6 +249,28 @@ class TestConstructorInvariants:
         with pytest.raises(ValueError):
             pattern(member, kind="other", count=1, members=((1, 0),))  # not an (x, y, z)
 
+    def test_pattern_malformed_direction_raises(self):
+        # a 2-tuple direction must fail cleanly, not IndexError deep in _pattern_members
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="linear", count=3, pitch=5, direction=(1, 0))
+
+    def test_hole_cbore_none_element_raises(self):
+        # a required (diameter, depth) pair must reject a None slot, not store it
+        with pytest.raises(ValueError):
+            hole(diameter=6, at=(0, 0, 0), axis="z", cbore=(10, None))
+
+    def test_fractional_count_raises(self):
+        with pytest.raises(ValueError):
+            hole(diameter=6, at=(0, 0, 0), axis="z", count=2.5)
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="bolt_circle", count=None, bcd=20)
+
+    def test_infinite_size_raises(self):
+        with pytest.raises(ValueError):
+            step(diameter=float("inf"), length=10, at=(0, 0, 0), axis="x")
+
 
 class TestModelSeam:
     def test_declared_model_skips_detection(self):
