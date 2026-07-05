@@ -187,3 +187,32 @@ class TestToleranceHandle:
         assert s._tolerances == {(0, "diameter"): 0.1}
         # the decoration resolves to the FINAL feature (through=False after .depth)
         assert hf.through is False
+
+
+class TestCoerceModelPurity:
+    def test_verbatim_partmodel_is_not_mutated_by_decorations(self):
+        # A PartModel is a reusable public input (ADR 0011); _coerce_model must merge
+        # decorations into a COPY, never mutate the caller's object — else a second build
+        # (with no decorations) inherits stale tolerances from the first.
+        from draftwright.builder import _coerce_model
+
+        st = step(diameter=8, length=20, at=(0, 0, 0), axis="x")
+        pm = PartModel(bbox=None, orientation="x", features=[st])
+        # the verbatim-PartModel path never reads `a`; None keeps the test focused.
+        out = _coerce_model(pm, None, decorations={(st, "length"): 0.2})
+        assert out.decorations == {(st, "length"): 0.2}
+        assert pm.decorations == {}, "caller's PartModel was mutated in place"
+
+        # a subsequent bare build sees no leaked tolerance
+        bare = _coerce_model(pm, None)
+        assert bare.decorations == {}
+
+    def test_verbatim_partmodel_decorations_merge_not_replace(self):
+        from draftwright.builder import _coerce_model
+
+        st = step(diameter=8, length=20, at=(0, 0, 0), axis="x")
+        pm = PartModel(
+            bbox=None, orientation="x", features=[st], decorations={(st, "diameter"): 0.1}
+        )
+        out = _coerce_model(pm, None, decorations={(st, "length"): 0.2})
+        assert out.decorations == {(st, "diameter"): 0.1, (st, "length"): 0.2}

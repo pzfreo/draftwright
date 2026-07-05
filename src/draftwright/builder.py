@@ -198,11 +198,13 @@ def _coerce_model(model, a, decorations=None) -> PartModel:
     ``StepFeature`` (so a declared shaft renders as turned).
 
     ``decorations`` (P2a) is the authored aspect side-layer — ``{(feature, kind) ->
-    tolerance}`` — attached to the model so the planner can read it; only applied when
-    given (a bare ``PartModel`` keeps its own decorations otherwise)."""
+    tolerance}`` — merged onto the model so the planner can read it; only applied when
+    given (a bare ``PartModel`` keeps its own decorations otherwise). A verbatim
+    ``PartModel`` is never mutated — decorations merge into a copy so the caller's
+    reusable public input (ADR 0011) stays clean across builds."""
     if isinstance(model, PartModel):
         if decorations:
-            model.decorations = decorations
+            return replace(model, decorations={**model.decorations, **decorations})
         return model
     features = list(model)
     bbox = a.part.bounding_box()
