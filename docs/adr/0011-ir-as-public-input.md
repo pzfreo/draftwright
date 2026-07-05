@@ -8,6 +8,9 @@
   P2b GD&T+finish / P2c aspect verbs / P2d PMI still pending per the #446 roadmap. Phase 2
   execution plan:
   [`docs/plans/0011-phase2-aspects-roadmap.md`](../plans/0011-phase2-aspects-roadmap.md).
+  **Amendment 1** (2026-07-05): the three authoring modes + the **mode-3 generation surface**
+  (a declarative `Sheet`-DSL emitter, #461/#462/#463) — sequenced *before* P2b; carries one
+  **open decision** (for detected input: reconstruct the part vs. leave a seam).
 - **Date:** 2026-07-05
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -126,6 +129,123 @@ detected drawing needs one more thing"). Two complementary modes, one IR.
 - **Extend the frozen IR with tolerance/GD&T fields.** Rejected for the schema churn and
   because tolerance is per-dimension, not per-feature; the decoration side-layer keeps
   the IR minimal and the existing consumers untouched.
+
+## Amendment 1 — the three authoring modes and the mode-3 *generation* surface (2026-07-05)
+
+`model=` made the IR an **input**; #400 made it a **read+edit** surface. Stepping back, that
+gives three ways to author a drawing, in increasing control — and naming them clarifies what
+is done and what is still missing:
+
+1. **Just do it.** `make_drawing(part_or_step)` → SVG/DXF. *(done)*
+2. **Auto, then tweak.** `build_drawing()` returns a live `Drawing`; edit it (`remove`,
+   `place_dim`, `del views[…]`, `pin`, `repair`) then `.export()`. *(done)*
+3. **Generate an editable beautiful-Python DSL script** that captures *every* view, feature,
+   and dimension as commentable lines the user edits / drops / extends. *(partial — this
+   amendment)*
+
+Mode 3 exists today only as the **imperative** `--script` emitter (the #400/#426 verb
+reconstruction, STEP-only). The target is a **declarative `Sheet`-DSL emitter** (#461). The
+value of mode 3 is a *single source of truth*: reference a feature and read its size off the
+geometry, so the drawing tracks the part parametrically (change `Cylinder(9, 40)`, the callout
+follows ⌀18 → ⌀20) — no restated numbers to drift.
+
+### The 3a / 3b split (accepted)
+
+Mode 3 has two fundamentally different ceilings, set by whether source objects exist:
+
+- **3a — detected input** (STEP, or a finished solid with no handles). Features were recovered
+  from silhouettes; there are **no source objects**, so a *from-scratch* generation cannot
+  reference them. This is a **generation** problem.
+- **3b — build123d objects with handles**. The drawing *references* the objects and reads every
+  size off geometry → a **number-free drawing layer**, numbers staying in the part build. This
+  is fundamentally **authored, not generated**: a finished solid cannot recover *variable names*
+  or *semantic intent* (bore vs boss, needs-a-fit). A tool can at most *scaffold* reference lines
+  from a caller-supplied `{name: object}` map. `sheet.hole(obj)` / `diameter(obj)` / `step(obj)`
+  / `envelope()` read size off objects **today** (proven lint-clean); the remaining gap is that
+  size-carrying *aspects* still take numbers (a counterbore's `cbore=(30, 14)`) — closed by the
+  object-reading aspect verbs (#462).
+
+### Open decision — for 3a, reconstruct the part or leave a seam?
+
+The one fork that shapes the whole emitter. From a detected solid we can either **reconstruct**
+a build123d part (so the drawing layer can be reference-based / number-free too), or leave a
+**seam** for the caller's own part and write the detected numbers into the drawing.
+
+**Option A — reconstruct the part (number-free drawing layer, self-contained).**
+
+```python
+from build123d import Box, Cylinder, Pos
+from draftwright import Sheet
+
+# Part — RECONSTRUCTED from detected features. Numbers live HERE, in the geometry.
+plate = Box(100, 70, 24)
+bore  = Pos(0, 0, 0) * Cylinder(9, 40)
+cbore = Pos(0, 0, 8) * Cylinder(15, 20)
+h0 = Pos(-38, -24, 0) * Cylinder(4, 40)
+h1 = Pos(38, -24, 0)  * Cylinder(4, 40)
+h2 = Pos(-38, 24, 0)  * Cylinder(4, 40)
+h3 = Pos(38, 24, 0)   * Cylinder(4, 40)
+part = plate - bore - cbore - h0 - h1 - h2 - h3
+
+# Drawing — references the objects; sizes READ off geometry (number-free, bar the
+# counterbore, which is exactly what #462 removes with .cbore(cbore)).
+sheet = Sheet(part, title="Mounting Plate", number="DWG-001")
+sheet.envelope()
+sheet.hole(bore, cbore=(30, 14))
+for h in (h0, h1, h2, h3):
+    sheet.hole(h)
+sheet.export("mounting_plate")
+```
+
+*Pros:* the drawing layer is references, not numbers — the mode-3 ideal; self-contained (no
+STEP file / no `part` to supply); the whole script is runnable as-is. *Cons:* the reconstruction
+is a **flat CSG approximation**, not the caller's parametric intent, and reconstructing arbitrary
+geometry from detected features is itself lossy/hard (counterbores need two cuts; fillets, drafts,
+turned profiles, and slots may not round-trip). Numbers still exist — they have moved into a
+*synthetic* part build the user didn't write.
+
+**Option B — part-seam (detected numbers in the drawing, honest, always works).**
+
+```python
+from draftwright import Sheet
+from draftwright.model import hole
+
+part = ...   # ← YOUR build123d object, or import_step("plate.step")
+
+sheet = Sheet(part, title="Mounting Plate", number="DWG-001")
+sheet.hole(diameter=8, at=(-38, -24, 12), axis="z", count=4)
+sheet.hole(diameter=18, at=(0, 0, 12), axis="z", cbore=(30, 14))
+sheet.envelope()   # 100 × 24 × 70
+# step_level @ (0, 0, -12) — auto-dimensioned (no declarative verb yet)
+sheet.export("mounting_plate")
+```
+
+*Pros:* honest (it *is* detected data); works for **any** geometry, however complex; the caller
+plugs in their real (parametric) part at the seam. *Cons:* the drawing layer carries magic
+numbers — the very thing mode 3 wants to avoid — and there is no object to re-read, so it does
+not track a parametric part.
+
+**Recommendation (pending sign-off):** ship **B first** (it is the honest, universal baseline and
+unblocks the emitter), and offer **A as an opt-in** (`reconstruct=True`) for the parts whose
+features reconstruct cleanly (prismatic + holes + simple counterbores), falling back to B when
+reconstruction is lossy. The two are not exclusive; the fork is really *which is the default*.
+
+### Fidelity contract (proposed)
+
+The generated script guarantees **a lint-clean drawing of the same features**, not a byte-identical
+copy of the auto-pass. (The imperative `--script` chases auto-pass quality via `finalize()`; the
+declarative emitter re-runs the auto-pass over the declared model, so placement is auto-pass by
+construction.)
+
+### Coverage honesty (accepted)
+
+Kinds with no declarative verb yet (`step_level`, `rotational`, `pmi`) are **flagged inline** as
+auto-dimensioned, never silently dropped — matching the fail-loud discipline of the constructors
+(#452). Growing verbs for them is follow-up, not a blocker.
+
+Tracked by **#461** (the emitter), **#462** (object-reading aspects → number-free 3b), **#463**
+(`sheet.of(feature)` → decorate a generated feature). Sequenced **before** the P2b GD&T work: the
+generation surface is the differentiator; GD&T is additive rendering behind the same façade.
 
 ## Relationship to other ADRs
 
