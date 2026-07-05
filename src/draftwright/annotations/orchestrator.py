@@ -58,7 +58,13 @@ from draftwright.annotations.sections import (
     _resolve_details,
     feature_holes_of,
 )
-from draftwright.model import PatternFeature, build_part_model, plan_dimensions, plan_sections
+from draftwright.model import (
+    HoleFeature,
+    PatternFeature,
+    build_part_model,
+    plan_dimensions,
+    plan_sections,
+)
 from draftwright.recognition import (
     full_cylinders,
 )
@@ -122,6 +128,29 @@ def build_model(a: Analysis):
         rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
         pmi=a.pmi,
     )
+
+
+def _declared_feature_keys(groups, a: Analysis) -> set:
+    """The :class:`HoleRef` position keys of every DECLARED hole/pattern member (ADR 0011
+    #448), so a caller-declared hole/pattern renders at its declared position even where
+    detection missed it. Mirrors the member source (``feat.members or g.anchor``) and the
+    rotational concentric-bore exclusion of the ``_annotate_holes`` filter so the callout
+    gate matches exactly — an on-axis bore stays excluded (dimensioned by the ldr_z
+    centreline)."""
+    keys: set = set()
+    for g in groups:
+        feat = g.feature
+        if not isinstance(feat, HoleFeature | PatternFeature):
+            continue
+        for m in feat.members or (g.anchor,):
+            if (
+                a.is_rotational
+                and feat.frame.axis == "z"
+                and math.hypot(m[0] - a.cx, m[1] - a.cy) <= _CONCENTRIC_TOL_MM
+            ):
+                continue
+            keys.add(HoleRef.of(m))
+    return keys
 
 
 def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
@@ -195,6 +224,17 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # #207). feature_holes_of is the single source shared with the section() add verb (#420).
     feature_holes = feature_holes_of(a)
     feature_keys = {HoleRef.of(h.location) for h in feature_holes}
+    # ADR 0011 #448: when the caller DECLARED the model (model=), a hole/pattern renders at
+    # its declared position even where detection missed it — source the callout membership
+    # set from the declared IR groups too, not only a.holes. A no-op for the detection-only
+    # path (gated on the declared flag; and on a fully-detected declared part the declared
+    # keys already coincide with the detected ones). NOTE: off-axis side-drilled *location*
+    # dims (_locate_off_axis_holes below) still gate on detected holes — they need recogniser
+    # -Hole geometry (diameter/depth/bottom) a declared IR feature doesn't carry — a follow-up.
+    declared_keys: set = set()
+    if getattr(dwg, "_model_declared", False):
+        declared_keys = _declared_feature_keys(_groups, a)
+        feature_keys = feature_keys | declared_keys
     # Decide the section trigger + cut-plane row now (pure function of _model/
     # feature_keys, no placement dependency) and reserve its cutting-plane arrows'
     # row BEFORE the plan-view hole callouts place (ADR 0009 P5 strand 3) — the
@@ -208,7 +248,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (tests/test_layout_cleanliness.py) is exactly this accepted case.
     _section = plan_sections(_model, feature_keys)
     _reserve_section_row(dwg, a, _section)
-    if feature_holes:
+    if feature_holes or declared_keys:  # declared holes render even where detection missed them
         _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys)
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.

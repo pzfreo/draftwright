@@ -245,6 +245,7 @@ def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=
     # work even in manual mode (#398). _auto_annotate reads this attached model rather
     # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
     dwg._part_model = _coerce_model(model, a, decorations) if model is not None else build_model(a)
+    dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
 
     part_s = a.part.scale(a.SCALE)
     dwg.add_view("front", part_s, (cxs, cys - dist, czs), (0, 0, 1), (a.FV_X, a.FV_Y), scaled=True)
@@ -476,11 +477,11 @@ def build_drawing(
             features; ``None`` (default) detects normally. Detection and declaration are
             two producers of the same IR — everything downstream is untouched. (Notes:
             sheet scale/zone estimation and the coverage lint still detect independently,
-            so a *partial* declaration will flag the undeclared geometry; and the
-            hole/pattern renderer gates on detected hole positions, so a declared
-            hole/pattern renders only where it coincides with a detected hole — a missed
-            hole is flagged, not drawn (#448). Diameter/step/boss/envelope features are
-            not gated. See ADR 0011.)
+            so a *partial* declaration will flag the undeclared geometry. A declared
+            hole/pattern now renders at its declared position even where detection missed
+            it (#448); the one remaining detection-dependent bit is the off-axis
+            side-drilled hole *location* dim, which needs recogniser-Hole geometry a
+            declared feature doesn't carry. See ADR 0011.)
 
     Returns:
         A :class:`Drawing` with the standard front/plan/side/iso views projected

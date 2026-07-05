@@ -291,6 +291,10 @@ class Drawing:
         # The detected ADR-0008 PartModel this drawing was built from (attached by
         # the annotation orchestrator). Read surface for semantic edits (#397).
         self._part_model: object | None = None
+        # True when the caller SUPPLIED the model (build_drawing(model=…), ADR 0011) rather
+        # than it being detected — gates the model-driven hole/pattern render membership so a
+        # declared hole draws even where detection missed it, no-op for the detected path (#448).
+        self._model_declared: bool = False
         # Lazy model-location → IR hole/pattern feature index (#408), so a balloon —
         # which holds a recognition hole, not the IR feature — can attribute itself.
         self._hole_feature_index: dict | None = None
