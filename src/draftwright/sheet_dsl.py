@@ -23,7 +23,9 @@ deliberately **not** stubbed here, so the surface only exposes what actually dra
 
 **Hybrid.** :meth:`Sheet.from_part` seeds the declared set from *detection*, so you
 can start from the detected model and override specific features (declaration is for
-where you know better than detection, not everywhere — ADR 0011 §3).
+where you know better than detection, not everywhere — ADR 0011 §3); :meth:`Sheet.of`
+returns a fluent handle onto one of those generated features (by object, index, or the
+feature itself) so you can ``.fit(...)`` / ``.tolerance(...)`` it without re-declaring (#463).
 """
 
 from __future__ import annotations
@@ -33,13 +35,14 @@ from dataclasses import replace
 from draftwright.analysis import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
+from draftwright.model import Feature
 from draftwright.model import boss as _boss
 from draftwright.model import envelope as _envelope
 from draftwright.model import hole as _hole
 from draftwright.model import pattern as _pattern
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
-from draftwright.model.declare import _require_positive
+from draftwright.model.declare import _norm_axis, _read_cylinder, _require_positive
 from draftwright.model.declare import read_bore_step as _read_bore_step
 
 
@@ -197,6 +200,57 @@ class Sheet:
         the constructors this façade does not surface directly, e.g. PMI)."""
         self._features.append(feature)
         return self
+
+    def of(self, ref) -> _Hole | _Dim:
+        """A decoratable handle onto an **existing** feature — the hybrid seam (#463).
+
+        *ref* is a feature index, a :class:`Feature` already in :attr:`features` (e.g. seeded by
+        :meth:`from_part`), or the build123d **object** you built (matched by ⌀ + in-plane
+        position). Returns the same fluent handle the declaration verbs do, so you can
+        ``.fit(...)`` / ``.tolerance(...)`` — and, for a hole, ``.cbore(...)`` — a feature you
+        did not declare from scratch. Raises if the object matches no feature or is ambiguous."""
+        i = self._index_of(ref)
+        kind = self._features[i].kind
+        if kind == "hole":
+            return _Hole(self, i)
+        if kind in ("boss", "step"):
+            return _Dim(self, i, "diameter" if kind == "boss" else "length")
+        raise ValueError(f"of(): no aspect handle for a {kind!r} feature (holes / bosses / steps)")
+
+    def _index_of(self, ref) -> int:
+        if isinstance(ref, bool):
+            raise TypeError("of(): ref must be an index, a Feature, or a build123d object")
+        if isinstance(ref, int):
+            n = len(self._features)
+            if not -n <= ref < n:
+                raise IndexError(f"of(): feature index {ref} out of range (have {n})")
+            return ref % n
+        if isinstance(ref, Feature):
+            for i, f in enumerate(self._features):
+                if f is ref:
+                    return i
+            raise ValueError("of(): that Feature is not in this sheet's features")
+        return self._match_object(ref)
+
+    def _match_object(self, obj) -> int:
+        """The index of the declared feature the build123d *obj* refers to, by axis + ⌀ + the
+        two in-plane coordinates (the axial position is where they legitimately differ)."""
+        axis, dia, center = _read_cylinder(obj)
+        axis = _norm_axis(axis)
+        perp = [k for k in range(3) if k != "xyz".index(axis)]
+        matches = [
+            i
+            for i, f in enumerate(self._features)
+            if getattr(f, "diameter", None) is not None
+            and _norm_axis(f.frame.axis) == axis  # same axis — a cross-hole must not match
+            and abs(f.diameter - dia) <= 0.2
+            and all(abs(f.frame.origin[k] - center[k]) <= 0.5 for k in perp)
+        ]
+        if not matches:
+            raise ValueError("of(): no declared feature matches that object (⌀ + position)")
+        if len(matches) > 1:
+            raise ValueError("of(): the object matches several features — pass an index instead")
+        return matches[0]
 
     def hole(self, obj=None, **kw) -> _Hole:
         """Declare a hole from the tool cylinder you subtracted (or explicit values).
