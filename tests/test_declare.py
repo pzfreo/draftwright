@@ -28,6 +28,10 @@ from draftwright.model import (
 from draftwright.sheet_dsl import _parse_scale
 
 
+def _boom(*a, **k):
+    raise AssertionError("build_drawing must not be called for a no-render model path (#453)")
+
+
 class TestConstructors:
     def test_hole_reads_diameter_axis_location_off_object(self):
         h = Pos(20, 10, 4) * Cylinder(3, 8)  # r3 -> ø6, axis z, centre (20,10,4)
@@ -509,3 +513,54 @@ class TestSheet:
         sheet.envelope()
         f = sheet.features[0]
         assert f.width == pytest.approx(30) and f.depth == pytest.approx(20)
+
+    def test_model_does_not_render_a_drawing(self, monkeypatch):
+        # #453: Sheet.model() must wrap the features into a PartModel WITHOUT building a
+        # drawing — no projection/annotation/repack/render. Patch build_drawing to explode
+        # so any accidental render is caught.
+        import draftwright.sheet_dsl as sd
+
+        monkeypatch.setattr(sd, "build_drawing", _boom)
+        part = Box(40, 40, 8) - Pos(10, 10, 4) * Cylinder(3, 8)
+        sheet = Sheet(part)
+        sheet.envelope()
+        sheet.hole(Pos(10, 10, 4) * Cylinder(3, 8))
+        m = sheet.model()  # must not call build_drawing
+        assert [f.kind for f in m.features] == ["envelope", "hole"]
+
+    def test_model_matches_what_build_would_draw(self):
+        # The cheap model() returns the same IR build() hands the engine — features AND the
+        # bbox/datum (the wrapping the engine draws), not just the feature list.
+        part = Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(3, 8)
+        sheet = Sheet(part)
+        sheet.envelope()
+        sheet.hole(Pos(20, 10, 4) * Cylinder(3, 8))
+        m, built = sheet.model(), sheet.build().model()
+        assert m.features == built.features
+        assert m.bbox.min.X == pytest.approx(built.bbox.min.X)
+        assert m.bbox.max.X == pytest.approx(built.bbox.max.X)
+        assert [d.at for d in m.datums] == [d.at for d in built.datums]
+
+    def test_model_wraps_the_solids_body_like_build(self):
+        # #453 review: model() must wrap the SOLIDS body, matching _analyse — else a part
+        # carrying bbox-extending non-solid geometry (a stray edge) gives model() a wider
+        # bbox/datum than build() draws.
+        from build123d import Compound, Edge
+
+        box = Box(40, 40, 8)
+        stray = Edge.make_line((-80, 0, 0), (0, 0, 0))  # extends the min-X corner past the solid
+        part = Compound(children=[*box.solids(), stray])
+        sheet = Sheet(part)
+        sheet.envelope()
+        m, built = sheet.model(), sheet.build().model()
+        assert m.bbox.min.X == pytest.approx(built.bbox.min.X)  # both drop the stray edge
+        assert [d.at for d in m.datums] == [d.at for d in built.datums]
+
+    def test_from_part_does_not_render_a_drawing(self, monkeypatch):
+        # #453: the hybrid seed detects the model without a full drawing.
+        import draftwright.sheet_dsl as sd
+
+        monkeypatch.setattr(sd, "build_drawing", _boom)
+        part = Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(3, 8)
+        sheet = Sheet.from_part(part)  # must not call build_drawing
+        assert "hole" in {f.kind for f in sheet.features}

@@ -179,6 +179,26 @@ _STEP_MIN_AREA_FRAC = 0.01
 # ---------------------------------------------------------------------------
 
 
+def _solids_body(part, src: str = "part"):
+    """The part reduced to just its solids — the geometry the drawing is *of*.
+
+    AP242 STEP files (and hand-built Compounds) can carry non-solid geometry beside
+    the solid — PMI presentation wires, leader curves, construction edges/sketches —
+    which, left in, draw as phantom rectangles in every view and inflate the bounding
+    box, corrupting the scale choice and the envelope dimensions. Shared by
+    :func:`_analyse` and :meth:`draftwright.Sheet.model` (#453) so the model a caller
+    *inspects* is wrapped from the exact same body the engine *draws*."""
+    solids = part.solids()
+    if not solids:
+        return part
+    body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
+    if body.bounding_box().size != part.bounding_box().size or len(part.edges()) != len(
+        body.edges()
+    ):
+        _log.info("Dropping non-solid geometry from %s (PMI presentation data)", src)
+    return body
+
+
 def _analyse(
     step_file, title, number, tolerance, drawn_by, out, scale=None, page=None, pmi="off"
 ) -> Analysis:
@@ -192,22 +212,7 @@ def _analyse(
     else:
         part = _import_step(step_file)
         src = str(step_file)
-    # AP242 STEP files carry PMI presentation geometry (annotation-plane
-    # border wires, leader curves) beside the solid; left in, it draws as
-    # phantom rectangles in every view and inflates the bounding box —
-    # corrupting the scale choice and the envelope dimensions. The drawing
-    # is of the solids.
-    solids = part.solids()
-    if solids:
-        body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
-        if body.bounding_box().size != part.bounding_box().size or len(part.edges()) != len(
-            body.edges()
-        ):
-            _log.info(
-                "Dropping non-solid geometry from %s (PMI presentation data)",
-                src,
-            )
-        part = body
+    part = _solids_body(part, src)
 
     # Semantic PMI extraction (AP242 only; separate read-only pass).
     pmi_records: list = []

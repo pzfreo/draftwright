@@ -190,12 +190,16 @@ def _measure_blocks(dwg, a) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _coerce_model(model, a, decorations=None) -> PartModel:
+def _coerce_model(model, part, decorations=None) -> PartModel:
     """Wrap a caller-supplied ``model=`` (ADR 0011) into a :class:`PartModel`. A
     ``PartModel`` is used verbatim; a sequence of features is wrapped with the part's
     bbox, a default corner location datum (matching ``detect.py``, so hole location
     dims measure from the min corner), and an orientation inferred from any turned
     ``StepFeature`` (so a declared shaft renders as turned).
+
+    Takes the *part* directly (not the full :class:`Analysis`) so it needs only the bbox —
+    the cheap wrapping path behind :meth:`draftwright.Sheet.model` (#453), which materialises
+    the IR without projecting or annotating a drawing.
 
     ``decorations`` (P2a) is the authored aspect side-layer — ``{(feature, kind) ->
     tolerance}`` — merged onto the model so the planner can read it; only applied when
@@ -207,7 +211,7 @@ def _coerce_model(model, a, decorations=None) -> PartModel:
             return replace(model, decorations={**model.decorations, **decorations})
         return model
     features = list(model)
-    bbox = a.part.bounding_box()
+    bbox = part.bounding_box()
     orientation = next((f.frame.axis for f in features if isinstance(f, StepFeature)), None)
     datum = Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))
     return PartModel(
@@ -217,6 +221,18 @@ def _coerce_model(model, a, decorations=None) -> PartModel:
         datums=[datum],
         decorations=decorations or {},
     )
+
+
+def detect_part_model(part, *, pmi="off") -> PartModel:
+    """The **detected** :class:`PartModel` for *part* — feature recognition + analysis only,
+    with no view projection, annotation, repack, repair, or export (ADR 0011 #453). The cheap
+    seed path behind :meth:`draftwright.Sheet.from_part`, so pure feature inspection no longer
+    pays for a full drawing (nor its layout/rendering failure modes)."""
+    a = _analyse(
+        part, title="", number="", tolerance="ISO 2768-m", drawn_by="", out="model", pmi=pmi
+    )
+    model: PartModel = build_model(a)  # build_model is untyped; it returns a PartModel
+    return model
 
 
 def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=None) -> Drawing:
@@ -244,7 +260,9 @@ def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=
     # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
     # work even in manual mode (#398). _auto_annotate reads this attached model rather
     # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
-    dwg._part_model = _coerce_model(model, a, decorations) if model is not None else build_model(a)
+    dwg._part_model = (
+        _coerce_model(model, a.part, decorations) if model is not None else build_model(a)
+    )
     dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
 
     part_s = a.part.scale(a.SCALE)

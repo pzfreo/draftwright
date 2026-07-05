@@ -30,7 +30,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from draftwright.builder import build_drawing
+from draftwright.analysis import _solids_body
+from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.model import boss as _boss
 from draftwright.model import envelope as _envelope
 from draftwright.model import hole as _hole
@@ -136,7 +137,7 @@ class Sheet:
         from the model the detector recovers, then override specific features (edit the
         list via :attr:`features`, or re-declare) before :meth:`build`."""
         sheet = cls(part, **opts)
-        sheet._features = list(build_drawing(part).model().features)
+        sheet._features = list(detect_part_model(part).features)  # detect only, no render (#453)
         return sheet
 
     # -- feature declaration --------------------------------------------------
@@ -193,21 +194,27 @@ class Sheet:
         """The declared IR features (mutable — override or drop before :meth:`build`)."""
         return self._features
 
+    def _decorations(self) -> dict:
+        """Materialize the index-keyed ± tolerances against the FINAL features (a handle may
+        have been recorded before a later .depth()/… replaced the feature) → the
+        ``(feature, kind)`` decoration map the planner reads (P2a)."""
+        return {(self._features[i], kind): tol for (i, kind), tol in self._tolerances.items()}
+
     def model(self):
-        """The IR the engine will draw (detection skipped) — for inspection."""
-        return self.build().model()
+        """The IR the engine will draw (detection skipped) — for inspection. Wraps the
+        declared features into a :class:`PartModel` **without** rendering a drawing (#453):
+        the same wrapping :meth:`build` hands the engine (part bbox + corner datum + step-
+        inferred orientation + the P2a decorations), so inspection pays no projection/anno
+        cost and can't hit a layout/render failure. Wraps the *solids body* (as :func:`_analyse`
+        does), so the bbox/datum match what ``build()`` draws even when the part carries
+        bbox-extending non-solid geometry."""
+        return _coerce_model(self._features, _solids_body(self._part), self._decorations())
 
     def build(self):
         """Build the :class:`~draftwright.drawing.Drawing` — detection skipped; only the
         declared features are drawn."""
-        # Materialize the index-keyed tolerances against the final features (a handle may
-        # have been recorded before a later .depth()/… replaced the feature) → the
-        # (feature, kind) decoration map the planner reads (P2a).
-        decorations = {
-            (self._features[i], kind): tol for (i, kind), tol in self._tolerances.items()
-        }
         return build_drawing(
-            self._part, model=self._features, decorations=decorations, **self._opts
+            self._part, model=self._features, decorations=self._decorations(), **self._opts
         )
 
     def export(self, stem=None):
