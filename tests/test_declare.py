@@ -140,6 +140,116 @@ class TestConstructors:
             slot(width=6, length=20)  # missing axes / lo / hi
 
 
+class TestExplicitOverridesObject:
+    """#451: an object supplies DEFAULTS; each explicit keyword overrides that field
+    independently. The reliable escape hatch for tricky geometry (tubes, counterbores,
+    multi-cylinder tools) is to pass the object and override the fields inference gets wrong."""
+
+    def test_hole_explicit_kwargs_override_object_read(self):
+        # the exact probe from #451: object reads ø6/z/(0,0,0); the kwargs must win.
+        f = hole(Cylinder(3, 8), diameter=2, at=(9, 9, 9), axis="x")
+        assert f.diameter == 2
+        assert f.frame.origin == (9, 9, 9)
+        assert f.frame.axis == "x"
+
+    def test_hole_partial_override_keeps_read_defaults(self):
+        # override only the diameter; axis + location still come from the object.
+        f = hole(Pos(20, 10, 4) * Cylinder(3, 8), diameter=2)
+        assert f.diameter == 2
+        assert f.frame.axis == "z" and f.frame.origin == pytest.approx((20, 10, 4))
+
+    def test_boss_explicit_kwargs_override_object_read(self):
+        f = boss(Cylinder(3, 8), diameter=99, at=(1, 2, 3), axis="y")
+        assert f.diameter == 99 and f.frame.origin == (1, 2, 3) and f.frame.axis == "y"
+
+    def test_step_explicit_kwargs_override_object_read(self):
+        f = step(Rot(0, 90, 0) * Cylinder(2, 10), diameter=99, length=77, at=(1, 2, 3), axis="y")
+        assert f.diameter == 99 and f.length == 77
+        assert f.frame.origin == (1, 2, 3) and f.frame.axis == "y"
+
+    def test_slot_explicit_kwarg_overrides_object_read(self):
+        # override only the width; length / axes still read off the Box(20, 6, 4) tool.
+        f = slot(Box(20, 6, 4), width=5)
+        assert f.width == 5
+        assert f.length == pytest.approx(20.0) and f.long_axis == "x" and f.width_axis == "y"
+
+
+class TestConstructorInvariants:
+    """#452: these constructors are a public compiler input; invalid data must fail at
+    declaration with a clear ValueError, not later in layout or as a misleading drawing."""
+
+    def test_hole_negative_diameter_raises(self):
+        with pytest.raises(ValueError):
+            hole(diameter=-6, at=(0, 0, 0), axis="z")
+
+    def test_hole_zero_diameter_raises(self):
+        with pytest.raises(ValueError):
+            hole(diameter=0, at=(0, 0, 0), axis="z")
+
+    def test_hole_negative_depth_raises(self):
+        with pytest.raises(ValueError):
+            hole(diameter=6, at=(0, 0, 0), axis="z", depth=-1)
+
+    def test_hole_malformed_cbore_raises(self):
+        with pytest.raises(ValueError):
+            hole(diameter=6, at=(0, 0, 0), axis="z", cbore=(10,))  # not a (dia, depth) pair
+        with pytest.raises(ValueError):
+            hole(diameter=6, at=(0, 0, 0), axis="z", cbore=(10, -1))  # negative depth
+
+    def test_hole_malformed_at_raises(self):
+        with pytest.raises(ValueError):
+            hole(diameter=6, at=(0, 0), axis="z")  # not an (x, y, z) triple
+
+    def test_boss_negative_diameter_raises(self):
+        with pytest.raises(ValueError):
+            boss(diameter=-6, at=(0, 0, 0), axis="x")
+
+    def test_step_nonpositive_length_raises(self):
+        with pytest.raises(ValueError):
+            step(diameter=4, length=0, at=(0, 0, 0), axis="x")
+
+    def test_slot_same_axes_raises(self):
+        with pytest.raises(ValueError):
+            slot(width=6, length=20, long_axis="x", width_axis="x", lo=-10, hi=10)
+
+    def test_slot_lo_not_less_than_hi_raises(self):
+        with pytest.raises(ValueError):
+            slot(width=6, length=20, long_axis="x", width_axis="y", lo=10, hi=-10)
+
+    def test_slot_length_must_match_span(self):
+        with pytest.raises(ValueError):
+            slot(width=6, length=25, long_axis="x", width_axis="y", lo=-10, hi=10)  # span=20≠25
+
+    def test_slot_negative_width_raises(self):
+        with pytest.raises(ValueError):
+            slot(width=-6, length=20, long_axis="x", width_axis="y", lo=-10, hi=10)
+
+    def test_pattern_negative_bcd_raises(self):
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="bolt_circle", count=4, bcd=-40)
+
+    def test_pattern_zero_direction_raises(self):
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="linear", count=3, pitch=10, direction=(0, 0, 0))
+
+    def test_pattern_grid_rows_cols_must_multiply_to_count(self):
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="grid", count=4, grid=(10, 10), rows=1, cols=1)
+
+    def test_pattern_explicit_members_must_match_count(self):
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="bolt_circle", count=4, bcd=40, members=((1, 0, 0), (2, 0, 0)))
+
+    def test_pattern_malformed_member_point_raises(self):
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="other", count=1, members=((1, 0),))  # not an (x, y, z)
+
+
 class TestModelSeam:
     def test_declared_model_skips_detection(self):
         # The plate has TWO holes; declare only ONE. Detection would find both, so a
