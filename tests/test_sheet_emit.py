@@ -57,13 +57,38 @@ class TestEmit:
         src = _script_for(part)
         assert ".depth(" in src
 
-    def test_pattern_emits_the_pattern_verb(self):
+    def _bolt_circle(self, cbore=False):
         part = Cylinder(40, 8)
         for i in range(6):
             a = i * math.pi / 3
-            part -= Pos(25 * math.cos(a), 25 * math.sin(a), 0) * Cylinder(3, 20)
-        src = _script_for(part)
+            c = Pos(25 * math.cos(a), 25 * math.sin(a), 0)
+            part -= c * Cylinder(3, 20)
+            if cbore:
+                part -= c * Pos(0, 0, 4) * Cylinder(5, 8)
+        return part
+
+    def test_pattern_emits_the_pattern_verb(self):
+        src = _script_for(self._bolt_circle())
         assert "sheet.pattern(hole(" in src and 'kind="bolt_circle"' in src
+
+    def test_bolt_circle_spells_out_members(self):
+        # #461 review r2: the detector records no start ANGLE, so recomputing members at angle 0
+        # rotates the holes — the emitter must spell out the real member positions.
+        line = next(
+            ln
+            for ln in _script_for(self._bolt_circle()).splitlines()
+            if ln.startswith("sheet.pattern(")
+        )
+        assert "members=[" in line and line.count("(") >= 7  # member hole + 6 positions
+
+    def test_pattern_member_keeps_its_counterbore(self):
+        # #461 review r2: a counterbored bolt circle must keep the member's cbore on re-run
+        line = next(
+            ln
+            for ln in _script_for(self._bolt_circle(cbore=True)).splitlines()
+            if ln.startswith("sheet.pattern(")
+        )
+        assert "cbore=(" in line  # on the member hole(...) template
 
     def test_non_declarable_kind_is_flagged_not_dropped(self):
         # a counterbored plate carries a step_level (horizontal face levels) with no Sheet verb —
@@ -87,9 +112,11 @@ class TestEmit:
         line = next(ln for ln in _script_for(part).splitlines() if ln.startswith("sheet.slot("))
         eval(line, {"sheet": Sheet(part)})  # declare.slot() must not raise
 
-    def test_linear_pattern_emits_direction(self):
-        # #461 review: without direction= a non-default linear array recomputes on the wrong axis
+    def test_linear_pattern_spells_out_members(self):
+        # #461 review: the arrangement can't be recomputed faithfully (no reliable direction/angle),
+        # so the emitter spells out the exact member positions for every pattern kind.
         from draftwright.model import Frame, HoleFeature, PatternFeature
+        from draftwright.sheet_emit import _feature_line
 
         member = HoleFeature(Frame((0, 0, 0), "z"), 4.0, depth=None, through=True)
         pat = PatternFeature(
@@ -101,9 +128,8 @@ class TestEmit:
             pitch=10,
             direction=(0, 1, 0),
         )
-        from draftwright.sheet_emit import _feature_line
-
-        assert "direction=(0, 1, 0)" in _feature_line(pat)
+        line = _feature_line(pat)
+        assert "members=[(0, -10, 0), (0, 0, 0), (0, 10, 0)]" in line and "pitch=10" in line
 
 
 class TestGenerate:

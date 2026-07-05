@@ -156,7 +156,9 @@ def main(
         if style == "sheet":
             from draftwright.sheet_emit import generate_sheet_script
 
-            py_path = generate_sheet_script(step_file, out=out, title=title, number=number)
+            py_path = generate_sheet_script(
+                step_file, out=out, title=title, number=number, pmi=pmi.value
+            )
         else:
             py_path = generate_script(
                 step_file=step_file,

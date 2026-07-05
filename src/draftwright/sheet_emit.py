@@ -54,6 +54,21 @@ def _hole_line(f) -> str:
     return line
 
 
+def _member_hole_str(m) -> str:
+    """The ``hole(...)`` template for a pattern member — carries its ⌀ AND its
+    counterbore / spotface / blind-depth so a counterbored bolt circle keeps those
+    callouts on re-run (declare.hole takes depth=/through=/cbore=/spotface= kwargs)."""
+    kw = [f"diameter={_n(m.diameter)}", f"at={_pt(m.frame.origin)}", f'axis="{m.frame.axis}"']
+    if m.cbore:
+        kw.append(f"cbore=({_n(m.cbore[0])}, {_n(m.cbore[1])})")
+    if m.spotface:
+        kw.append(f"spotface=({_n(m.spotface[0])}, {_n(m.spotface[1])})")
+    if not m.through and m.depth is not None:
+        kw.append(f"depth={_n(m.depth)}")
+        kw.append("through=False")
+    return f"hole({', '.join(kw)})"
+
+
 def _feature_line(f) -> str:
     k = f.kind
     if k == "envelope":
@@ -78,34 +93,20 @@ def _feature_line(f) -> str:
             f"lo={lo}, hi={hi}, w_center={_n(f.w_center)})"
         )
     if k == "pattern":
-        m = f.member
-        # The defining dims AND the arrangement's orientation — without direction=/angle= the
-        # member recompute lands on the wrong axis / rotation for a non-default linear or grid.
+        # Defining dims for the furniture (BCD centreline / pitch / grid dims) PLUS the exact
+        # member positions. The arrangement alone can't be recomputed faithfully — the
+        # detector records no bolt-circle START ANGLE (nor a linear direction reliably) — so
+        # spelling out members= is the only fidelity-safe form (declare uses them as-is).
         parts = [f'kind="{f.pattern}"', f"count={f.count}"]
-        if f.pattern == "bolt_circle":
-            if f.bcd:
-                parts.append(f"bcd={_n(f.bcd)}")
-            if f.angle:
-                parts.append(f"angle={_n(f.angle)}")
-        elif f.pattern == "linear":
-            if f.pitch:
-                parts.append(f"pitch={_n(f.pitch)}")
-            if f.direction:
-                parts.append(f"direction={_pt(f.direction)}")
-        elif f.pattern == "grid":
-            if f.grid:
-                parts.append(
-                    f"grid=({_n(f.grid[0])}, {_n(f.grid[1])}), rows={f.rows}, cols={f.cols}"
-                )
-            if f.angle:
-                parts.append(f"angle={_n(f.angle)}")
-        # 'other' (or any arrangement with no defining dim) can't recompute — spell out members.
-        if (f.pattern == "other" or not (f.bcd or f.pitch or f.grid)) and f.members:
+        if f.pattern == "bolt_circle" and f.bcd:
+            parts.append(f"bcd={_n(f.bcd)}")
+        elif f.pattern == "linear" and f.pitch:
+            parts.append(f"pitch={_n(f.pitch)}")
+        elif f.pattern == "grid" and f.grid:
+            parts.append(f"grid=({_n(f.grid[0])}, {_n(f.grid[1])}), rows={f.rows}, cols={f.cols}")
+        if f.members:
             parts.append("members=[" + ", ".join(_pt(p) for p in f.members) + "]")
-        return (
-            f"sheet.pattern(hole(diameter={_n(m.diameter)}, at={_pt(m.frame.origin)}, "
-            f'axis="{m.frame.axis}"), ' + ", ".join(parts) + ")"
-        )
+        return f"sheet.pattern({_member_hole_str(f.member)}, " + ", ".join(parts) + ")"
     # kinds with no declarative verb yet — the auto-pass still dimensions them.
     return f"# {k} @ {_pt(f.frame.origin)} — auto-dimensioned (no declarative verb yet)"
 
@@ -161,10 +162,13 @@ def generate_sheet_script(
     *,
     title: str | None = None,
     number: str = "DWG-001",
+    pmi: str = "off",
 ) -> str:
     """Write a declarative ``Sheet``-DSL script for *step_file* (a STEP path or a build123d
     object). Returns the path to the generated ``.py``. The mode-3 declarative counterpart of
-    :func:`draftwright.builder.generate_script` (which emits the imperative reconstruction)."""
+    :func:`draftwright.builder.generate_script` (which emits the imperative reconstruction).
+
+    ``pmi`` is threaded to detection so AP242 PMI features surface (flagged inline)."""
     is_shape = isinstance(step_file, Shape)
     stem = out or ("drawing" if is_shape else Path(step_file).stem)
     for _ext in (".py", ".svg", ".dxf"):
@@ -180,8 +184,8 @@ def generate_sheet_script(
         abspath = str(Path(step_file).resolve())
         part_expr = f"from build123d import import_step\npart = import_step({abspath!r})"
 
-    model = detect_part_model(step_file)
+    model = detect_part_model(step_file, pmi=pmi)
     script = emit_sheet_script(model, part_expr, stem, title=title, number=number)
     py_path = f"{stem}.py"
-    Path(py_path).write_text(script)
+    Path(py_path).write_text(script, encoding="utf-8")  # the script has box-drawing / × / ← glyphs
     return py_path
