@@ -128,6 +128,45 @@ def _read_cylinder(obj) -> tuple[str, float, Point]:
     return axis, dia, center
 
 
+def read_bore_step(part, tool, axis: str) -> tuple[float, float]:
+    """``(diameter, depth)`` of a counterbore / spotface *tool* cut into *part* (ADR 0011 #462).
+
+    ⌀ comes from the tool's cylindrical face (like :func:`_read_cylinder`); **depth** is measured
+    along the hole *axis* from the part's **open face at the hole** to the tool's inner (floor)
+    face — so both values track the geometry you built, restating no numbers.
+
+    The open face is found *locally*: the part is intersected with an axial prism over the tool's
+    cross-section, so a rib / wall / boss elsewhere on the part doesn't skew the reading (the
+    global bounding box would). The counterbore opens on whichever end of that local column the
+    tool sits nearer, even when the tool overhangs the part."""
+    from build123d import Box, Pos
+
+    axis = _norm_axis(axis)
+    dia = _read_cylinder(tool)[1]
+    i = "xyz".index(axis)
+    tb, pb = tool.bounding_box(), part.bounding_box()
+    t_lo, t_hi = [tb.min.X, tb.min.Y, tb.min.Z][i], [tb.max.X, tb.max.Y, tb.max.Z][i]
+
+    # A prism over the tool's cross-section, spanning the part along the axis; intersect it with
+    # the part to get the LOCAL material column under the tool (the open face is its axial edge).
+    size = [tb.size.X, tb.size.Y, tb.size.Z]
+    cen = [tb.center().X, tb.center().Y, tb.center().Z]
+    size[i] = [pb.size.X, pb.size.Y, pb.size.Z][i] * 3 or 1.0
+    cen[i] = [pb.center().X, pb.center().Y, pb.center().Z][i]
+    try:
+        column = part & (Pos(*cen) * Box(*size))
+        cb = column.bounding_box()
+        p_lo, p_hi = [cb.min.X, cb.min.Y, cb.min.Z][i], [cb.max.X, cb.max.Y, cb.max.Z][i]
+    except Exception:  # noqa: BLE001 — degenerate boolean; fall back to the global bbox
+        p_lo, p_hi = [pb.min.X, pb.min.Y, pb.min.Z][i], [pb.max.X, pb.max.Y, pb.max.Z][i]
+
+    if (t_lo + t_hi) / 2 >= (p_lo + p_hi) / 2:
+        depth = p_hi - t_lo  # floor at the tool bottom, open at the max face
+    else:
+        depth = t_hi - p_lo  # floor at the tool top, open at the min face
+    return (round(dia, 3), round(depth, 3))
+
+
 def _span(at: Point, axis: str, length: float) -> tuple[Point, Point]:
     """The two axial end-points of a segment of *length* centred at *at* along *axis*."""
     idx = "xyz".index(axis)
