@@ -578,6 +578,28 @@ def _mentioned_diameters(dwg) -> set[float]:
     return diams
 
 
+def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
+    """Fit as many ø specs as the strip ``[lo, hi]`` holds at ``min_gap`` spacing,
+    dropping the SMALLEST-diameter spec first when the full set overflows — so the
+    significant ODs survive and only the finest bands fall to ``feature_not_dimensioned``,
+    never the whole row/column (#298). ``specs`` = ``[(tip, dia, label, feat), ...]``;
+    ``axis`` selects the strip coordinate of ``tip`` (0 = page-x for the row-below, 1 =
+    page-y for the column-left). Returns ``(survivors_in_strip_order, positions)`` —
+    ``([], [])`` if not even one fits. A part whose full row already fits keeps every
+    spec in strip order, so existing output is unchanged."""
+    survivors = sorted(specs, key=lambda s: s[0][axis])
+    while survivors:
+        naturals = [s[0][axis] for s in survivors]
+        pos = _solve_strip_ys(naturals, min_gap, lo, hi) or _greedy_strip_ys(
+            naturals, min_gap, lo, hi
+        )
+        if pos is not None:
+            return survivors, pos
+        drop = min(range(len(survivors)), key=lambda i: survivors[i][1])
+        survivors.pop(drop)
+    return [], []
+
+
 def _diameter_row_below(dwg, items, start: int = 0) -> int:
     """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
     *items* is ``[(anchor, diameter), ...]``. The row is dropped clear of anything
@@ -599,28 +621,23 @@ def _diameter_row_below(dwg, items, start: int = 0) -> int:
     label_y = obstacle_bottom - (draft.font_size + 4 * draft.pad_around_text)
     if label_y < _MARGIN + draft.font_size:
         return 0
-    specs = []  # (tip_page, label, feature), tip on the step's bottom silhouette
+    specs = []  # (tip_page, dia, label, feature), tip on the step's bottom silhouette
     for anchor, dia, feat in items:
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
-        specs.append((tip, f"ø{_fmt(dia)}", feat))
-    specs.sort(key=lambda s: s[0][0])
-    half_w = max(len(label) for _, label, _ in specs) * draft.font_size * 0.62 / 2
+        specs.append((tip, dia, f"ø{_fmt(dia)}", feat))
+    half_w = max(len(label) for _, _, label, _ in specs) * draft.font_size * 0.62 / 2
     min_gap = 2 * half_w + 2 * draft.pad_around_text
-    naturals = [tip[0] for tip, _, _ in specs]
-    xs = _solve_strip_ys(naturals, min_gap, fx0 + half_w, fx1 - half_w) or _greedy_strip_ys(
-        naturals, min_gap, fx0 + half_w, fx1 - half_w
-    )
-    if xs is None:
-        return 0
-    for i, ((tip, label, feat), lx) in enumerate(zip(specs, xs, strict=True)):
+    # Place what fits; drop the smallest ø first, never the whole row (#298).
+    survivors, xs = _place_what_fits(specs, 0, min_gap, fx0 + half_w, fx1 - half_w)
+    for i, ((tip, dia, label, feat), lx) in enumerate(zip(survivors, xs, strict=True)):
         dwg.add(
             Leader(tip=(tip[0], tip[1], 0), elbow=(lx, label_y, 0), label=label, draft=draft),
             f"m_dia_x{start + i}",
             view="front",
             feature=feat,
         )
-    return len(specs)
+    return len(survivors)
 
 
 def _diameter_column_left(dwg, items, start: int = 0) -> int:
@@ -636,27 +653,22 @@ def _diameter_column_left(dwg, items, start: int = 0) -> int:
     elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
     if elbow_x - label_w < _MARGIN:
         return 0
-    specs = []  # (tip_page, label, feature), tip on the step's left silhouette
+    specs = []  # (tip_page, dia, label, feature), tip on the step's left silhouette
     for anchor, dia, feat in items:
         ax, ay, az = anchor
         tip = dwg.at("front", ax - dia / 2, ay, az)
-        specs.append((tip, f"ø{_fmt(dia)}", feat))
-    specs.sort(key=lambda s: s[0][1])
+        specs.append((tip, dia, f"ø{_fmt(dia)}", feat))
     half_h = draft.font_size / 2 + draft.pad_around_text
     min_gap = 2 * half_h
-    naturals = [tip[1] for tip, _, _ in specs]
-    ys = _solve_strip_ys(naturals, min_gap, fy0 + half_h, fy1 - half_h) or _greedy_strip_ys(
-        naturals, min_gap, fy0 + half_h, fy1 - half_h
-    )
-    if ys is None:
-        return 0
+    # Place what fits; drop the smallest ø first, never the whole column (#298).
+    survivors, ys = _place_what_fits(specs, 1, min_gap, fy0 + half_h, fy1 - half_h)
     # Full-footprint occupancy (leader shafts, witness/extension lines, hatch) — NOT
     # the label-box-only `_occupied_boxes`, which is blind to a bore callout's leader
     # SHAFT, so a ø label could silently overprint it (the #133/#225/#305 invisible-
     # occupant class, #358). Centre lines stay crossable (a diameter dim may cross one).
     occupied = strip_obstacles(dwg, view="front", crossable=CROSSABLE_TYPES)
     placed = 0
-    for i, ((tip, label, feat), ly) in enumerate(zip(specs, ys, strict=True)):
+    for i, ((tip, dia, label, feat), ly) in enumerate(zip(survivors, ys, strict=True)):
         ldr = Leader(tip=(tip[0], tip[1], 0), elbow=(elbow_x, ly, 0), label=label, draft=draft)
         if _box_hits(_anno_box(ldr), occupied):
             continue  # would overprint a bore leader / existing callout — drop just this one
