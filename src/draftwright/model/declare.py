@@ -128,6 +128,28 @@ def _read_cylinder(obj) -> tuple[str, float, Point]:
     return axis, dia, center
 
 
+def read_bore_step(part, tool, axis: str) -> tuple[float, float]:
+    """``(diameter, depth)`` of a counterbore / spotface *tool* cut into *part* (ADR 0011 #462).
+
+    ⌀ comes from the tool's cylindrical face (like :func:`_read_cylinder`); **depth** is measured
+    along the hole *axis* from the part's open face to the tool's inner (floor) face — so both
+    values track the geometry you built, restating no numbers. The counterbore is taken to open
+    on whichever end face of *axis* the tool sits nearer (a top counterbore reads its depth from
+    the top face down to the counterbore floor, even when the tool overhangs the part)."""
+    axis = _norm_axis(axis)
+    dia = _read_cylinder(tool)[1]
+    i = "xyz".index(axis)
+    pb, tb = part.bounding_box(), tool.bounding_box()
+    p_lo, p_hi = [pb.min.X, pb.min.Y, pb.min.Z][i], [pb.max.X, pb.max.Y, pb.max.Z][i]
+    t_lo, t_hi = [tb.min.X, tb.min.Y, tb.min.Z][i], [tb.max.X, tb.max.Y, tb.max.Z][i]
+    # open on the +axis face when the tool sits toward it, else the -axis face.
+    if (t_lo + t_hi) / 2 >= (p_lo + p_hi) / 2:
+        depth = p_hi - t_lo  # floor at the tool bottom, open at the max face
+    else:
+        depth = t_hi - p_lo  # floor at the tool top, open at the min face
+    return (round(dia, 3), round(depth, 3))
+
+
 def _span(at: Point, axis: str, length: float) -> tuple[Point, Point]:
     """The two axial end-points of a segment of *length* centred at *at* along *axis*."""
     idx = "xyz".index(axis)

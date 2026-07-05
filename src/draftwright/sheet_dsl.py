@@ -39,6 +39,7 @@ from draftwright.model import hole as _hole
 from draftwright.model import pattern as _pattern
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
+from draftwright.model.declare import read_bore_step as _read_bore_step
 
 
 def _parse_scale(scale):
@@ -97,6 +98,34 @@ class _Hole:
             code, self._sheet._features[self._i].diameter, show
         )
         return self
+
+    def cbore(
+        self, obj=None, *, diameter: float | None = None, depth: float | None = None
+    ) -> _Hole:
+        """A counterbore on this hole. ``.cbore(cbore_cyl)`` reads its ⌀ + depth off the
+        counterbore tool object (⌀ from the cylindrical face, depth from the part + tool along
+        the hole axis — no numbers restated), or pass explicit ``.cbore(diameter=…, depth=…)``.
+        An object supplies defaults; explicit kwargs override (#462)."""
+        return self._set(cbore=self._read_step(obj, diameter, depth))
+
+    def spotface(
+        self, obj=None, *, diameter: float | None = None, depth: float | None = None
+    ) -> _Hole:
+        """A spotface on this hole — same as :meth:`cbore` but a shallow facing (#462)."""
+        return self._set(spotface=self._read_step(obj, diameter, depth))
+
+    def _read_step(self, obj, diameter, depth) -> tuple[float, float]:
+        if obj is not None:
+            rd, rdp = _read_bore_step(
+                self._sheet._part, obj, self._sheet._features[self._i].frame.axis
+            )
+            diameter = rd if diameter is None else diameter
+            depth = rdp if depth is None else depth
+        if diameter is None or depth is None:
+            raise ValueError(
+                "cbore/spotface needs a tool object, or explicit diameter= and depth="
+            )
+        return (diameter, depth)
 
     def _set(self, **kw) -> _Hole:
         self._sheet._features[self._i] = replace(self._sheet._features[self._i], **kw)
