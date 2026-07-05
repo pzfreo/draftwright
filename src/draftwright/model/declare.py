@@ -298,31 +298,32 @@ def pattern(
     axis = _norm_axis(axis or member.frame.axis)
     center = at if at is not None else member.frame.origin
     members = tuple(members)
+
+    # Validate the arrangement up front, *whether or not* members are supplied: the furniture
+    # pass reads bcd/pitch/grid to draw the BCD centreline / pitch / grid dims, so a known
+    # rendered kind needs its defining dim even when the caller overrides the member layout
+    # (a missing or zero dim else crashes the furniture, or collapses computed members onto
+    # the centre). Only 'other' — a bare group with no arrangement furniture — is exempt, and
+    # it must carry explicit members. Fail loudly, matching the hole/boss/step/slot guards.
+    if kind == "bolt_circle" and not bcd:
+        raise ValueError("pattern(kind='bolt_circle') needs a nonzero bcd= (or explicit members=)")
+    elif kind == "linear" and not pitch:
+        raise ValueError("pattern(kind='linear') needs a nonzero pitch= (or explicit members=)")
+    elif kind == "grid" and (not grid or not all(grid) or rows is None or cols is None):
+        raise ValueError(
+            "pattern(kind='grid') needs a nonzero grid= pitch and rows= and cols= "
+            "(or explicit members=)"
+        )
+    elif kind == "other" and not members:
+        raise ValueError("pattern(kind='other') needs explicit members=")
+    elif kind not in ("bolt_circle", "linear", "grid", "other"):
+        raise ValueError(
+            f"pattern(kind={kind!r}) is not a known arrangement (bolt_circle / linear / grid / other)"
+        )
+    if count < 1:
+        raise ValueError(f"pattern() needs count >= 1 (got {count!r})")
+
     if not members:
-        # Compute the arrangement — but only for a known kind with its defining dims
-        # present, else the members would silently collapse onto the centre (r=0 /
-        # pitch=0, or a 1×1 grid) and the pattern would never render. Fail loudly
-        # instead, matching the hole/boss/step/slot guards.
-        _defining = {"bolt_circle": bcd, "linear": pitch, "grid": grid}
-        if kind not in _defining:
-            raise ValueError(
-                f"pattern(kind={kind!r}) needs a computed arrangement "
-                "(bolt_circle→bcd, linear→pitch, grid→grid), or explicit members="
-            )
-        # Reject a missing OR zero defining dim — both collapse every member onto the
-        # centre (r=0 / pitch=0). Truthiness covers None and 0 for the scalar dims; a
-        # grid needs a nonzero pitch in *both* axes plus rows/cols.
-        if kind == "grid":
-            if not grid or not all(grid) or rows is None or cols is None:
-                raise ValueError(
-                    "pattern(kind='grid') needs a nonzero grid= pitch and rows= and cols= "
-                    "(or explicit members=)"
-                )
-        elif not _defining[kind]:
-            raise ValueError(
-                f"pattern(kind={kind!r}) needs a nonzero arrangement dim "
-                "(bolt_circle→bcd, linear→pitch), or explicit members="
-            )
         members = _pattern_members(
             kind,
             center,

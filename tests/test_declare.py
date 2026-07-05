@@ -253,6 +253,27 @@ class TestModelSeam:
         with pytest.raises(ValueError):
             pattern(member, kind="grid", count=4, grid=(0, 0), rows=2, cols=2)
 
+    def test_pattern_explicit_members_still_need_defining_dim(self):
+        # A known rendered kind needs its defining dim even when the caller overrides the
+        # member layout with explicit members= — the furniture pass reads feat.bcd/pitch/grid
+        # to draw the BCD / pitch / grid dims, so bcd=None would crash the render (not just
+        # the computed-members path). Only kind='other' is exempt.
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        locs = ((20, 0, 0), (-20, 0, 0))
+        with pytest.raises(ValueError):
+            pattern(member, kind="bolt_circle", count=2, members=locs)  # bcd missing
+        with pytest.raises(ValueError):
+            pattern(member, kind="linear", count=2, members=locs)  # pitch missing
+        # kind="other" needs no defining dim
+        assert pattern(member, kind="other", count=2, members=locs).members == locs
+
+    def test_pattern_requires_positive_count(self):
+        member = hole(diameter=3, at=(0, 0, 0), axis="z")
+        with pytest.raises(ValueError):
+            pattern(member, kind="bolt_circle", count=0, bcd=40)
+        with pytest.raises(ValueError):
+            pattern(member, kind="linear", count=-3, pitch=10)
+
     def test_pattern_unknown_kind_raises(self):
         # A typo'd / unsupported arrangement name must fail loudly, not fall through to an
         # empty-member degenerate pattern (which renders a wrong count× callout).
