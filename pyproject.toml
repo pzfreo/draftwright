@@ -11,7 +11,12 @@ license = { file = "LICENSE" }
 authors = [{ name = "Paul Fremantle", email = "pzfreo@gmail.com" }]
 requires-python = ">=3.10,<3.15"
 dependencies = [
-    "build123d>=0.9.0",
+    # build123d ≤0.10 pulls cadquery-ocp (VTK), whose VTK caps at Python 3.12; 0.11 switched to
+    # cadquery-ocp-novtk, which ships 3.13/3.14 wheels and drops VTK entirely (draftwright is
+    # headless — it never imports VTK). Split by Python: keep the proven ≤3.12 stack, use 0.11 on
+    # 3.13+. Mirrors pzfreo/build123d-mcp's dependency handling.
+    "build123d>=0.9.0,<0.11 ; python_full_version < '3.13'",
+    "build123d>=0.11,<0.12 ; python_full_version >= '3.13'",
     "build123d-drafting-helpers>=0.13.0",
     "kiwisolver>=1.4,<2",
     "numpy>=1.24",
@@ -30,6 +35,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
 [project.scripts]
@@ -112,3 +119,12 @@ dev = [
     "pytest-xdist>=3",
     "ruff>=0.4",
 ]
+
+[tool.uv]
+# On Python 3.13/3.14, build123d resolves to 0.11, whose OCP kernel is
+# cadquery-ocp-novtk (VTK dropped from the transitive tree — fine here, draftwright
+# renders headless and never imports VTK). Its 7.9.3.1.1 release ships a broken macOS
+# wheel (no OCP.GccEnt module → build123d fails to import), so pin it out. Only bites
+# when novtk is actually resolved (build123d 0.11); harmless on 0.10/cadquery-ocp.
+# Mirrors pzfreo/build123d-mcp. Remove once upstream fixes the wheel.
+constraint-dependencies = ["cadquery-ocp-novtk!=7.9.3.1.1"]
