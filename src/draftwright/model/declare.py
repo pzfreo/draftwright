@@ -49,6 +49,53 @@ def _norm_axis(axis: str) -> str:
     return a
 
 
+def _is_positive(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0
+
+
+def _require_positive(**named) -> None:
+    """Each supplied (non-``None``) value must be a positive number. These constructors are
+    a public compiler input (ADR 0011); a negative/zero size must fail at declaration time
+    with a clear ``ValueError``, not later in layout or as a misleading drawing (#452). A
+    ``None`` is skipped (the field is optional) — use :func:`_positive` for a required one."""
+    for name, v in named.items():
+        if v is not None and not _is_positive(v):
+            raise ValueError(f"{name} must be a positive number (got {v!r})")
+
+
+def _positive(name: str, v) -> None:
+    """A *required* positive number — ``None`` fails too (a missing defining dim, #452)."""
+    if not _is_positive(v):
+        raise ValueError(f"{name} must be a positive number (got {v!r})")
+
+
+def _require_count(name: str, count) -> None:
+    """A count must be a positive *int* — a fractional/None count is nonsensical and would
+    otherwise store silently or crash later in ``range(count)`` with a raw TypeError (#452)."""
+    if not (isinstance(count, int) and not isinstance(count, bool) and count >= 1):
+        raise ValueError(f"{name} needs count >= 1 as an int (got {count!r})")
+
+
+def _require_point(name: str, pt) -> None:
+    """A location/point kwarg must be an ``(x, y, z)`` triple of numbers."""
+    if not (
+        isinstance(pt, (tuple, list))
+        and len(pt) == 3
+        and all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in pt)
+    ):
+        raise ValueError(f"{name} must be an (x, y, z) tuple of numbers (got {pt!r})")
+
+
+def _require_pair_positive(name: str, pair) -> None:
+    """A ``(diameter, depth)`` pair (``cbore`` / ``spotface``) must be two positive numbers."""
+    if pair is None:
+        return
+    if not (isinstance(pair, (tuple, list)) and len(pair) == 2):
+        raise ValueError(f"{name} must be a (diameter, depth) pair (got {pair!r})")
+    _positive(f"{name} diameter", pair[0])  # both required — a None slot must fail too
+    _positive(f"{name} depth", pair[1])
+
+
 def _bbox_axis_dia(obj) -> tuple[str, float, Point]:
     """Read an axis-aligned cylinder's (axis, diameter, centre) off its bounding box:
     the two near-equal spans are the diameter; the odd one out is the bore/OD axis."""
@@ -107,12 +154,22 @@ def hole(
     build123d object you subtracted — or ``hole(diameter=6, at=(20, 10, 0), axis="z")``.
 
     ``cbore`` / ``spotface`` are ``(diameter, depth)`` pairs; ``count`` + ``members``
-    describe a machining-spec group drawn as one ``count×`` callout."""
+    describe a machining-spec group drawn as one ``count×`` callout.
+
+    An object supplies *defaults*; any explicit keyword overrides that field (#451)."""
     if obj is not None:
-        axis, diameter, at = _read_cylinder(obj)
+        r_axis, r_diameter, r_at = _read_cylinder(obj)
+        axis = r_axis if axis is None else axis
+        diameter = r_diameter if diameter is None else diameter
+        at = r_at if at is None else at
     if diameter is None or at is None or axis is None:
         raise ValueError("hole() needs an object, or explicit diameter=, at= and axis=")
     axis = _norm_axis(axis)
+    _require_positive(diameter=diameter, depth=depth)
+    _require_pair_positive("cbore", cbore)
+    _require_pair_positive("spotface", spotface)
+    _require_point("at", at)
+    _require_count("hole()", count)
     return HoleFeature(
         frame=Frame(origin=at, axis=axis),
         diameter=diameter,
@@ -127,12 +184,18 @@ def hole(
 
 def boss(obj=None, *, diameter=None, at=None, axis=None) -> BossFeature:
     """An external cylindrical boss / OD. Either ``boss(cylinder)`` or
-    ``boss(diameter=6, at=(0, 0, 0), axis="x")`` (parametric)."""
+    ``boss(diameter=6, at=(0, 0, 0), axis="x")`` (parametric). An object supplies
+    *defaults*; any explicit keyword overrides that field (#451)."""
     if obj is not None:
-        axis, diameter, at = _read_cylinder(obj)
+        r_axis, r_diameter, r_at = _read_cylinder(obj)
+        axis = r_axis if axis is None else axis
+        diameter = r_diameter if diameter is None else diameter
+        at = r_at if at is None else at
     if diameter is None or at is None or axis is None:
         raise ValueError("boss() needs an object, or explicit diameter=, at= and axis=")
     axis = _norm_axis(axis)
+    _require_positive(diameter=diameter)
+    _require_point("at", at)
     return BossFeature(frame=Frame(origin=at, axis=axis), diameter=diameter)
 
 
@@ -140,14 +203,21 @@ def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None)
     """One axial segment of a turned profile — its OD + length. Either ``step(segment)``
     (⌀ from the cylindrical face, length + centre from the bbox along its axis) or
     explicit ``step(diameter=4, length=10, at=(0, 0, 0), axis="x")``. ``span`` (the two
-    axial end-points) is derived from ``at`` + ``length`` when not given."""
+    axial end-points) is derived from ``at`` + ``length`` when not given. An object supplies
+    *defaults*; any explicit keyword overrides that field (#451)."""
     if obj is not None:
-        axis, diameter, at = _read_cylinder(obj)
-        bb = obj.bounding_box()
-        length = [bb.size.X, bb.size.Y, bb.size.Z]["xyz".index(axis)]
+        r_axis, r_diameter, r_at = _read_cylinder(obj)
+        axis = r_axis if axis is None else axis
+        diameter = r_diameter if diameter is None else diameter
+        at = r_at if at is None else at
+        if length is None:
+            bb = obj.bounding_box()
+            length = [bb.size.X, bb.size.Y, bb.size.Z]["xyz".index(_norm_axis(axis))]
     if diameter is None or length is None or at is None or axis is None:
         raise ValueError("step() needs an object, or explicit diameter=, length=, at= and axis=")
     axis = _norm_axis(axis)
+    _require_positive(diameter=diameter, length=length)
+    _require_point("at", at)
     if span is None:
         span = _span(at, axis, length)
     return StepFeature(
@@ -162,7 +232,7 @@ def slot(
     length=None,
     long_axis=None,
     width_axis=None,
-    w_center=0.0,
+    w_center=None,
     lo=None,
     hi=None,
     at=None,
@@ -170,7 +240,7 @@ def slot(
     """A milled slot / reduced across-flats section. From an object the three bbox spans
     are read as long_axis (longest) / width_axis (middle) / depth (shortest, not stored);
     ``lo``/``hi`` are the extent along the long axis and ``w_center`` the centre across the
-    width axis. Explicit values override any read.
+    width axis. An object supplies *defaults*; any explicit keyword overrides that field (#451).
 
     Caveat: the object read assumes width > depth (a slot wider than it is deep). For a
     slot cut *deeper than it is wide* the middle/shortest spans swap — pass explicit
@@ -187,14 +257,31 @@ def slot(
             key=lambda s: s[1],
             reverse=True,
         )
-        (long_axis, length, lo, hi, _), (width_axis, width, _, _, w_center), _ = spans
-        at = (c.X, c.Y, c.Z)
+        (r_long_axis, r_length, r_lo, r_hi, _), (r_width_axis, r_width, _, _, r_w_center), _ = (
+            spans
+        )
+        long_axis = r_long_axis if long_axis is None else long_axis
+        width_axis = r_width_axis if width_axis is None else width_axis
+        length = r_length if length is None else length
+        width = r_width if width is None else width
+        lo = r_lo if lo is None else lo
+        hi = r_hi if hi is None else hi
+        w_center = r_w_center if w_center is None else w_center
+        at = (c.X, c.Y, c.Z) if at is None else at
     if None in (width, length, long_axis, width_axis, lo, hi):
         raise ValueError(
             "slot() needs an object, or explicit width=, length=, long_axis=, width_axis=, lo= and hi="
         )
     long_axis = _norm_axis(long_axis)
     width_axis = _norm_axis(width_axis)
+    if long_axis == width_axis:
+        raise ValueError(f"slot() long_axis and width_axis must differ (both {long_axis!r})")
+    _require_positive(width=width, length=length)
+    if not lo < hi:
+        raise ValueError(f"slot() needs lo < hi (got lo={lo!r}, hi={hi!r})")
+    if not math.isclose(hi - lo, length, rel_tol=1e-6, abs_tol=1e-6):
+        raise ValueError(f"slot() length={length!r} must equal hi - lo ({hi - lo!r})")
+    w_center = 0.0 if w_center is None else w_center
     if at is None:
         # Centre on the long axis at the slot midpoint; other coords irrelevant to the size dims.
         origin = [0.0, 0.0, 0.0]
@@ -297,7 +384,10 @@ def pattern(
     ``members=`` explicitly to override the computed layout (required for ``kind="other"``)."""
     axis = _norm_axis(axis or member.frame.axis)
     center = at if at is not None else member.frame.origin
+    _require_point("at", center)
     members = tuple(members)
+    for m in members:
+        _require_point("members", m)
 
     # Validate the arrangement up front, *whether or not* members are supplied: the furniture
     # pass reads bcd/pitch/grid to draw the BCD centreline / pitch / grid dims, so a known
@@ -305,23 +395,41 @@ def pattern(
     # (a missing or zero dim else crashes the furniture, or collapses computed members onto
     # the centre). Only 'other' — a bare group with no arrangement furniture — is exempt, and
     # it must carry explicit members. Fail loudly, matching the hole/boss/step/slot guards.
-    if kind == "bolt_circle" and not bcd:
-        raise ValueError("pattern(kind='bolt_circle') needs a nonzero bcd= (or explicit members=)")
-    elif kind == "linear" and not pitch:
-        raise ValueError("pattern(kind='linear') needs a nonzero pitch= (or explicit members=)")
-    elif kind == "grid" and (not grid or not all(grid) or rows is None or cols is None):
-        raise ValueError(
-            "pattern(kind='grid') needs a nonzero grid= pitch and rows= and cols= "
-            "(or explicit members=)"
-        )
-    elif kind == "other" and not members:
-        raise ValueError("pattern(kind='other') needs explicit members=")
-    elif kind not in ("bolt_circle", "linear", "grid", "other"):
+    if kind not in ("bolt_circle", "linear", "grid", "other"):
         raise ValueError(
             f"pattern(kind={kind!r}) is not a known arrangement (bolt_circle / linear / grid / other)"
         )
-    if count < 1:
-        raise ValueError(f"pattern() needs count >= 1 (got {count!r})")
+    _require_count("pattern()", count)
+    if members and len(members) != count:
+        raise ValueError(f"pattern() count={count} must equal len(members)={len(members)}")
+
+    if kind == "bolt_circle":
+        _positive("pattern(kind='bolt_circle') bcd=", bcd)  # furniture reads it even w/ members=
+    elif kind == "linear":
+        _positive("pattern(kind='linear') pitch=", pitch)  # pitch dim reads it even w/ members=
+        if direction is not None:
+            _require_point("direction", direction)  # a (dx, dy, dz) triple of numbers
+            if not any(direction):
+                raise ValueError("pattern(kind='linear') direction= must be nonzero")
+    elif kind == "grid":
+        if grid is None or rows is None or cols is None:
+            raise ValueError("pattern(kind='grid') needs grid= pitch and rows= and cols=")
+        if not (isinstance(grid, (tuple, list)) and len(grid) == 2):
+            raise ValueError(
+                f"pattern() grid= must be a (row_pitch, col_pitch) pair (got {grid!r})"
+            )
+        _positive("pattern() grid row pitch", grid[0])
+        _positive("pattern() grid col pitch", grid[1])
+        if not (isinstance(rows, int) and isinstance(cols, int) and rows >= 1 and cols >= 1):
+            raise ValueError(
+                f"pattern() rows= and cols= must be positive ints (got rows={rows!r}, cols={cols!r})"
+            )
+        if rows * cols != count:
+            raise ValueError(
+                f"pattern(kind='grid') needs rows*cols == count ({rows}*{cols} != {count})"
+            )
+    elif kind == "other" and not members:
+        raise ValueError("pattern(kind='other') needs explicit members=")
 
     if not members:
         members = _pattern_members(
