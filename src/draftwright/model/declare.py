@@ -28,6 +28,7 @@ import math
 
 from draftwright.model.ir import (
     BossFeature,
+    ControlFrame,
     DatumRef,
     EnvelopeFeature,
     Feature,
@@ -529,6 +530,11 @@ def envelope(obj) -> EnvelopeFeature:
 _FACE_ON_VIEW = {"x": "side", "y": "front", "z": "plan"}
 # A planar face whose normal is this axis shows as an EDGE here (prefer front, else side).
 _EDGE_ON_VIEW = {"x": "front", "y": "side", "z": "front"}
+# Default strip side for a FEATURE target, per its face-on view — the empirically roomiest
+# one: the plan's below strip always carries the overall-width envelope dim (so use above),
+# while the front/side above strips are the shallow gaps between stacked views (so use below).
+# A congested default still drops-with-warning; ``side=`` overrides. Fallthrough is #481.
+_FEATURE_SIDE = {"plan": "above", "front": "below", "side": "below"}
 # The model-space axis a view stacks its above/below strips along (its vertical).
 _VERTICAL_MODEL_AXIS = {"plan": 1, "front": 2, "side": 2}
 _VALID_SIDES = ("above", "below", "left", "right")
@@ -567,7 +573,8 @@ def gdt_target(ref, part=None, *, view=None, side=None) -> tuple[str, str, Point
     if isinstance(ref, Feature):
         site = ref.frame.origin
         axis = _norm_axis(ref.frame.axis)
-        d_view, d_side = _FACE_ON_VIEW[axis], "below"
+        d_view = _FACE_ON_VIEW[axis]
+        d_side = _FEATURE_SIDE[d_view]
     else:  # a build123d planar face
         try:
             n, c = ref.normal_at(), ref.center()
@@ -602,3 +609,37 @@ def finish(ra, ref, part=None, *, view=None, side=None) -> Finish:
     v, s, site, axis = gdt_target(ref, part, view=view, side=side)
     origin = ref if isinstance(ref, Feature) else None
     return Finish(frame=Frame(site, axis), ra=ra, view=v, side=s, origin=origin)
+
+
+def control_frame(
+    characteristic: str,
+    tolerance,
+    ref,
+    part=None,
+    *,
+    datums=(),
+    diameter=False,
+    modifier=None,
+    view=None,
+    side=None,
+) -> ControlFrame:
+    """A geometric-tolerance feature control frame (ISO 1101) on *ref* — a feature or a planar
+    face (ADR 0011 P2c.2). *characteristic* is a lowercase ISO 1101 name (``"position"`` …);
+    *datums* the referenced datum letters; *diameter* prefixes the zone with ``⌀``; *modifier*
+    a material-condition symbol (``"M"``/``"L"``/``"P"``)."""
+    tol = str(tolerance).strip()
+    if not tol:
+        raise ValueError("control frame needs a tolerance value")
+    v, s, site, axis = gdt_target(ref, part, view=view, side=side)
+    origin = ref if isinstance(ref, Feature) else None
+    return ControlFrame(
+        frame=Frame(site, axis),
+        characteristic=str(characteristic),
+        tolerance=tol,
+        view=v,
+        side=s,
+        datums=tuple(str(d).strip() for d in datums),
+        diameter=bool(diameter),
+        modifier=modifier,
+        origin=origin,
+    )

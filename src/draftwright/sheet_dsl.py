@@ -32,6 +32,7 @@ feature itself) so you can ``.fit(...)`` / ``.tolerance(...)`` it without re-dec
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import replace
 
 from draftwright.analysis import _solids_body
@@ -39,6 +40,7 @@ from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
 from draftwright.model import Feature
 from draftwright.model import boss as _boss
+from draftwright.model import control_frame as _declare_control
 from draftwright.model import datum as _declare_datum
 from draftwright.model import envelope as _envelope
 from draftwright.model import finish as _declare_finish
@@ -46,8 +48,18 @@ from draftwright.model import hole as _hole
 from draftwright.model import pattern as _pattern
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
-from draftwright.model.declare import _norm_axis, _read_cylinder, _require_positive
+from draftwright.model.declare import _norm_axis, _read_cylinder, _require_positive, gdt_target
 from draftwright.model.declare import read_bore_step as _read_bore_step
+
+
+def _parse_datums(to) -> tuple[str, ...]:
+    """The datum letters a ``to=`` argument names: ``None`` → ``()``; a sequence →
+    stripped letters; a string split on spaces / ``|`` / ``,`` (``"A B"`` / ``"A|B"``)."""
+    if to is None:
+        return ()
+    if isinstance(to, (tuple, list)):
+        return tuple(str(d).strip() for d in to if str(d).strip())
+    return tuple(str(to).replace("|", " ").replace(",", " ").split())
 
 
 def _parse_scale(scale):
@@ -178,6 +190,88 @@ class _Dim:
         ``diameter(journal).finish("0.8")``; ``view``/``side`` override the derived strip."""
         self._sheet._gdt_finish(ra, self._i, view=view, side=side)
         return self
+
+
+class _Control:
+    """A fluent GD&T feature-control-frame builder (ADR 0011 P2c.2). One method per ISO 1101
+    characteristic — each appends a control frame on the same target, so chained calls stack::
+
+        sheet.control(bore).position(0.1, to="A B").perpendicularity(0.05, to="A")
+
+    ``to=`` names the referenced datum letter(s) (``"A"`` / ``"A B"`` / ``("A", "B")``);
+    ``diameter=`` prefixes the zone with ``⌀`` (the default for position/concentricity);
+    ``modifier=`` a material-condition symbol (``"M"``/``"L"``/``"P"``). The target view + strip
+    are derived once (from the feature/face) when :meth:`Sheet.control` runs; ``view=``/``side=``
+    there override them."""
+
+    def __init__(self, sheet: Sheet, target, src, view: str, side: str) -> None:
+        self._sheet = sheet
+        self._target = target
+        self._src = src
+        self._view = view
+        self._side = side
+
+    def _add(self, characteristic, tol, *, to=None, diameter=False, modifier=None) -> _Control:
+        item = _declare_control(
+            characteristic,
+            tol,
+            self._target,
+            self._sheet._part,
+            datums=_parse_datums(to),
+            diameter=diameter,
+            modifier=modifier,
+            view=self._view,
+            side=self._side,
+        )
+        self._sheet._append_gdt(item, self._src)
+        return self
+
+    # Form tolerances (no datum reference) --------------------------------------------------
+    def straightness(self, tol, *, modifier=None) -> _Control:
+        return self._add("straightness", tol, modifier=modifier)
+
+    def flatness(self, tol, *, modifier=None) -> _Control:
+        return self._add("flatness", tol, modifier=modifier)
+
+    def circularity(self, tol, *, modifier=None) -> _Control:
+        return self._add("circularity", tol, modifier=modifier)
+
+    def cylindricity(self, tol, *, modifier=None) -> _Control:
+        return self._add("cylindricity", tol, modifier=modifier)
+
+    # Profile ------------------------------------------------------------------------------
+    def profile_line(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("profile_line", tol, to=to, modifier=modifier)
+
+    def profile_surface(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("profile_surface", tol, to=to, modifier=modifier)
+
+    # Orientation --------------------------------------------------------------------------
+    def angularity(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("angularity", tol, to=to, modifier=modifier)
+
+    def perpendicularity(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("perpendicularity", tol, to=to, modifier=modifier)
+
+    def parallelism(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("parallelism", tol, to=to, modifier=modifier)
+
+    # Location (a position/concentricity zone is diametral by default) ---------------------
+    def position(self, tol, *, to=None, diameter=True, modifier=None) -> _Control:
+        return self._add("position", tol, to=to, diameter=diameter, modifier=modifier)
+
+    def concentricity(self, tol, *, to=None, diameter=True, modifier=None) -> _Control:
+        return self._add("concentricity", tol, to=to, diameter=diameter, modifier=modifier)
+
+    def symmetry(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("symmetry", tol, to=to, modifier=modifier)
+
+    # Runout -------------------------------------------------------------------------------
+    def circular_runout(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("circular_runout", tol, to=to, modifier=modifier)
+
+    def total_runout(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("total_runout", tol, to=to, modifier=modifier)
 
 
 class Sheet:
@@ -330,6 +424,15 @@ class Sheet:
         self._append_gdt(_declare_finish(ra, target, self._part, view=view, side=side), src)
         return self
 
+    def control(self, ref, *, view: str | None = None, side: str | None = None) -> _Control:
+        """A GD&T feature-control-frame builder on *ref* — a feature handle / :class:`Feature` /
+        index, or a build123d planar face. Chain one method per ISO 1101 characteristic
+        (``.position(0.1, to="A B")`` …); each stacks a frame on the target. The target view +
+        strip are derived from the geometry; ``view``/``side`` override them (ADR 0011 P2c.2)."""
+        target, src = self._gdt_ref(ref)
+        v, s, _site, _axis = gdt_target(target, self._part, view=view, side=side)
+        return _Control(self, target, src, v, s)
+
     def _gdt_finish(self, ra, src_index: int, *, view=None, side=None) -> None:
         """A finish declared through a fluent handle — sources its provenance from the handle's
         feature INDEX (not the object), so a later size verb on the same handle can't strand it."""
@@ -366,6 +469,29 @@ class Sheet:
         for gi, si in self._gdt_src:
             self._features[gi] = replace(self._features[gi], origin=self._features[si])
 
+    def _validate_datums(self) -> None:
+        """Warn (non-fatal) if a control frame references a datum letter no ``sheet.datum`` on
+        this sheet declared — a likely typo (``to="A"`` with no datum A). ADR 0011 P2c.2."""
+        declared = {f.letter for f in self._features if getattr(f, "kind", None) == "datum_ref"}
+        referenced = {
+            d
+            for f in self._features
+            if getattr(f, "kind", None) == "control_frame"
+            for d in f.datums
+        }
+        missing = sorted(referenced - declared)
+        if missing:
+            warnings.warn(
+                f"control frame references undeclared datum(s) {missing} — declare each with "
+                "sheet.datum(letter, ref)",
+                stacklevel=3,
+            )
+
+    def _prepare(self) -> None:
+        """Resolve deferred GD&T state before handing features to the engine."""
+        self._materialize_gdt()
+        self._validate_datums()
+
     # -- inspection / output --------------------------------------------------
 
     @property
@@ -387,13 +513,13 @@ class Sheet:
         cost and can't hit a layout/render failure. Wraps the *solids body* (as :func:`_analyse`
         does), so the bbox/datum match what ``build()`` draws even when the part carries
         bbox-extending non-solid geometry."""
-        self._materialize_gdt()
+        self._prepare()
         return _coerce_model(self._features, _solids_body(self._part), self._decorations())
 
     def build(self):
         """Build the :class:`~draftwright.drawing.Drawing` — detection skipped; only the
         declared features are drawn."""
-        self._materialize_gdt()
+        self._prepare()
         return build_drawing(
             self._part, model=self._features, decorations=self._decorations(), **self._opts
         )
