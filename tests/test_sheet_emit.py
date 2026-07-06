@@ -510,14 +510,34 @@ class TestRoundTripParity:
         self._parity(_plate(), tmp_path, monkeypatch)
 
     def test_turned_x_shaft_parity(self, tmp_path, monkeypatch):
-        # a horizontal turned shaft (X axis) — steps + OD + centrelines
-        shaft = Pos(0, 0, 20) * Cylinder(15, 40) + Pos(0, 0, 55) * Cylinder(8, 30)
+        # a horizontal turned shaft (X axis) — genuinely rotational: is_rotational + od_axis='x',
+        # driving the non-Z branch of build_rotational_feature (bores=(), Frame axis='x'). A
+        # two-diameter cross body would trip the #222 fallback and classify prismatic instead,
+        # exercising no rotational furniture — so keep this a single-diameter cylinder.
         from build123d import Rotation
 
-        self._parity(Rotation(0, 90, 0) * shaft, tmp_path, monkeypatch)
+        self._parity(Rotation(0, 90, 0) * Cylinder(15, 80), tmp_path, monkeypatch)
 
     def test_rotational_bored_shaft_parity(self, tmp_path, monkeypatch):
         # the #472 fixture: a Z-axis stepped cylinder with a concentric bore — the case that
         # dropped both centrelines and the OD dimension before the RotationalFeature synthesis
         shaft = Pos(0, 0, 20) * Cylinder(15, 40) + Pos(0, 0, 55) * Cylinder(8, 30)
         self._parity(shaft - Pos(0, 0, 0) * Cylinder(2.5, 200), tmp_path, monkeypatch)
+
+    def test_declared_rotational_wins_no_double_add(self):
+        # The synthesis gate (builder.py) must not fire when the caller already declared a
+        # rotational feature: an explicit choice wins, and the furniture is never double-added.
+        # Use a genuinely rotational part (single-diam horizontal cylinder ⇒ synthesis WOULD
+        # otherwise add od=30) but declare od=99 — assert exactly one rotational feature survives
+        # and it is the declared one.
+        from build123d import Rotation
+
+        from draftwright.model.ir import Frame, PartModel, RotationalFeature
+
+        shaft = Rotation(0, 90, 0) * Cylinder(15, 80)
+        declared = RotationalFeature(frame=Frame((0.0, 0.0, 0.0), "x"), od=99.0)
+        m = PartModel(
+            bbox=shaft.bounding_box(), orientation=None, features=[declared], datums=[]
+        )
+        rot = [f for f in build_drawing(shaft, model=m).model().features if f.kind == "rotational"]
+        assert len(rot) == 1 and rot[0].od == 99.0
