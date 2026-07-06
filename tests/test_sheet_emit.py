@@ -364,7 +364,10 @@ class TestCli:
 
         (tmp_path / "climod.py").write_text(_SOURCE_MODULE, encoding="utf-8")
         monkeypatch.chdir(tmp_path)
-        r = CliRunner().invoke(app, ["climod:bracket", "--script", "--style", "imperative"])
+        # widen the console so rich doesn't wrap the error panel mid-phrase (CI defaults to 80 cols)
+        r = CliRunner().invoke(
+            app, ["climod:bracket", "--script", "--style", "imperative"], env={"COLUMNS": "200"}
+        )
         assert r.exit_code != 0
         assert "--style sheet" in r.output
 
