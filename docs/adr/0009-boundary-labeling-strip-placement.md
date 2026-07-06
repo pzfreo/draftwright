@@ -573,6 +573,15 @@ stacked frames spaced by one label-height would overlap.
   `(tier, tier)` default, so **every existing dimension is byte-identical** — this is a
   pure extension, not a re-tiering. `plan_strip` already spaces by `size[idx]` (P4a), so
   no solver change is needed; the real gap simply flows through.
+- The **strip-edge reservation** (`place_strip_candidates` pulls the outer boundary in so
+  the outermost label doesn't overshoot `outer_limit`) also uses the real outward extent,
+  not a fixed `tier` — else a glyph wider than `tier` renders off the sheet
+  (`annotation_out_of_bounds`) instead of dropping when the strip is too narrow. It is
+  orientation-aware: the Leader **centres** the glyph on the elbow for an above/below
+  strip (outward extent = `height/2`) but places it **one-sided** for left/right (extent =
+  full width). Dims carry no size → the reservation stays `tier`, byte-identical.
+  *(Both this and the leader-box footnote above were adversarial-review findings on the
+  P2b commit — a wide multi-datum frame rendered 17 mm off-sheet before the fix.)*
 - The footprint is the **glyph's own box**, NOT the leader+glyph box. The leader shaft
   runs back to the feature, so measuring the composite would inflate the stacking-axis
   extent — exactly the reason dims reserve one label-height and not their witness span.
