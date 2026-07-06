@@ -86,6 +86,26 @@ def test_face_datum_places_lint_clean():
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
 
+def test_finish_before_depth_keeps_provenance():
+    # Adversarial-review finding (CONFIRMED): declaring .finish() then a size verb (.depth) on
+    # the SAME handle replaces the source feature; the finish's origin must re-bind to the FINAL
+    # feature at build (index-sourced), else annotations_of() misses it and drop() orphans it.
+    part = Box(80, 50, 20) - Pos(0, 0, 0) * Cylinder(6, 20)
+    s = Sheet(part)
+    s.envelope()
+    h = s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
+    h.finish("1.6", view="front", side="above")  # declared BEFORE the size verb
+    h.depth(5)  # replaces the hole feature (through=False)
+    dwg = s.build()
+    hole_feat = next(f for f in s.features if f.kind == "hole")
+    fin_names = [n for n in dwg._named if "gdt" in n]
+    assert fin_names, "the finish placed"
+    # provenance re-bound to the FINAL (depth=5) hole, not the stale through hole
+    assert set(fin_names) <= set(dwg.annotations_of(hole_feat))
+    removed = dwg.drop(hole_feat)
+    assert all(n in removed for n in fin_names)  # dropped with its feature, not orphaned
+
+
 def test_override_recovers_a_congested_default():
     # The feature-path default (plan/below) is congested by the envelope width dim, so a bare
     # finish there drops with a warning; an explicit free side recovers it (the override seam).
