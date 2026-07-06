@@ -245,25 +245,44 @@ class TestObjectSpec:
         assert isinstance(obj, Shape)
         assert "from dottedmod import bracket as _obj" in seam
 
-    def test_file_spec_helper_can_import_a_sibling(self, tmp_path, monkeypatch):
-        # #488: a file helper's OWN imports must resolve — spec_from_file_location adds neither
-        # the file's dir nor the cwd to sys.path (unlike `python file.py`), so a repo-relative
-        # or sibling import used to fail unless the helper hand-managed sys.path.
-        (tmp_path / "sib_shapes488.py").write_text(
-            "from build123d import Box\ndef base():\n    return Box(8, 8, 8)\n", encoding="utf-8"
+    def test_file_spec_helper_sibling_import_wins_and_seam_is_cwd_independent(
+        self, tmp_path, monkeypatch
+    ):
+        # #488 + #491 review: a subdir helper importing a sibling must (1) resolve to the sibling
+        # next to it — NOT a same-named module in cwd (match `python file.py`); and (2) the baked
+        # seam must re-build the SAME object from any CWD (bake cwd as a resolve-time literal, not
+        # a runtime getcwd, and preserve insert order so the initial build == the re-run).
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (tmp_path / "sib491.py").write_text(  # a COLLIDING module in cwd
+            "from build123d import Box\ndef base():\n    return Box(9, 9, 9)\n", encoding="utf-8"
         )
-        (tmp_path / "sib_helper488.py").write_text(
-            "from sib_shapes488 import base\ndef make():\n    return base()\n", encoding="utf-8"
+        (sub / "sib491.py").write_text(  # the true sibling next to the helper
+            "from build123d import Box\ndef base():\n    return Box(3, 3, 3)\n", encoding="utf-8"
+        )
+        (sub / "helper491.py").write_text(
+            "from sib491 import base\ndef make():\n    return base()\n", encoding="utf-8"
         )
         monkeypatch.chdir(tmp_path)
-        obj, seam = resolve_object_spec(
-            "sib_helper488.py:make"
-        )  # sibling import, no sys.path help
-        assert isinstance(obj, Shape)
-        assert "_sys.path.insert" in seam  # the re-run seam restores the import roots
-        # the cwd is baked as a repr'd literal — compare against repr so Windows backslash
-        # escaping in the seam doesn't false-fail (the code bakes os.getcwd(), same as here).
-        assert repr(os.getcwd()) in seam
+        obj, seam = resolve_object_spec("sub/helper491.py:make")
+        assert round(obj.bounding_box().size.X) == 3  # helper's own dir wins the clash
+
+        # the seam bakes cwd as an absolute literal (no runtime getcwd), so re-run is cwd-stable
+        assert "getcwd" not in seam
+        assert repr(str(tmp_path)) in seam
+
+        # exec the seam from a DIFFERENT cwd with the modules purged -> must build the SAME object
+        import sys as _sys
+
+        for _m in ("sib491", "helper491"):
+            _sys.modules.pop(_m, None)
+        for _p in (str(tmp_path), str(sub)):
+            while _p in _sys.path:
+                _sys.path.remove(_p)
+        monkeypatch.chdir(tmp_path.parent)
+        ns: dict = {}
+        exec(seam, ns)  # noqa: S102 — exercising the generated re-run seam
+        assert round(ns["_mod"].make().bounding_box().size.X) == 3  # build == re-run
 
     def test_missing_attr_raises(self, tmp_path):
         p = self._mod(tmp_path)

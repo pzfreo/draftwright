@@ -190,12 +190,17 @@ def resolve_object_spec(spec: str) -> tuple[Shape, str]:
         if ispec is None or ispec.loader is None:
             raise ValueError(f"cannot load module from {mod_ref!r}")
         module = importlib.util.module_from_spec(ispec)
-        # Put the helper file's OWN directory and the invocation cwd on sys.path before exec,
-        # so the loaded file's imports resolve. spec_from_file_location adds NEITHER (unlike
-        # `python file.py`, which adds the script dir), so a repo-relative or sibling import in
-        # the helper would otherwise fail unless it hand-managed sys.path (#488). The module-spec
-        # branch below already does the cwd insert; do the same here + the file's parent.
-        for _p in (str(path.parent), os.getcwd()):
+        # Put the invocation cwd AND the helper file's OWN directory on sys.path before exec, so
+        # the loaded file's repo-relative / sibling imports resolve. spec_from_file_location adds
+        # NEITHER (unlike `python file.py`, which adds the script dir), so they would otherwise
+        # fail unless the helper hand-managed sys.path (#488). Insert cwd first then the file's
+        # dir, so the file's OWN dir lands at index 0 and WINS a name clash — matching
+        # `python file.py` (a sibling next to the helper beats a same-named module in cwd). Both
+        # are baked into the seam as resolve-time absolute literals (like the module-spec branch's
+        # cwd), so a re-run adds the SAME paths in the SAME order from any CWD (#491 review).
+        file_dir = str(path.parent)
+        cwd = os.getcwd()
+        for _p in (cwd, file_dir):
             if _p not in sys.path:
                 sys.path.insert(0, _p)
         # Register before exec so a self-referential target resolves (a dataclass whose
@@ -207,8 +212,8 @@ def resolve_object_spec(spec: str) -> tuple[Shape, str]:
         except Exception as e:
             raise ValueError(f"{spec!r}: importing {mod_ref!r} failed: {e}") from e
         seam = (
-            "import importlib.util as _ilu, sys as _sys, os as _os\n"
-            f"for _p in ({str(path.parent)!r}, _os.getcwd()):\n"
+            "import importlib.util as _ilu, sys as _sys\n"
+            f"for _p in ({cwd!r}, {file_dir!r}):\n"
             "    _p in _sys.path or _sys.path.insert(0, _p)\n"
             f"_spec = _ilu.spec_from_file_location({path.stem!r}, {str(path)!r})\n"
             "_mod = _ilu.module_from_spec(_spec)\n_sys.modules[_spec.name] = _mod\n"
