@@ -36,7 +36,7 @@ from draftwright._core import (
     _tb_width,
 )
 from draftwright.analysis import _analyse
-from draftwright.annotate import _auto_annotate, build_model
+from draftwright.annotate import _auto_annotate, build_model, build_rotational_feature
 from draftwright.annotations.sections import feature_hole_keys
 from draftwright.drawing import Drawing
 from draftwright.fonts import PLEX_MONO
@@ -263,6 +263,17 @@ def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=
     dwg._part_model = (
         _coerce_model(model, a.part, decorations) if model is not None else build_model(a)
     )
+    if model is not None:
+        # A declared model skips detection, so a turned shaft carries no RotationalFeature —
+        # and that feature is the sole driver of the turned-axis centrelines + the OD dimension
+        # (rot furniture). Synthesise it from the (unconditional) analysis so a declared /
+        # emitted-script turned part reproduces the detected drawing (#472). Gated on the
+        # caller not having declared one, so an explicit choice wins.
+        pm = dwg._part_model
+        if not any(f.kind == "rotational" for f in pm.features):
+            rot = build_rotational_feature(a)
+            if rot is not None:
+                dwg._part_model = replace(pm, features=[*pm.features, rot])
     dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
 
     part_s = a.part.scale(a.SCALE)

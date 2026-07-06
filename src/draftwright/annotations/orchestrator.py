@@ -59,8 +59,10 @@ from draftwright.annotations.sections import (
     feature_holes_of,
 )
 from draftwright.model import (
+    Frame,
     HoleFeature,
     PatternFeature,
+    RotationalFeature,
     build_part_model,
     plan_dimensions,
     plan_sections,
@@ -128,6 +130,20 @@ def build_model(a: Analysis):
         rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
         pmi=a.pmi,
     )
+
+
+def build_rotational_feature(a: Analysis):
+    """The rotational furniture feature (OD + centrelines + concentric bores) for *a*,
+    or ``None`` when the part isn't rotational. Mirrors the ``rotational`` branch of
+    :func:`build_model` / ``detect.build_part_model`` (detect.py) so the declared-model
+    path can synthesise the same furniture detection produces: a declared turned shaft
+    otherwise renders with no centrelines and its OD as a leader, not a dimension (#472).
+    Concentric bores are a Z-axis construction (as in :func:`build_model`)."""
+    if not a.is_rotational or a.od_diam is None:
+        return None
+    bores = tuple(_concentric_bore_diams(a)) if a.od_axis == "z" else ()
+    c = a.part.bounding_box().center()
+    return RotationalFeature(frame=Frame((c.X, c.Y, c.Z), a.od_axis), od=a.od_diam, bores=bores)
 
 
 def _declared_feature_keys(groups, a: Analysis) -> set:

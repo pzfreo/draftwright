@@ -11,4 +11,5 @@ from draftwright.annotations.orchestrator import (  # noqa: F401
     _auto_annotate,
     _wrap_rows,
     build_model,
+    build_rotational_feature,
 )
