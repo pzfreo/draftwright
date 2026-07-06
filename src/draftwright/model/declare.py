@@ -308,24 +308,30 @@ def slot(
             "z": (bb.size.Z, bb.min.Z, bb.max.Z, c.Z),
         }
         order = sorted("xyz", key=lambda a: by[a][0], reverse=True)  # longest span first
+        # Normalise any explicit override up front (accept build123d's "X"/"Z" per _norm_axis)
+        # BEFORE using it as a lowercase `by` key — else an uppercase override KeyErrors here.
         r_depth_axis = _norm_axis(depth_axis) if depth_axis is not None else order[-1]
         remaining = [a for a in order if a != r_depth_axis]  # longest-first, depth excluded
-        r_long_axis = long_axis if long_axis is not None else remaining[0]
-        r_width_axis = width_axis if width_axis is not None else remaining[1]
-        # Warn on a genuinely ambiguous read: the two non-depth spans are near-equal, so which
-        # is "long" vs "width" is a coin-flip — only when the caller named none of the axes.
-        if (
-            long_axis is None
-            and width_axis is None
-            and depth_axis is None
-            and math.isclose(by[order[0]][0], by[order[1]][0], rel_tol=_SLOT_AMBIGUOUS_FRAC)
-        ):
-            warnings.warn(
-                f"slot() object has near-equal top spans ({order[0]}={by[order[0]][0]:.3g}, "
-                f"{order[1]}={by[order[1]][0]:.3g}); the long/width axis read is ambiguous — "
-                "pass long_axis=/width_axis=/depth_axis= to disambiguate",
-                stacklevel=2,
-            )
+        r_long_axis = _norm_axis(long_axis) if long_axis is not None else remaining[0]
+        r_width_axis = _norm_axis(width_axis) if width_axis is not None else remaining[1]
+        # Warn on a genuinely ambiguous read — only when the caller named none of the axes, so
+        # the (long, width, depth) split is decided entirely by span order. BOTH adjacent pairs
+        # can be a coin-flip: order[0]≈order[1] flips long/width; order[1]≈order[2] flips which
+        # of the two shorter spans is kept as width vs dropped as the (default) depth axis.
+        if long_axis is None and width_axis is None and depth_axis is None:
+            s0, s1, s2 = (by[a][0] for a in order)
+            if math.isclose(s0, s1, rel_tol=_SLOT_AMBIGUOUS_FRAC) or math.isclose(
+                s1, s2, rel_tol=_SLOT_AMBIGUOUS_FRAC
+            ):
+                # stacklevel=2 attributes a direct declare.slot() call; via the Sheet.slot
+                # forwarder it lands one frame shallow, but no single value serves both entry
+                # points and the message is self-contained (it names the fix).
+                warnings.warn(
+                    f"slot() object has near-equal bbox spans (x={by['x'][0]:.3g}, "
+                    f"y={by['y'][0]:.3g}, z={by['z'][0]:.3g}); the long/width/depth axis read is "
+                    "ambiguous — pass long_axis=/width_axis=/depth_axis= to disambiguate",
+                    stacklevel=2,
+                )
         long_axis = r_long_axis
         width_axis = r_width_axis
         length = by[r_long_axis][0] if length is None else length

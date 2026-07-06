@@ -112,11 +112,25 @@ class TestConstructors:
         f = slot(Box(6, 20, 40), long_axis="x", width_axis="y")
         assert f.long_axis == "x" and f.length == pytest.approx(6.0)
 
+    def test_slot_uppercase_axis_override_normalises(self):
+        # #490 review (major regression): an explicit override is used as a lowercase-dict key,
+        # so a build123d-style uppercase letter ("Y"/"Z") must be normalised, not KeyError.
+        f = slot(Box(6, 20, 40), long_axis="Y", depth_axis="Z")
+        assert f.long_axis == "y" and f.width_axis == "x"
+        assert f.length == pytest.approx(20.0) and f.width == pytest.approx(6.0)
+
     def test_slot_ambiguous_top_spans_warn(self):
         # Two near-equal top spans (X≈Y) make the long/width read a coin-flip — warn when the
         # caller named none of the axes.
         with pytest.warns(UserWarning, match="ambiguous"):
             slot(Box(20, 20, 4))
+
+    def test_slot_ambiguous_width_depth_spans_warn(self):
+        # #490 review: with the shortest-span depth default, a near-equal WIDTH-vs-DEPTH pair
+        # (the two shortest spans) is equally a coin-flip — which is kept as width vs dropped as
+        # depth is decided by sort order alone. It must warn too, not only the top-span tie.
+        with pytest.warns(UserWarning, match="ambiguous"):
+            slot(Box(40, 6, 6))
 
     def test_slot_named_axes_suppress_ambiguity_warning(self):
         import warnings
