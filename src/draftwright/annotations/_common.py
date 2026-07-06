@@ -444,17 +444,30 @@ def place_strip_candidates(
     if strip is None or not cands:
         return list(cands)
     lo, hi, inner = strip_free_span(strip)
-    # Reserve the outermost label's height at the strip boundary. plan_strip bounds the
-    # dim-LINE position, but the label extends `tier` OUTWARD from it — so without this
-    # the last tier's label overshoots outer_limit (into the iso view / page margin),
-    # unlike the old Strip.allocate which checked `start + tier <= outer_limit` (#338
-    # review). The strip edge is not an obstacle (obstacles carry their own footprint +
-    # pad), so only the boundary needs it; obstacle-bounded segments are unaffected.
-    if inner == lo:
-        hi -= tier
-    else:
-        lo += tier
     idx = 1 if axis == "y" else 0
+    # Reserve the outermost label's OUTWARD extent at the strip boundary. plan_strip bounds
+    # the dim-LINE position, but the label extends outward from it — so without this the last
+    # tier's label overshoots outer_limit (into the iso view / page margin), unlike the old
+    # Strip.allocate which checked `start + tier <= outer_limit` (#338 review). A plain dim's
+    # label extends one `tier` outward (one-sided). A GD&T glyph (#61) hangs off a Leader that
+    # CENTRES it on the elbow for an above/below strip (real outward extent = height/2) but
+    # places it one-sided for a left/right strip (extent = full width). Reserve the MAX real
+    # outward extent among these candidates — else a glyph wider than `tier` renders off the
+    # sheet (annotation_out_of_bounds) instead of dropping when the strip is too narrow (ADR
+    # 0009 Amdt 7 fixed inter-candidate gaps but not this edge). With no `sizes` (every dim)
+    # this is `tier`, byte-identical. The strip edge is not an obstacle (obstacles carry their
+    # own footprint + pad), so only the boundary needs it.
+    def _outward(name):
+        sz = (sizes or {}).get(name)
+        if sz is None:
+            return tier  # a dim: one-sided tier reservation (unchanged)
+        return sz[idx] if axis == "x" else sz[idx] / 2  # GD&T: one-sided (L/R) vs centred (A/B)
+
+    reserve = max([tier, *(_outward(n) for n, _ in cands)])
+    if inner == lo:
+        hi -= reserve
+    else:
+        lo += reserve
     perp = 0 if axis == "y" else 1  # the axis the dims do NOT stack along
     pad = tier + strip.spacing  # min separation between stacked dim lines
     # Perpendicular band of these candidates. The 1-D carve projects obstacles onto the

@@ -132,6 +132,26 @@ def test_invalid_glyph_spec_drops_not_crashes():
     assert "m_gdt0" not in dwg._named
 
 
+def test_wide_frame_in_narrow_strip_drops_not_overshoots():
+    # Adversarial-review finding (CONFIRMED): a wide GD&T glyph (multi-datum FCF ~33 mm) on
+    # a left/right strip narrower than the glyph must DROP with a gdt_dropped warning — not
+    # render off the drawable area. Pre-fix it placed at min.X=-7.17 (17 mm past outer_limit,
+    # annotation_out_of_bounds error). The boundary reservation now uses the glyph's real
+    # outward extent, so a too-narrow strip has no feasible tier and the frame drops.
+    frame = ControlFrame(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        characteristic="position",
+        tolerance="0.1",
+        view="plan",
+        side="left",
+        datums=("A", "B"),
+    )
+    dwg = _build(frame)
+    assert [i for i in dwg._build_issues if i.code == "gdt_dropped"]
+    assert "m_gdt0" not in dwg._named
+    assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
+
+
 def test_placement_is_lint_clean():
     # The Tier-1 claim: a frame placed through the strip solve does not overlap the dims
     # it annotates (the failure mode that motivated routing GD&T through the solver).
