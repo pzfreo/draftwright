@@ -8,10 +8,26 @@ import ast
 import math
 import os
 
-from build123d import Box, Cylinder, Pos, export_step
+import pytest
+from build123d import Box, Cylinder, Pos, Shape, export_step
 
 from draftwright.builder import detect_part_model
-from draftwright.sheet_emit import emit_sheet_script, generate_sheet_script
+from draftwright.sheet_emit import (
+    emit_sheet_script,
+    generate_sheet_script,
+    resolve_object_spec,
+)
+
+# A throwaway source module the object-spec tests import a live part off (#469): an object,
+# a zero-arg factory, a non-Shape, and a callable that needs args (the guard-rail case).
+_SOURCE_MODULE = (
+    "from build123d import Box, Cylinder, Pos\n"
+    "bracket = Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(4, 20)\n"
+    "def make_bracket():\n    return Box(30, 20, 5)\n"
+    "NOT_A_SHAPE = 42\n"
+    "NONE_BOUND = None\n"  # exists but bound to None — the wrong-type, not-missing case
+    "def needs_args(x):\n    return x\n"
+)
 
 
 def _plate():
@@ -174,6 +190,129 @@ class TestGenerate:
         assert os.path.isabs(path)  # platform-agnostic (C:\… on Windows, /… on POSIX)
 
 
+class TestObjectSpec:
+    """`module:attr` / `file.py:attr` → a live build123d object (#469, mode 3b from a
+    separate codebase). The seam re-binds `part` to the real source, not a frozen STEP."""
+
+    def _mod(self, tmp_path, name="srcmod"):
+        p = tmp_path / f"{name}.py"
+        p.write_text(_SOURCE_MODULE, encoding="utf-8")
+        return p
+
+    def test_file_attr_resolves_object_with_self_contained_seam(self, tmp_path):
+        p = self._mod(tmp_path)
+        obj, seam = resolve_object_spec(f"{p}:bracket")
+        assert isinstance(obj, Shape)
+        # the file seam bakes the absolute path as a repr'd literal (so it's valid Python and
+        # runs from any CWD) — compare against repr, not the bare string, so Windows backslash
+        # escaping (C:\\Users\\… in the seam vs C:\Users\… in str(p)) doesn't false-fail.
+        assert "spec_from_file_location(" in seam and repr(str(p.resolve())) in seam
+        assert "part = _mod.bracket" in seam
+
+    def test_zero_arg_factory_is_called(self, tmp_path):
+        p = self._mod(tmp_path)
+        obj, seam = resolve_object_spec(f"{p}:make_bracket")
+        assert isinstance(obj, Shape)
+        assert seam.rstrip().endswith("()")  # part = _mod.make_bracket()
+
+    def test_dotted_module_seam_bakes_the_cwd(self, tmp_path, monkeypatch):
+        # Python puts only the *script's* dir on sys.path, not the cwd — so the seam must
+        # bake the resolve-time cwd or `from mod import …` fails when the script is re-run.
+        self._mod(tmp_path, "dottedmod")
+        monkeypatch.chdir(tmp_path)
+        obj, seam = resolve_object_spec("dottedmod:bracket")
+        assert isinstance(obj, Shape)
+        assert "from dottedmod import bracket as _obj" in seam
+        # the cwd is baked as a repr'd literal — compare against repr so Windows backslash
+        # escaping in the seam doesn't false-fail (the code bakes os.getcwd(), same as here).
+        assert repr(os.getcwd()) in seam
+
+    def test_missing_attr_raises(self, tmp_path):
+        p = self._mod(tmp_path)
+        with pytest.raises(ValueError, match="not found"):
+            resolve_object_spec(f"{p}:nope")
+
+    def test_non_shape_raises(self, tmp_path):
+        p = self._mod(tmp_path)
+        with pytest.raises(ValueError, match="not a build123d Shape"):
+            resolve_object_spec(f"{p}:NOT_A_SHAPE")
+
+    def test_none_bound_attr_reports_wrong_type_not_missing(self, tmp_path):
+        # `bracket = None` exists but is None — must report the honest "not a Shape", not "not
+        # found" (a None sentinel on getattr would conflate the two, #469 review).
+        p = self._mod(tmp_path)
+        with pytest.raises(ValueError, match="not a build123d Shape"):
+            resolve_object_spec(f"{p}:NONE_BOUND")
+
+    def test_unimportable_module_raises_a_clean_error(self):
+        # a missing/malformed module surfaces the friendly ValueError, not a raw ImportError
+        with pytest.raises(ValueError, match="cannot import module"):
+            resolve_object_spec("no_such_module_zzz:bracket")
+
+    def test_self_referential_file_module_loads(self, tmp_path):
+        # a target that resolves its own forward-ref annotations via typing.get_type_hints needs
+        # sys.modules registration BEFORE exec — the .py branch must register it (#469 review).
+        src = (
+            "from dataclasses import dataclass\n"
+            "from typing import Optional, get_type_hints\n"
+            "from build123d import Box\n"
+            "@dataclass\n"
+            "class Node:\n    nxt: 'Optional[Node]' = None\n"
+            "get_type_hints(Node)  # NameError unless this module is in sys.modules\n"
+            "part = Box(10, 10, 10)\n"
+        )
+        p = tmp_path / "selfref.py"
+        p.write_text(src, encoding="utf-8")
+        obj, _seam = resolve_object_spec(f"{p}:part")
+        assert isinstance(obj, Shape)
+
+    def test_callable_needing_args_raises(self, tmp_path):
+        p = self._mod(tmp_path)
+        with pytest.raises(ValueError, match="needs arguments"):
+            resolve_object_spec(f"{p}:needs_args")
+
+    def test_malformed_spec_raises(self):
+        with pytest.raises(ValueError, match="module:attr"):
+            resolve_object_spec("no_colon_here")
+
+
+class TestLooksLikeSpec:
+    """The CLI's STEP-path-vs-object-spec discriminator (`_looks_like_object_spec`, #469)."""
+
+    def test_dotted_and_file_specs_are_specs(self):
+        from draftwright.cli import _looks_like_object_spec
+
+        assert _looks_like_object_spec("mypkg.mymod:bracket")
+        assert _looks_like_object_spec("model.py:make_part")
+
+    def test_step_paths_are_not_specs(self):
+        from draftwright.cli import _looks_like_object_spec
+
+        assert not _looks_like_object_spec("/tmp/part.step")
+        assert not _looks_like_object_spec("part.stp")
+        assert not _looks_like_object_spec("dir/sub/part.step")  # a colonless path
+
+    def test_windows_step_path_is_not_a_spec(self):
+        from draftwright.cli import _looks_like_object_spec
+
+        assert not _looks_like_object_spec(r"C:\models\part.step")
+
+    def test_windows_absolute_file_spec_is_a_spec(self):
+        # the drive-path guard was removed (#469 review): C:\…\model.py:bracket is a real file
+        # spec and must route to resolve_object_spec, not the STEP path.
+        from draftwright.cli import _looks_like_object_spec
+
+        assert _looks_like_object_spec(r"C:\proj\model.py:bracket")
+
+    def test_existing_file_is_never_a_spec(self, tmp_path):
+        # a real STEP file that happens to parse spec-like still isn't a spec
+        from draftwright.cli import _looks_like_object_spec
+
+        f = tmp_path / "weird.step"
+        f.write_text("x")
+        assert not _looks_like_object_spec(str(f))
+
+
 class TestCli:
     def test_style_sheet_routes_to_the_declarative_emitter(self, tmp_path):
         from typer.testing import CliRunner
@@ -197,3 +336,35 @@ class TestCli:
         export_step(_plate(), str(step))
         r = CliRunner().invoke(app, [str(step), "--script", "--style", "bogus"])
         assert r.exit_code != 0
+
+    def test_module_spec_routes_to_the_live_object(self, tmp_path, monkeypatch):
+        # `draftwright climod:bracket --script --style sheet` → detect off the imported object
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        (tmp_path / "climod.py").write_text(_SOURCE_MODULE, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        r = CliRunner().invoke(
+            app, ["climod:bracket", "--script", "--style", "sheet", "--out", "g"]
+        )
+        assert r.exit_code == 0, r.output
+        src = open(tmp_path / "g.py", encoding="utf-8").read()
+        assert "from climod import bracket as _obj" in src  # the live-source seam
+        assert "sheet.hole(" in src  # features detected off the object, not a STEP
+
+    def test_generated_module_spec_script_round_trips(self, tmp_path, monkeypatch):
+        # the whole point: the emitted script RUNS (through the baked-cwd seam) and draws
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        (tmp_path / "rtmod.py").write_text(_SOURCE_MODULE, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        r = CliRunner().invoke(
+            app, ["rtmod:bracket", "--script", "--style", "sheet", "--out", "g"]
+        )
+        assert r.exit_code == 0, r.output
+        py = tmp_path / "g.py"
+        exec(compile(open(py, encoding="utf-8").read(), str(py), "exec"), {})
+        assert (tmp_path / "g.svg").exists()
