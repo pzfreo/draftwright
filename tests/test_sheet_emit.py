@@ -7,11 +7,12 @@ Detected input only writes numbers (the part-seam form); we never fabricate geom
 import ast
 import math
 import os
+from collections import Counter
 
 import pytest
 from build123d import Box, Cylinder, Pos, Shape, export_step
 
-from draftwright.builder import detect_part_model
+from draftwright.builder import build_drawing, detect_part_model
 from draftwright.sheet_emit import (
     emit_sheet_script,
     generate_sheet_script,
@@ -469,3 +470,54 @@ class TestCli:
         py = tmp_path / "g.py"
         exec(compile(open(py, encoding="utf-8").read(), str(py), "exec"), {})
         assert (tmp_path / "g.svg").exists()
+
+
+def _named_signature(dwg):
+    """The multiset of annotation TYPES on a drawing — the 'annotation signature' #472 uses
+    to compare a generated-script drawing against a direct build (catches a dropped Centerline
+    or an OD that fell from Dimension to Leader)."""
+    return Counter(type(v).__name__ for v in dwg._named.values())
+
+
+def _drawing_from_generated_script(step_path, tmp_path, monkeypatch):
+    """Run the ACTUAL generated sheet script (STEP-seam form, self-runnable) and capture the
+    Drawing it builds, by intercepting Sheet.export — the true end-to-end sheet-script path."""
+    from draftwright import Sheet
+
+    captured = {}
+    monkeypatch.setattr(
+        Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+    )
+    py = generate_sheet_script(str(step_path), out=str(tmp_path / "gen"))
+    exec(compile(open(py, encoding="utf-8").read(), py, "exec"), {})
+    return captured["dwg"]
+
+
+class TestRoundTripParity:
+    """#472: the generated sheet script must reproduce the direct build's annotation set — the
+    invariant that makes the default `--script` (sheet) trustworthy. Turned/rotational parts were
+    the known gap (dropped centrelines + OD-as-leader) because the declared model carried no
+    RotationalFeature; the builder now synthesises it from the analysis."""
+
+    def _parity(self, part, tmp_path, monkeypatch):
+        step = tmp_path / "part.step"
+        export_step(part, str(step))
+        direct = build_drawing(step_file=str(step), title="PART")
+        scripted = _drawing_from_generated_script(step, tmp_path, monkeypatch)
+        assert _named_signature(scripted) == _named_signature(direct)
+
+    def test_prismatic_plate_parity(self, tmp_path, monkeypatch):
+        self._parity(_plate(), tmp_path, monkeypatch)
+
+    def test_turned_x_shaft_parity(self, tmp_path, monkeypatch):
+        # a horizontal turned shaft (X axis) — steps + OD + centrelines
+        shaft = Pos(0, 0, 20) * Cylinder(15, 40) + Pos(0, 0, 55) * Cylinder(8, 30)
+        from build123d import Rotation
+
+        self._parity(Rotation(0, 90, 0) * shaft, tmp_path, monkeypatch)
+
+    def test_rotational_bored_shaft_parity(self, tmp_path, monkeypatch):
+        # the #472 fixture: a Z-axis stepped cylinder with a concentric bore — the case that
+        # dropped both centrelines and the OD dimension before the RotationalFeature synthesis
+        shaft = Pos(0, 0, 20) * Cylinder(15, 40) + Pos(0, 0, 55) * Cylinder(8, 30)
+        self._parity(shaft - Pos(0, 0, 0) * Cylinder(2.5, 200), tmp_path, monkeypatch)
