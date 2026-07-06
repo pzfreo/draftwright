@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.2.9 — 2026-07-06
+
+**Declarative GD&T, datums, and surface finish (ADR 0011 Phase 2b/2c).** The `Sheet` DSL can
+now author the drawing information geometry can't carry — geometric tolerances, datum feature
+symbols, and surface-finish marks — by pointing at a build123d feature or face. They render
+through the auto-layout engine as first-class ADR 0009 corridor candidates, placed and spaced
+crossing-free alongside the automatic dimensions (not a post-hoc overlay).
+
+```python
+sheet.datum("A", base_face)
+sheet.control(bore).position(0.1, to="A", diameter=True).perpendicularity(0.05, to="A")
+sheet.diameter(journal).finish("0.8")
+```
+
+### Added
+
+- **Feature control frames (ISO 1101)** — `sheet.control(ref)` returns a chainable builder with
+  one method per **all 14** characteristics (`position`, `flatness`, `perpendicularity`,
+  `cylindricity`, `circular_runout`, `total_runout`, …); `to=` names the referenced datum(s),
+  `diameter=` prefixes the ⌀ tolerance zone, `modifier=` adds a material-condition symbol (Ⓜ/Ⓛ/Ⓟ).
+- **Datum feature symbols (ISO 5459)** — `sheet.datum("A", face_or_feature)`.
+- **Surface finish (ISO 1302, Ra)** — `.finish("1.6")` on a hole / diameter / step handle, or
+  `sheet.finish(ra, face)`.
+- The target view + strip side are **derived from the referenced geometry** (a feature's axis →
+  face-on view, a planar face's normal → edge-on view); `view=`/`side=` override.
+- Render core: `ControlFrame` / `DatumRef` / `Finish` IR features placed by `render_gdt` as
+  first-class corridor candidates, with the real-footprint plumbing needed to space wide frames.
+
+### Fixed
+
+- A control frame referencing an **undeclared datum letter** now warns at build.
+- GD&T placement is **title-block aware** and **falls through to the opposite strip side** before
+  dropping a frame, so stacked control frames place robustly rather than vanishing or overlapping
+  the title block.
+- An invalid glyph spec / degenerate leader in a caller-supplied model **drops the one item with a
+  warning** instead of crashing the whole build (the IR is public input).
+- Turned-shaft rotational furniture now reproduces correctly through the declared-model path
+  (`model=` / `Sheet`) (#476).
+
 ## v0.2.8 — 2026-07-06
 
 **`--script` now defaults to the declarative `Sheet` DSL.** The editable script the CLI
