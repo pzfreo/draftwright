@@ -33,7 +33,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        # 3.10-3.12 resolve build123d 0.10 (cadquery-ocp + VTK); 3.13/3.14 resolve build123d
+        # 0.11 (cadquery-ocp-novtk — VTK dropped, and the only kernel with 3.13/3.14 wheels).
+        # A few exact-position snapshots are skipped on 0.11 (see tests/_kernel.py).
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
 
     steps:

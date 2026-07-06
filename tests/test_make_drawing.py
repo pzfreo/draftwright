@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from _kernel import B123D_GE_011, SKIP_011
 from build123d import Box, Compound, Cylinder, Edge, Pos, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
@@ -18,6 +19,8 @@ from draftwright.export import _export_shape
 from draftwright.make_drawing import generate_script, lint_feature_coverage
 from draftwright.recognition import Slot, find_slots
 from draftwright.sheet import _fits, choose_scale
+
+_skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)
 
 
 def _state_snapshot(dwg):
@@ -1298,6 +1301,7 @@ class TestComposeThenPackRepack:
         assert dwg.scale == 1.0  # pin honoured, not silently rescaled
 
     @pytest.mark.timeout(120)
+    @_skip_011
     def test_repack_reduces_an_oversized_part_when_scale_is_free(self):
         # The complement: with the scale free, an oversized part is reduced to a scale
         # that fits rather than overflowing (#350) — through the full pass-1 + repack.
@@ -2091,6 +2095,7 @@ def ctc01_a3_drawing():
 
 
 @pytest.mark.timeout(120)
+@_skip_011
 def test_ctc01_iso_uses_upper_right_zone(ctc01_a3_drawing):
     # #75 updated — wide/flat part on A3: the iso is repositioned into the upper-right
     # zone (above the SV, right of FV/PV) where it fits at sheet scale.  No NTS label.
@@ -2108,6 +2113,7 @@ def test_ctc01_iso_uses_upper_right_zone(ctc01_a3_drawing):
 
 
 @pytest.mark.timeout(120)
+@_skip_011
 def test_ctc01_iso_world_to_page_mapping(ctc01_a3_drawing):
     # dwg.at("iso", ...) must map world points to page even after the iso is
     # repositioned to the upper-right zone (still projected at sheet scale).
