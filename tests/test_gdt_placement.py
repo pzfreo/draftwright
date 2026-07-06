@@ -87,9 +87,10 @@ def test_stacked_frames_reserve_real_footprint():
     assert abs(c0 - c1) >= h - 1e-6  # glyphs do not overlap in the stack
 
 
-def test_full_strip_drops_with_warning():
-    # The plan-below strip carries the overall-width envelope dim — a wide frame there has
-    # no free tier. It must drop with a first-class gdt_dropped warning, never silently.
+def test_congested_side_falls_through_to_opposite():
+    # #481: the plan-below strip carries the overall-width envelope dim, so a frame declared
+    # there has no free tier — but rather than drop, render_gdt falls through to the OPPOSITE
+    # side (plan-above) and places it there. No gdt_dropped warning; the frame survives.
     frame = ControlFrame(
         frame=Frame((0.0, 0.0, 0.0), "z"),
         characteristic="position",
@@ -98,9 +99,12 @@ def test_full_strip_drops_with_warning():
         side="below",
     )
     dwg = _build(frame)
-    dropped = [i for i in dwg._build_issues if i.code == "gdt_dropped"]
-    assert dropped and "m_gdt0" in dropped[0].message
-    assert "m_gdt0" not in dwg._named
+    assert "m_gdt0" in dwg._named  # recovered on the opposite side
+    assert not [i for i in dwg._build_issues if i.code == "gdt_dropped"]
+    assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
+    # It landed ABOVE the plan view (the fallthrough side): the frame (leader's far end) sits
+    # above the view centre, whereas a below placement would keep the whole box at/under it.
+    assert dwg._named["m_gdt0"].bounding_box().max.Y > dwg._analysis.PV_Y + 10
 
 
 def test_bad_target_drops_without_crashing():

@@ -1883,9 +1883,38 @@ def render_gdt(dwg, model, a) -> int:
                 elbow = (pos, _py)
             return Leader(tip=tip, elbow=elbow, label="", draft=draft, callout=g)
 
-        def _drop(nm, _v=item.view, _s=item.side):
+        def _drop(
+            nm,
+            _v=item.view,
+            _s=item.side,
+            _zones=zones,
+            _px=px,
+            _py=py,
+            _hz=horizontal,
+            _sz=size,
+            _bld=_build,
+            _feat=item.origin,
+        ):
+            # Fallthrough (#481): the declared/derived side is full — try the OPPOSITE side of
+            # the same view before dropping, so a congested default still places somewhere
+            # legible rather than vanishing. Best-effort (mirrors render_slots' below-fallthrough):
+            # carve a free tier on the alternate strip and place there; carve_free_position only
+            # ever sees already-placed annotations, so it can't collide with a not-yet-drained
+            # sibling corridor. Force semantics (no corridor-cross check) match the primary path.
+            alt = {"above": "below", "below": "above", "left": "right", "right": "left"}[_s]
+            alt_strip = getattr(_zones, alt, None)
+            if alt_strip is not None:
+                axis2 = "y" if alt in ("above", "below") else "x"
+                extent = _sz[1] if axis2 == "y" else _sz[0]  # the glyph's stacking-axis size
+                perp = (_px, _px + _sz[0]) if _hz else (_py - _sz[1] / 2, _py + _sz[1] / 2)
+                pos = carve_free_position(dwg, alt_strip, _v, axis2, max(tier, extent), perp)
+                if pos is not None:
+                    dwg.add(_bld(pos), nm, view=_v, feature=_feat)  # placed on the alternate side
+                    return
             dwg._record_build_issue(
-                "warning", "gdt_dropped", f"{nm} not placed (no room in the {_v} {_s} strip)"
+                "warning",
+                "gdt_dropped",
+                f"{nm} not placed (no room in the {_v} {_s} strip or its opposite)",
             )
 
         register_corridor(
