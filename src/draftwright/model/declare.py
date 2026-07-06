@@ -323,28 +323,29 @@ def slot(
             r_long_axis = free.pop(0)
         if r_width_axis is None:
             r_width_axis = free.pop(0)
-        # Warn on a genuinely ambiguous read. Roles are assigned by span order, so each ADJACENT
-        # pair in `order` spans a role boundary (long|width or width|depth). A near-equal pair is
-        # a silent coin-flip UNLESS the caller pinned one of the two axes — a pinned axis fixes
-        # its own role and forces the other by elimination. So warn iff an adjacent pair is
-        # near-equal AND neither axis was named (both auto). This catches the depth-only case too:
-        # slot(Box(20,20,40), depth_axis="z") still has an ambiguous long-vs-width in-plane tie.
+        # Warn on a genuinely ambiguous read. Roles (long, width, depth) are assigned purely by
+        # span magnitude, so ANY two *auto* axes (neither caller-pinned) with near-equal spans are
+        # a silent coin-flip — a tiny perturbation swaps their roles. A caller-pinned axis fixes
+        # its own role, so only the still-unnamed axes can flip. Check every pair of auto axes, not
+        # just order-adjacent spans: pinning the MIDDLE span leaves the two OUTER axes auto and
+        # non-adjacent, yet their long/width (or width/depth) split is still a tie.
         pinned = {_norm_axis(a) for a in (long_axis, width_axis, depth_axis) if a is not None}
-        spans = [by[a][0] for a in order]
-        for i in range(2):
-            if order[i] in pinned or order[i + 1] in pinned:
-                continue  # a named axis fixes this pair; the other role follows by elimination
-            if math.isclose(spans[i], spans[i + 1], rel_tol=_SLOT_AMBIGUOUS_FRAC):
-                # stacklevel=2 attributes a direct declare.slot() call; via the Sheet.slot
-                # forwarder it lands one frame shallow, but no single value serves both entry
-                # points and the message is self-contained (it names the fix).
-                warnings.warn(
-                    f"slot() object has near-equal bbox spans (x={by['x'][0]:.3g}, "
-                    f"y={by['y'][0]:.3g}, z={by['z'][0]:.3g}); the long/width/depth axis read is "
-                    "ambiguous — pass long_axis=/width_axis=/depth_axis= to disambiguate",
-                    stacklevel=2,
-                )
-                break
+        auto = [a for a in order if a not in pinned]
+        auto_pairs = [
+            (auto[i], auto[j]) for i in range(len(auto)) for j in range(i + 1, len(auto))
+        ]
+        if any(
+            math.isclose(by[a][0], by[b][0], rel_tol=_SLOT_AMBIGUOUS_FRAC) for a, b in auto_pairs
+        ):
+            # stacklevel=2 attributes a direct declare.slot() call; via the Sheet.slot
+            # forwarder it lands one frame shallow, but no single value serves both entry
+            # points and the message is self-contained (it names the fix).
+            warnings.warn(
+                f"slot() object has near-equal bbox spans (x={by['x'][0]:.3g}, "
+                f"y={by['y'][0]:.3g}, z={by['z'][0]:.3g}); the long/width/depth axis read is "
+                "ambiguous — pass long_axis=/width_axis=/depth_axis= to disambiguate",
+                stacklevel=2,
+            )
         long_axis = r_long_axis
         width_axis = r_width_axis
         length = by[r_long_axis][0] if length is None else length

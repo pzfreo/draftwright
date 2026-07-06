@@ -139,6 +139,19 @@ class TestConstructors:
         with pytest.warns(UserWarning, match="ambiguous"):
             slot(Box(20, 20, 40), depth_axis="z")
 
+    def test_slot_middle_pinned_still_warns_on_outer_tie(self):
+        # #490 r4: pinning the MIDDLE-span axis (long_axis="y" on X>Y>Z) leaves the two OUTER
+        # auto axes (X, Z) — which are non-adjacent in the span order — to split width vs depth.
+        # If those two are near-equal the split is a silent coin-flip, so it must still warn.
+        with pytest.warns(UserWarning, match="ambiguous"):
+            slot(Box(40, 39, 38), long_axis="y")
+
+    def test_slot_middle_depth_still_warns_on_inplane_tie(self):
+        # The depth mirror: depth_axis="y" pins the middle span; the two outer auto axes (X, Z)
+        # then split long vs width, and a near-equal outer pair is a coin-flip that must warn.
+        with pytest.warns(UserWarning, match="ambiguous"):
+            slot(Box(50, 49, 48), depth_axis="y")
+
     def test_slot_named_axes_suppress_ambiguity_warning(self):
         import warnings
 
