@@ -8,6 +8,7 @@ never overlap, a full strip drops honestly (a warning, not a silent vanish), and
 placement stays lint-clean.
 """
 
+import pytest
 from build123d import Box, Cylinder, Draft, Pos
 from build123d_drafting import FeatureControlFrame
 
@@ -107,20 +108,22 @@ def test_congested_side_falls_through_to_opposite():
     assert dwg._named["m_gdt0"].bounding_box().max.Y > dwg._analysis.PV_Y + 10
 
 
-def test_fallthrough_never_overlaps_the_title_block():
-    # #481 review (CONFIRMED): the side/below strip runs down into the title-block region, which
-    # is added AFTER the corridor drain — so the fallthrough's carve can't see it. Three
-    # side/above frames overflow to the below strip; the fallthrough must REJECT a spot over the
-    # title block (drop cleanly) rather than turn a clean drop into an annotation_overlap.
+@pytest.mark.parametrize("side", ["above", "below"])
+def test_gdt_never_overlaps_the_title_block(side):
+    # #481 review (CONFIRMED, both paths): the side/below strip runs down into the title-block
+    # region, which is added AFTER the corridor drain — so neither the PRIMARY corridor solve
+    # (force-kept) nor the fallthrough's carve can see it. Stacking frames on the side view (the
+    # bottom-right one) must REJECT any spot over the title block (drop/relocate) rather than
+    # overlap 'DRAWING'. side="below" exercises the primary path, side="above" the fallthrough.
     frames = [
         ControlFrame(
             frame=Frame((x, 0.0, 0.0), "z"),
             characteristic="position",
             tolerance="0.1",
             view="side",
-            side="above",
+            side=side,
         )
-        for x in (0.0, 1.0, 2.0)
+        for x in (-20.0, 0.0, 20.0)
     ]
     dwg = _build(*frames)
     assert not [x for x in dwg.lint() if x.code == "annotation_overlap"]

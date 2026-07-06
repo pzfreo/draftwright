@@ -33,8 +33,6 @@ from draftwright._core import (
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
     _SLOT_DIM_WIDTH,
-    _TB_CLEAR,
-    _TB_H,
     DetailRequest,
     _dim,
     _fmt,
@@ -44,6 +42,7 @@ from draftwright._core import (
     _legible_steps,
     _log,
     _solve_strip_ys,
+    _title_block_box,
     _tol_suffix,
 )
 from draftwright.annotations._common import (
@@ -1833,11 +1832,11 @@ def render_gdt(dwg, model, a) -> int:
         "front": (a.fv_zones, a.proj.front_x, a.proj.front_z, 0, 2),
         "side": (a.sv_zones, a.proj.side_x, a.proj.side_z, 1, 2),
     }
-    # The title block (bottom-right) is added AFTER drain_corridors, so the fallthrough's
-    # carve can't see it — a below/right strip runs down into its region. Reconstruct its box
-    # here (same page-corner geometry as _add_title_block) and reject a fallthrough placement
-    # that would land on it, else the recovered frame overlaps 'DRAWING' (#481 review).
-    tb_box = (a.PAGE_W - a.TB_W - _TB_CLEAR, _TB_CLEAR, a.PAGE_W - _TB_CLEAR, _TB_CLEAR + _TB_H)
+    # The title block (bottom-right) is added AFTER drain_corridors, so strip placement can't
+    # see it — a below/right strip runs down into its region. Its box is deterministic, so
+    # reject any GD&T placement that would land on it (BOTH the primary corridor path, via the
+    # candidate's `forbid`, AND the fallthrough) else the frame overlaps 'DRAWING' (#481 review).
+    tb_box = _title_block_box(dwg, a)
     n = 0
     for i, item in enumerate(items):
         name = f"m_gdt{i}"
@@ -1949,6 +1948,10 @@ def render_gdt(dwg, model, a) -> int:
                 force=True,
                 feature=item.origin,  # provenance (ADR 0010): the decorated feature
                 size=size,
+                # Even a force-kept frame must not stack into the title block (#481 review) —
+                # place_strip_candidates rejects a placement hitting this box, then on_drop's
+                # fallthrough tries the other side.
+                forbid=tb_box,
             ),
         )
         n += 1

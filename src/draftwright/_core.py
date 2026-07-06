@@ -557,8 +557,11 @@ def _attribution_author(drawn_by: str | None) -> str:
     return f"{author} / draftwright" if author else "draftwright"
 
 
-def _add_title_block(dwg, a: Analysis):
-    """Add the title block annotation."""
+def _make_title_block(dwg, a: Analysis):
+    """Construct + page-locate the title block, returning ``(tb, cell)`` where *cell* is its
+    drawn-by cell bbox (for the hyperlink rect). Shared by :func:`_add_title_block` (which adds
+    it, last) and :func:`_title_block_box` (which measures its footprint for GD&T avoidance, #481)
+    so the two never drift."""
     tb = TitleBlock(
         a.title,
         a.number,
@@ -582,6 +585,20 @@ def _add_title_block(dwg, a: Analysis):
     # TitleBlock layout change. Build-frame bbox; translated to page space below.
     cell = tb.drawn_by_cell_bbox()
     tb = tb.locate(Location((a.PAGE_W - a.TB_W - _TB_CLEAR, _TB_CLEAR, 0)))
+    return tb, cell
+
+
+def _title_block_box(dwg, a: Analysis):
+    """The title block's real page-space bbox ``(x0, y0, x1, y1)``. GD&T placement avoids it
+    (#481): the block is added last, so strip placement can't see it, but it's deterministic."""
+    tb, _ = _make_title_block(dwg, a)
+    b = tb.bounding_box()
+    return (b.min.X, b.min.Y, b.max.X, b.max.Y)
+
+
+def _add_title_block(dwg, a: Analysis):
+    """Add the title block annotation."""
+    tb, cell = _make_title_block(dwg, a)
     dwg.add(tb, "title_block")
 
     # Record that cell's page-space rectangle so export() can place a clickable
