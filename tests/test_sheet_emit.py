@@ -536,8 +536,6 @@ class TestRoundTripParity:
 
         shaft = Rotation(0, 90, 0) * Cylinder(15, 80)
         declared = RotationalFeature(frame=Frame((0.0, 0.0, 0.0), "x"), od=99.0)
-        m = PartModel(
-            bbox=shaft.bounding_box(), orientation=None, features=[declared], datums=[]
-        )
+        m = PartModel(bbox=shaft.bounding_box(), orientation=None, features=[declared], datums=[])
         rot = [f for f in build_drawing(shaft, model=m).model().features if f.kind == "rotational"]
         assert len(rot) == 1 and rot[0].od == 99.0
