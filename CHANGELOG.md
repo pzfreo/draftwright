@@ -14,6 +14,9 @@ build123d-object input.
   drawing as a direct build; a turned shaft's centre lines and base-diameter style are not yet
   identical (the remaining validity gap, tracked separately). `--style imperative` now errors
   clearly on a `module:attr` object spec (it reads a STEP file; use the default `sheet`).
+  The Sheet DSL doesn't yet model the title-block / layout aspects the imperative script
+  embeds, so `--script --style sheet` **warns** when `--drawn-by`, `--tolerance`, `--scale`
+  or `--page` is set rather than silently ignoring it (use `--style imperative` to embed them).
 
 ## v0.2.7 — 2026-07-05
 

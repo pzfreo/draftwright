@@ -368,6 +368,44 @@ class TestCli:
         assert r.exit_code != 0
         assert "--style sheet" in r.output
 
+    def test_sheet_style_warns_on_unsupported_flags(self, tmp_path):
+        # the Sheet DSL can't embed --drawn-by/--tolerance/--scale/--page yet; the default
+        # sheet path must WARN rather than silently drop them (else the flags are a no-op)
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(
+            app,
+            [
+                str(step),
+                "--script",
+                "--drawn-by",
+                "Paul",
+                "--scale",
+                "2",
+                "--out",
+                str(tmp_path / "g"),
+            ],
+        )
+        assert r.exit_code == 0, r.output
+        assert "--drawn-by" in r.output and "--scale" in r.output
+        assert "--style imperative" in r.output
+
+    def test_sheet_style_silent_when_no_unsupported_flags(self, tmp_path):
+        # no spurious warning when only supported flags are given
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(app, [str(step), "--script", "--out", str(tmp_path / "g")])
+        assert r.exit_code == 0, r.output
+        assert "warning:" not in r.output
+
     def test_bad_style_is_rejected(self, tmp_path):
         from typer.testing import CliRunner
 

@@ -168,6 +168,25 @@ def main(
         if style == "sheet":
             from draftwright.sheet_emit import generate_sheet_script, resolve_object_spec
 
+            # The Sheet DSL doesn't yet model the title-block / layout aspects the
+            # imperative script embeds. Warn rather than silently drop them so a
+            # `--script --drawn-by … --scale …` invocation isn't quietly a no-op.
+            ignored = [
+                flag
+                for flag, set_ in (
+                    ("--tolerance", tolerance != "ISO 2768-m"),
+                    ("--drawn-by", bool(drawn_by)),
+                    ("--scale", scale is not None),
+                    ("--page", page is not None),
+                )
+                if set_
+            ]
+            if ignored:
+                typer.echo(
+                    f"warning: {', '.join(ignored)} not supported by --style sheet; ignored "
+                    "(use --style imperative to embed them)",
+                    err=True,
+                )
             if _looks_like_object_spec(step_file):
                 # STEP_FILE is a `module:attr` / `file.py:attr` spec → reference a live object
                 obj, seam = resolve_object_spec(step_file)
