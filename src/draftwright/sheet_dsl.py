@@ -21,9 +21,12 @@ slots, patterns, the overall envelope, and the auto section — plus the P2a
 **``sheet.control(...)``** feature control frames — all 14 ISO 1101 characteristics, ADR 0011
 #479 — which derive their target view/strip from the referenced feature or planar face), and
 **``sheet.table()``** / **``sheet.notes()``** corner-block tables (notes / revision / BOM /
-schedule, over the engine's auto-placed ``Drawing.add_table``, #488). The remaining #445 aspect
-verbs that still need wiring — ``.thread`` and a general anchored ``.note()`` leader (#488) —
-are deliberately **not** stubbed here yet, so the surface only exposes what actually draws.
+schedule, over the engine's auto-placed ``Drawing.add_table``, #488), and **``sheet.note()``** /
+**``.note()``** anchored free-text manufacturing-note leaders (thread specs, ``DEBURR``,
+chip-relief, knurl — the shop callouts detection can't infer, placed via the GD&T corridor
+machinery, #488). The remaining #445 aspect verb that still needs wiring — a structured
+``.thread`` — is deliberately **not** stubbed here yet, so the surface only exposes what
+actually draws.
 
 **Hybrid.** :meth:`Sheet.from_part` seeds the declared set from *detection*, so you
 can start from the detected model and override specific features (declaration is for
@@ -47,6 +50,7 @@ from draftwright.model import datum as _declare_datum
 from draftwright.model import envelope as _envelope
 from draftwright.model import finish as _declare_finish
 from draftwright.model import hole as _hole
+from draftwright.model import note as _declare_note
 from draftwright.model import pattern as _pattern
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
@@ -155,6 +159,12 @@ class _Hole:
         self._sheet._gdt_finish(ra, self._i, view=view, side=side)
         return self
 
+    def note(self, text, *, view: str | None = None, side: str | None = None) -> _Hole:
+        """A free-text manufacturing note on a leader to this hole (#488). ``.note("M3x0.5 TAP")``
+        — the shop callout; ``view``/``side`` override the derived strip."""
+        self._sheet._gdt_note(text, self._i, view=view, side=side)
+        return self
+
     def _set(self, **kw) -> _Hole:
         self._sheet._features[self._i] = replace(self._sheet._features[self._i], **kw)
         return self
@@ -191,6 +201,12 @@ class _Dim:
         """A surface-finish symbol (Ra) on this feature's surface (ADR 0011 P2c).
         ``diameter(journal).finish("0.8")``; ``view``/``side`` override the derived strip."""
         self._sheet._gdt_finish(ra, self._i, view=view, side=side)
+        return self
+
+    def note(self, text, *, view: str | None = None, side: str | None = None) -> _Dim:
+        """A free-text manufacturing note on a leader to this feature (#488).
+        ``diameter(knurl).note("KNURL 0.8 STRAIGHT")``; ``view``/``side`` override the strip."""
+        self._sheet._gdt_note(text, self._i, view=view, side=side)
         return self
 
 
@@ -430,6 +446,15 @@ class Sheet:
         self._append_gdt(_declare_finish(ra, target, self._part, view=view, side=side), src)
         return self
 
+    def note(self, text, ref, *, view: str | None = None, side: str | None = None) -> Sheet:
+        """Declare a free-text manufacturing note (#488) on a leader to *ref* — a build123d planar
+        face or a feature. The shop callouts detection can't infer: thread specs
+        (``sheet.note("M3x0.5 TAP", bore)``), ``DEBURR``, chip-relief, knurl. Placed like the GD&T
+        items, clear of the views/title block; ``view``/``side`` override the derived strip."""
+        target, src = self._gdt_ref(ref)
+        self._append_gdt(_declare_note(text, target, self._part, view=view, side=side), src)
+        return self
+
     def control(self, ref, *, view: str | None = None, side: str | None = None) -> _Control:
         """A GD&T feature-control-frame builder on *ref* — a feature handle / :class:`Feature` /
         index, or a build123d planar face. Chain one method per ISO 1101 characteristic
@@ -443,6 +468,12 @@ class Sheet:
         """A finish declared through a fluent handle — sources its provenance from the handle's
         feature INDEX (not the object), so a later size verb on the same handle can't strand it."""
         item = _declare_finish(ra, self._features[src_index], self._part, view=view, side=side)
+        self._append_gdt(item, src_index)
+
+    def _gdt_note(self, text, src_index: int, *, view=None, side=None) -> None:
+        """A note declared through a fluent handle — like :meth:`_gdt_finish`, sources provenance
+        from the feature INDEX so a later size verb on the same handle can't strand it."""
+        item = _declare_note(text, self._features[src_index], self._part, view=view, side=side)
         self._append_gdt(item, src_index)
 
     def _append_gdt(self, item, src_index) -> None:

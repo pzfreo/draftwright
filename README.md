@@ -92,7 +92,7 @@ bore = Pos(0, 0, 0) * Cylinder(4, 20)
 sheet = Sheet(plate - bore, title="Plate", number="DWG-002")
 sheet.envelope()
 sheet.datum("A", plate.faces().sort_by()[-1])             # datum A on the top face
-hole = sheet.hole(bore).finish("1.6")                     # ⌀8 bore, Ra 1.6
+hole = sheet.hole(bore).finish("1.6").note("M3x0.5 TAP")  # ⌀8 bore, Ra 1.6, tapped
 sheet.control(hole).position(0.1, to="A", diameter=True)  # ⌀0.1 position wrt A
 sheet.export("plate")                                     # writes plate.svg + plate.dxf
 ```
@@ -100,7 +100,8 @@ sheet.export("plate")                                     # writes plate.svg + p
 Every aspect the geometry can't carry is a declared verb: `.tolerance(±)` / `.fit("H7")`
 (ISO 286), `.finish("Ra")` (ISO 1302), `sheet.datum(letter, ref)` (ISO 5459), and
 `sheet.control(ref)` with all 14 ISO 1101 characteristics
-(`.position`/`.flatness`/`.perpendicularity`/`.circular_runout`/…). A feature verb returns
+(`.position`/`.flatness`/`.perpendicularity`/`.circular_runout`/…), plus `sheet.note(text, ref)`
+/ `.note(text)` for free-text shop callouts (thread specs, `DEBURR`, knurl). A feature verb returns
 a chainable handle (`sheet.hole(bore)`) that the aspect and `control(...)` verbs decorate;
 targets are placed automatically — the view and strip are derived from the referenced
 feature or face, with `view=`/`side=` overrides.

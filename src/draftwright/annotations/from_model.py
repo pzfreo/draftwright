@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 
-from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish
+from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
 from build123d_drafting.helpers import Centerline, CenterMark, HoleCallout, Leader, TitleBlock
 
 from draftwright._core import (
@@ -1781,8 +1781,9 @@ def render_pmi(dwg, model, a) -> int:
 
 # GD&T aspect side-layer (ADR 0011 §4, #61) — declared feature control frames / datum
 # feature symbols / surface finishes. Placed as first-class ADR 0009 corridor candidates,
-# NOT through the dimension planner (their IR items carry no DimParameters).
-_GDT_KINDS = ("control_frame", "datum_ref", "finish")
+# NOT through the dimension planner (their IR items carry no DimParameters). "note" is a
+# free-text manufacturing note (#488) — the same leader-into-a-strip mechanism, glyph = text.
+_GDT_KINDS = ("control_frame", "datum_ref", "finish", "note")
 # Outer run of the shared corridor ladder: GD&T frames tier BEYOND the feature-size
 # (_SIZE_SUBCHAIN=0) and datum-location (_LOC_SUBCHAIN=1) dim runs, so a frame never lands
 # mid-ladder among the dimensions it annotates.
@@ -1807,6 +1808,8 @@ def _gdt_glyph(item, draft):
         )
     if item.kind == "datum_ref":
         return DatumFeature(item.letter, draft=draft)
+    if item.kind == "note":  # free-text manufacturing note (#488) — a single-line text glyph
+        return TextBlock([item.text], position=(0.0, 0.0), draft=draft)
     return SurfaceFinish(item.ra, position=(0.0, 0.0), draft=draft)
 
 
