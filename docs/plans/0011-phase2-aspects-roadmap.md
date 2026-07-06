@@ -180,38 +180,57 @@ above/below; the read-side `datum_candidates()` helper (surface the part's natur
 datum edges so a script anchors without guessing coordinates) moves to P2c where the
 face→site projection lives.
 
-### P2c — Sheet declarative aspect verbs · #31
+### P2c — Sheet declarative aspect verbs · #479 · **DONE**
 
-The #445 vision surface over P2a + P2b.
+The #445 vision surface over P2a + P2b. Shipped in two PRs (#31 in the original heading
+was a stale ref to a closed layout issue; the plan lived in **#479**).
 
-- `sheet.datum("A", face)`, `diameter(journal).finish("Ra 0.8")`,
-  `sheet.control(target).cylindricity(0.02).circular_runout(0.05, to=A)
-  .perpendicular(0.05, to=B)` — each verb returns a small chainable handle.
-- Records into the new `AnnotationRegistry` decoration peer map keyed to
-  feature/face; a render pass reads it and calls the P2b placement API.
-- **No fake verbs** — a verb ships only once the renderer behind it exists
-  (the Phase-1 discipline).
+**P2c.1 (#480) — `.finish()` / `sheet.datum()` + the target derivation.** The genuinely-new
+work: `declare.gdt_target(ref, part) → (view, side, site, axis)` resolves a GD&T target
+geometrically at *declaration* time (no `Analysis`): a **feature** → its axis site, face-on
+view (`z→plan`, `x→side`, `y→front`); a build123d **planar face** → its centre, normal→axis,
+edge-on view. `view=`/`side=` always override. `declare.datum()`/`finish()` build the P2b IR
+items; the Sheet verbs `_Hole/_Dim.finish`, `sheet.datum`, `sheet.finish` append them (a
+handle-sourced item records `origin` by feature **index** and re-binds at build, mirroring
+P2a — so a later `.depth()` doesn't strand provenance).
 
-### P2d — Auto-GD&T from STEP PMI (#62) · #32 · later
+**P2c.2 (#482) — `sheet.control()` + the feature-control-frame builder.** `_Control` exposes
+one method per **all 14 ISO 1101 characteristics** (form tolerances take no `to=`;
+position/concentricity default `⌀`); `_parse_datums` accepts `"A"`/`"A B"`/`"A|B"`/`("A","B")`;
+`diameter=`/`modifier=` pass through. Datum-letter **validation** warns at build on a `to="A"`
+with no declared `sheet.datum("A", …)`. A **view-aware default side** (`_FEATURE_SIDE`:
+plan→above, front/side→below — the roomiest per view) so the flagship two-frame stack places
+without an override.
+
+- Aspects are standalone IR **features** appended to `Sheet._features` (not a `decorations`
+  peer map — that's P2a's tolerance path); consumed by the already-wired `render_gdt`.
+- **No fake verbs** — both shipped only because #478's renderer exists.
+- Four adversarial-review rounds across P2b+P2c fixed 3 real defects (public-IR crash,
+  off-sheet overshoot, degenerate-leader crash, provenance staleness).
+- **Follow-up #481** — `render_gdt` side-fallthrough: on a congested default side, try the
+  other side before dropping (the view-aware default is the current stopgap).
+
+### P2d — Auto-GD&T from STEP PMI (#62) · later · **the last Phase-2 item**
 
 Complementary, not on the P2a→P2c critical path.
 
-- Wire `pmi.py`'s already-extracted `gtol` / `datum` `PmiRecord`s into P2b's
-  `place_fcf` / `place_datum` under `pmi="annotate"` (today they hit a "not yet
-  annotatable (Phase 4)" debug log).
-- Second producer, same placement path — the read/auto complement to P2c's
-  declarative authoring.
+- Wire `pmi.py`'s already-extracted `gtol` / `datum` `PmiRecord`s into the P2b IR items
+  (`ControlFrame` / `DatumRef`) under `pmi="annotate"` (today they hit a "not yet
+  annotatable (Phase 4)" debug log in `render_pmi`) — a detector that emits the same IR
+  the declarative verbs do, so `render_gdt` places them with no new plumbing.
+- Second producer, same placement path — the read/auto complement to P2c's declarative
+  authoring.
 
 ## Dependency graph
 
 ```
-P2a (#28) ─┬─ P2a.2 (#29)
-           └─ P2c (#31) ── (also needs) ── P2b (#30) ── P2d (#32)
+P2a (#28, DONE) ─┬─ P2a.2 (#29, DONE)
+                 └─ P2c (#479, DONE) ── (needs) ── P2b (#478, DONE) ── P2d (#62, next)
 ```
 
-Suggested landing order: **P2a → P2a.2** (tolerance is a small, self-contained PR
-that ships visible value fast), then **P2b → P2c** (the GD&T / finish stack),
-**P2d** whenever PMI-carrying STEP input matters.
+Landing order (as executed): **P2a → P2a.2** → **P2b (#478) → P2c.1 (#480) → P2c.2 (#482)**.
+Remaining: **P2d (#62)** whenever PMI-carrying STEP input matters, and the **#481**
+placement-fallthrough quality follow-up.
 
 ## Non-goals for Phase 2
 

@@ -176,16 +176,21 @@ Current ADRs:
   `intent → [names]` **once** at the intent→render seam, with an `origin` back-link
   on IR features. The registry's `_anno_feature` (#398b) is the sink; the seam is
   the automatic populator. Re-plans #398c–e, enables #400.
-- **0011** — **Accepted** (Phase 0+1 landed; Phase 2 pending): **the IR as a public
-  input** — declare features, don't only detect them. `build_drawing(part, model=…)`
-  accepts a caller-supplied `PartModel`/`Sequence[Feature]` and **skips detection**;
-  object→feature constructors (`model.hole`/`boss`/`step`/`slot`/`pattern`/`envelope`)
-  read a feature's size off the build123d object you built (⌀ from the cylindrical
-  face; axis/location from the bbox), with an explicit-value flavour. The fluent
-  `Sheet` façade (`draftwright.Sheet`) is the "beautiful-Python" surface over the
-  existing renderers. Aspects geometry can't carry (tolerance/GD&T/finish) are a
-  side-layer, deferred to Phase 2 (#61/#62). Sidesteps #298 misdetection; complements
-  #400 (read + edit → now also input). Roadmap: #446; vision: #445.
+- **0011** — **Accepted** (Phase 0+1 + Phase 2 aspects landed; P2d PMI-source pending):
+  **the IR as a public input** — declare features, don't only detect them.
+  `build_drawing(part, model=…)` accepts a caller-supplied `PartModel`/`Sequence[Feature]`
+  and **skips detection**; object→feature constructors
+  (`model.hole`/`boss`/`step`/`slot`/`pattern`/`envelope`) read a feature's size off the
+  build123d object you built (⌀ from the cylindrical face; axis/location from the bbox),
+  with an explicit-value flavour. The fluent `Sheet` façade (`draftwright.Sheet`) is the
+  "beautiful-Python" surface over the existing renderers. **Aspects geometry can't carry
+  are now built:** tolerance/fit ride `DimParameter` (P2a/P2a.2); **GD&T + surface finish**
+  are standalone IR features (`ControlFrame`/`DatumRef`/`Finish`, `model/ir.py`) placed as
+  first-class ADR 0009 corridor candidates by `render_gdt` (P2b #478), authored via
+  `sheet.datum`/`sheet.control(…).position(…)`/`.finish` whose target view+strip derive
+  from the referenced feature/face (`declare.gdt_target`, P2c #480/#482). PMI-sourced
+  auto-GD&T is the last item (#62). Sidesteps #298 misdetection; complements #400 (read +
+  edit → now also input). Roadmap: `docs/plans/0011-phase2-aspects-roadmap.md`; #446/#445.
 
 ## Dependencies
 
