@@ -132,6 +132,13 @@ class TestConstructors:
         with pytest.warns(UserWarning, match="ambiguous"):
             slot(Box(40, 6, 6))
 
+    def test_slot_depth_named_still_warns_on_inplane_tie(self):
+        # #490 re-review: naming ONLY the through axis resolves the depth split but not the
+        # long-vs-width one. With the two in-plane spans near-equal (X≈Y) the assignment is
+        # still a silent coin-flip, so it must warn — the same as the un-named ambiguous case.
+        with pytest.warns(UserWarning, match="ambiguous"):
+            slot(Box(20, 20, 40), depth_axis="z")
+
     def test_slot_named_axes_suppress_ambiguity_warning(self):
         import warnings
 
