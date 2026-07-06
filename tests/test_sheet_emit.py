@@ -327,6 +327,47 @@ class TestCli:
         assert r.exit_code == 0, r.output
         assert "sheet.hole(" in open(tmp_path / "g.py", encoding="utf-8").read()
 
+    def test_script_defaults_to_sheet_style(self, tmp_path):
+        # --script with NO --style now emits the declarative Sheet DSL (sheet is the default)
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(app, [str(step), "--script", "--out", str(tmp_path / "g")])
+        assert r.exit_code == 0, r.output
+        src = open(tmp_path / "g.py", encoding="utf-8").read()
+        assert "from draftwright import Sheet" in src and "sheet.hole(" in src
+
+    def test_imperative_style_still_available(self, tmp_path):
+        # the imperative reconstruction is still reachable via an explicit --style imperative
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(
+            app, [str(step), "--script", "--style", "imperative", "--out", str(tmp_path / "g")]
+        )
+        assert r.exit_code == 0, r.output
+        assert (
+            "from draftwright import Sheet" not in open(tmp_path / "g.py", encoding="utf-8").read()
+        )
+
+    def test_imperative_with_object_spec_is_rejected(self, tmp_path, monkeypatch):
+        # imperative reads a STEP file, not a module:attr object → a clear error, not import_step noise
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        (tmp_path / "climod.py").write_text(_SOURCE_MODULE, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        r = CliRunner().invoke(app, ["climod:bracket", "--script", "--style", "imperative"])
+        assert r.exit_code != 0
+        assert "--style sheet" in r.output
+
     def test_bad_style_is_rejected(self, tmp_path):
         from typer.testing import CliRunner
 

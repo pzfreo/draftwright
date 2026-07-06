@@ -118,10 +118,10 @@ def main(
         False, "--script", help="Write an editable .py drawing script instead of SVG+DXF"
     ),
     style: str = typer.Option(
-        "imperative",
+        "sheet",
         "--style",
-        help="--script flavour: 'imperative' (edit-verb reconstruction) or "
-        "'sheet' (declarative Sheet DSL - one line per feature)",
+        help="--script flavour: 'sheet' (declarative Sheet DSL - one line per feature, "
+        "default) or 'imperative' (edit-verb reconstruction)",
     ),
     pmi: PmiMode = typer.Option(
         PmiMode.off,
@@ -179,6 +179,12 @@ def main(
                     step_file, out=out, title=title, number=number, pmi=pmi.value
                 )
         else:
+            if _looks_like_object_spec(step_file):
+                raise typer.BadParameter(
+                    "the imperative reconstruction reads a STEP file; use --style sheet "
+                    "(the default) to reference a 'module:attr' object",
+                    param_hint="--style",
+                )
             py_path = generate_script(
                 step_file=step_file,
                 out=out,
