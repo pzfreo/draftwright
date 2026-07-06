@@ -311,6 +311,10 @@ class CorridorCandidate:
     # instead of one label-height (ADR 0009 real-footprint plumbing, #61). A dim leaves
     # it ``None`` — byte-identical to the pre-plumbing placement.
     size: tuple | None = None
+    # An ``(x0, y0, x1, y1)`` page-box this candidate must NOT overlap even when force-kept —
+    # the title block, which is placed after the corridor drain so the strip carve can't see
+    # it (#481). ``None`` (every dim) skips the check → byte-identical.
+    forbid: object | None = None
 
 
 def solve_corridor(dwg, strip, view, axis, cands, tier):
@@ -364,10 +368,11 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
     pairs = [(c.name, c.build) for c in kept]
     feats = {c.name: c.feature for c in kept if c.feature is not None}  # provenance (ADR 0010)
     sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
+    forbid = {c.name: c.forbid for c in kept if c.forbid is not None}  # title-block box (#481)
     left = {
         n
         for n, _ in place_strip_candidates(
-            dwg, strip, view, axis, pairs, tier, features=feats, sizes=sizes
+            dwg, strip, view, axis, pairs, tier, features=feats, sizes=sizes, forbid=forbid
         )
     }
     force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
@@ -375,7 +380,16 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
         {
             n
             for n, _ in place_strip_candidates(
-                dwg, strip, view, axis, force_pairs, tier, force=True, features=feats, sizes=sizes
+                dwg,
+                strip,
+                view,
+                axis,
+                force_pairs,
+                tier,
+                force=True,
+                features=feats,
+                sizes=sizes,
+                forbid=forbid,
             )
         }
         if force_pairs
@@ -410,7 +424,7 @@ def drain_corridors(dwg):
 
 
 def place_strip_candidates(
-    dwg, strip, view, axis, cands, tier, *, force=False, features=None, sizes=None
+    dwg, strip, view, axis, cands, tier, *, force=False, features=None, sizes=None, forbid=None
 ):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
@@ -519,6 +533,14 @@ def place_strip_candidates(
                 continue
             dim = build(pos)
             if not force and _box_hits(_geom_box(dim), blockers):  # corridor crosses a leader
+                todo.append((name, build))
+                continue
+            # A forbidden box (the title block, #481) is rejected even under force — it is
+            # placed after the drain, so the strip carve can't see it; a force-kept GD&T frame
+            # must still not stack onto it. `forbid` maps names to their box (only GD&T sets it,
+            # so dims are byte-identical). Returned unplaced → the caller's on_drop fallthrough.
+            fb = (forbid or {}).get(name)
+            if fb is not None and _box_hits(_geom_box(dim), (fb,)):
                 todo.append((name, build))
                 continue
             # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed

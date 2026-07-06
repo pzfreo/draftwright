@@ -42,6 +42,7 @@ from draftwright._core import (
     _legible_steps,
     _log,
     _solve_strip_ys,
+    _title_block_box,
     _tol_suffix,
 )
 from draftwright.annotations._common import (
@@ -1831,6 +1832,11 @@ def render_gdt(dwg, model, a) -> int:
         "front": (a.fv_zones, a.proj.front_x, a.proj.front_z, 0, 2),
         "side": (a.sv_zones, a.proj.side_x, a.proj.side_z, 1, 2),
     }
+    # The title block (bottom-right) is added AFTER drain_corridors, so strip placement can't
+    # see it — a below/right strip runs down into its region. Its box is deterministic, so
+    # reject any GD&T placement that would land on it (BOTH the primary corridor path, via the
+    # candidate's `forbid`, AND the fallthrough) else the frame overlaps 'DRAWING' (#481 review).
+    tb_box = _title_block_box(dwg, a)
     n = 0
     for i, item in enumerate(items):
         name = f"m_gdt{i}"
@@ -1883,9 +1889,43 @@ def render_gdt(dwg, model, a) -> int:
                 elbow = (pos, _py)
             return Leader(tip=tip, elbow=elbow, label="", draft=draft, callout=g)
 
-        def _drop(nm, _v=item.view, _s=item.side):
+        def _drop(
+            nm,
+            _v=item.view,
+            _s=item.side,
+            _zones=zones,
+            _px=px,
+            _py=py,
+            _hz=horizontal,
+            _sz=size,
+            _bld=_build,
+            _feat=item.origin,
+            _tb=tb_box,
+        ):
+            # Fallthrough (#481): the declared/derived side is full — try the OPPOSITE side of
+            # the same view before dropping, so a congested default still places somewhere
+            # legible rather than vanishing. Best-effort (mirrors render_slots' below-fallthrough):
+            # carve a free tier on the alternate strip and place there; carve_free_position only
+            # ever sees already-placed annotations, so it can't collide with a not-yet-drained
+            # sibling corridor. Force semantics (no corridor-cross check) match the primary path,
+            # BUT reject a spot over the (not-yet-placed) title block — a below/right strip runs
+            # into it, and carve can't see it (#481 review).
+            alt = {"above": "below", "below": "above", "left": "right", "right": "left"}[_s]
+            alt_strip = getattr(_zones, alt, None)
+            if alt_strip is not None:
+                axis2 = "y" if alt in ("above", "below") else "x"
+                extent = _sz[1] if axis2 == "y" else _sz[0]  # the glyph's stacking-axis size
+                perp = (_px, _px + _sz[0]) if _hz else (_py - _sz[1] / 2, _py + _sz[1] / 2)
+                pos = carve_free_position(dwg, alt_strip, _v, axis2, max(tier, extent), perp)
+                if pos is not None:
+                    dim = _bld(pos)
+                    if not _box_hits(_anno_box(dim), (_tb,)):  # clear of the title block
+                        dwg.add(dim, nm, view=_v, feature=_feat)  # placed on the alternate side
+                        return
             dwg._record_build_issue(
-                "warning", "gdt_dropped", f"{nm} not placed (no room in the {_v} {_s} strip)"
+                "warning",
+                "gdt_dropped",
+                f"{nm} not placed (no room in the {_v} {_s} strip or its opposite)",
             )
 
         register_corridor(
@@ -1908,6 +1948,10 @@ def render_gdt(dwg, model, a) -> int:
                 force=True,
                 feature=item.origin,  # provenance (ADR 0010): the decorated feature
                 size=size,
+                # Even a force-kept frame must not stack into the title block (#481 review) —
+                # place_strip_candidates rejects a placement hitting this box, then on_drop's
+                # fallthrough tries the other side.
+                forbid=tb_box,
             ),
         )
         n += 1
