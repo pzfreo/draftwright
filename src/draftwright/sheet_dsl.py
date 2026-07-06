@@ -16,10 +16,12 @@ detection is skipped and the auto-pass dimensions exactly the declared features:
 engine has today — dimensions, ⌀ callouts, holes (through / blind), turned steps,
 slots, patterns, the overall envelope, and the auto section — plus the P2a
 **``.tolerance``** (a ± / limit tolerance on a diameter, a step, or a hole bore) and
-**``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects. The remaining #445 aspect
-verbs that still need new rendering — ``.thread``, ``.finish`` (surface symbols) and
-``control(...)`` (GD&T) — are the later Phase-2 items (roadmap #446) and are
-deliberately **not** stubbed here, so the surface only exposes what actually draws.
+**``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects, and the P2c GD&T side-layer
+(**``.finish``** surface symbols + **``sheet.datum``** feature symbols, ADR 0011 #479),
+which derive their target view/strip from the referenced feature or planar face. The
+remaining #445 aspect verbs that still need wiring — ``.thread`` and ``control(...)`` (the
+GD&T feature-control-frame builder, P2c.2) — are deliberately **not** stubbed here yet, so
+the surface only exposes what actually draws.
 
 **Hybrid.** :meth:`Sheet.from_part` seeds the declared set from *detection*, so you
 can start from the detected model and override specific features (declaration is for
@@ -37,7 +39,9 @@ from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
 from draftwright.model import Feature
 from draftwright.model import boss as _boss
+from draftwright.model import datum as _declare_datum
 from draftwright.model import envelope as _envelope
+from draftwright.model import finish as _declare_finish
 from draftwright.model import hole as _hole
 from draftwright.model import pattern as _pattern
 from draftwright.model import slot as _slot
@@ -131,6 +135,12 @@ class _Hole:
         _require_positive(**{f"{kind} diameter": diameter, f"{kind} depth": depth})
         return (diameter, depth)
 
+    def finish(self, ra, *, view: str | None = None, side: str | None = None) -> _Hole:
+        """A surface-finish symbol (Ra) on this hole's bore (ADR 0011 P2c). ``.finish("1.6")``
+        — the roughness text; ``view``/``side`` override the derived strip."""
+        self._sheet._add_finish(ra, self._sheet._features[self._i], view=view, side=side)
+        return self
+
     def _set(self, **kw) -> _Hole:
         self._sheet._features[self._i] = replace(self._sheet._features[self._i], **kw)
         return self
@@ -161,6 +171,12 @@ class _Dim:
         self._sheet._tolerances[(self._i, "diameter")] = fit_class(
             code, self._sheet._features[self._i].diameter, show
         )
+        return self
+
+    def finish(self, ra, *, view: str | None = None, side: str | None = None) -> _Dim:
+        """A surface-finish symbol (Ra) on this feature's surface (ADR 0011 P2c).
+        ``diameter(journal).finish("0.8")``; ``view``/``side`` override the derived strip."""
+        self._sheet._add_finish(ra, self._sheet._features[self._i], view=view, side=side)
         return self
 
 
@@ -290,6 +306,37 @@ class Sheet:
         """Declare the overall bounding dimensions. Defaults to the whole part."""
         self._features.append(_envelope(obj if obj is not None else self._part))
         return self
+
+    # -- GD&T / finish aspects (ADR 0011 P2c, #479) ---------------------------
+
+    def datum(
+        self, letter: str, ref, *, view: str | None = None, side: str | None = None
+    ) -> Sheet:
+        """Declare a datum feature symbol (ISO 5459). *ref* is a build123d **planar face**, or
+        a feature handle / :class:`Feature` / index for a feature's axis. The target view + strip
+        side are derived from the geometry; ``view``/``side`` override them (ADR 0011 P2c)."""
+        self._features.append(
+            _declare_datum(letter, self._gdt_ref(ref), self._part, view=view, side=side)
+        )
+        return self
+
+    def finish(self, ra, ref, *, view: str | None = None, side: str | None = None) -> Sheet:
+        """Declare a surface-finish symbol (ISO 1302, Ra) on *ref* — a build123d planar face or
+        a feature. ``sheet.finish("3.2", top_face)``; ``view``/``side`` override the strip."""
+        self._add_finish(ra, self._gdt_ref(ref), view=view, side=side)
+        return self
+
+    def _add_finish(self, ra, ref, *, view=None, side=None) -> None:
+        self._features.append(_declare_finish(ra, ref, self._part, view=view, side=side))
+
+    def _gdt_ref(self, ref):
+        """Resolve a GD&T target: a fluent handle / index → its :class:`Feature`; a
+        :class:`Feature` or a build123d face passes straight through to :func:`gdt_target`."""
+        if isinstance(ref, (_Hole, _Dim)):
+            return self._features[ref._i]
+        if isinstance(ref, int) and not isinstance(ref, bool):
+            return self._features[self._index_of(ref)]
+        return ref
 
     # -- inspection / output --------------------------------------------------
 

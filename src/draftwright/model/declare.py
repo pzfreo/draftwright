@@ -28,7 +28,10 @@ import math
 
 from draftwright.model.ir import (
     BossFeature,
+    DatumRef,
     EnvelopeFeature,
+    Feature,
+    Finish,
     Frame,
     HoleFeature,
     PatternFeature,
@@ -513,3 +516,89 @@ def envelope(obj) -> EnvelopeFeature:
         bbox_min=(bb.min.X, bb.min.Y, bb.min.Z),
         bbox_max=(bb.max.X, bb.max.Y, bb.max.Z),
     )
+
+
+# -- GD&T aspect targets (ADR 0011 P2c, #479) -------------------------------------
+# The P2b IR items (ControlFrame/DatumRef/Finish) carry (view, side, site) explicitly.
+# These constructors DERIVE that target from a reference — an IR feature (site = its axis)
+# or a build123d planar face (site = its centre, axis = its normal) — the geometric work
+# P2b deferred. Derivation runs at declaration time (no Analysis), so it is purely
+# geometric; `view=`/`side=` overrides always win (a best-effort default + an escape hatch).
+
+# A feature's axis points AT the viewer in this view (a z-hole is a circle in plan).
+_FACE_ON_VIEW = {"x": "side", "y": "front", "z": "plan"}
+# A planar face whose normal is this axis shows as an EDGE here (prefer front, else side).
+_EDGE_ON_VIEW = {"x": "front", "y": "side", "z": "front"}
+# The model-space axis a view stacks its above/below strips along (its vertical).
+_VERTICAL_MODEL_AXIS = {"plan": 1, "front": 2, "side": 2}
+_VALID_SIDES = ("above", "below", "left", "right")
+
+
+def _axis_from_vec(v) -> str:
+    """The dominant axis letter of a direction vector, or a clear error if it is not
+    axis-aligned (a skew face has no letter-based Frame — pass an explicit ``view``/``axis``)."""
+    comps = [abs(v.X), abs(v.Y), abs(v.Z)]
+    k = max(range(3), key=lambda i: comps[i])
+    others = sum(comps) - comps[k]
+    if comps[k] < 1e-6 or others > 0.1 * comps[k]:
+        raise ValueError(
+            "GD&T target face is not axis-aligned — pass an explicit view=/side= (or use an "
+            f"axis-aligned face); normal was ({v.X:.3g}, {v.Y:.3g}, {v.Z:.3g})"
+        )
+    return "xyz"[k]
+
+
+def _side_for(site: Point, part, view: str) -> str:
+    """Default strip side for a face target: above/below by the site's position vs the part
+    centre along the view's vertical axis (mirrors render_pmi's centre comparison)."""
+    vi = _VERTICAL_MODEL_AXIS[view]
+    c = part.bounding_box().center()
+    return "above" if site[vi] >= (c.X, c.Y, c.Z)[vi] else "below"
+
+
+def gdt_target(ref, part=None, *, view=None, side=None) -> tuple[str, str, Point, str]:
+    """Resolve a GD&T target *ref* to ``(view, side, site, axis)``.
+
+    *ref* is either an IR :class:`~draftwright.model.ir.Feature` (site = its ``frame.origin``,
+    axis = its ``frame.axis``, placed face-on and below by default) or a build123d **planar
+    face** (site = its centre, axis = its normal, placed edge-on with the side by position).
+    *part* is needed only to derive a face's side (skip with an explicit ``side``).
+    ``view``/``side`` override the derived defaults."""
+    if isinstance(ref, Feature):
+        site = ref.frame.origin
+        axis = _norm_axis(ref.frame.axis)
+        d_view, d_side = _FACE_ON_VIEW[axis], "below"
+    else:  # a build123d planar face
+        try:
+            n, c = ref.normal_at(), ref.center()
+        except AttributeError as e:
+            raise ValueError("GD&T target must be an IR feature or a build123d planar face") from e
+        axis = _axis_from_vec(n)
+        site = (c.X, c.Y, c.Z)
+        d_view = _EDGE_ON_VIEW[axis]
+        d_side = side or (_side_for(site, part, view or d_view) if part is not None else "below")
+    v, s = view or d_view, side or d_side
+    if v not in ("plan", "front", "side"):
+        raise ValueError(f"view must be 'plan'/'front'/'side' (got {v!r})")
+    if s not in _VALID_SIDES:
+        raise ValueError(f"side must be one of {_VALID_SIDES} (got {s!r})")
+    return v, s, site, axis
+
+
+def datum(letter: str, ref, part=None, *, view=None, side=None) -> DatumRef:
+    """A datum feature symbol (ISO 5459) on *ref* — a feature or a planar face (ADR 0011 P2c)."""
+    if not (isinstance(letter, str) and letter.strip()):
+        raise ValueError(f"datum needs a non-empty letter (got {letter!r})")
+    v, s, site, axis = gdt_target(ref, part, view=view, side=side)
+    origin = ref if isinstance(ref, Feature) else None
+    return DatumRef(frame=Frame(site, axis), letter=letter.strip(), view=v, side=s, origin=origin)
+
+
+def finish(ra, ref, part=None, *, view=None, side=None) -> Finish:
+    """A surface-finish symbol (ISO 1302, Ra) on *ref* — a feature or a planar face (P2c)."""
+    ra = str(ra).strip()
+    if not ra:
+        raise ValueError("finish needs a roughness value (e.g. '3.2')")
+    v, s, site, axis = gdt_target(ref, part, view=view, side=side)
+    origin = ref if isinstance(ref, Feature) else None
+    return Finish(frame=Frame(site, axis), ra=ra, view=v, side=s, origin=origin)
