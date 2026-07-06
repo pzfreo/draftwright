@@ -203,8 +203,10 @@ class TestObjectSpec:
         p = self._mod(tmp_path)
         obj, seam = resolve_object_spec(f"{p}:bracket")
         assert isinstance(obj, Shape)
-        # the file seam bakes the absolute path so the generated script runs from any CWD
-        assert "spec_from_file_location(" in seam and str(p) in seam
+        # the file seam bakes the absolute path as a repr'd literal (so it's valid Python and
+        # runs from any CWD) — compare against repr, not the bare string, so Windows backslash
+        # escaping (C:\\Users\\… in the seam vs C:\Users\… in str(p)) doesn't false-fail.
+        assert "spec_from_file_location(" in seam and repr(str(p.resolve())) in seam
         assert "part = _mod.bracket" in seam
 
     def test_zero_arg_factory_is_called(self, tmp_path):
@@ -221,7 +223,9 @@ class TestObjectSpec:
         obj, seam = resolve_object_spec("dottedmod:bracket")
         assert isinstance(obj, Shape)
         assert "from dottedmod import bracket as _obj" in seam
-        assert str(tmp_path) in seam
+        # the cwd is baked as a repr'd literal — compare against repr so Windows backslash
+        # escaping in the seam doesn't false-fail (the code bakes os.getcwd(), same as here).
+        assert repr(os.getcwd()) in seam
 
     def test_missing_attr_raises(self, tmp_path):
         p = self._mod(tmp_path)
