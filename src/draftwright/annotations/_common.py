@@ -305,6 +305,12 @@ class CorridorCandidate:
     # The source IR feature this dim was rendered for — recorded as provenance when the
     # dim is placed at drain (ADR 0010). ``None`` leaves the annotation feature-less.
     feature: object | None = None
+    # Real stacking-axis + perpendicular footprint ``(w, h)`` in page-mm, or ``None`` to
+    # use the dimension default ``(tier, tier)``. Wide/tall occupants (a GD&T feature
+    # control frame is ~24×6 mm) set this so the strip solve reserves their true extent
+    # instead of one label-height (ADR 0009 real-footprint plumbing, #61). A dim leaves
+    # it ``None`` — byte-identical to the pre-plumbing placement.
+    size: tuple | None = None
 
 
 def solve_corridor(dwg, strip, view, axis, cands, tier):
@@ -357,15 +363,19 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
         return
     pairs = [(c.name, c.build) for c in kept]
     feats = {c.name: c.feature for c in kept if c.feature is not None}  # provenance (ADR 0010)
+    sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
     left = {
-        n for n, _ in place_strip_candidates(dwg, strip, view, axis, pairs, tier, features=feats)
+        n
+        for n, _ in place_strip_candidates(
+            dwg, strip, view, axis, pairs, tier, features=feats, sizes=sizes
+        )
     }
     force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
     still = (
         {
             n
             for n, _ in place_strip_candidates(
-                dwg, strip, view, axis, force_pairs, tier, force=True, features=feats
+                dwg, strip, view, axis, force_pairs, tier, force=True, features=feats, sizes=sizes
             )
         }
         if force_pairs
@@ -399,7 +409,9 @@ def drain_corridors(dwg):
     dwg._corridor_batch = {}
 
 
-def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False, features=None):
+def place_strip_candidates(
+    dwg, strip, view, axis, cands, tier, *, force=False, features=None, sizes=None
+):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
     P3): each candidate in *cands* — an ``(name, build(pos)->dim)`` pair — is spaced by
@@ -418,6 +430,12 @@ def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False, 
     1-D strip carve cannot represent: a leader in that corridor is crossed no matter how
     far out the dim line lands. By default such a placement is rejected so the caller can
     route the dim to the other view (its disjoint block cannot cross this leader).
+
+    *sizes* maps a candidate's name to its real page-mm footprint ``(w, h)``; absent
+    names use the dimension default ``(tier, tier)``. A wide/tall occupant (a GD&T
+    frame, #61) sets it so :func:`plan_strip` enforces its true stacking gap — over
+    capacity it is relocated to the next segment or dropped, never overlapped.
+
     ``force=True`` skips that corridor check — the caller's last resort when no view took
     the dim cleanly: keep it on its natural view and accept the (same-feature) leader
     crossing rather than drop a real dimension (policy B). Candidates that find no strip
@@ -471,7 +489,9 @@ def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False, 
         triples = [
             (
                 StripCandidate(
-                    f"{(k if inner == lo else len(take) - 1 - k):04d}", anch, (tier, tier)
+                    f"{(k if inner == lo else len(take) - 1 - k):04d}",
+                    anch,
+                    (sizes or {}).get(nb[0], (tier, tier)),
                 ),
                 nb,
             )

@@ -39,6 +39,7 @@ from draftwright.annotations.from_model import (
     render_centermarks,
     render_diameters,
     render_envelope,
+    render_gdt,
     render_height_ladder,
     render_locations,
     render_pmi,
@@ -348,6 +349,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (#135) — IR renderer, placed through the zone strips (shared infra). Runs
     # after every hole/diameter pass so it claims strip space last.
     render_slots(dwg, _model, a)
+
+    # Declared GD&T frames / datum symbols / surface finishes (ADR 0011 §4, #61) — register
+    # into the same strips as first-class candidates BEFORE the drain, so the one solve orders
+    # and spaces them crossing-free with the dims (not a leftover first-fit like render_pmi).
+    render_gdt(dwg, _model, a)
 
     # Now every feeder pass (locations + slots) has registered; solve each shared above
     # corridor once (ADR 0009 end state, #345/#346) — dedup coincident spans, order the
