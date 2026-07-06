@@ -596,8 +596,11 @@ class Sheet:
                 warnings.warn(
                     f"table name {t['name']!r} is already taken — placed as {name!r}", stacklevel=2
                 )
-            dwg.add_table(t["rows"], prefer=t["prefer"], name=name, block_cols=t["block_cols"])
-            used.add(name)
+            placed = dwg.add_table(
+                t["rows"], prefer=t["prefer"], name=name, block_cols=t["block_cols"]
+            )
+            if placed is not None:  # a dropped table (didn't fit) frees its name (#493 review)
+                used.add(name)
         return dwg
 
     def export(self, stem=None):

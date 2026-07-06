@@ -104,6 +104,17 @@ def test_auto_name_does_not_collide_with_an_explicit_one():
     assert "table1" in dwg._named and any(n.startswith("table1_") for n in dwg._named)
 
 
+def test_a_dropped_table_frees_its_name():
+    # #493 review r2: a table that doesn't fit is dropped (table_dropped lint) — its name must be
+    # freed, so a later same-named table that DOES fit gets the clean name, not a misleading rename.
+    s = _sheet()
+    s.table([("H",)] + [(str(i),) for i in range(300)], name="rev")  # too tall → dropped
+    s.table([("A",), ("B",)], name="rev")  # small, same name → should get the freed "rev"
+    dwg = s.build()
+    assert "rev" in dwg._named  # the fitting table took the freed name
+    assert any(i.code == "table_dropped" for i in dwg._build_issues)  # the drop is still recorded
+
+
 def test_model_inspection_ignores_tables():
     # model() is the cheap no-render inspection path — tables are render-time, so declaring one
     # must not affect the IR model or raise.
