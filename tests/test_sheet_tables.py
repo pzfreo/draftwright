@@ -76,6 +76,34 @@ def test_validation():
         s.notes([])
 
 
+def test_flat_string_list_is_rejected_with_a_notes_hint():
+    # #493 review: a str row iterates char-by-char into columns — a silent-garbage trap. Since
+    # notes() takes a flat list of strings, table(["REV","DATE","BY"]) is an easy mistake; reject it.
+    s = _sheet()
+    with pytest.raises(ValueError, match="notes"):
+        s.table(["REV", "DATE", "BY"])
+
+
+def test_table_never_overwrites_a_feature_annotation():
+    # #493 review: an explicit name colliding with an existing annotation used to silently delete
+    # it via dwg.add. It must be uniquified (both survive) and warned, never overwrite.
+    s = _sheet()
+    s.table([("R",), ("A",)], name="m_env_width")  # a real feature-annotation name
+    with pytest.warns(UserWarning, match="already taken"):
+        dwg = s.build()
+    assert "m_env_width" in dwg._named  # the original width dimension survives
+    assert any(n.startswith("m_env_width_") for n in dwg._named)  # table placed under a fresh name
+
+
+def test_auto_name_does_not_collide_with_an_explicit_one():
+    # #493 review: the auto name f"table{len}" could equal a user's explicit "table1"; both must survive.
+    s = _sheet()
+    s.table([("x",), ("y",)], name="table1")
+    s.table([("p",), ("q",)])  # auto-names table1 -> collision
+    dwg = s.build()
+    assert "table1" in dwg._named and any(n.startswith("table1_") for n in dwg._named)
+
+
 def test_model_inspection_ignores_tables():
     # model() is the cheap no-render inspection path — tables are render-time, so declaring one
     # must not affect the IR model or raise.

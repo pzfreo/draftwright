@@ -510,6 +510,15 @@ class Sheet:
         (``"tr"``/``"tl"``/``"br"``/``"bl"``). A table with no free corner records a
         ``table_dropped`` lint — it never overlaps. Revision blocks, BOMs and schedules all use
         this; :meth:`notes` is the single-column convenience over it."""
+        rows = list(rows)
+        # A str/bytes row would iterate character-by-character into columns — a silent-garbage
+        # trap, especially since notes() legitimately takes a flat list of strings. Reject it and
+        # point at notes() (the single-column convenience).
+        if any(isinstance(r, (str, bytes)) for r in rows):
+            raise ValueError(
+                "table rows must be sequences of cells, not strings — for a single-column table "
+                "of text use sheet.notes([...])"
+            )
         norm = [tuple(str(c) for c in r) for r in rows]
         if not norm:
             raise ValueError("table needs at least one row")
@@ -572,10 +581,23 @@ class Sheet:
         dwg = build_drawing(
             self._part, model=self._features, decorations=self._decorations(), **self._opts
         )
+        # Add each declared table, uniquifying its name against everything already on the sheet
+        # (feature annotations + earlier tables) so a table NEVER silently overwrites another
+        # object via dwg.add (#493 review). A collision with an explicit name is warned; a table
+        # that doesn't fit still records `table_dropped` lint inside add_table.
+        used = set(dwg._named)
         for t in self._tables:
-            dwg.add_table(
-                t["rows"], prefer=t["prefer"], name=t["name"], block_cols=t["block_cols"]
-            )
+            name = t["name"]
+            if name in used:
+                base, k = name, 1
+                while f"{base}_{k}" in used:
+                    k += 1
+                name = f"{base}_{k}"
+                warnings.warn(
+                    f"table name {t['name']!r} is already taken — placed as {name!r}", stacklevel=2
+                )
+            dwg.add_table(t["rows"], prefer=t["prefer"], name=name, block_cols=t["block_cols"])
+            used.add(name)
         return dwg
 
     def export(self, stem=None):
