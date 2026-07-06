@@ -445,6 +445,7 @@ def place_strip_candidates(
         return list(cands)
     lo, hi, inner = strip_free_span(strip)
     idx = 1 if axis == "y" else 0
+
     # Reserve the outermost label's OUTWARD extent at the strip boundary. plan_strip bounds
     # the dim-LINE position, but the label extends outward from it — so without this the last
     # tier's label overshoots outer_limit (into the iso view / page margin), unlike the old
