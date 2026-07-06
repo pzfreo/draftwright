@@ -75,6 +75,36 @@ issues = dwg.lint()                       # list[LintIssue] — coverage, page b
 svg_path, dxf_path = dwg.export("my_part")
 ```
 
+### Declarative drawings — reference features, declare intent
+
+Instead of relying on detection, **reference the build123d objects you built** and declare
+only the drawing intent — geometry supplies the sizes (⌀ read off the object), you supply
+tolerances, fits, datums, GD&T, and surface finish. The fluent `Sheet` skips detection and
+dimensions exactly what you declare (ADR 0011):
+
+```python
+from build123d import Box, Cylinder, Pos
+from draftwright import Sheet
+
+plate = Box(120, 80, 20)
+bore = Pos(0, 0, 0) * Cylinder(4, 20)
+
+sheet = Sheet(plate - bore, title="Plate", number="DWG-002")
+sheet.envelope()
+sheet.datum("A", plate.faces().sort_by()[-1])             # datum A on the top face
+hole = sheet.hole(bore).finish("1.6")                     # ⌀8 bore, Ra 1.6
+sheet.control(hole).position(0.1, to="A", diameter=True)  # ⌀0.1 position wrt A
+sheet.export("plate")                                     # writes plate.svg + plate.dxf
+```
+
+Every aspect the geometry can't carry is a declared verb: `.tolerance(±)` / `.fit("H7")`
+(ISO 286), `.finish("Ra")` (ISO 1302), `sheet.datum(letter, ref)` (ISO 5459), and
+`sheet.control(ref)` with all 14 ISO 1101 characteristics
+(`.position`/`.flatness`/`.perpendicularity`/`.circular_runout`/…). A feature verb returns
+a chainable handle (`sheet.hole(bore)`) that the aspect and `control(...)` verbs decorate;
+targets are placed automatically — the view and strip are derived from the referenced
+feature or face, with `view=`/`side=` overrides.
+
 ## What it produces
 
 - **Three orthographic views** (front, plan, side) sized and scaled automatically to the
