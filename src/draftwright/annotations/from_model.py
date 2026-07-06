@@ -1843,7 +1843,17 @@ def render_gdt(dwg, model, a) -> int:
         px, py = hproj(o[hi]), vproj(o[vi])
         horizontal = item.side in ("above", "below")  # frame stacks along y
         axis = "y" if horizontal else "x"
-        gb = _gdt_glyph(item, draft).bounding_box().size
+        # The IR is public input (ADR 0011), so an invalid glyph spec (a mistyped
+        # characteristic, a bad tolerance) must drop THIS item with a warning — never crash
+        # the whole drawing build. The helper raises on a bad spec; catch it at the measure
+        # (the first build) so `_build` below, with the same args, cannot then raise mid-place.
+        try:
+            gb = _gdt_glyph(item, draft).bounding_box().size
+        except Exception as e:  # noqa: BLE001 — any glyph-spec error drops one item, not the build
+            dwg._record_build_issue(
+                "warning", "gdt_dropped", f"{name}: cannot render ({type(e).__name__}: {e})"
+            )
+            continue
         size = (gb.X, gb.Y)
 
         def _build(pos, _px=px, _py=py, _hz=horizontal, _it=item):

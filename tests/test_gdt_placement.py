@@ -116,6 +116,22 @@ def test_bad_target_drops_without_crashing():
     assert "m_gdt0" not in dwg._named
 
 
+def test_invalid_glyph_spec_drops_not_crashes():
+    # The IR is public input (ADR 0011): a mistyped characteristic must drop the one item
+    # with a gdt_dropped warning, NOT raise ValueError and take down the whole drawing.
+    frame = ControlFrame(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        characteristic="postion",  # typo — helper raises "Unknown characteristic"
+        tolerance="0.1",
+        view="plan",
+        side="above",
+    )
+    dwg = _build(frame)  # must not raise
+    dropped = [i for i in dwg._build_issues if i.code == "gdt_dropped"]
+    assert dropped and "m_gdt0" in dropped[0].message
+    assert "m_gdt0" not in dwg._named
+
+
 def test_placement_is_lint_clean():
     # The Tier-1 claim: a frame placed through the strip solve does not overlap the dims
     # it annotates (the failure mode that motivated routing GD&T through the solver).
