@@ -190,6 +190,22 @@ def resolve_object_spec(spec: str) -> tuple[Shape, str]:
         if ispec is None or ispec.loader is None:
             raise ValueError(f"cannot load module from {mod_ref!r}")
         module = importlib.util.module_from_spec(ispec)
+        # Force the helper file's OWN directory to the FRONT of sys.path, with the invocation cwd
+        # just behind it, so its repo-relative / sibling imports resolve like `python file.py` (the
+        # script dir wins a name clash) — spec_from_file_location adds NEITHER (#488). Remove any
+        # existing occurrence first, then re-insert in a fixed order: a plain `not in sys.path`
+        # guard can't reorder a dir that's ALREADY on the path (e.g. a driver run as
+        # `python tools/driver.py` puts the helper dir on sys.path), so cwd could otherwise land
+        # ahead of it and win the clash, AND the in-process build would diverge from the standalone
+        # re-run seam (#491 review). Removing then front-inserting makes the order deterministic and
+        # identical between build and re-run; the seam bakes both as resolve-time absolute literals.
+        file_dir = str(path.parent)
+        cwd = os.getcwd()
+        for _p in (cwd, file_dir):
+            while _p in sys.path:
+                sys.path.remove(_p)
+        for _p in (cwd, file_dir):  # cwd first, file_dir last -> file_dir at index 0 (wins)
+            sys.path.insert(0, _p)
         # Register before exec so a self-referential target resolves (a dataclass whose
         # forward-ref annotations get typing.get_type_hints'd, a module reading
         # sys.modules[__name__], import-time pickling). The seam does the same on re-run.
@@ -200,6 +216,10 @@ def resolve_object_spec(spec: str) -> tuple[Shape, str]:
             raise ValueError(f"{spec!r}: importing {mod_ref!r} failed: {e}") from e
         seam = (
             "import importlib.util as _ilu, sys as _sys\n"
+            f"for _p in ({cwd!r}, {file_dir!r}):\n"
+            "    while _p in _sys.path:\n        _sys.path.remove(_p)\n"
+            f"for _p in ({cwd!r}, {file_dir!r}):\n"
+            "    _sys.path.insert(0, _p)\n"
             f"_spec = _ilu.spec_from_file_location({path.stem!r}, {str(path)!r})\n"
             "_mod = _ilu.module_from_spec(_spec)\n_sys.modules[_spec.name] = _mod\n"
             "_spec.loader.exec_module(_mod)"
