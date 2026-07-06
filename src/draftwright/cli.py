@@ -118,10 +118,10 @@ def main(
         False, "--script", help="Write an editable .py drawing script instead of SVG+DXF"
     ),
     style: str = typer.Option(
-        "imperative",
+        "sheet",
         "--style",
-        help="--script flavour: 'imperative' (edit-verb reconstruction) or "
-        "'sheet' (declarative Sheet DSL - one line per feature)",
+        help="--script flavour: 'sheet' (declarative Sheet DSL - one line per feature, "
+        "default) or 'imperative' (edit-verb reconstruction)",
     ),
     pmi: PmiMode = typer.Option(
         PmiMode.off,
@@ -168,6 +168,25 @@ def main(
         if style == "sheet":
             from draftwright.sheet_emit import generate_sheet_script, resolve_object_spec
 
+            # The Sheet DSL doesn't yet model the title-block / layout aspects the
+            # imperative script embeds. Warn rather than silently drop them so a
+            # `--script --drawn-by … --scale …` invocation isn't quietly a no-op.
+            ignored = [
+                flag
+                for flag, set_ in (
+                    ("--tolerance", tolerance != "ISO 2768-m"),
+                    ("--drawn-by", bool(drawn_by)),
+                    ("--scale", scale is not None),
+                    ("--page", page is not None),
+                )
+                if set_
+            ]
+            if ignored:
+                typer.echo(
+                    f"warning: {', '.join(ignored)} not supported by --style sheet; ignored "
+                    "(use --style imperative to embed them)",
+                    err=True,
+                )
             if _looks_like_object_spec(step_file):
                 # STEP_FILE is a `module:attr` / `file.py:attr` spec → reference a live object
                 obj, seam = resolve_object_spec(step_file)
@@ -179,6 +198,12 @@ def main(
                     step_file, out=out, title=title, number=number, pmi=pmi.value
                 )
         else:
+            if _looks_like_object_spec(step_file):
+                raise typer.BadParameter(
+                    "the imperative reconstruction reads a STEP file; use --style sheet "
+                    "(the default) to reference a 'module:attr' object",
+                    param_hint="--style",
+                )
             py_path = generate_script(
                 step_file=step_file,
                 out=out,

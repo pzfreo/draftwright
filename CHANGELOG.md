@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.2.8 — 2026-07-06
+
+**`--script` now defaults to the declarative `Sheet` DSL.** The editable script the CLI
+writes is the beautiful-Python surface — one commentable line per feature — for both STEP and
+build123d-object input.
+
+### Changed
+
+- **`draftwright … --script` now emits the declarative `Sheet` script by default** (was the
+  imperative edit-verb reconstruction). The imperative reconstruction is still available via
+  `--script --style imperative`. For prismatic parts the generated script reproduces the same
+  drawing as a direct build; a turned shaft's centre lines and base-diameter style are not yet
+  identical (the remaining validity gap, tracked separately). `--style imperative` now errors
+  clearly on a `module:attr` object spec (it reads a STEP file; use the default `sheet`).
+  The Sheet DSL doesn't yet model the title-block / layout aspects the imperative script
+  embeds, so `--script --style sheet` **warns** when `--drawn-by`, `--tolerance`, `--scale`
+  or `--page` is set rather than silently ignoring it (use `--style imperative` to embed them).
+
 ## v0.2.7 — 2026-07-05
 
 **The three authoring modes (ADR 0011 Amendment 1).** Naming how you drive draftwright —

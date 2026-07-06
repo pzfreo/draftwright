@@ -38,7 +38,7 @@ Choose formats, scale, and page; or emit an editable drawing script:
 ```
 draftwright my_part.step --format pdf,dxf     # also: svg, all
 draftwright my_part.step --scale 2 --page A3  # override the auto scale / page
-draftwright my_part.step --script             # write an editable .py drawing script
+draftwright my_part.step --script             # write an editable declarative Sheet script
 ```
 
 `draftwright --help` lists every flag; `--version` prints the version.

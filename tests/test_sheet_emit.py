@@ -30,6 +30,16 @@ _SOURCE_MODULE = (
 )
 
 
+def _norm(s: str) -> str:
+    """Flatten a rich-rendered CLI panel for substring checks: drop ANSI colour and
+    box-drawing borders, collapse whitespace — so a line-wrapped phrase reads contiguously."""
+    import re
+
+    s = re.sub(r"\x1b\[[0-9;]*m", "", s)  # ANSI colour codes
+    s = re.sub(r"[│╭╮╰╯─┌┐└┘|]", " ", s)  # panel borders
+    return " ".join(s.split())
+
+
 def _plate():
     return Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(4, 20) - Pos(-20, 10, 4) * Cylinder(4, 20)
 
@@ -87,6 +97,16 @@ class TestEmit:
     def test_pattern_emits_the_pattern_verb(self):
         src = _script_for(self._bolt_circle())
         assert "sheet.pattern(hole(" in src and 'kind="bolt_circle"' in src
+
+    def test_counterbored_pattern_flags_the_auto_section(self):
+        # the section trigger lives on the pattern's MEMBER hole, not a top-level hole — a
+        # counterbored bolt circle still auto-sections, so the comment must be present (was missed)
+        src = _script_for(self._bolt_circle(cbore=True))
+        assert "Section A–A auto-triggers" in src
+
+    def test_plain_pattern_does_not_flag_a_section(self):
+        # regression guard: a through-hole bolt circle needs no section — no false-positive comment
+        assert "Section A–A auto-triggers" not in _script_for(self._bolt_circle())
 
     def test_bolt_circle_spells_out_members(self):
         # #461 review r2: the detector records no start ANGLE, so recomputing members at angle 0
@@ -326,6 +346,87 @@ class TestCli:
         )
         assert r.exit_code == 0, r.output
         assert "sheet.hole(" in open(tmp_path / "g.py", encoding="utf-8").read()
+
+    def test_script_defaults_to_sheet_style(self, tmp_path):
+        # --script with NO --style now emits the declarative Sheet DSL (sheet is the default)
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(app, [str(step), "--script", "--out", str(tmp_path / "g")])
+        assert r.exit_code == 0, r.output
+        src = open(tmp_path / "g.py", encoding="utf-8").read()
+        assert "from draftwright import Sheet" in src and "sheet.hole(" in src
+
+    def test_imperative_style_still_available(self, tmp_path):
+        # the imperative reconstruction is still reachable via an explicit --style imperative
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(
+            app, [str(step), "--script", "--style", "imperative", "--out", str(tmp_path / "g")]
+        )
+        assert r.exit_code == 0, r.output
+        assert (
+            "from draftwright import Sheet" not in open(tmp_path / "g.py", encoding="utf-8").read()
+        )
+
+    def test_imperative_with_object_spec_is_rejected(self, tmp_path, monkeypatch):
+        # imperative reads a STEP file, not a module:attr object → a clear error, not import_step noise
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        (tmp_path / "climod.py").write_text(_SOURCE_MODULE, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        r = CliRunner().invoke(app, ["climod:bracket", "--script", "--style", "imperative"])
+        assert r.exit_code != 0
+        # rich wraps the error panel at the (CI-narrow) console width, so the phrase can straddle
+        # a bordered line — normalise ANSI + box borders + whitespace before the substring check
+        assert "--style sheet" in _norm(r.output)
+
+    def test_sheet_style_warns_on_unsupported_flags(self, tmp_path):
+        # the Sheet DSL can't embed --drawn-by/--tolerance/--scale/--page yet; the default
+        # sheet path must WARN rather than silently drop them (else the flags are a no-op)
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(
+            app,
+            [
+                str(step),
+                "--script",
+                "--drawn-by",
+                "Paul",
+                "--scale",
+                "2",
+                "--out",
+                str(tmp_path / "g"),
+            ],
+        )
+        assert r.exit_code == 0, r.output
+        assert "--drawn-by" in r.output and "--scale" in r.output
+        assert "--style imperative" in r.output
+
+    def test_sheet_style_silent_when_no_unsupported_flags(self, tmp_path):
+        # no spurious warning when only supported flags are given
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(app, [str(step), "--script", "--out", str(tmp_path / "g")])
+        assert r.exit_code == 0, r.output
+        assert "warning:" not in r.output
 
     def test_bad_style_is_rejected(self, tmp_path):
         from typer.testing import CliRunner
