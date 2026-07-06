@@ -16,10 +16,12 @@ detection is skipped and the auto-pass dimensions exactly the declared features:
 engine has today — dimensions, ⌀ callouts, holes (through / blind), turned steps,
 slots, patterns, the overall envelope, and the auto section — plus the P2a
 **``.tolerance``** (a ± / limit tolerance on a diameter, a step, or a hole bore) and
-**``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects. The remaining #445 aspect
-verbs that still need new rendering — ``.thread``, ``.finish`` (surface symbols) and
-``control(...)`` (GD&T) — are the later Phase-2 items (roadmap #446) and are
-deliberately **not** stubbed here, so the surface only exposes what actually draws.
+**``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects, and the P2c GD&T side-layer
+(**``.finish``** surface symbols + **``sheet.datum``** feature symbols, ADR 0011 #479),
+which derive their target view/strip from the referenced feature or planar face. The
+remaining #445 aspect verbs that still need wiring — ``.thread`` and ``control(...)`` (the
+GD&T feature-control-frame builder, P2c.2) — are deliberately **not** stubbed here yet, so
+the surface only exposes what actually draws.
 
 **Hybrid.** :meth:`Sheet.from_part` seeds the declared set from *detection*, so you
 can start from the detected model and override specific features (declaration is for
@@ -37,7 +39,9 @@ from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
 from draftwright.model import Feature
 from draftwright.model import boss as _boss
+from draftwright.model import datum as _declare_datum
 from draftwright.model import envelope as _envelope
+from draftwright.model import finish as _declare_finish
 from draftwright.model import hole as _hole
 from draftwright.model import pattern as _pattern
 from draftwright.model import slot as _slot
@@ -131,6 +135,12 @@ class _Hole:
         _require_positive(**{f"{kind} diameter": diameter, f"{kind} depth": depth})
         return (diameter, depth)
 
+    def finish(self, ra, *, view: str | None = None, side: str | None = None) -> _Hole:
+        """A surface-finish symbol (Ra) on this hole's bore (ADR 0011 P2c). ``.finish("1.6")``
+        — the roughness text; ``view``/``side`` override the derived strip."""
+        self._sheet._gdt_finish(ra, self._i, view=view, side=side)
+        return self
+
     def _set(self, **kw) -> _Hole:
         self._sheet._features[self._i] = replace(self._sheet._features[self._i], **kw)
         return self
@@ -163,6 +173,12 @@ class _Dim:
         )
         return self
 
+    def finish(self, ra, *, view: str | None = None, side: str | None = None) -> _Dim:
+        """A surface-finish symbol (Ra) on this feature's surface (ADR 0011 P2c).
+        ``diameter(journal).finish("0.8")``; ``view``/``side`` override the derived strip."""
+        self._sheet._gdt_finish(ra, self._i, view=view, side=side)
+        return self
+
 
 class Sheet:
     """Reference features, declare their drawing aspects, export.
@@ -180,6 +196,10 @@ class Sheet:
         # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
         # feature replacement (e.g. hole().depth()); materialized to (feature, kind) at build.
         self._tolerances: dict = {}
+        # P2c GD&T provenance: (gdt_feature_index -> source_feature_index). A finish/datum stores
+        # its origin by INDEX, not the object, so a later size verb replacing the source feature
+        # (hole().depth()) doesn't strand the link; materialized to the FINAL object at build.
+        self._gdt_src: list = []
         self._opts = dict(
             title=title, number=number, scale=_parse_scale(scale), page=page, out=out
         )
@@ -291,6 +311,61 @@ class Sheet:
         self._features.append(_envelope(obj if obj is not None else self._part))
         return self
 
+    # -- GD&T / finish aspects (ADR 0011 P2c, #479) ---------------------------
+
+    def datum(
+        self, letter: str, ref, *, view: str | None = None, side: str | None = None
+    ) -> Sheet:
+        """Declare a datum feature symbol (ISO 5459). *ref* is a build123d **planar face**, or
+        a feature handle / :class:`Feature` / index for a feature's axis. The target view + strip
+        side are derived from the geometry; ``view``/``side`` override them (ADR 0011 P2c)."""
+        target, src = self._gdt_ref(ref)
+        self._append_gdt(_declare_datum(letter, target, self._part, view=view, side=side), src)
+        return self
+
+    def finish(self, ra, ref, *, view: str | None = None, side: str | None = None) -> Sheet:
+        """Declare a surface-finish symbol (ISO 1302, Ra) on *ref* — a build123d planar face or
+        a feature. ``sheet.finish("3.2", top_face)``; ``view``/``side`` override the strip."""
+        target, src = self._gdt_ref(ref)
+        self._append_gdt(_declare_finish(ra, target, self._part, view=view, side=side), src)
+        return self
+
+    def _gdt_finish(self, ra, src_index: int, *, view=None, side=None) -> None:
+        """A finish declared through a fluent handle — sources its provenance from the handle's
+        feature INDEX (not the object), so a later size verb on the same handle can't strand it."""
+        item = _declare_finish(ra, self._features[src_index], self._part, view=view, side=side)
+        self._append_gdt(item, src_index)
+
+    def _append_gdt(self, item, src_index) -> None:
+        """Append a GD&T IR item, recording its source-feature index for build-time provenance
+        re-materialization (``None`` for a bare face — no source feature to track)."""
+        self._features.append(item)
+        if src_index is not None:
+            self._gdt_src.append((len(self._features) - 1, src_index))
+
+    def _gdt_ref(self, ref):
+        """Resolve a GD&T target to ``(target, source_index)``: a fluent handle / index / a
+        :class:`Feature` already in :attr:`features` → its feature + index (the index re-binds
+        provenance at build); a build123d face or an external Feature → ``(ref, None)``."""
+        if isinstance(ref, (_Hole, _Dim)):
+            return self._features[ref._i], ref._i
+        if isinstance(ref, int) and not isinstance(ref, bool):
+            i = self._index_of(ref)
+            return self._features[i], i
+        if isinstance(ref, Feature):
+            for i, f in enumerate(self._features):
+                if f is ref:
+                    return ref, i
+            return ref, None  # an external feature this sheet does not manage
+        return ref, None  # a build123d face — no source feature
+
+    def _materialize_gdt(self) -> None:
+        """Re-bind each handle-sourced GD&T item's ``origin`` to the FINAL source feature (a
+        size verb may have replaced it since declaration). Idempotent; mirrors P2a's
+        :meth:`_decorations`. Called before handing features to the engine."""
+        for gi, si in self._gdt_src:
+            self._features[gi] = replace(self._features[gi], origin=self._features[si])
+
     # -- inspection / output --------------------------------------------------
 
     @property
@@ -312,11 +387,13 @@ class Sheet:
         cost and can't hit a layout/render failure. Wraps the *solids body* (as :func:`_analyse`
         does), so the bbox/datum match what ``build()`` draws even when the part carries
         bbox-extending non-solid geometry."""
+        self._materialize_gdt()
         return _coerce_model(self._features, _solids_body(self._part), self._decorations())
 
     def build(self):
         """Build the :class:`~draftwright.drawing.Drawing` — detection skipped; only the
         declared features are drawn."""
+        self._materialize_gdt()
         return build_drawing(
             self._part, model=self._features, decorations=self._decorations(), **self._opts
         )
