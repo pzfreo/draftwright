@@ -152,6 +152,22 @@ def test_wide_frame_in_narrow_strip_drops_not_overshoots():
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
 
+def test_degenerate_leader_site_does_not_crash():
+    # Focused-review finding (CONFIRMED): a declared site that projects ONTO the solved strip
+    # tier (pos == py) makes the leader shaft zero-length, which raised in OCC and crashed the
+    # whole build (public IR). _build now guarantees a minimum shaft, so it places instead.
+    # oy=44.5 is the reviewer's reproduced coincidence for this part/part-of-strip geometry.
+    frame = ControlFrame(
+        frame=Frame((0.0, 44.5, 0.0), "z"),
+        characteristic="position",
+        tolerance="0.1",
+        view="plan",
+        side="above",
+    )
+    dwg = _build(frame)  # must not raise
+    assert "m_gdt0" in dwg._named
+
+
 def test_placement_is_lint_clean():
     # The Tier-1 claim: a frame placed through the strip solve does not overlap the dims
     # it annotates (the failure mode that motivated routing GD&T through the solver).

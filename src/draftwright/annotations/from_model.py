@@ -1786,6 +1786,9 @@ _GDT_KINDS = ("control_frame", "datum_ref", "finish")
 # (_SIZE_SUBCHAIN=0) and datum-location (_LOC_SUBCHAIN=1) dim runs, so a frame never lands
 # mid-ladder among the dimensions it annotates.
 _GDT_SUBCHAIN = 2
+# Minimum GD&T leader shaft length (page-mm). A zero-length Leader (site == solved tier)
+# makes OCC's edge builder raise; nudging to this keeps `_build` total (#61 review).
+_MIN_LEADER = 0.05
 
 
 def _gdt_glyph(item, draft):
@@ -1846,7 +1849,9 @@ def render_gdt(dwg, model, a) -> int:
         # The IR is public input (ADR 0011), so an invalid glyph spec (a mistyped
         # characteristic, a bad tolerance) must drop THIS item with a warning — never crash
         # the whole drawing build. The helper raises on a bad spec; catch it at the measure
-        # (the first build) so `_build` below, with the same args, cannot then raise mid-place.
+        # (the first build) and drop. `_build` below re-runs `_gdt_glyph` with the same args
+        # (so a spec error can't reappear there) AND is made total against the OTHER raise
+        # source — a zero-length Leader shaft (see the min-leader guard in `_build`).
         try:
             gb = _gdt_glyph(item, draft).bounding_box().size
         except Exception as e:  # noqa: BLE001 — any glyph-spec error drops one item, not the build
@@ -1859,7 +1864,23 @@ def render_gdt(dwg, model, a) -> int:
         def _build(pos, _px=px, _py=py, _hz=horizontal, _it=item):
             g = _gdt_glyph(_it, draft)
             tip = (_px, _py)
-            elbow = (_px, pos) if _hz else (pos, _py)
+            # A zero-length leader shaft (the projected site coincides with the solved tier —
+            # `pos == py` above/below, `pos == px` left/right) makes OCC's edge builder raise,
+            # which would crash the whole build on a public-IR declaration. Guarantee a
+            # minimum shaft along the stacking axis (nudge outward; 0.05 mm is invisible) so
+            # `_build` is total — the drop-don't-crash invariant holds for every build() call.
+            if _hz:
+                dy = pos - _py
+                pos = (
+                    pos if abs(dy) >= _MIN_LEADER else _py + math.copysign(_MIN_LEADER, dy or 1.0)
+                )
+                elbow = (_px, pos)
+            else:
+                dx = pos - _px
+                pos = (
+                    pos if abs(dx) >= _MIN_LEADER else _px + math.copysign(_MIN_LEADER, dx or 1.0)
+                )
+                elbow = (pos, _py)
             return Leader(tip=tip, elbow=elbow, label="", draft=draft, callout=g)
 
         def _drop(nm, _v=item.view, _s=item.side):
