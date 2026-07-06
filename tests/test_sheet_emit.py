@@ -244,6 +244,23 @@ class TestObjectSpec:
         obj, seam = resolve_object_spec("dottedmod:bracket")
         assert isinstance(obj, Shape)
         assert "from dottedmod import bracket as _obj" in seam
+
+    def test_file_spec_helper_can_import_a_sibling(self, tmp_path, monkeypatch):
+        # #488: a file helper's OWN imports must resolve — spec_from_file_location adds neither
+        # the file's dir nor the cwd to sys.path (unlike `python file.py`), so a repo-relative
+        # or sibling import used to fail unless the helper hand-managed sys.path.
+        (tmp_path / "sib_shapes488.py").write_text(
+            "from build123d import Box\ndef base():\n    return Box(8, 8, 8)\n", encoding="utf-8"
+        )
+        (tmp_path / "sib_helper488.py").write_text(
+            "from sib_shapes488 import base\ndef make():\n    return base()\n", encoding="utf-8"
+        )
+        monkeypatch.chdir(tmp_path)
+        obj, seam = resolve_object_spec(
+            "sib_helper488.py:make"
+        )  # sibling import, no sys.path help
+        assert isinstance(obj, Shape)
+        assert "_sys.path.insert" in seam  # the re-run seam restores the import roots
         # the cwd is baked as a repr'd literal — compare against repr so Windows backslash
         # escaping in the seam doesn't false-fail (the code bakes os.getcwd(), same as here).
         assert repr(os.getcwd()) in seam

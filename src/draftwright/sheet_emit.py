@@ -190,6 +190,14 @@ def resolve_object_spec(spec: str) -> tuple[Shape, str]:
         if ispec is None or ispec.loader is None:
             raise ValueError(f"cannot load module from {mod_ref!r}")
         module = importlib.util.module_from_spec(ispec)
+        # Put the helper file's OWN directory and the invocation cwd on sys.path before exec,
+        # so the loaded file's imports resolve. spec_from_file_location adds NEITHER (unlike
+        # `python file.py`, which adds the script dir), so a repo-relative or sibling import in
+        # the helper would otherwise fail unless it hand-managed sys.path (#488). The module-spec
+        # branch below already does the cwd insert; do the same here + the file's parent.
+        for _p in (str(path.parent), os.getcwd()):
+            if _p not in sys.path:
+                sys.path.insert(0, _p)
         # Register before exec so a self-referential target resolves (a dataclass whose
         # forward-ref annotations get typing.get_type_hints'd, a module reading
         # sys.modules[__name__], import-time pickling). The seam does the same on re-run.
@@ -199,7 +207,9 @@ def resolve_object_spec(spec: str) -> tuple[Shape, str]:
         except Exception as e:
             raise ValueError(f"{spec!r}: importing {mod_ref!r} failed: {e}") from e
         seam = (
-            "import importlib.util as _ilu, sys as _sys\n"
+            "import importlib.util as _ilu, sys as _sys, os as _os\n"
+            f"for _p in ({str(path.parent)!r}, _os.getcwd()):\n"
+            "    _p in _sys.path or _sys.path.insert(0, _p)\n"
             f"_spec = _ilu.spec_from_file_location({path.stem!r}, {str(path)!r})\n"
             "_mod = _ilu.module_from_spec(_spec)\n_sys.modules[_spec.name] = _mod\n"
             "_spec.loader.exec_module(_mod)"
