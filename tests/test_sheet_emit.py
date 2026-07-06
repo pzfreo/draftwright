@@ -30,6 +30,16 @@ _SOURCE_MODULE = (
 )
 
 
+def _norm(s: str) -> str:
+    """Flatten a rich-rendered CLI panel for substring checks: drop ANSI colour and
+    box-drawing borders, collapse whitespace — so a line-wrapped phrase reads contiguously."""
+    import re
+
+    s = re.sub(r"\x1b\[[0-9;]*m", "", s)  # ANSI colour codes
+    s = re.sub(r"[│╭╮╰╯─┌┐└┘|]", " ", s)  # panel borders
+    return " ".join(s.split())
+
+
 def _plate():
     return Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(4, 20) - Pos(-20, 10, 4) * Cylinder(4, 20)
 
@@ -364,12 +374,11 @@ class TestCli:
 
         (tmp_path / "climod.py").write_text(_SOURCE_MODULE, encoding="utf-8")
         monkeypatch.chdir(tmp_path)
-        # widen the console so rich doesn't wrap the error panel mid-phrase (CI defaults to 80 cols)
-        r = CliRunner().invoke(
-            app, ["climod:bracket", "--script", "--style", "imperative"], env={"COLUMNS": "200"}
-        )
+        r = CliRunner().invoke(app, ["climod:bracket", "--script", "--style", "imperative"])
         assert r.exit_code != 0
-        assert "--style sheet" in r.output
+        # rich wraps the error panel at the (CI-narrow) console width, so the phrase can straddle
+        # a bordered line — normalise ANSI + box borders + whitespace before the substring check
+        assert "--style sheet" in _norm(r.output)
 
     def test_sheet_style_warns_on_unsupported_flags(self, tmp_path):
         # the Sheet DSL can't embed --drawn-by/--tolerance/--scale/--page yet; the default
