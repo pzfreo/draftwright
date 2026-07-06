@@ -16,12 +16,14 @@ detection is skipped and the auto-pass dimensions exactly the declared features:
 engine has today — dimensions, ⌀ callouts, holes (through / blind), turned steps,
 slots, patterns, the overall envelope, and the auto section — plus the P2a
 **``.tolerance``** (a ± / limit tolerance on a diameter, a step, or a hole bore) and
-**``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects, and the P2c GD&T side-layer
-(**``.finish``** surface symbols + **``sheet.datum``** feature symbols, ADR 0011 #479),
-which derive their target view/strip from the referenced feature or planar face. The
-remaining #445 aspect verbs that still need wiring — ``.thread`` and ``control(...)`` (the
-GD&T feature-control-frame builder, P2c.2) — are deliberately **not** stubbed here yet, so
-the surface only exposes what actually draws.
+**``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects, the P2c GD&T side-layer
+(**``.finish``** surface symbols, **``sheet.datum``** feature symbols, and
+**``sheet.control(...)``** feature control frames — all 14 ISO 1101 characteristics, ADR 0011
+#479 — which derive their target view/strip from the referenced feature or planar face), and
+**``sheet.table()``** / **``sheet.notes()``** corner-block tables (notes / revision / BOM /
+schedule, over the engine's auto-placed ``Drawing.add_table``, #488). The remaining #445 aspect
+verbs that still need wiring — ``.thread`` and a general anchored ``.note()`` leader (#488) —
+are deliberately **not** stubbed here yet, so the surface only exposes what actually draws.
 
 **Hybrid.** :meth:`Sheet.from_part` seeds the declared set from *detection*, so you
 can start from the detected model and override specific features (declaration is for
@@ -294,6 +296,10 @@ class Sheet:
         # its origin by INDEX, not the object, so a later size verb replacing the source feature
         # (hole().depth()) doesn't strand the link; materialized to the FINAL object at build.
         self._gdt_src: list = []
+        # Corner-block tables (notes / revision / BOM / schedule) — applied at build() via the
+        # engine's generic auto-placed Drawing.add_table, AFTER the drawing is built so they sit
+        # clear of the views + title block (like the hole table). Each: {rows, prefer, name}.
+        self._tables: list = []
         self._opts = dict(
             title=title, number=number, scale=_parse_scale(scale), page=page, out=out
         )
@@ -492,6 +498,48 @@ class Sheet:
         self._materialize_gdt()
         self._validate_datums()
 
+    # -- corner-block tables (notes / revision / BOM / schedule) --------------
+
+    def table(
+        self, rows, *, prefer: str = "tr", name: str | None = None, block_cols=None
+    ) -> Sheet:
+        """Declare a corner-block data table — positioned at :meth:`build` by the engine's generic
+        auto-placer, clear of the views, title block, and annotations (the same machinery as the
+        hole table), and lint-checked. *rows* is a sequence of equal-length row sequences (row 0
+        the header); cells are stringified. *prefer* is the page corner to sit nearest
+        (``"tr"``/``"tl"``/``"br"``/``"bl"``). A table with no free corner records a
+        ``table_dropped`` lint — it never overlaps. Revision blocks, BOMs and schedules all use
+        this; :meth:`notes` is the single-column convenience over it."""
+        norm = [tuple(str(c) for c in r) for r in rows]
+        if not norm:
+            raise ValueError("table needs at least one row")
+        width = len(norm[0])
+        if width == 0 or any(len(r) != width for r in norm):
+            raise ValueError("table rows must all have the same (non-zero) number of columns")
+        self._tables.append(
+            {
+                "rows": norm,
+                "prefer": prefer,
+                "name": name or f"table{len(self._tables)}",
+                "block_cols": block_cols,
+            }
+        )
+        return self
+
+    def notes(
+        self, lines, *, title: str | None = "NOTES", number: bool = True, prefer="tr"
+    ) -> Sheet:
+        """Declare a manufacturing NOTES block — a single-column :meth:`table` of *lines* with a
+        *title* header (``None`` to omit) and optional ``1  …`` auto-numbering::
+
+            sheet.notes(["BREAK ALL EDGES 0.3", "DEBURR", "M3x0.5 TAP"])
+        """
+        rows = [(title,)] if title else []
+        rows += [(f"{i}  {line}" if number else str(line),) for i, line in enumerate(lines, 1)]
+        if len(rows) <= (1 if title else 0):
+            raise ValueError("notes needs at least one line")
+        return self.table(rows, prefer=prefer, name=f"notes{len(self._tables)}")
+
     # -- inspection / output --------------------------------------------------
 
     @property
@@ -518,11 +566,17 @@ class Sheet:
 
     def build(self):
         """Build the :class:`~draftwright.drawing.Drawing` — detection skipped; only the
-        declared features are drawn."""
+        declared features are drawn. Declared corner-block tables (:meth:`table`/:meth:`notes`)
+        are placed last, clear of everything already on the sheet."""
         self._prepare()
-        return build_drawing(
+        dwg = build_drawing(
             self._part, model=self._features, decorations=self._decorations(), **self._opts
         )
+        for t in self._tables:
+            dwg.add_table(
+                t["rows"], prefer=t["prefer"], name=t["name"], block_cols=t["block_cols"]
+            )
+        return dwg
 
     def export(self, stem=None):
         """Build and export the drawing (SVG + DXF). *stem* defaults to the drawing
