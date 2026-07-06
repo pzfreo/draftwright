@@ -35,6 +35,7 @@ from draftwright.model.ir import (
     Finish,
     Frame,
     HoleFeature,
+    Note,
     PatternFeature,
     Point,
     SlotFeature,
@@ -609,6 +610,19 @@ def finish(ra, ref, part=None, *, view=None, side=None) -> Finish:
     v, s, site, axis = gdt_target(ref, part, view=view, side=side)
     origin = ref if isinstance(ref, Feature) else None
     return Finish(frame=Frame(site, axis), ra=ra, view=v, side=s, origin=origin)
+
+
+def note(text, ref, part=None, *, view=None, side=None) -> Note:
+    """A free-text manufacturing note (#488) on a leader to *ref* — a feature or a planar face
+    (ADR 0011 P2c). The shop callouts detection can't infer: thread specs (``M3x0.5 TAP``),
+    ``DEBURR``, chip-relief, knurl. Placed like the GD&T items (a first-class ADR 0009 corridor
+    candidate), not the dimension planner."""
+    text = str(text).strip()
+    if not text:
+        raise ValueError("note needs text (e.g. 'M3x0.5 TAP')")
+    v, s, site, axis = gdt_target(ref, part, view=view, side=side)
+    origin = ref if isinstance(ref, Feature) else None
+    return Note(frame=Frame(site, axis), text=text, view=v, side=s, origin=origin)
 
 
 def control_frame(

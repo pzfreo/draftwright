@@ -405,6 +405,27 @@ class Finish:
         return []
 
 
+@dataclass(frozen=True)
+class Note:
+    """A free-text manufacturing note (#488) hung on a leader to a feature/site — the shop
+    callouts detection can't infer (thread specs, ``DEBURR``, chip-relief, knurl). Placed like
+    the GD&T items — a first-class ADR 0009 corridor candidate via ``render_gdt`` (its glyph is a
+    single-line ``TextBlock``), NOT the dimension planner (``parameters()`` is empty)."""
+
+    frame: Frame
+    text: str
+    view: str
+    side: str
+    origin: object | None = None
+    kind: ClassVar[str] = "note"
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
 @dataclass
 class PartModel:
     """The whole-part IR: the oriented part plus its features and datums."""
