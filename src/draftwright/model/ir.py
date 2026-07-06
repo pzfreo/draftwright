@@ -335,6 +335,76 @@ class PmiFeature:
         return []
 
 
+@dataclass(frozen=True)
+class ControlFrame:
+    """A geometric-tolerance feature control frame (ISO 1101) declared on the drawing
+    (ADR 0011 §4 aspect side-layer, #61). Placed as a first-class ADR 0009 corridor
+    candidate by ``render_gdt`` — NOT through the dimension planner, so ``parameters()``
+    is empty (like :class:`PmiFeature`). The target ``(view, side)`` strip and the
+    model-space site (``frame.origin``) the leader hangs from are carried explicitly:
+    render-core places into that strip's corridor; the Sheet layer (P2c) computes them
+    from a build123d face."""
+
+    frame: Frame  # the site the leader hangs from + its axis
+    characteristic: str  # ISO 1101 lowercase name: "position" | "flatness" | ...
+    tolerance: str  # the tolerance value text, e.g. "0.1"
+    view: str  # target view: "front" | "side" | "plan"
+    side: str  # target strip: "above" | "below" | "left" | "right"
+    datums: tuple[str, ...] = ()
+    diameter: bool = False  # ⌀ prefix on the tolerance zone
+    modifier: str | None = None  # material-condition modifier: "M" | "L" | "P" | ...
+    # The IR feature this frame decorates — recorded as provenance (ADR 0010); ``None``
+    # leaves it feature-less. Untyped to avoid an import cycle with the geometric features.
+    origin: object | None = None
+    kind: ClassVar[str] = "control_frame"
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class DatumRef:
+    """A datum feature symbol (ISO 5459) — a boxed letter tagging a surface/axis as a
+    datum (#61). Placed as an ADR 0009 corridor candidate by ``render_gdt``, not through
+    the dimension planner (``parameters()`` is empty)."""
+
+    frame: Frame
+    letter: str
+    view: str
+    side: str
+    origin: object | None = None
+    kind: ClassVar[str] = "datum_ref"
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class Finish:
+    """A surface-finish symbol (ISO 1302) — a roughness callout on a surface (#61).
+    Placed as an ADR 0009 corridor candidate by ``render_gdt``, not through the
+    dimension planner (``parameters()`` is empty)."""
+
+    frame: Frame
+    ra: str  # roughness value text, e.g. "3.2" (Ra, µm)
+    view: str
+    side: str
+    origin: object | None = None
+    kind: ClassVar[str] = "finish"
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
 @dataclass
 class PartModel:
     """The whole-part IR: the oriented part plus its features and datums."""

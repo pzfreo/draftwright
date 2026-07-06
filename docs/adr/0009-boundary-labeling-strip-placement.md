@@ -555,6 +555,50 @@ shared solve); the pure-location and hole-free fixtures stay byte-identical. A `
 corpus fixture (a hole X coincident with a slot edge) plus explicit dedup + monotonic-order
 assertions lock both bugs; 85 layout/e2e tests unchanged green.
 
+## Amendment 7 — Real per-candidate footprint; GD&T frames as first-class candidates (#61)
+
+**Status:** Accepted (2026-07-06). The first candidate whose footprint is *not* one
+label-height, and the first non-dimension occupant of a shared corridor.
+
+**Problem.** `place_strip_candidates` built every `StripCandidate` with
+`size=(tier, tier)` — the label-height square that is right for a dimension but wrong for
+a wide/tall occupant. ADR 0011's GD&T aspect layer (#61) needs to place a **feature
+control frame** (~24×6 mm) through the same collect-then-solve strip stage, and two
+stacked frames spaced by one label-height would overlap.
+
+**Decision.**
+- `CorridorCandidate.size` (optional) carries a candidate's real page-mm footprint;
+  `solve_corridor` forwards a `{name: (w, h)}` map into `place_strip_candidates`, which
+  feeds it to the `StripCandidate` instead of the `(tier, tier)` hardcode. Absent → the
+  `(tier, tier)` default, so **every existing dimension is byte-identical** — this is a
+  pure extension, not a re-tiering. `plan_strip` already spaces by `size[idx]` (P4a), so
+  no solver change is needed; the real gap simply flows through.
+- The **strip-edge reservation** (`place_strip_candidates` pulls the outer boundary in so
+  the outermost label doesn't overshoot `outer_limit`) also uses the real outward extent,
+  not a fixed `tier` — else a glyph wider than `tier` renders off the sheet
+  (`annotation_out_of_bounds`) instead of dropping when the strip is too narrow. It is
+  orientation-aware: the Leader **centres** the glyph on the elbow for an above/below
+  strip (outward extent = `height/2`) but places it **one-sided** for left/right (extent =
+  full width). Dims carry no size → the reservation stays `tier`, byte-identical.
+  *(Both this and the leader-box footnote above were adversarial-review findings on the
+  P2b commit — a wide multi-datum frame rendered 17 mm off-sheet before the fix.)*
+- The footprint is the **glyph's own box**, NOT the leader+glyph box. The leader shaft
+  runs back to the feature, so measuring the composite would inflate the stacking-axis
+  extent — exactly the reason dims reserve one label-height and not their witness span.
+- **GD&T is placed at build time, as a first-class corridor candidate** (`render_gdt`,
+  registered before the drain), not post-hoc. A frame placed after `build_drawing`
+  returns is blind to the shared cross-view corridor and never triggers a repack — it
+  overlapped a plan-view dim in a first cut. In the corridor it is ordered and spaced
+  crossing-free *with* the dims, and `view=`-tagged so ADR 0004's `_measure_blocks` +
+  repack separate cross-view. This is the disciplined answer to "where does a new
+  annotation family go" — the collect-then-solve corridor, not `Strip.allocate`.
+
+**Scope.** The `sizes` map is threaded but only GD&T sets it today; every dimension pass
+still passes the default. This is the down-payment on the broader real-footprint
+migration (diameters/envelope will want it next). Roadmap: `0011-phase2-aspects-roadmap.md`
+(P2b). Tests: `tests/test_gdt_placement.py` (stacked frames reserve real footprint; a full
+strip drops with a `gdt_dropped` warning; placement is lint-clean).
+
 ## Related
 
 - [ADR 0001](0001-deterministic-generation-over-editable-dsl.md) — determinism;

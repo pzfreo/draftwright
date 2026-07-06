@@ -305,6 +305,12 @@ class CorridorCandidate:
     # The source IR feature this dim was rendered for — recorded as provenance when the
     # dim is placed at drain (ADR 0010). ``None`` leaves the annotation feature-less.
     feature: object | None = None
+    # Real stacking-axis + perpendicular footprint ``(w, h)`` in page-mm, or ``None`` to
+    # use the dimension default ``(tier, tier)``. Wide/tall occupants (a GD&T feature
+    # control frame is ~24×6 mm) set this so the strip solve reserves their true extent
+    # instead of one label-height (ADR 0009 real-footprint plumbing, #61). A dim leaves
+    # it ``None`` — byte-identical to the pre-plumbing placement.
+    size: tuple | None = None
 
 
 def solve_corridor(dwg, strip, view, axis, cands, tier):
@@ -357,15 +363,19 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
         return
     pairs = [(c.name, c.build) for c in kept]
     feats = {c.name: c.feature for c in kept if c.feature is not None}  # provenance (ADR 0010)
+    sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
     left = {
-        n for n, _ in place_strip_candidates(dwg, strip, view, axis, pairs, tier, features=feats)
+        n
+        for n, _ in place_strip_candidates(
+            dwg, strip, view, axis, pairs, tier, features=feats, sizes=sizes
+        )
     }
     force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
     still = (
         {
             n
             for n, _ in place_strip_candidates(
-                dwg, strip, view, axis, force_pairs, tier, force=True, features=feats
+                dwg, strip, view, axis, force_pairs, tier, force=True, features=feats, sizes=sizes
             )
         }
         if force_pairs
@@ -399,7 +409,9 @@ def drain_corridors(dwg):
     dwg._corridor_batch = {}
 
 
-def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False, features=None):
+def place_strip_candidates(
+    dwg, strip, view, axis, cands, tier, *, force=False, features=None, sizes=None
+):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
     P3): each candidate in *cands* — an ``(name, build(pos)->dim)`` pair — is spaced by
@@ -418,6 +430,12 @@ def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False, 
     1-D strip carve cannot represent: a leader in that corridor is crossed no matter how
     far out the dim line lands. By default such a placement is rejected so the caller can
     route the dim to the other view (its disjoint block cannot cross this leader).
+
+    *sizes* maps a candidate's name to its real page-mm footprint ``(w, h)``; absent
+    names use the dimension default ``(tier, tier)``. A wide/tall occupant (a GD&T
+    frame, #61) sets it so :func:`plan_strip` enforces its true stacking gap — over
+    capacity it is relocated to the next segment or dropped, never overlapped.
+
     ``force=True`` skips that corridor check — the caller's last resort when no view took
     the dim cleanly: keep it on its natural view and accept the (same-feature) leader
     crossing rather than drop a real dimension (policy B). Candidates that find no strip
@@ -426,17 +444,31 @@ def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False, 
     if strip is None or not cands:
         return list(cands)
     lo, hi, inner = strip_free_span(strip)
-    # Reserve the outermost label's height at the strip boundary. plan_strip bounds the
-    # dim-LINE position, but the label extends `tier` OUTWARD from it — so without this
-    # the last tier's label overshoots outer_limit (into the iso view / page margin),
-    # unlike the old Strip.allocate which checked `start + tier <= outer_limit` (#338
-    # review). The strip edge is not an obstacle (obstacles carry their own footprint +
-    # pad), so only the boundary needs it; obstacle-bounded segments are unaffected.
-    if inner == lo:
-        hi -= tier
-    else:
-        lo += tier
     idx = 1 if axis == "y" else 0
+
+    # Reserve the outermost label's OUTWARD extent at the strip boundary. plan_strip bounds
+    # the dim-LINE position, but the label extends outward from it — so without this the last
+    # tier's label overshoots outer_limit (into the iso view / page margin), unlike the old
+    # Strip.allocate which checked `start + tier <= outer_limit` (#338 review). A plain dim's
+    # label extends one `tier` outward (one-sided). A GD&T glyph (#61) hangs off a Leader that
+    # CENTRES it on the elbow for an above/below strip (real outward extent = height/2) but
+    # places it one-sided for a left/right strip (extent = full width). Reserve the MAX real
+    # outward extent among these candidates — else a glyph wider than `tier` renders off the
+    # sheet (annotation_out_of_bounds) instead of dropping when the strip is too narrow (ADR
+    # 0009 Amdt 7 fixed inter-candidate gaps but not this edge). With no `sizes` (every dim)
+    # this is `tier`, byte-identical. The strip edge is not an obstacle (obstacles carry their
+    # own footprint + pad), so only the boundary needs it.
+    def _outward(name):
+        sz = (sizes or {}).get(name)
+        if sz is None:
+            return tier  # a dim: one-sided tier reservation (unchanged)
+        return sz[idx] if axis == "x" else sz[idx] / 2  # GD&T: one-sided (L/R) vs centred (A/B)
+
+    reserve = max([tier, *(_outward(n) for n, _ in cands)])
+    if inner == lo:
+        hi -= reserve
+    else:
+        lo += reserve
     perp = 0 if axis == "y" else 1  # the axis the dims do NOT stack along
     pad = tier + strip.spacing  # min separation between stacked dim lines
     # Perpendicular band of these candidates. The 1-D carve projects obstacles onto the
@@ -471,7 +503,9 @@ def place_strip_candidates(dwg, strip, view, axis, cands, tier, *, force=False, 
         triples = [
             (
                 StripCandidate(
-                    f"{(k if inner == lo else len(take) - 1 - k):04d}", anch, (tier, tier)
+                    f"{(k if inner == lo else len(take) - 1 - k):04d}",
+                    anch,
+                    (sizes or {}).get(nb[0], (tier, tier)),
                 ),
                 nb,
             )

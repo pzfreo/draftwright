@@ -132,24 +132,53 @@ The lone genuine (c) gap — helpers has no fit-code semantics.
   cleaner and a shared-sign fit can't use P2a's `+hi/-lo` formatter; the deviation form
   needs its own precision — fit deviations show 3–4 dp, not the sheet's 1 dp.)*
 
-### P2b — GD&T + finish placement API (#61) · #30
+### P2b — GD&T + finish placement API (#61) · #30 · **DONE**
 
-The reusable low-level primitive both the declarative verbs (P2c) and the PMI
-auto-path (P2d) render through. Purely manual placement (caller supplies the target
-point) per #61 v1.
+The build-time render core both the declarative verbs (P2c) and the PMI auto-path
+(P2d) render through.
 
-- `dwg.place_fcf(target, characteristic, tolerance, datums=…, diameter=…,
-  modifier=…)`, `dwg.place_datum(letter, target, side=…)`,
-  `dwg.place_finish(ra_value, target)`.
-- Each builds a `Leader(callout=FeatureControlFrame | DatumFeature |
-  SurfaceFinish)` (the helpers `Leader.callout=` param hangs any sketch at the shelf
-  end) and routes through the **`Strip`** layout so frames stack clear of the part
-  and of each other — mirroring `place_dim()` (#25).
-- The hard part is anchoring + leader routing + strip stacking; the glyphs are all
-  helpers primitives.
-- Read-side pairing (#61 note): a `datum_candidates()` helper surfacing the part's
-  natural datum edges/faces (the min-X / min-Y corner is already the dimension
-  datum) so a script can anchor `place_datum` without guessing coordinates.
+**Amended (2026-07-06): build-time corridor candidate, NOT an imperative primitive.**
+The original bullets below proposed `dwg.place_fcf(target, …)` routing through
+`Strip.allocate` mirroring `place_dim`. Two problems surfaced in a first cut and were
+rejected by the user:
+
+1. **Imperative post-build placement is blind to the shared cross-view corridor.** A
+   frame placed *after* `build_drawing` returns (past `_auto_annotate`, past the
+   measure-and-repack) never carves around the other view's dims and never triggers a
+   repack — it overlapped a plan-view dimension exactly where ADR 0004's compose-then-pack
+   is supposed to prevent it. GD&T must be placed *during* the build, like every other
+   annotation, so `_measure_blocks` folds it into its `ViewBlock` and the repack net
+   separates cross-view (ADR 0004).
+2. **`Strip.allocate` is the legacy cursor ADR 0009 retires.** Routing new work through
+   it would add to the deprecated path. New annotations join the **collect-then-solve
+   corridor** (ADR 0009), the target architecture.
+
+**Delivered design (Tier 1):**
+- Three frozen IR items — `ControlFrame` / `DatumRef` / `Finish` (`model/ir.py`), peers
+  of `PmiFeature` (`parameters()` empty, so they bypass the dimension planner). Each
+  carries its target `(view, side)` strip + model-space site; the Sheet layer (P2c)
+  computes those from a build123d face.
+- `render_gdt` (`annotations/from_model.py`) — builds each glyph, hangs it on a
+  `Leader`, and **registers a `CorridorCandidate` into the target strip before
+  `drain_corridors`**, so the one ADR 0009 solve orders and spaces frames crossing-free
+  *with* the dims (a first-class candidate, not a leftover first-fit like `render_pmi`).
+  Wired into `_auto_annotate` after `render_slots`, before the drain.
+- **Real-footprint plumbing (the ADR 0009 down-payment):** `CorridorCandidate.size`
+  carries the glyph's own box (a frame is ~24×6 mm); `solve_corridor` forwards a
+  `sizes` map into `place_strip_candidates`, which now feeds it to the `StripCandidate`
+  instead of the `(tier, tier)` label-height hardcode. Absent → `(tier, tier)`, so every
+  existing dimension stays byte-identical. The footprint is the *glyph* box, not the
+  leader+glyph box — the shaft back to the feature would inflate the stacking extent
+  (the same reason dims reserve one label-height). See ADR 0009 Amendment 7.
+- A declared frame is **force-kept** (policy B) — no alternate view — so a full strip
+  drops it with a first-class `gdt_dropped` warning rather than a silent vanish; the
+  placed frame gets `feature=`-tagged through `add(...)` into the ADR 0010 provenance
+  sink for free.
+
+**Deferred to P2c / follow-ups:** left/right strips render but the common case is
+above/below; the read-side `datum_candidates()` helper (surface the part's natural
+datum edges so a script anchors without guessing coordinates) moves to P2c where the
+face→site projection lives.
 
 ### P2c — Sheet declarative aspect verbs · #31
 

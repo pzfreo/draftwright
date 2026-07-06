@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 
+from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish
 from build123d_drafting.helpers import Centerline, CenterMark, HoleCallout, Leader, TitleBlock
 
 from draftwright._core import (
@@ -1775,3 +1776,139 @@ def render_pmi(dwg, model, a) -> int:
 
     _log.info("PMI annotate: %d/%d dims placed", emitted, len(usable))
     return emitted
+
+
+# GD&T aspect side-layer (ADR 0011 §4, #61) — declared feature control frames / datum
+# feature symbols / surface finishes. Placed as first-class ADR 0009 corridor candidates,
+# NOT through the dimension planner (their IR items carry no DimParameters).
+_GDT_KINDS = ("control_frame", "datum_ref", "finish")
+# Outer run of the shared corridor ladder: GD&T frames tier BEYOND the feature-size
+# (_SIZE_SUBCHAIN=0) and datum-location (_LOC_SUBCHAIN=1) dim runs, so a frame never lands
+# mid-ladder among the dimensions it annotates.
+_GDT_SUBCHAIN = 2
+# Minimum GD&T leader shaft length (page-mm). A zero-length Leader (site == solved tier)
+# makes OCC's edge builder raise; nudging to this keeps `_build` total (#61 review).
+_MIN_LEADER = 0.05
+
+
+def _gdt_glyph(item, draft):
+    """Build the ISO 1101/5459/1302 glyph sketch for one GD&T IR item at the origin
+    (the :class:`Leader` repositions it). A fresh sketch per call — the leader translate
+    must not alias a shared object across the strip solve's repeated probe builds."""
+    if item.kind == "control_frame":
+        return FeatureControlFrame(
+            item.characteristic,
+            item.tolerance,
+            datums=item.datums,
+            draft=draft,
+            diameter=item.diameter,
+            modifier=item.modifier,
+        )
+    if item.kind == "datum_ref":
+        return DatumFeature(item.letter, draft=draft)
+    return SurfaceFinish(item.ra, position=(0.0, 0.0), draft=draft)
+
+
+def render_gdt(dwg, model, a) -> int:
+    """Place declared GD&T frames / datum symbols / surface finishes (#61) as first-class
+    ADR 0009 corridor candidates — registered into the SAME strip the feature's dimensions
+    use, BEFORE ``drain_corridors``, so one solve orders and spaces them crossing-free with
+    the dims (not a leftover first-fit like :func:`render_pmi`). Each item carries its target
+    ``(view, side)`` strip + model-space site; the leader hangs the glyph off the site into
+    that strip. The strip footprint is the GLYPH's own box — NOT the leader+glyph box, whose
+    shaft back to the feature would inflate the stacking extent (the same reason dims reserve
+    one label-height). Cross-view separation is the compose-then-pack repack's job (ADR 0004):
+    every placed frame is ``view=``-tagged, so ``_measure_blocks`` folds it into the block.
+    Returns the count registered."""
+    items = [f for f in model.features if f.kind in _GDT_KINDS]
+    if not items:
+        return 0
+    draft = dwg.draft
+    tier = draft.font_size + 2 * draft.pad_around_text
+    # (zones, h-projector, v-projector, h-model-index, v-model-index) per view.
+    views = {
+        "plan": (a.pv_zones, a.proj.plan_x, a.proj.plan_y, 0, 1),
+        "front": (a.fv_zones, a.proj.front_x, a.proj.front_z, 0, 2),
+        "side": (a.sv_zones, a.proj.side_x, a.proj.side_z, 1, 2),
+    }
+    n = 0
+    for i, item in enumerate(items):
+        name = f"m_gdt{i}"
+        vk = views.get(item.view)
+        if vk is None or item.side not in ("above", "below", "left", "right"):
+            dwg._record_build_issue(
+                "warning", "gdt_dropped", f"{name}: bad target {item.view!r}/{item.side!r}"
+            )
+            continue
+        zones, hproj, vproj, hi, vi = vk
+        strip = getattr(zones, item.side)
+        o = item.frame.origin
+        px, py = hproj(o[hi]), vproj(o[vi])
+        horizontal = item.side in ("above", "below")  # frame stacks along y
+        axis = "y" if horizontal else "x"
+        # The IR is public input (ADR 0011), so an invalid glyph spec (a mistyped
+        # characteristic, a bad tolerance) must drop THIS item with a warning — never crash
+        # the whole drawing build. The helper raises on a bad spec; catch it at the measure
+        # (the first build) and drop. `_build` below re-runs `_gdt_glyph` with the same args
+        # (so a spec error can't reappear there) AND is made total against the OTHER raise
+        # source — a zero-length Leader shaft (see the min-leader guard in `_build`).
+        try:
+            gb = _gdt_glyph(item, draft).bounding_box().size
+        except Exception as e:  # noqa: BLE001 — any glyph-spec error drops one item, not the build
+            dwg._record_build_issue(
+                "warning", "gdt_dropped", f"{name}: cannot render ({type(e).__name__}: {e})"
+            )
+            continue
+        size = (gb.X, gb.Y)
+
+        def _build(pos, _px=px, _py=py, _hz=horizontal, _it=item):
+            g = _gdt_glyph(_it, draft)
+            tip = (_px, _py)
+            # A zero-length leader shaft (the projected site coincides with the solved tier —
+            # `pos == py` above/below, `pos == px` left/right) makes OCC's edge builder raise,
+            # which would crash the whole build on a public-IR declaration. Guarantee a
+            # minimum shaft along the stacking axis (nudge outward; 0.05 mm is invisible) so
+            # `_build` is total — the drop-don't-crash invariant holds for every build() call.
+            if _hz:
+                dy = pos - _py
+                pos = (
+                    pos if abs(dy) >= _MIN_LEADER else _py + math.copysign(_MIN_LEADER, dy or 1.0)
+                )
+                elbow = (_px, pos)
+            else:
+                dx = pos - _px
+                pos = (
+                    pos if abs(dx) >= _MIN_LEADER else _px + math.copysign(_MIN_LEADER, dx or 1.0)
+                )
+                elbow = (pos, _py)
+            return Leader(tip=tip, elbow=elbow, label="", draft=draft, callout=g)
+
+        def _drop(nm, _v=item.view, _s=item.side):
+            dwg._record_build_issue(
+                "warning", "gdt_dropped", f"{nm} not placed (no room in the {_v} {_s} strip)"
+            )
+
+        register_corridor(
+            dwg,
+            (item.view, item.side),
+            strip,
+            item.view,
+            axis,
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=_build,
+                order=(_GDT_SUBCHAIN, px if horizontal else py, name),
+                on_place=lambda nm: None,
+                on_drop=_drop,
+                dedup=None,
+                precedence=0,
+                # A declared frame has no alternate view — force-keep (policy B) rather than
+                # drop a user-authored annotation; only a physically full strip drops.
+                force=True,
+                feature=item.origin,  # provenance (ADR 0010): the decorated feature
+                size=size,
+            ),
+        )
+        n += 1
+    return n
