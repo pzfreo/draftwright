@@ -144,6 +144,19 @@ class TestConstructors:
         with pytest.raises(ValueError, match="depth_axis must differ"):
             slot(Box(20, 6, 4), depth_axis="x", long_axis="x", width_axis="y")
 
+    def test_slot_depth_plus_long_override_resolves_width(self):
+        # #490 re-review: depth_axis= + a long_axis= that names the SHORTER in-plane axis must
+        # leave the other in-plane axis free for width — not collide into "must differ".
+        f = slot(Box(6, 20, 40), depth_axis="z", long_axis="x")  # z=depth, x named long
+        assert f.long_axis == "x" and f.width_axis == "y"
+        assert f.length == pytest.approx(6.0) and f.width == pytest.approx(20.0)
+
+    def test_slot_depth_plus_width_override_resolves_long(self):
+        # The mirror: depth_axis= + a width_axis= must leave the other in-plane axis free for long.
+        f = slot(Box(6, 20, 40), depth_axis="z", width_axis="x")  # z=depth, x named width
+        assert f.width_axis == "x" and f.long_axis == "y"
+        assert f.width == pytest.approx(6.0) and f.length == pytest.approx(20.0)
+
     def test_envelope_reads_bbox(self):
         f = envelope(Box(80, 50, 8))
         assert isinstance(f, EnvelopeFeature)

@@ -311,9 +311,18 @@ def slot(
         # Normalise any explicit override up front (accept build123d's "X"/"Z" per _norm_axis)
         # BEFORE using it as a lowercase `by` key — else an uppercase override KeyErrors here.
         r_depth_axis = _norm_axis(depth_axis) if depth_axis is not None else order[-1]
-        remaining = [a for a in order if a != r_depth_axis]  # longest-first, depth excluded
-        r_long_axis = _norm_axis(long_axis) if long_axis is not None else remaining[0]
-        r_width_axis = _norm_axis(width_axis) if width_axis is not None else remaining[1]
+        r_long_axis = _norm_axis(long_axis) if long_axis is not None else None
+        r_width_axis = _norm_axis(width_axis) if width_axis is not None else None
+        # Fill each unspecified in-plane axis from the spans left after removing the depth axis
+        # and whatever the caller already named — longest-first. So an explicit long_axis= (or
+        # width_axis=) that happens to name the shorter in-plane axis still leaves the OTHER axis
+        # free for width (or long) instead of colliding into a misleading "must differ" (#490 rev).
+        taken = {r_depth_axis, r_long_axis, r_width_axis} - {None}
+        free = [a for a in order if a not in taken]  # unclaimed, depth excluded, longest-first
+        if r_long_axis is None:
+            r_long_axis = free.pop(0)
+        if r_width_axis is None:
+            r_width_axis = free.pop(0)
         # Warn on a genuinely ambiguous read — only when the caller named none of the axes, so
         # the (long, width, depth) split is decided entirely by span order. BOTH adjacent pairs
         # can be a coin-flip: order[0]≈order[1] flips long/width; order[1]≈order[2] flips which
