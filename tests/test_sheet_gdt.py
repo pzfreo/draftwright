@@ -10,7 +10,7 @@ import pytest
 from build123d import Box, Cylinder, Pos, Rotation
 
 from draftwright.model.declare import gdt_target
-from draftwright.sheet_dsl import Sheet
+from draftwright.sheet_dsl import Sheet, _parse_datums
 
 
 def _part():
@@ -28,7 +28,7 @@ def test_finish_on_feature_derives_face_on_view():
     fin = next(f for f in s.features if f.kind == "finish")
     assert fin.ra == "1.6"
     assert fin.view == "plan"  # a z-axis feature is face-on in plan
-    assert fin.side == "below"
+    assert fin.side == "above"  # the plan's roomy strip (below carries the width envelope)
     assert fin.frame.origin == (0.0, 0.0, 0.0)
     assert fin.origin is s.features[0]  # provenance → the hole feature (finish is features[1])
 
@@ -106,14 +106,83 @@ def test_finish_before_depth_keeps_provenance():
     assert all(n in removed for n in fin_names)  # dropped with its feature, not orphaned
 
 
-def test_override_recovers_a_congested_default():
-    # The feature-path default (plan/below) is congested by the envelope width dim, so a bare
-    # finish there drops with a warning; an explicit free side recovers it (the override seam).
+def test_feature_default_side_is_view_aware_and_places():
+    # A z-feature defaults to plan/ABOVE (the plan's below strip always carries the width
+    # envelope). A bare finish on the default side places, no override needed.
     part = _part()
     s = Sheet(part)
     s.envelope()
-    h = s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
-    h.finish("1.6", view="front", side="above")  # a roomy strip
+    s.hole(Pos(0, 0, 0) * Cylinder(6, 20)).finish("1.6")
     dwg = s.build()
     assert "m_gdt0" in dwg._named
     assert not [i for i in dwg._build_issues if i.code == "gdt_dropped"]
+
+
+# -- P2c.2: control frames -----------------------------------------------------------------
+
+
+def test_parse_datums():
+    assert _parse_datums(None) == ()
+    assert _parse_datums("A") == ("A",)
+    assert _parse_datums("A B") == ("A", "B")
+    assert _parse_datums("A|B") == ("A", "B")
+    assert _parse_datums(("A", "B")) == ("A", "B")
+
+
+def test_control_frame_chain_builds_stacked_frames():
+    part = _part()
+    s = Sheet(part)
+    s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
+    s.control(0).position(0.1, to="A B").perpendicularity(0.05, to="A")
+    cfs = [f for f in s.features if f.kind == "control_frame"]
+    assert len(cfs) == 2
+    pos, perp = cfs
+    assert pos.characteristic == "position" and pos.tolerance == "0.1"
+    assert pos.datums == ("A", "B") and pos.diameter is True  # position zone is ⌀ by default
+    assert perp.characteristic == "perpendicularity" and perp.datums == ("A",)
+    assert perp.diameter is False
+
+
+def test_form_tolerance_has_no_datums():
+    part = _part()
+    s = Sheet(part)
+    s.diameter(Pos(30, 0, 0) * Cylinder(8, 20))
+    s.control(0).cylindricity(0.02)
+    cf = next(f for f in s.features if f.kind == "control_frame")
+    assert cf.characteristic == "cylindricity" and cf.datums == () and cf.diameter is False
+
+
+def test_control_frames_place_lint_clean():
+    part = _part()
+    s = Sheet(part)
+    s.envelope()
+    s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
+    s.control(0).position(0.1, to="A").perpendicularity(0.05, to="A")  # default plan/above
+    dwg = s.build()
+    placed = [n for n in dwg._named if "gdt" in n]
+    assert len(placed) == 2  # both frames stack
+    assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
+
+
+def test_undeclared_datum_warns():
+    part = _part()
+    s = Sheet(part)
+    s.envelope()
+    s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
+    s.control(0).position(0.1, to="Z")  # no sheet.datum("Z", …) declared
+    with pytest.warns(UserWarning, match="undeclared datum"):
+        s.build()
+
+
+def test_declared_datum_does_not_warn():
+    part = _part()
+    s = Sheet(part)
+    s.envelope()
+    s.datum("A", _top_face(part))
+    s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
+    s.control(0).position(0.1, to="A")
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning would fail
+        s.build()

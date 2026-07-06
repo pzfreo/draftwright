@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from draftwright.model.declare import (
     boss,
+    control_frame,
     datum,
     envelope,
     finish,
@@ -76,6 +77,7 @@ __all__ = [
     "StepLevelFeature",
     "build_part_model",
     "boss",
+    "control_frame",
     "datum",
     "envelope",
     "finish",
