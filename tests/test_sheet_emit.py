@@ -284,6 +284,36 @@ class TestObjectSpec:
         exec(seam, ns)  # noqa: S102 — exercising the generated re-run seam
         assert round(ns["_mod"].make().bounding_box().size.X) == 3  # build == re-run
 
+    def test_file_spec_helper_dir_wins_even_when_preloaded_on_syspath(self, tmp_path, monkeypatch):
+        # #491 review: a `not in sys.path` guard can't reorder an ALREADY-present file_dir — a
+        # driver run as `python tools/driver.py` preloads the helper dir, so cwd could win a clash
+        # (opposite of script semantics) and the build diverge from the re-run. Force-front fixes it.
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (tmp_path / "sibZ.py").write_text(
+            "from build123d import Box\ndef base():\n    return Box(9, 9, 9)\n", encoding="utf-8"
+        )
+        (sub / "sibZ.py").write_text(
+            "from build123d import Box\ndef base():\n    return Box(3, 3, 3)\n", encoding="utf-8"
+        )
+        (sub / "helperZ.py").write_text(
+            "from sibZ import base\ndef make():\n    return base()\n", encoding="utf-8"
+        )
+        monkeypatch.chdir(tmp_path)
+        import sys as _sys
+
+        saved = list(_sys.path)
+        try:
+            _sys.path.insert(0, str(sub))  # file_dir ALREADY present (driver-on-path)
+            while str(tmp_path) in _sys.path:  # cwd absent
+                _sys.path.remove(str(tmp_path))
+            obj, _seam = resolve_object_spec("sub/helperZ.py:make")
+            assert round(obj.bounding_box().size.X) == 3  # helper dir wins despite being preloaded
+        finally:
+            _sys.path[:] = saved
+            for _m in ("sibZ", "helperZ"):
+                _sys.modules.pop(_m, None)
+
     def test_missing_attr_raises(self, tmp_path):
         p = self._mod(tmp_path)
         with pytest.raises(ValueError, match="not found"):
