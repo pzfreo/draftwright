@@ -96,6 +96,40 @@ class TestConstructors:
         assert f.long_axis == "x" and f.width_axis == "y"
         assert f.length == pytest.approx(20.0) and f.width == pytest.approx(6.0)
 
+    def test_slot_through_z_cutter_reads_with_depth_axis(self):
+        # #490 regression: a through-Z slot cut by a tall cutter has Z as the LONGEST span,
+        # so the shortest-span default would mistake Z for the long axis. Naming depth_axis="z"
+        # excludes it, so long/width are read from the two in-plane axes.
+        tool = Box(6, 20, 40)  # Z longest (through), Y=20 (long), X=6 (width)
+        f = slot(tool, depth_axis="z")
+        assert f.long_axis == "y" and f.width_axis == "x"
+        assert f.length == pytest.approx(20.0) and f.width == pytest.approx(6.0)
+
+    def test_slot_long_axis_override_re_reads_length(self):
+        # #490: an explicit long_axis override must re-read length/lo/hi FROM that axis, not
+        # leave them at the sort-position span (the pre-#490 latent bug). Here X (span 6) is
+        # named long, so length must be 6 — the X span — not the longest (Z=40) span.
+        f = slot(Box(6, 20, 40), long_axis="x", width_axis="y")
+        assert f.long_axis == "x" and f.length == pytest.approx(6.0)
+
+    def test_slot_ambiguous_top_spans_warn(self):
+        # Two near-equal top spans (X≈Y) make the long/width read a coin-flip — warn when the
+        # caller named none of the axes.
+        with pytest.warns(UserWarning, match="ambiguous"):
+            slot(Box(20, 20, 4))
+
+    def test_slot_named_axes_suppress_ambiguity_warning(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            slot(Box(20, 20, 4), long_axis="x", width_axis="y")
+        assert not [w for w in caught if "ambiguous" in str(w.message)]
+
+    def test_slot_depth_axis_must_differ_raises(self):
+        with pytest.raises(ValueError, match="depth_axis must differ"):
+            slot(Box(20, 6, 4), depth_axis="x", long_axis="x", width_axis="y")
+
     def test_envelope_reads_bbox(self):
         f = envelope(Box(80, 50, 8))
         assert isinstance(f, EnvelopeFeature)

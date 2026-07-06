@@ -25,6 +25,7 @@ shape with no cylindrical face, should use the explicit flavour.
 from __future__ import annotations
 
 import math
+import warnings
 
 from draftwright.model.ir import (
     BossFeature,
@@ -40,6 +41,10 @@ from draftwright.model.ir import (
     SlotFeature,
     StepFeature,
 )
+
+# Fractional tolerance below which a slot object's two longest bbox spans count as "near-equal",
+# making the long-vs-width axis read a coin-flip (#490). Mirrors recognition/slots.py's tie frac.
+_SLOT_AMBIGUOUS_FRAC = 0.05
 
 
 def _norm_axis(axis: str) -> str:
@@ -275,41 +280,59 @@ def slot(
     length=None,
     long_axis=None,
     width_axis=None,
+    depth_axis=None,
     w_center=None,
     lo=None,
     hi=None,
     at=None,
 ) -> SlotFeature:
-    """A milled slot / reduced across-flats section. From an object the three bbox spans
-    are read as long_axis (longest) / width_axis (middle) / depth (shortest, not stored);
-    ``lo``/``hi`` are the extent along the long axis and ``w_center`` the centre across the
-    width axis. An object supplies *defaults*; any explicit keyword overrides that field (#451).
+    """A milled slot / reduced across-flats section. From an object the depth (through, not
+    stored) axis defaults to the *shortest* bbox span; the two remaining axes are read as
+    long_axis (the longer) / width_axis (the shorter). ``lo``/``hi`` are the extent along the
+    long axis and ``w_center`` the centre across the width axis. An object supplies *defaults*;
+    any explicit keyword overrides that field (#451).
 
-    Caveat: the object read assumes width > depth (a slot wider than it is deep). For a
-    slot cut *deeper than it is wide* the middle/shortest spans swap — pass explicit
-    ``width_axis=``/``width=`` for that case."""
+    Pass ``depth_axis=`` when the cutter's through span is *not* the shortest — a through-Z
+    milled slot cut by a tall cutter has Z as its longest span, so the shortest-span default
+    would mistake Z for the long axis (#490). Naming the depth axis excludes it, so long/width
+    are read from the two in-plane axes."""
     if obj is not None:
         bb = obj.bounding_box()
         c = bb.center()
-        spans = sorted(
-            (
-                ("x", bb.size.X, bb.min.X, bb.max.X, c.X),
-                ("y", bb.size.Y, bb.min.Y, bb.max.Y, c.Y),
-                ("z", bb.size.Z, bb.min.Z, bb.max.Z, c.Z),
-            ),
-            key=lambda s: s[1],
-            reverse=True,
-        )
-        (r_long_axis, r_length, r_lo, r_hi, _), (r_width_axis, r_width, _, _, r_w_center), _ = (
-            spans
-        )
-        long_axis = r_long_axis if long_axis is None else long_axis
-        width_axis = r_width_axis if width_axis is None else width_axis
-        length = r_length if length is None else length
-        width = r_width if width is None else width
-        lo = r_lo if lo is None else lo
-        hi = r_hi if hi is None else hi
-        w_center = r_w_center if w_center is None else w_center
+        # (span, min, max, centre) per axis, so every measurement is read from its RESOLVED
+        # axis — not a sort position — which keeps an explicit long/width/depth override honest
+        # (the pre-#490 code overrode only the axis label, not its length/lo/hi).
+        by = {
+            "x": (bb.size.X, bb.min.X, bb.max.X, c.X),
+            "y": (bb.size.Y, bb.min.Y, bb.max.Y, c.Y),
+            "z": (bb.size.Z, bb.min.Z, bb.max.Z, c.Z),
+        }
+        order = sorted("xyz", key=lambda a: by[a][0], reverse=True)  # longest span first
+        r_depth_axis = _norm_axis(depth_axis) if depth_axis is not None else order[-1]
+        remaining = [a for a in order if a != r_depth_axis]  # longest-first, depth excluded
+        r_long_axis = long_axis if long_axis is not None else remaining[0]
+        r_width_axis = width_axis if width_axis is not None else remaining[1]
+        # Warn on a genuinely ambiguous read: the two non-depth spans are near-equal, so which
+        # is "long" vs "width" is a coin-flip — only when the caller named none of the axes.
+        if (
+            long_axis is None
+            and width_axis is None
+            and depth_axis is None
+            and math.isclose(by[order[0]][0], by[order[1]][0], rel_tol=_SLOT_AMBIGUOUS_FRAC)
+        ):
+            warnings.warn(
+                f"slot() object has near-equal top spans ({order[0]}={by[order[0]][0]:.3g}, "
+                f"{order[1]}={by[order[1]][0]:.3g}); the long/width axis read is ambiguous — "
+                "pass long_axis=/width_axis=/depth_axis= to disambiguate",
+                stacklevel=2,
+            )
+        long_axis = r_long_axis
+        width_axis = r_width_axis
+        length = by[r_long_axis][0] if length is None else length
+        lo = by[r_long_axis][1] if lo is None else lo
+        hi = by[r_long_axis][2] if hi is None else hi
+        width = by[r_width_axis][0] if width is None else width
+        w_center = by[r_width_axis][3] if w_center is None else w_center
         at = (c.X, c.Y, c.Z) if at is None else at
     if None in (width, length, long_axis, width_axis, lo, hi):
         raise ValueError(
@@ -319,6 +342,10 @@ def slot(
     width_axis = _norm_axis(width_axis)
     if long_axis == width_axis:
         raise ValueError(f"slot() long_axis and width_axis must differ (both {long_axis!r})")
+    if depth_axis is not None and _norm_axis(depth_axis) in (long_axis, width_axis):
+        raise ValueError(
+            f"slot() depth_axis must differ from long_axis/width_axis (got {depth_axis!r})"
+        )
     _require_positive(width=width, length=length)
     if not lo < hi:
         raise ValueError(f"slot() needs lo < hi (got lo={lo!r}, hi={hi!r})")

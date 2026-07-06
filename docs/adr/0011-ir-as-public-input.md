@@ -62,7 +62,12 @@ detection. Concretely:
    `envelope` read a feature's geometry off a known build123d object (a cylindrical
    face → radius / axis / location) — *geometry supplies the value* — with an
    explicit-value flavour (`hole(diameter=6, at=…, axis="z")`) for parametric code
-   that never built a discrete tool.
+   that never built a discrete tool. The object read is conservative and each axis
+   assignment is overridable per the #451 partial-override rule: `slot` defaults the
+   depth (through) axis to the shortest bbox span, but accepts `depth_axis=` for a
+   through-cutter whose through span is *longest* (a through-Z milled slot, #490);
+   reading the raw cutter's visible footprint automatically via `part & tool` (mirroring
+   the #462 counterbore read) is deferred follow-up work (#495).
 
 3. **Declaration is not all-or-nothing — the hybrid is first-class.** The caller may
    start from `dwg.model()` (detected) and **override** specific features. Declaration
