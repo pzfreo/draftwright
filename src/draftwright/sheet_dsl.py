@@ -15,9 +15,9 @@ detection is skipped and the auto-pass dimensions exactly the declared features:
 **Scope (this module):** the *feature-declaration* surface over the renderers the
 engine has today — dimensions, ⌀ callouts, holes (through / blind), turned steps,
 slots, patterns, the overall envelope, and the auto section — plus the P2a
-**``.tolerance``** aspect (a ± / limit tolerance on a diameter, a step, or a hole
-bore). The remaining #445 aspect verbs that still need new rendering — ``.fit``
-(fit-class → ISO 286 deviation), ``.thread``, ``.finish`` (surface symbols) and
+**``.tolerance``** (a ± / limit tolerance on a diameter, a step, or a hole bore) and
+**``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects. The remaining #445 aspect
+verbs that still need new rendering — ``.thread``, ``.finish`` (surface symbols) and
 ``control(...)`` (GD&T) — are the later Phase-2 items (roadmap #446) and are
 deliberately **not** stubbed here, so the surface only exposes what actually draws.
 

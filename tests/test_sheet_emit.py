@@ -98,6 +98,16 @@ class TestEmit:
         src = _script_for(self._bolt_circle())
         assert "sheet.pattern(hole(" in src and 'kind="bolt_circle"' in src
 
+    def test_counterbored_pattern_flags_the_auto_section(self):
+        # the section trigger lives on the pattern's MEMBER hole, not a top-level hole — a
+        # counterbored bolt circle still auto-sections, so the comment must be present (was missed)
+        src = _script_for(self._bolt_circle(cbore=True))
+        assert "Section A–A auto-triggers" in src
+
+    def test_plain_pattern_does_not_flag_a_section(self):
+        # regression guard: a through-hole bolt circle needs no section — no false-positive comment
+        assert "Section A–A auto-triggers" not in _script_for(self._bolt_circle())
+
     def test_bolt_circle_spells_out_members(self):
         # #461 review r2: the detector records no start ANGLE, so recomputing members at angle 0
         # rotates the holes — the emitter must spell out the real member positions.
