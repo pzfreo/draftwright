@@ -107,6 +107,38 @@ def test_rotational_bore_leaders_bounded_to_front_view():
         assert lo - 1e-6 <= cy <= hi + 1e-6, f"bore leader at {cy:.2f} outside front-view band"
 
 
+def test_rotational_bore_leaders_symmetric_when_room():
+    # #374 review: with room, plan_strip must reproduce the old symmetric-about-cz stack EXACTLY
+    # — each bore keeps its natural `cz + (i-(nb-1)/2)*pitch`. An even bore count (a counterbore =
+    # 2 concentric ø) is the case where an all-equal natural would have shifted the stack down by
+    # pitch/2; the symmetric naturals keep it centred on the turning axis.
+    from build123d import Cylinder, Pos
+
+    part = Cylinder(25, 40) - Cylinder(6, 40) - Pos(0, 0, 14) * Cylinder(10, 12)  # 2 bores (even)
+    dwg = build_drawing(part)
+    a = dwg._analysis
+    ys = sorted(
+        o.bounding_box().center().Y for n, o in dwg.iter_annotations() if n.startswith("ldr_z")
+    )
+    assert len(ys) == 2
+    assert abs((ys[0] + ys[-1]) / 2 - a.FV_Y) < 1e-6, "even bore stack not centred on the axis"
+
+
+def test_rotational_bore_leader_overflow_excluded_from_coverage():
+    # #374 review: a dropped bore must be registered via _drop_callout_diam so coverage lint does
+    # not double-report it as feature_not_dimensioned on top of the callout_dropped warning.
+    from build123d import Cylinder, Pos
+
+    part = Cylinder(70, 6)
+    for i, r in enumerate(
+        [60, 52, 44, 36, 28, 20, 12]
+    ):  # many nested bores → front view overflows
+        part -= Pos(0, 0, 3 - i * 0.7) * Cylinder(r, 6)
+    dwg = build_drawing(part)
+    assert dwg._coverage.dropped_diams, "overflowed bore leaders should register as dropped diams"
+    assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
+
+
 def test_strip_obstacles_view_filter_drops_other_ortho_views():
     # A box with a side-drilled hole: the side query excludes front/plan-owned
     # blocks (compose-then-pack keeps them disjoint) but is narrower than the whole.

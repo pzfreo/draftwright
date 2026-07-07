@@ -1298,15 +1298,16 @@ def render_rotational(dwg, model, a) -> int:
                 pitch = max(10.0, draft.font_size * 3.0)
                 # Bound the leader stack to the front-view height and space it via the shared
                 # solve (#374). The old fixed `tip_z = cz + (i-(nb-1)/2)*pitch` had no bound,
-                # so enough concentric bores overran the view (the CTC-02 defect shape). All
-                # leaders sit on the turning axis (natural = cz) and pull symmetrically toward
-                # it; over the view's capacity the larger bore outranks the smaller (priority=d).
-                nat = FZ(a.cz)
+                # so enough concentric bores overran the view (the CTC-02 defect shape). Each
+                # leader keeps that same symmetric natural, so plan_strip reproduces the old
+                # positions exactly when there is room (zero displacement) and only compresses /
+                # drops (larger bore outranks smaller, priority=d) when the band is over capacity.
+                nb = len(rot.bores)
                 z_lo, z_hi = a.FV_Y - a.fv_hh, a.FV_Y + a.fv_hh
                 cands = [
                     StripCandidate(
                         key=f"{i:03d}",
-                        anchor=(elbow_x, nat),
+                        anchor=(elbow_x, FZ(a.cz) + (i - (nb - 1) / 2) * pitch),
                         size=(draft.font_size * 3, pitch),
                         priority=d,
                     )
@@ -1329,6 +1330,10 @@ def render_rotational(dwg, model, a) -> int:
                     )
                     n += 1
                 dropped = [d for i, d in enumerate(rot.bores) if placed.get(f"{i:03d}") is None]
+                for d in dropped:
+                    dwg._drop_callout_diam(
+                        d
+                    )  # exclude from coverage — else double-reported (#374 rev)
                 if dropped:
                     dwg._record_build_issue(
                         "warning",
