@@ -157,7 +157,11 @@ def emit_sheet_script(
     *part_expr* is the Python that binds ``part`` (a STEP ``import_step`` or a ``part = …``
     seam); *stem* is the output basename the script exports to. The title-block / layout aspects
     (``drawn_by``/``tolerance``/``scale``/``page``, #474) are emitted into the ``Sheet(...)``
-    constructor only when non-default, so a plain drawing keeps a clean one-line constructor."""
+    constructor only when non-default, so a plain drawing keeps a clean one-line constructor.
+
+    PMI is deliberately NOT emitted here: the seam binds ``part`` via ``import_step``, which
+    strips AP242 PMI, so a re-run cannot re-extract it — the faithful fix bakes PMI as declared
+    features (#503 / #422)."""
     needs_hole = any(f.kind in ("hole", "pattern") for f in model.features)
     # Only carry an aspect into the emitted constructor when it differs from build_drawing's
     # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.

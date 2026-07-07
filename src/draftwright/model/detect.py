@@ -121,6 +121,36 @@ _DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
+def build_pmi_features(pmi, bbox) -> list[PmiFeature]:
+    """Re-home extracted STEP AP242 PMI records into IR :class:`PmiFeature`s (#208).
+
+    Shared by :func:`build_part_model` (the detection path) and the declared-model PMI
+    synthesis in ``builder._assemble`` (#472) so both construct features identically — a
+    declared / emitted-script build reproduces the same PMI the auto path draws. ``pmi`` is
+    the list of extracted records (``a.pmi``); ``bbox`` the part bounding box (for the
+    fallback origin when a record carries no ``ref_bbox``). Empty/``None`` ``pmi`` → ``[]``."""
+    out: list[PmiFeature] = []
+    for r in pmi or ():
+        if r.ref_bbox is not None:
+            x0, y0, z0, x1, y1, z1 = r.ref_bbox
+            pmi_origin = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+        else:
+            pmi_origin = (bbox.center().X, bbox.center().Y, bbox.center().Z)
+        ax = r.dominant_axis.lower() if r.dominant_axis in ("X", "Y", "Z") else "z"
+        out.append(
+            PmiFeature(
+                frame=Frame(origin=pmi_origin, axis=ax),
+                pmi_kind=r.kind,
+                value=r.value,
+                label=r.label,
+                dominant_axis=r.dominant_axis,
+                ref_bbox=r.ref_bbox,
+                ref_pts=tuple(r.ref_pts),
+            )
+        )
+    return out
+
+
 def build_part_model(
     part,
     *,
@@ -281,25 +311,7 @@ def build_part_model(
 
     # Pre-authored PMI annotations (STEP AP242) — re-homed into the IR as features
     # (#208). Rendered directly by render_pmi (the planner adds nothing — see PmiFeature).
-    if pmi:
-        for r in pmi:
-            if r.ref_bbox is not None:
-                x0, y0, z0, x1, y1, z1 = r.ref_bbox
-                pmi_origin = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
-            else:
-                pmi_origin = (bbox.center().X, bbox.center().Y, bbox.center().Z)
-            ax = r.dominant_axis.lower() if r.dominant_axis in ("X", "Y", "Z") else "z"
-            features.append(
-                PmiFeature(
-                    frame=Frame(origin=pmi_origin, axis=ax),
-                    pmi_kind=r.kind,
-                    value=r.value,
-                    label=r.label,
-                    dominant_axis=r.dominant_axis,
-                    ref_bbox=r.ref_bbox,
-                    ref_pts=tuple(r.ref_pts),
-                )
-            )
+    features.extend(build_pmi_features(pmi, bbox))
 
     # The default location datum — the part's min-X/min-Y/min-Z corner (lower-left
     # in the plan view), per inspection practice. Hole location dims measure from

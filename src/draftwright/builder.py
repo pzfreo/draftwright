@@ -40,7 +40,15 @@ from draftwright.annotate import _auto_annotate, build_model, build_rotational_f
 from draftwright.annotations.sections import feature_hole_keys
 from draftwright.drawing import Drawing
 from draftwright.fonts import PLEX_MONO
-from draftwright.model import Datum, Feature, PartModel, StepFeature, display, plan_sections
+from draftwright.model import (
+    Datum,
+    Feature,
+    PartModel,
+    StepFeature,
+    build_pmi_features,
+    display,
+    plan_sections,
+)
 from draftwright.projection import (
     _fit_iso_view,
     _project_iso,
@@ -274,6 +282,15 @@ def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=
             rot = build_rotational_feature(a)
             if rot is not None:
                 dwg._part_model = replace(pm, features=[*pm.features, rot])
+        # PMI (STEP AP242) is likewise detection-sourced, so a declared / emitted-script model
+        # carries none. When PMI annotation is on, synthesise the same PmiFeatures detection
+        # would (render_pmi reads them off the model, gated on a.pmi_mode) so a re-run reproduces
+        # the PMI dims (#472). Gated on the caller not having declared PMI, so an explicit set wins.
+        pm = dwg._part_model
+        if a.pmi_mode == "annotate" and not any(f.kind == "pmi" for f in pm.features):
+            pmi_feats = build_pmi_features(a.pmi, a.part.bounding_box())
+            if pmi_feats:
+                dwg._part_model = replace(pm, features=[*pm.features, *pmi_feats])
     dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
 
     part_s = a.part.scale(a.SCALE)
