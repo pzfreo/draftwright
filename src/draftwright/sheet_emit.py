@@ -138,12 +138,36 @@ line for a reference — e.g.  sheet.hole(my_bore)  — to read the size off the
 """'''
 
 
-def emit_sheet_script(model, part_expr: str, stem: str, *, title: str, number: str) -> str:
+def emit_sheet_script(
+    model,
+    part_expr: str,
+    stem: str,
+    *,
+    title: str,
+    number: str,
+    drawn_by: str = "",
+    tolerance: str = "ISO 2768-m",
+    scale=None,
+    page=None,
+) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
 
     *part_expr* is the Python that binds ``part`` (a STEP ``import_step`` or a ``part = …``
-    seam); *stem* is the output basename the script exports to."""
+    seam); *stem* is the output basename the script exports to. The title-block / layout aspects
+    (``drawn_by``/``tolerance``/``scale``/``page``, #474) are emitted into the ``Sheet(...)``
+    constructor only when non-default, so a plain drawing keeps a clean one-line constructor."""
     needs_hole = any(f.kind in ("hole", "pattern") for f in model.features)
+    # Only carry an aspect into the emitted constructor when it differs from build_drawing's
+    # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.
+    ctor = [f"title={title!r}", f"number={number!r}"]
+    if drawn_by:
+        ctor.append(f"drawn_by={drawn_by!r}")
+    if tolerance != "ISO 2768-m":
+        ctor.append(f"tolerance={tolerance!r}")
+    if scale is not None:
+        ctor.append(f"scale={scale!r}")
+    if page is not None:
+        ctor.append(f"page={page!r}")
     lines = [
         _HEADER,
         "from draftwright import Sheet",
@@ -151,7 +175,7 @@ def emit_sheet_script(model, part_expr: str, stem: str, *, title: str, number: s
         "",
         part_expr,
         "",
-        f"sheet = Sheet(part, title={title!r}, number={number!r})",
+        f"sheet = Sheet(part, {', '.join(ctor)})",
         "",
         "# ── Features (each line is one declared feature) ──────────────────────────────",
         *(_feature_line(f) for f in model.features),
@@ -272,6 +296,10 @@ def generate_sheet_script(
     *,
     title: str | None = None,
     number: str = "DWG-001",
+    tolerance: str = "ISO 2768-m",
+    drawn_by: str = "",
+    scale=None,
+    page=None,
     pmi: str = "off",
     part_expr: str | None = None,
 ) -> str:
@@ -279,8 +307,10 @@ def generate_sheet_script(
     object). Returns the path to the generated ``.py``. The mode-3 declarative counterpart of
     :func:`draftwright.builder.generate_script` (which emits the imperative reconstruction).
 
-    ``pmi`` is threaded to detection so AP242 PMI features surface (flagged inline). *part_expr*,
-    when given, overrides the ``part = …`` seam — e.g. the import seam from
+    ``tolerance``/``drawn_by``/``scale``/``page`` are the title-block / layout aspects (#474):
+    when non-default they are emitted into the generated ``Sheet(...)`` so a re-run reproduces
+    them. ``pmi`` is threaded to detection so AP242 PMI features surface (flagged inline).
+    *part_expr*, when given, overrides the ``part = …`` seam — e.g. the import seam from
     :func:`resolve_object_spec` so the script references a live module (#469)."""
     is_shape = isinstance(step_file, Shape)
     stem = out or ("drawing" if is_shape else Path(step_file).stem)
@@ -300,7 +330,17 @@ def generate_sheet_script(
         part_expr = f"from build123d import import_step\npart = import_step({abspath!r})"
 
     model = detect_part_model(step_file, pmi=pmi)
-    script = emit_sheet_script(model, part_expr, stem, title=title, number=number)
+    script = emit_sheet_script(
+        model,
+        part_expr,
+        stem,
+        title=title,
+        number=number,
+        drawn_by=drawn_by,
+        tolerance=tolerance,
+        scale=scale,
+        page=page,
+    )
     py_path = f"{stem}.py"
     Path(py_path).write_text(script, encoding="utf-8")  # the script has box-drawing / × / ← glyphs
     return py_path

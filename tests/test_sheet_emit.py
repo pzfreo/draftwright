@@ -57,6 +57,25 @@ class TestEmit:
         assert "sheet.envelope()" in src
         assert src.rstrip().endswith("sheet.export('drawing')")
 
+    def test_title_block_and_layout_aspects_emitted_when_set(self):
+        # #474: non-default drawn_by/tolerance/scale/page ride the Sheet(...) constructor.
+        ctor = next(
+            ln
+            for ln in _script_for(
+                _plate(), drawn_by="PF", tolerance="ISO 2768-f", scale=2.0, page="A3"
+            ).splitlines()
+            if "Sheet(part" in ln
+        )
+        assert "drawn_by='PF'" in ctor
+        assert "tolerance='ISO 2768-f'" in ctor
+        assert "scale=2.0" in ctor
+        assert "page='A3'" in ctor
+
+    def test_default_aspects_stay_off_the_constructor(self):
+        # unset aspects (and tolerance left at the ISO 2768-m default) never appear.
+        ctor = next(ln for ln in _script_for(_plate()).splitlines() if "Sheet(part" in ln)
+        assert ctor == "sheet = Sheet(part, title='T', number='N')"
+
     def test_count_group_hole_carries_its_members(self):
         # a count>1 hole MUST emit members= with every position — without them the render
         # collapses to a single hole at the anchor (fidelity loss). The plate has two ⌀8 holes.
@@ -457,9 +476,9 @@ class TestCli:
         # a bordered line — normalise ANSI + box borders + whitespace before the substring check
         assert "--style sheet" in _norm(r.output)
 
-    def test_sheet_style_warns_on_unsupported_flags(self, tmp_path):
-        # the Sheet DSL can't embed --drawn-by/--tolerance/--scale/--page yet; the default
-        # sheet path must WARN rather than silently drop them (else the flags are a no-op)
+    def test_sheet_style_embeds_title_block_and_layout_flags(self, tmp_path):
+        # #474: the Sheet DSL now carries --drawn-by/--tolerance/--scale/--page, so the sheet path
+        # forwards them into the generated Sheet(...) constructor (no more inert-flag warning).
         from typer.testing import CliRunner
 
         from draftwright.cli import app
@@ -473,18 +492,27 @@ class TestCli:
                 "--script",
                 "--drawn-by",
                 "Paul",
+                "--tolerance",
+                "ISO 2768-f",
                 "--scale",
                 "2",
+                "--page",
+                "A3",
                 "--out",
                 str(tmp_path / "g"),
             ],
         )
         assert r.exit_code == 0, r.output
-        assert "--drawn-by" in r.output and "--scale" in r.output
-        assert "--style imperative" in r.output
+        assert "warning:" not in r.output  # the flags are honoured, not dropped
+        src = (tmp_path / "g.py").read_text(encoding="utf-8")
+        ctor = next(line for line in src.splitlines() if "Sheet(part" in line)
+        assert "drawn_by='Paul'" in ctor
+        assert "tolerance='ISO 2768-f'" in ctor
+        assert "scale=2.0" in ctor
+        assert "page='A3'" in ctor
 
-    def test_sheet_style_silent_when_no_unsupported_flags(self, tmp_path):
-        # no spurious warning when only supported flags are given
+    def test_sheet_style_omits_default_flags(self, tmp_path):
+        # A plain invocation keeps a clean one-line constructor — unset aspects stay off the script.
         from typer.testing import CliRunner
 
         from draftwright.cli import app
@@ -494,6 +522,15 @@ class TestCli:
         r = CliRunner().invoke(app, [str(step), "--script", "--out", str(tmp_path / "g")])
         assert r.exit_code == 0, r.output
         assert "warning:" not in r.output
+        ctor = next(
+            line
+            for line in (tmp_path / "g.py").read_text(encoding="utf-8").splitlines()
+            if "Sheet(part" in line
+        )
+        # only title + number; no title-block / layout aspect kwargs when unset
+        assert "number='DWG-001'" in ctor
+        for kw in ("drawn_by=", "tolerance=", "scale=", "page="):
+            assert kw not in ctor
 
     def test_bad_style_is_rejected(self, tmp_path):
         from typer.testing import CliRunner
@@ -574,6 +611,32 @@ class TestRoundTripParity:
 
     def test_prismatic_plate_parity(self, tmp_path, monkeypatch):
         self._parity(_plate(), tmp_path, monkeypatch)
+
+    def test_title_block_and_layout_aspects_round_trip(self, tmp_path, monkeypatch):
+        # #474: a generated sheet script carrying drawn_by/tolerance/scale/page must reproduce the
+        # same title-block + scale + page as a direct build with the same flags. Compare the
+        # Analysis the drawing was built from (title-block text is path-vectorised, not greppable).
+        from draftwright import Sheet
+
+        flags = dict(drawn_by="PF", tolerance="ISO 2768-f", scale=2.0, page="A3")
+        step = tmp_path / "part.step"
+        export_step(_plate(), str(step))
+
+        direct = build_drawing(step_file=str(step), title="PART", **flags)
+
+        captured = {}
+        monkeypatch.setattr(
+            Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+        )
+        py = generate_sheet_script(str(step), out=str(tmp_path / "gen"), title="PART", **flags)
+        exec(compile(open(py, encoding="utf-8").read(), py, "exec"), {})
+        scripted = captured["dwg"]
+
+        def aspects(dwg):
+            a = dwg._analysis
+            return (a.title, a.tolerance, a.drawn_by, round(a.SCALE, 4), a.PAGE_W, a.PAGE_H)
+
+        assert aspects(scripted) == aspects(direct)
 
     def test_turned_x_shaft_parity(self, tmp_path, monkeypatch):
         # a horizontal turned shaft (X axis) — genuinely rotational: is_rotational + od_axis='x',
