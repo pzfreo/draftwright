@@ -143,6 +143,24 @@ def test_rotational_bore_leader_overflow_excluded_from_coverage():
     assert kept and max(dropped) < min(kept), "the ranking should drop the smallest bores first"
 
 
+def test_linear_array_pitch_dim_placed_via_side_strip_clean():
+    # #374 part 2: an axis-aligned linear-array pitch dim is placed onto its side's zone strip via
+    # the obstacle-aware carve (not the old count-based `10*prior` stack). Assert it is present,
+    # on-page, and overlaps nothing (no annotation_overlap lint) — the carve's job.
+    from build123d import Box, Cylinder, Pos
+
+    part = Box(120, 40, 10)
+    for x in (-45, -15, 15, 45):  # a 4-hole row along X → one "3× 30" pitch dim
+        part -= Pos(x, 0, 0) * Cylinder(3, 10)
+    dwg = build_drawing(part)
+    pitch = [o for n, o in dwg.iter_annotations() if n.startswith("dim_pitch")]
+    assert len(pitch) == 1, "the linear array should get exactly one pitch dim"
+    b = pitch[0].bounding_box()
+    a = dwg._analysis
+    assert -1 <= b.min.X and b.max.X <= a.PAGE_W + 1 and -1 <= b.min.Y and b.max.Y <= a.PAGE_H + 1
+    assert not any(i.code == "annotation_overlap" for i in dwg.lint())
+
+
 def test_strip_obstacles_view_filter_drops_other_ortho_views():
     # A box with a side-drilled hole: the side query excludes front/plan-owned
     # blocks (compose-then-pack keeps them disjoint) but is narrower than the whole.

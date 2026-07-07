@@ -861,32 +861,65 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
     else:
         pref = (-0.3, 1.0) if view == "plan" else (-0.3, -1.0)
         side, reach = max(cands, key=lambda c: c[0][0] * pref[0] + c[0][1] * pref[1])
-    # stack further pitch dims in this view on outer tiers
+
+    def _place(off):
+        dwg.add(
+            _dim(
+                (p1[0], p1[1], 0),
+                (p2[0], p2[1], 0),
+                side,
+                off,
+                dwg.draft,
+                label=f"{n - 1}× {_fmt(pitch)}",
+            ),
+            name,
+            view=view,
+            feature=feature,
+        )
+
+    # Place onto the zone strip for the chosen side (#374): each side is its own strip, so the
+    # obstacle-aware carve stacks this dim clear of placed content — where an arbitrary-direction
+    # 1-D search would be defeated by a dim on a *different* side (rotated/two-axis grids). An
+    # axis-aligned side maps to a populated strip; a diagonal side, the side view's absent left
+    # strip, or a genuinely full strip fall through to the bounded vector placement below
+    # (behaviour unchanged for those residual cases).
+    zones = {"plan": a.pv_zones, "front": a.fv_zones, "side": a.sv_zones}[view]
+    sx, sy = side[0], side[1]
+    strip = axis = perp = None
+    witness = sgn = 0.0
+    if abs(sx) > 0.99:  # horizontal side ⟂ a vertical row → left/right strip, stacks along x
+        strip, axis, perp, witness, sgn = (
+            (zones.right if sx > 0 else zones.left),
+            "x",
+            tuple(sorted((p1[1], p2[1]))),
+            p1[0],
+            sx,
+        )
+    elif abs(sy) > 0.99:  # vertical side ⟂ a horizontal row → above/below strip, stacks along y
+        strip, axis, perp, witness, sgn = (
+            (zones.above if sy > 0 else zones.below),
+            "y",
+            tuple(sorted((p1[0], p2[0]))),
+            p1[1],
+            sy,
+        )
+    if strip is not None:
+        tier = max(10.0, dwg.draft.font_size * 3.0)
+        pos = carve_free_position(dwg, strip, view, axis, tier, perp)
+        if pos is not None:  # sgn ∈ {+1,-1} makes the outward distance positive
+            _place(sgn * (pos - witness))
+            return
+
+    # Fallback: diagonal side / absent strip / full strip → the pre-#374 bounded vector placement,
+    # count-stacked and margin-guarded, so those residual cases are byte-identical to before.
     prior = sum(1 for nm, _ in dwg.iter_annotations() if nm.startswith(f"dim_pitch_{view}"))
     offset = reach + 8 + 10 * prior
-    # never force-place: skip (and log) when the dim line would leave the page
     ox = mid[0] + side[0] * (offset + 6)
     oy = mid[1] + side[1] * (offset + 6)
     if not (a.margin <= ox <= a.PAGE_W - a.margin and a.margin <= oy <= a.PAGE_H - a.margin):
-        _log.info(
-            "Pitch dimension for the %s× %s array skipped (no room)",
-            n,
-            _fmt(pitch),
-        )
+        _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, _fmt(pitch))
         return
-    dwg.add(
-        _dim(
-            (p1[0], p1[1], 0),
-            (p2[0], p2[1], 0),
-            side,
-            offset,
-            dwg.draft,
-            label=f"{n - 1}× {_fmt(pitch)}",
-        ),
-        name,
-        view=view,
-        feature=feature,
-    )
+    _place(offset)
 
 
 def build_view_of_axis(a: Analysis):
