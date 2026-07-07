@@ -570,10 +570,17 @@ class Drawing:
                 :meth:`drop` / :meth:`annotations_of` can find it (#398).
             **kwargs: forwarded to ``Dimension`` (e.g. ``label=``, ``tolerance=``).
 
-        Uses the single-position strip carve, not the ADR-0009 collect-then-solve
-        path the automatic placers use — fine for adding a dimension into free
-        space, but it does not re-solve the strip or dedup against existing dims
-        (#396). Prefer :meth:`dimension` for a feature-referenced edit.
+        Uses the single-position strip carve (obstacle-aware: it clears every
+        placed annotation), **not** the ADR-0009 collect-then-solve path the
+        automatic placers use — **by design** (#396). ``place_dim`` is an
+        *incremental edit* run after the build's corridor is already committed, so
+        it deliberately does not re-solve the strip: a full solve would reorder or
+        dedup **already-placed** dims (surprising for a deliberate edit). It
+        therefore has no cross-pass priority selection, crossing-free re-ordering,
+        or dedup against a coincident auto dim — those are properties of the batch
+        build, recovered by a *recompose* (:func:`finalize_drawing`, when
+        available) or a rebuild, not of a single incremental placement. Prefer
+        :meth:`dimension` for a feature-referenced edit.
 
         Falls back to a fixed ``slot`` offset when the strip is full or when no
         layout analysis is available (e.g. when ``auto_dims=False`` was not used
