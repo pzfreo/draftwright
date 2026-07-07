@@ -58,6 +58,7 @@ from draftwright.annotations._common import (
     strip_free_span,
     strip_obstacles,
 )
+from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model.ir import HoleFeature, PatternFeature
 from draftwright.model.planner import DimensionGroup, plan_locations
 
@@ -1294,10 +1295,28 @@ def render_rotational(dwg, model, a) -> int:
             left_edge = FX(a.bb.min.X)
             if left_edge - a.margin >= a.DIM_PAD:
                 elbow_x = left_edge - a.DIM_PAD * 0.6
-                nb = len(rot.bores)
                 pitch = max(10.0, draft.font_size * 3.0)
+                # Bound the leader stack to the front-view height and space it via the shared
+                # solve (#374). The old fixed `tip_z = cz + (i-(nb-1)/2)*pitch` had no bound,
+                # so enough concentric bores overran the view (the CTC-02 defect shape). All
+                # leaders sit on the turning axis (natural = cz) and pull symmetrically toward
+                # it; over the view's capacity the larger bore outranks the smaller (priority=d).
+                nat = FZ(a.cz)
+                z_lo, z_hi = a.FV_Y - a.fv_hh, a.FV_Y + a.fv_hh
+                cands = [
+                    StripCandidate(
+                        key=f"{i:03d}",
+                        anchor=(elbow_x, nat),
+                        size=(draft.font_size * 3, pitch),
+                        priority=d,
+                    )
+                    for i, d in enumerate(rot.bores)
+                ]
+                placed = plan_strip(cands, z_lo, z_hi, pitch, axis="y").placed
                 for i, d in enumerate(rot.bores):
-                    tip_z = FZ(a.cz) + (i - (nb - 1) / 2) * pitch
+                    tip_z = placed.get(f"{i:03d}")
+                    if tip_z is None:
+                        continue  # over the front-view capacity — dropped (ranked), logged below
                     dwg.add(
                         Leader(
                             tip=(FX(a.cx - d / 2), tip_z, 0),
@@ -1309,6 +1328,14 @@ def render_rotational(dwg, model, a) -> int:
                         view="front",
                     )
                     n += 1
+                dropped = [d for i, d in enumerate(rot.bores) if placed.get(f"{i:03d}") is None]
+                if dropped:
+                    dwg._record_build_issue(
+                        "warning",
+                        "callout_dropped",
+                        f"{len(dropped)} concentric-bore diameter(s) {dropped} not annotated "
+                        "(front-view height full) — use a detail view",
+                    )
             else:
                 _log.info(
                     "Additional diameters %s not annotated (insufficient left margin)",

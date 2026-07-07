@@ -85,6 +85,28 @@ def test_coaxial_bore_on_rotational_part_is_not_over_located():
     assert not any(getattr(i, "code", None) == "feature_not_located" for i in dwg.lint())
 
 
+def test_rotational_bore_leaders_bounded_to_front_view():
+    # #374: the concentric-bore leader stack is placed by plan_strip within the front-view height
+    # band, not by the old uncapped `cz + (i-(nb-1)/2)*pitch` fixed stacking that could overrun the
+    # view (the CTC-02 defect shape). Assert every ldr_z* leader lands inside [FV_Y ± fv_hh].
+    from build123d import Cylinder, Pos
+
+    part = (
+        Cylinder(20, 40)
+        - Cylinder(5, 40)
+        - Pos(0, 0, 14) * Cylinder(8, 12)
+        - Pos(0, 0, -14) * Cylinder(6.5, 12)
+    )
+    dwg = build_drawing(part)
+    a = dwg._analysis
+    lo, hi = a.FV_Y - a.fv_hh, a.FV_Y + a.fv_hh
+    ldrs = [o for n, o in dwg.iter_annotations() if n.startswith("ldr_z")]
+    assert len(ldrs) >= 2, "fixture should place several concentric-bore leaders"
+    for o in ldrs:
+        cy = o.bounding_box().center().Y
+        assert lo - 1e-6 <= cy <= hi + 1e-6, f"bore leader at {cy:.2f} outside front-view band"
+
+
 def test_strip_obstacles_view_filter_drops_other_ortho_views():
     # A box with a side-drilled hole: the side query excludes front/plan-owned
     # blocks (compose-then-pack keeps them disjoint) but is narrower than the whole.
