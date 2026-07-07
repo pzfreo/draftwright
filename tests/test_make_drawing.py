@@ -276,38 +276,75 @@ class TestIsoEmptyRect:
 
 
 class TestScaleMinimum:
-    """Scale too small → ValueError before OCCT degenerates (#129)."""
+    """An explicit scale below the legibility floor is honoured with a warning (#489);
+    only a genuinely degenerate scale (below the hard geometry floor) raises."""
 
-    def test_tiny_scale_raises(self, tmp_path):
-        # 80 mm thin part at scale=0.1 → 8 mm projection < _MIN_VIEW_MM
+    def test_explicit_illegible_scale_warns_and_renders(self, tmp_path):
+        # 80 mm thin part at scale=0.1 → 8 mm projection < _MIN_VIEW_MM (10) but ≫ the hard
+        # floor. The user asked for it (#489): honour it with a legibility warning, don't raise.
         part = Box(680, 860, 80)
-        with pytest.raises(ValueError, match="annotation geometry degenerates"):
-            make_drawing(part, out=str(tmp_path / "out"), scale=0.1)
+        with pytest.warns(UserWarning, match="legibility floor"):
+            result = make_drawing(part, out=str(tmp_path / "out"), scale=0.1)
+        assert result is not None
 
-    def test_error_message_suggests_safe_scale(self, tmp_path):
-        part = Box(680, 860, 80)
-        with pytest.raises(ValueError) as exc:
-            make_drawing(part, out=str(tmp_path / "out"), scale=0.1)
-        msg = str(exc.value)
-        assert "scale" in msg.lower()
-        # Should mention the minimum safe scale (≥ 10/80 = 0.125)
+    def test_warning_suggests_safe_scale(self, tmp_path):
         import re
 
+        part = Box(680, 860, 80)
+        with pytest.warns(UserWarning) as record:
+            make_drawing(part, out=str(tmp_path / "out"), scale=0.1)
+        msg = str(record[0].message)
+        assert "scale" in msg.lower()
+        # Names the minimum legible scale (≥ 10/80 = 0.125).
         nums = re.findall(r"\d+\.?\d*", msg)
         safe_scales = [float(n) for n in nums if 0.1 < float(n) < 1.0]
         assert any(s >= _MIN_VIEW_MM / 80 for s in safe_scales)
 
-    def test_safe_scale_does_not_raise(self, tmp_path):
-        # 0.2 → 80*0.2 = 16 mm > _MIN_VIEW_MM
+    def test_degenerate_scale_raises(self, tmp_path):
+        # Below the hard geometry floor (80 mm × 0.001 = 0.08 mm < _MIN_RENDER_MM): no meaningful
+        # drawing exists and OCCT arcs would degenerate — raise a clean error, not a cryptic OCP one.
         part = Box(680, 860, 80)
-        result = make_drawing(part, out=str(tmp_path / "out"), scale=0.2)
+        with pytest.raises(ValueError, match="geometry degenerates"):
+            make_drawing(part, out=str(tmp_path / "out"), scale=0.001)
+
+    def test_safe_scale_does_not_warn(self, tmp_path):
+        # 0.2 → 80*0.2 = 16 mm > _MIN_VIEW_MM: legible, no warning.
+        import warnings
+
+        part = Box(680, 860, 80)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any legibility warning would fail here
+            result = make_drawing(part, out=str(tmp_path / "out"), scale=0.2)
         assert result is not None
 
     def test_auto_scale_thin_part_does_not_raise(self, tmp_path):
-        # Auto-selected scale for a thin plate must not trigger the SIGABRT guard.
+        # Auto scale for a thin plate is never bound by the legibility floor (it's the auto path).
         part = Box(80, 50, 8)
         result = make_drawing(part, out=str(tmp_path / "out"))
         assert result is not None
+
+    def test_inherently_subfloor_part_does_not_warn(self, tmp_path):
+        # A huge, thin part is below the legibility floor at EVERY page-fitting scale (even auto),
+        # so a bigger scale can't help — the legibility warning would be false advice. It must stay
+        # silent (like the auto path) and still render. (min_view 0.75 mm is > the 0.1 mm hard floor.)
+        import warnings
+
+        part = Box(3000, 3000, 15)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = make_drawing(part, out=str(tmp_path / "out"), scale=0.05)
+        assert result is not None
+        assert not [w for w in caught if "legibility floor" in str(w.message)]
+
+    def test_sheet_explicit_scale_below_floor_is_honoured(self, tmp_path):
+        # #489 public surface: Sheet(scale="1:10") on a thin part is below the legibility floor
+        # (80 mm × 0.1 = 8 mm) but is the user's intentional choice — warn, render, don't raise.
+        from draftwright import Sheet
+
+        with pytest.warns(UserWarning, match="legibility floor"):
+            sheet = Sheet(Box(680, 860, 80), scale="1:10")
+            sheet.export(str(tmp_path / "s"))
+        assert (tmp_path / "s.svg").exists()
 
 
 class TestSectionHatchEdges:

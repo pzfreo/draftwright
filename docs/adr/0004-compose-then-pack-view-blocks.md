@@ -102,6 +102,18 @@ scale↔footprint loop to iterate — `compose(scale)` fixes the legibility and
 escalation choices for that scale. The scattered estimators (`_est_*_depth`,
 table size, halo) collapse into one composer per view.
 
+**The legibility floor is advisory for an *explicit* scale (#489).** `_MIN_VIEW_MM`
+(10 mm) is purely the threshold below which an explicit scale earns a legibility
+*warning*. It does **not** bound the auto scale (`choose_scale` picks by a pure
+geometric page fit) and does **not** gate which annotations exist (step/location
+legibility use `_MIN_STEP_*`/`_MIN_LOC_SEP_MM`). A caller who sets an intentional
+1:1 (or `scale="1:10"`) has accepted the cramping, so an explicit scale below the
+floor is honoured, not vetoed — and the warning fires only when the auto scale
+would *itself* be legible, so its "omit the scale" advice is always real. The one
+hard rejection is `_MIN_RENDER_MM` (0.1 mm) — a conservative geometry floor well
+above where OCCT's annotation arcs actually degenerate (`Geom_TrimmedCurve U1==U2`,
+~1e-4 mm); there we raise a clean message rather than crash.
+
 ### Relationship to ADR 0003 and the deferred 2D solve
 
 - ADR 0003 governs the **inner** layout (placing a view's own annotations in its
