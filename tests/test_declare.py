@@ -96,6 +96,87 @@ class TestConstructors:
         assert f.long_axis == "x" and f.width_axis == "y"
         assert f.length == pytest.approx(20.0) and f.width == pytest.approx(6.0)
 
+    def test_slot_through_z_cutter_reads_with_depth_axis(self):
+        # #490 regression: a through-Z slot cut by a tall cutter has Z as the LONGEST span,
+        # so the shortest-span default would mistake Z for the long axis. Naming depth_axis="z"
+        # excludes it, so long/width are read from the two in-plane axes.
+        tool = Box(6, 20, 40)  # Z longest (through), Y=20 (long), X=6 (width)
+        f = slot(tool, depth_axis="z")
+        assert f.long_axis == "y" and f.width_axis == "x"
+        assert f.length == pytest.approx(20.0) and f.width == pytest.approx(6.0)
+
+    def test_slot_long_axis_override_re_reads_length(self):
+        # #490: an explicit long_axis override must re-read length/lo/hi FROM that axis, not
+        # leave them at the sort-position span (the pre-#490 latent bug). Here X (span 6) is
+        # named long, so length must be 6 — the X span — not the longest (Z=40) span.
+        f = slot(Box(6, 20, 40), long_axis="x", width_axis="y")
+        assert f.long_axis == "x" and f.length == pytest.approx(6.0)
+
+    def test_slot_uppercase_axis_override_normalises(self):
+        # #490 review (major regression): an explicit override is used as a lowercase-dict key,
+        # so a build123d-style uppercase letter ("Y"/"Z") must be normalised, not KeyError.
+        f = slot(Box(6, 20, 40), long_axis="Y", depth_axis="Z")
+        assert f.long_axis == "y" and f.width_axis == "x"
+        assert f.length == pytest.approx(20.0) and f.width == pytest.approx(6.0)
+
+    def test_slot_ambiguous_top_spans_warn(self):
+        # Two near-equal top spans (X≈Y) make the long/width read a coin-flip — warn when the
+        # caller named none of the axes.
+        with pytest.warns(UserWarning, match="ambiguous"):
+            slot(Box(20, 20, 4))
+
+    def test_slot_ambiguous_width_depth_spans_warn(self):
+        # #490 review: with the shortest-span depth default, a near-equal WIDTH-vs-DEPTH pair
+        # (the two shortest spans) is equally a coin-flip — which is kept as width vs dropped as
+        # depth is decided by sort order alone. It must warn too, not only the top-span tie.
+        with pytest.warns(UserWarning, match="ambiguous"):
+            slot(Box(40, 6, 6))
+
+    def test_slot_depth_named_still_warns_on_inplane_tie(self):
+        # #490 re-review: naming ONLY the through axis resolves the depth split but not the
+        # long-vs-width one. With the two in-plane spans near-equal (X≈Y) the assignment is
+        # still a silent coin-flip, so it must warn — the same as the un-named ambiguous case.
+        with pytest.warns(UserWarning, match="ambiguous"):
+            slot(Box(20, 20, 40), depth_axis="z")
+
+    def test_slot_middle_pinned_still_warns_on_outer_tie(self):
+        # #490 r4: pinning the MIDDLE-span axis (long_axis="y" on X>Y>Z) leaves the two OUTER
+        # auto axes (X, Z) — which are non-adjacent in the span order — to split width vs depth.
+        # If those two are near-equal the split is a silent coin-flip, so it must still warn.
+        with pytest.warns(UserWarning, match="ambiguous"):
+            slot(Box(40, 39, 38), long_axis="y")
+
+    def test_slot_middle_depth_still_warns_on_inplane_tie(self):
+        # The depth mirror: depth_axis="y" pins the middle span; the two outer auto axes (X, Z)
+        # then split long vs width, and a near-equal outer pair is a coin-flip that must warn.
+        with pytest.warns(UserWarning, match="ambiguous"):
+            slot(Box(50, 49, 48), depth_axis="y")
+
+    def test_slot_named_axes_suppress_ambiguity_warning(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            slot(Box(20, 20, 4), long_axis="x", width_axis="y")
+        assert not [w for w in caught if "ambiguous" in str(w.message)]
+
+    def test_slot_depth_axis_must_differ_raises(self):
+        with pytest.raises(ValueError, match="depth_axis must differ"):
+            slot(Box(20, 6, 4), depth_axis="x", long_axis="x", width_axis="y")
+
+    def test_slot_depth_plus_long_override_resolves_width(self):
+        # #490 re-review: depth_axis= + a long_axis= that names the SHORTER in-plane axis must
+        # leave the other in-plane axis free for width — not collide into "must differ".
+        f = slot(Box(6, 20, 40), depth_axis="z", long_axis="x")  # z=depth, x named long
+        assert f.long_axis == "x" and f.width_axis == "y"
+        assert f.length == pytest.approx(6.0) and f.width == pytest.approx(20.0)
+
+    def test_slot_depth_plus_width_override_resolves_long(self):
+        # The mirror: depth_axis= + a width_axis= must leave the other in-plane axis free for long.
+        f = slot(Box(6, 20, 40), depth_axis="z", width_axis="x")  # z=depth, x named width
+        assert f.width_axis == "x" and f.long_axis == "y"
+        assert f.width == pytest.approx(6.0) and f.length == pytest.approx(20.0)
+
     def test_envelope_reads_bbox(self):
         f = envelope(Box(80, 50, 8))
         assert isinstance(f, EnvelopeFeature)
