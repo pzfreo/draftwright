@@ -564,8 +564,8 @@ class LayoutSolver:
         naturals = [p.natural for p in members]
         min_gaps = [p.min_gap for p in members]
         if len(set(min_gaps)) <= 1:
-            # Uniform (or single) members — the scalar primitive, byte-identical
-            # to the pre-#81 path (preserves its exact (n-1)*gap arithmetic).
+            # Uniform (or single) members — the scalar primitive (one min_gap for
+            # every pair), delegating like the heterogeneous branch to the PAVA solve.
             gap = max(min_gaps)
             positions = _solve_strip_1d(naturals, gap, lo, hi)
             if positions is None and greedy_fallback:
