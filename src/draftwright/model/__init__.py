@@ -33,7 +33,7 @@ from draftwright.model.declare import (
     slot,
     step,
 )
-from draftwright.model.detect import build_part_model
+from draftwright.model.detect import build_part_model, build_pmi_features
 from draftwright.model.ir import (
     BossFeature,
     Datum,
@@ -77,6 +77,7 @@ __all__ = [
     "StepFeature",
     "StepLevelFeature",
     "build_part_model",
+    "build_pmi_features",
     "boss",
     "control_frame",
     "datum",

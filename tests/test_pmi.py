@@ -147,3 +147,43 @@ class TestBuildDrawingPmi:
         """All pmi_ annotation names in the drawing are unique."""
         pmi_names = [n for n in ctc01_annotated._named if n.startswith("pmi_")]
         assert len(pmi_names) == len(set(pmi_names)), f"duplicate pmi names: {pmi_names}"
+
+
+class TestDeclaredModelPmi:
+    """#472: a DECLARED-model build (build_drawing(path, model=…)) skips detection, so it carried
+    no PmiFeatures and dropped PMI even with pmi='annotate'. _assemble now synthesises them from
+    the analysis (the same build_pmi_features detection uses), so PMI reproduces on the declared
+    path. (The emitted Sheet-script round-trip is a separate gap — import_step strips AP242 PMI.)"""
+
+    def test_declared_model_annotate_matches_auto(self, tmp_path):
+        auto = build_drawing(str(CTC01), out=str(tmp_path / "a"), title="P", pmi="annotate")
+        declared = build_drawing(
+            str(CTC01), out=str(tmp_path / "d"), title="P", model=[], pmi="annotate"
+        )
+        n_auto = sum(1 for n in auto._named if n.startswith("pmi_"))
+        n_decl = sum(1 for n in declared._named if n.startswith("pmi_"))
+        assert n_auto >= 1
+        assert n_decl == n_auto  # declared path reproduces the auto PMI dims (was 0 before #472)
+
+    def test_declared_model_pmi_off_stays_clean(self, tmp_path):
+        # the synthesis is gated on pmi_mode == 'annotate' — a declared build without PMI stays 0
+        dwg = build_drawing(str(CTC01), out=str(tmp_path / "off"), title="P", model=[])
+        assert [n for n in dwg._named if n.startswith("pmi_")] == []
+
+
+def test_build_pmi_features_mirrors_detection():
+    """build_pmi_features (shared by build_part_model and the declared-model synthesis) builds one
+    PmiFeature per record; both callers must construct them identically (#472)."""
+    from draftwright.model import build_pmi_features
+
+    recs = extract_pmi(CTC01)
+    dims = [r for r in recs if r.kind not in ("gtol", "datum")]
+    from build123d import import_step
+
+    bbox = import_step(CTC01).bounding_box()
+    feats = build_pmi_features(recs, bbox)
+    assert len(feats) == len(recs)
+    assert all(f.kind == "pmi" for f in feats)
+    # a dim record's value/label ride onto its PmiFeature verbatim
+    assert {f.label for f in feats} >= {r.label for r in dims}
+    assert build_pmi_features(None, bbox) == []  # None/empty → no features
