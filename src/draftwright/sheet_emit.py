@@ -109,8 +109,10 @@ def _feature_line(f) -> str:
         if f.members:
             parts.append("members=[" + ", ".join(_pt(p) for p in f.members) + "]")
         return f"sheet.pattern({_member_hole_str(f.member)}, " + ", ".join(parts) + ")"
-    # kinds with no declarative verb yet — the auto-pass still dimensions them.
-    return f"# {k} @ {_pt(f.frame.origin)} — auto-dimensioned (no declarative verb yet)"
+    # Kinds with no declarative verb yet: flag inline so they aren't silently lost. The auto-pass
+    # over the declared model still draws them on re-run, but not always faithfully — a turned /
+    # rotational part isn't parity-safe yet (the #472 validity gap), so avoid promising it here.
+    return f"# {k} @ {_pt(f.frame.origin)} — no declarative verb yet; drawn by the auto-pass"
 
 
 def _needs_section(model) -> bool:
