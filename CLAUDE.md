@@ -191,6 +191,17 @@ Current ADRs:
   from the referenced feature/face (`declare.gdt_target`, P2c #480/#482). PMI-sourced
   auto-GD&T is the last item (#62). Sidesteps #298 misdetection; complements #400 (read +
   edit → now also input). Roadmap: `docs/plans/0011-phase2-aspects-roadmap.md`; #446/#445.
+- **0012** — **Accepted** (decision; work pending — supersedes #396, extends #388/#426):
+  **user annotation edits are pinned, priority-ranked candidates in the one global solve.**
+  A `dimension()`/`place_dim()` edit becomes a scale-independent *dimension intent* on the
+  model carrying `(pin, priority)` — **pin** = the solver's existing `anchored`/`_ANCHOR_WEIGHT`
+  (stays put while the rest flow around it), **priority** = the `StripCandidate.priority`
+  plumbed through the corridor in #357 — placed by the **same** `solve_corridor` as the auto
+  dims, re-run by a recompose (`finalize_drawing`, #388 P2). The layout algorithm already
+  supports it (`anchored`+`priority` exist); the missing part is representing an edit as an
+  intent + wiring it into the batch. Not per-`place_dim` re-solve (jarring) — edit freely,
+  recompose once; pin is the escape valve so the user never fights the solver. Promotes the
+  #477 below/right fold-in to a dependency. Umbrella: #511.
 
 ## Dependencies
 
