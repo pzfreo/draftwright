@@ -42,9 +42,13 @@ _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=No
 _RECON_DIA_TOL = 0.2
 _RECON_POS_TOL = 0.5
 
-# Declared feature kinds with a single defining cylinder to confirm against geometry. Envelope
-# always exists; patterns/slots (multi-member / prismatic) and aspects are out of scope (#499).
-_RECON_KINDS = ("hole", "boss", "step")
+# Declared feature kinds with a single defining cylinder to confirm against geometry, mapped to the
+# cylinder polarity that confirms them: a hole is a bore (external=False); a boss / turned step is
+# external material (external=True). Checking polarity stops a phantom hole being silenced by a
+# coaxial boss/OD of the same ⌀ (and vice-versa) — a callout over the wrong material (#487 review).
+# Envelope always exists; patterns/slots and aspects are out of scope (#499).
+_RECON_EXTERNAL = {"hole": False, "boss": True, "step": True}
+_RECON_KINDS = tuple(_RECON_EXTERNAL)  # derive to keep the kind list and polarity map in sync
 
 
 def _dim_vertices(ann) -> list[tuple[float, float]]:
@@ -481,8 +485,10 @@ def lint_declaration_reconciliation(features, cyls) -> list:
         axis = str(frame.axis).lower()
         origin = frame.origin
         perp = [k for k in range(3) if k != "xyz".index(axis)]
+        want_external = _RECON_EXTERNAL[f.kind]
         matched = any(
             str(c["axis"]).lower() == axis
+            and bool(c["external"]) == want_external
             and abs(c["diameter"] - dia) <= _RECON_DIA_TOL
             and all(abs(origin[k] - c["axis_xyz"][k]) <= _RECON_POS_TOL for k in perp)
             for c in records

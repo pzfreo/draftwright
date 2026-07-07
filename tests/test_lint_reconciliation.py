@@ -22,8 +22,9 @@ def _feat(kind, dia, origin, axis="z"):
     )
 
 
-def _cyl(dia, axis_xyz, axis="z"):
-    return {"diameter": dia, "axis": axis, "axis_xyz": axis_xyz}
+def _cyl(dia, axis_xyz, axis="z", external=False):
+    # external defaults to False (a bore) so a plain hole matches; bosses/steps pass external=True.
+    return {"diameter": dia, "axis": axis, "axis_xyz": axis_xyz, "external": external}
 
 
 class TestMatcherUnit:
@@ -82,9 +83,23 @@ class TestMatcherUnit:
 
     def test_boss_and_step_reconciled(self):
         feats = [_feat("boss", 30.0, (0, 0, 0)), _feat("step", 20.0, (0, 0, 0))]
-        cyls = ([_cyl(30.0, (0, 0, 0))], [])  # boss present, step ⌀20 absent
+        cyls = ([_cyl(30.0, (0, 0, 0), external=True)], [])  # boss present, step ⌀20 absent
         codes = [i.code for i in lint_declaration_reconciliation(feats, cyls)]
         assert codes == ["declared_feature_absent"]  # only the step is missing
+
+    def test_hole_not_matched_by_external_cylinder(self):
+        # #487 review: a phantom bore must NOT be silenced by a coaxial boss/OD of the same ⌀ — the
+        # callout would render over solid material. A hole reconciles only against external=False.
+        feats = [_feat("hole", 20.0, (0, 0, 0))]
+        cyls = ([_cyl(20.0, (0, 0, 0), external=True)], [])  # only an OD/boss of the same ⌀ exists
+        assert len(lint_declaration_reconciliation(feats, cyls)) == 1
+
+    def test_boss_not_matched_by_bore(self):
+        # The mirror: a phantom boss callout over a bore of the same ⌀ must warn — a boss reconciles
+        # only against external=True.
+        feats = [_feat("boss", 30.0, (0, 0, 0))]
+        cyls = ([_cyl(30.0, (0, 0, 0), external=False)], [])  # only an internal bore exists
+        assert len(lint_declaration_reconciliation(feats, cyls)) == 1
 
 
 class TestEndToEnd:
@@ -103,6 +118,16 @@ class TestEndToEnd:
         s.hole(Pos(0, 0, 0) * Cylinder(4, 20))
         codes = [i.code for i in s.build().lint()]
         assert "declared_feature_absent" not in codes
+
+    def test_phantom_hole_over_solid_od_warns(self):
+        # #487 review: a declared bore coincident with the part's external OD (same ⌀ + axis) must
+        # still warn — there is no bore, the callout renders over solid material. Exercises the real
+        # analyse_cylinders external flag end-to-end.
+        part = Cylinder(10, 40)  # solid shaft, OD ⌀20, no bore
+        s = Sheet(part)
+        s.envelope()
+        s.hole(Cylinder(10, 40))  # declares a phantom ⌀20 bore
+        assert "declared_feature_absent" in [i.code for i in s.build().lint()]
 
     def test_detection_path_never_reconciles(self):
         # No model= → _model_declared is False → the check is a no-op even on a featureless box.
