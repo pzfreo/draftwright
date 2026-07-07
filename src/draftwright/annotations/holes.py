@@ -883,30 +883,36 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
     # axis-aligned side maps to a populated strip; a diagonal side, the side view's absent left
     # strip, or a genuinely full strip fall through to the bounded vector placement below
     # (behaviour unchanged for those residual cases).
+    # Only a GENUINELY axis-aligned row uses the strip carve: its dim is a clean horizontal /
+    # vertical line occupying one strip tier, and the coord bridge is exact. `_dim` places the
+    # line at `mid + side*distance`, so the witness is the MIDPOINT component on the strip axis and
+    # `sgn` the exact outward sign (±1); `distance = sgn*(pos - mid[axis])` then lands the line at
+    # the carved `pos`. The tight threshold (≈1.6°) keeps a tilted row off this path — its dim
+    # isn't axis-aligned, so it can't cleanly occupy a tier — routing it to the vector fallback.
     zones = {"plan": a.pv_zones, "front": a.fv_zones, "side": a.sv_zones}[view]
     sx, sy = side[0], side[1]
     strip = axis = perp = None
     witness = sgn = 0.0
-    if abs(sx) > 0.99:  # horizontal side ⟂ a vertical row → left/right strip, stacks along x
+    if abs(sx) > 0.9996:  # horizontal side ⟂ a vertical row → left/right strip, stacks along x
         strip, axis, perp, witness, sgn = (
             (zones.right if sx > 0 else zones.left),
             "x",
             tuple(sorted((p1[1], p2[1]))),
-            p1[0],
-            sx,
+            mid[0],
+            math.copysign(1.0, sx),
         )
-    elif abs(sy) > 0.99:  # vertical side ⟂ a horizontal row → above/below strip, stacks along y
+    elif abs(sy) > 0.9996:  # vertical side ⟂ a horizontal row → above/below strip, stacks along y
         strip, axis, perp, witness, sgn = (
             (zones.above if sy > 0 else zones.below),
             "y",
             tuple(sorted((p1[0], p2[0]))),
-            p1[1],
-            sy,
+            mid[1],
+            math.copysign(1.0, sy),
         )
     if strip is not None:
         tier = max(10.0, dwg.draft.font_size * 3.0)
         pos = carve_free_position(dwg, strip, view, axis, tier, perp)
-        if pos is not None:  # sgn ∈ {+1,-1} makes the outward distance positive
+        if pos is not None:
             _place(sgn * (pos - witness))
             return
 
