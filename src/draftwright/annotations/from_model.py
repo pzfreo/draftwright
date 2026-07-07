@@ -1788,6 +1788,10 @@ _GDT_KINDS = ("control_frame", "datum_ref", "finish", "note")
 # (_SIZE_SUBCHAIN=0) and datum-location (_LOC_SUBCHAIN=1) dim runs, so a frame never lands
 # mid-ladder among the dimensions it annotates.
 _GDT_SUBCHAIN = 2
+# Over-capacity survival rank for an authored GD&T frame (#357): a declared control frame /
+# datum / finish / note is deliberate intent, so on a strip too full for every candidate it is
+# kept over the auto dims (locations/slots, priority 0) rather than dropped by stacking-key order.
+_GDT_CORRIDOR_PRIORITY = 1.0
 # Minimum GD&T leader shaft length (page-mm). A zero-length Leader (site == solved tier)
 # makes OCC's edge builder raise; nudging to this keeps `_build` total (#61 review).
 _MIN_LEADER = 0.05
@@ -1946,6 +1950,7 @@ def render_gdt(dwg, model, a) -> int:
                 on_drop=_drop,
                 dedup=None,
                 precedence=0,
+                priority=_GDT_CORRIDOR_PRIORITY,  # authored intent outranks auto dims (#357)
                 # A declared frame has no alternate view — force-keep (policy B) rather than
                 # drop a user-authored annotation; only a physically full strip drops.
                 force=True,

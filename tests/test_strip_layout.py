@@ -448,6 +448,55 @@ def test_place_strip_candidates_reserves_outermost_label_within_bounds():
     assert len(left) == 1, "the unplaceable candidate must be returned, not dropped silently"
 
 
+def test_place_strip_candidates_priority_survives_key_order():
+    # #357: over-capacity, plan_strip drops the lowest (priority, key). place_strip_candidates
+    # must PLUMB a per-name priority into StripCandidate — otherwise every candidate is priority 0
+    # and the drop is by stacking-key alone. Here the two candidates cannot both fit (tall sizes
+    # force a 40 mm gap into a ~22 mm span). Candidate "a" gets the smaller key (dropped by key
+    # order alone), so a HIGH priority on "a" must flip the outcome: "a" survives, "b" drops.
+    from draftwright._core import Strip
+    from draftwright.annotations._common import place_strip_candidates
+
+    class _Dwg:
+        def __init__(s):
+            s.added = []
+
+        def iter_annotations(s):
+            return list(s.added)
+
+        def view_of(s, n):
+            return "plan"
+
+        def add(s, obj, name, view=None, feature=None):
+            s.added.append((name, obj))
+
+    def _run(priorities):
+        strip = Strip(anchor=0.0, outer_limit=50.0, direction=1.0, gap=8.0, spacing=4.0)
+        dwg = _Dwg()
+        cands = [("a", lambda pos: ("dim", pos)), ("b", lambda pos: ("dim", pos))]
+        sizes = {"a": (6.0, 40.0), "b": (6.0, 40.0)}  # tall → 40 mm stacking gap, only one fits
+        left = place_strip_candidates(
+            dwg,
+            strip,
+            "plan",
+            "y",
+            cands,
+            tier=5.0,
+            force=True,
+            sizes=sizes,
+            priorities=priorities,
+        )
+        placed = {nm for nm, _ in dwg.added}
+        return placed, {nm for nm, _ in left}
+
+    # equal priority → "a" (smaller key) is the victim by key order
+    placed0, left0 = _run({})
+    assert placed0 == {"b"} and left0 == {"a"}
+    # priority on "a" flips it: the important candidate is kept, "b" drops
+    placed1, left1 = _run({"a": 5.0})
+    assert placed1 == {"a"} and left1 == {"b"}
+
+
 def test_place_strip_candidates_ignores_perpendicular_disjoint_obstacle():
     # A right strip stacks along X; the carve projects obstacles onto X. An obstacle that
     # overlaps in X (even after pad inflation) but is DISJOINT in Y — a dim on ANOTHER
