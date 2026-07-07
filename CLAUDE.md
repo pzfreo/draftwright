@@ -196,7 +196,11 @@ Current ADRs:
 
 - `build123d-drafting-helpers>=0.13.0` (Apache 2.0)
 - `build123d>=0.9.0` (Apache 2.0)
-- `kiwisolver>=1.4,<2` — Cassowary constraint solver for bore-callout Y-placement
+
+The 1D strip solve (`layout.py`) is the dependency-free minimum-total-leader-length
+**PAVA** algorithm (`_solve_strip_1d_pava`, ADR 0009 Amdt 4); the earlier Cassowary
+(`kiwisolver`) constraint-satisfaction solve was retired once PAVA gave the exact
+L1 placement, so `kiwisolver` is no longer a direct dependency.
 
 ## Testing
 
