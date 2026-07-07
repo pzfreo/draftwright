@@ -302,7 +302,18 @@ class Sheet:
     features to the engine with detection skipped.
     """
 
-    def __init__(self, part, *, title=None, number="DWG-001", scale=None, page=None, out=None):
+    def __init__(
+        self,
+        part,
+        *,
+        title=None,
+        number="DWG-001",
+        drawn_by=None,
+        tolerance=None,
+        scale=None,
+        page=None,
+        out=None,
+    ):
         self._part = part
         self._features: list = []
         # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
@@ -319,6 +330,12 @@ class Sheet:
         self._opts = dict(
             title=title, number=number, scale=_parse_scale(scale), page=page, out=out
         )
+        # drawn_by / tolerance (title block, #474) forward to build_drawing only when set, so an
+        # unset value keeps build_drawing's own defaults ("" / "ISO 2768-m") rather than None.
+        if drawn_by is not None:
+            self._opts["drawn_by"] = drawn_by
+        if tolerance is not None:
+            self._opts["tolerance"] = tolerance
 
     @classmethod
     def from_part(cls, part, **opts) -> Sheet:

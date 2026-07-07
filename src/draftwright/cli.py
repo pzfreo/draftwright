@@ -168,34 +168,33 @@ def main(
         if style == "sheet":
             from draftwright.sheet_emit import generate_sheet_script, resolve_object_spec
 
-            # The Sheet DSL doesn't yet model the title-block / layout aspects the
-            # imperative script embeds. Warn rather than silently drop them so a
-            # `--script --drawn-by … --scale …` invocation isn't quietly a no-op.
-            ignored = [
-                flag
-                for flag, set_ in (
-                    ("--tolerance", tolerance != "ISO 2768-m"),
-                    ("--drawn-by", bool(drawn_by)),
-                    ("--scale", scale is not None),
-                    ("--page", page is not None),
-                )
-                if set_
-            ]
-            if ignored:
-                typer.echo(
-                    f"warning: {', '.join(ignored)} not supported by --style sheet; ignored "
-                    "(use --style imperative to embed them)",
-                    err=True,
-                )
+            # The Sheet DSL now carries the title-block / layout aspects (#474), so forward all
+            # four flags — the generated script reproduces them on re-run (no more inert warning).
             if _looks_like_object_spec(step_file):
                 # STEP_FILE is a `module:attr` / `file.py:attr` spec → reference a live object
                 obj, seam = resolve_object_spec(step_file)
                 py_path = generate_sheet_script(
-                    obj, out=out, title=title, number=number, part_expr=seam
+                    obj,
+                    out=out,
+                    title=title,
+                    number=number,
+                    tolerance=tolerance,
+                    drawn_by=drawn_by,
+                    scale=scale,
+                    page=page,
+                    part_expr=seam,
                 )
             else:
                 py_path = generate_sheet_script(
-                    step_file, out=out, title=title, number=number, pmi=pmi.value
+                    step_file,
+                    out=out,
+                    title=title,
+                    number=number,
+                    tolerance=tolerance,
+                    drawn_by=drawn_by,
+                    scale=scale,
+                    page=page,
+                    pmi=pmi.value,
                 )
         else:
             if _looks_like_object_spec(step_file):
