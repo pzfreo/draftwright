@@ -43,7 +43,7 @@ _RECON_DIA_TOL = 0.2
 _RECON_POS_TOL = 0.5
 
 # Declared feature kinds with a single defining cylinder to confirm against geometry. Envelope
-# always exists; patterns/slots (multi-member / prismatic) and aspects are out of scope (#488 debt).
+# always exists; patterns/slots (multi-member / prismatic) and aspects are out of scope (#499).
 _RECON_KINDS = ("hole", "boss", "step")
 
 
