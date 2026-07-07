@@ -124,6 +124,17 @@ class TestEmit:
         src = _script_for(self._bolt_circle(cbore=True))
         assert "Section A–A auto-triggers" in src
 
+    def test_blind_pattern_flags_the_auto_section(self):
+        # #475: a BLIND bolt circle also auto-sections (the trigger is `not member.through`, not
+        # just cbore/spotface). The trigger lives on the pattern's member hole, so the generated
+        # comment must fire here too — the companion to the counterbored-pattern case.
+        part = Cylinder(40, 20)  # 20 mm-thick disc
+        for i in range(6):
+            a = i * math.pi / 3
+            # drill from the top face, blind (does not exit the bottom)
+            part -= Pos(25 * math.cos(a), 25 * math.sin(a), 6) * Cylinder(3, 16)
+        assert "Section A–A auto-triggers" in _script_for(part)
+
     def test_plain_pattern_does_not_flag_a_section(self):
         # regression guard: a through-hole bolt circle needs no section — no false-positive comment
         assert "Section A–A auto-triggers" not in _script_for(self._bolt_circle())
