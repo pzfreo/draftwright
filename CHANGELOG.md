@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.2.10 — 2026-07-07
+
+**Declarative-surface fidelity and layout-engine unification.** Editing and re-running a
+declarative `Sheet` script now reproduces more of the drawing (title block, layout, PMI on the
+declared path), a new lint catches stale declarations, and an intentional scale is respected.
+Internally the annotation placer moves further onto the single collect-then-solve (ADR 0009),
+and `kiwisolver` is dropped as a dependency.
+
+### Added
+
+- **Declaration-vs-geometry reconciliation lint** — `lint()` now flags a declared cylindrical
+  feature (hole/boss/step) with **no matching geometry** in the part (`declared_feature_absent`):
+  a callout drawn over empty space because the part was edited but the declaration went stale.
+  Closes the last gap in the "did my edit break the drawing?" loop (over-declaration; coverage
+  lint already caught under-declaration). Matches on axis + ⌀ + in-plane position + bore/boss
+  polarity. Gated on a caller-supplied `model=` (detection can't over-declare). (#487)
+- **Title-block + layout aspects on the `Sheet` DSL** — `Sheet(drawn_by=…, tolerance=…, scale=…,
+  page=…)`; the generated `--script` reproduces them, and the CLI forwards
+  `--drawn-by`/`--tolerance`/`--scale`/`--page` on the sheet path (no more inert-flag warning). (#474)
+- **PMI reproduced on the declared-model path** — `build_drawing(path, model=…, pmi="annotate")`
+  synthesises the STEP AP242 PMI into the declared model, so a declared build draws the same PMI
+  dimensions as the detection path. (#472)
+
+### Changed
+
+- **An intentional explicit `scale=` below the legibility floor is honoured with a warning**
+  rather than rejected. A part deliberately drawn at 1:1 (or `Sheet(scale="1:10")`) whose smallest
+  feature falls under the 10 mm legibility floor now renders (annotations may crowd) instead of
+  raising `ValueError`; only a genuinely degenerate scale (< 0.1 mm projected, where OCCT arcs
+  collapse) is rejected. The floor now binds only the *automatic* scale. (#489)
+- **`kiwisolver` is no longer a dependency.** The 1-D strip solve delegates to the built-in
+  deterministic minimum-total-leader-length PAVA algorithm, which supersedes the Cassowary
+  solver — same placement contract, one fewer third-party dependency. (#507)
+
+### Fixed
+
+- **Dimension placement is more robust under contention.** Candidate **priority** is plumbed
+  through the shared corridor solve, so an authored GD&T frame is kept over a lower-value
+  automatic dimension when a strip is over capacity (#357). Rotational concentric-bore leaders
+  are now bounded to the front-view height with ranked drops, and pitch dimensions are placed
+  onto the obstacle-aware per-side zone-strip solve — retiring the last fixed-offset,
+  count-based stacking placers (the shape behind earlier dense-sheet overruns). (#374)
+
 ## v0.2.9 — 2026-07-06
 
 **Declarative GD&T, datums, and surface finish (ADR 0011 Phase 2b/2c).** The `Sheet` DSL can
