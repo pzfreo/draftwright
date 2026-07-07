@@ -36,6 +36,16 @@ from draftwright.recognition import (
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
+# Reconciliation tolerances (#487) mirror sheet_dsl._match_object (⌀ ≤ 0.2 mm, in-plane ≤ 0.5 mm):
+# a declared feature matches a recognised cylinder within these. Kept in sync by comment — linting/
+# sits below sheet_dsl in the DAG, so the literals cannot be shared by import.
+_RECON_DIA_TOL = 0.2
+_RECON_POS_TOL = 0.5
+
+# Declared feature kinds with a single defining cylinder to confirm against geometry. Envelope
+# always exists; patterns/slots (multi-member / prismatic) and aspects are out of scope (#488 debt).
+_RECON_KINDS = ("hole", "boss", "step")
+
 
 def _dim_vertices(ann) -> list[tuple[float, float]]:
     """A ``Dimension``'s witness endpoints as ``(x, y)`` page points; ``[]`` if they
@@ -440,3 +450,54 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
             ),
         )
     ]
+
+
+def lint_declaration_reconciliation(features, cyls) -> list:
+    """Flag a *declared* cylindrical feature with no matching geometry in the part (#487).
+
+    On the declarative path (``Sheet`` / ``build_drawing(part, model=…)``) a declaration can go
+    **stale**: the part is edited to remove a hole while the script still declares it, so a callout
+    renders over solid material yet coverage lint (which checks *detected → dimensioned*) stays
+    clean. This is the reverse direction — *declared → exists* — cross-checking each declared
+    feature against recognised geometry.
+
+    Only meaningful for a caller-DECLARED model; the detection path cannot over-declare, so the
+    caller gates on ``_model_declared``. ``features`` is the declared ``PartModel.features``, read
+    duck-typed (``.kind``/``.diameter``/``.frame`` — linting/ must not import ``model``); ``cyls``
+    is the ``(z_cyls, cross_cyls)`` from :func:`analyse_cylinders`. Scope is the cylindrical
+    singletons (hole/boss/step); a declared feature matches a recognised cylinder on same axis,
+    ⌀ within ``_RECON_DIA_TOL`` and in-plane position within ``_RECON_POS_TOL`` — the same test
+    ``sheet_dsl._match_object`` uses. Non-fatal: every issue is a ``warning``.
+    """
+    records = [*cyls[0], *cyls[1]]
+    issues = []
+    for f in features:
+        if getattr(f, "kind", None) not in _RECON_KINDS:
+            continue
+        dia = getattr(f, "diameter", None)
+        frame = getattr(f, "frame", None)
+        if dia is None or frame is None:
+            continue
+        axis = str(frame.axis).lower()
+        origin = frame.origin
+        perp = [k for k in range(3) if k != "xyz".index(axis)]
+        matched = any(
+            str(c["axis"]).lower() == axis
+            and abs(c["diameter"] - dia) <= _RECON_DIA_TOL
+            and all(abs(origin[k] - c["axis_xyz"][k]) <= _RECON_POS_TOL for k in perp)
+            for c in records
+        )
+        if matched:
+            continue
+        issues.append(
+            LintIssue(
+                severity="warning",
+                code="declared_feature_absent",
+                message=(
+                    f"declared {f.kind} ⌀{_fmt(dia)} at "
+                    f"({_fmt(origin[0])}, {_fmt(origin[1])}, {_fmt(origin[2])}) has no matching "
+                    f"{axis}-axis cylinder in the part — stale declaration or the feature was removed"
+                ),
+            )
+        )
+    return issues

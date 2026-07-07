@@ -70,6 +70,7 @@ from draftwright.linting import (
     LintIssue,
     _suggest_fix,
     lint_axial_coverage,
+    lint_declaration_reconciliation,
     lint_drawing,
     lint_feature_coverage,
     lint_location_coverage,
@@ -1649,6 +1650,10 @@ class Drawing:
                 holes=holes,
                 patterns=patterns,
             )
+            # Reverse direction (#487): a DECLARED feature with no matching geometry (a stale
+            # phantom callout). Only for a caller-supplied model — detection can't over-declare.
+            if self._model_declared and self._part_model is not None:
+                issues += lint_declaration_reconciliation(self._part_model.features, cyls)
         issues += list(self._build_issues)
         # Attach a ready-to-paste fix snippet where one is computable (#29).
         # str | None — None when no concrete repair can be inferred.
