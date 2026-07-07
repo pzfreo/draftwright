@@ -470,8 +470,10 @@ def lint_declaration_reconciliation(features, cyls) -> list:
     duck-typed (``.kind``/``.diameter``/``.frame`` — linting/ must not import ``model``); ``cyls``
     is the ``(z_cyls, cross_cyls)`` from :func:`analyse_cylinders`. Scope is the cylindrical
     singletons (hole/boss/step); a declared feature matches a recognised cylinder on same axis,
-    ⌀ within ``_RECON_DIA_TOL`` and in-plane position within ``_RECON_POS_TOL`` — the same test
-    ``sheet_dsl._match_object`` uses. Non-fatal: every issue is a ``warning``.
+    ⌀ within ``_RECON_DIA_TOL`` and in-plane position within ``_RECON_POS_TOL`` (the axis + ⌀ +
+    in-plane test ``sheet_dsl._match_object`` uses) **plus** a polarity check (``_RECON_EXTERNAL``)
+    that ``_match_object`` lacks — a hole reconciles against a bore, a boss/step against external
+    material. Non-fatal: every issue is a ``warning``.
     """
     records = [*cyls[0], *cyls[1]]
     issues = []
