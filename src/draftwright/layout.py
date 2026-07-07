@@ -3,14 +3,17 @@
 This module holds the placement primitives that every annotation type will
 eventually share: a :class:`Placeable` value object describing what the solver
 may move, and a :class:`LayoutSolver` that places a set of placeables along one
-axis as a single Cassowary (kiwisolver) constraint system.
+axis via a single 1D strip solve.
 
 Phase 1 (issue #79) is *scaffolding only*: it generalises the existing 1D strip
 solver into the axis-neutral primitive ADR 0003 calls for and wraps it in the
 `Placeable`/`LayoutSolver` surface, but **nothing in the default drawing path
 constructs a Placeable yet** — the passes are migrated in later phases (#80–83).
-The module deliberately depends on nothing but ``kiwisolver`` and the standard
-library, so it is unit-testable without building a drawing.
+The 1D solve is the deterministic minimum-total-leader-length PAVA algorithm
+(:func:`_solve_strip_1d_pava`, ADR 0009 Amdt 4) — pure standard library, no
+third-party solver (the earlier Cassowary/``kiwisolver`` satisfaction solve was
+retired once PAVA gave the exact L1 placement), so it is unit-testable without
+building a drawing.
 
 Explicitly deferred to later phases (so the surface is honest about its limits):
 global 2D non-overlap (the disjunctive constraint ADR 0003 notes is non-linear),
@@ -56,41 +59,21 @@ def _greedy_strip_1d(naturals, min_gap, lo, hi, *, prefix=False):
 
 
 def _solve_strip_1d(naturals, min_gap, lo, hi):
-    """Cassowary 1D placement for a set of labels sharing one strip.
+    """1D placement for a set of labels sharing one strip (uniform *min_gap*).
 
     Returns solved positions (same length as *naturals*), or ``None`` when they
-    do not fit within ``[lo, hi]``. Falls back to the greedy cursor when
-    kiwisolver is unavailable.
+    do not fit within ``[lo, hi]``.
 
     *naturals* must be sorted ascending; each solved value is bounded to
-    ``[lo, hi]`` and adjacent values are at least *min_gap* apart. Variables are
-    created in input order, so the solve is deterministic for a given input.
-    """
+    ``[lo, hi]`` and adjacent values are at least *min_gap* apart. Delegates to
+    the deterministic minimum-total-leader-length PAVA solve
+    (:func:`_solve_strip_1d_pava`) — the uniform-gap special case of
+    :func:`_solve_strip_1d_var` — which retired the earlier Cassowary
+    (kiwisolver) constraint-satisfaction solve (its arbitrary feasible vertex
+    was replaced by the L1-optimal, dependency-free placement)."""
     if not naturals:
         return []
-    n = len(naturals)
-    if (n - 1) * min_gap > hi - lo:
-        return None  # provably infeasible
-
-    try:
-        import kiwisolver as ki
-    except ImportError:
-        return _greedy_strip_1d(naturals, min_gap, lo, hi)
-
-    solver = ki.Solver()
-    vs = [ki.Variable(f"v{i}") for i in range(n)]
-    try:
-        for v in vs:
-            solver.addConstraint((v >= lo) | "required")
-            solver.addConstraint((v <= hi) | "required")
-        for i in range(n - 1):
-            solver.addConstraint((vs[i + 1] - vs[i] >= min_gap) | "required")
-        for v, nat in zip(vs, naturals, strict=True):
-            solver.addConstraint((v == nat) | "strong")
-        solver.updateVariables()
-        return [v.value() for v in vs]
-    except ki.UnsatisfiableConstraint:
-        return None
+    return _solve_strip_1d_pava(naturals, [min_gap] * (len(naturals) - 1), lo, hi)
 
 
 def _greedy_strip_1d_var(naturals, gaps, lo, hi, *, prefix=False):
@@ -113,39 +96,20 @@ def _greedy_strip_1d_var(naturals, gaps, lo, hi, *, prefix=False):
 
 
 def _solve_strip_1d_var(naturals, gaps, lo, hi):
-    """Cassowary 1D placement with **per-pair** gaps (ADR 0003 phase 3a, #81).
+    """1D placement with **per-pair** gaps (ADR 0003 phase 3a, #81).
 
     Like :func:`_solve_strip_1d`, but the required separation between adjacent
     items is ``gaps[i]`` rather than one uniform value — the capability the
     ``Placeable.size`` field exists for, used when heterogeneous items (e.g. a
     deep step-dim slot next to a shallow height slot) share one strip.
     ``len(gaps)`` must be ``max(len(naturals) - 1, 0)``.
-    """
+
+    Delegates to :func:`_solve_strip_1d_pava` — same contract (``None`` when
+    provably infeasible), but the L1-optimal, deterministic, dependency-free
+    placement that retired the Cassowary (kiwisolver) satisfaction solve."""
     if not naturals:
         return []
-    n = len(naturals)
-    if sum(gaps) > hi - lo:
-        return None  # provably infeasible
-
-    try:
-        import kiwisolver as ki
-    except ImportError:
-        return _greedy_strip_1d_var(naturals, gaps, lo, hi)
-
-    solver = ki.Solver()
-    vs = [ki.Variable(f"v{i}") for i in range(n)]
-    try:
-        for v in vs:
-            solver.addConstraint((v >= lo) | "required")
-            solver.addConstraint((v <= hi) | "required")
-        for i in range(n - 1):
-            solver.addConstraint((vs[i + 1] - vs[i] >= gaps[i]) | "required")
-        for v, nat in zip(vs, naturals, strict=True):
-            solver.addConstraint((v == nat) | "strong")
-        solver.updateVariables()
-        return [v.value() for v in vs]
-    except ki.UnsatisfiableConstraint:
-        return None
+    return _solve_strip_1d_pava(naturals, gaps, lo, hi)
 
 
 _ANCHOR_WEIGHT = 1.0e6
@@ -174,8 +138,8 @@ def _solve_strip_1d_pava(naturals, gaps, lo, hi, weights=None):
     """Minimum-(weighted-)total-leader-length 1D placement with per-pair gaps
     (ADR 0009 Amendment 4, P4b, #318).
 
-    Unlike :func:`_solve_strip_1d_var` (a Cassowary constraint-*satisfaction*
-    solve, which only needs to satisfy order/gap/bounds), this finds the
+    Unlike a bare constraint-*satisfaction* solve (which only needs to satisfy
+    order/gap/bounds — the retired Cassowary/kiwisolver path), this finds the
     placement minimising the (weighted) total leader length
     (``sum(w_i * abs(p_i - naturals[i]))``, L1 — leader length is a real
     distance, not a squared one) subject to the same constraints. It is the
@@ -576,7 +540,7 @@ class LayoutSolver:
         self, *, lo: float, hi: float, axis: Axis, greedy_fallback: bool = True
     ) -> dict | None:
         """Place every registered placeable with ``dof_axis == axis`` along that
-        axis, as one 1D Cassowary solve within ``[lo, hi]``.
+        axis, as one 1D strip solve within ``[lo, hi]``.
 
         Returns ``{key: position}`` for the placed members (``{}`` when none have
         this axis), or ``None`` when they cannot be made to fit. Members are
@@ -584,7 +548,7 @@ class LayoutSolver:
         of registration order; a single ``min_gap`` (the largest any member
         requires) separates neighbours.
 
-        When the exact Cassowary solve is infeasible and *greedy_fallback* is
+        When the exact 1D solve is infeasible and *greedy_fallback* is
         true (the default), a greedy packing is tried before giving up. A caller
         that does its own overflow handling (e.g. dropping a prefix and recording
         it) passes ``greedy_fallback=False`` to get the exact-or-``None`` contract
@@ -600,8 +564,8 @@ class LayoutSolver:
         naturals = [p.natural for p in members]
         min_gaps = [p.min_gap for p in members]
         if len(set(min_gaps)) <= 1:
-            # Uniform (or single) members — the scalar primitive, byte-identical
-            # to the pre-#81 path (preserves its exact (n-1)*gap arithmetic).
+            # Uniform (or single) members — the scalar primitive (one min_gap for
+            # every pair), delegating like the heterogeneous branch to the PAVA solve.
             gap = max(min_gaps)
             positions = _solve_strip_1d(naturals, gap, lo, hi)
             if positions is None and greedy_fallback:

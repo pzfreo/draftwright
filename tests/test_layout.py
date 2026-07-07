@@ -51,13 +51,12 @@ class TestSolveStrip1d:
         args = ([1.0, 1.0, 1.0, 1.0], 3.0, 0.0, 100.0)
         assert _solve_strip_1d(*args) == _solve_strip_1d(*args)
 
-    def test_falls_back_to_greedy_without_kiwisolver(self, monkeypatch):
-        # Simulate kiwisolver being unavailable; the import inside the primitive
-        # then raises ImportError and the greedy cursor is used.
+    def test_works_without_kiwisolver(self, monkeypatch):
+        # kiwisolver is retired (#507): the primitive delegates to the pure-Python PAVA
+        # solve and must never import it — force kiwisolver unavailable and assert the
+        # solve still produces the correct spaced placement (would ImportError if it tried).
         monkeypatch.setitem(__import__("sys").modules, "kiwisolver", None)
-        out = _solve_strip_1d([0, 0, 0], min_gap=5, lo=0, hi=100)
-        assert out == _greedy_strip_1d([0, 0, 0], 5, 0, 100)
-        assert out == [0, 5, 10]
+        assert _solve_strip_1d([0, 0, 0], min_gap=5, lo=0, hi=100) == [0, 5, 10]
 
 
 class TestGreedyStrip1d:

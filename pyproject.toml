@@ -18,7 +18,6 @@ dependencies = [
     "build123d>=0.9.0,<0.11 ; python_full_version < '3.13'",
     "build123d>=0.11,<0.12 ; python_full_version >= '3.13'",
     "build123d-drafting-helpers>=0.13.0",
-    "kiwisolver>=1.4,<2",
     "numpy>=1.24",
     "reportlab>=4.0",
     "svglib>=1.5",
