@@ -255,8 +255,16 @@ _SLOT_DIM_HEIGHT = 2 * _FONT_SIZE + 2 * _PAD  # fv_zones.right: overall height d
 
 
 _MIN_VIEW_MM = (
-    10.0  # min projected view dimension; below it annotation geometry degenerates (#129)
+    10.0  # min projected view dimension for a *legible* drawing; below it annotations crowd.
+    # This is a legibility floor, not a hard geometry limit: it binds the AUTO scale (choose_scale
+    # won't pick below it), but an explicit user scale is honoured with a warning (#489).
 )
+
+
+# Hard geometry floor: below this projected size OCCT's annotation arcs collapse
+# (Geom_TrimmedCurve U1==U2, ~1e-4 mm empirically). Far below any real drawing; an explicit
+# scale under it is rejected with a clean message rather than a cryptic OCP error (#489).
+_MIN_RENDER_MM = 0.1
 
 
 _SLOT_DIM_STEP = 4 * _FONT_SIZE + _PAD  # fv_zones.right: step-height dimension

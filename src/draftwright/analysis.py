@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 
 from build123d import Compound, Shape
 from build123d_drafting.helpers import draft_preset
@@ -22,6 +23,7 @@ from draftwright._core import (
     _DIM_PAD,
     _FONT_SIZE,
     _MARGIN,
+    _MIN_RENDER_MM,
     _MIN_VIEW_MM,
     Analysis,
     _legible_steps,
@@ -341,21 +343,34 @@ def _analyse(
             break
         n_for_sizing = n_next
     if scale is not None:
+        # An explicit scale is the user's call — honour it (#489). Two floors apply:
+        #  - _MIN_RENDER_MM: a hard geometry limit; below it OCCT's annotation arcs degenerate,
+        #    so reject with a clean message (there is no meaningful drawing this small anyway).
+        #  - _MIN_VIEW_MM: a legibility floor; below it annotations crowd but the drawing is
+        #    valid. The user who asked for an intentional 1:1 has accepted that — warn, don't
+        #    raise (only the AUTO scale is bound by legibility; choose_scale won't pick below it).
+        min_dim = min(x_size, y_size, z_size)
+        min_view = min_dim * SCALE
+        if min_view < _MIN_RENDER_MM:
+            safe = _MIN_RENDER_MM / min_dim
+            raise ValueError(
+                f"scale {SCALE!r} projects the smallest part dimension "
+                f"({min_dim:.0f} mm) to {min_view:.3g} mm — the drawing geometry degenerates "
+                f"below {_MIN_RENDER_MM:g} mm (OCCT arc construction fails). "
+                f"Use scale ≥ {safe:.3g} or omit the scale for automatic selection."
+            )
         auto_scale, _, _, _ = choose_scale(
             x_size, y_size, z_size, n_steps=n_for_sizing, scale=None, page=page, strips=strips_i
         )
-        if SCALE < auto_scale:
-            min_dim = min(x_size, y_size, z_size)
-            min_view = min_dim * SCALE
-            if min_view < _MIN_VIEW_MM:
-                safe = _MIN_VIEW_MM / min_dim
-                raise ValueError(
-                    f"scale {SCALE!r} projects the smallest part dimension "
-                    f"({min_dim:.0f} mm) to {min_view:.1f} mm — "
-                    f"annotation geometry degenerates below {_MIN_VIEW_MM:.0f} mm "
-                    f"(OCCT Standard_DomainError / SIGABRT). "
-                    f"Use scale ≥ {safe:.3g} or omit --scale for automatic selection."
-                )
+        if SCALE < auto_scale and min_view < _MIN_VIEW_MM:
+            safe = _MIN_VIEW_MM / min_dim
+            warnings.warn(
+                f"scale {SCALE!r} projects the smallest part dimension ({min_dim:.0f} mm) to "
+                f"{min_view:.1f} mm, below the {_MIN_VIEW_MM:.0f} mm legibility floor — "
+                f"annotations may crowd or overlap. Honouring the requested scale; use "
+                f"scale ≥ {safe:.3g} or omit the scale for an automatic legible fit.",
+                stacklevel=2,
+            )
     DIM_PAD = _DIM_PAD
     margin = _MARGIN
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
