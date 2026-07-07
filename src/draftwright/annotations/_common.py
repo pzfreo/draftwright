@@ -288,6 +288,11 @@ class CorridorCandidate:
             the same physical dimension; the higher-``precedence`` one survives (#345).
         precedence: dedup survivor rank — a hole *location* dim (feeds coverage/table
             escalation) outranks a coincident slot *position* line.
+        priority:   over-capacity survival rank (#357). When a strip cannot hold every
+            candidate, :func:`plan_strip` drops the lowest ``(priority, key)`` — so a higher
+            ``priority`` is kept. An authored GD&T frame sets this above the auto dims so it
+            is not dropped in favour of a lower-value auto dim purely by stacking-key order.
+            Default 0 (every auto dim) → key order, unchanged.
         on_place/on_drop: the pass's own post-placement bookkeeping — coverage
             registration / drop lint + `Escalation`, or a slot's below-side fallthrough.
         force:      policy-B force-keep after the corridor-respecting pass (locations have
@@ -301,6 +306,7 @@ class CorridorCandidate:
     on_drop: object
     dedup: tuple | None = None
     precedence: int = 0
+    priority: float = 0
     force: bool = False
     # The source IR feature this dim was rendered for — recorded as provenance when the
     # dim is placed at drain (ADR 0010). ``None`` leaves the annotation feature-less.
@@ -369,10 +375,20 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
     feats = {c.name: c.feature for c in kept if c.feature is not None}  # provenance (ADR 0010)
     sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
     forbid = {c.name: c.forbid for c in kept if c.forbid is not None}  # title-block box (#481)
+    prio = {c.name: c.priority for c in kept if c.priority}  # over-capacity survival rank (#357)
     left = {
         n
         for n, _ in place_strip_candidates(
-            dwg, strip, view, axis, pairs, tier, features=feats, sizes=sizes, forbid=forbid
+            dwg,
+            strip,
+            view,
+            axis,
+            pairs,
+            tier,
+            features=feats,
+            sizes=sizes,
+            forbid=forbid,
+            priorities=prio,
         )
     }
     force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
@@ -390,6 +406,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
                 features=feats,
                 sizes=sizes,
                 forbid=forbid,
+                priorities=prio,
             )
         }
         if force_pairs
@@ -424,7 +441,18 @@ def drain_corridors(dwg):
 
 
 def place_strip_candidates(
-    dwg, strip, view, axis, cands, tier, *, force=False, features=None, sizes=None, forbid=None
+    dwg,
+    strip,
+    view,
+    axis,
+    cands,
+    tier,
+    *,
+    force=False,
+    features=None,
+    sizes=None,
+    forbid=None,
+    priorities=None,
 ):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
@@ -449,6 +477,11 @@ def place_strip_candidates(
     names use the dimension default ``(tier, tier)``. A wide/tall occupant (a GD&T
     frame, #61) sets it so :func:`plan_strip` enforces its true stacking gap — over
     capacity it is relocated to the next segment or dropped, never overlapped.
+
+    *priorities* maps a candidate's name to its over-capacity survival rank (#357);
+    absent names default to 0. When a segment is over capacity :func:`plan_strip` drops
+    the lowest ``(priority, key)``, so a higher priority is kept — an authored GD&T frame
+    is not dropped for a lower-value auto dim purely by stacking-key order.
 
     ``force=True`` skips that corridor check — the caller's last resort when no view took
     the dim cleanly: keep it on its natural view and accept the (same-feature) leader
@@ -520,6 +553,7 @@ def place_strip_candidates(
                     f"{(k if inner == lo else len(take) - 1 - k):04d}",
                     anch,
                     (sizes or {}).get(nb[0], (tier, tier)),
+                    priority=(priorities or {}).get(nb[0], 0.0),
                 ),
                 nb,
             )
