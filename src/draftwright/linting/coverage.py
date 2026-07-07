@@ -36,6 +36,20 @@ from draftwright.recognition import (
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
+# Reconciliation tolerances (#487) mirror sheet_dsl._match_object (⌀ ≤ 0.2 mm, in-plane ≤ 0.5 mm):
+# a declared feature matches a recognised cylinder within these. Kept in sync by comment — linting/
+# sits below sheet_dsl in the DAG, so the literals cannot be shared by import.
+_RECON_DIA_TOL = 0.2
+_RECON_POS_TOL = 0.5
+
+# Declared feature kinds with a single defining cylinder to confirm against geometry, mapped to the
+# cylinder polarity that confirms them: a hole is a bore (external=False); a boss / turned step is
+# external material (external=True). Checking polarity stops a phantom hole being silenced by a
+# coaxial boss/OD of the same ⌀ (and vice-versa) — a callout over the wrong material (#487 review).
+# Envelope always exists; patterns/slots and aspects are out of scope (#499).
+_RECON_EXTERNAL = {"hole": False, "boss": True, "step": True}
+_RECON_KINDS = tuple(_RECON_EXTERNAL)  # derive to keep the kind list and polarity map in sync
+
 
 def _dim_vertices(ann) -> list[tuple[float, float]]:
     """A ``Dimension``'s witness endpoints as ``(x, y)`` page points; ``[]`` if they
@@ -440,3 +454,58 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
             ),
         )
     ]
+
+
+def lint_declaration_reconciliation(features, cyls) -> list:
+    """Flag a *declared* cylindrical feature with no matching geometry in the part (#487).
+
+    On the declarative path (``Sheet`` / ``build_drawing(part, model=…)``) a declaration can go
+    **stale**: the part is edited to remove a hole while the script still declares it, so a callout
+    renders over solid material yet coverage lint (which checks *detected → dimensioned*) stays
+    clean. This is the reverse direction — *declared → exists* — cross-checking each declared
+    feature against recognised geometry.
+
+    Only meaningful for a caller-DECLARED model; the detection path cannot over-declare, so the
+    caller gates on ``_model_declared``. ``features`` is the declared ``PartModel.features``, read
+    duck-typed (``.kind``/``.diameter``/``.frame`` — linting/ must not import ``model``); ``cyls``
+    is the ``(z_cyls, cross_cyls)`` from :func:`analyse_cylinders`. Scope is the cylindrical
+    singletons (hole/boss/step); a declared feature matches a recognised cylinder on same axis,
+    ⌀ within ``_RECON_DIA_TOL`` and in-plane position within ``_RECON_POS_TOL`` (the axis + ⌀ +
+    in-plane test ``sheet_dsl._match_object`` uses) **plus** a polarity check (``_RECON_EXTERNAL``)
+    that ``_match_object`` lacks — a hole reconciles against a bore, a boss/step against external
+    material. Non-fatal: every issue is a ``warning``.
+    """
+    records = [*cyls[0], *cyls[1]]
+    issues = []
+    for f in features:
+        if getattr(f, "kind", None) not in _RECON_KINDS:
+            continue
+        dia = getattr(f, "diameter", None)
+        frame = getattr(f, "frame", None)
+        if dia is None or frame is None:
+            continue
+        axis = str(frame.axis).lower()
+        origin = frame.origin
+        perp = [k for k in range(3) if k != "xyz".index(axis)]
+        want_external = _RECON_EXTERNAL[f.kind]
+        matched = any(
+            str(c["axis"]).lower() == axis
+            and bool(c["external"]) == want_external
+            and abs(c["diameter"] - dia) <= _RECON_DIA_TOL
+            and all(abs(origin[k] - c["axis_xyz"][k]) <= _RECON_POS_TOL for k in perp)
+            for c in records
+        )
+        if matched:
+            continue
+        issues.append(
+            LintIssue(
+                severity="warning",
+                code="declared_feature_absent",
+                message=(
+                    f"declared {f.kind} ⌀{_fmt(dia)} at "
+                    f"({_fmt(origin[0])}, {_fmt(origin[1])}, {_fmt(origin[2])}) has no matching "
+                    f"{axis}-axis cylinder in the part — stale declaration or the feature was removed"
+                ),
+            )
+        )
+    return issues
