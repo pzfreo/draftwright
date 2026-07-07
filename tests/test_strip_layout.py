@@ -135,8 +135,12 @@ def test_rotational_bore_leader_overflow_excluded_from_coverage():
     ):  # many nested bores → front view overflows
         part -= Pos(0, 0, 3 - i * 0.7) * Cylinder(r, 6)
     dwg = build_drawing(part)
-    assert dwg._coverage.dropped_diams, "overflowed bore leaders should register as dropped diams"
+    dropped = dwg._coverage.dropped_diams
+    assert dropped, "overflowed bore leaders should register as dropped diams"
     assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
+    # priority = diameter: the larger bores are retained, only the smaller ones drop
+    kept = [float(o.label.lstrip("ø")) for n, o in dwg.iter_annotations() if n.startswith("ldr_z")]
+    assert kept and max(dropped) < min(kept), "the ranking should drop the smallest bores first"
 
 
 def test_strip_obstacles_view_filter_drops_other_ortho_views():
