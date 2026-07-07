@@ -255,15 +255,18 @@ _SLOT_DIM_HEIGHT = 2 * _FONT_SIZE + 2 * _PAD  # fv_zones.right: overall height d
 
 
 _MIN_VIEW_MM = (
-    10.0  # min projected view dimension for a *legible* drawing; below it annotations crowd.
-    # This is a legibility floor, not a hard geometry limit: it binds the AUTO scale (choose_scale
-    # won't pick below it), but an explicit user scale is honoured with a warning (#489).
+    10.0  # legibility floor: the projected size below which an *explicit* scale earns a warning.
+    # It is NOT a bound on the auto scale (choose_scale is a pure geometric page fit) and does NOT
+    # gate which annotations exist (step/location legibility use _MIN_STEP_*/_MIN_LOC_SEP_MM). Its
+    # only use is the explicit-scale advisory in analysis.py: below it a user scale is honoured
+    # with a warning, not rejected (#489).
 )
 
 
 # Hard geometry floor: below this projected size OCCT's annotation arcs collapse
-# (Geom_TrimmedCurve U1==U2, ~1e-4 mm empirically). Far below any real drawing; an explicit
-# scale under it is rejected with a clean message rather than a cryptic OCP error (#489).
+# (Geom_TrimmedCurve U1==U2), which happens near 1e-4 mm empirically — 0.1 mm is a conservative
+# floor far above that and far below any real drawing. An explicit scale under it is rejected with
+# a clean message rather than a cryptic OCP error (#489).
 _MIN_RENDER_MM = 0.1
 
 

@@ -323,6 +323,19 @@ class TestScaleMinimum:
         result = make_drawing(part, out=str(tmp_path / "out"))
         assert result is not None
 
+    def test_inherently_subfloor_part_does_not_warn(self, tmp_path):
+        # A huge, thin part is below the legibility floor at EVERY page-fitting scale (even auto),
+        # so a bigger scale can't help — the legibility warning would be false advice. It must stay
+        # silent (like the auto path) and still render. (min_view 0.75 mm is > the 0.1 mm hard floor.)
+        import warnings
+
+        part = Box(3000, 3000, 15)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = make_drawing(part, out=str(tmp_path / "out"), scale=0.05)
+        assert result is not None
+        assert not [w for w in caught if "legibility floor" in str(w.message)]
+
     def test_sheet_explicit_scale_below_floor_is_honoured(self, tmp_path):
         # #489 public surface: Sheet(scale="1:10") on a thin part is below the legibility floor
         # (80 mm × 0.1 = 8 mm) but is the user's intentional choice — warn, render, don't raise.
