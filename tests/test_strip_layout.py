@@ -573,6 +573,34 @@ def test_place_strip_candidates_priority_survives_key_order():
     assert placed1 == {"a"} and left1 == {"b"}
 
 
+def test_register_corridor_uses_largest_tier_across_producers():
+    # #477: below/right corridors now collect candidates from mixed producers
+    # (locations, envelope, GD&T/PMI). Spacing must not depend on which pass registers first.
+    from types import SimpleNamespace
+
+    from draftwright.annotations._common import CorridorCandidate, register_corridor
+
+    def _cand(name):
+        return CorridorCandidate(
+            name=name,
+            build=lambda _pos: None,
+            order=(0, name),
+            on_place=lambda _nm: None,
+            on_drop=lambda _nm: None,
+        )
+
+    dwg = SimpleNamespace(_corridor_batch={})
+    key = ("side", "below")
+    register_corridor(dwg, key, object(), "side", "y", 4.0, _cand("small"))
+    register_corridor(dwg, key, object(), "side", "y", 9.0, _cand("large"))
+    assert dwg._corridor_batch[key]["tier"] == 9.0
+
+    dwg = SimpleNamespace(_corridor_batch={})
+    register_corridor(dwg, key, object(), "side", "y", 9.0, _cand("large"))
+    register_corridor(dwg, key, object(), "side", "y", 4.0, _cand("small"))
+    assert dwg._corridor_batch[key]["tier"] == 9.0
+
+
 def test_place_strip_candidates_refills_after_late_forbid_rejection():
     # #524 review: segment preselection must not waste capacity when the chosen
     # high-priority candidate is rejected only after rendering (e.g. title-block

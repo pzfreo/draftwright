@@ -425,10 +425,13 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
 def register_corridor(dwg, key, strip, view, axis, tier, cand):
     """Queue a :class:`CorridorCandidate` under a shared corridor *key* so one
     :func:`drain_corridors` places the whole cross-pass set together (ADR 0009 end state).
-    The first registration for a key fixes its ``(strip, view, axis, tier)``."""
+    The first registration for a key fixes its ``(strip, view, axis)``; mixed producers on
+    the same corridor use the largest requested tier so spacing is not registration-order
+    dependent."""
     b = dwg._corridor_batch.setdefault(
         key, {"strip": strip, "view": view, "axis": axis, "tier": tier, "cands": []}
     )
+    b["tier"] = max(b["tier"], tier)
     b["cands"].append(cand)
 
 

@@ -361,6 +361,8 @@ def render_slots(dwg, model, a, *, only=None) -> int:
 # by datum distance). Segregating the two runs keeps a slot length from landing mid-ladder.
 _SIZE_SUBCHAIN = 0
 _LOC_SUBCHAIN = 1
+_OVERALL_SUBCHAIN = 2
+_MANDATORY_OVERALL_PRIORITY = 100.0
 
 
 def _location_candidate(dwg, name, *, view, span_key, distance, build, feature=None):
@@ -802,8 +804,8 @@ def _envelope_tier(dwg, strip, view, size):
     ``allocate`` gave the right order only because an earlier pass had advanced a
     shared cursor; that coupling inverted the moment the location pass moved to
     ``plan_strip`` (#321), which never advances the cursor. Reading obstacle boxes
-    decouples the two passes. #133 mandatory-dim starvation is still guarded upstream
-    by the orchestrator's tier reservation.
+    decouples the two passes. The current renderer queues envelope dims into the shared
+    corridor instead; #133 mandatory-dim starvation is guarded by envelope priority.
 
     Assumes a below/above strip (Y stacking axis) — the only strips ``render_envelope``
     uses; a left/right strip would need the X interval of each obstacle box."""
@@ -822,55 +824,78 @@ def _envelope_tier(dwg, strip, view, size):
 
 def render_envelope(dwg, groups, a) -> int:
     """Overall width (plan, below) + depth (side, below) envelope dims via the IR,
-    placed by carving each below-strip around the feature/location dims already on it
-    (ADR 0009) — so the overall dim stacks outermost by construction, no longer via a
-    shared strip cursor an earlier pass had to advance. The **planner** decides
-    suppression (square footprint / X-turned; #250); this renderer just skips
-    suppressed dims and places the rest. Returns the count placed."""
+    registered into the same below-strip corridor as feature/location/GD&T/PMI candidates.
+    The overall dims use the last ladder subchain so they stack outermost by construction,
+    while their mandatory priority prevents best-effort below-strip occupants from starving
+    principal dimensions. The **planner** decides suppression (square footprint / X-turned;
+    #250); this renderer just skips suppressed dims and queues the rest. Returns the count
+    queued."""
     env = envelope_group(groups)
     if env is None:
         return 0
     n = 0
+
+    def _queue(name, strip, view, tier, distance, build):
+        register_corridor(
+            dwg,
+            (view, "below"),
+            strip,
+            view,
+            "y",
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=build,
+                order=(_OVERALL_SUBCHAIN, distance, name),
+                on_place=lambda _nm: None,
+                on_drop=lambda _nm: None,
+                priority=_MANDATORY_OVERALL_PRIORITY,
+                force=True,
+            ),
+        )
+
     width = _env_pd(env, "width")
     if env_dim_placed(width):
         (x0, y0, z0), (x1, _, _) = width.param.span
         p1, p2 = dwg.at("plan", x0, y0, z0), dwg.at("plan", x1, y0, z0)
         witness = p1[1] - 2
-        py = _envelope_tier(dwg, a.pv_zones.below, "plan", _SLOT_DIM_WIDTH)
-        if py is not None:
-            dwg.add(
-                _dim(
-                    (p1[0], witness, 0),
-                    (p2[0], witness, 0),
-                    "below",
-                    witness - py,
-                    dwg.draft,
-                    label=_fmt(width.param.value),
-                ),
-                "m_env_width",
-                view="plan",
-            )
-            n += 1
+        _queue(
+            "m_env_width",
+            a.pv_zones.below,
+            "plan",
+            _SLOT_DIM_WIDTH,
+            abs(x1 - x0),
+            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.param.value: _dim(
+                (_p1[0], _w, 0),
+                (_p2[0], _w, 0),
+                "below",
+                _w - pos,
+                dwg.draft,
+                label=_fmt(_v),
+            ),
+        )
+        n += 1
     depth = _env_pd(env, "depth")
     if env_dim_placed(depth):
         (x0, y0, z0), (_, y1, _) = depth.param.span
         p1, p2 = dwg.at("side", x0, y0, z0), dwg.at("side", x0, y1, z0)
         witness = p1[1] - 2
-        pd = _envelope_tier(dwg, a.sv_zones.below, "side", _SLOT_DIM_DEPTH)
-        if pd is not None:
-            dwg.add(
-                _dim(
-                    (p1[0], witness, 0),
-                    (p2[0], witness, 0),
-                    "below",
-                    witness - pd,
-                    dwg.draft,
-                    label=_fmt(depth.param.value),
-                ),
-                "m_env_depth",
-                view="side",
-            )
-            n += 1
+        _queue(
+            "m_env_depth",
+            a.sv_zones.below,
+            "side",
+            _SLOT_DIM_DEPTH,
+            abs(y1 - y0),
+            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.param.value: _dim(
+                (_p1[0], _w, 0),
+                (_p2[0], _w, 0),
+                "below",
+                _w - pos,
+                dwg.draft,
+                label=_fmt(_v),
+            ),
+        )
+        n += 1
     return n
 
 
@@ -1920,10 +1945,11 @@ def render_pmi(dwg, model, a) -> int:
 # NOT through the dimension planner (their IR items carry no DimParameters). "note" is a
 # free-text manufacturing note (#488) — the same leader-into-a-strip mechanism, glyph = text.
 _GDT_KINDS = ("control_frame", "datum_ref", "finish", "note")
-# Outer run of the shared corridor ladder: GD&T frames tier BEYOND the feature-size
-# (_SIZE_SUBCHAIN=0) and datum-location (_LOC_SUBCHAIN=1) dim runs, so a frame never lands
-# mid-ladder among the dimensions it annotates.
-_GDT_SUBCHAIN = 2
+# Authored-intent run of the shared corridor ladder: GD&T frames tier BEYOND the
+# feature-size (_SIZE_SUBCHAIN=0), datum-location (_LOC_SUBCHAIN=1), and overall
+# envelope (_OVERALL_SUBCHAIN=2) dim runs, so a frame never lands mid-ladder among
+# the dimensions it annotates.
+_GDT_SUBCHAIN = 3
 # Over-capacity survival rank for an authored GD&T frame (#357): a declared control frame /
 # datum / finish / note is deliberate intent, so on a strip too full for every candidate it is
 # kept over the auto dims (locations/slots, priority 0) rather than dropped by stacking-key order.

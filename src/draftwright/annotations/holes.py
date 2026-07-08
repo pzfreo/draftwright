@@ -32,6 +32,7 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
+    CorridorCandidate,
     Escalation,
     _box_hits,
     _geom_box,
@@ -39,6 +40,7 @@ from draftwright.annotations._common import (
     carve_free_position,
     carve_free_segments,
     place_strip_candidates,
+    register_corridor,
     strip_obstacles,
 )
 from draftwright.annotations.from_model import (
@@ -497,8 +499,9 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
       the envelope so the overall depth dim lands outside it (the side-view
       counterpart of the plan view, where location dims already precede the
       envelope). Fixes the inverted stack where the overall dim sat innermost and
-      forced the shorter location dim's arrows outside. The orchestrator reserves the
-      envelope's tier first, so these best-effort dims can't starve it.
+      forced the shorter location dim's arrows outside. The envelope and these
+      best-effort dims now co-solve in one corridor; envelope priority prevents
+      starvation.
     - ``"along"`` — a Y-axis hole's X (front-below) location and every hole's height
       (Z, right-strip), placed AFTER the envelope and the turned-diameter passes so
       they never evict those overall dims from the contended front-below / right
@@ -566,6 +569,44 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
             dwg, strip, view, axis, cands, tier, force=force, features=features
         )
 
+    def _queue(
+        strip,
+        view,
+        side,
+        axis,
+        cands,
+        *,
+        features=None,
+        force=True,
+        on_drop=None,
+        order_key=None,
+    ):
+        # Below/right side-hole locations now feed the same corridor batch as envelope,
+        # GD&T, and PMI (#477). Their historical policy was force-keep unless the strip is
+        # physically full; callers that have a relocation path provide an on_drop fallback.
+        if strip is None:
+            for name, _build in cands:
+                (on_drop or (lambda _nm: None))(name)
+            return
+        for i, (name, build) in enumerate(cands):
+            register_corridor(
+                dwg,
+                (view, side),
+                strip,
+                view,
+                axis,
+                tier,
+                CorridorCandidate(
+                    name=name,
+                    build=build,
+                    order=(1, order_key(name, i) if order_key is not None else i, name),
+                    on_place=lambda _nm: None,
+                    on_drop=(on_drop or (lambda _nm: None)),
+                    force=force,
+                    feature=(features or {}).get(name),
+                ),
+            )
+
     def _off_axis_owner(hole_locs):
         # The IR hole feature owning a side-drilled location dim, or None when the dim's
         # offset is shared by >1 distinct feature (unowned, so drop can't over-strip a
@@ -575,17 +616,16 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
         feats.discard(None)
         return next(iter(feats)) if len(feats) == 1 else None
 
-    # "across" phase — an X-axis hole's Y position below the SIDE view, placed BEFORE
+    # "across" phase — an X-axis hole's Y position below the SIDE view, queued with
     # the envelope so the overall depth dim stacks outside it (ISO order). Confined to
     # the side view: a Y-axis hole's X position contends the FRONT-below strip with the
     # turned-diameter ø-row, so it stays in the "along" phase (after the diameter pass),
-    # preserving the #133 priority. The orchestrator reserves one sv_zones.below tier
-    # for the mandatory envelope depth before calling this, so these best-effort
-    # location dims can never starve it.
+    # preserving the #133 priority.
     if which == "across":
         yw = SZ(dz) - 2
         seen_y: set = set()
         cands = []
+        order_y: dict = {}
         loc_by_name: dict = {}  # dim name -> contributing hole locations (for provenance)
         for h in (h for h in off if _axis_letter(h) == "x"):
             yo = round(abs(h.location[1] - dy), 2)
@@ -593,6 +633,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
                 continue
             name = f"dim_loc_side_y{round(yo * 100)}"
             loc_by_name.setdefault(name, []).append(h.location)
+            order_y[name] = yo
             if yo not in seen_y:
                 seen_y.add(yo)
                 p_lo, p_hi = (SX(dy), yw, 0), (SX(h.location[1]), yw, 0)
@@ -605,12 +646,16 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
                     )
                 )
         feats = {nm: _off_axis_owner(locs) for nm, locs in loc_by_name.items()}
-        leftover = _emit(a.sv_zones.below, "side", "y", cands, features=feats)
-        leftover = _emit(
-            a.sv_zones.below, "side", "y", leftover, force=True, features=feats
-        )  # keep, don't drop
-        for _ in leftover:
-            _drop("y", "side")
+        _queue(
+            a.sv_zones.below,
+            "side",
+            "below",
+            "y",
+            cands,
+            features=feats,
+            on_drop=lambda _nm: _drop("y", "side"),
+            order_key=lambda nm, _i: order_y.get(nm, _i),
+        )
         return
 
     # "along" phase (after the envelope + turned-diameter passes): a Y-axis hole's X
@@ -618,6 +663,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
     xw = FZ(dz) - 2
     seen_x: set = set()
     x_cands = []
+    order_x: dict = {}
     x_loc_by_name: dict = {}
     for h in (h for h in off if _axis_letter(h) == "y"):
         xo = round(abs(h.location[0] - dx), 2)
@@ -625,6 +671,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
             continue
         name = f"dim_loc_front_x{round(xo * 100)}"
         x_loc_by_name.setdefault(name, []).append(h.location)
+        order_x[name] = xo
         if xo not in seen_x:
             seen_x.add(xo)
             p_lo, p_hi = (FX(dx), xw, 0), (FX(h.location[0]), xw, 0)
@@ -637,12 +684,16 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
                 )
             )
     x_feats = {nm: _off_axis_owner(locs) for nm, locs in x_loc_by_name.items()}
-    x_leftover = _emit(a.fv_zones.below, "front", "y", x_cands, features=x_feats)
-    x_leftover = _emit(
-        a.fv_zones.below, "front", "y", x_leftover, force=True, features=x_feats
-    )  # keep, don't drop
-    for _ in x_leftover:
-        _drop("x", "front")
+    _queue(
+        a.fv_zones.below,
+        "front",
+        "below",
+        "y",
+        x_cands,
+        features=x_feats,
+        on_drop=lambda _nm: _drop("x", "front"),
+        order_key=lambda nm, _i: order_x.get(nm, _i),
+    )
 
     # Height offset (Z): a hole's height is visible to the RIGHT of both the side and
     # the front view. Neither right strip is universally free — the side view's is
@@ -682,15 +733,36 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
         side_cand = (a.sv_zones.right, "side", (zr, SZ(dz), 0), (zr, SZ(hz), 0), zr)
         front_cand = (a.fv_zones.right, "front", (zrf, FZ(dz), 0), (zrf, FZ(hz), 0), zrf)
         order = (side_cand, front_cand) if _axis_letter(h) == "x" else (front_cand, side_cand)
-        for strip, view, p_lo, p_hi, edge in order:
-            if not _emit(strip, view, "x", [_zc(view, p_lo, p_hi, edge)], features=_zf(view)):
-                break
-        else:
-            strip, view, p_lo, p_hi, edge = order[0]
-            if _emit(
-                strip, view, "x", [_zc(view, p_lo, p_hi, edge)], force=True, features=_zf(view)
-            ):
-                _drop("Z", view)
+        primary, *alternates = order
+        strip, view, p_lo, p_hi, edge = primary
+        primary_cand = _zc(view, p_lo, p_hi, edge)
+
+        def _fallback(
+            _nm,
+            _primary=primary,
+            _alts=tuple(alternates),
+            _cand=primary_cand,
+            _feature_map=_zf,
+        ):
+            for alt_strip, alt_view, alt_p_lo, alt_p_hi, alt_edge in _alts:
+                alt = _zc(alt_view, alt_p_lo, alt_p_hi, alt_edge)
+                if not _emit(alt_strip, alt_view, "x", [alt], features=_feature_map(alt_view)):
+                    return
+            p_strip, p_view, _p_lo, _p_hi, _edge = _primary
+            if _emit(p_strip, p_view, "x", [_cand], force=True, features=_feature_map(p_view)):
+                _drop("Z", p_view)
+
+        _queue(
+            strip,
+            view,
+            "right",
+            "x",
+            [primary_cand],
+            features=_zf(view),
+            force=False,
+            on_drop=_fallback,
+            order_key=lambda _nm, _i, _zo=zo: _zo,
+        )
 
 
 def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_page):
