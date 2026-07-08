@@ -378,6 +378,7 @@ def _repack(
             a.layout_strips,
             a.layout_n_steps,
             blocks=blocks,
+            section=a.layout_section,
             warn_no_iso=False,
         )
 
@@ -546,7 +547,16 @@ def build_drawing(
     title = title or stem.replace("_", " ").upper()
 
     a = _analyse(
-        step_file, title, number, tolerance, drawn_by, out, scale=scale, page=page, pmi=pmi
+        step_file,
+        title,
+        number,
+        tolerance,
+        drawn_by,
+        out,
+        scale=scale,
+        page=page,
+        pmi=pmi,
+        model=model,
     )
 
     # Pass 1: place + annotate from the estimated layout, then measure the real

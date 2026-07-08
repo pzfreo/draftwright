@@ -46,6 +46,7 @@ from draftwright._core import (
     _legible_steps,
     _log,
 )
+from draftwright.annotations._common import strip_obstacles
 from draftwright.model import plan_sections
 
 _DETAIL_LETTERS = "ABCDEFGH"
@@ -210,12 +211,11 @@ def _add_section_view(dwg, a: Analysis, section):
     if side_hid:
         side_right = max(side_right, side_hid.bounding_box().max.X)
     left_edge = side_right + 10
-    for name, ann in dwg.iter_annotations():
-        # past side-view callout labels and the height/step dim ladder
-        if name.startswith(("hc_side", "dim_height", "dim_step")) and getattr(
-            ann, "label_bbox", None
-        ):
-            left_edge = max(left_edge, ann.label_bbox[2] + 6)
+    row_y0 = a.FV_Y - half_h - 10
+    row_y1 = a.FV_Y + half_h + 6
+    for x0, y0, x1, y1 in strip_obstacles(dwg):
+        if y0 < row_y1 and row_y0 < y1 and x1 > side_right:
+            left_edge = max(left_edge, x1 + 6)
     pos_x = left_edge + half_w
     iso_x0, iso_y0, _, _ = _iso_bbox(dwg)
     right_limit = a.PAGE_W - a.margin

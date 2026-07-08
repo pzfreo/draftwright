@@ -518,6 +518,7 @@ class Analysis:
     step_zs: list[float]
     layout_strips: StripDepths
     layout_n_steps: int
+    layout_section: bool
     sv_right: float
     iso_right_limit: float
     SCALE: float

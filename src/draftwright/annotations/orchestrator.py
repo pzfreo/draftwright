@@ -312,16 +312,6 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # the planner's decision (#250); the renderer just skips suppressed dims.
     render_envelope(dwg, _groups, a)
 
-    # The section view goes last: its room check clears every annotation already
-    # placed right of the side view (callout labels, height/step dim ladders). The
-    # *trigger* + cut-plane row were already decided (`_section`, above — reused so
-    # the pure planner call isn't repeated); the renderer just draws the planned
-    # section. Concentric bores on a turned part are excluded via feature_keys (the
-    # ldr_z leaders cover them).
-    section = _section
-    if section is not None:
-        _add_section_view(dwg, a, section)
-
     # Prismatic step-height detail: queue it (only when build_drawing(detail_view=True))
     # — resolved with every other detail request below (#307).
     if detail_view:
@@ -360,8 +350,16 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     # Now every corridor feeder pass has registered; solve each shared strip once
     # (ADR 0009 end state, #345/#346/#393) — dedup coincident spans, order the ladder —
-    # BEFORE detail views so they see the placed ladder as an obstacle.
+    # BEFORE the section/detail views so they see the placed ladder as an obstacle.
     drain_corridors(dwg)
+
+    # The section view renders after the corridor-drained furniture exists, so
+    # its full strip_obstacles room check can see side callouts, envelope dims,
+    # slots, GD&T/PMI, and drained ladder outputs as one occupancy set. Details
+    # still render after it and avoid the section view.
+    section = _section
+    if section is not None:
+        _add_section_view(dwg, a, section)
 
     # Resolve every queued enlarged-detail request (#307) — prismatic step bands and
     # crowded turned heads alike — through the one generic detailer, now that all
