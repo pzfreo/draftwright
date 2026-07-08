@@ -379,6 +379,7 @@ def _repack(
             a.layout_n_steps,
             blocks=blocks,
             section=a.layout_section,
+            table_sizes=a.layout_table_sizes,
             warn_no_iso=False,
         )
 
