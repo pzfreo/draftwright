@@ -52,7 +52,7 @@ collision class by construction while keeping determinism (ADR 0001).
 
 ## Status
 
-Updated 2026-07-02.
+Updated 2026-07-08.
 
 - **P0 (#317)** — done: characterization gate (#326), `strip_obstacles` complete
   per-strip occupancy (#327), `StripCandidate` + `plan_strip` + `StripPlacement`
@@ -79,6 +79,15 @@ Updated 2026-07-02.
   carve (#342), `render_pmi` (#343), and the public `place_dim` (#344). Shared primitives
   in `annotations/_common.py`: `place_strip_candidates`, `carve_free_position`,
   `strip_free_span`/`carve_free_segments`/`corridor_blockers`/`strip_obstacles`.
+- **Post-P3 solver-path consolidation (#524, 2026-07-08)** — closed the audit drift
+  between the original P3 carve migration and the later shared-corridor end state:
+  `render_pmi` now queues STEP PMI as first-class corridor candidates before the drain
+  (#393), front-view hole callouts use the strip solver instead of fixed row stepping
+  (#513), pitch-dimension fallback is bounded and obstacle-aware instead of count-stacked
+  (#514), `repair()` no longer fixed-step nudges `annotation_overlap` (#521), and the
+  step-count sizing loop handles non-convergence conservatively (#520). The PR also
+  hardened `place_strip_candidates` so late `forbid`/corridor rejections refill segment
+  capacity from remaining candidates instead of wasting a slot.
 - **P5 (#319)** — **DONE (2026-07-02, closes #319).** All four strands landed, plus the
   CTC-02 CI-regression side-discovery below (fixed separately, #349 follow-up, PR #373).
   - **Strand 1 — DONE (#349, closes #150):** deleted the `Strip.allocate`/`peek`/`_cursor`
