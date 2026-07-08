@@ -143,14 +143,16 @@ def _will_section(holes, patterns, *, is_rotational=False, cx=0.0, cy=0.0) -> bo
     def feature_hole(h) -> bool:
         if _axis_letter(h) != "z":
             return False
-        if is_rotational and math.hypot(h.location[0] - cx, h.location[1] - cy) <= _CONCENTRIC_TOL_MM:
+        if (
+            is_rotational
+            and math.hypot(h.location[0] - cx, h.location[1] - cy) <= _CONCENTRIC_TOL_MM
+        ):
             return False
         return True
 
     def qualifies(h) -> bool:
-        return (
-            feature_hole(h)
-            and (h.cbore is not None or h.spotface is not None or h.bottom != "through")
+        return feature_hole(h) and (
+            h.cbore is not None or h.spotface is not None or h.bottom != "through"
         )
 
     return any(qualifies(h) for p in patterns for h in p.holes[:1]) or any(

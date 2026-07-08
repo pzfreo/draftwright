@@ -28,9 +28,7 @@ from build123d import (
     Vector,
 )
 from build123d_drafting.helpers import (
-    Dimension,
     Leader,
-    SafeDimension,
     ViewCoordinates,
     annotate,
     view_axes,
@@ -48,7 +46,7 @@ from draftwright._core import (
     _tag_sequence,
     _text_width,
 )
-from draftwright.annotations._common import carve_free_position
+from draftwright.annotations._common import carve_free_position, strip_obstacles
 from draftwright.export import (
     _export_shape,
     _render_pdf,
@@ -1202,6 +1200,7 @@ class Drawing:
         ph = a.PAGE_H if a is not None else self.page_h
         region = (margin, margin, pw - margin, ph - margin)
         obstacles = [b for v in self.views if (b := self.view_bounds(v)) is not None]
+        obstacles.extend(strip_obstacles(self))
         for o in self.items:
             try:
                 bb = o.bounding_box()
@@ -1261,35 +1260,23 @@ class Drawing:
         margin, ph, pw = a.margin, a.PAGE_H, a.PAGE_W
 
         # Stack the balloon ring *beyond* the annotations already placed around the
-        # plan view, not on top of them (#121). Measure the REAL depth the dimensions
-        # extend into each band from their placed bounding boxes — the strip cursor's
-        # `depth_used` is retired (ADR 0009 / #150) and would report a constant gap.
-        # (This is what the top band already did because `depth_used` went stale under
-        # the hole-table escalation, #125; now every side measures the same way.) Match
-        # on DIMENSION type (not a `dim_` name prefix — that would drop the m_env_*/
-        # m_loc*/m_slot* dims below/beside the view), plus PMI leaders (pmi_*). Balloons,
-        # the table, construction centrelines (bc_*) and callouts are not Dimensions and
-        # are correctly excluded (centrelines are crossable; callouts route separately).
+        # plan view, not on top of them (#121). Measure the REAL depth every placed
+        # occupant extends into each band from its full rendered footprint — leader
+        # shafts, centreline geometry, tables, and bare extension lines included.
+        # This intentionally shares the same full-footprint occupancy source as
+        # corridor placement (#518), instead of re-growing a per-furniture allowlist.
         top_dim = bot_dim = left_dim = right_dim = 0.0
-        for nm, obj in self._named.items():
-            if self._anno_view.get(nm) != view:
-                continue
-            if not isinstance(obj, (Dimension, SafeDimension)) and not nm.startswith("pmi_"):
-                continue
-            try:
-                ob = obj.bounding_box()
-            except Exception:  # noqa: BLE001 — a mark with no bbox can't obstruct
-                continue
-            if ob.max.X > pl and ob.min.X < pr:  # spans the plan's width → top/bottom bands
-                if ob.max.Y > pt:
-                    top_dim = max(top_dim, ob.max.Y - pt)
-                if ob.min.Y < pb:
-                    bot_dim = max(bot_dim, pb - ob.min.Y)
-            if ob.max.Y > pb and ob.min.Y < pt:  # spans the plan's height → left/right bands
-                if ob.min.X < pl:
-                    left_dim = max(left_dim, pl - ob.min.X)
-                if ob.max.X > pr:
-                    right_dim = max(right_dim, ob.max.X - pr)
+        for x0, y0, x1, y1 in strip_obstacles(self, view=view):
+            if x1 > pl and x0 < pr:  # spans the plan's width → top/bottom bands
+                if y1 > pt:
+                    top_dim = max(top_dim, y1 - pt)
+                if y0 < pb:
+                    bot_dim = max(bot_dim, pb - y0)
+            if y1 > pb and y0 < pt:  # spans the plan's height → left/right bands
+                if x0 < pl:
+                    left_dim = max(left_dim, pl - x0)
+                if x1 > pr:
+                    right_dim = max(right_dim, x1 - pr)
 
         # A dense part can stack many pitch dims on one side (holes._place_pitch_dim
         # pushes each successive one 10 mm further out, #92), so the measured depth

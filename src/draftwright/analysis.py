@@ -74,10 +74,7 @@ def _declared_will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> boo
     features = getattr(model, "features", model)
 
     def feature_member(pt) -> bool:
-        return not (
-            is_rotational
-            and math.hypot(pt[0] - cx, pt[1] - cy) <= _CONCENTRIC_TOL_MM
-        )
+        return not (is_rotational and math.hypot(pt[0] - cx, pt[1] - cy) <= _CONCENTRIC_TOL_MM)
 
     for feat in features:
         if getattr(feat, "kind", None) not in ("hole", "pattern"):

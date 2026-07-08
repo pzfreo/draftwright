@@ -449,13 +449,11 @@ def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter:
                 continue
             vb = shp.bounding_box()
             obstacles.append((vb.min.X, vb.min.Y, vb.max.X, vb.max.Y))
-    # Also avoid placed dimension *labels* (not bare centre/leader lines) — a detail
-    # landing on a front-view callout reads as illegible and the repack can't see it
-    # (detail_* views are not orthographic) (#307 review). Text boxes only.
-    for _name, o in dwg.iter_annotations():
-        lb = getattr(o, "label_bbox", None)
-        if lb is not None:
-            obstacles.append(tuple(lb))
+    # Also avoid placed annotations by their full rendered footprints — leader
+    # shafts, centrelines, extension lines, labels, and drawing-level furniture
+    # alike. Detail views are not orthographic, so repack cannot later rescue a
+    # detail placed on invisible occupant geometry (#518).
+    obstacles.extend(strip_obstacles(dwg))
     obstacles.append(
         (a.PAGE_W - a.TB_W - _TB_CLEAR, a.margin, a.PAGE_W - _TB_CLEAR, _TB_CLEAR + _TB_H)
     )
