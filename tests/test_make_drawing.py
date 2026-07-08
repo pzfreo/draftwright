@@ -6808,6 +6808,19 @@ def _dense_plate():
 class TestHoleTable:
     """#93: hole table placed in a free corner via place_box."""
 
+    class _Boxed:
+        def __init__(self, bb):
+            from types import SimpleNamespace
+
+            x0, y0, x1, y1 = bb
+            self._bb = SimpleNamespace(
+                min=SimpleNamespace(X=x0, Y=y0),
+                max=SimpleNamespace(X=x1, Y=y1),
+            )
+
+        def bounding_box(self):
+            return self._bb
+
     @staticmethod
     def _area(a, b):
         ox = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
@@ -6855,6 +6868,50 @@ class TestHoleTable:
         members = [("t", 0, object(), 0.0, float(i)) for i in range(5)]
         dropped = Drawing._place_band(stub, "plan", members, "y", 50.0, 0.0, 20.0, 10.0, 3.0, 5.0)
         assert dropped == 2 and len(rendered) == 3
+
+    def test_balloon_ring_depth_uses_bare_obstacle_footprints(self):
+        from types import SimpleNamespace
+
+        from draftwright._core import _STRIP_GAP
+
+        calls = []
+        a = SimpleNamespace(
+            PV_X=50.0,
+            PV_Y=50.0,
+            fv_hw=20.0,
+            pv_hh=10.0,
+            SV_X=95.0,
+            sv_hw=10.0,
+            margin=0.0,
+            PAGE_H=120.0,
+            PAGE_W=120.0,
+            FV_Y=20.0,
+            fv_hh=5.0,
+        )
+        pt = a.PV_Y + a.pv_hh
+        bare_obstacle = self._Boxed((35.0, pt + 2.0, 65.0, pt + 12.0))
+
+        def place_band(view, members, axis, line, lo, hi, gap, fs, r):
+            calls.append((view, members, axis, line, lo, hi, gap, fs, r))
+            return 0
+
+        stub = SimpleNamespace(
+            _analysis=a,
+            _coords={"plan": SimpleNamespace(pp=lambda *_loc: (50.0, 58.0))},
+            draft=SimpleNamespace(font_size=3.0),
+            iter_annotations=lambda: iter([("bare_obstacle", bare_obstacle)]),
+            view_of=lambda _name: "plan",
+            _place_band=place_band,
+            _record_build_issue=lambda *_args: None,
+        )
+        hole = SimpleNamespace(location=(0.0, 0.0, 0.0), diameter=4.0)
+
+        Drawing._add_balloons(stub, "plan", [("A", 0, hole)])
+
+        top_call = next(call for call in calls if call[2] == "x" and call[1])
+        _view, _members, _axis, line, *_rest, fs, r = top_call
+        assert line == pytest.approx(pt + 12.0 + _STRIP_GAP + r)
+        assert fs == 3.0
 
     def test_table_and_balloons_keep_lint_clean(self):
         # covers_diameters lets coverage lint count the tabulated holes, and the
