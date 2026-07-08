@@ -861,21 +861,20 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
     else:
         pref = (-0.3, 1.0) if view == "plan" else (-0.3, -1.0)
         side, reach = max(cands, key=lambda c: c[0][0] * pref[0] + c[0][1] * pref[1])
+    fallback_sides = [(side, reach)] + [c for c in cands if c[0] != side]
 
-    def _place(off):
-        dwg.add(
-            _dim(
-                (p1[0], p1[1], 0),
-                (p2[0], p2[1], 0),
-                side,
-                off,
-                dwg.draft,
-                label=f"{n - 1}× {_fmt(pitch)}",
-            ),
-            name,
-            view=view,
-            feature=feature,
+    def _make(off, side_vec=side):
+        return _dim(
+            (p1[0], p1[1], 0),
+            (p2[0], p2[1], 0),
+            side_vec,
+            off,
+            dwg.draft,
+            label=f"{n - 1}× {_fmt(pitch)}",
         )
+
+    def _place(off, side_vec=side):
+        dwg.add(_make(off, side_vec), name, view=view, feature=feature)
 
     # Place onto the zone strip for the chosen side (#374): each side is its own strip, so the
     # obstacle-aware carve stacks this dim clear of placed content — where an arbitrary-direction
@@ -913,19 +912,38 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
         tier = max(10.0, dwg.draft.font_size * 3.0)
         pos = carve_free_position(dwg, strip, view, axis, tier, perp)
         if pos is not None:
-            _place(sgn * (pos - witness))
+            _place(sgn * (pos - witness), side)
             return
 
-    # Fallback: diagonal side / absent strip / full strip → the pre-#374 bounded vector placement,
-    # count-stacked and margin-guarded, so those residual cases are byte-identical to before.
-    prior = sum(1 for nm, _ in dwg.iter_annotations() if nm.startswith(f"dim_pitch_{view}"))
-    offset = reach + 8 + 10 * prior
-    ox = mid[0] + side[0] * (offset + 6)
-    oy = mid[1] + side[1] * (offset + 6)
-    if not (a.margin <= ox <= a.PAGE_W - a.margin and a.margin <= oy <= a.PAGE_H - a.margin):
-        _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, _fmt(pitch))
-        return
-    _place(offset)
+    # Fallback: diagonal side / absent strip / full strip. This cannot cleanly occupy an
+    # axis-aligned strip tier, so search bounded offsets along the chosen outward vector and
+    # test the full generated dimension footprint against this view's placed obstacles (#514).
+    # Rotated grids can need the two perpendicular pitch dims on opposite sides, so try the
+    # preferred side first and then its opposite before declaring the row genuinely full.
+    step = max(2.5, dwg.draft.font_size)
+    limit = math.hypot(a.PAGE_W, a.PAGE_H)
+    page_box = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+    for side_vec, reach_i in fallback_sides:
+        base = reach_i + 8
+        for k in range(int(limit / step) + 1):
+            offset = base + k * step
+            probe = _make(offset, side_vec)
+            bb = _geom_box(probe)
+            if bb is None:
+                continue
+            if (
+                bb[0] < page_box[0]
+                or bb[1] < page_box[1]
+                or bb[2] > page_box[2]
+                or bb[3] > page_box[3]
+            ):
+                continue
+            if _box_hits(bb, obstacles):
+                continue
+            dwg.add(probe, name, view=view, feature=feature)
+            return
+    _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, _fmt(pitch))
 
 
 def build_view_of_axis(a: Analysis):
@@ -954,10 +972,9 @@ def _annotate_holes(
     Placement: plan- and side-view callouts go to the right of their view
     (the strip before the iso view / page margin; plan falls back to its
     left, the side view has no usable left strip), front-view callouts go
-    below the front view, deconflicted so no leader shaft crosses an earlier
-    callout's text. Each callout is width-checked; anything that fits
-    nowhere is logged and skipped — never force-placed — and then surfaces
-    through the coverage lint as ``feature_not_dimensioned``.
+    below the front view through the strip solver. Each callout is width-checked;
+    anything that fits nowhere is logged and skipped — never force-placed — and
+    then surfaces through the coverage lint as ``feature_not_dimensioned``.
     """
     draft = dwg.draft
     gap = draft.pad_around_text
@@ -971,7 +988,6 @@ def _annotate_holes(
     plan_right = a.proj.plan_x(a.bb.max.X)
     plan_left = a.proj.plan_x(a.bb.min.X)
     side_right = a.proj.side_x(a.bb.max.Y)
-    front_bottom = a.proj.front_z(a.bb.min.Z)
     tb_left = a.PAGE_W - a.TB_W - _TB_CLEAR
     tb_top = _TB_CLEAR + _TB_H
 
@@ -1052,9 +1068,13 @@ def _annotate_holes(
         if only is None:
             return f"hc_{view}{i}"
         j = 0
-        while f"hc_{view}{j}" in dwg._named:
+        while f"hc_{view}{j}" in _hc_used:
             j += 1
-        return f"hc_{view}{j}"
+        name = f"hc_{view}{j}"
+        _hc_used.add(name)
+        return name
+
+    _hc_used = set(dwg._named)
 
     def _add(view, i, tip, elbow, side, callout):
         dwg.add(
@@ -1082,42 +1102,78 @@ def _annotate_holes(
         specs.sort(key=lambda s: s[1], reverse=True)
 
         if view == "front":
-            # Below the view, vertical shafts. Rows are assigned right-to-
-            # left so a deeper row's shaft never crosses a shallower row's
-            # right-running label; left-side labels get an explicit guard.
+            # Below the view, vertical shafts. Rows are solved as one strip batch rather
+            # than assigned by `i * min_gap` (#513). Candidate order stays right-to-left
+            # so inner-to-outer rows preserve the historical crossing guard shape, but
+            # over-capacity is now priority-ranked by bore diameter.
             specs.sort(key=lambda s: max(to_page(loc)[0] for loc in s[0]), reverse=True)
-            occupied: list[tuple] = []  # (x0, x1, row_y) of placed labels
+            cands = []
+            features = {}
+            priorities = {}
+            forbid = {}
+            furniture = {}
+            meta = {}
+            tb_box = (tb_left, _TB_CLEAR, a.PAGE_W - _TB_CLEAR, tb_top)
             for i, (locs, dia, callout, feat) in enumerate(specs):
                 w = callout.callout_width
                 centre = to_page(max(locs, key=lambda loc: to_page(loc)[0]))
-                elbow_y = front_bottom - 0.6 * a.DIM_PAD - i * min_gap
                 if centre[0] + gap + w <= a.PAGE_W - a.margin:
-                    side, x0, x1 = "right", centre[0] + gap, centre[0] + gap + w
+                    side = "right"
                 elif centre[0] - gap - w >= a.margin:
-                    side, x0, x1 = "left", centre[0] - gap - w, centre[0] - gap
+                    side = "left"
                 else:
                     _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
                     _record_callout_drop(dwg, view, dia, "no room beside the view", feat)
                     continue
-                # the title block only constrains rows that reach its x-range
-                floor = (tb_top + 4) if x1 > tb_left - 4 else a.margin + 4
-                if elbow_y < floor:
+
+                name = _hc_name(view, i)
+
+                def _build(
+                    pos,
+                    _centre=centre,
+                    _dia=dia,
+                    _side=side,
+                    _callout=callout,
+                ):
+                    elbow = (_centre[0], pos)
+                    tip = _rim_tip(_centre, elbow, _dia)
+                    return Leader(
+                        tip=(tip[0], tip[1], 0),
+                        elbow=(elbow[0], elbow[1], 0),
+                        label="",
+                        draft=draft,
+                        text_side=_side,
+                        callout=_callout,
+                    )
+
+                cands.append((name, _build))
+                features[name] = _feat_of_callout.get(id(callout))
+                priorities[name] = dia
+                forbid[name] = tb_box
+                furniture[name] = (i, feat)
+                meta[name] = (dia, feat)
+
+            left = place_strip_candidates(
+                dwg,
+                a.fv_zones.below,
+                "front",
+                "y",
+                cands,
+                min_gap,
+                features=features,
+                priorities=priorities,
+                forbid=forbid,
+            )
+            left_names = {name for name, _ in left}
+            for name, _build in cands:
+                if name in left_names:
+                    dia, feat = meta[name]
                     _log.info("Hole callout ø%s skipped (front strip full)", _fmt(dia))
                     _record_callout_drop(dwg, view, dia, "front strip full", feat)
                     continue
-                if any(
-                    ox0 <= centre[0] <= ox1 and row_y > elbow_y for ox0, ox1, row_y in occupied
-                ):
-                    _log.info(
-                        "Hole callout ø%s skipped (shaft would cross another callout)", _fmt(dia)
-                    )
-                    _record_callout_drop(dwg, view, dia, "shaft would cross another callout", feat)
-                    continue
-                elbow = (centre[0], elbow_y)
-                occupied.append((x0, x1, elbow_y))
-                _add(view, i, _rim_tip(centre, elbow, dia), elbow, side, callout)
                 if place_furniture:  # #426: finalize's furniture() replay owns furniture
-                    _add_furniture(dwg, a, view, i, feat, to_page)
+                    idx, feat = furniture[name]
+                    _add_furniture(dwg, a, view, idx, feat, to_page)
             continue
 
         # plan / side: two-pass leader placement.

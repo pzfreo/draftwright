@@ -541,7 +541,26 @@ def place_strip_candidates(
         if not todo:
             break
         cap = int((seg_hi - seg_lo) / pad) + 1
-        take, todo = todo[:cap], todo[cap:]
+        if len(todo) > cap:
+            # Do not let segment-cap slicing preempt the ranked selection step (#357/#393).
+            # `plan_strip` drops the lowest (priority, generated-key), but a narrow segment
+            # can only see the candidates we hand it. Preselect the highest-priority members
+            # for this segment, preserving their original order for crossing-free placement;
+            # ties mirror the generated key below (inner=lo keeps later candidates, inner=hi
+            # keeps earlier candidates).
+            ranked = sorted(
+                enumerate(todo),
+                key=lambda item: (
+                    (priorities or {}).get(item[1][0], 0.0),
+                    item[0] if inner == lo else -item[0],
+                ),
+                reverse=True,
+            )
+            chosen = {i for i, _ in ranked[:cap]}
+            take = [nb for i, nb in enumerate(todo) if i in chosen]
+            todo = [nb for i, nb in enumerate(todo) if i not in chosen]
+        else:
+            take, todo = todo, []
         nat = seg_lo if inner == lo else seg_hi
         anch = (0.0, nat) if axis == "y" else (nat, 0.0)
         # Keys order the tiers so the FIRST candidate lands on the inner tier: for an

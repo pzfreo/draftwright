@@ -350,23 +350,23 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # after every hole/diameter pass so it claims strip space last.
     render_slots(dwg, _model, a)
 
-    # Declared GD&T frames / datum symbols / surface finishes (ADR 0011 §4, #61) — register
-    # into the same strips as first-class candidates BEFORE the drain, so the one solve orders
-    # and spaces them crossing-free with the dims (not a leftover first-fit like render_pmi).
+    # Declared GD&T frames / datum symbols / surface finishes (ADR 0011 §4, #61) and
+    # authored STEP PMI dims (#393) register into the same strips as first-class
+    # candidates BEFORE the drain, so the one solve orders and spaces them crossing-free
+    # with locations/slots rather than consuming leftovers as first-fit placements.
     render_gdt(dwg, _model, a)
+    if a.pmi_mode == "annotate":
+        render_pmi(dwg, _model, a)
 
-    # Now every feeder pass (locations + slots) has registered; solve each shared above
-    # corridor once (ADR 0009 end state, #345/#346) — dedup coincident spans, order the
-    # ladder — BEFORE detail views and PMI, so they see the placed ladder as an obstacle.
+    # Now every corridor feeder pass has registered; solve each shared strip once
+    # (ADR 0009 end state, #345/#346/#393) — dedup coincident spans, order the ladder —
+    # BEFORE detail views so they see the placed ladder as an obstacle.
     drain_corridors(dwg)
 
     # Resolve every queued enlarged-detail request (#307) — prismatic step bands and
     # crowded turned heads alike — through the one generic detailer, now that all
     # views and main-view annotations are placed (so the detail avoids them).
     _resolve_details(dwg, a)
-
-    if a.pmi_mode == "annotate":
-        render_pmi(dwg, _model, a)
 
     _add_title_block(dwg, a)
 

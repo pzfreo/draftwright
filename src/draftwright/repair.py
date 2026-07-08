@@ -1,20 +1,19 @@
-"""The deterministic lint→repair loop (#138 / ADR 0005; #30 / ADR 0002).
+"""The deterministic lint→repair safety net (#138 / ADR 0005; #30 / ADR 0002).
 
-After the greedy initial placement, re-place the engine-built dimensions behind
-the mechanically-clear violations (a dim on the wrong side, two overlapping
-labels) and re-lint — bounded and monotonic, so it terminates and never worsens a
-sheet. `Drawing.repair()` is the public wrapper; these helpers take the drawing as
-`dwg` (duck-typed — `lint` / `items` / `_registry`), so this module
-imports only `_core`, never `make_drawing` — no cycle.
+The solver path now owns annotation placement. Repair is deliberately narrow:
+it only handles the mechanically-clear wrong-side dimension case and never performs
+fixed-step overlap placement. `Drawing.repair()` remains the public wrapper; these
+helpers take the drawing as `dwg` (duck-typed — `lint` / `items` / `_registry`), so
+this module imports only `_core`, never `make_drawing` — no cycle.
 """
 
 from __future__ import annotations
 
-from draftwright._core import _QUOTED_RE, _SLOT_DIM_HEIGHT, _STRIP_SPACING, _dim
+from draftwright._core import _QUOTED_RE, _dim
 
 # Lint codes the repair loop can mechanically resolve, and the side flip used to
 # move a dimension that landed on the wrong side of its witness points.
-_REPAIRABLE_CODES = frozenset({"annotation_overlap", "dim_inside_part"})
+_REPAIRABLE_CODES = frozenset({"dim_inside_part"})
 _OPPOSITE_SIDE = {"above": "below", "below": "above", "left": "right", "right": "left"}
 
 
@@ -60,20 +59,6 @@ def _repair_dim_inside_part(dwg, issue) -> bool:
     return True
 
 
-def _repair_overlap(dwg, issue) -> bool:
-    """Push the first re-placeable label in an overlap one strip-row further out
-    so the two labels separate. Monotonic, so repeated passes converge."""
-    step = _STRIP_SPACING + _SLOT_DIM_HEIGHT
-    for label in _QUOTED_RE.findall(issue.message):
-        dim = _find_dim(dwg, label)
-        if dim is None:
-            continue
-        s = dim._dw_spec
-        _replace_dim(dwg, dim, _dim(s.p1, s.p2, s.side, s.distance + step, s.draft, **s.kwargs))
-        return True
-    return False
-
-
 def repair_drawing(dwg, max_iter: int = 3):
     """Close the lint→repair loop; see :meth:`Drawing.repair` for the contract.
     Returns *dwg* for chaining."""
@@ -96,8 +81,6 @@ def repair_drawing(dwg, max_iter: int = 3):
                 if _repair_dim_inside_part(dwg, issue):
                     flipped.add(key)
                     changed = True
-            elif issue.code == "annotation_overlap":
-                changed |= _repair_overlap(dwg, issue)
         if not changed:
             break
         if len(dwg.lint()) > len(before):

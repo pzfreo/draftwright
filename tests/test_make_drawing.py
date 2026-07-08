@@ -1,5 +1,6 @@
 """Tests for draftwright.make_drawing."""
 
+import logging
 import math
 import os
 import subprocess
@@ -13,12 +14,17 @@ from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
 from draftwright import Drawing, build_drawing, make_drawing
 from draftwright._core import _MIN_VIEW_MM, _fmt
-from draftwright.analysis import _is_rotational, analyse_face_levels, dedup_diams
+from draftwright.analysis import (
+    _converge_step_sizing,
+    _is_rotational,
+    analyse_face_levels,
+    dedup_diams,
+)
 from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
 from draftwright.make_drawing import generate_script, lint_feature_coverage
 from draftwright.recognition import Slot, find_slots
-from draftwright.sheet import _fits, choose_scale
+from draftwright.sheet import StripDepths, _fits, choose_scale
 
 _skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)
 
@@ -96,6 +102,52 @@ class TestDedupDiams:
         ]
         result = dedup_diams(cyls)
         assert result == [20.0, 10.0, 5.0]
+
+
+class TestStepSizingConvergence:
+    def test_step_sizing_converges_past_the_old_three_pass_limit(self):
+        measure_calls = []
+
+        def measure(n_steps):
+            measure_calls.append(n_steps)
+            return StripDepths(right=float(n_steps), left=0.0)
+
+        def pick(n_steps, strips):
+            assert strips.right == pytest.approx(n_steps)
+            return float(n_steps), 297.0, 210.0, 120.0
+
+        def legible_count(scale):
+            return {7.0: 5, 5.0: 4, 4.0: 2, 2.0: 2}[scale]
+
+        pick_result, strips, n_steps = _converge_step_sizing(7, measure, pick, legible_count)
+
+        assert pick_result == (2.0, 297.0, 210.0, 120.0)
+        assert strips.right == pytest.approx(2.0)
+        assert n_steps == 2
+        assert measure_calls == [7, 5, 4, 2]
+
+    def test_step_sizing_cycle_uses_the_larger_reservation(self, caplog):
+        measure_calls = []
+
+        def measure(n_steps):
+            measure_calls.append(n_steps)
+            return StripDepths(right=float(n_steps), left=0.0)
+
+        def pick(n_steps, strips):
+            assert strips.right == pytest.approx(n_steps)
+            return float(n_steps), 297.0, 210.0, 120.0
+
+        def legible_count(scale):
+            return {4.0: 2, 2.0: 4}[scale]
+
+        with caplog.at_level(logging.WARNING, logger="draftwright.analysis"):
+            pick_result, strips, n_steps = _converge_step_sizing(4, measure, pick, legible_count)
+
+        assert pick_result == (4.0, 297.0, 210.0, 120.0)
+        assert strips.right == pytest.approx(4.0)
+        assert n_steps == 4
+        assert measure_calls == [4, 2, 4]
+        assert "did not converge" in caplog.text
 
 
 class TestChooseScale:
@@ -5954,11 +6006,11 @@ class TestLintSuggestions:
 
 
 class TestRepair:
-    """#30: bounded lint→repair loop acts on violations instead of only reporting."""
+    """#30/#521: repair is a narrow safety net, not a second placement engine."""
 
-    def test_repair_clears_annotation_overlap(self):
-        # Two dimensions forced onto the same page location → their labels
-        # collide; the repair loop pushes one further out to separate them.
+    def test_repair_does_not_fixed_step_annotation_overlap(self):
+        # Two dimensions forced onto the same page location → their labels collide. The
+        # solver path owns placement; repair must not hide this with a fixed-step nudge.
         from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
@@ -5969,7 +6021,9 @@ class TestRepair:
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
         dwg.repair()
-        assert not [i for i in dwg.lint() if i.code == "annotation_overlap"]
+        assert dwg._named["ov1"]._dw_spec.distance == 8
+        assert dwg._named["ov2"]._dw_spec.distance == 8
+        assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
     def test_repair_dim_inside_part_flips_side(self):
         # dim_inside_part is dormant in the multi-view sheet (lint passes no
@@ -6033,11 +6087,9 @@ class TestRepair:
             fixed = ew(build_drawing(part, repair=True))
             assert fixed <= raw
 
-    def test_repair_rolls_back_a_pass_that_makes_things_worse(self):
-        # Guard: if a repair (e.g. an overlap push off a tight sheet) net-raises
-        # the issue count, that pass is undone and the loop stops — repair never
-        # makes a drawing worse. Drive it with a stateful lint stub: one fixable
-        # overlap before, two issues after the push.
+    def test_repair_ignores_annotation_overlap_without_mutation(self):
+        # annotation_overlap is no longer repairable (#521). It remains visible
+        # to lint rather than being moved by a fixed-step fallback.
         from draftwright._core import _dim
         from draftwright.linting import LintIssue
 
@@ -6048,20 +6100,17 @@ class TestRepair:
             message="labels 'RB' and 'QQ' overlap",
             code="annotation_overlap",
         )
-        worse = LintIssue(
-            severity="warning", message="label 'RB' off sheet", code="label_out_of_frame"
-        )
         calls = {"n": 0}
 
         def fake_lint():
             calls["n"] += 1
-            return [overlap] if calls["n"] == 1 else [overlap, worse]
+            return [overlap]
 
         dwg.lint = fake_lint
         dwg.repair(max_iter=3)
-        # The pushed dim was reverted: 'x' is the original object, offset intact.
         assert dwg._named["x"] is orig
         assert dwg._named["x"]._dw_spec.distance == 8
+        assert calls["n"] == 1
 
     def test_build_drawing_repair_flag_is_respected(self):
         # repair=False leaves the greedy placement untouched; the default repairs.
@@ -6091,20 +6140,21 @@ class TestPin:
         return dwg
 
     def test_repair_does_not_move_a_pinned_dim(self):
-        # 'a' is the first re-placeable in the overlap, so repair would push it;
-        # pinned, it stays at distance 8 and 'b' is pushed instead.
+        # Overlaps are not repaired by fixed-step placement anymore, so pinned and
+        # unpinned dimensions alike stay put.
         dwg = self._two_overlapping()
         dwg.pin("a")
         dwg.repair()
-        assert dwg._named["a"]._dw_spec.distance == 8  # untouched
-        assert dwg._named["b"]._dw_spec.distance > 8  # moved in its place
+        assert dwg._named["a"]._dw_spec.distance == 8
+        assert dwg._named["b"]._dw_spec.distance == 8
 
     def test_unpin_lets_repair_move_it_again(self):
         dwg = self._two_overlapping()
         dwg.pin("a").unpin("a")
         dwg.repair()
-        # With nothing pinned, the overlap is resolved (one of them moved).
-        assert not [i for i in dwg.lint() if i.code == "annotation_overlap"]
+        assert dwg._named["a"]._dw_spec.distance == 8
+        assert dwg._named["b"]._dw_spec.distance == 8
+        assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
     def test_pin_unknown_name_raises(self):
         dwg = build_drawing(Box(60, 40, 20))
@@ -6151,7 +6201,7 @@ class TestPin:
         dwg.add(_dim((40.0, 20.0, 0.0), (80.0, 20.0, 0.0), "above", 8, dwg.draft, label="AA"), "a")
         assert "a" not in dwg._pinned
         dwg.repair()
-        assert not [i for i in dwg.lint() if i.code == "annotation_overlap"]
+        assert dwg._named["a"]._dw_spec.distance == 8
 
 
 class TestAnnotationsQuery:

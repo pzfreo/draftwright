@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import math
 import warnings
+from collections.abc import Callable
 
 from build123d import Compound, Shape
 from build123d_drafting.helpers import draft_preset
@@ -40,6 +41,7 @@ from draftwright.recognition import (
     full_cylinders,
 )
 from draftwright.sheet import (
+    StripDepths,
     _build_zones,
     _layout_geometry,
     _measure_strips,
@@ -54,6 +56,7 @@ _log = logging.getLogger(__name__)
 _SQUARENESS_TOL = 0.05
 _OD_FILL_MIN = 0.8
 _OD_AXIS_TOL = 0.05
+_ScalePick = tuple[float, float, float, float]
 
 
 def _import_step(path) -> Compound:
@@ -104,6 +107,54 @@ def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
         and od_diam >= _OD_FILL_MIN * envelope
         and od_axis_offset <= _OD_AXIS_TOL * envelope
     )
+
+
+def _converge_step_sizing(
+    initial_steps: int,
+    measure_strips: Callable[[int], StripDepths],
+    pick_scale: Callable[[int, StripDepths], _ScalePick],
+    count_legible: Callable[[float], int],
+) -> tuple[_ScalePick, StripDepths, int]:
+    """Choose scale/page with a step-corridor count that matches legibility.
+
+    The right-side step ladder is reserved before the scale is known, but the
+    actual step list is filtered by the chosen scale. Iterate that dependency
+    until it reaches a fixed point; if it cycles, reserve the largest count seen
+    so the sheet is sized conservatively instead of silently accepting whichever
+    value happened to appear on a fixed iteration budget (#520).
+    """
+    n_for_sizing = initial_steps
+    seen: set[int] = set()
+    attempted: list[int] = []
+    max_iter = max(4, initial_steps + 2)
+
+    for _ in range(max_iter):
+        if n_for_sizing in seen:
+            break
+        seen.add(n_for_sizing)
+        attempted.append(n_for_sizing)
+
+        strips = measure_strips(n_for_sizing)
+        scale_pick = pick_scale(n_for_sizing, strips)
+        n_next = count_legible(scale_pick[0])
+        if n_next == n_for_sizing:
+            return scale_pick, strips, n_for_sizing
+        if n_next in seen:
+            n_for_sizing = n_next
+            break
+        n_for_sizing = n_next
+
+    conservative_n = max(attempted + [n_for_sizing], default=initial_steps)
+    strips = measure_strips(conservative_n)
+    scale_pick = pick_scale(conservative_n, strips)
+    _log.warning(
+        "Step-corridor sizing did not converge from %d steps (tried %s); "
+        "reserving %d steps",
+        initial_steps,
+        attempted,
+        conservative_n,
+    )
+    return scale_pick, strips, conservative_n
 
 
 # A hole is "concentric" with a turned part's rotation axis when its drilling
@@ -324,24 +375,33 @@ def _analyse(
     # with 15 tiny treads) reserves a phantom step ladder that blocks a larger
     # scale. Seed conservatively (all faces), then re-gate at the chosen scale;
     # converges in a couple of rounds.
-    n_for_sizing = len(step_zs)
-    strips_i = None
-    for _ in range(3):
-        strips_i = _measure_strips(
+    def _measure_for_step_count(n_steps_i: int) -> StripDepths:
+        return _measure_strips(
             holes,
             patterns,
-            n_for_sizing,
+            n_steps_i,
             bb,
             arrow_length=_arrow_length,
             pad_around_text=_pad_around_text,
         )
-        SCALE, PAGE_W, PAGE_H, TB_W = choose_scale(
-            x_size, y_size, z_size, n_steps=n_for_sizing, scale=scale, page=page, strips=strips_i
+
+    def _pick_for_step_count(n_steps_i: int, strips_i: StripDepths) -> _ScalePick:
+        return choose_scale(
+            x_size,
+            y_size,
+            z_size,
+            n_steps=n_steps_i,
+            scale=scale,
+            page=page,
+            strips=strips_i,
         )
-        n_next = len(_legible_steps(step_zs, bb.min.Z, SCALE)[0])
-        if n_next == n_for_sizing:
-            break
-        n_for_sizing = n_next
+
+    (SCALE, PAGE_W, PAGE_H, TB_W), strips_i, n_for_sizing = _converge_step_sizing(
+        len(step_zs),
+        _measure_for_step_count,
+        _pick_for_step_count,
+        lambda scale_i: len(_legible_steps(step_zs, bb.min.Z, scale_i)[0]),
+    )
     if scale is not None:
         # An explicit scale is the user's call — honour it (#489). Two floors apply:
         #  - _MIN_RENDER_MM: a hard geometry limit; below it OCCT's annotation arcs degenerate

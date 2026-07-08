@@ -1554,7 +1554,9 @@ class Drawing:
         mechanically-clear violations and re-lint, bounded to *max_iter* passes:
 
         - ``dim_inside_part`` — the offset is on the wrong side; flip it once.
-        - ``annotation_overlap`` — two labels collide; push one further out.
+        ``annotation_overlap`` is intentionally not repaired here anymore: the
+        corridor/strip solvers own primary placement, and a fixed-step nudge would
+        reintroduce a second placement policy.
 
         Only engine-built dimensions (carrying ``_dw_spec``) are re-placeable;
         leaders, callouts and standards-judgement issues (e.g.
