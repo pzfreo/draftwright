@@ -7,7 +7,6 @@ Detected input only writes numbers (the part-seam form); we never fabricate geom
 import ast
 import math
 import os
-from collections import Counter
 
 import pytest
 from build123d import Box, Cylinder, Pos, Shape, export_step
@@ -586,11 +585,46 @@ class TestCli:
         assert (tmp_path / "g.svg").exists()
 
 
-def _named_signature(dwg):
-    """The multiset of annotation TYPES on a drawing — the 'annotation signature' #472 uses
-    to compare a generated-script drawing against a direct build (catches a dropped Centerline
-    or an OD that fell from Dimension to Leader)."""
-    return Counter(type(v).__name__ for v in dwg._named.values())
+def _annotation_signature(dwg):
+    """Value-aware annotation signature for #472 round-trip parity.
+
+    Names and types catch dropped/replaced annotations; dimension specs catch the old
+    OD-as-Leader gap plus side/distance drift; leader coverage catches callout text regressions
+    where the drafting helper does not expose a label string; boxes catch non-dimension
+    furniture moving or vanishing. This intentionally stays below SVG byte identity, which is
+    too brittle for a semantic script invariant.
+    """
+
+    def _r(v):
+        return round(float(v), 3)
+
+    def _box(obj):
+        try:
+            b = obj.bounding_box()
+        except Exception:
+            return None
+        return (_r(b.min.X), _r(b.min.Y), _r(b.max.X), _r(b.max.Y))
+
+    rows = []
+    for name, obj in dwg._named.items():
+        spec = getattr(obj, "_dw_spec", None)
+        if spec is not None:
+            detail = (
+                tuple(_r(x) for x in spec.p1[:2]),
+                tuple(_r(x) for x in spec.p2[:2]),
+                spec.side,
+                _r(spec.distance),
+                getattr(obj, "label", ""),
+            )
+        else:
+            detail = (
+                getattr(obj, "label", ""),
+                tuple(_r(x) for x in getattr(obj, "covers_diameters", ())),
+                getattr(obj, "covers_count", None),
+                _box(obj),
+            )
+        rows.append((name, type(obj).__name__, detail))
+    return sorted(rows)
 
 
 def _drawing_from_generated_script(step_path, tmp_path, monkeypatch):
@@ -602,7 +636,7 @@ def _drawing_from_generated_script(step_path, tmp_path, monkeypatch):
     monkeypatch.setattr(
         Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
     )
-    py = generate_sheet_script(str(step_path), out=str(tmp_path / "gen"))
+    py = generate_sheet_script(str(step_path), out=str(tmp_path / "gen"), title="PART")
     exec(compile(open(py, encoding="utf-8").read(), py, "exec"), {})
     return captured["dwg"]
 
@@ -618,10 +652,27 @@ class TestRoundTripParity:
         export_step(part, str(step))
         direct = build_drawing(step_file=str(step), title="PART")
         scripted = _drawing_from_generated_script(step, tmp_path, monkeypatch)
-        assert _named_signature(scripted) == _named_signature(direct)
+        assert _annotation_signature(scripted) == _annotation_signature(direct)
 
     def test_prismatic_plate_parity(self, tmp_path, monkeypatch):
         self._parity(_plate(), tmp_path, monkeypatch)
+
+    def test_slot_parity(self, tmp_path, monkeypatch):
+        self._parity(Box(50, 30, 20) - Box(20, 8, 30), tmp_path, monkeypatch)
+
+    def test_pattern_parity(self, tmp_path, monkeypatch):
+        part = (
+            Box(100, 80, 20)
+            - Pos(35, 25, 0) * Cylinder(4, 30)
+            - Pos(-35, 25, 0) * Cylinder(4, 30)
+            - Pos(35, -25, 0) * Cylinder(4, 30)
+            - Pos(-35, -25, 0) * Cylinder(4, 30)
+        )
+        self._parity(part, tmp_path, monkeypatch)
+
+    def test_counterbore_section_parity(self, tmp_path, monkeypatch):
+        part = Box(80, 60, 20) - Pos(0, 0, 0) * Cylinder(8, 40) - Pos(0, 0, 8) * Cylinder(14, 20)
+        self._parity(part, tmp_path, monkeypatch)
 
     def test_title_block_and_layout_aspects_round_trip(self, tmp_path, monkeypatch):
         # #474: a generated sheet script carrying drawn_by/tolerance/scale/page must reproduce the
