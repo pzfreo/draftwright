@@ -337,20 +337,9 @@ def _repack_candidates(a, scale, page):
         return [(s, pw, ph, tb) for s in _SCALES]
     if scale is not None:
         return [(float(scale), pw, ph, _tb_width(pw)) for pw, ph in _PAGE_SIZES.values()]
-    # Auto ladder, but floored at pass 1's chosen sheet: the measured blocks are
-    # never smaller than the estimate that pass 1 already rejected the earlier
-    # rungs against, and the repack's .fits is more permissive than choose_scale's
-    # row model — so without this floor the repack could pick a *smaller* sheet
-    # than pass 1 and make things worse (#121). Start the search at pass 1's rung.
-    start = next(
-        (
-            i
-            for i, (s, pw, ph, _tb) in enumerate(_LADDER)
-            if s == a.SCALE and pw == a.PAGE_W and ph == a.PAGE_H
-        ),
-        0,
-    )
-    return list(_LADDER[start:])
+    # Auto repack uses the same composed-footprint fitness as choose_scale (#519),
+    # so it no longer needs a pass-1 floor to compensate for divergent fit models.
+    return list(_LADDER)
 
 
 def _repack(
@@ -379,11 +368,26 @@ def _repack(
     def _geom(cand):
         s, pw, ph, tb = cand
         return _layout_geometry(
-            a.x_size, a.y_size, a.z_size, s, pw, ph, tb, None, 0, blocks=blocks
+            a.x_size,
+            a.y_size,
+            a.z_size,
+            s,
+            pw,
+            ph,
+            tb,
+            a.layout_strips,
+            a.layout_n_steps,
+            blocks=blocks,
+            warn_no_iso=False,
         )
 
     candidates = _repack_candidates(a, scale, page)
-    fit = next(((c, gg) for c in candidates if (gg := _geom(c)).fits), None)
+    auto_search = scale is None and page is None
+
+    def _candidate_fits(g):
+        return g.auto_fits if auto_search else g.fits
+
+    fit = next(((c, gg) for c in candidates if _candidate_fits(gg := _geom(c))), None)
     if fit is not None:
         chosen, g = fit
     else:
@@ -398,7 +402,7 @@ def _repack(
             lo, hi = 0.0, candidates[-1][0]
             for _ in range(60):
                 mid = (lo + hi) / 2.0
-                if _geom((mid, pw0, ph0, tb0)).fits:
+                if _candidate_fits(_geom((mid, pw0, ph0, tb0))):
                     lo = mid
                 else:
                     hi = mid

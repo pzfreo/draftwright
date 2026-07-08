@@ -165,7 +165,7 @@ class TestChooseScale:
 
     def test_ctc01_sized_part_gets_A2_not_A1(self):
         # 800×450×150 mm (NIST CTC-01) — iso sits above the title block so tb_w
-        # is dropped from the width constraint.  A2 fits; A1 is no longer chosen (#103).
+        # is dropped from the width constraint. A2 fits; A1 is no longer chosen (#103).
         scale, pw, ph, tbw = choose_scale(800, 450, 150)
         assert scale == pytest.approx(0.2)
         assert int(pw) == 594  # A2 (594 mm), not A1 (841 mm)
@@ -251,17 +251,16 @@ class TestChooseScaleOverrides:
 
     def test_specified_page_enlarges_long_short_part_via_2d_iso(self):
         # A long, short part (100 × 10 × 11, e.g. a staircase) fills a specified
-        # A3 sheet at 2:1.  The conservative row model would reject 2:1 (it
-        # charges the iso a row column), but on a fixed page the iso is packed
-        # into vertical headroom, so the larger scale genuinely fits (#staircase).
+        # A3 sheet at 2:1. The automatic path stays conservative, but fixed-page
+        # requests use the packed verdict exposed by the same layout geometry.
         from draftwright.sheet import _fits
 
-        assert not _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0)
         assert _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=True)
+        assert not _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=False)
         scale, pw, ph, _ = choose_scale(100, 10, 11, page="A3")
         assert scale == 2.0
         assert (pw, ph) == (420.0, 297.0)
-        # Automatic selection (no page) stays conservative — A4 at 1:1.
+        # Automatic selection remains page-major: A4 at 1:1 is tried before A3 at 2:1.
         assert choose_scale(100, 10, 11)[:3] == (1.0, 297.0, 210.0)
 
     def test_scale_only_picks_smallest_fitting_page(self):
@@ -270,10 +269,9 @@ class TestChooseScaleOverrides:
         assert int(pw) == 297
 
     def test_scale_only_enlarges_long_short_part_via_2d_iso(self):
-        # Fixed scale, no page: choose_scale walks the page list with
-        # pack_iso_2d=True, so a long/short part keeps the requested 2:1 by
-        # packing the iso into vertical headroom.  At 2:1 the part overruns A4
-        # but fits A3; the conservative row model would have rejected A3 too.
+        # Fixed scale, no page: choose_scale walks the page list with the packed
+        # verdict exposed by the shared geometry. At 2:1 the part overruns A4
+        # but fits A3.
         from draftwright.sheet import _fits
 
         assert not _fits(100, 10, 11, 2.0, 297.0, 210.0, 120.0, pack_iso_2d=True)
@@ -980,9 +978,9 @@ class TestDynamicCorridors:
 
     def test_fits_widens_required_space_for_stepped_part(self):
         # x=5, y=90, z=100 at 1:1 on A3 (420×297, tb=150):
-        #   n_steps=0 (gap_fv_sv=20): w≈415 ≤ 420 → direct fit
-        #   n_steps=3 (gap_fv_sv=69.5): w≈465 > 420; views_bottom < _TB_H so
-        #     the iso-over-title-block fallback cannot apply → False
+        #   n_steps=0 (gap_fv_sv=20): fits.
+        #   n_steps=3 (gap_fv_sv=69.5): auto_fits rejects the conservative
+        #     composed row, using the same verdict later used by auto repack (#519).
         from draftwright.sheet import _fits
 
         assert _fits(5.0, 90.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=0)
@@ -1013,9 +1011,8 @@ class TestDynamicCorridors:
 
     def test_choose_scale_picks_larger_page_for_deep_step_corridor(self):
         # With n_steps=0, x=5 y=90 z=100 fits A3 at 1:1 (420 mm wide).
-        # With n_steps=3, gap_fv_sv jumps to 69.5 mm — A3 no longer fits and
-        # choose_scale must return A2.  This verifies that the conservative
-        # n_steps_ub path in _analyse() ensures the page is never too small.
+        # With n_steps=3, gap_fv_sv jumps to 69.5 mm — the shared auto_fits
+        # verdict rejects A3 and choose_scale returns A2.
         from draftwright.sheet import choose_scale
 
         _, page_w_flat, _, _ = choose_scale(5.0, 90.0, 100.0, n_steps=0)
@@ -1355,21 +1352,58 @@ class TestComposeThenPackRepack:
             f"the {_MARGIN} mm margin — column anchored on front.left, not col_left"
         )
 
-    # --- candidate ladder floor ------------------------------------------
+    # --- candidate ladder -------------------------------------------------
 
-    def test_repack_candidates_floored_at_pass1_sheet(self):
+    def test_repack_candidates_use_the_full_auto_ladder(self):
         from types import SimpleNamespace
 
+        from draftwright._core import _LADDER
         from draftwright.builder import _repack_candidates
 
         a = SimpleNamespace(SCALE=0.2, PAGE_W=594.0, PAGE_H=420.0)
         cands = _repack_candidates(a, None, None)
-        # Search starts at pass 1's own rung (A2 1:5) ...
-        assert cands[0] == (0.2, 594.0, 420.0, 150.0)
-        # ... never offers a smaller sheet pass 1 already rejected ...
-        assert (10.0, 297.0, 210.0, 120.0) not in cands
-        # ... but a larger reduction (A0 1:5) stays reachable.
+        # #519: repack and choose_scale now share one composed-footprint fit, so
+        # repack no longer needs a pass-1 floor to defend against a looser model.
+        assert cands == list(_LADDER)
         assert (0.2, 1189.0, 841.0, 150.0) in cands
+
+    def test_auto_repack_fitness_uses_pass1_step_reservations(self):
+        from draftwright.sheet import ViewBlock, _layout_geometry
+
+        x_size, y_size, z_size = 5.0, 90.0, 100.0
+        scale, page_w, page_h, tb_w = 1.0, 420.0, 297.0, 150.0
+        blocks = {
+            "front": ViewBlock(x_size * scale / 2, z_size * scale / 2),
+            "plan": ViewBlock(x_size * scale / 2, y_size * scale / 2),
+            "side": ViewBlock(y_size * scale / 2, z_size * scale / 2),
+        }
+
+        assert _layout_geometry(
+            x_size,
+            y_size,
+            z_size,
+            scale,
+            page_w,
+            page_h,
+            tb_w,
+            None,
+            0,
+            blocks=blocks,
+            warn_no_iso=False,
+        ).auto_fits
+        assert not _layout_geometry(
+            x_size,
+            y_size,
+            z_size,
+            scale,
+            page_w,
+            page_h,
+            tb_w,
+            None,
+            3,
+            blocks=blocks,
+            warn_no_iso=False,
+        ).auto_fits
 
     def test_repack_candidates_honour_fixed_scale_and_page(self):
         from types import SimpleNamespace

@@ -520,6 +520,8 @@ def _analyse(
         is_rotational=is_rotational,
         od_axis=od_axis,
         step_zs=step_zs,
+        layout_strips=strips,
+        layout_n_steps=n_steps,
         sv_right=sv_right,
         iso_right_limit=iso_right_limit,
         SCALE=SCALE,
