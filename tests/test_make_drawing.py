@@ -4665,6 +4665,15 @@ class TestFeatureEdits:
         assert len(names) == 1 and names[0].startswith("m_locx")
         assert dwg.get_annotation(names[0]).label == "40"
 
+    def test_locate_pin_marks_live_location_dims(self):
+        # #511 slice 1: a user location edit can be declared pinned at creation time, so
+        # later repair/finalize work sees the same pin state as if pin(name) ran after.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        centre = next(f for f in dwg.model().features if f.kind == "hole" and len(f.members) == 1)
+        names = dwg.locate(centre, pin=True)
+        assert names
+        assert set(names) <= dwg._pinned
+
     def test_locate_dedups_coincident_members(self):
         # The 4 corner ø10 holes group into one HoleFeature (X∈{25,-25}, Y∈{20,-20});
         # locate() places one dim per distinct axis position, not one per member.
@@ -5128,6 +5137,38 @@ class TestFeatureEdits:
         auto = build_drawing(part)  # auto_dims=True — the reference the corridor matches
         assert len(fin_locx) == len([n for n in auto.annotations() if n.startswith("m_locx")])
 
+    def test_finalize_routes_pinned_locate_as_corridor_candidate(self):
+        # #511 slice 1: a deferred user locate(pin=True) is not hand-added after layout.
+        # It routes through render_locations' corridor candidates and pins the resulting
+        # names after the shared solve chooses legal positions.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        hole = next(f for f in dwg.model().features if f.kind == "hole" and len(f.members) == 1)
+        with dwg.deferred():
+            dwg.locate(hole, pin=True)
+        locs = {n for n in dwg.annotations_of(hole) if n.startswith("m_loc")}
+        assert locs
+        assert locs <= dwg._pinned
+        assert dwg._intents == []
+
+    def test_finalize_pins_shared_location_when_later_ref_requested_pin(self):
+        # #511 review: render_locations dedups same-coordinate refs before candidate
+        # creation. The pin bit must survive that dedup even when the pinned feature is
+        # not the first representative chosen for the shared dimension.
+        part = (
+            Box(100, 80, 20) - Pos(20, 25, 0) * Cylinder(4, 30) - Pos(20, -25, 0) * Cylinder(6, 30)
+        )
+        dwg = build_drawing(part, auto_dims=False)
+        holes = [f for f in dwg.model().features if f.kind == "hole"]
+        dwg._defer_intents = True
+        dwg.locate(holes[0])
+        dwg.locate(holes[1], pin=True)
+        dwg.finalize()
+        shared_x = {
+            n for n in dwg.annotations() if n.startswith("m_locx") and dwg.get_annotation(n).label
+        }
+        assert shared_x
+        assert shared_x <= dwg._pinned
+
     def test_finalize_honors_locate_axes_restriction(self):
         # #429 review: a recorded locate(f, axes=("x",)) must place only the X dim. The
         # per-feature corridor filter can't express an axis subset, so finalize live-replays
@@ -5140,6 +5181,19 @@ class TestFeatureEdits:
         dwg.finalize()
         locs = [n for n in dwg.annotations() if n.startswith("m_loc")]
         assert locs and all(n.startswith("m_locx") for n in locs)  # X only — no m_locy
+
+    def test_finalize_replayed_axes_restricted_locate_can_pin(self):
+        # #511 slice 1: axes-restricted locates intentionally bypass the shared corridor
+        # filter, but their pin intent must still survive live replay during finalize.
+        part = Box(100, 80, 20) - Pos(20, 15, 0) * Cylinder(4, 30)
+        dwg = build_drawing(part, auto_dims=False)
+        dwg._defer_intents = True
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg.locate(hole, axes=("x",), pin=True)
+        dwg.finalize()
+        locs = {n for n in dwg.annotations_of(hole) if n.startswith("m_locx")}
+        assert locs
+        assert locs <= dwg._pinned
 
     def test_finalize_mixes_axes_restricted_and_both_axes_locate(self):
         # #429 review: an axes-restricted locate (live, names m_locx0) + a both-axes locate
