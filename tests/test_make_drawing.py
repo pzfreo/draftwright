@@ -191,6 +191,38 @@ class TestChooseScale:
         assert choose_scale(40, 10, 20, section=False)[:3] == (2.0, 297.0, 210.0)
         assert choose_scale(40, 10, 20, section=True)[:3] == (1.0, 297.0, 210.0)
 
+    def test_table_footprint_participates_in_auto_scale_choice(self):
+        # The compact 40×10×20 layout fits A4 at 2:1, but once a hole table must
+        # share the sheet with the view blocks and iso, A4 has no table slot and
+        # the shared fitness model escalates the page instead of dropping it later.
+        assert choose_scale(40, 10, 20)[:3] == (2.0, 297.0, 210.0)
+        assert choose_scale(40, 10, 20, table_sizes=((100.0, 60.0),))[:3] == (
+            2.0,
+            420.0,
+            297.0,
+        )
+
+    def test_table_footprint_uses_composed_view_blocks(self):
+        from draftwright.sheet import _layout_geometry
+
+        bare = _layout_geometry(
+            40, 10, 20, 1.0, 420.0, 297.0, 150.0, None, table_sizes=((100.0, 60.0),)
+        )
+        stripped = _layout_geometry(
+            40,
+            10,
+            20,
+            1.0,
+            420.0,
+            297.0,
+            150.0,
+            StripDepths(right=20.0, left=20.0, top=60.0, pv_halo=30.0),
+            table_sizes=((100.0, 60.0),),
+        )
+
+        assert bare.table_fits
+        assert not stripped.table_fits
+
     # Enlargement scales for small parts (#62)
 
     def test_small_part_gets_enlargement_scale(self):
@@ -6912,6 +6944,97 @@ class TestHoleTable:
         _view, _members, _axis, line, *_rest, fs, r = top_call
         assert line == pytest.approx(pt + 12.0 + _STRIP_GAP + r)
         assert fs == 3.0
+
+    def test_balloon_assignment_rebalances_across_bands_before_dropping(self):
+        from types import SimpleNamespace
+
+        from draftwright._core import _STRIP_GAP, _STRIP_SPACING
+        from draftwright.drawing import _strip_capacity
+
+        calls = []
+        a = SimpleNamespace(
+            PV_X=50.0,
+            PV_Y=50.0,
+            fv_hw=20.0,
+            pv_hh=10.0,
+            SV_X=82.0,
+            sv_hw=10.0,
+            margin=0.0,
+            PAGE_H=120.0,
+            PAGE_W=120.0,
+            FV_Y=30.0,
+            fv_hh=5.0,
+        )
+
+        def place_band(view, members, axis, line, lo, hi, gap, fs, r):
+            calls.append((view, list(members), axis, line, lo, hi, gap, fs, r))
+            return 0
+
+        stub = SimpleNamespace(
+            _analysis=a,
+            _coords={"plan": SimpleNamespace(pp=lambda *_loc: (50.0, 58.0))},
+            draft=SimpleNamespace(font_size=3.0),
+            iter_annotations=lambda: iter(()),
+            view_of=lambda _name: "plan",
+            _place_band=place_band,
+            _record_build_issue=lambda *_args: None,
+        )
+        holes = [SimpleNamespace(location=(float(i), 0.0, 0.0), diameter=4.0) for i in range(6)]
+
+        Drawing._add_balloons(
+            stub, "plan", [(chr(ord("A") + i), 0, h) for i, h in enumerate(holes)]
+        )
+
+        fs = stub.draft.font_size
+        r = fs * 1.5
+        gap = 2 * r + 2 * _STRIP_SPACING
+        top_cap = _strip_capacity(a.PV_X - a.fv_hw - _STRIP_GAP, a.SV_X - a.sv_hw - r, gap)
+        top_members = next(call[1] for call in calls if call[2] == "x" and call[3] > a.PV_Y)
+        side_members = [m for call in calls if call[2] == "y" for m in call[1]]
+
+        assert len(top_members) == top_cap
+        assert len(side_members) == len(holes) - top_cap
+
+    def test_balloon_assignment_cost_uses_actual_band_line_after_furniture_depth(self):
+        from types import SimpleNamespace
+
+        calls = []
+        a = SimpleNamespace(
+            PV_X=50.0,
+            PV_Y=50.0,
+            fv_hw=20.0,
+            pv_hh=10.0,
+            SV_X=34.0,
+            sv_hw=10.0,
+            margin=0.0,
+            PAGE_H=120.0,
+            PAGE_W=140.0,
+            FV_Y=30.0,
+            fv_hh=5.0,
+        )
+        right_obstacle = self._Boxed((71.0, 45.0, 115.0, 55.0))
+
+        def place_band(view, members, axis, line, lo, hi, gap, fs, r):
+            calls.append((view, list(members), axis, line, lo, hi, gap, fs, r))
+            return 0
+
+        stub = SimpleNamespace(
+            _analysis=a,
+            _coords={"plan": SimpleNamespace(pp=lambda *_loc: (60.0, 50.0))},
+            draft=SimpleNamespace(font_size=3.0),
+            iter_annotations=lambda: iter([("right_obstacle", right_obstacle)]),
+            view_of=lambda _name: "plan",
+            _place_band=place_band,
+            _record_build_issue=lambda *_args: None,
+        )
+        hole = SimpleNamespace(location=(0.0, 0.0, 0.0), diameter=4.0)
+
+        Drawing._add_balloons(stub, "plan", [("A", 0, hole)])
+
+        left_members = next(call[1] for call in calls if call[2] == "y" and call[3] < a.PV_X)
+        right_members = next(call[1] for call in calls if call[2] == "y" and call[3] > a.PV_X)
+        assert [m[0] for m in left_members] == ["A"]
+        assert right_members == []
 
     def test_table_and_balloons_keep_lint_clean(self):
         # covers_diameters lets coverage lint count the tabulated holes, and the

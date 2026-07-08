@@ -43,9 +43,11 @@ from draftwright._core import (
     _fmt,
     _largest_empty_rect,
     _parse_page,
+    _tag_sequence,
     _tb_width,
     _text_width,
 )
+from draftwright.layout import fit_box
 from draftwright.recognition import BoltCircle, HoleSpec, RectGrid
 
 _log = logging.getLogger(__name__)
@@ -126,6 +128,79 @@ def _will_balloon(holes, patterns) -> bool:
         return False
     covered = sum(len(p.holes) for p in patterns if p.holes and _axis_letter(p.holes[0]) == "z")
     return covered < 0.8 * len(z)
+
+
+def _wrap_table_rows(header, data, ncols):
+    """Local mirror of the hole-table row wrapping used by the annotation pass."""
+
+    per = math.ceil(len(data) / ncols)
+    blank = ("",) * len(header)
+    wide = [tuple(header) * ncols]
+    for r in range(per):
+        row: tuple = ()
+        for c in range(ncols):
+            idx = c * per + r
+            row += data[idx] if idx < len(data) else blank
+        wide.append(row)
+    return wide
+
+
+def _est_table_size(
+    rows, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0, block_cols=None
+):
+    """Table footprint estimate matching ``drawing._build_table``'s sizing model."""
+
+    if not rows:
+        return None
+    fs = font_size
+    pad = pad_around_text
+    row_h = fs + 2 * pad
+    ncol = len(rows[0])
+    bc = block_cols if (block_cols and ncol % block_cols == 0 and block_cols < ncol) else ncol
+    block_gap = 3 * pad
+    col_w = [
+        max(max(_text_width(str(r[c]), fs) for r in rows) + 2 * pad, fs * 2.5) for c in range(ncol)
+    ]
+    total_w = sum(col_w) + (max(ncol // bc - 1, 0) * block_gap)
+    total_h = row_h * len(rows)
+    return (total_w, total_h)
+
+
+def _est_hole_table_sizes(
+    holes,
+    patterns,
+    bb,
+    font_size: float = _FONT_SIZE,
+    pad_around_text: float = 2.0,
+) -> tuple[tuple[float, float], ...]:
+    """Possible wrapped hole-chart footprints for scale/page fitness (#517).
+
+    The runtime resolver tries the same one-to-four wrapped table blocks after
+    replacing dense scattered plan-hole dimensions. This estimate lets the outer
+    layout reject a page/scale where none of those table shapes can coexist with
+    the placed blocks, instead of discovering that only after annotation.
+    """
+
+    patterned = {h for p in patterns for h in p.holes}
+    z_holes = [h for h in holes if _axis_letter(h) == "z" and h not in patterned]
+    if len(z_holes) < _TABULATE_MIN_HOLES:
+        return ()
+    dx, dy = bb.min.X, bb.min.Y
+    header = ("TAG", "ø", "X", "Y")
+    data = [
+        (tag, f"ø{_fmt(h.diameter)}", _fmt(h.location[0] - dx), _fmt(h.location[1] - dy))
+        for tag, h in zip(_tag_sequence(len(z_holes)), z_holes, strict=True)
+    ]
+    return tuple(
+        size
+        for ncols in (1, 2, 3, 4)
+        if (
+            size := _est_table_size(
+                _wrap_table_rows(header, data, ncols), font_size, pad_around_text, len(header)
+            )
+        )
+        is not None
+    )
 
 
 def _will_section(holes, patterns, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
@@ -389,6 +464,7 @@ def _fits(
     strips: StripDepths | None = None,
     pack_iso_2d: bool = False,
     section: bool = False,
+    table_sizes=(),
 ) -> bool:
     """True if the composed 4-view footprint fits the page at this scale.
 
@@ -408,13 +484,14 @@ def _fits(
         strips,
         n_steps,
         section=section,
+        table_sizes=table_sizes,
         warn_no_iso=False,
     )
     return bool(g.fits if pack_iso_2d else g.auto_fits)
 
 
 def _bisect_fit_scale(
-    x_size, y_size, z_size, pw, ph, tb, n_steps, strips, pack_iso_2d, section=False
+    x_size, y_size, z_size, pw, ph, tb, n_steps, strips, pack_iso_2d, section=False, table_sizes=()
 ):
     """Largest scale at which the 4-view layout fits ``(pw, ph)``, found by bisection —
     the layout is monotone in scale (a smaller scale never fits worse). Used only as the
@@ -437,6 +514,7 @@ def _bisect_fit_scale(
             strips=strips,
             pack_iso_2d=pack_iso_2d,
             section=section,
+            table_sizes=table_sizes,
         ):
             lo = mid
         else:
@@ -453,6 +531,7 @@ def choose_scale(
     page=None,
     strips: StripDepths | None = None,
     section: bool = False,
+    table_sizes=(),
 ) -> tuple:
     """Return (SCALE, PAGE_W, PAGE_H, TB_W) for a 4-view layout.
 
@@ -489,6 +568,7 @@ def choose_scale(
             strips=strips,
             pack_iso_2d=True,
             section=section,
+            table_sizes=table_sizes,
         ):
             _log.warning(
                 "Requested scale %s on %s page may not fit the 4-view layout", scale, page
@@ -514,6 +594,7 @@ def choose_scale(
             strips=strips,
             pack_iso_2d=pack_iso_2d,
             section=section,
+            table_sizes=table_sizes,
         ):
             return cand
     # The ISO 5455 ladder exhausted with no standard fit (a part too large even for
@@ -524,7 +605,17 @@ def choose_scale(
     if scale is None:
         _pw, _ph, _tb = candidates[-1][1], candidates[-1][2], candidates[-1][3]
         s = _bisect_fit_scale(
-            x_size, y_size, z_size, _pw, _ph, _tb, n_steps, strips, pack_iso_2d, section
+            x_size,
+            y_size,
+            z_size,
+            _pw,
+            _ph,
+            _tb,
+            n_steps,
+            strips,
+            pack_iso_2d,
+            section,
+            table_sizes,
         )
         if s is not None:
             _log.warning(
@@ -653,6 +744,7 @@ def _layout_geometry(
     n_steps=0,
     blocks=None,
     section: bool = False,
+    table_sizes=(),
     warn_no_iso=True,
 ):
     """Compute the 4-view layout geometry for a part at a given scale/page.
@@ -878,8 +970,26 @@ def _layout_geometry(
     auto_row_fits = _auto_row_w <= page_w + _tol
     iso_fit = min(iso_right - iso_left, iso_top - iso_bottom)
     iso_fits = iso_valid and iso_fit >= _ISO_MIN_FIT_FRAC * bbox_max * scale * _ISO_WIDTH_BUDGET
+    # Tables are late furniture and must reserve against the same composed view
+    # footprints the fit model validates, not the iso's byte-identity padded-box
+    # obstacles. Otherwise a table can be accepted in space already reserved for
+    # planned strips/halos and then drop after real annotations are rendered.
+    table_obstacles = [
+        fv.footprint(FV_X, FV_Y),
+        pv.footprint(PV_X, PV_Y),
+        sv.footprint(SV_X, SV_Y),
+        title_block.footprint(tb_cx, tb_cy),
+    ]
+    if section:
+        table_obstacles.append(section_block.footprint(SECTION_X, SECTION_Y))
+    if iso_valid:
+        table_obstacles.append((iso_left, iso_bottom, iso_right, iso_top))
+    table_fits = not table_sizes or any(
+        fit_box(size, drawable, table_obstacles, "tr") is not None for size in table_sizes
+    )
     fits = (
         iso_fits
+        and table_fits
         and cy0 >= margin - _tol
         and cy1 <= page_h - margin + _tol
         and cx0 >= margin - _tol
@@ -887,6 +997,7 @@ def _layout_geometry(
     )
     auto_fits = (
         auto_row_fits
+        and table_fits
         and cy0 >= margin - _tol
         and cy1 <= page_h - margin + _tol
         and cx0 >= margin - _tol
@@ -917,6 +1028,7 @@ def _layout_geometry(
         iso_valid=iso_valid,
         iso_fit=iso_fit,
         iso_fits=iso_fits,
+        table_fits=table_fits,
         iso_natural=bbox_max * scale * _ISO_WIDTH_BUDGET,
         auto_views_bottom=_auto_views_bottom,
         auto_clears_tb=_auto_clears_tb,

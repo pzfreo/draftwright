@@ -163,6 +163,103 @@ def _build_table(rows, draft, block_cols=None):
     return table
 
 
+@dataclass
+class _FlowEdge:
+    to: int
+    rev: int
+    cap: int
+    cost: int
+
+
+def _strip_capacity(lo: float, hi: float, gap: float) -> int:
+    """Number of uniform balloon centres that can fit in ``[lo, hi]``."""
+
+    if hi < lo:
+        return 0
+    return int(math.floor((hi - lo) / gap + 1e-9)) + 1
+
+
+def _assign_balloon_bands(members, choices_by_member, capacities):
+    """Global max-cardinality/min-cost assignment of balloons to side bands (#516)."""
+
+    band_order = ("left", "right", "top", "bottom")
+    bands = [b for b in band_order if capacities.get(b, 0) > 0]
+    assigned: dict[str, list] = {b: [] for b in band_order}
+    if not members or not bands:
+        return assigned, len(members)
+
+    source = 0
+    member0 = 1
+    band0 = member0 + len(members)
+    sink = band0 + len(bands)
+    graph: list[list[_FlowEdge]] = [[] for _ in range(sink + 1)]
+
+    def add_edge(fr: int, to: int, cap: int, cost: int) -> _FlowEdge:
+        fwd = _FlowEdge(to, len(graph[to]), cap, cost)
+        rev = _FlowEdge(fr, len(graph[fr]), 0, -cost)
+        graph[fr].append(fwd)
+        graph[to].append(rev)
+        return fwd
+
+    used_edges: dict[tuple[int, str], _FlowEdge] = {}
+    for i, choices in enumerate(choices_by_member):
+        add_edge(source, member0 + i, 1, 0)
+        for j, band in enumerate(bands):
+            if band not in choices:
+                continue
+            # Costs are integerised for deterministic shortest paths; the tiny band
+            # ordinal keeps exact ties stable without changing real distance order.
+            cost = int(round(max(0.0, choices[band]) * 1000)) + band_order.index(band)
+            used_edges[(i, band)] = add_edge(member0 + i, band0 + j, 1, cost)
+    for j, band in enumerate(bands):
+        add_edge(band0 + j, sink, capacities[band], 0)
+
+    def shortest_path():
+        dist = [math.inf] * len(graph)
+        prev: list[tuple[int, int] | None] = [None] * len(graph)
+        in_queue = [False] * len(graph)
+        queue = [source]
+        dist[source] = 0
+        in_queue[source] = True
+        while queue:
+            v = queue.pop(0)
+            in_queue[v] = False
+            for ei, edge in enumerate(graph[v]):
+                if edge.cap <= 0:
+                    continue
+                nd = dist[v] + edge.cost
+                if nd >= dist[edge.to]:
+                    continue
+                dist[edge.to] = nd
+                prev[edge.to] = (v, ei)
+                if not in_queue[edge.to]:
+                    queue.append(edge.to)
+                    in_queue[edge.to] = True
+        return prev if prev[sink] is not None else None
+
+    max_flow = min(len(members), sum(capacities.get(b, 0) for b in bands))
+    flow = 0
+    while flow < max_flow and (prev := shortest_path()) is not None:
+        v = sink
+        while v != source:
+            pv, ei = prev[v]
+            edge = graph[pv][ei]
+            edge.cap -= 1
+            graph[v][edge.rev].cap += 1
+            v = pv
+        flow += 1
+
+    placed = 0
+    for i, member in enumerate(members):
+        for band in bands:
+            edge = used_edges.get((i, band))
+            if edge is not None and edge.cap == 0:
+                assigned[band].append(member)
+                placed += 1
+                break
+    return assigned, len(members) - placed
+
+
 # Codes that check standards/geometry correctness rather than pure page
 # layout. Grouped so a caller (and the #30 repair loop) can tell a wrong
 # drawing from a merely tight one.
@@ -1296,26 +1393,43 @@ class Drawing:
         bottom_line = pb - bot_dim - standoff - r
         has_bottom = pb - (a.FV_Y + a.fv_hh) > bot_dim + standoff + 2 * r
 
-        # Assign each hole to the nearest reserved band.
-        bands: dict = {"left": [], "right": [], "top": [], "bottom": []}
-        for tag, j, hole in specs:
-            cx, cy = pp(*hole.location)
-            choices = {"left": cx - pl, "right": pr - cx, "top": pt - cy}
-            if has_bottom:
-                choices["bottom"] = cy - pb
-            bands[min(choices, key=lambda s: choices[s])].append((tag, j, hole, cx, cy))
-
         # left/right balloons vary in Y at a fixed X just outside the part; top
         # and bottom balloons vary in X at a fixed Y just beyond it. Each line is
         # offset by its side's dim depth so the ring sits clear of the dims.
-        dropped = 0
+        band_defs = {
+            "left": ("y", pl - left_dim - standoff - r, margin + r, ph - margin - r),
+            "right": ("y", pr + right_dim + standoff + r, margin + r, ph - margin - r),
+            "top": ("x", pt + top_dim + standoff + r, pl - standoff, sv_left - r),
+            "bottom": ("x", bottom_line, pl - standoff, sv_left - r),
+        }
+
+        # Globally assign holes across the usable reserved bands.  Nearest-band
+        # greedy could crowd one side and drop balloons while another side sat
+        # empty; the assignment maximises placed balloons first, then minimises
+        # leader distance to the ACTUAL post-depth band lines (#516).
+        members = []
+        choices_by_member = []
+        for tag, j, hole in specs:
+            cx, cy = pp(*hole.location)
+            choices = {
+                "left": abs(cx - band_defs["left"][1]),
+                "right": abs(band_defs["right"][1] - cx),
+                "top": abs(band_defs["top"][1] - cy),
+            }
+            if has_bottom:
+                choices["bottom"] = abs(cy - band_defs["bottom"][1])
+            members.append((tag, j, hole, cx, cy))
+            choices_by_member.append(choices)
+
+        capacities = {
+            name: (_strip_capacity(lo, hi, gap) if name != "bottom" or has_bottom else 0)
+            for name, (_axis, _line, lo, hi) in band_defs.items()
+        }
+        bands, dropped = _assign_balloon_bands(members, choices_by_member, capacities)
         dropped += self._place_band(
             view,
             bands["left"],
-            "y",
-            pl - left_dim - standoff - r,
-            margin + r,
-            ph - margin - r,
+            *band_defs["left"],
             gap,
             fs,
             r,
@@ -1323,10 +1437,7 @@ class Drawing:
         dropped += self._place_band(
             view,
             bands["right"],
-            "y",
-            pr + right_dim + standoff + r,
-            margin + r,
-            ph - margin - r,
+            *band_defs["right"],
             gap,
             fs,
             r,
@@ -1334,10 +1445,7 @@ class Drawing:
         dropped += self._place_band(
             view,
             bands["top"],
-            "x",
-            pt + top_dim + standoff + r,
-            pl - standoff,
-            sv_left - r,
+            *band_defs["top"],
             gap,
             fs,
             r,
@@ -1345,10 +1453,7 @@ class Drawing:
         dropped += self._place_band(
             view,
             bands["bottom"],
-            "x",
-            bottom_line,
-            pl - standoff,
-            sv_left - r,
+            *band_defs["bottom"],
             gap,
             fs,
             r,

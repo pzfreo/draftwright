@@ -519,6 +519,7 @@ class Analysis:
     layout_strips: StripDepths
     layout_n_steps: int
     layout_section: bool
+    layout_table_sizes: tuple[tuple[float, float], ...]
     sv_right: float
     iso_right_limit: float
     SCALE: float

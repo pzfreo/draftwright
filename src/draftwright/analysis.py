@@ -44,6 +44,7 @@ from draftwright.recognition import (
 from draftwright.sheet import (
     StripDepths,
     _build_zones,
+    _est_hole_table_sizes,
     _layout_geometry,
     _measure_strips,
     _will_section,
@@ -419,6 +420,13 @@ def _analyse(
         cx=cx,
         cy=cy,
     ) or _declared_will_section(model, is_rotational=is_rotational, cx=cx, cy=cy)
+    layout_table_sizes = _est_hole_table_sizes(
+        holes,
+        patterns,
+        bb,
+        font_size=_FONT_SIZE,
+        pad_around_text=_pad_around_text,
+    )
 
     # Choose scale/page, iterating so the reserved step corridor matches the
     # number of steps the legibility gate will actually place (#1) — not the raw
@@ -446,6 +454,7 @@ def _analyse(
             page=page,
             strips=strips_i,
             section=layout_section,
+            table_sizes=layout_table_sizes,
         )
 
     (SCALE, PAGE_W, PAGE_H, TB_W), strips_i, n_for_sizing = _converge_step_sizing(
@@ -482,6 +491,7 @@ def _analyse(
             page=page,
             strips=strips_i,
             section=layout_section,
+            table_sizes=layout_table_sizes,
         )
         # Warn only when omitting the scale would truly give a legible fit (auto scale itself is
         # legible) but the requested scale is below the floor. A part illegible at every
@@ -523,6 +533,7 @@ def _analyse(
         strips,
         n_steps,
         section=layout_section,
+        table_sizes=layout_table_sizes,
     )
     fv_hw = _g.fv_hw
     fv_hh = _g.fv_hh
@@ -594,6 +605,7 @@ def _analyse(
         layout_strips=strips,
         layout_n_steps=n_steps,
         layout_section=layout_section,
+        layout_table_sizes=layout_table_sizes,
         sv_right=sv_right,
         iso_right_limit=iso_right_limit,
         SCALE=SCALE,
