@@ -946,7 +946,7 @@ class Drawing:
 
         return add_section(self)
 
-    def locate(self, feature, *, axes=None) -> list[str]:
+    def locate(self, feature, *, axes=None, pin=False) -> list[str]:
         """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern
         (#418) — the location half of the feature-referenced **add** surface.
 
@@ -954,9 +954,11 @@ class Drawing:
         location dim measures the *datum → feature-centre* offset, which no feature
         exposes as a parameter. *feature* is a hole/pattern from :meth:`model`; ``axes``
         selects the in-plane axes (default both — ``"x"`` above the plan view, ``"y"``
-        above the side view). Each dim is placed into free space beside its view and
-        tagged with *feature* so :meth:`drop` / :meth:`annotations_of` find it. Returns
-        the placed names (0–2 — one per axis with a real offset).
+        above the side view). ``pin=True`` marks the placed dimensions as deliberate user
+        edits: in deferred mode they still flow through the shared corridor solve, but
+        survive/dedup as high-priority candidates and pin themselves once placed (#511).
+        Each dim is tagged with *feature* so :meth:`drop` / :meth:`annotations_of` find it.
+        Returns the placed names (0–2 — one per axis with a real offset).
 
         Raises ``ValueError`` if *feature* is not a Z-axis hole/pattern (side-drilled
         bores are placed by the auto-pass). A feature with no datum-referenced ref (a
@@ -965,11 +967,11 @@ class Drawing:
         (byte-identity is not a goal, #400 Ph2).
         """
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
-            self._intents.append(Intent("locate", feature, {"axes": axes}))
+            self._intents.append(Intent("locate", feature, {"axes": axes, "pin": pin}))
             return []
         from draftwright.annotations.holes import add_feature_location
 
-        return add_feature_location(self, feature, axes=axes)
+        return add_feature_location(self, feature, axes=axes, pin=pin)
 
     @contextlib.contextmanager
     def deferred(self):
@@ -1138,6 +1140,9 @@ class Drawing:
             and it.kwargs.get("role") in ("slot_width", "slot_length")
         }
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
+        pinned_loc = {
+            it.feature for it in self._intents if id(it) in corridor_ids and it.kwargs.get("pin")
+        }
         only_callout = {it.feature for it in self._intents if id(it) in callout_ids}
         only_dia = {it.feature for it in self._intents if id(it) in dia_ids}
         only_len = {it.feature for it in self._intents if id(it) in len_ids}
@@ -1186,7 +1191,7 @@ class Drawing:
             if only_loc or slot_feats:
                 assert a is not None and isinstance(model, PartModel)  # either ⟹ routable
                 if only_loc:
-                    render_locations(self, model, a, only=only_loc)
+                    render_locations(self, model, a, only=only_loc, pinned=pinned_loc)
                 if slot_feats:
                     render_slots(self, model, a, only=slot_feats)
                 drain_corridors(self)

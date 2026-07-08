@@ -165,7 +165,9 @@ def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | No
     return name
 
 
-def add_feature_location(dwg, feature, *, axes: tuple[str, ...] | None = None) -> list[str]:
+def add_feature_location(
+    dwg, feature, *, axes: tuple[str, ...] | None = None, pin: bool = False
+) -> list[str]:
     """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern —
     the #418 ``locate()`` add verb (symmetric with :meth:`Drawing.drop`).
 
@@ -181,7 +183,8 @@ def add_feature_location(dwg, feature, *, axes: tuple[str, ...] | None = None) -
     offset; empty for a concentric/on-datum bore that has nothing to dimension).
 
     ``axes`` selects the in-plane axes to emit (default both); ``"x"`` = the plan-X
-    position, ``"y"`` = the side-Y position.
+    position, ``"y"`` = the side-Y position. ``pin=True`` records each placed dim as a
+    deliberate user edit so later repair/finalize work leaves its placement fixed (#511).
 
     Raises ``ValueError`` if the drawing has no detected model/analysis, *feature*
     is not in the model, or is not a Z-axis hole/pattern (side-drilled bores are placed
@@ -253,6 +256,8 @@ def add_feature_location(dwg, feature, *, axes: tuple[str, ...] | None = None) -
             view=view,
             feature=feature,
         )
+        if pin:
+            dwg.pin(nm)
         return nm
 
     names: list[str] = []

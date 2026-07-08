@@ -365,12 +365,27 @@ _OVERALL_SUBCHAIN = 2
 _MANDATORY_OVERALL_PRIORITY = 100.0
 
 
-def _location_candidate(dwg, name, *, view, span_key, distance, build, feature=None):
+def _location_candidate(
+    dwg,
+    name,
+    *,
+    view,
+    span_key,
+    distance,
+    build,
+    feature=None,
+    pinned=False,
+):
     """A :class:`CorridorCandidate` for a datum-referenced hole/pattern location dim.
     Location dims outrank a coincident slot-position line in dedup (#345) and form the
     outer, datum-distance-ordered run of the ladder (#346). Force-kept (policy B): a plan-X
     / side-Y location has no alternate view, so a corridor block keeps it rather than drops
     it; only a physically full strip drops (``location_ref_dropped`` → hole-table escalate)."""
+
+    def _placed(nm):
+        dwg._cover_scattered_hole_doc(nm)
+        if pinned:
+            dwg.pin(nm)
 
     def _drop(nm):
         edge = "plan view" if view == "plan" else "side view"
@@ -384,16 +399,17 @@ def _location_candidate(dwg, name, *, view, span_key, distance, build, feature=N
         build=build,
         order=(_LOC_SUBCHAIN, distance, name),
         # A placed location may later be replaced by the scattered-hole table (#351 PR-4c).
-        on_place=lambda nm: dwg._cover_scattered_hole_doc(nm),
+        on_place=_placed,
         on_drop=_drop,
         dedup=(view, span_key[0], span_key[1]),
-        precedence=2,
+        precedence=3 if pinned else 2,
+        priority=100.0 if pinned else 0.0,
         force=True,
         feature=feature,  # provenance (ADR 0010): the located hole/pattern
     )
 
 
-def render_locations(dwg, model, a, *, only=None) -> int:
+def render_locations(dwg, model, a, *, only=None, pinned=None) -> int:
     """Baseline X/Y hole-location dims from the IR (#238). The planner decides the
     intent (`plan_locations`: which refs, from which datum); this renderer owns the
     layout (Amendment 4) — X dims tier above the plan view, Y dims above the side
@@ -404,7 +420,11 @@ def render_locations(dwg, model, a, *, only=None) -> int:
     *only*, when given, restricts placement to refs whose source feature is in the set —
     the #426 finalize() path passes the recorded ``locate`` intents' features so the
     corridor solve runs over the user's edited subset. ``None`` (the auto-pass) places
-    every ref, byte-identically."""
+    every ref, byte-identically.
+
+    *pinned* carries the #511 first slice: deferred user ``locate(..., pin=True)`` calls
+    remain first-class corridor candidates, but get higher survival/dedup priority and
+    pin their placed names instead of being hand-added after the solve."""
     planned = plan_locations(model)
     if not planned:
         return 0
@@ -432,6 +452,7 @@ def render_locations(dwg, model, a, *, only=None) -> int:
         refs.append((rx, ry, pd.feature))  # carry the source feature for provenance (ADR 0010)
     if not refs:
         return 0
+    pinned_set = set(pinned or ())
     tier = draft.font_size + 2 * draft.pad_around_text
     n = 0
 
@@ -454,8 +475,12 @@ def render_locations(dwg, model, a, *, only=None) -> int:
     PX, PY = a.proj.plan_x, a.proj.plan_y
     x_refs: list = []
     for r in refs:
-        if not any(abs(r[0] - u[0]) < 0.5 for u in x_refs):
-            x_refs.append(r)
+        for u in x_refs:
+            if abs(r[0] - u[0]) < 0.5:
+                u[3] = u[3] or r[2] in pinned_set
+                break
+        else:
+            x_refs.append([r[0], r[1], r[2], r[2] in pinned_set])
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
     _kept_x, _n_x_close = _legible_locations(_x_drawable, a.SCALE)
     if _n_x_close:
@@ -474,7 +499,7 @@ def render_locations(dwg, model, a, *, only=None) -> int:
     # pass carving around the other and interleaving. No alternate view for a plan-X
     # location, so a corridor-blocked dim is force-kept (policy B), not relocated; only a
     # physically full strip drops (→ location_ref_dropped, escalates the hole table).
-    for i, (rx, ry, feat) in enumerate(sorted(x_refs, key=lambda r: abs(r[0] - datum_x))):
+    for i, (rx, ry, feat, pin_ref) in enumerate(sorted(x_refs, key=lambda r: abs(r[0] - datum_x))):
         if abs(rx - datum_x) * a.SCALE < 1.0:
             continue  # on the datum edge — nothing to dimension
         n += 1
@@ -504,6 +529,7 @@ def render_locations(dwg, model, a, *, only=None) -> int:
                     label=_fmt(_rx - datum_x),
                 ),
                 feature=_xfeat,
+                pinned=pin_ref,
             ),
         )
 
@@ -513,8 +539,12 @@ def render_locations(dwg, model, a, *, only=None) -> int:
     iso_x0, iso_y0, _, _ = _iso_bbox(dwg)
     y_refs: list = []
     for r in refs:
-        if not any(abs(r[1] - u[1]) < 0.5 for u in y_refs):
-            y_refs.append(r)
+        for u in y_refs:
+            if abs(r[1] - u[1]) < 0.5:
+                u[3] = u[3] or r[2] in pinned_set
+                break
+        else:
+            y_refs.append([r[0], r[1], r[2], r[2] in pinned_set])
     _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
     _kept_y, _n_y_close = _legible_locations(_y_drawable, a.SCALE)
     if _n_y_close:
@@ -530,9 +560,9 @@ def render_locations(dwg, model, a, *, only=None) -> int:
     # Cap the side-above strip below the iso view so Y-location dims never run under it
     # (the carve respects outer_limit); the dim_pitch_side dims are obstacles the carve
     # avoids structurally, retiring the old manual allocate(10.0) reservation + cursor.
-    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _ in y_refs):
+    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin in y_refs):
         a.sv_zones.above.outer_limit = min(a.sv_zones.above.outer_limit, iso_y0 - 4)
-    for i, (rx, ry, feat) in enumerate(sorted(y_refs, key=lambda r: abs(r[1] - datum_y))):
+    for i, (rx, ry, feat, pin_ref) in enumerate(sorted(y_refs, key=lambda r: abs(r[1] - datum_y))):
         if abs(ry - datum_y) * a.SCALE < 1.0:
             continue
         n += 1
@@ -560,6 +590,7 @@ def render_locations(dwg, model, a, *, only=None) -> int:
                     label=_fmt(_ry - datum_y),
                 ),
                 feature=_yfeat,
+                pinned=pin_ref,
             ),
         )
     return n
