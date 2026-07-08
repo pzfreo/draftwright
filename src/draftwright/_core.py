@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from draftwright.recognition import TurnedProfile
+    from draftwright.sheet import StripDepths
 
 from build123d import Align, BoundBox, Location, Mode, Shape, Text
 from build123d_drafting.helpers import (
@@ -338,7 +339,7 @@ def _legible_locations(positions, scale):
     return kept, n_too_close
 
 
-def _largest_empty_rect(drawable, obstacles):
+def _largest_empty_rect(drawable, obstacles, *, warn: bool = True):
     """Largest axis-aligned empty rectangle in *drawable* avoiding *obstacles*.
 
     *drawable* and each obstacle are ``(x0, y0, x1, y1)`` page-mm boxes.  Returns
@@ -376,10 +377,11 @@ def _largest_empty_rect(drawable, obstacles):
         # is unreachable in practice — choose_scale always leaves a gap — but
         # if it ever happens the iso would render over the other views, so flag
         # it rather than fail silently.
-        _log.warning(
-            "No empty rectangle found for the iso view; obstacles fill the "
-            "drawable area — iso may overlap other views"
-        )
+        if warn:
+            _log.warning(
+                "No empty rectangle found for the iso view; obstacles fill the "
+                "drawable area — iso may overlap other views"
+            )
         return drawable
     return best
 
@@ -514,6 +516,8 @@ class Analysis:
     is_rotational: bool
     od_axis: str  # rotation/turning axis of a rotational part ("z" default; "x"/"y" #222)
     step_zs: list[float]
+    layout_strips: StripDepths
+    layout_n_steps: int
     sv_right: float
     iso_right_limit: float
     SCALE: float
