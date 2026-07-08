@@ -1440,14 +1440,21 @@ def _bore_half_span(pmi_kind: str, value: float) -> float:
     return value / 2 if pmi_kind == "diameter" else value
 
 
+# PMI is pre-authored manufacturing intent from the STEP file. When a strip is over
+# capacity it should survive ahead of auto-generated dims (priority 0), like declared
+# GD&T. It still lives in the outer run so it does not land between size/location dims.
+_PMI_SUBCHAIN = 3
+_PMI_CORRIDOR_PRIORITY = 1.0
+
+
 def render_pmi(dwg, model, a) -> int:
     """Render pre-authored PMI annotations (STEP AP242) from the IR `PmiFeature`s
-    into remaining strip space (#208). Replaces the engine's `_annotate_pmi`.
+    as first-class corridor candidates (#208/#393). Replaces the engine's
+    `_annotate_pmi`.
 
-    Called from ``_auto_annotate`` after all automatic dimensions are placed so
-    PMI dims consume the strips' leftover capacity.  Skips records whose page
-    projection is degenerate (< 3 mm span) or whose extension lines would exceed
-    twice the nominal value.
+    Called from ``_auto_annotate`` before ``drain_corridors`` so authored PMI
+    co-solves with automatic strip candidates. Skips records whose page
+    projection is degenerate (< 3 mm span).
 
     View assignment:
     - dominant X → front view, fv_zones.above / fv_zones.below
@@ -1556,95 +1563,118 @@ def render_pmi(dwg, model, a) -> int:
             return None
         return p1, p2, avg_t
 
-    def _try_above(p1, p2, strip, label, name, view):
-        """Place a horizontal dimension line ABOVE the witness points."""
+    def _dim_spec(p1, p2, strip, label, name, view, side):
         if strip is None:
+            return None
+        if side in ("above", "below"):
+            axis = "y"
+            perp = tuple(sorted((p1[0], p2[0])))
+            witness = max(p1[1], p2[1]) + 2 if side == "above" else min(p1[1], p2[1]) - 2
+            q1, q2 = (p1[0], witness, 0), (p2[0], witness, 0)
+        else:
+            axis = "x"
+            perp = tuple(sorted((p1[1], p2[1])))
+            witness = max(p1[0], p2[0]) + 2 if side == "right" else min(p1[0], p2[0]) - 2
+            q1, q2 = (witness, p1[1], 0), (witness, p2[1], 0)
+        lo, hi, _inner = strip_free_span(strip)
+        if side in ("above", "right") and hi <= witness:
+            return None
+        if side in ("below", "left") and lo >= witness:
+            return None
+
+        def _build(pos, _q1=q1, _q2=q2, _side=side, _w=witness, _label=label):
+            dist = pos - _w if _side in ("above", "right") else _w - pos
+            return _dim(_q1, _q2, _side, dist, draft, label=_label)
+
+        order_coord = min(perp)
+        return {
+            "name": name,
+            "build": _build,
+            "strip": strip,
+            "view": view,
+            "side": side,
+            "axis": axis,
+            "perp": perp,
+            "order": (_PMI_SUBCHAIN, order_coord, name),
+        }
+
+    def _leader_spec(tip, strip, label, name, view, side):
+        if strip is None:
+            return None
+        axis = "y" if side in ("above", "below") else "x"
+        perp = (tip[0], tip[0]) if axis == "y" else (tip[1], tip[1])
+        order_coord = tip[0] if axis == "y" else tip[1]
+
+        def _build(pos, _tip=tip, _axis=axis, _label=label):
+            elbow = (_tip[0], pos, 0) if _axis == "y" else (pos, _tip[1], 0)
+            return Leader(_tip, elbow, _label, draft)
+
+        return {
+            "name": name,
+            "build": _build,
+            "strip": strip,
+            "view": view,
+            "side": side,
+            "axis": axis,
+            "perp": perp,
+            "order": (_PMI_SUBCHAIN, order_coord, name),
+        }
+
+    def _place_one(spec, rec):
+        left = place_strip_candidates(
+            dwg,
+            spec["strip"],
+            spec["view"],
+            spec["axis"],
+            [(spec["name"], spec["build"])],
+            _SLOT,
+            force=True,
+            features={spec["name"]: rec},
+            priorities={spec["name"]: _PMI_CORRIDOR_PRIORITY},
+        )
+        return not left
+
+    def _queue_options(options, ax, label, rec):
+        specs = [s for s in options if s is not None]
+        if not specs:
             return False
-        witness_y = max(p1[1], p2[1]) + 2
-        slot = carve_free_position(dwg, strip, view, "y", _SLOT, tuple(sorted((p1[0], p2[0]))))
-        if slot is None or slot <= witness_y:
-            return False
-        dwg.add(
-            _dim(
-                (p1[0], witness_y, 0),
-                (p2[0], witness_y, 0),
-                "above",
-                slot - witness_y,
-                draft,
-                label=label,
+        primary, alternates = specs[0], specs[1:]
+
+        def _drop(nm, _alts=alternates, _ax=ax, _label=label, _rec=rec):
+            for alt in _alts:
+                if _place_one(alt, _rec):
+                    _log.info(
+                        "PMI dim %s placed on fallback %s/%s",
+                        nm,
+                        alt["view"],
+                        alt["side"],
+                    )
+                    return
+            _record_pmi_drop(dwg, _ax, _label, _rec)
+
+        register_corridor(
+            dwg,
+            (primary["view"], primary["side"]),
+            primary["strip"],
+            primary["view"],
+            primary["axis"],
+            _SLOT,
+            CorridorCandidate(
+                name=primary["name"],
+                build=primary["build"],
+                order=primary["order"],
+                on_place=lambda nm, _ax=ax, _label=label, _rec=rec: _log.info(
+                    "PMI dim %s %.3g → annotated (%s)", _ax, _rec.value, _label
+                ),
+                on_drop=_drop,
+                priority=_PMI_CORRIDOR_PRIORITY,
+                force=True,
+                feature=rec,
             ),
-            name,
-            view=view,
         )
         return True
 
-    def _try_below(p1, p2, strip, label, name, view):
-        """Place a horizontal dimension line BELOW the witness points."""
-        if strip is None:
-            return False
-        witness_y = min(p1[1], p2[1]) - 2
-        slot = carve_free_position(dwg, strip, view, "y", _SLOT, tuple(sorted((p1[0], p2[0]))))
-        if slot is None or slot >= witness_y:
-            return False
-        dwg.add(
-            _dim(
-                (p1[0], witness_y, 0),
-                (p2[0], witness_y, 0),
-                "below",
-                witness_y - slot,
-                draft,
-                label=label,
-            ),
-            name,
-            view=view,
-        )
-        return True
-
-    def _try_right(p1, p2, strip, label, name, view):
-        """Place a vertical dimension line to the RIGHT of the witness points."""
-        if strip is None:
-            return False
-        witness_x = max(p1[0], p2[0]) + 2
-        slot = carve_free_position(dwg, strip, view, "x", _SLOT, tuple(sorted((p1[1], p2[1]))))
-        if slot is None or slot <= witness_x:
-            return False
-        dwg.add(
-            _dim(
-                (witness_x, p1[1], 0),
-                (witness_x, p2[1], 0),
-                "right",
-                slot - witness_x,
-                draft,
-                label=label,
-            ),
-            name,
-            view=view,
-        )
-        return True
-
-    def _try_left(p1, p2, strip, label, name, view):
-        """Place a vertical dimension line to the LEFT of the witness points."""
-        if strip is None:
-            return False
-        witness_x = min(p1[0], p2[0]) - 2
-        slot = carve_free_position(dwg, strip, view, "x", _SLOT, tuple(sorted((p1[1], p2[1]))))
-        if slot is None or slot >= witness_x:
-            return False
-        dwg.add(
-            _dim(
-                (witness_x, p1[1], 0),
-                (witness_x, p2[1], 0),
-                "left",
-                witness_x - slot,
-                draft,
-                label=label,
-            ),
-            name,
-            view=view,
-        )
-        return True
-
-    emitted = 0
+    queued = 0
     for idx, rec in enumerate(usable):
         ax = rec.dominant_axis
         label = rec.label
@@ -1680,87 +1710,118 @@ def render_pmi(dwg, model, a) -> int:
                 if half_pg >= 4.0:
                     p1 = (PX(cx_f - half), PY(cy_f), 0)
                     p2 = (PX(cx_f + half), PY(cy_f), 0)
-                    placed = _try_above(
-                        p1, p2, a.pv_zones.above, label, name_d, "plan"
-                    ) or _try_below(p1, p2, a.pv_zones.below, label, name_d, "plan")
-                else:
-                    tip = (PX(cx_f), PY(cy_f) + half_pg, 0)
-                    slot = carve_free_position(
-                        dwg, a.pv_zones.above, "plan", "y", _SLOT, (PX(cx_f), PX(cx_f))
+                    placed = _queue_options(
+                        [
+                            _dim_spec(p1, p2, a.pv_zones.above, label, name_d, "plan", "above"),
+                            _dim_spec(p1, p2, a.pv_zones.below, label, name_d, "plan", "below"),
+                        ],
+                        ax,
+                        label,
+                        rec,
                     )
-                    if slot is not None:
-                        dwg.add(
-                            Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d, view="plan"
-                        )
-                        placed = True
-                    else:
-                        slot = carve_free_position(
-                            dwg, a.pv_zones.below, "plan", "y", _SLOT, (PX(cx_f), PX(cx_f))
-                        )
-                        if slot is not None:
-                            tip = (PX(cx_f), PY(cy_f) - half_pg, 0)
-                            dwg.add(
-                                Leader(tip, (PX(cx_f), slot, 0), label, draft), name_d, view="plan"
-                            )
-                            placed = True
+                else:
+                    placed = _queue_options(
+                        [
+                            _leader_spec(
+                                (PX(cx_f), PY(cy_f) + half_pg, 0),
+                                a.pv_zones.above,
+                                label,
+                                name_d,
+                                "plan",
+                                "above",
+                            ),
+                            _leader_spec(
+                                (PX(cx_f), PY(cy_f) - half_pg, 0),
+                                a.pv_zones.below,
+                                label,
+                                name_d,
+                                "plan",
+                                "below",
+                            ),
+                        ],
+                        ax,
+                        label,
+                        rec,
+                    )
 
             elif bore_axis == "X":
                 # X-axis bore: circle visible in side view.
                 if half_pg >= 4.0:
                     p1 = (SX(cy_f - half), SZ(cz_f), 0)
                     p2 = (SX(cy_f + half), SZ(cz_f), 0)
-                    placed = _try_above(
-                        p1, p2, a.sv_zones.above, label, name_d, "side"
-                    ) or _try_below(p1, p2, a.sv_zones.below, label, name_d, "side")
-                else:
-                    tip = (SX(cy_f), SZ(cz_f) + half_pg, 0)
-                    slot = carve_free_position(
-                        dwg, a.sv_zones.above, "side", "y", _SLOT, (SX(cy_f), SX(cy_f))
+                    placed = _queue_options(
+                        [
+                            _dim_spec(p1, p2, a.sv_zones.above, label, name_d, "side", "above"),
+                            _dim_spec(p1, p2, a.sv_zones.below, label, name_d, "side", "below"),
+                        ],
+                        ax,
+                        label,
+                        rec,
                     )
-                    if slot is not None:
-                        dwg.add(
-                            Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d, view="side"
-                        )
-                        placed = True
-                    else:
-                        slot = carve_free_position(
-                            dwg, a.sv_zones.below, "side", "y", _SLOT, (SX(cy_f), SX(cy_f))
-                        )
-                        if slot is not None:
-                            tip = (SX(cy_f), SZ(cz_f) - half_pg, 0)
-                            dwg.add(
-                                Leader(tip, (SX(cy_f), slot, 0), label, draft), name_d, view="side"
-                            )
-                            placed = True
+                else:
+                    placed = _queue_options(
+                        [
+                            _leader_spec(
+                                (SX(cy_f), SZ(cz_f) + half_pg, 0),
+                                a.sv_zones.above,
+                                label,
+                                name_d,
+                                "side",
+                                "above",
+                            ),
+                            _leader_spec(
+                                (SX(cy_f), SZ(cz_f) - half_pg, 0),
+                                a.sv_zones.below,
+                                label,
+                                name_d,
+                                "side",
+                                "below",
+                            ),
+                        ],
+                        ax,
+                        label,
+                        rec,
+                    )
 
             elif bore_axis == "Y":
                 # Y-axis bore: circle visible in front view as a circle.
                 if half_pg >= 4.0:
                     p1 = (FX(cx_f - half), FZ(cz_f), 0)
                     p2 = (FX(cx_f + half), FZ(cz_f), 0)
-                    placed = _try_above(
-                        p1, p2, a.fv_zones.above, label, name_d, "front"
-                    ) or _try_below(p1, p2, a.fv_zones.below, label, name_d, "front")
-                else:
-                    # Narrow bore: leader from bore bottom into the below strip.
-                    tip = (FX(cx_f), FZ(cz_f) - half_pg, 0)
-                    slot = carve_free_position(
-                        dwg, a.fv_zones.below, "front", "y", _SLOT, (FX(cx_f), FX(cx_f))
+                    placed = _queue_options(
+                        [
+                            _dim_spec(p1, p2, a.fv_zones.above, label, name_d, "front", "above"),
+                            _dim_spec(p1, p2, a.fv_zones.below, label, name_d, "front", "below"),
+                        ],
+                        ax,
+                        label,
+                        rec,
                     )
-                    if slot is not None:
-                        elbow = (FX(cx_f), slot, 0)
-                        dwg.add(Leader(tip, elbow, label, draft), name_d, view="front")
-                        placed = True
-                    else:
-                        # Fall back: leader upward into the above strip.
-                        slot = carve_free_position(
-                            dwg, a.fv_zones.above, "front", "y", _SLOT, (FX(cx_f), FX(cx_f))
-                        )
-                        if slot is not None:
-                            tip = (FX(cx_f), FZ(cz_f) + half_pg, 0)
-                            elbow = (FX(cx_f), slot, 0)
-                            dwg.add(Leader(tip, elbow, label, draft), name_d, view="front")
-                            placed = True
+                else:
+                    # Narrow Y-axis bore historically prefers below, then above.
+                    placed = _queue_options(
+                        [
+                            _leader_spec(
+                                (FX(cx_f), FZ(cz_f) - half_pg, 0),
+                                a.fv_zones.below,
+                                label,
+                                name_d,
+                                "front",
+                                "below",
+                            ),
+                            _leader_spec(
+                                (FX(cx_f), FZ(cz_f) + half_pg, 0),
+                                a.fv_zones.above,
+                                label,
+                                name_d,
+                                "front",
+                                "above",
+                            ),
+                        ],
+                        ax,
+                        label,
+                        rec,
+                    )
 
         elif ax == "X":
             wp = _witness_from_bbox(rec, "front")
@@ -1769,9 +1830,22 @@ def render_pmi(dwg, model, a) -> int:
                 continue
             p1, p2, avg_pz = wp
             if avg_pz >= a.FV_Y:
-                placed = _try_above(p1, p2, a.fv_zones.above, label, name_x, "front")
+                placed = _queue_options(
+                    [
+                        _dim_spec(p1, p2, a.fv_zones.above, label, name_x, "front", "above"),
+                        _dim_spec(p1, p2, a.fv_zones.below, label, name_x, "front", "below"),
+                    ],
+                    ax,
+                    label,
+                    rec,
+                )
             if not placed:
-                placed = _try_below(p1, p2, a.fv_zones.below, label, name_x, "front")
+                placed = _queue_options(
+                    [_dim_spec(p1, p2, a.fv_zones.below, label, name_x, "front", "below")],
+                    ax,
+                    label,
+                    rec,
+                )
 
         elif ax == "Z":
             wp = _witness_from_bbox(rec, "front")
@@ -1780,9 +1854,22 @@ def render_pmi(dwg, model, a) -> int:
                 continue
             p1, p2, avg_px = wp
             if avg_px >= a.FV_X:
-                placed = _try_right(p1, p2, a.fv_zones.right, label, name_z, "front")
+                placed = _queue_options(
+                    [
+                        _dim_spec(p1, p2, a.fv_zones.right, label, name_z, "front", "right"),
+                        _dim_spec(p1, p2, a.fv_zones.left, label, name_z, "front", "left"),
+                    ],
+                    ax,
+                    label,
+                    rec,
+                )
             if not placed:
-                placed = _try_left(p1, p2, a.fv_zones.left, label, name_z, "front")
+                placed = _queue_options(
+                    [_dim_spec(p1, p2, a.fv_zones.left, label, name_z, "front", "left")],
+                    ax,
+                    label,
+                    rec,
+                )
 
         elif ax == "Y":
             # Try side view (Y maps to SX horizontal).
@@ -1790,25 +1877,42 @@ def render_pmi(dwg, model, a) -> int:
             if wp is not None:
                 p1, p2, avg_sz = wp
                 if avg_sz >= a.SV_Y:
-                    placed = _try_above(p1, p2, a.sv_zones.above, label, name_y, "side")
+                    placed = _queue_options(
+                        [
+                            _dim_spec(p1, p2, a.sv_zones.above, label, name_y, "side", "above"),
+                            _dim_spec(p1, p2, a.sv_zones.below, label, name_y, "side", "below"),
+                        ],
+                        ax,
+                        label,
+                        rec,
+                    )
                 if not placed:
-                    placed = _try_below(p1, p2, a.sv_zones.below, label, name_y, "side")
+                    placed = _queue_options(
+                        [_dim_spec(p1, p2, a.sv_zones.below, label, name_y, "side", "below")],
+                        ax,
+                        label,
+                        rec,
+                    )
             # Fall back: plan view (Y maps to PY vertical).
             if not placed:
                 wp = _witness_from_bbox(rec, "plan")
                 if wp is not None:
                     p1, p2, _ = wp
-                    placed = _try_below(p1, p2, a.pv_zones.below, label, name_y, "plan")
+                    placed = _queue_options(
+                        [_dim_spec(p1, p2, a.pv_zones.below, label, name_y, "plan", "below")],
+                        ax,
+                        label,
+                        rec,
+                    )
 
         if placed:
-            emitted += 1
-            _log.info("PMI dim[%d] %s %.3g → annotated (%s)", idx, ax, rec.value, label)
+            queued += 1
         else:
-            _log.info("PMI dim[%d] %s %.3g → no strip space", idx, ax, rec.value)
+            _log.info("PMI dim[%d] %s %.3g → no viable strip", idx, ax, rec.value)
             _record_pmi_drop(dwg, ax, label, rec)
 
-    _log.info("PMI annotate: %d/%d dims placed", emitted, len(usable))
-    return emitted
+    _log.info("PMI annotate: %d/%d dims queued", queued, len(usable))
+    return queued
 
 
 # GD&T aspect side-layer (ADR 0011 §4, #61) — declared feature control frames / datum
@@ -1853,13 +1957,12 @@ def render_gdt(dwg, model, a) -> int:
     """Place declared GD&T frames / datum symbols / surface finishes (#61) as first-class
     ADR 0009 corridor candidates — registered into the SAME strip the feature's dimensions
     use, BEFORE ``drain_corridors``, so one solve orders and spaces them crossing-free with
-    the dims (not a leftover first-fit like :func:`render_pmi`). Each item carries its target
-    ``(view, side)`` strip + model-space site; the leader hangs the glyph off the site into
-    that strip. The strip footprint is the GLYPH's own box — NOT the leader+glyph box, whose
-    shaft back to the feature would inflate the stacking extent (the same reason dims reserve
-    one label-height). Cross-view separation is the compose-then-pack repack's job (ADR 0004):
-    every placed frame is ``view=``-tagged, so ``_measure_blocks`` folds it into the block.
-    Returns the count registered."""
+    the dims. Each item carries its target ``(view, side)`` strip + model-space site; the
+    leader hangs the glyph off the site into that strip. The strip footprint is the GLYPH's
+    own box — NOT the leader+glyph box, whose shaft back to the feature would inflate the
+    stacking extent (the same reason dims reserve one label-height). Cross-view separation
+    is the compose-then-pack repack's job (ADR 0004): every placed frame is ``view=``-tagged,
+    so ``_measure_blocks`` folds it into the block. Returns the count registered."""
     items = [f for f in model.features if f.kind in _GDT_KINDS]
     if not items:
         return 0

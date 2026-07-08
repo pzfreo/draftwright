@@ -573,6 +573,59 @@ def test_place_strip_candidates_priority_survives_key_order():
     assert placed1 == {"a"} and left1 == {"b"}
 
 
+def test_place_strip_candidates_refills_after_late_forbid_rejection():
+    # #524 review: segment preselection must not waste capacity when the chosen
+    # high-priority candidate is rejected only after rendering (e.g. title-block
+    # forbid). A lower-priority candidate that fits the same segment should backfill it.
+    from draftwright._core import Strip
+    from draftwright.annotations._common import place_strip_candidates
+
+    class _P:
+        def __init__(s, x, y):
+            s.X, s.Y = x, y
+
+    class _Obj:
+        def __init__(s, x0, y0, x1, y1):
+            s._bb = type("_BB", (), {"min": _P(x0, y0), "max": _P(x1, y1)})()
+
+        def bounding_box(s):
+            return s._bb
+
+    class _Dwg:
+        def __init__(s):
+            s.added = []
+
+        def iter_annotations(s):
+            return list(s.added)
+
+        def view_of(s, n):
+            return "plan"
+
+        def add(s, obj, name, view=None, feature=None):
+            s.added.append((name, obj))
+
+    strip = Strip(anchor=0.0, outer_limit=13.0, direction=1.0, gap=0.0, spacing=4.0)
+    cands = [
+        ("hi", lambda pos: _Obj(-1.0, pos, 1.0, pos + 1.0)),
+        ("lo", lambda pos: _Obj(10.0, pos, 12.0, pos + 1.0)),
+    ]
+    dwg = _Dwg()
+    left = place_strip_candidates(
+        dwg,
+        strip,
+        "plan",
+        "y",
+        cands,
+        tier=5.0,
+        force=True,
+        priorities={"hi": 10.0, "lo": 1.0},
+        forbid={"hi": (-2.0, -1.0, 2.0, 2.0)},
+    )
+
+    assert {name for name, _ in dwg.added} == {"lo"}
+    assert {name for name, _ in left} == {"hi"}
+
+
 def test_place_strip_candidates_ignores_perpendicular_disjoint_obstacle():
     # A right strip stacks along X; the carve projects obstacles onto X. An obstacle that
     # overlaps in X (even after pad inflation) but is DISJOINT in Y — a dim on ANOTHER

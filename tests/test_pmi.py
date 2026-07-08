@@ -160,10 +160,13 @@ class TestDeclaredModelPmi:
         declared = build_drawing(
             str(CTC01), out=str(tmp_path / "d"), title="P", model=[], pmi="annotate"
         )
-        n_auto = sum(1 for n in auto._named if n.startswith("pmi_"))
-        n_decl = sum(1 for n in declared._named if n.startswith("pmi_"))
-        assert n_auto >= 1
-        assert n_decl == n_auto  # declared path reproduces the auto PMI dims (was 0 before #472)
+        auto_pmi = {n for n in auto._named if n.startswith("pmi_")}
+        decl_pmi = {n for n in declared._named if n.startswith("pmi_")}
+        assert auto_pmi
+        # The declared path has fewer auto-generated dimensions competing for strip capacity,
+        # so it may place extra authored PMI. The #472 invariant is no loss: every PMI dim the
+        # detected path placed must also be reproduced by the declared path.
+        assert auto_pmi <= decl_pmi
 
     def test_declared_model_pmi_off_stays_clean(self, tmp_path):
         # the synthesis is gated on pmi_mode == 'annotate' — a declared build without PMI stays 0
