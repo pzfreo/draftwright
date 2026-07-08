@@ -13,9 +13,10 @@ detection didn't model (chamfers, fillets, turned profiles) yet reads as authori
 
 Kinds with no declarative verb yet (``step_level``/``rotational``/``pmi``) are flagged inline —
 never silently dropped — and left to the auto-pass that runs over the declared model on re-run.
-Fidelity: the script reproduces a lint-clean drawing of the same features, not a byte copy of the
-detected sheet; some aspects a declarative verb would pin are not yet reproduced faithfully — a
-turned shaft drops its centre lines and renders the base ⌀ as a leader (the #472 validity gap).
+Fidelity: the script reproduces a lint-clean drawing of the same features. The generated script is
+validated against the direct build for prismatic, slot/pattern, section, and turned/rotational
+fixtures (#472); AP242 PMI script round-trip remains separate because ``import_step`` strips the
+semantic PMI before the generated script can re-read it (#503).
 """
 
 from __future__ import annotations
@@ -110,8 +111,9 @@ def _feature_line(f) -> str:
             parts.append("members=[" + ", ".join(_pt(p) for p in f.members) + "]")
         return f"sheet.pattern({_member_hole_str(f.member)}, " + ", ".join(parts) + ")"
     # Kinds with no declarative verb yet: flag inline so they aren't silently lost. The auto-pass
-    # over the declared model still draws them on re-run, but not always faithfully — a turned /
-    # rotational part isn't parity-safe yet (the #472 validity gap), so avoid promising it here.
+    # over the declared model still draws step_level/rotational furniture faithfully (#472). PMI is
+    # the remaining non-faithful case when re-running an emitted STEP-seam script because
+    # build123d.import_step strips AP242 PMI; baking those features is tracked in #503.
     return f"# {k} @ {_pt(f.frame.origin)} — no declarative verb yet; drawn by the auto-pass"
 
 
