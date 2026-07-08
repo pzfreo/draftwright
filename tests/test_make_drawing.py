@@ -2645,9 +2645,9 @@ class TestPrismaticClassification:
     def test_envelope_depth_survives_many_side_location_dims(self):
         # The mandatory overall depth dim must always be placed, even when several
         # side-drilled holes fill the side-below strip with location dims. The
-        # location pass now runs before the envelope (for ISO stacking), so the
-        # orchestrator reserves the envelope's tier first — best-effort location dims
-        # can never starve it (the #316-review regression).
+        # location pass now queues with the envelope (for ISO stacking), and the
+        # envelope's corridor priority means best-effort location dims can never starve it
+        # (the #316-review regression, now enforced without a manual reservation).
         from build123d import Cylinder, Pos, Rot
 
         part = Box(12, 24, 60)

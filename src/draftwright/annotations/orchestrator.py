@@ -20,7 +20,6 @@ from types import SimpleNamespace
 
 from draftwright._core import (
     _CONCENTRIC_TOL_MM,
-    _SLOT_DIM_DEPTH,
     _TABULATE_MIN_HOLES,
     Analysis,
     HoleRef,
@@ -33,9 +32,6 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import drain_corridors
 from draftwright.annotations.from_model import (
-    _env_pd,
-    env_dim_placed,
-    envelope_group,
     render_centermarks,
     render_diameters,
     render_envelope,
@@ -283,33 +279,16 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # turned parts, and a Z-turned overall height is suppressed there (ISO 129).
     render_height_ladder(dwg, _model, a)
 
-    # Side-drilled holes' in-plane (side-below) locations FIRST, so the overall
-    # envelope depth lands OUTSIDE them — ISO stacks the overall dim outermost,
-    # feature/location dims nearer the view (matches the plan view, where location
-    # dims precede the envelope). To keep the #133 guarantee that the MANDATORY
-    # envelope dim is never starved, reserve its tier in the side-below strip first
-    # (shrink the strip by one depth slot for the location pass, then restore) — so
-    # the best-effort locations fill inner tiers and the envelope always gets the
-    # outermost. The height (right-strip) locations stay in the "along" phase.
+    # Side-drilled holes' in-plane (side-below) locations share the below corridor with
+    # the overall envelope depth. They now queue into the same batch; the envelope's
+    # later subchain + mandatory priority keeps ISO outermost stacking and prevents
+    # best-effort locations from starving the principal depth dimension (#477).
     if feature_holes:
-        # Only reserve when render_envelope will actually place the depth dim — the
-        # planner suppresses it for a square footprint / X-turned part (#250); reserving
-        # a tier it never claims would needlessly shrink the strip and drop a location
-        # dim that would otherwise fit (#316 review). Uses render_envelope's own
-        # place-predicate (env_dim_placed) so the two can never drift.
-        _env_g = envelope_group(_groups)
-        _reserve = _env_g is not None and env_dim_placed(_env_pd(_env_g, "depth"))
-        _below = a.sv_zones.below
-        _saved_limit = _below.outer_limit
-        if _reserve:
-            _below.outer_limit -= _below.direction * (_SLOT_DIM_DEPTH + _below.spacing)
         _locate_off_axis_holes(dwg, a, holes_in=feature_holes, which="across")
-        _below.outer_limit = _saved_limit
 
     # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
-    # placed through the same below-strip zone allocators the engine used (zone-aware
-    # render stage, ADR 0008). Suppression (square footprint / X-turned width) is now
-    # the planner's decision (#250); the renderer just skips suppressed dims.
+    # queued into the shared corridor instead of claiming a post-hoc carve tier.
+    # Suppression (square footprint / X-turned width) is the planner's decision (#250).
     render_envelope(dwg, _groups, a)
 
     # Prismatic step-height detail: queue it (only when build_drawing(detail_view=True))
@@ -329,9 +308,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     if a.prof is not None:
         render_step_lengths(dwg, _groups)
 
-    # Side-drilled (X/Y-axis) hole HEIGHT locations — last, so the envelope and
-    # turned-diameter dims claim their (contended right) strip space first and are
-    # never evicted (#133). The in-plane locations were placed before the envelope.
+    # Side-drilled (X/Y-axis) hole HEIGHT locations — queued after the mandatory envelope
+    # candidates so below/right corridors solve them together with GD&T/PMI at the drain.
+    # The front-right prismatic height ladder remains immediate because its later witness
+    # bases depend on earlier placed tiers (#477).
     if feature_holes:
         _locate_off_axis_holes(dwg, a, holes_in=feature_holes, which="along")
 
