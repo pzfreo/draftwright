@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.2.11 — 2026-07-08
+
+**Automatic layout now has one authority.** Page/scale selection, section placement,
+furniture footprints, and table/balloon escalation now negotiate through the same layout
+fitness model instead of using separate fixed offsets or first-fit policies after the main
+solve.
 
 ### Fixed
 
@@ -10,6 +15,18 @@
   fallback searches bounded, obstacle-aware positions; repair no longer hides
   `annotation_overlap` with a fixed-step nudge; and step-count sizing now handles
   non-convergence conservatively. (#524)
+- **Page/scale fitness is shared across initial selection and repack.** Later layout
+  passes now compare candidates with the same model as the page chooser, preventing a
+  nominally "better" repack from invalidating the original layout decision. (#519)
+- **Section A-A participates in layout selection.** Section placement is measured as
+  part of page/scale fitness, so a section view is no longer a fixed-offset afterthought
+  that can disappear on dense sheets. (#515)
+- **Furniture placement reserves full rendered footprints.** Section arrows, detail
+  views, balloons, hole/data tables, and other furniture now reserve/check their true
+  rendered footprint instead of just their labels. (#518)
+- **Hole/data tables and balloon rings escalate through the layout model.** Dense table
+  and balloon outputs can move or negotiate for available room rather than dropping from
+  greedy first-fit placement when a small adjustment would fit. (#516, #517)
 
 ## v0.2.10 — 2026-07-07
 
