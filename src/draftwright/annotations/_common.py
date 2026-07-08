@@ -293,6 +293,10 @@ class CorridorCandidate:
             ``priority`` is kept. An authored GD&T frame sets this above the auto dims so it
             is not dropped in favour of a lower-value auto dim purely by stacking-key order.
             Default 0 (every auto dim) → key order, unchanged.
+        anchored/natural: when ``anchored`` is true, the strip solve keeps this candidate
+            near its own natural stacking-axis page coordinate instead of the segment edge.
+            This is how user-authored pinned dimension intents join the shared solve
+            without being invalidated by a later first-fit pass.
         on_place/on_drop: the pass's own post-placement bookkeeping — coverage
             registration / drop lint + `Escalation`, or a slot's below-side fallthrough.
         force:      policy-B force-keep after the corridor-respecting pass (locations have
@@ -307,6 +311,8 @@ class CorridorCandidate:
     dedup: tuple | None = None
     precedence: int = 0
     priority: float = 0
+    anchored: bool = False
+    natural: float | None = None
     force: bool = False
     # The source IR feature this dim was rendered for — recorded as provenance when the
     # dim is placed at drain (ADR 0010). ``None`` leaves the annotation feature-less.
@@ -376,6 +382,8 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
     sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
     forbid = {c.name: c.forbid for c in kept if c.forbid is not None}  # title-block box (#481)
     prio = {c.name: c.priority for c in kept if c.priority}  # over-capacity survival rank (#357)
+    anchored = {c.name: c.anchored for c in kept if c.anchored}
+    naturals = {c.name: c.natural for c in kept if c.natural is not None}
     left = {
         n
         for n, _ in place_strip_candidates(
@@ -389,6 +397,8 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
             sizes=sizes,
             forbid=forbid,
             priorities=prio,
+            anchored=anchored,
+            naturals=naturals,
         )
     }
     force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
@@ -407,6 +417,8 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
                 sizes=sizes,
                 forbid=forbid,
                 priorities=prio,
+                anchored=anchored,
+                naturals=naturals,
             )
         }
         if force_pairs
@@ -456,6 +468,8 @@ def place_strip_candidates(
     sizes=None,
     forbid=None,
     priorities=None,
+    anchored=None,
+    naturals=None,
 ):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
@@ -485,6 +499,11 @@ def place_strip_candidates(
     absent names default to 0. When a segment is over capacity :func:`plan_strip` drops
     the lowest ``(priority, key)``, so a higher priority is kept — an authored GD&T frame
     is not dropped for a lower-value auto dim purely by stacking-key order.
+
+    *anchored* and *naturals* opt individual candidates into the weighted anchoring
+    mode in :func:`plan_strip`. This preserves the old segment-edge natural for every
+    caller that does not pass them, while letting authored pinned candidates express the
+    page coordinate they asked for inside the same shared solve.
 
     ``force=True`` skips that corridor check — the caller's last resort when no view took
     the dim cleanly: keep it on its natural view and accept the (same-feature) leader
@@ -565,7 +584,6 @@ def place_strip_candidates(
 
     def _evaluate_segment(take, seg_lo, seg_hi):
         nat = seg_lo if inner == lo else seg_hi
-        anch = (0.0, nat) if axis == "y" else (nat, 0.0)
         # Keys order the tiers so the FIRST candidate lands on the inner tier: for an
         # inner=lo strip that is the lowest position (ascending keys); for a below strip
         # (inner=hi) it is the highest, so the keys reverse.
@@ -573,9 +591,14 @@ def place_strip_candidates(
             (
                 StripCandidate(
                     f"{(k if inner == lo else len(take) - 1 - k):04d}",
-                    anch,
+                    (
+                        (0.0, (naturals or {}).get(nb[0], nat))
+                        if axis == "y"
+                        else ((naturals or {}).get(nb[0], nat), 0.0)
+                    ),
                     (sizes or {}).get(nb[0], (tier, tier)),
                     priority=(priorities or {}).get(nb[0], 0.0),
+                    anchored=(anchored or {}).get(nb[0], False),
                 ),
                 nb,
             )

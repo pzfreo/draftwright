@@ -5169,6 +5169,67 @@ class TestFeatureEdits:
         assert shared_x
         assert shared_x <= dwg._pinned
 
+    def test_finalize_routes_pinned_dimension_as_corridor_candidate(self):
+        # #511: a deferred user dimension(pin=True) is a feature intent, not a raw
+        # page-coordinate placement after layout. It joins the shared strip solve, remains
+        # feature-owned, and pins the placed name only after legal placement.
+        dwg = build_drawing(Box(80, 50, 20), auto_dims=False)
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        with dwg.deferred():
+            dwg.dimension(
+                env,
+                "length",
+                role="width",
+                side="below",
+                name="user_width",
+                slot=12,
+                pin=True,
+                priority=25,
+            )
+
+        assert "user_width" in dwg.annotations_of(env)
+        assert "user_width" in dwg._pinned
+        assert dwg._named["user_width"]._dw_spec.side == "below"
+        assert dwg._named["user_width"]._dw_spec.distance == 12
+        assert dwg._intents == []
+
+    def test_deferred_dimension_generated_names_do_not_collide_in_one_batch(self):
+        # #511 review: generated names must be reserved before the corridor drain. Otherwise
+        # two same-kind dimensions recorded in one deferred batch both choose dim_length0 and
+        # the second add silently replaces the first.
+        dwg = build_drawing(Box(80, 50, 20), auto_dims=False)
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        with dwg.deferred():
+            dwg.dimension(env, "length", role="width", side="below", pin=True)
+            dwg.dimension(env, "length", role="depth", side="below", pin=True)
+
+        names = {n for n in dwg.annotations_of(env) if n.startswith("dim_length")}
+        assert names == {"dim_length0", "dim_length1"}
+        assert names <= dwg._pinned
+
+    def test_live_dimension_pin_pins_raw_escape_hatch_result(self):
+        # #511/ADR 0012: live dimension() still uses the single-position page-coordinate
+        # escape hatch, but pin=True must persist on the resulting annotation name.
+        dwg = build_drawing(Box(80, 50, 20), auto_dims=False)
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        name = dwg.dimension(env, "length", role="width", name="live_width", pin=True)
+
+        assert name == "live_width"
+        assert "live_width" in dwg.annotations_of(env)
+        assert "live_width" in dwg._pinned
+
+    def test_malformed_pinned_dimension_still_surfaces_live_valueerror(self):
+        # #511 review: pin=True must not make a non-linear hole diameter look corridor
+        # routable. It falls through to live replay and leaves the intent recorded.
+        dwg = build_drawing(_holed_plate(), auto_dims=False)
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg._defer_intents = True
+        dwg.dimension(hole, "diameter", pin=True)
+
+        with pytest.raises(ValueError, match="callout"):
+            dwg.finalize()
+        assert any(it.kind == "dimension" for it in dwg._intents)
+
     def test_finalize_honors_locate_axes_restriction(self):
         # #429 review: a recorded locate(f, axes=("x",)) must place only the X dim. The
         # per-feature corridor filter can't express an axis subset, so finalize live-replays
