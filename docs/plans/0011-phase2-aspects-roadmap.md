@@ -161,7 +161,8 @@ rejected by the user:
 - `render_gdt` (`annotations/from_model.py`) — builds each glyph, hangs it on a
   `Leader`, and **registers a `CorridorCandidate` into the target strip before
   `drain_corridors`**, so the one ADR 0009 solve orders and spaces frames crossing-free
-  *with* the dims (a first-class candidate, not a leftover first-fit like `render_pmi`).
+  *with* the dims (a first-class candidate, matching the `render_pmi` corridor path that
+  landed later in #524).
   Wired into `_auto_annotate` after `render_slots`, before the drain.
 - **Real-footprint plumbing (the ADR 0009 down-payment):** `CorridorCandidate.size`
   carries the glyph's own box (a frame is ~24×6 mm); `solve_corridor` forwards a

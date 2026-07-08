@@ -543,12 +543,12 @@ every existing drop code, `Escalation`, the hole-table trigger, the force-keep p
 still see the placed ladder as an obstacle.
 
 **Scope + follow-up.** Deliberately the two contended above corridors, where both bugs
-live. **PMI's above-corridor writes** (`render_pmi`, `carve_free_position`) are *not* yet
-in the batch — a PMI-annotated part can still interleave a PMI dim in that corridor. That
-is a tracked follow-up: fold PMI into the same batch to finish the corridor. The below /
-right ladders (envelope, height leapfrog, step lengths) are untouched — they carry no
-datum-location ladder and share no candidates, so unifying them would be scope without a
-bug to fix.
+live. At acceptance time, **PMI's above-corridor writes** (`render_pmi`,
+`carve_free_position`) still carved outside the batch, so a PMI-annotated part could
+interleave a PMI dim in that corridor. Amendment 8 (#524) later folded PMI into the same
+batch. The below / right ladders (envelope, height leapfrog, step lengths) are untouched
+here — they carry no datum-location ladder and share no candidates, so unifying them would
+be scope without a bug to fix.
 
 **Consequences.** Only `slotted` re-blessed (its position dim re-tiered ~2 mm by the
 shared solve); the pure-location and hole-free fixtures stay byte-identical. A `holed_slot`
@@ -599,6 +599,52 @@ migration (diameters/envelope will want it next). Roadmap: `0011-phase2-aspects-
 (P2b). Tests: `tests/test_gdt_placement.py` (stacked frames reserve real footprint; a full
 strip drops with a `gdt_dropped` warning; placement is lint-clean).
 
+## Amendment 8 — Solver-path consolidation and remaining Bucket-C cleanup (#524)
+
+**Status:** Accepted (2026-07-08). Closes the stale gap between the ADR 0009 direction
+and several still-parallel placement paths found in the July layout audit.
+
+**Problem.** After Amendments 6 and 7, the automatic path still had several important
+ways to place sheet furniture without joining the shared solve:
+
+- STEP/AP242 **PMI** dimensions (`render_pmi`) carved after the corridor drain, so a
+  PMI datum dimension could still interleave with, or duplicate, an automatic corridor
+  candidate that would otherwise be ordered/deduped with it.
+- **Front-view hole callouts** used fixed row stepping plus a local retry list, while
+  plan/side callouts already used the strip solver.
+- **Pitch dimensions** had an obstacle-aware strip path for axis-aligned arrays, but the
+  diagonal/rotated/full-strip fallback still used count-based outward stacking.
+- **Repair** still treated `annotation_overlap` as a placement problem it could nudge
+  with a fixed step, hiding defects the solver path should own.
+- The scale/page pre-pass had a fixed three-iteration step-count sizing loop and accepted
+  the last value even if the legibility count had not converged.
+
+**Decision.**
+
+- `render_pmi` queues authored PMI as `CorridorCandidate`s before `drain_corridors`, with
+  authored-intent priority and fallback sides handled from the candidate's drop callback.
+  PMI now co-solves with locations, slots, and GD&T in the same shared corridors.
+- Front-view hole callouts are measured as strip candidates below the front view. The
+  solve preserves crossing-free order and uses bore diameter as the over-capacity
+  priority, matching the policy used by the plan/side callout queues.
+- Pitch-dimension fallback now performs a bounded search along the chosen outward vector,
+  probes the full generated dimension footprint, and rejects off-page or obstacle-hitting
+  positions before trying the opposite side. This removes the residual count-stack shape
+  without pretending a diagonal dimension is an axis-aligned strip occupant.
+- `repair()` is narrowed back to a peephole safety net: it may flip a clear
+  `dim_inside_part` wrong-side dimension, but it no longer repairs `annotation_overlap`.
+- Step-corridor sizing iterates to a fixed point; if it cycles, it reserves the largest
+  attempted step count and logs the non-convergence instead of silently accepting an
+  arbitrary iteration result.
+
+**Consequences.** The corridor path is now the owner for the remaining placement classes
+that shared its strips most directly. The remaining non-corridor work is a narrower design
+question: below/right ladders and user edit intents still need the ADR 0012/#477 fold-in,
+but the fixed-step/count-stack residuals from the audit are gone. The review follow-up on
+#524 also fixed `place_strip_candidates` segment selection so a high-priority candidate
+that is rejected late by `forbid`/corridor blockers does not waste a usable slot; the
+segment refills from the remaining candidates before committing placements.
+
 ## Related
 
 - [ADR 0001](0001-deterministic-generation-over-editable-dsl.md) — determinism;
@@ -618,4 +664,4 @@ strip drops with a `gdt_dropped` warning; placement is lint-clean).
   original angled-leader-vs-centreline case Amendment 2's Finding 1 traces back
   to), #318 (P4 — the direct consumer of Amendment 2's `_segment_hits_box` and
   "policy B" findings, and the subject of Amendment 3), #366/#367 (Amendment
-  2's filed residual gaps).
+  2's filed residual gaps), #524 (Amendment 8 solver-path consolidation).

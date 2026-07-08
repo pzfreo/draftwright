@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Solver placement paths are more consistent.** STEP PMI dimensions now queue into
+  the shared ADR 0009 corridor solve instead of carving after the drain; front-view
+  hole callouts use the strip solver instead of fixed row stepping; pitch-dimension
+  fallback searches bounded, obstacle-aware positions; repair no longer hides
+  `annotation_overlap` with a fixed-step nudge; and step-count sizing now handles
+  non-convergence conservatively. (#524)
+
 ## v0.2.10 — 2026-07-07
 
 **Declarative-surface fidelity and layout-engine unification.** Editing and re-running a
