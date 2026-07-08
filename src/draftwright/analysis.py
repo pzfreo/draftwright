@@ -21,6 +21,7 @@ from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
 
 from draftwright._core import (
+    _CONCENTRIC_TOL_MM,
     _DIM_PAD,
     _FONT_SIZE,
     _MARGIN,
@@ -45,6 +46,7 @@ from draftwright.sheet import (
     _build_zones,
     _layout_geometry,
     _measure_strips,
+    _will_section,
     choose_scale,
 )
 
@@ -57,6 +59,43 @@ _SQUARENESS_TOL = 0.05
 _OD_FILL_MIN = 0.8
 _OD_AXIS_TOL = 0.05
 _ScalePick = tuple[float, float, float, float]
+
+
+def _declared_will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
+    """True when a caller-supplied IR model contains a section-driving Z hole.
+
+    Detection-based layout uses recogniser holes; declared-model builds may
+    intentionally supply features detection missed. Inspect the public IR shape
+    duck-typed here so declared sections get the same page/scale reservation.
+    """
+
+    if model is None:
+        return False
+    features = getattr(model, "features", model)
+
+    def feature_member(pt) -> bool:
+        return not (
+            is_rotational
+            and math.hypot(pt[0] - cx, pt[1] - cy) <= _CONCENTRIC_TOL_MM
+        )
+
+    for feat in features:
+        if getattr(feat, "kind", None) not in ("hole", "pattern"):
+            continue
+        frame = getattr(feat, "frame", None)
+        if frame is None or frame.axis != "z":
+            continue
+        members = getattr(feat, "members", ()) or (frame.origin,)
+        if not any(feature_member(m) for m in members):
+            continue
+        bore = getattr(feat, "member", feat)
+        if (
+            getattr(bore, "cbore", None) is not None
+            or getattr(bore, "spotface", None) is not None
+            or not getattr(bore, "through", True)
+        ):
+            return True
+    return False
 
 
 def _import_step(path) -> Compound:
@@ -252,7 +291,16 @@ def _solids_body(part, src: str = "part"):
 
 
 def _analyse(
-    step_file, title, number, tolerance, drawn_by, out, scale=None, page=None, pmi="off"
+    step_file,
+    title,
+    number,
+    tolerance,
+    drawn_by,
+    out,
+    scale=None,
+    page=None,
+    pmi="off",
+    model=None,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -367,6 +415,13 @@ def _analyse(
     patterns = find_hole_patterns(holes)
     bosses = find_bosses(part, cyls=(z_cyls, cross_cyls))  # detect once — the one inventory (#264)
     slots = find_slots(part)
+    layout_section = _will_section(
+        holes,
+        patterns,
+        is_rotational=is_rotational,
+        cx=cx,
+        cy=cy,
+    ) or _declared_will_section(model, is_rotational=is_rotational, cx=cx, cy=cy)
 
     # Choose scale/page, iterating so the reserved step corridor matches the
     # number of steps the legibility gate will actually place (#1) — not the raw
@@ -393,6 +448,7 @@ def _analyse(
             scale=scale,
             page=page,
             strips=strips_i,
+            section=layout_section,
         )
 
     (SCALE, PAGE_W, PAGE_H, TB_W), strips_i, n_for_sizing = _converge_step_sizing(
@@ -421,7 +477,14 @@ def _analyse(
                 f"Use scale ≥ {safe:.3g} or omit the scale for automatic selection."
             )
         auto_scale, _, _, _ = choose_scale(
-            x_size, y_size, z_size, n_steps=n_for_sizing, scale=None, page=page, strips=strips_i
+            x_size,
+            y_size,
+            z_size,
+            n_steps=n_for_sizing,
+            scale=None,
+            page=page,
+            strips=strips_i,
+            section=layout_section,
         )
         # Warn only when omitting the scale would truly give a legible fit (auto scale itself is
         # legible) but the requested scale is below the floor. A part illegible at every
@@ -452,7 +515,18 @@ def _analyse(
     # View positions + iso empty-rectangle, shared with scale selection (_fits)
     # via _layout_geometry so placement and fit never diverge (#11).  _fit_iso_view
     # later scales the iso to fill its rectangle.
-    _g = _layout_geometry(x_size, y_size, z_size, SCALE, PAGE_W, PAGE_H, TB_W, strips, n_steps)
+    _g = _layout_geometry(
+        x_size,
+        y_size,
+        z_size,
+        SCALE,
+        PAGE_W,
+        PAGE_H,
+        TB_W,
+        strips,
+        n_steps,
+        section=layout_section,
+    )
     fv_hw = _g.fv_hw
     fv_hh = _g.fv_hh
     pv_hh = _g.pv_hh
@@ -522,6 +596,7 @@ def _analyse(
         step_zs=step_zs,
         layout_strips=strips,
         layout_n_steps=n_steps,
+        layout_section=layout_section,
         sv_right=sv_right,
         iso_right_limit=iso_right_limit,
         SCALE=SCALE,

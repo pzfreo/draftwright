@@ -184,6 +184,13 @@ class TestChooseScale:
         scale, pw, ph, tbw = choose_scale(x, y, z)
         assert _fits(x, y, z, scale, pw, ph, tbw)
 
+    def test_section_participant_can_reduce_auto_scale(self):
+        # A section view is real furniture, not a fixed-offset afterthought. The
+        # compact 40×10×20 layout fits A4 at 2:1 without a section, but not once
+        # the section block must share the side-view row with the iso and title.
+        assert choose_scale(40, 10, 20, section=False)[:3] == (2.0, 297.0, 210.0)
+        assert choose_scale(40, 10, 20, section=True)[:3] == (1.0, 297.0, 210.0)
+
     # Enlargement scales for small parts (#62)
 
     def test_small_part_gets_enlargement_scale(self):
@@ -1404,6 +1411,15 @@ class TestComposeThenPackRepack:
             blocks=blocks,
             warn_no_iso=False,
         ).auto_fits
+
+    def test_section_reservation_sits_beyond_side_right_corridor(self):
+        from draftwright.sheet import _layout_geometry
+
+        strips = StripDepths(right=42.0, left=10.0)
+        g = _layout_geometry(40, 10, 20, 1.0, 420.0, 297.0, 150.0, strips, section=True)
+        section_hw = max(g.fv_hw, 12.0)
+        side_right = g.SV_X + g.sv_hw
+        assert g.SECTION_X - section_hw == pytest.approx(side_right + strips.right + 10.0)
 
     def test_repack_candidates_honour_fixed_scale_and_page(self):
         from types import SimpleNamespace
@@ -3340,6 +3356,27 @@ class TestLocationDimsAndSection:
         vis, _hid = dwg.views["section_aa"]
         assert len(vis.edges()) > 0
         assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    @pytest.mark.timeout(120)
+    def test_declared_blind_hole_reserves_section_layout(self):
+        from draftwright.model import hole
+
+        part = Box(40, 10, 20)
+        dwg = build_drawing(
+            part,
+            model=[hole(diameter=4, at=(0, 0, 10), axis="z", through=False, depth=6)],
+        )
+        assert dwg._analysis.layout_section is True
+        assert dwg.scale == 1.0
+        assert "section_aa" in dwg.views
+
+    @pytest.mark.timeout(120)
+    def test_rotational_concentric_bore_does_not_reserve_section_layout(self):
+        part = Cylinder(20, 20) - Cylinder(4, 20) - Pos(0, 0, 7) * Cylinder(8, 6)
+        dwg = build_drawing(part)
+        assert dwg._analysis.is_rotational is True
+        assert dwg._analysis.layout_section is False
+        assert "section_aa" not in dwg.views
 
     @pytest.mark.timeout(120)
     def test_section_clears_the_step_dim_ladder(self):

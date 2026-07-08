@@ -13,12 +13,14 @@ measure-and-repack pass (`_repack`, coupled to `_assemble`) stays in the builder
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from types import SimpleNamespace
 
 from build123d_drafting.helpers import format_drawing_scale
 
 from draftwright._core import (
+    _CONCENTRIC_TOL_MM,
     _DIM_PAD,
     _FONT_SIZE,
     _ISO_MIN_FIT_FRAC,
@@ -124,6 +126,36 @@ def _will_balloon(holes, patterns) -> bool:
         return False
     covered = sum(len(p.holes) for p in patterns if p.holes and _axis_letter(p.holes[0]) == "z")
     return covered < 0.8 * len(z)
+
+
+def _will_section(holes, patterns, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
+    """A-priori prediction that the automatic pass will add section A-A.
+
+    Mirrors ``plan_sections``' trigger on detected geometry: a Z-axis feature
+    hole or pattern with a counterbore, spotface, or blind/non-through bottom
+    warrants a section. The layout pass cannot import the IR planner without
+    creating a cycle, so it uses the recogniser records that feed the same IR
+    model.
+    """
+
+    patterned = {h for p in patterns for h in p.holes}
+
+    def feature_hole(h) -> bool:
+        if _axis_letter(h) != "z":
+            return False
+        if is_rotational and math.hypot(h.location[0] - cx, h.location[1] - cy) <= _CONCENTRIC_TOL_MM:
+            return False
+        return True
+
+    def qualifies(h) -> bool:
+        return (
+            feature_hole(h)
+            and (h.cbore is not None or h.spotface is not None or h.bottom != "through")
+        )
+
+    return any(qualifies(h) for p in patterns for h in p.holes[:1]) or any(
+        qualifies(h) for h in holes if h not in patterned
+    )
 
 
 # Inter-constant invariant: the gap between the front view top edge and the
@@ -354,6 +386,7 @@ def _fits(
     n_steps: int = 0,
     strips: StripDepths | None = None,
     pack_iso_2d: bool = False,
+    section: bool = False,
 ) -> bool:
     """True if the composed 4-view footprint fits the page at this scale.
 
@@ -372,12 +405,15 @@ def _fits(
         tb_w,
         strips,
         n_steps,
+        section=section,
         warn_no_iso=False,
     )
     return bool(g.fits if pack_iso_2d else g.auto_fits)
 
 
-def _bisect_fit_scale(x_size, y_size, z_size, pw, ph, tb, n_steps, strips, pack_iso_2d):
+def _bisect_fit_scale(
+    x_size, y_size, z_size, pw, ph, tb, n_steps, strips, pack_iso_2d, section=False
+):
     """Largest scale at which the 4-view layout fits ``(pw, ph)``, found by bisection —
     the layout is monotone in scale (a smaller scale never fits worse). Used only as the
     #350 backstop when even the smallest ISO 5455 ladder scale (1:10000) overflows, i.e.
@@ -398,6 +434,7 @@ def _bisect_fit_scale(x_size, y_size, z_size, pw, ph, tb, n_steps, strips, pack_
             n_steps=n_steps,
             strips=strips,
             pack_iso_2d=pack_iso_2d,
+            section=section,
         ):
             lo = mid
         else:
@@ -413,6 +450,7 @@ def choose_scale(
     scale=None,
     page=None,
     strips: StripDepths | None = None,
+    section: bool = False,
 ) -> tuple:
     """Return (SCALE, PAGE_W, PAGE_H, TB_W) for a 4-view layout.
 
@@ -448,6 +486,7 @@ def choose_scale(
             n_steps=n_steps,
             strips=strips,
             pack_iso_2d=True,
+            section=section,
         ):
             _log.warning(
                 "Requested scale %s on %s page may not fit the 4-view layout", scale, page
@@ -465,7 +504,14 @@ def choose_scale(
         pack_iso_2d = False
     for cand in candidates:
         if _fits(
-            x_size, y_size, z_size, *cand, n_steps=n_steps, strips=strips, pack_iso_2d=pack_iso_2d
+            x_size,
+            y_size,
+            z_size,
+            *cand,
+            n_steps=n_steps,
+            strips=strips,
+            pack_iso_2d=pack_iso_2d,
+            section=section,
         ):
             return cand
     # The ISO 5455 ladder exhausted with no standard fit (a part too large even for
@@ -475,7 +521,9 @@ def choose_scale(
     # A pinned scale is the one thing we may not reduce (that path returned above).
     if scale is None:
         _pw, _ph, _tb = candidates[-1][1], candidates[-1][2], candidates[-1][3]
-        s = _bisect_fit_scale(x_size, y_size, z_size, _pw, _ph, _tb, n_steps, strips, pack_iso_2d)
+        s = _bisect_fit_scale(
+            x_size, y_size, z_size, _pw, _ph, _tb, n_steps, strips, pack_iso_2d, section
+        )
         if s is not None:
             _log.warning(
                 "No standard scale fits %.0f × %.0f × %.0f mm; using computed %s",
@@ -602,6 +650,7 @@ def _layout_geometry(
     strips,
     n_steps=0,
     blocks=None,
+    section: bool = False,
     warn_no_iso=True,
 ):
     """Compute the 4-view layout geometry for a part at a given scale/page.
@@ -657,7 +706,10 @@ def _layout_geometry(
         bottom=max(pv_below, halo),  # band below PV holds the width dim + a balloon row
         left=gap_left,
     )
-    est_sv = ViewBlock(sv_hw, fv_hh, right=DIM_PAD)
+    sv_right_band = max(DIM_PAD, strips.right if (section and strips) else DIM_PAD)
+    est_sv = ViewBlock(sv_hw, fv_hh, right=sv_right_band)
+    section_hw = max(fv_hw, 12.0)
+    section_hh = fv_hh
     if blocks is not None:
         # Measure-and-repack pass (#121, ADR 0004): pack the *measured* per-view
         # footprints disjoint.  Floor each measured band at the estimate — the
@@ -704,12 +756,13 @@ def _layout_geometry(
     total_h = 2 * margin + fv.bottom + 2 * fv.hh + base_gap + 2 * pv.hh + pv.top
     y_offset = max(0.0, (page_h - total_h) / 2)
 
+    section_right_band = (sv.right + 10.0 + 2 * section_hw + DIM_PAD) if section else 0.0
     total_content_w = (
         col_left
         + col_right
         + x_size * scale
         + y_size * scale
-        + max(2 * DIM_PAD, sv.right + DIM_PAD)
+        + max(2 * DIM_PAD, sv.right + DIM_PAD, section_right_band)
         + bbox_max * scale * _ISO_WIDTH_BUDGET
     )
     x_offset = max(0.0, (page_w - 2 * margin - tb_w - total_content_w) / 2)
@@ -732,6 +785,8 @@ def _layout_geometry(
     SV_X = FV_X + fv.hw + col_right + sv.left + sv.hw
     SV_Y = FV_Y
     sv_right = SV_X + sv.hw + sv.right
+    SECTION_X = SV_X + sv.hw + sv.right + 10.0 + section_hw
+    SECTION_Y = FV_Y
     sv_right_wall = (
         (page_w - margin) if (PV_Y - pv_hh) > (margin + _TB_H) else (page_w - tb_w - margin)
     )
@@ -773,6 +828,16 @@ def _layout_geometry(
             _padded_box(SV_X, SV_Y, sv_hw, fv_hh),
             title_block.footprint(tb_cx, tb_cy),
         ]
+    if section:
+        section_block = ViewBlock(
+            section_hw,
+            section_hh,
+            top=DIM_PAD,
+            right=DIM_PAD,
+            bottom=DIM_PAD + _FONT_SIZE + 4.0,
+            left=DIM_PAD,
+        )
+        obstacles.append(section_block.footprint(SECTION_X, SECTION_Y))
     iso_left, iso_bottom, iso_right, iso_top = _largest_empty_rect(
         drawable, obstacles, warn=warn_no_iso
     )
@@ -796,6 +861,8 @@ def _layout_geometry(
         pv.footprint(PV_X, PV_Y),
         sv.footprint(SV_X, SV_Y),
     ]
+    if section:
+        _view_boxes.append(section_block.footprint(SECTION_X, SECTION_Y))
     cx0 = min(b[0] for b in _view_boxes)
     cy0 = min(b[1] for b in _view_boxes)
     cx1 = max(b[2] for b in _view_boxes)
@@ -835,6 +902,8 @@ def _layout_geometry(
         PV_Y=PV_Y,
         SV_X=SV_X,
         SV_Y=SV_Y,
+        SECTION_X=SECTION_X,
+        SECTION_Y=SECTION_Y,
         sv_right=sv_right,
         sv_right_wall=sv_right_wall,
         iso_left=iso_left,
