@@ -148,8 +148,7 @@ def _converge_step_sizing(
     strips = measure_strips(conservative_n)
     scale_pick = pick_scale(conservative_n, strips)
     _log.warning(
-        "Step-corridor sizing did not converge from %d steps (tried %s); "
-        "reserving %d steps",
+        "Step-corridor sizing did not converge from %d steps (tried %s); reserving %d steps",
         initial_steps,
         attempted,
         conservative_n,

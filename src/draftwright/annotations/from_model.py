@@ -1790,12 +1790,8 @@ def render_pmi(dwg, model, a) -> int:
                     p2 = (FX(cx_f + half), FZ(cz_f), 0)
                     placed = _queue_options(
                         [
-                            _dim_spec(
-                                p1, p2, a.fv_zones.above, label, name_d, "front", "above"
-                            ),
-                            _dim_spec(
-                                p1, p2, a.fv_zones.below, label, name_d, "front", "below"
-                            ),
+                            _dim_spec(p1, p2, a.fv_zones.above, label, name_d, "front", "above"),
+                            _dim_spec(p1, p2, a.fv_zones.below, label, name_d, "front", "below"),
                         ],
                         ax,
                         label,
@@ -1883,12 +1879,8 @@ def render_pmi(dwg, model, a) -> int:
                 if avg_sz >= a.SV_Y:
                     placed = _queue_options(
                         [
-                            _dim_spec(
-                                p1, p2, a.sv_zones.above, label, name_y, "side", "above"
-                            ),
-                            _dim_spec(
-                                p1, p2, a.sv_zones.below, label, name_y, "side", "below"
-                            ),
+                            _dim_spec(p1, p2, a.sv_zones.above, label, name_y, "side", "above"),
+                            _dim_spec(p1, p2, a.sv_zones.below, label, name_y, "side", "below"),
                         ],
                         ax,
                         label,

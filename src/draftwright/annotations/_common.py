@@ -537,30 +537,30 @@ def place_strip_candidates(
     # Fill innermost-first (nearest the view), matching the old cursor's stack order.
     segs.sort(key=lambda s: abs((s[0] if inner == lo else s[1]) - inner))
     todo = list(cands)
-    for seg_lo, seg_hi in segs:
-        if not todo:
-            break
-        cap = int((seg_hi - seg_lo) / pad) + 1
-        if len(todo) > cap:
-            # Do not let segment-cap slicing preempt the ranked selection step (#357/#393).
-            # `plan_strip` drops the lowest (priority, generated-key), but a narrow segment
-            # can only see the candidates we hand it. Preselect the highest-priority members
-            # for this segment, preserving their original order for crossing-free placement;
-            # ties mirror the generated key below (inner=lo keeps later candidates, inner=hi
-            # keeps earlier candidates).
-            ranked = sorted(
-                enumerate(todo),
-                key=lambda item: (
-                    (priorities or {}).get(item[1][0], 0.0),
-                    item[0] if inner == lo else -item[0],
-                ),
-                reverse=True,
-            )
-            chosen = {i for i, _ in ranked[:cap]}
-            take = [nb for i, nb in enumerate(todo) if i in chosen]
-            todo = [nb for i, nb in enumerate(todo) if i not in chosen]
-        else:
-            take, todo = todo, []
+
+    def _take_for_segment(items, n):
+        if len(items) <= n:
+            return items, []
+        # Do not let segment-cap slicing preempt the ranked selection step (#357/#393).
+        # `plan_strip` drops the lowest (priority, generated-key), but a narrow segment
+        # can only see the candidates we hand it. Preselect the highest-priority members
+        # for this segment, preserving their original order for crossing-free placement;
+        # ties mirror the generated key below (inner=lo keeps later candidates, inner=hi
+        # keeps earlier candidates).
+        ranked = sorted(
+            enumerate(items),
+            key=lambda item: (
+                (priorities or {}).get(item[1][0], 0.0),
+                item[0] if inner == lo else -item[0],
+            ),
+            reverse=True,
+        )
+        chosen = {i for i, _ in ranked[:n]}
+        take = [nb for i, nb in enumerate(items) if i in chosen]
+        rest = [nb for i, nb in enumerate(items) if i not in chosen]
+        return take, rest
+
+    def _evaluate_segment(take, seg_lo, seg_hi):
         nat = seg_lo if inner == lo else seg_hi
         anch = (0.0, nat) if axis == "y" else (nat, 0.0)
         # Keys order the tiers so the FIRST candidate lands on the inner tier: for an
@@ -579,14 +579,16 @@ def place_strip_candidates(
             for k, nb in enumerate(take)
         ]
         res = plan_strip([sc for sc, _ in triples], seg_lo, seg_hi, pad, axis=axis)
+        accepted = []
+        rejected = []
         for sc, (name, build) in triples:
             pos = res.placed.get(sc.key)
             if pos is None:  # segment over its estimated capacity (shouldn't occur)
-                todo.append((name, build))
+                rejected.append((name, build))
                 continue
             dim = build(pos)
             if not force and _box_hits(_geom_box(dim), blockers):  # corridor crosses a leader
-                todo.append((name, build))
+                rejected.append((name, build))
                 continue
             # A forbidden box (the title block, #481) is rejected even under force — it is
             # placed after the drain, so the strip carve can't see it; a force-kept GD&T frame
@@ -594,8 +596,27 @@ def place_strip_candidates(
             # so dims are byte-identical). Returned unplaced → the caller's on_drop fallthrough.
             fb = (forbid or {}).get(name)
             if fb is not None and _box_hits(_geom_box(dim), (fb,)):
-                todo.append((name, build))
+                rejected.append((name, build))
                 continue
+            accepted.append(((name, build), dim))
+        return accepted, rejected
+
+    for seg_lo, seg_hi in segs:
+        if not todo:
+            break
+        cap = int((seg_hi - seg_lo) / pad) + 1
+        take, todo = _take_for_segment(todo, cap)
+        rejected_total = []
+        while take:
+            accepted, rejected = _evaluate_segment(take, seg_lo, seg_hi)
+            rejected_total.extend(rejected)
+            vacancies = cap - len(accepted)
+            if vacancies <= 0 or not todo:
+                break
+            fill, todo = _take_for_segment(todo, vacancies)
+            take = [nb for nb, _dim in accepted] + fill
+        todo = todo + rejected_total
+        for (name, _build), dim in accepted:
             # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed
             # dims — `features` maps this batch's names to their source IR feature.
             dwg.add(dim, name, view=view, feature=(features or {}).get(name))

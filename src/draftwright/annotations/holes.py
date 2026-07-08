@@ -928,6 +928,22 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
         base = reach_i + 8
         for k in range(int(limit / step) + 1):
             offset = base + k * step
+            line_x = mid[0] + side_vec[0] * (offset + 6)
+            line_y = mid[1] + side_vec[1] * (offset + 6)
+            if (
+                line_x < page_box[0]
+                or line_x > page_box[2]
+                or line_y < page_box[1]
+                or line_y > page_box[3]
+            ):
+                if (
+                    (line_x < page_box[0] and side_vec[0] <= 0)
+                    or (line_x > page_box[2] and side_vec[0] >= 0)
+                    or (line_y < page_box[1] and side_vec[1] <= 0)
+                    or (line_y > page_box[3] and side_vec[1] >= 0)
+                ):
+                    break
+                continue
             probe = _make(offset, side_vec)
             bb = _geom_box(probe)
             if bb is None:
