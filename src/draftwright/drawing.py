@@ -788,49 +788,8 @@ class Drawing:
             return tuple(a), tuple(b)
         return None
 
-    def dimension(
-        self, feature, param, *, role=None, side="above", view=None, name=None, **kwargs
-    ):
-        """Add a dimension for *feature*'s *param*, attributed to the feature (#398e).
-
-        The feature-referenced **add** verb: pair to :meth:`drop`. *feature* is an IR
-        feature from :meth:`model`; *param* is a **linear** parameter kind it exposes — a
-        turned step's ``"length"`` or a slot's ``"length"``/``"width"`` (which the feature
-        carries as value-only geometry, derived here via :meth:`_derive_span`).
-        The dimension is placed into free strip space and tagged with *feature*, so
-        :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
-
-        A feature may expose several params of one kind (an envelope's width/height/depth,
-        or a slot's ``slot_width``/``slot_length``, are all ``"length"``); pass ``role=`` to
-        pick one — a bare kind matching more than one raises rather than guessing.
-
-        ``view`` is chosen automatically as the orthographic view (``"front"``/``"plan"``/
-        ``"side"``) where the span projects non-degenerate — a length along the turning
-        axis vanishes in its end-on view, so the view follows the geometry. Pass ``view=``
-        to force one of those three (a non-orthographic view foreshortens the span and is
-        rejected). ``side`` defaults to ``"above"``; ``kwargs`` forward to the dimension.
-
-        Raises ``ValueError`` if the feature has no such param, the kind is ambiguous, or
-        *view* is not orthographic. A hole's ``"diameter"``/``"depth"`` are **leader
-        callouts**, not linear dimensions, so they raise here — a callout add verb is a
-        separate mechanism, tracked apart from this one.
-        """
-        if self._defer_intents:  # #426: record, don't place — finalize() drains it
-            self._intents.append(
-                Intent(
-                    "dimension",
-                    feature,
-                    {
-                        "param": param,
-                        "role": role,
-                        "side": side,
-                        "view": view,
-                        "name": name,
-                        **kwargs,
-                    },
-                )
-            )
-            return ""
+    def _resolve_dimension_span(self, feature, param, *, role=None, view=None):
+        """Return ``(param_record, view, p1, p2)`` for a feature linear dimension."""
         _ortho = ("front", "plan", "side")
         if view is not None and view not in _ortho:
             raise ValueError(
@@ -862,21 +821,176 @@ class Drawing:
             )
         (lo, hi) = span
         p1 = p2 = None
+        chosen = view
         for v in [view] if view else _ortho:
             q1, q2 = self.at(v, *lo), self.at(v, *hi)
             if math.hypot(q2[0] - q1[0], q2[1] - q1[1]) > 1e-6:
-                view, p1, p2 = v, q1, q2
+                chosen, p1, p2 = v, q1, q2
                 break
         if p1 is None:
             raise ValueError(
                 f"'{param}' span projects to a point in "
                 f"{'the requested view' if view else 'every orthographic view'} — nothing to dimension"
             )
+        return matches[0], chosen, p1, p2
+
+    def _queue_dimension_intent(self, it, a, *, used_names=None) -> bool:
+        """Queue a pinned/prioritized feature dimension into a shared corridor."""
+        from draftwright.annotations._common import CorridorCandidate, register_corridor
+
+        side = it.kwargs.get("side", "above")
+        view = it.kwargs.get("view")
+        if side not in ("above", "below", "left", "right"):
+            return False
+        zones_name = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
+        rec, view, p1, p2 = self._resolve_dimension_span(
+            it.feature,
+            it.kwargs["param"],
+            role=it.kwargs.get("role"),
+            view=view,
+        )
+        zones = getattr(a, zones_name.get(view, ""), None)
+        strip = getattr(zones, side, None) if zones is not None else None
+        if strip is None:
+            return False
+
+        name = it.kwargs.get("name")
+        if name is None:
+            used_names = used_names if used_names is not None else set()
+            i = 0
+            while (name := f"dim_{it.kwargs['param']}{i}") in self._named or name in used_names:
+                i += 1
+            used_names.add(name)
+
+        dim_kwargs = {
+            k: v
+            for k, v in it.kwargs.items()
+            if k not in {"param", "role", "side", "view", "name", "pin", "priority", "slot"}
+        }
+        if "label" not in dim_kwargs:
+            page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+            dim_kwargs["label"] = _fmt(page_len / self.scale)
+        slot = it.kwargs.get("slot", 8.0)
+        axis = "y" if side in ("above", "below") else "x"
+        ax = 1 if axis == "y" else 0
+        if side in ("right", "above"):
+            natural = max(p[ax] for p in (p1, p2)) + slot
+        else:
+            natural = min(p[ax] for p in (p1, p2)) - slot
+        tier = self.draft.font_size + 2 * self.draft.pad_around_text
+        p_lo, p_hi = sorted((p1[1 - ax], p2[1 - ax]))
+
+        def _build(pos, _p1=p1, _p2=p2, _side=side, _ax=ax, _kwargs=dim_kwargs):
+            if _side in ("right", "above"):
+                dist = pos - max(p[_ax] for p in (_p1, _p2))
+            else:
+                dist = min(p[_ax] for p in (_p1, _p2)) - pos
+            return _dim(_p1, _p2, _side, max(dist, 4.0), self.draft, **_kwargs)
+
+        def _placed(nm, _pin=it.kwargs.get("pin", False)):
+            if _pin:
+                self.pin(nm)
+
+        def _drop(nm):
+            self._record_build_issue(
+                "warning",
+                "dimension_dropped",
+                f"{nm} not placed (no room on the {view} {side} strip)",
+            )
+
+        priority = float(it.kwargs.get("priority", 0.0) or 0.0)
+        if it.kwargs.get("pin"):
+            priority = max(priority, 100.0)
+        register_corridor(
+            self,
+            (view, side),
+            strip,
+            view,
+            axis,
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=_build,
+                order=(0, natural, name),
+                on_place=_placed,
+                on_drop=_drop,
+                dedup=(view, side, round(p_lo, 6), round(p_hi, 6), rec.role),
+                precedence=4,
+                priority=priority,
+                anchored=bool(it.kwargs.get("pin")),
+                natural=natural,
+                feature=it.feature,
+            ),
+        )
+        return True
+
+    def dimension(
+        self,
+        feature,
+        param,
+        *,
+        role=None,
+        side="above",
+        view=None,
+        name=None,
+        pin=False,
+        priority=0.0,
+        **kwargs,
+    ):
+        """Add a dimension for *feature*'s *param*, attributed to the feature (#398e).
+
+        The feature-referenced **add** verb: pair to :meth:`drop`. *feature* is an IR
+        feature from :meth:`model`; *param* is a **linear** parameter kind it exposes — a
+        turned step's ``"length"`` or a slot's ``"length"``/``"width"`` (which the feature
+        carries as value-only geometry, derived here via :meth:`_derive_span`).
+        The dimension is placed into free strip space and tagged with *feature*, so
+        :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
+
+        A feature may expose several params of one kind (an envelope's width/height/depth,
+        or a slot's ``slot_width``/``slot_length``, are all ``"length"``); pass ``role=`` to
+        pick one — a bare kind matching more than one raises rather than guessing.
+
+        ``view`` is chosen automatically as the orthographic view (``"front"``/``"plan"``/
+        ``"side"``) where the span projects non-degenerate — a length along the turning
+        axis vanishes in its end-on view, so the view follows the geometry. Pass ``view=``
+        to force one of those three (a non-orthographic view foreshortens the span and is
+        rejected). ``side`` defaults to ``"above"``; ``kwargs`` forward to the dimension.
+        In deferred mode, ``pin=True`` anchors the dimension at its natural slot coordinate
+        inside the shared corridor solve, and ``priority=`` controls over-capacity survival.
+        Live placement still uses the single-position escape hatch and pins only the placed
+        annotation name.
+
+        Raises ``ValueError`` if the feature has no such param, the kind is ambiguous, or
+        *view* is not orthographic. A hole's ``"diameter"``/``"depth"`` are **leader
+        callouts**, not linear dimensions, so they raise here — a callout add verb is a
+        separate mechanism, tracked apart from this one.
+        """
+        if self._defer_intents:  # #426: record, don't place — finalize() drains it
+            self._intents.append(
+                Intent(
+                    "dimension",
+                    feature,
+                    {
+                        "param": param,
+                        "role": role,
+                        "side": side,
+                        "view": view,
+                        "name": name,
+                        "pin": pin,
+                        "priority": priority,
+                        **kwargs,
+                    },
+                )
+            )
+            return ""
+        _rec, view, p1, p2 = self._resolve_dimension_span(feature, param, role=role, view=view)
         if name is None:
             i = 0
             while (name := f"dim_{param}{i}") in self._named:
                 i += 1
         self.place_dim(p1, p2, side, view, self.draft, name=name, feature=feature, **kwargs)
+        if pin:
+            self.pin(name)
         return name
 
     def callout(self, feature, *, view=None, name=None) -> str:
@@ -1139,6 +1253,31 @@ class Drawing:
             and it.kwargs.get("param") == "length"
             and it.kwargs.get("role") in ("slot_width", "slot_length")
         }
+
+        # User-authored generic feature dimensions with pin/priority join the shared
+        # corridor directly. Slot and turned-step length dimensions keep their specialized
+        # routes above, because those renderers regenerate correlated measurements as a set.
+        def _user_dim_uses_corridor(it):
+            if (
+                not routable
+                or it.kind != "dimension"
+                or id(it) in (len_ids | slot_ids)
+                or not (it.kwargs.get("pin") or it.kwargs.get("priority"))
+                or it.kwargs.get("side", "above") not in ("above", "below", "left", "right")
+            ):
+                return False
+            try:
+                self._resolve_dimension_span(
+                    it.feature,
+                    it.kwargs["param"],
+                    role=it.kwargs.get("role"),
+                    view=it.kwargs.get("view"),
+                )
+            except ValueError:
+                return False
+            return True
+
+        user_dim_ids = {id(it) for it in self._intents if _user_dim_uses_corridor(it)}
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
         pinned_loc = {
             it.feature for it in self._intents if id(it) in corridor_ids and it.kwargs.get("pin")
@@ -1162,7 +1301,8 @@ class Drawing:
                 it = self._intents[i]
                 if (
                     it.kind == "section"
-                    or id(it) in corridor_ids | callout_ids | dia_ids | len_ids | slot_ids
+                    or id(it)
+                    in corridor_ids | callout_ids | dia_ids | len_ids | slot_ids | user_dim_ids
                 ):
                     i += 1
                     continue
@@ -1188,14 +1328,24 @@ class Drawing:
             #      crossing-free ladder, one drain (auto-pass registers locations then slots,
             #      then a single drain_corridors, so a slot position coincident with a hole
             #      location dedups, #345). Register both, then drain once (Phase 2a + 2b).
-            if only_loc or slot_feats:
+            queued_dim_ids = set()
+            if only_loc or slot_feats or user_dim_ids:
                 assert a is not None and isinstance(model, PartModel)  # either ⟹ routable
                 if only_loc:
                     render_locations(self, model, a, only=only_loc, pinned=pinned_loc)
                 if slot_feats:
                     render_slots(self, model, a, only=slot_feats)
+                used_dim_names: set[str] = set()
+                for it in self._intents:
+                    if id(it) in user_dim_ids:
+                        if self._queue_dimension_intent(it, a, used_names=used_dim_names):
+                            queued_dim_ids.add(id(it))
                 drain_corridors(self)
-            self._intents = [it for it in self._intents if id(it) not in corridor_ids | slot_ids]
+            self._intents = [
+                it
+                for it in self._intents
+                if id(it) not in (corridor_ids | slot_ids | queued_dim_ids)
+            ]
             # (B3) step/boss ø diameters through render_diameters' set-solve (row-below /
             #      column-left) — auto-pass S11b, after callouts/locations, before section.
             if only_dia:

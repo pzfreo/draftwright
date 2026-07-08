@@ -654,6 +654,44 @@ def test_place_strip_candidates_refills_after_late_forbid_rejection():
     assert {name for name, _ in left} == {"hi"}
 
 
+def test_place_strip_candidates_honors_per_candidate_natural_anchor():
+    # #511: pinned user dimensions enter the shared corridor with their own natural
+    # page coordinate. Unspecified candidates keep the old segment-edge natural.
+    from draftwright._core import Strip
+    from draftwright.annotations._common import place_strip_candidates
+
+    class _Dwg:
+        def __init__(s):
+            s.added = []
+
+        def iter_annotations(s):
+            return []
+
+        def view_of(s, n):
+            return "plan"
+
+        def add(s, obj, name, view=None, feature=None):
+            s.added.append((name, obj))
+
+    strip = Strip(anchor=0.0, outer_limit=60.0, direction=1.0, gap=0.0, spacing=4.0)
+    dwg = _Dwg()
+    left = place_strip_candidates(
+        dwg,
+        strip,
+        "plan",
+        "y",
+        [("a", lambda pos: ("a", pos)), ("b", lambda pos: ("b", pos))],
+        tier=5.0,
+        force=True,
+        anchored={"b": True},
+        naturals={"b": 30.0},
+    )
+
+    placed = {name: obj[1] for name, obj in dwg.added}
+    assert left == []
+    assert placed["b"] == 30.0
+
+
 def test_place_strip_candidates_ignores_perpendicular_disjoint_obstacle():
     # A right strip stacks along X; the carve projects obstacles onto X. An obstacle that
     # overlaps in X (even after pad inflation) but is DISJOINT in Y — a dim on ANOTHER
