@@ -28,6 +28,18 @@ if TYPE_CHECKING:
 
 Point = tuple[float, float, float]
 ParamKind = Literal["diameter", "length", "depth", "radius", "angle", "location", "thread"]
+AUTHORED_DIMENSION_KINDS = frozenset(
+    {
+        "linear",
+        "diameter",
+        "radius",
+        "angular",
+        "curved_dist",
+        "oriented",
+        "curve_length",
+        "thickness",
+    }
+)
 # `role` is the semantic origin of the measurement (open set — new features add
 # roles): "bore", "counterbore", "spotface", "od", "step", "boss", "thread",
 # "pattern", "slot", "envelope", "location", …
@@ -308,16 +320,48 @@ class RotationalFeature:
 
 
 @dataclass(frozen=True)
-class PmiFeature:
-    """A *pre-authored* PMI annotation extracted from a STEP AP242 file (#208) — its
-    value, label, tolerances, and referenced geometry were set by the CAD author.
+class AuthoredDimension:
+    """A pre-authored drafting dimension imported from an external semantic source.
 
-    Unlike the geometric features, the planner derives nothing here (no convention or
-    view selection): the label is baked and the view follows from `dominant_axis` +
-    `ref_bbox`. So `parameters()` is empty — PMI does not flow through the planner; the
-    renderer (`render_pmi`) consumes `PmiFeature`s directly from the model, the same way
-    `render_slots` reads `SlotFeature`s. This keeps PMI on the one path (it is an IR
-    feature) without pretending it benefits from the dimension planner."""
+    This is the concept-shaped IR for AP242 dimensional PMI: the source file may call it
+    PMI, but the drawing model sees an authored linear/diameter/radius/etc. dimension with
+    baked label and referenced geometry. The normal dimension planner does not derive or
+    duplicate it, so ``parameters()`` is empty; renderers consume it directly while keeping
+    the source/provenance fields for round-trip and diagnostics."""
+
+    frame: Frame
+    dimension_kind: str  # "linear" | "diameter" | "radius" | "angular" | ...
+    value: float
+    label: str
+    dominant_axis: str
+    upper_tol: float | None = None
+    lower_tol: float | None = None
+    ref_bbox: tuple[float, float, float, float, float, float] | None = None
+    ref_pts: tuple[Point, ...] = ()
+    source: str = "ap242_pmi"
+    source_kind: str | None = None
+    kind: ClassVar[str] = "authored_dimension"
+
+    @property
+    def pmi_kind(self) -> str:
+        """Compatibility alias for the existing AP242 renderer until it is renamed."""
+        return self.dimension_kind
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class PmiFeature:
+    """Raw AP242 PMI fallback for records not yet lowered to drafting concepts.
+
+    Dimensional AP242 PMI should become :class:`AuthoredDimension`; GD&T/datum/surface
+    records should eventually lower to ``ControlFrame`` / ``DatumRef`` / ``Finish``. This
+    type remains as an explicit provenance-preserving escape hatch so unsupported records
+    are visible instead of silently lost."""
 
     frame: Frame
     pmi_kind: str  # the PMI category: "linear" | "diameter" | "radius" | "angular" | ...

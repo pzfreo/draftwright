@@ -43,7 +43,7 @@ from dataclasses import replace
 from draftwright.analysis import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
-from draftwright.model import Feature
+from draftwright.model import AuthoredDimension, Feature, Frame
 from draftwright.model import boss as _boss
 from draftwright.model import control_frame as _declare_control
 from draftwright.model import datum as _declare_datum
@@ -56,6 +56,14 @@ from draftwright.model import slot as _slot
 from draftwright.model import step as _step
 from draftwright.model.declare import _norm_axis, _read_cylinder, _require_positive, gdt_target
 from draftwright.model.declare import read_bore_step as _read_bore_step
+from draftwright.model.ir import AUTHORED_DIMENSION_KINDS, Point
+
+
+def _point3(name: str, p) -> Point:
+    vals = tuple(float(c) for c in p)
+    if len(vals) != 3:
+        raise ValueError(f"dimension() {name} must be a 3-tuple")
+    return (vals[0], vals[1], vals[2])
 
 
 def _parse_datums(to) -> tuple[str, ...]:
@@ -352,6 +360,70 @@ class Sheet:
         """Append a pre-built IR :class:`~draftwright.model.Feature` (escape hatch for
         the constructors this façade does not surface directly, e.g. PMI)."""
         self._features.append(feature)
+        return self
+
+    def dimension(
+        self,
+        *,
+        kind: str,
+        value: float,
+        label: str,
+        dominant_axis: str,
+        ref_pts,
+        ref_bbox=None,
+        at=None,
+        axis: str | None = None,
+        upper_tol: float | None = None,
+        lower_tol: float | None = None,
+        source: str = "sheet",
+        source_kind: str | None = None,
+    ) -> Sheet:
+        """Declare a pre-authored drafting dimension from explicit measured values.
+
+        This is the concept-shaped Sheet API used by generated AP242 scripts: the source file
+        may call the record PMI, but the editable script declares a dimension category, value,
+        label, referenced model points, and optional structured tolerances. For ordinary
+        geometry-backed edits prefer feature handles such as ``sheet.hole(...).tolerance(...)``.
+        """
+        _require_positive(value=value)
+        dim_kind = str(kind).lower()
+        if dim_kind not in AUTHORED_DIMENSION_KINDS:
+            allowed = ", ".join(sorted(AUTHORED_DIMENSION_KINDS))
+            raise ValueError(f"dimension() kind must be one of: {allowed}")
+        pts = tuple(_point3("ref_pts item", p) for p in ref_pts)
+        if len(pts) < 2:
+            raise ValueError("dimension() needs at least two ref_pts")
+        bbox = None if ref_bbox is None else tuple(float(c) for c in ref_bbox)
+        if bbox is not None and len(bbox) != 6:
+            raise ValueError("dimension() ref_bbox must be a 6-tuple")
+        dom = str(dominant_axis).upper()
+        if dom not in ("X", "Y", "Z"):
+            if not (dom == "?" and dim_kind in ("diameter", "radius") and bbox is not None):
+                raise ValueError("dimension() dominant_axis must be X, Y, or Z")
+        if at is None:
+            if bbox is not None:
+                x0, y0, z0, x1, y1, z1 = bbox
+                at = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+            else:
+                n = len(pts)
+                at = tuple(sum(p[i] for p in pts) / n for i in range(3))
+        origin = _point3("at", at)
+        ax = _norm_axis(axis or (dom.lower() if dom in ("X", "Y", "Z") else "z"))
+        self._features.append(
+            AuthoredDimension(
+                frame=Frame(origin, ax),
+                dimension_kind=dim_kind,
+                value=float(value),
+                label=str(label),
+                dominant_axis=dom,
+                upper_tol=upper_tol,
+                lower_tol=lower_tol,
+                ref_bbox=bbox,
+                ref_pts=pts,
+                source=source,
+                source_kind=source_kind or dim_kind,
+            )
+        )
         return self
 
     def of(self, ref) -> _Hole | _Dim:

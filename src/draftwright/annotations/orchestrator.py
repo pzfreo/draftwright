@@ -325,7 +325,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # candidates BEFORE the drain, so the one solve orders and spaces them crossing-free
     # with locations/slots rather than consuming leftovers as first-fit placements.
     render_gdt(dwg, _model, a)
-    if a.pmi_mode == "annotate":
+    if a.pmi_mode == "annotate" or (
+        getattr(dwg, "_model_declared", False)
+        and any(f.kind in ("authored_dimension", "pmi") for f in _model.features)
+    ):
         render_pmi(dwg, _model, a)
 
     # Now every corridor feeder pass has registered; solve each shared strip once

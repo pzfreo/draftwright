@@ -13,6 +13,7 @@ import pytest
 from build123d import Box, Cylinder, Pos, Shape, export_step
 
 from draftwright.builder import build_drawing, detect_part_model
+from draftwright.pmi import _PMI_AVAILABLE
 from draftwright.sheet_emit import (
     emit_sheet_script,
     generate_sheet_script,
@@ -29,6 +30,8 @@ _SOURCE_MODULE = (
     "NONE_BOUND = None\n"  # exists but bound to None — the wrong-type, not-missing case
     "def needs_args(x):\n    return x\n"
 )
+
+AP242_CTC01 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
 
 
 def _norm(s: str) -> str:
@@ -70,6 +73,72 @@ class TestEmit:
         assert "width=800" in src
         assert "depth=450" in src
         assert "1170" not in src
+
+    @pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
+    def test_step_seam_emits_ap242_pmi_as_sheet_dimensions(self, tmp_path):
+        py = generate_sheet_script(str(AP242_CTC01), out=str(tmp_path / "ctc01"), pmi="annotate")
+        src = Path(py).read_text(encoding="utf-8")
+        ast.parse(src)
+        assert "sheet.dimension(" in src
+        assert "sheet.pmi(" not in src
+        assert "# authored_dimension" not in src
+        assert "source='ap242_pmi'" in src
+        assert "sheet.add(PmiFeature(" in src
+        assert "sheet.add(StepLevelFeature(" in src
+        import_line = next(
+            ln for ln in src.splitlines() if ln.startswith("from draftwright.model")
+        )
+        assert "Frame" in import_line and "PmiFeature" in import_line
+        assert "StepLevelFeature" in import_line
+
+    def test_sheet_dimension_declares_renderable_authored_dimension(self, tmp_path):
+        from draftwright import Sheet
+
+        sheet = Sheet(Box(40, 20, 10), title="P", out=str(tmp_path / "dim"))
+        sheet.dimension(
+            kind="linear",
+            value=40,
+            label="40",
+            dominant_axis="X",
+            ref_bbox=(-20, -10, -5, 20, 10, 5),
+            ref_pts=[(-20, 0, 0), (20, 0, 0)],
+            upper_tol=0.1,
+            lower_tol=0.0,
+        )
+
+        feat = next(f for f in sheet.model().features if f.kind == "authored_dimension")
+        assert feat.upper_tol == 0.1
+        assert feat.lower_tol == 0.0
+        assert feat.source == "sheet"
+        assert any(n.startswith("pmi_") for n in sheet.build()._named)
+
+    def test_sheet_dimension_rejects_unrenderable_kind(self):
+        from draftwright import Sheet
+
+        sheet = Sheet(Box(40, 20, 10), title="P")
+        with pytest.raises(ValueError, match="kind must be one of"):
+            sheet.dimension(
+                kind="liner",
+                value=40,
+                label="40",
+                dominant_axis="X",
+                ref_pts=[(-20, 0, 0), (20, 0, 0)],
+                ref_bbox=(-20, -10, -5, 20, 10, 5),
+            )
+
+    def test_sheet_dimension_rejects_unrenderable_axis(self):
+        from draftwright import Sheet
+
+        sheet = Sheet(Box(40, 20, 10), title="P")
+        with pytest.raises(ValueError, match="dominant_axis must be X, Y, or Z"):
+            sheet.dimension(
+                kind="linear",
+                value=40,
+                label="40",
+                dominant_axis="XX",
+                ref_pts=[(-20, 0, 0), (20, 0, 0)],
+                ref_bbox=(-20, -10, -5, 20, 10, 5),
+            )
 
     def test_title_block_and_layout_aspects_emitted_when_set(self):
         # #474: non-default drawn_by/tolerance/scale/page ride the Sheet(...) constructor.
@@ -172,14 +241,24 @@ class TestEmit:
         )
         assert "cbore=(" in line  # on the member hole(...) template
 
-    def test_non_declarable_kind_is_flagged_not_dropped(self):
-        # a counterbored plate carries a step_level (horizontal face levels) with no Sheet verb —
-        # it must surface as an inline comment, never silently vanish
+    def test_step_level_emits_as_ir_fallback(self):
+        # A counterbored plate carries a step_level (horizontal face levels). It must
+        # round-trip as an explicit IR fallback so the generated script preserves the
+        # front-right height ladder occupancy that other dimensions negotiate against.
         part = Box(100, 70, 24) - Pos(0, 0, 0) * Cylinder(9, 40) - Pos(0, 0, 8) * Cylinder(15, 20)
         src = _script_for(part)
-        assert any(
-            ln.startswith("#") and "no declarative verb yet" in ln for ln in src.splitlines()
-        )
+        assert "sheet.add(StepLevelFeature(" in src
+        assert "# step_level" not in src
+
+    @pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
+    def test_ap242_script_keeps_side_hole_z_location_on_side_ladder(self, tmp_path):
+        py = generate_sheet_script(str(AP242_CTC01), out=str(tmp_path / "ctc01"), pmi="annotate")
+        ns = {}
+        exec(compile(Path(py).read_text(encoding="utf-8"), py, "exec"), ns)
+        dwg = ns["sheet"].build()
+        assert "dim_loc_side_z7500" in dwg._named
+        assert "dim_loc_front_z7500" not in dwg._named
+        assert "dim_step_0" in dwg._named
 
     def test_needs_hole_import_only_when_a_pattern_is_present(self):
         # `hole` is only imported when a pattern line references it

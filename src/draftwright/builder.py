@@ -283,11 +283,14 @@ def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=
             if rot is not None:
                 dwg._part_model = replace(pm, features=[*pm.features, rot])
         # PMI (STEP AP242) is likewise detection-sourced, so a declared / emitted-script model
-        # carries none. When PMI annotation is on, synthesise the same PmiFeatures detection
-        # would (render_pmi reads them off the model, gated on a.pmi_mode) so a re-run reproduces
-        # the PMI dims (#472). Gated on the caller not having declared PMI, so an explicit set wins.
+        # carries none. When PMI annotation is on, synthesise the same imported drafting
+        # annotations detection would (render_pmi reads them off the model, gated on a.pmi_mode)
+        # so a re-run reproduces the PMI dims (#472). Gated on the caller not having declared
+        # imported authored annotations, so an explicit set wins.
         pm = dwg._part_model
-        if a.pmi_mode == "annotate" and not any(f.kind == "pmi" for f in pm.features):
+        if a.pmi_mode == "annotate" and not any(
+            f.kind in ("authored_dimension", "pmi") for f in pm.features
+        ):
             pmi_feats = build_pmi_features(a.pmi, a.part.bounding_box())
             if pmi_feats:
                 dwg._part_model = replace(pm, features=[*pm.features, *pmi_feats])
