@@ -2,7 +2,7 @@
 
 `Drawing` is the composable build result: it owns the render list and view
 map and delegates identity to the registry, coverage to lint, and exposes
-`.lint()/.add()/.place_dim()/.repair()/.export*()`. Sits below the builder
+`.lint()/.add()/.dimension()/.repair()/.export*()`. Sits below the builder
 (which constructs it) — imports only the stage modules + `_core`, never
 `builder`/`make_drawing`.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+import warnings
 from dataclasses import dataclass
 
 from build123d import (
@@ -648,8 +649,23 @@ class Drawing:
         """
         return self._part_model
 
-    def place_dim(self, p1, p2, side, view, draft, *, name=None, slot=8.0, feature=None, **kwargs):
-        """Add a :class:`~build123d_drafting.helpers.Dimension` that stacks cleanly
+    def place_dim(
+        self,
+        p1,
+        p2,
+        side,
+        view,
+        draft,
+        *,
+        name=None,
+        slot=8.0,
+        feature=None,
+        _warn_deprecated=True,
+        **kwargs,
+    ):
+        """Deprecated low-level page-coordinate dimension escape hatch.
+
+        Add a :class:`~build123d_drafting.helpers.Dimension` that stacks cleanly
         with the auto-generated dimensions by delegating to the same strip-allocation
         system (:class:`Strip`) that :func:`build_drawing` uses internally.
 
@@ -665,6 +681,11 @@ class Drawing:
                 :meth:`drop` / :meth:`annotations_of` can find it (#398).
             **kwargs: forwarded to ``Dimension`` (e.g. ``label=``, ``tolerance=``).
 
+        Deprecated for normal editable scripts: prefer :meth:`dimension` for
+        feature-backed linear dimensions and :meth:`locate` for feature-backed
+        location dimensions. Both support ``pin=True`` in deferred/finalize mode
+        and can participate in the shared layout solve.
+
         Uses the single-position strip carve, not the ADR-0009 collect-then-solve
         path the automatic placers use — fine for adding a dimension into free
         space, but it does not re-solve the strip or dedup against existing dims
@@ -674,6 +695,15 @@ class Drawing:
         layout analysis is available (e.g. when ``auto_dims=False`` was not used
         with :func:`build_drawing`).
         """
+        if _warn_deprecated:
+            warnings.warn(
+                "Drawing.place_dim() is deprecated for normal editable scripts; use "
+                "Drawing.dimension(feature, param, ..., pin=True) or "
+                "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
+                "place_dim() remains only as a raw page-coordinate escape hatch.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         a = self._analysis
         _view_zones = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
         strip = None
@@ -988,7 +1018,17 @@ class Drawing:
             i = 0
             while (name := f"dim_{param}{i}") in self._named:
                 i += 1
-        self.place_dim(p1, p2, side, view, self.draft, name=name, feature=feature, **kwargs)
+        self.place_dim(
+            p1,
+            p2,
+            side,
+            view,
+            self.draft,
+            name=name,
+            feature=feature,
+            _warn_deprecated=False,
+            **kwargs,
+        )
         if pin:
             self.pin(name)
         return name
