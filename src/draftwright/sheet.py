@@ -810,6 +810,65 @@ def _padded_box(cx, cy, hw, hh, pad=_DIM_PAD):
     return ViewBlock(hw, hh, pad, pad, pad, pad).footprint(cx, cy)
 
 
+def _compose_view_blocks(
+    x_size,
+    y_size,
+    z_size,
+    scale,
+    strips: StripDepths | None,
+    n_steps: int = 0,
+    *,
+    section: bool = False,
+) -> dict[str, ViewBlock]:
+    """Compose estimated orthographic view footprints (#112).
+
+    Each returned ``ViewBlock`` combines the view geometry half-extents with the
+    annotation bands reserved for that view. `_layout_geometry` packs these
+    blocks; it does not reconstruct bare-view corridor padding itself.
+    """
+    DIM_PAD = _DIM_PAD
+    fv_hw = x_size * scale / 2
+    fv_hh = z_size * scale / 2
+    pv_hh = y_size * scale / 2
+    sv_hw = y_size * scale / 2
+
+    # The front and plan views form a vertical column sharing the left/right
+    # corridors (max of the two); the side view shares the FV↔SV corridor; the
+    # front↔plan gap is the abutting pair (fv.top + pv.bottom). When the plan
+    # view is ballooned (halo > 0), its halo becomes explicit per-side bands so
+    # the ballooned plan view is positioned as a unit (#111/#112).
+    halo = strips.pv_halo if strips else 0.0
+    strip_top = strips.top if strips else 0.0
+    gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
+    gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
+    pv_below = _est_pv_below_depth()
+    # Top band above PV. When the plan view is ballooned, the ring sits beyond
+    # the tiered X-location dims, so reserve their real depth (strip_top) plus a
+    # balloon row. When not ballooned, keep the historic DIM_PAD.
+    pv_top = (max(DIM_PAD, strip_top) + halo) if halo > 0 else DIM_PAD
+    sv_right_band = max(DIM_PAD, strips.right if (section and strips) else DIM_PAD)
+
+    return {
+        "front": ViewBlock(
+            fv_hw,
+            fv_hh,
+            top=DIM_PAD - pv_below,
+            right=gap_fv_sv,
+            bottom=DIM_PAD,
+            left=gap_left,
+        ),
+        "plan": ViewBlock(
+            fv_hw,
+            pv_hh,
+            top=pv_top,
+            right=gap_fv_sv,
+            bottom=max(pv_below, halo),
+            left=gap_left,
+        ),
+        "side": ViewBlock(sv_hw, fv_hh, right=sv_right_band),
+    }
+
+
 def _layout_geometry(
     x_size,
     y_size,
@@ -844,42 +903,11 @@ def _layout_geometry(
     pv_hh = y_size * scale / 2
     sv_hw = y_size * scale / 2
 
-    # Compose each view as a block: geometry half-extents + reserved annotation
-    # bands per side (#112).  The front and plan views form a vertical column
-    # sharing the left/right corridors (max of the two); the side view shares
-    # the FV↔SV corridor; the front↔plan gap is the abutting pair
-    # (fv.top + pv.bottom).  When the plan view is ballooned (halo > 0) its halo
-    # becomes explicit per-side bands so the ballooned plan view is placed as a
-    # unit — including a BOTTOM band that pushes the front view down so balloons
-    # ring the part below it, not just left/right/top (#111/#112 Phase 2).  All
-    # bands reduce to today's arithmetic when halo = 0 (byte-identical).
-    halo = strips.pv_halo if strips else 0.0
-    strip_top = strips.top if strips else 0.0
-    gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
-    gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
     pv_below = _est_pv_below_depth()
-    # Top band above PV. When the plan view is ballooned, the ring sits beyond the
-    # tiered X-location dims, so reserve their real depth (strip_top) PLUS a
-    # balloon row — otherwise the ring overruns the page (#121). When NOT
-    # ballooned, keep the historic DIM_PAD: the dim tiers spill harmlessly into
-    # the headroom above PV, and reserving more would needlessly grow the layout
-    # (and can starve the section view of its leftover space).
-    pv_top = (max(DIM_PAD, strip_top) + halo) if halo > 0 else DIM_PAD
-    # Estimated blocks (always built): the scale-derived geometry half-extents
-    # plus the heuristic per-side corridor depths.
-    est_fv = ViewBlock(
-        fv_hw, fv_hh, top=DIM_PAD - pv_below, right=gap_fv_sv, bottom=DIM_PAD, left=gap_left
+    est_blocks = _compose_view_blocks(
+        x_size, y_size, z_size, scale, strips, n_steps, section=section
     )
-    est_pv = ViewBlock(
-        fv_hw,
-        pv_hh,
-        top=pv_top,
-        right=gap_fv_sv,
-        bottom=max(pv_below, halo),  # band below PV holds the width dim + a balloon row
-        left=gap_left,
-    )
-    sv_right_band = max(DIM_PAD, strips.right if (section and strips) else DIM_PAD)
-    est_sv = ViewBlock(sv_hw, fv_hh, right=sv_right_band)
+    est_fv, est_pv, est_sv = est_blocks["front"], est_blocks["plan"], est_blocks["side"]
     section_hw = max(fv_hw, 12.0)
     section_hh = fv_hh
     if blocks is not None:
