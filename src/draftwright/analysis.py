@@ -14,6 +14,7 @@ import logging
 import math
 import warnings
 from collections.abc import Callable
+from dataclasses import replace
 
 from build123d import Compound, Shape
 from build123d_drafting.helpers import draft_preset
@@ -31,6 +32,8 @@ from draftwright._core import (
     _legible_steps,
     _Projector,
 )
+from draftwright.model.ir import Datum, PartModel, StepFeature
+from draftwright.model.planner import plan_dimensions
 from draftwright.recognition import (
     analyse_cylinders,
     analyse_face_levels,
@@ -45,6 +48,7 @@ from draftwright.sheet import (
     StripDepths,
     _build_zones,
     _est_hole_table_sizes,
+    _est_planned_bore_callout_width,
     _layout_geometry,
     _measure_strips,
     _will_section,
@@ -94,6 +98,32 @@ def _declared_will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> boo
         ):
             return True
     return False
+
+
+def _coerce_layout_model(model, part, decorations=None) -> PartModel | None:
+    """Return the caller-declared IR with authored decorations for layout sizing.
+
+    This mirrors the builder's render-time coercion, but stays local to analysis so
+    page/scale/strip selection can see the same authored callout text the renderer
+    will later place (#450).
+    """
+    if model is None:
+        return None
+    if isinstance(model, PartModel):
+        if decorations:
+            return replace(model, decorations={**model.decorations, **decorations})
+        return model
+    features = list(model)
+    bbox = part.bounding_box()
+    orientation = next((f.frame.axis for f in features if isinstance(f, StepFeature)), None)
+    datum = Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))
+    return PartModel(
+        bbox=bbox,
+        orientation=orientation,
+        features=features,
+        datums=[datum],
+        decorations=decorations or {},
+    )
 
 
 def _import_step(path) -> Compound:
@@ -299,6 +329,7 @@ def _analyse(
     page=None,
     pmi="off",
     model=None,
+    decorations=None,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -409,6 +440,17 @@ def _analyse(
     _draft_est = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
     _arrow_length = _draft_est.arrow_length
     _pad_around_text = _draft_est.pad_around_text
+    layout_model = _coerce_layout_model(model, part, decorations)
+    declared_bore_width = (
+        _est_planned_bore_callout_width(
+            plan_dimensions(layout_model),
+            _draft_est,
+            font_size=_FONT_SIZE,
+            pad_around_text=_pad_around_text,
+        )
+        if layout_model is not None
+        else 0.0
+    )
     holes = find_holes(part, cyls=(z_cyls, cross_cyls))
     patterns = find_hole_patterns(holes)
     bosses = find_bosses(part, cyls=(z_cyls, cross_cyls))  # detect once — the one inventory (#264)
@@ -442,6 +484,7 @@ def _analyse(
             bb,
             arrow_length=_arrow_length,
             pad_around_text=_pad_around_text,
+            declared_bore_callout_width=declared_bore_width,
         )
 
     def _pick_for_step_count(n_steps_i: int, strips_i: StripDepths) -> _ScalePick:
@@ -518,6 +561,7 @@ def _analyse(
         bb,
         arrow_length=_arrow_length,
         pad_around_text=_pad_around_text,
+        declared_bore_callout_width=declared_bore_width,
     )
     # View positions + iso empty-rectangle, shared with scale selection (_fits)
     # via _layout_geometry so placement and fit never diverge (#11).  _fit_iso_view

@@ -561,6 +561,7 @@ def build_drawing(
         page=page,
         pmi=pmi,
         model=model,
+        decorations=decorations,
     )
 
     # Pass 1: place + annotate from the estimated layout, then measure the real
