@@ -7,6 +7,7 @@ Detected input only writes numbers (the part-seam form); we never fabricate geom
 import ast
 import math
 import os
+from pathlib import Path
 
 import pytest
 from build123d import Box, Cylinder, Pos, Shape, export_step
@@ -53,8 +54,22 @@ class TestEmit:
         src = _script_for(_plate())
         assert "sheet = Sheet(part, title='T', number='N')" in src
         assert "sheet.hole(diameter=8" in src  # the ⌀8 holes
-        assert "sheet.envelope()" in src
+        assert "sheet.add(EnvelopeFeature(" in src
         assert src.rstrip().endswith("sheet.export('drawing')")
+
+    def test_step_seam_preserves_detected_ctc01_envelope(self, tmp_path):
+        # #536: build123d.import_step reports CTC01's raw bbox as 1170 × 650, but the
+        # detector's solid-body envelope is 800 × 450. The generated STEP-seam script
+        # must preserve the detected EnvelopeFeature literally instead of remeasuring
+        # the raw imported object with sheet.envelope().
+        step = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
+        py = generate_sheet_script(str(step), out=str(tmp_path / "ctc01"))
+        src = Path(py).read_text(encoding="utf-8")
+        assert "sheet.envelope()" not in src
+        assert "sheet.add(EnvelopeFeature(" in src
+        assert "width=800" in src
+        assert "depth=450" in src
+        assert "1170" not in src
 
     def test_title_block_and_layout_aspects_emitted_when_set(self):
         # #474: non-default drawn_by/tolerance/scale/page ride the Sheet(...) constructor.
