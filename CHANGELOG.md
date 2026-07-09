@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.2.13 — 2026-07-09
+
+**Compose-then-pack is now the layout authority.** This patch finishes the
+ViewBlock footprint migration: estimated and measured layout paths now use the
+same composed block model, furniture declarations reserve their real footprint,
+and measure/repack iterates until stable instead of trusting one measured pass.
+
+### Changed
+
+- **ViewBlock footprints now drive the orthographic stack.** The old
+  estimator-only plan-view balloon lift is gone; plan balloon headroom is part
+  of the plan block in both estimated and measured/repack layout. (#112)
+- **Measure/repack iterates to a fixed point.** Repack now keeps measuring and
+  repacking while view-owned footprints continue to grow, with bounded
+  convergence and tests for multi-pass growth. (#302)
+- **Estimated view-block composition is explicit.** Scale/page fitness, repack,
+  and furniture placement share the same composed block semantics instead of
+  rebuilding corridor estimates independently.
+
+### Fixed
+
+- **Declared callout furniture reserves layout footprint.** User-declared
+  furniture is now measured and fed into the layout model, reducing post-hoc
+  collisions from declarations that previously existed only at render time.
+- **Annotation-box composition owns strip sizing.** Strip depths reduce from
+  composed annotation boxes, making footprint sizing less dependent on divergent
+  scalar estimates.
+
+### Documentation
+
+- **Layout architecture docs reflect the current state.** ADR 0004 and the
+  layout primer now mark the core layout-authority tranche complete and separate
+  remaining work into hardening, coverage, detail-view, and manual-intent phases.
+
 ## v0.2.12 — 2026-07-09
 
 **Sheet scripts now round-trip authored layout intent.** This patch finishes the next
