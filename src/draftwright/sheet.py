@@ -46,6 +46,7 @@ from draftwright._core import (
     _tag_sequence,
     _tb_width,
     _text_width,
+    _tol_suffix,
 )
 from draftwright.layout import fit_box
 from draftwright.recognition import BoltCircle, HoleSpec, RectGrid
@@ -337,6 +338,80 @@ def _est_bore_callout_width(
     return max_w
 
 
+def _est_planned_bore_callout_width(
+    groups, draft, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0
+) -> float:
+    """Estimate widest hole/pattern callout from planned IR dimensions.
+
+    This is the declared-model companion to :func:`_est_bore_callout_width`.
+    Detection-derived ``HoleSpec`` values cannot see authored decorations such as
+    bore tolerances; planned groups can. Keep this in the layout estimator layer
+    so page/scale selection does not import renderers just to size text (#450).
+    """
+
+    def _first(group, kind: str, *roles: str) -> float | None:
+        for role in roles:
+            for pd in group.dims:
+                if pd.param.kind == kind and pd.param.role == role:
+                    return float(pd.param.value)
+        return None
+
+    def _tol(group):
+        return next(
+            (
+                pd.param.tolerance
+                for pd in group.dims
+                if pd.param.kind == "diameter" and pd.param.role == "bore"
+            ),
+            None,
+        )
+
+    gap = 0.45 * font_size
+    sym_w = font_size
+    max_w = 0.0
+    for group in groups:
+        feat = group.feature
+        if getattr(feat, "kind", None) not in ("hole", "pattern"):
+            continue
+        bore = _first(group, "diameter", "bore")
+        if bore is None:
+            continue
+        depth = _first(group, "depth", "bore")
+        cbore_dia = _first(group, "diameter", "counterbore", "spotface")
+        cbore_depth = _first(group, "depth", "counterbore", "spotface")
+        suffix = None
+        if getattr(feat, "kind", None) == "pattern":
+            if getattr(feat, "pattern", None) == "bolt_circle" and feat.bcd is not None:
+                suffix = f"EQ SP ON ø{_fmt(feat.bcd)} BC"
+            elif getattr(feat, "pattern", None) == "grid" and feat.rows and feat.cols:
+                suffix = f"({feat.rows}×{feat.cols})"
+
+        token_w: list[float] = []
+        count = getattr(feat, "count", None)
+        if count and count > 1:
+            token_w.append(_text_width(f"{count}×", font_size))
+        token_w.append(sym_w)  # ⌀ symbol
+        token_w.append(_text_width(f"{_fmt(bore)}{_tol_suffix(_tol(group), draft)}", font_size))
+        if depth is None:
+            token_w.append(_text_width("THRU", font_size))
+        else:
+            token_w.append(sym_w)  # depth symbol
+            token_w.append(_text_width(_fmt(depth), font_size))
+        if cbore_dia is not None:
+            token_w.append(sym_w)  # counterbore/spotface symbol
+            token_w.append(sym_w)  # ⌀
+            token_w.append(_text_width(_fmt(cbore_dia), font_size))
+            if cbore_depth is not None:
+                token_w.append(sym_w)  # depth symbol
+                token_w.append(_text_width(_fmt(cbore_depth), font_size))
+        if suffix is not None:
+            token_w.append(_text_width(suffix, font_size))
+
+        n = len(token_w)
+        max_w = max(max_w, sum(token_w) + max(n - 1, 0) * gap + pad_around_text)
+    return max_w
+
+
 @dataclass
 class StripDepths:
     """Annotation strip depths (page-mm) computed before view positions are fixed.
@@ -358,6 +433,7 @@ def _measure_strips(
     font_size: float = _FONT_SIZE,
     arrow_length: float = 2.7,
     pad_around_text: float = 2.0,
+    declared_bore_callout_width: float = 0.0,
 ) -> StripDepths:
     """Compute annotation strip depths from hole geometry (Pass 1 of #131).
 
@@ -365,8 +441,11 @@ def _measure_strips(
     page-mm constant, so there is no circularity with choose_scale().
     *arrow_length* and *pad_around_text* should come from ``draft_preset(...)``.
     """
-    bore_depth = _est_bore_callout_width(
-        holes, font_size, patterns=patterns, pad_around_text=pad_around_text
+    bore_depth = max(
+        _est_bore_callout_width(
+            holes, font_size, patterns=patterns, pad_around_text=pad_around_text
+        ),
+        declared_bore_callout_width,
     )
     # Add elbow clearance and leader-to-label gap so gap_fv_sv fully contains
     # the composed leader: elbow_dx (= draft.arrow_length) + gap

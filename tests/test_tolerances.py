@@ -172,6 +172,22 @@ class TestSheetTolerance:
             self._steplen_tol(dwg, n) is None for n in dwg._named if n.startswith("m_steplen")
         )
 
+    def test_toleranced_hole_callout_participates_in_layout_sizing(self):
+        # #450: a Sheet-authored bore tolerance widens the HoleCallout. Layout
+        # sizing must reserve that declared footprint before the plan/side/iso
+        # blocks are placed; otherwise the real callout is later dropped from the
+        # iso-bounded plan strip even though a wider corridor would fit.
+        plate = Box(120, 90, 8)
+        part = plate - (Pos(0, 0, 4) * Cylinder(4, 8))
+
+        s = Sheet(part)
+        s.envelope(plate)
+        s.hole(diameter=8, at=(0, 0, 4), axis="z").tolerance(0.1)
+        dwg = s.build()
+
+        assert any(n.startswith("hc_plan") for n in dwg._named)
+        assert "callout_dropped" not in {i.code for i in dwg.lint()}
+
 
 class TestToleranceHandle:
     def test_hole_tolerance_survives_feature_replacement(self):
