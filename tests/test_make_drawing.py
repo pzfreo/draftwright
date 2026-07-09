@@ -1120,6 +1120,32 @@ class TestComposeViewBlocks:
         assert args[:6] == (60.0, 40.0, 20.0, 1.0, strips, 2)
         assert kwargs == {"section": True}
 
+    def test_estimator_vertical_stack_is_centred_from_composed_blocks(self):
+        from draftwright._core import _MARGIN
+        from draftwright.sheet import _compose_view_blocks, _layout_geometry
+
+        page_h = 297.0
+        blocks = _compose_view_blocks(60.0, 40.0, 20.0, 1.0, None, n_steps=3)
+        g = _layout_geometry(
+            60.0,
+            40.0,
+            20.0,
+            1.0,
+            420.0,
+            page_h,
+            150.0,
+            None,
+            n_steps=3,
+            warn_no_iso=False,
+        )
+
+        fv, pv = blocks["front"], blocks["plan"]
+        block_stack_h = fv.bottom + 2 * fv.hh + fv.top + pv.bottom + 2 * pv.hh + pv.top
+        expected_y_offset = max(0.0, (page_h - 2 * _MARGIN - block_stack_h) / 2)
+        actual_y_offset = g.FV_Y - _MARGIN - fv.bottom - fv.hh
+
+        assert actual_y_offset == pytest.approx(expected_y_offset)
+
 
 # ---------------------------------------------------------------------------
 # Phase 3 (#118): dynamic FV→SV corridor

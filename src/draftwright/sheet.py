@@ -903,7 +903,6 @@ def _layout_geometry(
     pv_hh = y_size * scale / 2
     sv_hw = y_size * scale / 2
 
-    pv_below = _est_pv_below_depth()
     est_blocks = _compose_view_blocks(
         x_size, y_size, z_size, scale, strips, n_steps, section=section
     )
@@ -941,18 +940,11 @@ def _layout_geometry(
     col_left = max(fv.left, pv.left)
     col_right = max(fv.right, pv.right)
 
-    # Bottom balloon band: rather than pushing the front view down (which would
-    # cascade into the iso/table and the scale choice), LIFT the plan view up
-    # into the empty top headroom above it — the front/side views, iso and title
-    # block stay anchored, so the table is undisturbed.  The lift is implicit:
-    # the vertical stack is centred with the BASE front↔plan gap (so FV/SV centre
-    # exactly as when halo = 0), while PV is positioned with the full ballooned
-    # gap, leaving it max(0, halo - pv_below) higher.  Byte-identical when
-    # halo = 0.  (#112, ADR 0004.)
-    # FV↔PV vertical gap = fv.top + pv.bottom (abutting → sum). The estimator path
-    # keeps its lift trick (centre on the base gap, place PV on the full gap);
-    # the measured path uses the real gap directly.
-    base_gap = (fv.top + pv.bottom) if blocks is not None else (fv.top + pv_below)
+    # FV↔PV vertical gap = fv.top + pv.bottom (abutting → sum). Estimated and
+    # measured paths now use the same block footprint semantics: if the plan
+    # view carries a bottom halo, that band is part of the stacked block layout
+    # rather than a special-case lift outside the ViewBlock model (#112).
+    base_gap = fv.top + pv.bottom
     total_h = 2 * margin + fv.bottom + 2 * fv.hh + base_gap + 2 * pv.hh + pv.top
     y_offset = max(0.0, (page_h - total_h) / 2)
 
@@ -975,9 +967,7 @@ def _layout_geometry(
     FV_X = margin + x_offset + col_left + fv.hw
     FV_Y = y_offset + margin + fv.bottom + fv.hh
     PV_X = FV_X
-    # PV uses the full (ballooned) front↔plan gap while FV/SV were centred with
-    # the base gap — so the plan view sits pv_lift higher: lifted into the
-    # headroom, front view anchored.
+    # PV abuts the front-view block: gap = front top band + plan bottom band.
     PV_Y = FV_Y + fv.hh + (fv.top + pv.bottom) + pv.hh
     # SV abuts the FV/PV column: gap = column right band + SV's own left band
     # (disjoint sum). Byte-identical to the old max(fv.right, sv.left) on the
