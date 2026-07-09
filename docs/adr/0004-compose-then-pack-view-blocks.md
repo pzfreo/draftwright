@@ -1,6 +1,6 @@
 # ADR 0004 — Compose-then-pack: views as blocks carrying their annotation footprint
 
-- **Status:** Accepted (2026-06-19; amended 2026-06-20 — see Amendment)
+- **Status:** Accepted (2026-06-19; amended 2026-06-20 and 2026-07-09 — see Amendments)
 - **Date:** 2026-06-19
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -131,27 +131,48 @@ above where OCCT's annotation arcs actually degenerate (`Geom_TrimmedCurve U1==U
   non-deterministic. Fixed-topology + composed footprints + local free-rect
   placement is the right amount of structure.
 
-### Roadmap (incremental; each step mergeable)
+### Implementation state (updated 2026-07-09)
 
 > **Amended 2026-06-20:** the original "byte-identical for unaffected drawings"
 > discipline is **dropped** — see the Amendment section below.
 
-1. **Done** — `ViewBlock` data model + block-driven view placement
-   (byte-identical foundation).
-2. **Hole table as a composed block** — footprint computed up front, packed
-   alongside the iso, participating in scale/page selection.
-3. **Balloon ring as part of the plan block's footprint** — all four sides; the
-   packer makes room (lift the plan view, grow the page, or reduce scale — its
-   choice, not hand-coded).
-4. **Generalise** — each view's dims/callouts become its block footprint; retire
-   the scalar strip-depth heuristics.
-5. **Retire `_will_balloon`** — escalation decided from the composed fit.
+The core "automatic layout has one authority" tranche is now implemented:
 
-The standing acceptance test at every step is the **dense-ballooning hard case**
-(NIST CTC-02). **Specifically: the plan view's labels (balloons) must not overlap
-the front view's dimensions** — the inter-view annotation overlap that motivates
-this ADR. Output *is allowed to change* (see Amendment); correctness is judged by
+1. **Done** — `ViewBlock` data model + block-driven view placement.
+2. **Done** — page/scale choice and repack share one composed-footprint fitness
+   model (#519).
+3. **Done** — section A-A participates in scale/layout selection instead of
+   being a fixed-offset afterthought (#515).
+4. **Done** — furniture reserves/checks full rendered footprints rather than
+   label boxes only (#518, #540).
+5. **Done** — hole/data tables and balloon rings are layout-aware escalation
+   outputs instead of first-fit drops (#516, #517).
+6. **Done** — below/right corridor ladders that can be independent candidates
+   join the shared corridor solve; correlated ladder renderers remain specialized
+   where each rung depends on the previous placed tier (#477).
+7. **Done** — user edits can enter the same solve as pinned, priority-ranked
+   candidates instead of late fixed-position moves (#511).
+8. **Done** — measure/repack iterates to a fixed point rather than relying on a
+   single measured pass (#302).
+9. **Done** — estimated and measured FV/PV block placement use the same
+   `ViewBlock` gap semantics; the old estimator-only plan-view halo lift is gone
+   (#112).
+
+The standing acceptance test is still the **dense-ballooning hard case** (NIST
+CTC-02). **Specifically: the plan view's labels (balloons) must not overlap
+front-view dimensions** — the inter-view annotation overlap that motivates this
+ADR. Output *is allowed to change* (see Amendment); correctness is judged by
 overlaps-gone + lint-clean, not by golden/geometry stability.
+
+The remaining layout work is no longer the main compose-then-pack migration. It
+is hardening and second-order product work:
+
+- place pitch-dim labels clear of vertical centerlines at creation time (#129);
+- add stronger property/fuzz coverage for layout-cleanliness invariants (#301);
+- advance detail-view page/scale participation (#306/#54/#444);
+- carry remaining manual intent verbs through the corridor solve (#426);
+- revisit known heuristic limits in the strip DP and narrow residual collision
+  edge cases (#381, #303, #366, #367, #443).
 
 ## Consequences
 
@@ -224,3 +245,18 @@ annotation sequencing to `annotations/orchestrator.py` (#164). Refresh the ancho
 names above as each phase lands (roadmap: `docs/plans/138-module-split-roadmap.md`).
 The compose-then-pack model, the box-layout footprint, and the monotone
 `(scale, page)` search are unaffected.
+
+## Amendment (2026-07-09) — implementation status refreshed
+
+PRs through #544 complete the original layout-authority migration. The live
+engine no longer treats plan-view balloon headroom as an estimator-only exception:
+both the estimated path and the measured/repack path center and pack FV/PV from
+the same composed `ViewBlock` bands. That closes the architecture gap tracked in
+#112.
+
+This does **not** mean layout is globally solved in two dimensions. The outer
+layout remains deliberately fixed-topology: projection-aligned orthographic
+blocks, free-rectangle placement for furniture, and a fixed-point measure/repack
+loop. That is the intended architecture from this ADR, not a temporary halfway
+state. Remaining open issues are targeted hardening, coverage, detail-view
+capability, and manual-intent integration work.

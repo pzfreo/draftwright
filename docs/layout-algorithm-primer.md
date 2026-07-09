@@ -37,6 +37,9 @@ Recent work has moved most automatic layout surfaces toward that destination:
 - Furniture uses fuller rendered footprints.
 - Tables and balloon rings negotiate with layout instead of using simple first-fit placement.
 - Below/right location and envelope dimensions now join the shared corridor solve.
+- The orthographic view stack is driven by composed `ViewBlock` footprints in both the
+  estimated and measured/repack paths. The old special plan-view balloon lift is gone:
+  plan balloon headroom is now just part of the plan block.
 - User-authored `locate(..., pin=True)` and generic `dimension(..., pin=True, priority=...)`
   edits become solver candidates instead of late fixed-position moves. A pin acts like an
   anchor and a high-priority keep signal inside the same corridor model.
@@ -53,6 +56,12 @@ Recent work has moved most automatic layout surfaces toward that destination:
 
 Remaining gaps are narrower and more explicit:
 
+- Pitch-dim labels still need to be placed clear of vertical centerlines at creation time
+  instead of relying on the repair loop.
+- Layout-cleanliness coverage is still sample-based; property/fuzz coverage is the next
+  quality multiplier.
+- Detail views are still the main future layout capability: they need to drive page/scale
+  escalation for very fine features.
 - Some placements are intentionally still outside the shared candidate model because they are
   not independent candidates yet. The main example is still the front-right prismatic height
   ladder's internal placement: scripts can now request it semantically, but each rung's witness
