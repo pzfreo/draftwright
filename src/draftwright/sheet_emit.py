@@ -75,7 +75,13 @@ def _member_hole_str(m) -> str:
 def _feature_line(f) -> str:
     k = f.kind
     if k == "envelope":
-        return f"sheet.envelope()   # {_n(f.width)} × {_n(f.height)} × {_n(f.depth)}"
+        return (
+            "sheet.add(EnvelopeFeature("
+            f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
+            f"width={_n(f.width)}, height={_n(f.height)}, depth={_n(f.depth)}, "
+            f"bbox_min={_pt(f.bbox_min)}, bbox_max={_pt(f.bbox_max)}"
+            f"))   # envelope {_n(f.width)} × {_n(f.height)} × {_n(f.depth)}"
+        )
     if k == "hole":
         return _hole_line(f)
     if k == "boss":
@@ -164,7 +170,11 @@ def emit_sheet_script(
     PMI is deliberately NOT emitted here: the seam binds ``part`` via ``import_step``, which
     strips AP242 PMI, so a re-run cannot re-extract it — the faithful fix bakes PMI as declared
     features (#503 / #422)."""
-    needs_hole = any(f.kind in ("hole", "pattern") for f in model.features)
+    model_imports = []
+    if any(f.kind in ("hole", "pattern") for f in model.features):
+        model_imports.append("hole")
+    if any(f.kind == "envelope" for f in model.features):
+        model_imports.extend(["EnvelopeFeature", "Frame"])
     # Only carry an aspect into the emitted constructor when it differs from build_drawing's
     # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.
     ctor = [f"title={title!r}", f"number={number!r}"]
@@ -179,7 +189,11 @@ def emit_sheet_script(
     lines = [
         _HEADER,
         "from draftwright import Sheet",
-        *(["from draftwright.model import hole"] if needs_hole else []),
+        *(
+            ["from draftwright.model import " + ", ".join(sorted(model_imports))]
+            if model_imports
+            else []
+        ),
         "",
         part_expr,
         "",
