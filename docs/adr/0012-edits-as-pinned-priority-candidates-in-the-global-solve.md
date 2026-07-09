@@ -78,9 +78,10 @@ frozen imperative placement (never re-optimised) or an unconstrained re-solve (j
 
 ## Consequences
 
-- `place_dim()` / `dimension()` gain `pin=` and `priority=` and record a dimension intent
-  on the model (in addition to, or in place of, the raw annotation). The raw single-slot
-  carve remains as the *unsolved, scale-frozen* escape hatch, honestly documented.
+- `dimension()` gains `pin=` and `priority=` and records a dimension intent on the model
+  (in addition to, or in place of, the raw annotation). `place_dim()` is deprecated for
+  normal editable scripts; the raw single-slot carve remains as the *unsolved,
+  scale-frozen* escape hatch, honestly documented.
 - `finalize_drawing(dwg)` (the #388 Phase 2 recompose) becomes the batch-solve-everything
   step for the edit path: re-run `_auto_annotate`'s corridor collection over the current
   model — auto features **plus** user dimension intents — and re-solve. Pinned intents
@@ -95,12 +96,13 @@ frozen imperative placement (never re-optimised) or an unconstrained re-solve (j
 ## Phased work (tracking issue to follow)
 
 1. **Intent + knobs.** A scale-independent dimension-intent representation on the model;
-   `pin=`/`priority=` on `dimension()`/`place_dim()` recording it.
+   `pin=`/`priority=` on `dimension()` recording it. `place_dim()` remains raw-coordinate
+   fallback only.
 2. **Solve the intents.** The orchestrator collects user dimension intents as
    `CorridorCandidate`s (`anchored=pin`, `priority`) into the shared solve.
 3. **Recompose.** `finalize_drawing(dwg)` re-runs the corridor solve over auto + user
    intents (the #388 Phase 2 recompose).
 4. **Below/right dependency.** Fold the below/right ladders into the corridor so a user dim
    there co-solves (#477).
-5. **Escape hatch.** Keep raw single-slot `place_dim` for arbitrary-page-coordinate,
+5. **Escape hatch.** Keep deprecated raw single-slot `place_dim` for arbitrary-page-coordinate,
    unsolved placement, clearly documented.

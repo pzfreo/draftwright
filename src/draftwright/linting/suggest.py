@@ -21,9 +21,9 @@ def _suggest_fix(issue, dwg) -> str | None:
     """Return a ready-to-paste code snippet that addresses *issue*, or None.
 
     The snippet is a hint, not necessarily runnable verbatim (``...`` stands in
-    for args the engine cannot infer). It uses the public domain API
-    (:meth:`Drawing.features`, :meth:`Drawing.at`, :meth:`Drawing.place_dim`)
-    so a caller or LLM can paste and fill the gaps trivially (#29).
+    for args the engine cannot infer). It prefers the semantic edit API
+    (:meth:`Drawing.model`, :meth:`Drawing.dimension`, :meth:`Drawing.locate`)
+    and mentions raw coordinate helpers only as fallback escape hatches (#29).
     """
     code = issue.code
 
@@ -71,10 +71,12 @@ def _suggest_fix(issue, dwg) -> str | None:
         labels = _QUOTED_RE.findall(issue.message)
         first = labels[0] if labels else "<dim>"
         return (
-            f"# Re-add the dimension with place_dim so it auto-stacks in the "
-            f"layout strip instead of overlapping:\n"
+            f"# Prefer a feature-backed edit so the shared layout solve can place it:\n"
             f'dwg.remove("{first}")  # if it was named\n'
-            f'dwg.place_dim(p1, p2, "below", "plan", dwg.draft, name="{first}")'
+            f'# dwg.dimension(feature, "length", role="width", side="below", pin=True, '
+            f'name="{first}")\n'
+            f"# Fallback only when you truly have raw page-coordinate endpoints:\n"
+            f'# dwg.place_dim(p1, p2, "below", "plan", dwg.draft, name="{first}")'
         )
 
     if code == "dim_inside_part":
@@ -83,10 +85,12 @@ def _suggest_fix(issue, dwg) -> str | None:
         first = labels[0] if labels else "<dim>"
         return (
             f"# The dim sits inside the view — its offset is on the wrong side. "
-            f"Re-place it on the opposite side via place_dim (auto-stacks clear "
-            f"of the part):\n"
+            f"Prefer a feature-backed edit on the opposite side:\n"
             f'dwg.remove("{first}")  # if it was named\n'
-            f'dwg.place_dim(p1, p2, "right", "front", dwg.draft, name="{first}")'
+            f'# dwg.dimension(feature, "length", role="height", side="right", pin=True, '
+            f'name="{first}")\n'
+            f"# Fallback only when you truly have raw page-coordinate endpoints:\n"
+            f'# dwg.place_dim(p1, p2, "right", "front", dwg.draft, name="{first}")'
         )
 
     if code == "step_dim_dropped":

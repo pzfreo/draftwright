@@ -149,10 +149,9 @@ automatically, so you say *what* to dimension, not *where*:
 ```python
 dwg = build_drawing(part)
 
-# Inspect detected features and add a dimension in domain terms (auto-placed):
-for f in dwg.features("plan"):
-    dwg.place_dim(f.page_pos, (f.page_pos[0] + f.diameter, f.page_pos[1]),
-                  "below", "plan", dwg.draft, name="dim_pocket")
+# Inspect detected features and add a pinned dimension in domain terms:
+env = next(f for f in dwg.model().features if f.kind == "envelope")
+dwg.dimension(env, "length", role="width", side="below", pin=True)
 
 crit = dwg.lint_summary()   # {"passed", "score", "by_code", "issues":[…suggestion]}
 dwg.repair()                # auto-fix mechanically-fixable lint; never worsens
@@ -183,6 +182,7 @@ the section A–A trigger, the prismatic step-ladder + rotational furniture, and
 are all on the IR — the migration is complete (one path; the orchestrator is
 build → plan → render). See
 [`docs/target-architecture.md`](docs/target-architecture.md) and
+[`docs/layout-algorithm-primer.md`](docs/layout-algorithm-primer.md) for a short walkthrough, plus
 [`docs/adr/`](docs/adr/). The engine handles view layout (strip/zone model), scale
 selection, annotation placement, and section rendering.
 

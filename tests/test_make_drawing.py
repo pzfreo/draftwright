@@ -5,6 +5,7 @@ import math
 import os
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -5596,7 +5597,8 @@ class TestFeatureEdits:
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
         p1, p2 = dwg.at("plan", 0, 0, 0), dwg.at("plan", 20, 0, 0)
-        dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="mine", feature=hole)
+        with pytest.warns(DeprecationWarning, match="Drawing.place_dim"):
+            dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="mine", feature=hole)
         assert "mine" in dwg.annotations_of(hole)
 
     def test_drop_hole_clears_its_callout(self):
@@ -6019,6 +6021,11 @@ class TestSlotDimensioning:
             assert not any(overlaps(full, e) for e in external), f"{n} overprints a callout"
 
 
+def _deprecated_place_dim(dwg, *args, **kwargs):
+    with pytest.warns(DeprecationWarning, match="Drawing.place_dim"):
+        return dwg.place_dim(*args, **kwargs)
+
+
 class TestPlaceDim:
     """#25: dwg.place_dim() stacks with the auto-dimension strip."""
 
@@ -6026,7 +6033,7 @@ class TestPlaceDim:
         dwg = build_drawing(Box(80, 60, 20))
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
-        dwg.place_dim(p1, p2, "below", "plan", dwg.draft, name="my_dim", label="80")
+        _deprecated_place_dim(dwg, p1, p2, "below", "plan", dwg.draft, name="my_dim", label="80")
         assert "my_dim" in dwg._named
         assert dwg._named["my_dim"].label == "80"
 
@@ -6036,7 +6043,7 @@ class TestPlaceDim:
         dwg = build_drawing(Box(60, 40, 20))
         p1 = dwg.at("front", -30, 0, -10)
         p2 = dwg.at("front", 30, 0, -10)
-        result = dwg.place_dim(p1, p2, "below", "front", dwg.draft)
+        result = _deprecated_place_dim(dwg, p1, p2, "below", "front", dwg.draft)
         assert isinstance(result, Dimension)
 
     def test_two_place_dim_calls_stack_without_overlap(self):
@@ -6046,8 +6053,8 @@ class TestPlaceDim:
         dwg = build_drawing(Box(80, 60, 20), auto_dims=False)
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
-        d1 = dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="d1")
-        d2 = dwg.place_dim(p1, p2, "above", "plan", dwg.draft, name="d2")
+        d1 = _deprecated_place_dim(dwg, p1, p2, "above", "plan", dwg.draft, name="d1")
+        d2 = _deprecated_place_dim(dwg, p1, p2, "above", "plan", dwg.draft, name="d2")
         # dim_level_y is the y-coordinate of the dim line on the page;
         # two stacked dims must land at different y values.
         assert d1.dim_level_y != d2.dim_level_y
@@ -6070,7 +6077,7 @@ class TestPlaceDim:
             centroid=(0, 0, 0),
             out="",
         )
-        result = dwg.place_dim((0, 0, 0), (80, 0, 0), "below", "plan", d, slot=8.0)
+        result = _deprecated_place_dim(dwg, (0, 0, 0), (80, 0, 0), "below", "plan", d, slot=8.0)
         assert isinstance(result, Dimension)
 
     def test_place_dim_labels_real_world_length_at_non_unity_scale(self):
@@ -6083,7 +6090,7 @@ class TestPlaceDim:
         assert dwg.scale == 2.0
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
-        d = dwg.place_dim(p1, p2, "below", "plan", dwg.draft, name="w")
+        d = _deprecated_place_dim(dwg, p1, p2, "below", "plan", dwg.draft, name="w")
         assert d.label == "80"
         assert [
             i for i in lint_drawing([d], drawing_scale=dwg.scale) if i.code == "label_vs_measured"
@@ -6093,8 +6100,30 @@ class TestPlaceDim:
         dwg = build_drawing(Box(80, 60, 20), scale=2.0)
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
-        d = dwg.place_dim(p1, p2, "below", "plan", dwg.draft, label="CUSTOM")
+        d = _deprecated_place_dim(dwg, p1, p2, "below", "plan", dwg.draft, label="CUSTOM")
         assert d.label == "CUSTOM"
+
+    def test_dimension_does_not_warn_when_using_place_dim_internally(self):
+        dwg = build_drawing(Box(80, 50, 20), auto_dims=False)
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        with pytest.warns(DeprecationWarning) as caught:
+            dwg.place_dim(
+                dwg.at("front", -40, 0, -10),
+                dwg.at("front", 40, 0, -10),
+                "below",
+                "front",
+                dwg.draft,
+            )
+        assert caught
+
+        with warnings.catch_warnings(record=True) as no_warnings:
+            warnings.simplefilter("always")
+            dwg.dimension(env, "length", role="width", name="semantic_width")
+        assert [
+            w
+            for w in no_warnings
+            if issubclass(w.category, DeprecationWarning) and "place_dim" in str(w.message)
+        ] == []
 
 
 # ---------------------------------------------------------------------------
@@ -6158,7 +6187,7 @@ class TestLintSuggestions:
         assert issues, "crowded shoulders should drop a step dim"
         assert "detail_view=True" in issues[0].suggestion
 
-    def test_annotation_overlap_suggestion_uses_place_dim(self):
+    def test_annotation_overlap_suggestion_prefers_dimension_with_place_dim_fallback(self):
         # Synthetic issue — exercise the _suggest_fix branch directly.
         from draftwright.linting import LintIssue, _suggest_fix
 
@@ -6170,10 +6199,12 @@ class TestLintSuggestions:
         )
         sug = _suggest_fix(issue, dwg)
         assert sug is not None
+        assert "dwg.dimension" in sug
+        assert "pin=True" in sug
         assert "place_dim" in sug
         assert "dim_width" in sug
 
-    def test_dim_inside_part_suggestion_uses_place_dim(self):
+    def test_dim_inside_part_suggestion_prefers_dimension_with_place_dim_fallback(self):
         from draftwright.linting import LintIssue, _suggest_fix
 
         dwg = build_drawing(Box(60, 40, 20))
@@ -6184,6 +6215,8 @@ class TestLintSuggestions:
         )
         sug = _suggest_fix(issue, dwg)
         assert sug is not None
+        assert "dwg.dimension" in sug
+        assert "pin=True" in sug
         assert "place_dim" in sug
         assert "dim_height" in sug
 
