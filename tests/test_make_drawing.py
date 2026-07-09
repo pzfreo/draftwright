@@ -862,13 +862,9 @@ class TestComposeAnnoBoxes:
         from draftwright.builder import _FONT_SIZE, draft_preset
         from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
 
-        # The composer must reproduce StripDepths exactly for ANY clearance
-        # args (#112, Step 4b): the bore-band elbow+gap overhead
-        # (arrow_length + pad_around_text) is added identically on both paths,
-        # so byte-identity cannot depend on the values. We test the function
-        # defaults, the production draft preset (which today equals the
-        # defaults — a forward-guard if it ever diverges), and a deliberately
-        # divergent set that actually exercises a different overhead.
+        # The composer is the footprint authority (#112): _measure_strips is only
+        # a compatibility reducer around these boxes. Exercise defaults, the
+        # production draft preset, and deliberately divergent clearance values.
         preset = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
         arg_sets = (
             {},
@@ -879,6 +875,43 @@ class TestComposeAnnoBoxes:
             composed = _footprint_from_boxes(_compose_anno_boxes(holes, patterns, n_steps, **kw))
             scalar = _measure_strips(holes, patterns, n_steps, bb, **kw)
             assert composed == scalar, (label, n_steps, kw)
+
+    def test_declared_bore_width_flows_through_boxes(self):
+        # #540: declared Sheet/IR callouts can be wider than detected geometry
+        # because authored tolerances live on the planned dimensions. That width
+        # must be represented as an annotation box, not as a scalar-only side
+        # channel in _measure_strips.
+        from draftwright.builder import _FONT_SIZE, draft_preset
+        from draftwright.recognition import find_hole_patterns, find_holes
+        from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
+
+        part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
+        holes = find_holes(part)
+        patterns = find_hole_patterns(holes)
+        bb = part.bounding_box()
+        draft = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
+        declared_width = 55.0
+        expected_bore_depth = declared_width + draft.pad_around_text + draft.arrow_length
+
+        boxes = _compose_anno_boxes(
+            holes,
+            patterns,
+            0,
+            arrow_length=draft.arrow_length,
+            pad_around_text=draft.pad_around_text,
+            declared_bore_callout_width=declared_width,
+        )
+        assert expected_bore_depth in [b.depth for b in boxes if b.side == "right"]
+        assert expected_bore_depth in [b.depth for b in boxes if b.side == "left"]
+        assert _footprint_from_boxes(boxes) == _measure_strips(
+            holes,
+            patterns,
+            0,
+            bb,
+            arrow_length=draft.arrow_length,
+            pad_around_text=draft.pad_around_text,
+            declared_bore_callout_width=declared_width,
+        )
 
     def test_matches_for_plain_part(self):
         from draftwright.recognition import find_hole_patterns, find_holes
@@ -937,8 +970,8 @@ class TestComposeAnnoBoxesCorpus:
     """Step 4b (#112): de-risk the 4c reservation switch by proving the AnnoBox
     composer is a faithful drop-in for _measure_strips across the full part
     archetype corpus, and by pinning the per-side box *structure* that 4c will
-    consume. Pure validation — nothing yet uses the composer for layout, so the
-    rendered output is byte-identical."""
+    consume. The strip estimate now reduces these boxes, so byte-identity here
+    guards the active layout path."""
 
     @staticmethod
     def _corpus():
