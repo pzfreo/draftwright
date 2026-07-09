@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.2.12 — 2026-07-09
+
+**Sheet scripts now round-trip authored layout intent.** This patch finishes the next
+slice of the layout-authority work: below/right ladders, pinned edits, height ladders,
+detected envelopes, and AP242 authored dimensions now survive the declarative Sheet path
+without being invalidated by post-hoc placement or raw imported metadata.
+
+### Added
+
+- **Pinned edit intents route through the corridor solve.** `locate(..., pin=True)` and
+  pinned dimensions now become priority-ranked candidates in the shared corridor instead
+  of fixed post-hoc edits, so user intent participates in the same ordering/spacing model
+  as automatic dimensions. (#511)
+- **AP242 dimensional PMI lowers to authored drafting dimensions.** Imported AP242
+  size/location dimensions now become `AuthoredDimension` IR and generated Sheet scripts
+  emit `sheet.dimension(...)`; unsupported PMI records remain explicit raw fallbacks.
+  (#503, #422, #62)
+
+### Changed
+
+- **`place_dim` is deprecated.** Manual dimensions should use pinned candidate/dimension
+  intent instead of the old incremental edit path.
+- **Prismatic height ladders and detected envelopes round-trip through Sheet scripts.**
+  Generated scripts now preserve `StepLevelFeature` and detected `EnvelopeFeature`
+  fallbacks, preventing CTC01-style ladder swaps and raw STEP-envelope remeasurement
+  drift.
+
+### Fixed
+
+- **Below/right corridors now share one solve.** Side-hole locations, height ladders,
+  PMI/GD&T, envelope dims, and related below/right strip occupants negotiate in the shared
+  corridor rather than competing through separate late passes. (#477)
+- **Sheet script parity is tighter.** Generated scripts preserve member positions, step
+  levels, AP242 authored dimensions, raw PMI fallbacks, and detected envelopes so
+  direct-vs-script CTC01 output has matching annotation names.
+
 ## v0.2.11 — 2026-07-08
 
 **Automatic layout now has one authority.** Page/scale selection, section placement,
