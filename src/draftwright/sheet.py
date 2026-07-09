@@ -435,28 +435,23 @@ def _measure_strips(
     pad_around_text: float = 2.0,
     declared_bore_callout_width: float = 0.0,
 ) -> StripDepths:
-    """Compute annotation strip depths from hole geometry (Pass 1 of #131).
+    """Compute annotation strip depths from composed annotation boxes (Pass 1 of #131).
 
     All annotation sizes are scale-independent because font_size is a fixed
     page-mm constant, so there is no circularity with choose_scale().
     *arrow_length* and *pad_around_text* should come from ``draft_preset(...)``.
     """
-    bore_depth = max(
-        _est_bore_callout_width(
-            holes, font_size, patterns=patterns, pad_around_text=pad_around_text
-        ),
-        declared_bore_callout_width,
+    return _footprint_from_boxes(
+        _compose_anno_boxes(
+            holes,
+            patterns,
+            n_steps,
+            font_size=font_size,
+            arrow_length=arrow_length,
+            pad_around_text=pad_around_text,
+            declared_bore_callout_width=declared_bore_callout_width,
+        )
     )
-    # Add elbow clearance and leader-to-label gap so gap_fv_sv fully contains
-    # the composed leader: elbow_dx (= draft.arrow_length) + gap
-    # (= draft.pad_around_text), always present.
-    if bore_depth > 0:
-        bore_depth += pad_around_text + arrow_length
-    right = max(_est_right_strip_depth(n_steps), bore_depth)
-    left = max(_DIM_PAD, bore_depth)
-    top = _est_pv_above_depth(holes, patterns, font_size, pad_around_text)
-    pv_halo = _est_plan_halo(font_size) if _will_balloon(holes, patterns) else 0.0
-    return StripDepths(right=right, left=left, top=top, pv_halo=pv_halo)
 
 
 @dataclass(frozen=True)
@@ -488,17 +483,21 @@ def _compose_anno_boxes(
     font_size: float = _FONT_SIZE,
     arrow_length: float = 2.7,
     pad_around_text: float = 2.0,
+    declared_bore_callout_width: float = 0.0,
 ) -> list[AnnoBox]:
     """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
 
-    Mirrors ``_measure_strips`` exactly, but emits each contributing band as a
-    box rather than folding them into three scalars up front.
-    ``_footprint_from_boxes`` reduces these back to the identical
-    ``StripDepths``.
+    This is the annotation-footprint authority for scale/page layout. Each
+    contributing furniture band is emitted as a box; ``_measure_strips`` only
+    reduces these boxes to the legacy ``StripDepths`` shape. Declared-model
+    callout widths flow through the same box path as detected geometry (#540).
     """
     boxes = [AnnoBox("right", _est_right_strip_depth(n_steps))]  # FV right dim ladder
-    bore_depth = _est_bore_callout_width(
-        holes, font_size, patterns=patterns, pad_around_text=pad_around_text
+    bore_depth = max(
+        _est_bore_callout_width(
+            holes, font_size, patterns=patterns, pad_around_text=pad_around_text
+        ),
+        declared_bore_callout_width,
     )
     if bore_depth > 0:
         # elbow clearance + leader-to-label gap, as in _measure_strips
