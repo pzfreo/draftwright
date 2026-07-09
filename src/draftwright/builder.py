@@ -77,6 +77,7 @@ _TB_W = 150.0
 # approximation error, tight enough not to round a genuinely off-axis curve.
 
 _REPACK_TOL = 0.75
+_REPACK_MAX_ITER = 3
 
 
 def _cross_view_overlaps(dwg, a) -> int:
@@ -345,6 +346,15 @@ def _repack_candidates(a, scale, page):
     return list(_LADDER)
 
 
+def _needs_repack(dwg, a) -> bool:
+    """True when the measured drawing still needs a compose-then-pack pass."""
+    return (
+        _cross_view_overlaps(dwg, a) != 0
+        or _annotation_view_overlaps(dwg, a) != 0
+        or _annotations_out_of_bounds(dwg, a)
+    )
+
+
 def _repack(
     a, dwg, out, assembly, detail_view, scale=None, page=None, model=None, decorations=None
 ):
@@ -360,11 +370,7 @@ def _repack(
     byte-identical) or when the repack would change nothing (same sheet/scale and
     no view actually moves).
     """
-    if (
-        _cross_view_overlaps(dwg, a) == 0
-        and _annotation_view_overlaps(dwg, a) == 0
-        and not _annotations_out_of_bounds(dwg, a)
-    ):
+    if not _needs_repack(dwg, a):
         return None
     blocks = _measure_blocks(dwg, a)
 
@@ -485,6 +491,40 @@ def _repack(
     return a2, dwg2
 
 
+def _repack_to_fixed_point(
+    a, dwg, out, assembly, detail_view, scale=None, page=None, model=None, decorations=None
+):
+    """Iterate measure→repack→assemble until stable or bounded (#302)."""
+    cur_a, cur_dwg = a, dwg
+    for i in range(_REPACK_MAX_ITER):
+        repacked = _repack(
+            cur_a,
+            cur_dwg,
+            out,
+            assembly,
+            detail_view,
+            scale=scale,
+            page=page,
+            model=model,
+            decorations=decorations,
+        )
+        if repacked is None:
+            if _needs_repack(cur_dwg, cur_a):
+                _log.warning(
+                    "measure-repack: stalled after %d iteration(s) with residual layout triggers",
+                    i,
+                )
+            return (cur_a, cur_dwg) if i else None
+        cur_a, cur_dwg = repacked
+
+    if _needs_repack(cur_dwg, cur_a):
+        _log.warning(
+            "measure-repack: reached iteration limit (%d) with residual layout triggers",
+            _REPACK_MAX_ITER,
+        )
+    return cur_a, cur_dwg
+
+
 def build_drawing(
     step_file: str | Path | Shape,
     out: str | None = None,
@@ -570,7 +610,7 @@ def build_drawing(
     # measure ≈ estimate, so they skip pass 2 and stand byte-identical.
     dwg = _assemble(a, out, assembly, detail_view, auto_dims, model=model, decorations=decorations)
     if auto_dims:
-        repacked = _repack(
+        repacked = _repack_to_fixed_point(
             a,
             dwg,
             out,

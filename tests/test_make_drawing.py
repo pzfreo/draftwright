@@ -1576,6 +1576,77 @@ class TestComposeThenPackRepack:
         cands = _repack_candidates(a, 2.0, "A3")
         assert len(cands) == 1 and cands[0][0] == 2.0
 
+    def test_repack_to_fixed_point_iterates_until_stable(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import draftwright.builder as builder
+
+        a0, d0 = SimpleNamespace(pass_id=0), SimpleNamespace(pass_id=0)
+        a1, d1 = SimpleNamespace(pass_id=1), SimpleNamespace(pass_id=1)
+        a2, d2 = SimpleNamespace(pass_id=2), SimpleNamespace(pass_id=2)
+        returns = [(a1, d1), (a2, d2), None]
+        calls = []
+
+        def fake_repack(a, dwg, *args, **kwargs):
+            calls.append((a.pass_id, dwg.pass_id))
+            return returns.pop(0)
+
+        monkeypatch.setattr(builder, "_repack", fake_repack)
+        monkeypatch.setattr(builder, "_needs_repack", lambda dwg, a: False)
+
+        out = builder._repack_to_fixed_point(a0, d0, "out", None, False)
+
+        assert out == (a2, d2)
+        assert calls == [(0, 0), (1, 1), (2, 2)]
+
+    def test_repack_to_fixed_point_warns_at_iteration_limit(self, monkeypatch, caplog):
+        from types import SimpleNamespace
+
+        import draftwright.builder as builder
+
+        calls = []
+
+        def fake_repack(a, dwg, *args, **kwargs):
+            calls.append((a.pass_id, dwg.pass_id))
+            pass_id = len(calls)
+            return SimpleNamespace(pass_id=pass_id), SimpleNamespace(pass_id=pass_id)
+
+        monkeypatch.setattr(builder, "_repack", fake_repack)
+        monkeypatch.setattr(builder, "_needs_repack", lambda dwg, a: True)
+
+        with caplog.at_level(logging.WARNING):
+            out_a, out_dwg = builder._repack_to_fixed_point(
+                SimpleNamespace(pass_id=0),
+                SimpleNamespace(pass_id=0),
+                "out",
+                None,
+                False,
+            )
+
+        assert len(calls) == builder._REPACK_MAX_ITER
+        assert out_a.pass_id == out_dwg.pass_id == builder._REPACK_MAX_ITER
+        assert "reached iteration limit" in caplog.text
+
+    def test_repack_to_fixed_point_warns_on_stalled_trigger(self, monkeypatch, caplog):
+        from types import SimpleNamespace
+
+        import draftwright.builder as builder
+
+        monkeypatch.setattr(builder, "_repack", lambda *args, **kwargs: None)
+        monkeypatch.setattr(builder, "_needs_repack", lambda dwg, a: True)
+
+        with caplog.at_level(logging.WARNING):
+            out = builder._repack_to_fixed_point(
+                SimpleNamespace(pass_id=0),
+                SimpleNamespace(pass_id=0),
+                "out",
+                None,
+                False,
+            )
+
+        assert out is None
+        assert "stalled after 0 iteration" in caplog.text
+
     @pytest.mark.timeout(120)
     def test_repack_honours_pinned_scale_on_oversized_part(self):
         # #350 review: when no candidate fits the measured layout, the repack backstop
