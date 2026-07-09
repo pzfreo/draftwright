@@ -59,7 +59,7 @@ from draftwright.annotations._common import (
     strip_obstacles,
 )
 from draftwright.layout import StripCandidate, plan_strip
-from draftwright.model.ir import HoleFeature, PatternFeature
+from draftwright.model.ir import AUTHORED_DIMENSION_KINDS, HoleFeature, PatternFeature
 from draftwright.model.planner import DimensionGroup, plan_locations
 
 
@@ -1490,9 +1490,9 @@ def _bore_half_span(pmi_kind: str, value: float) -> float:
     """Half the perpendicular span of a bore-size dim from the bore centroid — the
     distance to each witness base point. A ``"diameter"`` record stores the full
     diameter (so half = radius = value/2); a ``"radius"`` record already stores the
-    radius (half = value). Keyed on ``PmiFeature.pmi_kind`` (the PMI category), NOT
-    ``.kind`` (the feature kind, always ``"pmi"``) — the #360 bug used the latter, so
-    the diameter branch was dead and every diameter dim spanned ±diameter (2× wide)."""
+    radius (half = value). Keyed on the drafting dimension category, NOT ``.kind`` (the
+    IR feature kind) — the #360 bug used the latter, so the diameter branch was dead and
+    every diameter dim spanned ±diameter (2× wide)."""
     return value / 2 if pmi_kind == "diameter" else value
 
 
@@ -1503,10 +1503,26 @@ _PMI_SUBCHAIN = 3
 _PMI_CORRIDOR_PRIORITY = 1.0
 
 
+def _renderable_pmi_records(records):
+    """PMI records the dimension renderer may place.
+
+    Raw ``PmiFeature`` fallbacks can preserve unsupported AP242 records. Do not render those
+    just because they happen to carry a numeric value and references; only drafting dimension
+    categories belong in this placement path.
+    """
+    return [
+        r
+        for r in records
+        if r.pmi_kind in AUTHORED_DIMENSION_KINDS and r.value > 0 and len(r.ref_pts) >= 2
+    ]
+
+
 def render_pmi(dwg, model, a) -> int:
-    """Render pre-authored PMI annotations (STEP AP242) from the IR `PmiFeature`s
-    as first-class corridor candidates (#208/#393). Replaces the engine's
-    `_annotate_pmi`.
+    """Render imported authored dimensions from concept IR as first-class candidates.
+
+    AP242 dimensional PMI lowers to ``AuthoredDimension``; unsupported raw PMI fallback
+    records still ride as ``PmiFeature`` so they remain visible to diagnostics (#208/#393).
+    Replaces the engine's ``_annotate_pmi``.
 
     Called from ``_auto_annotate`` before ``drain_corridors`` so authored PMI
     co-solves with automatic strip candidates. Skips records whose page
@@ -1520,26 +1536,9 @@ def render_pmi(dwg, model, a) -> int:
                     too compressed in the side view)
     """
     draft = dwg.draft
-    pmi = [f for f in model.features if f.kind == "pmi"]
-    usable = [r for r in pmi if r.value > 0 and len(r.ref_pts) >= 2]
-    n_gtol = sum(
-        1
-        for r in pmi
-        if r.pmi_kind
-        not in (
-            "linear",
-            "diameter",
-            "radius",
-            "angular",
-            "curved_dist",
-            "oriented",
-            "curve_length",
-            "thickness",
-            "label",
-            "presentation",
-        )
-        and r.value > 0
-    )
+    pmi = [f for f in model.features if f.kind in ("authored_dimension", "pmi")]
+    usable = _renderable_pmi_records(pmi)
+    n_gtol = sum(1 for r in pmi if r.pmi_kind not in AUTHORED_DIMENSION_KINDS and r.value > 0)
     if n_gtol:
         _log.debug("PMI annotate: %d gtol/datum record(s) not yet annotatable (Phase 4)", n_gtol)
     if not usable:

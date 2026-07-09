@@ -35,6 +35,8 @@ from draftwright.model.declare import (
 )
 from draftwright.model.detect import build_part_model, build_pmi_features
 from draftwright.model.ir import (
+    AUTHORED_DIMENSION_KINDS,
+    AuthoredDimension,
     BossFeature,
     Datum,
     DimParameter,
@@ -60,6 +62,8 @@ from draftwright.model.planner import (
 )
 
 __all__ = [
+    "AuthoredDimension",
+    "AUTHORED_DIMENSION_KINDS",
     "BossFeature",
     "Datum",
     "DimParameter",

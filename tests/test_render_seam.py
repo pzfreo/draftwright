@@ -64,10 +64,10 @@ class TestCalloutSpec:
 
 
 class TestBoreHalfSpan:
-    """#360: a PMI bore-size dim's half-span from the bore centroid. A diameter
+    """#360: an imported bore-size dim's half-span from the bore centroid. A diameter
     record stores the diameter (half = radius); a radius record stores the radius
-    (half = value). The bug keyed on the feature `.kind` (always 'pmi') instead of
-    `.pmi_kind`, so the diameter branch was dead and every diameter dim spanned
+    (half = value). The bug keyed on the IR feature `.kind` instead of the drafting
+    dimension category, so the diameter branch was dead and every diameter dim spanned
     ±diameter — 2× too wide."""
 
     def test_diameter_halves_to_the_radius(self):
@@ -80,23 +80,46 @@ class TestBoreHalfSpan:
 
         assert _bore_half_span("radius", 8.0) == 8.0
 
-    def test_the_pmifeature_kind_attr_never_triggers_the_diameter_branch(self):
-        # The regression itself: a PmiFeature's `.kind` is always "pmi" (a ClassVar),
-        # so keying on it (as the old code did) never halves. Pin that pmi_kind is
-        # the right key and .kind is the wrong one.
+    def test_the_ir_kind_attr_never_triggers_the_diameter_branch(self):
+        # The regression itself: an authored dimension's `.kind` identifies the IR concept,
+        # so keying on it (as the old code did) never halves. Pin that pmi_kind is the
+        # compatibility category and .kind is the wrong one.
         from draftwright.annotations.from_model import _bore_half_span
-        from draftwright.model import Frame, PmiFeature
+        from draftwright.model import AuthoredDimension, Frame
 
-        rec = PmiFeature(
+        rec = AuthoredDimension(
             frame=Frame((0, 0, 0), "z"),
-            pmi_kind="diameter",
+            dimension_kind="diameter",
             value=35.0,
             label="ø35",
             dominant_axis="Z",
         )
-        assert rec.kind == "pmi"  # feature kind (ClassVar), NOT the PMI category
+        assert rec.kind == "authored_dimension"  # IR concept, NOT the dimension category
         assert _bore_half_span(rec.kind, rec.value) == 35.0  # the old bug: no halving
         assert _bore_half_span(rec.pmi_kind, rec.value) == 17.5  # the fix: radius
+
+    def test_raw_unsupported_pmi_is_not_renderable_as_a_dimension(self):
+        from draftwright.annotations.from_model import _renderable_pmi_records
+        from draftwright.model import AuthoredDimension, Frame, PmiFeature
+
+        dim = AuthoredDimension(
+            frame=Frame((0, 0, 0), "x"),
+            dimension_kind="linear",
+            value=10.0,
+            label="10",
+            dominant_axis="X",
+            ref_pts=((0, 0, 0), (10, 0, 0)),
+        )
+        raw_gtol = PmiFeature(
+            frame=Frame((0, 0, 0), "x"),
+            pmi_kind="position",
+            value=0.1,
+            label="position 0.1",
+            dominant_axis="X",
+            ref_pts=((0, 0, 0), (10, 0, 0)),
+        )
+
+        assert _renderable_pmi_records([dim, raw_gtol]) == [dim]
 
 
 class TestStepChainDrop:

@@ -11,12 +11,12 @@ detection didn't model (chamfers, fillets, turned profiles) yet reads as authori
 *has* the objects (mode 3b) wires their real part into the seam and swaps the number lines for
 ``sheet.hole(obj)`` references — the emitter's numbers are a starting point, not a ceiling.
 
-Kinds with no declarative verb yet (``step_level``/``rotational``/``pmi``) are flagged inline —
-never silently dropped — and left to the auto-pass that runs over the declared model on re-run.
+Kinds with no declarative verb yet (``rotational``) are flagged inline — never silently dropped —
+and left to the auto-pass that runs over the declared model on re-run. Imported authored
+dimensions, including AP242 dimensional PMI, emit as Sheet ``dimension(...)`` declarations.
 Fidelity: the script reproduces a lint-clean drawing of the same features. The generated script is
 validated against the direct build for prismatic, slot/pattern, section, and turned/rotational
-fixtures (#472); AP242 PMI script round-trip remains separate because ``import_step`` strips the
-semantic PMI before the generated script can re-read it (#503).
+fixtures (#472).
 """
 
 from __future__ import annotations
@@ -36,6 +36,21 @@ def _n(v) -> float | int:
 
 def _pt(p) -> str:
     return "(" + ", ".join(str(_n(c)) for c in p) + ")"
+
+
+def _pts_arg(points) -> str:
+    return "[" + ", ".join(_pt(p) for p in points) + "]"
+
+
+def _bbox_arg(bbox) -> str:
+    return "None" if bbox is None else _pt(bbox)
+
+
+def _tuple_arg(values) -> str:
+    vals = [str(_n(v)) for v in values]
+    if len(vals) == 1:
+        return f"({vals[0]},)"
+    return "(" + ", ".join(vals) + ")"
 
 
 def _hole_line(f) -> str:
@@ -72,8 +87,45 @@ def _member_hole_str(m) -> str:
     return f"hole({', '.join(kw)})"
 
 
+def _authored_dimension_line(f) -> str:
+    kw = [
+        f"kind={f.dimension_kind!r}",
+        f"value={_n(f.value)}",
+        f"label={f.label!r}",
+        f"dominant_axis={f.dominant_axis!r}",
+        f"ref_pts={_pts_arg(f.ref_pts)}",
+        f"ref_bbox={_bbox_arg(f.ref_bbox)}",
+        f"at={_pt(f.frame.origin)}",
+        f"axis={f.frame.axis!r}",
+    ]
+    if f.upper_tol is not None:
+        kw.append(f"upper_tol={_n(f.upper_tol)}")
+    if f.lower_tol is not None:
+        kw.append(f"lower_tol={_n(f.lower_tol)}")
+    if f.source != "sheet":
+        kw.append(f"source={f.source!r}")
+    if f.source_kind is not None and f.source_kind != f.dimension_kind:
+        kw.append(f"source_kind={f.source_kind!r}")
+    return "sheet.dimension(" + ", ".join(kw) + ")"
+
+
+def _raw_pmi_line(f) -> str:
+    return (
+        "sheet.add(PmiFeature("
+        f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
+        f"pmi_kind={f.pmi_kind!r}, value={_n(f.value)}, label={f.label!r}, "
+        f"dominant_axis={f.dominant_axis!r}, ref_bbox={_bbox_arg(f.ref_bbox)}, "
+        f"ref_pts=tuple({_pts_arg(f.ref_pts)})"
+        "))   # raw AP242 PMI fallback; not yet lowered to a drafting concept"
+    )
+
+
 def _feature_line(f) -> str:
     k = f.kind
+    if k == "authored_dimension":
+        return _authored_dimension_line(f)
+    if k == "pmi":
+        return _raw_pmi_line(f)
     if k == "envelope":
         return (
             "sheet.add(EnvelopeFeature("
@@ -81,6 +133,13 @@ def _feature_line(f) -> str:
             f"width={_n(f.width)}, height={_n(f.height)}, depth={_n(f.depth)}, "
             f"bbox_min={_pt(f.bbox_min)}, bbox_max={_pt(f.bbox_max)}"
             f"))   # envelope {_n(f.width)} × {_n(f.height)} × {_n(f.depth)}"
+        )
+    if k == "step_level":
+        return (
+            "sheet.add(StepLevelFeature("
+            f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
+            f"base={_n(f.base)}, levels={_tuple_arg(f.levels)}"
+            "))   # prismatic height ladder"
         )
     if k == "hole":
         return _hole_line(f)
@@ -117,9 +176,7 @@ def _feature_line(f) -> str:
             parts.append("members=[" + ", ".join(_pt(p) for p in f.members) + "]")
         return f"sheet.pattern({_member_hole_str(f.member)}, " + ", ".join(parts) + ")"
     # Kinds with no declarative verb yet: flag inline so they aren't silently lost. The auto-pass
-    # over the declared model still draws step_level/rotational furniture faithfully (#472). PMI is
-    # the remaining non-faithful case when re-running an emitted STEP-seam script because
-    # build123d.import_step strips AP242 PMI; baking those features is tracked in #503.
+    # over the declared model still draws rotational furniture faithfully (#472).
     return f"# {k} @ {_pt(f.frame.origin)} — no declarative verb yet; drawn by the auto-pass"
 
 
@@ -167,14 +224,18 @@ def emit_sheet_script(
     (``drawn_by``/``tolerance``/``scale``/``page``, #474) are emitted into the ``Sheet(...)``
     constructor only when non-default, so a plain drawing keeps a clean one-line constructor.
 
-    PMI is deliberately NOT emitted here: the seam binds ``part`` via ``import_step``, which
-    strips AP242 PMI, so a re-run cannot re-extract it — the faithful fix bakes PMI as declared
-    features (#503 / #422)."""
-    model_imports = []
+    AP242 PMI cannot be re-extracted from the ``import_step`` seam, so detected dimensional PMI is
+    emitted as declared Sheet dimensions; unsupported raw PMI records are kept as explicit
+    ``sheet.add(PmiFeature(...))`` fallbacks (#503 / #422)."""
+    model_imports = set()
     if any(f.kind in ("hole", "pattern") for f in model.features):
-        model_imports.append("hole")
+        model_imports.add("hole")
     if any(f.kind == "envelope" for f in model.features):
-        model_imports.extend(["EnvelopeFeature", "Frame"])
+        model_imports.update(["EnvelopeFeature", "Frame"])
+    if any(f.kind == "step_level" for f in model.features):
+        model_imports.update(["Frame", "StepLevelFeature"])
+    if any(f.kind == "pmi" for f in model.features):
+        model_imports.update(["Frame", "PmiFeature"])
     # Only carry an aspect into the emitted constructor when it differs from build_drawing's
     # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.
     ctor = [f"title={title!r}", f"number={number!r}"]

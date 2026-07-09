@@ -151,9 +151,10 @@ class TestBuildDrawingPmi:
 
 class TestDeclaredModelPmi:
     """#472: a DECLARED-model build (build_drawing(path, model=…)) skips detection, so it carried
-    no PmiFeatures and dropped PMI even with pmi='annotate'. _assemble now synthesises them from
-    the analysis (the same build_pmi_features detection uses), so PMI reproduces on the declared
-    path. (The emitted Sheet-script round-trip is a separate gap — import_step strips AP242 PMI.)"""
+    no imported authored annotations and dropped PMI even with pmi='annotate'. _assemble now
+    synthesises them from the analysis (the same build_pmi_features detection uses), so PMI
+    reproduces on the declared path. (The emitted Sheet-script round-trip is a separate gap —
+    import_step strips AP242 PMI.)"""
 
     def test_declared_model_annotate_matches_auto(self, tmp_path):
         auto = build_drawing(str(CTC01), out=str(tmp_path / "a"), title="P", pmi="annotate")
@@ -176,17 +177,37 @@ class TestDeclaredModelPmi:
 
 def test_build_pmi_features_mirrors_detection():
     """build_pmi_features (shared by build_part_model and the declared-model synthesis) builds one
-    PmiFeature per record; both callers must construct them identically (#472)."""
-    from draftwright.model import build_pmi_features
+    imported drafting annotation per record; both callers construct them identically (#472)."""
+    from draftwright.model import AuthoredDimension, PmiFeature, build_pmi_features
 
     recs = extract_pmi(CTC01)
-    dims = [r for r in recs if r.kind not in ("gtol", "datum")]
+    dim_kinds = {
+        "linear",
+        "diameter",
+        "radius",
+        "angular",
+        "curved_dist",
+        "oriented",
+        "curve_length",
+        "thickness",
+    }
+    dims = [r for r in recs if r.kind in dim_kinds]
     from build123d import import_step
 
     bbox = import_step(CTC01).bounding_box()
     feats = build_pmi_features(recs, bbox)
     assert len(feats) == len(recs)
-    assert all(f.kind == "pmi" for f in feats)
-    # a dim record's value/label ride onto its PmiFeature verbatim
-    assert {f.label for f in feats} >= {r.label for r in dims}
+    authored = [f for f in feats if isinstance(f, AuthoredDimension)]
+    raw = [f for f in feats if isinstance(f, PmiFeature)]
+    assert authored
+    assert raw  # GD&T/datum AP242 records are explicit raw fallbacks until concept lowering.
+    assert all(f.kind == "authored_dimension" for f in authored)
+    assert all(f.kind == "pmi" for f in raw)
+    # a dimensional PMI record's value/label ride onto its authored dimension verbatim
+    assert {f.label for f in authored} >= {r.label for r in dims}
+    for r in dims:
+        assert any(
+            f.label == r.label and f.upper_tol == r.upper_tol and f.lower_tol == r.lower_tol
+            for f in authored
+        )
     assert build_pmi_features(None, bbox) == []  # None/empty → no features

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from draftwright._core import _axis_letter, _xyz
 from draftwright.model.ir import (
+    AUTHORED_DIMENSION_KINDS,
+    AuthoredDimension,
     BossFeature,
     Datum,
     EnvelopeFeature,
@@ -121,15 +123,16 @@ _DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
-def build_pmi_features(pmi, bbox) -> list[PmiFeature]:
-    """Re-home extracted STEP AP242 PMI records into IR :class:`PmiFeature`s (#208).
+def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature]:
+    """Re-home extracted STEP AP242 PMI records into drafting-concept IR (#208).
 
     Shared by :func:`build_part_model` (the detection path) and the declared-model PMI
-    synthesis in ``builder._assemble`` (#472) so both construct features identically — a
-    declared / emitted-script build reproduces the same PMI the auto path draws. ``pmi`` is
-    the list of extracted records (``a.pmi``); ``bbox`` the part bounding box (for the
-    fallback origin when a record carries no ``ref_bbox``). Empty/``None`` ``pmi`` → ``[]``."""
-    out: list[PmiFeature] = []
+    synthesis in ``builder._assemble`` (#472) so both construct features identically.
+    Dimensional PMI becomes :class:`AuthoredDimension`, because users edit drafting
+    dimensions rather than source-format PMI. Unsupported GD&T/datum records remain raw
+    :class:`PmiFeature` fallbacks until their concept lowering lands. Empty/``None``
+    ``pmi`` → ``[]``."""
+    out: list[AuthoredDimension | PmiFeature] = []
     for r in pmi or ():
         if r.ref_bbox is not None:
             x0, y0, z0, x1, y1, z1 = r.ref_bbox
@@ -137,6 +140,22 @@ def build_pmi_features(pmi, bbox) -> list[PmiFeature]:
         else:
             pmi_origin = (bbox.center().X, bbox.center().Y, bbox.center().Z)
         ax = r.dominant_axis.lower() if r.dominant_axis in ("X", "Y", "Z") else "z"
+        if r.kind in AUTHORED_DIMENSION_KINDS:
+            out.append(
+                AuthoredDimension(
+                    frame=Frame(origin=pmi_origin, axis=ax),
+                    dimension_kind=r.kind,
+                    value=r.value,
+                    label=r.label,
+                    dominant_axis=r.dominant_axis,
+                    upper_tol=r.upper_tol,
+                    lower_tol=r.lower_tol,
+                    ref_bbox=r.ref_bbox,
+                    ref_pts=tuple(r.ref_pts),
+                    source_kind=r.kind,
+                )
+            )
+            continue
         out.append(
             PmiFeature(
                 frame=Frame(origin=pmi_origin, axis=ax),
@@ -309,8 +328,8 @@ def build_part_model(
             RotationalFeature(frame=Frame((c.X, c.Y, c.Z), rot_axis), od=od, bores=tuple(bores))
         )
 
-    # Pre-authored PMI annotations (STEP AP242) — re-homed into the IR as features
-    # (#208). Rendered directly by render_pmi (the planner adds nothing — see PmiFeature).
+    # STEP AP242 PMI — re-homed into drafting-concept IR where possible (#208).
+    # Rendered directly by render_pmi; the planner adds nothing.
     features.extend(build_pmi_features(pmi, bbox))
 
     # The default location datum — the part's min-X/min-Y/min-Z corner (lower-left
