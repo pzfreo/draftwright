@@ -1178,7 +1178,7 @@ def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
     return n, mean_rise
 
 
-def render_height_ladder(dwg, model, a) -> int:
+def render_height_ladder(dwg, model, a, *, include_overall: bool = True) -> int:
     """Front-view right ladder: prismatic step heights (from `StepLevelFeature`)
     stacked inner→outer, then the overall height outermost — through `fv_zones.right`,
     preserving the leapfrog witness cursor (#237). Replaces the engine's inline
@@ -1270,7 +1270,7 @@ def render_height_ladder(dwg, model, a) -> int:
     # — #222).
     rot = next((f for f in model.features if f.kind == "rotational"), None)
     od_is_height = rot is not None and rot.frame.axis in ("x", "y")
-    suppress_height = model.orientation == "z" or od_is_height
+    suppress_height = (not include_overall) or model.orientation == "z" or od_is_height
     px = (
         None
         if suppress_height

@@ -1203,6 +1203,7 @@ class Drawing:
         from draftwright.annotations._common import drain_corridors
         from draftwright.annotations.from_model import (
             render_diameters,
+            render_height_ladder,
             render_locations,
             render_slots,
             render_step_lengths,
@@ -1293,6 +1294,28 @@ class Drawing:
             and it.kwargs.get("param") == "length"
             and it.kwargs.get("role") in ("slot_width", "slot_length")
         }
+        # Prismatic height-ladder intent. StepLevelFeature exposes one value per interior
+        # level, but those rungs are a correlated chain whose witness bases leapfrog from
+        # the previous placed tier. Treat one semantic dimension intent as "rebuild the
+        # whole height ladder" through the existing auto-pass renderer, instead of trying
+        # to flatten each rung into an independent corridor candidate.
+        height_ladder_ids = {
+            id(it)
+            for it in self._intents
+            if routable
+            and it.kind == "dimension"
+            and getattr(it.feature, "kind", None) == "step_level"
+            and it.kwargs.get("param") == "length"
+            and it.kwargs.get("role") in (None, "step_height")
+        }
+        explicit_envelope_height = any(
+            routable
+            and it.kind == "dimension"
+            and getattr(it.feature, "kind", None) == "envelope"
+            and it.kwargs.get("param") == "length"
+            and it.kwargs.get("role") == "height"
+            for it in self._intents
+        )
 
         # User-authored generic feature dimensions with pin/priority join the shared
         # corridor directly. Slot and turned-step length dimensions keep their specialized
@@ -1301,7 +1324,7 @@ class Drawing:
             if (
                 not routable
                 or it.kind != "dimension"
-                or id(it) in (len_ids | slot_ids)
+                or id(it) in (len_ids | slot_ids | height_ladder_ids)
                 or not (it.kwargs.get("pin") or it.kwargs.get("priority"))
                 or it.kwargs.get("side", "above") not in ("above", "below", "left", "right")
             ):
@@ -1334,6 +1357,14 @@ class Drawing:
             if _section is not None:
                 assert a is not None
                 _reserve_section_row(self, a, _section)
+            # (A0) prismatic step-height ladder through the auto-pass renderer, before
+            # generic live-replayed dimensions. The auto-pass places this ladder before
+            # envelope dimensions; doing the same here prevents generic envelope edits
+            # from starving the correlated step rungs.
+            if height_ladder_ids:
+                assert a is not None and isinstance(model, PartModel)
+                render_height_ladder(self, model, a, include_overall=not explicit_envelope_height)
+            self._intents = [it for it in self._intents if id(it) not in height_ladder_ids]
             # (A) live-replay every intent EXCEPT the routed callouts/locates and section
             #     (furniture, step/boss callouts, dimensions, axes-restricted locates).
             i = 0
@@ -1342,7 +1373,13 @@ class Drawing:
                 if (
                     it.kind == "section"
                     or id(it)
-                    in corridor_ids | callout_ids | dia_ids | len_ids | slot_ids | user_dim_ids
+                    in corridor_ids
+                    | callout_ids
+                    | dia_ids
+                    | len_ids
+                    | slot_ids
+                    | height_ladder_ids
+                    | user_dim_ids
                 ):
                     i += 1
                     continue

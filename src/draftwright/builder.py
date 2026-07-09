@@ -669,8 +669,6 @@ def _fmt_pt(p) -> str:
 # Feature kinds with no intent verb yet — emitted as a flagged comment, never a broken
 # call. The build_drawing(auto_dims=True) pointer recovers the full auto drawing (#424).
 _GAP_KINDS = {
-    "step_level": "auto-pass draws the prismatic height ladder; no intent verb yet "
-    "(dimension() needs a span, which step_height lacks)",
     "rotational": "auto-pass draws the overall OD + centrelines + concentric bore leaders; "
     "out of scope for the intent verbs (#419)",
     "pmi": "pre-authored PMI, rendered by --pmi annotate; an add verb is deferred to #422",
@@ -689,12 +687,13 @@ def _feature_listing(a: Analysis) -> str:
 
     Each feature is redrawn against the detected model (``dwg.model().features[i]``, the
     ADR-0008 IR): holes/patterns → ``callout`` + ``locate`` + ``furniture``; steps/bosses →
-    ``callout`` (ø); steps/envelopes/slots → ``dimension(...)`` per linear param. A section
-    A–A is recorded when a counterbored/spotfaced/blind Z-hole warrants one (finalize
-    renders it last). Feature kinds with no verb yet (step_level, rotational, pmi) are
-    emitted as flagged comments naming the gap (#424) — never silently dropped. Commenting
-    any line drops exactly that intent (nothing is auto-drawn, so there is no
-    double-dimension risk). Pure function of *a*.
+    ``callout`` (ø); steps/envelopes/slots → ``dimension(...)`` per linear param; prismatic
+    step levels → one ``dimension(..., role="step_height")`` intent that regenerates the
+    correlated height ladder. A section A–A is recorded when a counterbored/spotfaced/blind
+    Z-hole warrants one (finalize renders it last). Feature kinds with no verb yet
+    (rotational, pmi) are emitted as flagged comments naming the gap (#424) — never silently
+    dropped. Commenting any line drops exactly that intent (nothing is auto-drawn, so there
+    is no double-dimension risk). Pure function of *a*.
     """
     model = build_model(a)
     feats = getattr(model, "features", [])
@@ -734,6 +733,11 @@ def _feature_listing(a: Analysis) -> str:
                     f"#     callout() places X/Z-turned diameters only — this "
                     f"{feat.frame.axis}-turned step/boss is auto-pass-only. auto_dims=True to keep it."
                 )
+        elif kind == "step_level":
+            body.append(
+                'dwg.dimension(f, "length", role="step_height")   # prismatic height ladder'
+            )
+            continue
         for p in feat.parameters():
             if p.span is not None or kind == "slot":  # a linear dim dimension() accepts
                 body.append(f'dwg.dimension(f, "{p.kind}", role="{p.role}")   # {display(p)}')

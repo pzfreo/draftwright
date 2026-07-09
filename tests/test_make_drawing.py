@@ -2510,6 +2510,20 @@ def test_generate_script_reconstructs_features_as_intent_calls(tmp_path):
     assert "dwg.repair()" in content  # a peephole net after the batch solve
 
 
+def test_generate_script_emits_prismatic_step_level_intent(tmp_path):
+    # The prismatic height ladder is a correlated chain, but it now has a semantic
+    # reconstruction verb instead of a gap comment.
+    step = tmp_path / "stepped.step"
+    part = Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20)
+    export_step(part, str(step))
+    content = Path(generate_script(str(step), out=str(tmp_path / "stepped"))).read_text(
+        encoding="utf-8"
+    )
+    assert 'dwg.dimension(f, "length", role="step_height")' in content
+    assert 'dwg.dimension(f, "length", role="height")' in content
+    assert "step_level — auto-pass draws the prismatic height ladder" not in content
+
+
 def test_feature_listing_is_deferred_intent_calls(tmp_path):
     # #400 Ph2 / #426 Ph5 (was Ph1 "fully inert"): the reconstruction block now contains
     # BARE, uncommented verb calls recorded inside `with dwg.deferred()`. Verify there are
@@ -4583,6 +4597,22 @@ class TestFeatureEdits:
         assert {nl, nw} <= set(dwg.annotations_of(slot))
         assert nl in dwg.drop(slot)
 
+    def test_deferred_dimension_rebuilds_prismatic_step_height_ladder(self):
+        # StepLevelFeature's rungs are a correlated ladder, not independent spans. The
+        # deferred dimension intent regenerates the auto-pass ladder on a detect-only build.
+        from build123d import Box, Pos
+
+        part = Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        step_level = next(f for f in dwg.model().features if f.kind == "step_level")
+
+        with dwg.deferred():
+            dwg.dimension(step_level, "length", role="step_height")
+
+        assert "dim_height" in dwg.annotations()
+        assert any(n.startswith("dim_step") for n in dwg.annotations())
+        assert dwg._intents == []
+
     def test_callout_adds_a_hole_leader_and_round_trips(self):
         # #414 / #400 Ph2: the callout add verb — detect-only build, then add the hole's
         # ø leader explicitly; it is a leader-attached callout, tagged, and drops.
@@ -4874,10 +4904,33 @@ class TestFeatureEdits:
             elif f.kind in ("step", "boss"):
                 if f.frame.axis in ("x", "z"):  # callout() places X/Z-turned diameters only
                     dwg.callout(f)
+            elif f.kind == "step_level":
+                dwg.dimension(f, "length", role="step_height")
+                continue
             for p in f.parameters():
                 if p.span is not None or f.kind == "slot":
                     dwg.dimension(f, p.kind, role=p.role)
         dwg.section()
+
+    def test_deferred_reconstruction_avoids_duplicate_prismatic_step_height(self):
+        # The envelope owns overall height when the generated reconstruction records it
+        # explicitly; the step-level ladder must then emit only the internal rungs.
+        from build123d import Box, Pos
+
+        part = Box(60, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20)
+        dwg = build_drawing(part, auto_dims=False)
+
+        with dwg.deferred():
+            self._reconstruct(dwg)
+
+        dims = {
+            n: getattr(ann, "label", None)
+            for n, ann in dwg.iter_annotations()
+            if n.startswith(("dim_height", "dim_length", "dim_step"))
+        }
+        assert "dim_height" not in dims
+        assert [name for name, label in dims.items() if label == "40"] == ["dim_length1"]
+        assert any(name.startswith("dim_step") for name in dims)
 
     def test_intent_reconstruction_is_error_free(self):
         # #400 Ph2 soft acceptance: a fully reconstructed prismatic part, after repair(),

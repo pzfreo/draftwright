@@ -43,6 +43,9 @@ Recent work has moved most automatic layout surfaces toward that destination:
 - Generated scripts, README examples, and lint suggestions now steer normal edits toward
   feature-backed `dimension(...)` / `locate(...)` calls instead of raw page-coordinate
   `place_dim(...)`.
+- The prismatic step-height ladder now has a semantic editable-script intent:
+  `dimension(step_level, "length", role="step_height")` regenerates the correlated ladder
+  during `finalize()` instead of leaving that auto surface as a script gap.
 - Generated Sheet scripts now have a value-aware round-trip parity guard for normal geometry:
   prismatic parts, slots, patterns, counterbore/section cases, and turned/rotational parts
   are checked against direct builds by annotation name, type, dimension geometry, labels,
@@ -51,8 +54,10 @@ Recent work has moved most automatic layout surfaces toward that destination:
 Remaining gaps are narrower and more explicit:
 
 - Some placements are intentionally still outside the shared candidate model because they are
-  not independent candidates yet. The main example is the front-right prismatic height ladder,
-  where each dimension's witness base depends on the previous placed tier.
+  not independent candidates yet. The main example is still the front-right prismatic height
+  ladder's internal placement: scripts can now request it semantically, but each rung's witness
+  base depends on the previous placed tier, so the renderer remains a correlated specialized
+  pass rather than a set of independent corridor candidates.
 - Raw page-coordinate `place_dim(...)` is now deprecated for normal editable scripts and
   remains only as an escape hatch. It can place a one-off annotation, but feature-referenced
   `dimension(...)` is the route that participates in re-solving.
