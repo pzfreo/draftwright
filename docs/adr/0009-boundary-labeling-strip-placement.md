@@ -658,7 +658,7 @@ segment refills from the remaining candidates before committing placements.
 
 ## Amendment 9 — Retire the banded-PAVA DP; fold keep-out bands into the shared carve (#381)
 
-**Status:** Accepted (decision, 2026-07-10); implementation pending, tracked in #381.
+**Status:** Accepted and implemented (2026-07-10, #381).
 
 **Problem.** Amendment 5 gave keep-out bands their own segmentation-and-solve
 mechanism (`_feasible_segments` + the cross-segment DP in
@@ -698,17 +698,41 @@ parameter and the banded solve path are removed once nothing calls them.
 
 This resolves #381 by construction, not by making the DP exact: an anchored
 candidate assigned to its own obstacle-free segment never sees the band that
-would have needed the DP's cross-segment reasoning to route around. It also
-makes row-avoidance available to every corridor-registered pass for free,
-closing the holes.py-only inconsistency above.
+would have needed the DP's cross-segment reasoning to route around. It unifies
+on the *one* carve primitive (`carve_free_segments`) every corridor pass
+already uses — but band **declaration** (`band_intervals`, built from
+`reserved_rows`/the centreline case) still lives entirely inside
+`holes.py`'s own `_place_queue`, not threaded through the shared
+`CorridorCandidate`/`solve_corridor` seam. A GD&T frame or PMI note still has
+no way to declare a keep-out band; only `holes.py`'s two callers carve them.
+Making that available to every pass is a further, separate change, not part
+of #381.
+
+A first implementation used plain nearest-segment greedy assignment (matching
+`place_strip_candidates`'s existing quality bar) but an independent review
+found it capacity-oblivious: a candidate assigned to its nearest segment could
+be dropped there even when a farther segment had ample free room — a real
+regression against Policy B (never drop a real annotation to avoid a
+crossing/band) that the retired DP, for all its own bugs, did not have. The
+shipped fix instead does **global, priority-ordered greedy assignment with
+live feasibility re-checks**: candidates are processed highest-priority-first;
+each tries its nearest segment, then progressively farther ones, accepting a
+segment only when re-running the real per-segment solve on the trial
+membership drops nobody. Because segments only ever gain higher-or-equal-
+priority members before a lower-priority one is tried, a segment's own
+drop-on-overflow can (outside a rare priority tie) only ever evict the
+candidate currently being tried, never a prior commitment — one pass, no
+cascading, and every feasibility check is the real solver rather than an
+approximate count, so it cannot reintroduce the DP's original bug.
 
 **Trade-off (the honest edge).** This gives up the DP's aim of an exact,
-provably cost-optimal cross-segment placement, in favour of the same
-nearest-segment greedy-assignment quality bar the rest of the corridor system
-already runs on, uncomplained-about. Byte-identity is not preserved for the
-(narrow) cases where the DP's cross-segment optimum would have differed from
-greedy-assign's answer — acceptable under ADR 0004's standing byte-identity
-waiver (output may change; the invariant is lint-clean + no new overlaps).
+provably cost-optimal cross-segment placement, in favour of a greedy
+(highest-priority-first, nearest-segment-first) assignment that is optimal
+per-candidate-in-order but not globally optimal across all orderings.
+Byte-identity is not preserved for the (narrow) cases where the DP's
+cross-segment optimum would have differed from greedy-assign's answer —
+acceptable under ADR 0004's standing byte-identity waiver (output may change;
+the invariant is lint-clean + no new overlaps).
 
 ## Related
 

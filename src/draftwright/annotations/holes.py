@@ -1363,8 +1363,8 @@ def _annotate_holes(
                 _record_callout_drop(dwg, view, dia, "no room beside the view", feat)
                 continue
 
-            # Natural Y is the bore's own row; keep-out-band avoidance is now the
-            # solve's job (`forbidden`, below), not a pre-solve lift.
+            # Natural Y is the bore's own row; keep-out-band avoidance is now
+            # `_place_queue`'s carve (`band_intervals`, below), not a pre-solve lift.
             if can_right and (not can_left or d_right <= d_left):
                 right_queue.append((locs, dia, callout, feat, centre_r[1], rep_r))
             else:
@@ -1465,9 +1465,23 @@ def _annotate_holes(
             # to its own band-free segment never needs cross-segment reasoning to
             # stay off a reserved row. *intervals* must already carry their own
             # clearance (pre-inflated) — this carves with `pad=0`.
-            def _carve_and_place(cands_in, intervals, key_prefix_local):
+            def _carve_and_place(cands_in, intervals, key_prefix_local, *, allow_snap=True):
                 segs = carve_free_segments(y_min, y_max, intervals, 0.0)
                 if not segs:
+                    if not allow_snap:
+                        # bands+obstacles combined leave no free segment — unlike a
+                        # band-only strip (below), this has no single-pass escape that
+                        # is safe to trust: a snap chosen to clear ONE blocking
+                        # interval isn't rechecked against the others, so it can still
+                        # land inside a different one (a real drawing-level obstacle,
+                        # e.g. the section cutting-plane letter, unlike a band, is
+                        # exactly the kind of thing that produces a visible overlap,
+                        # not just a theoretical one). Returning nothing here (instead
+                        # of a wrong position) defers every candidate cleanly to the
+                        # bands-only baseline below, matching what a fully-obstacle-
+                        # blocked carve already did before this helper existed.
+                        return {}, set()
+
                     # *intervals* covers [y_min, y_max] entirely — a band wider than
                     # the whole strip (a shallow view, e.g. the `dshape` side strip).
                     # Rather than drop a real callout to honour it (policy B), snap
@@ -1499,40 +1513,61 @@ def _annotate_holes(
                         {id(by_key[k]) for k in res.dropped},
                     )
 
-                def _nearest_seg(ny):
-                    for lo, hi in segs:
-                        if lo <= ny <= hi:
-                            return (lo, hi)
-                    return min(
-                        segs, key=lambda sg: min(abs(ny - sg[0]), abs(ny - sg[1])), default=None
+                def _seg_order(ny):
+                    """Segments nearest-to-farthest from *ny* — the containing
+                    segment (if any) first, else by edge distance; ties (equidistant
+                    between two segments) break on segment start for determinism."""
+
+                    def _dist(seg):
+                        lo, hi = seg
+                        return (
+                            (0.0, lo) if lo <= ny <= hi else (min(abs(ny - lo), abs(ny - hi)), lo)
+                        )
+
+                    return sorted(segs, key=_dist)
+
+                def _cand(s, j):
+                    return StripCandidate(
+                        key=f"{key_prefix_local}{j:04d}",
+                        anchor=(edge, s[4]),
+                        size=(s[2].callout_width, min_gap),
+                        priority=s[1],  # bore diameter — largest wins over-capacity (D3)
+                        anchored=_is_central(s),
                     )
 
-                by_seg: dict = {seg: [] for seg in segs}
-                for s in cands_in:
-                    seg = _nearest_seg(s[4])
-                    if seg is not None:
-                        by_seg[seg].append(s)
-                # A candidate whose natural Y fell outside every free segment (the
-                # whole column blocked, or between two far-apart obstacles) is
-                # simply absent from `by_seg` — the final per-candidate loop below
-                # already falls back to the baseline position for it.
-                y_by_id: dict = {}
+                # Selection (ADR 0009 P2) must be GLOBAL across every carved segment,
+                # not per-segment — a candidate that overflows its nearest segment may
+                # still fit a farther one with spare room (#381: the retired banded-DP
+                # tried this but approximated feasibility by placed-count alone, which
+                # lost track of *where* things were placed; this instead re-runs the
+                # real per-segment solve on each trial, so it can't reintroduce that
+                # bug). Process candidates highest-priority-first so a segment already
+                # holding only >= priority members can, on overflow, only ever be
+                # asked to drop the newcomer being tried — never evict a prior
+                # commitment — which is exactly what "trial has zero drops" verifies
+                # below: on a rare priority TIE it's conservative (rejects rather than
+                # risking evicting an existing member), never wrong.
+                order = sorted(cands_in, key=lambda s: (-s[1], s[4]))
+                members: dict = {seg: [] for seg in segs}
                 dropped_ids: set = set()
-                for (seg_lo, seg_hi), members in by_seg.items():
-                    if not members:
+                for s in order:
+                    for seg in _seg_order(s[4]):
+                        trial = members[seg] + [s]
+                        cands = [_cand(m, j) for j, m in enumerate(trial)]
+                        res = plan_strip(cands, seg[0], seg[1], min_gap)
+                        if not res.dropped:
+                            members[seg] = trial
+                            break
+                    else:
+                        dropped_ids.add(id(s))
+
+                y_by_id: dict = {}
+                for seg, mem in members.items():
+                    if not mem:
                         continue
-                    cands = [
-                        StripCandidate(
-                            key=f"{key_prefix_local}{j:04d}",
-                            anchor=(edge, s[4]),
-                            size=(s[2].callout_width, min_gap),
-                            priority=s[1],  # bore diameter — largest wins over-capacity (D3)
-                            anchored=_is_central(s),
-                        )
-                        for j, s in enumerate(members)
-                    ]
-                    res = plan_strip(cands, seg_lo, seg_hi, min_gap)
-                    by_key = {c.key: s for c, s in zip(cands, members, strict=True)}
+                    cands = [_cand(m, j) for j, m in enumerate(mem)]
+                    res = plan_strip(cands, seg[0], seg[1], min_gap)
+                    by_key = {c.key: m for c, m in zip(cands, mem, strict=True)}
                     for k, y in res.placed.items():
                         y_by_id[id(by_key[k])] = y
                     dropped_ids.update(id(by_key[k]) for k in res.dropped)
@@ -1583,7 +1618,7 @@ def _annotate_holes(
                 (max(y_min, o[1] - min_gap), min(y_max, o[3] + min_gap)) for o in occupied
             ]
             seg_y, _seg_dropped = _carve_and_place(
-                queue, band_intervals + obstacle_intervals, key_prefix
+                queue, band_intervals + obstacle_intervals, key_prefix, allow_snap=False
             )
 
             # Decide per candidate: take the carve-aware (obstacle-avoiding)

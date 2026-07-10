@@ -437,6 +437,36 @@ def test_plan_strip_anchored_candidate_stays_on_its_natural():
     assert plain.placed["mid"] == pytest.approx(95.0)
 
 
+def test_carve_free_segments_merges_overlapping_intervals():
+    # Two overlapping keep-out intervals must merge into ONE blocked region
+    # before the free segments are computed, not be treated as independently
+    # subtractable (which would under-block the overlap). Equivalent to the
+    # retired `_feasible_segments`'s `test_overlapping_bands_merge`.
+    from draftwright.annotations._common import carve_free_segments
+
+    segs = carve_free_segments(0.0, 100.0, [(30.0, 50.0), (45.0, 70.0)], 0.0)
+    assert segs == [(0.0, 30.0), (70.0, 100.0)]
+
+
+def test_carve_free_segments_clips_intervals_at_the_strip_edge():
+    # An interval extending past [lo, hi] clips to the strip bounds rather than
+    # producing a free segment outside them. Equivalent to the retired
+    # `_feasible_segments`'s `test_edge_bands_clip_to_the_strip`.
+    from draftwright.annotations._common import carve_free_segments
+
+    segs = carve_free_segments(0.0, 100.0, [(-10.0, 10.0), (90.0, 110.0)], 0.0)
+    assert segs == [(10.0, 90.0)]
+
+
+def test_carve_free_segments_fully_covered_leaves_no_segment():
+    # An interval spanning the whole strip leaves zero free segments — the
+    # trigger for `holes.py`'s whole-range-blocked fallback. Equivalent to the
+    # retired `_feasible_segments`'s `test_band_covering_everything_leaves_no_segment`.
+    from draftwright.annotations._common import carve_free_segments
+
+    assert carve_free_segments(40.0, 60.0, [(30.0, 70.0)], 0.0) == []
+
+
 def test_carve_then_plan_strip_keeps_a_label_off_a_reserved_row():
     # ADR 0009 Amendment 9 (#381): `plan_strip` no longer knows about keep-out
     # bands itself — a caller carves the band out of the strip with the same
