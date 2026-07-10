@@ -437,20 +437,55 @@ def test_plan_strip_anchored_candidate_stays_on_its_natural():
     assert plain.placed["mid"] == pytest.approx(95.0)
 
 
-def test_plan_strip_forbidden_band_keeps_a_label_off_the_row():
-    # P4c (#318, Amendment 5): a `forbidden` keep-out band (centre, half_width) is a
-    # row the label may not sit on (a centre-line / dim extension line). A callout
-    # whose natural is on the band is seated off it; one already clear stays put.
+def test_carve_then_plan_strip_keeps_a_label_off_a_reserved_row():
+    # ADR 0009 Amendment 9 (#381): `plan_strip` no longer knows about keep-out
+    # bands itself — a caller carves the band out of the strip with the same
+    # `carve_free_segments` every other obstacle already uses, then calls
+    # `plan_strip` once per free segment (see `annotations/holes.py`). A label
+    # whose natural sits on the band lands in the nearer free segment, at its
+    # edge; one already clear stays put.
     import pytest
 
-    res = plan_strip(
-        [_cand("on", 50), _cand("clear", 80)], lo=0, hi=100, min_gap=5, forbidden=[(50.0, 8.0)]
-    )
-    assert res.placed["on"] == pytest.approx(42.0), "on-row label not moved off the band"
-    assert res.placed["clear"] == pytest.approx(80.0), "already-clear label should not move"
+    from draftwright.annotations._common import carve_free_segments
+
+    segs = carve_free_segments(0.0, 100.0, [(42.0, 58.0)], 0.0)
+    assert segs == [(0.0, 42.0), (58.0, 100.0)]
+    on = plan_strip([_cand("on", 50)], lo=0.0, hi=42.0, min_gap=5)
+    assert on.placed["on"] == pytest.approx(42.0), "on-row label not moved off the band"
+    clear = plan_strip([_cand("clear", 80)], lo=58.0, hi=100.0, min_gap=5)
+    assert clear.placed["clear"] == pytest.approx(80.0), "already-clear label should not move"
     # Without the band the on-row label stays on its natural.
-    plain = plan_strip([_cand("on", 50), _cand("clear", 80)], lo=0, hi=100, min_gap=5)
+    plain = plan_strip([_cand("on", 50)], lo=0, hi=100, min_gap=5)
     assert plain.placed["on"] == pytest.approx(50.0)
+
+
+def test_carve_around_a_band_keeps_an_anchored_candidate_on_its_natural():
+    # #381: the retired banded-DP kept one representative per labels-placed
+    # count, so a band could drag an `anchored` candidate off its natural when
+    # a cheaper-looking prefix (from an unrelated candidate) won the DP's
+    # pruning. Carving the band out first and solving each free segment
+    # independently (Amendment 9) resolves this BY CONSTRUCTION: an anchored
+    # candidate assigned to its own band-free segment is never in the same
+    # solve as anything the band would have forced a trade-off against.
+    # naturals [29, 34], gap 10, band (30, 33) — the DP's own reachable
+    # regression case (docs/adr/0009 Amendment 5) — with label 1 anchored.
+    import pytest
+
+    from draftwright.annotations._common import carve_free_segments
+
+    segs = carve_free_segments(0.0, 100.0, [(30.0, 33.0)], 0.0)
+    assert segs == [(0.0, 30.0), (33.0, 100.0)]
+    below = plan_strip([StripCandidate("below", (0.0, 29.0), (6, 3))], lo=0.0, hi=30.0, min_gap=10)
+    above = plan_strip(
+        [StripCandidate("above", (0.0, 34.0), (6, 3), anchored=True)],
+        lo=33.0,
+        hi=100.0,
+        min_gap=10,
+    )
+    assert below.placed["below"] == pytest.approx(29.0)
+    assert above.placed["above"] == pytest.approx(34.0), (
+        "anchored candidate dragged off its natural"
+    )
 
 
 def test_plan_strip_min_gap_floors_a_pair_smaller_than_it():
