@@ -6708,13 +6708,6 @@ class TestPin:
         assert dwg.pin("a") is dwg
         assert dwg.unpin("a") is dwg
 
-    def test_placeable_locked_defaults_false(self):
-        from draftwright.layout import Placeable
-
-        p = Placeable("k", ((0, 0),), (4, 2), "y", 0.0, 5.0)
-        assert p.locked is False
-        assert Placeable("k", ((0, 0),), (4, 2), "y", 0.0, 5.0, locked=True).locked is True
-
     def test_pinning_both_overlap_labels_is_a_noop(self):
         # Both deliberate → the engine respects both and leaves the overlap.
         dwg = self._two_overlapping()

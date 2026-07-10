@@ -94,7 +94,9 @@ not a rewrite, and it is the disciplined version of the already-funded #150.
   feature-ordered side/zone assignment) and turns the **escalation ladder** from
   prose into the selection step's output. 0003's "global 2-D Cassowary solve"
   stays deferred (#94); this is the per-view inner layer 0003 always implied.
-  `Placeable` / `LayoutSolver` are reused unchanged in spirit.
+  The underlying 1-D solve (`layout.py`) is reused unchanged in spirit, though
+  the concrete carrier is `StripCandidate`/`plan_strip`, not 0003's original
+  `Placeable`/`LayoutSolver` — see ADR 0003's 2026-07-10 correction (#547).
 - **ADR 0004 (compose-then-pack).** Orthogonal and complementary. 0004 is the
   **outer** layer (each view is a block; pack blocks disjoint so cross-view
   overlap cannot occur). 0009 is the **inner** layer (place one view's

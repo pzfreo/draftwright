@@ -1,6 +1,7 @@
 # ADR 0012 — User annotation edits are pinned, priority-ranked candidates in the one global solve
 
-- **Status:** Accepted (decision; work pending — supersedes #396, extends #388/#426)
+- **Status:** Accepted; landed (2026-07-08 — see Amendment 1). Supersedes #396,
+  extends #388/#426.
 - **Date:** 2026-07-07
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -106,3 +107,42 @@ frozen imperative placement (never re-optimised) or an unconstrained re-solve (j
    there co-solves (#477).
 5. **Escape hatch.** Keep deprecated raw single-slot `place_dim` for arbitrary-page-coordinate,
    unsolved placement, clearly documented.
+
+## Amendment 1 — all five phases landed (2026-07-08)
+
+**Status:** Accepted; fully landed. Umbrella **#511**, closed 2026-07-08.
+
+All five phased-work items above shipped:
+
+1. **Intent + knobs** — `Drawing.dimension(..., pin=, priority=)` records a
+   scale-independent dimension intent (`draftwright/intents.py`) when the
+   drawing is in deferred mode (`dwg.deferred()`/`dwg._defer_intents`).
+2. **Solve the intents** — `Drawing.finalize()` (not the module-level
+   `finalize_drawing(dwg)` named in the original proposal — see below) routes
+   recorded dimension intents through the same `CorridorCandidate`/
+   `solve_corridor`/`drain_corridors` machinery the auto-pass uses
+   (`annotations/_common.py`), `anchored=pin` and `priority=priority` carried
+   straight through. Landed via #531 ("Add pinned locate candidates") and #532
+   ("Route pinned dimension intents through corridor"), both merged 2026-07-08.
+3. **Recompose** — `Drawing.finalize()` is the realised recompose step; it is
+   idempotent and drains the full recorded intent set (auto features + user
+   edits) through the orchestration in one pass (see its docstring for the
+   full A/B1/B2/B3/C/D solver ordering it preserves).
+4. **Below/right dependency (#477)** — closed 2026-07-08 as part of the
+   broader "finish the ADR 0009 unification" umbrella; the below/right ladders
+   are corridor registrants, so a user dim there co-solves.
+5. **Escape hatch** — `Drawing.place_dim()` is marked deprecated in its own
+   docstring, pointing callers at `dimension(..., pin=True)` /
+   `locate(..., pin=True)`, and documents itself as the raw, unsolved,
+   scale-frozen fallback this phase called for.
+
+One naming correction from the original proposal: the recompose entry point is
+the `Drawing.finalize()` method, not a standalone `finalize_drawing(dwg)`
+function — the `deferred()` context manager (#426) calls it automatically on
+exit, and `export()`/`export_pdf()` call it unconditionally (a no-op once
+intents are drained) so a script that never opts into `deferred()` is
+unaffected.
+
+Found while auditing this ADR's status for accuracy (#548): the "work pending"
+status line had not been updated since the epic closed, understating that the
+core mechanism this ADR proposed is live.

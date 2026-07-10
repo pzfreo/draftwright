@@ -2140,11 +2140,6 @@ class Drawing:
             _export_shape(exporter, ann, "dims", f"annotation {label!r}")
 
 
-# 1D strip placement now lives in draftwright.layout (ADR 0003 phase 1, #79).
-# These aliases keep the existing axis-specific callers and their tests working
-# while the primitive is axis-neutral; later phases route through LayoutSolver.
-
-
 # A view centre must move by more than this (mm) for the measure-and-repack
 # pass to re-assemble.  Below it, the estimate already matched the measured
 # footprint and pass 1 stands (the common, non-ballooned case).

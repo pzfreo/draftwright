@@ -1,7 +1,7 @@
-"""Tests for draftwright.layout — the ADR 0003 phase-1 scaffolding (#79).
+"""Tests for draftwright.layout — the ADR 0003 1D strip primitives + fit_box.
 
-These exercise the constraint primitive and solver in isolation, with no drawing
-build, which is the point of putting them in their own module.
+These exercise the placement primitives in isolation, with no drawing build,
+which is the point of putting them in their own module.
 """
 
 import pytest
@@ -9,8 +9,6 @@ import pytest
 import draftwright.layout as L
 from draftwright.layout import (
     _ANCHOR_WEIGHT,
-    LayoutSolver,
-    Placeable,
     _feasible_segments,
     _greedy_strip_1d,
     _greedy_strip_1d_var,
@@ -265,99 +263,6 @@ class TestSolveStrip1dPavaBanded:
         assert _snap_out_of_bands(30.0, [(45.0, 55.0)], 0.0, 100.0) == 30.0
 
 
-class TestLayoutSolver:
-    def _leader(self, key, natural, gap=5.0, axis="x"):
-        return Placeable(
-            key=key,
-            anchors=((natural, 0.0),),
-            size=(4.0, 2.0),
-            dof_axis=axis,
-            natural=natural,
-            min_gap=gap,
-        )
-
-    def test_solve_strip_places_axis_members_keyed_by_key(self):
-        s = LayoutSolver()
-        s.register(self._leader("a", 0))
-        s.register(self._leader("b", 1))
-        s.register(self._leader("c", 2))
-        out = s.solve_strip(lo=-50, hi=50, axis="x")
-        assert set(out) == {"a", "b", "c"}
-        xs = [out["a"], out["b"], out["c"]]
-        assert xs[1] - xs[0] >= 5 - 1e-9 and xs[2] - xs[1] >= 5 - 1e-9
-
-    def test_solve_strip_uses_per_pair_gaps_for_heterogeneous_members(self):
-        # Members with different min_gaps share a strip: each pair is separated
-        # by the larger of its two neighbours' gaps, not one global max (#81).
-        s = LayoutSolver()
-        s.register(self._leader("a", 0, gap=4))
-        s.register(self._leader("b", 0, gap=4))
-        s.register(self._leader("c", 0, gap=12))
-        out = s.solve_strip(lo=0, hi=100, axis="x")
-        xs = [out["a"], out["b"], out["c"]]
-        assert xs[1] - xs[0] == pytest.approx(4)  # max(4,4)
-        assert xs[2] - xs[1] == pytest.approx(12)  # max(4,12), not a global 12 on both
-
-    def test_uniform_members_take_the_scalar_path(self, monkeypatch):
-        # Byte-identical contract: uniform members must NOT touch the _var
-        # primitive's sum(gaps) arithmetic. Make _var explode and confirm a
-        # uniform solve still succeeds — proving it routed to the scalar path.
-        def _boom(*a, **k):
-            raise AssertionError("uniform members must use the scalar path")
-
-        monkeypatch.setattr(L, "_solve_strip_1d_var", _boom)
-        s = LayoutSolver()
-        s.register(self._leader("a", 0, gap=5))
-        s.register(self._leader("b", 10, gap=5))
-        assert set(s.solve_strip(lo=-50, hi=50, axis="x")) == {"a", "b"}
-
-    def test_solve_strip_ignores_other_axis_and_pinned(self):
-        s = LayoutSolver()
-        s.register(self._leader("x1", 0, axis="x"))
-        s.register(self._leader("y1", 0, axis="y"))
-        s.register(Placeable("pin", ((0, 0),), (4, 2), dof_axis=None, natural=0, min_gap=5))
-        out = s.solve_strip(lo=-50, hi=50, axis="x")
-        assert set(out) == {"x1"}
-
-    def test_solve_strip_no_members_returns_empty_dict(self):
-        s = LayoutSolver()
-        s.register(self._leader("y1", 0, axis="y"))
-        assert s.solve_strip(lo=0, hi=10, axis="x") == {}
-
-    def test_solve_strip_infeasible_returns_none(self):
-        s = LayoutSolver()
-        for i in range(5):
-            s.register(self._leader(f"k{i}", 0, gap=20))
-        assert s.solve_strip(lo=0, hi=10, axis="x") is None
-
-    def test_registration_order_does_not_change_result(self):
-        forward = LayoutSolver()
-        for k, n in [("a", 0), ("b", 3), ("c", 6)]:
-            forward.register(self._leader(k, n))
-        shuffled = LayoutSolver()
-        for k, n in [("c", 6), ("a", 0), ("b", 3)]:
-            shuffled.register(self._leader(k, n))
-        assert forward.solve_strip(lo=-50, hi=50, axis="x") == shuffled.solve_strip(
-            lo=-50, hi=50, axis="x"
-        )
-
-    def test_duplicate_key_is_rejected(self):
-        s = LayoutSolver()
-        s.register(self._leader("dup", 0))
-        with pytest.raises(ValueError, match="duplicate placeable key"):
-            s.register(self._leader("dup", 5))
-
-    def test_solve_strip_falls_back_to_greedy(self, monkeypatch):
-        # When the Cassowary solve yields None but a greedy placement fits,
-        # solve_strip must still return positions (the fallback branch).
-        monkeypatch.setattr(L, "_solve_strip_1d", lambda *a, **k: None)
-        s = LayoutSolver()
-        s.register(self._leader("a", 0))
-        s.register(self._leader("b", 0))
-        out = s.solve_strip(lo=0, hi=100, axis="x")
-        assert out == {"a": 0, "b": 5}
-
-
 class TestFitBox:
     """#93: 2D free-rectangle box placement (tables, GD&T frames, BOM)."""
 
@@ -385,13 +290,6 @@ class TestFitBox:
     def test_deterministic(self):
         args = ((20, 10), (0, 0, 100, 100), [(30, 30, 60, 60)], "br")
         assert fit_box(*args) == fit_box(*args)
-
-    def test_place_box_method_delegates(self):
-        s = LayoutSolver()
-        assert s.place_box(size=(20, 10), region=(0, 0, 100, 100), obstacles=[], prefer="bl") == (
-            0,
-            0,
-        )
 
     def test_interior_obstacle_is_avoided(self):
         # An obstacle floating in the interior must be cleared (exercises the
