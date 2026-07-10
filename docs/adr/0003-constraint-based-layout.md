@@ -1,11 +1,13 @@
 # ADR 0003 — Constraint-based layout: one solver for every placeable
 
 - **Status:** Accepted (core implemented; the unifying *global 2-D* solve stays
-  deferred — #94). The `Placeable`/`LayoutSolver` model, the 1-D strip solve,
-  `place_box`/`fit_box`, and pins (#89) have shipped. The **assignment layer**
-  and **escalation ladder** for per-view strip placement are made concrete by
-  [ADR 0009](0009-boundary-labeling-strip-placement.md) (collect-then-solve
-  boundary labeling).
+  deferred — #94; amended 2026-07-10 — see Correction). The 1-D strip solve,
+  `place_box`/`fit_box`, and pins (#89) have shipped — the concrete carrier is
+  `StripCandidate`/`plan_strip`/`CorridorCandidate`, not the original
+  `Placeable`/`LayoutSolver` model, which was retired (#547). The **assignment
+  layer** and **escalation ladder** for per-view strip placement are made
+  concrete by [ADR 0009](0009-boundary-labeling-strip-placement.md)
+  (collect-then-solve boundary labeling).
 - **Date:** 2026-06-18
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -141,21 +143,22 @@ required mitigations:
 - **Manual override must win.** When a human or AI places something explicitly
   ("put *this* label *here*"), the solver must treat it as a hard **pin** that
   survives every later re-solve and stays local — never re-derive over a
-  deliberate placement. _Partly landed (#89):_ `dwg.pin(name)` / `dwg.unpin(name)`
-  are the domain verbs, `Placeable.locked` is the solver-side flag, and
-  `repair()` already refuses to move a pinned annotation. _(The pin **state** now
-  lives in `registry.py` as its single owner per
-  [ADR 0005](0005-pipeline-architecture-and-state-ownership.md) (split complete);
-  the override contract here is unchanged, only its home.)_ **Still owed
-  by #82:**
-  the global 2D solve must honour `locked` (keep it at `natural`, solve the rest
-  around it). This remains a hard prerequisite for that solve, not a later nicety.
+  deliberate placement. _Landed, but not on the mechanism this ADR originally
+  named:_ `dwg.pin(name)` / `dwg.unpin(name)` are still the domain verbs and
+  `repair()` still refuses to move a pinned annotation, but the solver-side flag
+  is `StripCandidate.anchored`/`CorridorCandidate.anchored` (ADR 0009's
+  `_ANCHOR_WEIGHT`-dominated PAVA solve) — `Placeable.locked` never became the
+  live path and was deleted (#547; see the 2026-07-10 correction below). ADR
+  0012 generalises the same field into user `pin=`/`priority=` dimension intents
+  co-solved with the automatic ones.
 
-Keep `Placeable`/`LayoutSolver` an implementation detail: callers edit through
-the domain API (`place_dim`, `features`, `annotations`, lint→repair), never by
-constructing placeables. As long as that holds, the engine *improves*
-editability for AI (state intent, get a correct deconflicted placement) rather
-than eroding it.
+Keep the strip-placement machinery (`StripCandidate`/`plan_strip`/
+`CorridorCandidate`/`solve_corridor`, `layout.py`/`annotations/_common.py`) an
+implementation detail: callers edit through the domain API (`dimension`,
+`place_dim`, `features`, `annotations`, lint→repair), never by constructing
+candidates directly. As long as that holds, the engine *improves* editability
+for AI (state intent, get a correct deconflicted placement) rather than
+eroding it.
 
 **Neutral / follow-ups**
 - Performance: hundreds of variables is comfortable for Cassowary; watch the
@@ -197,12 +200,46 @@ never be needed.** This is a deliberate scope correction, not an omission.
 
 ## Current state vs target
 
-- **Exists:** the strip/zone allocator; `LayoutSolver` with 1D `solve_strip`
-  (+ per-pair gaps) and 2D `place_box`; `Placeable`/`locked`; pin/override
-  (#89); hole callouts + turned diameters on the solver; `repair()`.
+- **Exists:** the deterministic 1D strip solve (`_solve_strip_1d_pava`) and 2D
+  `fit_box`/`place_box` free-rectangle placer, in `layout.py`; `plan_strip`/
+  `StripCandidate` (ADR 0009 collect-then-solve) and `solve_corridor`/
+  `CorridorCandidate` (`annotations/_common.py`) as the production strip-
+  placement path hole callouts, turned diameters, and every other strip
+  annotation actually place through; pin/override (#89, realised as
+  `anchored`/`priority` on those candidates, generalised to user dimension
+  intents by ADR 0012); `repair()`.
 - **Target:** the escalation ladder + tables/balloons (#93) and GD&T (#61/#62)
   built on the above. The full global 2D solve (#94) remains deferred unless a
   real part forces it.
+
+## Correction (2026-07-10): `Placeable`/`LayoutSolver` retired, never became the shared path
+
+This ADR's original "Migration" plan (below) and its "Current state" table (both
+unedited above their date) described `Placeable`/`LayoutSolver` as the
+in-progress, then-landed, shared 1D placement surface — "hole callouts +
+turned diameters on the solver." That stopped being true partway through: when
+[ADR 0009](0009-boundary-labeling-strip-placement.md) added the collect-then-
+solve boundary-labeling model (selection, feature-ordered assignment, keep-out
+bands, anchoring), those capabilities were built as a **new**, sibling surface —
+`StripCandidate`/`plan_strip` — rather than as extensions to `LayoutSolver`.
+Every real placer (#80, #87, #90, and the later ADR 0009/0012 work) migrated
+onto that sibling instead. #150 tried to reverse this drift back onto
+`LayoutSolver` and was closed by #349 without doing so — #349's actual change
+(retiring the `Strip` cursor) was itself part of the ADR 0009 migration, further
+entrenching `plan_strip` as the real path.
+
+By 2026-07-10, `Placeable`/`LayoutSolver` had no caller anywhere in `src/`
+outside their own tests. Rather than leave a fully-tested, zero-consumer class
+in the tree as a standing (and, per the above, actively misleading) claim about
+what production code does, it was deleted (#547). `fit_box`/`place_box` — the
+2D free-rectangle placer, the one part of the original surface every consumer
+actually shares (tables, GD&T) — is unaffected and remains in `layout.py`.
+
+This does not change the ADR's decision (constraint-based, deterministic,
+two-layer layout); it corrects which concrete types realise it. Read
+"`Placeable`"/"`LayoutSolver`" elsewhere in this document's original Decision/
+Migration sections as the conceptual shape that was later realised by
+`StripCandidate`/`plan_strip`/`CorridorCandidate`/`solve_corridor` instead.
 
 ## Related
 

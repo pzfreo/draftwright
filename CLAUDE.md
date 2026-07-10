@@ -68,9 +68,10 @@ No lower module imports an upper one.
   the `Analysis` namespace and its field types (`_Projector`, `Strip`, `ViewZones`),
   the dimension/format helpers (`_dim`, `_fmt`, `_add_title_block`, …), and the
   page/slot/margin layout constants.
-- **`layout.py`** — the constraint-based layout engine (ADR 0003): the `Placeable`
-  protocol and `LayoutSolver` (1D Cassowary strip solver `solve_strip`; 2D
-  free-rectangle placer `place_box`/`fit_box`). Sits *below* the domain API.
+- **`layout.py`** — the constraint-based layout engine (ADR 0003): the deterministic
+  1D PAVA strip solve (`_solve_strip_1d_pava`, plus `plan_strip`/`StripCandidate`,
+  the ADR 0009 collect-then-solve entry point) and the 2D free-rectangle placer
+  (`place_box`/`fit_box`). Sits *below* the domain API.
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
   identity/ownership/pins/build-issues (#138 / ADR 0005, Step 2). `Drawing`
   delegates here and keeps the render list; `_named`/`_anno_view`/`_pinned`/
@@ -122,8 +123,8 @@ Current ADRs:
 - **0001** — deterministic generation over an editable DSL.
 - **0002** — iterate via lint-critique and domain-repair (repair is a *safety
   net*, not the primary placement mechanism).
-- **0003** — constraint-based **inner** layout (`Placeable`/Cassowary in
-  `layout.py`): placing one view's annotations within its own zones.
+- **0003** — constraint-based **inner** layout (the deterministic PAVA strip
+  solve in `layout.py`): placing one view's annotations within its own zones.
 - **0004** — **compose-then-pack** (Accepted; the **outer** layout): each view is
   a *block* = `view_rect(scale) + its annotation boxes`; choose `(scale, page)`
   by a monotone search whose fitness function is composing + packing the blocks
@@ -191,17 +192,16 @@ Current ADRs:
   from the referenced feature/face (`declare.gdt_target`, P2c #480/#482). PMI-sourced
   auto-GD&T is the last item (#62). Sidesteps #298 misdetection; complements #400 (read +
   edit → now also input). Roadmap: `docs/plans/0011-phase2-aspects-roadmap.md`; #446/#445.
-- **0012** — **Accepted** (decision; work pending — supersedes #396, extends #388/#426):
-  **user annotation edits are pinned, priority-ranked candidates in the one global solve.**
-  A `dimension()`/`place_dim()` edit becomes a scale-independent *dimension intent* on the
-  model carrying `(pin, priority)` — **pin** = the solver's existing `anchored`/`_ANCHOR_WEIGHT`
-  (stays put while the rest flow around it), **priority** = the `StripCandidate.priority`
-  plumbed through the corridor in #357 — placed by the **same** `solve_corridor` as the auto
-  dims, re-run by a recompose (`finalize_drawing`, #388 P2). The layout algorithm already
-  supports it (`anchored`+`priority` exist); the missing part is representing an edit as an
-  intent + wiring it into the batch. Not per-`place_dim` re-solve (jarring) — edit freely,
-  recompose once; pin is the escape valve so the user never fights the solver. Promotes the
-  #477 below/right fold-in to a dependency. Umbrella: #511.
+- **0012** — **Accepted; landed** (2026-07-08, umbrella #511 closed — supersedes #396,
+  extends #388/#426): **user annotation edits are pinned, priority-ranked candidates in
+  the one global solve.** A `dimension(..., pin=, priority=)` edit records a
+  scale-independent *dimension intent* on the model — **pin** = the solver's `anchored`/
+  `_ANCHOR_WEIGHT` (stays put while the rest flow around it), **priority** =
+  `CorridorCandidate.priority` (#357) — placed by the **same** `solve_corridor` as the
+  auto dims, re-run by the recompose (`Drawing.finalize()`, #426). Edit freely, recompose
+  once; pin is the escape valve so the user never fights the solver. `place_dim()` is now
+  the deprecated raw-coordinate escape hatch. The #477 below/right fold-in landed as a
+  dependency.
 
 ## Dependencies
 

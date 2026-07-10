@@ -1,27 +1,39 @@
-"""Constraint-based layout engine — phase 1 scaffolding (ADR 0003).
+"""Constraint-based layout primitives (ADR 0003): the deterministic 1D strip
+solve and the 2D free-rectangle box placer.
 
-This module holds the placement primitives that every annotation type will
-eventually share: a :class:`Placeable` value object describing what the solver
-may move, and a :class:`LayoutSolver` that places a set of placeables along one
-axis via a single 1D strip solve.
+ADR 0003 originally proposed a class-based surface for this — a
+:class:`Placeable` value object plus a :class:`LayoutSolver` that would
+accumulate placeables and solve them. That surface shipped (#79/#80) but never
+became the path production code actually used: hole callouts and turned
+diameters were ported onto a sibling implementation instead —
+:class:`StripCandidate`/:func:`plan_strip` (ADR 0009's collect-then-solve
+boundary labeling), later wrapped again by ``CorridorCandidate``/
+``solve_corridor`` in ``annotations/_common.py`` for strips shared across
+passes. By 2026-07-10 `Placeable`/`LayoutSolver` had no production caller left
+(only their own tests), so they were deleted (#547) rather than kept as unused
+scaffolding; the module docstring here previously undersold this by saying
+"nothing... constructs a Placeable yet," which had quietly stayed true for the
+wrong reason — the phases that were meant to change that shipped onto
+`plan_strip` instead.
 
-Phase 1 (issue #79) is *scaffolding only*: it generalises the existing 1D strip
-solver into the axis-neutral primitive ADR 0003 calls for and wraps it in the
-`Placeable`/`LayoutSolver` surface, but **nothing in the default drawing path
-constructs a Placeable yet** — the passes are migrated in later phases (#80–83).
-The 1D solve is the deterministic minimum-total-leader-length PAVA algorithm
-(:func:`_solve_strip_1d_pava`, ADR 0009 Amdt 4) — pure standard library, no
-third-party solver (the earlier Cassowary/``kiwisolver`` satisfaction solve was
-retired once PAVA gave the exact L1 placement), so it is unit-testable without
-building a drawing.
+What actually lives here today:
 
-Explicitly deferred to later phases (so the surface is honest about its limits):
-global 2D non-overlap (the disjunctive constraint ADR 0003 notes is non-linear),
-the assignment layer (which zone/side — the collect-then-solve carve,
-``place_strip_candidates`` in ``annotations/_common.py``, since #150/P3 retired
-``Strip.allocate``), the escalation ladder, leader-length minimisation, alignment
-groups, and connector crossing. The only solve phase 1 performs correctly is the
-1D strip solve.
+- The 1D strip-placement primitives, bottoming out in
+  :func:`_solve_strip_1d_pava` — the deterministic minimum-total-leader-length
+  PAVA algorithm (ADR 0009 Amdt 4), pure standard library, no third-party
+  solver (the earlier Cassowary/``kiwisolver`` satisfaction solve was retired
+  once PAVA gave the exact L1 placement). :func:`plan_strip` is the
+  production-facing collect-then-solve entry point built on top of it
+  (selection, ordering, anchoring, keep-out bands); the lower-level
+  `_solve_strip_1d*`/`_greedy_strip_1d*` functions are unit-tested in
+  isolation and used by `plan_strip`'s banded/anchored solve.
+- :func:`fit_box` (+ the thin ``place_box`` naming used at call sites) — the 2D
+  free-rectangle placer for tables/GD&T frames/BOM blocks (#93), the one part
+  of the original `LayoutSolver` surface that is genuinely shared.
+
+Global 2D non-overlap (the disjunctive constraint ADR 0003 notes is
+non-linear) stays deferred (#94) and may never be needed — see that ADR's
+2026-06-18 correction.
 """
 
 from __future__ import annotations
@@ -99,9 +111,9 @@ def _solve_strip_1d_var(naturals, gaps, lo, hi):
     """1D placement with **per-pair** gaps (ADR 0003 phase 3a, #81).
 
     Like :func:`_solve_strip_1d`, but the required separation between adjacent
-    items is ``gaps[i]`` rather than one uniform value — the capability the
-    ``Placeable.size`` field exists for, used when heterogeneous items (e.g. a
-    deep step-dim slot next to a shallow height slot) share one strip.
+    items is ``gaps[i]`` rather than one uniform value — used when heterogeneous
+    items (e.g. a deep step-dim slot next to a shallow height slot) share one
+    strip (see :attr:`StripCandidate.size`).
     ``len(gaps)`` must be ``max(len(naturals) - 1, 0)``.
 
     Delegates to :func:`_solve_strip_1d_pava` — same contract (``None`` when
@@ -420,10 +432,9 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y", forbidden=()):
 
     **Spacing (P4a, #318):** each adjacent pair's required gap is the larger of
     the two candidates' strip-axis extents (``size[idx]``), floored at the
-    caller's *min_gap* — the same "larger of the two neighbours' requirements"
-    rule :meth:`LayoutSolver.solve_strip` already uses for heterogeneous
-    ``Placeable``s, applied here to ``StripCandidate.size`` instead of an
-    explicit per-item ``min_gap`` field. *min_gap* is therefore a floor (minimum
+    caller's *min_gap* — the "larger of the two neighbours' requirements" rule
+    applied to ``StripCandidate.size`` instead of an explicit per-item
+    ``min_gap`` field. *min_gap* is therefore a floor (minimum
     clearance/padding regardless of label size), not the whole story; solved via
     :func:`_solve_strip_1d_pava` (P4b, ADR 0009 Amendment 4), which finds the
     *minimum-total-leader-length* placement rather than merely one that satisfies
@@ -443,7 +454,7 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y", forbidden=()):
     if not candidates:
         return StripPlacement({}, ())
     keys = [c.key for c in candidates]
-    if len(set(keys)) != len(keys):  # like LayoutSolver.register — never silently drop
+    if len(set(keys)) != len(keys):  # a collision would silently drop a candidate
         raise ValueError("plan_strip: candidate keys must be unique")
     idx = 1 if axis == "y" else 0
 
@@ -470,129 +481,8 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y", forbidden=()):
 
 
 # ---------------------------------------------------------------------------
-# Placeable protocol + solver
+# 2D free-rectangle box placement (ADR 0003, #93)
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Placeable:
-    """One thing the layout solver may position — a dimension, leader, callout,
-    or (later) a table. A pass builds a ``Placeable`` *describing* its annotation;
-    the annotation object itself stays a plain build123d-drafting primitive.
-
-    Attributes:
-        key: stable identifier; drives deterministic variable ordering and keys
-            the solved-position result.
-        anchors: fixed points the annotation must connect to — a leader/callout
-            has one (its tip), a dimension two (its witness points), a table none.
-        size: ``(width, height)`` of the label/footprint, from text metrics; the
-            position is what the solver decides.
-        dof_axis: the axis the solver may slide this along (``"x"``/``"y"``), or
-            ``None`` if it is pinned (e.g. a corner-anchored table).
-        natural: preferred position on ``dof_axis`` (e.g. the tip's coordinate);
-            the solver pulls toward it with ``strong`` priority.
-        min_gap: required clearance to a neighbour on ``dof_axis`` (centre-to-
-            centre), derived from ``size`` plus padding.
-        group: alignment-group id; placeables sharing a group will share an
-            offset variable once alignment lands (phase 3, #81).
-        locked: when true the solver must keep this at ``natural`` and never
-            move it — a deliberate (human/AI) placement that wins over automatic
-            layout. The global solve (#82) honours this; the Drawing-level pin
-            verb (``dwg.pin`` / #89) is how callers set it.
-    """
-
-    key: str
-    anchors: tuple
-    size: tuple
-    dof_axis: Axis | None
-    natural: float
-    min_gap: float
-    group: str | None = None
-    locked: bool = False
-
-
-class LayoutSolver:
-    """Accumulates :class:`Placeable`s and places them as one constraint system.
-
-    Phase 1 (#79) implements exactly one solve — :meth:`solve_strip`, the 1D
-    strip case — over ``Placeable``s instead of raw float lists. Global 2D
-    non-overlap, the assignment layer, and escalation are later phases; no API
-    for them exists here, by design, so they cannot be misused early.
-    """
-
-    def __init__(self) -> None:
-        self._placeables: list[Placeable] = []
-        self._keys: set[str] = set()
-
-    def register(self, placeable: Placeable) -> None:
-        """Add a placeable to be solved.
-
-        Raises ``ValueError`` on a duplicate ``key`` — the key is the result
-        handle, so a collision would silently drop a placeable from the solved
-        map rather than fail visibly.
-        """
-        if placeable.key in self._keys:
-            raise ValueError(f"duplicate placeable key {placeable.key!r}")
-        self._keys.add(placeable.key)
-        self._placeables.append(placeable)
-
-    def solve_strip(
-        self, *, lo: float, hi: float, axis: Axis, greedy_fallback: bool = True
-    ) -> dict | None:
-        """Place every registered placeable with ``dof_axis == axis`` along that
-        axis, as one 1D strip solve within ``[lo, hi]``.
-
-        Returns ``{key: position}`` for the placed members (``{}`` when none have
-        this axis), or ``None`` when they cannot be made to fit. Members are
-        ordered by ``(natural, key)`` so the result is deterministic regardless
-        of registration order; a single ``min_gap`` (the largest any member
-        requires) separates neighbours.
-
-        When the exact 1D solve is infeasible and *greedy_fallback* is
-        true (the default), a greedy packing is tried before giving up. A caller
-        that does its own overflow handling (e.g. dropping a prefix and recording
-        it) passes ``greedy_fallback=False`` to get the exact-or-``None`` contract
-        of the bare 1D primitive, so its drop logic fires exactly when the solve
-        is full.
-        """
-        members = sorted(
-            (p for p in self._placeables if p.dof_axis == axis),
-            key=lambda p: (p.natural, p.key),
-        )
-        if not members:
-            return {}
-        naturals = [p.natural for p in members]
-        min_gaps = [p.min_gap for p in members]
-        if len(set(min_gaps)) <= 1:
-            # Uniform (or single) members — the scalar primitive (one min_gap for
-            # every pair), delegating like the heterogeneous branch to the PAVA solve.
-            gap = max(min_gaps)
-            positions = _solve_strip_1d(naturals, gap, lo, hi)
-            if positions is None and greedy_fallback:
-                positions = _greedy_strip_1d(naturals, gap, lo, hi)
-        else:
-            # Heterogeneous members — per-pair gaps so a larger member's
-            # clearance doesn't over-separate every pair (#81).
-            gaps = [max(min_gaps[i], min_gaps[i + 1]) for i in range(len(members) - 1)]
-            positions = _solve_strip_1d_var(naturals, gaps, lo, hi)
-            if positions is None and greedy_fallback:
-                positions = _greedy_strip_1d_var(naturals, gaps, lo, hi)
-        if positions is None:
-            return None
-        return {p.key: pos for p, pos in zip(members, positions, strict=True)}
-
-    def place_box(self, *, size, region, obstacles, prefer="br"):
-        """Place a rigid box (a table, a GD&T frame, a revision block) in a free
-        part of the page near a preferred corner (ADR 0003 phase 4b, #93).
-
-        The 2D analogue of :meth:`solve_strip`: returns the box's ``(x0, y0)``
-        page-mm position, or ``None`` if it does not fit. *size* is ``(w, h)``;
-        *region* and each *obstacle* are ``(x0, y0, x1, y1)`` boxes; *prefer* is
-        one of ``"bl" "br" "tl" "tr"`` — the region corner to sit nearest. This
-        is the reusable 2D-placement capability tables and (later) GD&T frames
-        and BOM/revision blocks share.
-        """
-        return fit_box(size, region, obstacles, prefer)
 
 
 def fit_box(size, region, obstacles, prefer="br"):

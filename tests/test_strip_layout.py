@@ -402,10 +402,11 @@ def test_plan_strip_x_axis():
 def test_plan_strip_uses_per_pair_gaps_for_heterogeneous_sizes():
     # P4a (#318): candidates with different strip-axis sizes are spaced by the
     # LARGER of each pair's own size (or the floor min_gap), not one global gap —
-    # the same rule LayoutSolver.solve_strip already uses for heterogeneous
-    # Placeables (#81). Exercises plan_strip's own gap-list wiring (ordered[i]/
-    # [i+1] indexing, idx selection), not just the underlying _solve_strip_1d_var
-    # primitive (which is already covered elsewhere, in isolation).
+    # the same per-pair-gap rule #81 originally added for the (since-retired,
+    # #547) LayoutSolver.solve_strip's heterogeneous Placeables. Exercises
+    # plan_strip's own gap-list wiring (ordered[i]/[i+1] indexing, idx
+    # selection), not just the underlying _solve_strip_1d_var primitive (which
+    # is already covered elsewhere, in isolation).
     cands = [
         StripCandidate("a", (0.0, 0.0), (6, 4), priority=0),
         StripCandidate("b", (0.0, 0.0), (6, 4), priority=0),
@@ -808,8 +809,8 @@ def test_plan_strip_empty():
 
 
 def test_plan_strip_rejects_duplicate_keys():
-    # keys key the result — a silent overwrite would drop a candidate (cf.
-    # LayoutSolver.register, which also raises).
+    # keys key the result — a silent overwrite would drop a candidate (cf. the
+    # since-retired LayoutSolver.register, #547, which also raised).
     import pytest
 
     with pytest.raises(ValueError, match="unique"):
