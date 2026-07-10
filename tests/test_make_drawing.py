@@ -3686,6 +3686,41 @@ class TestLocationDimsAndSection:
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(120)
+    def test_side_drilled_callouts_survive_capacity_aware_carve(self):
+        # Each unpatterned side-drilled hole reserves its own row as a keep-out
+        # band (#318), so its callout is pushed off its own natural Y into the
+        # nearest carved segment. Four holes packed close enough together that
+        # their bands merge push the callout selection past a single tight
+        # segment: a per-segment-only assignment (the #381 regression) can drop
+        # one that overflows its nearest segment even though a farther segment
+        # has spare room — the global priority-ordered assignment must not.
+        part = Box(60, 40, 80)
+        for z, r in ((-20, 1.0), (-12, 1.2), (-4, 1.4), (20, 1.6)):
+            part -= Pos(0, 0, z) * Cylinder(r, 60, rotation=(0, 90, 0))
+        dwg = build_drawing(part)
+        assert len([n for n in dwg._named if n.startswith("hc_side")]) == 4
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    @pytest.mark.timeout(120)
+    def test_fully_blocked_plan_strip_defers_instead_of_unsafe_snap(self):
+        # A stepped part whose bands+obstacles carve leaves the plan view's left
+        # strip with no free segment at all: unlike the band-only carve (which may
+        # safely snap to the nearest strip edge), a snap here isn't rechecked
+        # against every other blocking interval and can land inside a different
+        # one. The bands+obstacles call must defer cleanly to the bands-only
+        # baseline instead of snapping (distinct geometry from
+        # test_section_clears_the_step_dim_ladder, which exercises the same
+        # defer but wasn't written to assert it).
+        part = (
+            Box(44, 12, 44)
+            - Pos(11, 0, 22) * Box(22, 12, 44)
+            - Pos(-11, 0, 0) * Cylinder(3, 44)
+            - Pos(-11, 0, 18) * Cylinder(5, 8)
+        )
+        dwg = build_drawing(part)
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    @pytest.mark.timeout(120)
     def test_linear_array_locates_its_nearest_member(self):
         # The baseline dim goes to the hole nearest the datum corner; the
         # pitch dim chains the rest outward.
