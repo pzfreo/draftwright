@@ -952,20 +952,62 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
             label_offset_x=label_offset_x,
         )
 
-    def _clear(off, side_vec):
+    def _clear(off, side_vec, dim=None):
         # Nudge the LABEL (not the line — a dim line crossing a centre line is
-        # fine, ISO 128) off any centre line / bolt-circle it would otherwise
-        # overlap (#129): a turned part's axis Centerline, or a pattern's
-        # CenterlineCircle, both already placed before pitch dims render.
-        dim = _make(off, side_vec)
+        # fine, ISO 128) off any centre line / bolt-circle already placed in this
+        # view (#129): a turned part's axis Centerline, or a pattern's own
+        # CenterlineCircle. Not a complete guarantee — furniture for OTHER
+        # patterns sharing this view may render after this dim, so a sibling
+        # pattern's CenterlineCircle can still be missed; #129 only covers the
+        # cases verified reachable (this dim's own pattern + any turned-axis line).
+        # Returns (final, unshifted): `_make` builds real OCC geometry (a boolean
+        # fuse per dim, #129 review — a production part hit a 120s single-op
+        # timeout after this went from one build to three per placement), so a
+        # caller that already has the unshifted dim passes it in as `dim` rather
+        # than have it rebuilt here.
+        dim = dim if dim is not None else _make(off, side_vec)
         centerlines = [
             o for _, o in dwg.annotations_in_view(view) if getattr(o, "is_centerline", False)
         ]
         lox = clear_label_of_centerlines(dim.label_bbox, centerlines, gap=1.0)
-        return _make(off, side_vec, label_offset_x=lox) if lox else dim
+        if not lox:
+            return dim, dim
+        return _make(off, side_vec, label_offset_x=lox), dim
+
+    def _clear_and_validate(off, side_vec, page_box, obstacles, dim=None):
+        # The clearing shift moves label ink only — the dimension LINE (p1..p2, the
+        # bulk of _geom_box's footprint) is unchanged and was never gated against
+        # `obstacles` on this path in the first place (the strip carve's own
+        # occupancy model is what makes the line's tier safe, a coarser guarantee
+        # `_box_hits` doesn't share — checking the full geometry here rejected valid
+        # shifts whenever the line's own extension routing already crossed another
+        # dim's, which is normal and unrelated to the label). So re-check only the
+        # LABEL's own bbox — the thing that actually moved — against the page and
+        # every real obstacle, falling back to the unshifted dim otherwise.
+        cleared, unshifted = _clear(off, side_vec, dim)
+        if cleared is unshifted:
+            return unshifted  # no shift applied — nothing to validate
+        lbb = cleared.label_bbox
+        if (
+            lbb is not None
+            and lbb[0] >= page_box[0]
+            and lbb[1] >= page_box[1]
+            and lbb[2] <= page_box[2]
+            and lbb[3] <= page_box[3]
+            and not _box_hits(lbb, obstacles)
+        ):
+            return cleared
+        return unshifted
 
     def _place(off, side_vec=side):
-        dwg.add(_clear(off, side_vec), name, view=view, feature=feature)
+        page_box = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        dwg.add(
+            _clear_and_validate(off, side_vec, page_box, obstacles),
+            name,
+            view=view,
+            feature=feature,
+        )
 
     # Place onto the zone strip for the chosen side (#374): each side is its own strip, so the
     # obstacle-aware carve stacks this dim clear of placed content — where an arbitrary-direction
@@ -1048,21 +1090,12 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
                 continue
             if _box_hits(bb, obstacles):
                 continue
-            # Prefer the centre-line-cleared label (#129), but only if it still clears
-            # the page and every real obstacle — the shift moves label ink only, not
-            # the line, yet must be re-checked since it can widen the footprint.
-            cleared = _clear(offset, side_vec)
-            cbb = _geom_box(cleared)
-            if (
-                cbb is not None
-                and cbb[0] >= page_box[0]
-                and cbb[1] >= page_box[1]
-                and cbb[2] <= page_box[2]
-                and cbb[3] <= page_box[3]
-                and not _box_hits(cbb, obstacles)
-            ):
-                probe = cleared
-            dwg.add(probe, name, view=view, feature=feature)
+            dwg.add(
+                _clear_and_validate(offset, side_vec, page_box, obstacles, probe),
+                name,
+                view=view,
+                feature=feature,
+            )
             return
     _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, _fmt(pitch))
 

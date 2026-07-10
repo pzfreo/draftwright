@@ -1102,12 +1102,14 @@ def test_corridor_orders_location_ladder_monotonically():
     )
 
 
-def _pitch_dim_over_centerline(centerline_obj, centerline_name):
+def _pitch_dim_over_centerline(centerline_factory, centerline_name):
     # Shared #129 repro: a plate whose 2-hole pitch dim naturally centres its label at
-    # plan_x(0) — then a centre-line-family annotation is placed exactly there, in the
-    # strip the dim will land in, before `_place_pitch_dim` runs (mirrors real render
-    # order: centre marks/circles are placed before pitch dims). Returns the placed
-    # dim and the (now-cleared) lint issues against that one centerline.
+    # plan_x(0) — then a centre-line-family annotation is placed exactly there (computed
+    # live via a.proj.plan_x(0), not a hardcoded page coordinate, so this stays correct if
+    # unrelated layout/margin/scale logic ever shifts it), in the strip the dim will land
+    # in, before `_place_pitch_dim` runs (mirrors real render order: centre marks/circles
+    # are placed before pitch dims). Returns the placed dim and the (now-cleared) lint
+    # issues against that one centerline.
     from build123d import Box, Cylinder, Pos
 
     from draftwright.annotations.holes import _place_pitch_dim, build_view_of_axis
@@ -1119,7 +1121,8 @@ def _pitch_dim_over_centerline(centerline_obj, centerline_name):
     dwg = build_drawing(part)
     a = dwg._analysis
     view, to_page = build_view_of_axis(a)["z"]
-    dwg.add(centerline_obj, centerline_name, view="plan")
+    part_cx = a.proj.plan_x(0)
+    dwg.add(centerline_factory(part_cx), centerline_name, view="plan")
     _place_pitch_dim(dwg, a, "plan", (-30, 0, 0), (30, 0, 0), 2, 60, to_page, "test_pitch")
     dim = dwg.get_annotation("test_pitch")
     cl = dwg.get_annotation(centerline_name)
@@ -1135,9 +1138,9 @@ def test_pitch_dim_label_clears_a_thin_vertical_centerline():
     # off it at creation time, not rely on the lint→repair loop.
     from build123d_drafting import Centerline
 
-    part_cx = 85.1919925875  # a.proj.plan_x(0) for the Box(100,50,10) fixture below
-    cl = Centerline((part_cx, 150, 0), (part_cx, 300, 0))
-    dim, issues = _pitch_dim_over_centerline(cl, "test_centerline")
+    dim, issues = _pitch_dim_over_centerline(
+        lambda cx: Centerline((cx, 150, 0), (cx, 300, 0)), "test_centerline"
+    )
     assert dim._dw_spec.kwargs.get("label_offset_x", 0.0) != 0.0, "label was not shifted"
     assert issues == [], f"label still overlaps the centerline: {[i.message for i in issues]}"
 
@@ -1148,8 +1151,75 @@ def test_pitch_dim_label_clears_a_bolt_circle_centerline():
     # same creation-time clearing must also push the label past the circle's nearer edge.
     from build123d_drafting import CenterlineCircle
 
-    part_cx = 85.1919925875
-    cl = CenterlineCircle((part_cx, 222.5), 30)
-    dim, issues = _pitch_dim_over_centerline(cl, "test_circle")
+    dim, issues = _pitch_dim_over_centerline(
+        lambda cx: CenterlineCircle((cx, 222.5), 30), "test_circle"
+    )
     assert dim._dw_spec.kwargs.get("label_offset_x", 0.0) != 0.0, "label was not shifted"
     assert issues == [], f"label still overlaps the bolt circle: {[i.message for i in issues]}"
+
+
+class _FakeCenterline:
+    # A minimal is_centerline-family stand-in for direct clear_label_of_centerlines()
+    # unit tests below — controls the extent exactly (no build123d geometry needed),
+    # matching the codebase's existing formula-level test pattern (e.g.
+    # test_carve_free_segments_*).
+    def __init__(self, x0, y0, x1, y1):
+        self.is_centerline = True
+        self.segments = [((x0, y0), (x1, y1))]
+
+
+def test_clear_label_of_centerlines_picks_the_nearer_side_not_just_any_clearing_side():
+    # #129 review: a purely-symmetric repro (centreline dead-centre on the label) can't
+    # tell a correct minimal-distance shift from a same-magnitude wrong-direction one — both
+    # clear equally well. Use an OFF-CENTRE thin line so the two directions have different
+    # magnitudes, and assert the exact expected minimal shift (not just "some shift").
+    import pytest
+
+    from draftwright.annotations._common import clear_label_of_centerlines
+
+    # label x in [0,20] (half-width 10, centred at 10); thin vertical line at x=5, gap=2.
+    # shift_right = 5+10+2-10 = 7 (clears past the line's right side); shift_left = -17
+    # (clears past its left side) — right is nearer, so 7.0 is the only correct answer.
+    got = clear_label_of_centerlines((0, 0, 20, 10), [_FakeCenterline(5, -100, 5, 100)], gap=2)
+    assert got == pytest.approx(7.0)
+
+
+def test_clear_label_of_centerlines_picks_the_nearer_edge_of_a_wide_bbox():
+    # Same direction-sensitivity check for the CenterlineCircle/wide-bbox branch.
+    import pytest
+
+    from draftwright.annotations._common import clear_label_of_centerlines
+
+    # label x in [0,20]; wide bbox spans x in [8,40] (a bolt circle straddling the label's
+    # right portion). Clearing past its left edge (8) is much nearer than past its right
+    # edge (40), so the only correct answer is the left-edge shift.
+    got = clear_label_of_centerlines((0, 0, 20, 10), [_FakeCenterline(8, -50, 40, 50)], gap=2)
+    assert got == pytest.approx(-14.0)
+
+
+def test_clear_label_of_centerlines_requires_real_y_overlap():
+    # #129 review: the thin-line branch used to shift on X-containment alone, without
+    # checking the label's Y-range actually overlaps the line's Y-extent — unlike the
+    # lint check it mirrors. A centreline nowhere near the label vertically must not
+    # trigger any shift.
+    from draftwright.annotations._common import clear_label_of_centerlines
+
+    got = clear_label_of_centerlines(
+        (10, 10, 30, 20), [_FakeCenterline(15, 1000, 15, 1100)], gap=1
+    )
+    assert got == 0.0
+
+
+def test_clear_label_of_centerlines_clears_two_well_separated_centerlines():
+    # #129 review: a single forward pass over multiple centerlines could clear one and
+    # silently re-cross an earlier one already cleared. With two centerlines far enough
+    # apart that a position clearing both exists, the result must clear both — not just
+    # whichever was processed last.
+    from draftwright.annotations._common import clear_label_of_centerlines
+
+    cl1 = _FakeCenterline(3, -10, 3, 20)
+    cl2 = _FakeCenterline(43, -10, 43, 20)
+    total = clear_label_of_centerlines((0, 0, 10, 10), [cl1, cl2], gap=1)
+    lo, hi = total, 10 + total
+    assert not (lo < 3 < hi), "still overlaps the first centerline"
+    assert not (lo < 43 < hi), "still overlaps the second centerline"
