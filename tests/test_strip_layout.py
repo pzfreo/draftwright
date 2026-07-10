@@ -527,6 +527,22 @@ def test_carve_free_segments_no_bands_is_the_whole_strip():
     assert carve_free_segments(0.0, 100.0, [], 0.0) == [(0.0, 100.0)]
 
 
+def test_holes_band_clearance_exceeds_min_gap_on_the_real_draft():
+    # Guards the invariant docs/adr/0009's "Investigated, not fixed" paragraph
+    # relies on to call the cross-segment min_gap violation unreachable: a
+    # band's half-width (clr) must exceed min_gap on the actual production
+    # draft (builder.py's _assemble draft_preset() call), or that paragraph's
+    # reachability argument is wrong.
+    from build123d_drafting.helpers import draft_preset
+
+    from draftwright._core import _FONT_SIZE
+
+    draft = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
+    clr = draft.font_size + 3 * draft.pad_around_text
+    min_gap = draft.font_size + 2 * draft.pad_around_text
+    assert clr > min_gap
+
+
 def test_plan_strip_min_gap_floors_a_pair_smaller_than_it():
     # A pair whose sizes are both below the caller's min_gap floor must still get
     # at least min_gap of separation — min_gap is a floor, not just a fallback.

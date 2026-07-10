@@ -756,7 +756,7 @@ pad_around_text`, always positive — a band's width (`2·clr`) always exceeds
 it is fixed at `2.0` on every real build. The same argument covers
 `obstacle_intervals` (pre-inflated by `min_gap` on each side already, so its
 occupied width is always >= `2·min_gap`) and the combined band+obstacle carve
-(`holes.py` line ~1628): `carve_free_segments` only merges intervals that
+(`holes.py` lines ~1617-1622): `carve_free_segments` only merges intervals that
 touch or overlap, so the worst-case cross-segment gap always equals the width
 of the one occupied block separating two free segments, and every
 contributor to that block (band alone, obstacle alone, or both) already
