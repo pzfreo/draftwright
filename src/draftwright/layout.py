@@ -24,9 +24,14 @@ What actually lives here today:
   solver (the earlier Cassowary/``kiwisolver`` satisfaction solve was retired
   once PAVA gave the exact L1 placement). :func:`plan_strip` is the
   production-facing collect-then-solve entry point built on top of it
-  (selection, ordering, anchoring, keep-out bands); the lower-level
+  (selection, ordering, anchoring); the lower-level
   `_solve_strip_1d*`/`_greedy_strip_1d*` functions are unit-tested in
-  isolation and used by `plan_strip`'s banded/anchored solve.
+  isolation and used by `plan_strip`'s anchored solve. Keep-out-band avoidance
+  (a callout must not sit on a centre-line or a location-dim row) briefly lived
+  as a `plan_strip`-internal banded solve (ADR 0009 Amendment 5, #318); that had
+  a cross-segment correctness gap (#381), so Amendment 9 retired it in favour of
+  the caller carving bands into the same obstacle segmentation it already uses
+  (`holes.py`) — `plan_strip` itself no longer knows about bands.
 - :func:`fit_box` (+ the thin ``place_box`` naming used at call sites) — the 2D
   free-rectangle placer for tables/GD&T frames/BOM blocks (#93), the one part
   of the original `LayoutSolver` surface that is genuinely shared.
@@ -224,136 +229,6 @@ def _solve_strip_1d_pava(naturals, gaps, lo, hi, weights=None):
     return positions
 
 
-def _feasible_segments(lo, hi, bands):
-    """The sub-intervals of ``[lo, hi]`` left after punching out the keep-out
-    *bands* (each an ``(band_lo, band_hi)`` pair). Overlapping/touching bands are
-    merged and clipped to ``[lo, hi]`` first; the returned ``(seg_lo, seg_hi)``
-    list is ascending and pairwise disjoint (empty when the bands cover
-    everything)."""
-    clipped: list[tuple[float, float]] = []
-    for b_lo, b_hi in sorted(bands):
-        b_lo, b_hi = max(b_lo, lo), min(b_hi, hi)
-        if b_hi <= b_lo:
-            continue
-        if clipped and b_lo <= clipped[-1][1]:
-            clipped[-1] = (clipped[-1][0], max(clipped[-1][1], b_hi))
-        else:
-            clipped.append((b_lo, b_hi))
-    segments: list[tuple[float, float]] = []
-    cursor = lo
-    for b_lo, b_hi in clipped:
-        if b_lo > cursor:
-            segments.append((cursor, b_lo))
-        cursor = max(cursor, b_hi)
-    if cursor < hi:
-        segments.append((cursor, hi))
-    return segments
-
-
-def _snap_out_of_bands(value, bands, lo, hi):
-    """Nudge *value* to the nearer edge of any keep-out band it lies inside, toward
-    the roomier half of ``[lo, hi]`` on a tie, then clamp to ``[lo, hi]``. Used only
-    for the shallow-strip fallback in :func:`_solve_strip_1d_pava_banded`: when a
-    strip is too thin to clear a band, this reproduces the old ``_coaxial_lift``
-    clamp — sit at the strip edge farthest from the row (minimal residual), rather
-    than dead-centre on it."""
-    p = value
-    for b_lo, b_hi in bands:
-        if b_lo < p < b_hi:
-            p = b_hi if (hi - value) >= (value - lo) else b_lo
-    return min(max(p, lo), hi)
-
-
-def _solve_strip_1d_pava_banded(naturals, gaps, lo, hi, weights, bands):
-    """Band-aware :func:`_solve_strip_1d_pava` (ADR 0009 Amendment 5, P4c, #318):
-    the same minimum-(weighted-)total-leader-length placement, but the labels should
-    also avoid the keep-out *bands* — the page rows a callout's text may not sit on
-    (a view centre-line, a location-dimension's extension line — #305/#321). This
-    retires the pre-solve ``_coaxial_lift`` nudge: reserved-row avoidance is now a
-    property the solve honours, not a fixed lift the spacing solve could later
-    re-crowd.
-
-    A band is a **non-convex** keep-out (stay above *or* below the row), which the
-    plain PAVA box cannot express. But the bands split ``[lo, hi]`` into disjoint
-    feasible **segments** (:func:`_feasible_segments`), and *within one segment* the
-    box is convex again — so the exact PAVA atom still applies. The labels keep
-    their fixed ascending order (crossing-free, established upstream), so they map to
-    the segments as **contiguous runs at non-decreasing segment indices**; a small
-    DP over ``(segment, labels-placed)`` searches for a low-cost such partition,
-    solving each run with :func:`_solve_strip_1d_pava` inside its segment. With no
-    bands it is exactly the plain solve (byte-identical). Deterministic: each run
-    solve is, and ties between equal-cost states break on the lexicographically
-    smaller position vector.
-
-    **Not globally optimal across ≥2 segments.** The DP keeps one representative
-    per labels-placed count, but a run's feasible room in a later segment depends
-    on the *last placed position*, not just the count — so a costlier prefix that
-    lowers the last label can unlock a cheaper suffix the DP won't find, and (the
-    reachable symptom) a band present alongside an ``anchored`` candidate can drag
-    the anchor off its natural. Unreachable on the corpus today (anchor and band
-    never co-occur in a placed strip — the centre-line band is gated to rotational
-    parts, where :func:`plan_strip`'s caller does not anchor), so output is
-    byte-identical; the exact fix (a Pareto frontier over ``(cost, last_pos)`` per
-    count) is tracked as a follow-up.
-
-    **Graceful degradation.** Avoidance is a strong preference, not a hard drop: a
-    band can be *wider than the whole strip* (a shallow view), leaving no segment to
-    hold the label. Rather than drop a real callout to honour the band (against
-    policy B — never drop a real annotation just to avoid a crossing), the DP-can't-
-    place case falls back to a plain solve toward band-edge-snapped naturals — the
-    label sits at the strip edge farthest from the row (minimal residual, as the old
-    lift did). A genuine over-capacity strip still returns ``None`` (the fallback
-    plain solve does), for the caller's drop-and-retry loop.
-    """
-    if weights is None:
-        weights = [1.0] * len(naturals)
-    if not bands:
-        return _solve_strip_1d_pava(naturals, gaps, lo, hi, weights)
-    if not naturals:
-        return []
-    n = len(naturals)
-    segments = _feasible_segments(lo, hi, bands)
-
-    # DP: best[k] = (cost, positions) to place labels[:k] using the segments seen so
-    # far. Each segment takes a contiguous run labels[k:j] (possibly empty), solved
-    # by the PAVA atom within the segment's convex box.
-    best: dict[int, tuple[float, list[float]]] = {0: (0.0, [])}
-    for seg_lo, seg_hi in segments:
-        nxt = dict(best)  # carry every state forward = put no labels in this segment
-        for k, (cost, pos) in best.items():
-            if k >= n:
-                continue  # all labels already placed in earlier segments → no run here
-            # Lower bound for this segment's run: the cross-segment min-gap to the
-            # last label placed in an earlier segment. Tighten seg_lo up to it (a
-            # still-convex box) rather than solving against raw seg_lo and rejecting
-            # a too-close result — rejecting would discard a valid, strictly-cheaper
-            # placement that a shift up would reach (parking a label on the band edge
-            # or forcing the fallback; #379 review).
-            run_lo = seg_lo if not pos else max(seg_lo, pos[-1] + gaps[k - 1])
-            for j in range(k + 1, n + 1):
-                sol = _solve_strip_1d_pava(
-                    naturals[k:j], gaps[k : j - 1], run_lo, seg_hi, weights[k:j]
-                )
-                if sol is None:
-                    break  # a longer run only needs more room → also infeasible
-                total = cost + sum(
-                    w * abs(p - nat)
-                    for p, nat, w in zip(sol, naturals[k:j], weights[k:j], strict=True)
-                )
-                cand = pos + sol
-                if j not in nxt or (total, cand) < (nxt[j][0], nxt[j][1]):
-                    nxt[j] = (total, cand)
-        best = nxt
-    if n in best:
-        return best[n][1]
-
-    # No band-avoiding placement fits every label → accept minimal band intrusion:
-    # solve toward naturals snapped to the nearer band edge (the shallow-strip
-    # fallback). Returns None only when the strip is genuinely over capacity.
-    snapped = [_snap_out_of_bands(nat, bands, lo, hi) for nat in naturals]
-    return _solve_strip_1d_pava(snapped, gaps, lo, hi, weights)
-
-
 # ---------------------------------------------------------------------------
 # Collect-then-solve strip stage (ADR 0009)
 # ---------------------------------------------------------------------------
@@ -412,7 +287,7 @@ class StripPlacement(NamedTuple):
     dropped: tuple
 
 
-def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y", forbidden=()):
+def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     """Collect-then-solve placement of *candidates* along one strip (ADR 0009).
 
     Orders the labels in **site order** along *axis* — placing them in site order
@@ -444,12 +319,12 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y", forbidden=()):
     row. Candidate *keys* must be unique (they key the result). Deterministic
     throughout.
 
-    **Keep-out bands (P4c, #318):** *forbidden* is an iterable of ``(centre,
-    half_width)`` rows the labels must avoid — a view centre-line or a location
-    dimension's extension line a callout's text may not sit on (#305/#321). It
-    routes the spacing through :func:`_solve_strip_1d_pava_banded`, so avoidance is
-    a property the solve honours (retiring the pre-solve ``_coaxial_lift`` nudge).
-    Empty (the default) → the plain solve, byte-for-byte.
+    No keep-out-band support: a caller that needs to avoid a reserved row (a
+    view centre-line, a location dimension's extension line — #305/#321) folds
+    it into its own obstacle carve and calls this once per free segment, the
+    same way it already handles any other 2-D obstacle (ADR 0009 Amendment 9,
+    #381, retiring a `plan_strip`-internal banded solve that had a cross-segment
+    correctness gap — see `annotations/holes.py`).
     """
     if not candidates:
         return StripPlacement({}, ())
@@ -468,8 +343,7 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y", forbidden=()):
             for i in range(len(ordered) - 1)
         ]
         weights = [_ANCHOR_WEIGHT if c.anchored else 1.0 for c in ordered]
-        bands = [(c - h, c + h) for c, h in forbidden]
-        positions = _solve_strip_1d_pava_banded(naturals, gaps, lo, hi, weights, bands)
+        positions = _solve_strip_1d_pava(naturals, gaps, lo, hi, weights)
         if positions is not None:
             placed = {c.key: p for c, p in zip(ordered, positions, strict=True)}
             return StripPlacement(placed, tuple(dropped))

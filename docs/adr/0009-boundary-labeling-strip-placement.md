@@ -470,6 +470,16 @@ co-occur in a placed strip: the centre-line band is gated to rotational parts,
 which don't anchor), so output is byte-identical; the exact fix — a Pareto
 frontier over `(cost, last_pos)` per count — is a tracked follow-up.
 
+**Correction (2026-07-10, #381):** "unreachable" above covers only the
+centre-line band. `holes.py`'s *other* band source — `reserved_rows`, the
+off-axis holes' location-dim extension lines — is **not** gated by part class;
+it applies to prismatic parts too, independently of `_is_central`. A prismatic
+part with a genuinely central hole (anchored) and another off-axis hole on the
+same strip hit this DP gap in the un-carved baseline solve (`holes.py`'s
+pre-#381 `base_res`, since renamed `base_y` by Amendment 9 below) — not a
+hypothetical combination. See Amendment 9, which retires this DP rather than
+making it exact.
+
 Two supporting changes in `holes.py`:
 - **Bands built from the same causes** `_coaxial_lift` used — the off-axis
   location-dim rows, plus the centre-line row on a turned/rotational view — and
@@ -647,6 +657,115 @@ but the fixed-step/count-stack residuals from the audit are gone. The review fol
 that is rejected late by `forbid`/corridor blockers does not waste a usable slot; the
 segment refills from the remaining candidates before committing placements.
 
+## Amendment 9 — Retire the banded-PAVA DP; fold keep-out bands into the shared carve (#381)
+
+**Status:** Accepted and implemented (2026-07-10, #381).
+
+**Problem.** Amendment 5 gave keep-out bands their own segmentation-and-solve
+mechanism (`_feasible_segments` + the cross-segment DP in
+`_solve_strip_1d_pava_banded`), separate from the general obstacle-avoidance
+path every other pass uses (`carve_free_segments` + nearest-segment greedy
+assignment + independent per-segment `_solve_strip_1d_pava`, in
+`place_strip_candidates`/`solve_corridor`). `holes.py` runs *both, nested*: it
+carves for real 2-D obstacles, then re-invokes the banded DP inside each carved
+segment for row-bands. No other pass gets row-avoidance at all — a GD&T frame
+or PMI note has no way to avoid a centre-line, not because it shouldn't, but
+because that avoidance only exists inside `holes.py`'s two direct call sites.
+
+This is exactly the failure mode this ADR's own Context section names as the
+reason it exists: a mechanism that doesn't share an occupancy model with the
+rest of the corridor system, landing as a point-fix for one pass's symptom
+(the old `_coaxial_lift` re-crowding bug) instead of a generalisation of the
+shared solve. `carve_free_segments(lo, hi, intervals, pad)` and
+`_feasible_segments(lo, hi, bands)` are structurally the same operation — both
+reduce `[lo, hi]` minus a set of intervals to a free-segment list — differing
+only in whether the clearance arrives as a separate `pad` or is pre-baked into
+each band's half-width. Two APIs for one operation.
+
+The cost of the duplication is now concrete, not just aesthetic: the DP has a
+real correctness gap (Amendment 5's follow-up, #381) that a corrected
+reachability read shows is live on ordinary prismatic parts today, not gated
+by part class as originally believed (see the Correction note on Amendment 5).
+
+**Decision.** Retire `_feasible_segments` and `_solve_strip_1d_pava_banded`.
+Express a keep-out band as an ordinary carve interval
+(`(centre - half_width, centre + half_width)`, `pad=0` since the clearance is
+already in the half-width) fed into the existing `carve_free_segments` — the
+same carve primitive `place_strip_candidates` already uses for every other
+pass, though its own segment-fill strategy (sort segments once by distance
+from the strip's inner edge, fill near-to-far via priority-capacity slicing)
+is not reused here; `holes.py`'s two `plan_strip(forbidden=...)` call sites
+instead route through a new per-candidate segment-assignment step (below)
+built specifically for this carve, then solve each assigned segment with
+per-segment `_solve_strip_1d_pava`, instead of calling `plan_strip`'s
+`forbidden=` parameter directly. `plan_strip`'s `forbidden=` parameter and the
+banded solve path are removed once nothing calls them.
+
+This resolves #381 by construction, not by making the DP exact: an anchored
+candidate assigned to its own obstacle-free segment never sees the band that
+would have needed the DP's cross-segment reasoning to route around. It unifies
+on the *one* carve primitive (`carve_free_segments`) every corridor pass
+already uses — but band **declaration** (`band_intervals`, built from
+`reserved_rows`/the centreline case) still lives entirely inside
+`holes.py`'s own `_place_queue`, not threaded through the shared
+`CorridorCandidate`/`solve_corridor` seam. A GD&T frame or PMI note still has
+no way to declare a keep-out band; only `holes.py`'s two callers carve them.
+Making that available to every pass is a further, separate change, not part
+of #381.
+
+A first implementation used plain nearest-segment greedy assignment — not
+actually `place_strip_candidates`'s own strategy (see the Decision above), but
+an independent review found it capacity-oblivious regardless: a candidate assigned to its nearest segment could
+be dropped there even when a farther segment had ample free room — a real
+regression against Policy B (never drop a real annotation to avoid a
+crossing/band) that the retired DP, for all its own bugs, did not have. The
+shipped fix instead does **global, priority-ordered greedy assignment with
+live feasibility re-checks**: candidates are processed highest-priority-first;
+each tries its nearest segment, then progressively farther ones, accepting a
+segment only when re-running the real per-segment solve on the trial
+membership drops nobody. Because segments only ever gain higher-or-equal-
+priority members before a lower-priority one is tried, a segment's own
+drop-on-overflow can (outside a rare priority tie) only ever evict the
+candidate currently being tried, never a prior commitment — one pass, no
+cascading, and every feasibility check is the real solver rather than an
+approximate count, so it cannot reintroduce the DP's original bug.
+
+**Trade-off (the honest edge).** This gives up the DP's aim of an exact,
+provably cost-optimal cross-segment placement, in favour of a greedy
+(highest-priority-first, nearest-segment-first) assignment that is optimal
+per-candidate-in-order but not globally optimal across all orderings.
+Byte-identity is not preserved for the (narrow) cases where the DP's
+cross-segment optimum would have differed from greedy-assign's answer —
+acceptable under ADR 0004's standing byte-identity waiver (output may change;
+the invariant is lint-clean + no new overlaps).
+
+**Investigated, not fixed (2026-07-10, #381 follow-up).** Solving each carved
+segment independently raises an apparent second gap the trade-off above
+didn't name: `min_gap` itself is not enforced *across* a band, so two
+candidates assigned to the segments either side of a thin band could each sit
+at their own natural position even when those positions are less than
+`min_gap` apart — the old DP's single cross-segment solve used to catch this;
+independent per-segment solves can't see across the carve. A review raised
+this using the retired DP test's synthetic numbers (a 3 mm band, 10 mm
+`min_gap`); those numbers don't occur in `holes.py`. Its band half-width is
+`clr = font_size + 3·pad_around_text` and `min_gap = font_size +
+2·pad_around_text` (`holes.py` line ~1316/1078), so `clr - min_gap =
+pad_around_text`, always positive — a band's width (`2·clr`) always exceeds
+`min_gap`. `pad_around_text` is not a public parameter: `builder.py`'s
+`_assemble` always constructs `draft_preset(...)` without overriding it, so
+it is fixed at `2.0` on every real build. The same argument covers
+`obstacle_intervals` (pre-inflated by `min_gap` on each side already, so its
+occupied width is always >= `2·min_gap`) and the combined band+obstacle carve
+(`holes.py` lines ~1617-1622): `carve_free_segments` only merges intervals that
+touch or overlap, so the worst-case cross-segment gap always equals the width
+of the one occupied block separating two free segments, and every
+contributor to that block (band alone, obstacle alone, or both) already
+exceeds `min_gap` on its own. This failure mode is therefore unreachable
+through `holes.py`'s actual formulas, not merely untested; no code change was
+made. Documented here so a future change to the `clr`/`min_gap` formulas or
+to `pad_around_text`'s fixed value re-opens this as a live gap, not a
+resolved one.
+
 ## Related
 
 - [ADR 0001](0001-deterministic-generation-over-editable-dsl.md) — determinism;
@@ -666,4 +785,6 @@ segment refills from the remaining candidates before committing placements.
   original angled-leader-vs-centreline case Amendment 2's Finding 1 traces back
   to), #318 (P4 — the direct consumer of Amendment 2's `_segment_hits_box` and
   "policy B" findings, and the subject of Amendment 3), #366/#367 (Amendment
-  2's filed residual gaps), #524 (Amendment 8 solver-path consolidation).
+  2's filed residual gaps), #524 (Amendment 8 solver-path consolidation), #381
+  (banded-DP anchor-defeat gap; Amendment 9 retires the DP instead of fixing it
+  in place).
