@@ -1100,3 +1100,56 @@ def test_corridor_orders_location_ladder_monotonically():
     assert tiers == sorted(tiers) or tiers == sorted(tiers, reverse=True), (
         f"location ladder not monotonic by span (interleaved, #346): {sorted(rungs)}"
     )
+
+
+def _pitch_dim_over_centerline(centerline_obj, centerline_name):
+    # Shared #129 repro: a plate whose 2-hole pitch dim naturally centres its label at
+    # plan_x(0) — then a centre-line-family annotation is placed exactly there, in the
+    # strip the dim will land in, before `_place_pitch_dim` runs (mirrors real render
+    # order: centre marks/circles are placed before pitch dims). Returns the placed
+    # dim and the (now-cleared) lint issues against that one centerline.
+    from build123d import Box, Cylinder, Pos
+
+    from draftwright.annotations.holes import _place_pitch_dim, build_view_of_axis
+    from draftwright.linting.structural import _lint_centerline_dim_overlap
+
+    part = Box(100, 50, 10)
+    for x in (-30, 30):
+        part = part - Pos(x, 0, 0) * Cylinder(3, 10)
+    dwg = build_drawing(part)
+    a = dwg._analysis
+    view, to_page = build_view_of_axis(a)["z"]
+    dwg.add(centerline_obj, centerline_name, view="plan")
+    _place_pitch_dim(dwg, a, "plan", (-30, 0, 0), (30, 0, 0), 2, 60, to_page, "test_pitch")
+    dim = dwg.get_annotation("test_pitch")
+    cl = dwg.get_annotation(centerline_name)
+    issues = []
+    _lint_centerline_dim_overlap(dim, cl, issues)
+    return dim, issues
+
+
+def test_pitch_dim_label_clears_a_thin_vertical_centerline():
+    # #129: a turned part's axis Centerline (drawn full-height through the view, e.g.
+    # `render_rotational`'s centerline_front/side) sits right where a symmetric 2-hole
+    # pitch dim's label would naturally centre. `_place_pitch_dim` must offset the label
+    # off it at creation time, not rely on the lint→repair loop.
+    from build123d_drafting import Centerline
+
+    part_cx = 85.1919925875  # a.proj.plan_x(0) for the Box(100,50,10) fixture below
+    cl = Centerline((part_cx, 150, 0), (part_cx, 300, 0))
+    dim, issues = _pitch_dim_over_centerline(cl, "test_centerline")
+    assert dim._dw_spec.kwargs.get("label_offset_x", 0.0) != 0.0, "label was not shifted"
+    assert issues == [], f"label still overlaps the centerline: {[i.message for i in issues]}"
+
+
+def test_pitch_dim_label_clears_a_bolt_circle_centerline():
+    # #129 (broader scope): a bolt-circle pattern's CenterlineCircle is wide, not a thin
+    # line — `_compute_label_offset_x`-style midpoint logic alone doesn't cover it. The
+    # same creation-time clearing must also push the label past the circle's nearer edge.
+    from build123d_drafting import CenterlineCircle
+
+    part_cx = 85.1919925875
+    cl = CenterlineCircle((part_cx, 222.5), 30)
+    dim, issues = _pitch_dim_over_centerline(cl, "test_circle")
+    assert dim._dw_spec.kwargs.get("label_offset_x", 0.0) != 0.0, "label was not shifted"
+    assert issues == [], f"label still overlaps the bolt circle: {[i.message for i in issues]}"

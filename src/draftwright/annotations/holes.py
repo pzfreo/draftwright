@@ -39,6 +39,7 @@ from draftwright.annotations._common import (
     _segment_hits_box,
     carve_free_position,
     carve_free_segments,
+    clear_label_of_centerlines,
     place_strip_candidates,
     register_corridor,
     strip_obstacles,
@@ -940,7 +941,7 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
         side, reach = max(cands, key=lambda c: c[0][0] * pref[0] + c[0][1] * pref[1])
     fallback_sides = [(side, reach)] + [c for c in cands if c[0] != side]
 
-    def _make(off, side_vec=side):
+    def _make(off, side_vec=side, label_offset_x=0.0):
         return _dim(
             (p1[0], p1[1], 0),
             (p2[0], p2[1], 0),
@@ -948,10 +949,23 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
             off,
             dwg.draft,
             label=f"{n - 1}× {_fmt(pitch)}",
+            label_offset_x=label_offset_x,
         )
 
+    def _clear(off, side_vec):
+        # Nudge the LABEL (not the line — a dim line crossing a centre line is
+        # fine, ISO 128) off any centre line / bolt-circle it would otherwise
+        # overlap (#129): a turned part's axis Centerline, or a pattern's
+        # CenterlineCircle, both already placed before pitch dims render.
+        dim = _make(off, side_vec)
+        centerlines = [
+            o for _, o in dwg.annotations_in_view(view) if getattr(o, "is_centerline", False)
+        ]
+        lox = clear_label_of_centerlines(dim.label_bbox, centerlines, gap=1.0)
+        return _make(off, side_vec, label_offset_x=lox) if lox else dim
+
     def _place(off, side_vec=side):
-        dwg.add(_make(off, side_vec), name, view=view, feature=feature)
+        dwg.add(_clear(off, side_vec), name, view=view, feature=feature)
 
     # Place onto the zone strip for the chosen side (#374): each side is its own strip, so the
     # obstacle-aware carve stacks this dim clear of placed content — where an arbitrary-direction
@@ -1034,6 +1048,20 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
                 continue
             if _box_hits(bb, obstacles):
                 continue
+            # Prefer the centre-line-cleared label (#129), but only if it still clears
+            # the page and every real obstacle — the shift moves label ink only, not
+            # the line, yet must be re-checked since it can widen the footprint.
+            cleared = _clear(offset, side_vec)
+            cbb = _geom_box(cleared)
+            if (
+                cbb is not None
+                and cbb[0] >= page_box[0]
+                and cbb[1] >= page_box[1]
+                and cbb[2] <= page_box[2]
+                and cbb[3] <= page_box[3]
+                and not _box_hits(cbb, obstacles)
+            ):
+                probe = cleared
             dwg.add(probe, name, view=view, feature=feature)
             return
     _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, _fmt(pitch))
