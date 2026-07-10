@@ -518,6 +518,15 @@ def test_carve_around_a_band_keeps_an_anchored_candidate_on_its_natural():
     )
 
 
+def test_carve_free_segments_no_bands_is_the_whole_strip():
+    # Equivalent to the retired `_feasible_segments`'s
+    # `test_no_bands_is_the_whole_strip` — the base case the other three
+    # carried-over cases (merge/clip/fully-covered) sit alongside.
+    from draftwright.annotations._common import carve_free_segments
+
+    assert carve_free_segments(0.0, 100.0, [], 0.0) == [(0.0, 100.0)]
+
+
 def test_plan_strip_min_gap_floors_a_pair_smaller_than_it():
     # A pair whose sizes are both below the caller's min_gap floor must still get
     # at least min_gap of separation — min_gap is a floor, not just a fallback.
