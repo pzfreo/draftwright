@@ -313,24 +313,32 @@ def build_part_model(
     # slab that no other prismatic dim recovers (a wall along X/Y, or a Z base plate too
     # thin for the step-ladder legibility gate). Skipped for turned/rotational parts,
     # whose extents are the OD/length chain, not plate thicknesses.
+    #
+    # Scope guard: only a GENUINE multi-plate part — slabs on ≥2 distinct axes (a base +
+    # an upright wall, i.e. an L/T/U bracket) — is dimensioned this way. A single-axis
+    # stack (a base slab under a smaller stacked block) is a *staircase*, owned by the
+    # step-height ladder; treating its base as a "plate" would wrongly suppress the step
+    # dim (#559 review). This keeps the plate feature to the issue's stated domain.
     plate_zs_at_base: set = set()
     if prof is None and rotational is None:
-        c = bbox.center()
-        for pl in find_plates(part):
-            features.append(
-                PlateFeature(
-                    frame=Frame((c.X, c.Y, c.Z), pl.axis),
-                    axis=pl.axis,
-                    lo=pl.lo,
-                    hi=pl.hi,
-                    u=pl.u,
-                    v=pl.v,
+        plates = find_plates(part)
+        if len({pl.axis for pl in plates}) >= 2:
+            c = bbox.center()
+            for pl in plates:
+                features.append(
+                    PlateFeature(
+                        frame=Frame((c.X, c.Y, c.Z), pl.axis),
+                        axis=pl.axis,
+                        lo=pl.lo,
+                        hi=pl.hi,
+                        u=pl.u,
+                        v=pl.v,
+                    )
                 )
-            )
-            # A Z base plate (bottom == part base) IS the first step level; suppress it
-            # from the step ladder so the two mechanisms don't both dimension base→hi.
-            if pl.axis == "z" and abs(pl.lo - bbox.min.Z) < 0.5:
-                plate_zs_at_base.add(round(pl.hi, 3))
+                # A Z base plate (bottom == part base) IS the first step level; suppress
+                # it from the step ladder so the two don't both dimension base→hi.
+                if pl.axis == "z" and abs(pl.lo - bbox.min.Z) < 0.5:
+                    plate_zs_at_base.add(round(pl.hi, 3))
 
     # Prismatic step-height ladder — horizontal face levels on a NON-turned part
     # (a turned part's steps are StepFeatures, dimensioned by the IR length chain).

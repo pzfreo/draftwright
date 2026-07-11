@@ -19,7 +19,13 @@ between the faces, and is correctly rejected. Two gates keep it to genuine plate
   counterbore floor, a boss end) is never read as a plate; and
 - **thin** — the thickness must be under ``max_thick_frac`` of the part's overall
   extent on that axis, so the full-envelope span of a single flat plate (thickness
-  == extent) is excluded (``dim_height``/envelope already own it).
+  == extent) is excluded (``dim_height``/envelope already own it). A slab thicker
+  than that fraction of its axis reads as a block, not a plate, and is left to the
+  step/envelope dims — the conservative side of the cut.
+
+Only the low−a/high+a *adjacent* pair along an axis is a plate: a pairing that skips
+an intervening face crosses an air gap (two stacked plates on a common post) and is
+rejected, so a slab thickness never spans a void.
 
 Bottom of the recognition DAG: depends only on build123d/OCP.
 """
@@ -108,18 +114,25 @@ def find_plates(
 
         thresh = min_area_frac * cross
         max_t = max_thick_frac * ext[axis]
-        for c0, (a0, u0, v0) in neg.items():
-            if a0 < thresh:
+        # A slab is a −a face IMMEDIATELY below a +a face with nothing between — solid
+        # fills the gap. Sort all large faces along the axis and pair only *adjacent*
+        # (−a, +a) neighbours: a −a low / +a high pairing that skips an intervening face
+        # crosses an air gap (two stacked plates on a common post) and must not be read
+        # as one plate. Same-coord ties order −a first so a degenerate pair is t≈0.
+        events = [(c, -1, a, u, v) for c, (a, u, v) in neg.items() if a >= thresh]
+        events += [(c, 1, a, u, v) for c, (a, u, v) in pos.items() if a >= thresh]
+        events.sort(key=lambda e: (e[0], e[1]))
+        for (c0, s0, a0, u0, v0), (c1, s1, a1, u1, v1) in zip(events, events[1:]):
+            if s0 != -1 or s1 != 1:
                 continue
-            for c1, (a1, u1, v1) in pos.items():
-                t = c1 - c0
-                if t <= tol or t >= max_t or a1 < thresh:
-                    continue
-                # Slab centre on the two in-plane axes — area-weighted over both faces.
-                aw = a0 + a1
-                u = (u0 + u1) / aw
-                v = (v0 + v1) / aw
-                out.append(Plate(axis=axis, lo=round(c0, 3), hi=round(c1, 3), u=u, v=v))
+            t = c1 - c0
+            if t <= tol or t >= max_t:
+                continue
+            # Slab centre on the two in-plane axes — area-weighted over both faces.
+            aw = a0 + a1
+            u = (u0 + u1) / aw
+            v = (v0 + v1) / aw
+            out.append(Plate(axis=axis, lo=round(c0, 3), hi=round(c1, 3), u=u, v=v))
 
     # Dedup by (axis, lo, hi); keep the first (deterministic) representative point.
     seen: set = set()

@@ -882,9 +882,11 @@ def render_plates(dwg, model, a) -> int:
         elif pl.axis == "y":
             # Upright wall: horizontal dim above the side (end) view, which shows the
             # wall edge-on on the L-profile — a different view from the Z base plate.
+            # Witness from the view's top edge (like the Z/X plates anchor at their view
+            # outline) so the extension lines don't originate mid-view.
             view, strip, stack, side = "side", a.sv_zones.above, "y", "above"
-            p1 = dwg.at(view, a.bb.min.X, pl.lo, pl.v)
-            p2 = dwg.at(view, a.bb.min.X, pl.hi, pl.v)
+            p1 = dwg.at(view, a.bb.min.X, pl.lo, a.bb.max.Z)
+            p2 = dwg.at(view, a.bb.min.X, pl.hi, a.bb.max.Z)
             edge = p1[1]
             perp = tuple(sorted((p1[0], p2[0])))
             pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
