@@ -873,9 +873,11 @@ def render_plates(dwg, model, a) -> int:
         counts[pl.axis] += 1
         if pl.axis == "z":
             # Horizontal slab (base plate): vertical dim on the front-elevation left strip.
+            # For a Z plate the in-plane centroids are (u=X, v=Y); the front view discards
+            # Y, so the depth arg is inert, but pass the Y-centroid (pl.v) for correctness.
             view, strip, stack, side = "front", a.fv_zones.left, "x", "left"
-            p1 = dwg.at(view, a.bb.min.X, pl.u, pl.lo)
-            p2 = dwg.at(view, a.bb.min.X, pl.u, pl.hi)
+            p1 = dwg.at(view, a.bb.min.X, pl.v, pl.lo)
+            p2 = dwg.at(view, a.bb.min.X, pl.v, pl.hi)
             edge = p1[0]
             perp = tuple(sorted((p1[1], p2[1])))
             pa, pb = (edge, p1[1], 0), (edge, p2[1], 0)
