@@ -1400,6 +1400,7 @@ class Drawing:
                     | len_ids
                     | slot_ids
                     | height_ladder_ids
+                    | step_position_ids
                     | user_dim_ids
                 ):
                     i += 1
