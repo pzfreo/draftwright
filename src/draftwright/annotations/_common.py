@@ -139,7 +139,12 @@ def clear_label_of_centerlines(label_bbox, centerlines, gap):
         except Exception:
             continue
     total = 0.0
-    for _ in range(len(extents) + 1):
+    # 2x + 2 rather than a tight len(extents)+1: a converging case can legitimately
+    # need every one of len(extents)+1 passes (verified — 2 centrelines can take 3),
+    # which leaves no spare pass to confirm a full scan found nothing left to clear;
+    # the extra margin makes that confirmation pass affordable (still O(n^2) worst
+    # case on a handful of centrelines, not a real cost).
+    for _ in range(2 * len(extents) + 2):
         eff_lmin_x, eff_lmax_x = lmin_x + total, lmax_x + total
         shift = 0.0
         for cl_min_x, cl_min_y, cl_max_x, cl_max_y in extents:
@@ -151,8 +156,13 @@ def clear_label_of_centerlines(label_bbox, centerlines, gap):
                 continue  # no real vertical overlap — matches the lint's own oy>0.5 gate
             if cl_w < 0.1:
                 cl_x = (cl_min_x + cl_max_x) / 2.0
-                if not (eff_lmin_x < cl_x < eff_lmax_x):
-                    continue
+                ox = (
+                    min(cl_x - eff_lmin_x, eff_lmax_x - cl_x)
+                    if eff_lmin_x < cl_x < eff_lmax_x
+                    else 0.0
+                )
+                if ox <= 0.5:
+                    continue  # matches the lint's own ox>0.5 gate for a thin line
                 half_w = (lmax_x - lmin_x) / 2.0
                 eff_cx = (eff_lmin_x + eff_lmax_x) / 2.0
                 shift_right = cl_x + half_w + gap - eff_cx
@@ -295,6 +305,21 @@ def _box_hits(bb, boxes):
         if min(bb[2], c[2]) > max(bb[0], c[0]) and min(bb[3], c[3]) > max(bb[1], c[1]):
             return True
     return False
+
+
+def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
+    """True when ``bb`` is fully inside *page_box* and hits none of *obstacles*
+    (:func:`_box_hits`) — the safety check a shifted label must pass before a
+    caller accepts it over an unshifted fallback (#129 review: this was inline
+    in ``holes.py``'s ``_clear_and_validate`` and untestable in isolation)."""
+    return (
+        bb is not None
+        and bb[0] >= page_box[0]
+        and bb[1] >= page_box[1]
+        and bb[2] <= page_box[2]
+        and bb[3] <= page_box[3]
+        and not _box_hits(bb, obstacles)
+    )
 
 
 def _segment_hits_box(p1, p2, box) -> bool:

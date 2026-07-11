@@ -37,6 +37,7 @@ from draftwright.annotations._common import (
     _box_hits,
     _geom_box,
     _segment_hits_box,
+    box_within_page_and_clear,
     carve_free_position,
     carve_free_segments,
     clear_label_of_centerlines,
@@ -987,15 +988,7 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
         cleared, unshifted = _clear(off, side_vec, dim)
         if cleared is unshifted:
             return unshifted  # no shift applied — nothing to validate
-        lbb = cleared.label_bbox
-        if (
-            lbb is not None
-            and lbb[0] >= page_box[0]
-            and lbb[1] >= page_box[1]
-            and lbb[2] <= page_box[2]
-            and lbb[3] <= page_box[3]
-            and not _box_hits(lbb, obstacles)
-        ):
+        if box_within_page_and_clear(cleared.label_bbox, page_box, obstacles):
             return cleared
         return unshifted
 

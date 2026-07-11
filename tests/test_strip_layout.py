@@ -1210,6 +1210,23 @@ def test_clear_label_of_centerlines_requires_real_y_overlap():
     assert got == 0.0
 
 
+def test_clear_label_of_centerlines_requires_real_depth_not_just_containment():
+    # #129 second review: the thin-line branch shifted on bare X-containment, with no
+    # minimum-depth requirement — unlike the wide-bbox branch (ox<=0.5: continue) and the
+    # lint check both branches are meant to mirror. A marginal (<=0.5mm) containment must
+    # not trigger a shift — especially since a shift here can land the label ON a SECOND,
+    # previously-clear centreline, creating a worse violation than doing nothing.
+    from draftwright.annotations._common import clear_label_of_centerlines
+
+    # cl1 is only 0.2mm inside the label (not a real lint violation); cl2 doesn't overlap
+    # the label at all originally. Before the fix this returned 1.2 (shifting onto cl2).
+    lbb = (-0.2, 0, 3.8, 10)
+    cl1 = _FakeCenterline(0, -100, 0, 100)
+    cl2 = _FakeCenterline(4.0, -100, 4.0, 100)
+    got = clear_label_of_centerlines(lbb, [cl1, cl2], gap=1)
+    assert got == 0.0
+
+
 def test_clear_label_of_centerlines_clears_two_well_separated_centerlines():
     # #129 review: a single forward pass over multiple centerlines could clear one and
     # silently re-cross an earlier one already cleared. With two centerlines far enough
@@ -1223,3 +1240,55 @@ def test_clear_label_of_centerlines_clears_two_well_separated_centerlines():
     lo, hi = total, 10 + total
     assert not (lo < 3 < hi), "still overlaps the first centerline"
     assert not (lo < 43 < hi), "still overlaps the second centerline"
+
+
+def test_clear_label_of_centerlines_recovers_from_a_cascading_re_violation():
+    # #129 second review: the "well separated" case above never actually exercises the
+    # re-crossing bug the multi-pass fix targets, since the two centrelines there never
+    # interact — the old single-pass algorithm passes it unchanged. This case genuinely
+    # distinguishes them: clearing cl1(x=0) alone lands the label on cl2(x=6); the OLD
+    # single forward pass then clears cl2 and stops, leaving cl1 re-violated (verified:
+    # the old algorithm returns -5.0 here, which still overlaps cl1). The new bounded
+    # re-scan keeps going and finds 7.0, which clears both.
+    from draftwright.annotations._common import clear_label_of_centerlines
+
+    cl1 = _FakeCenterline(0, -100, 0, 100)
+    cl2 = _FakeCenterline(6, -100, 6, 100)
+    total = clear_label_of_centerlines((0, 0, 10, 10), [cl1, cl2], gap=1)
+    lo, hi = total, 10 + total
+    assert not (lo < 0 < hi), "still overlaps the first centerline (the old-algorithm bug)"
+    assert not (lo < 6 < hi), "still overlaps the second centerline"
+
+
+def test_clear_label_of_centerlines_degrades_safely_on_a_tight_squeeze():
+    # #129 second review: the docstring documents that two centrelines closer together
+    # than the label needs to clear both can defeat this local search (it can oscillate
+    # rather than find the "go around both" position further out) — but nothing verified
+    # that documented degradation is actually SAFE (bounded, finite, doesn't crash) rather
+    # than just asserted in prose. label width 10 vs a 9mm gap between the centrelines is
+    # geometrically infeasible for ANY single-side clearance, by construction.
+    from draftwright.annotations._common import clear_label_of_centerlines
+
+    cl1 = _FakeCenterline(5, -100, 5, 100)
+    cl2 = _FakeCenterline(14, -100, 14, 100)
+    total = clear_label_of_centerlines((0, 0, 10, 10), [cl1, cl2], gap=1)
+    assert isinstance(total, float)
+    assert abs(total) < 1000, f"expected a bounded best-effort result, got {total}"
+
+
+def test_box_within_page_and_clear_rejects_a_shift_that_hits_an_obstacle():
+    # #129 second review: holes.py's _clear_and_validate falls back to the unshifted dim
+    # when a shift would leave the page or hit a real obstacle, but that closure is not
+    # independently callable — nothing exercised the rejection branch. The check itself
+    # is a small pure predicate (box_within_page_and_clear), factored out for exactly this.
+    from draftwright.annotations._common import box_within_page_and_clear
+
+    page_box = (0, 0, 100, 100)
+    obstacles = [(40, 40, 60, 60)]
+    assert box_within_page_and_clear((10, 10, 20, 20), page_box, obstacles), "clear box rejected"
+    assert not box_within_page_and_clear((45, 45, 55, 55), page_box, obstacles), (
+        "obstacle-hitting box accepted"
+    )
+    assert not box_within_page_and_clear((-5, 10, 5, 20), page_box, obstacles), (
+        "off-page box accepted"
+    )
