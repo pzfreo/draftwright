@@ -278,6 +278,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "location_ref_dropped",
         "step_dim_dropped",
         "plate_thickness_dropped",
+        "step_position_dropped",
         "placement_unsatisfiable",
         "pmi_dropped",
     }

@@ -172,6 +172,51 @@ class TestPlateThickness:
         assert not [n for n in dwg._named if n.startswith("dim_plate")]
 
 
+class TestStepPosition:
+    """#555: a prismatic step/rebate's along-axis POSITION is dimensioned, not just its
+    two heights, so the part is fully constrained."""
+
+    def test_step_position_dimensioned(self):
+        # The issue's acceptance test: an asymmetric step so the position can't hide
+        # behind another value. shelf 20 deep at the front, back 40 deep, lowered by 15.
+        part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
+        dwg = build_drawing(part, number="X")
+        lbl = _plate_labels(dwg)
+        assert {"80", "60", "30", "15"} <= set(lbl)  # overall + heights already present
+        assert "20" in lbl or "40" in lbl  # step position / shelf depth — was ABSENT
+        # from recognised step intent, in the side (profile) view where the step reads
+        pos = {n: dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder")}
+        assert list(pos.values()) == ["20"]
+        assert all(dwg.view_of(n) == "side" for n in pos)
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    def test_centered_rebate_dimensions_both_shoulders(self):
+        # A symmetric central channel has TWO shoulders; both positions must be given
+        # (20 and 40 from the front datum), else the channel is under-constrained.
+        dwg = build_drawing(Box(80, 60, 30) - Pos(0, 0, 7.5) * Box(80, 20, 15), number="X")
+        pos = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
+        assert pos == ["20", "40"]
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    def test_x_axis_step_positioned_in_plan(self):
+        # A step whose shoulder runs along X is located above the plan view (the axis→view
+        # mapping the hole-location ladder uses), not the side view.
+        dwg = build_drawing(Box(80, 60, 30) - Pos(-25, 0, 7.5) * Box(30, 60, 15), number="X")
+        pos = {n: dwg.view_of(n) for n in dwg._named if n.startswith("dim_shoulder")}
+        assert pos and set(pos.values()) == {"plan"}
+
+    def test_plain_block_has_no_step_position(self):
+        # No step → no shoulder dim.
+        dwg = build_drawing(Box(40, 30, 12), number="X")
+        assert not [n for n in dwg._named if n.startswith("dim_shoulder")]
+
+    def test_through_slot_is_not_a_step_shoulder(self):
+        # A slot's walls are interior vertical faces but not step risers (no step level);
+        # the slot recogniser dimensions them, so no spurious step-position dim appears.
+        dwg = build_drawing(Box(50, 30, 20) - Box(20, 8, 30), number="X")
+        assert not [n for n in dwg._named if n.startswith("dim_shoulder")]
+
+
 class TestStepSizingConvergence:
     def test_step_sizing_converges_past_the_old_three_pass_limit(self):
         measure_calls = []

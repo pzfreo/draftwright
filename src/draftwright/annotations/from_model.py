@@ -1367,6 +1367,57 @@ def render_height_ladder(dwg, model, a, *, include_overall: bool = True) -> int:
     return n
 
 
+def render_step_positions(dwg, model, a) -> int:
+    """Prismatic step POSITIONS (#555): where each shoulder sits along its axis,
+    dimensioned from the part datum so a stepped block is fully constrained (the step
+    heights alone leave the shoulder location implicit — two geometries draw the same
+    sheet). A Y shoulder is a horizontal dim above the side (end) view (which maps Y
+    horizontally, where the step profile reads); an X shoulder above the plan view —
+    the same axis→view mapping the hole-location ladder uses. A shoulder whose strip is
+    full drops with a lint code, not silently. Returns the count placed."""
+    step = next((f for f in model.features if f.kind == "step_level"), None)
+    if step is None or not step.shoulders:
+        return 0
+    draft = dwg.draft
+    tier = draft.font_size + 2 * draft.pad_around_text
+    n = 0
+    counts: dict = {"x": 0, "y": 0}
+    for axis, pos in sorted(step.shoulders):
+        di = {"x": 0, "y": 1}[axis]
+        datum = step.datum[di]
+        val = abs(pos - datum)
+        i = counts[axis]
+        counts[axis] += 1
+        if axis == "y":
+            view, strip = "side", a.sv_zones.above
+            p1 = dwg.at(view, a.bb.min.X, datum, a.bb.max.Z)
+            p2 = dwg.at(view, a.bb.min.X, pos, a.bb.max.Z)
+        else:  # x — shoulder along X → above the plan view
+            view, strip = "plan", a.pv_zones.above
+            p1 = dwg.at(view, datum, a.bb.max.Y, a.bb.min.Z)
+            p2 = dwg.at(view, pos, a.bb.max.Y, a.bb.min.Z)
+        edge = p1[1]
+        perp = tuple(sorted((p1[0], p2[0])))
+        place = carve_free_position(dwg, strip, view, "y", tier, perp)
+        if place is None:
+            dwg._record_build_issue(
+                "warning",
+                "step_position_dropped",
+                f"step position {_fmt(val)} not dimensioned ({view} above-strip full)",
+            )
+            continue
+        dwg.add(
+            _dim(
+                (p1[0], edge, 0), (p2[0], edge, 0), "above", place - edge, draft, label=_fmt(val)
+            ),
+            f"dim_shoulder_{axis}{i}",
+            view=view,
+            feature=step,
+        )
+        n += 1
+    return n
+
+
 def render_rotational(dwg, model, a) -> int:
     """Rotational furniture from the IR `RotationalFeature` (#237): the OD dim (above
     the front view), the rotation-axis centrelines (front + side), and the concentric

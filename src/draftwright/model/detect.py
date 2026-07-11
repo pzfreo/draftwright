@@ -43,6 +43,7 @@ from draftwright.recognition import (
     find_holes,
     find_plates,
     find_slots,
+    find_step_shoulders,
     find_turned_steps,
 )
 
@@ -346,11 +347,21 @@ def build_part_model(
         c = bbox.center()
         _levels = tuple(sorted(z for z in step_zs if round(z, 3) not in plate_zs_at_base))
         if _levels:
+            # The in-plane step POSITIONS (#555) — where each shoulder sits along its
+            # axis — so the part is fully constrained, not just given two heights. Scoped
+            # to a SINGLE step level (a rebate/shoulder, the issue's domain): a multi-level
+            # staircase is owned by the height ladder's typ-collapse / detail-view path,
+            # and adding position dims to already-crowded shoulders would worsen it.
+            _shoulders = (
+                tuple(find_step_shoulders(part, list(_levels))) if len(_levels) == 1 else ()
+            )
             features.append(
                 StepLevelFeature(
                     frame=Frame((c.X, c.Y, bbox.min.Z), "z"),
                     base=bbox.min.Z,
                     levels=_levels,
+                    shoulders=_shoulders,
+                    datum=(bbox.min.X, bbox.min.Y, bbox.min.Z),
                 )
             )
 

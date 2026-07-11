@@ -283,15 +283,27 @@ class StepLevelFeature:
     """The prismatic height profile — horizontal face levels (Z) dimensioned from the
     base, stacked right of the front view (#237). The turned analogue is `StepFeature`
     (length + OD per segment); this is the prismatic *height* ladder. ``levels`` are the
-    interior step Z-coords (ascending); ``base`` is the part's bottom (bbox min Z)."""
+    interior step Z-coords (ascending); ``base`` is the part's bottom (bbox min Z).
+
+    ``shoulders`` are the in-plane step POSITIONS (#555) — ``(axis, position)`` where a
+    step/rebate changes height — so the part is fully constrained (a step is located
+    along its axis, not just given two heights). ``datum`` is the part-space min corner
+    each shoulder position is measured from (a shoulder at ``pos`` on ``axis`` shows
+    ``pos - datum[axis]``)."""
 
     frame: Frame
     base: float
     levels: tuple[float, ...]
+    shoulders: tuple[tuple[str, float], ...] = ()
+    datum: Point = (0.0, 0.0, 0.0)
     kind: ClassVar[str] = "step_level"
 
     def parameters(self) -> list[DimParameter]:
-        return [DimParameter("length", "step_height", z - self.base) for z in self.levels]
+        _di = {"x": 0, "y": 1, "z": 2}
+        return [DimParameter("length", "step_height", z - self.base) for z in self.levels] + [
+            DimParameter("length", "step_position", pos - self.datum[_di[axis]])
+            for axis, pos in self.shoulders
+        ]
 
     def references(self) -> list[Datum]:
         return []

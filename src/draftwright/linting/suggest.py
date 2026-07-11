@@ -109,4 +109,12 @@ def _suggest_fix(issue, dwg) -> str | None:
             '# dwg.dimension(feature, "length", role="thickness", side="left", pin=True)'
         )
 
+    if code == "step_position_dropped":
+        # A recognised step/shoulder position had no room in its target strip (#555).
+        return (
+            "# The step-position strip is full; free room by moving another dim,\n"
+            "# or author the shoulder location explicitly on a clear side:\n"
+            '# dwg.dimension(feature, "length", role="step_position", side="above", pin=True)'
+        )
+
     return None
