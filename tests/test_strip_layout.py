@@ -1244,12 +1244,11 @@ def test_clear_label_of_centerlines_clears_two_well_separated_centerlines():
 
 def test_clear_label_of_centerlines_recovers_from_a_cascading_re_violation():
     # #129 second review: the "well separated" case above never actually exercises the
-    # re-crossing bug the multi-pass fix targets, since the two centrelines there never
-    # interact — the old single-pass algorithm passes it unchanged. This case genuinely
-    # distinguishes them: clearing cl1(x=0) alone lands the label on cl2(x=6); the OLD
-    # single forward pass then clears cl2 and stops, leaving cl1 re-violated (verified:
-    # the old algorithm returns -5.0 here, which still overlaps cl1). The new bounded
-    # re-scan keeps going and finds 7.0, which clears both.
+    # re-crossing bug a naive per-centreline local search has, since the two centrelines
+    # there never interact. This case genuinely distinguishes them: clearing cl1(x=0)
+    # alone lands the label on cl2(x=6). A single forward pass that clears cl2 and stops
+    # would leave cl1 re-violated; the joint carve (#129 third review — every reachable
+    # centreline is carved out in one pass, not walked one at a time) clears both.
     from draftwright.annotations._common import clear_label_of_centerlines
 
     cl1 = _FakeCenterline(0, -100, 0, 100)
@@ -1260,20 +1259,22 @@ def test_clear_label_of_centerlines_recovers_from_a_cascading_re_violation():
     assert not (lo < 6 < hi), "still overlaps the second centerline"
 
 
-def test_clear_label_of_centerlines_degrades_safely_on_a_tight_squeeze():
-    # #129 second review: the docstring documents that two centrelines closer together
-    # than the label needs to clear both can defeat this local search (it can oscillate
-    # rather than find the "go around both" position further out) — but nothing verified
-    # that documented degradation is actually SAFE (bounded, finite, doesn't crash) rather
-    # than just asserted in prose. label width 10 vs a 9mm gap between the centrelines is
-    # geometrically infeasible for ANY single-side clearance, by construction.
+def test_clear_label_of_centerlines_solves_a_tight_squeeze():
+    # #129 third review: a per-centreline local search (nearest-edge, one at a time) could
+    # defeat itself when two centrelines sit closer together than the label needs to clear
+    # both — label width 10 vs a 9mm gap between the centrelines here is exactly that case,
+    # with no position that clears both by hugging either one individually. The joint carve
+    # (clear_label_of_centerlines routes through carve_free_segments, exactly like the
+    # dimension LINE's own placement elsewhere in this module) finds the "go around both"
+    # position that does exist further out — this is now solved, not just bounded/safe.
     from draftwright.annotations._common import clear_label_of_centerlines
 
     cl1 = _FakeCenterline(5, -100, 5, 100)
     cl2 = _FakeCenterline(14, -100, 14, 100)
     total = clear_label_of_centerlines((0, 0, 10, 10), [cl1, cl2], gap=1)
-    assert isinstance(total, float)
-    assert abs(total) < 1000, f"expected a bounded best-effort result, got {total}"
+    lo, hi = total, 10 + total
+    assert not (lo < 5 < hi), "still overlaps the first centerline"
+    assert not (lo < 14 < hi), "still overlaps the second centerline"
 
 
 def test_box_within_page_and_clear_rejects_a_shift_that_hits_an_obstacle():

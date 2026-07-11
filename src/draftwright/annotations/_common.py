@@ -104,81 +104,72 @@ per-consumer choice, passed as ``crossable`` to :func:`strip_obstacles`."""
 
 
 def clear_label_of_centerlines(label_bbox, centerlines, gap):
-    """Cumulative ``label_offset_x`` so *label_bbox* clears every crossing
-    centre-line-family annotation in *centerlines* (#129) — both a turned part's
-    thin vertical/horizontal axis :class:`Centerline` and a bolt-circle's wide
-    :class:`CenterlineCircle`. Mirrors the overlap test
-    :func:`draftwright.linting.structural.lint_drawing` itself uses
-    (``label_centerline_overlap``): a thin line (extent < 0.1 mm in one axis) is
-    cleared past its midpoint by half the label width + *gap*; a wide bbox
-    (patterns/circles) is cleared past its nearer edge, and only when the two
-    boxes would actually overlap by more than 0.5 mm in **both** axes (the same
-    threshold the lint check flags). A thin **horizontal** line can't be cleared
-    by an X shift alone, so it is left to the lint/repair safety net.
+    """``label_offset_x`` so *label_bbox* clears every crossing centre-line-family
+    annotation in *centerlines* (#129) — both a turned part's thin vertical/
+    horizontal axis :class:`Centerline` and a bolt-circle's wide
+    :class:`CenterlineCircle`.
 
-    With more than one centre line, clearing the nearest-edge shift for one can
-    re-cross another already cleared — so this re-scans from scratch after every
-    single shift (a bounded fixed-point iteration, not a one-pass walk) rather
-    than compounding shifts blindly. This is a local search, not a joint solve:
-    when two centre lines sit closer together than the label needs to clear both
-    (rare — the two documented #129 sources, a part's one turning-axis line and a
-    pattern's own bolt circle, aren't normally that close), it can oscillate
-    between their two nearest edges and never find the single "go around both"
-    position that does exist further out; the iteration cap then returns
-    whichever total the last pass left it at (residual overlaps still surface via
-    lint, same safety net as the thin-horizontal-line case above)."""
+    Two steps. First, decide whether the label's UNSHIFTED position is already
+    fine: a crossing only counts past 0.5 mm of depth (a thin line, off its
+    midpoint) or overlap (a wide bbox) — the same threshold
+    :func:`draftwright.linting.structural.lint_drawing`'s
+    ``label_centerline_overlap`` flags — so a marginal graze the lint would not
+    flag leaves the label untouched. If nothing crosses by that measure, return
+    0.0 without moving anything.
+
+    Otherwise, every centre line the label's row (Y-extent) genuinely reaches —
+    *regardless of its own individual X depth* — becomes one forbidden interval
+    for the label's LEFT edge (`x`: the label occupies `[x, x+width]`, so it
+    clears a crossing's `[c0, c1]` by *gap* exactly when `x` is outside
+    `(c0-gap-width, c1+gap)`), carved from a generous span via
+    :func:`carve_free_segments` — the same occupancy-carve primitive this
+    module's other placers use for the dimension *line* itself. Including every
+    reachable centre line here, not just the ones individually past the 0.5 mm
+    threshold, matters: once the label is going to move at all, a centre line
+    it barely grazed at the ORIGINAL position can end up squarely inside the
+    NEW one — this joint carve accounts for all of them in one pass, so moving
+    to clear one can never expose a violation against another (the bug class
+    an earlier per-centre-line local-search design had, #129 second review). A
+    thin **horizontal** line can't be cleared by an X shift at all, so it is
+    excluded and left to the lint/repair safety net."""
     if label_bbox is None:
         return 0.0
     lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
+    label_w = lmax_x - lmin_x
     extents = []
+    natural_violation = False
     for cl in centerlines:
         if not getattr(cl, "is_centerline", False):
             continue
         try:
-            extents.append(_centerline_extent(cl))
+            cl_min_x, cl_min_y, cl_max_x, cl_max_y = _centerline_extent(cl)
         except Exception:
             continue
-    total = 0.0
-    # 2x + 2 rather than a tight len(extents)+1: a converging case can legitimately
-    # need every one of len(extents)+1 passes (verified — 2 centrelines can take 3),
-    # which leaves no spare pass to confirm a full scan found nothing left to clear;
-    # the extra margin makes that confirmation pass affordable (still O(n^2) worst
-    # case on a handful of centrelines, not a real cost).
-    for _ in range(2 * len(extents) + 2):
-        eff_lmin_x, eff_lmax_x = lmin_x + total, lmax_x + total
-        shift = 0.0
-        for cl_min_x, cl_min_y, cl_max_x, cl_max_y in extents:
-            cl_w, cl_h = cl_max_x - cl_min_x, cl_max_y - cl_min_y
-            if cl_h < 0.1:
-                continue  # a horizontal line's clash can't be fixed by an X shift
-            oy = min(lmax_y, cl_max_y) - max(lmin_y, cl_min_y)
-            if oy <= 0.5:
-                continue  # no real vertical overlap — matches the lint's own oy>0.5 gate
-            if cl_w < 0.1:
-                cl_x = (cl_min_x + cl_max_x) / 2.0
-                ox = (
-                    min(cl_x - eff_lmin_x, eff_lmax_x - cl_x)
-                    if eff_lmin_x < cl_x < eff_lmax_x
-                    else 0.0
-                )
-                if ox <= 0.5:
-                    continue  # matches the lint's own ox>0.5 gate for a thin line
-                half_w = (lmax_x - lmin_x) / 2.0
-                eff_cx = (eff_lmin_x + eff_lmax_x) / 2.0
-                shift_right = cl_x + half_w + gap - eff_cx
-                shift_left = cl_x - half_w - gap - eff_cx
-            else:
-                ox = min(eff_lmax_x, cl_max_x) - max(eff_lmin_x, cl_min_x)
-                if ox <= 0.5:
-                    continue
-                shift_right = (cl_max_x + gap) - eff_lmin_x
-                shift_left = (cl_min_x - gap) - eff_lmax_x
-            shift = shift_right if abs(shift_right) <= abs(shift_left) else shift_left
-            break
-        if shift == 0.0:
-            break
-        total += shift
-    return total
+        if cl_max_y - cl_min_y < 0.1:
+            continue  # a horizontal line's clash can't be fixed by an X shift
+        oy = min(lmax_y, cl_max_y) - max(lmin_y, cl_min_y)
+        if oy <= 0.5:
+            continue  # no real vertical overlap — matches the lint's own oy>0.5 gate
+        extents.append((cl_min_x, cl_max_x))
+        if cl_max_x - cl_min_x < 0.1:
+            cl_x = (cl_min_x + cl_max_x) / 2.0
+            ox = min(cl_x - lmin_x, lmax_x - cl_x) if lmin_x < cl_x < lmax_x else 0.0
+        else:
+            ox = min(lmax_x, cl_max_x) - max(lmin_x, cl_min_x)
+        natural_violation = natural_violation or ox > 0.5
+    if not natural_violation:
+        return 0.0  # already clear enough that the lint would not flag it
+    forbidden = [(cl_min_x - gap - label_w, cl_max_x + gap) for cl_min_x, cl_max_x in extents]
+    # A span this wide beyond every forbidden edge is free even if every interval
+    # merged into one contiguous run (their combined width can never exceed the
+    # sum of the individual widths) — carve_free_segments is therefore guaranteed
+    # a non-empty result; no defensive empty-result fallback needed.
+    total_w = sum(f1 - f0 for f0, f1 in forbidden) + label_w + 10.0
+    lo = min([lmin_x, *(f0 for f0, _ in forbidden)]) - total_w
+    hi = max([lmax_x, *(f1 for _, f1 in forbidden)]) + total_w
+    segs = carve_free_segments(lo, hi, forbidden, 0.0)
+    target_x = min((min(max(lmin_x, s0), s1) for s0, s1 in segs), key=lambda x: abs(x - lmin_x))
+    return target_x - lmin_x
 
 
 def strip_obstacles(dwg, view=None, *, crossable=()):
