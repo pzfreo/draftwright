@@ -853,6 +853,70 @@ def _envelope_tier(dwg, strip, view, size):
     return max(fitting, key=lambda s: s[1])[0]  # above/right: outermost = largest coords
 
 
+def render_plates(dwg, model, a) -> int:
+    """Plate/wall thicknesses (#559): the thin extent of each recognised slab
+    (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z
+    plate (horizontal slab) as a vertical dim left of the front elevation, a Y plate
+    (upright wall) as a horizontal dim above the side (end) view where the L-profile
+    shows it edge-on, an X plate below the front view. Base and wall land in different
+    views so the two legs of a multi-plate prismatic read as distinct features rather
+    than the overall envelope. A slab whose strip is full is dropped with a lint code
+    (like the step ladder), not silently. Returns the count placed."""
+    draft = dwg.draft
+    tier = draft.font_size + 2 * draft.pad_around_text
+    plates = [f for f in model.features if f.kind == "plate"]
+    n = 0
+    counts: dict = {"x": 0, "y": 0, "z": 0}
+    for pl in sorted(plates, key=lambda f: (f.axis, f.lo, f.hi)):
+        val = pl.hi - pl.lo
+        i = counts[pl.axis]
+        counts[pl.axis] += 1
+        if pl.axis == "z":
+            # Horizontal slab (base plate): vertical dim on the front-elevation left strip.
+            # For a Z plate the in-plane centroids are (u=X, v=Y); the front view discards
+            # Y, so the depth arg is inert, but pass the Y-centroid (pl.v) for correctness.
+            view, strip, stack, side = "front", a.fv_zones.left, "x", "left"
+            p1 = dwg.at(view, a.bb.min.X, pl.v, pl.lo)
+            p2 = dwg.at(view, a.bb.min.X, pl.v, pl.hi)
+            edge = p1[0]
+            perp = tuple(sorted((p1[1], p2[1])))
+            pa, pb = (edge, p1[1], 0), (edge, p2[1], 0)
+        elif pl.axis == "y":
+            # Upright wall: horizontal dim above the side (end) view, which shows the
+            # wall edge-on on the L-profile — a different view from the Z base plate.
+            # Witness from the view's top edge (like the Z/X plates anchor at their view
+            # outline) so the extension lines don't originate mid-view.
+            view, strip, stack, side = "side", a.sv_zones.above, "y", "above"
+            p1 = dwg.at(view, a.bb.min.X, pl.lo, a.bb.max.Z)
+            p2 = dwg.at(view, a.bb.min.X, pl.hi, a.bb.max.Z)
+            edge = p1[1]
+            perp = tuple(sorted((p1[0], p2[0])))
+            pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
+        else:  # x — thin wall along X → horizontal dim below the front view
+            view, strip, stack, side = "front", a.fv_zones.below, "y", "below"
+            p1 = dwg.at(view, pl.lo, pl.u, a.bb.min.Z)
+            p2 = dwg.at(view, pl.hi, pl.u, a.bb.min.Z)
+            edge = p1[1]
+            perp = tuple(sorted((p1[0], p2[0])))
+            pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
+        pos = carve_free_position(dwg, strip, view, stack, tier, perp)
+        if pos is None:
+            dwg._record_build_issue(
+                "warning",
+                "plate_thickness_dropped",
+                f"plate thickness {_fmt(val)} not dimensioned ({view} {stack}-strip full)",
+            )
+            continue
+        dwg.add(
+            _dim(pa, pb, side, pos - edge, draft, label=_fmt(val)),
+            f"dim_plate_{pl.axis}{i}",
+            view=view,
+            feature=pl,
+        )
+        n += 1
+    return n
+
+
 def render_envelope(dwg, groups, a) -> int:
     """Overall width (plan, below) + depth (side, below) envelope dims via the IR,
     registered into the same below-strip corridor as feature/location/GD&T/PMI candidates.

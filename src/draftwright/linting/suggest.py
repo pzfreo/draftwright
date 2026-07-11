@@ -101,4 +101,12 @@ def _suggest_fix(issue, dwg) -> str | None:
             "dwg = build_drawing(part, detail_view=True)"
         )
 
+    if code == "plate_thickness_dropped":
+        # A recognised plate/wall thickness had no room in its target strip (#559).
+        return (
+            "# The plate thickness strip is full; free room by moving another dim,\n"
+            "# or author the thickness explicitly on a clear side:\n"
+            '# dwg.dimension(feature, "length", role="thickness", side="left", pin=True)'
+        )
+
     return None

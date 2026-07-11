@@ -298,6 +298,41 @@ class StepLevelFeature:
 
 
 @dataclass(frozen=True)
+class PlateFeature:
+    """A thin slab's thickness on a multi-plate prismatic (#559) — the base plate of
+    an L-bracket, an upright wall, a rib. ``axis`` is the thin (thickness) axis; the
+    slab runs from ``lo`` to ``hi`` along it (``hi - lo`` is the thickness), centred at
+    ``u``/``v`` on the other two axes (in axis order). Unlike ``StepLevelFeature`` (Z
+    staircase heights from the base) and ``EnvelopeFeature`` (the full bbox), this is a
+    *partial* extent along any axis — a plate that spans less than the whole part on its
+    thin axis, so ``dim_height``/the envelope do not already cover it."""
+
+    frame: Frame
+    axis: str
+    lo: float
+    hi: float
+    u: float
+    v: float
+    kind: ClassVar[str] = "plate"
+
+    def _span(self) -> tuple[Point, Point]:
+        i = "xyz".index(self.axis)
+        oi = [j for j in (0, 1, 2) if j != i]
+        p0 = [0.0, 0.0, 0.0]
+        p1 = [0.0, 0.0, 0.0]
+        p0[i], p1[i] = self.lo, self.hi
+        p0[oi[0]] = p1[oi[0]] = self.u
+        p0[oi[1]] = p1[oi[1]] = self.v
+        return (tuple(p0), tuple(p1))  # type: ignore[return-value]
+
+    def parameters(self) -> list[DimParameter]:
+        return [DimParameter("length", "thickness", self.hi - self.lo, span=self._span())]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class RotationalFeature:
     """A turned/rotational part's axial furniture (#237): the outer diameter, the
     rotation-axis centrelines, and the concentric bore diameters (dimensioned by

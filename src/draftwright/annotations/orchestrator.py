@@ -38,6 +38,7 @@ from draftwright.annotations.from_model import (
     render_gdt,
     render_height_ladder,
     render_locations,
+    render_plates,
     render_pmi,
     render_rotational,
     render_slots,
@@ -278,6 +279,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # dim_step_* + dim_height; the turned step-length chain (render_step_lengths) handles
     # turned parts, and a Z-turned overall height is suppressed there (ISO 129).
     render_height_ladder(dwg, _model, a)
+
+    # Plate/wall thicknesses on a multi-plate prismatic (#559): the thin extent of each
+    # recognised slab, placed in the view where its thin axis is visible. A single flat
+    # plate has none (its thickness IS the envelope height).
+    render_plates(dwg, _model, a)
 
     # Side-drilled holes' in-plane (side-below) locations share the below corridor with
     # the overall envelope depth. They now queue into the same batch; the envelope's

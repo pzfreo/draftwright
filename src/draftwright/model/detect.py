@@ -26,6 +26,7 @@ from draftwright.model.ir import (
     HoleFeature,
     PartModel,
     PatternFeature,
+    PlateFeature,
     PmiFeature,
     RotationalFeature,
     SlotFeature,
@@ -40,6 +41,7 @@ from draftwright.recognition import (
     find_bosses,
     find_hole_patterns,
     find_holes,
+    find_plates,
     find_slots,
     find_turned_steps,
 )
@@ -307,17 +309,50 @@ def build_part_model(
                 )
             )
 
+    # Plate/wall thicknesses on a multi-plate prismatic (#559) — the thin extent of a
+    # slab that no other prismatic dim recovers (a wall along X/Y, or a Z base plate too
+    # thin for the step-ladder legibility gate). Skipped for turned/rotational parts,
+    # whose extents are the OD/length chain, not plate thicknesses.
+    #
+    # Scope guard: only a GENUINE multi-plate part — slabs on ≥2 distinct axes (a base +
+    # an upright wall, i.e. an L/T/U bracket) — is dimensioned this way. A single-axis
+    # stack (a base slab under a smaller stacked block) is a *staircase*, owned by the
+    # step-height ladder; treating its base as a "plate" would wrongly suppress the step
+    # dim (#559 review). This keeps the plate feature to the issue's stated domain.
+    plate_zs_at_base: set = set()
+    if prof is None and rotational is None:
+        plates = find_plates(part)
+        if len({pl.axis for pl in plates}) >= 2:
+            c = bbox.center()
+            for pl in plates:
+                features.append(
+                    PlateFeature(
+                        frame=Frame((c.X, c.Y, c.Z), pl.axis),
+                        axis=pl.axis,
+                        lo=pl.lo,
+                        hi=pl.hi,
+                        u=pl.u,
+                        v=pl.v,
+                    )
+                )
+                # A Z base plate (bottom == part base) IS the first step level; suppress
+                # it from the step ladder so the two don't both dimension base→hi.
+                if pl.axis == "z" and abs(pl.lo - bbox.min.Z) < 0.5:
+                    plate_zs_at_base.add(round(pl.hi, 3))
+
     # Prismatic step-height ladder — horizontal face levels on a NON-turned part
     # (a turned part's steps are StepFeatures, dimensioned by the IR length chain).
     if prof is None and step_zs:
         c = bbox.center()
-        features.append(
-            StepLevelFeature(
-                frame=Frame((c.X, c.Y, bbox.min.Z), "z"),
-                base=bbox.min.Z,
-                levels=tuple(sorted(step_zs)),
+        _levels = tuple(sorted(z for z in step_zs if round(z, 3) not in plate_zs_at_base))
+        if _levels:
+            features.append(
+                StepLevelFeature(
+                    frame=Frame((c.X, c.Y, bbox.min.Z), "z"),
+                    base=bbox.min.Z,
+                    levels=_levels,
+                )
             )
-        )
 
     # Rotational furniture — OD + centrelines + concentric bore leaders (#237). Its
     # presence marks the part rotational; emitted from the classification (od, bores).
