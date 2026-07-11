@@ -33,6 +33,7 @@ from draftwright._core import (
 from draftwright.annotations._common import drain_corridors
 from draftwright.annotations.from_model import (
     render_centermarks,
+    render_chamfers,
     render_diameters,
     render_envelope,
     render_gdt,
@@ -289,6 +290,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Prismatic step POSITIONS (#555): where each shoulder sits along its axis, so a
     # stepped block is fully constrained (the heights alone leave the shoulder implicit).
     render_step_positions(dwg, _model, a)
+
+    # Chamfer callouts (#560): C{leg} / {leg}×{angle}° via a leader off each chamfer face.
+    render_chamfers(dwg, _model, a)
 
     # Side-drilled holes' in-plane (side-below) locations share the below corridor with
     # the overall envelope depth. They now queue into the same batch; the envelope's

@@ -268,6 +268,71 @@ class TestStepPosition:
         assert "20" in labels
 
 
+def _chamfer_text(dwg):
+    return " ".join(
+        str(getattr(o, "label", "") or getattr(o, "text", "") or "") for o in dwg._named.values()
+    )
+
+
+class TestChamferCallout:
+    """#560: a chamfered edge is called out (C{leg} / {leg}×{angle}°) from a recognised
+    ChamferFeature, not left as an undimensioned bevel."""
+
+    def _chamfered_plate(self, *legs):
+        from build123d import Axis, chamfer
+
+        plate = Box(90, 60, 20)
+        e = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)[-1]
+        return chamfer(e, *legs)
+
+    def test_chamfer_called_out(self):
+        # The issue's acceptance test: a 45° equal-leg 12 chamfer must carry "12".
+        dwg = build_drawing(self._chamfered_plate(12), number="X")
+        assert "12" in _chamfer_text(dwg)  # C12 — was ABSENT
+
+    def test_equal_leg_45_uses_c_form_and_participates_in_lint(self):
+        # The callout is a real placed leader (named, in a view) and the sheet lints clean.
+        dwg = build_drawing(self._chamfered_plate(12), number="X")
+        callouts = {n: dwg._named[n].label for n in dwg._named if n.startswith("m_chamfer")}
+        assert list(callouts.values()) == ["C12"]
+        assert all(dwg.view_of(n) == "plan" for n in callouts)  # Z-edge reads in the plan
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    def test_recognised_through_ir_not_inferred(self):
+        # Represented as a ChamferFeature carrying both legs + angle (so equal vs
+        # asymmetric is recovered from geometry, not the rendered view).
+        m = build_drawing(self._chamfered_plate(12), number="X").model()
+        ch = next((f for f in m.features if f.kind == "chamfer"), None)
+        assert ch is not None
+        assert ch.equal_leg and abs(ch.angle - 45.0) < 0.5 and abs(ch.leg1 - 12) < 0.05
+
+    def test_asymmetric_chamfer_distinguished(self):
+        # Unequal legs → NOT a C-form callout; the angle is recovered (≈29.7° for 8×14).
+        dwg = build_drawing(self._chamfered_plate(8, 14), number="X")
+        ch = next(f for f in dwg.model().features if f.kind == "chamfer")
+        assert not ch.equal_leg
+        callout = next(dwg._named[n].label for n in dwg._named if n.startswith("m_chamfer"))
+        assert "C" not in callout and "°" in callout
+
+    def test_x_edge_chamfer_reads_in_side_view(self):
+        from build123d import Axis, chamfer
+
+        part = Box(60, 40, 30)
+        e = part.edges().filter_by(Axis.X).sort_by(lambda e: e.center().Y + e.center().Z)[-1]
+        dwg = build_drawing(chamfer(e, 6), number="X")
+        callouts = {n: dwg.view_of(n) for n in dwg._named if n.startswith("m_chamfer")}
+        assert callouts and set(callouts.values()) == {"side"}
+
+    def test_plain_box_has_no_chamfer_callout(self):
+        dwg = build_drawing(Box(40, 30, 12), number="X")
+        assert not [n for n in dwg._named if n.startswith("m_chamfer")]
+
+    def test_turned_part_has_no_chamfer_feature(self):
+        # A turned part's chamfers are conical (not oblique planar) — none recognised.
+        dwg = build_drawing(Cylinder(20, 10), number="X")
+        assert not [f for f in dwg.model().features if f.kind == "chamfer"]
+
+
 class TestStepSizingConvergence:
     def test_step_sizing_converges_past_the_old_three_pass_limit(self):
         measure_calls = []

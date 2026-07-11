@@ -19,6 +19,7 @@ from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
     BossFeature,
+    ChamferFeature,
     Datum,
     EnvelopeFeature,
     Feature,
@@ -39,6 +40,7 @@ from draftwright.recognition import (
     LinearArray,
     RectGrid,
     find_bosses,
+    find_chamfers,
     find_hole_patterns,
     find_holes,
     find_plates,
@@ -362,6 +364,21 @@ def build_part_model(
                     levels=_levels,
                     shoulders=_shoulders,
                     datum=(bbox.min.X, bbox.min.Y, bbox.min.Z),
+                )
+            )
+
+    # Chamfers (#560) — oblique planar faces on a non-turned part, called out C{leg} /
+    # {leg}×{angle}°. A turned part's chamfers are conical (find_chamfers finds none).
+    if rotational is None:
+        for ch in find_chamfers(part):
+            at = ch.at
+            features.append(
+                ChamferFeature(
+                    frame=Frame((at[0], at[1], at[2]), ch.axis),
+                    axis=ch.axis,
+                    leg1=ch.leg1,
+                    leg2=ch.leg2,
+                    angle=ch.angle,
                 )
             )
 
