@@ -232,20 +232,22 @@ class TestStepPosition:
     def test_step_position_round_trips_through_generated_script(self, tmp_path):
         # #555 review: the --script reconstruction (record→finalize) must keep the step
         # position, else a regenerated drawing is under-constrained again — the very bug.
+        # A CENTERED rebate (two shoulders sharing role="step_position") is the case a
+        # per-shoulder verb would crash on: one verb must rebuild both via finalize.
         from build123d import export_step
 
         from draftwright.make_drawing import generate_script
 
-        part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
+        part = Box(80, 60, 30) - Pos(0, 0, 7.5) * Box(80, 20, 15)  # two shoulders: 20 and 40
         step = tmp_path / "stepped.step"
         export_step(part, str(step))
         script_path = generate_script(str(step), out=str(tmp_path / "gen"))
         src = Path(script_path).read_text()
-        assert 'role="step_position"' in src
+        assert src.count('role="step_position"') == 1  # ONE verb rebuilds all shoulders
         ns = {"__file__": script_path}
-        exec(src, ns)  # noqa: S102 — executing our own generated reconstruction
+        exec(src, ns)  # noqa: S102 — executing our own generated reconstruction (must not crash)
         labels = [str(o.label) for o in ns["dwg"]._named.values() if getattr(o, "label", None)]
-        assert "20" in labels  # the shoulder position survives the round-trip
+        assert "20" in labels and "40" in labels  # both shoulder positions survive
 
     def test_step_position_round_trips_through_declared_model(self):
         # #555 review: a declared StepLevelFeature carrying shoulders renders the position

@@ -111,10 +111,12 @@ def _suggest_fix(issue, dwg) -> str | None:
 
     if code == "step_position_dropped":
         # A recognised step/shoulder position had no room in its target strip (#555).
+        # The whole shoulder set rebuilds together (render_step_positions), so free strip
+        # room or use an enlarged detail view rather than authoring one shoulder by hand.
         return (
-            "# The step-position strip is full; free room by moving another dim,\n"
-            "# or author the shoulder location explicitly on a clear side:\n"
-            '# dwg.dimension(feature, "length", role="step_position", side="above", pin=True)'
+            "# The step-position strip is full; free room by relaxing a crowding dim,\n"
+            "# or re-build with an enlarged detail view:\n"
+            "dwg = build_drawing(part, detail_view=True)"
         )
 
     return None

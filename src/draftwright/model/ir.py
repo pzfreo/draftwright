@@ -299,19 +299,15 @@ class StepLevelFeature:
     kind: ClassVar[str] = "step_level"
 
     def parameters(self) -> list[DimParameter]:
+        # Both height and position are correlated SETS routed as a whole through their
+        # auto-pass renderers (render_height_ladder / render_step_positions), like the
+        # turned-step chain — never flattened into per-value span dims. So neither carries
+        # a span; a single `role=` intent rebuilds the whole ladder / all shoulders.
         _di = {"x": 0, "y": 1, "z": 2}
-        dims = [DimParameter("length", "step_height", z - self.base) for z in self.levels]
-        for axis, pos in self.shoulders:
-            # A datum→shoulder span so the position is an editable linear dim (like
-            # PlateFeature.thickness), not a value-only leader callout: measured from the
-            # datum corner along the shoulder's axis.
-            dx, dy, dz = self.datum
-            p1 = (dx, dy, dz)
-            p2 = (pos, dy, dz) if axis == "x" else (dx, pos, dz)
-            dims.append(
-                DimParameter("length", "step_position", pos - self.datum[_di[axis]], span=(p1, p2))
-            )
-        return dims
+        return [DimParameter("length", "step_height", z - self.base) for z in self.levels] + [
+            DimParameter("length", "step_position", pos - self.datum[_di[axis]])
+            for axis, pos in self.shoulders
+        ]
 
     def references(self) -> list[Datum]:
         return []

@@ -65,6 +65,15 @@ def find_step_shoulders(part, levels, min_area_frac: float = 0.15, tol: float = 
     walls (a through slot has no step level). ``axis`` is the riser's normal axis
     ("x"/"y"); ``position`` is the world coord of the shoulder along it.
 
+    The riser must also span the WHOLE part edge-to-edge on its perpendicular in-plane
+    axis (reach both envelope edges within *tol*); this is what separates a step/rebate
+    from a raised pad/island or a blind pocket, whose walls rise from a level but are
+    bounded. The conservative side of that cut: a partial *corner notch* (a step reaching
+    only one edge) or a step whose riser is inset from the edges by end fillets/chamfers
+    larger than *tol* is not recognised — the alternative, loosening the span test,
+    re-admits pads/pockets, so the full-span sharp-edged step is the recognised class
+    (partial/filleted-end steps are a future refinement).
+
     Returns a sorted, deduplicated list. Empty when *levels* is empty (no step) or no
     riser qualifies.
     """
