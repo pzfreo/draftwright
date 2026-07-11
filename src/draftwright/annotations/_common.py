@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from build123d_drafting.helpers import Dimension, SafeDimension
 
 from draftwright.layout import StripCandidate, plan_strip
+from draftwright.linting.structural import _centerline_extent
 
 _log = logging.getLogger(__name__)
 
@@ -100,6 +101,75 @@ CROSSABLE_TYPES = frozenset({"Centerline", "CenterlineCircle", "CenterMark"})
 """Annotation types a *dimension* may legitimately cross (ISO 128): centre lines
 and centre marks. A **leader**, by contrast, must avoid them (#305) — so this is a
 per-consumer choice, passed as ``crossable`` to :func:`strip_obstacles`."""
+
+
+def clear_label_of_centerlines(label_bbox, centerlines, gap):
+    """``label_offset_x`` so *label_bbox* clears every crossing centre-line-family
+    annotation in *centerlines* (#129) — both a turned part's thin vertical/
+    horizontal axis :class:`Centerline` and a bolt-circle's wide
+    :class:`CenterlineCircle`.
+
+    Two steps. First, decide whether the label's UNSHIFTED position is already
+    fine: a crossing only counts past 0.5 mm of depth (a thin line, off its
+    midpoint) or overlap (a wide bbox) — the same threshold
+    :func:`draftwright.linting.structural.lint_drawing`'s
+    ``label_centerline_overlap`` flags — so a marginal graze the lint would not
+    flag leaves the label untouched. If nothing crosses by that measure, return
+    0.0 without moving anything.
+
+    Otherwise, every centre line the label's row (Y-extent) genuinely reaches —
+    *regardless of its own individual X depth* — becomes one forbidden interval
+    for the label's LEFT edge (`x`: the label occupies `[x, x+width]`, so it
+    clears a crossing's `[c0, c1]` by *gap* exactly when `x` is outside
+    `(c0-gap-width, c1+gap)`), carved from a generous span via
+    :func:`carve_free_segments` — the same occupancy-carve primitive this
+    module's other placers use for the dimension *line* itself. Including every
+    reachable centre line here, not just the ones individually past the 0.5 mm
+    threshold, matters: once the label is going to move at all, a centre line
+    it barely grazed at the ORIGINAL position can end up squarely inside the
+    NEW one — this joint carve accounts for all of them in one pass, so moving
+    to clear one can never expose a violation against another (the bug class
+    an earlier per-centre-line local-search design had, #129 second review). A
+    thin **horizontal** line can't be cleared by an X shift at all, so it is
+    excluded and left to the lint/repair safety net."""
+    if label_bbox is None:
+        return 0.0
+    lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
+    label_w = lmax_x - lmin_x
+    extents = []
+    natural_violation = False
+    for cl in centerlines:
+        if not getattr(cl, "is_centerline", False):
+            continue
+        try:
+            cl_min_x, cl_min_y, cl_max_x, cl_max_y = _centerline_extent(cl)
+        except Exception:
+            continue
+        if cl_max_y - cl_min_y < 0.1:
+            continue  # a horizontal line's clash can't be fixed by an X shift
+        oy = min(lmax_y, cl_max_y) - max(lmin_y, cl_min_y)
+        if oy <= 0.5:
+            continue  # no real vertical overlap — matches the lint's own oy>0.5 gate
+        extents.append((cl_min_x, cl_max_x))
+        if cl_max_x - cl_min_x < 0.1:
+            cl_x = (cl_min_x + cl_max_x) / 2.0
+            ox = min(cl_x - lmin_x, lmax_x - cl_x) if lmin_x < cl_x < lmax_x else 0.0
+        else:
+            ox = min(lmax_x, cl_max_x) - max(lmin_x, cl_min_x)
+        natural_violation = natural_violation or ox > 0.5
+    if not natural_violation:
+        return 0.0  # already clear enough that the lint would not flag it
+    forbidden = [(cl_min_x - gap - label_w, cl_max_x + gap) for cl_min_x, cl_max_x in extents]
+    # A span this wide beyond every forbidden edge is free even if every interval
+    # merged into one contiguous run (their combined width can never exceed the
+    # sum of the individual widths) — carve_free_segments is therefore guaranteed
+    # a non-empty result; no defensive empty-result fallback needed.
+    total_w = sum(f1 - f0 for f0, f1 in forbidden) + label_w + 10.0
+    lo = min([lmin_x, *(f0 for f0, _ in forbidden)]) - total_w
+    hi = max([lmax_x, *(f1 for _, f1 in forbidden)]) + total_w
+    segs = carve_free_segments(lo, hi, forbidden, 0.0)
+    target_x = min((min(max(lmin_x, s0), s1) for s0, s1 in segs), key=lambda x: abs(x - lmin_x))
+    return target_x - lmin_x
 
 
 def strip_obstacles(dwg, view=None, *, crossable=()):
@@ -226,6 +296,21 @@ def _box_hits(bb, boxes):
         if min(bb[2], c[2]) > max(bb[0], c[0]) and min(bb[3], c[3]) > max(bb[1], c[1]):
             return True
     return False
+
+
+def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
+    """True when ``bb`` is fully inside *page_box* and hits none of *obstacles*
+    (:func:`_box_hits`) — the safety check a shifted label must pass before a
+    caller accepts it over an unshifted fallback (#129 review: this was inline
+    in ``holes.py``'s ``_clear_and_validate`` and untestable in isolation)."""
+    return (
+        bb is not None
+        and bb[0] >= page_box[0]
+        and bb[1] >= page_box[1]
+        and bb[2] <= page_box[2]
+        and bb[3] <= page_box[3]
+        and not _box_hits(bb, obstacles)
+    )
 
 
 def _segment_hits_box(p1, p2, box) -> bool:
