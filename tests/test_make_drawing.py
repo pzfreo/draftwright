@@ -105,6 +105,73 @@ class TestDedupDiams:
         assert result == [20.0, 10.0, 5.0]
 
 
+def _plate_labels(d):
+    return sorted(str(o.label) for o in d._named.values() if getattr(o, "label", None))
+
+
+def _l_bracket():
+    # A multi-plate L-prismatic (#559): base plate 10 thick (Z) + upright wall 10 thick
+    # (Y), each drilled. The regression fixture the issue asks for.
+    part = Pos(0, 0, 5) * Box(80, 60, 10) + Pos(0, 25, 35) * Box(80, 10, 50)
+    for cx in (-24, 24):
+        part -= Pos(cx, -15, 5) * Cylinder(5, 12)  # base holes (Z)
+    for cx in (-22, 22):
+        part -= Pos(cx, 25, 38) * Rotation(90, 0, 0) * Cylinder(4, 14)  # wall holes (Y)
+    return part
+
+
+class TestPlateThickness:
+    """#559: plate/wall thicknesses on a multi-plate prismatic are dimensioned via a
+    recognised `PlateFeature`, not left to the overall envelope."""
+
+    def test_bracket_plate_thicknesses_dimensioned(self):
+        # The issue's acceptance test. Both plates are 10 thick; on `main` neither
+        # thickness was dimensioned. The `15` is the base-hole row Y-location — confirmed
+        # ground-truth-valid (base plate -Y edge -30 → hole row -15), so it STAYS (its
+        # placement legibility is tracked separately as #564); the original comment's
+        # `"15" not in lbl` was stale against the issue body and is corrected here.
+        dwg = build_drawing(_l_bracket(), number="X")
+        lbl = _plate_labels(dwg)
+        assert lbl.count("10") == 2  # BOTH plate thicknesses (base Z + wall Y) — were ABSENT
+        assert "15" in lbl  # valid base-hole location dim — unchanged (see #564)
+        # thickness dims come from recognised prismatic feature intent, not a view heuristic
+        plate_dims = {n: dwg._named[n].label for n in dwg._named if n.startswith("dim_plate")}
+        assert sorted(plate_dims.values()) == ["10", "10"]
+        # base thickness in the front elevation, wall thickness in the side (end) view —
+        # different characteristic views so the two legs read as distinct features (#559).
+        assert {dwg.view_of(n) for n in plate_dims} == {"front", "side"}
+        assert dwg.view_of("dim_plate_z0") == "front"  # base plate (Z)
+        assert dwg.view_of("dim_plate_y0") == "side"  # wall (Y)
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    def test_single_flat_plate_has_no_plate_thickness_dim(self):
+        # A single plate's thickness IS the overall height (dim_height) — the plate
+        # recogniser must not add a duplicate.
+        dwg = build_drawing(Box(80, 60, 10), number="X")
+        assert not [n for n in dwg._named if n.startswith("dim_plate")]
+        assert _plate_labels(dwg).count("10") == 1  # only dim_height
+
+    def test_channel_gap_is_not_read_as_a_plate(self):
+        # A U-channel has two upright walls with AIR between them (facing +Y/-Y inward) —
+        # the opposite face arrangement from a plate. The recogniser must not emit a
+        # thickness across the gap.
+        part = (
+            Box(80, 60, 10) + Pos(0, -25, 30) * Box(80, 10, 40) + Pos(0, 25, 30) * Box(80, 10, 40)
+        )
+        dwg = build_drawing(part, number="X")
+        plate_vals = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_plate"))
+        # each 10-thick wall is a plate (Y), but the 40 mm air gap between them is NOT
+        assert "40" not in plate_vals
+        assert "50" not in plate_vals
+
+    def test_rotational_part_has_no_plate_dims(self):
+        # A turned/rotational part's extents are the OD / length chain, not plate
+        # thicknesses — plate detection is gated off for it.
+        part = Cylinder(20, 8)  # a thin disc: thin in Z, but rotational
+        dwg = build_drawing(part, number="X")
+        assert not [n for n in dwg._named if n.startswith("dim_plate")]
+
+
 class TestStepSizingConvergence:
     def test_step_sizing_converges_past_the_old_three_pass_limit(self):
         measure_calls = []
