@@ -970,7 +970,9 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
         centerlines = [
             o for _, o in dwg.annotations_in_view(view) if getattr(o, "is_centerline", False)
         ]
-        lox = clear_label_of_centerlines(dim.label_bbox, centerlines, gap=1.0)
+        lox = clear_label_of_centerlines(
+            dim.label_bbox, centerlines, gap=dwg.draft.pad_around_text
+        )
         if not lox:
             return dim, dim
         return _make(off, side_vec, label_offset_x=lox), dim
