@@ -1227,19 +1227,46 @@ def test_clear_label_of_centerlines_requires_real_depth_not_just_containment():
     assert got == 0.0
 
 
-def test_clear_label_of_centerlines_clears_two_well_separated_centerlines():
-    # #129 review: a single forward pass over multiple centerlines could clear one and
-    # silently re-cross an earlier one already cleared. With two centerlines far enough
-    # apart that a position clearing both exists, the result must clear both — not just
-    # whichever was processed last.
+def test_clear_label_of_centerlines_merges_adjacent_forbidden_intervals():
+    # #129 fourth review: the joint carve routes through carve_free_segments, which only
+    # merges forbidden intervals that actually touch/overlap — two close-together
+    # centerlines (5 and 8) produce overlapping forbidden zones that must merge into ONE
+    # block, while a third, distant one (50) stays separate and must not disturb the
+    # result. Exercises the interval-merge path a 2-centerline case can't distinguish from
+    # a correct implementation (superseded the old "two well separated centerlines" case,
+    # which no longer stresses anything a harder test doesn't already cover).
     from draftwright.annotations._common import clear_label_of_centerlines
 
-    cl1 = _FakeCenterline(3, -10, 3, 20)
-    cl2 = _FakeCenterline(43, -10, 43, 20)
-    total = clear_label_of_centerlines((0, 0, 10, 10), [cl1, cl2], gap=1)
+    cl1 = _FakeCenterline(5, -100, 5, 100)
+    cl2 = _FakeCenterline(8, -100, 8, 100)
+    cl3 = _FakeCenterline(50, -100, 50, 100)
+    total = clear_label_of_centerlines((0, 0, 10, 10), [cl1, cl2, cl3], gap=1)
     lo, hi = total, 10 + total
-    assert not (lo < 3 < hi), "still overlaps the first centerline"
-    assert not (lo < 43 < hi), "still overlaps the second centerline"
+    assert not (lo < 5 < hi), "still overlaps the first (merged-block) centerline"
+    assert not (lo < 8 < hi), "still overlaps the second (merged-block) centerline"
+    assert not (lo < 50 < hi), "still overlaps the distant, separate centerline"
+
+
+def test_clear_label_of_centerlines_folds_in_a_centerline_that_only_grazed_the_natural_position():
+    # #129 fourth review: the docstring's core claim about why every reachable centerline
+    # is carved (not just the ones individually past the 0.5mm natural-position threshold)
+    # is that a centerline with ZERO overlap at the natural position can still end up
+    # inside the position a shift lands on. Proven here: with only cl_v, the nearest clear
+    # position is -6.0 (verified below); placing cl_graze exactly where that landing spot
+    # would be (and nowhere near the natural [0,10] position, so it contributes nothing to
+    # the natural-violation check) must change the outcome to a position clearing both.
+    from draftwright.annotations._common import clear_label_of_centerlines
+
+    cl_v = _FakeCenterline(5, -100, 5, 100)
+    solo = clear_label_of_centerlines((0, 0, 10, 10), [cl_v], gap=1)
+    assert solo == -6.0, f"solo-centerline baseline drifted (was -6.0), got {solo}"
+
+    cl_graze = _FakeCenterline(-3, -100, -3, 100)  # inside [-6, 4], outside natural [0, 10]
+    both = clear_label_of_centerlines((0, 0, 10, 10), [cl_v, cl_graze], gap=1)
+    assert both != solo, "the graze centerline was not folded into the forbidden set"
+    lo, hi = both, 10 + both
+    assert not (lo < 5 < hi), "still overlaps cl_v"
+    assert not (lo < -3 < hi), "still overlaps the folded-in graze centerline"
 
 
 def test_clear_label_of_centerlines_recovers_from_a_cascading_re_violation():
