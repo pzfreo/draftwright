@@ -135,11 +135,15 @@ def _feature_line(f) -> str:
             f"))   # envelope {_n(f.width)} × {_n(f.height)} × {_n(f.depth)}"
         )
     if k == "step_level":
+        # Carry shoulders + datum (#555) so the declared model still constrains the step
+        # POSITION, not just its heights.
+        _sh = "".join(f"({a!r}, {_n(p)}), " for a, p in f.shoulders)
         return (
             "sheet.add(StepLevelFeature("
             f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
-            f"base={_n(f.base)}, levels={_tuple_arg(f.levels)}"
-            "))   # prismatic height ladder"
+            f"base={_n(f.base)}, levels={_tuple_arg(f.levels)}, "
+            f"shoulders=({_sh}), datum={_pt(f.datum)}"
+            "))   # prismatic height ladder + shoulder position(s)"
         )
     if k == "hole":
         return _hole_line(f)

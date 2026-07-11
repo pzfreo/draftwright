@@ -94,8 +94,19 @@ def find_step_shoulders(part, levels, min_area_frac: float = 0.15, tol: float = 
             continue  # interior only — an envelope face is not a shoulder
         fb = f.bounding_box()
         if not any(abs(fb.min.Z - z) < tol for z in levels):
-            continue  # rises from a step level (not a slot/pocket wall)
+            continue  # rises from a step level (not a through slot's wall)
         other = "y" if axis == "x" else "x"
+        # A step/rebate shoulder crosses the WHOLE part edge-to-edge on the
+        # perpendicular in-plane axis — its riser reaches both envelope edges. A raised
+        # pad / island or a blind pocket has bounded walls that do NOT span the part, so
+        # this excludes them (they rise from a level and can clear the area gate, but
+        # they are not steps — the level tie alone doesn't separate a blind pocket from a
+        # through slot). Without this, a central pad or blind pocket is mis-located as a
+        # shoulder (#555 review).
+        flo = fb.min.X if other == "x" else fb.min.Y
+        fhi = fb.max.X if other == "x" else fb.max.Y
+        if flo > lo[other] + tol or fhi < hi[other] - tol:
+            continue  # not full-span → a pad/pocket wall, not a step shoulder
         cross = ext[other] * ext["z"]
         props = GProp_GProps()
         BRepGProp.SurfaceProperties_s(f.wrapped, props)

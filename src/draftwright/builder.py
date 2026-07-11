@@ -781,6 +781,12 @@ def _feature_listing(a: Analysis) -> str:
             body.append(
                 'dwg.dimension(f, "length", role="step_height")   # prismatic height ladder'
             )
+            # The shoulder POSITION(s) (#555) — round-trips via the datum→shoulder span.
+            for p in feat.parameters():
+                if p.role == "step_position":
+                    body.append(
+                        f'dwg.dimension(f, "length", role="step_position")   # {display(p)}'
+                    )
             continue
         for p in feat.parameters():
             if p.span is not None or kind == "slot":  # a linear dim dimension() accepts

@@ -300,10 +300,18 @@ class StepLevelFeature:
 
     def parameters(self) -> list[DimParameter]:
         _di = {"x": 0, "y": 1, "z": 2}
-        return [DimParameter("length", "step_height", z - self.base) for z in self.levels] + [
-            DimParameter("length", "step_position", pos - self.datum[_di[axis]])
-            for axis, pos in self.shoulders
-        ]
+        dims = [DimParameter("length", "step_height", z - self.base) for z in self.levels]
+        for axis, pos in self.shoulders:
+            # A datum→shoulder span so the position is an editable linear dim (like
+            # PlateFeature.thickness), not a value-only leader callout: measured from the
+            # datum corner along the shoulder's axis.
+            dx, dy, dz = self.datum
+            p1 = (dx, dy, dz)
+            p2 = (pos, dy, dz) if axis == "x" else (dx, pos, dz)
+            dims.append(
+                DimParameter("length", "step_position", pos - self.datum[_di[axis]], span=(p1, p2))
+            )
+        return dims
 
     def references(self) -> list[Datum]:
         return []
