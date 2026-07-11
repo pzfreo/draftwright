@@ -43,6 +43,7 @@ from draftwright.annotations.from_model import (
     render_rotational,
     render_slots,
     render_step_lengths,
+    render_step_positions,
 )
 from draftwright.annotations.holes import (
     _annotate_holes,
@@ -284,6 +285,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # recognised slab, placed in the view where its thin axis is visible. A single flat
     # plate has none (its thickness IS the envelope height).
     render_plates(dwg, _model, a)
+
+    # Prismatic step POSITIONS (#555): where each shoulder sits along its axis, so a
+    # stepped block is fully constrained (the heights alone leave the shoulder implicit).
+    render_step_positions(dwg, _model, a)
 
     # Side-drilled holes' in-plane (side-below) locations share the below corridor with
     # the overall envelope depth. They now queue into the same batch; the envelope's

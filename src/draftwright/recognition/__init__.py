@@ -27,7 +27,7 @@ from draftwright.recognition._features import (
     find_holes,
     full_cylinders,
 )
-from draftwright.recognition.levels import analyse_face_levels
+from draftwright.recognition.levels import analyse_face_levels, find_step_shoulders
 from draftwright.recognition.plates import Plate, find_plates
 from draftwright.recognition.slots import Slot, find_slots
 from draftwright.recognition.turned import TurnedProfile, TurnedStep, find_turned_steps
@@ -46,6 +46,7 @@ __all__ = [
     "TurnedStep",
     "analyse_cylinders",
     "analyse_face_levels",
+    "find_step_shoulders",
     "feature_diameters",
     "find_bosses",
     "find_hole_patterns",

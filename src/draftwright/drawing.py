@@ -278,6 +278,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "location_ref_dropped",
         "step_dim_dropped",
         "plate_thickness_dropped",
+        "step_position_dropped",
         "placement_unsatisfiable",
         "pmi_dropped",
     }
@@ -1208,6 +1209,7 @@ class Drawing:
             render_locations,
             render_slots,
             render_step_lengths,
+            render_step_positions,
         )
         from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
         from draftwright.annotations.orchestrator import _maybe_tabulate_holes
@@ -1317,6 +1319,19 @@ class Drawing:
             and it.kwargs.get("role") == "height"
             for it in self._intents
         )
+        # Prismatic step POSITIONS (#555) — like the height ladder, one semantic intent
+        # means "rebuild all shoulders" through render_step_positions, not per-shoulder
+        # span dims (multiple shoulders share role="step_position" and can't be picked
+        # apart by the span resolver).
+        step_position_ids = {
+            id(it)
+            for it in self._intents
+            if routable
+            and it.kind == "dimension"
+            and getattr(it.feature, "kind", None) == "step_level"
+            and it.kwargs.get("param") == "length"
+            and it.kwargs.get("role") == "step_position"
+        }
 
         # User-authored generic feature dimensions with pin/priority join the shared
         # corridor directly. Slot and turned-step length dimensions keep their specialized
@@ -1325,7 +1340,7 @@ class Drawing:
             if (
                 not routable
                 or it.kind != "dimension"
-                or id(it) in (len_ids | slot_ids | height_ladder_ids)
+                or id(it) in (len_ids | slot_ids | height_ladder_ids | step_position_ids)
                 or not (it.kwargs.get("pin") or it.kwargs.get("priority"))
                 or it.kwargs.get("side", "above") not in ("above", "below", "left", "right")
             ):
@@ -1366,6 +1381,11 @@ class Drawing:
                 assert a is not None and isinstance(model, PartModel)
                 render_height_ladder(self, model, a, include_overall=not explicit_envelope_height)
             self._intents = [it for it in self._intents if id(it) not in height_ladder_ids]
+            # (A0b) prismatic step positions through the auto-pass renderer (all shoulders).
+            if step_position_ids:
+                assert a is not None and isinstance(model, PartModel)
+                render_step_positions(self, model, a)
+            self._intents = [it for it in self._intents if id(it) not in step_position_ids]
             # (A) live-replay every intent EXCEPT the routed callouts/locates and section
             #     (furniture, step/boss callouts, dimensions, axes-restricted locates).
             i = 0
@@ -1380,6 +1400,7 @@ class Drawing:
                     | len_ids
                     | slot_ids
                     | height_ladder_ids
+                    | step_position_ids
                     | user_dim_ids
                 ):
                     i += 1
