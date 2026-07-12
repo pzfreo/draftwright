@@ -853,6 +853,62 @@ def _envelope_tier(dwg, strip, view, size):
     return max(fitting, key=lambda s: s[1])[0]  # above/right: outermost = largest coords
 
 
+def render_chamfers(dwg, model, a) -> int:
+    """Chamfer callouts (#560): a leader from each recognised chamfer face to its
+    ``C{leg}`` / ``{leg}×{angle}°`` label, in the view normal to the chamfered edge (a Z
+    edge reads in the plan, an X edge in the side, a Y edge in the front). The leader runs
+    diagonally OUT of the corner the chamfer sits on into clear margin, and is dropped
+    (lint, not silently) if it would overprint placed geometry. Returns the count placed."""
+    draft = dwg.draft
+    view_of = {"z": "plan", "x": "side", "y": "front"}
+    chamfers = [f for f in model.features if f.kind == "chamfer"]
+    n = 0
+    for i, ch in enumerate(sorted(chamfers, key=lambda f: (f.axis, f.frame.origin))):
+        view = view_of.get(ch.axis)
+        if view is None:
+            continue
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        x0, y0, x1, y1 = vb
+        ox, oy, oz = ch.frame.origin
+        tip = dwg.at(view, ox, oy, oz)
+        # Lead diagonally outward from the view centre through the chamfer corner into
+        # the margin; a chamfer sits on a corner, so this clears the part silhouette.
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        dx, dy = tip[0] - cx, tip[1] - cy
+        d = math.hypot(dx, dy) or 1.0
+        reach = draft.font_size + 6 * draft.pad_around_text
+        elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
+        ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=ch.callout(), draft=draft)
+        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        # The LABEL must land in clear margin: outside the view silhouette (a leader may
+        # cross into the view but its text must not sit over the part), off other
+        # annotations, and on-page. Checked on the label box, not the whole leader.
+        label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
+        page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+        if (
+            label is None
+            or _box_hits(label, obstacles)
+            or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
+            or (
+                label[0] < page[0]
+                or label[1] < page[1]
+                or label[2] > page[2]
+                or label[3] > page[3]
+            )
+        ):
+            dwg._record_build_issue(
+                "warning",
+                "chamfer_dropped",
+                f"chamfer callout {ch.callout()} not placed (no clear room)",
+            )
+            continue
+        dwg.add(ldr, f"m_chamfer_{ch.axis}{i}", view=view, feature=ch)
+        n += 1
+    return n
+
+
 def render_plates(dwg, model, a) -> int:
     """Plate/wall thicknesses (#559): the thin extent of each recognised slab
     (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z

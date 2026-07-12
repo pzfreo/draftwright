@@ -27,6 +27,7 @@ from draftwright.recognition._features import (
     find_holes,
     full_cylinders,
 )
+from draftwright.recognition.chamfers import Chamfer, find_chamfers
 from draftwright.recognition.levels import analyse_face_levels, find_step_shoulders
 from draftwright.recognition.plates import Plate, find_plates
 from draftwright.recognition.slots import Slot, find_slots
@@ -34,6 +35,7 @@ from draftwright.recognition.turned import TurnedProfile, TurnedStep, find_turne
 
 __all__ = [
     "BoltCircle",
+    "Chamfer",
     "BossFeature",
     "CounterBore",
     "HoleFeature",
@@ -49,6 +51,7 @@ __all__ = [
     "find_step_shoulders",
     "feature_diameters",
     "find_bosses",
+    "find_chamfers",
     "find_hole_patterns",
     "find_holes",
     "find_plates",

@@ -279,6 +279,38 @@ class BossFeature:
 
 
 @dataclass(frozen=True)
+class ChamferFeature:
+    """A chamfered (bevelled) edge (#560), called out ``C{leg}`` for an equal-leg 45°
+    chamfer or ``{leg} × {angle}°`` otherwise. ``axis`` is the chamfered edge's direction;
+    ``leg1``/``leg2`` are the cut depths into the two adjacent faces (equal for 45°);
+    ``angle`` is the chamfer angle (degrees). The recogniser recovers both legs from the
+    geometry, so an asymmetric chamfer is distinguished from an equal-leg one — the size
+    is not estimated from the rendered view (#560 acceptance)."""
+
+    frame: Frame
+    axis: str
+    leg1: float
+    leg2: float
+    angle: float
+    kind: ClassVar[str] = "chamfer"
+
+    @property
+    def equal_leg(self) -> bool:
+        return abs(self.leg1 - self.leg2) < 0.05
+
+    def callout(self) -> str:
+        if self.equal_leg and abs(self.angle - 45.0) < 0.5:
+            return f"C{_fmt(self.leg1)}"
+        return f"{_fmt(self.leg1)} × {_fmt(self.angle)}°"
+
+    def parameters(self) -> list[DimParameter]:
+        return [DimParameter("length", "chamfer", self.leg1)]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class StepLevelFeature:
     """The prismatic height profile — horizontal face levels (Z) dimensioned from the
     base, stacked right of the front view (#237). The turned analogue is `StepFeature`

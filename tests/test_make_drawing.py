@@ -268,6 +268,156 @@ class TestStepPosition:
         assert "20" in labels
 
 
+def _chamfer_text(dwg):
+    return " ".join(
+        str(getattr(o, "label", "") or getattr(o, "text", "") or "") for o in dwg._named.values()
+    )
+
+
+class TestChamferCallout:
+    """#560: a chamfered edge is called out (C{leg} / {leg}×{angle}°) from a recognised
+    ChamferFeature, not left as an undimensioned bevel."""
+
+    def _chamfered_plate(self, *legs):
+        from build123d import Axis, chamfer
+
+        plate = Box(90, 60, 20)
+        e = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)[-1]
+        return chamfer(e, *legs)
+
+    def test_chamfer_called_out(self):
+        # The issue's acceptance test: a 45° equal-leg 12 chamfer must carry "12".
+        dwg = build_drawing(self._chamfered_plate(12), number="X")
+        assert "12" in _chamfer_text(dwg)  # C12 — was ABSENT
+
+    def test_equal_leg_45_uses_c_form_and_participates_in_lint(self):
+        # The callout is a real placed leader (named, in a view) and the sheet lints clean.
+        dwg = build_drawing(self._chamfered_plate(12), number="X")
+        callouts = {n: dwg._named[n].label for n in dwg._named if n.startswith("m_chamfer")}
+        assert list(callouts.values()) == ["C12"]
+        assert all(dwg.view_of(n) == "plan" for n in callouts)  # Z-edge reads in the plan
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    def test_recognised_through_ir_not_inferred(self):
+        # Represented as a ChamferFeature carrying both legs + angle (so equal vs
+        # asymmetric is recovered from geometry, not the rendered view).
+        m = build_drawing(self._chamfered_plate(12), number="X").model()
+        ch = next((f for f in m.features if f.kind == "chamfer"), None)
+        assert ch is not None
+        assert ch.equal_leg and abs(ch.angle - 45.0) < 0.5 and abs(ch.leg1 - 12) < 0.05
+
+    def test_asymmetric_chamfer_distinguished(self):
+        # Unequal legs → NOT a C-form callout. Pin the recovered magnitudes: leg1 the
+        # larger (14), leg2 the smaller (8), angle = atan2(8, 14) ≈ 29.7° — the asymmetric
+        # size is the whole point of carrying both legs in the IR (#560), so a mis-measured
+        # magnitude must not slip through on callout-form alone.
+        dwg = build_drawing(self._chamfered_plate(8, 14), number="X")
+        ch = next(f for f in dwg.model().features if f.kind == "chamfer")
+        assert not ch.equal_leg
+        assert abs(ch.leg1 - 14) < 0.05 and abs(ch.leg2 - 8) < 0.05
+        assert abs(ch.angle - 29.74) < 0.5
+        callout = next(dwg._named[n].label for n in dwg._named if n.startswith("m_chamfer"))
+        assert "C" not in callout and "°" in callout
+
+    def test_x_edge_chamfer_reads_in_side_view(self):
+        from build123d import Axis, chamfer
+
+        part = Box(60, 40, 30)
+        e = part.edges().filter_by(Axis.X).sort_by(lambda e: e.center().Y + e.center().Z)[-1]
+        dwg = build_drawing(chamfer(e, 6), number="X")
+        callouts = {n: dwg.view_of(n) for n in dwg._named if n.startswith("m_chamfer")}
+        assert callouts and set(callouts.values()) == {"side"}
+
+    def test_plain_box_has_no_chamfer_callout(self):
+        dwg = build_drawing(Box(40, 30, 12), number="X")
+        assert not [n for n in dwg._named if n.startswith("m_chamfer")]
+
+    def test_turned_part_has_no_chamfer_feature(self):
+        # A turned part's chamfers are conical (not oblique planar) — none recognised.
+        dwg = build_drawing(Cylinder(20, 10), number="X")
+        assert not [f for f in dwg.model().features if f.kind == "chamfer"]
+
+    def test_leg_is_measured_from_the_local_face_not_the_outermost(self):
+        # #560 review: the leg must come from the chamfer face's own extent, not the
+        # distance to the part's outermost wall. A 6 mm chamfer on the top box of a
+        # stepped part must read C6, NOT C36 (base wall at x=45 vs top wall at x=25).
+        from build123d import Axis, chamfer
+
+        part = Box(90, 60, 10) + Pos(0, 0, 10) * Box(50, 40, 10)
+        e = (
+            part.edges()
+            .filter_by(Axis.Z)
+            .group_by(lambda e: e.center().Z)[-1]
+            .sort_by(lambda e: e.center().X + e.center().Y)[-1]
+        )
+        dwg = build_drawing(chamfer(e, 6), number="X")
+        chamfers = [f for f in dwg.model().features if f.kind == "chamfer"]
+        assert len(chamfers) == 1
+        assert chamfers[0].callout() == "C6"
+
+    def test_hex_prism_side_faces_are_not_chamfers(self):
+        # #560 review: a polygon prism's oblique sides are REAL faces, not chamfers — they
+        # abut oblique neighbours, not two perpendicular axis-aligned faces. None fire.
+        from build123d import RegularPolygon, extrude
+
+        dwg = build_drawing(extrude(RegularPolygon(20, 6), 30), number="X")
+        assert not [f for f in dwg.model().features if f.kind == "chamfer"]
+
+    def test_structural_ramp_is_not_a_chamfer(self):
+        # #560 review: a large sloped face spanning the part (a wedge/ramp) is structural,
+        # not an edge break — the size gate excludes it.
+        from build123d import Axis, chamfer
+
+        wedge = chamfer(
+            Box(60, 40, 40).edges().filter_by(Axis.X).sort_by(lambda e: e.center().Z)[-1], 30
+        )
+        dwg = build_drawing(wedge, number="X")
+        assert not [f for f in dwg.model().features if f.kind == "chamfer"]
+
+    def test_corner_gusset_is_not_a_chamfer(self):
+        # #560 review (BLOCKER): a structural triangular gusset/rib bracing a wall to a
+        # floor bevels a CONCAVE re-entrant corner — its virtual corner is buried inside
+        # the material, so the convex-edge test rejects it. A chamfer removes material from
+        # a CONVEX edge (virtual corner in vacuum). Face-normal + adjacency alone can't tell
+        # them apart; both abut two perpendicular walls.
+        from build123d import Edge, Face, Vector, Wire, extrude
+
+        base = Box(120, 80, 8)  # top z=4
+        wall = Pos(-56, 0, 24) * Box(8, 80, 40)  # inner face x=-52
+        # Right-triangle prism flush on the wall (x=-52) and floor (z=4), hypotenuse facing
+        # out — the classic corner brace.
+        pts = [Vector(-52, -35, 4), Vector(-40, -35, 4), Vector(-52, -35, 16)]
+        tri = Face(Wire([Edge.make_line(pts[i], pts[(i + 1) % 3]) for i in range(3)]))
+        dwg = build_drawing(base + wall + extrude(tri, amount=70), number="X")
+        assert not [f for f in dwg.model().features if f.kind == "chamfer"]
+
+    def test_single_axis_spanning_ramp_is_not_a_chamfer(self):
+        # #560 review r3 (BLOCKER): a long shallow ramp that spans most of one axis but is
+        # thin on the other is a structural wedge, not an edge break. The size gate rejects
+        # any bevel whose larger leg exceeds a fraction of the part's largest dimension —
+        # measured against the whole part, so it catches a single-axis ramp yet keeps a
+        # small plate edge-break.
+        from build123d import Axis, chamfer
+
+        e = Box(100, 20, 30).edges().filter_by(Axis.Y).sort_by(lambda e: e.center().Z)[-1]
+        dwg = build_drawing(chamfer(e, 12, 80), number="X")
+        assert not [f for f in dwg.model().features if f.kind == "chamfer"]
+
+    def test_thin_plate_edge_break_is_recognised(self):
+        # #560 review (BLOCKER): a routine 2.5 mm edge break on 4 mm sheet was silently
+        # dropped because one leg (into the thin thickness axis) exceeded half that small
+        # extent. The wedge gate now excludes only a ramp large on BOTH in-plane axes, so a
+        # plate edge chamfer survives.
+        from build123d import chamfer
+
+        p = Box(80, 50, 4)
+        e = p.edges().group_by(lambda e: e.center().Z)[-1].sort_by(lambda e: e.center().Y)[-1]
+        dwg = build_drawing(chamfer(e, 2.5), number="X")
+        chamfers = [f for f in dwg.model().features if f.kind == "chamfer"]
+        assert len(chamfers) == 1
+        assert chamfers[0].callout() == "C2.5"
+
+
 class TestStepSizingConvergence:
     def test_step_sizing_converges_past_the_old_three_pass_limit(self):
         measure_calls = []
