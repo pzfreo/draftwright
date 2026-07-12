@@ -128,6 +128,21 @@ re-derive or contradict them. If a change conflicts with an ADR, amend the ADR
 in the same PR (status, reasoning, date) rather than silently diverging — and if
 a decision turns out wrong, record that too.
 
+**Assess architectural fit — always.** An issue, a PR, and a review are each
+incomplete until they weigh the change against the ADRs, not just its local
+correctness. Ask: does this feature round-trip **all** the surfaces its kind
+requires — recognise **+** emit **+** declare (ADR 0011 / epic #574; no
+recognition-only debt)? Does it fit the compiler pipeline and one-inventory waist
+(ADR 0008)? Does it conform to the recogniser contract (ADR 0013)? Does it sit
+where it belongs in the DAG, or re-introduce a coupling an ADR removed? A change
+that is locally correct but architecturally off-pattern *is* tech debt — call it
+out in the issue/PR/review, not after merge.
+
+When an ADR has grown unwieldy with amendments, read its **Current decision**
+header first (the amended state in one place); the amendments below are the *why*
+trail. Once an ADR passes ~3–4 amendments, prefer a new **superseding** ADR over
+amendment N+1.
+
 Current ADRs:
 - **0001** — deterministic generation over an editable DSL.
 - **0002** — iterate via lint-critique and domain-repair (repair is a *safety
