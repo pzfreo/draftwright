@@ -76,13 +76,16 @@ def _hole_line(f) -> str:
 
 def _member_hole_str(m) -> str:
     """The ``hole(...)`` template for a pattern member — carries its ⌀ AND its
-    counterbore / spotface / blind-depth so a counterbored bolt circle keeps those
-    callouts on re-run (declare.hole takes depth=/through=/cbore=/spotface= kwargs)."""
+    counterbore / spotface / countersink / blind-depth so a counterbored or countersunk
+    bolt circle keeps those callouts on re-run (declare.hole takes depth=/through=/cbore=/
+    spotface=/csink= kwargs)."""
     kw = [f"diameter={_n(m.diameter)}", f"at={_pt(m.frame.origin)}", f'axis="{m.frame.axis}"']
     if m.cbore:
         kw.append(f"cbore=({_n(m.cbore[0])}, {_n(m.cbore[1])})")
     if m.spotface:
         kw.append(f"spotface=({_n(m.spotface[0])}, {_n(m.spotface[1])})")
+    if m.csink:
+        kw.append(f"csink=({_n(m.csink[0])}, {_n(m.csink[1])})")
     if not m.through and m.depth is not None:
         kw.append(f"depth={_n(m.depth)}")
         kw.append("through=False")

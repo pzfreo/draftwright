@@ -359,6 +359,20 @@ class TestCountersink:
         with pytest.raises(ValueError):
             s.hole(diameter=6, at=(0, 0, 0), axis="z").countersink()
 
+    def test_drill_point_cone_is_rejected(self):
+        # #582 review: a single-rim drill-point cone is not a countersink (mirror recogniser).
+        from build123d import Cone
+
+        from draftwright.model.declare import read_countersink
+
+        with pytest.raises(ValueError, match="flared cone"):
+            read_countersink(Cone(0, 5, 4))
+
+    def test_rejects_impossible_angle(self):
+        # #582 review: an included angle >= 180° is not a real cone.
+        with pytest.raises(ValueError, match="180"):
+            hole(diameter=6, at=(0, 0, 0), axis="z", csink=(14, 200))
+
 
 class TestExplicitOverridesObject:
     """#451: an object supplies DEFAULTS; each explicit keyword overrides that field

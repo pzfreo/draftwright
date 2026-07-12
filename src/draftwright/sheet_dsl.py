@@ -55,7 +55,13 @@ from draftwright.model import note as _declare_note
 from draftwright.model import pattern as _pattern
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
-from draftwright.model.declare import _norm_axis, _read_cylinder, _require_positive, gdt_target
+from draftwright.model.declare import (
+    _norm_axis,
+    _read_cylinder,
+    _require_csink,
+    _require_positive,
+    gdt_target,
+)
 from draftwright.model.declare import read_bore_step as _read_bore_step
 from draftwright.model.declare import read_countersink as _read_countersink
 from draftwright.model.ir import AUTHORED_DIMENSION_KINDS, Point
@@ -163,7 +169,7 @@ class _Hole:
             angle = r_angle if angle is None else angle
         if major is None or angle is None:
             raise ValueError("countersink() needs a cone tool, or explicit major= and angle=")
-        _require_positive(**{"countersink major": major, "countersink angle": angle})
+        _require_csink("countersink", (major, angle))
         return self._set(csink=(major, angle))
 
     def _read_step(self, kind, obj, diameter, depth) -> tuple[float, float]:
