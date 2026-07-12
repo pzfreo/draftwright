@@ -18,10 +18,12 @@ meet. Four gates keep it to genuine chamfers and recover the right size:
   web fills a **concave** re-entrant corner, so that corner point is buried *inside* the
   material — the discriminator that face-normal + adjacency alone cannot make (a gusset's
   hypotenuse is also edge-adjacent to two perpendicular walls); and
-- **not a spanning wedge** — a structural ramp/wedge is large on *both* in-plane axes
-  (each leg > ``max_leg_frac`` of the part), whereas a chamfer is small on at least one.
-  Gating on both legs (not either) keeps a legitimate plate edge-break whose cut into the
-  thin thickness axis would otherwise trip a per-axis fraction of that small extent.
+- **not a spanning wedge** — a chamfer's cut is small relative to the part's *overall*
+  size, so its larger leg stays under ``max_leg_frac`` of the part's largest dimension; a
+  structural ramp/wedge/oversized bevel spans a large fraction and is excluded. Gating
+  against the whole-part size (not each leg's own axis extent) keeps a legitimate plate
+  edge-break — small in absolute terms — whose cut into a thin thickness axis would trip a
+  per-axis fraction of that small extent, while still rejecting a long shallow ramp.
 
 The two legs are the chamfer face's in-plane bbox extents, so an equal-leg and an
 asymmetric chamfer are distinguished from the geometry, not estimated from the rendered
@@ -54,10 +56,6 @@ class Chamfer:
     angle: float
     at: tuple[float, float, float]
 
-    @property
-    def equal_leg(self) -> bool:
-        return abs(self.leg1 - self.leg2) < 0.05
-
 
 def _axis_aligned_axis(face_wrapped) -> tuple[int, float] | None:
     """The axis a planar face's normal aligns with and that plane's fixed coordinate along
@@ -75,7 +73,7 @@ def _axis_aligned_axis(face_wrapped) -> tuple[int, float] | None:
     return ax, (loc.X(), loc.Y(), loc.Z())[ax]
 
 
-def find_chamfers(part, tol: float = 0.5, max_leg_frac: float = 0.5) -> list[Chamfer]:
+def find_chamfers(part, tol: float = 0.5, max_leg_frac: float = 0.45) -> list[Chamfer]:
     """Recognise the chamfers of *part* (see module docstring). Returns one
     :class:`Chamfer` per qualifying oblique face, sorted deterministically. Empty when the
     part has no chamfer. Only single-axis chamfers (running along one principal axis) are
@@ -114,8 +112,8 @@ def find_chamfers(part, tol: float = 0.5, max_leg_frac: float = 0.5) -> list[Cha
         leg_v = span[oi[1]][1] - span[oi[1]][0]
         if leg_u < tol or leg_v < tol:
             continue
-        if leg_u > max_leg_frac * ext[oi[0]] and leg_v > max_leg_frac * ext[oi[1]]:
-            continue  # a structural ramp/wedge large on *both* in-plane axes
+        if max(leg_u, leg_v) > max_leg_frac * max(ext.values()):
+            continue  # a ramp/wedge spanning a large fraction of the part — not an edge break
         # Must bridge two axis-aligned faces on distinct in-plane axes (a chamfer replaces
         # a sharp 90° edge). A hex side abuts oblique faces. Record each neighbour plane's
         # coordinate so the convex-corner test below can reconstruct the virtual corner.

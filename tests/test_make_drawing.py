@@ -307,10 +307,15 @@ class TestChamferCallout:
         assert ch.equal_leg and abs(ch.angle - 45.0) < 0.5 and abs(ch.leg1 - 12) < 0.05
 
     def test_asymmetric_chamfer_distinguished(self):
-        # Unequal legs → NOT a C-form callout; the angle is recovered (≈29.7° for 8×14).
+        # Unequal legs → NOT a C-form callout. Pin the recovered magnitudes: leg1 the
+        # larger (14), leg2 the smaller (8), angle = atan2(8, 14) ≈ 29.7° — the asymmetric
+        # size is the whole point of carrying both legs in the IR (#560), so a mis-measured
+        # magnitude must not slip through on callout-form alone.
         dwg = build_drawing(self._chamfered_plate(8, 14), number="X")
         ch = next(f for f in dwg.model().features if f.kind == "chamfer")
         assert not ch.equal_leg
+        assert abs(ch.leg1 - 14) < 0.05 and abs(ch.leg2 - 8) < 0.05
+        assert abs(ch.angle - 29.74) < 0.5
         callout = next(dwg._named[n].label for n in dwg._named if n.startswith("m_chamfer"))
         assert "C" not in callout and "°" in callout
 
@@ -384,6 +389,18 @@ class TestChamferCallout:
         pts = [Vector(-52, -35, 4), Vector(-40, -35, 4), Vector(-52, -35, 16)]
         tri = Face(Wire([Edge.make_line(pts[i], pts[(i + 1) % 3]) for i in range(3)]))
         dwg = build_drawing(base + wall + extrude(tri, amount=70), number="X")
+        assert not [f for f in dwg.model().features if f.kind == "chamfer"]
+
+    def test_single_axis_spanning_ramp_is_not_a_chamfer(self):
+        # #560 review r3 (BLOCKER): a long shallow ramp that spans most of one axis but is
+        # thin on the other is a structural wedge, not an edge break. The size gate rejects
+        # any bevel whose larger leg exceeds a fraction of the part's largest dimension —
+        # measured against the whole part, so it catches a single-axis ramp yet keeps a
+        # small plate edge-break.
+        from build123d import Axis, chamfer
+
+        e = Box(100, 20, 30).edges().filter_by(Axis.Y).sort_by(lambda e: e.center().Z)[-1]
+        dwg = build_drawing(chamfer(e, 12, 80), number="X")
         assert not [f for f in dwg.model().features if f.kind == "chamfer"]
 
     def test_thin_plate_edge_break_is_recognised(self):
