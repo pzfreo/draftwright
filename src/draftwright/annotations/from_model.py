@@ -882,12 +882,21 @@ def render_chamfers(dwg, model, a) -> int:
         elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
         ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=ch.callout(), draft=draft)
         obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        box = _anno_box(ldr)
+        # The LABEL must land in clear margin: outside the view silhouette (a leader may
+        # cross into the view but its text must not sit over the part), off other
+        # annotations, and on-page. Checked on the label box, not the whole leader.
+        label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
         page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
         if (
-            box is None
-            or _box_hits(box, obstacles)
-            or (box[0] < page[0] or box[1] < page[1] or box[2] > page[2] or box[3] > page[3])
+            label is None
+            or _box_hits(label, obstacles)
+            or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
+            or (
+                label[0] < page[0]
+                or label[1] < page[1]
+                or label[2] > page[2]
+                or label[3] > page[3]
+            )
         ):
             dwg._record_build_issue(
                 "warning",

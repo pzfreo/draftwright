@@ -332,6 +332,43 @@ class TestChamferCallout:
         dwg = build_drawing(Cylinder(20, 10), number="X")
         assert not [f for f in dwg.model().features if f.kind == "chamfer"]
 
+    def test_leg_is_measured_from_the_local_face_not_the_outermost(self):
+        # #560 review: the leg must come from the chamfer face's own extent, not the
+        # distance to the part's outermost wall. A 6 mm chamfer on the top box of a
+        # stepped part must read C6, NOT C36 (base wall at x=45 vs top wall at x=25).
+        from build123d import Axis, chamfer
+
+        part = Box(90, 60, 10) + Pos(0, 0, 10) * Box(50, 40, 10)
+        e = (
+            part.edges()
+            .filter_by(Axis.Z)
+            .group_by(lambda e: e.center().Z)[-1]
+            .sort_by(lambda e: e.center().X + e.center().Y)[-1]
+        )
+        dwg = build_drawing(chamfer(e, 6), number="X")
+        chamfers = [f for f in dwg.model().features if f.kind == "chamfer"]
+        assert len(chamfers) == 1
+        assert chamfers[0].callout() == "C6"
+
+    def test_hex_prism_side_faces_are_not_chamfers(self):
+        # #560 review: a polygon prism's oblique sides are REAL faces, not chamfers — they
+        # abut oblique neighbours, not two perpendicular axis-aligned faces. None fire.
+        from build123d import RegularPolygon, extrude
+
+        dwg = build_drawing(extrude(RegularPolygon(20, 6), 30), number="X")
+        assert not [f for f in dwg.model().features if f.kind == "chamfer"]
+
+    def test_structural_ramp_is_not_a_chamfer(self):
+        # #560 review: a large sloped face spanning the part (a wedge/ramp) is structural,
+        # not an edge break — the size gate excludes it.
+        from build123d import Axis, chamfer
+
+        wedge = chamfer(
+            Box(60, 40, 40).edges().filter_by(Axis.X).sort_by(lambda e: e.center().Z)[-1], 30
+        )
+        dwg = build_drawing(wedge, number="X")
+        assert not [f for f in dwg.model().features if f.kind == "chamfer"]
+
 
 class TestStepSizingConvergence:
     def test_step_sizing_converges_past_the_old_three_pass_limit(self):
