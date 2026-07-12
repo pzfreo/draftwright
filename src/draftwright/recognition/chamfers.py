@@ -41,9 +41,11 @@ from OCP.GeomAbs import GeomAbs_Plane
 from OCP.gp import gp_Pnt
 from OCP.TopAbs import TopAbs_IN
 
+from draftwright.recognition._record import Record
+
 
 @dataclass(frozen=True)
-class Chamfer:
+class Chamfer(Record):
     """A recognised chamfer. ``axis`` is the chamfered edge's direction ("x"/"y"/"z");
     ``leg1``/``leg2`` are the cut depths into the two adjacent faces (equal for a 45°
     chamfer, ``leg1`` the larger); ``angle`` is the chamfer angle in degrees (45 for

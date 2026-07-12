@@ -18,9 +18,11 @@ from OCP.BRepGProp import BRepGProp
 from OCP.GeomAbs import GeomAbs_Plane
 from OCP.GProp import GProp_GProps
 
+from draftwright.recognition._record import Record
+
 
 @dataclass(frozen=True, order=True)
-class FaceLevel:
+class FaceLevel(Record):
     """A recognised horizontal face level — its Z coordinate. A prismatic part's step
     heights are dimensioned from these. ``order=True`` so the recogniser returns a
     deterministically sorted list."""
@@ -29,7 +31,7 @@ class FaceLevel:
 
 
 @dataclass(frozen=True, order=True)
-class StepShoulder:
+class StepShoulder(Record):
     """A recognised step/rebate shoulder (#555). ``axis`` is the riser's normal axis
     ("x"/"y"); ``position`` is the world coord of the shoulder along it. ``order=True``
     so recognisers can return a deterministically sorted list."""

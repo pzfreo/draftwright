@@ -34,6 +34,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from draftwright.recognition._features import analyse_cylinders
+from draftwright.recognition._record import Record
 
 # A face's axial position counts as on a band edge / its normal counts as
 # axis-aligned within these tolerances (mm / unit-vector component).
@@ -56,7 +57,7 @@ _OD_FILL_MIN = 0.6
 
 
 @dataclass(frozen=True)
-class TurnedStep:
+class TurnedStep(Record):
     """One axial segment of a stepped shaft, between two shoulders (or ends). ``axis`` is
     the turning axis ("x"/"y"/"z") the segment is coaxial about — carried on the step so
     it is a **self-contained record**: ``lo``/``hi``/``diameter`` are only interpretable
@@ -73,7 +74,7 @@ class TurnedStep:
 
 
 @dataclass(frozen=True)
-class TurnedProfile:
+class TurnedProfile(Record):
     """The turned-shaft **aggregate** for the annotation pipeline — the coaxial ``steps``
     plus their shared ``axis`` and derived shoulders. **Not a recogniser return**
     (:func:`recognise_turned_steps` returns ``list[TurnedStep]`` per ADR 0013 §2); built

@@ -28,6 +28,9 @@ jobs:
       - name: Mypy
         run: uv run mypy src/draftwright/
 
+      - name: Codespell
+        run: uv run codespell src/ tests/ docs/
+
   test:
     strategy:
       fail-fast: false

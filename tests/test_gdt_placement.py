@@ -147,7 +147,7 @@ def test_invalid_glyph_spec_drops_not_crashes():
     # with a gdt_dropped warning, NOT raise ValueError and take down the whole drawing.
     frame = ControlFrame(
         frame=Frame((0.0, 0.0, 0.0), "z"),
-        characteristic="postion",  # typo — helper raises "Unknown characteristic"
+        characteristic="postion",  # codespell:ignore postion — deliberate typo; helper raises "Unknown characteristic"
         tolerance="0.1",
         view="plan",
         side="above",

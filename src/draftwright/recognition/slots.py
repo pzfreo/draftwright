@@ -34,6 +34,8 @@ from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Plane
 from OCP.TopAbs import TopAbs_Orientation
 
+from draftwright.recognition._record import Record
+
 _AXES = {"x": 0, "y": 1, "z": 2}
 # A normal counts as axis-aligned when its dominant component is within this of
 # unit length — machined slot walls are square to the stock, so this is tight.
@@ -49,7 +51,7 @@ _FLOOR_COVER_FRAC = 0.5
 
 
 @dataclass(frozen=True)
-class Slot:
+class Slot(Record):
     """A milled slot / reduced across-flats section.
 
     A slot is bounded by two opposed parallel walls facing each other.  The
