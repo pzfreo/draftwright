@@ -56,6 +56,7 @@ from draftwright.annotations.sections import (
     _request_prismatic_detail,
     _reserve_section_row,
     _resolve_details,
+    feature_hole_keys,
     feature_holes_of,
 )
 from draftwright.model import (
@@ -234,12 +235,14 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # dimensioned by the ldr_z leaders, so they are excluded here to avoid a
     # duplicate hole callout; only the off-axis features get callouts.  On a
     # prismatic part every hole flows through unchanged.
-    # The surviving feature holes + their *positions* (concentric bores excluded on
-    # rotational parts) — the IR gates callouts/furniture/sections on membership in this
-    # set, so no recogniser Hole object crosses into the renderers (Amendment 6, #263/
-    # #207). feature_holes_of is the single source shared with the section() add verb (#420).
+    # The surviving feature holes' *positions* (concentric bores excluded on rotational
+    # parts) — the IR gates callouts/furniture/sections on membership in this set, so no
+    # recogniser Hole object crosses into the renderers (Amendment 6, #263/#207).
+    # feature_hole_keys reads the IR (`_model.features`) — the single source shared with
+    # the section() add verb (#420 / #584 WP1). feature_holes (still record-typed) feeds
+    # only the off-axis side-drilled location pass below, which migrates in WP1 subsystem B.
+    feature_keys = feature_hole_keys(_model, a)
     feature_holes = feature_holes_of(a)
-    feature_keys = {HoleRef.of(h.location) for h in feature_holes}
     # ADR 0011 #448: when the caller DECLARED the model (model=), a hole/pattern renders at
     # its declared position even where detection missed it — source the callout membership
     # set from the declared IR groups too, not only a.holes. A no-op for the detection-only
