@@ -21,6 +21,9 @@ unchanged (byte-identical); only import paths and callable signatures change.
   `feature_diameters`) keeps its names.
 - **`recognise_step_shoulders` now returns `list[StepShoulder]`** (a frozen dataclass)
   instead of raw `(axis, position)` tuples; `levels` is keyword-only.
+- **Recognition record classes renamed to avoid clashing with the IR `Feature` types:**
+  `draftwright.recognition.HoleFeature` → `HoleRecord`, `BossFeature` → `BossRecord`
+  (the IR `draftwright.model.ir.HoleFeature`/`BossFeature` are unchanged).
 
 ### Removed
 

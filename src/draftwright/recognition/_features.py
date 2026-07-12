@@ -8,8 +8,8 @@ Imported via the package surface, :mod:`draftwright.recognition`.
 Recognises drilled-hole and boss features from a solid's cylindrical faces:
 
     from draftwright.recognition import recognise_holes, recognise_bosses
-    holes = recognise_holes(part)    # list[HoleFeature]
-    bosses = recognise_bosses(part)  # list[BossFeature]
+    holes = recognise_holes(part)    # list[HoleRecord]
+    bosses = recognise_bosses(part)  # list[BossRecord]
 
 A *hole* is a contiguous coaxial stack of internal full cylinders — the
 drilled bore plus optional counterbore and spotface steps — with its bottom
@@ -209,7 +209,7 @@ class CounterBore:
 
 
 @dataclass(frozen=True)
-class HoleFeature:
+class HoleRecord:
     """A drilled hole: the bore plus optional counterbore/spotface steps.
 
     ``axis`` is the drilling direction (unit vector pointing from the opening
@@ -231,7 +231,7 @@ class HoleFeature:
 
 
 @dataclass(frozen=True)
-class BossFeature:
+class BossRecord:
     """An external cylindrical boss (including a turned part's OD).
 
     ``axis`` points from the base toward the free end, ``location`` is the
@@ -466,8 +466,8 @@ def _merge_stacks(stacks, edge_faces, cache=None):
     return merged
 
 
-def recognise_holes(part, *, cyls=None) -> list[HoleFeature]:
-    """Recognise drilled holes on *part* (see :class:`HoleFeature`).
+def recognise_holes(part, *, cyls=None) -> list[HoleRecord]:
+    """Recognise drilled holes on *part* (see :class:`HoleRecord`).
 
     Coaxial internal cylinders are grouped into stacks — drill + optional
     counterbore + optional spotface become one hole, and a bore interrupted
@@ -555,7 +555,7 @@ def recognise_holes(part, *, cyls=None) -> list[HoleFeature]:
         else:
             depth = max(s["s_hi"] for s in deep_segs) - min(s["s_lo"] for s in bore_segs)
         holes.append(
-            HoleFeature(
+            HoleRecord(
                 axis=_unit(tuple(-c for c in d) if from_hi else d),
                 location=_axis_point(opening_seg, opening_s),
                 diameter=bore["diameter"],
@@ -568,9 +568,9 @@ def recognise_holes(part, *, cyls=None) -> list[HoleFeature]:
     return holes
 
 
-def recognise_bosses(part, *, cyls=None) -> list[BossFeature]:
+def recognise_bosses(part, *, cyls=None) -> list[BossRecord]:
     """Recognise external cylindrical bosses on *part* (one
-    :class:`BossFeature` per coaxial external cylinder segment, including a
+    :class:`BossRecord` per coaxial external cylinder segment, including a
     turned part's OD — callers wanting only local bosses can filter on
     diameter against the part envelope).
 
@@ -594,7 +594,7 @@ def recognise_bosses(part, *, cyls=None) -> list[BossFeature]:
         # default to the high end when both or neither are open.
         from_hi = not (lo_state == "open" and hi_state != "open")
         bosses.append(
-            BossFeature(
+            BossRecord(
                 axis=_unit(d if from_hi else tuple(-c for c in d)),
                 location=_axis_point(seg, seg["s_hi"] if from_hi else seg["s_lo"]),
                 diameter=seg["diameter"],
@@ -736,8 +736,8 @@ class HoleSpec:
     spotface: CounterBore | None
 
     @classmethod
-    def from_hole(cls, hole: HoleFeature) -> "HoleSpec":
-        """The :class:`HoleSpec` for *hole* (a :class:`HoleFeature`)."""
+    def from_hole(cls, hole: HoleRecord) -> "HoleSpec":
+        """The :class:`HoleSpec` for *hole* (a :class:`HoleRecord`)."""
         depth = None if hole.bottom == "through" else hole.depth
         axis = tuple(0.0 if abs(c) < 1e-6 else round(c, 6) for c in hole.axis)
         return cls(axis, hole.diameter, depth, hole.bottom, hole.cbore, hole.spotface)
@@ -988,7 +988,7 @@ def _rect_grid(members, pts):
 
 def recognise_hole_patterns(holes) -> list:
     """Recognise :class:`BoltCircle`, :class:`LinearArray`, and
-    :class:`RectGrid` patterns among *holes* (``HoleFeature`` records, e.g.
+    :class:`RectGrid` patterns among *holes* (``HoleRecord`` records, e.g.
     from :func:`recognise_holes`).
 
     Holes are grouped by machining spec and drilling axis, then each group is

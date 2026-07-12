@@ -29,15 +29,20 @@ build123d types leak out — they are the future ``b123d-recognisers`` surface, 
 Phase 2, and ``detect.py`` adapts a record into the dimensioning IR with no recognition
 object crossing that boundary, ADR 0008 Am6).
 
-**State of this contract (this is the naming + signature step, #568 step 0).** Naming and
-the keyword-only signatures hold for *every* recogniser now. What does **not** yet hold,
-tracked by #568:
+Two recognisers legitimately return a **scalar / singular** shape rather than a list of
+records — forcing a record there would be ceremony with no consumer benefit:
 
-- **Return shape** — ``recognise_turned_steps`` returns ``TurnedProfile | None`` (genuinely
-  a single 0-or-1 profile — whether it is even a ``list[record]`` recogniser is an open
-  design call) and ``recognise_face_levels`` returns ``list[float]`` (not yet a record).
-- **Record idiom** — the vendored ``_features.py`` records (``HoleFeature``/``BossFeature``/…)
-  predate the ``…Record`` naming and clash by name with the IR ``Feature`` types.
+- ``recognise_face_levels(part, *, ...) -> list[float]`` — a face level *is* a Z
+  coordinate; its one consumer wants the scalars, and a ``FaceLevel(z)`` wrapper would add
+  nothing.
+- ``recognise_turned_steps(part) -> TurnedProfile | None`` — a turned profile is a single
+  whole-part structure (its ``.steps``/``.axis`` are consumed together), not a list of
+  independent features; ``list`` of 0-or-1 would be awkward.
+
+These are accepted shapes, not debt. Record class names avoid the IR ``Feature`` types:
+the vendored records are ``HoleRecord`` / ``BossRecord`` (not ``HoleFeature`` /
+``BossFeature`` — those are the IR types), keeping ``from draftwright.recognition import
+HoleRecord`` unambiguous against ``from draftwright.model.ir import HoleFeature``.
 
 ``analyse_cylinders`` / ``full_cylinders`` / ``feature_diameters`` are **not** recognisers
 under this contract — they are cylinder-analysis *substrate* (a tuple of dicts / a diameter
@@ -48,9 +53,9 @@ from __future__ import annotations
 
 from draftwright.recognition._features import (
     BoltCircle,
-    BossFeature,
+    BossRecord,
     CounterBore,
-    HoleFeature,
+    HoleRecord,
     HoleSpec,
     LinearArray,
     RectGrid,
@@ -74,9 +79,9 @@ from draftwright.recognition.turned import TurnedProfile, TurnedStep, recognise_
 __all__ = [
     "BoltCircle",
     "Chamfer",
-    "BossFeature",
+    "BossRecord",
     "CounterBore",
-    "HoleFeature",
+    "HoleRecord",
     "HoleSpec",
     "LinearArray",
     "Plate",

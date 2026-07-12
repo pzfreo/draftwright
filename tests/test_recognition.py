@@ -23,9 +23,9 @@ from build123d import (
 )
 
 from draftwright.recognition import (
-    BossFeature,
+    BossRecord,
     CounterBore,
-    HoleFeature,
+    HoleRecord,
     HoleSpec,
     analyse_cylinders,
     feature_diameters,
@@ -49,7 +49,7 @@ class TestFindHoles:
     def test_plain_through_hole(self):
         holes = recognise_holes(Box(60, 60, 20) - Cylinder(5, 20))
         assert holes == [
-            HoleFeature(
+            HoleRecord(
                 axis=(0.0, 0.0, -1.0),
                 location=(0.0, 0.0, 10.0),
                 diameter=10.0,
@@ -448,7 +448,7 @@ class TestFindBosses:
     def test_boss_on_plate(self):
         part = Box(60, 60, 10) + Pos(0, 0, 5 + 4) * Cylinder(12, 8)
         assert recognise_bosses(part) == [
-            BossFeature(
+            BossRecord(
                 axis=(0.0, 0.0, 1.0),
                 location=(0.0, 0.0, 13.0),
                 diameter=24.0,
@@ -704,10 +704,10 @@ class TestFindHolePatterns:
         # LinearArray: endpoints are the farthest-apart pair, not a
         # lexicographic sort that a tiny jitter can reorder (mis-measuring the
         # span and pitch).
-        from draftwright.recognition import HoleFeature, LinearArray, recognise_hole_patterns
+        from draftwright.recognition import HoleRecord, LinearArray, recognise_hole_patterns
 
         holes = [
-            HoleFeature(
+            HoleRecord(
                 axis=(0.0, 0.0, -1.0),
                 location=(x, 1e-4 * ((i % 2) * 2 - 1), 0.0),
                 diameter=5.0,
