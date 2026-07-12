@@ -56,6 +56,7 @@ from draftwright.model import pattern as _pattern
 from draftwright.model import plate as _plate
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
+from draftwright.model import step_level as _step_level
 from draftwright.model.declare import (
     _norm_axis,
     _read_cylinder,
@@ -544,6 +545,15 @@ class Sheet:
         lo=0, hi=4, u=10, v=5)``. Only a *multi-plate* part dimensions plates (a single slab is
         the envelope)."""
         self._features.append(_plate(obj, **kw))
+        return self
+
+    def step_level(self, obj=None, **kw) -> Sheet:
+        """Declare a prismatic height ladder + step-position shoulders (a rebated / stepped
+        block) — ``sheet.step_level(part)`` reads ``base`` / interior ``levels`` / the ``(axis,
+        position)`` ``shoulders`` / ``datum`` off the part, or explicit ``sheet.step_level(base=0,
+        levels=(10,), shoulders=(("x", 30),))``. A shoulder locates *where* a step changes
+        height along a horizontal axis, so a stepped block is fully constrained (#555/#578)."""
+        self._features.append(_step_level(obj, **kw))
         return self
 
     def pattern(self, member, **kw) -> Sheet:

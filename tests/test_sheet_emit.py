@@ -84,12 +84,12 @@ class TestEmit:
         assert "# authored_dimension" not in src
         assert "source='ap242_pmi'" in src
         assert "sheet.add(PmiFeature(" in src
-        assert "sheet.add(StepLevelFeature(" in src
+        assert "sheet.step_level(" in src  # #578: fluent verb, no StepLevelFeature import
         import_line = next(
             ln for ln in src.splitlines() if ln.startswith("from draftwright.model")
         )
         assert "Frame" in import_line and "PmiFeature" in import_line
-        assert "StepLevelFeature" in import_line
+        assert "StepLevelFeature" not in import_line
 
     def test_sheet_dimension_declares_renderable_authored_dimension(self, tmp_path):
         from draftwright import Sheet
@@ -294,14 +294,28 @@ class TestEmit:
         )
         assert "cbore=(" in line  # on the member hole(...) template
 
-    def test_step_level_emits_as_ir_fallback(self):
-        # A counterbored plate carries a step_level (horizontal face levels). It must
-        # round-trip as an explicit IR fallback so the generated script preserves the
-        # front-right height ladder occupancy that other dimensions negotiate against.
+    def test_step_level_emits_fluent_verb(self):
+        # A counterbored plate carries a step_level (horizontal face levels). #578: it
+        # round-trips through the fluent sheet.step_level(...) verb (carrying levels +
+        # shoulders + datum) — no StepLevelFeature/Frame import — so the generated script
+        # preserves the front-right height ladder occupancy other dimensions negotiate against.
         part = Box(100, 70, 24) - Pos(0, 0, 0) * Cylinder(9, 40) - Pos(0, 0, 8) * Cylinder(15, 20)
         src = _script_for(part)
-        assert "sheet.add(StepLevelFeature(" in src
+        assert "sheet.step_level(" in src
+        assert "sheet.add(StepLevelFeature(" not in src
         assert "# step_level" not in src
+        ast.parse(src)
+
+    def test_step_level_emits_shoulder_positions(self):
+        # #578: a single-level rebate carries a step-position shoulder; the emit must carry
+        # a non-empty shoulders=(...) so the round-trip constrains the step POSITION, not
+        # just its heights. The base slab top is Z=5; the raised step rises from x=0.
+        part = Box(80, 40, 10) + Pos(-20, 0, 10) * Box(40, 40, 12)
+        src = _script_for(part)
+        line = next(ln for ln in src.splitlines() if "sheet.step_level(" in ln)
+        assert "shoulders=(('x', 0),)" in line  # the riser position rides the emit
+        assert "levels=(5,)" in line
+        ast.parse(src)
 
     @pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
     def test_ap242_script_keeps_side_hole_z_location_on_side_ladder(self, tmp_path):

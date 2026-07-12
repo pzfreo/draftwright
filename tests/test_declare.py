@@ -20,6 +20,7 @@ from draftwright.model import (
     PlateFeature,
     SlotFeature,
     StepFeature,
+    StepLevelFeature,
     boss,
     chamfer,
     envelope,
@@ -28,6 +29,7 @@ from draftwright.model import (
     plate,
     slot,
     step,
+    step_level,
 )
 from draftwright.sheet_dsl import _parse_scale
 
@@ -412,6 +414,51 @@ class TestPlate:
     def test_rejects_nonpositive_thickness(self):
         with pytest.raises(ValueError, match="hi > lo"):
             plate(axis="z", lo=4, hi=4, u=0, v=0)
+
+
+class TestStepLevel:
+    """#578: declare a prismatic height ladder + step-position shoulders — the emit +
+    declare surfaces for #555 (recognition landed there)."""
+
+    # A rebated block: base slab Z∈[-5,5], a raised step (x∈[-40,0]) rising from Z=5.
+    def _stepped(self):
+        return Box(80, 40, 10) + Pos(-20, 0, 10) * Box(40, 40, 12)
+
+    def test_reads_ladder_off_the_part(self):
+        f = step_level(self._stepped())
+        assert isinstance(f, StepLevelFeature)
+        assert f.base == pytest.approx(-5.0)
+        assert f.levels == pytest.approx((5.0,))  # interior level (base<z<top)
+        assert f.shoulders == (("x", 0.0),)  # single-level rebate → riser position read
+        assert f.datum == pytest.approx((-40.0, -20.0, -5.0))
+
+    def test_explicit_step_level(self):
+        f = step_level(base=0, levels=(10,), shoulders=(("X", 30),), datum=(0, 0, 0))
+        assert f.base == 0 and f.levels == (10,)
+        assert f.shoulders == (("x", 30.0),)  # axis normalised to lowercase
+
+    def test_declared_step_renders_shoulder_and_height(self):
+        # The step POSITION lands as dim_shoulder_x0 (40 = 0 − −40) alongside the height
+        # ladder — assert the dim actually renders and lint is clean, not just that the
+        # model echoes back (detection is skipped for a declared model).
+        part = self._stepped()
+        dwg = build_drawing(part, model=[step_level(part)], number="X")
+        assert dwg._named["dim_shoulder_x0"].label == "40"
+        assert "dim_height" in dwg._named
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    def test_needs_base_and_levels(self):
+        with pytest.raises(ValueError, match="base= and levels="):
+            step_level(base=0)  # no levels
+
+    def test_rejects_level_below_base(self):
+        with pytest.raises(ValueError, match="above base"):
+            step_level(base=10, levels=(5,))
+
+    def test_rejects_z_shoulder_axis(self):
+        # A shoulder POSITION is horizontal; Z is the height, not a position.
+        with pytest.raises(ValueError, match="'x' or 'y'"):
+            step_level(base=0, levels=(10,), shoulders=(("z", 5),))
 
 
 class TestExplicitOverridesObject:
