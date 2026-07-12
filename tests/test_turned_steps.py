@@ -8,7 +8,7 @@ orientation that is not flagged Z-rotational), mirroring _x_stepped_shaft.
 import pytest
 from build123d import Box, Cylinder, GeomType, Pos, Rotation
 
-from draftwright.recognition import TurnedProfile, recognise_turned_steps
+from draftwright.recognition import TurnedProfile, TurnedStep, recognise_turned_steps
 
 
 def _shaft_x(*sections):
@@ -94,3 +94,25 @@ class TestFindTurnedSteps:
 
     def test_prismatic_box_is_empty(self):
         assert recognise_turned_steps(Box(40, 40, 10)) == []
+
+
+class TestTurnedProfileFromSteps:
+    """The aggregate is now a public boundary (was invariant-by-construction), so it
+    guards the invariant that would silently corrupt its axis/shoulders."""
+
+    def test_empty_is_none(self):
+        assert TurnedProfile.from_steps([]) is None
+
+    def test_rejects_mixed_axes(self):
+        # A mixed-axis input is a programming error — fail loud, don't silently
+        # pick steps[0].axis and misrepresent the rest.
+        steps = [TurnedStep("x", 0, 10, 20), TurnedStep("y", 10, 20, 16)]
+        with pytest.raises(ValueError):
+            TurnedProfile.from_steps(steps)
+
+    def test_sorts_by_lo_so_shoulders_are_ordered(self):
+        # Out-of-order coaxial steps must still yield sorted shoulders.
+        steps = [TurnedStep("x", 40, 70, 16), TurnedStep("x", 0, 40, 30)]
+        prof = TurnedProfile.from_steps(steps)
+        assert prof is not None and prof.axis == "x"
+        assert list(prof.shoulders) == [0.0, 40.0, 70.0]

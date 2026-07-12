@@ -85,10 +85,19 @@ class TurnedProfile:
 
     @classmethod
     def from_steps(cls, steps) -> TurnedProfile | None:
-        """Aggregate a recogniser's ``list[TurnedStep]`` (all coaxial), or ``None`` if
-        empty (a non-turned part)."""
+        """Aggregate a recogniser's ``list[TurnedStep]`` into a profile, or ``None`` if
+        empty (a non-turned part). The steps must be **coaxial** — a mixed-axis input is a
+        programming error and raises (it would otherwise silently pick one axis and
+        misrepresent the rest). Steps are sorted by ``lo`` so ``shoulders`` is correct
+        regardless of input order; contiguity / non-overlap is a caller precondition (the
+        recogniser guarantees it — this aggregate does not re-validate spans)."""
         steps = tuple(steps)
-        return cls(axis=steps[0].axis, steps=steps) if steps else None
+        if not steps:
+            return None
+        axes = {s.axis for s in steps}
+        if len(axes) != 1:
+            raise ValueError(f"turned steps are not coaxial: got axes {sorted(axes)}")
+        return cls(axis=next(iter(axes)), steps=tuple(sorted(steps, key=lambda s: s.lo)))
 
     @property
     def shoulders(self) -> tuple[float, ...]:
