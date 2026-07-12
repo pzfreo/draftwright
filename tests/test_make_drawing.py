@@ -6604,6 +6604,22 @@ class TestFeatures:
         assert feats[10.0].count == 4
         assert feats[6.0].count == 1
 
+    def test_pattern_and_loose_same_spec_holes_are_separate_groups(self):
+        # #584 WP1 (B2): features()/the hole table source grouping from the IR, so a
+        # recognised pattern and same-spec LOOSE holes are DISTINCT groups (the pattern
+        # keeps its bolt-circle callout) — not one flat spec-group. Six ø6 on a bolt
+        # circle + two loose ø6 → a count-6 pattern group AND a count-2 loose group,
+        # not one count-8 group.
+        part = Box(140, 140, 12)
+        for i in range(6):
+            ang = math.radians(60 * i + 15)
+            part -= Pos(30 * math.cos(ang), 30 * math.sin(ang), 0) * Cylinder(3, 12)
+        part -= Pos(-60, -60, 0) * Cylinder(3, 12)
+        part -= Pos(60, 60, 0) * Cylinder(3, 12)
+        dwg = build_drawing(part, number="X")
+        six = sorted(f.count for f in dwg.features("plan") if f.diameter == 6.0)
+        assert six == [2, 6]  # two ø6 groups, not one merged count-8
+
     def test_page_pos_is_in_plan_view_coordinate_range(self):
         dwg = build_drawing(_holed_plate())
         a = dwg._analysis
