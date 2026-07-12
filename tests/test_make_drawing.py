@@ -369,6 +369,37 @@ class TestChamferCallout:
         dwg = build_drawing(wedge, number="X")
         assert not [f for f in dwg.model().features if f.kind == "chamfer"]
 
+    def test_corner_gusset_is_not_a_chamfer(self):
+        # #560 review (BLOCKER): a structural triangular gusset/rib bracing a wall to a
+        # floor bevels a CONCAVE re-entrant corner — its virtual corner is buried inside
+        # the material, so the convex-edge test rejects it. A chamfer removes material from
+        # a CONVEX edge (virtual corner in vacuum). Face-normal + adjacency alone can't tell
+        # them apart; both abut two perpendicular walls.
+        from build123d import Edge, Face, Vector, Wire, extrude
+
+        base = Box(120, 80, 8)  # top z=4
+        wall = Pos(-56, 0, 24) * Box(8, 80, 40)  # inner face x=-52
+        # Right-triangle prism flush on the wall (x=-52) and floor (z=4), hypotenuse facing
+        # out — the classic corner brace.
+        pts = [Vector(-52, -35, 4), Vector(-40, -35, 4), Vector(-52, -35, 16)]
+        tri = Face(Wire([Edge.make_line(pts[i], pts[(i + 1) % 3]) for i in range(3)]))
+        dwg = build_drawing(base + wall + extrude(tri, amount=70), number="X")
+        assert not [f for f in dwg.model().features if f.kind == "chamfer"]
+
+    def test_thin_plate_edge_break_is_recognised(self):
+        # #560 review (BLOCKER): a routine 2.5 mm edge break on 4 mm sheet was silently
+        # dropped because one leg (into the thin thickness axis) exceeded half that small
+        # extent. The wedge gate now excludes only a ramp large on BOTH in-plane axes, so a
+        # plate edge chamfer survives.
+        from build123d import chamfer
+
+        p = Box(80, 50, 4)
+        e = p.edges().group_by(lambda e: e.center().Z)[-1].sort_by(lambda e: e.center().Y)[-1]
+        dwg = build_drawing(chamfer(e, 2.5), number="X")
+        chamfers = [f for f in dwg.model().features if f.kind == "chamfer"]
+        assert len(chamfers) == 1
+        assert chamfers[0].callout() == "C2.5"
+
 
 class TestStepSizingConvergence:
     def test_step_sizing_converges_past_the_old_three_pass_limit(self):
