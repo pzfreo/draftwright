@@ -146,7 +146,7 @@ def _feature_line(f) -> str:
         _sh = "(" + ", ".join(_items) + ("," if len(_items) == 1 else "") + ")"
         return (
             f"sheet.step_level(base={_n(f.base)}, levels={_tuple_arg(f.levels)}, "
-            f"shoulders={_sh}, datum={_pt(f.datum)})"
+            f"shoulders={_sh}, datum={_pt(f.datum)}, at={_pt(f.frame.origin)})"
             "   # prismatic height ladder + shoulder position(s)"
         )
     if k == "hole":

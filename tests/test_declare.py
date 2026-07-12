@@ -431,6 +431,22 @@ class TestStepLevel:
         assert f.levels == pytest.approx((5.0,))  # interior level (base<z<top)
         assert f.shoulders == (("x", 0.0),)  # single-level rebate → riser position read
         assert f.datum == pytest.approx((-40.0, -20.0, -5.0))
+        assert f.frame.origin == pytest.approx(
+            (0.0, 0.0, -5.0)
+        )  # bbox centre X/Y — matches detect
+
+    def test_object_flavour_matches_detection(self):
+        # #578 review: the object flavour must read the SAME area-filtered levels detection
+        # does — a tiny incidental face must not leak in as a phantom level (which would both
+        # add a spurious height rung AND, via len(levels)>1, suppress the shoulder dim).
+        from draftwright.builder import detect_part_model
+
+        # single-step rebate + a tiny 3×3 pad (top area 9 ≪ 1% of the 3200 footprint)
+        part = self._stepped() + Pos(35, 15, 7) * Box(3, 3, 4)
+        f = step_level(part)
+        det = next(x for x in detect_part_model(part).features if x.kind == "step_level")
+        assert f.levels == (5.0,) and f.shoulders == (("x", 0.0),)  # NOT (5.0, 9.0), ()
+        assert (f.levels, f.shoulders) == (det.levels, det.shoulders)  # parity with detection
 
     def test_explicit_step_level(self):
         f = step_level(base=0, levels=(10,), shoulders=(("X", 30),), datum=(0, 0, 0))
@@ -438,12 +454,19 @@ class TestStepLevel:
         assert f.shoulders == (("x", 30.0),)  # axis normalised to lowercase
 
     def test_declared_step_renders_shoulder_and_height(self):
-        # The step POSITION lands as dim_shoulder_x0 (40 = 0 − −40) alongside the height
-        # ladder — assert the dim actually renders and lint is clean, not just that the
-        # model echoes back (detection is skipped for a declared model).
+        # The step POSITION lands as dim_shoulder_x0 alongside the height ladder — assert
+        # the dim renders with the SAME value detection computes (position − datum) in the
+        # plan view, not just that the model echoes back (detection is skipped for a
+        # declared model). Cross-checking the declared render against the detect-path math
+        # catches a datum/axis/sign slip a hard-coded literal would miss.
+        from draftwright.builder import detect_part_model
+
         part = self._stepped()
+        det = next(x for x in detect_part_model(part).features if x.kind == "step_level")
+        expected = str(int(det.shoulders[0][1] - det.datum[0]))
         dwg = build_drawing(part, model=[step_level(part)], number="X")
-        assert dwg._named["dim_shoulder_x0"].label == "40"
+        assert dwg._named["dim_shoulder_x0"].label == expected
+        assert dwg.view_of("dim_shoulder_x0") == "plan"
         assert "dim_height" in dwg._named
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
@@ -454,6 +477,11 @@ class TestStepLevel:
     def test_rejects_level_below_base(self):
         with pytest.raises(ValueError, match="above base"):
             step_level(base=10, levels=(5,))
+
+    def test_rejects_duplicate_levels(self):
+        # #578 review: a duplicate / non-increasing level double-dimensions a rung.
+        with pytest.raises(ValueError, match="strictly increasing"):
+            step_level(base=0, levels=(10, 10))
 
     def test_rejects_z_shoulder_axis(self):
         # A shoulder POSITION is horizontal; Z is the height, not a position.

@@ -317,6 +317,31 @@ class TestEmit:
         assert "levels=(5,)" in line
         ast.parse(src)
 
+    def test_step_level_round_trips_the_full_feature(self):
+        # #578 review: EXECUTE the emitted fluent verb (not just substring-check it) and
+        # assert the re-declared StepLevelFeature is identical to the detected one — base,
+        # levels, shoulders, datum AND frame.origin (carried via at=), so the round trip is
+        # lossless, not merely syntactically valid.
+        from draftwright import Sheet
+
+        part = Box(80, 40, 10) + Pos(-20, 0, 10) * Box(40, 40, 12)
+        model = detect_part_model(part)
+        src = _script_for(part)
+        line = next(ln for ln in src.splitlines() if "sheet.step_level(" in ln).split("#")[0]
+        sheet = Sheet(part, title="T", number="N")
+        exec(compile(line, "<emit>", "exec"), {"sheet": sheet})
+        got = sheet._features[-1]
+        det = next(f for f in model.features if f.kind == "step_level")
+        assert (got.base, got.levels, got.shoulders, got.datum) == (
+            det.base,
+            det.levels,
+            det.shoulders,
+            det.datum,
+        )
+        assert tuple(round(c, 3) for c in got.frame.origin) == tuple(
+            round(c, 3) for c in det.frame.origin
+        )
+
     @pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
     def test_ap242_script_keeps_side_hole_z_location_on_side_ladder(self, tmp_path):
         py = generate_sheet_script(str(AP242_CTC01), out=str(tmp_path / "ctc01"), pmi="annotate")

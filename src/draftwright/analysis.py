@@ -39,11 +39,11 @@ from draftwright.recognition import (
     analyse_cylinders,
     full_cylinders,
     recognise_bosses,
-    recognise_face_levels,
     recognise_hole_patterns,
     recognise_holes,
     recognise_slots,
     recognise_turned_steps,
+    step_level_zs,
 )
 from draftwright.sheet import (
     StripDepths,
@@ -273,11 +273,6 @@ def _converge_step_sizing(
 # value-label footprint (one glyph height + clearance) — enough to tell two
 # stacked step dims apart, without dropping genuinely-distinct shoulders.
 
-# A horizontal face counts as a real step only if its area is at least this
-# fraction of the part's plan footprint (x_size × y_size). Filters out tiny
-# faces from engraved text/numbers that are not steps (staircase.step review).
-_STEP_MIN_AREA_FRAC = 0.01
-
 # Minimum page-mm separation between two *consecutive* hole-location dimensions
 # along one axis. Stacked location dims sit on separate tiers, so their value
 # labels never collide (the tier pitch handles that); the legibility limit is the
@@ -429,8 +424,7 @@ def _analyse(
     if _turned is not None and _turned.axis == "z":
         step_zs = [z for z in _turned.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
     else:
-        face_zs = [fl.z for fl in recognise_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)]
-        step_zs = [z for z in face_zs if z > bb.min.Z + 0.6 and z < bb.max.Z - 0.6]
+        step_zs = step_level_zs(part)  # shared area-filtered extraction (#578 review)
 
     # Pass 1 (two-pass layout, #131): measure annotation strip depths before
     # view positions are fixed.  font_size=3.0 is a fixed page-mm constant so
