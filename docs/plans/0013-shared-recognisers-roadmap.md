@@ -30,8 +30,8 @@ Delivers #568's value standalone. No new repo, no external dependency, no mcp co
   dimensioning layer (planner/IR) uniformly; geometric records carry no callout.
 - **Keep `recognition/` dependency-self-contained** — build123d/OCP only, no upward
   coupling — so Phase 2's *code* move is a mechanical import swap. Licensing is a
-  separate axis (ADR 0013 §7): either dual-license each recogniser
-  (`Apache-2.0 OR AGPL-3.0`) as a pilot touches it, or relicense at the Phase 2 gate.
+  separate axis (ADR 0013 §7): files stay AGPL through Phase 1 and are relicensed to
+  Apache at the Phase 2 gate (file-by-file, pzfreo owns copyright).
 
 ### Pilots (drive Phase 1 from real work, not a big-bang rewrite)
 
@@ -52,9 +52,9 @@ another tool appearing). Until then, do not spin the repo.
 - **2a — stand up the repo.** New Apache-2.0 `b123d-recognisers`; move the seed-set
   recognisers + their geometry records + their tests (the geometric counter-examples —
   gusset/ramp/hex-prism etc. — are geometry truths and belong here). Fast CI (build123d/
-  OCP only). Licensing: if Phase-1 option (a) was taken (files dual-licensed as touched),
-  there is nothing to do here; otherwise relicense each migrated file to Apache in its
-  header (pzfreo owns copyright). Countersink seeds from mcp's already-Apache code.
+  OCP only). Licensing (the Phase 2 gate, ADR 0013 §7): relicense each migrated file to
+  Apache in its header (pzfreo owns copyright). Countersink seeds from mcp's
+  already-Apache code, so it needs no relicense.
 - **2b — publish + wire.** `0.1.0` to PyPI once. draftwright declares
   `b123d-recognisers>=0.1`; during co-development both use `[tool.uv.sources]`
   (editable path or pinned git rev), flipping to the PyPI spec for releases.

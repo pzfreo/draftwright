@@ -213,19 +213,15 @@ copy onto the shared source.
   recognisers (chamfers.py, plates.py, slots.py, turned.py) as new AGPL code, and even
   `_features.py` which, though vendored from Apache helpers, became AGPL inside
   draftwright (ADR 0007 §4). The target package is Apache, so extraction candidates
-  must be (re)licensed. pzfreo owns the copyright, so this is a header change, not a
-  negotiation — but it is a **deliberate, tracked step**. Two ways, choose per the
-  review of this ADR:
-  - **(a) Dual-license candidates during Phase 1** — add an SPDX
-    `Apache-2.0 OR AGPL-3.0` header to each recogniser *as a pilot touches it*
-    (#558 countersink, #561 fillet, then the rest incrementally). Phase 2 extraction
-    then carries no licensing work at all — genuinely turnkey. *Recommended.*
-  - **(b) Relicense at the Phase 2 gate** — leave files AGPL through Phase 1 and
-    relicense file-by-file when extracting. Simpler now, but makes extraction a
-    licensing event, so it is an explicit **gate**, not "mechanical".
-
-  The countersink seed is lifted from mcp's *already-Apache* `countersink.py`, so the
-  pilot's *shared-package* copy needs no relicense regardless.
+  must be relicensed. **Decision: relicense at the Phase 2 gate.** Files stay AGPL
+  through Phase 1; when a recogniser is extracted its file header is relicensed to
+  Apache — a one-line change (pzfreo owns the copyright), but a **deliberate, tracked
+  step**, so extraction is an explicit licensing **gate**, not a purely "mechanical"
+  move. (The alternative — dual-licensing each file `Apache-2.0 OR AGPL-3.0` during
+  Phase 1 to make Phase 2 turnkey — was considered and not taken; keeping Phase 1
+  licensing untouched is simpler and the relicense is cheap at the gate.) The
+  countersink seed is lifted from mcp's *already-Apache* `countersink.py`, so the
+  shared-package copy of that one needs no relicense regardless.
 - **Fix the `callout()` crack as part of Phase 1.** `callout()` currently lives only
   on `ChamferFeature` (added in #560); every other feature leaves label formatting to
   the planner/`DimParameter`. Decide it *once*: callout formatting lives uniformly in
