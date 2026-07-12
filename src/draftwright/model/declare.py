@@ -277,9 +277,10 @@ def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None)
 
 def _read_chamfer_face(face) -> tuple[str, float, float, Point]:
     """Read a chamfer off its **oblique planar bevel face**: the axis (the edge the chamfer
-    runs along), the two legs (the face's in-plane extents), the angle, and a point **on the
-    bevel** (the face centre — not the removed sharp corner). Mirrors the recogniser
-    (recognition/chamfers.py) so a declared face round-trips with the detected feature."""
+    runs along), the two legs (the face's in-plane extents), and a point **on the bevel** (the
+    face centre — not the removed sharp corner). The leader point agrees with the recogniser
+    (recognition/chamfers.py) in the two **in-plane** (placement) coordinates; the along-edge
+    coordinate is view depth, so it need not match exactly."""
     try:
         nrm = face.normal_at()
     except Exception:  # noqa: BLE001 — a degenerate/non-planar face has no clean normal
@@ -310,10 +311,12 @@ def chamfer(
     obj=None, *, axis=None, leg=None, leg1=None, leg2=None, angle=None, at=None
 ) -> ChamferFeature:
     """A chamfer (bevelled edge, #560/#576). Either ``chamfer(bevel_face)`` — the oblique
-    chamfer face supplies axis, legs, angle and a leader point **on the bevel** — or explicit
+    chamfer face supplies axis, both legs and a leader point **on the bevel** — or explicit
     ``chamfer(axis="z", leg=6, at=(x, y, z))``. ``leg`` is an equal-leg 45° chamfer (callout
-    ``C{leg}``); give ``leg1``/``leg2`` for an asymmetric one (``{leg} × {angle}°`` — the angle
-    is derived from the legs). An object supplies *defaults*; any explicit keyword overrides (#451)."""
+    ``C{leg}``); give **both** ``leg1``/``leg2`` for an asymmetric one (``{leg} × {angle}°``).
+    The angle is always derived from the legs; an explicit ``angle=`` is only *validated*
+    against them (a one-leg-plus-angle spec is not yet supported — #581). An object supplies
+    *defaults*; any explicit keyword overrides (#451)."""
     if obj is not None:
         r_axis, r_leg1, r_leg2, r_at = _read_chamfer_face(obj)
         axis = r_axis if axis is None else axis
