@@ -57,8 +57,12 @@ _OD_FILL_MIN = 0.6
 
 @dataclass(frozen=True)
 class TurnedStep:
-    """One axial segment of a stepped shaft, between two shoulders (or ends)."""
+    """One axial segment of a stepped shaft, between two shoulders (or ends). ``axis`` is
+    the turning axis ("x"/"y"/"z") the segment is coaxial about — carried on the step so
+    it is a **self-contained record**: ``lo``/``hi``/``diameter`` are only interpretable
+    given the axis they are measured along."""
 
+    axis: str  # "x" / "y" / "z"
     lo: float
     hi: float
     diameter: float  # the external OD over this segment
@@ -70,10 +74,21 @@ class TurnedStep:
 
 @dataclass(frozen=True)
 class TurnedProfile:
-    """The axial step breakdown of a turned part along its turning ``axis``."""
+    """The turned-shaft **aggregate** for the annotation pipeline — the coaxial ``steps``
+    plus their shared ``axis`` and derived shoulders. **Not a recogniser return**
+    (:func:`recognise_turned_steps` returns ``list[TurnedStep]`` per ADR 0013 §2); built
+    from that list via :meth:`from_steps` for consumers that want axis + shoulders as a
+    unit."""
 
     axis: str  # "x" / "y" / "z"
     steps: tuple[TurnedStep, ...]
+
+    @classmethod
+    def from_steps(cls, steps) -> TurnedProfile | None:
+        """Aggregate a recogniser's ``list[TurnedStep]`` (all coaxial), or ``None`` if
+        empty (a non-turned part)."""
+        steps = tuple(steps)
+        return cls(axis=steps[0].axis, steps=steps) if steps else None
 
     @property
     def shoulders(self) -> tuple[float, ...]:
@@ -83,20 +98,22 @@ class TurnedProfile:
         return (*(s.lo for s in self.steps), self.steps[-1].hi)
 
 
-def recognise_turned_steps(part) -> TurnedProfile | None:
-    """Recognise the axial steps of a stepped turned ``part``, or ``None``.
+def recognise_turned_steps(part) -> list[TurnedStep]:
+    """Recognise the axial steps of a stepped turned ``part``.
 
-    Returns ``None`` for a non-turned part, a plain (single-diameter) cylinder,
-    or anything with fewer than two steps — nothing to dimension axially.
+    Returns ``[]`` for a non-turned part, a plain (single-diameter) cylinder, or
+    anything with fewer than two steps — nothing to dimension axially. Each
+    :class:`TurnedStep` carries the turning ``axis``; aggregate them with
+    :meth:`TurnedProfile.from_steps` if the axis/shoulders unit is wanted.
     """
     z_cyls, cross_cyls = analyse_cylinders(part)
     ext = [c for c in (*z_cyls, *cross_cyls) if c.get("external")]
     if not ext:
-        return None
+        return []
     axis, _ = Counter(c["axis"] for c in ext).most_common(1)[0]
     bands = [c for c in ext if c["axis"] == axis]
     if len({round(c["diameter"], 2) for c in bands}) < 2:
-        return None  # one OD → not a stepped turned part
+        return []  # one OD → not a stepped turned part
     idx = "xyz".index(axis)
 
     # A genuine turned shaft is a body of revolution about *axis*: its OD silhouette
@@ -113,7 +130,7 @@ def recognise_turned_steps(part) -> TurnedProfile | None:
         or max_od < _OD_FILL_MIN * cross
         or abs(perp[0] - perp[1]) > _SQUARENESS_TOL * cross
     ):
-        return None
+        return []
 
     def local_od(pos: float) -> float:
         radii = [
@@ -144,22 +161,23 @@ def recognise_turned_steps(part) -> TurnedProfile | None:
 
     planes = sorted(shoulders)
     if len(planes) < 3:  # fewer than two steps
-        return None
+        return []
     # A segment whose midpoint has no external band over it (`local_od` → 0) is a
     # gap between disconnected bands, not a real step — drop it so it never renders
     # as a phantom ø0 diameter (#279).
-    steps = tuple(
+    steps = [
         s
         for i in range(len(planes) - 1)
         if (
             s := TurnedStep(
+                axis=axis,
                 lo=planes[i],
                 hi=planes[i + 1],
                 diameter=2 * local_od((planes[i] + planes[i + 1]) / 2),
             )
         ).diameter
         > 0
-    )
+    ]
     if len(steps) < 2:  # fewer than two real steps → nothing to dimension axially
-        return None
-    return TurnedProfile(axis=axis, steps=steps)
+        return []
+    return steps

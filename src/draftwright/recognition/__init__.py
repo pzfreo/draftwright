@@ -24,25 +24,27 @@ A *feature* recogniser takes one of two shapes:
   single inventory arg is unambiguous and stays positional.
 
 Common to both: a **British** ``recognise_`` verb (not ``find_``/``analyse_``); a
-**deterministic ``list`` of frozen-dataclass records**; **geometry-only records** (no
+**deterministic ``list`` of frozen-dataclass records** (empty when absent — never
+``Optional``-singular, never a bare ``list`` of primitives); **geometry-only records** (no
 build123d types leak out — they are the future ``b123d-recognisers`` surface, ADR 0013
 Phase 2, and ``detect.py`` adapts a record into the dimensioning IR with no recognition
 object crossing that boundary, ADR 0008 Am6).
 
-Two recognisers legitimately return a **scalar / singular** shape rather than a list of
-records — forcing a record there would be ceremony with no consumer benefit:
+The contract holds for **every** recogniser, including the two that once strained it —
+their records were simply the wrong shape (#568):
 
-- ``recognise_face_levels(part, *, ...) -> list[float]`` — a face level *is* a Z
-  coordinate; its one consumer wants the scalars, and a ``FaceLevel(z)`` wrapper would add
-  nothing.
-- ``recognise_turned_steps(part) -> TurnedProfile | None`` — a turned profile is a single
-  whole-part structure (its ``.steps``/``.axis`` are consumed together), not a list of
-  independent features; ``list`` of 0-or-1 would be awkward.
+- ``recognise_face_levels -> list[FaceLevel]`` (was ``list[float]``) — a level is now a
+  ``FaceLevel(z)`` record.
+- ``recognise_turned_steps -> list[TurnedStep]`` (was ``TurnedProfile | None``) — each
+  ``TurnedStep`` now carries its ``axis``, so it is a self-contained record and the old
+  ``TurnedProfile`` wrapper is no longer the return. ``TurnedProfile`` survives only as a
+  **pipeline aggregate** (``TurnedProfile.from_steps``) for consumers that want axis +
+  shoulders as a unit — it is not a recogniser return.
 
-These are accepted shapes, not debt. Record class names avoid the IR ``Feature`` types:
-the vendored records are ``HoleRecord`` / ``BossRecord`` (not ``HoleFeature`` /
-``BossFeature`` — those are the IR types), keeping ``from draftwright.recognition import
-HoleRecord`` unambiguous against ``from draftwright.model.ir import HoleFeature``.
+Record class names avoid the IR ``Feature`` types: the vendored records are ``HoleRecord``
+/ ``BossRecord`` (not ``HoleFeature`` / ``BossFeature`` — those are the IR types), keeping
+``from draftwright.recognition import HoleRecord`` unambiguous against ``from
+draftwright.model.ir import HoleFeature``.
 
 ``analyse_cylinders`` / ``full_cylinders`` / ``feature_diameters`` are **not** recognisers
 under this contract — they are cylinder-analysis *substrate* (a tuple of dicts / a diameter
@@ -68,6 +70,7 @@ from draftwright.recognition._features import (
 )
 from draftwright.recognition.chamfers import Chamfer, recognise_chamfers
 from draftwright.recognition.levels import (
+    FaceLevel,
     StepShoulder,
     recognise_face_levels,
     recognise_step_shoulders,
@@ -81,6 +84,7 @@ __all__ = [
     "Chamfer",
     "BossRecord",
     "CounterBore",
+    "FaceLevel",
     "HoleRecord",
     "HoleSpec",
     "LinearArray",

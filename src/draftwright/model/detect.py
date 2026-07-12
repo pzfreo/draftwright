@@ -39,6 +39,7 @@ from draftwright.recognition import (
     HoleSpec,
     LinearArray,
     RectGrid,
+    TurnedProfile,
     recognise_bosses,
     recognise_chamfers,
     recognise_hole_patterns,
@@ -250,7 +251,7 @@ def build_part_model(
 
     # Turned profile → step segments; else external bosses → diameters.
     if prof is _UNSET:
-        prof = recognise_turned_steps(part)
+        prof = TurnedProfile.from_steps(recognise_turned_steps(part))
     orientation = prof.axis if prof is not None else None
     if prof is not None:
         idx = "xyz".index(prof.axis)

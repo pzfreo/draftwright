@@ -2718,8 +2718,8 @@ def test_analyse_face_levels_box():
     box = Box(30, 20, 10)
     levels = recognise_face_levels(box)
     # Box centred at origin has Z faces at -5 and +5
-    assert any(abs(z - (-5.0)) < 0.1 for z in levels)
-    assert any(abs(z - 5.0) < 0.1 for z in levels)
+    assert any(abs(fl.z - (-5.0)) < 0.1 for fl in levels)
+    assert any(abs(fl.z - 5.0) < 0.1 for fl in levels)
 
 
 @pytest.mark.timeout(60)
@@ -2743,14 +2743,14 @@ def test_analyse_face_levels_area_filter_drops_tiny_faces():
 
     # Without the filter the tiny face shows up as a phantom level.
     unfiltered = recognise_face_levels(part)
-    assert any(abs(z - 7.0) < 0.1 for z in unfiltered)
+    assert any(abs(fl.z - 7.0) < 0.1 for fl in unfiltered)
 
     # With a 1%-of-footprint threshold (6 mm²) the 1 mm² face is dropped,
     # leaving only the real slab faces.
     filtered = recognise_face_levels(part, min_area_frac=0.01)
-    assert not any(abs(z - 7.0) < 0.1 for z in filtered)
-    assert any(abs(z - 5.0) < 0.1 for z in filtered)
-    assert any(abs(z - (-5.0)) < 0.1 for z in filtered)
+    assert not any(abs(fl.z - 7.0) < 0.1 for fl in filtered)
+    assert any(abs(fl.z - 5.0) < 0.1 for fl in filtered)
+    assert any(abs(fl.z - (-5.0)) < 0.1 for fl in filtered)
 
 
 # ---------------------------------------------------------------------------

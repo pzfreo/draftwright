@@ -91,11 +91,11 @@ No lower module imports an upper one.
   helpers). Every feature recogniser follows the **uniform contract** (ADR 0013 / #568,
   spelled out in `recognition/__init__.py`): `recognise_<feature>(part, *, <injected
   inventory>) -> list[<frozen-dataclass record>]` — British `recognise_` verb,
-  keyword-only args (deps injected by the caller, never re-recognised), deterministic
-  output. Normally a list of records; a **scalar/singular** feature may return
-  `list[<scalar>]` (`recognise_face_levels`) or `<Structure> | None`
-  (`recognise_turned_steps`) where a record would be ceremony (ADR 0013 Amendment 1).
-  `_features.py` (vendored from `build123d_drafting.features`; the
+  keyword-only args (deps injected by the caller, never re-recognised), a deterministic
+  list of records. Where a record first looks too thin (a face level, a turned step) the
+  fix is the record — `recognise_face_levels -> list[FaceLevel]`, `recognise_turned_steps
+  -> list[TurnedStep]` (each step carries its `axis`; `TurnedProfile` survives only as a
+  pipeline aggregate). `_features.py` (vendored from `build123d_drafting.features`; the
   hole/boss/pattern recognisers — `recognise_holes`/`recognise_bosses`/
   `recognise_hole_patterns` + the feature/pattern types; plus the cylinder-analysis
   *substrate* `analyse_cylinders`/`feature_diameters`/`full_cylinders`, which keep their
