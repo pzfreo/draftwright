@@ -3,6 +3,26 @@
 - **Status:** Accepted (2026-06-30)
 - **Deciders:** Paul Fremantle (pzfreo)
 
+## Current decision (as amended, 2026-07-12)
+
+Annotation placement within each view's strips is a **collect-then-solve boundary-labeling**
+stage, not place-as-you-go. Per view: **collect** every strip occupant (plus fixed
+obstacles) as a geometry-only candidate; **solve** once per strip — *select* (priority;
+over-capacity → a first-class escalation), *assign* (side), *order* (= feature order ⇒
+leaders **crossing-free by construction**), *space* (a deterministic **PAVA**
+minimum-total-leader-length solve — kiwisolver/Cassowary retired, Am 3–4 — with
+central-hole **anchoring**); **emit**. Keep-out (centre-lines / bolt-circles) is a keep-out
+**band** folded into the **one shared `carve_free_segments` primitive** every pass uses —
+the separate banded-PAVA DP was **retired** (Am 9). Corridors are solved **once across
+passes** (Am 6); candidates carry real per-candidate footprints and GD&T frames are
+first-class candidates (Am 7). **Deterministic and explainable** ("label *i* sits here
+because order + min-gap + shortest-leader"), never a global metaheuristic.
+
+*The 9 amendments below are the solver's evolution trail (escalation objects → precise
+leader geometry → the L1/PAVA min-leader solve → band-aware then shared-carve keep-out →
+one-solve-across-passes → real footprints + GD&T → solver consolidation) — read them for
+the* why, *not to reconstruct the current state.*
+
 ## Context
 
 A run of layout fixes — #133 (locate side-drilled holes), #225 (locate *every*

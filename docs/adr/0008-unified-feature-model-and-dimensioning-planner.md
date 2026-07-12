@@ -22,6 +22,23 @@
   converter) (ADR 0013). Amendment 6 (no recognition object crosses the boundary) is
   preserved.
 
+## Current decision (as amended, 2026-07-12)
+
+*The part-drawing engine is a **compiler**.* detectors → a **Feature / DimParameter IR**
+(`PartModel`) → a dimensioning **planner** → **render-intents** → the shared
+layout / table / section / projection / export infrastructure. **One feature inventory,
+detected once** (`_analyse`); the orchestrator is **build model → plan → render**.
+Orientation / feature-kind are *data in the IR*, not code branches. The migration is
+**complete — one path**: each step deleted the per-feature engine pass it replaced (not
+reproduce-and-swap, not two permanent paths — Am 2/3). The IR↔infra boundary is
+**IR-typed** — no recognition object crosses it (Am 6). The waist is now **two tiers**
+(Am 7): a shared **geometric recognition record** feeds the dimensioning IR through a
+uniform `detect.py` adapter protocol (a typed registry of per-record converters).
+
+*The amendments below are the reasoning trail (contract refinement → out-grow strategy →
+one-path convergence → IR/infra boundary → one-inventory foundation → IR-typed interface →
+two-tier waist) — read them for the* why, *not to reconstruct the current state.*
+
 ## Context
 
 draftwright recognises a part's features and dimensions them. Both halves grew by
