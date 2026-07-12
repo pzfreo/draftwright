@@ -18,9 +18,21 @@ import inspect
 import json
 
 import pytest
-from build123d import Box, Cylinder, Pos, Rot
+from build123d import Axis, Box, Cylinder, Pos, Rot, chamfer
 
 from draftwright.recognition import (
+    BoltCircle,
+    BossRecord,
+    Chamfer,
+    CounterSink,
+    FaceLevel,
+    HoleRecord,
+    LinearArray,
+    Plate,
+    RectGrid,
+    Slot,
+    StepShoulder,
+    TurnedStep,
     recognise_bosses,
     recognise_chamfers,
     recognise_countersinks,
@@ -33,6 +45,26 @@ from draftwright.recognition import (
     recognise_turned_steps,
 )
 from draftwright.recognition._record import Record
+
+# Every record class a recogniser returns. The coverage test asserts the drive-parts
+# below actually emit one of each — so a record type that silently stops being produced
+# (or a new recogniser added without contract coverage) fails the test loudly, rather
+# than slipping through a bare count. (CounterBore/HoleSpec/TurnedProfile are sub-records
+# / aggregates, not recogniser returns, so they are exercised nested, not listed here.)
+_EXPECTED_RECORD_TYPES = {
+    HoleRecord,
+    CounterSink,
+    BossRecord,
+    BoltCircle,
+    LinearArray,
+    RectGrid,
+    Chamfer,
+    Slot,
+    Plate,
+    FaceLevel,
+    StepShoulder,
+    TurnedStep,
+}
 
 
 def _csk_plate():
@@ -53,30 +85,62 @@ def _turned_shaft():
     return Rot(0, 90, 0) * (Cylinder(10, 30) + Pos(0, 0, 20) * Cylinder(6, 10))
 
 
+def _linear_array_plate():
+    part = Box(120, 40, 10)
+    for i in range(5):
+        part -= Pos(-40 + i * 20, 0, 0) * Cylinder(3, 10)
+    return part
+
+
+def _grid_plate(nx=3, ny=3, px=25, py=25):
+    part = Box(px * (nx + 1), py * (ny + 1), 10)
+    for i in range(nx):
+        for j in range(ny):
+            part -= Pos((i - (nx - 1) / 2) * px, (j - (ny - 1) / 2) * py, 0) * Cylinder(3, 10)
+    return part
+
+
+def _bolt_circle_plate(n=6, r=30):
+    from math import cos, radians, sin
+
+    part = Box(100, 100, 12)
+    for i in range(n):
+        a = radians(360 / n * i + 15.0)
+        part -= Pos(r * cos(a), r * sin(a), 0) * Cylinder(4, 12)
+    return part
+
+
+def _chamfered_box():
+    box = Box(30, 30, 30)
+    edge = box.edges().filter_by(Axis.Z).sort_by(Axis.X)[-1]
+    return chamfer(edge, 3)
+
+
+def _l_bracket():
+    return Box(80, 40, 8) + Pos(-36, 0, 24) * Box(8, 40, 40)
+
+
 def _records_from_recognisers():
-    """(name, record) pairs across every recogniser, on parts that trigger them."""
+    """(name, record) pairs across every recogniser, on parts that actually trigger them."""
     csk = _csk_plate()
     stepped = _stepped()
     holes = recognise_holes(csk, csinks=recognise_countersinks(csk))
-    bc = Box(80, 80, 10)
-    for i in range(6):
-        a = i * 60
-        from math import cos, radians, sin
-
-        bc -= Pos(25 * cos(radians(a)), 25 * sin(radians(a)), 0) * Cylinder(2, 10)
     slotted = Box(60, 40, 20) - Pos(0, 0, 0) * Box(30, 8, 20)
+    levels = [f.z for f in recognise_face_levels(stepped)]
 
     out: list[tuple[str, object]] = []
     for name, recs in [
         ("recognise_holes", holes),
         ("recognise_countersinks", recognise_countersinks(csk)),
         ("recognise_bosses", recognise_bosses(Cylinder(10, 20))),
-        ("recognise_hole_patterns", recognise_hole_patterns(recognise_holes(bc))),
-        ("recognise_chamfers", recognise_chamfers(Box(20, 20, 20))),  # may be empty
+        ("hole_patterns:bolt", recognise_hole_patterns(recognise_holes(_bolt_circle_plate()))),
+        ("hole_patterns:linear", recognise_hole_patterns(recognise_holes(_linear_array_plate()))),
+        ("hole_patterns:grid", recognise_hole_patterns(recognise_holes(_grid_plate()))),
+        ("recognise_chamfers", recognise_chamfers(_chamfered_box())),
         ("recognise_slots", recognise_slots(slotted)),
-        ("recognise_plates", recognise_plates(Box(80, 60, 4))),
+        ("recognise_plates", recognise_plates(_l_bracket())),
         ("recognise_face_levels", recognise_face_levels(stepped)),
-        ("recognise_step_shoulders", recognise_step_shoulders(stepped, levels=[10.0])),
+        ("recognise_step_shoulders", recognise_step_shoulders(stepped, levels=levels)),
         ("recognise_turned_steps", recognise_turned_steps(_turned_shaft())),
     ]:
         for r in recs:
@@ -87,8 +151,6 @@ def _records_from_recognisers():
 def test_records_are_frozen_and_json_serializable():
     """Every record from every recogniser is a frozen, JSON-serializable ``Record``."""
     records = _records_from_recognisers()
-    # Sanity: the drive-parts actually exercised a broad spread of recognisers.
-    assert len({name for name, _ in records}) >= 6
 
     for name, rec in records:
         assert isinstance(rec, Record), f"{name}: {type(rec).__name__} is not a Record"
@@ -99,6 +161,17 @@ def test_records_are_frozen_and_json_serializable():
         assert isinstance(d, dict)
         # The teeth: a leaked build123d/OCP object makes this raise.
         json.dumps(d)
+
+
+def test_every_record_type_is_actually_exercised():
+    """The drive-parts must emit *each* recogniser record type — no silent under-coverage.
+
+    Guards against the count-only trap: a record type whose drive-part stops producing it
+    (or a new record added without coverage) fails here instead of passing on a bare tally.
+    """
+    seen = {type(rec) for _, rec in _records_from_recognisers()}
+    missing = _EXPECTED_RECORD_TYPES - seen
+    assert not missing, f"contract test never exercised these record types: {missing}"
 
 
 def test_frozen_records_reject_mutation():
