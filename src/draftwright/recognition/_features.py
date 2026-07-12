@@ -41,7 +41,8 @@ from OCP.GeomAbs import (
 )
 from OCP.TopAbs import TopAbs_Orientation
 
-from draftwright.recognition.countersinks import CounterSink, recognise_countersinks
+from draftwright.recognition._record import Record
+from draftwright.recognition.countersinks import CounterSink
 
 # Cylinder patches around one axis spanning half a turn or less in total are
 # not holes or bosses: quarter-turn patches are edge blends (fillets/rounds)
@@ -203,7 +204,7 @@ _full_cyls = full_cylinders
 
 
 @dataclass(frozen=True)
-class CounterBore:
+class CounterBore(Record):
     """A counterbore or spotface step of a hole: its diameter and axial depth."""
 
     diameter: float
@@ -211,7 +212,7 @@ class CounterBore:
 
 
 @dataclass(frozen=True)
-class HoleRecord:
+class HoleRecord(Record):
     """A drilled hole: the bore plus optional counterbore/spotface steps.
 
     ``axis`` is the drilling direction (unit vector pointing from the opening
@@ -237,7 +238,7 @@ class HoleRecord:
 
 
 @dataclass(frozen=True)
-class BossRecord:
+class BossRecord(Record):
     """An external cylindrical boss (including a turned part's OD).
 
     ``axis`` points from the base toward the free end, ``location`` is the
@@ -501,7 +502,7 @@ def _csink_for_hole(h: HoleRecord, csinks: list[CounterSink]) -> CounterSink | N
     return None
 
 
-def recognise_holes(part, *, cyls=None) -> list[HoleRecord]:
+def recognise_holes(part, *, cyls=None, csinks=None) -> list[HoleRecord]:
     """Recognise drilled holes on *part* (see :class:`HoleRecord`).
 
     Coaxial internal cylinders are grouped into stacks — drill + optional
@@ -513,6 +514,12 @@ def recognise_holes(part, *, cyls=None) -> list[HoleRecord]:
 
     Pass *cyls* — a precomputed ``analyse_cylinders(part)`` result — to avoid
     re-scanning the solid (mirrors ``lint_feature_coverage``'s parameter).
+
+    Pass *csinks* — a precomputed ``recognise_countersinks(part)`` result — to
+    compose each countersink onto the hole it flares (#558). Per the ADR 0013
+    contract this recogniser does **not** recognise countersinks itself; the
+    caller owns the single inventory and injects it (``analysis.py`` / ``detect.py``).
+    With ``csinks=None`` the holes come back without countersink attribution.
     """
     z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
     internal = [c for c in _full_cyls(z_cyls) + _full_cyls(cross_cyls) if not c["external"]]
@@ -600,10 +607,10 @@ def recognise_holes(part, *, cyls=None) -> list[HoleRecord]:
                 spotface=spotface,
             )
         )
-    # Compose countersinks (#558): a coaxial cone flaring from the bore is a hole
-    # attribute (like a counterbore), so it rides on the HoleRecord — HoleSpec grouping
-    # and the callout-width estimate then see it for free.
-    csinks = recognise_countersinks(part)
+    # Compose the injected countersinks (#558): a coaxial cone flaring from the bore is
+    # a hole attribute (like a counterbore), so it rides on the HoleRecord — HoleSpec
+    # grouping and the callout-width estimate then see it for free. The caller injects the
+    # inventory (ADR 0013 — no sibling re-recognition here).
     if csinks:
         holes = [
             (replace(h, csink=cs) if (cs := _csink_for_hole(h, csinks)) is not None else h)
@@ -698,7 +705,7 @@ _BC_SPACING_TOL = 0.04
 
 
 @dataclass(frozen=True)
-class BoltCircle:
+class BoltCircle(Record):
     """≥3 identical holes equally spaced on a circle.
 
     ``center`` is the world point at the holes' opening plane, ``diameter``
@@ -711,7 +718,7 @@ class BoltCircle:
 
 
 @dataclass(frozen=True)
-class LinearArray:
+class LinearArray(Record):
     """≥3 identical holes collinear at constant pitch.
 
     ``direction`` is the unit vector from the first hole toward the last
@@ -724,7 +731,7 @@ class LinearArray:
 
 
 @dataclass(frozen=True)
-class RectGrid:
+class RectGrid(Record):
     """A fully-populated rectangular grid of identical holes (an N×M lattice).
 
     ``rows``×``cols`` holes sit on a regular rectangular lattice with
@@ -753,7 +760,7 @@ def _pattern_tol(nominal: float) -> float:
 
 
 @dataclass(frozen=True)
-class HoleSpec:
+class HoleSpec(Record):
     """The machining spec shared by holes that are the *same drilled feature*.
 
     Two holes drilled with the same tool, in the same direction, with the same

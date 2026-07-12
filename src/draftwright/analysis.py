@@ -39,6 +39,7 @@ from draftwright.recognition import (
     analyse_cylinders,
     full_cylinders,
     recognise_bosses,
+    recognise_countersinks,
     recognise_hole_patterns,
     recognise_holes,
     recognise_slots,
@@ -446,7 +447,7 @@ def _analyse(
         if layout_model is not None
         else 0.0
     )
-    holes = recognise_holes(part, cyls=(z_cyls, cross_cyls))
+    holes = recognise_holes(part, cyls=(z_cyls, cross_cyls), csinks=recognise_countersinks(part))
     patterns = recognise_hole_patterns(holes)
     bosses = recognise_bosses(
         part, cyls=(z_cyls, cross_cyls)

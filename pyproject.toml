@@ -111,6 +111,7 @@ ignore = ["E501"]
 
 [dependency-groups]
 dev = [
+    "codespell>=2.3.0",
     "mypy>=2.1.0",
     "pytest>=8",
     "pytest-cov>=5",
@@ -118,6 +119,15 @@ dev = [
     "pytest-xdist>=3",
     "ruff>=0.4",
 ]
+
+[tool.codespell]
+# Spelling enforcement for the ADR 0013 contract (epic #584 WP3). Skips binary /
+# generated / vendored assets: STEP fixtures, the lockfile, fonts, git internals.
+skip = "*.stp,*.step,*.svg,*.dxf,*.pdf,uv.lock,.git,*.ttf,*.otf,src/draftwright/fonts/*"
+# Valid words/identifiers codespell's dictionary misflags (calibrated from a clean run):
+# `nd` a Dijkstra distance var, `tread` a real word (stair-tread faces), `accreting`
+# a real word, `testof` the `TestOf` class name, and the valid hyphenated re-* forms.
+ignore-words-list = "nd,tread,accreting,testof,re-using,re-declare,re-declared,re-declaring"
 
 [tool.uv]
 # On Python 3.13/3.14, build123d resolves to 0.11, whose OCP kernel is

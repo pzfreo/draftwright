@@ -42,6 +42,7 @@ from draftwright.recognition import (
     TurnedProfile,
     recognise_bosses,
     recognise_chamfers,
+    recognise_countersinks,
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
@@ -208,7 +209,7 @@ def build_part_model(
     # (count× member-diameter + pattern dims); its member holes are NOT also
     # emitted individually — the grouped-callout rule the engine uses.
     if holes is None:
-        holes = recognise_holes(part)
+        holes = recognise_holes(part, csinks=recognise_countersinks(part))
     if patterns is None:
         patterns = recognise_hole_patterns(holes)
     patterned: set[int] = set()

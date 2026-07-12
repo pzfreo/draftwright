@@ -41,6 +41,8 @@ from dataclasses import dataclass
 
 from build123d import GeomType
 
+from draftwright.recognition._record import Record
+
 _TOL = 0.05  # mm — dimension match tolerance (matches the other feature matchers)
 _COAXIAL_TOL = 0.1  # mm — how far the opening may sit off the drill's axis line
 # Real countersinks are ≤120° included (60/82/90/100/120 standards); a near-flat cone is
@@ -55,7 +57,7 @@ _MIN_MAJOR_RATIO = 1.5
 
 
 @dataclass(frozen=True)
-class CounterSink:
+class CounterSink(Record):
     """A recognised countersink. ``axis`` points from the wide opening into the part;
     ``location`` is the opening (major-circle) centre; ``major_diameter`` the outer rim,
     ``drill_diameter`` the bore it sits on; ``included_angle`` the full cone angle

@@ -497,20 +497,22 @@ class TestCountersinkCallout:
         edge = plate.edges().filter_by(Axis.Z).group_by(lambda e: e.center().Z)[-1]
         plate = chamfer(edge, 0.5)
         assert recognise_countersinks(plate) == []
-        assert recognise_holes(plate)[0].csink is None
+        assert recognise_holes(plate, csinks=recognise_countersinks(plate))[0].csink is None
 
     def test_opposite_face_coaxial_hole_is_not_mis_associated(self):
         # #558 review (BLOCKER): a countersink must attach only to the bore at its mouth,
         # facing the same way — NOT to a coaxial hole drilled from the opposite face.
         from build123d import Cone
 
-        from draftwright.recognition import recognise_holes
+        from draftwright.recognition import recognise_countersinks, recognise_holes
 
         p = Box(40, 40, 30)
         p -= Pos(0, 0, 9) * Cylinder(3, 12)  # top hole, opening at z=15
         p -= Pos(0, 0, 13) * Cone(3, 7, 4)  # csk at the top face
         p -= Pos(0, 0, -9) * Cylinder(3, 12)  # coaxial bottom hole, same bore, NO csk
-        by_open = {round(h.location[2]): h for h in recognise_holes(p)}
+        by_open = {
+            round(h.location[2]): h for h in recognise_holes(p, csinks=recognise_countersinks(p))
+        }
         top = max(by_open)  # the top (csk) hole
         assert by_open[top].csink is not None
         assert by_open[min(by_open)].csink is None  # the opposite-face hole stays plain
@@ -521,10 +523,14 @@ class TestCountersinkCallout:
         # regardless of which — a Z-flip must not drop it to plain THRU.
         from build123d import Rotation
 
-        from draftwright.recognition import recognise_holes
+        from draftwright.recognition import recognise_countersinks, recognise_holes
 
         flipped = Rotation(180, 0, 0) * self._csk_plate()
-        holes = [h for h in recognise_holes(flipped) if h.csink is not None]
+        holes = [
+            h
+            for h in recognise_holes(flipped, csinks=recognise_countersinks(flipped))
+            if h.csink is not None
+        ]
         assert len(holes) == 3  # all three csk holes keep their countersink after the flip
 
     def test_callout_angle_is_formatted_not_raw_float(self):

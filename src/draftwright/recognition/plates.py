@@ -39,9 +39,11 @@ from OCP.BRepGProp import BRepGProp
 from OCP.GeomAbs import GeomAbs_Plane
 from OCP.GProp import GProp_GProps
 
+from draftwright.recognition._record import Record
+
 
 @dataclass(frozen=True)
-class Plate:
+class Plate(Record):
     """A recognised thin slab. ``axis`` is the thin (thickness) axis ("x"/"y"/"z");
     ``lo``/``hi`` are the slab's two bounding coords along it (``hi - lo`` is the
     thickness); ``u``/``v`` are the slab centre on the other two axes (in axis order),

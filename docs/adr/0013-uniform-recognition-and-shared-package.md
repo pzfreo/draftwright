@@ -11,6 +11,17 @@
 - **Date:** 2026-07-12
 - **Deciders:** Paul Fremantle (pzfreo)
 
+**Amendment 1 (2026-07-12, #584 WP3) — the contract is now mechanically enforced.**
+The three claims the #584 audit found asserted-but-unenforced are real as of this PR:
+(a) **no sibling re-recognition** — `recognise_holes` no longer calls
+`recognise_countersinks` internally; the caller (`analysis.py` / `detect.py`) owns the
+single inventory and injects `csinks=` (§2, ADR 0008 Am5); (b) **uniform serialization** —
+every record inherits a `Record` mixin giving `.to_dict()`, and a contract test
+(`tests/test_recogniser_contract.py`) proves each recogniser's records are frozen and
+JSON-serializable (no build123d type leaks); (c) **codespell-enforced** — wired into the
+CI lint job. The recogniser-signature shape (part + keyword-only) is asserted by the same
+contract test.
+
 ## Context
 
 Two findings, one from inside draftwright and one from a sibling project, meet here.
