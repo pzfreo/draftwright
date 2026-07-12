@@ -69,6 +69,7 @@ from draftwright.recognition._features import (
     recognise_holes,
 )
 from draftwright.recognition.chamfers import Chamfer, recognise_chamfers
+from draftwright.recognition.countersinks import CounterSink, recognise_countersinks
 from draftwright.recognition.levels import (
     FaceLevel,
     StepShoulder,
@@ -84,6 +85,7 @@ __all__ = [
     "Chamfer",
     "BossRecord",
     "CounterBore",
+    "CounterSink",
     "FaceLevel",
     "HoleRecord",
     "HoleSpec",
@@ -100,6 +102,7 @@ __all__ = [
     "feature_diameters",
     "recognise_bosses",
     "recognise_chamfers",
+    "recognise_countersinks",
     "recognise_hole_patterns",
     "recognise_holes",
     "recognise_plates",

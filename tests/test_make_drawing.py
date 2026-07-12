@@ -426,6 +426,69 @@ class TestChamferCallout:
         assert _chamfer_label(chamfers[0]) == "C2.5"
 
 
+class TestCountersinkCallout:
+    """#558: a countersunk hole was called out as a plain THRU hole — no major-Ø /
+    included-angle. It must now carry a csk callout (⌵ Ø14 × 90°), like a counterbore."""
+
+    @staticmethod
+    def _csk_plate():
+        # The issue's repro: Ø6 through + a 90° csk flaring to Ø14 at the top face.
+        from build123d import Cone
+
+        plate = Box(90, 60, 12)
+        for x, y in [(-30, -15), (5, 12), (30, -8)]:
+            plate -= Pos(x, y, 0) * Cylinder(3, 12)
+            plate -= Pos(x, y, 4) * Cone(3, 7, 4)
+        return plate
+
+    def test_countersink_recognised(self):
+        from draftwright.recognition import recognise_countersinks
+
+        cs = recognise_countersinks(self._csk_plate())
+        assert len(cs) == 3
+        for c in cs:
+            assert abs(c.major_diameter - 14.0) < 0.1
+            assert abs(c.drill_diameter - 6.0) < 0.1
+            assert abs(c.included_angle - 90.0) < 0.5
+
+    def test_countersunk_hole_carries_csink_in_ir(self):
+        # Recovered as a HoleFeature.csink = (major_diameter, angle), grouped 3×.
+        dwg = build_drawing(self._csk_plate(), number="X")
+        holes = [f for f in dwg.model().features if f.kind == "hole"]
+        assert len(holes) == 1 and holes[0].count == 3
+        assert holes[0].csink is not None
+        maj, ang = holes[0].csink
+        assert abs(maj - 14.0) < 0.1 and abs(ang - 90.0) < 0.5
+
+    def test_countersink_callout_is_placed_not_dropped(self):
+        # The wider csk callout must reserve room in the layout estimate and place —
+        # NOT drop like it did before the estimator learned about countersinks.
+        dwg = build_drawing(self._csk_plate(), number="X")
+        assert not any(
+            getattr(i, "code", None) == "callout_dropped" for i in dwg._build_issues
+        )
+        leaders = [dwg._named[n] for n in dwg._named if n.startswith("hc_")]
+        assert leaders, "no hole callout placed"
+        # The placed callout covers both the bore (6) and the csk major (14).
+        assert any(14.0 in ldr.covers_diameters for ldr in leaders)
+
+    def test_plain_hole_has_no_countersink(self):
+        plate = Box(90, 60, 12) - Pos(0, 0, 0) * Cylinder(3, 12)
+        holes = [f for f in build_drawing(plate, number="X").model().features if f.kind == "hole"]
+        assert holes and holes[0].csink is None
+
+    def test_counterbore_is_not_a_countersink(self):
+        # A ⌀18 counterbore (a cylindrical recess) must not register as a countersink.
+        plate = Box(90, 60, 12)
+        plate -= Pos(0, 0, 0) * Cylinder(3, 12)
+        plate -= Pos(0, 0, 3) * Cylinder(9, 6)
+        from draftwright.recognition import recognise_countersinks
+
+        assert recognise_countersinks(plate) == []
+        holes = [f for f in build_drawing(plate, number="X").model().features if f.kind == "hole"]
+        assert holes and holes[0].csink is None and holes[0].cbore is not None
+
+
 class TestStepSizingConvergence:
     def test_step_sizing_converges_past_the_old_three_pass_limit(self):
         measure_calls = []

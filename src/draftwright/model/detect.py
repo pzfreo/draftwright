@@ -52,9 +52,9 @@ from draftwright.recognition import (
 
 
 def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFeature:
-    """A recogniser hole → an IR `HoleFeature` (bore + counterbore/spotface). When
-    *h* represents a machining-spec group of identical holes, *members* are their
-    locations and *count* their number."""
+    """A recogniser hole → an IR `HoleFeature` (bore + counterbore/spotface/countersink).
+    When *h* represents a machining-spec group of identical holes, *members* are their
+    locations and *count* their number. The countersink rides on the HoleRecord (#558)."""
     return HoleFeature(
         frame=frame,
         diameter=h.diameter,
@@ -64,6 +64,7 @@ def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFe
         members=members,
         cbore=(h.cbore.diameter, h.cbore.depth) if h.cbore else None,
         spotface=(h.spotface.diameter, h.spotface.depth) if h.spotface else None,
+        csink=(h.csink.major_diameter, h.csink.included_angle) if h.csink else None,
     )
 
 
@@ -217,7 +218,8 @@ def build_part_model(
         features.append(_pattern_feature(pat, members))
     # Un-patterned holes: group by machining spec so identical holes share one
     # count× callout (the engine's grouped-callout rule); HoleSpec keys on the
-    # snapped axis too, so opposite-face drillings stay distinct.
+    # snapped axis and the countersink too, so opposite-face drillings and csk-vs-plain
+    # holes stay distinct.
     spec_groups: dict = {}
     for h in holes:
         if id(h) in patterned:

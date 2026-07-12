@@ -29,7 +29,7 @@ This module also hosts the low-level cylinder analysis that
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import (
@@ -40,6 +40,8 @@ from OCP.GeomAbs import (
     GeomAbs_Torus,
 )
 from OCP.TopAbs import TopAbs_Orientation
+
+from draftwright.recognition.countersinks import CounterSink, recognise_countersinks
 
 # Cylinder patches around one axis spanning half a turn or less in total are
 # not holes or bosses: quarter-turn patches are edge blends (fillets/rounds)
@@ -228,6 +230,10 @@ class HoleRecord:
     bottom: str
     cbore: CounterBore | None = None
     spotface: CounterBore | None = None
+    # A countersink (flat-head seat) coaxial with the bore, or None (#558). Composed
+    # from the standalone :func:`recognise_countersinks` so the hole's spec/grouping and
+    # the callout-width estimate all see it.
+    csink: CounterSink | None = None
 
 
 @dataclass(frozen=True)
@@ -466,6 +472,28 @@ def _merge_stacks(stacks, edge_faces, cache=None):
     return merged
 
 
+_CSK_DIA_TOL = 0.2  # mm — countersink drill ⌀ vs bore ⌀
+_CSK_COAX_TOL = 0.2  # mm — countersink opening off the bore axis line
+
+
+def _csink_for_hole(h: HoleRecord, csinks: list[CounterSink]) -> CounterSink | None:
+    """The countersink coaxial with hole *h* — parallel axis, opening on the bore's axis
+    line, matching drill ⌀ — or None (#558)."""
+    hx = h.axis
+    for cs in csinks:
+        v = tuple(cs.location[i] - h.location[i] for i in range(3))
+        t = sum(v[i] * hx[i] for i in range(3))
+        perp = math.hypot(*(v[i] - t * hx[i] for i in range(3)))
+        parallel = abs(sum(hx[i] * cs.axis[i] for i in range(3))) > 1 - 1e-3
+        if (
+            parallel
+            and perp <= _CSK_COAX_TOL
+            and abs(cs.drill_diameter - h.diameter) <= _CSK_DIA_TOL
+        ):
+            return cs
+    return None
+
+
 def recognise_holes(part, *, cyls=None) -> list[HoleRecord]:
     """Recognise drilled holes on *part* (see :class:`HoleRecord`).
 
@@ -565,6 +593,15 @@ def recognise_holes(part, *, cyls=None) -> list[HoleRecord]:
                 spotface=spotface,
             )
         )
+    # Compose countersinks (#558): a coaxial cone flaring from the bore is a hole
+    # attribute (like a counterbore), so it rides on the HoleRecord — HoleSpec grouping
+    # and the callout-width estimate then see it for free.
+    csinks = recognise_countersinks(part)
+    if csinks:
+        holes = [
+            (replace(h, csink=cs) if (cs := _csink_for_hole(h, csinks)) is not None else h)
+            for h in holes
+        ]
     return holes
 
 
@@ -734,13 +771,17 @@ class HoleSpec:
     bottom: str
     cbore: CounterBore | None
     spotface: CounterBore | None
+    # The countersink's *size* only — ``(major_diameter, included_angle)`` — never its
+    # location, so identical countersunk holes at different positions share one spec (#558).
+    csink: tuple[float, float] | None = None
 
     @classmethod
     def from_hole(cls, hole: HoleRecord) -> "HoleSpec":
         """The :class:`HoleSpec` for *hole* (a :class:`HoleRecord`)."""
         depth = None if hole.bottom == "through" else hole.depth
         axis = tuple(0.0 if abs(c) < 1e-6 else round(c, 6) for c in hole.axis)
-        return cls(axis, hole.diameter, depth, hole.bottom, hole.cbore, hole.spotface)
+        csink = (hole.csink.major_diameter, hole.csink.included_angle) if hole.csink else None
+        return cls(axis, hole.diameter, depth, hole.bottom, hole.cbore, hole.spotface, csink)
 
 
 def _spec_key(h):

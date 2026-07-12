@@ -324,6 +324,11 @@ def _est_bore_callout_width(
             if step.depth:
                 token_w.append(sym_w)  # depth symbol
                 token_w.append(_text_width(_fmt(step.depth), h_fs))
+        if rep.csink is not None:
+            token_w.append(sym_w)  # countersink symbol
+            token_w.append(sym_w)  # ⌀
+            token_w.append(_text_width(_fmt(rep.csink.major_diameter), h_fs))
+            token_w.append(_text_width(f"× {_fmt(rep.csink.included_angle)}°", h_fs))
 
         # Pattern callout suffix ("EQ SP ON ø… BC" / "(r×c)"), when this spec
         # group is recognised as a pattern.
@@ -404,6 +409,14 @@ def _est_planned_bore_callout_width(
             if cbore_depth is not None:
                 token_w.append(sym_w)  # depth symbol
                 token_w.append(_text_width(_fmt(cbore_depth), font_size))
+        csink_dia = _first(group, "diameter", "countersink")
+        if csink_dia is not None:
+            token_w.append(sym_w)  # countersink symbol
+            token_w.append(sym_w)  # ⌀
+            token_w.append(_text_width(_fmt(csink_dia), font_size))
+            csink_angle = _first(group, "angle", "countersink")
+            if csink_angle is not None:
+                token_w.append(_text_width(f"× {_fmt(csink_angle)}°", font_size))
         if suffix is not None:
             token_w.append(_text_width(suffix, font_size))
 

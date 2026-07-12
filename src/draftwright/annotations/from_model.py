@@ -110,6 +110,8 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         # counterbore precedence, spotface fallback — the engine's mapping
         "cbore_dia": _first(group, "diameter", "counterbore", "spotface"),
         "cbore_depth": _first(group, "depth", "counterbore", "spotface"),
+        "csink_dia": _first(group, "diameter", "countersink"),
+        "csink_angle": _first(group, "angle", "countersink"),
         "suffix": suffix,
         "tolerance": bore_tol,  # P2a: ± on the bore ⌀, baked into the callout string below
     }
@@ -146,6 +148,8 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         depth=f(spec["depth"]),
         cbore_dia=f(spec["cbore_dia"]),
         cbore_depth=f(spec["cbore_depth"]),
+        csink_dia=f(spec["csink_dia"]),
+        csink_angle=spec["csink_angle"],
         suffix=spec["suffix"],
         draft=draft,
     )
