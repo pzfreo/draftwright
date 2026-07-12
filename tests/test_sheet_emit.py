@@ -205,6 +205,13 @@ class TestEmit:
         assert pat and "csink=(14" in pat[0]
         ast.parse(src)
 
+    def test_plate_emits_the_plate_verb(self):
+        # #577: a multi-plate part emits sheet.plate(...) per slab (was dropped).
+        part = Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50)  # base plate + upright wall
+        src = _script_for(part)
+        assert src.count("sheet.plate(") == 2
+        ast.parse(src)
+
     def test_chamfer_emits_the_chamfer_verb(self):
         # #576: a detected chamfer emits `sheet.chamfer(...)` (was a "no declarative verb yet"
         # comment) — the emit surface for #560.

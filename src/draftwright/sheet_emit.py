@@ -189,6 +189,10 @@ def _feature_line(f) -> str:
             f'sheet.chamfer(axis="{f.axis}", leg1={_n(f.leg1)}, leg2={_n(f.leg2)}, '
             f"angle={_n(f.angle)}, at={_pt(f.frame.origin)})"
         )
+    if k == "plate":
+        return (
+            f'sheet.plate(axis="{f.axis}", lo={_n(f.lo)}, hi={_n(f.hi)}, u={_n(f.u)}, v={_n(f.v)})'
+        )
     # Kinds with no declarative verb yet: flag inline so they aren't silently lost. The auto-pass
     # over the declared model still draws rotational furniture faithfully (#472).
     return f"# {k} @ {_pt(f.frame.origin)} — no declarative verb yet; drawn by the auto-pass"
