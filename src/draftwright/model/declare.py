@@ -29,6 +29,7 @@ import warnings
 
 from draftwright.model.ir import (
     BossFeature,
+    ChamferFeature,
     ControlFrame,
     DatumRef,
     EnvelopeFeature,
@@ -271,6 +272,80 @@ def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None)
         span = _span(at, axis, length)
     return StepFeature(
         frame=Frame(origin=at, axis=axis), length=length, diameter=diameter, span=span
+    )
+
+
+def _read_chamfer_face(face) -> tuple[str, float, float, Point]:
+    """Read a chamfer off its **oblique planar bevel face**: the axis (the edge the chamfer
+    runs along), the two legs (the face's in-plane extents), and a point **on the bevel** (the
+    face centre — not the removed sharp corner). The leader point agrees with the recogniser
+    (recognition/chamfers.py) in the two **in-plane** (placement) coordinates; the along-edge
+    coordinate is view depth, so it need not match exactly."""
+    try:
+        nrm = face.normal_at()
+    except Exception:  # noqa: BLE001 — a degenerate/non-planar face has no clean normal
+        raise ValueError("chamfer(face=...) needs an oblique planar bevel face") from None
+    nv = (nrm.X, nrm.Y, nrm.Z)
+    if max(abs(c) for c in nv) > 0.99:
+        raise ValueError(
+            "chamfer(face=...) needs an OBLIQUE planar face (the bevel); an axis-aligned "
+            "face is not a chamfer — declare with axis=, leg=, at= instead"
+        )
+    edge_i = next((i for i in range(3) if abs(nv[i]) < 0.05), None)
+    if edge_i is None:  # oblique on all three axes → a compound corner bevel
+        raise ValueError(
+            "chamfer(face=...): the bevel must run along one principal axis; use axis=, leg=, at="
+        )
+    oi = [j for j in range(3) if j != edge_i]
+    bb = face.bounding_box()
+    span = ((bb.min.X, bb.max.X), (bb.min.Y, bb.max.Y), (bb.min.Z, bb.max.Z))
+    hi = max(span[oi[0]][1] - span[oi[0]][0], span[oi[1]][1] - span[oi[1]][0])
+    lo = min(span[oi[0]][1] - span[oi[0]][0], span[oi[1]][1] - span[oi[1]][0])
+    c = face.center()
+    # No angle: it is always derivable from the legs, so returning it would let a leg-only
+    # override leave a stale, contradicting angle (#580 review). chamfer() derives it.
+    return "xyz"[edge_i], round(hi, 3), round(lo, 3), (round(c.X, 4), round(c.Y, 4), round(c.Z, 4))
+
+
+def chamfer(
+    obj=None, *, axis=None, leg=None, leg1=None, leg2=None, angle=None, at=None
+) -> ChamferFeature:
+    """A chamfer (bevelled edge, #560/#576). Either ``chamfer(bevel_face)`` — the oblique
+    chamfer face supplies axis, both legs and a leader point **on the bevel** — or explicit
+    ``chamfer(axis="z", leg=6, at=(x, y, z))``. ``leg`` is an equal-leg 45° chamfer (callout
+    ``C{leg}``); give **both** ``leg1``/``leg2`` for an asymmetric one (``{leg} × {angle}°``).
+    The angle is always derived from the legs; an explicit ``angle=`` is only *validated*
+    against them (a one-leg-plus-angle spec is not yet supported — #581). An object supplies
+    *defaults*; any explicit keyword overrides (#451)."""
+    if obj is not None:
+        r_axis, r_leg1, r_leg2, r_at = _read_chamfer_face(obj)
+        axis = r_axis if axis is None else axis
+        leg1 = r_leg1 if leg1 is None else leg1
+        leg2 = r_leg2 if leg2 is None else leg2
+        at = r_at if at is None else at  # angle is never seeded — always derived from legs
+    if leg is not None:  # explicit equal-leg shorthand
+        leg1 = leg2 = leg
+    elif leg1 is not None and leg2 is None:
+        leg2 = leg1
+    if leg1 is None or axis is None or at is None:
+        raise ValueError(
+            "chamfer() needs a bevel face, or explicit axis=, at= and leg= (or leg1=/leg2=)"
+        )
+    axis = _norm_axis(axis)
+    _require_positive(leg1=leg1, leg2=leg2)
+    _require_point("at", at)
+    hi, lo = max(leg1, leg2), min(leg1, leg2)
+    derived = 45.0 if abs(hi - lo) < 1e-9 else round(math.degrees(math.atan2(lo, hi)), 2)
+    if angle is None:
+        angle = derived
+    elif not 0 < angle < 90:
+        raise ValueError(f"chamfer angle must be in (0, 90)°, got {angle}")
+    elif abs(angle - derived) > 0.5:
+        raise ValueError(
+            f"chamfer angle {angle}° contradicts legs {leg1}/{leg2} (which imply {derived}°)"
+        )
+    return ChamferFeature(
+        frame=Frame(origin=at, axis=axis), axis=axis, leg1=hi, leg2=lo, angle=angle
     )
 
 

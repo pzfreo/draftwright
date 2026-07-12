@@ -179,6 +179,11 @@ def _feature_line(f) -> str:
         if f.members:
             parts.append("members=[" + ", ".join(_pt(p) for p in f.members) + "]")
         return f"sheet.pattern({_member_hole_str(f.member)}, " + ", ".join(parts) + ")"
+    if k == "chamfer":
+        return (
+            f'sheet.chamfer(axis="{f.axis}", leg1={_n(f.leg1)}, leg2={_n(f.leg2)}, '
+            f"angle={_n(f.angle)}, at={_pt(f.frame.origin)})"
+        )
     # Kinds with no declarative verb yet: flag inline so they aren't silently lost. The auto-pass
     # over the declared model still draws rotational furniture faithfully (#472).
     return f"# {k} @ {_pt(f.frame.origin)} — no declarative verb yet; drawn by the auto-pass"
