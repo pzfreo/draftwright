@@ -39,6 +39,7 @@ from draftwright.model.ir import (
     HoleFeature,
     Note,
     PatternFeature,
+    PlateFeature,
     Point,
     SlotFeature,
     StepFeature,
@@ -385,6 +386,58 @@ def chamfer(
         )
     return ChamferFeature(
         frame=Frame(origin=at, axis=axis), axis=axis, leg1=hi, leg2=lo, angle=angle
+    )
+
+
+def _read_plate(obj) -> tuple[str, float, float, float, float]:
+    """Read a thin slab off its bounding box: the thin (thickness) axis is the smallest span;
+    ``lo``/``hi`` its extent along that axis; ``u``/``v`` the slab centre on the other two axes
+    (in axis order). The slab is present material, so the bbox reads it directly."""
+    bb = obj.bounding_box()
+    sizes = [bb.size.X, bb.size.Y, bb.size.Z]
+    i = min(range(3), key=lambda k: sizes[k])
+    oi = [j for j in range(3) if j != i]
+    span = ((bb.min.X, bb.max.X), (bb.min.Y, bb.max.Y), (bb.min.Z, bb.max.Z))
+    c = (bb.center().X, bb.center().Y, bb.center().Z)
+    return (
+        "xyz"[i],
+        round(span[i][0], 4),
+        round(span[i][1], 4),
+        round(c[oi[0]], 4),
+        round(c[oi[1]], 4),
+    )
+
+
+def plate(obj=None, *, axis=None, lo=None, hi=None, u=None, v=None) -> PlateFeature:
+    """A thin slab's thickness (#559/#577) — a base plate, an upright wall, a rib. Either
+    ``plate(slab_box)`` — the thin axis, its ``lo``/``hi`` extent, and the ``u``/``v`` slab
+    centre read off the object's bbox — or explicit ``plate(axis="z", lo=0, hi=4, u=10, v=5)``.
+    ``hi - lo`` is the thickness; ``u``/``v`` locate the thickness dim on the other two axes
+    (in axis order). An object supplies *defaults*; any explicit keyword overrides (#451)."""
+    if obj is not None:
+        r_axis, r_lo, r_hi, r_u, r_v = _read_plate(obj)
+        axis = r_axis if axis is None else axis
+        lo = r_lo if lo is None else lo
+        hi = r_hi if hi is None else hi
+        u = r_u if u is None else u
+        v = r_v if v is None else v
+    if None in (axis, lo, hi, u, v):
+        raise ValueError("plate() needs a slab object, or explicit axis=, lo=, hi=, u= and v=")
+    axis = _norm_axis(axis)
+    if not hi > lo:
+        raise ValueError(f"plate() needs hi > lo (a positive thickness); got lo={lo}, hi={hi}")
+    i = "xyz".index(axis)
+    oi = [j for j in range(3) if j != i]
+    origin = [0.0, 0.0, 0.0]
+    origin[i] = (lo + hi) / 2
+    origin[oi[0]], origin[oi[1]] = u, v
+    return PlateFeature(
+        frame=Frame(origin=(origin[0], origin[1], origin[2]), axis=axis),
+        axis=axis,
+        lo=lo,
+        hi=hi,
+        u=u,
+        v=v,
     )
 
 

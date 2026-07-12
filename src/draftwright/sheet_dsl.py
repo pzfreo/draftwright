@@ -53,6 +53,7 @@ from draftwright.model import finish as _declare_finish
 from draftwright.model import hole as _hole
 from draftwright.model import note as _declare_note
 from draftwright.model import pattern as _pattern
+from draftwright.model import plate as _plate
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
 from draftwright.model.declare import (
@@ -535,6 +536,14 @@ class Sheet:
         ``sheet.chamfer(axis="z", leg=6, at=(x, y, z))``. ``leg`` = equal-leg 45° (``C{leg}``);
         ``leg1``/``leg2`` = asymmetric."""
         self._features.append(_chamfer(obj, **kw))
+        return self
+
+    def plate(self, obj=None, **kw) -> Sheet:
+        """Declare a thin slab's thickness (a base plate / wall / rib) — ``sheet.plate(slab_box)``
+        reads the thin axis + extent + centre off the slab, or explicit ``sheet.plate(axis="z",
+        lo=0, hi=4, u=10, v=5)``. Only a *multi-plate* part dimensions plates (a single slab is
+        the envelope)."""
+        self._features.append(_plate(obj, **kw))
         return self
 
     def pattern(self, member, **kw) -> Sheet:

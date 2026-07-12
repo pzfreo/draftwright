@@ -31,6 +31,7 @@ from draftwright.model.declare import (
     hole,
     note,
     pattern,
+    plate,
     slot,
     step,
 )
@@ -96,6 +97,7 @@ __all__ = [
     "hole",
     "note",
     "pattern",
+    "plate",
     "slot",
     "step",
     "display",

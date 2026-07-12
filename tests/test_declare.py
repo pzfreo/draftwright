@@ -17,6 +17,7 @@ from draftwright.model import (
     HoleFeature,
     PartModel,
     PatternFeature,
+    PlateFeature,
     SlotFeature,
     StepFeature,
     boss,
@@ -24,6 +25,7 @@ from draftwright.model import (
     envelope,
     hole,
     pattern,
+    plate,
     slot,
     step,
 )
@@ -372,6 +374,44 @@ class TestCountersink:
         # #582 review: an included angle >= 180° is not a real cone.
         with pytest.raises(ValueError, match="180"):
             hole(diameter=6, at=(0, 0, 0), axis="z", csink=(14, 200))
+
+
+class TestPlate:
+    """#577: declare a thin slab's thickness — the third ADR-0011 surface for #559."""
+
+    def test_reads_thin_axis_and_extent_off_the_slab(self):
+        from draftwright.model.declare import _read_plate
+
+        # Off the origin so u/v (the slab centre on the two NON-thin axes, in axis order)
+        # are non-zero and a u/v swap or a min/max-vs-centre bug can't hide.
+        axis, lo, hi, u, v = _read_plate(Pos(12, 7, 0) * Box(80, 50, 8))  # thinnest span = Z (8)
+        assert axis == "z" and hi - lo == pytest.approx(8.0)
+        assert (u, v) == pytest.approx((12.0, 7.0))  # u=X-centre, v=Y-centre (axis order)
+
+    def test_explicit_plate(self):
+        f = plate(axis="z", lo=0, hi=4, u=10, v=5)
+        assert isinstance(f, PlateFeature)
+        assert f.axis == "z" and f.hi - f.lo == pytest.approx(4.0) and (f.u, f.v) == (10, 5)
+
+    def test_declared_plates_render_thickness_dims(self):
+        # An L-bracket declared as two plates renders both thickness dims — assert the
+        # dims actually LAND (named + labelled + lint-clean), not just that the model
+        # echoes back what we handed it (detection is skipped for a declared model).
+        lbr = Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50)
+        model = [plate(Box(80, 50, 8)), plate(axis="x", lo=-40, hi=-32, u=0, v=27)]
+        dwg = build_drawing(lbr, model=model, number="X")
+        plate_dims = {n: dwg._named[n].label for n in dwg._named if n.startswith("dim_plate")}
+        assert sorted(plate_dims) == ["dim_plate_x0", "dim_plate_z0"]  # both slabs dimensioned
+        assert sorted(plate_dims.values()) == ["8", "8"]  # each 8 thick
+        assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    def test_needs_object_or_explicit(self):
+        with pytest.raises(ValueError):
+            plate(axis="z", lo=0)  # missing hi / u / v
+
+    def test_rejects_nonpositive_thickness(self):
+        with pytest.raises(ValueError, match="hi > lo"):
+            plate(axis="z", lo=4, hi=4, u=0, v=0)
 
 
 class TestExplicitOverridesObject:
