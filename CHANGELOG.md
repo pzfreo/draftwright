@@ -7,6 +7,15 @@ contract (ADR 0013 / #568). These are *deliberate* breaks with **no compatibilit
 aliases**, so this must ship in a **minor bump (0.3.0), not a patch**. Drawing output is
 unchanged (byte-identical); only import paths and callable signatures change.
 
+### Added
+
+- **Countersink callouts (#558).** A countersunk hole is now recognised and called out
+  `Ø6 THRU ⌵ Ø14 × 90°` (major-Ø + included angle), the way counterbores already get
+  `⊔ Ø.. ↧..`. New `recognise_countersinks(part) -> list[CounterSink]` recogniser
+  (geometry-mirrored with `build123d-mcp` for the shared `b123d-recognisers` package);
+  the countersink rides on `HoleRecord`/`HoleFeature` so grouping and the callout-width
+  layout estimate account for it.
+
 ### Changed
 
 - **Feature recognisers renamed `find_`/`analyse_` → `recognise_`** and their

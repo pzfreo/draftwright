@@ -129,6 +129,9 @@ class HoleFeature:
     members: tuple[Point, ...] = ()
     cbore: tuple[float, float] | None = None
     spotface: tuple[float, float] | None = None
+    # A countersink (flat-head screw seat): ``(major_diameter, included_angle°)`` or
+    # ``None`` — plain tuple, the IR stays decoupled from the recogniser's type (#558).
+    csink: tuple[float, float] | None = None
     kind: ClassVar[str] = "hole"
 
     def parameters(self) -> list[DimParameter]:
@@ -144,6 +147,10 @@ class HoleFeature:
             sd, sdp = self.spotface
             ps.append(DimParameter("diameter", "spotface", sd))
             ps.append(DimParameter("depth", "spotface", sdp))
+        if self.csink is not None:
+            csd, csa = self.csink
+            ps.append(DimParameter("diameter", "countersink", csd))
+            ps.append(DimParameter("angle", "countersink", csa))
         return ps
 
     def references(self) -> list[Datum]:

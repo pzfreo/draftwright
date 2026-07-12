@@ -426,6 +426,132 @@ class TestChamferCallout:
         assert _chamfer_label(chamfers[0]) == "C2.5"
 
 
+class TestCountersinkCallout:
+    """#558: a countersunk hole was called out as a plain THRU hole — no major-Ø /
+    included-angle. It must now carry a csk callout (⌵ Ø14 × 90°), like a counterbore."""
+
+    @staticmethod
+    def _csk_plate():
+        # The issue's repro: Ø6 through + a 90° csk flaring to Ø14 at the top face.
+        from build123d import Cone
+
+        plate = Box(90, 60, 12)
+        for x, y in [(-30, -15), (5, 12), (30, -8)]:
+            plate -= Pos(x, y, 0) * Cylinder(3, 12)
+            plate -= Pos(x, y, 4) * Cone(3, 7, 4)
+        return plate
+
+    def test_countersink_recognised(self):
+        from draftwright.recognition import recognise_countersinks
+
+        cs = recognise_countersinks(self._csk_plate())
+        assert len(cs) == 3
+        for c in cs:
+            assert abs(c.major_diameter - 14.0) < 0.1
+            assert abs(c.drill_diameter - 6.0) < 0.1
+            assert abs(c.included_angle - 90.0) < 0.5
+
+    def test_countersunk_hole_carries_csink_in_ir(self):
+        # Recovered as a HoleFeature.csink = (major_diameter, angle), grouped 3×.
+        dwg = build_drawing(self._csk_plate(), number="X")
+        holes = [f for f in dwg.model().features if f.kind == "hole"]
+        assert len(holes) == 1 and holes[0].count == 3
+        assert holes[0].csink is not None
+        maj, ang = holes[0].csink
+        assert abs(maj - 14.0) < 0.1 and abs(ang - 90.0) < 0.5
+
+    def test_countersink_callout_is_placed_not_dropped(self):
+        # The wider csk callout must reserve room in the layout estimate and place —
+        # NOT drop like it did before the estimator learned about countersinks.
+        dwg = build_drawing(self._csk_plate(), number="X")
+        assert not any(getattr(i, "code", None) == "callout_dropped" for i in dwg._build_issues)
+        leaders = [dwg._named[n] for n in dwg._named if n.startswith("hc_")]
+        assert leaders, "no hole callout placed"
+        # The placed callout covers both the bore (6) and the csk major (14).
+        assert any(14.0 in ldr.covers_diameters for ldr in leaders)
+
+    def test_plain_hole_has_no_countersink(self):
+        plate = Box(90, 60, 12) - Pos(0, 0, 0) * Cylinder(3, 12)
+        holes = [f for f in build_drawing(plate, number="X").model().features if f.kind == "hole"]
+        assert holes and holes[0].csink is None
+
+    def test_counterbore_is_not_a_countersink(self):
+        # A ⌀18 counterbore (a cylindrical recess) must not register as a countersink.
+        plate = Box(90, 60, 12)
+        plate -= Pos(0, 0, 0) * Cylinder(3, 12)
+        plate -= Pos(0, 0, 3) * Cylinder(9, 6)
+        from draftwright.recognition import recognise_countersinks
+
+        assert recognise_countersinks(plate) == []
+        holes = [f for f in build_drawing(plate, number="X").model().features if f.kind == "hole"]
+        assert holes and holes[0].csink is None and holes[0].cbore is not None
+
+    def test_deburr_mouth_chamfer_is_not_a_countersink(self):
+        # #558 review (BLOCKER): a 0.5 mm edge-break / deburr at a hole mouth is the same
+        # cone shape as a shallow csk — the flare-ratio floor must exclude it, else every
+        # chamfered hole mouth gets a spurious csk callout.
+        from build123d import Axis, chamfer
+
+        from draftwright.recognition import recognise_countersinks, recognise_holes
+
+        plate = Box(30, 30, 10) - Pos(0, 0, 0) * Cylinder(3, 20)
+        edge = plate.edges().filter_by(Axis.Z).group_by(lambda e: e.center().Z)[-1]
+        plate = chamfer(edge, 0.5)
+        assert recognise_countersinks(plate) == []
+        assert recognise_holes(plate)[0].csink is None
+
+    def test_opposite_face_coaxial_hole_is_not_mis_associated(self):
+        # #558 review (BLOCKER): a countersink must attach only to the bore at its mouth,
+        # facing the same way — NOT to a coaxial hole drilled from the opposite face.
+        from build123d import Cone
+
+        from draftwright.recognition import recognise_holes
+
+        p = Box(40, 40, 30)
+        p -= Pos(0, 0, 9) * Cylinder(3, 12)  # top hole, opening at z=15
+        p -= Pos(0, 0, 13) * Cone(3, 7, 4)  # csk at the top face
+        p -= Pos(0, 0, -9) * Cylinder(3, 12)  # coaxial bottom hole, same bore, NO csk
+        by_open = {round(h.location[2]): h for h in recognise_holes(p)}
+        top = max(by_open)  # the top (csk) hole
+        assert by_open[top].csink is not None
+        assert by_open[min(by_open)].csink is None  # the opposite-face hole stays plain
+
+    def test_through_hole_countersink_is_orientation_independent(self):
+        # #558 review round 2 (BLOCKER): a through hole is open at both faces, so
+        # recognise_holes may call either end the "opening". The countersink must attach
+        # regardless of which — a Z-flip must not drop it to plain THRU.
+        from build123d import Rotation
+
+        from draftwright.recognition import recognise_holes
+
+        flipped = Rotation(180, 0, 0) * self._csk_plate()
+        holes = [h for h in recognise_holes(flipped) if h.csink is not None]
+        assert len(holes) == 3  # all three csk holes keep their countersink after the flip
+
+    def test_callout_angle_is_formatted_not_raw_float(self):
+        # #558 review (BLOCKER): the angle must cross as a _fmt string so it renders
+        # "× 90°" (not "× 90.0°") AND matches the width estimators — a raw float renders
+        # wider and would re-drop the callout.
+        from build123d_drafting import HoleCallout
+
+        from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
+        from draftwright.model.planner import plan_dimensions
+
+        dwg = build_drawing(self._csk_plate(), number="X")
+        m = dwg.model()
+        hole = next(f for f in m.features if f.kind == "hole")
+        g = next(gg for gg in plan_dimensions(m) if getattr(gg, "feature", None) is hole)
+        built = callout_from_spec(hole_callout_spec(g), dwg.draft, 3)
+        ref_str = HoleCallout(
+            "6", count=3, through=True, csink_dia="14", csink_angle="90", draft=dwg.draft
+        )
+        ref_float = HoleCallout(
+            "6", count=3, through=True, csink_dia="14", csink_angle=90.0, draft=dwg.draft
+        )
+        assert abs(built.callout_width - ref_str.callout_width) < 0.05  # "× 90°"
+        assert abs(built.callout_width - ref_float.callout_width) > 1.0  # not "× 90.0°"
+
+
 class TestStepSizingConvergence:
     def test_step_sizing_converges_past_the_old_three_pass_limit(self):
         measure_calls = []
