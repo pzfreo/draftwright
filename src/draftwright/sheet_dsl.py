@@ -507,9 +507,10 @@ class Sheet:
         return self
 
     def chamfer(self, obj=None, **kw) -> Sheet:
-        """Declare a chamfer (bevelled edge) — ``sheet.chamfer(edge, leg=6)`` reads axis +
-        location off the edge you chamfered, or explicit ``sheet.chamfer(axis="z", leg=6,
-        at=(x, y, z))``. ``leg`` = equal-leg 45° (``C{leg}``); ``leg1``/``leg2`` = asymmetric."""
+        """Declare a chamfer (bevelled edge) — ``sheet.chamfer(bevel_face)`` reads axis, legs
+        and a point on the bevel off the oblique chamfer face, or explicit
+        ``sheet.chamfer(axis="z", leg=6, at=(x, y, z))``. ``leg`` = equal-leg 45° (``C{leg}``);
+        ``leg1``/``leg2`` = asymmetric."""
         self._features.append(_chamfer(obj, **kw))
         return self
 

@@ -275,7 +275,7 @@ def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None)
     )
 
 
-def _read_chamfer_face(face) -> tuple[str, float, float, float, Point]:
+def _read_chamfer_face(face) -> tuple[str, float, float, Point]:
     """Read a chamfer off its **oblique planar bevel face**: the axis (the edge the chamfer
     runs along), the two legs (the face's in-plane extents), the angle, and a point **on the
     bevel** (the face centre — not the removed sharp corner). Mirrors the recogniser
@@ -300,19 +300,10 @@ def _read_chamfer_face(face) -> tuple[str, float, float, float, Point]:
     span = ((bb.min.X, bb.max.X), (bb.min.Y, bb.max.Y), (bb.min.Z, bb.max.Z))
     hi = max(span[oi[0]][1] - span[oi[0]][0], span[oi[1]][1] - span[oi[1]][0])
     lo = min(span[oi[0]][1] - span[oi[0]][0], span[oi[1]][1] - span[oi[1]][0])
-    angle = 45.0 if abs(hi - lo) < 1e-9 else round(math.degrees(math.atan2(lo, hi)), 2)
     c = face.center()
-    return (
-        "xyz"[edge_i],
-        round(hi, 3),
-        round(lo, 3),
-        angle,
-        (
-            round(c.X, 4),
-            round(c.Y, 4),
-            round(c.Z, 4),
-        ),
-    )
+    # No angle: it is always derivable from the legs, so returning it would let a leg-only
+    # override leave a stale, contradicting angle (#580 review). chamfer() derives it.
+    return "xyz"[edge_i], round(hi, 3), round(lo, 3), (round(c.X, 4), round(c.Y, 4), round(c.Z, 4))
 
 
 def chamfer(
@@ -324,12 +315,11 @@ def chamfer(
     ``C{leg}``); give ``leg1``/``leg2`` for an asymmetric one (``{leg} × {angle}°`` — the angle
     is derived from the legs). An object supplies *defaults*; any explicit keyword overrides (#451)."""
     if obj is not None:
-        r_axis, r_leg1, r_leg2, r_angle, r_at = _read_chamfer_face(obj)
+        r_axis, r_leg1, r_leg2, r_at = _read_chamfer_face(obj)
         axis = r_axis if axis is None else axis
         leg1 = r_leg1 if leg1 is None else leg1
         leg2 = r_leg2 if leg2 is None else leg2
-        angle = r_angle if angle is None else angle
-        at = r_at if at is None else at
+        at = r_at if at is None else at  # angle is never seeded — always derived from legs
     if leg is not None:  # explicit equal-leg shorthand
         leg1 = leg2 = leg
     elif leg1 is not None and leg2 is None:

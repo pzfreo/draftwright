@@ -305,6 +305,26 @@ class TestChamfer:
         f2 = chamfer(axis="x", leg1=14, leg2=8, at=(0, 0, 0), angle=f.angle)
         assert (f2.leg1, f2.leg2, f2.angle) == (f.leg1, f.leg2, f.angle)
 
+    def test_object_leg_override_re_derives_angle(self):
+        # #580 review (BLOCKER): overriding a leg on an object-declared chamfer must re-derive
+        # the angle from the new legs (#451 independent override) — not keep the object's stale
+        # angle and falsely raise "contradicts legs".
+        import math
+
+        from build123d import GeomType
+        from build123d import chamfer as bd_chamfer
+
+        box = Box(90, 60, 10)
+        e = box.edges().filter_by(Axis.Z).sort_by(lambda x: x.center().X + x.center().Y)[-1]
+        bevel = next(
+            f
+            for f in bd_chamfer(e, 6).faces().filter_by(GeomType.PLANE)
+            if max(abs(f.normal_at().X), abs(f.normal_at().Y), abs(f.normal_at().Z)) < 0.99
+        )
+        f = chamfer(bevel, leg2=3)  # override one leg → asymmetric; must NOT raise
+        assert abs(f.leg1 - 6) < 0.1 and f.leg2 == 3
+        assert f.angle == pytest.approx(math.degrees(math.atan2(3, 6)), abs=1.0)
+
 
 class TestExplicitOverridesObject:
     """#451: an object supplies DEFAULTS; each explicit keyword overrides that field
