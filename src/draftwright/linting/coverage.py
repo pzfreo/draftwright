@@ -27,6 +27,7 @@ from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
 from draftwright._core import _DIAM_RE, _END_ON, HoleRef, _axis_letter, _fmt, _xyz
 from draftwright.linting.issues import LintIssue
 from draftwright.recognition import (
+    TurnedProfile,
     analyse_cylinders,
     feature_diameters,
     recognise_hole_patterns,
@@ -435,7 +436,7 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     valid ``prof=None`` (non-turned part).
     """
     if prof is _UNSET:
-        prof = recognise_turned_steps(part)
+        prof = TurnedProfile.from_steps(recognise_turned_steps(part))
     if prof is None or prof.axis == "y":
         return []
     if assembly is None:

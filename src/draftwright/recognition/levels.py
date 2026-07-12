@@ -20,6 +20,15 @@ from OCP.GProp import GProp_GProps
 
 
 @dataclass(frozen=True, order=True)
+class FaceLevel:
+    """A recognised horizontal face level — its Z coordinate. A prismatic part's step
+    heights are dimensioned from these. ``order=True`` so the recogniser returns a
+    deterministically sorted list."""
+
+    z: float
+
+
+@dataclass(frozen=True, order=True)
 class StepShoulder:
     """A recognised step/rebate shoulder (#555). ``axis`` is the riser's normal axis
     ("x"/"y"); ``position`` is the world coord of the shoulder along it. ``order=True``
@@ -29,8 +38,11 @@ class StepShoulder:
     position: float
 
 
-def recognise_face_levels(part, *, tol: float = 0.5, min_area_frac: float = 0.0) -> list:
-    """Return sorted unique Z-coords of horizontal (normal≈±Z) planar faces.
+def recognise_face_levels(
+    part, *, tol: float = 0.5, min_area_frac: float = 0.0
+) -> list[FaceLevel]:
+    """Return the sorted unique horizontal (normal≈±Z) face levels as :class:`FaceLevel`
+    records — one per distinct Z of a horizontal planar face.
 
     Uses tol-bucket deduplication but returns the actual face Z, not the rounded
     bucket centre, so dimension labels match the true geometry.
@@ -59,8 +71,10 @@ def recognise_face_levels(part, *, tol: float = 0.5, min_area_frac: float = 0.0)
         bb = part.bounding_box()
         footprint = (bb.max.X - bb.min.X) * (bb.max.Y - bb.min.Y)
         threshold = min_area_frac * footprint
-        return sorted(z for key, z in buckets.items() if areas.get(key, 0.0) >= threshold)
-    return sorted(buckets.values())
+        return sorted(
+            FaceLevel(z) for key, z in buckets.items() if areas.get(key, 0.0) >= threshold
+        )
+    return sorted(FaceLevel(z) for z in buckets.values())
 
 
 def recognise_step_shoulders(

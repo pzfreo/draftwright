@@ -8,7 +8,7 @@ orientation that is not flagged Z-rotational), mirroring _x_stepped_shaft.
 import pytest
 from build123d import Box, Cylinder, GeomType, Pos, Rotation
 
-from draftwright.recognition import TurnedProfile, recognise_turned_steps
+from draftwright.recognition import TurnedProfile, TurnedStep, recognise_turned_steps
 
 
 def _shaft_x(*sections):
@@ -23,35 +23,41 @@ def _shaft_x(*sections):
     return Rotation(0, 90, 0) * solid
 
 
-def _lengths(profile: TurnedProfile):
-    return sorted(round(s.length, 2) for s in profile.steps)
+def _lengths(steps):
+    return sorted(round(s.length, 2) for s in steps)
 
 
 class TestFindTurnedSteps:
     def test_two_step_shaft(self):
-        prof = recognise_turned_steps(_shaft_x((30, 40), (16, 30)))
-        assert prof is not None
-        assert prof.axis == "x"
-        assert _lengths(prof) == [30.0, 40.0]
+        steps = recognise_turned_steps(_shaft_x((30, 40), (16, 30)))
+        assert steps
+        assert _lengths(steps) == [30.0, 40.0]
+
+    def test_each_step_is_a_self_contained_record_carrying_its_axis(self):
+        # The shape fix (#568): a TurnedStep carries its turning axis, so it is
+        # interpretable on its own — no TurnedProfile wrapper needed for that.
+        steps = recognise_turned_steps(_shaft_x((30, 40), (16, 30)))
+        assert steps
+        assert all(s.axis == "x" for s in steps)
 
     def test_three_step_shaft(self):
-        prof = recognise_turned_steps(_shaft_x((20, 10), (14, 10), (8, 10)))
-        assert prof is not None
-        assert _lengths(prof) == [10.0, 10.0, 10.0]
+        steps = recognise_turned_steps(_shaft_x((20, 10), (14, 10), (8, 10)))
+        assert steps
+        assert _lengths(steps) == [10.0, 10.0, 10.0]
 
     def test_steps_tile_the_axis_and_sum_to_overall(self):
-        prof = recognise_turned_steps(_shaft_x((30, 40), (16, 30)))
+        steps = recognise_turned_steps(_shaft_x((30, 40), (16, 30)))
         # contiguous: each step's hi is the next step's lo
-        for a, b in zip(prof.steps, prof.steps[1:]):
+        for a, b in zip(steps, steps[1:]):
             assert a.hi == pytest.approx(b.lo)
-        assert sum(s.length for s in prof.steps) == pytest.approx(70.0)
+        assert sum(s.length for s in steps) == pytest.approx(70.0)
 
     def test_axial_bore_is_ignored(self):
         # A through-bore down the centre must not add a step or shift shoulders.
         shaft = _shaft_x((30, 40), (16, 30)) - Rotation(0, 90, 0) * Cylinder(4, 200)
-        prof = recognise_turned_steps(shaft)
-        assert prof is not None
-        assert _lengths(prof) == [30.0, 40.0]
+        steps = recognise_turned_steps(shaft)
+        assert steps
+        assert _lengths(steps) == [30.0, 40.0]
 
     def test_chamfered_shoulders_keep_true_lengths(self):
         # Chamfer the shoulder edges; the step lengths must stay shoulder-to-
@@ -62,17 +68,19 @@ class TestFindTurnedSteps:
             shaft = shaft.chamfer(0.8, None, edges)
         except Exception:
             pytest.skip("chamfer not constructible on this fixture")
-        prof = recognise_turned_steps(shaft)
-        assert prof is not None
-        assert _lengths(prof) == [30.0, 40.0]
+        steps = recognise_turned_steps(shaft)
+        assert steps
+        assert _lengths(steps) == [30.0, 40.0]
 
     def test_diameter_per_step(self):
-        prof = recognise_turned_steps(_shaft_x((30, 40), (16, 30)))
-        by_len = {round(s.length): round(s.diameter) for s in prof.steps}
+        steps = recognise_turned_steps(_shaft_x((30, 40), (16, 30)))
+        by_len = {round(s.length): round(s.diameter) for s in steps}
         assert by_len == {40: 30, 30: 16}
 
-    def test_shoulders_property(self):
-        prof = recognise_turned_steps(_shaft_x((30, 40), (16, 30)))
+    def test_shoulders_aggregate(self):
+        # `shoulders` is a TurnedProfile-aggregate concern, built from the steps.
+        prof = TurnedProfile.from_steps(recognise_turned_steps(_shaft_x((30, 40), (16, 30))))
+        assert prof is not None and prof.axis == "x"
         sh = prof.shoulders
         assert len(sh) == 3
         assert list(sh) == sorted(sh)  # sorted shoulder positions
@@ -80,8 +88,31 @@ class TestFindTurnedSteps:
         diffs = sorted(round(b - a, 2) for a, b in zip(sh, sh[1:]))
         assert diffs == [30.0, 40.0]
 
-    def test_plain_cylinder_is_none(self):
-        assert recognise_turned_steps(Cylinder(15, 40)) is None
+    def test_plain_cylinder_is_empty(self):
+        assert recognise_turned_steps(Cylinder(15, 40)) == []
+        assert TurnedProfile.from_steps(recognise_turned_steps(Cylinder(15, 40))) is None
 
-    def test_prismatic_box_is_none(self):
-        assert recognise_turned_steps(Box(40, 40, 10)) is None
+    def test_prismatic_box_is_empty(self):
+        assert recognise_turned_steps(Box(40, 40, 10)) == []
+
+
+class TestTurnedProfileFromSteps:
+    """The aggregate is now a public boundary (was invariant-by-construction), so it
+    guards the invariant that would silently corrupt its axis/shoulders."""
+
+    def test_empty_is_none(self):
+        assert TurnedProfile.from_steps([]) is None
+
+    def test_rejects_mixed_axes(self):
+        # A mixed-axis input is a programming error — fail loud, don't silently
+        # pick steps[0].axis and misrepresent the rest.
+        steps = [TurnedStep("x", 0, 10, 20), TurnedStep("y", 10, 20, 16)]
+        with pytest.raises(ValueError):
+            TurnedProfile.from_steps(steps)
+
+    def test_sorts_by_lo_so_shoulders_are_ordered(self):
+        # Out-of-order coaxial steps must still yield sorted shoulders.
+        steps = [TurnedStep("x", 40, 70, 16), TurnedStep("x", 0, 40, 30)]
+        prof = TurnedProfile.from_steps(steps)
+        assert prof is not None and prof.axis == "x"
+        assert list(prof.shoulders) == [0.0, 40.0, 70.0]

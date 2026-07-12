@@ -21,6 +21,15 @@ unchanged (byte-identical); only import paths and callable signatures change.
   `feature_diameters`) keeps its names.
 - **`recognise_step_shoulders` now returns `list[StepShoulder]`** (a frozen dataclass)
   instead of raw `(axis, position)` tuples; `levels` is keyword-only.
+- **`recognise_turned_steps` now returns `list[TurnedStep]`** (empty for a non-turned
+  part) instead of `TurnedProfile | None`. `TurnedStep` gained an `axis` field (each step
+  is now a self-contained record); `TurnedProfile` remains only as a pipeline aggregate
+  (`TurnedProfile.from_steps(steps)`), no longer a recogniser return.
+- **`recognise_face_levels` now returns `list[FaceLevel]`** (a frozen `FaceLevel(z)`
+  record) instead of `list[float]`.
+- **Recognition record classes renamed to avoid clashing with the IR `Feature` types:**
+  `draftwright.recognition.HoleFeature` → `HoleRecord`, `BossFeature` → `BossRecord`
+  (the IR `draftwright.model.ir.HoleFeature`/`BossFeature` are unchanged).
 
 ### Removed
 

@@ -133,7 +133,9 @@ recognise_<feature>(part, **tuning) -> list[<Feature>Record]
 
 - verb `recognise_` (not `find_`/`analyse_`); one naming rule;
 - always a `list` of typed frozen dataclass records (no `Optional`-singular, no bare
-  `list`); empty when absent;
+  `list`); empty when absent. Where a recogniser's record first looks "too thin" for a
+  list (a face level, a turned step), the fix is the **record** (make it self-contained —
+  `TurnedStep` carries its `axis`), not an exception to the rule;
 - `part` first, then **keyword-only** args: tuning knobs *and* injected shared
   inventory. A *base* feature (holes, chamfers, fillets, bosses, cylinders) derives
   only from `part`. A *derived* feature takes the canonical inventory it depends on

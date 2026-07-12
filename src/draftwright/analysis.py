@@ -35,6 +35,7 @@ from draftwright._core import (
 from draftwright.model.ir import Datum, PartModel, StepFeature
 from draftwright.model.planner import plan_dimensions
 from draftwright.recognition import (
+    TurnedProfile,
     analyse_cylinders,
     full_cylinders,
     recognise_bosses,
@@ -424,11 +425,11 @@ def _analyse(
     # recognise_face_levels admitted it). Prismatic and other parts keep the
     # general face-level scan, which recognise_turned_steps cannot replace (no
     # cylinders → no profile).
-    _turned = recognise_turned_steps(part)
+    _turned = TurnedProfile.from_steps(recognise_turned_steps(part))
     if _turned is not None and _turned.axis == "z":
         step_zs = [z for z in _turned.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
     else:
-        face_zs = recognise_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)
+        face_zs = [fl.z for fl in recognise_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)]
         step_zs = [z for z in face_zs if z > bb.min.Z + 0.6 and z < bb.max.Z - 0.6]
 
     # Pass 1 (two-pass layout, #131): measure annotation strip depths before
