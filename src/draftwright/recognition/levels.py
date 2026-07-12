@@ -29,7 +29,7 @@ class StepShoulder:
     position: float
 
 
-def recognise_face_levels(part, tol: float = 0.5, min_area_frac: float = 0.0) -> list:
+def recognise_face_levels(part, *, tol: float = 0.5, min_area_frac: float = 0.0) -> list:
     """Return sorted unique Z-coords of horizontal (normal≈±Z) planar faces.
 
     Uses tol-bucket deduplication but returns the actual face Z, not the rounded

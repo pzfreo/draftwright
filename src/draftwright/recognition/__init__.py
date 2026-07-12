@@ -11,28 +11,37 @@ Import the public surface from here, not the submodules.
 
 Recogniser contract (ADR 0013; #568)
 ------------------------------------
-Every *feature* recogniser conforms to one shape::
+A *feature* recogniser takes one of two shapes:
 
-    recognise_<feature>(part, *, <injected inventory>) -> list[<frozen-dataclass record>]
+- **Part-based** — ``recognise_<feature>(part, *, <tuning / injected deps>) -> list[record]``
+  (``recognise_holes(part, *, cyls=None)``, ``recognise_chamfers(part, *, tol=...)``,
+  ``recognise_step_shoulders(part, *, levels)``). Everything after ``part`` is
+  **keyword-only** — both tuning and any injected inventory. A recogniser **never
+  re-recognises a dependency internally**; the caller (``detect.py`` / ``analysis.py``)
+  owns the single inventory and threads it (one inventory, ADR 0008 Am5).
+- **Derived** — ``recognise_<feature>(inventory) -> list[record]`` (``recognise_hole_patterns(holes)``):
+  operates purely on another recogniser's records, no ``part`` and no tuning, so the
+  single inventory arg is unambiguous and stays positional.
 
-- **British verb** ``recognise_`` (not ``find_``/``analyse_``); codespell pins spelling.
-- **Keyword-only** args after ``part`` — tuning *and* injected shared inventory
-  (``recognise_hole_patterns(part, *, holes)``, ``recognise_step_shoulders(part, *,
-  levels)``). A recogniser **never re-recognises a dependency internally**; the caller
-  (``detect.py`` / ``analysis.py``) owns the single inventory and threads it (one
-  inventory, ADR 0008 Am5).
-- Returns a **deterministic ``list`` of frozen-dataclass records** (never
-  ``Optional``-singular, never a bare untyped ``list``); empty when the feature is absent.
-- **Geometry-only records** — no build123d types leak out; the records are the future
-  ``b123d-recognisers`` surface (ADR 0013, Phase 2). ``detect.py`` adapts a record into
-  the dimensioning IR (no recognition object crosses that boundary — ADR 0008 Am6).
+Common to both: a **British** ``recognise_`` verb (not ``find_``/``analyse_``); a
+**deterministic ``list`` of frozen-dataclass records**; **geometry-only records** (no
+build123d types leak out — they are the future ``b123d-recognisers`` surface, ADR 0013
+Phase 2, and ``detect.py`` adapts a record into the dimensioning IR with no recognition
+object crossing that boundary, ADR 0008 Am6).
 
-``analyse_cylinders`` / ``full_cylinders`` / ``feature_diameters`` are cylinder-analysis
-*substrate* (a tuple of dicts / a diameter query), not ``list[record]`` feature
-recognisers, and deliberately keep their names. Two recognisers still return a
-non-conforming shape pending the #568 retypes: ``recognise_turned_steps``
-(``TurnedProfile | None`` — a single profile) and ``recognise_face_levels``
-(``list[float]``).
+**State of this contract (this is the naming + signature step, #568 step 0).** Naming and
+the keyword-only signatures hold for *every* recogniser now. What does **not** yet hold,
+tracked by #568:
+
+- **Return shape** — ``recognise_turned_steps`` returns ``TurnedProfile | None`` (genuinely
+  a single 0-or-1 profile — whether it is even a ``list[record]`` recogniser is an open
+  design call) and ``recognise_face_levels`` returns ``list[float]`` (not yet a record).
+- **Record idiom** — the vendored ``_features.py`` records (``HoleFeature``/``BossFeature``/…)
+  predate the ``…Record`` naming and clash by name with the IR ``Feature`` types.
+
+``analyse_cylinders`` / ``full_cylinders`` / ``feature_diameters`` are **not** recognisers
+under this contract — they are cylinder-analysis *substrate* (a tuple of dicts / a diameter
+query), and deliberately keep their names.
 """
 
 from __future__ import annotations

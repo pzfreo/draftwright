@@ -73,7 +73,7 @@ def _axis_aligned_axis(face_wrapped) -> tuple[int, float] | None:
     return ax, (loc.X(), loc.Y(), loc.Z())[ax]
 
 
-def recognise_chamfers(part, tol: float = 0.5, max_leg_frac: float = 0.45) -> list[Chamfer]:
+def recognise_chamfers(part, *, tol: float = 0.5, max_leg_frac: float = 0.45) -> list[Chamfer]:
     """Recognise the chamfers of *part* (see module docstring). Returns one
     :class:`Chamfer` per qualifying oblique face, sorted deterministically. Empty when the
     part has no chamfer. Only single-axis chamfers (running along one principal axis) are

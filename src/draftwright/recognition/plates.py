@@ -60,6 +60,7 @@ class Plate:
 
 def recognise_plates(
     part,
+    *,
     min_area_frac: float = 0.4,
     max_thick_frac: float = 0.5,
     tol: float = 0.5,

@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+**Breaking — feature-recogniser API renamed.** Establishing the uniform recogniser
+contract (ADR 0013 / #568). These are *deliberate* breaks with **no compatibility
+aliases**, so this must ship in a **minor bump (0.3.0), not a patch**. Drawing output is
+unchanged (byte-identical); only import paths and callable signatures change.
+
+### Changed
+
+- **Feature recognisers renamed `find_`/`analyse_` → `recognise_`** and their
+  tuning/dependencies made keyword-only: `find_holes`→`recognise_holes`,
+  `find_bosses`→`recognise_bosses`, `find_hole_patterns`→`recognise_hole_patterns`,
+  `find_slots`→`recognise_slots`, `find_plates`→`recognise_plates`,
+  `find_chamfers`→`recognise_chamfers`, `find_turned_steps`→`recognise_turned_steps`,
+  `find_step_shoulders`→`recognise_step_shoulders`, `analyse_face_levels`→
+  `recognise_face_levels` (the last was also re-exported at top level as
+  `draftwright.analyse_face_levels` → now `draftwright.recognise_face_levels`).
+  Cylinder-analysis substrate (`analyse_cylinders`, `full_cylinders`,
+  `feature_diameters`) keeps its names.
+- **`recognise_step_shoulders` now returns `list[StepShoulder]`** (a frozen dataclass)
+  instead of raw `(axis, position)` tuples; `levels` is keyword-only.
+
+### Removed
+
+- **`draftwright.features` compatibility module** — deleted. Import `recognise_slots`/
+  `Slot` from `draftwright.recognition` instead.
+
 ## v0.2.13 — 2026-07-09
 
 **Compose-then-pack is now the layout authority.** This patch finishes the

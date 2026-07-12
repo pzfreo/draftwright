@@ -466,7 +466,7 @@ def _merge_stacks(stacks, edge_faces, cache=None):
     return merged
 
 
-def recognise_holes(part, cyls=None) -> list[HoleFeature]:
+def recognise_holes(part, *, cyls=None) -> list[HoleFeature]:
     """Recognise drilled holes on *part* (see :class:`HoleFeature`).
 
     Coaxial internal cylinders are grouped into stacks — drill + optional
@@ -568,7 +568,7 @@ def recognise_holes(part, cyls=None) -> list[HoleFeature]:
     return holes
 
 
-def recognise_bosses(part, cyls=None) -> list[BossFeature]:
+def recognise_bosses(part, *, cyls=None) -> list[BossFeature]:
     """Recognise external cylindrical bosses on *part* (one
     :class:`BossFeature` per coaxial external cylinder segment, including a
     turned part's OD — callers wanting only local bosses can filter on
