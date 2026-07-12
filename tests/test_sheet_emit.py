@@ -210,6 +210,11 @@ class TestEmit:
         part = Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50)  # base plate + upright wall
         src = _script_for(part)
         assert src.count("sheet.plate(") == 2
+        # Assert the emitted fields, not just the verb count — a swapped axis/lo/hi/u/v
+        # would still parse and count 2. The base slab is a Z plate lo=-4 hi=4; the
+        # upright wall is an X plate lo=-40 hi=-32.
+        assert 'sheet.plate(axis="z", lo=-4, hi=4,' in src
+        assert 'sheet.plate(axis="x", lo=-40, hi=-32,' in src
         ast.parse(src)
 
     def test_chamfer_emits_the_chamfer_verb(self):
