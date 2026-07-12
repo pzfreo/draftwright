@@ -1237,7 +1237,7 @@ class Drawing:
         _section = None
         if routable and any(it.kind == "section" for it in self._intents):
             assert a is not None and isinstance(model, PartModel)
-            _section = plan_sections(model, feature_hole_keys(a))
+            _section = plan_sections(model, feature_hole_keys(model, a))
         # Route through the auto-pass solvers when possible (else everything live-replays):
         #  - BOTH-axes locate → the ADR-0009 location corridor. An axes-restricted locate
         #    can't go through the per-feature filter, so it live-replays (#429).
@@ -1417,7 +1417,7 @@ class Drawing:
                     a,
                     build_view_of_axis(a),
                     plan_dimensions(model),
-                    feature_hole_keys(a),
+                    feature_hole_keys(model, a),
                     only=only_callout,
                     place_furniture=False,
                 )

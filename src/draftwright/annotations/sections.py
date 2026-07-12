@@ -62,17 +62,43 @@ def _is_concentric_hole(h, a: Analysis) -> bool:
 def feature_holes_of(a: Analysis) -> list:
     """The feature holes the IR gates callouts / furniture / sections on — a turned
     part's concentric axial bores (dimensioned by the centreline leaders) excluded,
-    every hole on a prismatic part kept. The single source shared by ``_auto_annotate``
-    and the ``section()`` add verb so their trigger set cannot drift (#420)."""
+    every hole on a prismatic part kept.
+
+    Still recogniser-record-typed: the off-axis side-drilled *location* pass
+    (:func:`_locate_off_axis_holes`) reads per-hole diameter/depth/bottom the IR doesn't
+    yet carry on the declared path — migrating that is #584 WP1 subsystem B. The
+    membership *key* set has already moved to the IR (:func:`feature_hole_keys`)."""
     if not a.is_rotational:
         return list(a.holes)
     return [h for h in a.holes if not _is_concentric_hole(h, a)]
 
 
-def feature_hole_keys(a: Analysis) -> set[HoleRef]:
-    """The :class:`HoleRef` position keys of :func:`feature_holes_of` — the membership
-    set ``plan_sections`` gates a section trigger on (#420)."""
-    return {HoleRef.of(h.location) for h in feature_holes_of(a)}
+def feature_hole_keys(model, a: Analysis) -> set[HoleRef]:
+    """The :class:`HoleRef` position keys of the part's feature holes — the membership
+    set the callout/furniture passes and ``plan_sections`` gate on (#420).
+
+    Sourced from the **IR** (``model.features`` — the hole/pattern features detection or
+    a declared model produced), not recogniser records, so no ``HoleRecord`` crosses into
+    the renderers (ADR 0008 Am6 / #584 WP1). A turned part's concentric axial bores
+    (dimensioned by the centreline leaders, not a callout) are excluded; every other hole
+    — singleton or pattern member — is kept."""
+    keys: set[HoleRef] = set()
+    for f in model.features:
+        if f.kind == "hole":
+            axis, positions = f.frame.axis, (f.members or (f.frame.origin,))
+        elif f.kind == "pattern":
+            axis, positions = f.member.frame.axis, (f.members or (f.member.frame.origin,))
+        else:
+            continue
+        for pos in positions:
+            if (
+                a.is_rotational
+                and axis == "z"
+                and math.hypot(pos[0] - a.cx, pos[1] - a.cy) <= _CONCENTRIC_TOL_MM
+            ):
+                continue
+            keys.add(HoleRef.of(pos))
+    return keys
 
 
 def add_section(dwg) -> list[str]:
@@ -96,7 +122,7 @@ def add_section(dwg) -> list[str]:
     a = getattr(dwg, "_analysis", None)
     if a is None:
         raise ValueError("section(): no analysis — build the drawing first")
-    plan = plan_sections(model, feature_hole_keys(a))
+    plan = plan_sections(model, feature_hole_keys(model, a))
     if plan is None:
         return []  # no counterbore/spotface/blind Z-hole — no section warranted
     before = set(dwg.annotations())

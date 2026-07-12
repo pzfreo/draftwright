@@ -792,7 +792,7 @@ def _feature_listing(a: Analysis) -> str:
         for p in feat.parameters():
             if p.span is not None or kind == "slot":  # a linear dim dimension() accepts
                 body.append(f'dwg.dimension(f, "{p.kind}", role="{p.role}")   # {display(p)}')
-    if plan_sections(model, feature_hole_keys(a)) is not None:
+    if plan_sections(model, feature_hole_keys(model, a)) is not None:
         body += [
             "",
             "# Section A–A (part-level; comment to drop the whole section)",
