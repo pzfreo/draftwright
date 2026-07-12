@@ -14,7 +14,7 @@ for any part.
 
 from __future__ import annotations
 
-from draftwright._core import _axis_letter, _xyz
+from draftwright._geometry import _axis_letter, _xyz
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,

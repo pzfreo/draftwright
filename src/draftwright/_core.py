@@ -31,6 +31,11 @@ from build123d_drafting.helpers import (
     format_drawing_scale,
 )
 
+# The model-neutral geometry primitives (`_END_ON`, `_xyz`, `HoleRef`, `_axis_letter`)
+# now live in the leaf `draftwright._geometry` so the IR waist (`model/`) can use them
+# without importing this stage-level grab-bag (ADR 0008; #584 WP2). Re-exported here for
+# the above-`_core` consumers (annotations/sheet/drawing/linting) that already import them.
+from draftwright._geometry import _END_ON, HoleRef, _axis_letter, _xyz  # noqa: F401
 from draftwright.fits import FitClass
 from draftwright.fonts import PLEX_MONO, PLEX_SANS_CONDENSED
 from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
@@ -42,39 +47,6 @@ _MARGIN = 10.0
 
 
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
-
-# The orthographic view a feature is dimensioned end-on in — the view normal to its
-# axis. Single source of truth shared by the planner (view choice) and the lint
-# coverage checks (where to look for a feature's dims). Orientation is data.
-_END_ON = {"x": "side", "y": "front", "z": "plan"}
-
-
-def _xyz(loc) -> tuple[float, float, float]:
-    """A build123d ``Vector`` (has ``.X/.Y/.Z``) or an ``(x, y, z)`` sequence → an
-    ``(x, y, z)`` float tuple. Shared by the detectors and the lint coverage checks
-    so the Vector-unpacking idiom lives in one place."""
-    if hasattr(loc, "X"):
-        return (loc.X, loc.Y, loc.Z)
-    x, y, z = loc
-    return (float(x), float(y), float(z))
-
-
-@dataclass(frozen=True)
-class HoleRef:
-    """A position-keyed reference to a hole — the IR-typed value the cover / hole-table
-    bookkeeping matches on, so the shared escalation never needs a recogniser ``Hole``
-    object (ADR 0008 Amendment 6). Built from any location via :meth:`of` (rounded, so
-    two references at the same position compare equal)."""
-
-    x: float
-    y: float
-    z: float
-
-    @classmethod
-    def of(cls, loc) -> HoleRef:
-        x, y, z = _xyz(loc)
-        return cls(round(x, 3), round(y, 3), round(z, 3))
-
 
 _FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
 
@@ -159,14 +131,6 @@ def _text_width(text: str, font_size: float, font_path: str = PLEX_MONO) -> floa
         .bounding_box()
         .size.X
     )
-
-
-def _axis_letter(obj) -> str:
-    """Letter (``"x"``/``"y"``/``"z"``) of ``obj.axis``'s dominant component.
-
-    ``obj`` is anything carrying an ``.axis`` 3-vector (a hole or a boss).
-    """
-    return max(zip("xyz", obj.axis, strict=True), key=lambda t: abs(t[1]))[0]
 
 
 _CONCENTRIC_TOL_MM = 0.5
