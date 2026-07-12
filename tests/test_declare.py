@@ -58,6 +58,23 @@ class TestConstructors:
         f = hole(diameter=6, at=(0, 0, 0), axis="z", cbore=(10, 3), count=4)
         assert f.cbore == (10, 3) and f.count == 4
 
+    def test_declared_hole_count_is_faithful_in_features(self):
+        # #584 WP1 B2 review: features()/the hole table QTY read the feature's own
+        # count, not len(members) — a declared count-N hole with unspecified members
+        # (only pattern() auto-populates them) must still report N, not 1.
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import build_drawing
+
+        part = Box(80, 60, 12) - Pos(20, 10, 0) * Cylinder(3, 12)
+        dwg = build_drawing(
+            part,
+            model=[hole(diameter=6, at=(20, 10, 0), axis="z", through=True, count=3)],
+            number="X",
+        )
+        (feat,) = dwg.features("plan")
+        assert feat.diameter == 6 and feat.count == 3
+
     def test_read_cylinder_diameter_is_face_radius(self):
         c = Pos(0, 0, 0) * Cylinder(3, 8)
         r = max(fc.radius for fc in c.faces().filter_by(GeomType.CYLINDER))
