@@ -29,6 +29,7 @@ import warnings
 
 from draftwright.model.ir import (
     BossFeature,
+    ChamferFeature,
     ControlFrame,
     DatumRef,
     EnvelopeFeature,
@@ -271,6 +272,46 @@ def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None)
         span = _span(at, axis, length)
     return StepFeature(
         frame=Frame(origin=at, axis=axis), length=length, diameter=diameter, span=span
+    )
+
+
+def _read_edge(obj) -> tuple[str, Point]:
+    """The axis (a build123d Edge's direction, as a letter) and its midpoint — so a chamfer
+    can be declared on the edge you bevelled without restating axis/at."""
+    d = obj.tangent_at(0.5)
+    p = obj.position_at(0.5)
+    return _axis_from_vec(d), (round(p.X, 4), round(p.Y, 4), round(p.Z, 4))
+
+
+def chamfer(
+    obj=None, *, axis=None, leg=None, leg1=None, leg2=None, angle=None, at=None
+) -> ChamferFeature:
+    """A chamfer (bevelled edge, #560/#576). Either ``chamfer(edge, leg=6)`` — the chamfered
+    build123d Edge supplies the axis (its direction) and location (its midpoint) — or explicit
+    ``chamfer(axis="z", leg=6, at=(x, y, z))``. ``leg`` is an equal-leg 45° chamfer (callout
+    ``C{leg}``); give ``leg1``/``leg2`` (+ optional ``angle``) for an asymmetric one
+    (``{leg} × {angle}°``). An object supplies *defaults*; any explicit keyword overrides (#451)."""
+    if obj is not None:
+        r_axis, r_at = _read_edge(obj)
+        axis = r_axis if axis is None else axis
+        at = r_at if at is None else at
+    if leg is not None:  # `leg` is shorthand for an equal-leg chamfer
+        leg1 = leg if leg1 is None else leg1
+        leg2 = leg if leg2 is None else leg2
+    if leg1 is not None and leg2 is None:
+        leg2 = leg1
+    if leg1 is None or axis is None or at is None:
+        raise ValueError(
+            "chamfer() needs an edge, or explicit axis=, at= and leg= (or leg1=/leg2=)"
+        )
+    axis = _norm_axis(axis)
+    _require_positive(leg1=leg1, leg2=leg2)
+    _require_point("at", at)
+    hi, lo = max(leg1, leg2), min(leg1, leg2)
+    if angle is None:
+        angle = 45.0 if abs(hi - lo) < 1e-9 else round(math.degrees(math.atan2(lo, hi)), 2)
+    return ChamferFeature(
+        frame=Frame(origin=at, axis=axis), axis=axis, leg1=hi, leg2=lo, angle=angle
     )
 
 

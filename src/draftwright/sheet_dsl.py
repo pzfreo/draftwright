@@ -45,6 +45,7 @@ from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
 from draftwright.model import AuthoredDimension, Feature, Frame
 from draftwright.model import boss as _boss
+from draftwright.model import chamfer as _chamfer
 from draftwright.model import control_frame as _declare_control
 from draftwright.model import datum as _declare_datum
 from draftwright.model import envelope as _envelope
@@ -503,6 +504,13 @@ class Sheet:
     def slot(self, obj=None, **kw) -> Sheet:
         """Declare a milled slot / reduced across-flats section (width + length)."""
         self._features.append(_slot(obj, **kw))
+        return self
+
+    def chamfer(self, obj=None, **kw) -> Sheet:
+        """Declare a chamfer (bevelled edge) — ``sheet.chamfer(edge, leg=6)`` reads axis +
+        location off the edge you chamfered, or explicit ``sheet.chamfer(axis="z", leg=6,
+        at=(x, y, z))``. ``leg`` = equal-leg 45° (``C{leg}``); ``leg1``/``leg2`` = asymmetric."""
+        self._features.append(_chamfer(obj, **kw))
         return self
 
     def pattern(self, member, **kw) -> Sheet:

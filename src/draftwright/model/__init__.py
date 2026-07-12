@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from draftwright.model.declare import (
     boss,
+    chamfer,
     control_frame,
     datum,
     envelope,
@@ -87,6 +88,7 @@ __all__ = [
     "build_part_model",
     "build_pmi_features",
     "boss",
+    "chamfer",
     "control_frame",
     "datum",
     "envelope",

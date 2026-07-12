@@ -176,6 +176,18 @@ class TestEmit:
         # the whole emitted script must parse — a generated script that doesn't is useless
         ast.parse(_script_for(_plate()))
 
+    def test_chamfer_emits_the_chamfer_verb(self):
+        # #576: a detected chamfer emits `sheet.chamfer(...)` (was a "no declarative verb yet"
+        # comment) — the emit surface for #560.
+        from build123d import Axis
+        from build123d import chamfer as bd_chamfer
+
+        part = Box(80, 50, 8)
+        e = part.edges().filter_by(Axis.Z).sort_by(lambda x: x.center().X + x.center().Y)[-1]
+        src = _script_for(bd_chamfer(e, 4))
+        assert "sheet.chamfer(" in src and "leg1=4" in src
+        ast.parse(src)
+
     def test_counterbore_flags_the_auto_section(self):
         part = Box(60, 60, 16) - Pos(0, 0, 0) * Cylinder(4, 30) - Pos(0, 0, 4) * Cylinder(8, 12)
         src = _script_for(part)

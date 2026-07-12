@@ -7,11 +7,12 @@ OCC build (fast tier — not marked slow).
 """
 
 import pytest
-from build123d import Box, Cylinder, GeomType, Pos, Rot
+from build123d import Axis, Box, Cylinder, GeomType, Pos, Rot
 
 from draftwright import Sheet, build_drawing
 from draftwright.model import (
     BossFeature,
+    ChamferFeature,
     EnvelopeFeature,
     HoleFeature,
     PartModel,
@@ -19,6 +20,7 @@ from draftwright.model import (
     SlotFeature,
     StepFeature,
     boss,
+    chamfer,
     envelope,
     hole,
     pattern,
@@ -223,6 +225,41 @@ class TestConstructors:
             boss(diameter=5)  # missing at / axis
         with pytest.raises(ValueError):
             slot(width=6, length=20)  # missing axes / lo / hi
+
+
+class TestChamfer:
+    """#576: declare a chamfer (bevelled edge) — the third ADR-0011 surface for #560."""
+
+    def test_explicit_equal_leg(self):
+        f = chamfer(axis="z", leg=6, at=(25, 20, 10))
+        assert isinstance(f, ChamferFeature)
+        assert f.axis == "z" and f.frame.origin == pytest.approx((25, 20, 10))
+        assert f.leg1 == 6 and f.leg2 == 6 and f.angle == pytest.approx(45.0)
+
+    def test_reads_axis_and_at_off_the_edge(self):
+        part = Box(90, 60, 10)
+        e = part.edges().filter_by(Axis.Z).sort_by(lambda x: x.center().X + x.center().Y)[-1]
+        f = chamfer(e, leg=6)
+        assert f.axis == "z" and f.leg1 == 6 and f.leg2 == 6
+        assert f.frame.origin[2] == pytest.approx(e.position_at(0.5).Z)
+
+    def test_asymmetric_computes_angle(self):
+        f = chamfer(axis="x", leg1=14, leg2=8, at=(0, 0, 0))
+        assert f.leg1 == 14 and f.leg2 == 8  # leg1 the larger
+        assert f.angle == pytest.approx(29.74, abs=0.1)  # atan2(8, 14)
+
+    def test_declared_chamfer_renders_its_callout(self):
+        # A declared chamfer draws its C6 leader even on a part with no *detected* chamfer.
+        from draftwright.annotations.from_model import _chamfer_label
+
+        part = Box(90, 60, 10) + Pos(0, 0, 10) * Box(50, 40, 10)
+        dwg = build_drawing(part, model=[chamfer(axis="z", leg=6, at=(25, 20, 10))], number="X")
+        chs = [f for f in dwg.model().features if f.kind == "chamfer"]
+        assert len(chs) == 1 and _chamfer_label(chs[0]) == "C6"
+
+    def test_needs_axis_at_and_leg(self):
+        with pytest.raises(ValueError):
+            chamfer(leg=6)  # no axis / at
 
 
 class TestExplicitOverridesObject:
