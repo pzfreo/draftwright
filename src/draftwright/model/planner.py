@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from draftwright._core import _END_ON, HoleRef
+from draftwright._geometry import _END_ON, HoleRef
 from draftwright.model.ir import (
     Datum,
     DimParameter,
