@@ -8,6 +8,11 @@
   shared package `b123d-recognisers` (§1) is a **secondary, deferred deployment**
   (**Phase 2**, gated on a second committed consumer). **The consistency is the point;
   the package is one optional way to ship it.**
+- **Amendment 1** (2026-07-12): §2's absolute "always `list[record]`, no
+  `Optional`-singular, no bare `list`" is **corrected** — it was over-strict. A
+  recogniser whose feature is inherently scalar/singular (`recognise_face_levels ->
+  list[float]`, `recognise_turned_steps -> TurnedProfile | None`) legitimately returns
+  that shape; forcing a record is ceremony. See *Amendment 1*.
 - **Date:** 2026-07-12
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -132,8 +137,12 @@ recognise_<feature>(part, **tuning) -> list[<Feature>Record]
 ```
 
 - verb `recognise_` (not `find_`/`analyse_`); one naming rule;
-- always a `list` of typed frozen dataclass records (no `Optional`-singular, no bare
-  `list`); empty when absent;
+- returns a **deterministic** result: normally a `list` of typed frozen dataclass
+  records (empty when absent). **Corrected by Amendment 1:** a recogniser whose feature
+  is inherently **scalar or singular** may instead return `list[<scalar>]` or
+  `<Structure> | None` where wrapping it in a record would be pure ceremony — the
+  original absolute "no `Optional`-singular, no bare `list`" was over-strict (it was
+  written knowing `recognise_turned_steps` was a counter-example);
 - `part` first, then **keyword-only** args: tuning knobs *and* injected shared
   inventory. A *base* feature (holes, chamfers, fillets, bosses, cylinders) derives
   only from `part`. A *derived* feature takes the canonical inventory it depends on
@@ -331,3 +340,30 @@ copy onto the shared source.
 - Sibling: `pzfreo/build123d-mcp` `tools/recognizers/` (the "repatriate later"
   package this ADR formalises the target for).
 - Roadmap: [`docs/plans/0013-shared-recognisers-roadmap.md`](../plans/0013-shared-recognisers-roadmap.md).
+
+## Amendment 1 (2026-07-12) — scalar/singular recognisers are an accepted shape (corrects §2)
+
+§2 as originally written asserted an **absolute** return contract: "always a `list` of
+typed frozen dataclass records (no `Optional`-singular, no bare `list`)". That was
+**over-strict, and written knowing of a counter-example.** At the time this ADR was
+authored, `recognise_turned_steps` already returned `TurnedProfile | None` and was
+flagged (here and in the #570 review) as "a genuine design call — is a turned profile
+even a `list[record]` recogniser?". The ADR nonetheless pinned the absolute rule and
+assumed the awkward cases would be *retyped to conform* under #568. Implementing #568
+showed that assumption was wrong:
+
+- `recognise_turned_steps -> TurnedProfile | None` is a **singular** whole-part
+  structure (its `.steps`/`.axis`/overall are consumed together). A `list` of 0-or-1
+  profiles is semantically wrong, and returning `list[TurnedStep]` would drop the
+  profile-level data consumers need.
+- `recognise_face_levels -> list[float]` is a **scalar** list — a face level *is* a Z
+  coordinate; its sole consumer wants the scalars, and a `FaceLevel(z)` wrapper adds
+  nothing.
+
+**Decision:** the contract accepts a **scalar or singular** return shape
+(`list[<scalar>]` / `<Structure> | None`) where wrapping in a record would be pure
+ceremony. The uniform *intent* (British verb, keyword-only signatures, deterministic,
+geometry-only, no recognition object crossing the IR boundary) stands; only the absolute
+"always `list[record]`" is relaxed. This is recorded honestly as a **correction of an
+over-specified original rule**, not a neutral refinement — the lesson being not to pin an
+absolute contract rule in an ADR while already holding a known exception.
