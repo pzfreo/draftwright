@@ -29,9 +29,9 @@ from draftwright.linting.issues import LintIssue
 from draftwright.recognition import (
     analyse_cylinders,
     feature_diameters,
-    find_hole_patterns,
-    find_holes,
-    find_turned_steps,
+    recognise_hole_patterns,
+    recognise_holes,
+    recognise_turned_steps,
 )
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
@@ -188,7 +188,7 @@ def lint_feature_coverage(
     ``cyls`` accepts a precomputed ``analyse_cylinders(part)`` result so
     repeated lint runs need not re-scan the solid.
 
-    Counts are checked too (#92): the part's holes (via ``find_holes``) give
+    Counts are checked too (#92): the part's holes (via ``recognise_holes``) give
     a required count per diameter (each bore, counterbore, and spotface
     occurrence counts one), and structured callouts declare how many holes
     they dimension (``covers_count`` — the ``n×`` prefix). A shortfall
@@ -198,10 +198,10 @@ def lint_feature_coverage(
     """
     z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
     if holes is None:
-        holes = find_holes(part, cyls=(z_cyls, cross_cyls))
+        holes = recognise_holes(part, cyls=(z_cyls, cross_cyls))
     # Coverage inventory: the *recognised* dimensionable diameters (bores,
     # cbore/spotface steps, bosses) from feature_diameters — built via
-    # find_holes/find_bosses, so slot ends and interrupted recesses (partial
+    # recognise_holes/recognise_bosses, so slot ends and interrupted recesses (partial
     # cylinders that an angle-only test mistakes for full bores) are excluded.
     # Replaces the raw full_cylinders patch list, which over-reported those as
     # undimensioned features (helpers #158/#159). Both *holes* and *bosses* reuse
@@ -284,14 +284,14 @@ def lint_location_coverage(
     mirrors :func:`lint_feature_coverage` (``info`` for an assembly, else ``warning``).
     """
     if holes is None:
-        holes = find_holes(part, cyls=cyls) if cyls is not None else find_holes(part)
+        holes = recognise_holes(part, cyls=cyls) if cyls is not None else recognise_holes(part)
     if not holes:
         return []
     if assembly is None:
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     if patterns is None:
-        patterns = find_hole_patterns(holes)
+        patterns = recognise_hole_patterns(holes)
     patterned = {id(h) for pat in patterns for h in pat.holes}
 
     marks: dict[str, list] = {}
@@ -435,7 +435,7 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     valid ``prof=None`` (non-turned part).
     """
     if prof is _UNSET:
-        prof = find_turned_steps(part)
+        prof = recognise_turned_steps(part)
     if prof is None or prof.axis == "y":
         return []
     if assembly is None:

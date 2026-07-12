@@ -7,9 +7,9 @@ Imported via the package surface, :mod:`draftwright.recognition`.
 
 Recognises drilled-hole and boss features from a solid's cylindrical faces:
 
-    from draftwright.recognition import find_holes, find_bosses
-    holes = find_holes(part)    # list[HoleFeature]
-    bosses = find_bosses(part)  # list[BossFeature]
+    from draftwright.recognition import recognise_holes, recognise_bosses
+    holes = recognise_holes(part)    # list[HoleFeature]
+    bosses = recognise_bosses(part)  # list[BossFeature]
 
 A *hole* is a contiguous coaxial stack of internal full cylinders — the
 drilled bore plus optional counterbore and spotface steps — with its bottom
@@ -181,7 +181,7 @@ def full_cylinders(cyls):
     This is the patch-level filter shared with ``make_drawing``. For the
     higher-level inventory of dimensionable diameters use
     :func:`feature_diameters`, which is built from the recognised
-    :func:`find_holes` / :func:`find_bosses` features instead. Public and
+    :func:`recognise_holes` / :func:`recognise_bosses` features instead. Public and
     stable for downstream consumers (e.g. ``draftwright``).
     """
     keep = []
@@ -280,7 +280,7 @@ def _end_partners(seg, s_end, edge_faces, cache=None):
     stay well clear of the segment's other end.
 
     *cache* (optional) memoises the result per ``(seg, s_end)`` within one
-    ``find_holes``/``find_bosses`` call — the same end is classified several
+    ``recognise_holes``/``recognise_bosses`` call — the same end is classified several
     times (``_merge_stacks`` plus the main loop), and each scan walks every
     face's edges. The seg is stored in the cached value so an ``is`` check
     rejects (and pins against) any ``id`` reuse."""
@@ -466,7 +466,7 @@ def _merge_stacks(stacks, edge_faces, cache=None):
     return merged
 
 
-def find_holes(part, cyls=None) -> list:
+def recognise_holes(part, *, cyls=None) -> list[HoleFeature]:
     """Recognise drilled holes on *part* (see :class:`HoleFeature`).
 
     Coaxial internal cylinders are grouped into stacks — drill + optional
@@ -568,14 +568,14 @@ def find_holes(part, cyls=None) -> list:
     return holes
 
 
-def find_bosses(part, cyls=None) -> list:
+def recognise_bosses(part, *, cyls=None) -> list[BossFeature]:
     """Recognise external cylindrical bosses on *part* (one
     :class:`BossFeature` per coaxial external cylinder segment, including a
     turned part's OD — callers wanting only local bosses can filter on
     diameter against the part envelope).
 
     Pass *cyls* — a precomputed ``analyse_cylinders(part)`` result — to avoid
-    re-scanning the solid (mirrors ``find_holes``'s parameter, so a caller
+    re-scanning the solid (mirrors ``recognise_holes``'s parameter, so a caller
     computing both holes and bosses can share one analysis).
     """
     z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
@@ -611,20 +611,20 @@ def feature_diameters(part, cyls=None, holes=None, bosses=None) -> list:
 
     This is the inventory to use for coverage checks ("is each dimensionable
     diameter called out?"). It is deliberately built from
-    :func:`find_holes` / :func:`find_bosses`, not the raw :func:`full_cylinders`
+    :func:`recognise_holes` / :func:`recognise_bosses`, not the raw :func:`full_cylinders`
     patch list, so partial cylinders that never become a real feature — slot ends and
     interrupted recesses (an exact half-cylinder pair sums to a full turn and
     fools an angle-only test, but is not a bore) — are excluded, while genuine
     counterbore/spotface steps are kept. (#158)
 
     Pass *cyls* — a precomputed ``analyse_cylinders(part)`` result — to share one
-    scan between ``find_holes`` and ``find_bosses``. Pass *holes* — a precomputed
-    ``find_holes`` result — to reuse the single feature inventory instead of
+    scan between ``recognise_holes`` and ``recognise_bosses``. Pass *holes* — a precomputed
+    ``recognise_holes`` result — to reuse the single feature inventory instead of
     re-detecting (ADR 0008 Amendment 5, #244).
     """
     cyls = analyse_cylinders(part) if cyls is None else cyls
     if holes is None:
-        holes = find_holes(part, cyls=cyls)
+        holes = recognise_holes(part, cyls=cyls)
     diams: list[float] = []
     for h in holes:
         diams.append(h.diameter)
@@ -632,7 +632,7 @@ def feature_diameters(part, cyls=None, holes=None, bosses=None) -> list:
             diams.append(h.cbore.diameter)
         if h.spotface is not None:
             diams.append(h.spotface.diameter)
-    for b in find_bosses(part, cyls=cyls) if bosses is None else bosses:
+    for b in recognise_bosses(part, cyls=cyls) if bosses is None else bosses:
         diams.append(b.diameter)
     return sorted(set(diams))
 
@@ -831,7 +831,7 @@ def _as_linear_array(holes, pts):
 def _circumcircle(p0, p1, p2):
     """Centre and radius ``(cx, cy, r)`` of the circle through three 2D points,
     or ``None`` when they are collinear (so a collinear triple can never seed a
-    bolt circle — collinearity must win, per :func:`find_hole_patterns`)."""
+    bolt circle — collinearity must win, per :func:`recognise_hole_patterns`)."""
     ax, ay = p0
     bx, by = p1
     cx, cy = p2
@@ -986,10 +986,10 @@ def _rect_grid(members, pts):
     )
 
 
-def find_hole_patterns(holes) -> list:
+def recognise_hole_patterns(holes) -> list:
     """Recognise :class:`BoltCircle`, :class:`LinearArray`, and
     :class:`RectGrid` patterns among *holes* (``HoleFeature`` records, e.g.
-    from :func:`find_holes`).
+    from :func:`recognise_holes`).
 
     Holes are grouped by machining spec and drilling axis, then each group is
     *sub-clustered* — a single spec can contribute several patterns (two

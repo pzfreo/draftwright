@@ -1,7 +1,7 @@
 """detect — build the part-model IR by running the feature detectors (ADR 0008).
 
 The front-end of the compiler. Each detector is an existing recognition heuristic
-(:func:`find_holes`, :func:`find_turned_steps`, :func:`find_bosses`) adapted to
+(:func:`recognise_holes`, :func:`recognise_turned_steps`, :func:`recognise_bosses`) adapted to
 *emit* IR `Feature` objects — their B-rep logic is unchanged; only their output
 shape is normalised into the waist. New shapes plug in here as new detectors
 emitting new `Feature` types.
@@ -39,14 +39,14 @@ from draftwright.recognition import (
     HoleSpec,
     LinearArray,
     RectGrid,
-    find_bosses,
-    find_chamfers,
-    find_hole_patterns,
-    find_holes,
-    find_plates,
-    find_slots,
-    find_step_shoulders,
-    find_turned_steps,
+    recognise_bosses,
+    recognise_chamfers,
+    recognise_hole_patterns,
+    recognise_holes,
+    recognise_plates,
+    recognise_slots,
+    recognise_step_shoulders,
+    recognise_turned_steps,
 )
 
 
@@ -206,9 +206,9 @@ def build_part_model(
     # (count× member-diameter + pattern dims); its member holes are NOT also
     # emitted individually — the grouped-callout rule the engine uses.
     if holes is None:
-        holes = find_holes(part)
+        holes = recognise_holes(part)
     if patterns is None:
-        patterns = find_hole_patterns(holes)
+        patterns = recognise_hole_patterns(holes)
     patterned: set[int] = set()
     for pat in patterns:
         members = list(pat.holes)
@@ -230,7 +230,7 @@ def build_part_model(
 
     # Milled slots / reduced across-flats sections (detected for any part).
     if slots is None:
-        slots = find_slots(part)
+        slots = recognise_slots(part)
     for sl in slots:
         idx = "xyz".index(sl.long_axis)
         origin = [bbox.center().X, bbox.center().Y, bbox.center().Z]
@@ -250,7 +250,7 @@ def build_part_model(
 
     # Turned profile → step segments; else external bosses → diameters.
     if prof is _UNSET:
-        prof = find_turned_steps(part)
+        prof = recognise_turned_steps(part)
     orientation = prof.axis if prof is not None else None
     if prof is not None:
         idx = "xyz".index(prof.axis)
@@ -277,7 +277,7 @@ def build_part_model(
         # render_diameters still gives it a ø callout — aligning the callout inventory
         # with the feature_diameters inventory the coverage lint checks against.
         step_dias = [s.diameter for s in prof.steps]
-        raw_bosses = find_bosses(part) if bosses is None else bosses
+        raw_bosses = recognise_bosses(part) if bosses is None else bosses
         for b in _distinct_by_diameter(raw_bosses):
             if all(abs(b.diameter - d) > _DIA_TOL for d in step_dias):
                 features.append(
@@ -287,7 +287,7 @@ def build_part_model(
                     )
                 )
     else:
-        raw_bosses = find_bosses(part) if bosses is None else bosses
+        raw_bosses = recognise_bosses(part) if bosses is None else bosses
         bosses_d = _distinct_by_diameter(raw_bosses)
         for b in bosses_d:
             features.append(
@@ -324,7 +324,7 @@ def build_part_model(
     # dim (#559 review). This keeps the plate feature to the issue's stated domain.
     plate_zs_at_base: set = set()
     if prof is None and rotational is None:
-        plates = find_plates(part)
+        plates = recognise_plates(part)
         if len({pl.axis for pl in plates}) >= 2:
             c = bbox.center()
             for pl in plates:
@@ -355,7 +355,12 @@ def build_part_model(
             # staircase is owned by the height ladder's typ-collapse / detail-view path,
             # and adding position dims to already-crowded shoulders would worsen it.
             _shoulders = (
-                tuple(find_step_shoulders(part, list(_levels))) if len(_levels) == 1 else ()
+                tuple(
+                    (s.axis, s.position)
+                    for s in recognise_step_shoulders(part, levels=list(_levels))
+                )
+                if len(_levels) == 1
+                else ()
             )
             features.append(
                 StepLevelFeature(
@@ -368,9 +373,9 @@ def build_part_model(
             )
 
     # Chamfers (#560) — oblique planar faces on a non-turned part, called out C{leg} /
-    # {leg}×{angle}°. A turned part's chamfers are conical (find_chamfers finds none).
+    # {leg}×{angle}°. A turned part's chamfers are conical (recognise_chamfers finds none).
     if rotational is None:
-        for ch in find_chamfers(part):
+        for ch in recognise_chamfers(part):
             at = ch.at
             features.append(
                 ChamferFeature(

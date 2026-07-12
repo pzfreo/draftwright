@@ -506,12 +506,12 @@ class Analysis:
     bbox_max: float
     holes: list
     patterns: list
-    bosses: list  # external bosses (find_bosses), detected once — the one inventory (#244)
+    bosses: list  # external bosses (recognise_bosses), detected once — the one inventory (#244)
     slots: list
     z_diams: list[float]
     cross_diams: list[float]
     cyls: tuple[list, list]
-    prof: TurnedProfile | None  # turned step profile (find_turned_steps), detected once
+    prof: TurnedProfile | None  # turned step profile (recognise_turned_steps), detected once
     od_diam: float | None
     is_rotational: bool
     od_axis: str  # rotation/turning axis of a rotational part ("z" default; "x"/"y" #222)

@@ -36,13 +36,13 @@ from draftwright.model.ir import Datum, PartModel, StepFeature
 from draftwright.model.planner import plan_dimensions
 from draftwright.recognition import (
     analyse_cylinders,
-    analyse_face_levels,
-    find_bosses,
-    find_hole_patterns,
-    find_holes,
-    find_slots,
-    find_turned_steps,
     full_cylinders,
+    recognise_bosses,
+    recognise_face_levels,
+    recognise_hole_patterns,
+    recognise_holes,
+    recognise_slots,
+    recognise_turned_steps,
 )
 from draftwright.sheet import (
     StripDepths,
@@ -421,14 +421,14 @@ def _analyse(
     # turned-step model (ADR 0008 step 1): it filters shoulders by the OD
     # silhouette, so an internal feature face — a blind bore's flat floor — is
     # never read as a phantom OD shoulder (the area-only filter in
-    # analyse_face_levels admitted it). Prismatic and other parts keep the
-    # general face-level scan, which find_turned_steps cannot replace (no
+    # recognise_face_levels admitted it). Prismatic and other parts keep the
+    # general face-level scan, which recognise_turned_steps cannot replace (no
     # cylinders → no profile).
-    _turned = find_turned_steps(part)
+    _turned = recognise_turned_steps(part)
     if _turned is not None and _turned.axis == "z":
         step_zs = [z for z in _turned.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
     else:
-        face_zs = analyse_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)
+        face_zs = recognise_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)
         step_zs = [z for z in face_zs if z > bb.min.Z + 0.6 and z < bb.max.Z - 0.6]
 
     # Pass 1 (two-pass layout, #131): measure annotation strip depths before
@@ -451,10 +451,12 @@ def _analyse(
         if layout_model is not None
         else 0.0
     )
-    holes = find_holes(part, cyls=(z_cyls, cross_cyls))
-    patterns = find_hole_patterns(holes)
-    bosses = find_bosses(part, cyls=(z_cyls, cross_cyls))  # detect once — the one inventory (#264)
-    slots = find_slots(part)
+    holes = recognise_holes(part, cyls=(z_cyls, cross_cyls))
+    patterns = recognise_hole_patterns(holes)
+    bosses = recognise_bosses(
+        part, cyls=(z_cyls, cross_cyls)
+    )  # detect once — the one inventory (#264)
+    slots = recognise_slots(part)
     layout_section = _will_section(
         holes,
         patterns,

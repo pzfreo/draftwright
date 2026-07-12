@@ -63,7 +63,7 @@ class TestBuildPartModel:
 
     def test_no_phantom_zero_diameter_step(self):
         # A gapped (disconnected) shaft has an axial segment with no OD over it;
-        # find_turned_steps must drop it, not emit a ø0 step (#279).
+        # recognise_turned_steps must drop it, not emit a ø0 step (#279).
         gapped = Cylinder(20, 40) + Pos(0, 0, 40) * Cylinder(13, 30)
         model = build_part_model(gapped)
         step_dias = [f.diameter for f in model.features if isinstance(f, StepFeature)]
@@ -281,7 +281,12 @@ def test_feature_detection_runs_once_per_build(monkeypatch):
     from draftwright import build_drawing
 
     counts: dict[str, int] = {}
-    for name in ("find_holes", "find_hole_patterns", "find_slots", "find_turned_steps"):
+    for name in (
+        "recognise_holes",
+        "recognise_hole_patterns",
+        "recognise_slots",
+        "recognise_turned_steps",
+    ):
         for mod in (anmod, dmod):
             orig = getattr(mod, name)
 
@@ -293,10 +298,10 @@ def test_feature_detection_runs_once_per_build(monkeypatch):
 
     # A turned X shaft exercises holes/patterns/slots + the turned profile.
     build_drawing(Rotation(0, 90, 0) * (Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)))
-    assert counts.get("find_holes") == 1
-    assert counts.get("find_hole_patterns") == 1
-    assert counts.get("find_slots") == 1
-    assert counts.get("find_turned_steps") == 1
+    assert counts.get("recognise_holes") == 1
+    assert counts.get("recognise_hole_patterns") == 1
+    assert counts.get("recognise_slots") == 1
+    assert counts.get("recognise_turned_steps") == 1
 
 
 def test_lint_reuses_the_build_inventory(monkeypatch):
@@ -311,7 +316,7 @@ def test_lint_reuses_the_build_inventory(monkeypatch):
     dwg = build_drawing(part)
 
     calls: dict[str, int] = {}
-    for name in ("find_holes", "find_hole_patterns", "find_turned_steps"):
+    for name in ("recognise_holes", "recognise_hole_patterns", "recognise_turned_steps"):
         orig = getattr(cov, name)
 
         def wrap(*a, _orig=orig, _n=name, **k):
@@ -321,6 +326,6 @@ def test_lint_reuses_the_build_inventory(monkeypatch):
         monkeypatch.setattr(cov, name, wrap)
 
     dwg.lint()
-    assert calls.get("find_holes", 0) == 0
-    assert calls.get("find_hole_patterns", 0) == 0
-    assert calls.get("find_turned_steps", 0) == 0
+    assert calls.get("recognise_holes", 0) == 0
+    assert calls.get("recognise_hole_patterns", 0) == 0
+    assert calls.get("recognise_turned_steps", 0) == 0

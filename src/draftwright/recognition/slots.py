@@ -1,7 +1,7 @@
 """Recognition of non-cylindrical machined features (#135).
 
 It recognises milled *slots* — the class of feature the cylinder-based pipeline
-(``analyse_cylinders``/``find_holes`` in :mod:`._features`) is blind to.  It
+(``analyse_cylinders``/``recognise_holes`` in :mod:`._features`) is blind to.  It
 sits beside the hole/boss recognisers in :mod:`draftwright.recognition`, the
 single home for feature recognition (ADR 0007 — recognition lives in
 draftwright, not upstream); it mirrors their OCC face-scan idioms.
@@ -260,7 +260,7 @@ def _has_floor(faces, s: Slot) -> bool:
     return False
 
 
-def find_slots(part) -> list[Slot]:
+def recognise_slots(part) -> list[Slot]:
     """Recognise enclosed through-slots with rectangular walls in *part*.
 
     Returns a list of :class:`Slot`, one per physical feature, in a
