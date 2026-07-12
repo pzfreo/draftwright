@@ -478,22 +478,25 @@ _CSK_MOUTH_TOL = 0.5  # mm — countersink must sit at the bore's mouth, not dee
 
 
 def _csink_for_hole(h: HoleRecord, csinks: list[CounterSink]) -> CounterSink | None:
-    """The countersink at hole *h*'s mouth, or None (#558). Requires: opening on the
-    bore's axis *line* (perp), the csk facing the **same way** as the bore (``same_dir`` —
-    so a coaxial hole drilled from the *opposite* face is not mis-matched), the csk on the
-    **mouth side** of the bore opening (``t`` ≤ tol, not deep inside), and matching drill ⌀."""
+    """The countersink seated on hole *h*, or None (#558). A countersink belongs to the
+    hole when its **minor circle** — where the cone meets the drilled bore — sits coaxially
+    at one of the hole's bore *ends*: the opening (``s`` ≈ 0) or, for a through hole (open
+    at both faces), the far end (``s`` ≈ depth). Keying on the minor-at-a-bore-end (not the
+    opening face, nor the axis direction) makes association independent of which end
+    ``recognise_holes`` happened to call the opening, and still excludes a *separate*
+    coaxial hole on the opposite face — whose own bore ends are elsewhere."""
     hx = h.axis
+    through = h.bottom == "through"
     for cs in csinks:
-        v = tuple(cs.location[i] - h.location[i] for i in range(3))
-        t = sum(v[i] * hx[i] for i in range(3))
-        perp = math.hypot(*(v[i] - t * hx[i] for i in range(3)))
-        same_dir = sum(hx[i] * cs.axis[i] for i in range(3)) > 1 - 1e-3
-        if (
-            same_dir
-            and perp <= _CSK_COAX_TOL
-            and t <= _CSK_MOUTH_TOL
-            and abs(cs.drill_diameter - h.diameter) <= _CSK_DIA_TOL
-        ):
+        # The cone's minor circle: the opening (major) advanced by the cone depth along the
+        # csk axis, i.e. where the countersink meets the drilled bore.
+        m = tuple(cs.location[i] + cs.depth * cs.axis[i] for i in range(3))
+        v = tuple(m[i] - h.location[i] for i in range(3))
+        s = sum(v[i] * hx[i] for i in range(3))
+        perp = math.hypot(*(v[i] - s * hx[i] for i in range(3)))
+        if perp > _CSK_COAX_TOL or abs(cs.drill_diameter - h.diameter) > _CSK_DIA_TOL:
+            continue
+        if abs(s) <= _CSK_MOUTH_TOL or (through and abs(s - h.depth) <= _CSK_MOUTH_TOL):
             return cs
     return None
 

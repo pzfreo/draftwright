@@ -516,6 +516,18 @@ class TestCountersinkCallout:
         assert by_open[top].csink is not None
         assert by_open[min(by_open)].csink is None  # the opposite-face hole stays plain
 
+    def test_through_hole_countersink_is_orientation_independent(self):
+        # #558 review round 2 (BLOCKER): a through hole is open at both faces, so
+        # recognise_holes may call either end the "opening". The countersink must attach
+        # regardless of which — a Z-flip must not drop it to plain THRU.
+        from build123d import Rotation
+
+        from draftwright.recognition import recognise_holes
+
+        flipped = Rotation(180, 0, 0) * self._csk_plate()
+        holes = [h for h in recognise_holes(flipped) if h.csink is not None]
+        assert len(holes) == 3  # all three csk holes keep their countersink after the flip
+
     def test_callout_angle_is_formatted_not_raw_float(self):
         # #558 review (BLOCKER): the angle must cross as a _fmt string so it renders
         # "× 90°" (not "× 90.0°") AND matches the width estimators — a raw float renders
