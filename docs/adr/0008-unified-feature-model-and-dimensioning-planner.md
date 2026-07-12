@@ -16,6 +16,10 @@
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Supersedes the original 0008** ("unified feature model") with a concrete
   architecture. Step 1 (unify Z step recognition, #191/#193) stands.
+- **Amendment 7** (2026-07-12): the "one inventory" waist is now two tiers — a
+  shared *geometric* recognition record feeding the *dimensioning* IR through a thin
+  uniform `detect.py` seam (ADR 0013). Amendment 6 (no recognition object crosses the
+  boundary) is preserved.
 
 ## Context
 
@@ -413,3 +417,26 @@ debt.*
 - The drive-screw thread (ADR 0007 PR-C) that made the accretion obvious.
 - Prototype: `src/draftwright/model/` (`ir`, `detect`, `planner`),
   `tests/test_part_model.py`.
+
+## Amendment 7 (2026-07-12) — the intake becomes a uniform lower tier (ADR 0013)
+
+This ADR got the **waist** right (a uniform IR `Feature` inventory) but left the
+**intake** — the recognisers that feed it — un-contracted: mixed `find_`/`analyse_`
+naming, `list` vs `Optional`-singular vs bare-`list` returns, and per-feature bespoke
+`detect.py` translators that mirror each recognition dataclass into an IR `Feature`
+(duplicating fields and logic). ADR 0013 pulls the intake up to the waist's standard.
+
+The waist is now **two tiers**:
+
+- a **shared, geometry-only recognition record** (the lower tier — points/axes/radii/
+  angles, `.to_dict()`, no build123d types out), produced by uniform
+  `recognise_<feature>(part) -> list[Record]` recognisers; and
+- draftwright's **dimensioning IR `Feature`** (the upper tier, this ADR's inventory),
+
+joined by **one thin uniform `detect.py` seam** (record → `Feature`), replacing the
+per-feature translators. This *strengthens* Amendment 6: no recognition *object*
+crosses the boundary — the geometric record is a decoupled fact-sheet the seam adapts,
+not a recogniser's internal type. The IR `Feature` Protocol stays draftwright-side; the
+lower tier is destined for the standalone `b123d-recognisers` package (ADR 0013, Phase
+2). Also folds in the `callout()`-on-`ChamferFeature` crack: label formatting lives
+uniformly in the dimensioning tier, never on the geometric record.

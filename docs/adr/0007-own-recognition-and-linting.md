@@ -1,7 +1,11 @@
 # ADR 0007 — draftwright owns feature recognition and linting; helpers becomes the rendering library
 
 - **Status:** Accepted (recognition + linting vendored; `recognition/` and
-  `linting/` are the live homes; the golden harness was retired here)
+  `linting/` are the live homes; the golden harness was retired here).
+  **Amendment 1** (2026-07-12): the long-term home for *recognition* sharpens — it
+  becomes an extraction-ready, Apache-clean subpackage destined for a standalone
+  shared package `b123d-recognisers` (ADR 0013). helpers stays render-only; the
+  render-vs-reason boundary is unchanged.
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -161,3 +165,26 @@ The provenance note (§3) is for honesty, not legal necessity.
 - Trigger: turned-part axial step-length dimensioning (the drive-screw gap —
   every diameter dimensioned, no shoulder locatable; `find_bosses` length
   semantics wrong for the consumer).
+
+## Amendment 1 — recognition's long-term home is a shared package (2026-07-12)
+
+ADR 0013 refines where *recognition* ultimately lives, without reversing this ADR.
+
+This ADR's reasoning — "recognition is *reasoning*; it belongs with the reasoner,
+not the *rendering* library (helpers)" — was answered by vendoring recognition into
+draftwright. A second consumer has since appeared: `pzfreo/build123d-mcp` needs the
+same recognisers to **edit** solids it did not build (recover feature intent from
+geometry), and is duplicating them (a countersink recogniser, and a fork onto the
+now-deprecated helpers `find_holes`). That changes the calculus this ADR did not
+anticipate: recognition is no longer draftwright-specific.
+
+The refinement (ADR 0013): recognition's long-term home is a **standalone,
+Apache-licensed, geometry-only package `b123d-recognisers`**, not helpers and not
+permanently-internal draftwright code. This is **not** a reversal — 0007's boundary was
+"not in the *rendering* library", and `b123d-recognisers` is a *recognition* library, a
+different thing; helpers stays render-only. Sequencing keeps this ADR's anti-cross-repo-
+release principle intact: **Phase 1** makes draftwright's `recognition/` uniform and
+extraction-ready but stays internal (no new external dependency, no release wall);
+**Phase 2** extracts to the package only when a second consumer commits. mcp is a slow
+follower — not coupled until it chooses to adopt. Linting is untouched by ADR 0013 and
+remains draftwright-owned per this ADR.
