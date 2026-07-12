@@ -19,12 +19,11 @@ from draftwright.analysis import (
     _converge_step_sizing,
     _is_rotational,
     dedup_diams,
-    recognise_face_levels,
 )
 from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
 from draftwright.make_drawing import generate_script, lint_feature_coverage
-from draftwright.recognition import Slot, recognise_slots
+from draftwright.recognition import Slot, recognise_face_levels, recognise_slots
 from draftwright.sheet import StripDepths, _fits, choose_scale
 
 _skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)

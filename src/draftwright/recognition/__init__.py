@@ -75,6 +75,7 @@ from draftwright.recognition.levels import (
     StepShoulder,
     recognise_face_levels,
     recognise_step_shoulders,
+    step_level_zs,
 )
 from draftwright.recognition.plates import Plate, recognise_plates
 from draftwright.recognition.slots import Slot, recognise_slots
@@ -99,6 +100,7 @@ __all__ = [
     "analyse_cylinders",
     "recognise_face_levels",
     "recognise_step_shoulders",
+    "step_level_zs",
     "feature_diameters",
     "recognise_bosses",
     "recognise_chamfers",

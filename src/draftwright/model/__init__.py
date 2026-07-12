@@ -34,6 +34,7 @@ from draftwright.model.declare import (
     plate,
     slot,
     step,
+    step_level,
 )
 from draftwright.model.detect import build_part_model, build_pmi_features
 from draftwright.model.ir import (
@@ -100,6 +101,7 @@ __all__ = [
     "plate",
     "slot",
     "step",
+    "step_level",
     "display",
     "SectionPlan",
     "plan_dimensions",

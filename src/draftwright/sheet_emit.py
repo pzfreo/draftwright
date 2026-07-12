@@ -140,15 +140,14 @@ def _feature_line(f) -> str:
             f"))   # envelope {_n(f.width)} × {_n(f.height)} × {_n(f.depth)}"
         )
     if k == "step_level":
-        # Carry shoulders + datum (#555) so the declared model still constrains the step
-        # POSITION, not just its heights.
-        _sh = "".join(f"({a!r}, {_n(p)}), " for a, p in f.shoulders)
+        # Carry shoulders + datum (#555/#578) so the declared model still constrains the step
+        # POSITION, not just its heights. The fluent verb rebuilds the frame from base+datum.
+        _items = [f"({a!r}, {_n(p)})" for a, p in f.shoulders]
+        _sh = "(" + ", ".join(_items) + ("," if len(_items) == 1 else "") + ")"
         return (
-            "sheet.add(StepLevelFeature("
-            f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
-            f"base={_n(f.base)}, levels={_tuple_arg(f.levels)}, "
-            f"shoulders=({_sh}), datum={_pt(f.datum)}"
-            "))   # prismatic height ladder + shoulder position(s)"
+            f"sheet.step_level(base={_n(f.base)}, levels={_tuple_arg(f.levels)}, "
+            f"shoulders={_sh}, datum={_pt(f.datum)}, at={_pt(f.frame.origin)})"
+            "   # prismatic height ladder + shoulder position(s)"
         )
     if k == "hole":
         return _hole_line(f)
@@ -250,8 +249,6 @@ def emit_sheet_script(
         model_imports.add("hole")
     if any(f.kind == "envelope" for f in model.features):
         model_imports.update(["EnvelopeFeature", "Frame"])
-    if any(f.kind == "step_level" for f in model.features):
-        model_imports.update(["Frame", "StepLevelFeature"])
     if any(f.kind == "pmi" for f in model.features):
         model_imports.update(["Frame", "PmiFeature"])
     # Only carry an aspect into the emitted constructor when it differs from build_drawing's

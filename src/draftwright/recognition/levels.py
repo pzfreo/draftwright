@@ -77,6 +77,26 @@ def recognise_face_levels(
     return sorted(FaceLevel(z) for z in buckets.values())
 
 
+# Minimum horizontal-face area (as a fraction of the plan footprint) for a Z level to count
+# as a genuine prismatic step — drops an incidental tiny face (a blind-pocket floor, a small
+# pad top) that would otherwise read as a phantom step rung (#578 review / staircase.step).
+_STEP_MIN_AREA_FRAC = 0.01
+
+
+def step_level_zs(part, *, tol: float = 0.6) -> list[float]:
+    """The interior prismatic step Z-levels: the area-filtered horizontal face levels strictly
+    inside the part height (``base + tol < z < top - tol``). The single source of truth for the
+    step-height ladder (``analysis.py``) and the ``declare.step_level`` object flavour — using
+    the raw, unfiltered :func:`recognise_face_levels` in one and this gate in the other let a
+    tiny incidental face leak in as a phantom level, diverging the two paths (#578 review)."""
+    bb = part.bounding_box()
+    return [
+        fl.z
+        for fl in recognise_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)
+        if bb.min.Z + tol < fl.z < bb.max.Z - tol
+    ]
+
+
 def recognise_step_shoulders(
     part, *, levels, min_area_frac: float = 0.15, tol: float = 0.5
 ) -> list[StepShoulder]:

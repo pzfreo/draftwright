@@ -43,6 +43,7 @@ from draftwright.model.ir import (
     Point,
     SlotFeature,
     StepFeature,
+    StepLevelFeature,
 )
 
 # Fractional tolerance below which a slot object's two longest bbox spans count as "near-equal",
@@ -438,6 +439,107 @@ def plate(obj=None, *, axis=None, lo=None, hi=None, u=None, v=None) -> PlateFeat
         hi=hi,
         u=u,
         v=v,
+    )
+
+
+def _read_step_levels(
+    obj,
+) -> tuple[float, tuple[float, ...], tuple[tuple[str, float], ...], Point, Point]:
+    """Read a prismatic height ladder off a part: ``base`` (bbox min Z), the interior step
+    ``levels`` (the shared area-filtered :func:`recognition.step_level_zs` — so the object
+    flavour reads exactly the levels ``analysis.py``/``detect.py`` do, not phantom incidental
+    faces, #578 review), the step ``shoulders`` (in-plane ``(axis, position)`` risers — only
+    for a single-level rebate, mirroring ``model/detect.py``), the ``datum`` (bbox min corner
+    the positions measure from) and ``at`` (the frame anchor — bbox centre X/Y at ``base``,
+    matching ``detect.py`` so an object round-trips to the same IR)."""
+    from draftwright.recognition import recognise_step_shoulders, step_level_zs
+
+    bb = obj.bounding_box()
+    base = round(bb.min.Z, 3)
+    levels = tuple(sorted(round(z, 3) for z in step_level_zs(obj)))
+    shoulders = (
+        tuple((s.axis, s.position) for s in recognise_step_shoulders(obj, levels=list(levels)))
+        if len(levels) == 1
+        else ()
+    )
+    c = bb.center()
+    return (
+        base,
+        levels,
+        shoulders,
+        (round(bb.min.X, 3), round(bb.min.Y, 3), base),
+        (round(c.X, 3), round(c.Y, 3), base),
+    )
+
+
+def step_level(
+    obj=None, *, base=None, levels=None, shoulders=None, datum=None, at=None
+) -> StepLevelFeature:
+    """A prismatic height ladder + step-position shoulders (#555/#578) — a rebated / stepped
+    block. Either ``step_level(part)`` — ``base``, the interior ``levels``, the ``(axis,
+    position)`` ``shoulders``, the ``datum`` and the frame anchor ``at`` read off the part — or
+    explicit ``step_level(base=0, levels=(10,), shoulders=(("x", 30),))``. ``levels`` are the
+    interior step Z-coords (unique, strictly increasing, each above ``base``); a ``shoulder`` is
+    *where* a step changes height, its position measured from ``datum`` along a horizontal
+    ``axis`` (x/y). ``at`` is the IR frame origin (like every sibling constructor); it defaults
+    to the ``datum`` X/Y at ``base`` and is inert for step rendering. An object supplies
+    *defaults*; any explicit keyword overrides that field (#451)."""
+    if obj is not None:
+        r_base, r_levels, r_shoulders, r_datum, r_at = _read_step_levels(obj)
+        base = r_base if base is None else base
+        levels = r_levels if levels is None else levels
+        shoulders = r_shoulders if shoulders is None else shoulders
+        datum = r_datum if datum is None else datum
+        at = r_at if at is None else at
+    if datum is None:
+        datum = (0.0, 0.0, 0.0)
+    if shoulders is None:
+        shoulders = ()
+    if base is None or levels is None:
+        raise ValueError("step_level() needs a part, or explicit base= and levels=")
+    if not (isinstance(base, (int, float)) and not isinstance(base, bool) and math.isfinite(base)):
+        raise ValueError(f"step_level() base must be a number (got {base!r})")
+    levels = tuple(levels)
+    if not levels:
+        raise ValueError("step_level() needs at least one step level above the base")
+    for z in levels:
+        if not (isinstance(z, (int, float)) and not isinstance(z, bool) and math.isfinite(z)):
+            raise ValueError(f"step_level() level must be a number (got {z!r})")
+        if not z > base:
+            raise ValueError(f"step_level() level {z} must be above base {base}")
+    levels = tuple(sorted(levels))
+    # Levels are a correlated ladder: a duplicate or non-increasing level double-dimensions a
+    # rung and skews the shoulder-suppression count — reject rather than silently accept (#578).
+    for lo, hi in zip(levels, levels[1:]):
+        if not hi > lo:
+            raise ValueError(
+                f"step_level() levels must be unique and strictly increasing: {levels}"
+            )
+    _require_point("datum", datum)
+    if at is None:
+        at = (datum[0], datum[1], base)
+    _require_point("at", at)
+    norm_shoulders = []
+    for sh in shoulders:
+        if not (isinstance(sh, (tuple, list)) and len(sh) == 2):
+            raise ValueError(
+                f"step_level() shoulder must be an (axis, position) pair (got {sh!r})"
+            )
+        ax = _norm_axis(sh[0])
+        if ax == "z":  # a shoulder POSITION is horizontal; Z is the height, not a position
+            raise ValueError(
+                "step_level() shoulder axis must be 'x' or 'y' (a horizontal position)"
+            )
+        p = sh[1]
+        if not (isinstance(p, (int, float)) and not isinstance(p, bool) and math.isfinite(p)):
+            raise ValueError(f"step_level() shoulder position must be a number (got {p!r})")
+        norm_shoulders.append((ax, float(p)))
+    return StepLevelFeature(
+        frame=Frame(origin=(at[0], at[1], at[2]), axis="z"),
+        base=base,
+        levels=levels,
+        shoulders=tuple(norm_shoulders),
+        datum=(datum[0], datum[1], datum[2]),
     )
 
 
