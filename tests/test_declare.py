@@ -236,12 +236,32 @@ class TestChamfer:
         assert f.axis == "z" and f.frame.origin == pytest.approx((25, 20, 10))
         assert f.leg1 == 6 and f.leg2 == 6 and f.angle == pytest.approx(45.0)
 
-    def test_reads_axis_and_at_off_the_edge(self):
-        part = Box(90, 60, 10)
-        e = part.edges().filter_by(Axis.Z).sort_by(lambda x: x.center().X + x.center().Y)[-1]
-        f = chamfer(e, leg=6)
-        assert f.axis == "z" and f.leg1 == 6 and f.leg2 == 6
-        assert f.frame.origin[2] == pytest.approx(e.position_at(0.5).Z)
+    def test_reads_off_the_bevel_face_and_matches_detection(self):
+        # #576 review (BLOCKER): the object flavour reads the OBLIQUE bevel face, so `at`
+        # lands ON the bevel — not on the removed sharp corner — and round-trips with the
+        # detected feature.
+        from build123d import GeomType
+        from build123d import chamfer as bd_chamfer
+
+        box = Box(90, 60, 10)
+        e = box.edges().filter_by(Axis.Z).sort_by(lambda x: x.center().X + x.center().Y)[-1]
+        solid = bd_chamfer(e, 6)
+        bevel = next(
+            f
+            for f in solid.faces().filter_by(GeomType.PLANE)
+            if max(abs(f.normal_at().X), abs(f.normal_at().Y), abs(f.normal_at().Z)) < 0.99
+        )
+        f = chamfer(bevel)
+        assert f.axis == "z" and abs(f.leg1 - 6) < 0.1 and abs(f.leg2 - 6) < 0.1
+        # `at` is the bevel centre (~(42, 27)), NOT the removed corner (45, 30)
+        assert abs(f.frame.origin[0] - 45) > 1 and abs(f.frame.origin[1] - 30) > 1
+        det = next(
+            x for x in build_drawing(solid, number="X").model().features if x.kind == "chamfer"
+        )
+        # The in-plane (plan-view) leader position matches detection; the along-axis (Z)
+        # coord is view depth for a Z-edge chamfer, so it does not affect placement.
+        assert f.frame.origin[0] == pytest.approx(det.frame.origin[0], abs=1.0)
+        assert f.frame.origin[1] == pytest.approx(det.frame.origin[1], abs=1.0)
 
     def test_asymmetric_computes_angle(self):
         f = chamfer(axis="x", leg1=14, leg2=8, at=(0, 0, 0))
@@ -261,13 +281,29 @@ class TestChamfer:
         with pytest.raises(ValueError):
             chamfer(leg=6)  # no axis / at
 
-    def test_skew_edge_gives_a_chamfer_specific_error(self):
-        # #576 review nit: a non-axis-aligned edge must raise a chamfer-worded error
-        # (not the GD&T "target face … view=/side=" message from the shared helper).
-        part = Rot(0, 0, 30) * Box(20, 20, 20)  # skew top-face edges
-        skew = part.faces().sort_by(lambda f: f.center().Z)[-1].edges()[0]
+    def test_rejects_out_of_range_angle(self):
+        # #576 review (MAJOR): an impossible angle must be rejected, not become valid IR.
+        with pytest.raises(ValueError, match="0, 90"):
+            chamfer(axis="z", leg=6, at=(0, 0, 0), angle=120)
+
+    def test_rejects_contradictory_angle(self):
+        # legs 14/8 imply atan2(8,14) ≈ 29.74°, not 60° — reject the contradiction.
+        with pytest.raises(ValueError, match="contradict"):
+            chamfer(axis="z", leg1=14, leg2=8, at=(0, 0, 0), angle=60)
+
+    def test_non_oblique_face_is_rejected(self):
+        box = Box(20, 20, 20)
+        flat = box.faces().sort_by(lambda f: f.center().Z)[-1]  # an axis-aligned face
         with pytest.raises(ValueError, match="chamfer"):
-            chamfer(skew, leg=6)
+            chamfer(flat)
+
+    def test_emitted_values_re_declare_without_contradiction(self):
+        # sheet_emit writes angle=atan2(lo,hi) alongside the legs; re-declaring with that same
+        # (leg1, leg2, angle) must be accepted as consistent — the emit round-trip must not trip
+        # the angle-contradiction guard.
+        f = chamfer(axis="x", leg1=14, leg2=8, at=(0, 0, 0))
+        f2 = chamfer(axis="x", leg1=14, leg2=8, at=(0, 0, 0), angle=f.angle)
+        assert (f2.leg1, f2.leg2, f2.angle) == (f.leg1, f.leg2, f.angle)
 
 
 class TestExplicitOverridesObject:
