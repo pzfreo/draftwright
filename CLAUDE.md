@@ -88,14 +88,20 @@ No lower module imports an upper one.
   one rule set → a `DimensionGroup` per feature, + `plan_sections`). The narrow
   middle of the compiler hourglass; consumed by `annotations/from_model.py`.
 - **`recognition/`** — feature recognition (ADR 0007: draftwright owns it, not
-  helpers). `_features.py` (vendored from `build123d_drafting.features`; the
-  hole/boss/cylinder/pattern recognisers — `find_holes`/`find_bosses`/
-  `analyse_cylinders`/`feature_diameters`/`find_hole_patterns`/`full_cylinders`
-  + the feature/pattern types), `slots.py` (the milled-slot recogniser, #135),
-  `turned.py` (`find_turned_steps` — turned-shaft shoulders, OD-silhouette filtered),
-  and `levels.py` (`analyse_face_levels` — prismatic horizontal face levels; the
-  complement of `turned.py`, dispatched by part class, #191). Bottom of the DAG:
-  depends only on build123d/OCP. Import via the package surface.
+  helpers). Every feature recogniser follows the **uniform contract** (ADR 0013 / #568,
+  spelled out in `recognition/__init__.py`): `recognise_<feature>(part, *, <injected
+  inventory>) -> list[<frozen-dataclass record>]` — British `recognise_` verb,
+  keyword-only args (deps injected by the caller, never re-recognised), a deterministic
+  list of records. `_features.py` (vendored from `build123d_drafting.features`; the
+  hole/boss/pattern recognisers — `recognise_holes`/`recognise_bosses`/
+  `recognise_hole_patterns` + the feature/pattern types; plus the cylinder-analysis
+  *substrate* `analyse_cylinders`/`feature_diameters`/`full_cylinders`, which keep their
+  names — a tuple-of-dicts / diameter query, not `list[record]` recognisers),
+  `slots.py` (the milled-slot recogniser, #135), `turned.py` (`recognise_turned_steps`
+  — turned-shaft shoulders, OD-silhouette filtered), and `levels.py`
+  (`recognise_face_levels` prismatic horizontal face levels + `recognise_step_shoulders`
+  → `StepShoulder`, #191/#555). Bottom of the DAG: depends only on build123d/OCP. Import
+  via the package surface.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
 - **`export.py`** — SVG/DXF/PDF export + post-processing (page-size fix,

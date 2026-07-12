@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 # none of these names, so they stay sub-second instead of paying for the kernel
 # on every TAB press (#313). Each name maps to the submodule that provides it.
 _LAZY = {
-    "analyse_face_levels": "draftwright.analysis",
+    "recognise_face_levels": "draftwright.analysis",
     "dedup_diams": "draftwright.analysis",
     "build_drawing": "draftwright.builder",
     "generate_script": "draftwright.builder",
@@ -72,7 +72,7 @@ _sys.modules[__name__].__class__ = _DraftwrightModule
 
 
 if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel cost
-    from draftwright.analysis import analyse_face_levels, dedup_diams
+    from draftwright.analysis import dedup_diams, recognise_face_levels
     from draftwright.builder import build_drawing, generate_script, make_drawing
     from draftwright.drawing import Drawing, FeatureInfo
     from draftwright.export import fix_svg_page_size
@@ -94,7 +94,7 @@ __all__ = [
     "FeatureInfo",
     "PmiRecord",
     "Sheet",
-    "analyse_face_levels",
+    "recognise_face_levels",
     "build_drawing",
     "choose_scale",
     "dedup_diams",

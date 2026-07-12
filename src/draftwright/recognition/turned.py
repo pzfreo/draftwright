@@ -1,12 +1,12 @@
 """turned — step/shoulder recognition for turned (rotational) parts.
 
-``find_turned_steps`` extracts the axial steps of a stepped shaft — the
+``recognise_turned_steps`` extracts the axial steps of a stepped shaft — the
 contiguous segments between shoulders — so the engine can dimension each step
 *length* (the drive-screw gap: every diameter dimensioned, but no shoulder
 locatable). It is draftwright's recognition (ADR 0007), built on the owned
 ``analyse_cylinders`` primitive.
 
-Why not ``find_bosses``: a boss's ``.height`` is its *cylindrical-face* length,
+Why not ``recognise_bosses``: a boss's ``.height`` is its *cylindrical-face* length,
 shortened by the chamfers at each shoulder, so boss spans neither tile the axis
 nor sum to the overall length — wrong for axial dims. ``analyse_cylinders``
 instead gives each cylinder's true axial span (``s_lo``/``s_hi``) and an
@@ -83,7 +83,7 @@ class TurnedProfile:
         return (*(s.lo for s in self.steps), self.steps[-1].hi)
 
 
-def find_turned_steps(part) -> TurnedProfile | None:
+def recognise_turned_steps(part) -> TurnedProfile | None:
     """Recognise the axial steps of a stepped turned ``part``, or ``None``.
 
     Returns ``None`` for a non-turned part, a plain (single-diameter) cylinder,

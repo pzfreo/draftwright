@@ -1,6 +1,6 @@
 """chamfers — chamfer (bevelled edge) recognition for prismatic parts (ADR 0007).
 
-``find_chamfers`` recovers the manufacturing size of each chamfer so it can be called
+``recognise_chamfers`` recovers the manufacturing size of each chamfer so it can be called
 out (``C12`` / ``12 × 45°``) rather than left as a rendered-but-undimensioned bevel
 (#560). A chamfer is a small **oblique** planar face — one whose normal is not aligned
 with any principal axis (a 45° equal-leg chamfer on a Z edge has normal ≈ (0.707, 0.707,
@@ -73,7 +73,7 @@ def _axis_aligned_axis(face_wrapped) -> tuple[int, float] | None:
     return ax, (loc.X(), loc.Y(), loc.Z())[ax]
 
 
-def find_chamfers(part, tol: float = 0.5, max_leg_frac: float = 0.45) -> list[Chamfer]:
+def recognise_chamfers(part, tol: float = 0.5, max_leg_frac: float = 0.45) -> list[Chamfer]:
     """Recognise the chamfers of *part* (see module docstring). Returns one
     :class:`Chamfer` per qualifying oblique face, sorted deterministically. Empty when the
     part has no chamfer. Only single-axis chamfers (running along one principal axis) are

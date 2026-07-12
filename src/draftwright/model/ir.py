@@ -294,15 +294,6 @@ class ChamferFeature:
     angle: float
     kind: ClassVar[str] = "chamfer"
 
-    @property
-    def equal_leg(self) -> bool:
-        return abs(self.leg1 - self.leg2) < 0.05
-
-    def callout(self) -> str:
-        if self.equal_leg and abs(self.angle - 45.0) < 0.5:
-            return f"C{_fmt(self.leg1)}"
-        return f"{_fmt(self.leg1)} × {_fmt(self.angle)}°"
-
     def parameters(self) -> list[DimParameter]:
         return [DimParameter("length", "chamfer", self.leg1)]
 

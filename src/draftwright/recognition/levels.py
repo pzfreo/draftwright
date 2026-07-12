@@ -1,7 +1,7 @@
 """levels — horizontal face-level recognition (ADR 0007).
 
-``analyse_face_levels`` returns the Z-coords of a part's horizontal planar faces —
-the step levels of a *prismatic* part. It is the complement of ``find_turned_steps``
+``recognise_face_levels`` returns the Z-coords of a part's horizontal planar faces —
+the step levels of a *prismatic* part. It is the complement of ``recognise_turned_steps``
 (turned.py): a box-stepped part has no cylinders, so the OD-silhouette recogniser
 cannot see its steps, while a turned shaft's shoulders are better filtered by the OD
 silhouette than by a raw face scan (#191 — the two are dispatched by part class in
@@ -11,13 +11,25 @@ build123d/OCP.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepGProp import BRepGProp
 from OCP.GeomAbs import GeomAbs_Plane
 from OCP.GProp import GProp_GProps
 
 
-def analyse_face_levels(part, tol: float = 0.5, min_area_frac: float = 0.0) -> list:
+@dataclass(frozen=True, order=True)
+class StepShoulder:
+    """A recognised step/rebate shoulder (#555). ``axis`` is the riser's normal axis
+    ("x"/"y"); ``position`` is the world coord of the shoulder along it. ``order=True``
+    so recognisers can return a deterministically sorted list."""
+
+    axis: str
+    position: float
+
+
+def recognise_face_levels(part, tol: float = 0.5, min_area_frac: float = 0.0) -> list:
     """Return sorted unique Z-coords of horizontal (normal≈±Z) planar faces.
 
     Uses tol-bucket deduplication but returns the actual face Z, not the rounded
@@ -51,11 +63,13 @@ def analyse_face_levels(part, tol: float = 0.5, min_area_frac: float = 0.0) -> l
     return sorted(buckets.values())
 
 
-def find_step_shoulders(part, levels, min_area_frac: float = 0.15, tol: float = 0.5) -> list:
+def recognise_step_shoulders(
+    part, *, levels, min_area_frac: float = 0.15, tol: float = 0.5
+) -> list[StepShoulder]:
     """Return the in-plane positions of a prismatic part's step shoulders — the
     ``(axis, position)`` where a step/rebate changes height (#555).
 
-    ``analyse_face_levels`` recovers the step *heights* (Z); this recovers *where along
+    ``recognise_face_levels`` recovers the step *heights* (Z); this recovers *where along
     the part* each shoulder sits, so a stepped block is fully constrained (two different
     shoulder positions no longer draw the same sheet). A shoulder is the **riser**: an
     interior, large, *planar* vertical face (normal in the XY plane) whose lower Z edge
@@ -83,7 +97,7 @@ def find_step_shoulders(part, levels, min_area_frac: float = 0.15, tol: float = 
     ext = {"x": bb.max.X - bb.min.X, "y": bb.max.Y - bb.min.Y, "z": bb.max.Z - bb.min.Z}
     lo = {"x": bb.min.X, "y": bb.min.Y}
     hi = {"x": bb.max.X, "y": bb.max.Y}
-    out: list = []
+    out: list[StepShoulder] = []
     for f in part.faces():
         s = BRepAdaptor_Surface(f.wrapped)
         if s.GetType() != GeomAbs_Plane:
@@ -121,5 +135,5 @@ def find_step_shoulders(part, levels, min_area_frac: float = 0.15, tol: float = 
         BRepGProp.SurfaceProperties_s(f.wrapped, props)
         if cross <= 0 or props.Mass() < min_area_frac * cross:
             continue  # a large riser, not an incidental feature face
-        out.append((axis, round(pos, 3)))
+        out.append(StepShoulder(axis, round(pos, 3)))
     return sorted(set(out))

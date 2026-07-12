@@ -1,8 +1,8 @@
 """plates — thin-slab (plate/wall) recognition for multi-plate prismatics (ADR 0007).
 
-``find_plates`` returns the plate/wall thicknesses of a prismatic part — the thin
+``recognise_plates`` returns the plate/wall thicknesses of a prismatic part — the thin
 extent of each slab that makes up an L-/T-/U-bracket and kin (#559). It is the
-complement of the other prismatic recognisers: ``analyse_face_levels`` (levels.py)
+complement of the other prismatic recognisers: ``recognise_face_levels`` (levels.py)
 finds a monotonic Z staircase and ``EnvelopeFeature`` gives the overall bbox, but
 neither recovers a *plate thickness* that is (a) along X or Y, or (b) along Z yet
 too thin to survive the step-ladder legibility gate. A single flat plate needs no
@@ -58,7 +58,7 @@ class Plate:
         return self.hi - self.lo
 
 
-def find_plates(
+def recognise_plates(
     part,
     min_area_frac: float = 0.4,
     max_thick_frac: float = 0.5,

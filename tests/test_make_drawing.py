@@ -18,13 +18,13 @@ from draftwright._core import _MIN_VIEW_MM, _fmt
 from draftwright.analysis import (
     _converge_step_sizing,
     _is_rotational,
-    analyse_face_levels,
     dedup_diams,
+    recognise_face_levels,
 )
 from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
 from draftwright.make_drawing import generate_script, lint_feature_coverage
-from draftwright.recognition import Slot, find_slots
+from draftwright.recognition import Slot, recognise_slots
 from draftwright.sheet import StripDepths, _fits, choose_scale
 
 _skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)
@@ -304,7 +304,11 @@ class TestChamferCallout:
         m = build_drawing(self._chamfered_plate(12), number="X").model()
         ch = next((f for f in m.features if f.kind == "chamfer"), None)
         assert ch is not None
-        assert ch.equal_leg and abs(ch.angle - 45.0) < 0.5 and abs(ch.leg1 - 12) < 0.05
+        assert (
+            abs(ch.leg1 - ch.leg2) < 0.05
+            and abs(ch.angle - 45.0) < 0.5
+            and abs(ch.leg1 - 12) < 0.05
+        )
 
     def test_asymmetric_chamfer_distinguished(self):
         # Unequal legs → NOT a C-form callout. Pin the recovered magnitudes: leg1 the
@@ -313,7 +317,7 @@ class TestChamferCallout:
         # magnitude must not slip through on callout-form alone.
         dwg = build_drawing(self._chamfered_plate(8, 14), number="X")
         ch = next(f for f in dwg.model().features if f.kind == "chamfer")
-        assert not ch.equal_leg
+        assert abs(ch.leg1 - ch.leg2) >= 0.05
         assert abs(ch.leg1 - 14) < 0.05 and abs(ch.leg2 - 8) < 0.05
         assert abs(ch.angle - 29.74) < 0.5
         callout = next(dwg._named[n].label for n in dwg._named if n.startswith("m_chamfer"))
@@ -350,10 +354,12 @@ class TestChamferCallout:
             .group_by(lambda e: e.center().Z)[-1]
             .sort_by(lambda e: e.center().X + e.center().Y)[-1]
         )
+        from draftwright.annotations.from_model import _chamfer_label
+
         dwg = build_drawing(chamfer(e, 6), number="X")
         chamfers = [f for f in dwg.model().features if f.kind == "chamfer"]
         assert len(chamfers) == 1
-        assert chamfers[0].callout() == "C6"
+        assert _chamfer_label(chamfers[0]) == "C6"
 
     def test_hex_prism_side_faces_are_not_chamfers(self):
         # #560 review: a polygon prism's oblique sides are REAL faces, not chamfers — they
@@ -410,12 +416,14 @@ class TestChamferCallout:
         # plate edge chamfer survives.
         from build123d import chamfer
 
+        from draftwright.annotations.from_model import _chamfer_label
+
         p = Box(80, 50, 4)
         e = p.edges().group_by(lambda e: e.center().Z)[-1].sort_by(lambda e: e.center().Y)[-1]
         dwg = build_drawing(chamfer(e, 2.5), number="X")
         chamfers = [f for f in dwg.model().features if f.kind == "chamfer"]
         assert len(chamfers) == 1
-        assert chamfers[0].callout() == "C2.5"
+        assert _chamfer_label(chamfers[0]) == "C2.5"
 
 
 class TestStepSizingConvergence:
@@ -1156,11 +1164,11 @@ class TestDerivedLayoutConstants:
         assert _text_width("WXYZ", 3.0) > _text_width("iiii", 3.0)
 
     def test_bore_callout_width_scales_with_font_size(self):
-        from draftwright.recognition import find_holes
+        from draftwright.recognition import recognise_holes
         from draftwright.sheet import _est_bore_callout_width
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
-        holes = find_holes(part)
+        holes = recognise_holes(part)
         small = _est_bore_callout_width(holes, font_size=3.0)
         large = _est_bore_callout_width(holes, font_size=6.0)
         assert large > small
@@ -1195,12 +1203,12 @@ class TestComposeAnnoBoxes:
         # must be represented as an annotation box, not as a scalar-only side
         # channel in _measure_strips.
         from draftwright.builder import _FONT_SIZE, draft_preset
-        from draftwright.recognition import find_hole_patterns, find_holes
+        from draftwright.recognition import recognise_hole_patterns, recognise_holes
         from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
-        holes = find_holes(part)
-        patterns = find_hole_patterns(holes)
+        holes = recognise_holes(part)
+        patterns = recognise_hole_patterns(holes)
         bb = part.bounding_box()
         draft = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
         declared_width = 55.0
@@ -1227,33 +1235,33 @@ class TestComposeAnnoBoxes:
         )
 
     def test_matches_for_plain_part(self):
-        from draftwright.recognition import find_hole_patterns, find_holes
+        from draftwright.recognition import recognise_hole_patterns, recognise_holes
 
         part = Box(60, 40, 12)
-        holes = find_holes(part)
-        patterns = find_hole_patterns(holes)
+        holes = recognise_holes(part)
+        patterns = recognise_hole_patterns(holes)
         bb = part.bounding_box()
         for n_steps in (0, 1, 3):
             self._assert_match(holes, patterns, n_steps, bb)
 
     def test_matches_for_bored_part(self):
-        from draftwright.recognition import find_hole_patterns, find_holes
+        from draftwright.recognition import recognise_hole_patterns, recognise_holes
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
-        holes = find_holes(part)
-        patterns = find_hole_patterns(holes)
+        holes = recognise_holes(part)
+        patterns = recognise_hole_patterns(holes)
         bb = part.bounding_box()
         for n_steps in (0, 2):
             self._assert_match(holes, patterns, n_steps, bb)
 
     def test_matches_for_dense_ballooning_part(self):
         # _dense_plate triggers _will_balloon → exercises the plan_halo band.
-        from draftwright.recognition import find_hole_patterns, find_holes
+        from draftwright.recognition import recognise_hole_patterns, recognise_holes
         from draftwright.sheet import _will_balloon
 
         part = _dense_plate()
-        holes = find_holes(part)
-        patterns = find_hole_patterns(holes)
+        holes = recognise_holes(part)
+        patterns = recognise_hole_patterns(holes)
         bb = part.bounding_box()
         assert _will_balloon(holes, patterns)  # guard: this case must balloon
         self._assert_match(holes, patterns, 0, bb)
@@ -1295,7 +1303,7 @@ class TestComposeAnnoBoxesCorpus:
         (plan halo band). The right dim ladder depth is a pure function of the
         n_steps argument (not geometry), so it is swept per part below rather
         than via a dedicated stepped fixture."""
-        from draftwright.recognition import find_hole_patterns, find_holes
+        from draftwright.recognition import recognise_hole_patterns, recognise_holes
 
         parts = {
             "plain_block": Box(60, 40, 12),
@@ -1306,8 +1314,8 @@ class TestComposeAnnoBoxesCorpus:
         }
         corpus = []
         for label, part in parts.items():
-            holes = find_holes(part)
-            patterns = find_hole_patterns(holes)
+            holes = recognise_holes(part)
+            patterns = recognise_hole_patterns(holes)
             corpus.append((label, holes, patterns, part.bounding_box()))
         return corpus
 
@@ -1580,7 +1588,7 @@ class TestTwoPassLayout:
 
         from draftwright import build_drawing
         from draftwright._core import _DIM_PAD
-        from draftwright.recognition import find_holes
+        from draftwright.recognition import recognise_holes
         from draftwright.sheet import _est_bore_callout_width
 
         # Four identical cylinders → "4× ⌀16 THRU" callout with a count prefix
@@ -1597,7 +1605,7 @@ class TestTwoPassLayout:
         fv_right = a.FV_X + a.fv_hw
         actual_gap = sv_left - fv_right
 
-        holes = find_holes(part)
+        holes = recognise_holes(part)
         bore_depth = _est_bore_callout_width(holes)
         # bore callout width must exceed DIM_PAD for the test to be meaningful
         assert bore_depth > _DIM_PAD, (
@@ -1648,7 +1656,7 @@ class TestTwoPassLayout:
         # _est_bore_callout_width must include it when patterns are provided.
         from build123d import Box, Cylinder, Pos
 
-        from draftwright.recognition import find_hole_patterns, find_holes
+        from draftwright.recognition import recognise_hole_patterns, recognise_holes
         from draftwright.sheet import _est_bore_callout_width
 
         # Six ⌀8 holes at equal 60° spacing on R=35 → BoltCircle pattern
@@ -1661,8 +1669,8 @@ class TestTwoPassLayout:
             - Pos(-17.5, -30.31, 0) * Cylinder(8, 20)
             - Pos(17.5, -30.31, 0) * Cylinder(8, 20)
         )
-        holes = find_holes(part)
-        patterns = find_hole_patterns(holes)
+        holes = recognise_holes(part)
+        patterns = recognise_hole_patterns(holes)
 
         width_without = _est_bore_callout_width(holes)
         width_with = _est_bore_callout_width(holes, patterns=patterns)
@@ -2678,7 +2686,7 @@ class TestViewCoordinates:
 
 
 # ---------------------------------------------------------------------------
-# analyse_cylinders / analyse_face_levels — require OCP (slow)
+# analyse_cylinders / recognise_face_levels — require OCP (slow)
 # ---------------------------------------------------------------------------
 
 
@@ -2708,7 +2716,7 @@ def test_analyse_face_levels_box():
     from build123d import Box
 
     box = Box(30, 20, 10)
-    levels = analyse_face_levels(box)
+    levels = recognise_face_levels(box)
     # Box centred at origin has Z faces at -5 and +5
     assert any(abs(z - (-5.0)) < 0.1 for z in levels)
     assert any(abs(z - 5.0) < 0.1 for z in levels)
@@ -2719,7 +2727,7 @@ def test_analyse_face_levels_returns_sorted():
     from build123d import Box
 
     box = Box(30, 20, 10)
-    levels = analyse_face_levels(box)
+    levels = recognise_face_levels(box)
     assert levels == sorted(levels)
 
 
@@ -2734,12 +2742,12 @@ def test_analyse_face_levels_area_filter_drops_tiny_faces():
     part = Box(30, 20, 10) + Pos(0, 0, 6) * Box(1, 1, 2)
 
     # Without the filter the tiny face shows up as a phantom level.
-    unfiltered = analyse_face_levels(part)
+    unfiltered = recognise_face_levels(part)
     assert any(abs(z - 7.0) < 0.1 for z in unfiltered)
 
     # With a 1%-of-footprint threshold (6 mm²) the 1 mm² face is dropped,
     # leaving only the real slab faces.
-    filtered = analyse_face_levels(part, min_area_frac=0.01)
+    filtered = recognise_face_levels(part, min_area_frac=0.01)
     assert not any(abs(z - 7.0) < 0.1 for z in filtered)
     assert any(abs(z - 5.0) < 0.1 for z in filtered)
     assert any(abs(z - (-5.0)) < 0.1 for z in filtered)
@@ -6504,14 +6512,14 @@ class TestFeatures:
 class TestFindSlots:
     """#135: recognition of enclosed through-slots with rectangular walls.
 
-    find_slots() is a pure-geometry pass (no projection) so these are fast.
+    recognise_slots() is a pure-geometry pass (no projection) so these are fast.
     Scope is deliberately narrow (#148): only through-slots with straight walls.
     """
 
     def test_through_slot_recognised(self):
         # A 20-long, 8-wide channel milled THROUGH a 60×30×12 bar.
         part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20)
-        slots = find_slots(part)
+        slots = recognise_slots(part)
         assert len(slots) == 1
         s = slots[0]
         assert s.width_axis == "y"
@@ -6523,25 +6531,25 @@ class TestFindSlots:
     def test_plain_box_has_no_slots(self):
         # The stock's own outer faces are parallel and anti-parallel but face
         # AWAY from each other — the facing test must exclude them.
-        assert find_slots(Box(40, 20, 10)) == []
+        assert recognise_slots(Box(40, 20, 10)) == []
 
     def test_single_flat_is_not_a_slot(self):
         # One machined flat has no opposing wall, so it is not a slot.
         part = Box(40, 20, 10) - Pos(0, 12, 0) * Box(40, 10, 10)
-        assert find_slots(part) == []
+        assert recognise_slots(part) == []
 
     def test_blind_slot_is_not_a_slot(self):
         # A blind slot (cut partway, leaving a floor) is out of scope (#148):
         # the floor test rejects it. Same geometry as the through case but the
         # cutter does not break through the bottom.
         part = Box(60, 30, 12) - Pos(0, 0, 2) * Box(20, 8, 8)
-        assert find_slots(part) == []
+        assert recognise_slots(part) == []
 
     def test_blind_pocket_is_not_a_slot(self):
         # A rectangular pocket has the same facing rectangular walls as a slot
         # but is capped by a floor — the through/blind test must reject it.
         part = Box(100, 60, 10) - Pos(0, 0, 2) * Box(40, 25, 6)
-        assert find_slots(part) == []
+        assert recognise_slots(part) == []
 
     def test_split_floor_pocket_is_not_a_slot(self):
         # A blind pocket whose floor is divided into two coplanar faces by a rib
@@ -6549,33 +6557,33 @@ class TestFindSlots:
         # footprint alone, so the floor test must AGGREGATE coverage across both
         # — otherwise the pocket reads as a phantom through-slot (#146 re-review).
         part = (Box(40, 40, 20) - Pos(0, 0, 10) * Box(10, 30, 8)) + Pos(0, 0, 7) * Box(10, 2, 2)
-        assert find_slots(part) == []
+        assert recognise_slots(part) == []
 
     def test_turned_groove_is_not_a_slot(self):
         # A circumferential groove on a shaft has ANNULAR (circle-bounded) walls;
         # the rectangular-wall test must reject it (otherwise a stepped shaft's
         # circlip groove reads as a slot — the #146 review false positive).
         part = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(7, 4))
-        assert find_slots(part) == []
+        assert recognise_slots(part) == []
 
     def test_gap_between_bosses_is_not_a_slot(self):
         # The floored channel between two raised bosses has facing rectangular
         # walls but is not a cut slot — the floor (the base plate) rejects it.
         part = Box(80, 40, 6) + Pos(-15, 0, 9) * Box(10, 40, 12) + Pos(15, 0, 9) * Box(10, 40, 12)
-        assert find_slots(part) == []
+        assert recognise_slots(part) == []
 
     def test_full_span_through_slot_is_not_a_slot(self):
         # A through-channel that runs the WHOLE length of the part is an open
         # feature (a U-channel), not an enclosed slot — rejected by the span cap.
         part = Box(20, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20)
-        assert find_slots(part) == []
+        assert recognise_slots(part) == []
 
     def test_rectangular_slot_reported_once(self):
         # A through rectangular slot is bounded by two orthogonal opposed-wall
         # pairs; the merge must collapse them to a single Slot (the narrower
         # width), not report the same feature twice.
         part = Box(60, 40, 12) - Pos(0, 0, 0) * Box(10, 24, 20)
-        slots = find_slots(part)
+        slots = recognise_slots(part)
         assert len(slots) == 1
         assert slots[0].width == 10.0  # the narrower of the two opposed pairs
 
@@ -6584,13 +6592,13 @@ class TestFindSlots:
         # part's longer axis (a slot on a bar runs along the bar), not whichever
         # OCC extent is fractionally larger.
         part = Box(80, 20, 6) - Pos(0, 0, 0) * Box(6, 4, 8)
-        (s,) = find_slots(part)
+        (s,) = recognise_slots(part)
         assert s.width_axis == "y"
         assert s.width == 4.0
         assert s.long_axis == "x"  # not z, despite z-extent ≈ x-extent locally
 
     def test_slot_is_frozen_dataclass(self):
-        s = find_slots(Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20))[0]
+        s = recognise_slots(Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20))[0]
         assert isinstance(s, Slot)
         with pytest.raises(Exception):
             s.width = 1.0  # frozen
@@ -6599,7 +6607,7 @@ class TestFindSlots:
         # Two equal-width through-slots must be ordered by geometry (not OCC face
         # order), so the slot{i} annotation names are stable.
         part = Box(120, 40, 12) - Pos(-30, 0, 0) * Box(8, 20, 20) - Pos(30, 0, 0) * Box(8, 20, 20)
-        runs = [[(s.width, s.lo, s.hi) for s in find_slots(part)] for _ in range(3)]
+        runs = [[(s.width, s.lo, s.hi) for s in recognise_slots(part)] for _ in range(3)]
         assert runs[0] == runs[1] == runs[2]
         assert len(runs[0]) == 2
 
@@ -7255,7 +7263,7 @@ class TestTurnedDiameters:
 
     def test_nested_band_under_silhouette_gets_a_callout(self):
         # #298: a narrow ø6 external band sits under the ø30 flange silhouette, so
-        # find_turned_steps' local_od max() reads it as ø30 and it never becomes a step
+        # recognise_turned_steps' local_od max() reads it as ø30 and it never becomes a step
         # diameter. detect.py now emits the missed band as a boss, so it still gets a ø
         # callout (matching the feature_diameters coverage inventory) and the part lints
         # clean. The overall part is large enough for all three callouts to fit the row.
@@ -7505,7 +7513,7 @@ class TestStepLadderRecognition:
         dwg = build_drawing(part, number="D-1")
         # The turned part is now dimensioned by the unified IR step-length chain
         # (#223): two real OD segments (each length 30), and crucially NO '45'
-        # bore-floor phantom — find_turned_steps excludes the internal bore.
+        # bore-floor phantom — recognise_turned_steps excludes the internal bore.
         labels = [o.label for n, o in dwg._named.items() if n.startswith("m_steplen")]
         assert labels == ["30", "30"]  # both real segments
         assert "45" not in labels  # no bore-floor phantom

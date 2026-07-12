@@ -853,6 +853,16 @@ def _envelope_tier(dwg, strip, view, size):
     return max(fitting, key=lambda s: s[1])[0]  # above/right: outermost = largest coords
 
 
+def _chamfer_label(ch) -> str:
+    """The chamfer callout string: ``C{leg}`` for an equal-leg 45° chamfer, else
+    ``{leg} × {angle}°`` (#560). Formatting lives in the render layer, not on the IR
+    feature — every other feature's label is formed by the planner/renderer too, so a
+    ``ChamferFeature`` stays pure data (ADR 0013 §7)."""
+    if abs(ch.leg1 - ch.leg2) < 0.05 and abs(ch.angle - 45.0) < 0.5:
+        return f"C{_fmt(ch.leg1)}"
+    return f"{_fmt(ch.leg1)} × {_fmt(ch.angle)}°"
+
+
 def render_chamfers(dwg, model, a) -> int:
     """Chamfer callouts (#560): a leader from each recognised chamfer face to its
     ``C{leg}`` / ``{leg}×{angle}°`` label, in the view normal to the chamfered edge (a Z
@@ -880,7 +890,7 @@ def render_chamfers(dwg, model, a) -> int:
         d = math.hypot(dx, dy) or 1.0
         reach = draft.font_size + 6 * draft.pad_around_text
         elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
-        ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=ch.callout(), draft=draft)
+        ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_chamfer_label(ch), draft=draft)
         obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
         # The LABEL must land in clear margin: outside the view silhouette (a leader may
         # cross into the view but its text must not sit over the part), off other
@@ -901,7 +911,7 @@ def render_chamfers(dwg, model, a) -> int:
             dwg._record_build_issue(
                 "warning",
                 "chamfer_dropped",
-                f"chamfer callout {ch.callout()} not placed (no clear room)",
+                f"chamfer callout {_chamfer_label(ch)} not placed (no clear room)",
             )
             continue
         dwg.add(ldr, f"m_chamfer_{ch.axis}{i}", view=view, feature=ch)
