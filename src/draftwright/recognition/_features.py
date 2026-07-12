@@ -474,20 +474,24 @@ def _merge_stacks(stacks, edge_faces, cache=None):
 
 _CSK_DIA_TOL = 0.2  # mm — countersink drill ⌀ vs bore ⌀
 _CSK_COAX_TOL = 0.2  # mm — countersink opening off the bore axis line
+_CSK_MOUTH_TOL = 0.5  # mm — countersink must sit at the bore's mouth, not deep inside
 
 
 def _csink_for_hole(h: HoleRecord, csinks: list[CounterSink]) -> CounterSink | None:
-    """The countersink coaxial with hole *h* — parallel axis, opening on the bore's axis
-    line, matching drill ⌀ — or None (#558)."""
+    """The countersink at hole *h*'s mouth, or None (#558). Requires: opening on the
+    bore's axis *line* (perp), the csk facing the **same way** as the bore (``same_dir`` —
+    so a coaxial hole drilled from the *opposite* face is not mis-matched), the csk on the
+    **mouth side** of the bore opening (``t`` ≤ tol, not deep inside), and matching drill ⌀."""
     hx = h.axis
     for cs in csinks:
         v = tuple(cs.location[i] - h.location[i] for i in range(3))
         t = sum(v[i] * hx[i] for i in range(3))
         perp = math.hypot(*(v[i] - t * hx[i] for i in range(3)))
-        parallel = abs(sum(hx[i] * cs.axis[i] for i in range(3))) > 1 - 1e-3
+        same_dir = sum(hx[i] * cs.axis[i] for i in range(3)) > 1 - 1e-3
         if (
-            parallel
+            same_dir
             and perp <= _CSK_COAX_TOL
+            and t <= _CSK_MOUTH_TOL
             and abs(cs.drill_diameter - h.diameter) <= _CSK_DIA_TOL
         ):
             return cs

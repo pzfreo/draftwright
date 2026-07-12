@@ -12,11 +12,19 @@ Geometry-mirrored with ``pzfreo/build123d-mcp``'s ``recognise_countersinks`` so 
 can converge in the shared ``b123d-recognisers`` package (ADR 0013). Bottom of the
 recognition DAG: depends only on build123d/OCP.
 
-Heuristic limits (``recognised`` tier): a small lead-in / deburr chamfer at a hole mouth
-is geometrically a shallow countersink and also registers (its small ``major_diameter`` /
-``depth`` make that visible); a near-flat cone above ``_MAX_INCLUDED_ANGLE`` (a draft /
-relief) is excluded; a countersink clipped by another feature (its edges no longer full
-circles) is missed.
+Heuristic limits (``recognised`` tier): an edge-break / deburr / lead-in chamfer at a hole
+mouth is geometrically a shallow countersink, so a **flare-ratio floor** (``_MIN_MAJOR_RATIO``)
+excludes it — a screw seat flares to roughly twice the bore, an edge break barely widens
+it; a near-flat cone above ``_MAX_INCLUDED_ANGLE`` (a draft / relief) is excluded; a
+countersink clipped by another feature (its edges no longer full circles) is missed.
+
+Known limitations (standalone recogniser; no effect on draftwright drawings, which only
+call out a countersink attached to a recognised bore): an **external transition chamfer**
+between two coaxial cylinders (e.g. a stepped shaft) also presents a flared cone coaxial
+with a cylinder and can register — an internal/external face-orientation check would
+exclude it (deferred to the shared ``b123d-recognisers`` extraction); a through hole
+countersunk on **both** faces yields two coaxial countersinks (each associates to the bore
+independently, but the single ``HoleRecord.csink`` slot records only one).
 """
 
 from __future__ import annotations
@@ -32,6 +40,11 @@ _COAXIAL_TOL = 0.1  # mm — how far the opening may sit off the drill's axis li
 # a draft/relief/washer face, not a countersink. 160° keeps every real countersink with
 # margin while excluding drafts (~176–178° included).
 _MAX_INCLUDED_ANGLE = 160.0
+# A screw seat flares to roughly twice the bore (a flat-head sits in it); an edge-break /
+# deburr / lead-in chamfer on a hole mouth is the same *shape* but barely wider than the
+# bore. Require the major to reach this multiple of the drill radius to exclude those —
+# else every chamfered hole mouth would be called out as a countersink (#558 review).
+_MIN_MAJOR_RATIO = 1.5
 
 
 @dataclass(frozen=True)
@@ -66,6 +79,10 @@ def recognise_countersinks(part) -> list[CounterSink]:
     part has none."""
     from OCP.BRepAdaptor import BRepAdaptor_Surface
 
+    cones = list(part.faces().filter_by(GeomType.CONE))
+    if not cones:
+        return []  # no cones → no countersinks; skip the cylinder scan (perf, #558 review)
+
     cyls = []
     for cy in part.faces().filter_by(GeomType.CYLINDER):
         ax = BRepAdaptor_Surface(cy.wrapped).Cylinder().Axis()
@@ -73,14 +90,14 @@ def recognise_countersinks(part) -> list[CounterSink]:
         cyls.append((cy.radius, (p.X(), p.Y(), p.Z()), (d.X(), d.Y(), d.Z())))
 
     out: list[CounterSink] = []
-    for f in part.faces().filter_by(GeomType.CONE):
+    for f in cones:
         circles = sorted(f.edges().filter_by(GeomType.CIRCLE), key=lambda e: e.radius)
         if len(circles) < 2:
             continue  # drill-point cone (one circle + apex) or degenerate
         minor_e, major_e = circles[0], circles[-1]
         minor_r, major_r = minor_e.radius, major_e.radius
-        if major_r - minor_r < _TOL:
-            continue  # not flared — not a countersink
+        if major_r < _MIN_MAJOR_RATIO * minor_r:
+            continue  # too little flare — an edge break / deburr, not a screw seat
         cone = BRepAdaptor_Surface(f.wrapped).Cone()
         included_angle = round(2 * abs(math.degrees(cone.SemiAngle())), 2)
         if included_angle > _MAX_INCLUDED_ANGLE:

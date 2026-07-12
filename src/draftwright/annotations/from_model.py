@@ -149,7 +149,9 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         cbore_dia=f(spec["cbore_dia"]),
         cbore_depth=f(spec["cbore_depth"]),
         csink_dia=f(spec["csink_dia"]),
-        csink_angle=spec["csink_angle"],
+        # Every value crosses as a _fmt string (the #261 invariant) — a raw float renders
+        # "90.0°" and, worse, mismatches the width estimators' `_fmt` (they'd under-reserve).
+        csink_angle=f(spec["csink_angle"]),
         suffix=spec["suffix"],
         draft=draft,
     )
