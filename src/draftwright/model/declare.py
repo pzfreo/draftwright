@@ -280,7 +280,14 @@ def _read_edge(obj) -> tuple[str, Point]:
     can be declared on the edge you bevelled without restating axis/at."""
     d = obj.tangent_at(0.5)
     p = obj.position_at(0.5)
-    return _axis_from_vec(d), (round(p.X, 4), round(p.Y, 4), round(p.Z, 4))
+    try:
+        axis = _axis_from_vec(d)
+    except ValueError:  # chamfer-specific wording (not the GD&T target message)
+        raise ValueError(
+            "chamfer(edge=...) needs an axis-aligned edge; for a skew edge pass explicit "
+            f"axis= and at= (edge direction was ({d.X:.3g}, {d.Y:.3g}, {d.Z:.3g}))"
+        ) from None
+    return axis, (round(p.X, 4), round(p.Y, 4), round(p.Z, 4))
 
 
 def chamfer(

@@ -261,6 +261,14 @@ class TestChamfer:
         with pytest.raises(ValueError):
             chamfer(leg=6)  # no axis / at
 
+    def test_skew_edge_gives_a_chamfer_specific_error(self):
+        # #576 review nit: a non-axis-aligned edge must raise a chamfer-worded error
+        # (not the GD&T "target face … view=/side=" message from the shared helper).
+        part = Rot(0, 0, 30) * Box(20, 20, 20)  # skew top-face edges
+        skew = part.faces().sort_by(lambda f: f.center().Z)[-1].edges()[0]
+        with pytest.raises(ValueError, match="chamfer"):
+            chamfer(skew, leg=6)
+
 
 class TestExplicitOverridesObject:
     """#451: an object supplies DEFAULTS; each explicit keyword overrides that field
