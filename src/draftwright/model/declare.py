@@ -197,14 +197,16 @@ def hole(
     depth=None,
     cbore=None,
     spotface=None,
+    csink=None,
     count=1,
     members=(),
 ) -> HoleFeature:
     """A drilled hole. Either ``hole(tool_cylinder)`` — read ⌀ / axis / location off the
     build123d object you subtracted — or ``hole(diameter=6, at=(20, 10, 0), axis="z")``.
 
-    ``cbore`` / ``spotface`` are ``(diameter, depth)`` pairs; ``count`` + ``members``
-    describe a machining-spec group drawn as one ``count×`` callout.
+    ``cbore`` / ``spotface`` are ``(diameter, depth)`` pairs; ``csink`` is a
+    ``(major_diameter, included_angle)`` pair (a flat-head seat, callout ``⌵ Ø.. × ..°``);
+    ``count`` + ``members`` describe a machining-spec group drawn as one ``count×`` callout.
 
     An object supplies *defaults*; any explicit keyword overrides that field (#451)."""
     if obj is not None:
@@ -218,6 +220,7 @@ def hole(
     _require_positive(diameter=diameter, depth=depth)
     _require_pair_positive("cbore", cbore)
     _require_pair_positive("spotface", spotface)
+    _require_pair_positive("csink", csink)  # (major_diameter, included_angle), both positive
     _require_point("at", at)
     _require_count("hole()", count)
     return HoleFeature(
@@ -229,7 +232,27 @@ def hole(
         members=tuple(members),
         cbore=cbore,
         spotface=spotface,
+        csink=csink,
     )
+
+
+def read_countersink(cone) -> tuple[float, float]:
+    """``(major_diameter, included_angle°)`` of a countersink **cone** tool — the larger rim ⌀
+    and the full cone angle, read off its conical **face** (not a removed edge, #576 lesson).
+    Mirrors :func:`recognition.recognise_countersinks`' cone geometry."""
+    from build123d import GeomType
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+
+    faces = cone.faces().filter_by(GeomType.CONE)
+    if not faces:
+        raise ValueError("countersink(cone=...) needs a conical tool (a build123d Cone)")
+    f = faces[0]
+    circles = f.edges().filter_by(GeomType.CIRCLE)
+    if not circles:
+        raise ValueError("countersink(cone=...): the cone has no circular rim to size")
+    major = 2 * max(e.radius for e in circles)
+    semi = abs(BRepAdaptor_Surface(f.wrapped).Cone().SemiAngle())
+    return round(major, 4), round(2 * math.degrees(semi), 2)
 
 
 def boss(obj=None, *, diameter=None, at=None, axis=None) -> BossFeature:

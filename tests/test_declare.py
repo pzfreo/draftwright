@@ -326,6 +326,40 @@ class TestChamfer:
         assert f.angle == pytest.approx(math.degrees(math.atan2(3, 6)), abs=1.0)
 
 
+class TestCountersink:
+    """#575: declare a countersink (flat-head seat) — the third ADR-0011 surface for #558."""
+
+    def test_reads_major_and_angle_off_the_cone(self):
+        from build123d import Cone
+
+        from draftwright.model.declare import read_countersink
+
+        maj, ang = read_countersink(Cone(3, 7, 4))  # ⌀6 drill flaring to ⌀14, 90° included
+        assert maj == pytest.approx(14.0) and ang == pytest.approx(90.0, abs=0.5)
+
+    def test_explicit_csink_renders_the_callout(self):
+        part = Box(90, 60, 12) - Pos(0, 0, 0) * Cylinder(3, 12)
+        dwg = build_drawing(
+            part, model=[hole(diameter=6, at=(0, 0, 6), axis="z", csink=(14, 90))], number="X"
+        )
+        leaders = [dwg._named[n] for n in dwg._named if n.startswith("hc_")]
+        assert leaders and any(14.0 in ldr.covers_diameters for ldr in leaders)
+
+    def test_fluent_countersink_reads_the_cone(self):
+        from build123d import Cone
+
+        part = Box(90, 60, 12) - Pos(0, 0, 0) * Cylinder(3, 12)
+        s = Sheet(part)
+        s.hole(diameter=6, at=(0, 0, 6), axis="z").countersink(Cone(3, 7, 4))
+        assert s._features[0].csink is not None
+        assert abs(s._features[0].csink[0] - 14) < 0.1 and abs(s._features[0].csink[1] - 90) < 0.5
+
+    def test_needs_cone_or_explicit(self):
+        s = Sheet(Box(10, 10, 10))
+        with pytest.raises(ValueError):
+            s.hole(diameter=6, at=(0, 0, 0), axis="z").countersink()
+
+
 class TestExplicitOverridesObject:
     """#451: an object supplies DEFAULTS; each explicit keyword overrides that field
     independently. The reliable escape hatch for tricky geometry (tubes, counterbores,

@@ -176,6 +176,19 @@ class TestEmit:
         # the whole emitted script must parse — a generated script that doesn't is useless
         ast.parse(_script_for(_plate()))
 
+    def test_countersink_rides_the_hole_line(self):
+        # #575: a detected countersunk hole emits csink=(major, angle) on the hole line
+        # (was dropped) — the emit surface for #558.
+        from build123d import Cone
+
+        part = Box(90, 60, 12)
+        for x, y in [(-30, -15), (5, 12), (30, -8)]:
+            part -= Pos(x, y, 0) * Cylinder(3, 12)
+            part -= Pos(x, y, 4) * Cone(3, 7, 4)
+        src = _script_for(part)
+        assert "csink=(14" in src
+        ast.parse(src)
+
     def test_chamfer_emits_the_chamfer_verb(self):
         # #576: a detected chamfer emits `sheet.chamfer(...)` (was a "no declarative verb yet"
         # comment) — the emit surface for #560.

@@ -66,6 +66,8 @@ def _hole_line(f) -> str:
         kw.append(f"cbore=({_n(f.cbore[0])}, {_n(f.cbore[1])})")
     if f.spotface:
         kw.append(f"spotface=({_n(f.spotface[0])}, {_n(f.spotface[1])})")
+    if f.csink:
+        kw.append(f"csink=({_n(f.csink[0])}, {_n(f.csink[1])})")
     line = f"sheet.hole({', '.join(kw)})"
     if not f.through and f.depth is not None:
         line += f".depth({_n(f.depth)})"
