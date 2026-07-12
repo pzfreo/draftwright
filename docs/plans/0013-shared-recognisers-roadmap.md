@@ -1,6 +1,6 @@
 # 0013 — `b123d-recognisers` roadmap (uniform recognition, extraction-ready)
 
-Execution plan for [ADR 0013](../adr/0013-shared-recognition-package.md). Two phases:
+Execution plan for [ADR 0013](../adr/0013-uniform-recognition-and-shared-package.md). Two phases:
 make `recognition/` uniform and extraction-ready **now** (Phase 1 = #568); extract to
 the standalone Apache package **later**, gated on a second committed consumer (Phase 2).
 mcp is a slow follower — not coupled in either phase until it chooses to adopt.

@@ -1,15 +1,22 @@
-# ADR 0013 — `b123d-recognisers`: a shared, geometry-only feature-recognition package
+# ADR 0013 — A uniform recogniser/feature contract (with `b123d-recognisers` as its deferred shared deployment)
 
-- **Status:** Accepted (direction). **Phase 1** (draftwright-internal: uniform,
-  extraction-ready `recognition/`) **in progress**; **Phase 2** (extraction to the
-  standalone `b123d-recognisers` package) **deferred**, gated on a second committed
-  consumer. Subsumes #568 (uniform recogniser pattern).
+- **Status:** Accepted. **The primary decision is a uniform, geometry-only
+  recogniser/feature contract** (§2 + the two-layer model §3; subsumes #568) — the
+  recogniser *intake* pulled up to the standard the IR `Feature` inventory already
+  meets (ADR 0008). It is delivered inside draftwright now (**Phase 1, in progress**)
+  and is worth doing for draftwright alone. Extracting that contract to a standalone
+  shared package `b123d-recognisers` (§1) is a **secondary, deferred deployment**
+  (**Phase 2**, gated on a second committed consumer). **The consistency is the point;
+  the package is one optional way to ship it.**
 - **Date:** 2026-07-12
 - **Deciders:** Paul Fremantle (pzfreo)
 
 ## Context
 
 Two findings, one from inside draftwright and one from a sibling project, meet here.
+The **first is the reason** (draftwright's own recogniser intake is inconsistent and
+should be fixed regardless); the **second is the opportunity** (a sibling project needs
+the same recognisers, so the fix is worth extracting once it has proven out).
 
 **1. The recogniser layer has drifted; the feature layer has not.** draftwright's
 IR `Feature` types (`model/ir.py`) are uniform and enforced: every one is a frozen
@@ -79,7 +86,16 @@ model, three sources.
 
 ## Decision
 
-### 1. The target: a shared, geometry-only recognition package `b123d-recognisers`
+**Read in priority order.** The load-bearing decision is the **uniform
+recogniser/feature contract (§2)** and the **two-layer model (§3)** — they make the
+recogniser intake as consistent as the IR `Feature` inventory already is (ADR 0008),
+and they stand on their own (Phase 1 / #568) *even if the shared package never ships*.
+Consistency is the goal; it is not contingent on extraction. The **shared package
+(§1)** is the *deployment* of that consistency to a second consumer — important, but
+secondary, deferred, and gated (§5). Sections are numbered for stable cross-referencing,
+not by priority; §2/§3 are the decision, §1/§5/§6 are how and when it travels.
+
+### 1. The shared package `b123d-recognisers` (the deferred deployment)
 
 The eventual home for BRep feature recognition is a standalone package:
 
@@ -107,9 +123,9 @@ The eventual home for BRep feature recognition is a standalone package:
 - **British spelling throughout** (`recognise_*`), **codespell-enforced** so the
   convention does not depend on anyone remembering it.
 
-### 2. A uniform recogniser contract (this is #568)
+### 2. The uniform recogniser/feature contract — the primary decision (subsumes #568)
 
-Every recogniser, shared or not, conforms to one shape:
+This is the point of the ADR. Every recogniser, shared or not, conforms to one shape:
 
 ```
 recognise_<feature>(part, **tuning) -> list[<Feature>Record]
