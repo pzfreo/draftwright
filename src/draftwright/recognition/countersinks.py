@@ -18,13 +18,20 @@ excludes it — a screw seat flares to roughly twice the bore, an edge break bar
 it; a near-flat cone above ``_MAX_INCLUDED_ANGLE`` (a draft / relief) is excluded; a
 countersink clipped by another feature (its edges no longer full circles) is missed.
 
-Known limitations (standalone recogniser; no effect on draftwright drawings, which only
-call out a countersink attached to a recognised bore): an **external transition chamfer**
-between two coaxial cylinders (e.g. a stepped shaft) also presents a flared cone coaxial
-with a cylinder and can register — an internal/external face-orientation check would
-exclude it (deferred to the shared ``b123d-recognisers`` extraction); a through hole
-countersunk on **both** faces yields two coaxial countersinks (each associates to the bore
-independently, but the single ``HoleRecord.csink`` slot records only one).
+Known limitations (edge geometries; the common one-face countersink is exact):
+
+- an **external transition chamfer** between two coaxial cylinders (e.g. a stepped
+  shaft) presents a flared cone coaxial with a cylinder and can register in the
+  standalone recogniser — harmless in draftwright drawings (``_csink_for_hole`` only
+  attaches a countersink to a recognised internal bore, and a shaft has none); an
+  internal/external face-orientation check would exclude it (deferred to the shared
+  ``b123d-recognisers`` extraction);
+- a **DIN 332 lathe centre-drill** (a 60° cone flaring from a small pilot bore) is
+  geometrically near-indistinguishable from a small countersink and can register;
+- a through hole countersunk on **both** faces yields two coaxial countersinks, but the
+  single ``HoleRecord.csink`` slot records only one — so it under-reports, and (since
+  ``HoleSpec`` keys the csink on size only) a both-face hole can group with a one-face
+  hole of the same size. A two-slot csink model would be needed to draw both seats.
 """
 
 from __future__ import annotations
