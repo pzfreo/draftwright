@@ -176,6 +176,35 @@ class TestEmit:
         # the whole emitted script must parse — a generated script that doesn't is useless
         ast.parse(_script_for(_plate()))
 
+    def test_countersink_rides_the_hole_line(self):
+        # #575: a detected countersunk hole emits csink=(major, angle) on the hole line
+        # (was dropped) — the emit surface for #558.
+        from build123d import Cone
+
+        part = Box(90, 60, 12)
+        for x, y in [(-30, -15), (5, 12), (30, -8)]:
+            part -= Pos(x, y, 0) * Cylinder(3, 12)
+            part -= Pos(x, y, 4) * Cone(3, 7, 4)
+        src = _script_for(part)
+        assert "csink=(14" in src
+        ast.parse(src)
+
+    def test_countersunk_bolt_circle_keeps_csink_on_members(self):
+        # #582 review (BLOCKER): a countersunk PATTERN member must emit csink= (was dropped in
+        # _member_hole_str), else the bolt circle loses its ⌵ callout on re-run.
+        from build123d import Cone
+
+        part = Cylinder(40, 12)
+        for i in range(6):
+            a = i * math.pi / 3
+            c = Pos(25 * math.cos(a), 25 * math.sin(a), 0)
+            part -= c * Cylinder(3, 20)
+            part -= c * Pos(0, 0, 4) * Cone(3, 7, 4)
+        src = _script_for(part)
+        pat = [ln for ln in src.splitlines() if "sheet.pattern(hole(" in ln]
+        assert pat and "csink=(14" in pat[0]
+        ast.parse(src)
+
     def test_chamfer_emits_the_chamfer_verb(self):
         # #576: a detected chamfer emits `sheet.chamfer(...)` (was a "no declarative verb yet"
         # comment) — the emit surface for #560.

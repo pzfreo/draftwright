@@ -107,6 +107,19 @@ def _require_pair_positive(name: str, pair) -> None:
     _positive(f"{name} depth", pair[1])
 
 
+def _require_csink(name: str, csink) -> None:
+    """A ``(major_diameter, included_angle)`` pair — both positive, the angle a real cone
+    (< 180°). The second slot is an ANGLE, not a depth, so it gets its own message."""
+    if csink is None:
+        return
+    if not (isinstance(csink, (tuple, list)) and len(csink) == 2):
+        raise ValueError(f"{name} must be a (major_diameter, included_angle) pair (got {csink!r})")
+    _positive(f"{name} major_diameter", csink[0])
+    _positive(f"{name} included_angle", csink[1])
+    if not csink[1] < 180:
+        raise ValueError(f"{name} included_angle must be < 180° (got {csink[1]})")
+
+
 def _bbox_axis_dia(obj) -> tuple[str, float, Point]:
     """Read an axis-aligned cylinder's (axis, diameter, centre) off its bounding box:
     the two near-equal spans are the diameter; the odd one out is the bore/OD axis."""
@@ -197,14 +210,16 @@ def hole(
     depth=None,
     cbore=None,
     spotface=None,
+    csink=None,
     count=1,
     members=(),
 ) -> HoleFeature:
     """A drilled hole. Either ``hole(tool_cylinder)`` — read ⌀ / axis / location off the
     build123d object you subtracted — or ``hole(diameter=6, at=(20, 10, 0), axis="z")``.
 
-    ``cbore`` / ``spotface`` are ``(diameter, depth)`` pairs; ``count`` + ``members``
-    describe a machining-spec group drawn as one ``count×`` callout.
+    ``cbore`` / ``spotface`` are ``(diameter, depth)`` pairs; ``csink`` is a
+    ``(major_diameter, included_angle)`` pair (a flat-head seat, callout ``⌵ Ø.. × ..°``);
+    ``count`` + ``members`` describe a machining-spec group drawn as one ``count×`` callout.
 
     An object supplies *defaults*; any explicit keyword overrides that field (#451)."""
     if obj is not None:
@@ -218,6 +233,7 @@ def hole(
     _require_positive(diameter=diameter, depth=depth)
     _require_pair_positive("cbore", cbore)
     _require_pair_positive("spotface", spotface)
+    _require_csink("csink", csink)  # (major_diameter, included_angle)
     _require_point("at", at)
     _require_count("hole()", count)
     return HoleFeature(
@@ -229,7 +245,30 @@ def hole(
         members=tuple(members),
         cbore=cbore,
         spotface=spotface,
+        csink=csink,
     )
+
+
+def read_countersink(cone) -> tuple[float, float]:
+    """``(major_diameter, included_angle°)`` of a countersink **cone** tool — the larger rim ⌀
+    and the full cone angle, read off its conical **face** (not a removed edge, #576 lesson).
+    Mirrors :func:`recognition.recognise_countersinks`' cone geometry."""
+    from build123d import GeomType
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+
+    faces = cone.faces().filter_by(GeomType.CONE)
+    if not faces:
+        raise ValueError("countersink(cone=...) needs a conical tool (a build123d Cone)")
+    f = faces[0]
+    circles = f.edges().filter_by(GeomType.CIRCLE)
+    if len(circles) < 2:
+        raise ValueError(
+            "countersink(cone=...) needs a flared cone with two distinct-radius rims; a "
+            "single-rim drill-point cone is not a countersink"
+        )
+    major = 2 * max(e.radius for e in circles)
+    semi = abs(BRepAdaptor_Surface(f.wrapped).Cone().SemiAngle())
+    return round(major, 4), round(2 * math.degrees(semi), 2)
 
 
 def boss(obj=None, *, diameter=None, at=None, axis=None) -> BossFeature:

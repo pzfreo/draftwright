@@ -55,8 +55,15 @@ from draftwright.model import note as _declare_note
 from draftwright.model import pattern as _pattern
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
-from draftwright.model.declare import _norm_axis, _read_cylinder, _require_positive, gdt_target
+from draftwright.model.declare import (
+    _norm_axis,
+    _read_cylinder,
+    _require_csink,
+    _require_positive,
+    gdt_target,
+)
 from draftwright.model.declare import read_bore_step as _read_bore_step
+from draftwright.model.declare import read_countersink as _read_countersink
 from draftwright.model.ir import AUTHORED_DIMENSION_KINDS, Point
 
 
@@ -148,6 +155,22 @@ class _Hole:
     ) -> _Hole:
         """A spotface on this hole — same as :meth:`cbore` but a shallow facing (#462)."""
         return self._set(spotface=self._read_step("spotface", obj, diameter, depth))
+
+    def countersink(
+        self, obj=None, *, major: float | None = None, angle: float | None = None
+    ) -> _Hole:
+        """A countersink on this hole (a flat-head screw seat, #575). ``.countersink(cone_tool)``
+        reads the major ⌀ + included angle off the build123d ``Cone`` you subtracted, or explicit
+        ``.countersink(major=14, angle=90)``. Renders ``⌵ Ø.. × ..°`` on the callout. An object
+        supplies defaults; explicit kwargs override (#451)."""
+        if obj is not None:
+            r_major, r_angle = _read_countersink(obj)
+            major = r_major if major is None else major
+            angle = r_angle if angle is None else angle
+        if major is None or angle is None:
+            raise ValueError("countersink() needs a cone tool, or explicit major= and angle=")
+        _require_csink("countersink", (major, angle))
+        return self._set(csink=(major, angle))
 
     def _read_step(self, kind, obj, diameter, depth) -> tuple[float, float]:
         if obj is not None:
