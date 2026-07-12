@@ -13,6 +13,7 @@ import contextlib
 import math
 import warnings
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from build123d import (
     Align,
@@ -40,7 +41,6 @@ from draftwright._core import (
     _STRIP_GAP,
     _STRIP_SPACING,
     Analysis,
-    _axis_letter,
     _dim,
     _fmt,
     _log,
@@ -78,10 +78,7 @@ from draftwright.projection import (
     _exactify_silhouettes,
     _raw_view_projector,
 )
-from draftwright.recognition import (
-    HoleSpec,
-    analyse_cylinders,
-)
+from draftwright.recognition import analyse_cylinders
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
 
@@ -306,6 +303,34 @@ class FeatureInfo:
     through: bool
     depth: float | None
     count: int
+
+
+class _HoleInstance(NamedTuple):
+    """One hole occurrence for the table / balloon renderers — the IR fields those
+    passes read (``location`` + ``diameter`` for a balloon, ``through``/``depth`` for a
+    table row), so no ``HoleRecord`` is needed (ADR 0008; #584 WP1). Duck-compatible
+    with the recogniser record the orchestrator's balloon path still passes."""
+
+    location: tuple
+    diameter: float
+    through: bool
+    depth: float | None
+
+
+def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
+    """``(spec, [member positions])`` groups of *model*'s holes on *target_axis*.
+
+    One group per IR hole/pattern feature — the spec-grouping + pattern recognition
+    detection already did, so no ``HoleRecord``/``HoleSpec`` re-grouping is needed
+    (ADR 0008 Am6; #584 WP1). ``spec`` is the representative ``HoleFeature`` (carries
+    diameter / through / depth); ``positions`` are its member centres."""
+    groups: list[tuple] = []
+    for f in model.features:
+        if f.kind == "hole" and f.frame.axis == target_axis:
+            groups.append((f, list(f.members) or [f.frame.origin]))
+        elif f.kind == "pattern" and f.member.frame.axis == target_axis:
+            groups.append((f.member, list(f.members) or [f.member.frame.origin]))
+    return groups
 
 
 class Drawing:
@@ -606,26 +631,20 @@ class Drawing:
         if view not in self._coords:
             return []
 
-        def _to_page(h):
-            return self._coords[view].pp(*h.location)
-
-        groups: dict = {}
-        for h in a.holes:
-            if _axis_letter(h) != target_axis:
-                continue
-            groups.setdefault(HoleSpec.from_hole(h), []).append(h)
+        model = self._part_model
+        if model is None:
+            return []
 
         result = []
-        for group in groups.values():
-            rep = group[0]
+        for spec, positions in _ir_hole_groups(model, target_axis):
             result.append(
                 FeatureInfo(
                     type="hole",
-                    page_pos=_to_page(rep),
-                    diameter=rep.diameter,
-                    through=rep.bottom == "through",
-                    depth=None if rep.bottom == "through" else rep.depth,
-                    count=len(group),
+                    page_pos=self._coords[view].pp(*positions[0]),
+                    diameter=spec.diameter,
+                    through=spec.through,
+                    depth=None if spec.through else spec.depth,
+                    count=len(positions),
                 )
             )
         return result
@@ -1570,17 +1589,21 @@ class Drawing:
     def _hole_spec_groups(self, view):
         """Ordered ``(tag, [holes])`` spec-groups of *view*'s holes (tags A, B,
         …). The shared basis for the hole table's rows and its balloons, so the
-        TAG column and the balloon glyphs line up."""
-        a = self._analysis
+        TAG column and the balloon glyphs line up.
+
+        Sourced from the IR (``model.features``), so each group is one hole/pattern
+        feature — a pattern and same-spec loose holes are distinct groups (ADR 0008;
+        #584 WP1). Each ``holes`` element is a :class:`_HoleInstance` carrying the
+        location + shared spec the table/balloon renderers read."""
+        model = self._part_model
         target = {"plan": "z", "front": "y", "side": "x"}.get(view)
-        if a is None or target is None or view not in self._coords:
+        if model is None or target is None or view not in self._coords:
             return []
 
-        groups: dict = {}
-        for h in a.holes:
-            if _axis_letter(h) == target:
-                groups.setdefault(HoleSpec.from_hole(h), []).append(h)
-        glist = list(groups.values())
+        glist = [
+            [_HoleInstance(pos, spec.diameter, spec.through, spec.depth) for pos in positions]
+            for spec, positions in _ir_hole_groups(model, target)
+        ]
         return list(zip(_tag_sequence(len(glist)), glist, strict=True))
 
     def _add_balloons(self, view, specs):
@@ -1825,7 +1848,7 @@ class Drawing:
         diams = []
         for tag, holes in groups:
             h = holes[0]
-            depth = "THRU" if h.bottom == "through" else (_fmt(h.depth) if h.depth else "")
+            depth = "THRU" if h.through else (_fmt(h.depth) if h.depth else "")
             rows.append((tag, f"ø{_fmt(h.diameter)}", depth, str(len(holes))))
             diams.append(h.diameter)
         table = self.add_table(rows, prefer=prefer, name=name or f"hole_table_{view}")
