@@ -3,9 +3,10 @@
 - **Status:** Accepted (recognition + linting vendored; `recognition/` and
   `linting/` are the live homes; the golden harness was retired here).
   **Amendment 1** (2026-07-12): the long-term home for *recognition* sharpens — it
-  becomes an extraction-ready, Apache-clean subpackage destined for a standalone
-  shared package `b123d-recognisers` (ADR 0013). helpers stays render-only; the
-  render-vs-reason boundary is unchanged.
+  becomes an extraction-ready subpackage (dependency-self-contained; still AGPL as
+  draftwright code per §4) destined for the standalone Apache package
+  `b123d-recognisers` (ADR 0013). helpers stays render-only; the render-vs-reason
+  boundary is unchanged.
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 

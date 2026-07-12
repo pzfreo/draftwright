@@ -118,9 +118,17 @@ recognise_<feature>(part, **tuning) -> list[<Feature>Record]
 - verb `recognise_` (not `find_`/`analyse_`); one naming rule;
 - always a `list` of typed frozen dataclass records (no `Optional`-singular, no bare
   `list`); empty when absent;
-- `part` first, optional keyword tuning after; **no precomputed-input coupling** in
-  the public signature (a recogniser that needs cylinders computes them, or takes
-  them as an optional keyword with a default);
+- `part` first, then **keyword-only** args: tuning knobs *and* injected shared
+  inventory. A *base* feature (holes, chamfers, fillets, bosses, cylinders) derives
+  only from `part`. A *derived* feature takes the canonical inventory it depends on
+  by keyword — `recognise_patterns(part, *, holes)`, `recognise_step_shoulders(part,
+  *, levels)`. **Dependency injection stays; the recogniser never re-recognises a
+  dependency internally.** ADR 0008 Amendment 5 mandates one inventory detected once;
+  recomputing holes inside `recognise_patterns` would produce a *second*, possibly
+  divergent hole set and break pattern grouping (which relies on shared hole member
+  identity). The orchestrator owns the single inventory and threads it. What the
+  contract forbids is *inconsistent* signatures (positional precomputed inputs, ad-hoc
+  ordering), not injection itself.
 - **pure** — build123d/OCP only, no session, no drawing, no dimensioning types.
 
 ### 3. Two-layer decoration
@@ -129,8 +137,14 @@ The shared record is the **geometric** feature; each consumer **decorates** it w
 its own domain concerns:
 
 - **draftwright** adapts the geometric record → its dimensioning IR (`Feature` with
-  `parameters()`/`references()`). `detect.py` shrinks from per-feature bespoke
-  translators to **one thin uniform adapter**, because the input is now uniform.
+  `parameters()`/`references()`). This is **not** one universal converter: a
+  hole→`HoleFeature` (bore/cbore/spotface + `DimParameter` semantics) is genuinely
+  different from a chamfer→`ChamferFeature`, so a per-record-type conversion is
+  irreducible. What `detect.py` gains is a **uniform adapter protocol — a typed
+  registry of per-record converters** dispatched one way — replacing today's ad-hoc,
+  each-different bespoke translators. Normalization removes the *inconsistency* and
+  the recognition-dataclass ↔ IR-`Feature` mirroring duplication, not the per-type
+  mapping.
 - **mcp** serialises the record to JSON for the LLM to reason over when editing.
 
 Same countersink, different decoration: mcp wants a measurement record; draftwright
@@ -156,14 +170,17 @@ consumer today. Standing up a separate repo + CI + PyPI release for a single con
 is premature — extract on the *second committed* consumer, not the first.
 
 - **Phase 1 — now, inside draftwright (no repo, no external dependency, no mcp
-  coupling).** Make `recognition/` the uniform (§2), geometry-only, Apache-clean,
+  coupling).** Make `recognition/` the uniform (§2), geometry-only,
   **extraction-ready** subpackage: apply the §2 contract, introduce geometry-only
-  records *below* the IR, collapse `detect.py`'s bespoke translators into one uniform
-  adapter (§3), and fix the callout-crack (§7). Keep the subpackage self-contained
-  (build123d/OCP only, no AGPL-only coupling) so a later lift-out is a mechanical
-  internal→package import swap. This mirrors exactly the "repatriate later" note mcp
-  already wrote on *its* `recognizers/` package. **Phase 1 delivers #568's value on
-  its own, independent of whether Phase 2 ever happens.**
+  records *below* the IR, replace `detect.py`'s bespoke translators with the uniform
+  adapter protocol (§3), and fix the callout-crack (§7). "Extraction-ready" is a
+  **dependency** claim, not a licensing one: keep the subpackage self-contained
+  (build123d/OCP only, no upward coupling) so the *code* lift-out is a mechanical
+  internal→package import swap. **Licensing is a separate axis** — the files are AGPL
+  as draftwright code today (ADR 0007 §4); Apache licensing is handled per §7, not by
+  self-containment. This mirrors exactly the "repatriate later" note mcp already wrote
+  on *its* `recognizers/` package. **Phase 1 delivers #568's value on its own,
+  independent of whether Phase 2 ever happens.**
 - **Phase 2 — deferred, gated on a second committed consumer.** Spin the standalone
   Apache repo; publish `0.1.0` to PyPI once (so external users resolve a real dep);
   wire both consumers via **uv `[tool.uv.sources]`** — an editable local path
@@ -191,12 +208,24 @@ copy onto the shared source.
 
 ### 7. Licensing and the callout crack
 
-- **Relicense file-by-file, not big-bang.** draftwright's *native* recognisers
-  (chamfers.py, plates.py, slots.py, turned.py) are AGPL new code; `_features.py` is
-  vendored-from-Apache-helpers and already clean. As each recogniser migrates in
-  Phase 2, its file is relicensed to Apache — a one-line header change; pzfreo owns
-  the copyright. The countersink seed is lifted from mcp's *already-Apache*
-  `countersink.py`, so the pilot needs no relicense.
+- **Licensing is an explicit act, not a side effect of self-containment.** Every
+  file in `recognition/` is **AGPL as a draftwright file today** — the native
+  recognisers (chamfers.py, plates.py, slots.py, turned.py) as new AGPL code, and even
+  `_features.py` which, though vendored from Apache helpers, became AGPL inside
+  draftwright (ADR 0007 §4). The target package is Apache, so extraction candidates
+  must be (re)licensed. pzfreo owns the copyright, so this is a header change, not a
+  negotiation — but it is a **deliberate, tracked step**. Two ways, choose per the
+  review of this ADR:
+  - **(a) Dual-license candidates during Phase 1** — add an SPDX
+    `Apache-2.0 OR AGPL-3.0` header to each recogniser *as a pilot touches it*
+    (#558 countersink, #561 fillet, then the rest incrementally). Phase 2 extraction
+    then carries no licensing work at all — genuinely turnkey. *Recommended.*
+  - **(b) Relicense at the Phase 2 gate** — leave files AGPL through Phase 1 and
+    relicense file-by-file when extracting. Simpler now, but makes extraction a
+    licensing event, so it is an explicit **gate**, not "mechanical".
+
+  The countersink seed is lifted from mcp's *already-Apache* `countersink.py`, so the
+  pilot's *shared-package* copy needs no relicense regardless.
 - **Fix the `callout()` crack as part of Phase 1.** `callout()` currently lives only
   on `ChamferFeature` (added in #560); every other feature leaves label formatting to
   the planner/`DimParameter`. Decide it *once*: callout formatting lives uniformly in
@@ -207,12 +236,14 @@ copy onto the shared source.
 ## Consequences
 
 - **The intake reaches the standard the features already meet.** One recogniser
-  contract; `detect.py` becomes a thin uniform seam; the recognition-dataclass ↔ IR
-  mirroring duplication is removed.
+  contract; `detect.py` becomes a uniform adapter protocol (a typed registry of
+  per-record converters — the per-type mapping stays, its ad-hoc inconsistency goes);
+  the recognition-dataclass ↔ IR mirroring duplication is removed.
 - **The live countersink duplication is resolved at the pilot,** and mcp's fork onto
   the deprecated helpers `find_holes` gets a reconciliation path (when it follows).
 - **draftwright takes no new dependency in Phase 1** — recognition stays internal but
-  shaped for extraction. Extraction becomes a mechanical import swap when justified.
+  shaped for extraction. The extraction *code* move is a mechanical import swap when
+  justified; its *licensing* is handled per §7.
 - **The shared surface is small and low-churn by construction** (geometry only;
   dimensioning and editing churn stay in the consumers), so the three-repo
   coordination tax Phase 2 introduces is naturally bounded.
@@ -261,13 +292,14 @@ copy onto the shared source.
 
 - **0007** (draftwright owns recognition + lint) — **amended** (Amendment 1): the
   long-term home for recognition sharpens from "vendored inside draftwright" to "an
-  extraction-ready, Apache-clean subpackage destined for the standalone
-  `b123d-recognisers` package"; helpers stays render-only; mcp is a slow follower. Not
+  extraction-ready subpackage (dependency-self-contained; licensing per §7) destined
+  for the standalone `b123d-recognisers` package"; helpers stays render-only; mcp is a
+  slow follower. Not
   a reversal — 0007's point was "not in the *rendering* library", and it still is not.
 - **0008** (the Feature/DimParameter IR waist) — **amended** (Amendment 7): the "one
   inventory" waist is now two tiers — a shared *geometric* recognition record (lower)
-  feeding draftwright's *dimensioning* IR (upper) through a thin uniform `detect.py`
-  seam. The IR `Feature` Protocol stays draftwright-side; no recognition object crosses
+  feeding draftwright's *dimensioning* IR (upper) through a uniform `detect.py` adapter
+  protocol. The IR `Feature` Protocol stays draftwright-side; no recognition object crosses
   the boundary (Amendment 6 preserved — the geometric record is not a recognition
   *object*, it is a decoupled geometry fact-sheet the seam adapts).
 - **0011** (IR as public input) — unaffected in decision; noted: recognition output now

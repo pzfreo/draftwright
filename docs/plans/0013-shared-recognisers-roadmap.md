@@ -10,21 +10,28 @@ mcp is a slow follower — not coupled in either phase until it chooses to adopt
 Delivers #568's value standalone. No new repo, no external dependency, no mcp coupling.
 
 - **1a — the contract.** Adopt one recogniser shape (ADR 0013 §2):
-  `recognise_<feature>(part, **tuning) -> list[<Feature>Record]`. Rename existing
-  entry points onto `recognise_*` (from `find_*`/`analyse_*`); return typed frozen
-  dataclass lists (retire `TurnedProfile | None` singular-optional and the bare
-  untyped `-> list` in `_features.py`); drop precomputed-input coupling from public
-  signatures. British spelling; add **codespell** to CI with the convention pinned.
+  `recognise_<feature>(part, *, ...) -> list[<Feature>Record]`. Rename existing entry
+  points onto `recognise_*` (from `find_*`/`analyse_*`); return typed frozen dataclass
+  lists (retire `TurnedProfile | None` singular-optional and the bare untyped
+  `-> list` in `_features.py`). **Keep dependency injection** for derived features
+  (`recognise_patterns(part, *, holes)`, `recognise_step_shoulders(part, *, levels)`) —
+  make it *keyword-only and typed*, not remove it; the orchestrator threads the single
+  shared inventory (ADR 0008 Am5), recognisers never re-recognise a dependency. British
+  spelling; add **codespell** to CI with the convention pinned.
 - **1b — geometry-only records + `.to_dict()`.** Give each recogniser a plain-geometry
   record (points/axes/radii/angles, no build123d types in the output) carrying
   `.to_dict()`. These sit *below* the IR — they are the future shared-package surface.
-- **1c — one uniform `detect.py` seam.** Collapse the per-feature bespoke translators
-  into a single adapter from geometry-record → IR `Feature`. Remove the
-  recognition-dataclass ↔ IR mirroring duplication (the `equal_leg`-on-both class).
+- **1c — a uniform `detect.py` adapter protocol.** Replace the ad-hoc per-feature
+  translators with a typed registry of per-record converters (geometry-record →
+  IR `Feature`) dispatched one way — the per-type mapping stays (hole→`HoleFeature`
+  ≠ chamfer→`ChamferFeature`), its inconsistency goes. Remove the recognition-dataclass
+  ↔ IR mirroring duplication (the `equal_leg`-on-both class).
 - **1d — the `callout()` crack.** Move callout formatting off `ChamferFeature` into the
   dimensioning layer (planner/IR) uniformly; geometric records carry no callout.
-- **Keep `recognition/` self-contained** — build123d/OCP only, no AGPL-only coupling —
-  so Phase 2 is a mechanical import swap.
+- **Keep `recognition/` dependency-self-contained** — build123d/OCP only, no upward
+  coupling — so Phase 2's *code* move is a mechanical import swap. Licensing is a
+  separate axis (ADR 0013 §7): either dual-license each recogniser
+  (`Apache-2.0 OR AGPL-3.0`) as a pilot touches it, or relicense at the Phase 2 gate.
 
 ### Pilots (drive Phase 1 from real work, not a big-bang rewrite)
 
@@ -45,8 +52,9 @@ another tool appearing). Until then, do not spin the repo.
 - **2a — stand up the repo.** New Apache-2.0 `b123d-recognisers`; move the seed-set
   recognisers + their geometry records + their tests (the geometric counter-examples —
   gusset/ramp/hex-prism etc. — are geometry truths and belong here). Fast CI (build123d/
-  OCP only). Relicense each migrated file to Apache in its header (pzfreo owns
-  copyright); countersink seeds from mcp's already-Apache code.
+  OCP only). Licensing: if Phase-1 option (a) was taken (files dual-licensed as touched),
+  there is nothing to do here; otherwise relicense each migrated file to Apache in its
+  header (pzfreo owns copyright). Countersink seeds from mcp's already-Apache code.
 - **2b — publish + wire.** `0.1.0` to PyPI once. draftwright declares
   `b123d-recognisers>=0.1`; during co-development both use `[tool.uv.sources]`
   (editable path or pinned git rev), flipping to the PyPI spec for releases.
