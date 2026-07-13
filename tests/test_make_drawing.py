@@ -6767,6 +6767,92 @@ class TestFindSlots:
         assert s.width == 4.0
         assert s.long_axis == "x"  # not z, despite z-extent ≈ x-extent locally
 
+    def test_cross_slot_collapses_to_two_channels(self):
+        # A + of two intersecting through-channels: the central intersection
+        # splits each channel's walls, so the raw scan finds FOUR arm-slots. The
+        # collinear-collapse must recombine them into the TWO channels, each
+        # spanning its full length (#148d). Thin plate so the arm length exceeds
+        # the (through) thickness, else the depth axis is mistaken for length.
+        part = Box(80, 60, 10) - Box(50, 12, 20) - Box(14, 44, 20)
+        slots = recognise_slots(part)
+        assert len(slots) == 2
+        by_long = {s.long_axis: s for s in slots}
+        assert by_long["x"].width == 12.0
+        assert by_long["x"].length == 50.0  # the full x-channel, not a 18mm arm
+        assert (by_long["x"].lo, by_long["x"].hi) == (-25.0, 25.0)
+        assert by_long["y"].width == 14.0
+        assert by_long["y"].length == 44.0  # the full y-channel, not a 16mm arm
+        assert (by_long["y"].lo, by_long["y"].hi) == (-22.0, 22.0)
+
+    def test_collinear_slots_with_solid_bridge_stay_separate(self):
+        # Two collinear slots on the SAME centreline but separated by solid
+        # material (no crossing channel bridging the gap) are distinct features.
+        # The collapse must span arms only when a perpendicular channel fills the
+        # gap — here it does not, so both slots survive (#148d guard).
+        part = (
+            Box(120, 40, 10) - Pos(-35, 0, 0) * Box(40, 12, 20) - Pos(35, 0, 0) * Box(40, 12, 20)
+        )
+        slots = recognise_slots(part)
+        assert len(slots) == 2
+        assert all(s.length == 40.0 for s in slots)  # not merged into one 110mm run
+
+    def test_arms_not_fused_by_a_channel_that_misses_their_centreline(self):
+        # The bridging channel must actually REACH the arms, not merely match the
+        # gap's centre and width.  Two collinear x-arms on centreline y=0 with a
+        # SOLID gap, plus a perpendicular channel displaced to y∈[10,50] whose
+        # x-centre and x-width coincide with the gap but which never crosses y=0.
+        # Position-blind bridging would fuse the arms across solid stock (#610
+        # review); the run-overlap check keeps all three slots distinct.
+        part = (
+            Box(120, 100, 10)
+            - Pos(-35, 0, 0) * Box(40, 12, 20)
+            - Pos(35, 0, 0) * Box(40, 12, 20)
+            - Pos(0, 30, 0) * Box(30, 40, 20)
+        )
+        slots = recognise_slots(part)
+        assert len(slots) == 3  # two 40mm x-arms + one y-channel, none merged
+        assert sorted(s.length for s in slots) == [40.0, 40.0, 40.0]
+
+    def test_pinwheel_of_slots_around_a_solid_hub_stays_four(self):
+        # Four disjoint slots arranged around a SOLID central hub: two collinear
+        # x-arms and two collinear y-arms, each opposed pair straddling — but not
+        # reaching — the hub. Reasoning only from the neighbouring slots' extents
+        # would fuse each opposed pair across the hub; the gap box over the solid
+        # hub is not void, so it is not merged and all four survive (#610 re-review).
+        from build123d import Align
+
+        def cut(xlo, xhi, ylo, yhi):
+            return Pos(xlo, ylo, -5) * Box(
+                xhi - xlo, yhi - ylo, 20, align=(Align.MIN, Align.MIN, Align.MIN)
+            )
+
+        part = (
+            Box(100, 100, 10, align=(Align.MIN, Align.MIN, Align.MIN))
+            - cut(10, 40, 47, 53)
+            - cut(60, 90, 47, 53)
+            - cut(40, 60, 10, 40)
+            - cut(40, 60, 60, 90)
+        )
+        assert len(recognise_slots(part)) == 4  # solid hub keeps all four apart
+
+    def test_incidental_hole_between_aligned_slots_does_not_fuse_them(self):
+        # Two separate collinear slots on a shared centreline with an unrelated
+        # through-hole centred between them (a natural mounting-hole layout).  The
+        # hole makes the gap CENTRE void, but the gap box is mostly solid, so the
+        # slots must stay separate — a crossing channel would carve the whole box,
+        # a hole only pierces it (#610 re-review).
+        from build123d import Cylinder
+
+        part = (
+            Box(120, 40, 10)
+            - Pos(-35, 0, 0) * Box(40, 12, 20)
+            - Pos(35, 0, 0) * Box(40, 12, 20)
+            - Cylinder(4, 30)
+        )
+        slots = recognise_slots(part)
+        assert len(slots) == 2  # not fused into one 110mm slot by the hole
+        assert all(s.length == 40.0 for s in slots)
+
     def test_slot_is_frozen_dataclass(self):
         s = recognise_slots(Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20))[0]
         assert isinstance(s, Slot)

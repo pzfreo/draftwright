@@ -31,7 +31,7 @@ import math
 from dataclasses import dataclass
 from typing import TypeVar
 
-from build123d import GeomType
+from build123d import Box, GeomType, Pos
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Plane
 from OCP.TopAbs import TopAbs_Orientation
@@ -53,6 +53,11 @@ _MERGE_TOL = 0.5
 # covers at least _FLOOR_COVER_FRAC of the slot footprint on each in-plane axis.
 _FLOOR_TOL = 0.3
 _FLOOR_COVER_FRAC = 0.5
+# The gap between two collinear arms counts as void (a crossing channel runs
+# through it) when the intersection of the inset gap box with the solid is at most
+# this fraction of the box — a channel carves it to ~0, a hole/solid leaves more.
+_VOID_INSET = 0.1
+_VOID_VOL_FRAC = 0.01
 
 
 @dataclass(frozen=True)
@@ -325,7 +330,129 @@ def recognise_slots(part) -> list[Slot]:
                 # between bosses) is capped by a floor and is out of scope (#148).
                 if s is not None and not _has_floor(faces, s):
                     candidates.append(s)
-    return _merge(candidates)
+    # Recombine arms of a crossing channel split by the intersection (#604).
+    return _collapse_collinear(_merge(candidates), part)
+
+
+def _same_channel_line(a: Slot, b: Slot):
+    """When ``a`` and ``b`` are collinear co-axial slot *arms* — same wall plane
+    (width axis, centreline, width and depth extent) but disjoint along their run
+    — return the gap ``(g_lo, g_hi)`` between them along ``long_axis``; else None.
+
+    Two arms of one channel that a crossing cut has split (#604) share every
+    dimension but their run; two genuinely parallel slots have different
+    centrelines (``w_center``) and never reach here."""
+    if a.width_axis != b.width_axis or a.long_axis != b.long_axis:
+        return None
+    if abs(a.w_center - b.w_center) > _MERGE_TOL or abs(a.width - b.width) > _MERGE_TOL:
+        return None
+    if abs(a.d_lo - b.d_lo) > _MERGE_TOL or abs(a.d_hi - b.d_hi) > _MERGE_TOL:
+        return None
+    if a.hi <= b.lo:
+        gap = (a.hi, b.lo)
+    elif b.hi <= a.lo:
+        gap = (b.hi, a.lo)
+    else:
+        return None  # overlapping along the run — not two disjoint arms
+    return gap if gap[1] - gap[0] > 0 else None
+
+
+def _gap_is_void(gap, arm: Slot, part) -> bool:
+    """True when the *whole* gap between two collinear arms is empty space — a
+    crossing channel of matching cross-section runs through it — rather than solid
+    stock or merely pierced by an incidental void.
+
+    The gap region is the box of its full run (along ``long_axis``) × the arm's
+    width × the arm's depth, inset slightly off the arm walls to avoid
+    coincident-face noise.  A crossing channel carves this box away entirely, so
+    its intersection with the solid is (near) zero volume.  A solid bridge fills
+    it; a small unrelated hole between two aligned slots leaves the box corners
+    solid — both keep a substantial intersection, so the arms stay separate.
+    Testing the whole box (not a single sample point) is what distinguishes a
+    channel from an incidental hole at the gap centre (#610 re-reviews).
+
+    Known limitation: a wide *enclosed* void (a square window/pocket) flush with
+    the arm ends also empties the box and so fuses the arms.  This is a continuum
+    with the accepted symmetric-cross case — which likewise leaves the merged
+    slot wall-less where the crossing channel passes — and distinguishing a
+    narrow crossing channel from a wide window is an aspect-ratio judgement with
+    no clean line; #604's scope is intersecting *channels*, so it is left as-is."""
+    span = {
+        arm.long_axis: (gap[0], gap[1]),
+        arm.width_axis: (arm.w_center - arm.width / 2, arm.w_center + arm.width / 2),
+        arm.depth_axis: (arm.d_lo, arm.d_hi),
+    }
+    size, centre = {}, {}
+    for ax, (lo, hi) in span.items():
+        inset = min(_VOID_INSET, (hi - lo) / 4)
+        size[ax] = (hi - lo) - 2 * inset
+        centre[ax] = (lo + hi) / 2
+    if min(size.values()) <= 0:
+        return False
+    probe = Pos(centre["x"], centre["y"], centre["z"]) * Box(size["x"], size["y"], size["z"])
+    inter = part.intersect(probe)
+    # ``intersect`` returns None (empty), a single shape with ``.volume`` (older
+    # build123d), or a ShapeList of shapes (newer build123d) — sum either way.
+    if inter is None:
+        inter_vol = 0.0
+    elif hasattr(inter, "volume"):
+        inter_vol = inter.volume
+    else:
+        inter_vol = sum(s.volume for s in inter)
+    box_vol = size["x"] * size["y"] * size["z"]
+    return bool(inter_vol <= _VOID_VOL_FRAC * box_vol)
+
+
+def _collapse_collinear(slots: list[Slot], part) -> list[Slot]:
+    """Recombine slot arms split by a crossing channel into whole channels (#604).
+
+    A ``+`` of two intersecting through-channels is milled as one continuous slot
+    each, but the central intersection removes the middle of both channels' walls,
+    so the wall scan yields two collinear arm-slots per channel (four total).
+    Union collinear co-axial arms whose gap is void (a crossing channel passes
+    between them), and span each group into a single slot running its full length.
+    Arms separated by solid material — two genuinely distinct slots — are left as
+    separate features."""
+    parent = list(range(len(slots)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(slots)):
+        for j in range(i + 1, len(slots)):
+            gap = _same_channel_line(slots[i], slots[j])
+            if gap is not None and _gap_is_void(gap, slots[i], part):
+                parent[find(i)] = find(j)
+
+    groups: dict[int, list[Slot]] = {}
+    for idx, s in enumerate(slots):
+        groups.setdefault(find(idx), []).append(s)
+
+    out: list[Slot] = []
+    for members in groups.values():
+        if len(members) == 1:
+            out.append(members[0])
+            continue
+        base = members[0]
+        lo = min(m.lo for m in members)
+        hi = max(m.hi for m in members)
+        out.append(
+            Slot(
+                width_axis=base.width_axis,
+                long_axis=base.long_axis,
+                width=base.width,
+                length=round(hi - lo, 2),
+                w_center=base.w_center,
+                lo=round(lo, 2),
+                hi=round(hi, 2),
+                d_lo=base.d_lo,
+                d_hi=base.d_hi,
+            )
+        )
+    return sorted(out, key=lambda c: (c.width, _region_center(c)))
 
 
 def _region_center(s: Slot | Pocket):
