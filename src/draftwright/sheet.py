@@ -388,6 +388,23 @@ def _compose_anno_boxes(
         bore_depth += pad_around_text + arrow_length
         boxes.append(AnnoBox("right", bore_depth))  # FV/PV right bore callouts
         boxes.append(AnnoBox("left", bore_depth))  # FV/PV left bore callouts
+    # Authored Z-axis linear dimensions (Sheet.dimension / AP242 PMI) render as height
+    # dims to the front LEFT/RIGHT strips (#562). The right strip already holds the
+    # envelope height + step ladder, but the left has only its _DIM_PAD floor, so an
+    # authored Z dim was queued and then dropped as "no room". Reserve a slot per authored
+    # Z dim on BOTH sides (they split by x position only at layout, so reserve
+    # conservatively) — enough depth for the corridor solve to place them.
+    z_authored = sum(
+        1
+        for f in model.features
+        if f.kind == "authored_dimension"
+        and f.dominant_axis == "Z"
+        and getattr(f, "dimension_kind", None) not in ("diameter", "radius", "angular")
+    )
+    if z_authored:
+        slot = _SLOT_DIM_STEP + _STRIP_SPACING
+        boxes.append(AnnoBox("right", _est_right_strip_depth(n_steps) + z_authored * slot))
+        boxes.append(AnnoBox("left", _STRIP_GAP + z_authored * slot))
     above = _est_pv_above_depth(model, font_size, pad_around_text)
     if above > 0:
         boxes.append(AnnoBox("above", above))  # tiered X-location dims above PV (#121)
