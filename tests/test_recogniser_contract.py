@@ -18,7 +18,7 @@ import inspect
 import json
 
 import pytest
-from build123d import Axis, Box, Cylinder, Pos, Rot, chamfer
+from build123d import Axis, Box, Cylinder, Pos, Rot, chamfer, fillet
 
 from draftwright.recognition import (
     BoltCircle,
@@ -26,6 +26,7 @@ from draftwright.recognition import (
     Chamfer,
     CounterSink,
     FaceLevel,
+    Fillet,
     HoleRecord,
     LinearArray,
     Plate,
@@ -37,6 +38,7 @@ from draftwright.recognition import (
     recognise_chamfers,
     recognise_countersinks,
     recognise_face_levels,
+    recognise_fillets,
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
@@ -59,6 +61,7 @@ _EXPECTED_RECORD_TYPES = {
     LinearArray,
     RectGrid,
     Chamfer,
+    Fillet,
     Slot,
     Plate,
     FaceLevel,
@@ -116,6 +119,12 @@ def _chamfered_box():
     return chamfer(edge, 3)
 
 
+def _filleted_box():
+    box = Box(30, 30, 30)
+    edge = box.edges().filter_by(Axis.Z).sort_by(Axis.X)[-1]
+    return fillet(edge, 3)
+
+
 def _l_bracket():
     return Box(80, 40, 8) + Pos(-36, 0, 24) * Box(8, 40, 40)
 
@@ -137,6 +146,7 @@ def _records_from_recognisers():
         ("hole_patterns:linear", recognise_hole_patterns(recognise_holes(_linear_array_plate()))),
         ("hole_patterns:grid", recognise_hole_patterns(recognise_holes(_grid_plate()))),
         ("recognise_chamfers", recognise_chamfers(_chamfered_box())),
+        ("recognise_fillets", recognise_fillets(_filleted_box())),
         ("recognise_slots", recognise_slots(slotted)),
         ("recognise_plates", recognise_plates(_l_bracket())),
         ("recognise_face_levels", recognise_face_levels(stepped)),
@@ -188,6 +198,7 @@ def test_part_based_recognisers_are_keyword_only_after_part():
         recognise_bosses,
         recognise_countersinks,
         recognise_chamfers,
+        recognise_fillets,
         recognise_slots,
         recognise_plates,
         recognise_face_levels,

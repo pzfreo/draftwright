@@ -926,6 +926,74 @@ def render_chamfers(dwg, model, a) -> int:
     return n
 
 
+def _fillet_label(radius, count) -> str:
+    """The fillet callout string: ``R{radius}``, prefixed ``{count}×`` when a set of equal
+    fillets shares one callout (#561). Formatting lives in the render layer (ADR 0013 §7)."""
+    r = f"R{_fmt(radius)}"
+    return f"{count}× {r}" if count > 1 else r
+
+
+def render_fillets(dwg, model, a) -> int:
+    """Fillet radius callouts (#561): a leader from an external edge fillet to its
+    ``R{radius}`` label — the arc analog of :func:`render_chamfers`. Equal-radius fillets on
+    the same edge axis share ONE ``n× R`` callout (#561 acceptance), placed in the view
+    normal to the rounded edge, led diagonally out of the corner into clear margin, and
+    dropped (lint, not silently) if it would overprint placed geometry. Returns the count."""
+    draft = dwg.draft
+    view_of = {"z": "plan", "x": "side", "y": "front"}
+    fillets = [f for f in model.features if f.kind == "fillet"]
+    groups: dict = {}
+    for fl in fillets:
+        groups.setdefault((fl.axis, round(fl.radius, 3)), []).append(fl)
+    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    n = 0
+    for gi, ((axis, radius), members) in enumerate(sorted(groups.items())):
+        view = view_of.get(axis)
+        if view is None:
+            continue
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        x0, y0, x1, y1 = vb
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        label_str = _fillet_label(radius, len(members))
+        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        # One grouped ``n× R`` callout, but its leader may anchor at ANY of the equal
+        # fillets — try each corner (nearest-to-clear-margin first) until the label lands
+        # in clear room, so the group is not dropped just because its first corner leads
+        # into an occupied region (a neighbouring view / dim strip).
+        reach = draft.font_size + 6 * draft.pad_around_text
+        placed = False
+        for fl in sorted(members, key=lambda f: f.frame.origin):
+            tip = dwg.at(view, *fl.frame.origin)
+            dx, dy = tip[0] - cx, tip[1] - cy
+            d = math.hypot(dx, dy) or 1.0
+            elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
+            ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label_str, draft=draft)
+            label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
+            if (
+                label is None
+                or _box_hits(label, obstacles)
+                or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
+                or label[0] < page[0]
+                or label[1] < page[1]
+                or label[2] > page[2]
+                or label[3] > page[3]
+            ):
+                continue
+            dwg.add(ldr, f"m_fillet_{axis}{gi}", view=view, feature=fl)
+            n += 1
+            placed = True
+            break
+        if not placed:
+            dwg._record_build_issue(
+                "warning",
+                "fillet_dropped",
+                f"fillet callout {label_str} not placed (no clear room)",
+            )
+    return n
+
+
 def render_plates(dwg, model, a) -> int:
     """Plate/wall thicknesses (#559): the thin extent of each recognised slab
     (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z

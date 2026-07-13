@@ -229,6 +229,36 @@ class TestEmit:
         assert "sheet.chamfer(" in src and "leg1=4" in src
         ast.parse(src)
 
+    def test_fillet_emits_the_fillet_verb(self):
+        # #561: a detected fillet emits `sheet.fillet(...)` — the emit surface for the R callout.
+        from build123d import Axis
+        from build123d import fillet as bd_fillet
+
+        part = Box(80, 50, 8)
+        e = part.edges().filter_by(Axis.Z).sort_by(lambda x: x.center().X + x.center().Y)[-1]
+        src = _script_for(bd_fillet(e, 3))
+        assert "sheet.fillet(" in src and "radius=3" in src
+        ast.parse(src)
+
+    def test_fillet_round_trips_the_full_feature(self):
+        # The emitted line execs back to the same FilletFeature (axis/radius/at).
+        from build123d import Axis
+        from build123d import fillet as bd_fillet
+
+        from draftwright import build_drawing
+        from draftwright.model import fillet as declare_fillet
+        from draftwright.sheet_emit import _feature_line
+
+        part = bd_fillet(Box(80, 50, 8).edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 3)
+        det = next(
+            f for f in build_drawing(part, number="X").model().features if f.kind == "fillet"
+        )
+        line = _feature_line(det)  # "sheet.fillet(axis=..., radius=..., at=...)"
+        env = {"sheet": type("S", (), {"fillet": staticmethod(declare_fillet)})()}
+        redeclared = eval(line, {"__builtins__": {}}, env)  # noqa: S307
+        assert redeclared.axis == det.axis and redeclared.radius == det.radius
+        assert redeclared.frame.origin == pytest.approx(det.frame.origin)
+
     def test_counterbore_flags_the_auto_section(self):
         part = Box(60, 60, 16) - Pos(0, 0, 0) * Cylinder(4, 30) - Pos(0, 0, 4) * Cylinder(8, 12)
         src = _script_for(part)

@@ -188,6 +188,8 @@ def _feature_line(f) -> str:
             f'sheet.chamfer(axis="{f.axis}", leg1={_n(f.leg1)}, leg2={_n(f.leg2)}, '
             f"angle={_n(f.angle)}, at={_pt(f.frame.origin)})"
         )
+    if k == "fillet":
+        return f'sheet.fillet(axis="{f.axis}", radius={_n(f.radius)}, at={_pt(f.frame.origin)})'
     if k == "plate":
         return (
             f'sheet.plate(axis="{f.axis}", lo={_n(f.lo)}, hi={_n(f.hi)}, u={_n(f.u)}, v={_n(f.v)})'

@@ -49,6 +49,7 @@ from draftwright.model import chamfer as _chamfer
 from draftwright.model import control_frame as _declare_control
 from draftwright.model import datum as _declare_datum
 from draftwright.model import envelope as _envelope
+from draftwright.model import fillet as _fillet
 from draftwright.model import finish as _declare_finish
 from draftwright.model import hole as _hole
 from draftwright.model import note as _declare_note
@@ -537,6 +538,14 @@ class Sheet:
         ``sheet.chamfer(axis="z", leg=6, at=(x, y, z))``. ``leg`` = equal-leg 45° (``C{leg}``);
         ``leg1``/``leg2`` = asymmetric."""
         self._features.append(_chamfer(obj, **kw))
+        return self
+
+    def fillet(self, obj=None, **kw) -> Sheet:
+        """Declare a fillet (rounded edge) — ``sheet.fillet(round_face)`` reads axis, radius
+        and a point on the round off the cylindrical blend face, or explicit
+        ``sheet.fillet(axis="z", radius=3, at=(x, y, z))``. Called out ``R{radius}`` (grouped
+        ``n× R`` for equal radii)."""
+        self._features.append(_fillet(obj, **kw))
         return self
 
     def plate(self, obj=None, **kw) -> Sheet:

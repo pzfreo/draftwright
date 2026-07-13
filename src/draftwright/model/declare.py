@@ -34,6 +34,7 @@ from draftwright.model.ir import (
     DatumRef,
     EnvelopeFeature,
     Feature,
+    FilletFeature,
     Finish,
     Frame,
     HoleFeature,
@@ -388,6 +389,57 @@ def chamfer(
     return ChamferFeature(
         frame=Frame(origin=at, axis=axis), axis=axis, leg1=hi, leg2=lo, angle=angle
     )
+
+
+def _read_fillet_face(face) -> tuple[str, float, Point]:
+    """Read a fillet off its **cylindrical blend face**: the axis (the edge the fillet runs
+    along), the radius (the cylinder radius), and a point **on the round** (the face centre —
+    the ``R`` leader's tip). Agrees with the recogniser (recognition/fillets.py) in the two
+    in-plane (placement) coordinates; the along-edge coordinate is view depth."""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Cylinder
+
+    s = BRepAdaptor_Surface(face.wrapped)
+    if s.GetType() != GeomAbs_Cylinder:
+        raise ValueError(
+            "fillet(face=...) needs a cylindrical blend face (the round); an edge or flat "
+            "face is not a fillet — declare with axis=, radius=, at= instead"
+        )
+    d = s.Cylinder().Axis().Direction()
+    comp = (abs(d.X()), abs(d.Y()), abs(d.Z()))
+    if max(comp) <= 0.99:
+        raise ValueError(
+            "fillet(face=...): the round must run along one principal axis; use axis=, radius=, at="
+        )
+    edge_i = max(range(3), key=lambda i: comp[i])
+    c = face.center()
+    return (
+        "xyz"[edge_i],
+        round(s.Cylinder().Radius(), 3),
+        (
+            round(c.X, 4),
+            round(c.Y, 4),
+            round(c.Z, 4),
+        ),
+    )
+
+
+def fillet(obj=None, *, axis=None, radius=None, at=None) -> FilletFeature:
+    """A fillet (rounded edge, #561). Either ``fillet(round_face)`` — the cylindrical blend
+    face supplies axis, radius and a leader point **on the round** — or explicit
+    ``fillet(axis="z", radius=3, at=(x, y, z))``. Called out ``R{radius}`` (grouped ``n× R``
+    for equal radii). An object supplies *defaults*; any explicit keyword overrides (#451)."""
+    if obj is not None:
+        r_axis, r_radius, r_at = _read_fillet_face(obj)
+        axis = r_axis if axis is None else axis
+        radius = r_radius if radius is None else radius
+        at = r_at if at is None else at
+    if radius is None or axis is None or at is None:
+        raise ValueError("fillet() needs a round face, or explicit axis=, radius= and at=")
+    axis = _norm_axis(axis)
+    _require_positive(radius=radius)
+    _require_point("at", at)
+    return FilletFeature(frame=Frame(origin=at, axis=axis), axis=axis, radius=round(radius, 3))
 
 
 def _read_plate(obj) -> tuple[str, float, float, float, float]:
