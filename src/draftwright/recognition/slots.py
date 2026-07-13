@@ -6,10 +6,11 @@ sits beside the hole/boss recognisers in :mod:`draftwright.recognition`, the
 single home for feature recognition (ADR 0007 — recognition lives in
 draftwright, not upstream); it mirrors their OCC face-scan idioms.
 
-Scope (deliberately narrow — see #148): only **enclosed through-slots with
-straight, rectangular walls** are recognised.  The recogniser proves a candidate
-is a slot rather than some other facing-wall feature with three predicates a
-naive "opposed facing walls" test gets wrong:
+Scope: **enclosed rectangular recesses with straight walls** — through-slots
+(:func:`recognise_slots`) and their blind counterparts, floored slots/pockets
+(:func:`recognise_pockets`, #148a).  The recogniser proves a candidate is such a
+recess rather than some other facing-wall feature with three predicates a naive
+"opposed facing walls" test gets wrong:
 
 1. **Facing walls** — two axis-aligned planar faces with anti-parallel outward
    normals each pointing *towards* the other.  The part's own outer faces face
@@ -17,17 +18,18 @@ naive "opposed facing walls" test gets wrong:
 2. **Rectangular walls** — both walls are bounded by straight (LINE) edges only.
    A turned groove / circlip recess has *annular* walls (CIRCLE edges); this
    rejects them (otherwise a stepped shaft's groove reads as a slot).
-3. **Through, not blind** — no planar floor caps the cut.  A blind pocket (or
-   the floored gap between two bosses) has a floor face spanning the footprint;
-   a through-slot does not.  This is what separates a slot from a pocket — a
-   distinction that is partly definitional for low-aspect features, which is why
-   blind slots and pockets are deferred to a follow-up recogniser (#148).
+3. **Through vs blind** — whether a planar floor caps the cut.  A blind pocket
+   (or the floored gap between two bosses) has a floor face spanning the
+   footprint; a through-slot does not.  ``_has_floor`` is the sole split between
+   the two recognisers — through candidates go to :func:`recognise_slots`, blind
+   ones (carrying their depth) to :func:`recognise_pockets`.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import TypeVar
 
 from build123d import GeomType
 from OCP.BRepAdaptor import BRepAdaptor_Surface
@@ -37,6 +39,9 @@ from OCP.TopAbs import TopAbs_Orientation
 from draftwright.recognition._record import Record
 
 _AXES = {"x": 0, "y": 1, "z": 2}
+# Shared by the through-slot (:func:`recognise_slots`) and blind-recess
+# (:func:`recognise_pockets`) merges so each keeps its own record type.
+_R = TypeVar("_R", "Slot", "Pocket")
 # A normal counts as axis-aligned when its dominant component is within this of
 # unit length — machined slot walls are square to the stock, so this is tight.
 _AXIS_ALIGNED_TOL = 1e-3
@@ -71,6 +76,43 @@ class Slot(Record):
     long_axis: str
     width: float
     length: float
+    w_center: float
+    lo: float
+    hi: float
+    d_lo: float
+    d_hi: float
+
+    @property
+    def depth_axis(self) -> str:
+        return next(a for a in "xyz" if a not in (self.width_axis, self.long_axis))
+
+
+@dataclass(frozen=True)
+class Pocket(Record):
+    """A blind rectangular recess — a milled slot/pocket capped by a floor (#148a).
+
+    The through/blind split (:func:`_has_floor`) is the only difference from a
+    :class:`Slot`: a pocket is floored, so it carries a third defining size — the
+    ``depth`` from the open face down to the floor (``d_hi - d_lo``, the walls' extent
+    on the depth axis). ``width``/``length`` are the in-plane footprint, exactly as for
+    a slot; a "blind slot" (elongated) and a "pocket" (near-square) are the same feature
+    — both a floored rectangular recess dimensioned width × length × depth.
+
+    width_axis: axis across the recess (the walls' normal axis), 'x'/'y'/'z'.
+    long_axis:  axis the recess runs along (largest shared wall extent).
+    width:      wall-to-wall separation — the shorter in-plane size.
+    length:     recess extent along ``long_axis`` — the longer in-plane size.
+    depth:      open-face-to-floor depth (along ``depth_axis``).
+    w_center:   ``width_axis`` coordinate of the recess centreline.
+    lo, hi:     ``long_axis`` coordinates of the recess ends (lo < hi).
+    d_lo, d_hi: extent on the depth axis (``depth == d_hi - d_lo``).
+    """
+
+    width_axis: str
+    long_axis: str
+    width: float
+    length: float
+    depth: float
     w_center: float
     lo: float
     hi: float
@@ -215,51 +257,46 @@ def _candidate(fa, fb, part_ext):
     )
 
 
+def _end_capped(faces, foot, foot_area, depth_axis, end, want) -> bool:
+    """True when inward-facing planar faces at ``end`` on ``depth_axis`` together cover at
+    least :data:`_FLOOR_COVER_FRAC` of the ``foot`` (width×length) footprint — one end's
+    half of the floor test.
+
+    ``want`` is the sign the covering normal must point (+depth at the low end, -depth at the
+    high end) so the cap faces *into* the cavity; the part's own outer face at that level
+    faces the other way and is excluded (that is what separates a real floor from a
+    through-open end). Coverage is *aggregated* over all qualifying faces (not tested per
+    face), so a floor split by a rib/divider still counts (#146). The sum (not union) is
+    exact for the coplanar floor faces of a valid solid; overlaps only arise from
+    interpenetrating solids (degenerate input)."""
+    dk = _AXES[depth_axis]
+    covered = 0.0
+    for f in faces:
+        if f.axis != depth_axis or abs(_center(f.bb, dk) - end) > _FLOOR_TOL:
+            continue
+        if f.normal[dk] * want <= 0:
+            continue
+        area = 1.0
+        for ax, (lo, hi) in foot.items():
+            c = "XYZ"[_AXES[ax]]
+            ov = min(getattr(f.bb.max, c), hi) - max(getattr(f.bb.min, c), lo)
+            area *= max(ov, 0.0)
+        covered += area
+    return bool(covered >= _FLOOR_COVER_FRAC * foot_area)
+
+
 def _has_floor(faces, s: Slot) -> bool:
-    """True when a planar floor caps the slot — i.e. it is blind, not through.
-
-    A floor is one or more planar faces perpendicular to the depth axis sitting
-    at one of the slot's depth ends, whose outward normals point *into* the slot
-    (material lies beyond them) and which together cover most of its width x
-    length footprint.  The into-the-slot normal test is what distinguishes a real
-    floor from the part's own outer face: a through-slot's depth end coincides
-    with an outer face, but that face's normal points *out* of the part — the
-    slot passes through it, it does not cap it.
-
-    Coverage is *aggregated* over all qualifying faces at a depth end (not tested
-    per face), so a floor split into pieces by a rib or divider — a webbed or
-    twin-cavity blind pocket — is still recognised as a floor (#146 re-review).
-    """
-    da = s.depth_axis
-    dk = _AXES[da]
+    """True when a planar floor caps the slot at *either* depth end — i.e. it is blind,
+    not through. The through/blind split for :func:`recognise_slots`; :func:`recognise_pockets`
+    uses the finer *which end* count (:func:`_end_capped`) to recover the depth axis."""
     foot = {
         s.width_axis: (s.w_center - s.width / 2, s.w_center + s.width / 2),
         s.long_axis: (s.lo, s.hi),
     }
     foot_area = math.prod(hi - lo for lo, hi in foot.values())
-    # A floor at the low end faces +depth (toward the slot interior); at the high
-    # end, -depth.  The part's own outer face at the same level faces the other
-    # way and is excluded.
-    for end, want in ((s.d_lo, 1.0), (s.d_hi, -1.0)):
-        covered = 0.0
-        for f in faces:
-            if f.axis != da or abs(_center(f.bb, dk) - end) > _FLOOR_TOL:
-                continue
-            if f.normal[dk] * want <= 0:
-                continue
-            area = 1.0
-            for ax, (lo, hi) in foot.items():
-                c = "XYZ"[_AXES[ax]]
-                ov = min(getattr(f.bb.max, c), hi) - max(getattr(f.bb.min, c), lo)
-                area *= max(ov, 0.0)
-            # Sum (not union): the coplanar floor faces of a valid solid tile the
-            # floor without overlapping, so this is exact for them.  Overlapping
-            # coplanar faces would double-count, but those only arise from a
-            # Compound of interpenetrating solids — degenerate input.
-            covered += area
-        if covered >= _FLOOR_COVER_FRAC * foot_area:
-            return True
-    return False
+    return _end_capped(faces, foot, foot_area, s.depth_axis, s.d_lo, 1.0) or _end_capped(
+        faces, foot, foot_area, s.depth_axis, s.d_hi, -1.0
+    )
 
 
 def recognise_slots(part) -> list[Slot]:
@@ -291,7 +328,7 @@ def recognise_slots(part) -> list[Slot]:
     return _merge(candidates)
 
 
-def _region_center(s: Slot):
+def _region_center(s: Slot | Pocket):
     """The slot's mid-point in part coordinates (axis-ordered)."""
     c = {
         s.width_axis: s.w_center,
@@ -301,7 +338,7 @@ def _region_center(s: Slot):
     return (c["x"], c["y"], c["z"])
 
 
-def _merge(candidates: list[Slot]) -> list[Slot]:
+def _merge(candidates: list[_R]) -> list[_R]:
     """A rectangular slot is bounded by two orthogonal opposed-wall pairs (the
     width walls and the length end-caps), so the same feature is detected twice
     — once per pair.  Collapse candidates that occupy the same region, keeping
@@ -310,10 +347,95 @@ def _merge(candidates: list[Slot]) -> list[Slot]:
     Sorted by ``(width, region_centre)`` so the output order — and therefore the
     ``slot{i}`` annotation names downstream — is determined by geometry alone,
     not by OCC face-iteration order (which is not stable across kernels)."""
-    kept: list[Slot] = []
+    kept: list[_R] = []
     for s in sorted(candidates, key=lambda c: (c.width, _region_center(c))):
         cs = _region_center(s)
         if any(math.dist(cs, _region_center(k)) <= _MERGE_TOL for k in kept):
             continue
         kept.append(s)
     return kept
+
+
+def _pocket_candidate(fa, fb, faces, part_ext) -> Pocket | None:
+    """Build a :class:`Pocket` from two facing width-walls, or None if the pair is not a
+    blind recess.  Unlike :func:`_candidate` (which splits the two non-width axes into
+    long/depth by *size*), the depth axis is read from the geometry: a pocket's depth axis
+    is the one capped on **exactly one** end (the floor) and open on the other (the
+    opening), while the footprint (width, length) axes are enclosed on both ends. That
+    distinction is why a pocket deeper than it is long must not reuse the size heuristic —
+    the deep axis would be mislabelled 'length' and an end-wall taken for the floor (#609
+    review)."""
+    axis = fa.axis  # the width axis: the facing walls' shared normal axis
+    k = _AXES[axis]
+    if fa.normal[k] * fb.normal[k] >= 0:
+        return None  # not anti-parallel — not a facing pair
+    c_a, c_b = _center(fa.bb, k), _center(fb.bb, k)
+    if (c_b - c_a) * fa.normal[k] <= 0:
+        return None  # normals face away from each other (outer faces), not a cavity
+    width = abs(c_b - c_a)
+    others = [a for a in "xyz" if a != axis]
+    ranges = {}  # per non-width axis: (lo, hi) overlap of the two walls
+    for a in others:
+        c = "XYZ"[_AXES[a]]
+        lo = max(getattr(fa.bb.min, c), getattr(fb.bb.min, c))
+        hi = min(getattr(fa.bb.max, c), getattr(fb.bb.max, c))
+        if hi - lo <= 0:
+            return None  # walls do not overlap on this axis — not a slot
+        ranges[a] = (lo, hi)
+    w_range = (c_a + c_b) / 2 - width / 2, (c_a + c_b) / 2 + width / 2
+    # The depth axis is the non-width axis capped on exactly one end (floor + opening).
+    for depth_axis in others:
+        (long_axis,) = [a for a in others if a != depth_axis]
+        d_lo, d_hi = ranges[depth_axis]
+        l_lo, l_hi = ranges[long_axis]
+        foot = {axis: w_range, long_axis: (l_lo, l_hi)}
+        foot_area = width * (l_hi - l_lo)
+        capped = _end_capped(faces, foot, foot_area, depth_axis, d_lo, 1.0) + _end_capped(
+            faces, foot, foot_area, depth_axis, d_hi, -1.0
+        )
+        if capped != 1:
+            continue  # 0 = through on this axis; 2 = an enclosed end-cap pair, not a floor
+        length = l_hi - l_lo
+        if width > length:
+            return None  # width is the smaller footprint dim (the wrong wall pair)
+        if length >= _SLOT_MAX_SPAN_FRAC * part_ext[long_axis]:
+            return None  # footprint spans the part — an open feature, not an enclosed pocket
+        return Pocket(
+            width_axis=axis,
+            long_axis=long_axis,
+            width=round(width, 2),
+            length=round(length, 2),
+            depth=round(d_hi - d_lo, 2),
+            w_center=round((c_a + c_b) / 2, 2),
+            lo=round(l_lo, 2),
+            hi=round(l_hi, 2),
+            d_lo=round(d_lo, 2),
+            d_hi=round(d_hi, 2),
+        )
+    return None
+
+
+def recognise_pockets(part) -> list[Pocket]:
+    """Blind rectangular recesses — floored slots/pockets (#148a).
+
+    The blind counterpart of :func:`recognise_slots`: the same facing-rectangular-wall
+    candidate scan, but keeping the pairs a floor caps.  The depth (open-face-to-floor
+    extent) is read from the axis the floor is normal to — see :func:`_pocket_candidate` —
+    not from a size heuristic, so a pocket deeper than it is long is dimensioned correctly.
+    A "blind slot" (elongated) and a "pocket" (near-square) are the same floored feature,
+    dimensioned width × length × depth."""
+    faces = _planar_faces(part)
+    pbb = part.bounding_box()
+    part_ext = {a: getattr(pbb.size, "XYZ"[_AXES[a]]) for a in "xyz"}
+    by_axis: dict[str, list[_Face]] = {}
+    for f in faces:
+        if f.rect:
+            by_axis.setdefault(f.axis, []).append(f)
+    candidates: list[Pocket] = []
+    for walls in by_axis.values():
+        for i in range(len(walls)):
+            for j in range(i + 1, len(walls)):
+                p = _pocket_candidate(walls[i], walls[j], faces, part_ext)
+                if p is not None:
+                    candidates.append(p)
+    return _merge(candidates)

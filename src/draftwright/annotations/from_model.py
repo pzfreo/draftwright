@@ -994,6 +994,103 @@ def render_fillets(dwg, model, a) -> int:
     return n
 
 
+def _ray_exit_dist(px, py, ux, uy, rect) -> float:
+    """Distance along the unit ray (ux, uy) from (px, py) to where it leaves *rect*
+    (x0, y0, x1, y1). For a tip inside the rect this is the positive distance to the
+    boundary; clamped to ``>= 0`` so a tip already outside contributes no negative reach."""
+    x0, y0, x1, y1 = rect
+    ts = []
+    if ux > 0:
+        ts.append((x1 - px) / ux)
+    elif ux < 0:
+        ts.append((x0 - px) / ux)
+    if uy > 0:
+        ts.append((y1 - py) / uy)
+    elif uy < 0:
+        ts.append((y0 - py) / uy)
+    return max(min([t for t in ts if t > 0], default=0.0), 0.0)
+
+
+def _pocket_label(pk) -> str:
+    """The pocket callout string: ``{width} × {length} × {depth} DEEP`` (#148a). The ISO
+    depth glyph (↧) is drawn as geometry by the helper's hole callouts, not as font text —
+    a plain :class:`Leader` label has no access to it, so this uses the font-safe ``DEEP``
+    word (the vendored Plex Mono lacks ↧). Formatting lives in the render layer (ADR
+    0013 §7)."""
+    return f"{_fmt(pk.width)} × {_fmt(pk.length)} × {_fmt(pk.depth)} DEEP"
+
+
+# Unit lead directions tried (nearest-clear wins), diagonals first so a central pocket's
+# leader exits toward a corner (usually the emptiest margin) before an edge.
+_POCKET_LEAD_DIRS = (
+    (1, 1),
+    (-1, 1),
+    (-1, -1),
+    (1, -1),
+    (1, 0),
+    (0, 1),
+    (-1, 0),
+    (0, -1),
+)
+
+
+def render_pockets(dwg, model, a) -> int:
+    """Blind-recess callouts (#148a): a leader from each floored slot/pocket to its
+    ``W × L × D DEEP`` label, in the view normal to the recess opening (a Z-depth pocket
+    reads in the plan, an X-depth in the side, a Y-depth in the front). A pocket sits
+    mid-face, so — unlike a corner chamfer — the leader is tried toward each margin
+    direction (nearest clear wins) and the callout is dropped (lint, not silently) if none
+    lands in clear room. Returns the count placed."""
+    draft = dwg.draft
+    view_of = {"z": "plan", "x": "side", "y": "front"}
+    pockets = [f for f in model.features if f.kind == "pocket"]
+    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    reach = draft.font_size + 6 * draft.pad_around_text
+    n = 0
+    for i, pk in enumerate(sorted(pockets, key=lambda f: (f.width_axis, f.frame.origin))):
+        view = view_of.get(pk.depth_axis)
+        if view is None:
+            continue
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        x0, y0, x1, y1 = vb
+        tip = dwg.at(view, *pk.frame.origin)
+        label_str = _pocket_label(pk)
+        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        placed = False
+        for dx, dy in _POCKET_LEAD_DIRS:
+            d = math.hypot(dx, dy)
+            ux, uy = dx / d, dy / d
+            # Exit the view silhouette along this direction, then reach on into the margin —
+            # so the label clears the part even for a pocket at the view centre.
+            exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
+            elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
+            ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label_str, draft=draft)
+            label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
+            if (
+                label is None
+                or _box_hits(label, obstacles)
+                or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
+                or label[0] < page[0]
+                or label[1] < page[1]
+                or label[2] > page[2]
+                or label[3] > page[3]
+            ):
+                continue
+            dwg.add(ldr, f"m_pocket_{pk.width_axis}{pk.long_axis}{i}", view=view, feature=pk)
+            n += 1
+            placed = True
+            break
+        if not placed:
+            dwg._record_build_issue(
+                "warning",
+                "pocket_dropped",
+                f"pocket callout {label_str} not placed (no clear room)",
+            )
+    return n
+
+
 def render_plates(dwg, model, a) -> int:
     """Plate/wall thicknesses (#559): the thin extent of each recognised slab
     (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z

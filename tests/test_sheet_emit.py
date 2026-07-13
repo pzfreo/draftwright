@@ -441,6 +441,15 @@ class TestEmit:
         line = next(ln for ln in _script_for(part).splitlines() if ln.startswith("sheet.slot("))
         eval(line, {"sheet": Sheet(part)})  # declare.slot() must not raise
 
+    def test_pocket_line_re_runs_without_the_length_invariant_error(self):
+        # #148a: declare.pocket() checks hi - lo == length to 1e-6; the emitter must derive
+        # length from the emitted lo/hi so the generated pocket line doesn't raise on re-run.
+        from draftwright import Sheet
+
+        part = Box(80, 60, 20) - Pos(0, 0, 6) * Box(30.33, 20, 8)  # off-round → stresses rounding
+        line = next(ln for ln in _script_for(part).splitlines() if ln.startswith("sheet.pocket("))
+        eval(line, {"sheet": Sheet(part)})  # declare.pocket() must not raise
+
     def test_linear_pattern_spells_out_members(self):
         # #461 review: the arrangement can't be recomputed faithfully (no reliable direction/angle),
         # so the emitter spells out the exact member positions for every pattern kind.
@@ -921,6 +930,11 @@ class TestRoundTripParity:
 
     def test_slot_parity(self, tmp_path, monkeypatch):
         self._parity(Box(50, 30, 20) - Box(20, 8, 30), tmp_path, monkeypatch)
+
+    def test_pocket_parity(self, tmp_path, monkeypatch):
+        # A blind pocket (#148a): the generated script's PocketFeature must reproduce the
+        # direct build's W × L × D DEEP leader callout.
+        self._parity(Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8), tmp_path, monkeypatch)
 
     def test_pattern_parity(self, tmp_path, monkeypatch):
         part = (

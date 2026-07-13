@@ -55,6 +55,7 @@ from draftwright.model import hole as _hole
 from draftwright.model import note as _declare_note
 from draftwright.model import pattern as _pattern
 from draftwright.model import plate as _plate
+from draftwright.model import pocket as _pocket
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
 from draftwright.model import step_level as _step_level
@@ -530,6 +531,13 @@ class Sheet:
     def slot(self, obj=None, **kw) -> Sheet:
         """Declare a milled slot / reduced across-flats section (width + length)."""
         self._features.append(_slot(obj, **kw))
+        return self
+
+    def pocket(self, obj=None, **kw) -> Sheet:
+        """Declare a blind rectangular recess — a floored slot/pocket (width × length ×
+        depth). From an object the depth axis defaults to the shortest bbox span; pass
+        ``depth_axis=`` for a recess deeper than it is wide."""
+        self._features.append(_pocket(obj, **kw))
         return self
 
     def chamfer(self, obj=None, **kw) -> Sheet:

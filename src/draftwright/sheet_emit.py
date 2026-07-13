@@ -168,6 +168,16 @@ def _feature_line(f) -> str:
             f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
             f"lo={lo}, hi={hi}, w_center={_n(f.w_center)})"
         )
+    if k == "pocket":
+        lo, hi = _n(f.lo), _n(f.hi)
+        # Derive length from the EMITTED lo/hi so hi - lo == length exactly — declare.pocket()
+        # rejects an independently-rounded (lo, hi, length) with a 1e-6 tolerance.
+        length = _n(round(float(hi) - float(lo), 3))
+        return (
+            f"sheet.pocket(width={_n(f.width)}, length={length}, depth={_n(f.depth)}, "
+            f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
+            f"lo={lo}, hi={hi}, w_center={_n(f.w_center)})"
+        )
     if k == "pattern":
         # Defining dims for the furniture (BCD centreline / pitch / grid dims) PLUS the exact
         # member positions. The arrangement alone can't be recomputed faithfully — the
