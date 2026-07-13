@@ -24,6 +24,7 @@ from draftwright.model.ir import (
     EnvelopeFeature,
     Feature,
     FilletFeature,
+    FlatFeature,
     Frame,
     HoleFeature,
     PartModel,
@@ -46,6 +47,7 @@ from draftwright.recognition import (
     recognise_chamfers,
     recognise_countersinks,
     recognise_fillets,
+    recognise_flats,
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
@@ -433,6 +435,21 @@ def build_part_model(
                     radius=fl.radius,
                 )
             )
+
+    # Machined flats on round stock (#148b) — a planar face truncating a cylinder,
+    # called out by its across-flats size. Detected UNCONDITIONALLY (not gated by the
+    # rotational branch): a D-shaft / hex head IS round stock and classifies rotational,
+    # yet its flat still needs a callout. The recogniser self-gates on OD adjacency, so a
+    # part with no round stock yields none.
+    for flat in recognise_flats(part):
+        at = flat.at
+        features.append(
+            FlatFeature(
+                frame=Frame((at[0], at[1], at[2]), flat.axis),
+                axis=flat.axis,
+                across=flat.across,
+            )
+        )
 
     # Rotational furniture — OD + centrelines + concentric bore leaders (#237). Its
     # presence marks the part rotational; emitted from the classification (od, bores).

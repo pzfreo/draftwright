@@ -71,6 +71,7 @@ from draftwright.recognition._features import (
 from draftwright.recognition.chamfers import Chamfer, recognise_chamfers
 from draftwright.recognition.countersinks import CounterSink, recognise_countersinks
 from draftwright.recognition.fillets import Fillet, recognise_fillets
+from draftwright.recognition.flats import Flat, recognise_flats
 from draftwright.recognition.levels import (
     FaceLevel,
     StepShoulder,
@@ -86,6 +87,7 @@ __all__ = [
     "BoltCircle",
     "Chamfer",
     "Fillet",
+    "Flat",
     "BossRecord",
     "CounterBore",
     "CounterSink",
@@ -108,6 +110,7 @@ __all__ = [
     "recognise_bosses",
     "recognise_chamfers",
     "recognise_fillets",
+    "recognise_flats",
     "recognise_countersinks",
     "recognise_hole_patterns",
     "recognise_holes",

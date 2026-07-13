@@ -37,6 +37,7 @@ from draftwright.annotations.from_model import (
     render_diameters,
     render_envelope,
     render_fillets,
+    render_flats,
     render_gdt,
     render_height_ladder,
     render_locations,
@@ -286,6 +287,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Chamfer callouts (#560): C{leg} / {leg}×{angle}° via a leader off each chamfer face.
     render_chamfers(dwg, _model, a)
     render_fillets(dwg, _model, a)
+    # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
+    render_flats(dwg, _model, a)
     # Blind-recess callouts (#148a): W × L × D DEEP via a leader off each floored pocket.
     render_pockets(dwg, _model, a)
 

@@ -994,6 +994,70 @@ def render_fillets(dwg, model, a) -> int:
     return n
 
 
+def _flat_label(across) -> str:
+    """The machined-flat callout string: ``{across} A/F`` (across flats) — the standard
+    abbreviation for a spanner-flat / D / hex size (#148b). Formatting lives in the render
+    layer, not on the IR feature (ADR 0013 §7)."""
+    return f"{_fmt(across)} A/F"
+
+
+def render_flats(dwg, model, a) -> int:
+    """Machined-flat callouts (#148b): a leader from a flat truncating round stock to its
+    ``{across} A/F`` label, in the view down the stock axis (a Z-axis bar reads in the plan).
+    Flats sharing an axis and across-flats size — the faces of a double-D or hex — share ONE
+    callout. The leader runs diagonally out of the flat into clear margin, and is dropped
+    (lint, not silently) if it would overprint placed geometry. Returns the count placed."""
+    draft = dwg.draft
+    view_of = {"z": "plan", "x": "side", "y": "front"}
+    flats = [f for f in model.features if f.kind == "flat"]
+    groups: dict = {}
+    for fl in flats:
+        groups.setdefault((fl.axis, round(fl.across, 3)), []).append(fl)
+    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    n = 0
+    for gi, ((axis, across), members) in enumerate(sorted(groups.items())):
+        view = view_of.get(axis)
+        if view is None:
+            continue
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        x0, y0, x1, y1 = vb
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        label_str = _flat_label(across)
+        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        reach = draft.font_size + 6 * draft.pad_around_text
+        placed = False
+        for fl in sorted(members, key=lambda f: f.frame.origin):
+            tip = dwg.at(view, *fl.frame.origin)
+            dx, dy = tip[0] - cx, tip[1] - cy
+            d = math.hypot(dx, dy) or 1.0
+            elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
+            ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label_str, draft=draft)
+            label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
+            if (
+                label is None
+                or _box_hits(label, obstacles)
+                or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
+                or label[0] < page[0]
+                or label[1] < page[1]
+                or label[2] > page[2]
+                or label[3] > page[3]
+            ):
+                continue
+            dwg.add(ldr, f"m_flat_{axis}{gi}", view=view, feature=fl)
+            n += 1
+            placed = True
+            break
+        if not placed:
+            dwg._record_build_issue(
+                "warning",
+                "flat_dropped",
+                f"flat callout {label_str} not placed (no clear room)",
+            )
+    return n
+
+
 def _ray_exit_dist(px, py, ux, uy, rect) -> float:
     """Distance along the unit ray (ux, uy) from (px, py) to where it leaves *rect*
     (x0, y0, x1, y1). For a tip inside the rect this is the positive distance to the

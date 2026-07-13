@@ -15,6 +15,7 @@ from draftwright.model import (
     ChamferFeature,
     EnvelopeFeature,
     FilletFeature,
+    FlatFeature,
     HoleFeature,
     PartModel,
     PatternFeature,
@@ -27,6 +28,7 @@ from draftwright.model import (
     chamfer,
     envelope,
     fillet,
+    flat,
     hole,
     pattern,
     plate,
@@ -492,9 +494,105 @@ class TestFillet:
 
     def test_non_cylindrical_face_rejected(self):
         box = Box(20, 20, 20)
-        flat = box.faces().sort_by(lambda f: f.center().Z)[-1]  # an axis-aligned planar face
+        face = box.faces().sort_by(lambda f: f.center().Z)[-1]  # an axis-aligned planar face
         with pytest.raises(ValueError, match="fillet"):
-            fillet(flat)
+            fillet(face)
+
+
+class TestFlat:
+    """#148b: machined flats on round stock — recognise + emit + declare, called out by the
+    across-flats size (flat-to-flat for a double-D / hex, the D height for a lone flat)."""
+
+    @staticmethod
+    def _dshaft(d=5, r=10):
+        # Round bar (R=r, axis Z) with one flat at x=d.
+        return Cylinder(r, 30) - Pos(r, 0, 0) * Box(2 * (r - d), 40, 40)
+
+    @staticmethod
+    def _double_d(d=5, r=10):
+        bar = Cylinder(r, 30)
+        return (
+            bar
+            - Pos(r, 0, 0) * Box(2 * (r - d), 40, 40)
+            - Pos(-r, 0, 0) * Box(2 * (r - d), 40, 40)
+        )
+
+    def test_explicit(self):
+        f = flat(axis="z", across=15, at=(5, 0, 0))
+        assert isinstance(f, FlatFeature)
+        assert f.axis == "z" and f.across == 15 and f.frame.origin == pytest.approx((5, 0, 0))
+
+    def test_reads_at_off_the_planar_face(self):
+        # The object flavour reads the leader point off the planar flat face; axis/across
+        # stay explicit (a plane carries neither the stock radius nor which axis is the run).
+        solid = self._dshaft(5, 10)
+        face = next(
+            g
+            for g in solid.faces()
+            if g.geom_type == GeomType.PLANE and abs(g.center().X - 5) < 0.01
+        )
+        f = flat(face, axis="z", across=15)
+        assert f.axis == "z" and f.across == 15
+        assert f.frame.origin[0] == pytest.approx(5, abs=0.01)
+        assert f.frame.origin[1] == pytest.approx(0, abs=0.01)
+
+    def test_recognises_single_flat_as_D_height(self):
+        # A lone flat reads flat-to-opposite-OD: R + d = 10 + 5 = 15.
+        fs = [
+            f
+            for f in build_drawing(self._dshaft(5, 10), number="X").model().features
+            if f.kind == "flat"
+        ]
+        assert len(fs) == 1 and fs[0].across == pytest.approx(15, abs=0.05)
+
+    def test_recognises_double_D_as_flat_to_flat(self):
+        # Two opposing flats read flat-to-flat: 2d = 10 (grouped to ONE A/F callout at render).
+        from draftwright.annotations.from_model import _flat_label
+
+        dwg = build_drawing(self._double_d(5, 10), number="X")
+        fs = [f for f in dwg.model().features if f.kind == "flat"]
+        assert len(fs) == 2 and all(f.across == pytest.approx(10, abs=0.05) for f in fs)
+        names = [n for n in dwg.annotations() if n.startswith("m_flat")]
+        assert len(names) == 1  # one across-flats callout, not two
+        assert dwg._named[names[0]].label == _flat_label(10)
+
+    def test_slot_wall_is_not_a_flat(self):
+        # A slot's two facing walls point *toward* the axis — not flats (the #148b distinction).
+        from draftwright.recognition import recognise_flats
+
+        slotted = Cylinder(10, 30) - Box(6, 40, 40)
+        assert recognise_flats(slotted) == []
+
+    def test_plain_cylinder_has_no_flat(self):
+        from draftwright.recognition import recognise_flats
+
+        assert recognise_flats(Cylinder(10, 30)) == []
+
+    def test_declared_flat_renders_A_F_callout(self):
+        from draftwright.annotations.from_model import _flat_label
+
+        dwg = build_drawing(
+            self._dshaft(5, 10), model=[flat(axis="z", across=15, at=(5, 0, 0))], number="X"
+        )
+        fs = [f for f in dwg.model().features if f.kind == "flat"]
+        assert len(fs) == 1 and _flat_label(fs[0].across) == "15 A/F"
+        assert not any(i.severity == "error" for i in dwg.lint())
+
+    def test_needs_axis_across_at(self):
+        with pytest.raises(ValueError):
+            flat(axis="z", across=15)  # no at
+        with pytest.raises(ValueError):
+            flat(across=15, at=(5, 0, 0))  # no axis
+
+    def test_rejects_non_positive_across(self):
+        with pytest.raises(ValueError):
+            flat(axis="z", across=-5, at=(0, 0, 0))
+
+    def test_non_planar_face_rejected(self):
+        # The object flavour needs the planar flat face, not the round OD.
+        cyl_face = next(g for g in self._dshaft().faces() if g.geom_type == GeomType.CYLINDER)
+        with pytest.raises(ValueError, match="flat"):
+            flat(cyl_face, axis="z", across=15)
 
 
 class TestPocket:
