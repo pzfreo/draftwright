@@ -31,7 +31,7 @@ import math
 from dataclasses import dataclass
 from typing import TypeVar
 
-from build123d import GeomType
+from build123d import GeomType, Vector
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Plane
 from OCP.TopAbs import TopAbs_Orientation
@@ -326,7 +326,7 @@ def recognise_slots(part) -> list[Slot]:
                 if s is not None and not _has_floor(faces, s):
                     candidates.append(s)
     # Recombine arms of a crossing channel split by the intersection (#604).
-    return _collapse_collinear(_merge(candidates))
+    return _collapse_collinear(_merge(candidates), part)
 
 
 def _same_channel_line(a: Slot, b: Slot):
@@ -352,45 +352,36 @@ def _same_channel_line(a: Slot, b: Slot):
     return gap if gap[1] - gap[0] > 0 else None
 
 
-def _gap_bridged(gap, arm: Slot, slots: list[Slot]) -> bool:
-    """True when a crossing channel spans ``gap`` *at this arm's location* — the
-    evidence the gap between two collinear arms is void, not solid material.
+def _gap_is_void(gap, arm: Slot, part) -> bool:
+    """True when the gap between two collinear arms is empty space — the crossing
+    void of an intersecting channel — rather than solid stock.
 
-    The crossing channel runs across the arm: its ``width_axis`` is the arm's
-    ``long_axis`` and its ``long_axis`` the arm's ``width_axis``; its wall
-    separation matches the gap's size and its centreline the gap's centre.  It
-    must also *reach* the arm — a perpendicular slot elsewhere on the part whose
-    centreline and width merely happen to match the gap would otherwise fuse two
-    collinear slots across solid stock (#610 review).  A symmetric cross splits
-    the crossing channel too, so its run is unioned across *all* its matching
-    arms; that union must cover this arm's centreline and overlap it in depth."""
-    g_center = (gap[0] + gap[1]) / 2
-    g_size = gap[1] - gap[0]
-    crossers = [
-        p
-        for p in slots
-        if p.width_axis == arm.long_axis
-        and p.long_axis == arm.width_axis
-        and abs(p.w_center - g_center) <= _MERGE_TOL
-        and abs(p.width - g_size) <= _MERGE_TOL
-        and max(p.d_lo, arm.d_lo) < min(p.d_hi, arm.d_hi)
-    ]
-    if not crossers:
-        return False
-    run_lo = min(p.lo for p in crossers)
-    run_hi = max(p.hi for p in crossers)
-    return run_lo - _MERGE_TOL <= arm.w_center <= run_hi + _MERGE_TOL
+    Tested directly by sampling the gap's centre point against the solid, which is
+    robust where reasoning from the neighbouring slots' metadata is not: a
+    symmetric or off-centre cross, a T-junction, or a pinwheel of separate slots
+    around a solid hub all reduce to "is the point between the arms material?".
+    The sample sits at the gap centre along the run, on the arms' centreline
+    across it, and at mid-depth — interior to whichever region (void or solid) it
+    falls in, so it is never ambiguous on a wall."""
+    coord = {
+        arm.long_axis: (gap[0] + gap[1]) / 2,
+        arm.width_axis: arm.w_center,
+        arm.depth_axis: (arm.d_lo + arm.d_hi) / 2,
+    }
+    point = Vector(coord["x"], coord["y"], coord["z"])
+    return not any(s.is_inside(point) for s in part.solids())
 
 
-def _collapse_collinear(slots: list[Slot]) -> list[Slot]:
+def _collapse_collinear(slots: list[Slot], part) -> list[Slot]:
     """Recombine slot arms split by a crossing channel into whole channels (#604).
 
     A ``+`` of two intersecting through-channels is milled as one continuous slot
     each, but the central intersection removes the middle of both channels' walls,
     so the wall scan yields two collinear arm-slots per channel (four total).
-    Union collinear co-axial arms whose gap a perpendicular channel bridges, and
-    span each group into a single slot running its full length.  Arms with a solid
-    bridge between them (no crossing channel) are left as separate features."""
+    Union collinear co-axial arms whose gap is void (a crossing channel passes
+    between them), and span each group into a single slot running its full length.
+    Arms separated by solid material — two genuinely distinct slots — are left as
+    separate features."""
     parent = list(range(len(slots)))
 
     def find(i: int) -> int:
@@ -402,7 +393,7 @@ def _collapse_collinear(slots: list[Slot]) -> list[Slot]:
     for i in range(len(slots)):
         for j in range(i + 1, len(slots)):
             gap = _same_channel_line(slots[i], slots[j])
-            if gap is not None and _gap_bridged(gap, slots[i], slots):
+            if gap is not None and _gap_is_void(gap, slots[i], part):
                 parent[find(i)] = find(j)
 
     groups: dict[int, list[Slot]] = {}

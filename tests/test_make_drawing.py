@@ -6813,6 +6813,29 @@ class TestFindSlots:
         assert len(slots) == 3  # two 40mm x-arms + one y-channel, none merged
         assert sorted(s.length for s in slots) == [40.0, 40.0, 40.0]
 
+    def test_pinwheel_of_slots_around_a_solid_hub_stays_four(self):
+        # Four disjoint slots arranged around a SOLID central hub: two collinear
+        # x-arms and two collinear y-arms, each opposed pair straddling — but not
+        # reaching — the hub. Reasoning only from the neighbouring slots' extents
+        # would fuse each opposed pair across the hub; the void is tested directly
+        # at the gap centre (solid hub -> not void -> not merged), so all four
+        # survive (#610 re-review).
+        from build123d import Align
+
+        def cut(xlo, xhi, ylo, yhi):
+            return Pos(xlo, ylo, -5) * Box(
+                xhi - xlo, yhi - ylo, 20, align=(Align.MIN, Align.MIN, Align.MIN)
+            )
+
+        part = (
+            Box(100, 100, 10, align=(Align.MIN, Align.MIN, Align.MIN))
+            - cut(10, 40, 47, 53)
+            - cut(60, 90, 47, 53)
+            - cut(40, 60, 10, 40)
+            - cut(40, 60, 60, 90)
+        )
+        assert len(recognise_slots(part)) == 4  # solid hub keeps all four apart
+
     def test_slot_is_frozen_dataclass(self):
         s = recognise_slots(Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20))[0]
         assert isinstance(s, Slot)
