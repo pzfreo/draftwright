@@ -425,6 +425,67 @@ class TestChamferCallout:
         assert _chamfer_label(chamfers[0]) == "C2.5"
 
 
+class TestFlatCallout:
+    """#148b: machined flats on round stock — the recogniser recovers the across-flats size
+    from the geometry (flat-to-flat for opposed faces, the D height for a lone flat)."""
+
+    @staticmethod
+    def _hex_on_stock(d=9.3, r=10):
+        # Six flats 60° apart, cut shallow (d near r) so OD arcs survive between them.
+        from build123d import Rot
+
+        bar = Cylinder(r, 30)
+        for k in range(6):
+            bar = bar - Rot(0, 0, 60 * k) * Pos(d + 1, 0, 0) * Box(2, 40, 40)
+        return bar
+
+    def test_hex_reads_across_flats(self):
+        from draftwright.recognition import recognise_flats
+
+        flats = recognise_flats(self._hex_on_stock(9.3, 10))
+        assert len(flats) == 6
+        # Every opposed pair reads flat-to-flat = 2d = 18.6, one shared A/F value.
+        assert {round(f.across, 1) for f in flats} == {18.6}
+
+    def test_odd_polygon_falls_back_to_D_height(self):
+        # Three flats 120° apart have no opposing face → each reads flat-to-opposite-OD (R+d).
+        from build123d import Rot
+
+        from draftwright.recognition import recognise_flats
+
+        bar = Cylinder(10, 30)
+        for k in range(3):
+            bar = bar - Rot(0, 0, 120 * k) * Pos(10.3, 0, 0) * Box(2, 40, 40)
+        flats = recognise_flats(bar)
+        assert len(flats) == 3 and {round(f.across, 1) for f in flats} == {19.3}
+
+    def test_flat_on_x_axis_stock(self):
+        from build123d import Rot
+
+        from draftwright.recognition import recognise_flats
+
+        xbar = Rot(0, 90, 0) * Cylinder(8, 30) - Pos(0, 0, 8) * Box(40, 40, 6)
+        flats = recognise_flats(xbar)
+        assert len(flats) == 1 and flats[0].axis == "x"
+        assert flats[0].across == pytest.approx(13, abs=0.05)  # R + d = 8 + 5
+
+    def test_shallow_tangent_sliver_is_not_a_flat(self):
+        # A cut that barely grazes the OD (depth R − d below the min) is not a machined flat.
+        from draftwright.recognition import recognise_flats
+
+        grazed = Cylinder(10, 30) - Pos(10, 0, 0) * Box(0.4, 40, 40)  # depth ≈ 0.2 mm
+        assert recognise_flats(grazed) == []
+
+    def test_flat_renders_in_the_axis_view(self):
+        from draftwright.annotations.from_model import _flat_label
+
+        dwg = build_drawing(Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40), number="X")
+        names = [n for n in dwg.annotations() if n.startswith("m_flat")]
+        assert len(names) == 1
+        assert dwg._named[names[0]].label == _flat_label(15)
+        assert dwg._anno_view[names[0]] == "plan"  # a Z-axis bar reads down the axis (plan)
+
+
 class TestCountersinkCallout:
     """#558: a countersunk hole was called out as a plain THRU hole — no major-Ø /
     included-angle. It must now carry a csk callout (⌵ Ø14 × 90°), like a counterbore."""

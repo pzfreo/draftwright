@@ -305,6 +305,27 @@ class TestEmit:
         assert redeclared.axis == det.axis and redeclared.radius == det.radius
         assert redeclared.frame.origin == pytest.approx(det.frame.origin)
 
+    def test_flat_emits_the_flat_verb(self):
+        # #148b: a detected machined flat emits `sheet.flat(...)` — the emit surface for the
+        # across-flats callout.
+        part = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)  # D-shaft, flat at x=5
+        src = _script_for(part)
+        assert "sheet.flat(" in src and 'axis="z"' in src and "across=15" in src
+        ast.parse(src)
+
+    def test_flat_round_trips_the_full_feature(self):
+        # The emitted line execs back to the same FlatFeature (axis/across/at).
+        from draftwright.model import flat as declare_flat
+        from draftwright.sheet_emit import _feature_line
+
+        part = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)
+        det = next(f for f in build_drawing(part, number="X").model().features if f.kind == "flat")
+        line = _feature_line(det)  # "sheet.flat(axis=..., across=..., at=...)"
+        env = {"sheet": type("S", (), {"flat": staticmethod(declare_flat)})()}
+        redeclared = eval(line, {"__builtins__": {}}, env)  # noqa: S307
+        assert redeclared.axis == det.axis and redeclared.across == det.across
+        assert redeclared.frame.origin == pytest.approx(det.frame.origin)
+
     def test_counterbore_flags_the_auto_section(self):
         part = Box(60, 60, 16) - Pos(0, 0, 0) * Cylinder(4, 30) - Pos(0, 0, 4) * Cylinder(8, 12)
         src = _script_for(part)

@@ -364,6 +364,26 @@ class FilletFeature:
 
 
 @dataclass(frozen=True)
+class FlatFeature:
+    """A machined flat on round stock (#148b), called out by its across-flats size.
+    ``axis`` is the turning axis the stock is coaxial about; ``across`` is the across-flats
+    size — flat-to-flat for a face opposed across the axis (double-D / hex A/F), else
+    flat-to-opposite-OD (the D height). Recovered from the geometry, not the rendered
+    view."""
+
+    frame: Frame
+    axis: str
+    across: float
+    kind: ClassVar[str] = "flat"
+
+    def parameters(self) -> list[DimParameter]:
+        return [DimParameter("length", "flat", self.across)]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class StepLevelFeature:
     """The prismatic height profile — horizontal face levels (Z) dimensioned from the
     base, stacked right of the front view (#237). The turned analogue is `StepFeature`

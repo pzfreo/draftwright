@@ -200,6 +200,8 @@ def _feature_line(f) -> str:
         )
     if k == "fillet":
         return f'sheet.fillet(axis="{f.axis}", radius={_n(f.radius)}, at={_pt(f.frame.origin)})'
+    if k == "flat":
+        return f'sheet.flat(axis="{f.axis}", across={_n(f.across)}, at={_pt(f.frame.origin)})'
     if k == "plate":
         return (
             f'sheet.plate(axis="{f.axis}", lo={_n(f.lo)}, hi={_n(f.hi)}, u={_n(f.u)}, v={_n(f.v)})'

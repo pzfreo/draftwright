@@ -51,6 +51,7 @@ from draftwright.model import datum as _declare_datum
 from draftwright.model import envelope as _envelope
 from draftwright.model import fillet as _fillet
 from draftwright.model import finish as _declare_finish
+from draftwright.model import flat as _flat
 from draftwright.model import hole as _hole
 from draftwright.model import note as _declare_note
 from draftwright.model import pattern as _pattern
@@ -554,6 +555,15 @@ class Sheet:
         ``sheet.fillet(axis="z", radius=3, at=(x, y, z))``. Called out ``R{radius}`` (grouped
         ``n× R`` for equal radii)."""
         self._features.append(_fillet(obj, **kw))
+        return self
+
+    def flat(self, obj=None, **kw) -> Sheet:
+        """Declare a machined flat on round stock (#148b) — ``sheet.flat(flat_face)`` reads the
+        leader point off the planar flat face (``axis=`` and ``across=`` still required), or
+        fully explicit ``sheet.flat(axis="z", across=15, at=(x, y, z))``. Called out
+        ``{across} A/F`` (across flats — flat-to-flat for a double-D / hex, the D height for a
+        lone flat)."""
+        self._features.append(_flat(obj, **kw))
         return self
 
     def plate(self, obj=None, **kw) -> Sheet:

@@ -36,6 +36,7 @@ from draftwright.model.ir import (
     Feature,
     FilletFeature,
     Finish,
+    FlatFeature,
     Frame,
     HoleFeature,
     Note,
@@ -445,6 +446,39 @@ def fillet(obj=None, *, axis=None, radius=None, at=None) -> FilletFeature:
     _require_positive(radius=radius)
     _require_point("at", at)
     return FilletFeature(frame=Frame(origin=at, axis=axis), axis=axis, radius=round(radius, 3))
+
+
+def _read_flat_face(face) -> Point:
+    """Read the leader point of a machined flat off its **planar face**: the face centre (the
+    recogniser's anchor, recognition/flats.py). The across-flats size and the stock's turning
+    axis are NOT recoverable from the plane alone — a plane does not carry its stock's radius,
+    and its normal is perpendicular to *two* axes — so ``flat(face, ...)`` still needs
+    ``axis=`` and ``across=``."""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Plane
+
+    if BRepAdaptor_Surface(face.wrapped).GetType() != GeomAbs_Plane:
+        raise ValueError(
+            "flat(face=...) needs the planar flat face; declare with axis=, across=, at= instead"
+        )
+    c = face.center()
+    return (round(c.X, 4), round(c.Y, 4), round(c.Z, 4))
+
+
+def flat(obj=None, *, axis=None, across=None, at=None) -> FlatFeature:
+    """A machined flat on round stock (#148b). Either ``flat(flat_face)`` — the planar face
+    supplies the leader point ``at`` (``axis=`` and ``across=`` still required, being
+    unrecoverable from a plane) — or fully explicit ``flat(axis="z", across=15, at=(x, y,
+    z))``. Called out ``{across} A/F`` (across flats). An object supplies the ``at`` default;
+    any explicit keyword overrides (#451)."""
+    if obj is not None:
+        at = _read_flat_face(obj) if at is None else at
+    if across is None or axis is None or at is None:
+        raise ValueError("flat() needs axis=, across= and at= (a flat face supplies only at=)")
+    axis = _norm_axis(axis)
+    _require_positive(across=across)
+    _require_point("at", at)
+    return FlatFeature(frame=Frame(origin=at, axis=axis), axis=axis, across=round(across, 3))
 
 
 def _read_plate(obj) -> tuple[str, float, float, float, float]:
