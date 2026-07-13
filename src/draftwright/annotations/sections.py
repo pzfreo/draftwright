@@ -38,7 +38,6 @@ from draftwright._core import (
     Analysis,
     DetailRequest,
     HoleRef,
-    _axis_letter,
     _dim,
     _fmt,
     _iso_bbox,
@@ -50,27 +49,6 @@ from draftwright.annotations._common import strip_obstacles
 from draftwright.model import plan_sections
 
 _DETAIL_LETTERS = "ABCDEFGH"
-
-
-def _is_concentric_hole(h, a: Analysis) -> bool:
-    """True when *h* is an axial bore on the part centreline (turned base set)."""
-    if _axis_letter(h) != "z":
-        return False
-    return math.hypot(h.location[0] - a.cx, h.location[1] - a.cy) <= _CONCENTRIC_TOL_MM
-
-
-def feature_holes_of(a: Analysis) -> list:
-    """The feature holes the IR gates callouts / furniture / sections on — a turned
-    part's concentric axial bores (dimensioned by the centreline leaders) excluded,
-    every hole on a prismatic part kept.
-
-    Still recogniser-record-typed: the off-axis side-drilled *location* pass
-    (:func:`_locate_off_axis_holes`) reads per-hole diameter/depth/bottom the IR doesn't
-    yet carry on the declared path — migrating that is #584 WP1 subsystem B. The
-    membership *key* set has already moved to the IR (:func:`feature_hole_keys`)."""
-    if not a.is_rotational:
-        return list(a.holes)
-    return [h for h in a.holes if not _is_concentric_hole(h, a)]
 
 
 def feature_hole_keys(model, a: Analysis) -> set[HoleRef]:

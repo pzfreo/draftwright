@@ -9,6 +9,7 @@ shared placement helpers come from annotations._common. Below annotate, no cycle
 from __future__ import annotations
 
 import math
+from typing import NamedTuple
 
 from build123d_drafting.helpers import (
     CenterlineCircle,
@@ -24,7 +25,6 @@ from draftwright._core import (
     _TB_H,
     Analysis,
     HoleRef,
-    _axis_letter,
     _dim,
     _fmt,
     _iso_bbox,
@@ -486,7 +486,31 @@ def _record_callout_drop(dwg, view, diam, reason, feat=None):
     dwg._escalations.append(Escalation(kind="callout", view=view, feature=feat, reason=reason))
 
 
-def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
+class _OffHole(NamedTuple):
+    """One side-drilled hole occurrence for the off-axis location pass — the IR fields
+    it reads (the axis letter + the member location), so no ``HoleRecord`` is needed
+    (ADR 0008; #584 WP1 B3)."""
+
+    axis: str
+    location: tuple
+
+
+def _ir_off_axis_holes(model) -> list[_OffHole]:
+    """Every loose x/y-axis (side-drilled) hole member in the IR, as :class:`_OffHole`.
+
+    Pattern members are separate ``PatternFeature``s (skipped), so patterned holes are
+    excluded by construction — matching the old ``h not in patterned`` filter without a
+    ``HoleRecord`` (ADR 0008; #584 WP1 B3). The turning-axis concentric filter is applied
+    by the caller that needs it."""
+    return [
+        _OffHole(f.frame.axis, pos)
+        for f in (model.features if model is not None else ())
+        if f.kind == "hole" and f.frame.axis in ("x", "y")
+        for pos in (f.members or (f.frame.origin,))
+    ]
+
+
+def _locate_off_axis_holes(dwg, a: Analysis, *, which):
     """Location dimensions for side-drilled holes (#133).
 
     An X-axis hole is a circle in the SIDE view (locate its Y below the view and
@@ -515,8 +539,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
       strips (#133).
     """
     draft = dwg.draft
-    all_holes = a.holes if holes_in is None else holes_in
-    patterned = {h for p in a.patterns for h in p.holes}
+    model = dwg._part_model
 
     def _coaxial(h):
         # The turning-axis bore of a rotational part is located by its centreline, not
@@ -526,7 +549,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
         # dims; coverage already credits the bore via its centre mark, so lint stays
         # clean. Non-rotational parts and genuine off-centre side-drilled holes keep
         # their dims (the a.od_axis + perpendicular-centre gates).
-        if not a.is_rotational or _axis_letter(h) != a.od_axis:
+        if not a.is_rotational or h.axis != a.od_axis:
             return False
         centre = (a.cx, a.cy, a.cz)
         return all(
@@ -535,11 +558,9 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
             if ax != a.od_axis
         )
 
-    off = [
-        h
-        for h in all_holes
-        if _axis_letter(h) in ("x", "y") and h not in patterned and not _coaxial(h)
-    ]
+    # Off-axis holes sourced from the IR (ADR 0008 Am6; #584 WP1 B3) — the turning-axis
+    # concentric bore excluded (located by its centreline, not a position dim).
+    off = [h for h in _ir_off_axis_holes(model) if not _coaxial(h)]
     if not off:
         return
     SX, SZ = a.proj.side_x, a.proj.side_z
@@ -634,7 +655,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
         cands = []
         order_y: dict = {}
         loc_by_name: dict = {}  # dim name -> contributing hole locations (for provenance)
-        for h in (h for h in off if _axis_letter(h) == "x"):
+        for h in (h for h in off if h.axis == "x"):
             yo = round(abs(h.location[1] - dy), 2)
             if yo * a.SCALE < 1.0:
                 continue
@@ -672,7 +693,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
     x_cands = []
     order_x: dict = {}
     x_loc_by_name: dict = {}
-    for h in (h for h in off if _axis_letter(h) == "y"):
+    for h in (h for h in off if h.axis == "y"):
         xo = round(abs(h.location[0] - dx), 2)
         if xo * a.SCALE < 1.0:
             continue
@@ -739,7 +760,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, holes_in=None, *, which):
 
         side_cand = (a.sv_zones.right, "side", (zr, SZ(dz), 0), (zr, SZ(hz), 0), zr)
         front_cand = (a.fv_zones.right, "front", (zrf, FZ(dz), 0), (zrf, FZ(hz), 0), zrf)
-        order = (side_cand, front_cand) if _axis_letter(h) == "x" else (front_cand, side_cand)
+        order = (side_cand, front_cand) if h.axis == "x" else (front_cand, side_cand)
         primary, *alternates = order
         strip, view, p_lo, p_hi, edge = primary
         primary_cand = _zc(view, p_lo, p_hi, edge)
@@ -1370,13 +1391,12 @@ def _annotate_holes(
         #    out along it has its callout text crossed by the centre mark / centreline
         #    (#305). Only a near-centre callout is close enough for the band to move.
         clr = draft.font_size + 3 * draft.pad_around_text  # clearance off a crossing line
-        patterned = {h for p in a.patterns for h in p.holes}
         off_axis_letter = {"side": "x", "front": "y"}.get(view)
         reserved_rows = (
             [
                 to_page(h.location)[1]
-                for h in a.holes
-                if _axis_letter(h) == off_axis_letter and h not in patterned
+                for h in _ir_off_axis_holes(dwg._part_model)
+                if h.axis == off_axis_letter
             ]
             if off_axis_letter
             else []
