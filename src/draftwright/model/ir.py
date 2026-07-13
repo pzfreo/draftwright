@@ -271,6 +271,42 @@ class SlotFeature:
 
 
 @dataclass(frozen=True)
+class PocketFeature:
+    """A blind rectangular recess — a floored slot/pocket (#148a). A `SlotFeature`
+    with a third defining size, the ``depth`` from the open face to the floor; the
+    in-plane geometry (width/length/position) mirrors a slot so the renderer places
+    the callout in the view the two in-plane axes span (the recogniser's `Pocket`,
+    normalised into the IR)."""
+
+    frame: Frame
+    width_axis: str
+    long_axis: str
+    width: float
+    length: float
+    depth: float
+    w_center: float
+    lo: float
+    hi: float
+    kind: ClassVar[str] = "pocket"
+
+    @property
+    def depth_axis(self) -> str:
+        """The axis normal to the opening (into the material) — the view the callout
+        reads in is the one normal to it."""
+        return next(a for a in "xyz" if a not in (self.width_axis, self.long_axis))
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("length", "pocket_width", self.width),
+            DimParameter("length", "pocket_length", self.length),
+            DimParameter("length", "pocket_depth", self.depth),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class BossFeature:
     """An external cylindrical boss/OD on a non-turned part — its diameter."""
 

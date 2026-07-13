@@ -41,6 +41,7 @@ from draftwright.model.ir import (
     Note,
     PatternFeature,
     PlateFeature,
+    PocketFeature,
     Point,
     SlotFeature,
     StepFeature,
@@ -710,6 +711,108 @@ def slot(
         long_axis=long_axis,
         width=width,
         length=length,
+        w_center=w_center,
+        lo=lo,
+        hi=hi,
+    )
+
+
+def pocket(
+    obj=None,
+    *,
+    width=None,
+    length=None,
+    depth=None,
+    long_axis=None,
+    width_axis=None,
+    depth_axis=None,
+    w_center=None,
+    lo=None,
+    hi=None,
+    at=None,
+) -> PocketFeature:
+    """A blind rectangular recess — a floored slot/pocket, dimensioned width × length ×
+    depth (#148a). The blind counterpart of :func:`slot`: unlike a through-slot the depth
+    IS a stored size, read from the object's span along the ``depth_axis``. From an object
+    the depth axis defaults to the *shortest* bbox span (a shallow recess); the two
+    remaining axes are long_axis (the longer) / width_axis (the shorter). Pass
+    ``depth_axis=`` when the recess is deeper than it is wide (#490-style). ``lo``/``hi`` are
+    the extent along the long axis and ``w_center`` the centre across the width axis. An
+    object supplies *defaults*; any explicit keyword overrides that field."""
+    if obj is not None:
+        bb = obj.bounding_box()
+        c = bb.center()
+        by = {
+            "x": (bb.size.X, bb.min.X, bb.max.X, c.X),
+            "y": (bb.size.Y, bb.min.Y, bb.max.Y, c.Y),
+            "z": (bb.size.Z, bb.min.Z, bb.max.Z, c.Z),
+        }
+        order = sorted("xyz", key=lambda a: by[a][0], reverse=True)  # longest span first
+        r_depth_axis = _norm_axis(depth_axis) if depth_axis is not None else order[-1]
+        r_long_axis = _norm_axis(long_axis) if long_axis is not None else None
+        r_width_axis = _norm_axis(width_axis) if width_axis is not None else None
+        taken = {r_depth_axis, r_long_axis, r_width_axis} - {None}
+        free = [a for a in order if a not in taken]  # unclaimed, depth excluded, longest-first
+        if r_long_axis is None:
+            r_long_axis = free.pop(0)
+        if r_width_axis is None:
+            r_width_axis = free.pop(0)
+        # A pocket has three distinct-role spans; any two *auto* (neither caller-pinned) axes
+        # with near-equal spans make the role read a silent coin-flip — same guard as slot().
+        pinned = {_norm_axis(a) for a in (long_axis, width_axis, depth_axis) if a is not None}
+        auto = [a for a in order if a not in pinned]
+        auto_pairs = [
+            (auto[i], auto[j]) for i in range(len(auto)) for j in range(i + 1, len(auto))
+        ]
+        if any(
+            math.isclose(by[a][0], by[b][0], rel_tol=_SLOT_AMBIGUOUS_FRAC) for a, b in auto_pairs
+        ):
+            warnings.warn(
+                f"pocket() object has near-equal bbox spans (x={by['x'][0]:.3g}, "
+                f"y={by['y'][0]:.3g}, z={by['z'][0]:.3g}); the long/width/depth axis read is "
+                "ambiguous — pass long_axis=/width_axis=/depth_axis= to disambiguate",
+                stacklevel=2,
+            )
+        long_axis = r_long_axis
+        width_axis = r_width_axis
+        length = by[r_long_axis][0] if length is None else length
+        lo = by[r_long_axis][1] if lo is None else lo
+        hi = by[r_long_axis][2] if hi is None else hi
+        width = by[r_width_axis][0] if width is None else width
+        w_center = by[r_width_axis][3] if w_center is None else w_center
+        depth = by[r_depth_axis][0] if depth is None else depth
+        at = (c.X, c.Y, c.Z) if at is None else at
+    if None in (width, length, depth, long_axis, width_axis, lo, hi):
+        raise ValueError(
+            "pocket() needs an object, or explicit width=, length=, depth=, "
+            "long_axis=, width_axis=, lo= and hi="
+        )
+    long_axis = _norm_axis(long_axis)
+    width_axis = _norm_axis(width_axis)
+    if long_axis == width_axis:
+        raise ValueError(f"pocket() long_axis and width_axis must differ (both {long_axis!r})")
+    if depth_axis is not None and _norm_axis(depth_axis) in (long_axis, width_axis):
+        raise ValueError(
+            f"pocket() depth_axis must differ from long_axis/width_axis (got {depth_axis!r})"
+        )
+    _require_positive(width=width, length=length, depth=depth)
+    if not lo < hi:
+        raise ValueError(f"pocket() needs lo < hi (got lo={lo!r}, hi={hi!r})")
+    if not math.isclose(hi - lo, length, rel_tol=1e-6, abs_tol=1e-6):
+        raise ValueError(f"pocket() length={length!r} must equal hi - lo ({hi - lo!r})")
+    w_center = 0.0 if w_center is None else w_center
+    if at is None:
+        origin = [0.0, 0.0, 0.0]
+        origin["xyz".index(long_axis)] = (lo + hi) / 2
+        origin["xyz".index(width_axis)] = w_center
+        at = (origin[0], origin[1], origin[2])
+    return PocketFeature(
+        frame=Frame(origin=at, axis=long_axis),
+        width_axis=width_axis,
+        long_axis=long_axis,
+        width=width,
+        length=length,
+        depth=depth,
         w_center=w_center,
         lo=lo,
         hi=hi,

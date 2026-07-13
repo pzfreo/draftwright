@@ -30,6 +30,7 @@ from draftwright.model.ir import (
     PatternFeature,
     PlateFeature,
     PmiFeature,
+    PocketFeature,
     RotationalFeature,
     SlotFeature,
     StepFeature,
@@ -48,6 +49,7 @@ from draftwright.recognition import (
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
+    recognise_pockets,
     recognise_slots,
     recognise_step_shoulders,
     recognise_turned_steps,
@@ -187,6 +189,7 @@ def build_part_model(
     patterns=None,
     bosses=None,
     slots=None,
+    pockets=None,
     prof=_UNSET,
     step_zs=None,
     rotational=None,
@@ -251,6 +254,32 @@ def build_part_model(
                 w_center=sl.w_center,
                 lo=sl.lo,
                 hi=sl.hi,
+            )
+        )
+
+    # Blind rectangular recesses — floored slots/pockets (#148a).
+    if pockets is None:
+        pockets = recognise_pockets(part)
+    for pk in pockets:
+        # Frame at the recess centroid — in-plane centre + mid-depth. The render
+        # leader projects into the view normal to the depth axis, so the depth coord
+        # is inert, but a true centroid keeps the frame honest.
+        c = {
+            pk.long_axis: (pk.lo + pk.hi) / 2,
+            pk.width_axis: pk.w_center,
+            pk.depth_axis: (pk.d_lo + pk.d_hi) / 2,
+        }
+        features.append(
+            PocketFeature(
+                frame=Frame(origin=(c["x"], c["y"], c["z"]), axis=pk.long_axis),
+                width_axis=pk.width_axis,
+                long_axis=pk.long_axis,
+                width=pk.width,
+                length=pk.length,
+                depth=pk.depth,
+                w_center=pk.w_center,
+                lo=pk.lo,
+                hi=pk.hi,
             )
         )
 

@@ -30,6 +30,7 @@ from draftwright.recognition import (
     HoleRecord,
     LinearArray,
     Plate,
+    Pocket,
     RectGrid,
     Slot,
     StepShoulder,
@@ -42,6 +43,7 @@ from draftwright.recognition import (
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
+    recognise_pockets,
     recognise_slots,
     recognise_step_shoulders,
     recognise_turned_steps,
@@ -63,6 +65,7 @@ _EXPECTED_RECORD_TYPES = {
     Chamfer,
     Fillet,
     Slot,
+    Pocket,
     Plate,
     FaceLevel,
     StepShoulder,
@@ -135,6 +138,7 @@ def _records_from_recognisers():
     stepped = _stepped()
     holes = recognise_holes(csk, csinks=recognise_countersinks(csk))
     slotted = Box(60, 40, 20) - Pos(0, 0, 0) * Box(30, 8, 20)
+    pocketed = Box(60, 40, 20) - Pos(0, 0, 7) * Box(30, 18, 6)
     levels = [f.z for f in recognise_face_levels(stepped)]
 
     out: list[tuple[str, object]] = []
@@ -148,6 +152,7 @@ def _records_from_recognisers():
         ("recognise_chamfers", recognise_chamfers(_chamfered_box())),
         ("recognise_fillets", recognise_fillets(_filleted_box())),
         ("recognise_slots", recognise_slots(slotted)),
+        ("recognise_pockets", recognise_pockets(pocketed)),
         ("recognise_plates", recognise_plates(_l_bracket())),
         ("recognise_face_levels", recognise_face_levels(stepped)),
         ("recognise_step_shoulders", recognise_step_shoulders(stepped, levels=levels)),
@@ -200,6 +205,7 @@ def test_part_based_recognisers_are_keyword_only_after_part():
         recognise_chamfers,
         recognise_fillets,
         recognise_slots,
+        recognise_pockets,
         recognise_plates,
         recognise_face_levels,
         recognise_step_shoulders,

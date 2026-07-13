@@ -19,6 +19,7 @@ from draftwright.model import (
     PartModel,
     PatternFeature,
     PlateFeature,
+    PocketFeature,
     SlotFeature,
     StepFeature,
     StepLevelFeature,
@@ -29,6 +30,7 @@ from draftwright.model import (
     hole,
     pattern,
     plate,
+    pocket,
     slot,
     step,
     step_level,
@@ -201,6 +203,49 @@ class TestConstructors:
         f = slot(Box(6, 20, 40), depth_axis="z", width_axis="x")  # z=depth, x named width
         assert f.width_axis == "x" and f.long_axis == "y"
         assert f.width == pytest.approx(6.0) and f.length == pytest.approx(20.0)
+
+    def test_pocket_explicit(self):
+        f = pocket(
+            width=20, length=30, depth=8, long_axis="x", width_axis="y", lo=-15, hi=15, w_center=0
+        )
+        assert isinstance(f, PocketFeature)
+        assert f.width == 20 and f.length == 30 and f.depth == 8
+        assert f.long_axis == "x" and f.width_axis == "y" and f.depth_axis == "z"
+
+    def test_pocket_reads_axes_and_depth_off_object(self):
+        # Shallow recess cavity: longest span = length, middle = width, shortest = depth.
+        f = pocket(Box(30, 20, 8))  # X long, Y width, Z shortest -> depth
+        assert f.long_axis == "x" and f.width_axis == "y" and f.depth_axis == "z"
+        assert f.length == pytest.approx(30.0) and f.width == pytest.approx(20.0)
+        assert f.depth == pytest.approx(8.0)
+
+    def test_pocket_deep_recess_reads_with_depth_axis(self):
+        # A recess deeper than it is wide: naming depth_axis excludes the deep span from the
+        # long/width read (the shortest-span default would otherwise mistake width for depth).
+        f = pocket(Box(30, 6, 20), depth_axis="z")  # Z=20 depth, X=30 long, Y=6 width
+        assert f.long_axis == "x" and f.width_axis == "y"
+        assert f.length == pytest.approx(30.0) and f.width == pytest.approx(6.0)
+        assert f.depth == pytest.approx(20.0)
+
+    def test_pocket_explicit_kwarg_overrides_object_read(self):
+        f = pocket(Box(30, 20, 8), depth=5)
+        assert f.depth == pytest.approx(5.0)  # explicit depth wins over the object's 8 span
+
+    def test_pocket_ambiguous_spans_warn(self):
+        with pytest.warns(UserWarning, match="ambiguous"):
+            pocket(Box(20, 20, 8))
+
+    def test_pocket_needs_depth(self):
+        with pytest.raises(ValueError, match="needs an object"):
+            pocket(width=20, length=30, long_axis="x", width_axis="y", lo=-15, hi=15)
+
+    def test_pocket_negative_depth_raises(self):
+        with pytest.raises(ValueError, match="depth"):
+            pocket(width=20, length=30, depth=-8, long_axis="x", width_axis="y", lo=-15, hi=15)
+
+    def test_pocket_length_must_match_span(self):
+        with pytest.raises(ValueError, match="must equal hi - lo"):
+            pocket(width=20, length=99, depth=8, long_axis="x", width_axis="y", lo=-15, hi=15)
 
     def test_envelope_reads_bbox(self):
         f = envelope(Box(80, 50, 8))
@@ -450,6 +495,67 @@ class TestFillet:
         flat = box.faces().sort_by(lambda f: f.center().Z)[-1]  # an axis-aligned planar face
         with pytest.raises(ValueError, match="fillet"):
             fillet(flat)
+
+
+class TestPocket:
+    """#148a: blind rectangular recesses (floored slots/pockets) — recognise + render +
+    declare, dimensioned W × L × D DEEP."""
+
+    def test_recognises_pocket_disjoint_from_slots(self):
+        from draftwright.recognition import Pocket, recognise_pockets, recognise_slots
+
+        part = Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8)  # blind recess, depth 8
+        pockets = recognise_pockets(part)
+        assert len(pockets) == 1 and isinstance(pockets[0], Pocket)
+        assert pockets[0].width == 20 and pockets[0].length == 30 and pockets[0].depth == 8
+        assert recognise_slots(part) == []  # the through-slot recogniser stays silent
+
+    def test_through_slot_not_read_as_pocket(self):
+        from draftwright.recognition import recognise_pockets, recognise_slots
+
+        part = Box(80, 60, 20) - Box(40, 10, 40)  # open both ends
+        assert recognise_pockets(part) == []
+        assert len(recognise_slots(part)) == 1  # still a through-slot
+
+    def test_recognised_pocket_gets_callout(self):
+        dwg = build_drawing(Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8), number="X")
+        names = [n for n in dwg.annotations() if n.startswith("m_pocket")]
+        assert len(names) == 1
+        assert dwg._named[names[0]].label == "20 × 30 × 8 DEEP"
+        assert not any(i.severity == "error" for i in dwg.lint())
+
+    def test_declared_pocket_renders_its_callout(self):
+        dwg = build_drawing(
+            Box(80, 60, 20),
+            model=[
+                pocket(
+                    width=20,
+                    length=30,
+                    depth=8,
+                    long_axis="x",
+                    width_axis="y",
+                    lo=-15,
+                    hi=15,
+                    w_center=0,
+                )
+            ],
+            number="X",
+        )
+        pks = [f for f in dwg.model().features if f.kind == "pocket"]
+        assert len(pks) == 1 and pks[0].depth == 8
+        names = [n for n in dwg.annotations() if n.startswith("m_pocket")]
+        assert len(names) == 1
+        assert not any(i.severity == "error" for i in dwg.lint())
+
+    def test_hole_and_boss_safeguards_intact(self):
+        # A pocketed part's holes are still recognised; a pocket does not spawn a phantom hole.
+        from build123d import Cylinder
+
+        from draftwright.recognition import recognise_holes, recognise_pockets
+
+        part = Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8) - Pos(-30, 0, 0) * Cylinder(3, 20)
+        assert len(recognise_holes(part)) == 1
+        assert len(recognise_pockets(part)) == 1
 
 
 class TestCountersink:

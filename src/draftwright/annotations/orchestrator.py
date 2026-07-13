@@ -42,6 +42,7 @@ from draftwright.annotations.from_model import (
     render_locations,
     render_plates,
     render_pmi,
+    render_pockets,
     render_rotational,
     render_slots,
     render_step_lengths,
@@ -285,6 +286,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Chamfer callouts (#560): C{leg} / {leg}×{angle}° via a leader off each chamfer face.
     render_chamfers(dwg, _model, a)
     render_fillets(dwg, _model, a)
+    # Blind-recess callouts (#148a): W × L × D DEEP via a leader off each floored pocket.
+    render_pockets(dwg, _model, a)
 
     # Side-drilled holes' in-plane (side-below) locations share the below corridor with
     # the overall envelope depth. They now queue into the same batch; the envelope's

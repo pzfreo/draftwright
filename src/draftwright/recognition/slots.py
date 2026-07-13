@@ -6,10 +6,11 @@ sits beside the hole/boss recognisers in :mod:`draftwright.recognition`, the
 single home for feature recognition (ADR 0007 — recognition lives in
 draftwright, not upstream); it mirrors their OCC face-scan idioms.
 
-Scope (deliberately narrow — see #148): only **enclosed through-slots with
-straight, rectangular walls** are recognised.  The recogniser proves a candidate
-is a slot rather than some other facing-wall feature with three predicates a
-naive "opposed facing walls" test gets wrong:
+Scope: **enclosed rectangular recesses with straight walls** — through-slots
+(:func:`recognise_slots`) and their blind counterparts, floored slots/pockets
+(:func:`recognise_pockets`, #148a).  The recogniser proves a candidate is such a
+recess rather than some other facing-wall feature with three predicates a naive
+"opposed facing walls" test gets wrong:
 
 1. **Facing walls** — two axis-aligned planar faces with anti-parallel outward
    normals each pointing *towards* the other.  The part's own outer faces face
@@ -17,17 +18,18 @@ naive "opposed facing walls" test gets wrong:
 2. **Rectangular walls** — both walls are bounded by straight (LINE) edges only.
    A turned groove / circlip recess has *annular* walls (CIRCLE edges); this
    rejects them (otherwise a stepped shaft's groove reads as a slot).
-3. **Through, not blind** — no planar floor caps the cut.  A blind pocket (or
-   the floored gap between two bosses) has a floor face spanning the footprint;
-   a through-slot does not.  This is what separates a slot from a pocket — a
-   distinction that is partly definitional for low-aspect features, which is why
-   blind slots and pockets are deferred to a follow-up recogniser (#148).
+3. **Through vs blind** — whether a planar floor caps the cut.  A blind pocket
+   (or the floored gap between two bosses) has a floor face spanning the
+   footprint; a through-slot does not.  ``_has_floor`` is the sole split between
+   the two recognisers — through candidates go to :func:`recognise_slots`, blind
+   ones (carrying their depth) to :func:`recognise_pockets`.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import TypeVar
 
 from build123d import GeomType
 from OCP.BRepAdaptor import BRepAdaptor_Surface
@@ -37,6 +39,9 @@ from OCP.TopAbs import TopAbs_Orientation
 from draftwright.recognition._record import Record
 
 _AXES = {"x": 0, "y": 1, "z": 2}
+# Shared by the through-slot (:func:`recognise_slots`) and blind-recess
+# (:func:`recognise_pockets`) merges so each keeps its own record type.
+_R = TypeVar("_R", "Slot", "Pocket")
 # A normal counts as axis-aligned when its dominant component is within this of
 # unit length — machined slot walls are square to the stock, so this is tight.
 _AXIS_ALIGNED_TOL = 1e-3
@@ -71,6 +76,43 @@ class Slot(Record):
     long_axis: str
     width: float
     length: float
+    w_center: float
+    lo: float
+    hi: float
+    d_lo: float
+    d_hi: float
+
+    @property
+    def depth_axis(self) -> str:
+        return next(a for a in "xyz" if a not in (self.width_axis, self.long_axis))
+
+
+@dataclass(frozen=True)
+class Pocket(Record):
+    """A blind rectangular recess — a milled slot/pocket capped by a floor (#148a).
+
+    The through/blind split (:func:`_has_floor`) is the only difference from a
+    :class:`Slot`: a pocket is floored, so it carries a third defining size — the
+    ``depth`` from the open face down to the floor (``d_hi - d_lo``, the walls' extent
+    on the depth axis). ``width``/``length`` are the in-plane footprint, exactly as for
+    a slot; a "blind slot" (elongated) and a "pocket" (near-square) are the same feature
+    — both a floored rectangular recess dimensioned width × length × depth.
+
+    width_axis: axis across the recess (the walls' normal axis), 'x'/'y'/'z'.
+    long_axis:  axis the recess runs along (largest shared wall extent).
+    width:      wall-to-wall separation — the shorter in-plane size.
+    length:     recess extent along ``long_axis`` — the longer in-plane size.
+    depth:      open-face-to-floor depth (along ``depth_axis``).
+    w_center:   ``width_axis`` coordinate of the recess centreline.
+    lo, hi:     ``long_axis`` coordinates of the recess ends (lo < hi).
+    d_lo, d_hi: extent on the depth axis (``depth == d_hi - d_lo``).
+    """
+
+    width_axis: str
+    long_axis: str
+    width: float
+    length: float
+    depth: float
     w_center: float
     lo: float
     hi: float
@@ -291,7 +333,7 @@ def recognise_slots(part) -> list[Slot]:
     return _merge(candidates)
 
 
-def _region_center(s: Slot):
+def _region_center(s: Slot | Pocket):
     """The slot's mid-point in part coordinates (axis-ordered)."""
     c = {
         s.width_axis: s.w_center,
@@ -301,7 +343,7 @@ def _region_center(s: Slot):
     return (c["x"], c["y"], c["z"])
 
 
-def _merge(candidates: list[Slot]) -> list[Slot]:
+def _merge(candidates: list[_R]) -> list[_R]:
     """A rectangular slot is bounded by two orthogonal opposed-wall pairs (the
     width walls and the length end-caps), so the same feature is detected twice
     — once per pair.  Collapse candidates that occupy the same region, keeping
@@ -310,10 +352,49 @@ def _merge(candidates: list[Slot]) -> list[Slot]:
     Sorted by ``(width, region_centre)`` so the output order — and therefore the
     ``slot{i}`` annotation names downstream — is determined by geometry alone,
     not by OCC face-iteration order (which is not stable across kernels)."""
-    kept: list[Slot] = []
+    kept: list[_R] = []
     for s in sorted(candidates, key=lambda c: (c.width, _region_center(c))):
         cs = _region_center(s)
         if any(math.dist(cs, _region_center(k)) <= _MERGE_TOL for k in kept):
             continue
         kept.append(s)
     return kept
+
+
+def recognise_pockets(part) -> list[Pocket]:
+    """Blind rectangular recesses — floored slots/pockets (#148a).
+
+    The blind counterpart of :func:`recognise_slots`: the same facing-rectangular-wall
+    candidate scan, but keeping only the pairs a floor caps (``_has_floor`` — through
+    slots go to :func:`recognise_slots`, blind recesses come here). Each kept candidate
+    gains its ``depth`` (the walls' open-face-to-floor extent, ``d_hi - d_lo``). A
+    "blind slot" (elongated) and a "pocket" (near-square) are the same floored feature,
+    dimensioned width × length × depth."""
+    faces = _planar_faces(part)
+    pbb = part.bounding_box()
+    part_ext = {a: getattr(pbb.size, "XYZ"[_AXES[a]]) for a in "xyz"}
+    by_axis: dict[str, list[_Face]] = {}
+    for f in faces:
+        if f.rect:
+            by_axis.setdefault(f.axis, []).append(f)
+    candidates: list[Pocket] = []
+    for walls in by_axis.values():
+        for i in range(len(walls)):
+            for j in range(i + 1, len(walls)):
+                s = _candidate(walls[i], walls[j], part_ext)
+                if s is not None and _has_floor(faces, s):
+                    candidates.append(
+                        Pocket(
+                            width_axis=s.width_axis,
+                            long_axis=s.long_axis,
+                            width=s.width,
+                            length=s.length,
+                            depth=round(s.d_hi - s.d_lo, 2),
+                            w_center=s.w_center,
+                            lo=s.lo,
+                            hi=s.hi,
+                            d_lo=s.d_lo,
+                            d_hi=s.d_hi,
+                        )
+                    )
+    return _merge(candidates)
