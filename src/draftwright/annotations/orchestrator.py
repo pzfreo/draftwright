@@ -57,7 +57,6 @@ from draftwright.annotations.sections import (
     _reserve_section_row,
     _resolve_details,
     feature_hole_keys,
-    feature_holes_of,
 )
 from draftwright.model import (
     Frame,
@@ -239,17 +238,14 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # parts) — the IR gates callouts/furniture/sections on membership in this set, so no
     # recogniser Hole object crosses into the renderers (Amendment 6, #263/#207).
     # feature_hole_keys reads the IR (`_model.features`) — the single source shared with
-    # the section() add verb (#420 / #584 WP1). feature_holes (still record-typed) feeds
-    # only the off-axis side-drilled location pass below, which migrates in WP1 subsystem B.
+    # the section() add verb (#420 / #584 WP1) and the off-axis location pass, which now
+    # derives its own side-drilled holes from the IR too (subsystem B3).
     feature_keys = feature_hole_keys(_model, a)
-    feature_holes = feature_holes_of(a)
     # ADR 0011 #448: when the caller DECLARED the model (model=), a hole/pattern renders at
     # its declared position even where detection missed it — source the callout membership
     # set from the declared IR groups too, not only a.holes. A no-op for the detection-only
     # path (gated on the declared flag; and on a fully-detected declared part the declared
-    # keys already coincide with the detected ones). NOTE: off-axis side-drilled *location*
-    # dims (_locate_off_axis_holes below) still gate on detected holes — they need recogniser
-    # -Hole geometry (diameter/depth/bottom) a declared IR feature doesn't carry — a follow-up.
+    # keys already coincide with the detected ones).
     declared_keys: set = set()
     if getattr(dwg, "_model_declared", False):
         declared_keys = _declared_feature_keys(_groups, a)
@@ -267,13 +263,14 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (tests/test_layout_cleanliness.py) is exactly this accepted case.
     _section = plan_sections(_model, feature_keys)
     _reserve_section_row(dwg, a, _section)
-    if feature_holes or declared_keys:  # declared holes render even where detection missed them
+    # Any hole/pattern member (declared holes render even where detection missed them).
+    if feature_keys:
         _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys)
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.
     render_locations(dwg, _model, a)
 
-    if a.cross_diams and a.is_rotational and not feature_holes:
+    if a.cross_diams and a.is_rotational and not feature_keys:
         _log.info(
             "Cross-hole ø%s detected but not annotated (requires section view)",
             _fmt(a.cross_diams[0]),
@@ -301,8 +298,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # the overall envelope depth. They now queue into the same batch; the envelope's
     # later subchain + mandatory priority keeps ISO outermost stacking and prevents
     # best-effort locations from starving the principal depth dimension (#477).
-    if feature_holes:
-        _locate_off_axis_holes(dwg, a, holes_in=feature_holes, which="across")
+    if feature_keys:
+        _locate_off_axis_holes(dwg, a, which="across")
 
     # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
     # queued into the shared corridor instead of claiming a post-hoc carve tier.
@@ -330,8 +327,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # candidates so below/right corridors solve them together with GD&T/PMI at the drain.
     # The front-right prismatic height ladder remains immediate because its later witness
     # bases depend on earlier placed tiers (#477).
-    if feature_holes:
-        _locate_off_axis_holes(dwg, a, holes_in=feature_holes, which="along")
+    if feature_keys:
+        _locate_off_axis_holes(dwg, a, which="along")
 
     # Non-cylindrical machined features: slots / reduced across-flats sections
     # (#135) — IR renderer, placed through the zone strips (shared infra). Runs
