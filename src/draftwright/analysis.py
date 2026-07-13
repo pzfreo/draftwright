@@ -461,7 +461,11 @@ def _analyse(
     # model the renderers use — detected and declared parts share one sizing path and no
     # recogniser record reaches the sheet estimators (ADR 0008; #584 WP1 A). A declared
     # model sizes from its own declaration (ADR 0011); otherwise the detected records are
-    # adapted into the IR (cheap — no re-recognition).
+    # adapted into the IR (cheap — no re-recognition). Sizing is byte-identical to the old
+    # record-based estimators EXCEPT where a pattern shares a machining spec with loose
+    # holes: the IR keeps them as separate features, so the corridor sizes for the pattern's
+    # own callout, not a phantom merged "N×" (the renderer emits them separately too — the
+    # old estimator over-reserved). This can shift a tightly-packed such part's layout.
     _bores = (
         tuple(_sizing_bores(z_cyls, z_diams, od_diam, cx, cy))
         if is_rotational and od_axis == "z"

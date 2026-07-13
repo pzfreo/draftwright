@@ -1408,6 +1408,29 @@ class TestComposeAnnoBoxes:
         assert _will_balloon(model)  # guard: this case must balloon
         self._assert_match(model, 0, bb, w)
 
+    def test_pattern_plus_same_spec_loose_size_as_separate_callouts(self):
+        # #584 WP1 A (accepted divergence, more-correct): a pattern and same-spec LOOSE
+        # holes are separate IR features, so sizing reserves for the pattern's
+        # "8× …EQ SP ON ø… BC" callout — NOT a phantom merged "11×". The renderer emits
+        # them as distinct callouts, so adding same-spec loose holes must not widen the
+        # pattern's callout corridor (the old record-based estimator merged them and
+        # over-reserved for a callout that never renders).
+        from math import cos, radians, sin
+
+        ring = Box(120, 120, 8)
+        for i in range(8):
+            a = radians(45 * i)
+            ring -= Pos(35 * cos(a), 35 * sin(a), 0) * Cylinder(3, 8)
+        part = ring
+        for x, y in [(-52, -52), (52, 52), (-52, 52)]:
+            part -= Pos(x, y, 0) * Cylinder(3, 8)  # 3 loose ø6 holes, same spec
+
+        model_both, w_both = _sizing_model(part)
+        kinds = sorted(f.kind for f in model_both.features if f.kind in ("hole", "pattern"))
+        assert kinds == ["hole", "pattern"]  # separate features, not merged
+        _, w_ring = _sizing_model(ring)  # pattern alone
+        assert w_both == pytest.approx(w_ring)  # loose same-spec holes don't widen it
+
     def test_footprint_reduction_and_left_floor(self):
         # Direct unit test of the reducer: deepest band per side wins, and the
         # left keeps its _DIM_PAD floor even when the deepest left band is
