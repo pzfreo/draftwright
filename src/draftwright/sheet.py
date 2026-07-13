@@ -133,9 +133,7 @@ def _will_balloon(model) -> bool:
         if f.kind == "hole" and f.frame.axis == "z"
     )
     covered = sum(
-        f.count
-        for f in model.features
-        if f.kind == "pattern" and f.member.frame.axis == "z"
+        f.count for f in model.features if f.kind == "pattern" and f.member.frame.axis == "z"
     )
     total = loose + covered
     if total < _TABULATE_MIN_HOLES:
