@@ -6796,6 +6796,23 @@ class TestFindSlots:
         assert len(slots) == 2
         assert all(s.length == 40.0 for s in slots)  # not merged into one 110mm run
 
+    def test_arms_not_fused_by_a_channel_that_misses_their_centreline(self):
+        # The bridging channel must actually REACH the arms, not merely match the
+        # gap's centre and width.  Two collinear x-arms on centreline y=0 with a
+        # SOLID gap, plus a perpendicular channel displaced to y∈[10,50] whose
+        # x-centre and x-width coincide with the gap but which never crosses y=0.
+        # Position-blind bridging would fuse the arms across solid stock (#610
+        # review); the run-overlap check keeps all three slots distinct.
+        part = (
+            Box(120, 100, 10)
+            - Pos(-35, 0, 0) * Box(40, 12, 20)
+            - Pos(35, 0, 0) * Box(40, 12, 20)
+            - Pos(0, 30, 0) * Box(30, 40, 20)
+        )
+        slots = recognise_slots(part)
+        assert len(slots) == 3  # two 40mm x-arms + one y-channel, none merged
+        assert sorted(s.length for s in slots) == [40.0, 40.0, 40.0]
+
     def test_slot_is_frozen_dataclass(self):
         s = recognise_slots(Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20))[0]
         assert isinstance(s, Slot)

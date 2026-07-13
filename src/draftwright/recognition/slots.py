@@ -352,22 +352,34 @@ def _same_channel_line(a: Slot, b: Slot):
     return gap if gap[1] - gap[0] > 0 else None
 
 
-def _gap_bridged(gap, long_axis: str, slots: list[Slot]) -> bool:
-    """True when a perpendicular channel exactly spans ``gap`` along ``long_axis``
-    — the evidence the gap between two collinear arms is a crossing slot (void),
-    not solid material.  The crossing channel's width runs along ``long_axis``
-    (``width_axis == long_axis``); its centreline and width match the gap's centre
-    and size.  A symmetric cross splits *both* channels, so the bridging arm need
-    not span this channel's centreline — matching the gap is what identifies it,
-    and a solid bridge has no such channel to match."""
+def _gap_bridged(gap, arm: Slot, slots: list[Slot]) -> bool:
+    """True when a crossing channel spans ``gap`` *at this arm's location* — the
+    evidence the gap between two collinear arms is void, not solid material.
+
+    The crossing channel runs across the arm: its ``width_axis`` is the arm's
+    ``long_axis`` and its ``long_axis`` the arm's ``width_axis``; its wall
+    separation matches the gap's size and its centreline the gap's centre.  It
+    must also *reach* the arm — a perpendicular slot elsewhere on the part whose
+    centreline and width merely happen to match the gap would otherwise fuse two
+    collinear slots across solid stock (#610 review).  A symmetric cross splits
+    the crossing channel too, so its run is unioned across *all* its matching
+    arms; that union must cover this arm's centreline and overlap it in depth."""
     g_center = (gap[0] + gap[1]) / 2
     g_size = gap[1] - gap[0]
-    return any(
-        p.width_axis == long_axis
+    crossers = [
+        p
+        for p in slots
+        if p.width_axis == arm.long_axis
+        and p.long_axis == arm.width_axis
         and abs(p.w_center - g_center) <= _MERGE_TOL
         and abs(p.width - g_size) <= _MERGE_TOL
-        for p in slots
-    )
+        and max(p.d_lo, arm.d_lo) < min(p.d_hi, arm.d_hi)
+    ]
+    if not crossers:
+        return False
+    run_lo = min(p.lo for p in crossers)
+    run_hi = max(p.hi for p in crossers)
+    return run_lo - _MERGE_TOL <= arm.w_center <= run_hi + _MERGE_TOL
 
 
 def _collapse_collinear(slots: list[Slot]) -> list[Slot]:
@@ -390,7 +402,7 @@ def _collapse_collinear(slots: list[Slot]) -> list[Slot]:
     for i in range(len(slots)):
         for j in range(i + 1, len(slots)):
             gap = _same_channel_line(slots[i], slots[j])
-            if gap is not None and _gap_bridged(gap, slots[i].long_axis, slots):
+            if gap is not None and _gap_bridged(gap, slots[i], slots):
                 parent[find(i)] = find(j)
 
     groups: dict[int, list[Slot]] = {}
