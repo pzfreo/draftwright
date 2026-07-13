@@ -412,14 +412,18 @@ def _read_fillet_face(face) -> tuple[str, float, Point]:
             "fillet(face=...): the round must run along one principal axis; use axis=, radius=, at="
         )
     edge_i = max(range(3), key=lambda i: comp[i])
-    c = face.center()
+    # The bbox centre of the face, NOT face.center() (the surface centroid): the recogniser
+    # anchors on the bbox centre (recognition/fillets.py), so this keeps a declared fillet's
+    # leader tip byte-identical to the detected one's in the two in-plane coordinates.
+    bb = face.bounding_box()
+    c = (0.5 * (bb.min.X + bb.max.X), 0.5 * (bb.min.Y + bb.max.Y), 0.5 * (bb.min.Z + bb.max.Z))
     return (
         "xyz"[edge_i],
         round(s.Cylinder().Radius(), 3),
         (
-            round(c.X, 4),
-            round(c.Y, 4),
-            round(c.Z, 4),
+            round(c[0], 4),
+            round(c[1], 4),
+            round(c[2], 4),
         ),
     )
 

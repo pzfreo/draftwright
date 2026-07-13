@@ -381,8 +381,10 @@ class TestFillet:
         det = next(
             x for x in build_drawing(solid, number="X").model().features if x.kind == "fillet"
         )
-        assert f.frame.origin[0] == pytest.approx(det.frame.origin[0], abs=1.0)
-        assert f.frame.origin[1] == pytest.approx(det.frame.origin[1], abs=1.0)
+        # Exact in-plane parity: declare reads the same bbox-centre anchor the recogniser does
+        # (the along-edge Z coord is view depth, so it need not match).
+        assert f.frame.origin[0] == pytest.approx(det.frame.origin[0], abs=0.01)
+        assert f.frame.origin[1] == pytest.approx(det.frame.origin[1], abs=0.01)
 
     def test_recognises_external_fillet(self):
         dwg = build_drawing(self._filleted(3), number="X")
