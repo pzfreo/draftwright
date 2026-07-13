@@ -485,6 +485,26 @@ class TestFlatCallout:
         assert dwg._named[names[0]].label == _flat_label(15)
         assert dwg._anno_view[names[0]] == "plan"  # a Z-axis bar reads down the axis (plan)
 
+    def test_offcentre_recess_wall_is_not_a_flat(self):
+        # A slot/recess offset to one side of the axis has a near wall whose outward normal
+        # points *away* from the axis — the sign test alone would pass it. But that wall reaches
+        # the OD on one end only (the other abuts the slot floor), so it is not a flat.
+        from draftwright.recognition import recognise_flats
+
+        recessed = Cylinder(30, 40) - Pos(20, 25, 0) * Box(10, 30, 50)
+        assert recognise_flats(recessed) == []
+
+    def test_lone_flats_on_two_parallel_shafts_are_not_paired(self):
+        # Two distinct z-shafts, each with one flat facing opposite ways. They share the axis
+        # *letter* but not the axis *line*, so neither is the other's opposite: each reads the
+        # D height (R + d = 15), not a spurious flat-to-flat (2d = 10).
+        from draftwright.recognition import recognise_flats
+
+        left = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)
+        right = Pos(50, 0, 0) * (Cylinder(10, 30) - Pos(-10, 0, 0) * Box(10, 40, 40))
+        flats = recognise_flats(left + right)
+        assert len(flats) == 2 and {round(f.across, 1) for f in flats} == {15.0}
+
 
 class TestCountersinkCallout:
     """#558: a countersunk hole was called out as a plain THRU hole — no major-Ø /

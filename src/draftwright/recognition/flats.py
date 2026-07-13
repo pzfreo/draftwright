@@ -45,6 +45,48 @@ _CHORD_MIN = 0.05
 _CHORD_MARGIN = 0.05
 # A flat must remove more than this depth of material (R − d); below it is a tangent sliver.
 _MIN_FLAT_DEPTH = 0.5
+# A genuine flat's chord reaches the OD at *both* ends (radius R); a slot wall reaches it at
+# one end only (the other abuts the slot floor). Two flats are opposed across the *same* axis
+# line (not merely the same axis letter) within these mm tolerances.
+_OD_REACH_TOL = 0.1
+_AXIS_LINE_TOL = 0.1
+
+
+def _both_chord_ends_reach_od(verts, ax, dv, nv, r):
+    """A genuine flat is a chord of the OD: both transverse ends of the face lie *on* the
+    cylinder (radius ≈ R). A slot/pocket near-wall — outward-facing but offset to one side of
+    the axis — has one end on the OD and the other on the slot floor (radius < R), so it is
+    rejected. ``dv`` is the axis direction, ``nv`` the (radial) face normal; the chord runs
+    along ``nv × dv`` within the plane perpendicular to the axis."""
+    cx = nv[1] * dv[2] - nv[2] * dv[1]
+    cy = nv[2] * dv[0] - nv[0] * dv[2]
+    cz = nv[0] * dv[1] - nv[1] * dv[0]
+    cm = (cx * cx + cy * cy + cz * cz) ** 0.5
+    if cm < 1e-9:  # normal parallel to axis (shouldn't happen — already radial-gated)
+        return False
+    cx, cy, cz = cx / cm, cy / cm, cz / cm
+    lo_t = hi_t = lo_r = hi_r = None
+    for vx, vy, vz in verts:
+        rx, ry, rz = vx - ax[0], vy - ax[1], vz - ax[2]
+        t = rx * cx + ry * cy + rz * cz  # position along the chord
+        adot = rx * dv[0] + ry * dv[1] + rz * dv[2]
+        px, py, pz = rx - adot * dv[0], ry - adot * dv[1], rz - adot * dv[2]
+        rad = (px * px + py * py + pz * pz) ** 0.5  # perpendicular distance to the axis line
+        if lo_t is None or t < lo_t:
+            lo_t, lo_r = t, rad
+        if hi_t is None or t > hi_t:
+            hi_t, hi_r = t, rad
+    return lo_r is not None and lo_r >= r - _OD_REACH_TOL and hi_r >= r - _OD_REACH_TOL
+
+
+def _same_axis_line(a_ax, a_dir, b_ax):
+    """Two radial flats are opposed across one shaft only if their turning axes are the *same
+    line* — the vector between the axis points has no component perpendicular to the shared
+    direction. Guards against pairing lone flats on two distinct parallel shafts."""
+    vx, vy, vz = b_ax[0] - a_ax[0], b_ax[1] - a_ax[1], b_ax[2] - a_ax[2]
+    adot = vx * a_dir[0] + vy * a_dir[1] + vz * a_dir[2]
+    px, py, pz = vx - adot * a_dir[0], vy - adot * a_dir[1], vz - adot * a_dir[2]
+    return (px * px + py * py + pz * pz) ** 0.5 <= _AXIS_LINE_TOL
 
 
 @dataclass(frozen=True)
@@ -96,7 +138,12 @@ def recognise_flats(part) -> list[Flat]:
                 continue  # outward normal points toward the axis (a slot wall), or outside OD
             if r - s < _MIN_FLAT_DEPTH:
                 continue  # a tangent sliver, not a machined flat
-            cands.append({"axis": c["axis"], "n": nv, "s": s, "r": r, "at": pcv})
+            verts = [(v.X, v.Y, v.Z) for v in f.vertices()]
+            if not _both_chord_ends_reach_od(verts, ax, d, nv, r):
+                continue  # one end abuts a slot floor, not the OD — a recess wall, not a flat
+            cands.append(
+                {"axis": c["axis"], "n": nv, "s": s, "r": r, "at": pcv, "ax": ax, "dir": d}
+            )
             break
 
     # Phase 2 — size each flat. A parallel flat opposed across the axis (antiparallel
@@ -108,6 +155,8 @@ def recognise_flats(part) -> list[Flat]:
         for j, other in enumerate(cands):
             if j == i or other["axis"] != cand["axis"]:
                 continue
+            if not _same_axis_line(cand["ax"], cand["dir"], other["ax"]):
+                continue  # a lone flat on a *different* parallel shaft — not opposed
             dot = n[0] * other["n"][0] + n[1] * other["n"][1] + n[2] * other["n"][2]
             if abs(dot + 1.0) <= _ANTIPARALLEL_TOL:
                 opp = other
