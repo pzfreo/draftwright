@@ -325,7 +325,100 @@ def recognise_slots(part) -> list[Slot]:
                 # between bosses) is capped by a floor and is out of scope (#148).
                 if s is not None and not _has_floor(faces, s):
                     candidates.append(s)
-    return _merge(candidates)
+    # Recombine arms of a crossing channel split by the intersection (#604).
+    return _collapse_collinear(_merge(candidates))
+
+
+def _same_channel_line(a: Slot, b: Slot):
+    """When ``a`` and ``b`` are collinear co-axial slot *arms* — same wall plane
+    (width axis, centreline, width and depth extent) but disjoint along their run
+    — return the gap ``(g_lo, g_hi)`` between them along ``long_axis``; else None.
+
+    Two arms of one channel that a crossing cut has split (#604) share every
+    dimension but their run; two genuinely parallel slots have different
+    centrelines (``w_center``) and never reach here."""
+    if a.width_axis != b.width_axis or a.long_axis != b.long_axis:
+        return None
+    if abs(a.w_center - b.w_center) > _MERGE_TOL or abs(a.width - b.width) > _MERGE_TOL:
+        return None
+    if abs(a.d_lo - b.d_lo) > _MERGE_TOL or abs(a.d_hi - b.d_hi) > _MERGE_TOL:
+        return None
+    if a.hi <= b.lo:
+        gap = (a.hi, b.lo)
+    elif b.hi <= a.lo:
+        gap = (b.hi, a.lo)
+    else:
+        return None  # overlapping along the run — not two disjoint arms
+    return gap if gap[1] - gap[0] > 0 else None
+
+
+def _gap_bridged(gap, long_axis: str, slots: list[Slot]) -> bool:
+    """True when a perpendicular channel exactly spans ``gap`` along ``long_axis``
+    — the evidence the gap between two collinear arms is a crossing slot (void),
+    not solid material.  The crossing channel's width runs along ``long_axis``
+    (``width_axis == long_axis``); its centreline and width match the gap's centre
+    and size.  A symmetric cross splits *both* channels, so the bridging arm need
+    not span this channel's centreline — matching the gap is what identifies it,
+    and a solid bridge has no such channel to match."""
+    g_center = (gap[0] + gap[1]) / 2
+    g_size = gap[1] - gap[0]
+    return any(
+        p.width_axis == long_axis
+        and abs(p.w_center - g_center) <= _MERGE_TOL
+        and abs(p.width - g_size) <= _MERGE_TOL
+        for p in slots
+    )
+
+
+def _collapse_collinear(slots: list[Slot]) -> list[Slot]:
+    """Recombine slot arms split by a crossing channel into whole channels (#604).
+
+    A ``+`` of two intersecting through-channels is milled as one continuous slot
+    each, but the central intersection removes the middle of both channels' walls,
+    so the wall scan yields two collinear arm-slots per channel (four total).
+    Union collinear co-axial arms whose gap a perpendicular channel bridges, and
+    span each group into a single slot running its full length.  Arms with a solid
+    bridge between them (no crossing channel) are left as separate features."""
+    parent = list(range(len(slots)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(slots)):
+        for j in range(i + 1, len(slots)):
+            gap = _same_channel_line(slots[i], slots[j])
+            if gap is not None and _gap_bridged(gap, slots[i].long_axis, slots):
+                parent[find(i)] = find(j)
+
+    groups: dict[int, list[Slot]] = {}
+    for idx, s in enumerate(slots):
+        groups.setdefault(find(idx), []).append(s)
+
+    out: list[Slot] = []
+    for members in groups.values():
+        if len(members) == 1:
+            out.append(members[0])
+            continue
+        base = members[0]
+        lo = min(m.lo for m in members)
+        hi = max(m.hi for m in members)
+        out.append(
+            Slot(
+                width_axis=base.width_axis,
+                long_axis=base.long_axis,
+                width=base.width,
+                length=round(hi - lo, 2),
+                w_center=base.w_center,
+                lo=round(lo, 2),
+                hi=round(hi, 2),
+                d_lo=base.d_lo,
+                d_hi=base.d_hi,
+            )
+        )
+    return sorted(out, key=lambda c: (c.width, _region_center(c)))
 
 
 def _region_center(s: Slot | Pocket):

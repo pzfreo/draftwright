@@ -6767,6 +6767,35 @@ class TestFindSlots:
         assert s.width == 4.0
         assert s.long_axis == "x"  # not z, despite z-extent ≈ x-extent locally
 
+    def test_cross_slot_collapses_to_two_channels(self):
+        # A + of two intersecting through-channels: the central intersection
+        # splits each channel's walls, so the raw scan finds FOUR arm-slots. The
+        # collinear-collapse must recombine them into the TWO channels, each
+        # spanning its full length (#148d). Thin plate so the arm length exceeds
+        # the (through) thickness, else the depth axis is mistaken for length.
+        part = Box(80, 60, 10) - Box(50, 12, 20) - Box(14, 44, 20)
+        slots = recognise_slots(part)
+        assert len(slots) == 2
+        by_long = {s.long_axis: s for s in slots}
+        assert by_long["x"].width == 12.0
+        assert by_long["x"].length == 50.0  # the full x-channel, not a 18mm arm
+        assert (by_long["x"].lo, by_long["x"].hi) == (-25.0, 25.0)
+        assert by_long["y"].width == 14.0
+        assert by_long["y"].length == 44.0  # the full y-channel, not a 16mm arm
+        assert (by_long["y"].lo, by_long["y"].hi) == (-22.0, 22.0)
+
+    def test_collinear_slots_with_solid_bridge_stay_separate(self):
+        # Two collinear slots on the SAME centreline but separated by solid
+        # material (no crossing channel bridging the gap) are distinct features.
+        # The collapse must span arms only when a perpendicular channel fills the
+        # gap — here it does not, so both slots survive (#148d guard).
+        part = (
+            Box(120, 40, 10) - Pos(-35, 0, 0) * Box(40, 12, 20) - Pos(35, 0, 0) * Box(40, 12, 20)
+        )
+        slots = recognise_slots(part)
+        assert len(slots) == 2
+        assert all(s.length == 40.0 for s in slots)  # not merged into one 110mm run
+
     def test_slot_is_frozen_dataclass(self):
         s = recognise_slots(Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20))[0]
         assert isinstance(s, Slot)
