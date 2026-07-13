@@ -1,6 +1,8 @@
 # ADR 0010 — Annotation provenance: record intent → annotation once, at the render seam
 
-- **Status:** Accepted (decision; work pending — re-plans #398c–e, enables #400)
+- **Status:** Accepted; **landed** (Amendment 2, 2026-07-13) — annotation → feature
+  provenance is complete + audit-tested; the per-feature `origin` back-link (decision
+  point 1) was superseded by the render seam and never built. Re-planned #398c–e; #400.
 - **Date:** 2026-07-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -112,6 +114,36 @@ map, a callout `id(callout)→feature` map), it resolves to the **same** registr
 the sink is uniform even where the plumbing to reach it must differ. Tracked as the
 consistency completion (#408), which folds callout/furniture/balloon provenance and
 full `dimension()` coverage into one PR so *add* and *drop* land symmetric.
+
+## Amendment 2 — landed; decision-point 1 superseded (2026-07-13, epic #584 WP4)
+
+The seam is **implemented and the Amendment-1 completeness bar is met**, but via a
+different mechanism than decision-point 1 described — so this records what actually
+shipped and narrows the ADR to it.
+
+- **What exists (the guarantee):** annotation → feature provenance is **complete for
+  every feature kind** and machine-checked (`tests/test_make_drawing.py::
+  test_drop_is_complete_for_a_multi_feature_prismatic_part` / `_turned` /
+  `_side_drilled_holes`): `annotations_of(feature)` equals what `drop(feature)`
+  removes. Param-level provenance/edits exist too — `dimension(feature, param, role=…)`
+  adds any linear parameter a feature exposes back (#398e). The **sink** is the
+  registry's `_anno_feature` (#398b); the **populator** is the `feature=` kwarg threaded
+  through every render pass into `Registry.add`. Recognition-object passes (hole
+  callouts/balloons) bridge recognition → IR by **position** (`_feature_of_hole_at`),
+  not a back-link.
+
+- **Decision-point 1 (a universal `origin` back-link on IR features) is superseded and
+  was never needed.** The core detection features (`HoleFeature`/`PatternFeature`/
+  `BossFeature`/`StepFeature`/`SlotFeature`/…) carry **no** `origin` field: the render
+  seam links annotation → feature directly, and the recognition ↔ IR gap it was meant to
+  close is closed by position resolution instead. `origin` survives **only** on the
+  *aspect* features (`ControlFrame`/`DatumRef`/`Finish`) — and there it is a GD&T
+  *targeting* handle (ADR 0011 P2b), a different purpose, not this ADR's provenance
+  back-link. The "`origin` extends the IR feature types" note under *Related → ADR 0008*
+  is narrowed accordingly.
+
+**Status:** Accepted → **landed** (annotation → feature provenance complete + tested;
+the `origin`-back-link mechanism dropped as unnecessary).
 
 ## Related
 
