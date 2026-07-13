@@ -309,6 +309,25 @@ class ChamferFeature:
 
 
 @dataclass(frozen=True)
+class FilletFeature:
+    """A rounded (filleted) edge (#561), called out ``R{radius}`` (grouped ``n× R{radius}``
+    for equal radii). ``axis`` is the rounded edge's direction; ``radius`` is the fillet
+    radius, recovered from the cylinder geometry — not estimated from the rendered view
+    (#561 acceptance). The arc analog of :class:`ChamferFeature`."""
+
+    frame: Frame
+    axis: str
+    radius: float
+    kind: ClassVar[str] = "fillet"
+
+    def parameters(self) -> list[DimParameter]:
+        return [DimParameter("radius", "fillet", self.radius)]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class StepLevelFeature:
     """The prismatic height profile — horizontal face levels (Z) dimensioned from the
     base, stacked right of the front view (#237). The turned analogue is `StepFeature`

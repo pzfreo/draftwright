@@ -14,6 +14,7 @@ from draftwright.model import (
     BossFeature,
     ChamferFeature,
     EnvelopeFeature,
+    FilletFeature,
     HoleFeature,
     PartModel,
     PatternFeature,
@@ -24,6 +25,7 @@ from draftwright.model import (
     boss,
     chamfer,
     envelope,
+    fillet,
     hole,
     pattern,
     plate,
@@ -345,6 +347,109 @@ class TestChamfer:
         f = chamfer(bevel, leg2=3)  # override one leg → asymmetric; must NOT raise
         assert abs(f.leg1 - 6) < 0.1 and f.leg2 == 3
         assert f.angle == pytest.approx(math.degrees(math.atan2(3, 6)), abs=1.0)
+
+
+class TestFillet:
+    """#561: fillet (rounded edge) across all three ADR-0011 surfaces — recognise + emit
+    + declare. The arc analog of the chamfer."""
+
+    @staticmethod
+    def _filleted(radius=3):
+        from build123d import fillet as bd_fillet
+
+        return bd_fillet(Box(60, 40, 20).edges().filter_by(Axis.Z), radius)
+
+    def test_explicit(self):
+        f = fillet(axis="z", radius=3, at=(28.5, 18.5, 0))
+        assert isinstance(f, FilletFeature)
+        assert f.axis == "z" and f.radius == 3 and f.frame.origin == pytest.approx((28.5, 18.5, 0))
+
+    def test_reads_off_the_round_face_and_matches_detection(self):
+        # The object flavour reads the CYLINDRICAL blend face — radius off the cylinder, `at`
+        # on the round — and round-trips (in-plane) with the detected feature.
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.GeomAbs import GeomAbs_Cylinder
+
+        solid = self._filleted(3)
+        face = next(
+            g
+            for g in solid.faces()
+            if BRepAdaptor_Surface(g.wrapped).GetType() == GeomAbs_Cylinder
+        )
+        f = fillet(face)
+        assert f.axis == "z" and abs(f.radius - 3) < 0.01
+        det = next(
+            x for x in build_drawing(solid, number="X").model().features if x.kind == "fillet"
+        )
+        # Exact in-plane parity: declare reads the same bbox-centre anchor the recogniser does
+        # (the along-edge Z coord is view depth, so it need not match).
+        assert f.frame.origin[0] == pytest.approx(det.frame.origin[0], abs=0.01)
+        assert f.frame.origin[1] == pytest.approx(det.frame.origin[1], abs=0.01)
+
+    def test_recognises_external_fillet(self):
+        dwg = build_drawing(self._filleted(3), number="X")
+        fs = [f for f in dwg.model().features if f.kind == "fillet"]
+        assert fs and all(abs(f.radius - 3) < 0.01 for f in fs)
+
+    def test_internal_round_is_not_a_fillet(self):
+        # The convex test excludes an internal (concave re-entrant) round. An L-bracket's
+        # inner corner fillet must NOT be called out; only the outer convex ones.
+        from build123d import fillet as bd_fillet
+
+        from draftwright.recognition import recognise_fillets
+
+        L = Box(60, 20, 20) + Pos(-20, 20, 0) * Box(20, 20, 20)
+        filleted = bd_fillet(L.edges().filter_by(Axis.Z), 3)
+        fs = recognise_fillets(filleted)
+        assert len(fs) == 5  # 6 vertical edges, the 1 concave inner corner excluded
+
+    def test_tiny_deburr_is_not_a_fillet(self):
+        # A sub-min_radius edge-break is not a dimensioned feature.
+        from draftwright.recognition import recognise_fillets
+
+        assert recognise_fillets(self._filleted(0.4)) == []
+
+    def test_hole_and_boss_safeguards_intact(self):
+        # A filleted part's holes/bosses are still recognised (fillet recognition must not
+        # break the existing blend-face exclusions in hole/boss recognition, #561 acceptance).
+        from build123d import Cylinder
+
+        from draftwright.recognition import recognise_bosses, recognise_holes
+
+        holed = Box(40, 40, 12) - Pos(0, 0, 0) * Cylinder(3, 12)
+        assert len(recognise_holes(holed)) == 1
+        assert len(recognise_bosses(Cylinder(10, 20))) >= 1
+
+    def test_declared_fillet_renders_R_callout(self):
+        from draftwright.annotations.from_model import _fillet_label
+
+        dwg = build_drawing(
+            Box(60, 40, 20), model=[fillet(axis="z", radius=3, at=(28.5, 18.5, 0))], number="X"
+        )
+        fs = [f for f in dwg.model().features if f.kind == "fillet"]
+        assert len(fs) == 1 and _fillet_label(fs[0].radius, 1) == "R3"
+        assert not any(i.severity == "error" for i in dwg.lint())
+
+    def test_equal_radii_group_as_n_times_R(self):
+        # #561 acceptance #2: repeated equal-radius fillets share one n× R callout.
+        dwg = build_drawing(self._filleted(3), number="X")
+        names = [n for n in dwg.annotations() if n.startswith("m_fillet")]
+        assert len(names) == 1  # ONE grouped callout, not four
+        assert dwg._named[names[0]].label == "4× R3"
+
+    def test_needs_axis_radius_at(self):
+        with pytest.raises(ValueError):
+            fillet(radius=3)  # no axis / at
+
+    def test_rejects_non_positive_radius(self):
+        with pytest.raises(ValueError):
+            fillet(axis="z", radius=-3, at=(0, 0, 0))
+
+    def test_non_cylindrical_face_rejected(self):
+        box = Box(20, 20, 20)
+        flat = box.faces().sort_by(lambda f: f.center().Z)[-1]  # an axis-aligned planar face
+        with pytest.raises(ValueError, match="fillet"):
+            fillet(flat)
 
 
 class TestCountersink:

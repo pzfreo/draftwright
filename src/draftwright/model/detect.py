@@ -23,6 +23,7 @@ from draftwright.model.ir import (
     Datum,
     EnvelopeFeature,
     Feature,
+    FilletFeature,
     Frame,
     HoleFeature,
     PartModel,
@@ -43,6 +44,7 @@ from draftwright.recognition import (
     recognise_bosses,
     recognise_chamfers,
     recognise_countersinks,
+    recognise_fillets,
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
@@ -388,6 +390,18 @@ def build_part_model(
                     leg1=ch.leg1,
                     leg2=ch.leg2,
                     angle=ch.angle,
+                )
+            )
+
+        # Fillets (#561) — external edge rounds on a non-turned part, called out R{radius}
+        # (grouped n× at render). Same non-rotational guard as chamfers.
+        for fl in recognise_fillets(part):
+            at = fl.at
+            features.append(
+                FilletFeature(
+                    frame=Frame((at[0], at[1], at[2]), fl.axis),
+                    axis=fl.axis,
+                    radius=fl.radius,
                 )
             )
 
