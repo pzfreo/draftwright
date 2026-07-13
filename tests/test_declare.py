@@ -517,11 +517,42 @@ class TestPocket:
         assert recognise_pockets(part) == []
         assert len(recognise_slots(part)) == 1  # still a through-slot
 
+    def test_deep_pocket_reads_depth_axis_from_the_floor_not_size(self):
+        # #609 review (major): a pocket DEEPER than it is long. The depth axis must come from
+        # the capped (floor) end, not the size heuristic — else the deep span is mislabelled
+        # 'length' and an end-wall is taken for the floor, swapping two of three dims + the view.
+        from draftwright.recognition import recognise_pockets
+
+        part = Box(80, 60, 40) - Pos(0, 0, 7.5) * Box(20, 10, 25)  # footprint 20×10, depth 25
+        pockets = recognise_pockets(part)
+        assert len(pockets) == 1
+        p = pockets[0]
+        assert (p.width, p.length, p.depth) == (10, 20, 25)
+        assert p.depth_axis == "z"  # opening is up the Z axis → callout reads in the plan view
+
+    def test_sealed_internal_void_is_not_a_pocket(self):
+        # A cavity capped on BOTH ends of every axis (no opening) is not a pocket — the depth
+        # axis must be open on one side. A plain solid trivially has none; the guard is the
+        # exactly-one-capped-end rule that also excludes a sealed void.
+        from draftwright.recognition import recognise_pockets
+
+        assert recognise_pockets(Box(60, 60, 60)) == []
+
     def test_recognised_pocket_gets_callout(self):
         dwg = build_drawing(Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8), number="X")
         names = [n for n in dwg.annotations() if n.startswith("m_pocket")]
         assert len(names) == 1
         assert dwg._named[names[0]].label == "20 × 30 × 8 DEEP"
+        assert dwg._anno_view[names[0]] == "plan"  # z-depth opening → plan view
+        assert not any(i.severity == "error" for i in dwg.lint())
+
+    def test_side_depth_pocket_reads_in_the_side_view(self):
+        # #609 review: exercise the x-depth (view_of x→side) render branch, not just z→plan.
+        dwg = build_drawing(Box(60, 60, 60) - Pos(24, 0, 0) * Box(12, 20, 30), number="X")
+        names = [n for n in dwg.annotations() if n.startswith("m_pocket")]
+        assert len(names) == 1
+        assert dwg._named[names[0]].label == "20 × 30 × 12 DEEP"
+        assert dwg._anno_view[names[0]] == "side"  # x-depth opening → side view
         assert not any(i.severity == "error" for i in dwg.lint())
 
     def test_declared_pocket_renders_its_callout(self):
@@ -545,6 +576,7 @@ class TestPocket:
         assert len(pks) == 1 and pks[0].depth == 8
         names = [n for n in dwg.annotations() if n.startswith("m_pocket")]
         assert len(names) == 1
+        assert dwg._named[names[0]].label == "20 × 30 × 8 DEEP"  # declare-path number wiring
         assert not any(i.severity == "error" for i in dwg.lint())
 
     def test_hole_and_boss_safeguards_intact(self):
