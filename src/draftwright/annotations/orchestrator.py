@@ -263,7 +263,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (tests/test_layout_cleanliness.py) is exactly this accepted case.
     _section = plan_sections(_model, feature_keys)
     _reserve_section_row(dwg, a, _section)
-    if feature_keys:  # any hole/pattern member (declared holes render even where detection missed them)
+    # Any hole/pattern member (declared holes render even where detection missed them).
+    if feature_keys:
         _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys)
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.
