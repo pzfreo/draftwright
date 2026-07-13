@@ -293,7 +293,10 @@ def lint_location_coverage(
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     if patterns is None:
         patterns = recognise_hole_patterns(holes)
-    patterned = {id(h) for pat in patterns for h in pat.holes}
+    # Position-keyed (HoleRef), not id()-keyed: the old identity set only worked because
+    # recognise_hole_patterns reuses the same HoleRecord objects; a position key is robust
+    # to any hole source and matches the rest of the engine's patterned-membership tests.
+    patterned = {HoleRef.of(h.location) for pat in patterns for h in pat.holes}
 
     marks: dict[str, list] = {}
     dim_verts: dict[str, list] = {}
@@ -323,7 +326,7 @@ def lint_location_coverage(
         perp = [(c, q) for ax, c, q in zip("xyz", (x, y, z), centre) if ax != axis]
         coaxial = all(abs(c - q) <= 1.0 for c, q in perp)
         if (
-            id(h) not in patterned
+            HoleRef.of(h.location) not in patterned
             and not coaxial
             and not any(
                 abs(vx - px) <= tol or abs(vy - py) <= tol for vx, vy in dim_verts.get(view, ())
