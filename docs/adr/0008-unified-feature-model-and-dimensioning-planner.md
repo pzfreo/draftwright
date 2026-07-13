@@ -21,6 +21,23 @@
   `detect.py` adapter protocol (typed per-record converters, not one universal
   converter) (ADR 0013). Amendment 6 (no recognition object crosses the boundary) is
   preserved.
+- **Amendment 8** (2026-07-13, epic #584 WP1): Amendment 6 is enforced across the
+  **render** path — the hole/pattern/boss recognition records no longer survive into the
+  annotation/table/section/callout renderers. `annotations/` (sections, hole callouts,
+  the hole table + balloons, the off-axis location dims, the scattered-hole tabulation)
+  now reads the IR (`model.features`); the only place records cross is the sanctioned
+  `build_part_model` boundary itself. **Two paths deliberately keep reading recognition
+  records, and this is correct — not a boundary violation:**
+  1. **lint / coverage** (`linting/coverage.py`) validates the drawing against
+     **recognised geometry** ("is every feature that physically *exists* dimensioned?").
+     That ground-truth check must read recognition, not the IR: sourcing coverage from the
+     dimensioning *plan* would be circular — a feature the planner omitted would never be
+     flagged. `linting/` also stays a leaf (no `model` import) by design. Coverage reading
+     recognition is the check working, not a leak.
+  2. **pre-IR layout/sizing** (`sheet.py` estimators) reads records *before* IR
+     construction, to pick `(scale, page)` during `_analyse`. This is a **pre**-IR pass,
+     not a post-IR render leak; the detected IR does not exist yet at that point. Whether
+     to build the IR earlier and feed these estimators is tracked as WP1 subsystem A.
 
 ## Current decision (as amended, 2026-07-12)
 
