@@ -29,6 +29,7 @@ from draftwright._core import (
     _log,
     _tag_sequence,
 )
+from draftwright.analysis import _sizing_bores
 from draftwright.annotations._common import drain_corridors
 from draftwright.annotations.from_model import (
     render_centermarks,
@@ -66,9 +67,6 @@ from draftwright.model import (
     plan_dimensions,
     plan_sections,
 )
-from draftwright.recognition import (
-    full_cylinders,
-)
 
 
 def _wrap_rows(header, data, ncols):
@@ -90,20 +88,13 @@ def _wrap_rows(header, data, ncols):
 def _concentric_bore_diams(a: Analysis) -> list:
     """Distinct bore diameters on the rotation axis, in z_diams order (#10).
 
-    ``a.z_diams`` carries every Z cylinder diameter — including off-axis ones
-    such as a bolt circle's holes — so the bore-leader set is restricted to
-    diameters that actually have an *internal* Z cylinder whose axis sits on
-    the part centreline.  The OD is excluded.  Returned in z_diams order so
-    label ordering is stable.
+    Delegates to :func:`analysis._sizing_bores` so the render-time model built here
+    uses the SAME bore set the pre-scale sizing model used (#584 WP1 A). ``a.z_diams``
+    carries every Z cylinder diameter (incl. off-axis ones); the set is restricted to
+    diameters with an *internal* centreline Z cylinder, OD excluded, in z_diams order.
     """
     z_cyls, _ = a.cyls
-    concentric = {
-        c["diameter"]
-        for c in full_cylinders(z_cyls)
-        if not c["external"]
-        and math.hypot(c["axis_xyz"][0] - a.cx, c["axis_xyz"][1] - a.cy) <= _CONCENTRIC_TOL_MM
-    }
-    return [d for d in a.z_diams if d != a.od_diam and any(abs(d - c) <= 0.15 for c in concentric)]
+    return _sizing_bores(z_cyls, a.z_diams, a.od_diam, a.cx, a.cy)
 
 
 def build_model(a: Analysis):

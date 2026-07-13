@@ -1295,14 +1295,36 @@ class TestDerivedLayoutConstants:
         assert _text_width("WXYZ", 3.0) > _text_width("iiii", 3.0)
 
     def test_bore_callout_width_scales_with_font_size(self):
-        from draftwright.recognition import recognise_holes
-        from draftwright.sheet import _est_bore_callout_width
+        from build123d_drafting.helpers import draft_preset
+
+        from draftwright.annotations.orchestrator import build_model
+        from draftwright.model import plan_dimensions
+        from draftwright.sheet import _est_planned_bore_callout_width
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
-        holes = recognise_holes(part)
-        small = _est_bore_callout_width(holes, font_size=3.0)
-        large = _est_bore_callout_width(holes, font_size=6.0)
+        groups = plan_dimensions(build_model(build_drawing(part, number="X")._analysis))
+        draft = draft_preset(decimal_precision=1)
+        small = _est_planned_bore_callout_width(groups, draft, font_size=3.0)
+        large = _est_planned_bore_callout_width(groups, draft, font_size=6.0)
         assert large > small
+
+
+def _sizing_model(part):
+    """The sizing IR + planner callout width for *part*, mirroring `_analyse` — the
+    detected-path input the sheet estimators now consume (ADR 0008; #584 WP1 A)."""
+    from build123d_drafting.helpers import draft_preset
+
+    from draftwright._core import _FONT_SIZE
+    from draftwright.annotations.orchestrator import build_model
+    from draftwright.model import plan_dimensions
+    from draftwright.sheet import _est_planned_bore_callout_width
+
+    m = build_model(build_drawing(part, number="X")._analysis)
+    draft = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
+    w = _est_planned_bore_callout_width(
+        plan_dimensions(m), draft, font_size=_FONT_SIZE, pad_around_text=draft.pad_around_text
+    )
+    return m, w
 
 
 class TestComposeAnnoBoxes:
@@ -1310,7 +1332,7 @@ class TestComposeAnnoBoxes:
     that _measure_strips computes — the byte-identical box-model foundation that
     later steps make honest."""
 
-    def _assert_match(self, holes, patterns, n_steps, bb, label=""):
+    def _assert_match(self, model, n_steps, bb, w=0.0, label=""):
         from draftwright.builder import _FONT_SIZE, draft_preset
         from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
 
@@ -1324,78 +1346,90 @@ class TestComposeAnnoBoxes:
             {"arrow_length": 4.3, "pad_around_text": 3.1},
         )
         for kw in arg_sets:
-            composed = _footprint_from_boxes(_compose_anno_boxes(holes, patterns, n_steps, **kw))
-            scalar = _measure_strips(holes, patterns, n_steps, bb, **kw)
+            composed = _footprint_from_boxes(
+                _compose_anno_boxes(model, n_steps, bore_callout_width=w, **kw)
+            )
+            scalar = _measure_strips(model, n_steps, bb, bore_callout_width=w, **kw)
             assert composed == scalar, (label, n_steps, kw)
 
-    def test_declared_bore_width_flows_through_boxes(self):
-        # #540: declared Sheet/IR callouts can be wider than detected geometry
-        # because authored tolerances live on the planned dimensions. That width
-        # must be represented as an annotation box, not as a scalar-only side
+    def test_bore_callout_width_flows_through_boxes(self):
+        # #540/#584 WP1 A: the planner-derived callout width (authored tolerances
+        # included) must be represented as an annotation box, not a scalar-only side
         # channel in _measure_strips.
         from draftwright.builder import _FONT_SIZE, draft_preset
-        from draftwright.recognition import recognise_hole_patterns, recognise_holes
         from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
-        holes = recognise_holes(part)
-        patterns = recognise_hole_patterns(holes)
+        model, _ = _sizing_model(part)
         bb = part.bounding_box()
         draft = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
-        declared_width = 55.0
-        expected_bore_depth = declared_width + draft.pad_around_text + draft.arrow_length
+        width = 55.0
+        expected_bore_depth = width + draft.pad_around_text + draft.arrow_length
 
         boxes = _compose_anno_boxes(
-            holes,
-            patterns,
+            model,
             0,
+            bore_callout_width=width,
             arrow_length=draft.arrow_length,
             pad_around_text=draft.pad_around_text,
-            declared_bore_callout_width=declared_width,
         )
         assert expected_bore_depth in [b.depth for b in boxes if b.side == "right"]
         assert expected_bore_depth in [b.depth for b in boxes if b.side == "left"]
         assert _footprint_from_boxes(boxes) == _measure_strips(
-            holes,
-            patterns,
+            model,
             0,
             bb,
+            bore_callout_width=width,
             arrow_length=draft.arrow_length,
             pad_around_text=draft.pad_around_text,
-            declared_bore_callout_width=declared_width,
         )
 
     def test_matches_for_plain_part(self):
-        from draftwright.recognition import recognise_hole_patterns, recognise_holes
-
         part = Box(60, 40, 12)
-        holes = recognise_holes(part)
-        patterns = recognise_hole_patterns(holes)
+        model, w = _sizing_model(part)
         bb = part.bounding_box()
         for n_steps in (0, 1, 3):
-            self._assert_match(holes, patterns, n_steps, bb)
+            self._assert_match(model, n_steps, bb, w)
 
     def test_matches_for_bored_part(self):
-        from draftwright.recognition import recognise_hole_patterns, recognise_holes
-
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
-        holes = recognise_holes(part)
-        patterns = recognise_hole_patterns(holes)
+        model, w = _sizing_model(part)
         bb = part.bounding_box()
         for n_steps in (0, 2):
-            self._assert_match(holes, patterns, n_steps, bb)
+            self._assert_match(model, n_steps, bb, w)
 
     def test_matches_for_dense_ballooning_part(self):
         # _dense_plate triggers _will_balloon → exercises the plan_halo band.
-        from draftwright.recognition import recognise_hole_patterns, recognise_holes
         from draftwright.sheet import _will_balloon
 
         part = _dense_plate()
-        holes = recognise_holes(part)
-        patterns = recognise_hole_patterns(holes)
+        model, w = _sizing_model(part)
         bb = part.bounding_box()
-        assert _will_balloon(holes, patterns)  # guard: this case must balloon
-        self._assert_match(holes, patterns, 0, bb)
+        assert _will_balloon(model)  # guard: this case must balloon
+        self._assert_match(model, 0, bb, w)
+
+    def test_pattern_plus_same_spec_loose_size_as_separate_callouts(self):
+        # #584 WP1 A (accepted divergence, more-correct): a pattern and same-spec LOOSE
+        # holes are separate IR features, so sizing reserves for the pattern's
+        # "8× …EQ SP ON ø… BC" callout — NOT a phantom merged "11×". The renderer emits
+        # them as distinct callouts, so adding same-spec loose holes must not widen the
+        # pattern's callout corridor (the old record-based estimator merged them and
+        # over-reserved for a callout that never renders).
+        from math import cos, radians, sin
+
+        ring = Box(120, 120, 8)
+        for i in range(8):
+            a = radians(45 * i)
+            ring -= Pos(35 * cos(a), 35 * sin(a), 0) * Cylinder(3, 8)
+        part = ring
+        for x, y in [(-52, -52), (52, 52), (-52, 52)]:
+            part -= Pos(x, y, 0) * Cylinder(3, 8)  # 3 loose ø6 holes, same spec
+
+        model_both, w_both = _sizing_model(part)
+        kinds = sorted(f.kind for f in model_both.features if f.kind in ("hole", "pattern"))
+        assert kinds == ["hole", "pattern"]  # separate features, not merged
+        _, w_ring = _sizing_model(ring)  # pattern alone
+        assert w_both == pytest.approx(w_ring)  # loose same-spec holes don't widen it
 
     def test_footprint_reduction_and_left_floor(self):
         # Direct unit test of the reducer: deepest band per side wins, and the
@@ -1433,9 +1467,8 @@ class TestComposeAnnoBoxesCorpus:
         bands), and a dense plate that escalates to the leadered hole chart
         (plan halo band). The right dim ladder depth is a pure function of the
         n_steps argument (not geometry), so it is swept per part below rather
-        than via a dedicated stepped fixture."""
-        from draftwright.recognition import recognise_hole_patterns, recognise_holes
-
+        than via a dedicated stepped fixture. Each entry carries the sizing IR
+        model + planner callout width the estimators now consume (#584 WP1 A)."""
         parts = {
             "plain_block": Box(60, 40, 12),
             "single_bore": Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12),
@@ -1445,16 +1478,15 @@ class TestComposeAnnoBoxesCorpus:
         }
         corpus = []
         for label, part in parts.items():
-            holes = recognise_holes(part)
-            patterns = recognise_hole_patterns(holes)
-            corpus.append((label, holes, patterns, part.bounding_box()))
+            model, w = _sizing_model(part)
+            corpus.append((label, model, w, part.bounding_box()))
         return corpus
 
     def test_byte_identity_across_corpus(self):
         helper = TestComposeAnnoBoxes()
-        for label, holes, patterns, bb in self._corpus():
+        for label, model, w, bb in self._corpus():
             for n_steps in (0, 1, 4):
-                helper._assert_match(holes, patterns, n_steps, bb, label=label)
+                helper._assert_match(model, n_steps, bb, w, label=label)
 
     def test_box_structure_contract(self):
         """The per-side box structure 4c consumes: the right dim ladder is
@@ -1462,17 +1494,15 @@ class TestComposeAnnoBoxesCorpus:
         equal-depth left/right pair iff the part has annotatable holes; the
         plan halo appears iff the plan view will balloon. (_footprint_from_boxes
         folding these back to the StripDepths estimate is covered above.)"""
-        from draftwright.builder import _FONT_SIZE
         from draftwright.sheet import (
             _compose_anno_boxes,
-            _est_bore_callout_width,
             _est_right_strip_depth,
             _will_balloon,
         )
 
-        for label, holes, patterns, _bb in self._corpus():
+        for label, model, w, _bb in self._corpus():
             for n_steps in (0, 2):
-                boxes = _compose_anno_boxes(holes, patterns, n_steps)
+                boxes = _compose_anno_boxes(model, n_steps, bore_callout_width=w)
                 rights = [b.depth for b in boxes if b.side == "right"]
                 lefts = [b.depth for b in boxes if b.side == "left"]
                 halos = [b for b in boxes if b.side == "plan_halo"]
@@ -1480,8 +1510,7 @@ class TestComposeAnnoBoxesCorpus:
                 # The right dim ladder is always present, at the estimated depth.
                 assert _est_right_strip_depth(n_steps) in rights, (label, n_steps)
 
-                has_callout = _est_bore_callout_width(holes, _FONT_SIZE, patterns=patterns) > 0
-                if has_callout:
+                if w > 0:
                     # Bore bands are emitted as a single equal-depth left/right
                     # pair — the symmetry _measure_strips' max() collapses.
                     assert len(lefts) == 1, (label, n_steps)
@@ -1490,7 +1519,7 @@ class TestComposeAnnoBoxesCorpus:
                     assert lefts == [], (label, n_steps)
 
                 # The halo band is emitted exactly when the part will balloon.
-                assert bool(halos) == _will_balloon(holes, patterns), (label, n_steps)
+                assert bool(halos) == _will_balloon(model), (label, n_steps)
 
 
 class TestComposeViewBlocks:
@@ -1719,8 +1748,6 @@ class TestTwoPassLayout:
 
         from draftwright import build_drawing
         from draftwright._core import _DIM_PAD
-        from draftwright.recognition import recognise_holes
-        from draftwright.sheet import _est_bore_callout_width
 
         # Four identical cylinders → "4× ⌀16 THRU" callout with a count prefix
         part = (
@@ -1736,8 +1763,7 @@ class TestTwoPassLayout:
         fv_right = a.FV_X + a.fv_hw
         actual_gap = sv_left - fv_right
 
-        holes = recognise_holes(part)
-        bore_depth = _est_bore_callout_width(holes)
+        _, bore_depth = _sizing_model(part)
         # bore callout width must exceed DIM_PAD for the test to be meaningful
         assert bore_depth > _DIM_PAD, (
             f"bore callout width {bore_depth:.1f} mm must exceed _DIM_PAD={_DIM_PAD} mm"
@@ -1783,12 +1809,10 @@ class TestTwoPassLayout:
                 )
 
     def test_bolt_circle_suffix_widens_estimate(self):
-        # BoltCircle callouts carry "EQ SP ON ø… BC" suffix (~34 mm wide).
-        # _est_bore_callout_width must include it when patterns are provided.
+        # BoltCircle callouts carry the "EQ SP ON ø… BC" suffix (~34 mm wide); the
+        # planner callout-width estimate must include it, so a bolt-circle part is wider
+        # than the same ⌀8 bore alone (#584 WP1 A — via _est_planned_bore_callout_width).
         from build123d import Box, Cylinder, Pos
-
-        from draftwright.recognition import recognise_hole_patterns, recognise_holes
-        from draftwright.sheet import _est_bore_callout_width
 
         # Six ⌀8 holes at equal 60° spacing on R=35 → BoltCircle pattern
         part = (
@@ -1800,11 +1824,10 @@ class TestTwoPassLayout:
             - Pos(-17.5, -30.31, 0) * Cylinder(8, 20)
             - Pos(17.5, -30.31, 0) * Cylinder(8, 20)
         )
-        holes = recognise_holes(part)
-        patterns = recognise_hole_patterns(holes)
+        plain = Box(100, 100, 20) - Pos(0, 0, 0) * Cylinder(8, 20)  # one ⌀16 bore, no BC suffix
 
-        width_without = _est_bore_callout_width(holes)
-        width_with = _est_bore_callout_width(holes, patterns=patterns)
+        _, width_with = _sizing_model(part)
+        _, width_without = _sizing_model(plain)
         assert width_with > width_without, (
             f"BoltCircle suffix should widen estimate: {width_without:.1f} → {width_with:.1f} mm"
         )

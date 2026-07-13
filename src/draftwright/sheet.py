@@ -20,7 +20,6 @@ from types import SimpleNamespace
 from build123d_drafting.helpers import format_drawing_scale
 
 from draftwright._core import (
-    _CONCENTRIC_TOL_MM,
     _DIM_PAD,
     _FONT_SIZE,
     _ISO_MIN_FIT_FRAC,
@@ -39,7 +38,6 @@ from draftwright._core import (
     _TB_H,
     Strip,
     ViewZones,
-    _axis_letter,
     _fmt,
     _largest_empty_rect,
     _parse_page,
@@ -49,7 +47,6 @@ from draftwright._core import (
     _tol_suffix,
 )
 from draftwright.layout import fit_box
-from draftwright.recognition import BoltCircle, HoleSpec, RectGrid
 
 _log = logging.getLogger(__name__)
 
@@ -72,7 +69,7 @@ def _est_pv_below_depth() -> float:
 
 
 def _est_pv_above_depth(
-    holes, patterns, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0
+    model, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0
 ) -> float:
     """Estimate the depth above the plan view consumed by X-location dims, which
     tier one per distinct datum-X reference (#36) — so the layout can reserve it
@@ -85,12 +82,17 @@ def _est_pv_above_depth(
     Scale-independent (tier height is fixed page-mm).
     """
     z_refs_x: list[float] = []
-    patterned = {h for p in patterns for h in p.holes}
-    for p in patterns:
-        if _axis_letter(p.holes[0]) != "z":
-            continue
-        z_refs_x.append(p.center[0] if isinstance(p, BoltCircle) else p.holes[0].location[0])
-    z_refs_x += [h.location[0] for h in holes if _axis_letter(h) == "z" and h not in patterned]
+    for f in model.features:
+        if f.kind == "pattern" and f.member.frame.axis == "z":
+            # bolt circle's X-ref is the pattern centre (its frame origin); other
+            # patterns tier off their first member's X, as the record path did.
+            z_refs_x.append(
+                f.frame.origin[0]
+                if f.pattern == "bolt_circle"
+                else (f.members or (f.member.frame.origin,))[0][0]
+            )
+        elif f.kind == "hole" and f.frame.axis == "z":
+            z_refs_x += [pos[0] for pos in (f.members or (f.frame.origin,))]
     distinct: list[float] = []
     for x in sorted(z_refs_x):
         if not distinct or abs(x - distinct[-1]) > 0.5:
@@ -112,7 +114,7 @@ def _est_plan_halo(font_size: float = _FONT_SIZE) -> float:
     return _STRIP_GAP + 3 * font_size + _STRIP_SPACING
 
 
-def _will_balloon(holes, patterns) -> bool:
+def _will_balloon(model) -> bool:
     """A-priori (pre-layout) prediction that the plan view will escalate to a
     leadered hole-chart, so its balloon halo can be reserved before the views
     are placed (#111, approach A).
@@ -124,11 +126,19 @@ def _will_balloon(holes, patterns) -> bool:
     little wasted corridor) or, if the runtime trigger fires anyway, fall back
     to placing balloons in the unreserved margin — both are graceful.
     """
-    z = [h for h in holes if _axis_letter(h) == "z"]
-    if len(z) < _TABULATE_MIN_HOLES:
+    # Every z-axis hole occurrence: loose HoleFeature members + pattern members.
+    loose = sum(
+        len(f.members or (f.frame.origin,))
+        for f in model.features
+        if f.kind == "hole" and f.frame.axis == "z"
+    )
+    covered = sum(
+        f.count for f in model.features if f.kind == "pattern" and f.member.frame.axis == "z"
+    )
+    total = loose + covered
+    if total < _TABULATE_MIN_HOLES:
         return False
-    covered = sum(len(p.holes) for p in patterns if p.holes and _axis_letter(p.holes[0]) == "z")
-    return covered < 0.8 * len(z)
+    return bool(covered < 0.8 * total)
 
 
 def _wrap_table_rows(header, data, ncols):
@@ -168,8 +178,7 @@ def _est_table_size(
 
 
 def _est_hole_table_sizes(
-    holes,
-    patterns,
+    model,
     bb,
     font_size: float = _FONT_SIZE,
     pad_around_text: float = 2.0,
@@ -182,15 +191,21 @@ def _est_hole_table_sizes(
     the placed blocks, instead of discovering that only after annotation.
     """
 
-    patterned = {h for p in patterns for h in p.holes}
-    z_holes = [h for h in holes if _axis_letter(h) == "z" and h not in patterned]
+    # Scattered (loose, non-patterned) z-axis holes — one per member; a loose
+    # HoleFeature is by construction not a pattern member (ADR 0008; #584 WP1 A).
+    z_holes = [
+        (f.diameter, pos)
+        for f in model.features
+        if f.kind == "hole" and f.frame.axis == "z"
+        for pos in (f.members or (f.frame.origin,))
+    ]
     if len(z_holes) < _TABULATE_MIN_HOLES:
         return ()
     dx, dy = bb.min.X, bb.min.Y
     header = ("TAG", "ø", "X", "Y")
     data = [
-        (tag, f"ø{_fmt(h.diameter)}", _fmt(h.location[0] - dx), _fmt(h.location[1] - dy))
-        for tag, h in zip(_tag_sequence(len(z_holes)), z_holes, strict=True)
+        (tag, f"ø{_fmt(dia)}", _fmt(pos[0] - dx), _fmt(pos[1] - dy))
+        for tag, (dia, pos) in zip(_tag_sequence(len(z_holes)), z_holes, strict=True)
     ]
     return tuple(
         size
@@ -204,154 +219,16 @@ def _est_hole_table_sizes(
     )
 
 
-def _will_section(holes, patterns, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
-    """A-priori prediction that the automatic pass will add section A-A.
-
-    Mirrors ``plan_sections``' trigger on detected geometry: a Z-axis feature
-    hole or pattern with a counterbore, spotface, or blind/non-through bottom
-    warrants a section. The layout pass cannot import the IR planner without
-    creating a cycle, so it uses the recogniser records that feed the same IR
-    model.
-    """
-
-    patterned = {h for p in patterns for h in p.holes}
-
-    def feature_hole(h) -> bool:
-        if _axis_letter(h) != "z":
-            return False
-        if (
-            is_rotational
-            and math.hypot(h.location[0] - cx, h.location[1] - cy) <= _CONCENTRIC_TOL_MM
-        ):
-            return False
-        return True
-
-    def qualifies(h) -> bool:
-        return feature_hole(h) and (
-            h.cbore is not None or h.spotface is not None or h.bottom != "through"
-        )
-
-    return any(qualifies(h) for p in patterns for h in p.holes[:1]) or any(
-        qualifies(h) for h in holes if h not in patterned
-    )
-
-
-# Inter-constant invariant: the gap between the front view top edge and the
-# plan view bottom edge equals _DIM_PAD.  The pv_zones.below strip occupies
-# that gap, so _DIM_PAD must be at least as wide as the depth pv_below needs.
-# If _DIM_PAD is shrunk below _est_pv_below_depth(), dim_width would silently
-# overlap the front view rather than failing an allocate().
-assert _DIM_PAD >= _est_pv_below_depth(), (
-    f"_DIM_PAD ({_DIM_PAD}) is smaller than pv_below slot depth "
-    f"({_est_pv_below_depth()}); bump _DIM_PAD or shrink the slot constants."
-)
-
-
-# ---------------------------------------------------------------------------
-# Two-pass layout — Pass 1: annotation strip depth measurement (#131)
-#
-# font_size = 3.0 mm is a fixed page-mm constant, so all annotation depths
-# are scale-independent and can be computed before choose_scale() is called.
-# ---------------------------------------------------------------------------
-
-
-def _est_bore_callout_width(
-    holes, font_size: float = _FONT_SIZE, patterns=None, pad_around_text: float = 2.0
-) -> float:
-    """Estimate the maximum bore callout label width (page-mm) across all holes.
-
-    Groups holes by machining spec (same as _annotate_holes), then estimates
-    the HoleCallout token sequence width using a character-based formula.
-    Includes the BoltCircle suffix ("EQ SP ON ø… BC") when patterns are supplied.
-    Returns the label width only — elbow_dx and gap clearance are NOT included;
-    callers that need the full strip depth should add those overheads separately.
-    Returns 0.0 when the hole list is empty.
-    *pad_around_text* should come from ``draft_preset(...).pad_around_text``.
-    """
-    if not holes:
-        return 0.0
-    groups: dict = {}
-    for h in holes:
-        groups.setdefault(HoleSpec.from_hole(h), []).append(h)
-
-    # Map spec_key → the widest pattern-callout suffix, so a spec's grouped
-    # callout reserves room for it. A spec can sub-cluster into several patterns
-    # (#92); the BoltCircle "EQ SP ON ø… BC" is wider than a RectGrid "(r×c)",
-    # so the widest wins (the corridor must hold the longest callout).
-    suffix_by_spec: dict = {}
-    if patterns:
-        for p in patterns:
-            if isinstance(p, BoltCircle):
-                s = f"EQ SP ON ø{_fmt(p.diameter)} BC"
-            elif isinstance(p, RectGrid):
-                s = f"({p.rows}×{p.cols})"
-            else:
-                continue
-            key = HoleSpec.from_hole(p.holes[0])
-            if len(s) > len(suffix_by_spec.get(key, "")):
-                suffix_by_spec[key] = s
-
-    h_fs = font_size
-    # gap (inter-token spacing) and sym_w (geometry-symbol cell width) mirror
-    # HoleCallout's own internal layout constants so the estimate matches what
-    # the primitive actually strokes.  Variable text tokens are measured with
-    # real glyph metrics (_text_width) rather than a character-count fudge (#31).
-    gap = 0.45 * h_fs
-    sym_w = h_fs
-    pad = pad_around_text
-
-    max_w = 0.0
-    for spec_key, group in groups.items():
-        rep = group[0]
-        count = len(group) if len(group) > 1 else None
-        through = rep.bottom == "through"
-        step = rep.cbore or rep.spotface
-
-        token_w: list[float] = []
-        if count:
-            token_w.append(_text_width(f"{count}×", h_fs))
-        token_w.append(sym_w)  # ⌀ symbol
-        token_w.append(_text_width(_fmt(rep.diameter), h_fs))
-        if through:
-            token_w.append(_text_width("THRU", h_fs))
-        elif rep.depth:
-            token_w.append(sym_w)  # depth symbol
-            token_w.append(_text_width(_fmt(rep.depth), h_fs))
-        if step:
-            token_w.append(sym_w)  # counterbore/spotface symbol
-            token_w.append(sym_w)  # ⌀
-            token_w.append(_text_width(_fmt(step.diameter), h_fs))
-            if step.depth:
-                token_w.append(sym_w)  # depth symbol
-                token_w.append(_text_width(_fmt(step.depth), h_fs))
-        if rep.csink is not None:
-            token_w.append(sym_w)  # countersink symbol
-            token_w.append(sym_w)  # ⌀
-            token_w.append(_text_width(_fmt(rep.csink.major_diameter), h_fs))
-            token_w.append(_text_width(f"× {_fmt(rep.csink.included_angle)}°", h_fs))
-
-        # Pattern callout suffix ("EQ SP ON ø… BC" / "(r×c)"), when this spec
-        # group is recognised as a pattern.
-        suffix = suffix_by_spec.get(spec_key)
-        if suffix is not None:
-            token_w.append(_text_width(suffix, h_fs))
-
-        n = len(token_w)
-        w = sum(token_w) + max(n - 1, 0) * gap + pad
-        max_w = max(max_w, w)
-
-    return max_w
-
-
 def _est_planned_bore_callout_width(
     groups, draft, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0
 ) -> float:
     """Estimate widest hole/pattern callout from planned IR dimensions.
 
-    This is the declared-model companion to :func:`_est_bore_callout_width`.
-    Detection-derived ``HoleSpec`` values cannot see authored decorations such as
-    bore tolerances; planned groups can. Keep this in the layout estimator layer
-    so page/scale selection does not import renderers just to size text (#450).
+    The single bore-callout-width estimator for page/scale selection — detected and
+    declared parts both size through it off the IR (#584 WP1 A; it replaced the old
+    record-based ``_est_bore_callout_width``). Planned groups see authored decorations
+    (e.g. bore tolerances) a detection-derived ``HoleSpec`` could not. Kept in the layout
+    estimator layer so page/scale selection does not import renderers to size text (#450).
     """
 
     def _first(group, kind: str, *roles: str) -> float | None:
@@ -439,14 +316,13 @@ class StripDepths:
 
 
 def _measure_strips(
-    holes,
-    patterns,
+    model,
     n_steps: int,
     bb,
     font_size: float = _FONT_SIZE,
     arrow_length: float = 2.7,
     pad_around_text: float = 2.0,
-    declared_bore_callout_width: float = 0.0,
+    bore_callout_width: float = 0.0,
 ) -> StripDepths:
     """Compute annotation strip depths from composed annotation boxes (Pass 1 of #131).
 
@@ -456,13 +332,12 @@ def _measure_strips(
     """
     return _footprint_from_boxes(
         _compose_anno_boxes(
-            holes,
-            patterns,
+            model,
             n_steps,
+            bore_callout_width=bore_callout_width,
             font_size=font_size,
             arrow_length=arrow_length,
             pad_around_text=pad_around_text,
-            declared_bore_callout_width=declared_bore_callout_width,
         )
     )
 
@@ -490,37 +365,33 @@ class AnnoBox:
 
 
 def _compose_anno_boxes(
-    holes,
-    patterns,
+    model,
     n_steps: int,
+    bore_callout_width: float = 0.0,
     font_size: float = _FONT_SIZE,
     arrow_length: float = 2.7,
     pad_around_text: float = 2.0,
-    declared_bore_callout_width: float = 0.0,
 ) -> list[AnnoBox]:
     """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
 
     This is the annotation-footprint authority for scale/page layout. Each
     contributing furniture band is emitted as a box; ``_measure_strips`` only
-    reduces these boxes to the legacy ``StripDepths`` shape. Declared-model
-    callout widths flow through the same box path as detected geometry (#540).
+    reduces these boxes to the legacy ``StripDepths`` shape. Reads the IR
+    (``model.features``) — detected and declared parts size through one path
+    (#584 WP1 A); ``bore_callout_width`` is the planner-derived callout width the
+    caller measured with :func:`_est_planned_bore_callout_width`.
     """
     boxes = [AnnoBox("right", _est_right_strip_depth(n_steps))]  # FV right dim ladder
-    bore_depth = max(
-        _est_bore_callout_width(
-            holes, font_size, patterns=patterns, pad_around_text=pad_around_text
-        ),
-        declared_bore_callout_width,
-    )
+    bore_depth = bore_callout_width
     if bore_depth > 0:
         # elbow clearance + leader-to-label gap, as in _measure_strips
         bore_depth += pad_around_text + arrow_length
         boxes.append(AnnoBox("right", bore_depth))  # FV/PV right bore callouts
         boxes.append(AnnoBox("left", bore_depth))  # FV/PV left bore callouts
-    above = _est_pv_above_depth(holes, patterns, font_size, pad_around_text)
+    above = _est_pv_above_depth(model, font_size, pad_around_text)
     if above > 0:
         boxes.append(AnnoBox("above", above))  # tiered X-location dims above PV (#121)
-    if _will_balloon(holes, patterns):
+    if _will_balloon(model):
         boxes.append(AnnoBox("plan_halo", _est_plan_halo(font_size)))
     return boxes
 

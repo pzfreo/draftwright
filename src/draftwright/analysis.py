@@ -32,6 +32,7 @@ from draftwright._core import (
     _legible_steps,
     _Projector,
 )
+from draftwright.model import build_part_model
 from draftwright.model.ir import Datum, PartModel, StepFeature
 from draftwright.model.planner import plan_dimensions
 from draftwright.recognition import (
@@ -53,7 +54,6 @@ from draftwright.sheet import (
     _est_planned_bore_callout_width,
     _layout_geometry,
     _measure_strips,
-    _will_section,
     choose_scale,
 )
 
@@ -68,8 +68,22 @@ _OD_AXIS_TOL = 0.05
 _ScalePick = tuple[float, float, float, float]
 
 
-def _declared_will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
-    """True when a caller-supplied IR model contains a section-driving Z hole.
+def _sizing_bores(z_cyls, z_diams, od_diam, cx, cy) -> list:
+    """Concentric bore diameters on the rotation axis (the rotational furniture's bore
+    set), computed from explicit locals so the sizing IR can be built *before* the
+    Analysis namespace exists (#584 WP1 A). The single source shared with
+    ``orchestrator.build_model`` (which passes the same values off ``a``)."""
+    concentric = {
+        c["diameter"]
+        for c in full_cylinders(z_cyls)
+        if not c["external"]
+        and math.hypot(c["axis_xyz"][0] - cx, c["axis_xyz"][1] - cy) <= _CONCENTRIC_TOL_MM
+    }
+    return [d for d in z_diams if d != od_diam and any(abs(d - c) <= 0.15 for c in concentric)]
+
+
+def _will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
+    """True when the IR *model* contains a section-driving Z hole/pattern.
 
     Detection-based layout uses recogniser holes; declared-model builds may
     intentionally supply features detection missed. Inspect the public IR shape
@@ -437,35 +451,48 @@ def _analyse(
     _arrow_length = _draft_est.arrow_length
     _pad_around_text = _draft_est.pad_around_text
     layout_model = _coerce_layout_model(model, part, decorations)
-    declared_bore_width = (
-        _est_planned_bore_callout_width(
-            plan_dimensions(layout_model),
-            _draft_est,
-            font_size=_FONT_SIZE,
-            pad_around_text=_pad_around_text,
-        )
-        if layout_model is not None
-        else 0.0
-    )
     holes = recognise_holes(part, cyls=(z_cyls, cross_cyls), csinks=recognise_countersinks(part))
     patterns = recognise_hole_patterns(holes)
     bosses = recognise_bosses(
         part, cyls=(z_cyls, cross_cyls)
     )  # detect once — the one inventory (#264)
     slots = recognise_slots(part)
-    layout_section = _will_section(
-        holes,
-        patterns,
-        is_rotational=is_rotational,
-        cx=cx,
-        cy=cy,
-    ) or _declared_will_section(model, is_rotational=is_rotational, cx=cx, cy=cy)
+    # Build the IR once, up front, so page/scale selection sizes from the SAME feature
+    # model the renderers use — detected and declared parts share one sizing path and no
+    # recogniser record reaches the sheet estimators (ADR 0008; #584 WP1 A). A declared
+    # model sizes from its own declaration (ADR 0011); otherwise the detected records are
+    # adapted into the IR (cheap — no re-recognition). Sizing is byte-identical to the old
+    # record-based estimators EXCEPT where a pattern shares a machining spec with loose
+    # holes: the IR keeps them as separate features, so the corridor sizes for the pattern's
+    # own callout, not a phantom merged "N×" (the renderer emits them separately too — the
+    # old estimator over-reserved). This can shift a tightly-packed such part's layout.
+    _bores = (
+        tuple(_sizing_bores(z_cyls, z_diams, od_diam, cx, cy))
+        if is_rotational and od_axis == "z"
+        else ()
+    )
+    sizing_model = (
+        layout_model
+        if layout_model is not None
+        else build_part_model(
+            part,
+            holes=holes,
+            patterns=patterns,
+            bosses=bosses,
+            slots=slots,
+            prof=_turned,
+            step_zs=step_zs,
+            rotational=(od_diam, _bores, od_axis) if is_rotational else None,
+            pmi=pmi_records,
+        )
+    )
+    sizing_groups = plan_dimensions(sizing_model)
+    bore_callout_width = _est_planned_bore_callout_width(
+        sizing_groups, _draft_est, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
+    )
+    layout_section = _will_section(sizing_model, is_rotational=is_rotational, cx=cx, cy=cy)
     layout_table_sizes = _est_hole_table_sizes(
-        holes,
-        patterns,
-        bb,
-        font_size=_FONT_SIZE,
-        pad_around_text=_pad_around_text,
+        sizing_model, bb, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
 
     # Choose scale/page, iterating so the reserved step corridor matches the
@@ -476,13 +503,12 @@ def _analyse(
     # converges in a couple of rounds.
     def _measure_for_step_count(n_steps_i: int) -> StripDepths:
         return _measure_strips(
-            holes,
-            patterns,
+            sizing_model,
             n_steps_i,
             bb,
             arrow_length=_arrow_length,
             pad_around_text=_pad_around_text,
-            declared_bore_callout_width=declared_bore_width,
+            bore_callout_width=bore_callout_width,
         )
 
     def _pick_for_step_count(n_steps_i: int, strips_i: StripDepths) -> _ScalePick:
@@ -553,13 +579,12 @@ def _analyse(
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
     n_steps = len(_legible_steps(step_zs, bb.min.Z, SCALE)[0])
     strips = _measure_strips(
-        holes,
-        patterns,
+        sizing_model,
         n_steps,
         bb,
         arrow_length=_arrow_length,
         pad_around_text=_pad_around_text,
-        declared_bore_callout_width=declared_bore_width,
+        bore_callout_width=bore_callout_width,
     )
     # View positions + iso empty-rectangle, shared with scale selection (_fits)
     # via _layout_geometry so placement and fit never diverge (#11).  _fit_iso_view
