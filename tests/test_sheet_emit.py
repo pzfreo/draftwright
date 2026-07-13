@@ -140,6 +140,52 @@ class TestEmit:
                 ref_bbox=(-20, -10, -5, 20, 10, 5),
             )
 
+    def test_refpts_only_linear_dim_renders_on_each_axis(self):
+        # #562: a linear Sheet.dimension() with two valid ref_pts and NO ref_bbox must
+        # render (the witness is derived from the ref points) — for X, Y, and Z. Z needs
+        # the front left/right strip reserved for authored height dims (the sizing fix).
+        from draftwright import Sheet
+
+        cases = {
+            "X": [(-40, -30, 0), (-30, -30, 0)],
+            "Y": [(-40, -30, 0), (-40, -20, 0)],
+            "Z": [(-38, -30, 5), (-38, -30, 15)],
+        }
+        for axis, ref_pts in cases.items():
+            sheet = Sheet(Box(80, 60, 40), title="P")
+            sheet.dimension(
+                kind="linear",
+                value=10,
+                label="10",
+                dominant_axis=axis,
+                ref_pts=ref_pts,
+                at=ref_pts[0],
+            )
+            dwg = sheet.build()
+            placed = [n for n in dwg._named if n.startswith("pmi_")]
+            assert placed, f"{axis}: ref_pts-only dim was not placed"
+            assert not any(i.code == "pmi_dropped" for i in dwg._build_issues), axis
+
+    def test_degenerate_refpts_reports_specific_code_not_no_room(self):
+        # #562: a genuinely unrenderable ref (two coincident points → no span) reports a
+        # specific validation code, NOT the misleading "no room" — the latter is reserved
+        # for a real candidate that reached the corridor solver and could not fit.
+        from draftwright import Sheet
+
+        sheet = Sheet(Box(80, 60, 40), title="P")
+        sheet.dimension(
+            kind="linear",
+            value=10,
+            label="10",
+            dominant_axis="Z",
+            ref_pts=[(-38, -30, 5), (-38, -30, 5)],
+            at=(-38, -30, 5),
+        )
+        dwg = sheet.build()
+        codes = {i.code for i in dwg._build_issues}
+        assert "authored_dim_degenerate" in codes
+        assert "pmi_dropped" not in codes
+
     def test_title_block_and_layout_aspects_emitted_when_set(self):
         # #474: non-default drawn_by/tolerance/scale/page ride the Sheet(...) constructor.
         ctor = next(

@@ -1742,6 +1742,20 @@ def _record_pmi_drop(dwg, ax, label, rec):
     )
 
 
+def _record_pmi_unrenderable(dwg, label, rec):
+    """Record an authored dimension whose reference geometry can't form a witness (fewer
+    than two distinct reference points, or a sub-legible span). Distinct from
+    ``pmi_dropped`` (a *placement* failure): this is a *validation* failure, so a caller
+    sees a specific reason instead of a misleading "no room" — an authored dim is only
+    ``pmi_dropped`` after a real candidate reaches the corridor solver and cannot fit (#562)."""
+    dwg._record_build_issue(
+        "warning",
+        "authored_dim_degenerate",
+        f"authored dimension {label!r} has degenerate reference geometry (needs two "
+        "distinct reference points spanning a legible distance)",
+    )
+
+
 def _bore_half_span(pmi_kind: str, value: float) -> float:
     """Half the perpendicular span of a bore-size dim from the bore centroid — the
     distance to each witness base point. A ``"diameter"`` record stores the full
@@ -1842,10 +1856,20 @@ def render_pmi(dwg, model, a) -> int:
         Gives the correct span for linear dims where both ref faces are flush
         (e.g. two parallel faces of a slot or step).  Not suitable for bore
         diameters — use _bore_info instead.
+
+        When the record carries no ``ref_bbox`` (an authored ``Sheet.dimension()`` with
+        only ``ref_pts``, #562), the span is derived from the ref points — so a ref_pts-only
+        dimension renders instead of silently vanishing.
         """
         bb = rec.ref_bbox
         if bb is None:
-            return None
+            pts = rec.ref_pts
+            if not pts or len(pts) < 2:
+                return None
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            zs = [p[2] for p in pts]
+            bb = (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
         xmin, ymin, zmin, xmax, ymax, zmax = bb
         ax = rec.dominant_axis
 
@@ -2137,7 +2161,8 @@ def render_pmi(dwg, model, a) -> int:
         elif ax == "X":
             wp = _witness_from_bbox(rec, "front")
             if wp is None:
-                _log.debug("PMI dim[%d] X: degenerate bbox", idx)
+                _log.debug("PMI dim[%d] X: degenerate reference", idx)
+                _record_pmi_unrenderable(dwg, label, rec)
                 continue
             p1, p2, avg_pz = wp
             if avg_pz >= a.FV_Y:
@@ -2161,7 +2186,8 @@ def render_pmi(dwg, model, a) -> int:
         elif ax == "Z":
             wp = _witness_from_bbox(rec, "front")
             if wp is None:
-                _log.debug("PMI dim[%d] Z: degenerate bbox", idx)
+                _log.debug("PMI dim[%d] Z: degenerate reference", idx)
+                _record_pmi_unrenderable(dwg, label, rec)
                 continue
             p1, p2, avg_px = wp
             if avg_px >= a.FV_X:
@@ -2183,6 +2209,13 @@ def render_pmi(dwg, model, a) -> int:
                 )
 
         elif ax == "Y":
+            # A degenerate reference (no witness in EITHER candidate view) is a validation
+            # failure, not a placement one — report it distinctly so the bottom "no room"
+            # only fires when a real candidate reached the solver (#562).
+            if _witness_from_bbox(rec, "side") is None and _witness_from_bbox(rec, "plan") is None:
+                _log.debug("PMI dim[%d] Y: degenerate reference", idx)
+                _record_pmi_unrenderable(dwg, label, rec)
+                continue
             # Try side view (Y maps to SX horizontal).
             wp = _witness_from_bbox(rec, "side")
             if wp is not None:
