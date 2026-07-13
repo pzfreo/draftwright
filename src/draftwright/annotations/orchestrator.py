@@ -24,7 +24,6 @@ from draftwright._core import (
     Analysis,
     HoleRef,
     _add_title_block,
-    _axis_letter,
     _fmt,
     _iso_bbox,
     _log,
@@ -422,11 +421,15 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # recognised pattern are documented by their grouped ``n× ⌀`` callout +
     # pattern dimension, so they must not become table rows or per-hole balloons
     # (#92).  Excluding them is also what keeps a densely-but-regularly drilled
-    # part (e.g. NIST CTC-02) off the 61-row escalation (#111).
+    # part (e.g. NIST CTC-02) off the 61-row escalation (#111). Sourced from the IR —
+    # a loose z-axis HoleFeature is by construction not a pattern member, so no
+    # HoleRecord crosses here (ADR 0008 Am6; #584 WP1 B4).
+    _model = dwg._part_model
     holes = [
-        h
-        for h in a.holes
-        if _axis_letter(h) == "z" and not dwg._is_hole_patterned(HoleRef.of(h.location))
+        SimpleNamespace(location=pos, diameter=f.diameter)
+        for f in (_model.features if _model is not None else ())
+        if f.kind == "hole" and f.frame.axis == "z"
+        for pos in (f.members or (f.frame.origin,))
     ]
     # A chart is warranted only for a *genuinely* dense plan view — a part that
     # merely dropped one too-close location ref keeps its individual dims (the
