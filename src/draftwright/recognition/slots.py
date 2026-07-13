@@ -369,7 +369,14 @@ def _gap_is_void(gap, arm: Slot, part) -> bool:
     it; a small unrelated hole between two aligned slots leaves the box corners
     solid — both keep a substantial intersection, so the arms stay separate.
     Testing the whole box (not a single sample point) is what distinguishes a
-    channel from an incidental hole at the gap centre (#610 re-reviews)."""
+    channel from an incidental hole at the gap centre (#610 re-reviews).
+
+    Known limitation: a wide *enclosed* void (a square window/pocket) flush with
+    the arm ends also empties the box and so fuses the arms.  This is a continuum
+    with the accepted symmetric-cross case — which likewise leaves the merged
+    slot wall-less where the crossing channel passes — and distinguishing a
+    narrow crossing channel from a wide window is an aspect-ratio judgement with
+    no clean line; #604's scope is intersecting *channels*, so it is left as-is."""
     span = {
         arm.long_axis: (gap[0], gap[1]),
         arm.width_axis: (arm.w_center - arm.width / 2, arm.w_center + arm.width / 2),
@@ -384,8 +391,15 @@ def _gap_is_void(gap, arm: Slot, part) -> bool:
         return False
     probe = Pos(centre["x"], centre["y"], centre["z"]) * Box(size["x"], size["y"], size["z"])
     inter = part.intersect(probe)
+    # ``intersect`` returns None (empty), a single shape with ``.volume`` (older
+    # build123d), or a ShapeList of shapes (newer build123d) — sum either way.
+    if inter is None:
+        inter_vol = 0.0
+    elif hasattr(inter, "volume"):
+        inter_vol = inter.volume
+    else:
+        inter_vol = sum(s.volume for s in inter)
     box_vol = size["x"] * size["y"] * size["z"]
-    inter_vol = inter.volume if inter is not None else 0.0
     return bool(inter_vol <= _VOID_VOL_FRAC * box_vol)
 
 
