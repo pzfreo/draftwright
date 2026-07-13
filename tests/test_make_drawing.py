@@ -6817,9 +6817,8 @@ class TestFindSlots:
         # Four disjoint slots arranged around a SOLID central hub: two collinear
         # x-arms and two collinear y-arms, each opposed pair straddling — but not
         # reaching — the hub. Reasoning only from the neighbouring slots' extents
-        # would fuse each opposed pair across the hub; the void is tested directly
-        # at the gap centre (solid hub -> not void -> not merged), so all four
-        # survive (#610 re-review).
+        # would fuse each opposed pair across the hub; the gap box over the solid
+        # hub is not void, so it is not merged and all four survive (#610 re-review).
         from build123d import Align
 
         def cut(xlo, xhi, ylo, yhi):
@@ -6835,6 +6834,24 @@ class TestFindSlots:
             - cut(40, 60, 60, 90)
         )
         assert len(recognise_slots(part)) == 4  # solid hub keeps all four apart
+
+    def test_incidental_hole_between_aligned_slots_does_not_fuse_them(self):
+        # Two separate collinear slots on a shared centreline with an unrelated
+        # through-hole centred between them (a natural mounting-hole layout).  The
+        # hole makes the gap CENTRE void, but the gap box is mostly solid, so the
+        # slots must stay separate — a crossing channel would carve the whole box,
+        # a hole only pierces it (#610 re-review).
+        from build123d import Cylinder
+
+        part = (
+            Box(120, 40, 10)
+            - Pos(-35, 0, 0) * Box(40, 12, 20)
+            - Pos(35, 0, 0) * Box(40, 12, 20)
+            - Cylinder(4, 30)
+        )
+        slots = recognise_slots(part)
+        assert len(slots) == 2  # not fused into one 110mm slot by the hole
+        assert all(s.length == 40.0 for s in slots)
 
     def test_slot_is_frozen_dataclass(self):
         s = recognise_slots(Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20))[0]

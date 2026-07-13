@@ -31,7 +31,7 @@ import math
 from dataclasses import dataclass
 from typing import TypeVar
 
-from build123d import GeomType, Vector
+from build123d import Box, GeomType, Pos
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Plane
 from OCP.TopAbs import TopAbs_Orientation
@@ -53,6 +53,11 @@ _MERGE_TOL = 0.5
 # covers at least _FLOOR_COVER_FRAC of the slot footprint on each in-plane axis.
 _FLOOR_TOL = 0.3
 _FLOOR_COVER_FRAC = 0.5
+# The gap between two collinear arms counts as void (a crossing channel runs
+# through it) when the intersection of the inset gap box with the solid is at most
+# this fraction of the box — a channel carves it to ~0, a hole/solid leaves more.
+_VOID_INSET = 0.1
+_VOID_VOL_FRAC = 0.01
 
 
 @dataclass(frozen=True)
@@ -353,23 +358,35 @@ def _same_channel_line(a: Slot, b: Slot):
 
 
 def _gap_is_void(gap, arm: Slot, part) -> bool:
-    """True when the gap between two collinear arms is empty space — the crossing
-    void of an intersecting channel — rather than solid stock.
+    """True when the *whole* gap between two collinear arms is empty space — a
+    crossing channel of matching cross-section runs through it — rather than solid
+    stock or merely pierced by an incidental void.
 
-    Tested directly by sampling the gap's centre point against the solid, which is
-    robust where reasoning from the neighbouring slots' metadata is not: a
-    symmetric or off-centre cross, a T-junction, or a pinwheel of separate slots
-    around a solid hub all reduce to "is the point between the arms material?".
-    The sample sits at the gap centre along the run, on the arms' centreline
-    across it, and at mid-depth — interior to whichever region (void or solid) it
-    falls in, so it is never ambiguous on a wall."""
-    coord = {
-        arm.long_axis: (gap[0] + gap[1]) / 2,
-        arm.width_axis: arm.w_center,
-        arm.depth_axis: (arm.d_lo + arm.d_hi) / 2,
+    The gap region is the box of its full run (along ``long_axis``) × the arm's
+    width × the arm's depth, inset slightly off the arm walls to avoid
+    coincident-face noise.  A crossing channel carves this box away entirely, so
+    its intersection with the solid is (near) zero volume.  A solid bridge fills
+    it; a small unrelated hole between two aligned slots leaves the box corners
+    solid — both keep a substantial intersection, so the arms stay separate.
+    Testing the whole box (not a single sample point) is what distinguishes a
+    channel from an incidental hole at the gap centre (#610 re-reviews)."""
+    span = {
+        arm.long_axis: (gap[0], gap[1]),
+        arm.width_axis: (arm.w_center - arm.width / 2, arm.w_center + arm.width / 2),
+        arm.depth_axis: (arm.d_lo, arm.d_hi),
     }
-    point = Vector(coord["x"], coord["y"], coord["z"])
-    return not any(s.is_inside(point) for s in part.solids())
+    size, centre = {}, {}
+    for ax, (lo, hi) in span.items():
+        inset = min(_VOID_INSET, (hi - lo) / 4)
+        size[ax] = (hi - lo) - 2 * inset
+        centre[ax] = (lo + hi) / 2
+    if min(size.values()) <= 0:
+        return False
+    probe = Pos(centre["x"], centre["y"], centre["z"]) * Box(size["x"], size["y"], size["z"])
+    inter = part.intersect(probe)
+    box_vol = size["x"] * size["y"] * size["z"]
+    inter_vol = inter.volume if inter is not None else 0.0
+    return bool(inter_vol <= _VOID_VOL_FRAC * box_vol)
 
 
 def _collapse_collinear(slots: list[Slot], part) -> list[Slot]:
