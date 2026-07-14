@@ -7035,6 +7035,79 @@ class TestFindSlots:
         assert recognise_slots(part) == []
         assert recognise_pockets(part) == []
 
+    def test_obround_slot_reports_overall_length(self):
+        # A radiused-end (obround) slot's flat side walls stop at the straight portion; its
+        # length must be the OVERALL length (flat + width, the two semicircular ends), not the
+        # flat-wall span (#613). Overall 30, width 8 → flat walls span 22; report 30.
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(60, 30, 10) - extrude(Plane.XY * SlotOverall(30, 8), 10, both=True)
+        (s,) = recognise_slots(part)
+        assert s.width == 8.0
+        assert s.length == 30.0
+        assert (s.lo, s.hi) == (-15.0, 15.0)
+
+    def test_obround_pocket_reports_overall_length(self):
+        # The blind counterpart — a floored obround pocket likewise reports overall length (#613).
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(60, 30, 20) - Pos(0, 0, 5) * extrude(Plane.XY * SlotOverall(30, 8), 12)
+        (p,) = recognise_pockets(part)
+        assert p.length == 30.0
+
+    def test_rectangular_slot_length_is_unchanged(self):
+        # A rectangular slot has no semicircular end caps, so the overall extension is inert —
+        # its length is its flat span, already the overall length (#613 must not regress it).
+        (s,) = recognise_slots(Box(60, 30, 10) - Box(30, 8, 20))
+        assert s.length == 30.0
+
+    def test_recognise_matches_declare_on_obround_length(self):
+        # #613 also removes a recognise/declare divergence: declare.slot(obj) reads the overall
+        # length off the object bbox (30), while recognise used to report the flat span (22).
+        # After the fix both agree on the overall length.
+        from build123d import Plane, SlotOverall, extrude
+
+        from draftwright.model import slot as declare_slot
+
+        cutter = extrude(Plane.XY * SlotOverall(30, 8), 10)
+        part = Box(60, 30, 10) - extrude(Plane.XY * SlotOverall(30, 8), 20, both=True)
+        (s,) = recognise_slots(part)
+        declared = declare_slot(cutter, depth_axis="z")
+        assert s.length == declared.length == 30.0
+
+    def test_pivot_boss_at_slot_end_does_not_extend_length(self):
+        # A slotted lever with a cylindrical pivot boss (radius = width/2) protruding at one
+        # end must NOT be read as a radiused end: the boss sits at a different depth than the
+        # slot, and a true obround is symmetric (both ends). Flat length 22 stays 22 (#613 review).
+        part = Box(60, 30, 10) - Box(22, 8, 20) + Pos(11.3, 0, 5) * Cylinder(4, 10)
+        (s,) = recognise_slots(part)
+        assert s.length == 22.0
+        assert (s.lo, s.hi) == (-11.0, 11.0)
+
+    def test_coaxial_blind_hole_does_not_extend_pocket(self):
+        # A blind pocket with a separate blind hole (radius = width/2) drilled from the far
+        # face, coaxial with one pocket end but at a different depth (solid material between),
+        # must NOT extend the pocket length — the cap's depth extent must match the slot's (#613 review).
+        part = Box(60, 30, 20) - Pos(0, 0, 4) * Box(22, 8, 12) - Pos(11.2, 0, -10) * Cylinder(4, 8)
+        (p,) = recognise_pockets(part)
+        assert p.length == 22.0
+
+    def test_coaxial_posts_at_both_ends_do_not_extend_length(self):
+        # Symmetric coaxial POSTS (added material, radius = width/2) protruding into both slot
+        # ends at the slot's own depth pass the radius/axis/centreline/depth checks — but they
+        # are CONVEX (material inside the cylinder), not concave void caps. The concavity test
+        # must reject them so the flat-ended slot is not extended (#613 2nd-pass review).
+        part = (
+            (Box(60, 30, 10) - Box(30, 8, 20))
+            + Pos(15, 0, 0) * Cylinder(4, 10)
+            + Pos(-15, 0, 0) * Cylinder(4, 10)
+        )
+        (s,) = recognise_slots(part)
+        assert (
+            s.length == 30.0
+        )  # the flat span, NOT 38 (would be if wrongly extended by the posts)
+        assert (s.lo, s.hi) == (-15.0, 15.0)
+
     def test_gap_between_bosses_is_not_a_slot(self):
         # The floored channel between two raised bosses has facing rectangular
         # walls but is not a cut slot — the floor (the base plate) rejects it.
