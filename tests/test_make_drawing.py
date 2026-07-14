@@ -327,6 +327,48 @@ class TestChamferCallout:
         callout = next(dwg._named[n].label for n in dwg._named if n.startswith("m_chamfer"))
         assert "C" not in callout and "°" in callout
 
+    def test_leader_anchors_on_the_bevel_interior_not_an_endpoint(self):
+        # #621: the leader anchor must sit ON the chamfer bevel, near the middle of its run — not
+        # at the supporting plane's parametric origin, which projects to an endpoint/corner.
+        from build123d import Axis, GeomType, Vertex, chamfer
+
+        from draftwright.recognition import recognise_chamfers
+
+        part = chamfer(Box(60, 40, 30).edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 6)
+        (ch,) = recognise_chamfers(part)
+        bevel = next(
+            f
+            for f in part.faces()
+            if f.geom_type == GeomType.PLANE
+            and max(abs(c) for c in f.normal_at().to_tuple()) < 0.99
+        )
+        assert Vertex(*ch.at).distance_to(bevel) < 1e-6  # on the bevel face
+        ei = "xyz".index(ch.axis)
+        bb = bevel.bounding_box()
+        lo, hi = ([bb.min.X, bb.min.Y, bb.min.Z][ei], [bb.max.X, bb.max.Y, bb.max.Z][ei])
+        frac = (ch.at[ei] - lo) / (hi - lo)
+        assert 0.3 < frac < 0.7  # interior, not an endpoint — the plane origin gave frac 0.0
+
+    @pytest.mark.slow
+    def test_ctc01_c50_chamfer_anchors_on_the_bevel_midpoint_not_the_corner(self):
+        # #621's *in-plane* (visible) symptom only appears where OCC's plane parametric origin is
+        # off-centre in the placement plane — which axis-aligned box chamfers never are (their
+        # plane origin is already in-plane-centred). On the NIST CTC01 C50 chamfer the old plane
+        # origin was the corner (400, 175); the fix anchors on the bevel centroid (375, 200), the
+        # diagonal midpoint. render_chamfers projects the in-plane X, Y, so this is what the
+        # rendered leader tip actually uses.
+        from draftwright.analysis import _import_step
+        from draftwright.recognition import recognise_chamfers
+
+        fixture = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
+        part = _import_step(str(fixture))
+        c50 = next(c for c in recognise_chamfers(part) if abs(c.leg1 - 50) < 1)
+        assert c50.axis == "z"  # runs along Z, so X/Y are the in-plane placement coords
+        assert abs(c50.at[0] - 375) < 2 and abs(c50.at[1] - 200) < 2  # the bevel midpoint
+        assert (
+            abs(c50.at[0] - 400) > 10 or abs(c50.at[1] - 175) > 10
+        )  # not the plane-origin corner
+
     def test_x_edge_chamfer_reads_in_side_view(self):
         from build123d import Axis, chamfer
 
