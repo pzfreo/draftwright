@@ -7035,6 +7035,46 @@ class TestFindSlots:
         assert recognise_slots(part) == []
         assert recognise_pockets(part) == []
 
+    def test_obround_slot_reports_overall_length(self):
+        # A radiused-end (obround) slot's flat side walls stop at the straight portion; its
+        # length must be the OVERALL length (flat + width, the two semicircular ends), not the
+        # flat-wall span (#613). Overall 30, width 8 → flat walls span 22; report 30.
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(60, 30, 10) - extrude(Plane.XY * SlotOverall(30, 8), 10, both=True)
+        (s,) = recognise_slots(part)
+        assert s.width == 8.0
+        assert s.length == 30.0
+        assert (s.lo, s.hi) == (-15.0, 15.0)
+
+    def test_obround_pocket_reports_overall_length(self):
+        # The blind counterpart — a floored obround pocket likewise reports overall length (#613).
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(60, 30, 20) - Pos(0, 0, 5) * extrude(Plane.XY * SlotOverall(30, 8), 12)
+        (p,) = recognise_pockets(part)
+        assert p.length == 30.0
+
+    def test_rectangular_slot_length_is_unchanged(self):
+        # A rectangular slot has no semicircular end caps, so the overall extension is inert —
+        # its length is its flat span, already the overall length (#613 must not regress it).
+        (s,) = recognise_slots(Box(60, 30, 10) - Box(30, 8, 20))
+        assert s.length == 30.0
+
+    def test_recognise_matches_declare_on_obround_length(self):
+        # #613 also removes a recognise/declare divergence: declare.slot(obj) reads the overall
+        # length off the object bbox (30), while recognise used to report the flat span (22).
+        # After the fix both agree on the overall length.
+        from build123d import Plane, SlotOverall, extrude
+
+        from draftwright.model import slot as declare_slot
+
+        cutter = extrude(Plane.XY * SlotOverall(30, 8), 10)
+        part = Box(60, 30, 10) - extrude(Plane.XY * SlotOverall(30, 8), 20, both=True)
+        (s,) = recognise_slots(part)
+        declared = declare_slot(cutter, depth_axis="z")
+        assert s.length == declared.length == 30.0
+
     def test_gap_between_bosses_is_not_a_slot(self):
         # The floored channel between two raised bosses has facing rectangular
         # walls but is not a cut slot — the floor (the base plate) rejects it.

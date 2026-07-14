@@ -32,12 +32,12 @@ recess rather than some other facing-wall feature with three predicates a naive
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TypeVar
 
 from build123d import Box, GeomType, Pos
 from OCP.BRepAdaptor import BRepAdaptor_Surface
-from OCP.GeomAbs import GeomAbs_Plane
+from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
 from OCP.TopAbs import TopAbs_Orientation
 
 from draftwright.recognition._record import Record
@@ -327,6 +327,68 @@ def _has_floor(faces, s: Slot) -> bool:
     )
 
 
+# A radiused-end (obround) slot has semicircular end caps whose radius is the slot's
+# half-width; a cylindrical face counts as such a cap when its radius is within this (mm) of
+# width/2. Tight, so a filleted-corner rectangular slot (small corner radii) is not extended.
+_END_RADIUS_TOL = 0.15
+
+
+def _cylinder_faces(part) -> list[tuple]:
+    """``(radius, axis_letter, axis_location)`` for each axis-aligned cylindrical face of *part*
+    — the candidate obround end caps (#613). ``axis_location`` is a point on the cylinder axis."""
+    out = []
+    for face in part.faces():
+        surf = BRepAdaptor_Surface(face.wrapped)
+        if surf.GetType() != GeomAbs_Cylinder:
+            continue
+        cyl = surf.Cylinder()
+        d = cyl.Axis().Direction()
+        axis = _dominant_axis((d.X(), d.Y(), d.Z()))
+        if axis is None:
+            continue
+        loc = cyl.Axis().Location()
+        out.append((cyl.Radius(), axis, (loc.X(), loc.Y(), loc.Z())))
+    return out
+
+
+def _end_cap_at(caps: list[tuple], s: _R, coord: float) -> bool:
+    """True when a semicircular obround end cap (a cylinder of radius ≈ ``s.width/2`` about the
+    depth axis, on the slot centreline) sits at ``coord`` along the long axis (#613)."""
+    r = s.width / 2
+    li, wi = _AXES[s.long_axis], _AXES[s.width_axis]
+    return any(
+        abs(rad - r) <= _END_RADIUS_TOL
+        and ax == s.depth_axis
+        and abs(loc[li] - coord) <= _MERGE_TOL
+        and abs(loc[wi] - s.w_center) <= _MERGE_TOL
+        for rad, ax, loc in caps
+    )
+
+
+def _extend_obround_ends(records: list[_R], part) -> list[_R]:
+    """Extend radiused-end (obround) slots/pockets to their **overall** length (#613).
+
+    The recogniser pairs the two flat side walls, so the raw ``lo``/``hi`` stop at the straight
+    portion — a slot with semicircular ends under-reports its length by the two end radii (each
+    ``width/2``). Where a semicircular end cap (:func:`_end_cap_at`) is present, push that end
+    out by the radius so ``length`` becomes the overall length. This also aligns detection with
+    ``declare.slot(obj)``, which already reads the overall length off the object bounding box.
+    A rectangular slot has no such caps and is returned unchanged."""
+    caps = _cylinder_faces(part)
+    if not caps:
+        return records
+    out: list[_R] = []
+    for s in records:
+        r = s.width / 2
+        lo = s.lo - r if _end_cap_at(caps, s, s.lo) else s.lo
+        hi = s.hi + r if _end_cap_at(caps, s, s.hi) else s.hi
+        if lo == s.lo and hi == s.hi:
+            out.append(s)
+        else:
+            out.append(replace(s, lo=round(lo, 2), hi=round(hi, 2), length=round(hi - lo, 2)))
+    return out
+
+
 def recognise_slots(part) -> list[Slot]:
     """Recognise enclosed through-slots with rectangular walls in *part*.
 
@@ -353,8 +415,9 @@ def recognise_slots(part) -> list[Slot]:
                 # between bosses) is capped by a floor and is out of scope (#148).
                 if s is not None and not _has_floor(faces, s):
                     candidates.append(s)
-    # Recombine arms of a crossing channel split by the intersection (#604).
-    return _collapse_collinear(_merge(candidates), part)
+    # Recombine arms of a crossing channel split by the intersection (#604), then extend any
+    # radiused-end (obround) slot to its overall length (#613).
+    return _extend_obround_ends(_collapse_collinear(_merge(candidates), part), part)
 
 
 def _same_channel_line(a: Slot, b: Slot):
@@ -588,4 +651,4 @@ def recognise_pockets(part) -> list[Pocket]:
                 p = _pocket_candidate(walls[i], walls[j], faces, part_ext)
                 if p is not None:
                     candidates.append(p)
-    return _merge(candidates)
+    return _extend_obround_ends(_merge(candidates), part)
