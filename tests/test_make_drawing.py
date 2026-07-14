@@ -7021,6 +7021,20 @@ class TestFindSlots:
         assert recognise_slots(part) == []
         assert recognise_pockets(part) == []
 
+    def test_keyed_groove_does_not_leak_as_a_slot(self):
+        # A circlip groove crossed by a wrench flat / keyway notches a straight edge into
+        # each annular wall, so a "one straight edge" test would wrongly admit it and the
+        # groove would double-report as both a groove AND a phantom slot on a flanged shaft
+        # (the span cap can't save it). The annular wall keeps its TWO concentric arcs (OD +
+        # floor), so the one-arc cap rejects it (#148e review).
+        part = (
+            (Box(60, 60, 8) + Pos(0, 0, 34) * Cylinder(10, 60))
+            - Pos(0, 0, 34) * (Cylinder(10, 6) - Cylinder(7, 6))
+            - Pos(9, 0, 34) * Box(6, 30, 60)
+        )
+        assert recognise_slots(part) == []
+        assert recognise_pockets(part) == []
+
     def test_gap_between_bosses_is_not_a_slot(self):
         # The floored channel between two raised bosses has facing rectangular
         # walls but is not a cut slot — the floor (the base plate) rejects it.

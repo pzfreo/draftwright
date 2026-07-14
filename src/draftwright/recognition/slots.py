@@ -16,11 +16,12 @@ recess rather than some other facing-wall feature with three predicates a naive
    normals each pointing *towards* the other.  The part's own outer faces face
    *away*, so this excludes them without any "is this an outer face" heuristic.
 2. **Slot walls** — both walls are bounded by straight (LINE) and/or circular-arc
-   (CIRCLE) edges, with at least one straight edge (:func:`_is_wall`).  A rectangular
-   wall (all LINE) qualifies; so does a wall a slot cut into round stock clips into an
-   arc + a straight floor/chord (#148e).  A turned groove / circlip recess has a *pure
-   annular* wall — CIRCLE edges only, no straight edge — so it is still rejected
-   (otherwise a stepped shaft's groove reads as a slot).
+   (CIRCLE) edges, with at least one straight edge and **at most one arc**
+   (:func:`_is_wall`).  A rectangular wall (all LINE) qualifies; so does a wall a slot
+   cut into round stock clips into a single arc + a straight floor/chord (#148e).  A
+   turned groove / circlip recess has an *annular* wall bounded by *two* concentric arcs
+   (OD + floor), so the one-arc cap rejects it — even when a keyway / flat notches a
+   straight edge into the annulus (otherwise a keyed shaft's groove reads as a slot).
 3. **Through vs blind** — whether a planar floor caps the cut.  A blind pocket
    (or the floored gap between two bosses) has a floor face spanning the
    footprint; a through-slot does not.  ``_has_floor`` is the sole split between
@@ -181,16 +182,22 @@ class _Face:
 
 def _is_wall(face) -> bool:
     """True when *face* can be a slot wall: bounded only by straight (LINE) or circular-arc
-    (CIRCLE) edges, with **at least one** straight edge. A fully rectangular wall qualifies
-    (all LINE); a slot cut into round stock has a wall clipped by the OD into an arc + a
-    straight floor/chord, which now qualifies too (#148e). A turned groove / circlip recess
-    has a *pure annular* wall — CIRCLE edges only, no straight edge — so it is still rejected
-    (else a stepped shaft's groove reads as a slot); a freeform (spline/ellipse) face is
-    rejected outright."""
+    (CIRCLE) edges, with **at least one** straight edge and **at most one** arc. A fully
+    rectangular wall qualifies (all LINE); a slot cut into round stock has a wall the OD clips
+    into a *single* arc + a straight floor/chord, which now qualifies too (#148e).
+
+    A turned groove / circlip recess is still rejected — its annular wall is a washer bounded
+    by *two* concentric arcs (the outer OD + the inner floor circle), so the ``<= 1`` arc cap
+    excludes it. That cap holds even when a keyway / flat / cross-hole notches a straight edge
+    into the annulus (which defeated an "all edges must be straight" test — #148e review): the
+    two concentric arcs survive, so a keyed groove never reads as a slot. A freeform
+    (spline/ellipse) face is rejected outright."""
     types = [e.geom_type for e in face.edges()]
     if not types or any(t not in (GeomType.LINE, GeomType.CIRCLE) for t in types):
         return False
-    return any(t == GeomType.LINE for t in types)
+    n_line = sum(1 for t in types if t == GeomType.LINE)
+    n_circle = sum(1 for t in types if t == GeomType.CIRCLE)
+    return n_line >= 1 and n_circle <= 1
 
 
 def _planar_faces(part):
