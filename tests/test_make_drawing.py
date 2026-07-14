@@ -574,6 +574,50 @@ class TestGrooveCallout:
         assert dwg._anno_view[names[0]] == "front"
         assert not any(i.severity == "error" for i in dwg.lint())
 
+    def test_groove_floor_diameter_is_not_double_dimensioned(self):
+        # The groove floor band's two walls read as shoulders, so recognise_turned_steps
+        # also delimits it as a middle step. detect.py must exclude that band from the step
+        # chain so the floor ø is dimensioned ONCE (the groove callout), never also as a
+        # separate step ø — ISO 129 / ADR 0008 one-band-one-owner (#148c review).
+        dwg = build_drawing(self._grooved(8, 4, 10), number="X")
+        floor_labels = [
+            n for n in dwg.annotations() if "ø16" in str(getattr(dwg._named[n], "label", ""))
+        ]
+        assert floor_labels == [n for n in floor_labels if n.startswith("m_groove")]
+        assert len(floor_labels) == 1
+
+    def test_two_identical_grooves_each_get_their_own_callout(self):
+        # Two grooves of the SAME size on one shaft must each be dimensioned — not collapsed
+        # to one callout that leaves the other silently undimensioned (#148c review).
+        shaft = Cylinder(10, 60)
+        shaft -= Pos(0, 0, 15) * (Cylinder(10, 4) - Cylinder(8, 4))
+        shaft -= Pos(0, 0, -15) * (Cylinder(10, 4) - Cylinder(8, 4))
+        dwg = build_drawing(shaft, number="X")
+        names = [n for n in dwg.annotations() if n.startswith("m_groove")]
+        assert len(names) == 2
+
+    def test_parallel_shafts_each_groove_gets_a_callout(self):
+        # Identical grooves on two parallel shafts must each be dimensioned — grouping by
+        # axis *letter* would collapse them onto one shaft (#148c review).
+        g = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))
+        part = Pos(-30, 0, 0) * g + Pos(30, 0, 0) * g
+        dwg = build_drawing(part, number="X")
+        names = [n for n in dwg.annotations() if n.startswith("m_groove")]
+        assert len(names) == 2
+
+    def test_coaxial_separate_solids_are_not_a_groove(self):
+        # Three coaxial butted but SEPARATE bodies (a disc between two collars) form no single
+        # channel — solid_idx in the shaft key keeps them distinct, so no phantom groove
+        # (#148c review; mirrors #68).
+        from build123d import Compound
+
+        from draftwright.recognition import recognise_grooves
+
+        stack = Compound(
+            [Cylinder(20, 4), Pos(0, 0, 4) * Cylinder(5, 4), Pos(0, 0, 8) * Cylinder(20, 4)]
+        )
+        assert recognise_grooves(stack) == []
+
 
 class TestCountersinkCallout:
     """#558: a countersunk hole was called out as a plain THRU hole — no major-Ø /

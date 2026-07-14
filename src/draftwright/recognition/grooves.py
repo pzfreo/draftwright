@@ -34,12 +34,20 @@ _DIA_MARGIN = 0.2
 
 def _shaft_key(c) -> tuple:
     """The axis line a band is turned about: the axis letter plus the axis point projected
-    onto the plane perpendicular to the axis direction (position-independent along the axis).
-    Bands with the same key are coaxial on one shaft; distinct parallel shafts differ."""
+    onto the plane perpendicular to the axis direction (position-independent along the axis),
+    plus the owning solid. Bands with the same key are coaxial on one shaft; distinct parallel
+    shafts differ, and — like the sibling ``_line_key`` (#68) — coaxial bands in *separate*
+    butted solids stay distinct so three stacked bodies are never misread as one channel."""
     px, py, pz = c["axis_xyz"]
     dx, dy, dz = c["dir_xyz"]
     t = px * dx + py * dy + pz * dz
-    return (c["axis"], round(px - t * dx, 2), round(py - t * dy, 2), round(pz - t * dz, 2))
+    return (
+        c["axis"],
+        c["solid_idx"],
+        round(px - t * dx, 2),
+        round(py - t * dy, 2),
+        round(pz - t * dz, 2),
+    )
 
 
 @dataclass(frozen=True)

@@ -136,6 +136,7 @@ def _distinct_by_diameter(bosses, tol: float = 0.15):
 
 
 _DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
+_GROOVE_STEP_TOL = 0.1  # a turned step whose ø + axial centre match a groove IS its floor (#148c)
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
@@ -287,6 +288,13 @@ def build_part_model(
             )
         )
 
+    # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
+    # exclude any band a groove already dimensions: a groove floor is an annular band, and
+    # its two walls read as shoulders, so recognise_turned_steps also delimits it as a
+    # middle "step". Emitting both a StepFeature and a GrooveFeature for one band would
+    # double-dimension the floor ø (ISO 129) and break ADR 0008's one-band-one-owner waist.
+    grooves = recognise_grooves(part)
+
     # Turned profile → step segments; else external bosses → diameters.
     if prof is _UNSET:
         prof = TurnedProfile.from_steps(recognise_turned_steps(part))
@@ -295,13 +303,21 @@ def build_part_model(
         idx = "xyz".index(prof.axis)
         c = bbox.center()
         base = [c.X, c.Y, c.Z]
+        groove_bands = [(g.diameter, g.at[idx]) for g in grooves if g.axis == prof.axis]
         for s in prof.steps:
+            s_mid = (s.lo + s.hi) / 2
+            # Skip the band a groove owns: same axis, matching floor ø and axial centre.
+            if any(
+                abs(s.diameter - gd) <= _DIA_TOL and abs(s_mid - gc) <= _GROOVE_STEP_TOL
+                for gd, gc in groove_bands
+            ):
+                continue
             lo = list(base)
             hi = list(base)
             lo[idx] = s.lo
             hi[idx] = s.hi
             mid = list(base)
-            mid[idx] = (s.lo + s.hi) / 2
+            mid[idx] = s_mid
             features.append(
                 StepFeature(
                     frame=Frame(origin=(mid[0], mid[1], mid[2]), axis=prof.axis),
@@ -454,11 +470,11 @@ def build_part_model(
         )
 
     # Turned / circlip grooves on round stock (#148c) — an annular channel (a strict
-    # local-minimum OD band) dimensioned by width + floor diameter. Also UNCONDITIONAL:
-    # a grooved shaft is round stock and classifies rotational, yet the groove still needs
-    # its own callout. The recogniser self-gates on external OD bands, so a prismatic part
-    # yields none.
-    for groove in recognise_grooves(part):
+    # local-minimum OD band) dimensioned by width + floor diameter, recognised above so the
+    # turned-step chain can exclude the coincident band. Also UNCONDITIONAL: a grooved shaft
+    # is round stock and classifies rotational, yet the groove still needs its own callout.
+    # The recogniser self-gates on external OD bands, so a prismatic part yields none.
+    for groove in grooves:
         at = groove.at
         features.append(
             GrooveFeature(
