@@ -144,7 +144,10 @@ def recognise_fillets(
         # off the surface (#622). Evaluate a point at the middle of the trimmed face's angular
         # (U) and axial (V) parameter spans; the adaptor's bounds are the FACE's trimmed range
         # (already gated below a full turn above), so a periodic seam is handled by using those
-        # bounds directly rather than the raw 0..2π surface range.
+        # bounds directly rather than the raw 0..2π surface range. On-face for the ordinary
+        # quarter-round edge blend (a UV-rectangular patch); a fillet whose UV region is punched
+        # by an interior hole through its centre could still land mid-UV in that void — rare, and
+        # no worse than the bbox centre it replaces (review).
         u_mid = 0.5 * (s.FirstUParameter() + s.LastUParameter())
         v_mid = 0.5 * (s.FirstVParameter() + s.LastVParameter())
         p = s.Value(u_mid, v_mid)
