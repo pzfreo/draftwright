@@ -665,6 +665,17 @@ class TestGrooveCallout:
         assert len(grooves) == 1
         assert grooves[0].diameter == pytest.approx(18.5, abs=0.05)
 
+    def test_groove_floor_not_double_dimensioned_when_profile_gate_fails(self):
+        # A grooved round body can fail the turned-step squareness gate (here a rectangular
+        # flange), so detection falls to the boss (prof=None) branch. The groove floor must not
+        # be emitted as BOTH a boss ø and the groove callout (#148c 3rd-pass review).
+        part = Cylinder(10, 40) - Pos(0, 0, 5) * (Cylinder(10, 2) - Cylinder(8, 2))
+        part += Box(40, 12, 4)
+        dwg = build_drawing(part, number="X")
+        floor = [n for n in dwg.annotations() if "ø16" in str(getattr(dwg._named[n], "label", ""))]
+        assert floor == [n for n in floor if n.startswith("m_groove")]
+        assert len(floor) == 1
+
 
 class TestCountersinkCallout:
     """#558: a countersunk hole was called out as a plain THRU hole — no major-Ø /

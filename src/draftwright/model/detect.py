@@ -135,6 +135,14 @@ def _distinct_by_diameter(bosses, tol: float = 0.15):
     return list(out.values())
 
 
+def _boss_is_groove_floor(b, grooves) -> bool:
+    """A recognised boss coinciding with a groove floor — same turning axis and (floor) ø — is
+    that floor. The groove callout already dimensions it, so it must not also get a boss ø
+    (#148c review; applies whether or not the part read as a turned profile)."""
+    ax = _axis_letter(b)
+    return any(abs(b.diameter - g.diameter) <= _DIA_TOL and g.axis == ax for g in grooves)
+
+
 _DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
 _GROOVE_STEP_TOL = (
     0.1  # pad (mm) for a groove centre lying within its own turned-step span (#148c)
@@ -339,14 +347,14 @@ def build_part_model(
         # undimensioned (#298). Emit each band the silhouette steps miss as a boss, so
         # render_diameters still gives it a ø callout — aligning the callout inventory
         # with the feature_diameters inventory the coverage lint checks against. A groove
-        # floor is likewise a narrow reduced band; the groove callout already carries its ø,
-        # so include groove floors here to suppress a duplicate boss ø (#148c review).
-        step_dias = [s.diameter for s in prof.steps] + [
-            g.diameter for g in grooves if g.axis == prof.axis
-        ]
+        # floor is likewise a narrow reduced band, but the groove callout already carries its
+        # ø, so it is suppressed here (_boss_is_groove_floor) to avoid a duplicate boss ø.
+        step_dias = [s.diameter for s in prof.steps]
         raw_bosses = recognise_bosses(part) if bosses is None else bosses
         for b in _distinct_by_diameter(raw_bosses):
-            if all(abs(b.diameter - d) > _DIA_TOL for d in step_dias):
+            if all(
+                abs(b.diameter - d) > _DIA_TOL for d in step_dias
+            ) and not _boss_is_groove_floor(b, grooves):
                 features.append(
                     BossFeature(
                         frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
@@ -357,6 +365,12 @@ def build_part_model(
         raw_bosses = recognise_bosses(part) if bosses is None else bosses
         bosses_d = _distinct_by_diameter(raw_bosses)
         for b in bosses_d:
+            # A grooved round body can still fail the turned-step squareness gate (e.g. a
+            # shaft with a rectangular flange) and land here with prof=None. Suppress the
+            # groove-floor boss so its ø is not dimensioned twice — boss ø + groove callout
+            # (#148c 3rd-pass review).
+            if _boss_is_groove_floor(b, grooves):
+                continue
             features.append(
                 BossFeature(
                     frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
