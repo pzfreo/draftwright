@@ -151,7 +151,12 @@ def recognise_chamfers(part, *, tol: float = 0.5, max_leg_frac: float = 0.45) ->
         clsf.Perform(gp_Pnt(*probe), 1e-6)
         if clsf.State() == TopAbs_IN:
             continue  # concave corner — a gusset / rib / web, not a chamfer
-        loc = s.Plane().Location()
+        # Anchor the leader on the bevel FACE (its centroid), not the supporting plane's
+        # parametric origin: that origin is arbitrary (OCC parameterisation) and can project to
+        # a chamfer endpoint/corner rather than the middle of the diagonal (#621). The centroid
+        # of the convex planar bevel lies on the face; this also matches declare's
+        # _read_chamfer_face, so detected and declared chamfers anchor identically.
+        fctr = f.center()
         angle = math.degrees(math.atan2(min(leg_u, leg_v), max(leg_u, leg_v)))
         out.append(
             Chamfer(
@@ -159,7 +164,7 @@ def recognise_chamfers(part, *, tol: float = 0.5, max_leg_frac: float = 0.45) ->
                 leg1=round(max(leg_u, leg_v), 3),
                 leg2=round(min(leg_u, leg_v), 3),
                 angle=round(angle, 2),
-                at=(round(loc.X(), 3), round(loc.Y(), 3), round(loc.Z(), 3)),
+                at=(round(fctr.X, 3), round(fctr.Y, 3), round(fctr.Z, 3)),
             )
         )
     return sorted(out, key=lambda c: (c.axis, c.at))

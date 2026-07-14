@@ -327,6 +327,40 @@ class TestChamferCallout:
         callout = next(dwg._named[n].label for n in dwg._named if n.startswith("m_chamfer"))
         assert "C" not in callout and "°" in callout
 
+    def test_leader_anchors_on_the_bevel_interior_not_an_endpoint(self):
+        # #621: the leader anchor must sit ON the chamfer bevel, near the middle of its run — not
+        # at the supporting plane's parametric origin, which projects to an endpoint/corner.
+        from build123d import Axis, GeomType, Vertex, chamfer
+
+        from draftwright.recognition import recognise_chamfers
+
+        part = chamfer(Box(60, 40, 30).edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 6)
+        (ch,) = recognise_chamfers(part)
+        bevel = next(
+            f
+            for f in part.faces()
+            if f.geom_type == GeomType.PLANE
+            and max(abs(c) for c in f.normal_at().to_tuple()) < 0.99
+        )
+        assert Vertex(*ch.at).distance_to(bevel) < 1e-6  # on the bevel face
+        ei = "xyz".index(ch.axis)
+        bb = bevel.bounding_box()
+        lo, hi = ([bb.min.X, bb.min.Y, bb.min.Z][ei], [bb.max.X, bb.max.Y, bb.max.Z][ei])
+        frac = (ch.at[ei] - lo) / (hi - lo)
+        assert 0.3 < frac < 0.7  # interior, not an endpoint — the plane origin gave frac 0.0
+
+    def test_anchor_is_independent_of_part_position(self):
+        # The anchor comes from the bevel geometry, not OCC plane parameterisation, so shifting
+        # the part shifts the anchor by exactly the same offset (#621 off-origin acceptance).
+        from build123d import Axis, chamfer
+
+        from draftwright.recognition import recognise_chamfers
+
+        base = chamfer(Box(60, 40, 30).edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 6)
+        (a,) = recognise_chamfers(base)
+        (b,) = recognise_chamfers(Pos(100, 50, 20) * base)
+        assert all(abs((b.at[i] - a.at[i]) - d) < 0.05 for i, d in enumerate((100, 50, 20)))
+
     def test_x_edge_chamfer_reads_in_side_view(self):
         from build123d import Axis, chamfer
 
