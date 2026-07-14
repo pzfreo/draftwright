@@ -506,6 +506,75 @@ class TestFlatCallout:
         assert len(flats) == 2 and {round(f.across, 1) for f in flats} == {15.0}
 
 
+class TestGrooveCallout:
+    """#148c: turned / circlip grooves on round stock — the recogniser recovers the groove
+    width + floor diameter from the OD band geometry (a strict local-minimum diameter), and
+    the callout reads ``{width} WIDE × ø{diameter}``."""
+
+    @staticmethod
+    def _grooved(floor_r=8, width=4, r=10, length=40):
+        # Round bar with one annular groove: the OD (r) is reduced to floor_r over `width`.
+        return Cylinder(r, length) - (Cylinder(r, width) - Cylinder(floor_r, width))
+
+    def test_single_groove_reads_width_and_diameter(self):
+        from draftwright.recognition import recognise_grooves
+
+        grooves = recognise_grooves(self._grooved(8, 4, 10))
+        assert len(grooves) == 1
+        assert grooves[0].width == pytest.approx(4, abs=0.05)
+        assert grooves[0].diameter == pytest.approx(16, abs=0.05)
+
+    def test_two_grooves_on_one_shaft(self):
+        from draftwright.recognition import recognise_grooves
+
+        shaft = Cylinder(10, 60)
+        shaft -= Pos(0, 0, 15) * (Cylinder(10, 4) - Cylinder(8, 4))
+        shaft -= Pos(0, 0, -15) * (Cylinder(10, 4) - Cylinder(7, 4))
+        grooves = recognise_grooves(shaft)
+        assert len(grooves) == 2
+        assert {round(g.diameter, 1) for g in grooves} == {16.0, 14.0}
+
+    def test_monotonic_step_is_not_a_groove(self):
+        # A plain stepped shaft (OD changes once, not a local minimum) has no groove.
+        from draftwright.recognition import recognise_grooves
+
+        stepped = Cylinder(10, 20) + Pos(0, 0, 15) * Cylinder(6, 10)
+        assert recognise_grooves(stepped) == []
+
+    def test_plain_cylinder_has_no_groove(self):
+        from draftwright.recognition import recognise_grooves
+
+        assert recognise_grooves(Cylinder(10, 40)) == []
+
+    def test_slot_on_round_stock_is_not_a_groove(self):
+        # A milled slot's walls are rectangular / radial — not the annular walls of a groove.
+        from draftwright.recognition import recognise_grooves
+
+        assert recognise_grooves(Cylinder(10, 30) - Box(6, 40, 40)) == []
+
+    def test_grooves_on_two_parallel_shafts_are_not_confused(self):
+        # Two distinct z-shafts, each with one groove. Grouped by axis *line* (not letter),
+        # so their bands are never interleaved into a phantom third groove.
+        from draftwright.recognition import recognise_grooves
+
+        a = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))
+        b = Pos(40, 0, 0) * (Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(6, 4)))
+        grooves = recognise_grooves(a + b)
+        assert len(grooves) == 2
+        assert {round(g.diameter, 1) for g in grooves} == {16.0, 12.0}
+
+    def test_groove_renders_in_the_profile_view(self):
+        from draftwright.annotations.from_model import _groove_label
+
+        dwg = build_drawing(self._grooved(8, 4, 10), number="X")
+        names = [n for n in dwg.annotations() if n.startswith("m_groove")]
+        assert len(names) == 1
+        assert dwg._named[names[0]].label == _groove_label(4, 16)
+        # A groove's width is axial → it reads in a profile view (axis in-plane), not down it.
+        assert dwg._anno_view[names[0]] == "front"
+        assert not any(i.severity == "error" for i in dwg.lint())
+
+
 class TestCountersinkCallout:
     """#558: a countersunk hole was called out as a plain THRU hole — no major-Ø /
     included-angle. It must now carry a csk callout (⌵ Ø14 × 90°), like a counterbore."""

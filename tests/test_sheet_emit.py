@@ -326,6 +326,31 @@ class TestEmit:
         assert redeclared.axis == det.axis and redeclared.across == det.across
         assert redeclared.frame.origin == pytest.approx(det.frame.origin)
 
+    def test_groove_emits_the_groove_verb(self):
+        # #148c: a detected turned groove emits `sheet.groove(...)` — the emit surface for the
+        # width + floor-diameter callout.
+        part = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))  # circlip groove
+        src = _script_for(part)
+        assert "sheet.groove(" in src and 'axis="z"' in src
+        assert "width=4" in src and "diameter=16" in src
+        ast.parse(src)
+
+    def test_groove_round_trips_the_full_feature(self):
+        # The emitted line execs back to the same GrooveFeature (axis/width/diameter/at).
+        from draftwright.model import groove as declare_groove
+        from draftwright.sheet_emit import _feature_line
+
+        part = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))
+        det = next(
+            f for f in build_drawing(part, number="X").model().features if f.kind == "groove"
+        )
+        line = _feature_line(det)  # "sheet.groove(axis=..., width=..., diameter=..., at=...)"
+        env = {"sheet": type("S", (), {"groove": staticmethod(declare_groove)})()}
+        redeclared = eval(line, {"__builtins__": {}}, env)  # noqa: S307
+        assert redeclared.axis == det.axis and redeclared.width == det.width
+        assert redeclared.diameter == det.diameter
+        assert redeclared.frame.origin == pytest.approx(det.frame.origin)
+
     def test_counterbore_flags_the_auto_section(self):
         part = Box(60, 60, 16) - Pos(0, 0, 0) * Cylinder(4, 30) - Pos(0, 0, 4) * Cylinder(8, 12)
         src = _script_for(part)

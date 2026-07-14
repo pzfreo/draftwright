@@ -384,6 +384,30 @@ class FlatFeature:
 
 
 @dataclass(frozen=True)
+class GrooveFeature:
+    """A turned / circlip groove on round stock (#148c) — an annular channel dimensioned by
+    its ``width`` (axial span) and floor ``diameter``. ``axis`` is the turning axis the stock
+    is coaxial about. Recovered from the OD band geometry (a strict local-minimum diameter),
+    not the rendered view; distinct from a slot (radial walls) and a plain step (monotonic
+    OD)."""
+
+    frame: Frame
+    axis: str
+    width: float
+    diameter: float
+    kind: ClassVar[str] = "groove"
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("length", "groove", self.width),
+            DimParameter("diameter", "groove", self.diameter),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class StepLevelFeature:
     """The prismatic height profile — horizontal face levels (Z) dimensioned from the
     base, stacked right of the front view (#237). The turned analogue is `StepFeature`

@@ -38,6 +38,7 @@ from draftwright.model.ir import (
     Finish,
     FlatFeature,
     Frame,
+    GrooveFeature,
     HoleFeature,
     Note,
     PatternFeature,
@@ -479,6 +480,71 @@ def flat(obj=None, *, axis=None, across=None, at=None) -> FlatFeature:
     _require_positive(across=across)
     _require_point("at", at)
     return FlatFeature(frame=Frame(origin=at, axis=axis), axis=axis, across=round(across, 3))
+
+
+def _read_groove_face(face) -> tuple[str, float, float, Point]:
+    """Read a groove off its **floor cylindrical face** (the reduced-OD band): the turning
+    axis (the cylinder direction), the width (the face's axial span), the floor diameter (the
+    cylinder radius doubled), and the groove centre on the axis (the face bbox centre — the
+    leader tip). Agrees with the recogniser (recognition/grooves.py), which anchors on the
+    same bbox centre and band span."""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Cylinder
+
+    s = BRepAdaptor_Surface(face.wrapped)
+    if s.GetType() != GeomAbs_Cylinder:
+        raise ValueError(
+            "groove(face=...) needs the floor cylindrical face (the reduced-OD band); declare "
+            "with axis=, width=, diameter=, at= instead"
+        )
+    d = s.Cylinder().Axis().Direction()
+    comp = (abs(d.X()), abs(d.Y()), abs(d.Z()))
+    if max(comp) <= 0.99:
+        raise ValueError(
+            "groove(face=...): the stock must run along one principal axis; use axis=, width=, "
+            "diameter=, at="
+        )
+    axis_i = max(range(3), key=lambda i: comp[i])
+    bb = face.bounding_box()
+    span = ((bb.min.X, bb.max.X), (bb.min.Y, bb.max.Y), (bb.min.Z, bb.max.Z))[axis_i]
+    c = (
+        0.5 * (bb.min.X + bb.max.X),
+        0.5 * (bb.min.Y + bb.max.Y),
+        0.5 * (bb.min.Z + bb.max.Z),
+    )
+    return (
+        "xyz"[axis_i],
+        round(span[1] - span[0], 3),
+        round(s.Cylinder().Radius() * 2, 3),
+        (round(c[0], 4), round(c[1], 4), round(c[2], 4)),
+    )
+
+
+def groove(obj=None, *, axis=None, width=None, diameter=None, at=None) -> GrooveFeature:
+    """A turned / circlip groove on round stock (#148c). Either ``groove(floor_face)`` — the
+    reduced-OD floor face supplies axis, width, diameter and the leader point ``at`` — or
+    fully explicit ``groove(axis="z", width=3, diameter=16, at=(x, y, z))``. Called out
+    ``{width} WIDE × ø{diameter}``. An object supplies *defaults*; any explicit keyword
+    overrides (#451)."""
+    if obj is not None:
+        r_axis, r_width, r_diameter, r_at = _read_groove_face(obj)
+        axis = r_axis if axis is None else axis
+        width = r_width if width is None else width
+        diameter = r_diameter if diameter is None else diameter
+        at = r_at if at is None else at
+    if width is None or diameter is None or axis is None or at is None:
+        raise ValueError(
+            "groove() needs a floor face, or explicit axis=, width=, diameter= and at="
+        )
+    axis = _norm_axis(axis)
+    _require_positive(width=width, diameter=diameter)
+    _require_point("at", at)
+    return GrooveFeature(
+        frame=Frame(origin=at, axis=axis),
+        axis=axis,
+        width=round(width, 3),
+        diameter=round(diameter, 3),
+    )
 
 
 def _read_plate(obj) -> tuple[str, float, float, float, float]:

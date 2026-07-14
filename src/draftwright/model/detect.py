@@ -26,6 +26,7 @@ from draftwright.model.ir import (
     FilletFeature,
     FlatFeature,
     Frame,
+    GrooveFeature,
     HoleFeature,
     PartModel,
     PatternFeature,
@@ -48,6 +49,7 @@ from draftwright.recognition import (
     recognise_countersinks,
     recognise_fillets,
     recognise_flats,
+    recognise_grooves,
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
@@ -448,6 +450,22 @@ def build_part_model(
                 frame=Frame((at[0], at[1], at[2]), flat.axis),
                 axis=flat.axis,
                 across=flat.across,
+            )
+        )
+
+    # Turned / circlip grooves on round stock (#148c) — an annular channel (a strict
+    # local-minimum OD band) dimensioned by width + floor diameter. Also UNCONDITIONAL:
+    # a grooved shaft is round stock and classifies rotational, yet the groove still needs
+    # its own callout. The recogniser self-gates on external OD bands, so a prismatic part
+    # yields none.
+    for groove in recognise_grooves(part):
+        at = groove.at
+        features.append(
+            GrooveFeature(
+                frame=Frame((at[0], at[1], at[2]), groove.axis),
+                axis=groove.axis,
+                width=groove.width,
+                diameter=groove.diameter,
             )
         )
 

@@ -39,6 +39,7 @@ from draftwright.annotations.from_model import (
     render_fillets,
     render_flats,
     render_gdt,
+    render_grooves,
     render_height_ladder,
     render_locations,
     render_plates,
@@ -289,6 +290,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     render_fillets(dwg, _model, a)
     # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
     render_flats(dwg, _model, a)
+    # Turned/circlip-groove callouts (#148c): {width} WIDE × ø{dia} via a leader off each groove.
+    render_grooves(dwg, _model, a)
     # Blind-recess callouts (#148a): W × L × D DEEP via a leader off each floored pocket.
     render_pockets(dwg, _model, a)
 
