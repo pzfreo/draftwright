@@ -26,6 +26,7 @@ from draftwright.model.ir import (
     FilletFeature,
     FlatFeature,
     Frame,
+    GrooveFeature,
     HoleFeature,
     PartModel,
     PatternFeature,
@@ -48,6 +49,7 @@ from draftwright.recognition import (
     recognise_countersinks,
     recognise_fillets,
     recognise_flats,
+    recognise_grooves,
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
@@ -133,7 +135,19 @@ def _distinct_by_diameter(bosses, tol: float = 0.15):
     return list(out.values())
 
 
+def _boss_is_groove_floor(b, grooves) -> bool:
+    """A recognised boss coinciding with a groove floor — same turning axis and (floor) ø — is
+    that floor. The groove callout already dimensions it, so it must not also get a boss ø
+    (#148c review; applies whether or not the part read as a turned profile)."""
+    ax = _axis_letter(b)
+    return any(abs(b.diameter - g.diameter) <= _DIA_TOL and g.axis == ax for g in grooves)
+
+
 _DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
+_GROOVE_STEP_TOL = (
+    0.1  # pad (mm) for a groove centre lying within its own turned-step span (#148c)
+)
+_STEP_LEN_PAD = 1.0  # a groove's step is no longer than its width + this (mm); guards merged runs
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
@@ -285,6 +299,13 @@ def build_part_model(
             )
         )
 
+    # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
+    # exclude any band a groove already dimensions: a groove floor is an annular band, and
+    # its two walls read as shoulders, so recognise_turned_steps also delimits it as a
+    # middle "step". Emitting both a StepFeature and a GrooveFeature for one band would
+    # double-dimension the floor ø (ISO 129) and break ADR 0008's one-band-one-owner waist.
+    grooves = recognise_grooves(part)
+
     # Turned profile → step segments; else external bosses → diameters.
     if prof is _UNSET:
         prof = TurnedProfile.from_steps(recognise_turned_steps(part))
@@ -293,13 +314,26 @@ def build_part_model(
         idx = "xyz".index(prof.axis)
         c = bbox.center()
         base = [c.X, c.Y, c.Z]
+        groove_bands = [(g.at[idx], g.width) for g in grooves if g.axis == prof.axis]
         for s in prof.steps:
+            s_mid = (s.lo + s.hi) / 2
+            # Skip the band a groove owns (its callout dimensions width + floor ø). Match on
+            # axial POSITION, not diameter: a narrow groove's step is reported at the WALL OD
+            # (local_od's pad engulfs both walls when the groove is < ~1.4 mm), so a floor-ø
+            # match would silently miss the common circlip case. The groove centre lies within
+            # its own step span; the short-length guard keeps a merged shaft run from matching.
+            if any(
+                s.lo - _GROOVE_STEP_TOL <= gc <= s.hi + _GROOVE_STEP_TOL
+                and s.length <= gw + _STEP_LEN_PAD
+                for gc, gw in groove_bands
+            ):
+                continue
             lo = list(base)
             hi = list(base)
             lo[idx] = s.lo
             hi[idx] = s.hi
             mid = list(base)
-            mid[idx] = (s.lo + s.hi) / 2
+            mid[idx] = s_mid
             features.append(
                 StepFeature(
                     frame=Frame(origin=(mid[0], mid[1], mid[2]), axis=prof.axis),
@@ -312,11 +346,15 @@ def build_part_model(
         # local_od's max(), so it never becomes a step diameter and goes silently
         # undimensioned (#298). Emit each band the silhouette steps miss as a boss, so
         # render_diameters still gives it a ø callout — aligning the callout inventory
-        # with the feature_diameters inventory the coverage lint checks against.
+        # with the feature_diameters inventory the coverage lint checks against. A groove
+        # floor is likewise a narrow reduced band, but the groove callout already carries its
+        # ø, so it is suppressed here (_boss_is_groove_floor) to avoid a duplicate boss ø.
         step_dias = [s.diameter for s in prof.steps]
         raw_bosses = recognise_bosses(part) if bosses is None else bosses
         for b in _distinct_by_diameter(raw_bosses):
-            if all(abs(b.diameter - d) > _DIA_TOL for d in step_dias):
+            if all(
+                abs(b.diameter - d) > _DIA_TOL for d in step_dias
+            ) and not _boss_is_groove_floor(b, grooves):
                 features.append(
                     BossFeature(
                         frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
@@ -327,6 +365,12 @@ def build_part_model(
         raw_bosses = recognise_bosses(part) if bosses is None else bosses
         bosses_d = _distinct_by_diameter(raw_bosses)
         for b in bosses_d:
+            # A grooved round body can still fail the turned-step squareness gate (e.g. a
+            # shaft with a rectangular flange) and land here with prof=None. Suppress the
+            # groove-floor boss so its ø is not dimensioned twice — boss ø + groove callout
+            # (#148c 3rd-pass review).
+            if _boss_is_groove_floor(b, grooves):
+                continue
             features.append(
                 BossFeature(
                     frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
@@ -448,6 +492,22 @@ def build_part_model(
                 frame=Frame((at[0], at[1], at[2]), flat.axis),
                 axis=flat.axis,
                 across=flat.across,
+            )
+        )
+
+    # Turned / circlip grooves on round stock (#148c) — an annular channel (a strict
+    # local-minimum OD band) dimensioned by width + floor diameter, recognised above so the
+    # turned-step chain can exclude the coincident band. Also UNCONDITIONAL: a grooved shaft
+    # is round stock and classifies rotational, yet the groove still needs its own callout.
+    # The recogniser self-gates on external OD bands, so a prismatic part yields none.
+    for groove in grooves:
+        at = groove.at
+        features.append(
+            GrooveFeature(
+                frame=Frame((at[0], at[1], at[2]), groove.axis),
+                axis=groove.axis,
+                width=groove.width,
+                diameter=groove.diameter,
             )
         )
 

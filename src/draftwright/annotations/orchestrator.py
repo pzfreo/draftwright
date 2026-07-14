@@ -39,6 +39,7 @@ from draftwright.annotations.from_model import (
     render_fillets,
     render_flats,
     render_gdt,
+    render_grooves,
     render_height_ladder,
     render_locations,
     render_plates,
@@ -348,6 +349,13 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (ADR 0009 end state, #345/#346/#393) — dedup coincident spans, order the ladder —
     # BEFORE the section/detail views so they see the placed ladder as an obstacle.
     drain_corridors(dwg)
+
+    # Turned/circlip-groove callouts (#148c): {width} WIDE × ø{dia} via a leader off each
+    # groove. A groove is a secondary leader-callout on a turned shaft — exactly where the
+    # primary turned-length chain runs — so it places into remaining clear room only after
+    # the corridor drain has finalised the diameter/step-length furniture (else its room
+    # check can't see the not-yet-drained length dims and collides, #148c crowded-shaft).
+    render_grooves(dwg, _model, a)
 
     # The section view renders after the corridor-drained furniture exists, so
     # its full strip_obstacles room check can see side callouts, envelope dims,

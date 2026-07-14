@@ -16,6 +16,7 @@ from draftwright.model import (
     EnvelopeFeature,
     FilletFeature,
     FlatFeature,
+    GrooveFeature,
     HoleFeature,
     PartModel,
     PatternFeature,
@@ -29,6 +30,7 @@ from draftwright.model import (
     envelope,
     fillet,
     flat,
+    groove,
     hole,
     pattern,
     plate,
@@ -593,6 +595,88 @@ class TestFlat:
         cyl_face = next(g for g in self._dshaft().faces() if g.geom_type == GeomType.CYLINDER)
         with pytest.raises(ValueError, match="flat"):
             flat(cyl_face, axis="z", across=15)
+
+
+class TestGroove:
+    """#148c: turned / circlip grooves on round stock — recognise + emit + declare, called out
+    by the groove width + floor diameter (an annular channel: a strict local-minimum OD band,
+    distinct from a slot and from a monotonic step)."""
+
+    @staticmethod
+    def _grooved(floor_r=8, width=4, r=10, length=40):
+        return Cylinder(r, length) - (Cylinder(r, width) - Cylinder(floor_r, width))
+
+    @staticmethod
+    def _floor_face(solid):
+        # The reduced-OD floor face = the smallest-radius cylindrical face.
+        cyls = [g for g in solid.faces() if g.geom_type == GeomType.CYLINDER]
+        return min(cyls, key=lambda f: f.bounding_box().size.X)
+
+    def test_explicit(self):
+        g = groove(axis="z", width=4, diameter=16, at=(0, 0, 0))
+        assert isinstance(g, GrooveFeature)
+        assert g.axis == "z" and g.width == 4 and g.diameter == 16
+        assert g.frame.origin == pytest.approx((0, 0, 0))
+
+    def test_reads_all_off_the_floor_face(self):
+        # The object flavour reads axis, width, diameter and the leader point off the floor face.
+        g = groove(self._floor_face(self._grooved(8, 4, 10)))
+        assert g.axis == "z"
+        assert g.width == pytest.approx(4, abs=0.05)
+        assert g.diameter == pytest.approx(16, abs=0.05)
+        assert g.frame.origin[2] == pytest.approx(0, abs=0.05)
+
+    def test_recognises_single_groove(self):
+        fs = [
+            f
+            for f in build_drawing(self._grooved(8, 4, 10), number="X").model().features
+            if f.kind == "groove"
+        ]
+        assert len(fs) == 1
+        assert fs[0].width == pytest.approx(4, abs=0.05)
+        assert fs[0].diameter == pytest.approx(16, abs=0.05)
+
+    def test_monotonic_step_is_not_a_groove(self):
+        from draftwright.recognition import recognise_grooves
+
+        assert recognise_grooves(Cylinder(10, 20) + Pos(0, 0, 15) * Cylinder(6, 10)) == []
+
+    def test_plain_cylinder_has_no_groove(self):
+        from draftwright.recognition import recognise_grooves
+
+        assert recognise_grooves(Cylinder(10, 40)) == []
+
+    def test_declared_groove_renders_callout(self):
+        from draftwright.annotations.from_model import _groove_label
+
+        dwg = build_drawing(
+            self._grooved(8, 4, 10),
+            model=[groove(axis="z", width=4, diameter=16, at=(0, 0, 0))],
+            number="X",
+        )
+        fs = [f for f in dwg.model().features if f.kind == "groove"]
+        assert len(fs) == 1 and _groove_label(fs[0].width, fs[0].diameter) == "4 WIDE × ø16"
+        assert not any(i.severity == "error" for i in dwg.lint())
+
+    def test_needs_axis_width_diameter_at(self):
+        with pytest.raises(ValueError):
+            groove(axis="z", width=4, diameter=16)  # no at
+        with pytest.raises(ValueError):
+            groove(width=4, diameter=16, at=(0, 0, 0))  # no axis
+        with pytest.raises(ValueError):
+            groove(axis="z", diameter=16, at=(0, 0, 0))  # no width
+
+    def test_rejects_non_positive(self):
+        with pytest.raises(ValueError):
+            groove(axis="z", width=-4, diameter=16, at=(0, 0, 0))
+        with pytest.raises(ValueError):
+            groove(axis="z", width=4, diameter=0, at=(0, 0, 0))
+
+    def test_non_cylindrical_face_rejected(self):
+        # The object flavour needs the floor cylindrical face, not a flat end face.
+        end = self._grooved().faces().sort_by(Axis.Z)[-1]
+        with pytest.raises(ValueError, match="groove"):
+            groove(end, width=4, diameter=16)
 
 
 class TestPocket:

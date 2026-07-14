@@ -1058,6 +1058,13 @@ def render_flats(dwg, model, a) -> int:
     return n
 
 
+def _groove_label(width, diameter) -> str:
+    """The turned/circlip-groove callout string: ``{width} WIDE × ø{diameter}`` — the groove's
+    axial width and its floor diameter (#148c). Formatting lives in the render layer, not on
+    the IR feature (ADR 0013 §7)."""
+    return f"{_fmt(width)} WIDE × ø{_fmt(diameter)}"
+
+
 def _ray_exit_dist(px, py, ux, uy, rect) -> float:
     """Distance along the unit ray (ux, uy) from (px, py) to where it leaves *rect*
     (x0, y0, x1, y1). For a tip inside the rect this is the positive distance to the
@@ -1151,6 +1158,64 @@ def render_pockets(dwg, model, a) -> int:
                 "warning",
                 "pocket_dropped",
                 f"pocket callout {label_str} not placed (no clear room)",
+            )
+    return n
+
+
+def render_grooves(dwg, model, a) -> int:
+    """Turned/circlip-groove callouts (#148c): a leader from each annular groove in round
+    stock to its ``{width} WIDE × ø{diameter}`` label. The groove's width is *axial*, so the
+    callout lands in the **profile** view (the one showing the stock axis in-plane, where the
+    groove reads as a notch in the silhouette) — a Z or X axis in the front, a Y axis in the
+    side. Each groove gets its own callout at its own axial position (like a pocket, not
+    collapsed by size — two identical grooves on one shaft or on parallel shafts must each be
+    dimensioned). The groove sits on the axis, so the leader exits the silhouette
+    (``_ray_exit_dist``) toward each margin (nearest clear wins) and is dropped (lint, not
+    silently) if none lands clear. Returns the count placed."""
+    draft = dwg.draft
+    view_of = {"z": "front", "x": "front", "y": "side"}
+    grooves = [f for f in model.features if f.kind == "groove"]
+    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    reach = draft.font_size + 6 * draft.pad_around_text
+    n = 0
+    for gi, gr in enumerate(sorted(grooves, key=lambda f: (f.axis, f.frame.origin))):
+        view = view_of.get(gr.axis)
+        if view is None:
+            continue
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        x0, y0, x1, y1 = vb
+        label_str = _groove_label(gr.width, gr.diameter)
+        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        tip = dwg.at(view, *gr.frame.origin)
+        placed = False
+        for dx, dy in _POCKET_LEAD_DIRS:
+            d = math.hypot(dx, dy)
+            ux, uy = dx / d, dy / d
+            exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
+            elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
+            ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label_str, draft=draft)
+            label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
+            if (
+                label is None
+                or _box_hits(label, obstacles)
+                or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
+                or label[0] < page[0]
+                or label[1] < page[1]
+                or label[2] > page[2]
+                or label[3] > page[3]
+            ):
+                continue
+            dwg.add(ldr, f"m_groove_{gr.axis}{gi}", view=view, feature=gr)
+            n += 1
+            placed = True
+            break
+        if not placed:
+            dwg._record_build_issue(
+                "warning",
+                "groove_dropped",
+                f"groove callout {label_str} not placed (no clear room)",
             )
     return n
 

@@ -52,6 +52,7 @@ from draftwright.model import envelope as _envelope
 from draftwright.model import fillet as _fillet
 from draftwright.model import finish as _declare_finish
 from draftwright.model import flat as _flat
+from draftwright.model import groove as _groove
 from draftwright.model import hole as _hole
 from draftwright.model import note as _declare_note
 from draftwright.model import pattern as _pattern
@@ -564,6 +565,14 @@ class Sheet:
         ``{across} A/F`` (across flats — flat-to-flat for a double-D / hex, the D height for a
         lone flat)."""
         self._features.append(_flat(obj, **kw))
+        return self
+
+    def groove(self, obj=None, **kw) -> Sheet:
+        """Declare a turned / circlip groove on round stock (#148c) — ``sheet.groove(floor_face)``
+        reads axis, width, diameter and the leader point off the reduced-OD floor face, or fully
+        explicit ``sheet.groove(axis="z", width=3, diameter=16, at=(x, y, z))``. Called out
+        ``{width} WIDE × ø{diameter}`` (groove width + floor diameter)."""
+        self._features.append(_groove(obj, **kw))
         return self
 
     def plate(self, obj=None, **kw) -> Sheet:
