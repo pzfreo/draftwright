@@ -1,20 +1,37 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 — 2026-07-14
 
-**Breaking — feature-recogniser API renamed.** Establishing the uniform recogniser
-contract (ADR 0013 / #568). These are *deliberate* breaks with **no compatibility
-aliases**, so this must ship in a **minor bump (0.3.0), not a patch**. Drawing output is
-unchanged (byte-identical); only import paths and callable signatures change.
+**Breaking — feature-recogniser API renamed** (ADR 0013 / #568): *deliberate* breaks with
+**no compatibility aliases**, hence the minor bump. Only import paths and callable
+signatures change — but note this release also **changes drawing output**: new machined-
+feature callouts, corrected leader anchors, and a reoriented isometric (see Added / Fixed).
 
 ### Added
 
-- **Countersink callouts (#558).** A countersunk hole is now recognised and called out
-  `Ø6 THRU ⌵ Ø14 × 90°` (major-Ø + included angle), the way counterbores already get
-  `⊔ Ø.. ↧..`. New `recognise_countersinks(part) -> list[CounterSink]` recogniser
-  (geometry-mirrored with `build123d-mcp` for the shared `b123d-recognisers` package);
-  the countersink rides on `HoleRecord`/`HoleFeature` so grouping and the callout-width
-  layout estimate account for it.
+- **Machined-feature recognition — the #148 epic.** #135 deliberately handled only enclosed
+  rectangular through-slots; this broadens recognition, and each feature is recognised **and**
+  dimensioned **and** authorable (recognise + emit + declare, ADR 0011):
+  - **Blind slots + pockets** — floored recesses, `W × L × D DEEP` (#603).
+  - **Cross / intersecting slots** collapse into single continuous channels (#604).
+  - **Machined flats** on round stock — `{across} A/F` (#605).
+  - **Turned / circlip grooves** — `{width} WIDE × ø{floor}` (#606).
+  - **Slots / pockets in curved stock** — arc-bounded walls (#607).
+  - **Radiused-end (obround) slots** now report their **overall** length (#613).
+- **Chamfer callouts** — `C{leg}` / `{leg}×{angle}°` off each bevel (#560).
+- **Fillet radius callouts** — `R{radius}` off each rounded edge (#561).
+- **Plate / wall thickness** dimensions on multi-plate prismatics (#559).
+- **Prismatic step-position** dimensions locating each shoulder (#555).
+- **Countersink callouts** — `ø6 THRU ⌵ ø14 × 90°` (major-ø + included angle), like the
+  counterbore `⊔ ø.. ↧..` (#558). The countersink rides on `HoleRecord`/`HoleFeature`, so
+  grouping and the callout-width layout estimate account for it.
+- **Every recognised feature round-trips all three ADR-0011 surfaces (#574).** Beyond
+  detection, each feature now **emits** into the generated `--script` Sheet and is
+  **declarable** on the fluent `Sheet` surface — authored from scratch or read off a
+  build123d object: chamfer (#576), countersink (#575), plate (#577), step-position (#585),
+  fillet (#561), plus all the #148 features above.
+- **`draftwright.score.feature_census(part)`** — a per-kind recognised-feature census, a
+  measurement tool for tracking recognition coverage (#608).
 
 ### Changed
 
@@ -39,6 +56,24 @@ unchanged (byte-identical); only import paths and callable signatures change.
 - **Recognition record classes renamed to avoid clashing with the IR `Feature` types:**
   `draftwright.recognition.HoleFeature` → `HoleRecord`, `BossFeature` → `BossRecord`
   (the IR `draftwright.model.ir.HoleFeature`/`BossFeature` are unchanged).
+- **Page/scale sizing now reads the IR, not recognition records (ADR 0008 / #588).** The
+  part model is built up front and drives sheet sizing, so detected and declared parts share
+  one path and no recogniser record reaches the sheet estimators. Byte-identical to the old
+  estimators except a hole pattern that shares a machining spec with loose holes now sizes
+  separately (no phantom merged `N×`), which can shift a tightly-packed such part's layout.
+
+### Fixed
+
+- **Isometric view orientation (#620).** The iso camera viewed the *rear* (+Y) side against a
+  front-view orthographic set, mirroring asymmetric features; it now views from the same
+  front (−Y) / plan (+Z) / right (+X) combination.
+- **Chamfer leaders (#621)** anchor on the bevel-face centroid (the diagonal middle), not the
+  supporting plane's parametric origin (which projected to a corner/endpoint).
+- **Fillet leaders (#622)** anchor on the radius surface, not the face bounding-box centre
+  (which sat off the round, near the virtual sharp corner).
+- **Authored `ref_pts`-only dimensions** now render (with Z-strip sizing) (#562).
+- **Pitch-dim labels** are cleared off centrelines / bolt circles at creation time, not via
+  the repair loop (#129).
 
 ### Removed
 
