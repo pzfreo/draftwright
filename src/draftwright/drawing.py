@@ -336,6 +336,34 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
     return groups
 
 
+@dataclass(frozen=True)
+class _IntentRouting:
+    """How :meth:`Drawing.finalize` routes each recorded intent to an auto-pass solver (#426).
+
+    The classification half of finalize (#590 split): pure comprehensions over the recorded
+    intents deciding which route each takes. ``section`` is the pre-planned section (or None);
+    the ``*_ids`` are ``id()`` sets of the intents on each route; the ``only_*``/``*_feats`` are
+    the feature sets the routed renderers receive.
+    """
+
+    section: object
+    corridor_ids: set
+    callout_ids: set
+    dia_ids: set
+    len_ids: set
+    slot_ids: set
+    height_ladder_ids: set
+    step_position_ids: set
+    explicit_envelope_height: bool
+    user_dim_ids: set
+    only_loc: set
+    pinned_loc: set
+    only_callout: set
+    only_dia: set
+    only_len: set
+    slot_feats: set
+
+
 class Drawing:
     """A composable technical drawing — the editable form of :func:`make_drawing`.
 
@@ -1180,80 +1208,14 @@ class Drawing:
             self._defer_intents = prev
         self.finalize()
 
-    def finalize(self) -> None:
-        """Drain the recorded placement intents (#426).
+    def _classify_intents(self, model, a, routable) -> _IntentRouting:
+        """Classify the recorded placement intents by route — the classification half of
+        :meth:`finalize` (#590 split). Pure comprehensions over ``self._intents`` (no placement,
+        no mutation) deciding which auto-pass solver each intent drains through; the drain half
+        of finalize consumes the returned :class:`_IntentRouting`."""
+        from draftwright.annotations.sections import feature_hole_keys
+        from draftwright.model import PartModel, plan_sections
 
-        When the drawing was built in **deferred** mode (``_defer_intents``), the add
-        verbs recorded :class:`~draftwright.intents.Intent`\\s instead of placing. This
-        drains them, routing what it can through the auto-pass's own solvers:
-
-        * **(A)** live-replays furniture, non-slot dimensions, and axes-restricted locates
-          (in recorded order, pop-after-success);
-        * **(reserve, Phase 3b)** if a ``section`` was recorded, its cutting-plane row is
-          reserved first so the callout carve sees it as an obstacle (Coupling A);
-        * **(B1, Phase 3a)** hole/pattern ø **callouts** through ``_annotate_holes`` — the
-          real priority-drop / central-bore-anchoring solve;
-        * **(B2, Phase 2a+2b)** both-axes **locations** (``render_locations``) and
-          **slots** (``render_slots``) through the SHARED corridor + one ``drain_corridors``
-          — one crossing-free, deduped, monotone ladder (a slot position coincident with a
-          hole location collapses to one dim, #345);
-        * **(B3, Phase 4a)** X/Z-turned step/boss ø **diameters** through ``render_diameters``
-          — the row-below / column-left set-solve;
-        * **(B3b, Phase 4b)** a turned shaft's step-length **chain** through
-          ``render_step_lengths`` — the unified chain / ``N× v`` collapse / staggered tiers;
-        * **(C)** the ``section`` renders last (its room check clears the side view's right);
-        * **(D, Phase 4c)** dense-scattered plan holes escalate to the hole **table** + balloon
-          ring via ``_maybe_tabulate_holes`` — last, so it sees the section + title block as
-          obstacles. The density gate counts *all* analysis holes, so this is a full-
-          reconstruction escalation (a partial hand-edit still tabulates the full count, #434);
-          ``_escalations`` is cleared after so a repeat batch can't re-fire the fixed-name table.
-
-        A slot records two size dims (``slot_width``/``slot_length``) on one feature; routing
-        the feature also regenerates its model-derived datum **position** dim, so finalize
-        places a *superset* of the recorded slot intents (auto-pass parity by design —
-        commenting one of a slot's two lines still routes the feature). An unsupported-axis
-        (Y-turned) step/boss callout live-replays, so it surfaces the same ValueError the
-        live verb raises. Only ``only``-set routing is used here; the auto-pass path is
-        untouched.
-
-        Idempotent (draining empties the list; a repeat call — or ``export()`` then
-        ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
-        path), so ``export()`` calls it unconditionally. **Resilient:** a live-replayed
-        intent is removed only after it places, so a verb that raises surfaces the error
-        and leaves the rest recorded. A record → finalize → record-more → finalize
-        sequence drains each batch (#428 review).
-        """
-        if not self._intents:
-            return
-        from draftwright.annotations._common import drain_corridors
-        from draftwright.annotations.from_model import (
-            render_diameters,
-            render_height_ladder,
-            render_locations,
-            render_slots,
-            render_step_lengths,
-            render_step_positions,
-        )
-        from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
-        from draftwright.annotations.orchestrator import _maybe_tabulate_holes
-        from draftwright.annotations.sections import (
-            _add_section_view,
-            _reserve_section_row,
-            feature_hole_keys,
-        )
-        from draftwright.model import PartModel, plan_dimensions, plan_sections
-
-        # Corridor state the auto-pass creates in _auto_annotate S0 but a detect-only build
-        # lacks — render_locations/_annotate_holes/drain_corridors register/read here.
-        if not hasattr(self, "_corridor_batch"):
-            self._corridor_batch: dict = {}
-        if not hasattr(self, "_escalations"):
-            self._escalations: list = []
-        if not hasattr(self, "_detail_requests"):
-            self._detail_requests: list = []
-
-        model, a = self._part_model, self._analysis
-        routable = model is not None and a is not None
         # The section plan (if a section was recorded) — the ONE plan reserved before the
         # callout carve sees its row (Coupling A) and rendered last (Phase 3b).
         _section = None
@@ -1388,6 +1350,107 @@ class Drawing:
         only_dia = {it.feature for it in self._intents if id(it) in dia_ids}
         only_len = {it.feature for it in self._intents if id(it) in len_ids}
         slot_feats = {it.feature for it in self._intents if id(it) in slot_ids}
+        return _IntentRouting(
+            section=_section,
+            corridor_ids=corridor_ids,
+            callout_ids=callout_ids,
+            dia_ids=dia_ids,
+            len_ids=len_ids,
+            slot_ids=slot_ids,
+            height_ladder_ids=height_ladder_ids,
+            step_position_ids=step_position_ids,
+            explicit_envelope_height=explicit_envelope_height,
+            user_dim_ids=user_dim_ids,
+            only_loc=only_loc,
+            pinned_loc=pinned_loc,
+            only_callout=only_callout,
+            only_dia=only_dia,
+            only_len=only_len,
+            slot_feats=slot_feats,
+        )
+
+    def finalize(self) -> None:
+        """Drain the recorded placement intents (#426).
+
+        When the drawing was built in **deferred** mode (``_defer_intents``), the add
+        verbs recorded :class:`~draftwright.intents.Intent`\\s instead of placing. This
+        drains them, routing what it can through the auto-pass's own solvers:
+
+        * **(A)** live-replays furniture, non-slot dimensions, and axes-restricted locates
+          (in recorded order, pop-after-success);
+        * **(reserve, Phase 3b)** if a ``section`` was recorded, its cutting-plane row is
+          reserved first so the callout carve sees it as an obstacle (Coupling A);
+        * **(B1, Phase 3a)** hole/pattern ø **callouts** through ``_annotate_holes`` — the
+          real priority-drop / central-bore-anchoring solve;
+        * **(B2, Phase 2a+2b)** both-axes **locations** (``render_locations``) and
+          **slots** (``render_slots``) through the SHARED corridor + one ``drain_corridors``
+          — one crossing-free, deduped, monotone ladder (a slot position coincident with a
+          hole location collapses to one dim, #345);
+        * **(B3, Phase 4a)** X/Z-turned step/boss ø **diameters** through ``render_diameters``
+          — the row-below / column-left set-solve;
+        * **(B3b, Phase 4b)** a turned shaft's step-length **chain** through
+          ``render_step_lengths`` — the unified chain / ``N× v`` collapse / staggered tiers;
+        * **(C)** the ``section`` renders last (its room check clears the side view's right);
+        * **(D, Phase 4c)** dense-scattered plan holes escalate to the hole **table** + balloon
+          ring via ``_maybe_tabulate_holes`` — last, so it sees the section + title block as
+          obstacles. The density gate counts *all* analysis holes, so this is a full-
+          reconstruction escalation (a partial hand-edit still tabulates the full count, #434);
+          ``_escalations`` is cleared after so a repeat batch can't re-fire the fixed-name table.
+
+        A slot records two size dims (``slot_width``/``slot_length``) on one feature; routing
+        the feature also regenerates its model-derived datum **position** dim, so finalize
+        places a *superset* of the recorded slot intents (auto-pass parity by design —
+        commenting one of a slot's two lines still routes the feature). An unsupported-axis
+        (Y-turned) step/boss callout live-replays, so it surfaces the same ValueError the
+        live verb raises. Only ``only``-set routing is used here; the auto-pass path is
+        untouched.
+
+        Idempotent (draining empties the list; a repeat call — or ``export()`` then
+        ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
+        path), so ``export()`` calls it unconditionally. **Resilient:** a live-replayed
+        intent is removed only after it places, so a verb that raises surfaces the error
+        and leaves the rest recorded. A record → finalize → record-more → finalize
+        sequence drains each batch (#428 review).
+        """
+        if not self._intents:
+            return
+        from draftwright.annotations._common import drain_corridors
+        from draftwright.annotations.from_model import (
+            render_diameters,
+            render_height_ladder,
+            render_locations,
+            render_slots,
+            render_step_lengths,
+            render_step_positions,
+        )
+        from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
+        from draftwright.annotations.orchestrator import _maybe_tabulate_holes
+        from draftwright.annotations.sections import (
+            _add_section_view,
+            _reserve_section_row,
+            feature_hole_keys,
+        )
+        from draftwright.model import PartModel, plan_dimensions
+
+        # Corridor state the auto-pass creates in _auto_annotate S0 but a detect-only build
+        # lacks — render_locations/_annotate_holes/drain_corridors register/read here.
+        if not hasattr(self, "_corridor_batch"):
+            self._corridor_batch: dict = {}
+        if not hasattr(self, "_escalations"):
+            self._escalations: list = []
+        if not hasattr(self, "_detail_requests"):
+            self._detail_requests: list = []
+
+        model, a = self._part_model, self._analysis
+        routable = model is not None and a is not None
+        r = self._classify_intents(model, a, routable)
+        _section = r.section
+        corridor_ids, callout_ids, dia_ids = r.corridor_ids, r.callout_ids, r.dia_ids
+        len_ids, slot_ids = r.len_ids, r.slot_ids
+        height_ladder_ids, step_position_ids = r.height_ladder_ids, r.step_position_ids
+        explicit_envelope_height, user_dim_ids = r.explicit_envelope_height, r.user_dim_ids
+        only_loc, pinned_loc, only_callout = r.only_loc, r.pinned_loc, r.only_callout
+        only_dia, only_len, slot_feats = r.only_dia, r.only_len, r.slot_feats
 
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
