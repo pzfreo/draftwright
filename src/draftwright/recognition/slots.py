@@ -334,8 +334,10 @@ _END_RADIUS_TOL = 0.15
 
 
 def _cylinder_faces(part) -> list[tuple]:
-    """``(radius, axis_letter, axis_location)`` for each axis-aligned cylindrical face of *part*
-    — the candidate obround end caps (#613). ``axis_location`` is a point on the cylinder axis."""
+    """``(radius, axis_letter, axis_location, bbox)`` for each axis-aligned cylindrical face of
+    *part* — the candidate obround end caps (#613). ``axis_location`` is a point on the cylinder
+    axis; ``bbox`` bounds the face (used to confirm the cap spans the slot's depth, not some
+    unrelated cylinder at a different depth)."""
     out = []
     for face in part.faces():
         surf = BRepAdaptor_Surface(face.wrapped)
@@ -347,21 +349,27 @@ def _cylinder_faces(part) -> list[tuple]:
         if axis is None:
             continue
         loc = cyl.Axis().Location()
-        out.append((cyl.Radius(), axis, (loc.X(), loc.Y(), loc.Z())))
+        out.append((cyl.Radius(), axis, (loc.X(), loc.Y(), loc.Z()), face.bounding_box()))
     return out
 
 
 def _end_cap_at(caps: list[tuple], s: _R, coord: float) -> bool:
-    """True when a semicircular obround end cap (a cylinder of radius ≈ ``s.width/2`` about the
-    depth axis, on the slot centreline) sits at ``coord`` along the long axis (#613)."""
+    """True when a semicircular obround end cap sits at ``coord`` along the long axis (#613): a
+    cylinder of radius ≈ ``s.width/2`` about the depth axis, on the slot centreline, **spanning
+    the slot's own depth extent** ``[d_lo, d_hi]``. The depth-extent test is what separates a
+    real end cap from an unrelated coaxial cylinder — a protruding boss or a blind hole drilled
+    from the far face — that merely happens to sit near the end on the centreline (review)."""
     r = s.width / 2
-    li, wi = _AXES[s.long_axis], _AXES[s.width_axis]
+    li, wi, di = _AXES[s.long_axis], _AXES[s.width_axis], _AXES[s.depth_axis]
+    dc = "XYZ"[di]
     return any(
         abs(rad - r) <= _END_RADIUS_TOL
         and ax == s.depth_axis
         and abs(loc[li] - coord) <= _MERGE_TOL
         and abs(loc[wi] - s.w_center) <= _MERGE_TOL
-        for rad, ax, loc in caps
+        and abs(getattr(bb.min, dc) - s.d_lo) <= _MERGE_TOL
+        and abs(getattr(bb.max, dc) - s.d_hi) <= _MERGE_TOL
+        for rad, ax, loc, bb in caps
     )
 
 
@@ -370,22 +378,29 @@ def _extend_obround_ends(records: list[_R], part) -> list[_R]:
 
     The recogniser pairs the two flat side walls, so the raw ``lo``/``hi`` stop at the straight
     portion — a slot with semicircular ends under-reports its length by the two end radii (each
-    ``width/2``). Where a semicircular end cap (:func:`_end_cap_at`) is present, push that end
-    out by the radius so ``length`` becomes the overall length. This also aligns detection with
-    ``declare.slot(obj)``, which already reads the overall length off the object bounding box.
-    A rectangular slot has no such caps and is returned unchanged."""
+    ``width/2``). A true obround is symmetric, so a slot is extended only when a semicircular end
+    cap (:func:`_end_cap_at`) is present at **both** ends; each end is then pushed out by the
+    radius, keeping the centre fixed. Requiring both ends (not one) avoids a lone coaxial
+    cylinder shifting a flat-ended slot's centre (review), and matches ``declare.slot(obj)``,
+    which reads the overall length off the object bounding box. Rectangular slots have no caps
+    and are returned unchanged."""
     caps = _cylinder_faces(part)
     if not caps:
         return records
     out: list[_R] = []
     for s in records:
         r = s.width / 2
-        lo = s.lo - r if _end_cap_at(caps, s, s.lo) else s.lo
-        hi = s.hi + r if _end_cap_at(caps, s, s.hi) else s.hi
-        if lo == s.lo and hi == s.hi:
-            out.append(s)
+        if _end_cap_at(caps, s, s.lo) and _end_cap_at(caps, s, s.hi):
+            out.append(
+                replace(
+                    s,
+                    lo=round(s.lo - r, 2),
+                    hi=round(s.hi + r, 2),
+                    length=round(s.hi - s.lo + 2 * r, 2),
+                )
+            )
         else:
-            out.append(replace(s, lo=round(lo, 2), hi=round(hi, 2), length=round(hi - lo, 2)))
+            out.append(s)
     return out
 
 
