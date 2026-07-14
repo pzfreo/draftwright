@@ -23,7 +23,12 @@ from draftwright.analysis import (
 from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
 from draftwright.make_drawing import generate_script, lint_feature_coverage
-from draftwright.recognition import Slot, recognise_face_levels, recognise_slots
+from draftwright.recognition import (
+    Slot,
+    recognise_face_levels,
+    recognise_pockets,
+    recognise_slots,
+)
 from draftwright.sheet import StripDepths, _fits, choose_scale
 
 _skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)
@@ -6987,6 +6992,34 @@ class TestFindSlots:
         # circlip groove reads as a slot — the #146 review false positive).
         part = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(7, 4))
         assert recognise_slots(part) == []
+
+    def test_arc_walled_slot_in_round_stock_recognised(self):
+        # #148e: a slot milled into a curved surface has walls the OD clips into an
+        # arc + a straight floor/chord. The relaxed wall test (LINE/CIRCLE with at
+        # least one straight edge) now recognises it, where the old rectangular-only
+        # test — which requires every edge to be a straight LINE — missed it.
+        bar = Rotation(0, 90, 0) * Cylinder(20, 80)  # X-axis round bar
+        part = bar - Pos(0, 0, 14) * Box(6, 24, 12)  # enclosed slot milled into the top
+        (p,) = recognise_pockets(part)
+        assert p.width == 6.0
+        assert p.width_axis == "x"  # width runs ALONG the bar axis → arc-clipped walls
+        assert p.length == 24.0
+
+    def test_arc_wall_relaxation_still_excludes_grooves(self):
+        # The relaxation must NOT admit a turned groove's pure-annular wall (CIRCLE
+        # edges only, no straight edge) as a slot/pocket wall (#148e) — the very
+        # distinction the relaxed test preserves.
+        part = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))
+        assert recognise_slots(part) == []
+        assert recognise_pockets(part) == []
+
+    def test_transverse_notch_spanning_bar_is_not_a_slot(self):
+        # A notch cut fully ACROSS a round bar exits both sides of the OD — an open
+        # feature spanning the part, rejected by the span cap even with arc walls (#148e).
+        bar = Rotation(0, 90, 0) * Cylinder(15, 60)
+        part = bar - Pos(0, 0, 9) * Box(6, 40, 20)
+        assert recognise_slots(part) == []
+        assert recognise_pockets(part) == []
 
     def test_gap_between_bosses_is_not_a_slot(self):
         # The floored channel between two raised bosses has facing rectangular

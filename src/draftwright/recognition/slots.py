@@ -15,9 +15,12 @@ recess rather than some other facing-wall feature with three predicates a naive
 1. **Facing walls** — two axis-aligned planar faces with anti-parallel outward
    normals each pointing *towards* the other.  The part's own outer faces face
    *away*, so this excludes them without any "is this an outer face" heuristic.
-2. **Rectangular walls** — both walls are bounded by straight (LINE) edges only.
-   A turned groove / circlip recess has *annular* walls (CIRCLE edges); this
-   rejects them (otherwise a stepped shaft's groove reads as a slot).
+2. **Slot walls** — both walls are bounded by straight (LINE) and/or circular-arc
+   (CIRCLE) edges, with at least one straight edge (:func:`_is_wall`).  A rectangular
+   wall (all LINE) qualifies; so does a wall a slot cut into round stock clips into an
+   arc + a straight floor/chord (#148e).  A turned groove / circlip recess has a *pure
+   annular* wall — CIRCLE edges only, no straight edge — so it is still rejected
+   (otherwise a stepped shaft's groove reads as a slot).
 3. **Through vs blind** — whether a planar floor caps the cut.  A blind pocket
    (or the floored gap between two bosses) has a floor face spanning the
    footprint; a through-slot does not.  ``_has_floor`` is the sole split between
@@ -173,7 +176,21 @@ class _Face:
     normal: tuple
     axis: str
     bb: object
-    rect: bool  # bounded by straight (LINE) edges only
+    wall: bool  # a valid slot wall: LINE/CIRCLE edges, at least one straight LINE (#148e)
+
+
+def _is_wall(face) -> bool:
+    """True when *face* can be a slot wall: bounded only by straight (LINE) or circular-arc
+    (CIRCLE) edges, with **at least one** straight edge. A fully rectangular wall qualifies
+    (all LINE); a slot cut into round stock has a wall clipped by the OD into an arc + a
+    straight floor/chord, which now qualifies too (#148e). A turned groove / circlip recess
+    has a *pure annular* wall — CIRCLE edges only, no straight edge — so it is still rejected
+    (else a stepped shaft's groove reads as a slot); a freeform (spline/ellipse) face is
+    rejected outright."""
+    types = [e.geom_type for e in face.edges()]
+    if not types or any(t not in (GeomType.LINE, GeomType.CIRCLE) for t in types):
+        return False
+    return any(t == GeomType.LINE for t in types)
 
 
 def _planar_faces(part):
@@ -186,8 +203,7 @@ def _planar_faces(part):
         axis = _dominant_axis(nrm)
         if axis is None:
             continue
-        rect = all(e.geom_type == GeomType.LINE for e in face.edges())
-        faces.append(_Face(nrm, axis, face.bounding_box(), rect))
+        faces.append(_Face(nrm, axis, face.bounding_box(), _is_wall(face)))
     return faces
 
 
@@ -319,7 +335,7 @@ def recognise_slots(part) -> list[Slot]:
     # O(n^2) pairing runs within each axis instead of across all planar faces.
     by_axis: dict[str, list[_Face]] = {}
     for f in faces:
-        if f.rect:
+        if f.wall:
             by_axis.setdefault(f.axis, []).append(f)
     candidates: list[Slot] = []
     for walls in by_axis.values():
@@ -556,7 +572,7 @@ def recognise_pockets(part) -> list[Pocket]:
     part_ext = {a: getattr(pbb.size, "XYZ"[_AXES[a]]) for a in "xyz"}
     by_axis: dict[str, list[_Face]] = {}
     for f in faces:
-        if f.rect:
+        if f.wall:
             by_axis.setdefault(f.axis, []).append(f)
     candidates: list[Pocket] = []
     for walls in by_axis.values():
