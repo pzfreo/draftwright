@@ -136,7 +136,10 @@ def _distinct_by_diameter(bosses, tol: float = 0.15):
 
 
 _DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
-_GROOVE_STEP_TOL = 0.1  # a turned step whose ø + axial centre match a groove IS its floor (#148c)
+_GROOVE_STEP_TOL = (
+    0.1  # pad (mm) for a groove centre lying within its own turned-step span (#148c)
+)
+_STEP_LEN_PAD = 1.0  # a groove's step is no longer than its width + this (mm); guards merged runs
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
@@ -303,13 +306,18 @@ def build_part_model(
         idx = "xyz".index(prof.axis)
         c = bbox.center()
         base = [c.X, c.Y, c.Z]
-        groove_bands = [(g.diameter, g.at[idx]) for g in grooves if g.axis == prof.axis]
+        groove_bands = [(g.at[idx], g.width) for g in grooves if g.axis == prof.axis]
         for s in prof.steps:
             s_mid = (s.lo + s.hi) / 2
-            # Skip the band a groove owns: same axis, matching floor ø and axial centre.
+            # Skip the band a groove owns (its callout dimensions width + floor ø). Match on
+            # axial POSITION, not diameter: a narrow groove's step is reported at the WALL OD
+            # (local_od's pad engulfs both walls when the groove is < ~1.4 mm), so a floor-ø
+            # match would silently miss the common circlip case. The groove centre lies within
+            # its own step span; the short-length guard keeps a merged shaft run from matching.
             if any(
-                abs(s.diameter - gd) <= _DIA_TOL and abs(s_mid - gc) <= _GROOVE_STEP_TOL
-                for gd, gc in groove_bands
+                s.lo - _GROOVE_STEP_TOL <= gc <= s.hi + _GROOVE_STEP_TOL
+                and s.length <= gw + _STEP_LEN_PAD
+                for gc, gw in groove_bands
             ):
                 continue
             lo = list(base)
@@ -330,8 +338,12 @@ def build_part_model(
         # local_od's max(), so it never becomes a step diameter and goes silently
         # undimensioned (#298). Emit each band the silhouette steps miss as a boss, so
         # render_diameters still gives it a ø callout — aligning the callout inventory
-        # with the feature_diameters inventory the coverage lint checks against.
-        step_dias = [s.diameter for s in prof.steps]
+        # with the feature_diameters inventory the coverage lint checks against. A groove
+        # floor is likewise a narrow reduced band; the groove callout already carries its ø,
+        # so include groove floors here to suppress a duplicate boss ø (#148c review).
+        step_dias = [s.diameter for s in prof.steps] + [
+            g.diameter for g in grooves if g.axis == prof.axis
+        ]
         raw_bosses = recognise_bosses(part) if bosses is None else bosses
         for b in _distinct_by_diameter(raw_bosses):
             if all(abs(b.diameter - d) > _DIA_TOL for d in step_dias):

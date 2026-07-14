@@ -635,6 +635,36 @@ class TestGrooveCallout:
         )
         assert recognise_grooves(stack) == []
 
+    def test_narrow_circlip_groove_floor_dimensioned_once(self):
+        # A typical DIN 471 circlip groove is NARROW (~1.3 mm). recognise_turned_steps reports
+        # its step at the WALL ø (local_od's pad engulfs both walls), so the step-exclusion must
+        # key on axial position, not floor ø — else the floor ø double-dimensions via a spurious
+        # step / boss (#148c 2nd-pass review, the primary use case).
+        from draftwright.recognition import recognise_grooves
+
+        narrow = Cylinder(10, 40) - Pos(0, 0, 10) * (Cylinder(10, 1.3) - Cylinder(9, 1.3))
+        assert len(recognise_grooves(narrow)) == 1
+        dwg = build_drawing(narrow, number="X")
+        floor = [n for n in dwg.annotations() if "ø18" in str(getattr(dwg._named[n], "label", ""))]
+        assert floor == [n for n in floor if n.startswith("m_groove")]
+        assert len(floor) == 1
+
+    def test_end_adjacent_groove_with_narrow_land_is_recognised(self):
+        # A groove near the shaft end leaves a thin retaining LAND on the end side. That wall is
+        # narrow because of end-proximity, not a staircase — the recogniser tests the WIDER wall,
+        # so the real groove is still recognised (#148c 2nd-pass review).
+        from build123d import Align
+
+        from draftwright.recognition import recognise_grooves
+
+        b = Align.MIN
+        part = Cylinder(10, 30, align=(Align.CENTER, Align.CENTER, b))
+        part += Pos(0, 0, 30) * Cylinder(9.25, 1.3, align=(Align.CENTER, Align.CENTER, b))
+        part += Pos(0, 0, 31.3) * Cylinder(10, 1.0, align=(Align.CENTER, Align.CENTER, b))
+        grooves = recognise_grooves(part)
+        assert len(grooves) == 1
+        assert grooves[0].diameter == pytest.approx(18.5, abs=0.05)
+
 
 class TestCountersinkCallout:
     """#558: a countersunk hole was called out as a plain THRU hole — no major-Ø /

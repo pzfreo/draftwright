@@ -3,8 +3,9 @@
 A *groove* is an annular channel turned into round stock — a circlip / retaining-ring
 groove, an O-ring groove, a run-out relief. It reads as a *narrow* band of the OD whose diameter
 is a **strict local minimum**: smaller than the contiguous bands on *both* axial sides,
-bounded by the two annular walls where the OD steps down then up again, and **narrower than
-both walls** (a channel, not a segment of an alternating fine-step staircase). It is dimensioned
+bounded by the two annular walls where the OD steps down then up again. It is a channel cut in
+uniform stock — the two walls step back to the **same OD**, and the band is **narrower than the
+wider wall** (not a segment of an alternating fine-step staircase). It is dimensioned
 by its **width** (the axial span) and its **floor diameter** — not as a slot (whose walls
 are rectangular / radial, so :func:`recognise_slots` rejects it) and not as a plain step
 (a *monotonic* OD change, one wall, handled by :func:`recognise_turned_steps`).
@@ -31,9 +32,14 @@ from draftwright.recognition._record import Record
 # less than any real groove depth.
 _ADJ_TOL = 0.1
 _DIA_MARGIN = 0.2
-# A groove is a *narrow channel*: narrower than each of the walls (the neighbouring bands)
-# that bound it. A band as wide as its neighbours is a segment of a stepped profile (an
-# alternating fine-step staircase), not a groove. Narrower by more than this (mm) to count.
+# A groove is a *narrow channel* cut into UNIFORM stock. Two signatures separate it from a
+# segment of an alternating fine-step staircase:
+#  - its two walls step back to (nearly) the same OD — within this (mm). Unequal walls are a
+#    stepped profile (a shoulder), not a channel in round bar.
+_WALL_DIA_TOL = 0.5
+#  - it is narrower than the WIDER of its two walls (by more than this, mm). A band as wide as
+#    its walls is a staircase step; an end-adjacent groove keeps one wide wall (the shaft
+#    continues) even when the other is a thin retaining land, so the *wider* wall is the test.
 _WIDTH_MARGIN = 0.05
 
 
@@ -98,13 +104,16 @@ def recognise_grooves(part) -> list[Groove]:
                 continue
             if cur["diameter"] > nxt["diameter"] - _DIA_MARGIN:
                 continue
-            # A groove is a narrow channel — narrower than both bounding walls. A band as wide
-            # as (or wider than) its neighbours is a step of an alternating staircase, not a
-            # groove (#148c review: fine-pitch stepped heads are steps, not grooves).
-            cur_w = cur["s_hi"] - cur["s_lo"]
-            if cur_w >= (prev["s_hi"] - prev["s_lo"]) - _WIDTH_MARGIN:
+            # Cut into uniform stock: the two walls step back to (nearly) the same OD. Unequal
+            # walls are a shoulder / stepped profile, not an annular channel.
+            if abs(prev["diameter"] - nxt["diameter"]) > _WALL_DIA_TOL:
                 continue
-            if cur_w >= (nxt["s_hi"] - nxt["s_lo"]) - _WIDTH_MARGIN:
+            # A narrow channel: narrower than the WIDER of its two walls. A band as wide as its
+            # walls is a staircase step (#148c review); an end-adjacent groove keeps one wide
+            # wall (the shaft) even when the other is a thin retaining land, so test the wider.
+            cur_w = cur["s_hi"] - cur["s_lo"]
+            wider_wall = max(prev["s_hi"] - prev["s_lo"], nxt["s_hi"] - nxt["s_lo"])
+            if cur_w >= wider_wall - _WIDTH_MARGIN:
                 continue
             bb = cur["face"].bounding_box()
             at = (
