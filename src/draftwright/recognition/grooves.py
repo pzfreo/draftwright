@@ -1,9 +1,10 @@
 """grooves — turned / circlip-groove recognition on round stock (ADR 0007, #148c).
 
 A *groove* is an annular channel turned into round stock — a circlip / retaining-ring
-groove, an O-ring groove, a run-out relief. It reads as a band of the OD whose diameter
+groove, an O-ring groove, a run-out relief. It reads as a *narrow* band of the OD whose diameter
 is a **strict local minimum**: smaller than the contiguous bands on *both* axial sides,
-bounded by the two annular walls where the OD steps down then up again. It is dimensioned
+bounded by the two annular walls where the OD steps down then up again, and **narrower than
+both walls** (a channel, not a segment of an alternating fine-step staircase). It is dimensioned
 by its **width** (the axial span) and its **floor diameter** — not as a slot (whose walls
 are rectangular / radial, so :func:`recognise_slots` rejects it) and not as a plain step
 (a *monotonic* OD change, one wall, handled by :func:`recognise_turned_steps`).
@@ -30,6 +31,10 @@ from draftwright.recognition._record import Record
 # less than any real groove depth.
 _ADJ_TOL = 0.1
 _DIA_MARGIN = 0.2
+# A groove is a *narrow channel*: narrower than each of the walls (the neighbouring bands)
+# that bound it. A band as wide as its neighbours is a segment of a stepped profile (an
+# alternating fine-step staircase), not a groove. Narrower by more than this (mm) to count.
+_WIDTH_MARGIN = 0.05
 
 
 def _shaft_key(c) -> tuple:
@@ -92,6 +97,14 @@ def recognise_grooves(part) -> list[Groove]:
             if cur["diameter"] > prev["diameter"] - _DIA_MARGIN:
                 continue
             if cur["diameter"] > nxt["diameter"] - _DIA_MARGIN:
+                continue
+            # A groove is a narrow channel — narrower than both bounding walls. A band as wide
+            # as (or wider than) its neighbours is a step of an alternating staircase, not a
+            # groove (#148c review: fine-pitch stepped heads are steps, not grooves).
+            cur_w = cur["s_hi"] - cur["s_lo"]
+            if cur_w >= (prev["s_hi"] - prev["s_lo"]) - _WIDTH_MARGIN:
+                continue
+            if cur_w >= (nxt["s_hi"] - nxt["s_lo"]) - _WIDTH_MARGIN:
                 continue
             bb = cur["face"].bounding_box()
             at = (

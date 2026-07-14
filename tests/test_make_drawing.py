@@ -552,6 +552,23 @@ class TestGrooveCallout:
 
         assert recognise_grooves(Cylinder(10, 30) - Box(6, 40, 40)) == []
 
+    def test_alternating_fine_steps_are_not_grooves(self):
+        # An alternating fine-step head (⌀ dips to a local minimum but the band is as wide as
+        # its neighbours) is a stepped profile, not a channel — a groove must be NARROWER than
+        # both bounding walls (#148c review: else a staircase dip is misread as a groove).
+        from build123d import Align, Rotation
+
+        from draftwright.recognition import recognise_grooves
+
+        b = Align.MIN
+        shaft = None
+        z = 0.0
+        for d, ln in [(8, 3.1), (12, 2.9), (8, 3.2), (12, 2.8), (6, 3.0)]:
+            seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
+            shaft = seg if shaft is None else shaft + seg
+            z += ln
+        assert recognise_grooves(Rotation(0, 90, 0) * shaft) == []
+
     def test_grooves_on_two_parallel_shafts_are_not_confused(self):
         # Two distinct z-shafts, each with one groove. Grouped by axis *line* (not letter),
         # so their bands are never interleaved into a phantom third groove.
