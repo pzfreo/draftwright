@@ -1049,6 +1049,33 @@ class TestChooseScaleOverrides:
             choose_scale(10, 10, 10, scale=0)
 
 
+class TestIsometricOrientation:
+    """#620: the isometric is an orientation aid, so it must show the same front (-Y) /
+    right (+X) / top face combination the orthographic views do — not the rear (+Y) side.
+    The old camera viewed from +Y, mirroring asymmetric features against the front view."""
+
+    @staticmethod
+    def _iso_visible_edges(part):
+        dwg = build_drawing(part, number="X")
+        vis, _ = dwg.views["iso"]
+        return len(vis.edges())
+
+    def test_iso_shows_the_minus_y_face_like_the_front_view(self):
+        # A pocket on the -Y face (the face the front view sees) is on the iso's NEAR side, so
+        # more of its edges are visible than the same pocket on the +Y (rear) face. The old +Y
+        # camera reversed this — it showed the rear side against a front-view ortho set.
+        front = Box(60, 40, 30) - Pos(15, -20, 0) * Box(8, 8, 8)
+        rear = Box(60, 40, 30) - Pos(15, 20, 0) * Box(8, 8, 8)
+        assert self._iso_visible_edges(front) > self._iso_visible_edges(rear)
+
+    def test_iso_shows_the_plus_x_face_like_the_right_view(self):
+        # The right-side view sees the +X face; the iso must expose it too (the camera's X is
+        # +X, unchanged — this guards the other two signs while #620 fixes Y).
+        right = Box(40, 60, 30) - Pos(20, 15, 0) * Box(8, 8, 8)
+        left = Box(40, 60, 30) - Pos(-20, 15, 0) * Box(8, 8, 8)
+        assert self._iso_visible_edges(right) > self._iso_visible_edges(left)
+
+
 class TestIsoEmptyRect:
     def test_largest_empty_rect_fallback_when_fully_covered(self):
         # When obstacles leave no genuine gap, _largest_empty_rect returns the

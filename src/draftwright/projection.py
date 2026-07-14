@@ -200,7 +200,10 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
     """
     la = (a.cx * scale, a.cy * scale, a.cz * scale)
     off = (a.bbox_max * scale + 100) / math.sqrt(3)
-    camera = (la[0] + off, la[1] + off, la[2] + off)
+    # View from +X, -Y, +Z so the iso is orientation-consistent with the orthographic set —
+    # front (-Y), plan (+Z), right (+X). A +Y camera would show the *rear* Y face against a
+    # front view, mirroring asymmetric features (#620).
+    camera = (la[0] + off, la[1] - off, la[2] + off)
     dwg.add_view(
         "iso",
         shape_s if shape_s is not None else a.part.scale(scale),
