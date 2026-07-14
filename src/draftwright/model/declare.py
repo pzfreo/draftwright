@@ -396,9 +396,9 @@ def chamfer(
 
 def _read_fillet_face(face) -> tuple[str, float, Point]:
     """Read a fillet off its **cylindrical blend face**: the axis (the edge the fillet runs
-    along), the radius (the cylinder radius), and a point **on the round** (the face centre —
-    the ``R`` leader's tip). Agrees with the recogniser (recognition/fillets.py) in the two
-    in-plane (placement) coordinates; the along-edge coordinate is view depth."""
+    along), the radius (the cylinder radius), and a point **on the round** (mid angular/axial of
+    the trimmed face — the ``R`` leader's tip). Agrees with the recogniser (recognition/fillets.py)
+    in the two in-plane (placement) coordinates; the along-edge coordinate is view depth."""
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.GeomAbs import GeomAbs_Cylinder
 
@@ -415,18 +415,20 @@ def _read_fillet_face(face) -> tuple[str, float, Point]:
             "fillet(face=...): the round must run along one principal axis; use axis=, radius=, at="
         )
     edge_i = max(range(3), key=lambda i: comp[i])
-    # The bbox centre of the face, NOT face.center() (the surface centroid): the recogniser
-    # anchors on the bbox centre (recognition/fillets.py), so this keeps a declared fillet's
-    # leader tip byte-identical to the detected one's in the two in-plane coordinates.
-    bb = face.bounding_box()
-    c = (0.5 * (bb.min.X + bb.max.X), 0.5 * (bb.min.Y + bb.max.Y), 0.5 * (bb.min.Z + bb.max.Z))
+    # Anchor on the curved radius surface itself — a point at the middle of the trimmed face's
+    # angular (U) and axial (V) parameter spans — NOT the bbox centre, which sits off the round
+    # near the virtual sharp corner (#622). Evaluated exactly as recognition/fillets.py does, so
+    # a declared fillet's leader tip is identical to the detected one's.
+    u_mid = 0.5 * (s.FirstUParameter() + s.LastUParameter())
+    v_mid = 0.5 * (s.FirstVParameter() + s.LastVParameter())
+    p = s.Value(u_mid, v_mid)
     return (
         "xyz"[edge_i],
         round(s.Cylinder().Radius(), 3),
         (
-            round(c[0], 4),
-            round(c[1], 4),
-            round(c[2], 4),
+            round(p.X(), 4),
+            round(p.Y(), 4),
+            round(p.Z(), 4),
         ),
     )
 

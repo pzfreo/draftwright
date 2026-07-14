@@ -430,10 +430,42 @@ class TestFillet:
         det = next(
             x for x in build_drawing(solid, number="X").model().features if x.kind == "fillet"
         )
-        # Exact in-plane parity: declare reads the same bbox-centre anchor the recogniser does
+        # Exact in-plane parity: declare reads the same on-round anchor the recogniser does — a
+        # point at mid angular/axial of the trimmed face (#622), not the off-surface bbox centre
         # (the along-edge Z coord is view depth, so it need not match).
         assert f.frame.origin[0] == pytest.approx(det.frame.origin[0], abs=0.01)
         assert f.frame.origin[1] == pytest.approx(det.frame.origin[1], abs=0.01)
+        from build123d import Vertex
+
+        assert Vertex(*f.frame.origin).distance_to(solid) < 0.05  # declared anchor on the round
+
+    def test_anchor_lies_on_the_radius_surface_not_the_virtual_corner(self):
+        # #622: the R leader must terminate on the curved radius surface, not the face bbox
+        # centre — which sits in the removed-wedge void near the arc's centre of curvature /
+        # virtual sharp corner, OFF the solid (~0.71R away). Cover X/Y/Z edge axes + off-origin,
+        # and the grouped case (every equal-R member anchored on its own round).
+        from build123d import Axis, Pos, Vertex
+        from build123d import fillet as bd_fillet
+
+        from draftwright.recognition import recognise_fillets
+
+        z = bd_fillet(Box(60, 40, 30).edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 5)
+        cases = {
+            "z": z,
+            "x": bd_fillet(Box(60, 40, 30).edges().filter_by(Axis.X).sort_by(Axis.Z)[-1], 5),
+            "y": bd_fillet(Box(60, 40, 30).edges().filter_by(Axis.Y).sort_by(Axis.Z)[-1], 5),
+            "off-origin": Pos(100, 50, 20) * z,
+        }
+        for label, part in cases.items():
+            (fl,) = recognise_fillets(part)
+            assert Vertex(*fl.at).distance_to(part) < 0.05, (
+                f"{label}: anchor off the round surface"
+            )
+        # grouped: all four vertical edges rounded → four members, each on its own round.
+        grouped = bd_fillet(Box(60, 40, 30).edges().filter_by(Axis.Z), 5)
+        members = recognise_fillets(grouped)
+        assert len(members) == 4
+        assert all(Vertex(*m.at).distance_to(grouped) < 0.05 for m in members)
 
     def test_recognises_external_fillet(self):
         dwg = build_drawing(self._filleted(3), number="X")
