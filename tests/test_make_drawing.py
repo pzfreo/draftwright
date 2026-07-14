@@ -349,17 +349,25 @@ class TestChamferCallout:
         frac = (ch.at[ei] - lo) / (hi - lo)
         assert 0.3 < frac < 0.7  # interior, not an endpoint — the plane origin gave frac 0.0
 
-    def test_anchor_is_independent_of_part_position(self):
-        # The anchor comes from the bevel geometry, not OCC plane parameterisation, so shifting
-        # the part shifts the anchor by exactly the same offset (#621 off-origin acceptance).
-        from build123d import Axis, chamfer
-
+    @pytest.mark.slow
+    def test_ctc01_c50_chamfer_anchors_on_the_bevel_midpoint_not_the_corner(self):
+        # #621's *in-plane* (visible) symptom only appears where OCC's plane parametric origin is
+        # off-centre in the placement plane — which axis-aligned box chamfers never are (their
+        # plane origin is already in-plane-centred). On the NIST CTC01 C50 chamfer the old plane
+        # origin was the corner (400, 175); the fix anchors on the bevel centroid (375, 200), the
+        # diagonal midpoint. render_chamfers projects the in-plane X, Y, so this is what the
+        # rendered leader tip actually uses.
+        from draftwright.analysis import _import_step
         from draftwright.recognition import recognise_chamfers
 
-        base = chamfer(Box(60, 40, 30).edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 6)
-        (a,) = recognise_chamfers(base)
-        (b,) = recognise_chamfers(Pos(100, 50, 20) * base)
-        assert all(abs((b.at[i] - a.at[i]) - d) < 0.05 for i, d in enumerate((100, 50, 20)))
+        fixture = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
+        part = _import_step(str(fixture))
+        c50 = next(c for c in recognise_chamfers(part) if abs(c.leg1 - 50) < 1)
+        assert c50.axis == "z"  # runs along Z, so X/Y are the in-plane placement coords
+        assert abs(c50.at[0] - 375) < 2 and abs(c50.at[1] - 200) < 2  # the bevel midpoint
+        assert (
+            abs(c50.at[0] - 400) > 10 or abs(c50.at[1] - 175) > 10
+        )  # not the plane-origin corner
 
     def test_x_edge_chamfer_reads_in_side_view(self):
         from build123d import Axis, chamfer
