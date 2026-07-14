@@ -14,7 +14,7 @@ import logging
 import math
 import warnings
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from build123d import Compound, Shape
 from build123d_drafting.helpers import draft_preset
@@ -329,6 +329,135 @@ def _solids_body(part, src: str = "part"):
     return body
 
 
+@dataclass(frozen=True)
+class _GeomClass:
+    """Cylinder inventory + OD/rotational classification, the first analysis sub-step (#590)."""
+
+    z_cyls: list
+    cross_cyls: list
+    z_diams: list
+    cross_diams: list
+    od_diam: float | None
+    od_axis: str
+    is_rotational: bool
+
+
+def _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz) -> _GeomClass:
+    """Analyse *part*'s cylinders and classify its OD / rotational orientation (#590 split of
+    :func:`_analyse`). Partial (fillet) faces are excluded — they would pollute the OD, the bore
+    leaders, and the rotational test alike (#81)."""
+    z_cyls, cross_cyls = analyse_cylinders(part)
+    full_z = full_cylinders(z_cyls)
+    z_diams = dedup_diams(full_z)
+    cross_diams = dedup_diams(full_cylinders(cross_cyls))
+
+    _log.info("Z-axis diameters: %s", z_diams)
+    if cross_diams:
+        _log.info("Cross-hole diams: %s", cross_diams)
+
+    od_cyl = max((c for c in full_z if c["external"]), key=lambda c: c["diameter"], default=None)
+    od_diam = None
+    if od_cyl:
+        # Snap to the dedup_diams representative so comparisons against z_diams entries
+        # (bore-leader exclusion, labels) are exact even if the cylinder records ever carry
+        # unrounded OCCT diameters (#86)
+        raw_od = od_cyl["diameter"]
+        od_diam = min(z_diams, key=lambda d: abs(d - raw_od))
+    od_axis_offset = (
+        math.hypot(od_cyl["axis_xyz"][0] - cx, od_cyl["axis_xyz"][1] - cy) if od_cyl else 0.0
+    )
+    is_rotational = _is_rotational(x_size, y_size, od_diam, od_axis_offset)
+    od_axis = "z"
+    if not is_rotational:
+        # Fallback: a *horizontal* (X/Y) round body — its OD is a cross-axis cylinder
+        # filling the square envelope perpendicular to that axis (#222). The Z check
+        # above is untouched, so vertical parts classify exactly as before; this only
+        # fires when Z-rotational fails and a cross-axis round body is present.
+        sizes = {"x": x_size, "y": y_size, "z": z_size}
+        ctr = {"x": cx, "y": cy, "z": cz}
+        cross_full = full_cylinders(cross_cyls)
+        for ax in ("x", "y"):
+            ext = [c for c in cross_full if c.get("axis") == ax and c["external"]]
+            # #222 targets a *single-OD* round body. A stepped shaft (multiple distinct
+            # cross diameters) stays on the turned-diameter path, not the OD furniture.
+            if len({round(c["diameter"], 1) for c in ext}) != 1:
+                continue
+            oc = max(ext, key=lambda c: c["diameter"], default=None)
+            if oc is None:
+                continue
+            p0, p1 = (a for a in "xyz" if a != ax)
+            off = math.hypot(
+                oc["axis_xyz"]["xyz".index(p0)] - ctr[p0],
+                oc["axis_xyz"]["xyz".index(p1)] - ctr[p1],
+            )
+            if _is_rotational(sizes[p0], sizes[p1], oc["diameter"], off):
+                od_diam, od_axis_offset, od_axis, is_rotational = oc["diameter"], off, ax, True
+                break
+    if z_diams and not is_rotational:
+        _log.info("Part classified prismatic; skipping OD/centreline/bore annotations")
+    return _GeomClass(z_cyls, cross_cyls, z_diams, cross_diams, od_diam, od_axis, is_rotational)
+
+
+def _validate_explicit_scale(
+    scale,
+    SCALE,
+    x_size,
+    y_size,
+    z_size,
+    n_for_sizing,
+    page,
+    strips_i,
+    layout_section,
+    layout_table_sizes,
+) -> None:
+    """Enforce the two scale floors when the caller pinned an explicit *scale* (#489, #590 split
+    of :func:`_analyse`). An explicit scale is the user's call — honour it, subject to:
+      - ``_MIN_RENDER_MM``: a hard geometry limit; below it OCCT's annotation arcs degenerate
+        (Geom_TrimmedCurve U1==U2, ~1e-4 mm; 0.1 mm is a conservative floor). Reject with a clean
+        message — there is no meaningful drawing this small anyway.
+      - ``_MIN_VIEW_MM``: a legibility floor; below it annotations crowd but the drawing is valid,
+        so honour the scale with a warning. This floor does NOT bound the auto scale
+        (``choose_scale`` is a pure geometric page fit), so a warning is only useful when a
+        legible page-fitting scale actually exists — i.e. the auto scale is itself legible."""
+    if scale is None:
+        return
+    min_dim = min(x_size, y_size, z_size)
+    min_view = min_dim * SCALE
+    if min_view < _MIN_RENDER_MM:
+        safe = _MIN_RENDER_MM / min_dim
+        raise ValueError(
+            f"scale {SCALE!r} projects the smallest part dimension "
+            f"({min_dim:.0f} mm) to {min_view:.3g} mm — the drawing geometry degenerates "
+            f"below {_MIN_RENDER_MM:g} mm (OCCT arc construction fails). "
+            f"Use scale ≥ {safe:.3g} or omit the scale for automatic selection."
+        )
+    auto_scale, _, _, _ = choose_scale(
+        x_size,
+        y_size,
+        z_size,
+        n_steps=n_for_sizing,
+        scale=None,
+        page=page,
+        strips=strips_i,
+        section=layout_section,
+        table_sizes=layout_table_sizes,
+    )
+    # Warn only when omitting the scale would truly give a legible fit (auto scale itself is
+    # legible) but the requested scale is below the floor. A part illegible at every
+    # page-fitting scale can't be helped by a bigger one, so nagging there would be false.
+    if min_view < _MIN_VIEW_MM <= auto_scale * min_dim:
+        safe = _MIN_VIEW_MM / min_dim
+        # No stacklevel that reaches user code: this fires deep in _analyse, and the public
+        # entry points (make_drawing, Sheet.export, build_drawing) sit at different depths.
+        # The message is self-contained (names the scale, the projection, and the fix).
+        warnings.warn(
+            f"scale {SCALE!r} projects the smallest part dimension ({min_dim:.0f} mm) to "
+            f"{min_view:.1f} mm, below the {_MIN_VIEW_MM:.0f} mm legibility floor — "
+            f"annotations may crowd or overlap. Honouring the requested scale; use "
+            f"scale ≥ {safe:.3g} or omit the scale for an automatic legible fit."
+        )
+
+
 def _analyse(
     step_file,
     title,
@@ -375,57 +504,10 @@ def _analyse(
 
     _log.info("Loaded %s  bbox: %.2f × %.2f × %.2f mm", src, x_size, y_size, z_size)
 
-    z_cyls, cross_cyls = analyse_cylinders(part)
-    # Partial (fillet) faces are not features: they would pollute the OD,
-    # the bore leaders, and the rotational classification alike (#81)
-    full_z = full_cylinders(z_cyls)
-    z_diams = dedup_diams(full_z)
-    cross_diams = dedup_diams(full_cylinders(cross_cyls))
-
-    _log.info("Z-axis diameters: %s", z_diams)
-    if cross_diams:
-        _log.info("Cross-hole diams: %s", cross_diams)
-
-    od_cyl = max((c for c in full_z if c["external"]), key=lambda c: c["diameter"], default=None)
-    od_diam = None
-    if od_cyl:
-        # Snap to the dedup_diams representative so comparisons against
-        # z_diams entries (bore-leader exclusion, labels) are exact even if
-        # the cylinder records ever carry unrounded OCCT diameters (#86)
-        raw_od = od_cyl["diameter"]
-        od_diam = min(z_diams, key=lambda d: abs(d - raw_od))
-    od_axis_offset = (
-        math.hypot(od_cyl["axis_xyz"][0] - cx, od_cyl["axis_xyz"][1] - cy) if od_cyl else 0.0
-    )
-    is_rotational = _is_rotational(x_size, y_size, od_diam, od_axis_offset)
-    od_axis = "z"
-    if not is_rotational:
-        # Fallback: a *horizontal* (X/Y) round body — its OD is a cross-axis cylinder
-        # filling the square envelope perpendicular to that axis (#222). The Z check
-        # above is untouched, so vertical parts classify exactly as before; this only
-        # fires when Z-rotational fails and a cross-axis round body is present.
-        sizes = {"x": x_size, "y": y_size, "z": z_size}
-        ctr = {"x": cx, "y": cy, "z": cz}
-        cross_full = full_cylinders(cross_cyls)
-        for ax in ("x", "y"):
-            ext = [c for c in cross_full if c.get("axis") == ax and c["external"]]
-            # #222 targets a *single-OD* round body. A stepped shaft (multiple distinct
-            # cross diameters) stays on the turned-diameter path, not the OD furniture.
-            if len({round(c["diameter"], 1) for c in ext}) != 1:
-                continue
-            oc = max(ext, key=lambda c: c["diameter"], default=None)
-            if oc is None:
-                continue
-            p0, p1 = (a for a in "xyz" if a != ax)
-            off = math.hypot(
-                oc["axis_xyz"]["xyz".index(p0)] - ctr[p0],
-                oc["axis_xyz"]["xyz".index(p1)] - ctr[p1],
-            )
-            if _is_rotational(sizes[p0], sizes[p1], oc["diameter"], off):
-                od_diam, od_axis_offset, od_axis, is_rotational = oc["diameter"], off, ax, True
-                break
-    if z_diams and not is_rotational:
-        _log.info("Part classified prismatic; skipping OD/centreline/bore annotations")
+    _gc = _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz)
+    z_cyls, cross_cyls = _gc.z_cyls, _gc.cross_cyls
+    z_diams, cross_diams = _gc.z_diams, _gc.cross_diams
+    od_diam, od_axis, is_rotational = _gc.od_diam, _gc.od_axis, _gc.is_rotational
 
     # Step Z-levels feed both the step-height ladder and the page-sizing step
     # count. For a vertical (Z-axis) turned part, take them from the unified
@@ -530,50 +612,18 @@ def _analyse(
         _pick_for_step_count,
         lambda scale_i: len(_legible_steps(step_zs, bb.min.Z, scale_i)[0]),
     )
-    if scale is not None:
-        # An explicit scale is the user's call — honour it (#489). Two floors apply:
-        #  - _MIN_RENDER_MM: a hard geometry limit; below it OCCT's annotation arcs degenerate
-        #    (Geom_TrimmedCurve U1==U2, ~1e-4 mm empirically — 0.1 mm is a conservative floor).
-        #    Reject with a clean message; there is no meaningful drawing this small anyway.
-        #  - _MIN_VIEW_MM: a legibility floor; below it annotations crowd but the drawing is
-        #    valid, so honour the scale with a warning. This floor does NOT bound the auto scale
-        #    (choose_scale is a pure geometric page fit), so a warning is only useful when a
-        #    legible page-fitting scale actually exists — i.e. the auto scale is itself legible.
-        min_dim = min(x_size, y_size, z_size)
-        min_view = min_dim * SCALE
-        if min_view < _MIN_RENDER_MM:
-            safe = _MIN_RENDER_MM / min_dim
-            raise ValueError(
-                f"scale {SCALE!r} projects the smallest part dimension "
-                f"({min_dim:.0f} mm) to {min_view:.3g} mm — the drawing geometry degenerates "
-                f"below {_MIN_RENDER_MM:g} mm (OCCT arc construction fails). "
-                f"Use scale ≥ {safe:.3g} or omit the scale for automatic selection."
-            )
-        auto_scale, _, _, _ = choose_scale(
-            x_size,
-            y_size,
-            z_size,
-            n_steps=n_for_sizing,
-            scale=None,
-            page=page,
-            strips=strips_i,
-            section=layout_section,
-            table_sizes=layout_table_sizes,
-        )
-        # Warn only when omitting the scale would truly give a legible fit (auto scale itself is
-        # legible) but the requested scale is below the floor. A part illegible at every
-        # page-fitting scale can't be helped by a bigger one, so nagging there would be false.
-        if min_view < _MIN_VIEW_MM <= auto_scale * min_dim:
-            safe = _MIN_VIEW_MM / min_dim
-            # No stacklevel that reaches user code: this fires deep in _analyse, and the public
-            # entry points (make_drawing, Sheet.export, build_drawing) sit at different depths.
-            # The message is self-contained (names the scale, the projection, and the fix).
-            warnings.warn(
-                f"scale {SCALE!r} projects the smallest part dimension ({min_dim:.0f} mm) to "
-                f"{min_view:.1f} mm, below the {_MIN_VIEW_MM:.0f} mm legibility floor — "
-                f"annotations may crowd or overlap. Honouring the requested scale; use "
-                f"scale ≥ {safe:.3g} or omit the scale for an automatic legible fit."
-            )
+    _validate_explicit_scale(
+        scale,
+        SCALE,
+        x_size,
+        y_size,
+        z_size,
+        n_for_sizing,
+        page,
+        strips_i,
+        layout_section,
+        layout_table_sizes,
+    )
     DIM_PAD = _DIM_PAD
     margin = _MARGIN
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
