@@ -7092,6 +7092,22 @@ class TestFindSlots:
         (p,) = recognise_pockets(part)
         assert p.length == 22.0
 
+    def test_coaxial_posts_at_both_ends_do_not_extend_length(self):
+        # Symmetric coaxial POSTS (added material, radius = width/2) protruding into both slot
+        # ends at the slot's own depth pass the radius/axis/centreline/depth checks — but they
+        # are CONVEX (material inside the cylinder), not concave void caps. The concavity test
+        # must reject them so the flat-ended slot is not extended (#613 2nd-pass review).
+        part = (
+            (Box(60, 30, 10) - Box(30, 8, 20))
+            + Pos(15, 0, 0) * Cylinder(4, 10)
+            + Pos(-15, 0, 0) * Cylinder(4, 10)
+        )
+        (s,) = recognise_slots(part)
+        assert (
+            s.length == 30.0
+        )  # the flat span, NOT 38 (would be if wrongly extended by the posts)
+        assert (s.lo, s.hi) == (-15.0, 15.0)
+
     def test_gap_between_bosses_is_not_a_slot(self):
         # The floored channel between two raised bosses has facing rectangular
         # walls but is not a cut slot — the floor (the base plate) rejects it.

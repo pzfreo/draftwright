@@ -334,10 +334,12 @@ _END_RADIUS_TOL = 0.15
 
 
 def _cylinder_faces(part) -> list[tuple]:
-    """``(radius, axis_letter, axis_location, bbox)`` for each axis-aligned cylindrical face of
-    *part* — the candidate obround end caps (#613). ``axis_location`` is a point on the cylinder
-    axis; ``bbox`` bounds the face (used to confirm the cap spans the slot's depth, not some
-    unrelated cylinder at a different depth)."""
+    """``(radius, axis_letter, axis_location, bbox, concave)`` for each axis-aligned cylindrical
+    face of *part* — the candidate obround end caps (#613). ``axis_location`` is a point on the
+    cylinder axis; ``bbox`` bounds the face (used to confirm the cap spans the slot's depth, not
+    some unrelated cylinder at a different depth); ``concave`` is True when the face bounds a
+    *void* (its material-outward normal points inward, toward the axis) — a recess wall — rather
+    than added material (a boss/post). Mirrors ``_outward_normal``'s FORWARD/handedness test."""
     out = []
     for face in part.faces():
         surf = BRepAdaptor_Surface(face.wrapped)
@@ -349,27 +351,31 @@ def _cylinder_faces(part) -> list[tuple]:
         if axis is None:
             continue
         loc = cyl.Axis().Location()
-        out.append((cyl.Radius(), axis, (loc.X(), loc.Y(), loc.Z()), face.bounding_box()))
+        fwd = face.wrapped.Orientation() == TopAbs_Orientation.TopAbs_FORWARD
+        concave = fwd != cyl.Position().Direct()
+        out.append((cyl.Radius(), axis, (loc.X(), loc.Y(), loc.Z()), face.bounding_box(), concave))
     return out
 
 
 def _end_cap_at(caps: list[tuple], s: _R, coord: float) -> bool:
     """True when a semicircular obround end cap sits at ``coord`` along the long axis (#613): a
-    cylinder of radius ≈ ``s.width/2`` about the depth axis, on the slot centreline, **spanning
-    the slot's own depth extent** ``[d_lo, d_hi]``. The depth-extent test is what separates a
-    real end cap from an unrelated coaxial cylinder — a protruding boss or a blind hole drilled
-    from the far face — that merely happens to sit near the end on the centreline (review)."""
+    **concave** (void-bounding) cylinder of radius ≈ ``s.width/2`` about the depth axis, on the
+    slot centreline, **spanning the slot's own depth extent** ``[d_lo, d_hi]``. Two clauses
+    separate a real cap from a coaxial impostor at the same place: the depth-extent test rejects
+    a boss/hole at a *different* depth, and the concavity test rejects added material — a post or
+    boss protruding *into* the slot end at the slot's depth (both review false positives)."""
     r = s.width / 2
     li, wi, di = _AXES[s.long_axis], _AXES[s.width_axis], _AXES[s.depth_axis]
     dc = "XYZ"[di]
     return any(
-        abs(rad - r) <= _END_RADIUS_TOL
+        concave
+        and abs(rad - r) <= _END_RADIUS_TOL
         and ax == s.depth_axis
         and abs(loc[li] - coord) <= _MERGE_TOL
         and abs(loc[wi] - s.w_center) <= _MERGE_TOL
         and abs(getattr(bb.min, dc) - s.d_lo) <= _MERGE_TOL
         and abs(getattr(bb.max, dc) - s.d_hi) <= _MERGE_TOL
-        for rad, ax, loc, bb in caps
+        for rad, ax, loc, bb, concave in caps
     )
 
 
