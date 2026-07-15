@@ -243,6 +243,36 @@ class TestStepPosition:
         placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
         assert placed == ["20"]
 
+    def test_finalize_retries_when_the_drain_itself_raised(self, monkeypatch):
+        # #636 review: the drain-gate fix is only reachable past `if not self._intents:
+        # return`. A0b drops the step intent as it registers, so if drain_corridors ITSELF
+        # raises (step-only batch, no other intents), a retry lands here with empty intents
+        # but a pending batch — the early-return must be batch-aware or the dim strands.
+        from draftwright.annotations import _common
+
+        part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)  # step only, no holes
+        dwg = build_drawing(part, auto_dims=False)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_position")
+
+        real = _common.drain_corridors
+        calls = {"n": 0}
+
+        def _boom(d):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("injected drain failure")
+            return real(d)
+
+        monkeypatch.setattr(_common, "drain_corridors", _boom)
+        with pytest.raises(RuntimeError):
+            dwg.finalize()  # A0b registered + dropped the step intent; the drain then raises
+        assert dwg._corridor_batch and not dwg._intents  # stranded batch, no intents left
+        dwg.finalize()  # retry: batch-aware early-return proceeds and drains the batch
+        placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
+        assert placed == ["20"]
+
     def test_step_position_dedups_against_a_coincident_hole_location(self):
         # #636 review: a shoulder position is a datum-referenced location dim, so when a
         # hole location measures the SAME datum span it is the same physical dimension —

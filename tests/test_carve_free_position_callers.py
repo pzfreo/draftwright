@@ -16,9 +16,10 @@ The guard is a **fail-closed allowlist** of ``(file, function)`` pairs. Every
 ``"<module>"`` for a bare module-scope call — and any caller outside the allowlist
 trips the test. The fix is to make the site a corridor candidate (the Amendment 8
 pattern), not to widen the allowlist. The allowlist may only grow for a site recorded
-as an explicit exemption in ADR 0009's remaining-migration note. (A rename-on-import
-alias — ``from ._common import carve_free_position as carve`` — is the one evasion
-static name-matching cannot follow; don't do that.)
+as an explicit exemption in ADR 0009's remaining-migration note. Import aliases
+(``from ._common import carve_free_position as carve``) and module-qualified calls
+(``_common.carve_free_position(...)``) are both tracked; only a runtime rebinding
+(``carve = carve_free_position``) escapes, which is contrived rather than a foot-gun.
 """
 
 from __future__ import annotations
@@ -45,6 +46,20 @@ _ALLOWED_CALLERS = {
 }
 
 
+def _carve_local_names(tree: ast.Module) -> set[str]:
+    """Every local name that refers to ``carve_free_position`` in this module: the canonical
+    name plus any ``from ._common import carve_free_position as X`` alias. This closes the
+    import-alias evasion (the realistic one). A runtime rebinding (``carve =
+    carve_free_position``) is still not followed — but that is contrived, not a foot-gun."""
+    names = {"carve_free_position"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.name == "carve_free_position" and a.asname:
+                    names.add(a.asname)
+    return names
+
+
 def _carve_callers(path: Path) -> set[str]:
     """Names of the functions in *path* that call ``carve_free_position`` — every carve
     call, wherever it lives, maps to a caller so the guard is genuinely fail-closed. A
@@ -54,6 +69,7 @@ def _carve_callers(path: Path) -> set[str]:
     a bare module-scope call against ``"<module>"``. Any of these outside the allowlist
     trips the test."""
     tree = ast.parse(path.read_text(), filename=str(path))
+    names = _carve_local_names(tree)
     callers: set[str] = set()
 
     def visit(node: ast.AST, owner: str | None) -> None:
@@ -63,7 +79,7 @@ def _carve_callers(path: Path) -> set[str]:
             elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
                 visit(child, owner or child.name)  # the outermost fn owns nested closures
             else:
-                if _is_carve_call(child):
+                if _is_carve_call(child, names):
                     callers.add(owner or "<module>")
                 visit(child, owner)
 
@@ -71,17 +87,15 @@ def _carve_callers(path: Path) -> set[str]:
     return callers
 
 
-def _is_carve_call(node: ast.AST) -> bool:
-    """True for a call whose callee is *named* ``carve_free_position`` — whether bare
-    (``carve_free_position(...)``, the actual import style here) or module-qualified
-    (``_common.carve_free_position(...)``). A rename-on-import alias (``import ... as
-    carve``) would still slip through — static name-matching can't follow that — but
-    the direct and qualified forms cover every real caller and the obvious evasion."""
+def _is_carve_call(node: ast.AST, names: set[str]) -> bool:
+    """True for a call whose callee resolves to ``carve_free_position`` in this module —
+    a bare or aliased local name (``names``), or a module-qualified attribute
+    (``_common.carve_free_position(...)``)."""
     if not isinstance(node, ast.Call):
         return False
     fn = node.func
     if isinstance(fn, ast.Name):
-        return fn.id == "carve_free_position"
+        return fn.id in names
     if isinstance(fn, ast.Attribute):
         return fn.attr == "carve_free_position"
     return False
@@ -93,8 +107,9 @@ def test_carve_free_position_callers_are_allowlisted():
     for path in sorted(_ANNO_DIR.rglob("*.py")):  # rglob: covers any future subpackage too
         if "__pycache__" in path.parts:
             continue
-        for fn in _carve_callers(path):
-            found.add((path.name, fn))
+        rel = path.relative_to(_ANNO_DIR).as_posix()  # not path.name — a subpackage file
+        for fn in _carve_callers(path):  # sharing a basename must not inherit the exemption
+            found.add((rel, fn))
     new = found - _ALLOWED_CALLERS
     assert not new, (
         "New carve_free_position caller(s) in annotations/ — place geometry through the "
@@ -114,7 +129,7 @@ def test_guard_detects_a_synthetic_caller():
     tree = ast.parse(src)
     fn = tree.body[0]
     assert isinstance(fn, ast.FunctionDef)
-    assert any(_is_carve_call(c) for c in ast.walk(fn))
+    assert any(_is_carve_call(c, {"carve_free_position"}) for c in ast.walk(fn))
 
 
 def test_migrated_passes_have_no_carve_caller():
@@ -124,10 +139,12 @@ def test_migrated_passes_have_no_carve_caller():
     assert "render_step_positions" not in callers
 
 
-def test_carve_callers_covers_methods_qualified_and_module_scope(tmp_path):
+def test_carve_callers_covers_methods_qualified_aliased_and_module_scope(tmp_path):
     """The attribution is fail-closed beyond top-level bare calls: a class method, a
-    module-qualified callee, a nested closure, and a bare module-scope call each surface."""
+    module-qualified callee, an import alias, a nested closure, and a bare module-scope
+    call each surface."""
     src = (
+        "from ._common import carve_free_position as carve\n"  # alias import
         "carve_free_position(a)\n"  # module scope → "<module>"
         "class R:\n"
         "    def m(self):\n"
@@ -136,7 +153,9 @@ def test_carve_callers_covers_methods_qualified_and_module_scope(tmp_path):
         "    def _inner():\n"
         "        return carve_free_position(a)\n"  # closure → attributed to render_outer
         "    return _inner\n"
+        "def render_aliased():\n"
+        "    return carve(a)\n"  # aliased local name → still caught
     )
     p = tmp_path / "probe.py"
     p.write_text(src)
-    assert _carve_callers(p) == {"<module>", "m", "render_outer"}
+    assert _carve_callers(p) == {"<module>", "m", "render_outer", "render_aliased"}

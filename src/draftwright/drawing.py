@@ -1412,7 +1412,12 @@ class Drawing:
         and leaves the rest recorded. A record → finalize → record-more → finalize
         sequence drains each batch (#428 review).
         """
-        if not self._intents:
+        # A populated _corridor_batch left by a prior finalize whose drain raised must still
+        # drain: the step-position pass (A0b) drops its intent the moment it registers, so a
+        # retry can reach here with no intents but pending candidates — early-returning then
+        # would strand them permanently (#636 review). _corridor_batch is created lower down,
+        # so a first call (no attr yet) still short-circuits on empty intents as before.
+        if not self._intents and not getattr(self, "_corridor_batch", None):
             return
         from draftwright.annotations._common import drain_corridors
         from draftwright.annotations.from_model import (
