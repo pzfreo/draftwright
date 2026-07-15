@@ -1412,7 +1412,12 @@ class Drawing:
         and leaves the rest recorded. A record → finalize → record-more → finalize
         sequence drains each batch (#428 review).
         """
-        if not self._intents:
+        # A populated _corridor_batch left by a prior finalize whose drain raised must still
+        # drain: the step-position pass (A0b) drops its intent the moment it registers, so a
+        # retry can reach here with no intents but pending candidates — early-returning then
+        # would strand them permanently (#636 review). _corridor_batch is created lower down,
+        # so a first call (no attr yet) still short-circuits on empty intents as before.
+        if not self._intents and not getattr(self, "_corridor_batch", None):
             return
         from draftwright.annotations._common import drain_corridors
         from draftwright.annotations.from_model import (
@@ -1513,8 +1518,15 @@ class Drawing:
             #      crossing-free ladder, one drain (auto-pass registers locations then slots,
             #      then a single drain_corridors, so a slot position coincident with a hole
             #      location dedups, #345). Register both, then drain once (Phase 2a + 2b).
+            #      A pending _corridor_batch gates the drain too: since #636 the A0b
+            #      step-position pass only *registers* corridor candidates, so this single
+            #      drain is what places them — without it a stepped part with no locations/
+            #      slots/user-dims would queue the shoulder-position dims and never place
+            #      them. Gating on the batch (not on step_position_ids) also drains a batch
+            #      stranded by a raise between A0b and here: a retry recomputes
+            #      step_position_ids empty, but the candidates persist and must still drain.
             queued_dim_ids = set()
-            if only_loc or slot_feats or user_dim_ids:
+            if only_loc or slot_feats or user_dim_ids or self._corridor_batch:
                 assert a is not None and isinstance(model, PartModel)  # either ⟹ routable
                 if only_loc:
                     render_locations(self, model, a, only=only_loc, pinned=pinned_loc)

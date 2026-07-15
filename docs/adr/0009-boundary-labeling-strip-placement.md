@@ -23,18 +23,33 @@ leader geometry → the L1/PAVA min-leader solve → band-aware then shared-carv
 one-solve-across-passes → real footprints + GD&T → solver consolidation) — read them for
 the* why, *not to reconstruct the current state.*
 
-**Remaining migration (2026-07-15, tracked by #636 / consolidation epic #635).**
-Amendment 8 consolidated PMI, front-view callouts, and the pitch fallback, but a
-handful of auto-pass renderers still place via the solver-invisible single-position
-carve (`carve_free_position`): `render_plates`, `render_height_ladder`,
-`render_step_positions`, the PMI alternate-strip drop fallback, and the hole
-`_rim_tip`/scattered-location helpers. Until those join the solve, the
-"invisible-occupant collision class removed **by construction**" claim above
-holds only for the migrated passes — and two 0.3.0 features (plates #559,
-step-positions #555) landed on the carve path, so the legacy path still attracts
-new work. #636 migrates the remainder and adds a fail-closed guard test; any
-site that legitimately cannot be a solve candidate (e.g. the Amendment 8
-diagonal pitch probe) must be recorded here as an explicit exemption.
+**Remaining migration (tracked by #636 / consolidation epic #635).**
+Amendment 8 consolidated PMI, front-view callouts, and the pitch fallback. #636
+then migrated the two 0.3.0 features that had regressed onto the solver-invisible
+single-position carve (`carve_free_position`) — **`render_plates` (#559)** and
+**`render_step_positions` (#555)** now register `CorridorCandidate`s that co-solve
+with the locations sharing their strips — and added a fail-closed guard test
+(`tests/test_carve_free_position_callers.py`) so the legacy path can no longer
+silently attract new callers. Until the remaining sites join the solve, the
+"invisible-occupant collision class removed **by construction**" claim above holds
+only for the migrated passes.
+
+The carve callers still allowed in `annotations/` (the guard-test allowlist):
+
+- **Permanent exemption** — `_place_pitch_dim`'s diagonal fallback (`holes.py`):
+  searches an arbitrary outward vector, so its dim cannot occupy a 1-D axis-aligned
+  strip tier and cannot be a solve candidate at all (Amendment 8's decision).
+- **Pending migration (#636)**, each with a genuine design fork deferred to its own
+  PR: `render_height_ladder` (the leapfrog witness cursor — a collect-then-solve
+  pass must rebuild the chain from solved positions), `render_gdt`'s PMI
+  alternate-strip fallback (runs inside a candidate's `on_drop`, i.e. after its
+  strip has already drained — needs a two-side candidate, not a post-hoc carve),
+  and the detect-only verbs `add_feature_callout` / `add_feature_location` (a
+  detect-only build has no shared corridor batch to register into — cousins of the
+  ADR 0012-exempt `place_dim`).
+
+A new carve caller in `annotations/` fails the guard test; a genuine new exemption
+must be recorded in this note first.
 
 ## Context
 
