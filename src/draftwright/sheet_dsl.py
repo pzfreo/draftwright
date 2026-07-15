@@ -19,5 +19,17 @@ warnings.warn(
 )
 
 
+# Star-import/introspection parity with the pre-rename module: __getattr__ alone
+# is invisible to `from … import *` (no __all__ → only real globals bind) and to
+# dir()/REPL completion — the same reason __init__.py pairs its lazy __getattr__
+# with __all__ + __dir__. The old module had no __all__, so its `import *`
+# surface was every non-underscore global; mirror that exactly.
+__all__ = [n for n in dir(_sheet) if not n.startswith("_")]
+
+
 def __getattr__(name: str):
     return getattr(_sheet, name)
+
+
+def __dir__():
+    return sorted(set(globals()) | set(dir(_sheet)))

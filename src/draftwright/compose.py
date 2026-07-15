@@ -9,7 +9,7 @@ packed blocks fit the sheet disjoint (`choose_scale`), and lay the chosen geomet
 into page zones (`_layout_geometry`/`_build_zones`). Footprints are page-mm box
 layouts, never bbox-measured geometry (perf).
 
-Below make_drawing in the DAG: imports only `_core` + build123d_drafting; the
+Below make_drawing in the DAG: imports only `_core`/`layout` + build123d_drafting; the
 measure-and-repack pass (`_repack`, coupled to `_assemble`) stays in the builder.
 """
 

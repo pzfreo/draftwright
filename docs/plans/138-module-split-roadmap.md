@@ -38,7 +38,7 @@ no PR introduces an import cycle, riskiest (annotations) last:
 |---|---|---|---|---|
 | ~~P1~~ | #160 | `_text_width` → `_core` ✅ | tiny | — |
 | ~~P2~~ | #161 | `projection.py` (silhouettes, iso) ✅ | med | — |
-| ~~P3~~ | #162 | `sheet.py` — compose-then-pack (repack deferred to P6) ✅ | large (2 PRs) | P1 |
+| ~~P3~~ | #162 | `sheet.py` — compose-then-pack (repack deferred to P6) ✅ *(since renamed `compose.py`, #640)* | large (2 PRs) | P1 |
 | ~~P4~~ | #163 | `analysis.py` (`_analyse`) ✅ | med-lg | — |
 | ~~P5~~ | #164 | `annotations/` — sections, turned, pmi, holes, orchestrator ✅ (envelope.py deferred) | biggest (5 PRs) | P1–P4 |
 | ~~P6~~ | #165 | `builder.py` + `drawing.py` ✅ (context-threading deferred) | med | P2, P4 |
@@ -50,7 +50,7 @@ make_drawing.py   # compat facade / public re-exports (DONE)
 builder.py        # build_drawing/make_drawing orchestration (DONE)
 drawing.py        # the Drawing result object (DONE)
 analysis.py       # _analyse, Analysis construction (DONE)
-sheet.py          # choose_scale, compose-then-pack (DONE; repack→P6)
+compose.py        # née sheet.py (#640): choose_scale, compose-then-pack (DONE; repack→P6)
 projection.py     # view projection, silhouettes, iso fit (DONE)
 registry.py       # annotation identity (DONE)
 linting.py        # lint_feature_coverage, _suggest_fix, CoverageState (DONE)

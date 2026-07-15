@@ -1399,3 +1399,16 @@ class TestSheetDslShim:
 
         assert shim.Sheet is sheet.Sheet
         assert shim._parse_scale is sheet._parse_scale  # private helpers alias too
+
+    def test_shim_star_import_and_dir_surface(self):
+        # __getattr__ alone is invisible to `import *` (no __all__ → only real
+        # globals bind) and to dir(); the shim must mirror the pre-rename surface.
+        import draftwright.sheet as sheet
+        import draftwright.sheet_dsl as shim
+
+        ns: dict = {}
+        exec("from draftwright.sheet_dsl import *", ns)  # noqa: S102 — the pattern under test
+        assert ns["Sheet"] is sheet.Sheet
+        assert "Sheet" in dir(shim)
+        public = {n for n in dir(sheet) if not n.startswith("_")}
+        assert public <= set(shim.__all__)

@@ -185,7 +185,7 @@ Current ADRs:
   boundaries + single-owner build state. `Drawing` stops being the implicit state
   bus; annotation identity/pins/build-issues moved to `registry.py`, coverage
   state to `linting/`, build context (`Analysis`, edge cache) into the pipeline.
-  Stages split into `builder`/`analysis`/`sheet`/`projection`/`linting/`/`repair`/
+  Stages split into `builder`/`analysis`/`compose` (née `sheet`, #640)/`projection`/`linting/`/`repair`/
   `export`/`annotations/` (all #160–#166 landed; `make_drawing.py` 3,907 → ~17
   facade). `layout.py` unchanged. **Roadmap:** `docs/plans/138-module-split-roadmap.md`.
   One deferred follow-up remains: full build-context threading off `Drawing`

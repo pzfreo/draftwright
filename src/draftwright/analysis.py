@@ -2,10 +2,10 @@
 
 `_analyse` imports the part (STEP or Shape), runs feature detection (holes,
 patterns, cylinders, face levels), classifies it (rotational vs prismatic),
-chooses the sheet (scale/page via `sheet.choose_scale`) and lays out the view
-zones (`sheet._layout_geometry`/`_build_zones`) — returning the `Analysis`
-namespace the rest of the pipeline reads. Sits above `sheet` and below
-`make_drawing` in the DAG.
+chooses the sheet (scale/page via `compose.choose_scale`) and lays out the view
+zones (`compose._layout_geometry`/`_build_zones`) — returning the `Analysis`
+namespace the rest of the pipeline reads. Sits above `compose` (née `sheet`,
+#640) and below `builder` in the DAG.
 """
 
 from __future__ import annotations
