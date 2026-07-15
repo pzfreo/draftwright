@@ -19,11 +19,11 @@ import math
 from types import SimpleNamespace
 
 from draftwright._core import (
-    _CONCENTRIC_TOL_MM,
     _TABULATE_MIN_HOLES,
     Analysis,
     HoleRef,
     _add_title_block,
+    _concentric_with_axis,
     _fmt,
     _iso_bbox,
     _log,
@@ -154,11 +154,7 @@ def _declared_feature_keys(groups, a: Analysis) -> set:
         if not isinstance(feat, HoleFeature | PatternFeature):
             continue
         for m in feat.members or (g.anchor,):
-            if (
-                a.is_rotational
-                and feat.frame.axis == "z"
-                and math.hypot(m[0] - a.cx, m[1] - a.cy) <= _CONCENTRIC_TOL_MM
-            ):
+            if a.is_rotational and feat.frame.axis == "z" and _concentric_with_axis(a, m[0], m[1]):
                 continue
             keys.add(HoleRef.of(m))
     return keys

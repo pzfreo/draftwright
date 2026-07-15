@@ -24,17 +24,20 @@ from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish,
 from build123d_drafting.helpers import Centerline, CenterMark, HoleCallout, Leader, TitleBlock
 
 from draftwright._core import (
-    _CONCENTRIC_TOL_MM,
     _DIAM_RE,
     _END_ON,
+    _EST_CHAR_WIDTH_EM,
     _MARGIN,
     _MIN_STEP_SEP_MM,
     _SLOT_DIM_DEPTH,
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
     _SLOT_DIM_WIDTH,
+    _WITNESS_LIFT_MM,
     DetailRequest,
+    _concentric_with_axis,
     _dim,
+    _first_free_index,
     _fmt,
     _greedy_strip_ys,
     _iso_bbox,
@@ -372,6 +375,11 @@ _LOC_SUBCHAIN = 1
 _OVERALL_SUBCHAIN = 2
 _MANDATORY_OVERALL_PRIORITY = 100.0
 
+# Minimum half of a bore's PAGE-projected diameter (mm) for its ø dim to fit across the circle
+# in-plane; below this the circle is too small to letter inside, so the callout leaders out
+# instead. Applied per bore-axis view (plan/side/front).
+_MIN_INPLACE_BORE_HALF_MM = 4.0
+
 
 def _location_candidate(
     dwg,
@@ -451,11 +459,7 @@ def render_locations(dwg, model, a, *, only=None, pinned=None) -> int:
         # centreline, not a position dim (matches the engine's feature_holes
         # filter). A pattern ref (role "location_pattern" — e.g. a bolt-circle
         # centre) is NOT filtered, even on the axis.
-        if (
-            pd.param.role == "location"
-            and a.is_rotational
-            and math.hypot(rx - a.cx, ry - a.cy) <= _CONCENTRIC_TOL_MM
-        ):
+        if pd.param.role == "location" and a.is_rotational and _concentric_with_axis(a, rx, ry):
             continue
         refs.append((rx, ry, pd.feature))  # carry the source feature for provenance (ADR 0010)
     if not refs:
@@ -473,11 +477,9 @@ def render_locations(dwg, model, a, *, only=None, pinned=None) -> int:
     def _loc_name(prefix: str, i: int) -> str:
         if _loc_used is None:
             return f"{prefix}{i}"  # auto-pass: unchanged, byte-identical
-        j = 0
-        while f"{prefix}{j}" in _loc_used:
-            j += 1
-        _loc_used.add(f"{prefix}{j}")
-        return f"{prefix}{j}"
+        name = f"{prefix}{_first_free_index(prefix, _loc_used)}"
+        _loc_used.add(name)
+        return name
 
     # --- X locations: tier above the plan view ---
     PX, PY = a.proj.plan_x, a.proj.plan_y
@@ -686,7 +688,7 @@ def _diameter_row_below(dwg, items, start: int = 0) -> int:
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
         specs.append((tip, dia, f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}", feat))
-    half_w = max(len(label) for _, _, label, _ in specs) * draft.font_size * 0.62 / 2
+    half_w = max(len(label) for _, _, label, _ in specs) * draft.font_size * _EST_CHAR_WIDTH_EM / 2
     min_gap = 2 * half_w + 2 * draft.pad_around_text
     # Place what fits; drop the smallest ø first, never the whole row (#298).
     survivors, xs = _place_what_fits(specs, 0, min_gap, fx0 + half_w, fx1 - half_w)
@@ -712,7 +714,7 @@ def _diameter_column_left(dwg, items, start: int = 0) -> int:
     label_w = (
         max(len(f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}") for _, dia, _, dtol in items)
         * draft.font_size
-        * 0.62
+        * _EST_CHAR_WIDTH_EM
     )
     elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
     if elbow_x - label_w < _MARGIN:
@@ -1384,7 +1386,7 @@ def render_envelope(dwg, groups, a) -> int:
     if env_dim_placed(width):
         (x0, y0, z0), (x1, _, _) = width.param.span
         p1, p2 = dwg.at("plan", x0, y0, z0), dwg.at("plan", x1, y0, z0)
-        witness = p1[1] - 2
+        witness = p1[1] - _WITNESS_LIFT_MM
         _queue(
             "m_env_width",
             a.pv_zones.below,
@@ -1405,7 +1407,7 @@ def render_envelope(dwg, groups, a) -> int:
     if env_dim_placed(depth):
         (x0, y0, z0), (_, y1, _) = depth.param.span
         p1, p2 = dwg.at("side", x0, y0, z0), dwg.at("side", x0, y1, z0)
-        witness = p1[1] - 2
+        witness = p1[1] - _WITNESS_LIFT_MM
         _queue(
             "m_env_depth",
             a.sv_zones.below,
@@ -1483,7 +1485,7 @@ def _draw_step_chain(
         tiers = [0] * len(segs)
         if horizontal:
             cw = [
-                ((pa[0] + pb[0]) / 2, len(_fmt(v)) * draft.font_size * 0.62)
+                ((pa[0] + pb[0]) / 2, len(_fmt(v)) * draft.font_size * _EST_CHAR_WIDTH_EM)
                 for pa, pb, v, *_ in segs
             ]
 
@@ -2354,7 +2356,7 @@ def render_pmi(dwg, model, a) -> int:
 
             if bore_axis == "Z":
                 # Z-axis bore: circle visible in plan view.
-                if half_pg >= 4.0:
+                if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
                     p1 = (PX(cx_f - half), PY(cy_f), 0)
                     p2 = (PX(cx_f + half), PY(cy_f), 0)
                     placed = _queue_options(
@@ -2393,7 +2395,7 @@ def render_pmi(dwg, model, a) -> int:
 
             elif bore_axis == "X":
                 # X-axis bore: circle visible in side view.
-                if half_pg >= 4.0:
+                if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
                     p1 = (SX(cy_f - half), SZ(cz_f), 0)
                     p2 = (SX(cy_f + half), SZ(cz_f), 0)
                     placed = _queue_options(
@@ -2432,7 +2434,7 @@ def render_pmi(dwg, model, a) -> int:
 
             elif bore_axis == "Y":
                 # Y-axis bore: circle visible in front view as a circle.
-                if half_pg >= 4.0:
+                if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
                     p1 = (FX(cx_f - half), FZ(cz_f), 0)
                     p2 = (FX(cx_f + half), FZ(cz_f), 0)
                     placed = _queue_options(

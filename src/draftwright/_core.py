@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -133,7 +134,38 @@ def _text_width(text: str, font_size: float, font_path: str = PLEX_MONO) -> floa
     )
 
 
+# Cheap mean glyph advance as a fraction of the em (font size), for label-width ESTIMATES in
+# the diameter row/column capacity checks. Plex Mono is monospaced at ~0.6 em, padded a touch.
+# The exact metric is `_text_width()` above (measured per string), which the corridor/label
+# placers use; these capacity gates only need a close bound, not the metric, so they trade
+# exactness for not rasterising a text layout per candidate. The two may diverge for unusually
+# wide/narrow glyph runs.
+_EST_CHAR_WIDTH_EM = 0.62
+
+
 _CONCENTRIC_TOL_MM = 0.5
+
+
+def _first_free_index(prefix: str, taken) -> int:
+    """The lowest ``j`` for which ``f"{prefix}{j}"`` is not in *taken* (a set or any container
+    supporting ``in``). The shared kernel of the first-free annotation-name allocators
+    (``_loc_name``/``_uniq``/``_hc_name``) — used where reusing a freed gap is fine. NOTE: the
+    step-length / diameter runs deliberately use ``max+1`` instead (``_next_start`` /
+    ``_next_steplen_start``), because a contiguous run started at a gap below an occupied index
+    would wrap onto it (#432); don't fold those onto this."""
+    j = 0
+    while f"{prefix}{j}" in taken:
+        j += 1
+    return j
+
+
+def _concentric_with_axis(a, x: float, y: float) -> bool:
+    """True when the page/world point ``(x, y)`` lies on the rotational part's turned axis
+    (within :data:`_CONCENTRIC_TOL_MM`). A bore/pattern centred on the axis needs no location
+    dim — its position is the axis — so several passes filter such refs; this is the single
+    radial test they share (the perpendicular-plane distance to the axis centre ``(a.cx,
+    a.cy)``). Callers still gate on ``a.is_rotational`` / role / axis as their context needs."""
+    return math.hypot(x - a.cx, y - a.cy) <= _CONCENTRIC_TOL_MM
 
 
 def _dim(p1, p2, side, distance, draft, **kwargs):
@@ -159,6 +191,9 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
 # extension-line origins) and subsequent parallel lines stack tighter and uniform (#347).
 _STRIP_GAP = 10.0  # clearance between the view outline and the first dimension line
 _STRIP_SPACING = 2.5  # clear gap between successive parallel dimension lines (beyond the label)
+# Small lift (page-mm) of an overall/envelope witness line off the projected silhouette edge,
+# so its extension line reads as distinct from the outline rather than sitting on top of it.
+_WITNESS_LIFT_MM = 2.0
 
 
 @dataclass
