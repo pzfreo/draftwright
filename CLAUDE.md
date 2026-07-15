@@ -27,6 +27,16 @@ fluent `Sheet` facade (`sheet.py`), the Sheet-script emitter
 upper one. (All surfaces are front doors onto the one engine,
 `build_drawing` → `_auto_annotate` — there is no second engine.)
 
+This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): the
+`_LAYERS` table there is the precise, ranked form of this section — a module-level
+import that points up a layer fails CI, as does an import cycle. The precise
+placement refines the coarse grouping above (e.g. `linting`/`pmi`/`export`/`repair`/
+`projection`/`compose` sit *above* `_core` since they depend on it; `model/` is the
+IR-waist leaf it is guarded as). Lazy in-function imports are the sanctioned
+cycle-breakers (`builder`↔`cli`); the one type-only upward reference
+(`_core`→`compose.StripDepths`, under `TYPE_CHECKING`) is an explicit allowlist
+entry. Keep `_LAYERS` and this section in step.
+
 - **`make_drawing.py`** — thin compat facade (~17 lines) re-exporting the public
   surface (`Drawing`, `build_drawing`, `make_drawing`, `generate_script`, `_cli`,
   `FeatureInfo`, `fix_svg_page_size`, `lint_feature_coverage`) so existing imports
