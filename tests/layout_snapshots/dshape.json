@@ -74,6 +74,24 @@
     },
     {
       "geom_bbox": [
+        116.3,
+        94.7,
+        130.5,
+        104.7
+      ],
+      "label": "\u00f88",
+      "label_bbox": [
+        116.3,
+        102.5,
+        119.6,
+        104.7
+      ],
+      "name": "m_bossdia_x0",
+      "type": "Leader",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
         131.9,
         84.7,
         140.5,
@@ -84,24 +102,6 @@
       "name": "m_cm0",
       "type": "CenterMark",
       "view": "side"
-    },
-    {
-      "geom_bbox": [
-        75.1,
-        68.9,
-        82.7,
-        81.0
-      ],
-      "label": "\u00f88",
-      "label_bbox": [
-        75.1,
-        68.9,
-        78.4,
-        71.1
-      ],
-      "name": "m_dia_x0",
-      "type": "Leader",
-      "view": "front"
     },
     {
       "geom_bbox": [
