@@ -1332,7 +1332,6 @@ def render_plates(dwg, model, a) -> int:
             p1 = dwg.at(view, a.bb.min.X, pl.v, pl.lo)
             p2 = dwg.at(view, a.bb.min.X, pl.v, pl.hi)
             edge = p1[0]
-            perp = tuple(sorted((p1[1], p2[1])))
             pa, pb = (edge, p1[1], 0), (edge, p2[1], 0)
         elif pl.axis == "y":
             # Upright wall: horizontal dim above the side (end) view, which shows the
@@ -1343,28 +1342,45 @@ def render_plates(dwg, model, a) -> int:
             p1 = dwg.at(view, a.bb.min.X, pl.lo, a.bb.max.Z)
             p2 = dwg.at(view, a.bb.min.X, pl.hi, a.bb.max.Z)
             edge = p1[1]
-            perp = tuple(sorted((p1[0], p2[0])))
             pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
         else:  # x — thin wall along X → horizontal dim below the front view
             view, strip, stack, side = "front", a.fv_zones.below, "y", "below"
             p1 = dwg.at(view, pl.lo, pl.u, a.bb.min.Z)
             p2 = dwg.at(view, pl.hi, pl.u, a.bb.min.Z)
             edge = p1[1]
-            perp = tuple(sorted((p1[0], p2[0])))
             pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
-        pos = carve_free_position(dwg, strip, view, stack, tier, perp)
-        if pos is None:
+        name = f"dim_plate_{pl.axis}{i}"
+
+        def _build(pos, pa=pa, pb=pb, side=side, edge=edge, val=val):
+            return _dim(pa, pb, side, pos - edge, draft, label=_fmt(val))
+
+        def _drop(nm, val=val, view=view, stack=stack):
             dwg._record_build_issue(
                 "warning",
                 "plate_thickness_dropped",
                 f"plate thickness {_fmt(val)} not dimensioned ({view} {stack}-strip full)",
             )
-            continue
-        dwg.add(
-            _dim(pa, pb, side, pos - edge, draft, label=_fmt(val)),
-            f"dim_plate_{pl.axis}{i}",
-            view=view,
-            feature=pl,
+
+        # ADR 0009 corridor candidate (#636): a plate thickness is a size dim bound to one
+        # view/strip (no alternate view), so it is force-kept and dropped only when the strip
+        # is physically full — the same outcome the prior solver-invisible carve gave, but now
+        # co-solved with the locations/steps that share this strip.
+        register_corridor(
+            dwg,
+            (view, side),
+            strip,
+            view,
+            stack,
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=_build,
+                order=(_SIZE_SUBCHAIN, i, name),
+                on_place=lambda nm: None,
+                on_drop=_drop,
+                force=True,
+                feature=pl,
+            ),
         )
         n += 1
     return n
@@ -1850,22 +1866,39 @@ def render_step_positions(dwg, model, a) -> int:
             p1 = dwg.at(view, datum, a.bb.max.Y, a.bb.min.Z)
             p2 = dwg.at(view, pos, a.bb.max.Y, a.bb.min.Z)
         edge = p1[1]
-        perp = tuple(sorted((p1[0], p2[0])))
-        place = carve_free_position(dwg, strip, view, "y", tier, perp)
-        if place is None:
+        name = f"dim_shoulder_{axis}{i}"
+
+        def _build(pos, p1=p1, p2=p2, edge=edge, val=val):
+            return _dim(
+                (p1[0], edge, 0), (p2[0], edge, 0), "above", pos - edge, draft, label=_fmt(val)
+            )
+
+        def _drop(nm, val=val, view=view):
             dwg._record_build_issue(
                 "warning",
                 "step_position_dropped",
                 f"step position {_fmt(val)} not dimensioned ({view} above-strip full)",
             )
-            continue
-        dwg.add(
-            _dim(
-                (p1[0], edge, 0), (p2[0], edge, 0), "above", place - edge, draft, label=_fmt(val)
+
+        # ADR 0009 corridor candidate (#636): a shoulder position is a datum-referenced
+        # location dim — force-kept in the datum-distance ladder, co-solving with the hole
+        # locations that share this above-view strip (was a solver-invisible carve).
+        register_corridor(
+            dwg,
+            (view, "above"),
+            strip,
+            view,
+            "y",
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=_build,
+                order=(_LOC_SUBCHAIN, val, name),
+                on_place=lambda nm: None,
+                on_drop=_drop,
+                force=True,
+                feature=step,
             ),
-            f"dim_shoulder_{axis}{i}",
-            view=view,
-            feature=step,
         )
         n += 1
     return n
