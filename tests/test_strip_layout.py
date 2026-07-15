@@ -692,6 +692,58 @@ def test_register_corridor_uses_largest_tier_across_producers():
     assert dwg._corridor_batch[key]["tier"] == 9.0
 
 
+def test_drain_corridors_is_per_corridor_transactional():
+    # #636 review: a solve that raises mid-drain must leave only the UN-solved corridors in
+    # the batch, so a finalize() retry (ADR 0012 recompose) never re-places an already-
+    # committed corridor against its own existing annotation.
+    from types import SimpleNamespace
+
+    import pytest
+
+    from draftwright.annotations import _common
+    from draftwright.annotations._common import (
+        CorridorCandidate,
+        drain_corridors,
+        register_corridor,
+    )
+
+    def _cand(name):
+        return CorridorCandidate(
+            name=name,
+            build=lambda _p: None,
+            order=(0, name),
+            on_place=lambda _n: None,
+            on_drop=lambda _n: None,
+        )
+
+    dwg = SimpleNamespace(_corridor_batch={})
+    register_corridor(dwg, ("plan", "above"), object(), "plan", "y", 4.0, _cand("a"))
+    register_corridor(dwg, ("side", "above"), object(), "side", "y", 4.0, _cand("b"))
+
+    solved: list = []
+    real_solve = _common.solve_corridor
+
+    def _solve(_d, _strip, view, _axis, _cands, _tier):
+        solved.append(view)
+        if len(solved) == 2:  # the second corridor raises after the first has committed
+            raise RuntimeError("injected solve failure")
+
+    _common.solve_corridor = _solve
+    try:
+        with pytest.raises(RuntimeError):
+            drain_corridors(dwg)
+        # the committed corridor is gone; only the raising one remains for the retry
+        assert list(dwg._corridor_batch) == [("side", "above")]
+        assert solved == ["plan", "side"]
+
+        _common.solve_corridor = lambda *_a, **_k: solved.append("retry")
+        drain_corridors(dwg)  # retry drains only the leftover — "plan" is NOT re-solved
+        assert not dwg._corridor_batch
+        assert solved == ["plan", "side", "retry"]
+    finally:
+        _common.solve_corridor = real_solve
+
+
 def test_place_strip_candidates_refills_after_late_forbid_rejection():
     # #524 review: segment preselection must not waste capacity when the chosen
     # high-priority candidate is rejected only after rendering (e.g. title-block

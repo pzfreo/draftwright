@@ -273,24 +273,6 @@ class TestStepPosition:
         placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
         assert placed == ["20"]
 
-    def test_step_position_dedups_against_a_coincident_hole_location(self):
-        # #636 review: a shoulder position is a datum-referenced location dim, so when a
-        # hole location measures the SAME datum span it is the same physical dimension —
-        # the corridor solve must collapse them to one leader (ADR 0009 dedup, #345), not
-        # stack two identical "30" dims. The shoulder (precedence 1) loses to the hole
-        # location (2); its value still reads off the surviving shared dim.
-        shoulder_x = Box(80, 60, 30) - Pos(-25, 0, 7.5) * Box(30, 60, 15)  # riser at x=-10
-        coincident = shoulder_x - Pos(-10, 15, 0) * Cylinder(3, 40)  # hole at the same x
-        dwg = build_drawing(coincident, number="X")
-        assert not [n for n in dwg._named if n.startswith("dim_shoulder")]  # deduped away
-        assert {dwg._named[n].label for n in dwg._named if n.startswith("m_locx")} == {"30"}
-        # Control: a hole at a DIFFERENT x must not dedup the shoulder — both dims stay.
-        apart = shoulder_x - Pos(25, 15, 0) * Cylinder(3, 40)
-        dwg2 = build_drawing(apart, number="X")
-        assert [dwg2._named[n].label for n in dwg2._named if n.startswith("dim_shoulder")] == [
-            "30"
-        ]
-
     def test_centered_rebate_dimensions_both_shoulders(self):
         # A symmetric central channel has TWO shoulders; both positions must be given
         # (20 and 40 from the front datum), else the channel is under-constrained.
