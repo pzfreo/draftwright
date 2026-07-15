@@ -446,6 +446,14 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
         assembly = len(part.solids()) > 1
     n = len(prof.steps)
     covered = _axial_covered_from_drawing(part, dwg, prof)
+    # A groove band's axial extent is dimensioned by its width callout, not a step length, so
+    # detect.py leaves it out of the step-length chain (#606). Count each *rendered* groove-width
+    # callout on the turning axis as covering its band — so a fully-dimensioned grooved shaft
+    # (N−1 step lengths + the groove width) is not flagged (#628); a *dropped* groove callout
+    # leaves its band uncovered, so a genuine gap still fires (reconcile rendered, not intent).
+    covered += sum(
+        1 for name in getattr(dwg, "_named", {}) if name.startswith(f"m_groove_{prof.axis}")
+    )
     if covered >= n:
         return []
     return [
