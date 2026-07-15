@@ -21,8 +21,11 @@ top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, the `linting/` and
 `recognition/` subpackages) → `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `sheet.py`, `analysis.py`, `drawing.py`, the
 `model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
-`make_drawing.py` / `annotate.py` compat facades and the `cli.py` entry point.
-No lower module imports an upper one.
+user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
+fluent `Sheet` facade (`sheet_dsl.py`), the Sheet-script emitter
+(`sheet_emit.py`), and the `cli.py` entry point. No lower module imports an
+upper one. (All surfaces are front doors onto the one engine,
+`build_drawing` → `_auto_annotate` — there is no second engine.)
 
 - **`make_drawing.py`** — thin compat facade (~17 lines) re-exporting the public
   surface (`Drawing`, `build_drawing`, `make_drawing`, `generate_script`, `_cli`,
@@ -41,7 +44,8 @@ No lower module imports an upper one.
     `.repair()`/`.export*()`; delegates identity to `registry`, coverage to `lint`)
     plus `_build_table` and `FeatureInfo`. Sits below `builder` (which constructs it).
     *(The build context `_analysis`/`_view_edge_cache` still lives on `Drawing`;
-    threading it through `builder`→`projection`, ADR 0005 §2, is a deferred follow-up.)*
+    threading it through an explicit placement context, ADR 0005 §2, is tracked
+    by #639 in the #635 consolidation epic.)*
 - **`annotate.py`** — thin compat facade re-exporting `_auto_annotate` (the
   orchestrator) from `annotations/`. The annotation passes were split into the
   **`annotations/`** subpackage (#164 / ADR 0005, P5):
@@ -62,8 +66,10 @@ No lower module imports an upper one.
     ISO 128-50 hatching).
   - **`annotations/_common.py`** — shared placement helpers (`_anno_box`,
     `_occupied_boxes`, `_box_hits`) at the bottom of the annotations DAG.
-  Each submodule imports only `_core`/`layout`/`projection`/third-party — never
-  `annotate`/`make_drawing` — so the orchestrator calls down with no cycle.
+  Submodules import only down or sideways — `_core`/`layout`/`analysis`/
+  `projection`/the `model/` IR/`linting.structural`/third-party, never
+  `annotate`/`make_drawing`/`drawing` (the drawing is duck-typed as `dwg`) — so
+  the orchestrator calls down with no cycle.
 - **`_core.py`** — shared primitives below both `make_drawing.py` and `annotate.py`:
   the `Analysis` namespace and its field types (`_Projector`, `Strip`, `ViewZones`),
   the dimension/format helpers (`_dim`, `_fmt`, `_add_title_block`, …), and the
@@ -85,8 +91,21 @@ No lower module imports an upper one.
 - **`model/`** — the ADR 0008 IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
   `Feature` objects, adapting `recognition/`), `planner.py` (`plan_dimensions` —
-  one rule set → a `DimensionGroup` per feature, + `plan_sections`). The narrow
-  middle of the compiler hourglass; consumed by `annotations/from_model.py`.
+  one rule set → a `DimensionGroup` per feature, + `plan_sections`), and
+  `declare.py` (ADR 0011 object→feature constructors: `hole`/`boss`/`step`/… read
+  a feature's size off the build123d object — a second, *declared* front-end into
+  the same IR the detectors fill). The narrow middle of the compiler hourglass;
+  consumed by `annotations/from_model.py`.
+- **`sheet.py`** — the ADR 0004 **outer** compose-then-pack layout engine
+  (`choose_scale`, `ViewBlock`, zone/strip depths): a *stage module*, despite the
+  name — the user-facing `Sheet` lives in `sheet_dsl.py`.
+- **`sheet_dsl.py`** — the fluent declarative **`Sheet`** facade (ADR 0011):
+  feature verbs (`hole`/`boss`/`slot`/…), aspect verbs (`.tolerance`/`.fit`/
+  `.finish`), GD&T (`datum`/`control`). Facade tier: builds a `PartModel` via
+  `model/declare.py` and calls `build_drawing(model=…)`.
+- **`sheet_emit.py`** — the Sheet-script emitter behind `--script --style sheet`:
+  generates an editable `sheet_dsl` script from a detected model. Facade tier;
+  #523 tracks breaking its lazy-import cycle with `builder`/`cli`.
 - **`recognition/`** — feature recognition (ADR 0007: draftwright owns it, not
   helpers). Every feature recogniser follows the **uniform contract** (ADR 0013 / #568,
   spelled out in `recognition/__init__.py`): `recognise_<feature>(part, *, <injected
@@ -134,7 +153,9 @@ correctness. Ask: does this feature round-trip **all** the surfaces its kind
 requires — recognise **+** emit **+** declare (ADR 0011 / epic #574; no
 recognition-only debt)? Does it fit the compiler pipeline and one-inventory waist
 (ADR 0008)? Does it conform to the recogniser contract (ADR 0013)? Does it sit
-where it belongs in the DAG, or re-introduce a coupling an ADR removed? A change
+where it belongs in the DAG, or re-introduce a coupling an ADR removed? Does it
+place geometry through the corridor solve rather than around it, and extend a
+shared pass rather than adding another copy (consolidation epic #635)? A change
 that is locally correct but architecturally off-pattern *is* tech debt — call it
 out in the issue/PR/review, not after merge.
 
@@ -155,9 +176,8 @@ Current ADRs:
   **disjoint**; build OCC geometry once at the end. Footprints are page-mm
   **box layouts**, never bbox-measured geometry (perf). Byte-identity is **not**
   required — output may change; acceptance = plan-view labels never overlap
-  front-view dimensions (CTC-02) + lint clean. Execution tracked as **#121**
-  (the current order — annotations placed *after* views, into shared corridors —
-  is the root cause of cross-view overlap).
+  front-view dimensions (CTC-02) + lint clean. Execution (**#121**) **landed** —
+  all nine implementation steps done (see the ADR's 2026-07-09 status amendment).
 - **0005** — **Accepted (split complete)** (#138): compiler-pipeline module
   boundaries + single-owner build state. `Drawing` stops being the implicit state
   bus; annotation identity/pins/build-issues moved to `registry.py`, coverage
@@ -165,8 +185,10 @@ Current ADRs:
   Stages split into `builder`/`analysis`/`sheet`/`projection`/`linting/`/`repair`/
   `export`/`annotations/` (all #160–#166 landed; `make_drawing.py` 3,907 → ~17
   facade). `layout.py` unchanged. **Roadmap:** `docs/plans/138-module-split-roadmap.md`.
-  Two deferred follow-ups: inline envelope dims → `annotations/envelope.py`, and
-  full build-context threading off `Drawing` (§2).
+  One deferred follow-up remains: full build-context threading off `Drawing`
+  (§2), tracked by **#639** (consolidation epic #635). (The other —
+  `annotations/envelope.py` — was overtaken by ADR 0008: the envelope pass
+  converged into `annotations/from_model.py` instead.)
 - **0006** — **Accepted** (#149): deterministic cross-platform layout via bundled,
   path-pinned fonts. Layout depends on measured text width; resolving a font *name*
   (`"Arial"`) substitutes a different font on Linux, drifting the whole sheet ~1 mm.
@@ -184,13 +206,17 @@ Current ADRs:
   → a dimensioning **planner** → render-intents → the shared layout/projection/
   export infra. One feature inventory, detected once; orientation/feature-kind are
   *data in the IR*, not code branches. Roadmaps: `docs/plans/0008-*-roadmap.md`.
-- **0009** — **Accepted** (decision; work pending — supersedes/subsumes #150):
-  **collect-then-solve** per-strip annotation placement (boundary labeling).
-  Strip passes stop placing-as-they-go;
+- **0009** — **Accepted, largely implemented** (Amendments 1–9; supersedes/
+  subsumes #150): **collect-then-solve** per-strip annotation placement
+  (boundary labeling). Strip passes stop placing-as-they-go;
   every strip occupant is collected as a candidate and one solve per strip does
   select → assign → order(=feature order ⇒ crossing-free) → space. Removes the
   invisible-occupant collision class (#133/#225/#305) by construction; the inner
   per-view layer to 0004's outer block packing; consumes 0008's render-intents.
+  **Remaining migration:** a handful of render passes (plates, height ladder,
+  step positions, some hole helpers) still place via the solver-invisible
+  `carve_free_position` — tracked by **#636** (consolidation epic #635); the
+  by-construction guarantee holds only once those join the solve.
   Research: `docs/research/annotation-placement-boundary-labeling.md`. Roadmap:
   `docs/plans/strip-layout-boundary-labeling-roadmap.md`.
 - **0010** — **Accepted** (decision; work pending): **annotation provenance seam**.

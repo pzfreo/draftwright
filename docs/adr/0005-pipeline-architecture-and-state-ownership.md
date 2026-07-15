@@ -1,6 +1,7 @@
 # ADR 0005 — Compiler-pipeline module boundaries and single-owner build state
 
-- **Status:** Accepted (module split complete; two follow-ups noted below)
+- **Status:** Accepted (module split complete; one follow-up remains — see the
+  2026-07-15 note below)
 - **Date:** 2026-06-27
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Progress:** Execution roadmap with per-phase tracking issues:
@@ -15,8 +16,17 @@
   P4 `analysis.py` (#163), P5 `annotations/` (#164), P6 `builder.py`+`drawing.py`
   (#165; context-threading deferred), P7 mypy (#166). All phases landed:
   make_drawing.py 3,907 → ~17 (facade).
-  Deferred follow-ups: annotations/envelope.py + build-context threading (§2). Build context (`_analysis`, edge cache) is threaded through
-  `builder`/`projection` in P6, **not** parked on `Drawing` as a standalone owner.
+  **Follow-up status (2026-07-15):** the `annotations/envelope.py` extraction was
+  **overtaken by ADR 0008** — the envelope pass converged into
+  `annotations/from_model.py` with the other IR render passes, so no standalone
+  module is planned. The §2 build-context threading remains **open**: build
+  context (`_analysis`, edge cache, part model) and per-run placement state
+  (corridor batch, escalations, detail requests) still live as private
+  attributes on `Drawing`, reached into by the annotation passes
+  (`getattr(dwg, "_analysis", None)` and ~70 other `dwg._*` accesses) — the
+  state-bus disease §2 names. Executing it (an explicit placement context
+  passed to every pass) is tracked by **#639** in the consolidation epic
+  **#635**.
 
 ## Context
 
