@@ -22,7 +22,7 @@ top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, the `linting/` and
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
 `model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
-fluent `Sheet` facade (`sheet_dsl.py`), the Sheet-script emitter
+fluent `Sheet` facade (`sheet.py`), the Sheet-script emitter
 (`sheet_emit.py`), and the `cli.py` entry point. No lower module imports an
 upper one. (All surfaces are front doors onto the one engine,
 `build_drawing` → `_auto_annotate` — there is no second engine.)
@@ -98,13 +98,16 @@ upper one. (All surfaces are front doors onto the one engine,
   consumed by `annotations/from_model.py`.
 - **`compose.py`** — the ADR 0004 **outer** compose-then-pack layout engine
   (`choose_scale`, `ViewBlock`, zone/strip depths). Née `sheet.py`; renamed
-  (#640) so the layout engine stops shadowing the user-facing `Sheet` facade.
-- **`sheet_dsl.py`** — the fluent declarative **`Sheet`** facade (ADR 0011):
+  (#640) so the layout engine stops shadowing the user-facing `Sheet` facade
+  (which now owns the `sheet.py` name).
+- **`sheet.py`** — the fluent declarative **`Sheet`** facade (ADR 0011):
   feature verbs (`hole`/`boss`/`slot`/…), aspect verbs (`.tolerance`/`.fit`/
   `.finish`), GD&T (`datum`/`control`). Facade tier: builds a `PartModel` via
-  `model/declare.py` and calls `build_drawing(model=…)`.
+  `model/declare.py` and calls `build_drawing(model=…)`. Née `sheet_dsl.py`
+  (renamed #640 — it's a fluent facade, not a DSL, per ADR 0001; a deprecated
+  `sheet_dsl` alias shim remains for one release).
 - **`sheet_emit.py`** — the Sheet-script emitter behind `--script --style sheet`:
-  generates an editable `sheet_dsl` script from a detected model. Facade tier;
+  generates an editable `Sheet` script from a detected model. Facade tier;
   #523 tracks breaking its lazy-import cycle with `builder`/`cli`.
 - **`recognition/`** — feature recognition (ADR 0007: draftwright owns it, not
   helpers). Every feature recogniser follows the **uniform contract** (ADR 0013 / #568,
