@@ -7933,6 +7933,18 @@ class TestPrismaticBossDiameter:
         assert any(o.label == "ø28" for o in dwg._named.values() if getattr(o, "label", None))
         assert dwg.lint_summary()["by_code"].get("feature_not_dimensioned", 0) == 0
 
+    def test_boss_diameter_carries_authored_tolerance(self):
+        # The pass must consume the planner's DimParameter (value + tolerance/fit), not raw
+        # geometry — formatting b.diameter directly dropped an authored ⌀ tolerance, and then
+        # blocked render_diameters via `mentioned`, losing it silently (gpt-5.6-sol review).
+        from draftwright import Sheet
+
+        s = Sheet.from_part(Box(90, 64, 38) + Pos(0, 0, 24) * Cylinder(14, 10))
+        s.of(Pos(0, 0, 24) * Cylinder(14, 10)).tolerance(0.0, 0.1)  # tolerance the boss ⌀28
+        dwg = s.build()
+        labels = [o.label for n, o in dwg._named.items() if n.startswith("m_bossdia_")]
+        assert labels and any("0.1" in str(lbl) for lbl in labels), labels
+
     def test_turned_part_boss_stays_in_the_column(self):
         # A rotational shaft's step/OD diameters keep the m_dia column — render_boss_diameters
         # is a prismatic-only pass and must not fire on a turned body.
