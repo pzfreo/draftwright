@@ -10,7 +10,7 @@ import pytest
 from build123d import Box, Cylinder, Pos, Rotation
 
 from draftwright.model.declare import gdt_target
-from draftwright.sheet_dsl import Sheet, _parse_datums
+from draftwright.sheet import Sheet, _parse_datums
 
 
 def _part():

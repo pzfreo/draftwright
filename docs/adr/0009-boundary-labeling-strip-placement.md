@@ -23,6 +23,19 @@ leader geometry → the L1/PAVA min-leader solve → band-aware then shared-carv
 one-solve-across-passes → real footprints + GD&T → solver consolidation) — read them for
 the* why, *not to reconstruct the current state.*
 
+**Remaining migration (2026-07-15, tracked by #636 / consolidation epic #635).**
+Amendment 8 consolidated PMI, front-view callouts, and the pitch fallback, but a
+handful of auto-pass renderers still place via the solver-invisible single-position
+carve (`carve_free_position`): `render_plates`, `render_height_ladder`,
+`render_step_positions`, the PMI alternate-strip drop fallback, and the hole
+`_rim_tip`/scattered-location helpers. Until those join the solve, the
+"invisible-occupant collision class removed **by construction**" claim above
+holds only for the migrated passes — and two 0.3.0 features (plates #559,
+step-positions #555) landed on the carve path, so the legacy path still attracts
+new work. #636 migrates the remainder and adds a fail-closed guard test; any
+site that legitimately cannot be a solve candidate (e.g. the Amendment 8
+diagonal pitch probe) must be recorded here as an explicit exemption.
+
 ## Context
 
 A run of layout fixes — #133 (locate side-drilled holes), #225 (locate *every*

@@ -2,10 +2,10 @@
 
 `_analyse` imports the part (STEP or Shape), runs feature detection (holes,
 patterns, cylinders, face levels), classifies it (rotational vs prismatic),
-chooses the sheet (scale/page via `sheet.choose_scale`) and lays out the view
-zones (`sheet._layout_geometry`/`_build_zones`) — returning the `Analysis`
-namespace the rest of the pipeline reads. Sits above `sheet` and below
-`make_drawing` in the DAG.
+chooses the sheet (scale/page via `compose.choose_scale`) and lays out the view
+zones (`compose._layout_geometry`/`_build_zones`) — returning the `Analysis`
+namespace the rest of the pipeline reads. Sits above `compose` (née `sheet`,
+#640) and below `builder` in the DAG.
 """
 
 from __future__ import annotations
@@ -32,6 +32,15 @@ from draftwright._core import (
     _legible_steps,
     _Projector,
 )
+from draftwright.compose import (
+    StripDepths,
+    _build_zones,
+    _est_hole_table_sizes,
+    _est_planned_bore_callout_width,
+    _layout_geometry,
+    _measure_strips,
+    choose_scale,
+)
 from draftwright.model import build_part_model
 from draftwright.model.ir import Datum, PartModel, StepFeature
 from draftwright.model.planner import plan_dimensions
@@ -46,15 +55,6 @@ from draftwright.recognition import (
     recognise_slots,
     recognise_turned_steps,
     step_level_zs,
-)
-from draftwright.sheet import (
-    StripDepths,
-    _build_zones,
-    _est_hole_table_sizes,
-    _est_planned_bore_callout_width,
-    _layout_geometry,
-    _measure_strips,
-    choose_scale,
 )
 
 _log = logging.getLogger(__name__)

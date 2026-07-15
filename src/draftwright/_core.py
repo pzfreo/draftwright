@@ -20,8 +20,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from draftwright.compose import StripDepths
     from draftwright.recognition import TurnedProfile
-    from draftwright.sheet import StripDepths
 
 from build123d import Align, BoundBox, Location, Mode, Shape, Text
 from build123d_drafting.helpers import (
@@ -154,7 +154,7 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
 
 # Dimension-line spacing (page-mm, scale-independent), the single source of truth for
 # BOTH the ADR 0009 strip carve (via the `Strip` dataclass defaults below) and the
-# sheet.py halo/depth estimates that must reserve the same space. Per ISO 129-1 / ASME
+# compose.py halo/depth estimates that must reserve the same space. Per ISO 129-1 / ASME
 # Y14.5, the FIRST dimension line sits furthest from the outline (clears the outline +
 # extension-line origins) and subsequent parallel lines stack tighter and uniform (#347).
 _STRIP_GAP = 10.0  # clearance between the view outline and the first dimension line
@@ -600,7 +600,7 @@ def _iso_bbox(dwg):
 
 
 # --- page/scale selection + sheet-layout constants and helpers --------------
-# Relocated from make_drawing for the sheet.py split (#162). Shared by sheet.py
+# Relocated from make_drawing for the compose.py (née sheet.py) split (#162). Shared by compose.py
 # (choose_scale/_layout_geometry) and make_drawing's repack pass, so they live
 # here in the shared base to keep the DAG acyclic.
 # The base inter-view corridor: one first-line gap + one dimension tier. Tracks

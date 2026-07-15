@@ -20,6 +20,7 @@ from draftwright.analysis import (
     _is_rotational,
     dedup_diams,
 )
+from draftwright.compose import StripDepths, _fits, choose_scale
 from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
 from draftwright.make_drawing import generate_script, lint_feature_coverage
@@ -29,7 +30,6 @@ from draftwright.recognition import (
     recognise_pockets,
     recognise_slots,
 )
-from draftwright.sheet import StripDepths, _fits, choose_scale
 
 _skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)
 
@@ -955,7 +955,7 @@ class TestChooseScale:
         )
 
     def test_table_footprint_uses_composed_view_blocks(self):
-        from draftwright.sheet import _layout_geometry
+        from draftwright.compose import _layout_geometry
 
         bare = _layout_geometry(
             40, 10, 20, 1.0, 420.0, 297.0, 150.0, None, table_sizes=((100.0, 60.0),)
@@ -1044,7 +1044,7 @@ class TestChooseScaleOverrides:
         # A long, short part (100 × 10 × 11, e.g. a staircase) fills a specified
         # A3 sheet at 2:1. The automatic path stays conservative, but fixed-page
         # requests use the packed verdict exposed by the same layout geometry.
-        from draftwright.sheet import _fits
+        from draftwright.compose import _fits
 
         assert _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=True)
         assert not _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=False)
@@ -1063,7 +1063,7 @@ class TestChooseScaleOverrides:
         # Fixed scale, no page: choose_scale walks the page list with the packed
         # verdict exposed by the shared geometry. At 2:1 the part overruns A4
         # but fits A3.
-        from draftwright.sheet import _fits
+        from draftwright.compose import _fits
 
         assert not _fits(100, 10, 11, 2.0, 297.0, 210.0, 120.0, pack_iso_2d=True)
         assert _fits(100, 10, 11, 2.0, 420.0, 297.0, 150.0, pack_iso_2d=True)
@@ -1131,13 +1131,13 @@ class TestIsoEmptyRect:
         # A part that fills the sheet leaves no empty rectangle for the iso, so
         # the fallback returns the drawable (overlapping the view obstacles) and
         # iso_valid is False — the flag _fits uses to reject such a layout.
-        from draftwright.sheet import _layout_geometry
+        from draftwright.compose import _layout_geometry
 
         g = _layout_geometry(200, 150, 150, 2.0, 297.0, 210.0, 120.0, None)
         assert g.iso_valid is False
 
     def test_layout_geometry_iso_valid_true_for_normal_part(self):
-        from draftwright.sheet import _layout_geometry
+        from draftwright.compose import _layout_geometry
 
         g = _layout_geometry(20, 20, 20, 1.0, 297.0, 210.0, 120.0, None)
         assert g.iso_valid is True
@@ -1369,7 +1369,7 @@ class TestStripZones:
         from build123d import Box, Pos
 
         from draftwright import build_drawing
-        from draftwright.sheet import _est_right_strip_depth
+        from draftwright.compose import _est_right_strip_depth
 
         part = Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20)
         dwg = build_drawing(part)
@@ -1517,27 +1517,27 @@ class TestDepthEstimators:
 
     def test_right_depth_no_steps_equals_dim_pad(self):
         from draftwright._core import _DIM_PAD
-        from draftwright.sheet import _est_right_strip_depth
+        from draftwright.compose import _est_right_strip_depth
 
         # 0 steps → dim_height only → gap(10) + slot(10) = 20 = _DIM_PAD
         assert _est_right_strip_depth(0) == pytest.approx(_DIM_PAD, abs=0.01)
 
     def test_right_depth_one_step(self):
-        from draftwright.sheet import _est_right_strip_depth
+        from draftwright.compose import _est_right_strip_depth
 
         # gap(10) + dim_height(10) + spacing(2.5) + 1×dim_step(14) = 10 + 10 + 2.5 + 14 = 36.5
         assert _est_right_strip_depth(1) == pytest.approx(36.5, abs=0.01)
 
     def test_right_depth_three_steps(self):
-        from draftwright.sheet import _est_right_strip_depth
+        from draftwright.compose import _est_right_strip_depth
 
         # gap(10) + dim_height(10) + 3×dim_step(14) + 3×spacing(2.5) = 10+10+3×(2.5+14) = 69.5
         assert _est_right_strip_depth(3) == pytest.approx(69.5, abs=0.01)
 
     def test_right_depth_grows_per_step_uncapped(self):
         from draftwright._core import _SLOT_DIM_STEP
+        from draftwright.compose import _est_right_strip_depth
         from draftwright.drawing import _STRIP_SPACING
-        from draftwright.sheet import _est_right_strip_depth
 
         # #36: no cap — each further step adds one slot + one spacing.
         assert _est_right_strip_depth(10) > _est_right_strip_depth(3)
@@ -1546,12 +1546,12 @@ class TestDepthEstimators:
         )
 
     def test_right_depth_increases_with_steps(self):
-        from draftwright.sheet import _est_right_strip_depth
+        from draftwright.compose import _est_right_strip_depth
 
         assert _est_right_strip_depth(0) < _est_right_strip_depth(1) < _est_right_strip_depth(3)
 
     def test_pv_below_depth(self):
-        from draftwright.sheet import _est_pv_below_depth
+        from draftwright.compose import _est_pv_below_depth
 
         # gap(10) + dim_width slot(8) = 18
         assert _est_pv_below_depth() == pytest.approx(18.0, abs=0.01)
@@ -1561,8 +1561,8 @@ class TestDepthEstimators:
         # dim_steps stacked from the view edge (gap, then `spacing` between dims) — the
         # cursor-free capacity condition the carve places into (ADR 0009 / #150).
         from draftwright._core import _SLOT_DIM_HEIGHT, _SLOT_DIM_STEP, _STRIP_SPACING
+        from draftwright.compose import _est_right_strip_depth
         from draftwright.drawing import _STRIP_GAP
-        from draftwright.sheet import _est_right_strip_depth
 
         for n_steps in (0, 1, 3):
             est = _est_right_strip_depth(n_steps)
@@ -1573,8 +1573,8 @@ class TestDepthEstimators:
     def test_pv_below_depth_fits_in_exact_corridor(self):
         # _est_pv_below_depth() must reserve enough for one dim_width from the view edge.
         from draftwright._core import _SLOT_DIM_WIDTH
+        from draftwright.compose import _est_pv_below_depth
         from draftwright.drawing import _STRIP_GAP
-        from draftwright.sheet import _est_pv_below_depth
 
         assert _STRIP_GAP + _SLOT_DIM_WIDTH <= _est_pv_below_depth() + 1e-9
 
@@ -1624,8 +1624,8 @@ class TestDerivedLayoutConstants:
         from build123d_drafting.helpers import draft_preset
 
         from draftwright.annotations.orchestrator import build_model
+        from draftwright.compose import _est_planned_bore_callout_width
         from draftwright.model import plan_dimensions
-        from draftwright.sheet import _est_planned_bore_callout_width
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
         groups = plan_dimensions(build_model(build_drawing(part, number="X")._analysis))
@@ -1642,8 +1642,8 @@ def _sizing_model(part):
 
     from draftwright._core import _FONT_SIZE
     from draftwright.annotations.orchestrator import build_model
+    from draftwright.compose import _est_planned_bore_callout_width
     from draftwright.model import plan_dimensions
-    from draftwright.sheet import _est_planned_bore_callout_width
 
     m = build_model(build_drawing(part, number="X")._analysis)
     draft = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
@@ -1660,7 +1660,7 @@ class TestComposeAnnoBoxes:
 
     def _assert_match(self, model, n_steps, bb, w=0.0, label=""):
         from draftwright.builder import _FONT_SIZE, draft_preset
-        from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
+        from draftwright.compose import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
 
         # The composer is the footprint authority (#112): _measure_strips is only
         # a compatibility reducer around these boxes. Exercise defaults, the
@@ -1683,7 +1683,7 @@ class TestComposeAnnoBoxes:
         # included) must be represented as an annotation box, not a scalar-only side
         # channel in _measure_strips.
         from draftwright.builder import _FONT_SIZE, draft_preset
-        from draftwright.sheet import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
+        from draftwright.compose import _compose_anno_boxes, _footprint_from_boxes, _measure_strips
 
         part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
         model, _ = _sizing_model(part)
@@ -1726,7 +1726,7 @@ class TestComposeAnnoBoxes:
 
     def test_matches_for_dense_ballooning_part(self):
         # _dense_plate triggers _will_balloon → exercises the plan_halo band.
-        from draftwright.sheet import _will_balloon
+        from draftwright.compose import _will_balloon
 
         part = _dense_plate()
         model, w = _sizing_model(part)
@@ -1762,7 +1762,7 @@ class TestComposeAnnoBoxes:
         # left keeps its _DIM_PAD floor even when the deepest left band is
         # shallower — the branch real parts rarely make the deciding one.
         from draftwright._core import _DIM_PAD
-        from draftwright.sheet import AnnoBox, StripDepths, _footprint_from_boxes
+        from draftwright.compose import AnnoBox, StripDepths, _footprint_from_boxes
 
         fp = _footprint_from_boxes(
             [
@@ -1820,7 +1820,7 @@ class TestComposeAnnoBoxesCorpus:
         equal-depth left/right pair iff the part has annotatable holes; the
         plan halo appears iff the plan view will balloon. (_footprint_from_boxes
         folding these back to the StripDepths estimate is covered above.)"""
-        from draftwright.sheet import (
+        from draftwright.compose import (
             _compose_anno_boxes,
             _est_right_strip_depth,
             _will_balloon,
@@ -1853,7 +1853,7 @@ class TestComposeViewBlocks:
 
     def test_fallback_blocks_without_measured_strips(self):
         from draftwright._core import _DIM_PAD
-        from draftwright.sheet import (
+        from draftwright.compose import (
             _compose_view_blocks,
             _est_pv_below_depth,
             _est_right_strip_depth,
@@ -1871,7 +1871,7 @@ class TestComposeViewBlocks:
 
     def test_ballooned_plan_halo_is_part_of_plan_block(self):
         from draftwright._core import _DIM_PAD
-        from draftwright.sheet import StripDepths, _compose_view_blocks, _est_pv_below_depth
+        from draftwright.compose import StripDepths, _compose_view_blocks, _est_pv_below_depth
 
         strips = StripDepths(right=10.0, left=12.0, top=20.0, pv_halo=30.0)
         blocks = _compose_view_blocks(60.0, 40.0, 20.0, 1.0, strips)
@@ -1887,7 +1887,7 @@ class TestComposeViewBlocks:
 
     def test_section_layout_reserves_side_right_band(self):
         from draftwright._core import _DIM_PAD
-        from draftwright.sheet import StripDepths, _compose_view_blocks
+        from draftwright.compose import StripDepths, _compose_view_blocks
 
         strips = StripDepths(right=42.0, left=10.0)
         without_section = _compose_view_blocks(60.0, 40.0, 20.0, 1.0, strips, section=False)
@@ -1897,18 +1897,18 @@ class TestComposeViewBlocks:
         assert with_section["side"].right == pytest.approx(strips.right)
 
     def test_layout_geometry_consumes_composed_blocks(self, monkeypatch):
-        import draftwright.sheet as sheet
+        import draftwright.compose as compose
 
         calls = []
-        original = sheet._compose_view_blocks
+        original = compose._compose_view_blocks
 
         def wrapped(*args, **kwargs):
             calls.append((args, kwargs))
             return original(*args, **kwargs)
 
-        monkeypatch.setattr(sheet, "_compose_view_blocks", wrapped)
-        strips = sheet.StripDepths(right=42.0, left=10.0)
-        g = sheet._layout_geometry(
+        monkeypatch.setattr(compose, "_compose_view_blocks", wrapped)
+        strips = compose.StripDepths(right=42.0, left=10.0)
+        g = compose._layout_geometry(
             60.0,
             40.0,
             20.0,
@@ -1929,7 +1929,7 @@ class TestComposeViewBlocks:
 
     def test_estimator_vertical_stack_is_centred_from_composed_blocks(self):
         from draftwright._core import _MARGIN
-        from draftwright.sheet import _compose_view_blocks, _layout_geometry
+        from draftwright.compose import _compose_view_blocks, _layout_geometry
 
         page_h = 297.0
         blocks = _compose_view_blocks(60.0, 40.0, 20.0, 1.0, None, n_steps=3)
@@ -1955,7 +1955,7 @@ class TestComposeViewBlocks:
 
     def test_estimator_vertical_stack_centres_ballooned_plan_block(self):
         from draftwright._core import _MARGIN
-        from draftwright.sheet import StripDepths, _compose_view_blocks, _layout_geometry
+        from draftwright.compose import StripDepths, _compose_view_blocks, _layout_geometry
 
         page_h = 297.0
         strips = StripDepths(right=10.0, left=12.0, top=20.0, pv_halo=30.0)
@@ -1995,14 +1995,14 @@ class TestDynamicCorridors:
         #   n_steps=0 (gap_fv_sv=20): fits.
         #   n_steps=3 (gap_fv_sv=69.5): auto_fits rejects the conservative
         #     composed row, using the same verdict later used by auto repack (#519).
-        from draftwright.sheet import _fits
+        from draftwright.compose import _fits
 
         assert _fits(5.0, 90.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=0)
         assert not _fits(5.0, 90.0, 100.0, 1.0, 420.0, 297.0, 150.0, n_steps=3)
 
     def test_fits_zero_steps_same_as_default(self):
         # n_steps=0 must produce the same result as the old signature (no kwarg).
-        from draftwright.sheet import _fits
+        from draftwright.compose import _fits
 
         page_w, page_h, tb = 297.0, 210.0, 120.0
         scale, x_size, y_size, z_size = 1.0, 20.0, 20.0, 20.0
@@ -2027,7 +2027,7 @@ class TestDynamicCorridors:
         # With n_steps=0, x=5 y=90 z=100 fits A3 at 1:1 (420 mm wide).
         # With n_steps=3, gap_fv_sv jumps to 69.5 mm — the shared auto_fits
         # verdict rejects A3 and choose_scale returns A2.
-        from draftwright.sheet import choose_scale
+        from draftwright.compose import choose_scale
 
         _, page_w_flat, _, _ = choose_scale(5.0, 90.0, 100.0, n_steps=0)
         _, page_w_deep, _, _ = choose_scale(5.0, 90.0, 100.0, n_steps=3)
@@ -2042,7 +2042,7 @@ class TestDynamicCorridors:
         from build123d import Box, Pos
 
         from draftwright import build_drawing
-        from draftwright.sheet import _est_right_strip_depth
+        from draftwright.compose import _est_right_strip_depth
 
         # Box(60, 40, 50): Z -25..+25.  Carve top-right quadrant so the step
         # floor is at Z=0, giving a 25 mm step height (≥20 mm threshold).
@@ -2164,7 +2164,7 @@ class TestTwoPassLayout:
         from build123d import Box
 
         from draftwright import build_drawing
-        from draftwright.sheet import _est_pv_below_depth
+        from draftwright.compose import _est_pv_below_depth
 
         part = Box(80, 40, 20)
         dwg = build_drawing(part)
@@ -2319,7 +2319,7 @@ class TestComposeThenPackRepack:
     # --- disjoint block packing ------------------------------------------
 
     def test_repacked_blocks_are_disjoint(self):
-        from draftwright.sheet import ViewBlock, _layout_geometry
+        from draftwright.compose import ViewBlock, _layout_geometry
 
         blocks = {
             "front": ViewBlock(10, 10, top=12, right=12, bottom=12, left=12),
@@ -2342,7 +2342,7 @@ class TestComposeThenPackRepack:
         # code (FV_X anchored on fv.left) would pass anyway.  With x_offset == 0
         # the bug puts the plan-view left edge at margin - 120 = -110 mm.
         from draftwright._core import _MARGIN
-        from draftwright.sheet import ViewBlock, _layout_geometry
+        from draftwright.compose import ViewBlock, _layout_geometry
 
         blocks = {
             "front": ViewBlock(10, 10, left=0.0, right=8, top=8, bottom=8),
@@ -2376,7 +2376,7 @@ class TestComposeThenPackRepack:
         assert (0.2, 1189.0, 841.0, 150.0) in cands
 
     def test_auto_repack_fitness_uses_pass1_step_reservations(self):
-        from draftwright.sheet import ViewBlock, _layout_geometry
+        from draftwright.compose import ViewBlock, _layout_geometry
 
         x_size, y_size, z_size = 5.0, 90.0, 100.0
         scale, page_w, page_h, tb_w = 1.0, 420.0, 297.0, 150.0
@@ -2414,7 +2414,7 @@ class TestComposeThenPackRepack:
         ).auto_fits
 
     def test_section_reservation_sits_beyond_side_right_corridor(self):
-        from draftwright.sheet import _layout_geometry
+        from draftwright.compose import _layout_geometry
 
         strips = StripDepths(right=42.0, left=10.0)
         g = _layout_geometry(40, 10, 20, 1.0, 420.0, 297.0, 150.0, strips, section=True)

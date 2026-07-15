@@ -239,7 +239,7 @@ This ADR names its anchors by their *current* location: `_analyse`,
 `StripDepths`, `ViewBlock`, `_repack`, `choose_scale` in `make_drawing.py`, and
 `_auto_annotate` in `annotate.py`. [ADR 0005](0005-pipeline-architecture-and-state-ownership.md)
 (Accepted, in progress) relocates these **without changing this decision** —
-sheet planning/compose-then-pack to `sheet.py` (#162), projection/`_assemble` to
+sheet planning/compose-then-pack to `sheet.py` (#162; since renamed `compose.py`, #640), projection/`_assemble` to
 `projection.py` (#161) / `builder.py` (#165), `_analyse` to `analysis.py` (#163),
 annotation sequencing to `annotations/orchestrator.py` (#164). Refresh the anchor
 names above as each phase lands (roadmap: `docs/plans/138-module-split-roadmap.md`).

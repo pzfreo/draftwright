@@ -11,7 +11,7 @@ import pytest
 from build123d import Box, Cylinder, Pos
 
 from draftwright.model import note as _declare_note
-from draftwright.sheet_dsl import Sheet
+from draftwright.sheet import Sheet
 
 
 def _part():

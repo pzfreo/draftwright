@@ -39,7 +39,7 @@ from draftwright.model import (
     step,
     step_level,
 )
-from draftwright.sheet_dsl import _parse_scale
+from draftwright.sheet import _parse_scale
 
 
 def _boom(*a, **k):
@@ -1337,7 +1337,7 @@ class TestSheet:
         # #453: Sheet.model() must wrap the features into a PartModel WITHOUT building a
         # drawing — no projection/annotation/repack/render. Patch build_drawing to explode
         # so any accidental render is caught.
-        import draftwright.sheet_dsl as sd
+        import draftwright.sheet as sd
 
         monkeypatch.setattr(sd, "build_drawing", _boom)
         part = Box(40, 40, 8) - Pos(10, 10, 4) * Cylinder(3, 8)
@@ -1377,9 +1377,38 @@ class TestSheet:
 
     def test_from_part_does_not_render_a_drawing(self, monkeypatch):
         # #453: the hybrid seed detects the model without a full drawing.
-        import draftwright.sheet_dsl as sd
+        import draftwright.sheet as sd
 
         monkeypatch.setattr(sd, "build_drawing", _boom)
         part = Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(3, 8)
         sheet = Sheet.from_part(part)  # must not call build_drawing
         assert "hole" in {f.kind for f in sheet.features}
+
+
+class TestSheetDslShim:
+    """The deprecated ``sheet_dsl`` alias (renamed to ``sheet``, #640) still resolves."""
+
+    def test_shim_warns_and_aliases(self):
+        import importlib
+        import sys
+
+        sys.modules.pop("draftwright.sheet_dsl", None)
+        with pytest.warns(DeprecationWarning, match="renamed to.*draftwright.sheet"):
+            shim = importlib.import_module("draftwright.sheet_dsl")
+        import draftwright.sheet as sheet
+
+        assert shim.Sheet is sheet.Sheet
+        assert shim._parse_scale is sheet._parse_scale  # private helpers alias too
+
+    def test_shim_star_import_and_dir_surface(self):
+        # __getattr__ alone is invisible to `import *` (no __all__ → only real
+        # globals bind) and to dir(); the shim must mirror the pre-rename surface.
+        import draftwright.sheet as sheet
+        import draftwright.sheet_dsl as shim
+
+        ns: dict = {}
+        exec("from draftwright.sheet_dsl import *", ns)  # noqa: S102 — the pattern under test
+        assert ns["Sheet"] is sheet.Sheet
+        assert "Sheet" in dir(shim)
+        public = {n for n in dir(sheet) if not n.startswith("_")}
+        assert public <= set(shim.__all__)

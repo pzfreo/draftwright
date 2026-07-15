@@ -38,6 +38,13 @@ from draftwright._core import (
 from draftwright.analysis import _analyse
 from draftwright.annotate import _auto_annotate, build_model, build_rotational_feature
 from draftwright.annotations.sections import feature_hole_keys
+from draftwright.compose import (
+    ViewBlock,
+    _attribute_annotations,
+    _build_zones,
+    _layout_geometry,
+    _view_geom,
+)
 from draftwright.drawing import Drawing
 from draftwright.fonts import PLEX_MONO
 from draftwright.model import (
@@ -52,13 +59,6 @@ from draftwright.model import (
 from draftwright.projection import (
     _fit_iso_view,
     _project_iso,
-)
-from draftwright.sheet import (
-    ViewBlock,
-    _attribute_annotations,
-    _build_zones,
-    _layout_geometry,
-    _view_geom,
 )
 
 _TB_W = 150.0

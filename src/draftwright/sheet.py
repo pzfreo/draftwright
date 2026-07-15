@@ -1,1093 +1,822 @@
-"""Sheet layout — compose-then-pack scale/page selection (#138 / ADR 0005, P3; ADR 0004).
+"""sheet — the fluent feature-referencing drawing surface (ADR 0011, #445/#446).
 
-The outer layout: estimate each view's annotation footprint (strip depths, anno
-boxes, ViewBlock half-extents), then choose the (scale, page) whose composed +
-packed blocks fit the sheet disjoint (`choose_scale`), and lay the chosen geometry
-into page zones (`_layout_geometry`/`_build_zones`). Footprints are page-mm box
-layouts, never bbox-measured geometry (perf).
+(Renamed from ``sheet_dsl.py`` 2026-07-15, #640: ADR 0001 decided *against* an
+editable DSL — this is a fluent Python facade, so the old name contradicted the
+project's founding decision; it now owns the natural name. The layout engine
+that previously held ``sheet.py`` is ``compose.py``.)
 
-Below make_drawing in the DAG: imports only `_core` + build123d_drafting; the
-measure-and-repack pass (`_repack`, coupled to `_assemble`) stays in the builder.
+Reference the build123d objects you built, declare the drawing aspects they need,
+export. Geometry supplies the size (⌀ read off the object); you supply only the
+intent. Built on the ``model=`` seam (:func:`draftwright.build_drawing`), so
+detection is skipped and the auto-pass dimensions exactly the declared features::
+
+    sheet = Sheet(part, title="PLATE", number="DWG-001")
+    sheet.envelope()
+    sheet.hole(h1)
+    sheet.hole(h2).depth(5)          # a blind hole — adds a depth callout
+    sheet.diameter(boss_cyl)
+    sheet.export("plate")
+
+**Scope (this module):** the *feature-declaration* surface over the renderers the
+engine has today — dimensions, ⌀ callouts, holes (through / blind), turned steps,
+slots, patterns, the overall envelope, and the auto section — plus the P2a
+**``.tolerance``** (a ± / limit tolerance on a diameter, a step, or a hole bore) and
+**``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects, the P2c GD&T side-layer
+(**``.finish``** surface symbols, **``sheet.datum``** feature symbols, and
+**``sheet.control(...)``** feature control frames — all 14 ISO 1101 characteristics, ADR 0011
+#479 — which derive their target view/strip from the referenced feature or planar face), and
+**``sheet.table()``** / **``sheet.notes()``** corner-block tables (notes / revision / BOM /
+schedule, over the engine's auto-placed ``Drawing.add_table``, #488), and **``sheet.note()``** /
+**``.note()``** anchored free-text manufacturing-note leaders (thread specs, ``DEBURR``,
+chip-relief, knurl — the shop callouts detection can't infer, placed via the GD&T corridor
+machinery, #488). The remaining #445 aspect verb that still needs wiring — a structured
+``.thread`` — is deliberately **not** stubbed here yet, so the surface only exposes what
+actually draws.
+
+**Hybrid.** :meth:`Sheet.from_part` seeds the declared set from *detection*, so you
+can start from the detected model and override specific features (declaration is for
+where you know better than detection, not everywhere — ADR 0011 §3); :meth:`Sheet.of`
+returns a fluent handle onto one of those generated features (by object, index, or the
+feature itself) so you can ``.fit(...)`` / ``.tolerance(...)`` it without re-declaring (#463).
 """
 
 from __future__ import annotations
 
-import logging
-import math
-from dataclasses import dataclass
-from types import SimpleNamespace
+import warnings
+from dataclasses import replace
 
-from build123d_drafting.helpers import format_drawing_scale
-
-from draftwright._core import (
-    _DIM_PAD,
-    _FONT_SIZE,
-    _ISO_MIN_FIT_FRAC,
-    _ISO_WIDTH_BUDGET,
-    _LADDER,
-    _MARGIN,
-    _PAGE_SIZES,
-    _SCALES,
-    _SLOT_DIM_HEIGHT,
-    _SLOT_DIM_STEP,
-    _SLOT_DIM_WIDTH,
-    _STRIP_GAP,
-    _STRIP_SPACING,
-    _TABULATE_MIN_HOLES,
-    _TB_CLEAR,
-    _TB_H,
-    Strip,
-    ViewZones,
-    _fmt,
-    _largest_empty_rect,
-    _parse_page,
-    _tag_sequence,
-    _tb_width,
-    _text_width,
-    _tol_suffix,
+from draftwright.analysis import _solids_body
+from draftwright.builder import _coerce_model, build_drawing, detect_part_model
+from draftwright.fits import fit_class
+from draftwright.model import AuthoredDimension, Feature, Frame
+from draftwright.model import boss as _boss
+from draftwright.model import chamfer as _chamfer
+from draftwright.model import control_frame as _declare_control
+from draftwright.model import datum as _declare_datum
+from draftwright.model import envelope as _envelope
+from draftwright.model import fillet as _fillet
+from draftwright.model import finish as _declare_finish
+from draftwright.model import flat as _flat
+from draftwright.model import groove as _groove
+from draftwright.model import hole as _hole
+from draftwright.model import note as _declare_note
+from draftwright.model import pattern as _pattern
+from draftwright.model import plate as _plate
+from draftwright.model import pocket as _pocket
+from draftwright.model import slot as _slot
+from draftwright.model import step as _step
+from draftwright.model import step_level as _step_level
+from draftwright.model.declare import (
+    _norm_axis,
+    _read_cylinder,
+    _require_csink,
+    _require_positive,
+    gdt_target,
 )
-from draftwright.layout import fit_box
-
-_log = logging.getLogger(__name__)
-
-
-def _est_right_strip_depth(n_steps: int) -> float:
-    """Depth needed to the right of the front view.
-
-    Always includes dim_height (1 slot).  *n_steps* dim_step slots follow if
-    any step levels are present.  Returns the minimum corridor width (from view
-    edge to outer_limit) that makes all those allocations succeed.
-    """
-    n = 1 + max(n_steps, 0)  # dim_height + one slot per step dim
-    # gap + dim_height + (n-1) step slots each preceded by one spacing
-    return float(_STRIP_GAP + _SLOT_DIM_HEIGHT + (n - 1) * (_STRIP_SPACING + _SLOT_DIM_STEP))
+from draftwright.model.declare import read_bore_step as _read_bore_step
+from draftwright.model.declare import read_countersink as _read_countersink
+from draftwright.model.ir import AUTHORED_DIMENSION_KINDS, Point
 
 
-def _est_pv_below_depth() -> float:
-    """Depth needed below the plan view: dim_width (always one slot)."""
-    return float(_STRIP_GAP + _SLOT_DIM_WIDTH)
+def _point3(name: str, p) -> Point:
+    vals = tuple(float(c) for c in p)
+    if len(vals) != 3:
+        raise ValueError(f"dimension() {name} must be a 3-tuple")
+    return (vals[0], vals[1], vals[2])
 
 
-def _est_pv_above_depth(
-    model, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0
-) -> float:
-    """Estimate the depth above the plan view consumed by X-location dims, which
-    tier one per distinct datum-X reference (#36) — so the layout can reserve it
-    (and a balloon row beyond) *before* placing views, instead of letting the
-    tiers spill into headroom (#121).
-
-    WIP estimate standing in for ADR 0004's "lay out, don't predict": a
-    conservative upper bound (one spare tier for the pitch dim / rounding), which
-    the packer absorbs by scale rather than under-reserving and overlapping.
-    Scale-independent (tier height is fixed page-mm).
-    """
-    z_refs_x: list[float] = []
-    for f in model.features:
-        if f.kind == "pattern" and f.member.frame.axis == "z":
-            # bolt circle's X-ref is the pattern centre (its frame origin); other
-            # patterns tier off their first member's X, as the record path did.
-            z_refs_x.append(
-                f.frame.origin[0]
-                if f.pattern == "bolt_circle"
-                else (f.members or (f.member.frame.origin,))[0][0]
-            )
-        elif f.kind == "hole" and f.frame.axis == "z":
-            z_refs_x += [pos[0] for pos in (f.members or (f.frame.origin,))]
-    distinct: list[float] = []
-    for x in sorted(z_refs_x):
-        if not distinct or abs(x - distinct[-1]) > 0.5:
-            distinct.append(x)
-    if not distinct:
-        return 0.0
-    tier = font_size + 2 * pad_around_text
-    return (len(distinct) + 1) * tier  # +1 tier: pitch dim / rounding headroom
-
-
-def _est_plan_halo(font_size: float = _FONT_SIZE) -> float:
-    """Per-side standoff band (page-mm) reserved around the plan view when its
-    holes will be ballooned, so the leadered balloon ring sits in clear space
-    off the part instead of jamming the views together (#111).
-
-    Scale-independent (font_size is fixed page-mm), like the strip depths: a
-    leader standoff + one balloon diameter (``2·r = 3·font_size``) + clearance.
-    """
-    return _STRIP_GAP + 3 * font_size + _STRIP_SPACING
-
-
-def _will_balloon(model) -> bool:
-    """A-priori (pre-layout) prediction that the plan view will escalate to a
-    leadered hole-chart, so its balloon halo can be reserved before the views
-    are placed (#111, approach A).
-
-    Conservative and scale-independent: fires when there are at least
-    ``_TABULATE_MIN_HOLES`` plan-view holes that are *not* mostly covered by a
-    detected pattern (a patterned set is grouped into one ``n× ⌀`` callout +
-    pattern dim, so it does not balloon).  May occasionally over-reserve (a
-    little wasted corridor) or, if the runtime trigger fires anyway, fall back
-    to placing balloons in the unreserved margin — both are graceful.
-    """
-    # Every z-axis hole occurrence: loose HoleFeature members + pattern members.
-    loose = sum(
-        len(f.members or (f.frame.origin,))
-        for f in model.features
-        if f.kind == "hole" and f.frame.axis == "z"
-    )
-    covered = sum(
-        f.count for f in model.features if f.kind == "pattern" and f.member.frame.axis == "z"
-    )
-    total = loose + covered
-    if total < _TABULATE_MIN_HOLES:
-        return False
-    return bool(covered < 0.8 * total)
-
-
-def _wrap_table_rows(header, data, ncols):
-    """Local mirror of the hole-table row wrapping used by the annotation pass."""
-
-    per = math.ceil(len(data) / ncols)
-    blank = ("",) * len(header)
-    wide = [tuple(header) * ncols]
-    for r in range(per):
-        row: tuple = ()
-        for c in range(ncols):
-            idx = c * per + r
-            row += data[idx] if idx < len(data) else blank
-        wide.append(row)
-    return wide
-
-
-def _est_table_size(
-    rows, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0, block_cols=None
-):
-    """Table footprint estimate matching ``drawing._build_table``'s sizing model."""
-
-    if not rows:
-        return None
-    fs = font_size
-    pad = pad_around_text
-    row_h = fs + 2 * pad
-    ncol = len(rows[0])
-    bc = block_cols if (block_cols and ncol % block_cols == 0 and block_cols < ncol) else ncol
-    block_gap = 3 * pad
-    col_w = [
-        max(max(_text_width(str(r[c]), fs) for r in rows) + 2 * pad, fs * 2.5) for c in range(ncol)
-    ]
-    total_w = sum(col_w) + (max(ncol // bc - 1, 0) * block_gap)
-    total_h = row_h * len(rows)
-    return (total_w, total_h)
-
-
-def _est_hole_table_sizes(
-    model,
-    bb,
-    font_size: float = _FONT_SIZE,
-    pad_around_text: float = 2.0,
-) -> tuple[tuple[float, float], ...]:
-    """Possible wrapped hole-chart footprints for scale/page fitness (#517).
-
-    The runtime resolver tries the same one-to-four wrapped table blocks after
-    replacing dense scattered plan-hole dimensions. This estimate lets the outer
-    layout reject a page/scale where none of those table shapes can coexist with
-    the placed blocks, instead of discovering that only after annotation.
-    """
-
-    # Scattered (loose, non-patterned) z-axis holes — one per member; a loose
-    # HoleFeature is by construction not a pattern member (ADR 0008; #584 WP1 A).
-    z_holes = [
-        (f.diameter, pos)
-        for f in model.features
-        if f.kind == "hole" and f.frame.axis == "z"
-        for pos in (f.members or (f.frame.origin,))
-    ]
-    if len(z_holes) < _TABULATE_MIN_HOLES:
+def _parse_datums(to) -> tuple[str, ...]:
+    """The datum letters a ``to=`` argument names: ``None`` → ``()``; a sequence →
+    stripped letters; a string split on spaces / ``|`` / ``,`` (``"A B"`` / ``"A|B"``)."""
+    if to is None:
         return ()
-    dx, dy = bb.min.X, bb.min.Y
-    header = ("TAG", "ø", "X", "Y")
-    data = [
-        (tag, f"ø{_fmt(dia)}", _fmt(pos[0] - dx), _fmt(pos[1] - dy))
-        for tag, (dia, pos) in zip(_tag_sequence(len(z_holes)), z_holes, strict=True)
-    ]
-    return tuple(
-        size
-        for ncols in (1, 2, 3, 4)
-        if (
-            size := _est_table_size(
-                _wrap_table_rows(header, data, ncols), font_size, pad_around_text, len(header)
+    if isinstance(to, (tuple, list)):
+        return tuple(str(d).strip() for d in to if str(d).strip())
+    return tuple(str(to).replace("|", " ").replace(",", " ").split())
+
+
+def _parse_scale(scale):
+    """Accept a float multiplier, a ratio string (``"2:1"`` → 2.0, ``"1:2"`` → 0.5),
+    a bare numeric string, or ``None`` (auto). The engine's ``scale=`` is a raw float;
+    the ratio string is the drawing-sheet spelling. Raises ``ValueError`` on a malformed
+    string so a bad scale fails here, not deep in the engine with a str where a float is
+    expected."""
+    if scale is None or isinstance(scale, (int, float)):
+        return scale
+    if isinstance(scale, str):
+        if ":" in scale:
+            num, den = scale.split(":", 1)
+            denom = float(den)
+            if denom == 0:
+                raise ValueError(f"invalid scale ratio {scale!r}: zero denominator")
+            return float(num) / denom
+        return float(scale)  # a bare numeric string; ValueError if not a number
+    raise TypeError(f"scale must be a number, ratio string, or None — got {type(scale).__name__}")
+
+
+def _tol_value(lo, hi):
+    """A ± tolerance value from the handle args: a symmetric ``float`` (``hi is None``) or
+    an ``(lower, upper)`` limit pair. The pair renders ``+upper -lower`` (helpers'
+    convention), so ``.tolerance(0.0, 0.1)`` → ``+0.1 -0.0`` — both magnitudes positive."""
+    return lo if hi is None else (lo, hi)
+
+
+class _Hole:
+    """A fluent handle for one declared hole — through vs blind (which changes the callout),
+    and the P2a ± tolerance on its bore ⌀."""
+
+    def __init__(self, sheet: Sheet, index: int) -> None:
+        self._sheet = sheet
+        self._i = index
+
+    def through(self) -> _Hole:
+        """A through hole (the default) — ⌀ only."""
+        return self._set(through=True, depth=None)
+
+    def depth(self, d: float) -> _Hole:
+        """A blind hole *d* mm deep — adds a depth callout."""
+        return self._set(through=False, depth=d)
+
+    def tolerance(self, lo: float, hi: float | None = None) -> _Hole:
+        """A ± tolerance on the bore ⌀: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
+        limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``)."""
+        self._sheet._tolerances[(self._i, "diameter")] = _tol_value(lo, hi)
+        return self
+
+    def fit(self, code: str, *, show: str = "class") -> _Hole:
+        """An ISO 286 fit class on the bore ⌀ — ``.fit("H7")`` renders ``ø8 H7`` (the class,
+        default) or, with ``show="deviation"``, the signed deviations ``ø8 +0.015/0`` resolved
+        for the bore's nominal ⌀. Raises for a class/size outside the built-in table (#29)."""
+        self._sheet._tolerances[(self._i, "diameter")] = fit_class(
+            code, self._sheet._features[self._i].diameter, show
+        )
+        return self
+
+    def cbore(
+        self, obj=None, *, diameter: float | None = None, depth: float | None = None
+    ) -> _Hole:
+        """A counterbore on this hole. ``.cbore(cbore_cyl)`` reads its ⌀ + depth off the
+        counterbore tool object (⌀ from the cylindrical face, depth from the part + tool along
+        the hole axis — no numbers restated), or pass explicit ``.cbore(diameter=…, depth=…)``.
+        An object supplies defaults; explicit kwargs override (#462)."""
+        return self._set(cbore=self._read_step("cbore", obj, diameter, depth))
+
+    def spotface(
+        self, obj=None, *, diameter: float | None = None, depth: float | None = None
+    ) -> _Hole:
+        """A spotface on this hole — same as :meth:`cbore` but a shallow facing (#462)."""
+        return self._set(spotface=self._read_step("spotface", obj, diameter, depth))
+
+    def countersink(
+        self, obj=None, *, major: float | None = None, angle: float | None = None
+    ) -> _Hole:
+        """A countersink on this hole (a flat-head screw seat, #575). ``.countersink(cone_tool)``
+        reads the major ⌀ + included angle off the build123d ``Cone`` you subtracted, or explicit
+        ``.countersink(major=14, angle=90)``. Renders ``⌵ Ø.. × ..°`` on the callout. An object
+        supplies defaults; explicit kwargs override (#451)."""
+        if obj is not None:
+            r_major, r_angle = _read_countersink(obj)
+            major = r_major if major is None else major
+            angle = r_angle if angle is None else angle
+        if major is None or angle is None:
+            raise ValueError("countersink() needs a cone tool, or explicit major= and angle=")
+        _require_csink("countersink", (major, angle))
+        return self._set(csink=(major, angle))
+
+    def _read_step(self, kind, obj, diameter, depth) -> tuple[float, float]:
+        if obj is not None:
+            rd, rdp = _read_bore_step(
+                self._sheet._part, obj, self._sheet._features[self._i].frame.axis
+            )
+            diameter = rd if diameter is None else diameter
+            depth = rdp if depth is None else depth
+        if diameter is None or depth is None:
+            raise ValueError(f"{kind} needs a tool object, or explicit diameter= and depth=")
+        # same positivity guard declare.hole() applies to cbore/spotface (#452/#462 review)
+        _require_positive(**{f"{kind} diameter": diameter, f"{kind} depth": depth})
+        return (diameter, depth)
+
+    def finish(self, ra, *, view: str | None = None, side: str | None = None) -> _Hole:
+        """A surface-finish symbol (Ra) on this hole's bore (ADR 0011 P2c). ``.finish("1.6")``
+        — the roughness text; ``view``/``side`` override the derived strip."""
+        self._sheet._gdt_finish(ra, self._i, view=view, side=side)
+        return self
+
+    def note(self, text, *, view: str | None = None, side: str | None = None) -> _Hole:
+        """A free-text manufacturing note on a leader to this hole (#488). ``.note("M3x0.5 TAP")``
+        — the shop callout; ``view``/``side`` override the derived strip."""
+        self._sheet._gdt_note(text, self._i, view=view, side=side)
+        return self
+
+    def _set(self, **kw) -> _Hole:
+        self._sheet._features[self._i] = replace(self._sheet._features[self._i], **kw)
+        return self
+
+
+class _Dim:
+    """A fluent handle for a declared dimension-bearing feature (a diameter / boss OD, or a
+    turned step), carrying the P2a ``.tolerance`` aspect. ``default_kind`` is the parameter a
+    bare ``.tolerance(...)`` targets — ``"diameter"`` for an OD, ``"length"`` for a step."""
+
+    def __init__(self, sheet: Sheet, index: int, default_kind: str) -> None:
+        self._sheet = sheet
+        self._i = index
+        self._kind = default_kind
+
+    def tolerance(self, lo: float, hi: float | None = None, *, on: str | None = None) -> _Dim:
+        """A ± tolerance on this dimension: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
+        limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` picks the parameter for
+        a multi-dim feature — a step's ``"length"`` (default) vs its ``"diameter"`` (OD)."""
+        self._sheet._tolerances[(self._i, on or self._kind)] = _tol_value(lo, hi)
+        return self
+
+    def fit(self, code: str, *, show: str = "class") -> _Dim:
+        """An ISO 286 fit class on this feature's ⌀ (always the diameter — a fit is diametral,
+        so a step's fit is on its OD, not its length). ``.fit("h6")`` renders ``ø12 h6`` (the
+        class, default) or ``show="deviation"`` the signed deviations ``ø12 0/-0.011`` resolved
+        for the nominal ⌀. Raises for a class/size outside the built-in table (#29)."""
+        self._sheet._tolerances[(self._i, "diameter")] = fit_class(
+            code, self._sheet._features[self._i].diameter, show
+        )
+        return self
+
+    def finish(self, ra, *, view: str | None = None, side: str | None = None) -> _Dim:
+        """A surface-finish symbol (Ra) on this feature's surface (ADR 0011 P2c).
+        ``diameter(journal).finish("0.8")``; ``view``/``side`` override the derived strip."""
+        self._sheet._gdt_finish(ra, self._i, view=view, side=side)
+        return self
+
+    def note(self, text, *, view: str | None = None, side: str | None = None) -> _Dim:
+        """A free-text manufacturing note on a leader to this feature (#488).
+        ``diameter(knurl).note("KNURL 0.8 STRAIGHT")``; ``view``/``side`` override the strip."""
+        self._sheet._gdt_note(text, self._i, view=view, side=side)
+        return self
+
+
+class _Control:
+    """A fluent GD&T feature-control-frame builder (ADR 0011 P2c.2). One method per ISO 1101
+    characteristic — each appends a control frame on the same target, so chained calls stack::
+
+        sheet.control(bore).position(0.1, to="A B").perpendicularity(0.05, to="A")
+
+    ``to=`` names the referenced datum letter(s) (``"A"`` / ``"A B"`` / ``("A", "B")``);
+    ``diameter=`` prefixes the zone with ``⌀`` (the default for position/concentricity);
+    ``modifier=`` a material-condition symbol (``"M"``/``"L"``/``"P"``). The target view + strip
+    are derived once (from the feature/face) when :meth:`Sheet.control` runs; ``view=``/``side=``
+    there override them."""
+
+    def __init__(self, sheet: Sheet, target, src, view: str, side: str) -> None:
+        self._sheet = sheet
+        self._target = target
+        self._src = src
+        self._view = view
+        self._side = side
+
+    def _add(self, characteristic, tol, *, to=None, diameter=False, modifier=None) -> _Control:
+        item = _declare_control(
+            characteristic,
+            tol,
+            self._target,
+            self._sheet._part,
+            datums=_parse_datums(to),
+            diameter=diameter,
+            modifier=modifier,
+            view=self._view,
+            side=self._side,
+        )
+        self._sheet._append_gdt(item, self._src)
+        return self
+
+    # Form tolerances (no datum reference) --------------------------------------------------
+    def straightness(self, tol, *, modifier=None) -> _Control:
+        return self._add("straightness", tol, modifier=modifier)
+
+    def flatness(self, tol, *, modifier=None) -> _Control:
+        return self._add("flatness", tol, modifier=modifier)
+
+    def circularity(self, tol, *, modifier=None) -> _Control:
+        return self._add("circularity", tol, modifier=modifier)
+
+    def cylindricity(self, tol, *, modifier=None) -> _Control:
+        return self._add("cylindricity", tol, modifier=modifier)
+
+    # Profile ------------------------------------------------------------------------------
+    def profile_line(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("profile_line", tol, to=to, modifier=modifier)
+
+    def profile_surface(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("profile_surface", tol, to=to, modifier=modifier)
+
+    # Orientation --------------------------------------------------------------------------
+    def angularity(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("angularity", tol, to=to, modifier=modifier)
+
+    def perpendicularity(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("perpendicularity", tol, to=to, modifier=modifier)
+
+    def parallelism(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("parallelism", tol, to=to, modifier=modifier)
+
+    # Location (a position/concentricity zone is diametral by default) ---------------------
+    def position(self, tol, *, to=None, diameter=True, modifier=None) -> _Control:
+        return self._add("position", tol, to=to, diameter=diameter, modifier=modifier)
+
+    def concentricity(self, tol, *, to=None, diameter=True, modifier=None) -> _Control:
+        return self._add("concentricity", tol, to=to, diameter=diameter, modifier=modifier)
+
+    def symmetry(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("symmetry", tol, to=to, modifier=modifier)
+
+    # Runout -------------------------------------------------------------------------------
+    def circular_runout(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("circular_runout", tol, to=to, modifier=modifier)
+
+    def total_runout(self, tol, *, to=None, modifier=None) -> _Control:
+        return self._add("total_runout", tol, to=to, modifier=modifier)
+
+
+class Sheet:
+    """Reference features, declare their drawing aspects, export.
+
+    Each declaration method mirrors a :mod:`draftwright.model` constructor: pass the
+    build123d object to read its geometry, or explicit values. :meth:`hole` returns a
+    chainable :class:`_Hole` (``.through()`` / ``.depth()``); the others return the
+    ``Sheet`` so declarations can chain. :meth:`build` / :meth:`export` hand the declared
+    features to the engine with detection skipped.
+    """
+
+    def __init__(
+        self,
+        part,
+        *,
+        title=None,
+        number="DWG-001",
+        drawn_by=None,
+        tolerance=None,
+        scale=None,
+        page=None,
+        out=None,
+    ):
+        self._part = part
+        self._features: list = []
+        # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
+        # feature replacement (e.g. hole().depth()); materialized to (feature, kind) at build.
+        self._tolerances: dict = {}
+        # P2c GD&T provenance: (gdt_feature_index -> source_feature_index). A finish/datum stores
+        # its origin by INDEX, not the object, so a later size verb replacing the source feature
+        # (hole().depth()) doesn't strand the link; materialized to the FINAL object at build.
+        self._gdt_src: list = []
+        # Corner-block tables (notes / revision / BOM / schedule) — applied at build() via the
+        # engine's generic auto-placed Drawing.add_table, AFTER the drawing is built so they sit
+        # clear of the views + title block (like the hole table). Each: {rows, prefer, name}.
+        self._tables: list = []
+        self._opts = dict(
+            title=title, number=number, scale=_parse_scale(scale), page=page, out=out
+        )
+        # drawn_by / tolerance (title block, #474) forward to build_drawing only when set, so an
+        # unset value keeps build_drawing's own defaults ("" / "ISO 2768-m") rather than None.
+        if drawn_by is not None:
+            self._opts["drawn_by"] = drawn_by
+        if tolerance is not None:
+            self._opts["tolerance"] = tolerance
+
+    @classmethod
+    def from_part(cls, part, **opts) -> Sheet:
+        """Seed the declared set from *detection* (the hybrid mode, ADR 0011 §3): start
+        from the model the detector recovers, then override specific features (edit the
+        list via :attr:`features`, or re-declare) before :meth:`build`."""
+        sheet = cls(part, **opts)
+        sheet._features = list(detect_part_model(part).features)  # detect only, no render (#453)
+        return sheet
+
+    # -- feature declaration --------------------------------------------------
+
+    def add(self, feature) -> Sheet:
+        """Append a pre-built IR :class:`~draftwright.model.Feature` (escape hatch for
+        the constructors this façade does not surface directly, e.g. PMI)."""
+        self._features.append(feature)
+        return self
+
+    def dimension(
+        self,
+        *,
+        kind: str,
+        value: float,
+        label: str,
+        dominant_axis: str,
+        ref_pts,
+        ref_bbox=None,
+        at=None,
+        axis: str | None = None,
+        upper_tol: float | None = None,
+        lower_tol: float | None = None,
+        source: str = "sheet",
+        source_kind: str | None = None,
+    ) -> Sheet:
+        """Declare a pre-authored drafting dimension from explicit measured values.
+
+        This is the concept-shaped Sheet API used by generated AP242 scripts: the source file
+        may call the record PMI, but the editable script declares a dimension category, value,
+        label, referenced model points, and optional structured tolerances. For ordinary
+        geometry-backed edits prefer feature handles such as ``sheet.hole(...).tolerance(...)``.
+        """
+        _require_positive(value=value)
+        dim_kind = str(kind).lower()
+        if dim_kind not in AUTHORED_DIMENSION_KINDS:
+            allowed = ", ".join(sorted(AUTHORED_DIMENSION_KINDS))
+            raise ValueError(f"dimension() kind must be one of: {allowed}")
+        pts = tuple(_point3("ref_pts item", p) for p in ref_pts)
+        if len(pts) < 2:
+            raise ValueError("dimension() needs at least two ref_pts")
+        bbox = None if ref_bbox is None else tuple(float(c) for c in ref_bbox)
+        if bbox is not None and len(bbox) != 6:
+            raise ValueError("dimension() ref_bbox must be a 6-tuple")
+        dom = str(dominant_axis).upper()
+        if dom not in ("X", "Y", "Z"):
+            if not (dom == "?" and dim_kind in ("diameter", "radius") and bbox is not None):
+                raise ValueError("dimension() dominant_axis must be X, Y, or Z")
+        if at is None:
+            if bbox is not None:
+                x0, y0, z0, x1, y1, z1 = bbox
+                at = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+            else:
+                n = len(pts)
+                at = tuple(sum(p[i] for p in pts) / n for i in range(3))
+        origin = _point3("at", at)
+        ax = _norm_axis(axis or (dom.lower() if dom in ("X", "Y", "Z") else "z"))
+        self._features.append(
+            AuthoredDimension(
+                frame=Frame(origin, ax),
+                dimension_kind=dim_kind,
+                value=float(value),
+                label=str(label),
+                dominant_axis=dom,
+                upper_tol=upper_tol,
+                lower_tol=lower_tol,
+                ref_bbox=bbox,
+                ref_pts=pts,
+                source=source,
+                source_kind=source_kind or dim_kind,
             )
         )
-        is not None
-    )
-
-
-def _est_planned_bore_callout_width(
-    groups, draft, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0
-) -> float:
-    """Estimate widest hole/pattern callout from planned IR dimensions.
-
-    The single bore-callout-width estimator for page/scale selection — detected and
-    declared parts both size through it off the IR (#584 WP1 A; it replaced the old
-    record-based ``_est_bore_callout_width``). Planned groups see authored decorations
-    (e.g. bore tolerances) a detection-derived ``HoleSpec`` could not. Kept in the layout
-    estimator layer so page/scale selection does not import renderers to size text (#450).
-    """
-
-    def _first(group, kind: str, *roles: str) -> float | None:
-        for role in roles:
-            for pd in group.dims:
-                if pd.param.kind == kind and pd.param.role == role:
-                    return float(pd.param.value)
-        return None
-
-    def _tol(group):
-        return next(
-            (
-                pd.param.tolerance
-                for pd in group.dims
-                if pd.param.kind == "diameter" and pd.param.role == "bore"
-            ),
-            None,
-        )
-
-    gap = 0.45 * font_size
-    sym_w = font_size
-    max_w = 0.0
-    for group in groups:
-        feat = group.feature
-        if getattr(feat, "kind", None) not in ("hole", "pattern"):
-            continue
-        bore = _first(group, "diameter", "bore")
-        if bore is None:
-            continue
-        depth = _first(group, "depth", "bore")
-        cbore_dia = _first(group, "diameter", "counterbore", "spotface")
-        cbore_depth = _first(group, "depth", "counterbore", "spotface")
-        suffix = None
-        if getattr(feat, "kind", None) == "pattern":
-            if getattr(feat, "pattern", None) == "bolt_circle" and feat.bcd is not None:
-                suffix = f"EQ SP ON ø{_fmt(feat.bcd)} BC"
-            elif getattr(feat, "pattern", None) == "grid" and feat.rows and feat.cols:
-                suffix = f"({feat.rows}×{feat.cols})"
-
-        token_w: list[float] = []
-        count = getattr(feat, "count", None)
-        if count and count > 1:
-            token_w.append(_text_width(f"{count}×", font_size))
-        token_w.append(sym_w)  # ⌀ symbol
-        token_w.append(_text_width(f"{_fmt(bore)}{_tol_suffix(_tol(group), draft)}", font_size))
-        if depth is None:
-            token_w.append(_text_width("THRU", font_size))
-        else:
-            token_w.append(sym_w)  # depth symbol
-            token_w.append(_text_width(_fmt(depth), font_size))
-        if cbore_dia is not None:
-            token_w.append(sym_w)  # counterbore/spotface symbol
-            token_w.append(sym_w)  # ⌀
-            token_w.append(_text_width(_fmt(cbore_dia), font_size))
-            if cbore_depth is not None:
-                token_w.append(sym_w)  # depth symbol
-                token_w.append(_text_width(_fmt(cbore_depth), font_size))
-        csink_dia = _first(group, "diameter", "countersink")
-        if csink_dia is not None:
-            token_w.append(sym_w)  # countersink symbol
-            token_w.append(sym_w)  # ⌀
-            token_w.append(_text_width(_fmt(csink_dia), font_size))
-            csink_angle = _first(group, "angle", "countersink")
-            if csink_angle is not None:
-                token_w.append(_text_width(f"× {_fmt(csink_angle)}°", font_size))
-        if suffix is not None:
-            token_w.append(_text_width(suffix, font_size))
-
-        n = len(token_w)
-        max_w = max(max_w, sum(token_w) + max(n - 1, 0) * gap + pad_around_text)
-    return max_w
-
-
-@dataclass
-class StripDepths:
-    """Annotation strip depths (page-mm) computed before view positions are fixed.
-
-    Drives the inter-view corridor widths in the two-pass layout (#131).
-    """
-
-    right: float  # horizontal corridor right of FV/PV → gap_fv_sv
-    left: float  # horizontal corridor left of FV/PV
-    top: float = 0.0  # band above PV for tiered X-location dims (#121)
-    pv_halo: float = 0.0  # balloon standoff band reserved around the plan view (#111)
-
-
-def _measure_strips(
-    model,
-    n_steps: int,
-    bb,
-    font_size: float = _FONT_SIZE,
-    arrow_length: float = 2.7,
-    pad_around_text: float = 2.0,
-    bore_callout_width: float = 0.0,
-) -> StripDepths:
-    """Compute annotation strip depths from composed annotation boxes (Pass 1 of #131).
-
-    All annotation sizes are scale-independent because font_size is a fixed
-    page-mm constant, so there is no circularity with choose_scale().
-    *arrow_length* and *pad_around_text* should come from ``draft_preset(...)``.
-    """
-    return _footprint_from_boxes(
-        _compose_anno_boxes(
-            model,
-            n_steps,
-            bore_callout_width=bore_callout_width,
-            font_size=font_size,
-            arrow_length=arrow_length,
-            pad_around_text=pad_around_text,
-        )
-    )
-
-
-@dataclass(frozen=True)
-class AnnoBox:
-    """A composed annotation band as a page-mm box (#112, ADR 0004 Step 4).
-
-    ``side`` is the view side the band sits on (``"right"``/``"left"`` of the
-    front/plan views, or ``"plan_halo"`` for the balloon standoff ring);
-    ``depth`` is the band's perpendicular extent from the view edge.  A view's
-    footprint is the deepest band per side — see ``_footprint_from_boxes``.
-
-    This is the box-model expression of the scalar corridor reservation that
-    ``_measure_strips`` computes (Step 4a): every band that can drive a
-    ``StripDepths`` field is emitted as an ``AnnoBox``, and the deepest band per
-    side wins (see ``_footprint_from_boxes``).  Today the depths are the same
-    estimates ``_measure_strips`` uses, so the two are interchangeable
-    (byte-identical); later steps replace the estimates with depths measured
-    from the real placement.
-    """
-
-    side: str
-    depth: float
-
-
-def _compose_anno_boxes(
-    model,
-    n_steps: int,
-    bore_callout_width: float = 0.0,
-    font_size: float = _FONT_SIZE,
-    arrow_length: float = 2.7,
-    pad_around_text: float = 2.0,
-) -> list[AnnoBox]:
-    """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
-
-    This is the annotation-footprint authority for scale/page layout. Each
-    contributing furniture band is emitted as a box; ``_measure_strips`` only
-    reduces these boxes to the legacy ``StripDepths`` shape. Reads the IR
-    (``model.features``) — detected and declared parts size through one path
-    (#584 WP1 A); ``bore_callout_width`` is the planner-derived callout width the
-    caller measured with :func:`_est_planned_bore_callout_width`.
-    """
-    boxes = [AnnoBox("right", _est_right_strip_depth(n_steps))]  # FV right dim ladder
-    bore_depth = bore_callout_width
-    if bore_depth > 0:
-        # elbow clearance + leader-to-label gap, as in _measure_strips
-        bore_depth += pad_around_text + arrow_length
-        boxes.append(AnnoBox("right", bore_depth))  # FV/PV right bore callouts
-        boxes.append(AnnoBox("left", bore_depth))  # FV/PV left bore callouts
-    # Authored Z-axis linear dimensions (Sheet.dimension / AP242 PMI) render as height
-    # dims to the front LEFT/RIGHT strips (#562). The right strip already holds the
-    # envelope height + step ladder, but the left has only its _DIM_PAD floor, so an
-    # authored Z dim was queued and then dropped as "no room". Reserve a slot per authored
-    # Z dim on BOTH sides (they split by x position only at layout, so reserve
-    # conservatively) — enough depth for the corridor solve to place them.
-    z_authored = sum(
-        1
-        for f in model.features
-        if f.kind == "authored_dimension"
-        and f.dominant_axis == "Z"
-        and getattr(f, "dimension_kind", None) not in ("diameter", "radius", "angular")
-    )
-    if z_authored:
-        slot = _SLOT_DIM_STEP + _STRIP_SPACING
-        boxes.append(AnnoBox("right", _est_right_strip_depth(n_steps) + z_authored * slot))
-        boxes.append(AnnoBox("left", _STRIP_GAP + z_authored * slot))
-    above = _est_pv_above_depth(model, font_size, pad_around_text)
-    if above > 0:
-        boxes.append(AnnoBox("above", above))  # tiered X-location dims above PV (#121)
-    if _will_balloon(model):
-        boxes.append(AnnoBox("plan_halo", _est_plan_halo(font_size)))
-    return boxes
-
-
-def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
-    """Reduce composed ``AnnoBox`` bands to per-side corridor depths (Step 4a).
-
-    Each ``StripDepths`` field is the deepest band on its side; ``left`` keeps
-    the ``_DIM_PAD`` floor it has in ``_measure_strips``.
-    """
-
-    def deepest(side: str) -> float:
-        return max((b.depth for b in boxes if b.side == side), default=0.0)
-
-    return StripDepths(
-        right=deepest("right"),
-        left=max(_DIM_PAD, deepest("left")),
-        top=deepest("above"),
-        pv_halo=deepest("plan_halo"),
-    )
-
-
-def _fits(
-    x_size,
-    y_size,
-    z_size,
-    scale,
-    page_w,
-    page_h,
-    tb_w,
-    n_steps: int = 0,
-    strips: StripDepths | None = None,
-    pack_iso_2d: bool = False,
-    section: bool = False,
-    table_sizes=(),
-) -> bool:
-    """True if the composed 4-view footprint fits the page at this scale.
-
-    ``pack_iso_2d=False`` uses the automatic-selection verdict exposed by
-    :func:`_layout_geometry`; ``True`` uses the packed override verdict for
-    explicit page/scale requests. The old arithmetic no longer lives here, so
-    auto selection and measure-repack consume the same layout authority (#519).
-    """
-    g = _layout_geometry(
-        x_size,
-        y_size,
-        z_size,
-        scale,
-        page_w,
-        page_h,
-        tb_w,
-        strips,
-        n_steps,
-        section=section,
-        table_sizes=table_sizes,
-        warn_no_iso=False,
-    )
-    return bool(g.fits if pack_iso_2d else g.auto_fits)
-
-
-def _bisect_fit_scale(
-    x_size, y_size, z_size, pw, ph, tb, n_steps, strips, pack_iso_2d, section=False, table_sizes=()
-):
-    """Largest scale at which the 4-view layout fits ``(pw, ph)``, found by bisection —
-    the layout is monotone in scale (a smaller scale never fits worse). Used only as the
-    #350 backstop when even the smallest ISO 5455 ladder scale (1:10000) overflows, i.e.
-    an out-of-domain-huge part. Returns ``None`` only if the page cannot hold the layout
-    at any positive scale (a degenerate page)."""
-    hi = _SCALES[-1]  # 1:10000 — the smallest laddered scale, already known not to fit
-    lo = 0.0
-    for _ in range(60):
-        mid = (lo + hi) / 2.0
-        if _fits(
-            x_size,
-            y_size,
-            z_size,
-            mid,
-            pw,
-            ph,
-            tb,
-            n_steps=n_steps,
-            strips=strips,
-            pack_iso_2d=pack_iso_2d,
-            section=section,
-            table_sizes=table_sizes,
-        ):
-            lo = mid
-        else:
-            hi = mid
-    return lo if lo > 0.0 else None
-
-
-def choose_scale(
-    x_size: float,
-    y_size: float,
-    z_size: float,
-    n_steps: int = 0,
-    scale=None,
-    page=None,
-    strips: StripDepths | None = None,
-    section: bool = False,
-    table_sizes=(),
-) -> tuple:
-    """Return (SCALE, PAGE_W, PAGE_H, TB_W) for a 4-view layout.
-
-    Layout columns: [front(x×z)] [side(y×z)] [iso(~0.7*max)] [title block].
-    Rows: [plan(x×y)] above [front/side].
-    Tries ISO A-series pages (A4→A3→A2→A1→A0) at preferred scales, including
-    ISO 5455 enlargement scales (10:1, 5:1) so small parts get legible views.
-    A4 uses a 120 mm title block; A3+ use 150 mm. The title block only
-    constrains row width when the view rows would overlap it vertically.
-
-    Args:
-        scale: optional fixed scale factor (e.g. ``5`` for 5:1, ``0.5`` for
-            1:2); the page is then chosen as the smallest A-series sheet that
-            fits.
-        page: optional fixed page — an ISO name (``"A3"``), ``"WIDTHxHEIGHT"``
-            in mm, or a ``(width, height)`` tuple; the scale is then chosen as
-            the largest standard scale that fits. When both ``scale`` and
-            ``page`` are given they are used as-is (a warning is logged if the
-            layout does not fit).
-    """
-    if scale is not None and float(scale) <= 0:
-        raise ValueError(f"scale must be positive, got {scale!r}")
-    if scale is not None and page is not None:
-        pw, ph, tb = _parse_page(page)
-        if not _fits(
-            x_size,
-            y_size,
-            z_size,
-            float(scale),
-            pw,
-            ph,
-            tb,
-            n_steps=n_steps,
-            strips=strips,
-            pack_iso_2d=True,
-            section=section,
-            table_sizes=table_sizes,
-        ):
-            _log.warning(
-                "Requested scale %s on %s page may not fit the 4-view layout", scale, page
-            )
-        return float(scale), pw, ph, tb
-    if page is not None:
-        pw, ph, tb = _parse_page(page)
-        candidates = [(s, pw, ph, tb) for s in _SCALES]
-        pack_iso_2d = True
-    elif scale is not None:
-        candidates = [(float(scale), pw, ph, _tb_width(pw)) for pw, ph in _PAGE_SIZES.values()]
-        pack_iso_2d = True
-    else:
-        candidates = _LADDER
-        pack_iso_2d = False
-    for cand in candidates:
-        if _fits(
-            x_size,
-            y_size,
-            z_size,
-            *cand,
-            n_steps=n_steps,
-            strips=strips,
-            pack_iso_2d=pack_iso_2d,
-            section=section,
-            table_sizes=table_sizes,
-        ):
-            return cand
-    # The ISO 5455 ladder exhausted with no standard fit (a part too large even for
-    # A0 1:10000). Rather than return a layout that overflows (#350), bisect for the
-    # largest scale that genuinely fits on the largest candidate sheet — the layout is
-    # monotone in scale — so choose_scale never hands back an overflowing (scale, page).
-    # A pinned scale is the one thing we may not reduce (that path returned above).
-    if scale is None:
-        _pw, _ph, _tb = candidates[-1][1], candidates[-1][2], candidates[-1][3]
-        s = _bisect_fit_scale(
-            x_size,
-            y_size,
-            z_size,
-            _pw,
-            _ph,
-            _tb,
-            n_steps,
-            strips,
-            pack_iso_2d,
-            section,
-            table_sizes,
-        )
-        if s is not None:
-            _log.warning(
-                "No standard scale fits %.0f × %.0f × %.0f mm; using computed %s",
-                x_size,
-                y_size,
-                z_size,
-                format_drawing_scale(s),
-            )
-            return s, _pw, _ph, _tb
-    _log.warning(
-        "No layout fits %.0f × %.0f × %.0f mm; falling back to %s",
-        x_size,
-        y_size,
-        z_size,
-        candidates[-1],
-    )
-    return candidates[-1]
-
-
-# ---------------------------------------------------------------------------
-# Shared analysis step
-# ---------------------------------------------------------------------------
-
-
-def _view_geom(a) -> dict:
-    """The three orthographic geometry boxes as ``{view: (cx, cy, hw, hh)}``."""
-    return {
-        "front": (a.FV_X, a.FV_Y, a.fv_hw, a.fv_hh),
-        "plan": (a.PV_X, a.PV_Y, a.fv_hw, a.pv_hh),
-        "side": (a.SV_X, a.SV_Y, a.sv_hw, a.fv_hh),
-    }
-
-
-def _anno_bbox(o):
-    """Page-space bbox of an annotation: its text ``label_bbox`` if it has one,
-    else its geometric bounding box; ``None`` if neither resolves."""
-    lb = getattr(o, "label_bbox", None)
-    if lb is not None:
-        return lb
-    try:
-        b = o.bounding_box()
-        return (b.min.X, b.min.Y, b.max.X, b.max.Y)
-    except Exception as exc:  # noqa: BLE001 — not every annotation bbox-es cleanly
-        # Fails open: an un-bbox-able annotation drops out of the overlap count and
-        # the measured footprint. Surface it so a silently-missed repack trigger is
-        # debuggable rather than invisible (#121).
-        _log.debug("annotation %r has no resolvable bbox: %s", type(o).__name__, exc)
-        return None
-
-
-def _attribute_annotations(dwg, a):
-    """Yield ``(name, view, bbox, is_label)`` for every annotation OWNED by an
-    orthographic view, per the view recorded at creation (``dwg.view_of``).
-
-    Ownership is authoritative — the annotation pass that drew it knew which view
-    it belonged to and tagged it (#121) — so a front-view step dimension sitting
-    in the front↔plan gap is the *front* view's, never recovered (and mis-bucketed)
-    from page coordinates.  Annotations with no recorded ortho view (title block,
-    iso/section/detail furniture) belong to no block and are skipped.  ``is_label``
-    is true when the annotation carries a text ``label_bbox`` (a dimension value
-    or balloon tag) rather than bare geometry (a centreline/leader line).
-    """
-    for name, o in dwg.iter_annotations():
-        view = dwg.view_of(name)
-        if view not in ("front", "plan", "side"):
-            continue
-        label = getattr(o, "label_bbox", None)
-        bb = label if label is not None else _anno_bbox(o)
-        if bb is None:
-            continue
-        yield name, view, bb, label is not None
-
-
-@dataclass(frozen=True)
-class ViewBlock:
-    """A view's composite footprint (#112): its geometry half-extents plus the
-    reserved annotation-band depth on each side (page-mm).
-
-    The block's outer box is the geometry box inflated by its bands; the layout
-    packs these blocks rather than padding bare views with scalar corridors.
-    Two blocks that *abut* are separated by ``bandA + bandB``; two that *share*
-    a corridor (a band against a common wall or neighbour) by ``max(bandA,
-    bandB)`` — see the gap→band map in #112.
-    """
-
-    hw: float  # geometry half-width
-    hh: float  # geometry half-height
-    top: float = 0.0
-    right: float = 0.0
-    bottom: float = 0.0
-    left: float = 0.0
-
-    def footprint(self, cx, cy):
-        """Outer box of this block placed at centre (cx, cy): the geometry box
-        inflated by the per-side bands.  This is what the layout packs and what
-        other blocks are placed around — the padding lives on the block, not on
-        the caller building the obstacle."""
-        return (
-            cx - self.hw - self.left,
-            cy - self.hh - self.bottom,
-            cx + self.hw + self.right,
-            cy + self.hh + self.top,
-        )
-
-
-def _padded_box(cx, cy, hw, hh, pad=_DIM_PAD):
-    """Footprint of a fixed block at (cx, cy) with a uniform `pad` clearance band.
-
-    The clearance is expressed as the block's own bands (see
-    ``ViewBlock.footprint``) — the obstacle the iso is placed around is the
-    block's footprint, not an ad-hoc inflation done by the caller.
-    """
-    return ViewBlock(hw, hh, pad, pad, pad, pad).footprint(cx, cy)
-
-
-def _compose_view_blocks(
-    x_size,
-    y_size,
-    z_size,
-    scale,
-    strips: StripDepths | None,
-    n_steps: int = 0,
-    *,
-    section: bool = False,
-) -> dict[str, ViewBlock]:
-    """Compose estimated orthographic view footprints (#112).
-
-    Each returned ``ViewBlock`` combines the view geometry half-extents with the
-    annotation bands reserved for that view. `_layout_geometry` packs these
-    blocks; it does not reconstruct bare-view corridor padding itself.
-    """
-    DIM_PAD = _DIM_PAD
-    fv_hw = x_size * scale / 2
-    fv_hh = z_size * scale / 2
-    pv_hh = y_size * scale / 2
-    sv_hw = y_size * scale / 2
-
-    # The front and plan views form a vertical column sharing the left/right
-    # corridors (max of the two); the side view shares the FV↔SV corridor; the
-    # front↔plan gap is the abutting pair (fv.top + pv.bottom). When the plan
-    # view is ballooned (halo > 0), its halo becomes explicit per-side bands so
-    # the ballooned plan view is positioned as a unit (#111/#112).
-    halo = strips.pv_halo if strips else 0.0
-    strip_top = strips.top if strips else 0.0
-    gap_fv_sv = max(DIM_PAD, strips.right if strips else _est_right_strip_depth(n_steps), halo)
-    gap_left = max(DIM_PAD, strips.left if strips else DIM_PAD, halo)
-    pv_below = _est_pv_below_depth()
-    # Top band above PV. When the plan view is ballooned, the ring sits beyond
-    # the tiered X-location dims, so reserve their real depth (strip_top) plus a
-    # balloon row. When not ballooned, keep the historic DIM_PAD.
-    pv_top = (max(DIM_PAD, strip_top) + halo) if halo > 0 else DIM_PAD
-    sv_right_band = max(DIM_PAD, strips.right if (section and strips) else DIM_PAD)
-
-    return {
-        "front": ViewBlock(
-            fv_hw,
-            fv_hh,
-            top=DIM_PAD - pv_below,
-            right=gap_fv_sv,
-            bottom=DIM_PAD,
-            left=gap_left,
-        ),
-        "plan": ViewBlock(
-            fv_hw,
-            pv_hh,
-            top=pv_top,
-            right=gap_fv_sv,
-            bottom=max(pv_below, halo),
-            left=gap_left,
-        ),
-        "side": ViewBlock(sv_hw, fv_hh, right=sv_right_band),
-    }
-
-
-def _layout_geometry(
-    x_size,
-    y_size,
-    z_size,
-    scale,
-    page_w,
-    page_h,
-    tb_w,
-    strips,
-    n_steps=0,
-    blocks=None,
-    section: bool = False,
-    table_sizes=(),
-    warn_no_iso=True,
-):
-    """Compute the 4-view layout geometry for a part at a given scale/page.
-
-    Single source of truth shared by scale selection (:func:`_fits`) and view
-    placement (:func:`_analyse`): the orthographic FV/PV/SV view centres and
-    half-sizes, the annotation-strip gaps, and the largest empty rectangle the
-    isometric view is fitted into.  Returns a :class:`SimpleNamespace`.
-
-    When *strips* is ``None`` the annotation-corridor gaps fall back to the
-    step-count estimate (used during scale selection before strips are
-    measured); otherwise the measured strip depths are used.
-    """
-    margin = _MARGIN
-    DIM_PAD = _DIM_PAD
-    bbox_max = max(x_size, y_size, z_size)
-    fv_hw = x_size * scale / 2
-    fv_hh = z_size * scale / 2
-    pv_hh = y_size * scale / 2
-    sv_hw = y_size * scale / 2
-
-    est_blocks = _compose_view_blocks(
-        x_size, y_size, z_size, scale, strips, n_steps, section=section
-    )
-    est_fv, est_pv, est_sv = est_blocks["front"], est_blocks["plan"], est_blocks["side"]
-    section_hw = max(fv_hw, 12.0)
-    section_hh = fv_hh
-    if blocks is not None:
-        # Measure-and-repack pass (#121, ADR 0004): pack the *measured* per-view
-        # footprints disjoint.  Floor each measured band at the estimate — the
-        # repack may only GROW a corridor to fit annotations the estimate
-        # under-sized (the documented FV-top vs PV-balloon overlap), never shrink
-        # below the clearance the estimate guarantees.  The geometry half-extents
-        # stay scale-derived (the estimate), not the measured block.
-        def _merge(est, meas):
-            return ViewBlock(
-                est.hw,
-                est.hh,
-                top=max(est.top, meas.top),
-                right=max(est.right, meas.right),
-                bottom=max(est.bottom, meas.bottom),
-                left=max(est.left, meas.left),
-            )
-
-        fv = _merge(est_fv, blocks["front"])
-        pv = _merge(est_pv, blocks["plan"])
-        sv = _merge(est_sv, blocks["side"])
-    else:
-        fv, pv, sv = est_fv, est_pv, est_sv
-    # Per-side corridor depths from the (possibly measured) blocks. The front and
-    # plan views stack vertically (same X, different Y) so they SHARE the left and
-    # right corridors — the deeper of the two facing bands. The side view ABUTS
-    # the column, so its gap is that column band PLUS its own facing band (sum) —
-    # disjoint by construction (#121). Byte-identical for the estimator path,
-    # where fv/pv bands are equal and sv.left == 0.
-    col_left = max(fv.left, pv.left)
-    col_right = max(fv.right, pv.right)
-
-    # FV↔PV vertical gap = fv.top + pv.bottom (abutting → sum). Estimated and
-    # measured paths now use the same block footprint semantics: if the plan
-    # view carries a bottom halo, that band is part of the stacked block layout
-    # rather than a special-case lift outside the ViewBlock model (#112).
-    base_gap = fv.top + pv.bottom
-    total_h = 2 * margin + fv.bottom + 2 * fv.hh + base_gap + 2 * pv.hh + pv.top
-    y_offset = max(0.0, (page_h - total_h) / 2)
-
-    section_right_band = (sv.right + 10.0 + 2 * section_hw + DIM_PAD) if section else 0.0
-    total_content_w = (
-        col_left
-        + col_right
-        + x_size * scale
-        + y_size * scale
-        + max(2 * DIM_PAD, sv.right + DIM_PAD, section_right_band)
-        + bbox_max * scale * _ISO_WIDTH_BUDGET
-    )
-    x_offset = max(0.0, (page_w - 2 * margin - tb_w - total_content_w) / 2)
-
-    # Anchor the FV/PV column on the SHARED left corridor (col_left), not fv.left
-    # alone: when the measured plan-view left band is the deeper of the two, the
-    # column must clear it or PV slides left of the centred region — and off the
-    # margin (#121). Byte-identical on the estimator path (col_left == fv.left),
-    # and symmetric with SV_X's use of col_right below.
-    FV_X = margin + x_offset + col_left + fv.hw
-    FV_Y = y_offset + margin + fv.bottom + fv.hh
-    PV_X = FV_X
-    # PV abuts the front-view block: gap = front top band + plan bottom band.
-    PV_Y = FV_Y + fv.hh + (fv.top + pv.bottom) + pv.hh
-    # SV abuts the FV/PV column: gap = column right band + SV's own left band
-    # (disjoint sum). Byte-identical to the old max(fv.right, sv.left) on the
-    # estimator path (fv.right == pv.right == col_right, sv.left == 0).
-    SV_X = FV_X + fv.hw + col_right + sv.left + sv.hw
-    SV_Y = FV_Y
-    sv_right = SV_X + sv.hw + sv.right
-    SECTION_X = SV_X + sv.hw + sv.right + 10.0 + section_hw
-    SECTION_Y = FV_Y
-    sv_right_wall = (
-        (page_w - margin) if (PV_Y - pv_hh) > (margin + _TB_H) else (page_w - tb_w - margin)
-    )
-
-    drawable = (margin, margin, page_w - margin, page_h - margin)
-
-    # Title block: a PINNED block.  Its lower-left corner sits _TB_CLEAR in from
-    # the right page edge and _TB_CLEAR up from the bottom, _TB_H tall — the same
-    # pin the renderer uses in _add_title_block.  Its clearance is the block's
-    # own bands: DIM_PAD on the three free sides, and only down to the page
-    # margin below (it abuts the bottom sheet edge).  Everything else is laid
-    # out to work around its footprint.  (#112, ADR 0004.)
-    title_block = ViewBlock(
-        tb_w / 2,
-        _TB_H / 2,
-        top=DIM_PAD,
-        right=DIM_PAD,
-        bottom=_TB_CLEAR - margin,
-        left=DIM_PAD,
-    )
-    tb_cx, tb_cy = page_w - _TB_CLEAR - tb_w / 2, _TB_CLEAR + _TB_H / 2
-
-    # The iso is the one *placed* block: it takes the largest gap the fixed
-    # blocks' footprints leave.  On the repack path use the MEASURED footprints
-    # (bands may exceed DIM_PAD), so the iso stays clear of real annotations
-    # rather than just the estimate's padded box (#121); the estimator path keeps
-    # the DIM_PAD-padded boxes for byte-identity.
-    if blocks is not None:
-        obstacles = [
-            fv.footprint(FV_X, FV_Y),
-            pv.footprint(PV_X, PV_Y),
-            sv.footprint(SV_X, SV_Y),
-            title_block.footprint(tb_cx, tb_cy),
+        return self
+
+    def of(self, ref) -> _Hole | _Dim:
+        """A decoratable handle onto an **existing** feature — the hybrid seam (#463).
+
+        *ref* is a feature index, a :class:`Feature` already in :attr:`features` (e.g. seeded by
+        :meth:`from_part`), or the build123d **object** you built (matched by ⌀ + in-plane
+        position). Returns the same fluent handle the declaration verbs do, so you can
+        ``.fit(...)`` / ``.tolerance(...)`` — and, for a hole, ``.cbore(...)`` — a feature you
+        did not declare from scratch. Raises if the object matches no feature or is ambiguous."""
+        i = self._index_of(ref)
+        kind = self._features[i].kind
+        if kind == "hole":
+            return _Hole(self, i)
+        if kind in ("boss", "step"):
+            return _Dim(self, i, "diameter" if kind == "boss" else "length")
+        raise ValueError(f"of(): no aspect handle for a {kind!r} feature (holes / bosses / steps)")
+
+    def _index_of(self, ref) -> int:
+        if isinstance(ref, bool):
+            raise TypeError("of(): ref must be an index, a Feature, or a build123d object")
+        if isinstance(ref, int):
+            n = len(self._features)
+            if not -n <= ref < n:
+                raise IndexError(f"of(): feature index {ref} out of range (have {n})")
+            return ref % n
+        if isinstance(ref, Feature):
+            for i, f in enumerate(self._features):
+                if f is ref:
+                    return i
+            raise ValueError("of(): that Feature is not in this sheet's features")
+        return self._match_object(ref)
+
+    def _match_object(self, obj) -> int:
+        """The index of the declared feature the build123d *obj* refers to, by axis + ⌀ + the
+        two in-plane coordinates (the axial position is where they legitimately differ)."""
+        axis, dia, center = _read_cylinder(obj)
+        axis = _norm_axis(axis)
+        perp = [k for k in range(3) if k != "xyz".index(axis)]
+        matches = [
+            i
+            for i, f in enumerate(self._features)
+            if getattr(f, "diameter", None) is not None
+            and _norm_axis(f.frame.axis) == axis  # same axis — a cross-hole must not match
+            and abs(f.diameter - dia) <= 0.2
+            and all(abs(f.frame.origin[k] - center[k]) <= 0.5 for k in perp)
         ]
-    else:
-        obstacles = [
-            _padded_box(FV_X, FV_Y, fv_hw, fv_hh),
-            _padded_box(PV_X, PV_Y, fv_hw, pv_hh),
-            _padded_box(SV_X, SV_Y, sv_hw, fv_hh),
-            title_block.footprint(tb_cx, tb_cy),
-        ]
-    if section:
-        section_block = ViewBlock(
-            section_hw,
-            section_hh,
-            top=DIM_PAD,
-            right=DIM_PAD,
-            bottom=DIM_PAD + _FONT_SIZE + 4.0,
-            left=DIM_PAD,
+        if not matches:
+            raise ValueError("of(): no declared feature matches that object (⌀ + position)")
+        if len(matches) > 1:
+            raise ValueError("of(): the object matches several features — pass an index instead")
+        return matches[0]
+
+    def hole(self, obj=None, **kw) -> _Hole:
+        """Declare a hole from the tool cylinder you subtracted (or explicit values).
+        Returns a fluent handle: ``.through()`` (default) / ``.depth(d)``."""
+        self._features.append(_hole(obj, **kw))
+        return _Hole(self, len(self._features) - 1)
+
+    def diameter(self, obj=None, **kw) -> _Dim:
+        """Declare an external cylindrical diameter (a boss / OD) — the ⌀ is read off the
+        object. Returns a handle: chain ``.tolerance(...)`` for a ± on the ⌀ (P2a)."""
+        self._features.append(_boss(obj, **kw))
+        return _Dim(self, len(self._features) - 1, "diameter")
+
+    def boss(self, obj=None, **kw) -> _Dim:
+        """Alias of :meth:`diameter` — an external cylindrical boss / OD."""
+        return self.diameter(obj, **kw)
+
+    def step(self, obj=None, **kw) -> _Dim:
+        """Declare one axial segment of a turned profile (its OD + length). A model with any
+        step renders as a turned part. Returns a handle: ``.tolerance(...)`` tolerances the
+        step *length* by default, ``.tolerance(..., on="diameter")`` its OD (P2a)."""
+        self._features.append(_step(obj, **kw))
+        return _Dim(self, len(self._features) - 1, "length")
+
+    def slot(self, obj=None, **kw) -> Sheet:
+        """Declare a milled slot / reduced across-flats section (width + length)."""
+        self._features.append(_slot(obj, **kw))
+        return self
+
+    def pocket(self, obj=None, **kw) -> Sheet:
+        """Declare a blind rectangular recess — a floored slot/pocket (width × length ×
+        depth). From an object the depth axis defaults to the shortest bbox span; pass
+        ``depth_axis=`` for a recess deeper than it is wide."""
+        self._features.append(_pocket(obj, **kw))
+        return self
+
+    def chamfer(self, obj=None, **kw) -> Sheet:
+        """Declare a chamfer (bevelled edge) — ``sheet.chamfer(bevel_face)`` reads axis, legs
+        and a point on the bevel off the oblique chamfer face, or explicit
+        ``sheet.chamfer(axis="z", leg=6, at=(x, y, z))``. ``leg`` = equal-leg 45° (``C{leg}``);
+        ``leg1``/``leg2`` = asymmetric."""
+        self._features.append(_chamfer(obj, **kw))
+        return self
+
+    def fillet(self, obj=None, **kw) -> Sheet:
+        """Declare a fillet (rounded edge) — ``sheet.fillet(round_face)`` reads axis, radius
+        and a point on the round off the cylindrical blend face, or explicit
+        ``sheet.fillet(axis="z", radius=3, at=(x, y, z))``. Called out ``R{radius}`` (grouped
+        ``n× R`` for equal radii)."""
+        self._features.append(_fillet(obj, **kw))
+        return self
+
+    def flat(self, obj=None, **kw) -> Sheet:
+        """Declare a machined flat on round stock (#148b) — ``sheet.flat(flat_face)`` reads the
+        leader point off the planar flat face (``axis=`` and ``across=`` still required), or
+        fully explicit ``sheet.flat(axis="z", across=15, at=(x, y, z))``. Called out
+        ``{across} A/F`` (across flats — flat-to-flat for a double-D / hex, the D height for a
+        lone flat)."""
+        self._features.append(_flat(obj, **kw))
+        return self
+
+    def groove(self, obj=None, **kw) -> Sheet:
+        """Declare a turned / circlip groove on round stock (#148c) — ``sheet.groove(floor_face)``
+        reads axis, width, diameter and the leader point off the reduced-OD floor face, or fully
+        explicit ``sheet.groove(axis="z", width=3, diameter=16, at=(x, y, z))``. Called out
+        ``{width} WIDE × ø{diameter}`` (groove width + floor diameter)."""
+        self._features.append(_groove(obj, **kw))
+        return self
+
+    def plate(self, obj=None, **kw) -> Sheet:
+        """Declare a thin slab's thickness (a base plate / wall / rib) — ``sheet.plate(slab_box)``
+        reads the thin axis + extent + centre off the slab, or explicit ``sheet.plate(axis="z",
+        lo=0, hi=4, u=10, v=5)``. Only a *multi-plate* part dimensions plates (a single slab is
+        the envelope)."""
+        self._features.append(_plate(obj, **kw))
+        return self
+
+    def step_level(self, obj=None, **kw) -> Sheet:
+        """Declare a prismatic height ladder + step-position shoulders (a rebated / stepped
+        block) — ``sheet.step_level(part)`` reads ``base`` / interior ``levels`` / the ``(axis,
+        position)`` ``shoulders`` / ``datum`` off the part, or explicit ``sheet.step_level(base=0,
+        levels=(10,), shoulders=(("x", 30),))``. A shoulder locates *where* a step changes
+        height along a horizontal axis, so a stepped block is fully constrained (#555/#578)."""
+        self._features.append(_step_level(obj, **kw))
+        return self
+
+    def pattern(self, member, **kw) -> Sheet:
+        """Declare a hole pattern (bolt circle / linear array / grid) — build the
+        *member* with :func:`draftwright.model.hole`."""
+        self._features.append(_pattern(member, **kw))
+        return self
+
+    def envelope(self, obj=None) -> Sheet:
+        """Declare the overall bounding dimensions. Defaults to the whole part."""
+        self._features.append(_envelope(obj if obj is not None else self._part))
+        return self
+
+    # -- GD&T / finish aspects (ADR 0011 P2c, #479) ---------------------------
+
+    def datum(
+        self, letter: str, ref, *, view: str | None = None, side: str | None = None
+    ) -> Sheet:
+        """Declare a datum feature symbol (ISO 5459). *ref* is a build123d **planar face**, or
+        a feature handle / :class:`Feature` / index for a feature's axis. The target view + strip
+        side are derived from the geometry; ``view``/``side`` override them (ADR 0011 P2c)."""
+        target, src = self._gdt_ref(ref)
+        self._append_gdt(_declare_datum(letter, target, self._part, view=view, side=side), src)
+        return self
+
+    def finish(self, ra, ref, *, view: str | None = None, side: str | None = None) -> Sheet:
+        """Declare a surface-finish symbol (ISO 1302, Ra) on *ref* — a build123d planar face or
+        a feature. ``sheet.finish("3.2", top_face)``; ``view``/``side`` override the strip."""
+        target, src = self._gdt_ref(ref)
+        self._append_gdt(_declare_finish(ra, target, self._part, view=view, side=side), src)
+        return self
+
+    def note(self, text, ref, *, view: str | None = None, side: str | None = None) -> Sheet:
+        """Declare a free-text manufacturing note (#488) on a leader to *ref* — a build123d planar
+        face or a feature. The shop callouts detection can't infer: thread specs
+        (``sheet.note("M3x0.5 TAP", bore)``), ``DEBURR``, chip-relief, knurl. Placed like the GD&T
+        items, clear of the views/title block; ``view``/``side`` override the derived strip."""
+        target, src = self._gdt_ref(ref)
+        self._append_gdt(_declare_note(text, target, self._part, view=view, side=side), src)
+        return self
+
+    def control(self, ref, *, view: str | None = None, side: str | None = None) -> _Control:
+        """A GD&T feature-control-frame builder on *ref* — a feature handle / :class:`Feature` /
+        index, or a build123d planar face. Chain one method per ISO 1101 characteristic
+        (``.position(0.1, to="A B")`` …); each stacks a frame on the target. The target view +
+        strip are derived from the geometry; ``view``/``side`` override them (ADR 0011 P2c.2)."""
+        target, src = self._gdt_ref(ref)
+        v, s, _site, _axis = gdt_target(target, self._part, view=view, side=side)
+        return _Control(self, target, src, v, s)
+
+    def _gdt_finish(self, ra, src_index: int, *, view=None, side=None) -> None:
+        """A finish declared through a fluent handle — sources its provenance from the handle's
+        feature INDEX (not the object), so a later size verb on the same handle can't strand it."""
+        item = _declare_finish(ra, self._features[src_index], self._part, view=view, side=side)
+        self._append_gdt(item, src_index)
+
+    def _gdt_note(self, text, src_index: int, *, view=None, side=None) -> None:
+        """A note declared through a fluent handle — like :meth:`_gdt_finish`, sources provenance
+        from the feature INDEX so a later size verb on the same handle can't strand it."""
+        item = _declare_note(text, self._features[src_index], self._part, view=view, side=side)
+        self._append_gdt(item, src_index)
+
+    def _append_gdt(self, item, src_index) -> None:
+        """Append a GD&T IR item, recording its source-feature index for build-time provenance
+        re-materialization (``None`` for a bare face — no source feature to track)."""
+        self._features.append(item)
+        if src_index is not None:
+            self._gdt_src.append((len(self._features) - 1, src_index))
+
+    def _gdt_ref(self, ref):
+        """Resolve a GD&T target to ``(target, source_index)``: a fluent handle / index / a
+        :class:`Feature` already in :attr:`features` → its feature + index (the index re-binds
+        provenance at build); a build123d face or an external Feature → ``(ref, None)``."""
+        if isinstance(ref, (_Hole, _Dim)):
+            return self._features[ref._i], ref._i
+        if isinstance(ref, int) and not isinstance(ref, bool):
+            i = self._index_of(ref)
+            return self._features[i], i
+        if isinstance(ref, Feature):
+            for i, f in enumerate(self._features):
+                if f is ref:
+                    return ref, i
+            return ref, None  # an external feature this sheet does not manage
+        return ref, None  # a build123d face — no source feature
+
+    def _materialize_gdt(self) -> None:
+        """Re-bind each handle-sourced GD&T item's ``origin`` to the FINAL source feature (a
+        size verb may have replaced it since declaration). Idempotent; mirrors P2a's
+        :meth:`_decorations`. Called before handing features to the engine."""
+        for gi, si in self._gdt_src:
+            self._features[gi] = replace(self._features[gi], origin=self._features[si])
+
+    def _validate_datums(self) -> None:
+        """Warn (non-fatal) if a control frame references a datum letter no ``sheet.datum`` on
+        this sheet declared — a likely typo (``to="A"`` with no datum A). ADR 0011 P2c.2."""
+        declared = {f.letter for f in self._features if getattr(f, "kind", None) == "datum_ref"}
+        referenced = {
+            d
+            for f in self._features
+            if getattr(f, "kind", None) == "control_frame"
+            for d in f.datums
+        }
+        missing = sorted(referenced - declared)
+        if missing:
+            warnings.warn(
+                f"control frame references undeclared datum(s) {missing} — declare each with "
+                "sheet.datum(letter, ref)",
+                stacklevel=3,
+            )
+
+    def _prepare(self) -> None:
+        """Resolve deferred GD&T state before handing features to the engine."""
+        self._materialize_gdt()
+        self._validate_datums()
+
+    # -- corner-block tables (notes / revision / BOM / schedule) --------------
+
+    def table(
+        self, rows, *, prefer: str = "tr", name: str | None = None, block_cols=None
+    ) -> Sheet:
+        """Declare a corner-block data table — positioned at :meth:`build` by the engine's generic
+        auto-placer, clear of the views, title block, and annotations (the same machinery as the
+        hole table), and lint-checked. *rows* is a sequence of equal-length row sequences (row 0
+        the header); cells are stringified. *prefer* is the page corner to sit nearest
+        (``"tr"``/``"tl"``/``"br"``/``"bl"``). A table with no free corner records a
+        ``table_dropped`` lint — it never overlaps. Revision blocks, BOMs and schedules all use
+        this; :meth:`notes` is the single-column convenience over it."""
+        rows = list(rows)
+        # A str/bytes row would iterate character-by-character into columns — a silent-garbage
+        # trap, especially since notes() legitimately takes a flat list of strings. Reject it and
+        # point at notes() (the single-column convenience).
+        if any(isinstance(r, (str, bytes)) for r in rows):
+            raise ValueError(
+                "table rows must be sequences of cells, not strings — for a single-column table "
+                "of text use sheet.notes([...])"
+            )
+        norm = [tuple(str(c) for c in r) for r in rows]
+        if not norm:
+            raise ValueError("table needs at least one row")
+        width = len(norm[0])
+        if width == 0 or any(len(r) != width for r in norm):
+            raise ValueError("table rows must all have the same (non-zero) number of columns")
+        self._tables.append(
+            {
+                "rows": norm,
+                "prefer": prefer,
+                "name": name or f"table{len(self._tables)}",
+                "block_cols": block_cols,
+            }
         )
-        obstacles.append(section_block.footprint(SECTION_X, SECTION_Y))
-    iso_left, iso_bottom, iso_right, iso_top = _largest_empty_rect(
-        drawable, obstacles, warn=warn_no_iso
-    )
-    # _largest_empty_rect falls back to the full drawable when the obstacles
-    # leave no genuine gap; detect that (rect overlaps an obstacle) so callers
-    # can treat "no room for the iso" as not-fitting rather than a huge phantom.
-    iso_valid = not any(
-        iso_left < o[2] and o[0] < iso_right and iso_bottom < o[3] and o[1] < iso_top
-        for o in obstacles
-    )
+        return self
 
-    # Does the packed disjoint layout actually fit the sheet? — the fitness the
-    # (scale, page) search optimises (#121, ADR 0004).  The union of the three
-    # view *footprints* (geometry + bands) must sit inside the drawable area; the
-    # orthographic views must clear the title block (stay left of its column
-    # unless their bottom is above it); and the iso must have a real gap.  This is
-    # what tells the repack to escalate to a larger sheet when the measured
-    # footprints no longer fit the estimate's page.
-    _view_boxes = [
-        fv.footprint(FV_X, FV_Y),
-        pv.footprint(PV_X, PV_Y),
-        sv.footprint(SV_X, SV_Y),
-    ]
-    if section:
-        _view_boxes.append(section_block.footprint(SECTION_X, SECTION_Y))
-    cx0 = min(b[0] for b in _view_boxes)
-    cy0 = min(b[1] for b in _view_boxes)
-    cx1 = max(b[2] for b in _view_boxes)
-    cy1 = max(b[3] for b in _view_boxes)
-    _tol = 0.5
-    _clears_tb = cy0 >= (_TB_CLEAR + _TB_H)
-    _right_limit = (page_w - margin) if _clears_tb else (page_w - tb_w - margin)
-    _auto_views_bottom = y_offset + margin + DIM_PAD
-    _auto_clears_tb = _auto_views_bottom >= margin + _TB_H
-    _auto_row_w = total_content_w + 2 * margin + (0.0 if _auto_clears_tb else tb_w)
-    auto_row_fits = _auto_row_w <= page_w + _tol
-    iso_fit = min(iso_right - iso_left, iso_top - iso_bottom)
-    iso_fits = iso_valid and iso_fit >= _ISO_MIN_FIT_FRAC * bbox_max * scale * _ISO_WIDTH_BUDGET
-    # Tables are late furniture and must reserve against the same composed view
-    # footprints the fit model validates, not the iso's byte-identity padded-box
-    # obstacles. Otherwise a table can be accepted in space already reserved for
-    # planned strips/halos and then drop after real annotations are rendered.
-    table_obstacles = [
-        fv.footprint(FV_X, FV_Y),
-        pv.footprint(PV_X, PV_Y),
-        sv.footprint(SV_X, SV_Y),
-        title_block.footprint(tb_cx, tb_cy),
-    ]
-    if section:
-        table_obstacles.append(section_block.footprint(SECTION_X, SECTION_Y))
-    if iso_valid:
-        table_obstacles.append((iso_left, iso_bottom, iso_right, iso_top))
-    table_fits = not table_sizes or any(
-        fit_box(size, drawable, table_obstacles, "tr") is not None for size in table_sizes
-    )
-    fits = (
-        iso_fits
-        and table_fits
-        and cy0 >= margin - _tol
-        and cy1 <= page_h - margin + _tol
-        and cx0 >= margin - _tol
-        and cx1 <= _right_limit + _tol
-    )
-    auto_fits = (
-        auto_row_fits
-        and table_fits
-        and cy0 >= margin - _tol
-        and cy1 <= page_h - margin + _tol
-        and cx0 >= margin - _tol
-    )
+    def notes(
+        self, lines, *, title: str | None = "NOTES", number: bool = True, prefer="tr"
+    ) -> Sheet:
+        """Declare a manufacturing NOTES block — a single-column :meth:`table` of *lines* with a
+        *title* header (``None`` to omit) and optional ``1  …`` auto-numbering::
 
-    return SimpleNamespace(
-        x_offset=x_offset,
-        fv_hw=fv_hw,
-        fv_hh=fv_hh,
-        pv_hh=pv_hh,
-        sv_hw=sv_hw,
-        FV_X=FV_X,
-        FV_Y=FV_Y,
-        PV_X=PV_X,
-        PV_Y=PV_Y,
-        SV_X=SV_X,
-        SV_Y=SV_Y,
-        SECTION_X=SECTION_X,
-        SECTION_Y=SECTION_Y,
-        sv_right=sv_right,
-        sv_right_wall=sv_right_wall,
-        iso_left=iso_left,
-        iso_bottom=iso_bottom,
-        iso_right=iso_right,
-        iso_top=iso_top,
-        ISO_X=(iso_left + iso_right) / 2,
-        ISO_Y=(iso_bottom + iso_top) / 2,
-        iso_valid=iso_valid,
-        iso_fit=iso_fit,
-        iso_fits=iso_fits,
-        table_fits=table_fits,
-        iso_natural=bbox_max * scale * _ISO_WIDTH_BUDGET,
-        auto_views_bottom=_auto_views_bottom,
-        auto_clears_tb=_auto_clears_tb,
-        auto_row_fits=auto_row_fits,
-        auto_fits=auto_fits,
-        fits=fits,
-    )
+            sheet.notes(["BREAK ALL EDGES 0.3", "DEBURR", "M3x0.5 TAP"])
+        """
+        rows = [(title,)] if title else []
+        rows += [(f"{i}  {line}" if number else str(line),) for i, line in enumerate(lines, 1)]
+        if len(rows) <= (1 if title else 0):
+            raise ValueError("notes needs at least one line")
+        return self.table(rows, prefer=prefer, name=f"notes{len(self._tables)}")
 
+    # -- inspection / output --------------------------------------------------
 
-def _build_zones(g, margin, page_h):
-    """Construct the FV/PV/SV annotation :class:`ViewZones` from a placement
-    namespace *g* (the return of :func:`_layout_geometry`).
+    @property
+    def features(self) -> list:
+        """The declared IR features (mutable — override or drop before :meth:`build`)."""
+        return self._features
 
-    Factored out of :func:`_analyse` so the measure-and-repack pass (#121) can
-    rebuild the zones from the repacked geometry with the same arithmetic — the
-    zones must track the moved view centres, not the pass-1 placement.
-    """
-    FV_X, FV_Y, fv_hw, fv_hh = g.FV_X, g.FV_Y, g.fv_hw, g.fv_hh
-    PV_X, PV_Y, pv_hh = g.PV_X, g.PV_Y, g.pv_hh
-    SV_X, SV_Y, sv_hw = g.SV_X, g.SV_Y, g.sv_hw
+    def _decorations(self) -> dict:
+        """Materialize the index-keyed ± tolerances against the FINAL features (a handle may
+        have been recorded before a later .depth()/… replaced the feature) → the
+        ``(feature, kind)`` decoration map the planner reads (P2a)."""
+        return {(self._features[i], kind): tol for (i, kind), tol in self._tolerances.items()}
 
-    fv_right_edge = FV_X + fv_hw
-    fv_left_edge = FV_X - fv_hw
-    fv_top_edge = FV_Y + fv_hh
-    fv_bottom_edge = FV_Y - fv_hh
-    pv_right_edge = PV_X + fv_hw  # plan has the same X half-width as front
-    pv_left_edge = PV_X - fv_hw
-    pv_top_edge = PV_Y + pv_hh
-    pv_bottom_edge = PV_Y - pv_hh  # = fv_top_edge + DIM_PAD
-    sv_top_edge = SV_Y + fv_hh  # side view has the same Z height as front
-    # Outer limit for fv/pv right strips: must not enter the side view.
-    sv_left_edge = SV_X - sv_hw  # = fv_right_edge + gap_fv_sv
+    def model(self):
+        """The IR the engine will draw (detection skipped) — for inspection. Wraps the
+        declared features into a :class:`PartModel` **without** rendering a drawing (#453):
+        the same wrapping :meth:`build` hands the engine (part bbox + corner datum + step-
+        inferred orientation + the P2a decorations), so inspection pays no projection/anno
+        cost and can't hit a layout/render failure. Wraps the *solids body* (as :func:`_analyse`
+        does), so the bbox/datum match what ``build()`` draws even when the part carries
+        bbox-extending non-solid geometry."""
+        self._prepare()
+        return _coerce_model(self._features, _solids_body(self._part), self._decorations())
 
-    fv_zones = ViewZones(
-        right=Strip(fv_right_edge, sv_left_edge, direction=1),
-        left=Strip(fv_left_edge, margin, direction=-1),
-        # Stop the front-view 'above' strip short of pv_bottom_edge by the
-        # slack the pv_below slot leaves in the gap, derived (not re-typed) so
-        # it tracks _DIM_PAD and the slot constants.
-        above=Strip(fv_top_edge, pv_bottom_edge - (_DIM_PAD - _est_pv_below_depth()), direction=1),
-        below=Strip(fv_bottom_edge, margin, direction=-1),
-    )
-    pv_zones = ViewZones(
-        # Outer limit = sv_left_edge (not iso_right_limit) so bore callouts in
-        # the plan view are bounded by the same hard wall as the FV right strip,
-        # preventing labels from crossing m_locy extension lines in the side
-        # view.  gap_fv_sv is sized by _measure_strips to accommodate the widest
-        # callout, so well-estimated labels will always fit within this bound.
-        right=Strip(pv_right_edge, sv_left_edge, direction=1),
-        left=Strip(pv_left_edge, margin, direction=-1),
-        above=Strip(pv_top_edge, page_h - margin, direction=1),
-        # gap_fv_pv = _DIM_PAD; pv_below needs _est_pv_below_depth() mm,
-        # leaving (_DIM_PAD - _est_pv_below_depth()) mm slack (assert above).
-        below=Strip(pv_bottom_edge, fv_top_edge, direction=-1),
-    )
-    sv_bottom_edge = SV_Y - fv_hh  # same as fv_bottom_edge; side and front share Z height
-    sv_zones = ViewZones(
-        # sv_right already includes DIM_PAD; anchor here so the strip never
-        # places annotations inside that gap
-        right=Strip(g.sv_right, g.sv_right_wall, direction=1),
-        left=None,  # immediately abuts the front view's right edge
-        above=Strip(sv_top_edge, page_h - margin, direction=1),
-        below=Strip(sv_bottom_edge, margin, direction=-1),
-    )
-    return fv_zones, pv_zones, sv_zones
+    def build(self):
+        """Build the :class:`~draftwright.drawing.Drawing` — detection skipped; only the
+        declared features are drawn. Declared corner-block tables (:meth:`table`/:meth:`notes`)
+        are placed last, clear of everything already on the sheet."""
+        self._prepare()
+        dwg = build_drawing(
+            self._part, model=self._features, decorations=self._decorations(), **self._opts
+        )
+        # Add each declared table, uniquifying its name against everything already on the sheet
+        # (feature annotations + earlier tables) so a table NEVER silently overwrites another
+        # object via dwg.add (#493 review). A collision with an explicit name is warned; a table
+        # that doesn't fit still records `table_dropped` lint inside add_table.
+        used = set(dwg._named)
+        for t in self._tables:
+            name = t["name"]
+            if name in used:
+                base, k = name, 1
+                while f"{base}_{k}" in used:
+                    k += 1
+                name = f"{base}_{k}"
+                warnings.warn(
+                    f"table name {t['name']!r} is already taken — placed as {name!r}", stacklevel=2
+                )
+            placed = dwg.add_table(
+                t["rows"], prefer=t["prefer"], name=name, block_cols=t["block_cols"]
+            )
+            if placed is not None:  # a dropped table (didn't fit) frees its name (#493 review)
+                used.add(name)
+        return dwg
+
+    def export(self, stem=None):
+        """Build and export the drawing (SVG + DXF). *stem* defaults to the drawing
+        number, lower-cased."""
+        stem = stem or self._opts["out"] or self._opts["number"].lower()
+        return self.build().export(stem)

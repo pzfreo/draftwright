@@ -30,12 +30,12 @@ _LAZY = {
     "make_drawing": "draftwright.builder",
     "Drawing": "draftwright.drawing",
     "FeatureInfo": "draftwright.drawing",
-    "Sheet": "draftwright.sheet_dsl",
+    "Sheet": "draftwright.sheet",
     "fix_svg_page_size": "draftwright.export",
     "lint_feature_coverage": "draftwright.linting",
     "PmiRecord": "draftwright.pmi",
     "extract_pmi": "draftwright.pmi",
-    "choose_scale": "draftwright.sheet",
+    "choose_scale": "draftwright.compose",
 }
 
 
@@ -74,13 +74,13 @@ _sys.modules[__name__].__class__ = _DraftwrightModule
 if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel cost
     from draftwright.analysis import dedup_diams
     from draftwright.builder import build_drawing, generate_script, make_drawing
+    from draftwright.compose import choose_scale
     from draftwright.drawing import Drawing, FeatureInfo
     from draftwright.export import fix_svg_page_size
     from draftwright.linting import lint_feature_coverage
     from draftwright.pmi import PmiRecord, extract_pmi
     from draftwright.recognition import recognise_face_levels
-    from draftwright.sheet import choose_scale
-    from draftwright.sheet_dsl import Sheet
+    from draftwright.sheet import Sheet
 
 
 def __dir__():

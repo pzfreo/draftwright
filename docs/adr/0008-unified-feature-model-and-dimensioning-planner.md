@@ -26,7 +26,7 @@
   annotation/table/section/callout renderers. `annotations/` (sections, hole callouts,
   the hole table + balloons, the off-axis location dims, the scattered-hole tabulation)
   now reads the IR (`model.features`), and so does **page/scale sizing** — `_analyse`
-  builds the IR once, up front, and the `sheet.py` estimators size off it (subsystem A);
+  builds the IR once, up front, and the `compose.py` (née `sheet.py`) estimators size off it (subsystem A);
   detected and declared parts share one sizing path. The only place records cross is the
   sanctioned `build_part_model` boundary itself. **One path deliberately keeps reading
   recognition records, and this is correct — not a boundary violation:**

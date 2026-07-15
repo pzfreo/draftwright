@@ -37,9 +37,9 @@ from draftwright.recognition import (
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
-# Reconciliation tolerances (#487) mirror sheet_dsl._match_object (⌀ ≤ 0.2 mm, in-plane ≤ 0.5 mm):
+# Reconciliation tolerances (#487) mirror sheet._match_object (⌀ ≤ 0.2 mm, in-plane ≤ 0.5 mm):
 # a declared feature matches a recognised cylinder within these. Kept in sync by comment — linting/
-# sits below sheet_dsl in the DAG, so the literals cannot be shared by import.
+# sits below sheet in the DAG, so the literals cannot be shared by import.
 _RECON_DIA_TOL = 0.2
 _RECON_POS_TOL = 0.5
 
@@ -483,7 +483,7 @@ def lint_declaration_reconciliation(features, cyls) -> list:
     is the ``(z_cyls, cross_cyls)`` from :func:`analyse_cylinders`. Scope is the cylindrical
     singletons (hole/boss/step); a declared feature matches a recognised cylinder on same axis,
     ⌀ within ``_RECON_DIA_TOL`` and in-plane position within ``_RECON_POS_TOL`` (the axis + ⌀ +
-    in-plane test ``sheet_dsl._match_object`` uses) **plus** a polarity check (``_RECON_EXTERNAL``)
+    in-plane test ``sheet._match_object`` uses) **plus** a polarity check (``_RECON_EXTERNAL``)
     that ``_match_object`` lacks — a hole reconciles against a bore, a boss/step against external
     material. Non-fatal: every issue is a ``warning``.
     """
