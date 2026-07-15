@@ -207,6 +207,42 @@ class TestStepPosition:
         placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
         assert placed == ["20"]  # the shoulder position survives the recompose
 
+    def test_finalize_drains_step_positions_after_a_mid_replay_raise(self, monkeypatch):
+        # #636 review: A0b registers the step-position corridor candidates and drops their
+        # intents BEFORE the fallible callout phase. If that phase raises and finalize() is
+        # retried, the recomputed step_position_ids is empty — so the drain must key off the
+        # pending corridor batch, not the intent set, or the candidates strand and vanish.
+        from draftwright.annotations import holes as _holes_mod
+
+        part = (
+            Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15) - Pos(20, 20, 0) * Cylinder(4, 30)
+        )
+        dwg = build_drawing(part, auto_dims=False)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_position")
+        dwg.callout(hole)  # a fallible B1 phase between A0b registration and the B2 drain
+
+        real = _holes_mod._annotate_holes
+        calls = {"n": 0}
+
+        def _boom(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("injected callout failure")
+            return real(*a, **k)
+
+        monkeypatch.setattr(_holes_mod, "_annotate_holes", _boom)
+        with pytest.raises(RuntimeError):
+            dwg.finalize()  # A0b registered the step candidates; B1 raises → batch stranded
+        assert dwg._corridor_batch  # candidates persist, not yet drained
+        assert not [n for n in dwg._named if n.startswith("dim_shoulder")]
+
+        dwg.finalize()  # retry: step_position_ids is now empty, but the batch still drains
+        placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
+        assert placed == ["20"]
+
     def test_centered_rebate_dimensions_both_shoulders(self):
         # A symmetric central channel has TWO shoulders; both positions must be given
         # (20 and 40 from the front datum), else the channel is under-constrained.
