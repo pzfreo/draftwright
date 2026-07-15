@@ -8047,6 +8047,25 @@ class TestTurnedLengths:
         dwg = build_drawing(Box(80, 60, 20))
         assert not any(n.startswith("m_steplen") for n in dwg._named)
 
+    def test_grooved_shaft_step_chain_not_flagged_axial_missing(self):
+        # A groove band is excluded from the step-length chain (#606) and dimensioned by its
+        # WIDTH callout instead. The axial-coverage lint counts prof.steps (which still includes
+        # the groove band), so it must credit the rendered groove-width callout as covering that
+        # band — else an otherwise fully-dimensioned grooved shaft false-fires axial_length_missing
+        # (#628, a regression from the #606 groove exclusion).
+        from build123d import Cylinder, Pos
+
+        shaft = (
+            Pos(0, 0, 7.5) * Cylinder(30, 15)
+            + Pos(0, 0, 32) * Cylinder(20, 34)
+            + Pos(0, 0, 53) * Cylinder(13, 8)  # ø26 local-minimum band → recognised as a groove
+            + Pos(0, 0, 74) * Cylinder(20, 34)
+            + Pos(0, 0, 107) * Cylinder(14, 32)
+        ) - Pos(0, 0, 61.5) * Cylinder(8, 123)
+        dwg = build_drawing(shaft, number="X")
+        assert any(n.startswith("m_groove") for n in dwg._named)  # the ø26 band IS a groove
+        assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
+
     def test_chain_skips_gracefully_when_no_room(self):
         # Forced onto a too-small page, the chain must SKIP rather than run off the
         # page edge (the parity guard the diameter row has). Lint then reports the
