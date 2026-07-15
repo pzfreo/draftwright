@@ -1221,11 +1221,14 @@ def render_grooves(dwg, model, a) -> int:
     return n
 
 
-def render_boss_diameters(dwg, model, a) -> int:
+def render_boss_diameters(dwg, groups, a) -> int:
     """ø leaders for a PRISMATIC part's bosses (#629). A boss reads as a circle looking down its
     axis, so its diameter is called out with a leader to that circle in the view normal to the
     axis — a Z boss in the plan, X in the side, Y in the front — free to exit into clear margin
     (``_ray_exit_dist``), like a pocket/groove.
+
+    The ⌀ + its tolerance/fit come from the planner's ``DimParameter`` (as in ``render_diameters``),
+    never raw geometry — formatting ``b.diameter`` directly dropped an authored diameter tolerance.
 
     A *turned* part keeps the diameter row/column (``render_diameters``): there the boss ø sits
     in the OD stack. The turned column-left strip, applied to a prismatic boss, strands its ø
@@ -1238,13 +1241,20 @@ def render_boss_diameters(dwg, model, a) -> int:
         return 0
     draft = dwg.draft
     view_of = {"z": "plan", "x": "side", "y": "front"}  # the view looking down the boss axis
-    bosses = [f for f in model.features if f.kind == "boss"]
+    boss_groups = [g for g in groups if g.feature_kind == "boss"]
     mentioned = _mentioned_diameters(dwg)
     page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
     reach = draft.font_size + 6 * draft.pad_around_text
     n = 0
-    for bi, b in enumerate(sorted(bosses, key=lambda f: (f.frame.axis, f.frame.origin))):
-        dia = b.diameter
+    for bi, g in enumerate(
+        sorted(boss_groups, key=lambda g: (g.feature.frame.axis, g.feature.frame.origin))
+    ):
+        b = g.feature
+        dpd = next((pd for pd in g.dims if pd.param.kind == "diameter"), None)
+        if dpd is None:
+            continue
+        dia = dpd.param.value
+        dtol = dpd.param.tolerance
         if any(abs(dia - m) <= 0.15 for m in mentioned):
             continue  # a coincident bore / step already carries this ø
         view = view_of.get(b.frame.axis)
@@ -1256,7 +1266,7 @@ def render_boss_diameters(dwg, model, a) -> int:
         x0, y0, x1, y1 = vb
         center = dwg.at(view, *b.frame.origin)
         r_page = dia / 2 * a.SCALE  # the boss circle radius in page units
-        label_str = f"ø{_fmt(dia)}"
+        label_str = f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}"
         obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
         placed = False
         for dx, dy in _POCKET_LEAD_DIRS:

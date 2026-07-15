@@ -322,7 +322,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Prismatic bosses get a plan-view ø leader BEFORE the turned row/column solve, which then
     # sees the ø as 'mentioned' and skips it (#629 — the column-left strip strands a boss ø when
     # tight, even on a half-empty sheet). No-op on turned parts (they keep the OD stack).
-    render_boss_diameters(dwg, _model, a)
+    render_boss_diameters(dwg, _groups, a)
     render_diameters(dwg, _groups)
     if a.prof is not None:
         render_step_lengths(dwg, _groups)
