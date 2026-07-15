@@ -23,9 +23,12 @@ from draftwright._core import (
     _MIN_LOC_SEP_MM,
     _TB_CLEAR,
     _TB_H,
+    _WITNESS_LIFT_MM,
     Analysis,
     HoleRef,
+    _concentric_with_axis,
     _dim,
+    _first_free_index,
     _fmt,
     _iso_bbox,
     _log,
@@ -55,6 +58,11 @@ from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model import plan_dimensions
 from draftwright.model.ir import HoleFeature, PatternFeature
 from draftwright.model.planner import plan_locations
+
+# |cos| threshold for treating a view's side vector as axis-aligned (≈ within 1.6° of an
+# axis) when choosing the strip a hole-location row stacks against — above it the side is
+# "horizontal" / "vertical" enough to pick the left/right vs above/below strip cleanly.
+_AXIS_ALIGN_COS = 0.9996
 
 
 def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | None = None) -> str:
@@ -236,12 +244,7 @@ def add_feature_location(
     SX, SZ = a.proj.side_x, a.proj.side_z
 
     def _uniq(prefix: str) -> str:
-        j = 0
-        nm = f"{prefix}{j}"
-        while nm in dwg._named:
-            j += 1
-            nm = f"{prefix}{j}"
-        return nm
+        return f"{prefix}{_first_free_index(prefix, dwg._named)}"
 
     def _place(view: str, strip, p1, p2, baseline, label: str) -> str:
         perp = (min(p1, p2), max(p1, p2))
@@ -271,11 +274,7 @@ def add_feature_location(
         rx, ry = pd.param.span[1][0], pd.param.span[1][1]
         # A rotational part's on-axis *hole* is located by the centreline, not a
         # position dim (matches render_locations); a pattern ref is never filtered.
-        if (
-            pd.param.role == "location"
-            and a.is_rotational
-            and math.hypot(rx - a.cx, ry - a.cy) <= _CONCENTRIC_TOL_MM
-        ):
+        if pd.param.role == "location" and a.is_rotational and _concentric_with_axis(a, rx, ry):
             continue
         # Coincident X (or Y) across this feature's own members → one dim, not a stack
         # of identical position dims (matches render_locations' x_refs/y_refs dedup).
@@ -650,7 +649,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, *, which):
     # turned-diameter ø-row, so it stays in the "along" phase (after the diameter pass),
     # preserving the #133 priority.
     if which == "across":
-        yw = SZ(dz) - 2
+        yw = SZ(dz) - _WITNESS_LIFT_MM
         seen_y: set = set()
         cands = []
         order_y: dict = {}
@@ -688,7 +687,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, *, which):
 
     # "along" phase (after the envelope + turned-diameter passes): a Y-axis hole's X
     # position below the FRONT view, then every hole's height (Z) to the right.
-    xw = FZ(dz) - 2
+    xw = FZ(dz) - _WITNESS_LIFT_MM
     seen_x: set = set()
     x_cands = []
     order_x: dict = {}
@@ -1041,7 +1040,9 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
     sx, sy = side[0], side[1]
     strip = axis = perp = None
     witness = sgn = 0.0
-    if abs(sx) > 0.9996:  # horizontal side ⟂ a vertical row → left/right strip, stacks along x
+    if (
+        abs(sx) > _AXIS_ALIGN_COS
+    ):  # horizontal side ⟂ a vertical row → left/right strip, stacks along x
         strip, axis, perp, witness, sgn = (
             (zones.right if sx > 0 else zones.left),
             "x",
@@ -1049,7 +1050,9 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
             mid[0],
             math.copysign(1.0, sx),
         )
-    elif abs(sy) > 0.9996:  # vertical side ⟂ a horizontal row → above/below strip, stacks along y
+    elif (
+        abs(sy) > _AXIS_ALIGN_COS
+    ):  # vertical side ⟂ a horizontal row → above/below strip, stacks along y
         strip, axis, perp, witness, sgn = (
             (zones.above if sy > 0 else zones.below),
             "y",
@@ -1237,10 +1240,8 @@ def _annotate_holes(
         # index to avoid Drawing.add silently replacing an earlier callout (#430 review).
         if only is None:
             return f"hc_{view}{i}"
-        j = 0
-        while f"hc_{view}{j}" in _hc_used:
-            j += 1
-        name = f"hc_{view}{j}"
+        prefix = f"hc_{view}"
+        name = f"{prefix}{_first_free_index(prefix, _hc_used)}"
         _hc_used.add(name)
         return name
 
