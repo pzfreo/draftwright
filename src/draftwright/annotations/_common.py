@@ -533,17 +533,11 @@ def register_corridor(dwg, key, strip, view, axis, tier, cand):
 
 
 def drain_corridors(dwg):
-    """Solve every registered corridor (one :func:`solve_corridor` per strip). Called once,
-    after all corridor-feeding passes have registered. Each corridor is removed from the
-    batch the instant its solve commits, so if a later solve raises the already-placed
-    corridors are gone from the batch — a finalize() retry (ADR 0012 recompose) then
-    re-solves only the corridors that never ran, never re-placing a committed one against
-    its own existing annotation."""
-    while dwg._corridor_batch:
-        key = next(iter(dwg._corridor_batch))
-        b = dwg._corridor_batch[key]
+    """Solve every registered corridor (one :func:`solve_corridor` per strip), then clear
+    the batch. Called once, after all corridor-feeding passes have registered."""
+    for b in dwg._corridor_batch.values():
         solve_corridor(dwg, b["strip"], b["view"], b["axis"], b["cands"], b["tier"])
-        del dwg._corridor_batch[key]  # remove only AFTER its solve commits (raise → retry it)
+    dwg._corridor_batch = {}
 
 
 def place_strip_candidates(
