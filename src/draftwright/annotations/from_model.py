@@ -51,6 +51,7 @@ from draftwright.annotations._common import (
     Escalation,
     _anno_box,
     _box_hits,
+    _geom_box,
     carve_free_position,
     carve_free_segments,
     place_strip_candidates,
@@ -1216,6 +1217,81 @@ def render_grooves(dwg, model, a) -> int:
                 "warning",
                 "groove_dropped",
                 f"groove callout {label_str} not placed (no clear room)",
+            )
+    return n
+
+
+def render_boss_diameters(dwg, model, a) -> int:
+    """ø leaders for a PRISMATIC part's bosses (#629). A boss reads as a circle looking down its
+    axis, so its diameter is called out with a leader to that circle in the view normal to the
+    axis — a Z boss in the plan, X in the side, Y in the front — free to exit into clear margin
+    (``_ray_exit_dist``), like a pocket/groove.
+
+    A *turned* part keeps the diameter row/column (``render_diameters``): there the boss ø sits
+    in the OD stack. The turned column-left strip, applied to a prismatic boss, strands its ø
+    whenever that narrow strip is tight — dropping the callout even on a half-empty sheet (#629).
+    Run BEFORE ``render_diameters`` so a placed boss ø is 'mentioned' and not re-placed. A boss
+    whose ø a coincident feature already carries is skipped; an unplaceable one drops lint-visibly."""
+    if a.is_rotational or a.prof is not None:
+        # A turned profile means round stock — a band emitted as a boss (#298) belongs in the
+        # OD diameter row/column, not an end-on plan leader. Only true prismatic parts qualify.
+        return 0
+    draft = dwg.draft
+    view_of = {"z": "plan", "x": "side", "y": "front"}  # the view looking down the boss axis
+    bosses = [f for f in model.features if f.kind == "boss"]
+    mentioned = _mentioned_diameters(dwg)
+    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    reach = draft.font_size + 6 * draft.pad_around_text
+    n = 0
+    for bi, b in enumerate(sorted(bosses, key=lambda f: (f.frame.axis, f.frame.origin))):
+        dia = b.diameter
+        if any(abs(dia - m) <= 0.15 for m in mentioned):
+            continue  # a coincident bore / step already carries this ø
+        view = view_of.get(b.frame.axis)
+        if view is None:
+            continue
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        x0, y0, x1, y1 = vb
+        center = dwg.at(view, *b.frame.origin)
+        r_page = dia / 2 * a.SCALE  # the boss circle radius in page units
+        label_str = f"ø{_fmt(dia)}"
+        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        placed = False
+        for dx, dy in _POCKET_LEAD_DIRS:
+            d = math.hypot(dx, dy)
+            ux, uy = dx / d, dy / d
+            arrow = (center[0] + ux * r_page, center[1] + uy * r_page)  # arrowhead on the rim
+            exit_d = _ray_exit_dist(center[0], center[1], ux, uy, (x0, y0, x1, y1))
+            elbow = (center[0] + ux * (exit_d + reach), center[1] + uy * (exit_d + reach), 0)
+            ldr = Leader(tip=(arrow[0], arrow[1], 0), elbow=elbow, label=label_str, draft=draft)
+            # _geom_box is the FULL footprint (shaft + arrow + label); the shaft is the invisible
+            # occupant a label-only box hides (#133/#305/#358), so it — not _anno_box — is what
+            # must clear the other callouts/witnesses. The silhouette/page checks use the label
+            # box, since the shaft legitimately starts at the boss rim inside the view.
+            geom = _geom_box(ldr)
+            label = getattr(ldr, "label_bbox", None) or geom
+            if (
+                geom is None
+                or label is None
+                or _box_hits(geom, obstacles)  # shaft or label crosses a callout/witness
+                or _box_hits(label, [(x0, y0, x1, y1)])  # label over the part silhouette
+                or label[0] < page[0]
+                or label[1] < page[1]
+                or label[2] > page[2]
+                or label[3] > page[3]
+            ):
+                continue
+            dwg.add(ldr, f"m_bossdia_{b.frame.axis}{bi}", view=view, feature=b)
+            n += 1
+            placed = True
+            break
+        if not placed:
+            dwg._record_build_issue(
+                "warning",
+                "boss_dia_dropped",
+                f"boss ø{_fmt(dia)} callout not placed (no clear room)",
             )
     return n
 

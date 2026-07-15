@@ -7896,6 +7896,51 @@ def _x_stepped_shaft():
     return Rotation(0, 90, 0) * (Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(8, 30))
 
 
+class TestPrismaticBossDiameter:
+    """#629: a boss on a PRISMATIC part gets its ø as a plan-view leader to the boss
+    circle (names ``m_bossdia_*``), free to exit into clear margin — not the turned
+    column-left strip (``m_dia_z``), which strands the ø when that narrow strip is
+    tight even on a half-empty sheet. Turned parts keep the OD-stack column."""
+
+    @staticmethod
+    def _box_boss():
+        return Box(90, 64, 38) + Pos(0, 0, 24) * Cylinder(14, 10)
+
+    @staticmethod
+    def _shelled_cover():
+        # The #629 report: a shelled cover whose front view hugs the left margin, so
+        # the column-left ø strip has no room and the boss ø28 was dropped.
+        return (
+            Box(90, 64, 38)
+            - Pos(0, 0, -3) * Box(84, 58, 38)
+            + Pos(0, 0, 24) * Cylinder(14, 10)
+            - Pos(0, 0, 15) * Cylinder(6, 40)
+        )
+
+    def test_prismatic_boss_diameter_is_a_plan_leader(self):
+        dwg = build_drawing(self._box_boss())
+        # the boss ø routes to the plan-view leader path, not the turned column
+        assert any(n.startswith("m_bossdia_") for n in dwg._named)
+        boss = next(o for n, o in dwg._named.items() if n.startswith("m_bossdia_"))
+        assert boss.label == "ø28"
+        # and it is not ALSO emitted by the turned column (no double-dimensioning)
+        assert not any(o.label == "ø28" for n, o in dwg._named.items() if n.startswith("m_dia_z"))
+
+    def test_shelled_cover_boss_diameter_not_dropped(self):
+        # The regression: even forced onto A4 (scale 0.5, front view against the left
+        # margin) the boss ø28 places into the clear sheet, so it never lints uncovered.
+        dwg = build_drawing(self._shelled_cover(), page="A4")
+        assert any(o.label == "ø28" for o in dwg._named.values() if getattr(o, "label", None))
+        assert dwg.lint_summary()["by_code"].get("feature_not_dimensioned", 0) == 0
+
+    def test_turned_part_boss_stays_in_the_column(self):
+        # A rotational shaft's step/OD diameters keep the m_dia column — render_boss_diameters
+        # is a prismatic-only pass and must not fire on a turned body.
+        dwg = build_drawing(Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(10, 30))
+        assert not any(n.startswith("m_bossdia_") for n in dwg._named)
+        assert any(n.startswith("m_dia_z") for n in dwg._named)
+
+
 class TestTurnedDiameters:
     """#77/#131: external turned diameters get ø leader callouts. Migrated onto the
     IR renderer (from_model.render_diameters, names ``m_dia_*``) — one path, row

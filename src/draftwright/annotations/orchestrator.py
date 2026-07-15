@@ -32,6 +32,7 @@ from draftwright._core import (
 from draftwright.analysis import _sizing_bores
 from draftwright.annotations._common import drain_corridors
 from draftwright.annotations.from_model import (
+    render_boss_diameters,
     render_centermarks,
     render_chamfers,
     render_diameters,
@@ -318,6 +319,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     #    (#223). A crowded X-turned head queues an enlarged detail request (#304/#307)
     #    instead of cramming; the envelope dim along the turning axis was suppressed
     #    so the chain does not double-dimension the length.
+    # Prismatic bosses get a plan-view ø leader BEFORE the turned row/column solve, which then
+    # sees the ø as 'mentioned' and skips it (#629 — the column-left strip strands a boss ø when
+    # tight, even on a half-empty sheet). No-op on turned parts (they keep the OD stack).
+    render_boss_diameters(dwg, _model, a)
     render_diameters(dwg, _groups)
     if a.prof is not None:
         render_step_lengths(dwg, _groups)
