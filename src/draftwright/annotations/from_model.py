@@ -871,16 +871,90 @@ def _chamfer_label(ch) -> str:
     return f"{_fmt(ch.leg1)} × {_fmt(ch.angle)}°"
 
 
+# ── Shared machined-feature leader-callout pass (#637) ──────────────────────────────────
+# render_chamfers/_fillets/_flats/_pockets/_grooves were the same function five times: pick
+# the view an edge/face reads in, lead a diagonal Leader out to a label, and keep it only if
+# the LABEL lands in clear margin. They now share one pass and differ only in their label,
+# their tip/lead geometry (corner-diagonal vs mid-face radial), and their view map — a sixth
+# feature kind is a new thin adapter (or a table row), never a sixth copy.
+
+
+def _leader_callout_reach(draft) -> float:
+    """Outward leader length past the tip (label→elbow) for a machined-feature callout: one
+    line height plus six text-pads. Shared so all five callout passes reach the same distance
+    into the margin."""
+    return float(draft.font_size + 6 * draft.pad_around_text)
+
+
+def _label_lands_clear(ldr, obstacles, silhouette, page) -> bool:
+    """True when a leader's LABEL box sits in clear margin: off other annotations
+    (*obstacles*), off the part *silhouette* (the leader line may cross into the view, its
+    text may not), and inside the *page* margin box. The single accept test the five callout
+    passes share (was the identical six-line guard, copied five times)."""
+    label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
+    if label is None:
+        return False
+    return not (
+        _box_hits(label, obstacles)
+        or _box_hits(label, [silhouette])
+        or label[0] < page[0]
+        or label[1] < page[1]
+        or label[2] > page[2]
+        or label[3] > page[3]
+    )
+
+
+def _corner_candidates(dwg, view, vb, members, reach):
+    """Lead candidates for a corner-sitting feature (chamfer/fillet/flat): from each member's
+    projected origin, a diagonal from the view centre out through the corner, *reach* beyond
+    the tip — a corner clears the silhouette this way. Yields ``(tip, elbow, member)`` in the
+    given member order (nearest-clear wins in the pass); a single-feature callout passes a
+    one-element *members*."""
+    x0, y0, x1, y1 = vb
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    for m in members:
+        tip = dwg.at(view, *m.frame.origin)
+        dx, dy = tip[0] - cx, tip[1] - cy
+        d = math.hypot(dx, dy) or 1.0
+        elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
+        yield (tip, elbow, m)
+
+
+def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code) -> int:
+    """Place one machined-feature leader callout per job (#637). A *job* is
+    ``(name, view, vb, label, candidates)`` where *candidates* yields ``(tip, elbow,
+    feature)`` lead positions to try in order. Places the first Leader whose label lands clear
+    (:func:`_label_lands_clear`), attributed to that candidate's feature; if none of a job's
+    candidates land, records ``<noun> callout … not placed`` as ``<drop_code>`` lint (never a
+    silent drop). Obstacles are recomputed per job so a callout placed earlier is avoided.
+    Returns the count placed."""
+    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    n = 0
+    for name, view, vb, label, candidates in jobs:
+        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        for tip, elbow, feature in candidates:
+            ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label, draft=dwg.draft)
+            if _label_lands_clear(ldr, obstacles, vb, page):
+                dwg.add(ldr, name, view=view, feature=feature)
+                n += 1
+                break
+        else:
+            dwg._record_build_issue(
+                "warning", drop_code, f"{noun} callout {label} not placed (no clear room)"
+            )
+    return n
+
+
 def render_chamfers(dwg, model, a) -> int:
     """Chamfer callouts (#560): a leader from each recognised chamfer face to its
     ``C{leg}`` / ``{leg}×{angle}°`` label, in the view normal to the chamfered edge (a Z
     edge reads in the plan, an X edge in the side, a Y edge in the front). The leader runs
     diagonally OUT of the corner the chamfer sits on into clear margin, and is dropped
     (lint, not silently) if it would overprint placed geometry. Returns the count placed."""
-    draft = dwg.draft
+    reach = _leader_callout_reach(dwg.draft)
     view_of = {"z": "plan", "x": "side", "y": "front"}
     chamfers = [f for f in model.features if f.kind == "chamfer"]
-    n = 0
+    jobs = []
     for i, ch in enumerate(sorted(chamfers, key=lambda f: (f.axis, f.frame.origin))):
         view = view_of.get(ch.axis)
         if view is None:
@@ -888,43 +962,16 @@ def render_chamfers(dwg, model, a) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        x0, y0, x1, y1 = vb
-        ox, oy, oz = ch.frame.origin
-        tip = dwg.at(view, ox, oy, oz)
-        # Lead diagonally outward from the view centre through the chamfer corner into
-        # the margin; a chamfer sits on a corner, so this clears the part silhouette.
-        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-        dx, dy = tip[0] - cx, tip[1] - cy
-        d = math.hypot(dx, dy) or 1.0
-        reach = draft.font_size + 6 * draft.pad_around_text
-        elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
-        ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_chamfer_label(ch), draft=draft)
-        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        # The LABEL must land in clear margin: outside the view silhouette (a leader may
-        # cross into the view but its text must not sit over the part), off other
-        # annotations, and on-page. Checked on the label box, not the whole leader.
-        label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
-        page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
-        if (
-            label is None
-            or _box_hits(label, obstacles)
-            or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
-            or (
-                label[0] < page[0]
-                or label[1] < page[1]
-                or label[2] > page[2]
-                or label[3] > page[3]
+        jobs.append(
+            (
+                f"m_chamfer_{ch.axis}{i}",
+                view,
+                vb,
+                _chamfer_label(ch),
+                _corner_candidates(dwg, view, vb, [ch], reach),
             )
-        ):
-            dwg._record_build_issue(
-                "warning",
-                "chamfer_dropped",
-                f"chamfer callout {_chamfer_label(ch)} not placed (no clear room)",
-            )
-            continue
-        dwg.add(ldr, f"m_chamfer_{ch.axis}{i}", view=view, feature=ch)
-        n += 1
-    return n
+        )
+    return _leader_callout_pass(dwg, a, jobs, noun="chamfer", drop_code="chamfer_dropped")
 
 
 def _fillet_label(radius, count) -> str:
@@ -940,14 +987,13 @@ def render_fillets(dwg, model, a) -> int:
     the same edge axis share ONE ``n× R`` callout (#561 acceptance), placed in the view
     normal to the rounded edge, led diagonally out of the corner into clear margin, and
     dropped (lint, not silently) if it would overprint placed geometry. Returns the count."""
-    draft = dwg.draft
+    reach = _leader_callout_reach(dwg.draft)
     view_of = {"z": "plan", "x": "side", "y": "front"}
     fillets = [f for f in model.features if f.kind == "fillet"]
     groups: dict = {}
     for fl in fillets:
         groups.setdefault((fl.axis, round(fl.radius, 3)), []).append(fl)
-    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
-    n = 0
+    jobs = []
     for gi, ((axis, radius), members) in enumerate(sorted(groups.items())):
         view = view_of.get(axis)
         if view is None:
@@ -955,44 +1001,20 @@ def render_fillets(dwg, model, a) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        x0, y0, x1, y1 = vb
-        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-        label_str = _fillet_label(radius, len(members))
-        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        # One grouped ``n× R`` callout, but its leader may anchor at ANY of the equal
-        # fillets — try each corner (nearest-to-clear-margin first) until the label lands
-        # in clear room, so the group is not dropped just because its first corner leads
-        # into an occupied region (a neighbouring view / dim strip).
-        reach = draft.font_size + 6 * draft.pad_around_text
-        placed = False
-        for fl in sorted(members, key=lambda f: f.frame.origin):
-            tip = dwg.at(view, *fl.frame.origin)
-            dx, dy = tip[0] - cx, tip[1] - cy
-            d = math.hypot(dx, dy) or 1.0
-            elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
-            ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label_str, draft=draft)
-            label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
-            if (
-                label is None
-                or _box_hits(label, obstacles)
-                or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
-                or label[0] < page[0]
-                or label[1] < page[1]
-                or label[2] > page[2]
-                or label[3] > page[3]
-            ):
-                continue
-            dwg.add(ldr, f"m_fillet_{axis}{gi}", view=view, feature=fl)
-            n += 1
-            placed = True
-            break
-        if not placed:
-            dwg._record_build_issue(
-                "warning",
-                "fillet_dropped",
-                f"fillet callout {label_str} not placed (no clear room)",
+        # One grouped ``n× R`` callout, but its leader may anchor at ANY of the equal fillets
+        # — _corner_candidates tries each corner (nearest-clear first) so the group is not
+        # dropped just because its first corner leads into an occupied region.
+        ordered = sorted(members, key=lambda f: f.frame.origin)
+        jobs.append(
+            (
+                f"m_fillet_{axis}{gi}",
+                view,
+                vb,
+                _fillet_label(radius, len(members)),
+                _corner_candidates(dwg, view, vb, ordered, reach),
             )
-    return n
+        )
+    return _leader_callout_pass(dwg, a, jobs, noun="fillet", drop_code="fillet_dropped")
 
 
 def _flat_label(across) -> str:
@@ -1008,14 +1030,13 @@ def render_flats(dwg, model, a) -> int:
     Flats sharing an axis and across-flats size — the faces of a double-D or hex — share ONE
     callout. The leader runs diagonally out of the flat into clear margin, and is dropped
     (lint, not silently) if it would overprint placed geometry. Returns the count placed."""
-    draft = dwg.draft
+    reach = _leader_callout_reach(dwg.draft)
     view_of = {"z": "plan", "x": "side", "y": "front"}
     flats = [f for f in model.features if f.kind == "flat"]
     groups: dict = {}
     for fl in flats:
         groups.setdefault((fl.axis, round(fl.across, 3)), []).append(fl)
-    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
-    n = 0
+    jobs = []
     for gi, ((axis, across), members) in enumerate(sorted(groups.items())):
         view = view_of.get(axis)
         if view is None:
@@ -1023,40 +1044,17 @@ def render_flats(dwg, model, a) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        x0, y0, x1, y1 = vb
-        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-        label_str = _flat_label(across)
-        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        reach = draft.font_size + 6 * draft.pad_around_text
-        placed = False
-        for fl in sorted(members, key=lambda f: f.frame.origin):
-            tip = dwg.at(view, *fl.frame.origin)
-            dx, dy = tip[0] - cx, tip[1] - cy
-            d = math.hypot(dx, dy) or 1.0
-            elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
-            ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label_str, draft=draft)
-            label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
-            if (
-                label is None
-                or _box_hits(label, obstacles)
-                or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
-                or label[0] < page[0]
-                or label[1] < page[1]
-                or label[2] > page[2]
-                or label[3] > page[3]
-            ):
-                continue
-            dwg.add(ldr, f"m_flat_{axis}{gi}", view=view, feature=fl)
-            n += 1
-            placed = True
-            break
-        if not placed:
-            dwg._record_build_issue(
-                "warning",
-                "flat_dropped",
-                f"flat callout {label_str} not placed (no clear room)",
+        ordered = sorted(members, key=lambda f: f.frame.origin)
+        jobs.append(
+            (
+                f"m_flat_{axis}{gi}",
+                view,
+                vb,
+                _flat_label(across),
+                _corner_candidates(dwg, view, vb, ordered, reach),
             )
-    return n
+        )
+    return _leader_callout_pass(dwg, a, jobs, noun="flat", drop_code="flat_dropped")
 
 
 def _groove_label(width, diameter) -> str:
@@ -1106,6 +1104,22 @@ _POCKET_LEAD_DIRS = (
 )
 
 
+def _radial_candidates(dwg, view, vb, feature, reach):
+    """Lead candidates for a mid-face feature (pocket/groove): from the feature's projected
+    origin, one candidate per :data:`_POCKET_LEAD_DIRS` direction — exit the silhouette along
+    it (:func:`_ray_exit_dist`) then *reach* on into the margin, so even a centre-of-view
+    feature clears the part. Yields ``(tip, elbow, feature)`` (same feature each time;
+    nearest-clear wins in the pass)."""
+    x0, y0, x1, y1 = vb
+    tip = dwg.at(view, *feature.frame.origin)
+    for dx, dy in _POCKET_LEAD_DIRS:
+        d = math.hypot(dx, dy)
+        ux, uy = dx / d, dy / d
+        exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
+        elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
+        yield (tip, elbow, feature)
+
+
 def render_pockets(dwg, model, a) -> int:
     """Blind-recess callouts (#148a): a leader from each floored slot/pocket to its
     ``W × L × D DEEP`` label, in the view normal to the recess opening (a Z-depth pocket
@@ -1113,12 +1127,10 @@ def render_pockets(dwg, model, a) -> int:
     mid-face, so — unlike a corner chamfer — the leader is tried toward each margin
     direction (nearest clear wins) and the callout is dropped (lint, not silently) if none
     lands in clear room. Returns the count placed."""
-    draft = dwg.draft
+    reach = _leader_callout_reach(dwg.draft)
     view_of = {"z": "plan", "x": "side", "y": "front"}
     pockets = [f for f in model.features if f.kind == "pocket"]
-    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
-    reach = draft.font_size + 6 * draft.pad_around_text
-    n = 0
+    jobs = []
     for i, pk in enumerate(sorted(pockets, key=lambda f: (f.width_axis, f.frame.origin))):
         view = view_of.get(pk.depth_axis)
         if view is None:
@@ -1126,41 +1138,16 @@ def render_pockets(dwg, model, a) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        x0, y0, x1, y1 = vb
-        tip = dwg.at(view, *pk.frame.origin)
-        label_str = _pocket_label(pk)
-        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        placed = False
-        for dx, dy in _POCKET_LEAD_DIRS:
-            d = math.hypot(dx, dy)
-            ux, uy = dx / d, dy / d
-            # Exit the view silhouette along this direction, then reach on into the margin —
-            # so the label clears the part even for a pocket at the view centre.
-            exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
-            elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
-            ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label_str, draft=draft)
-            label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
-            if (
-                label is None
-                or _box_hits(label, obstacles)
-                or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
-                or label[0] < page[0]
-                or label[1] < page[1]
-                or label[2] > page[2]
-                or label[3] > page[3]
-            ):
-                continue
-            dwg.add(ldr, f"m_pocket_{pk.width_axis}{pk.long_axis}{i}", view=view, feature=pk)
-            n += 1
-            placed = True
-            break
-        if not placed:
-            dwg._record_build_issue(
-                "warning",
-                "pocket_dropped",
-                f"pocket callout {label_str} not placed (no clear room)",
+        jobs.append(
+            (
+                f"m_pocket_{pk.width_axis}{pk.long_axis}{i}",
+                view,
+                vb,
+                _pocket_label(pk),
+                _radial_candidates(dwg, view, vb, pk, reach),
             )
-    return n
+        )
+    return _leader_callout_pass(dwg, a, jobs, noun="pocket", drop_code="pocket_dropped")
 
 
 def render_grooves(dwg, model, a) -> int:
@@ -1173,12 +1160,10 @@ def render_grooves(dwg, model, a) -> int:
     dimensioned). The groove sits on the axis, so the leader exits the silhouette
     (``_ray_exit_dist``) toward each margin (nearest clear wins) and is dropped (lint, not
     silently) if none lands clear. Returns the count placed."""
-    draft = dwg.draft
+    reach = _leader_callout_reach(dwg.draft)
     view_of = {"z": "front", "x": "front", "y": "side"}
     grooves = [f for f in model.features if f.kind == "groove"]
-    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
-    reach = draft.font_size + 6 * draft.pad_around_text
-    n = 0
+    jobs = []
     for gi, gr in enumerate(sorted(grooves, key=lambda f: (f.axis, f.frame.origin))):
         view = view_of.get(gr.axis)
         if view is None:
@@ -1186,39 +1171,16 @@ def render_grooves(dwg, model, a) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        x0, y0, x1, y1 = vb
-        label_str = _groove_label(gr.width, gr.diameter)
-        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        tip = dwg.at(view, *gr.frame.origin)
-        placed = False
-        for dx, dy in _POCKET_LEAD_DIRS:
-            d = math.hypot(dx, dy)
-            ux, uy = dx / d, dy / d
-            exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
-            elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
-            ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label_str, draft=draft)
-            label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
-            if (
-                label is None
-                or _box_hits(label, obstacles)
-                or _box_hits(label, [(x0, y0, x1, y1)])  # over the part silhouette
-                or label[0] < page[0]
-                or label[1] < page[1]
-                or label[2] > page[2]
-                or label[3] > page[3]
-            ):
-                continue
-            dwg.add(ldr, f"m_groove_{gr.axis}{gi}", view=view, feature=gr)
-            n += 1
-            placed = True
-            break
-        if not placed:
-            dwg._record_build_issue(
-                "warning",
-                "groove_dropped",
-                f"groove callout {label_str} not placed (no clear room)",
+        jobs.append(
+            (
+                f"m_groove_{gr.axis}{gi}",
+                view,
+                vb,
+                _groove_label(gr.width, gr.diameter),
+                _radial_candidates(dwg, view, vb, gr, reach),
             )
-    return n
+        )
+    return _leader_callout_pass(dwg, a, jobs, noun="groove", drop_code="groove_dropped")
 
 
 def render_boss_diameters(dwg, groups, a) -> int:
