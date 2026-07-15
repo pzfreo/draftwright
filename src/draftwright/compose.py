@@ -1,4 +1,7 @@
-"""Sheet layout — compose-then-pack scale/page selection (#138 / ADR 0005, P3; ADR 0004).
+"""compose — the outer compose-then-pack scale/page selection (#138 / ADR 0005, P3; ADR 0004).
+
+(Renamed from ``sheet.py`` 2026-07-15, #640: this is the layout *engine*, not the
+user-facing ``Sheet`` facade — that lives in ``draftwright.sheet``.)
 
 The outer layout: estimate each view's annotation footprint (strip depths, anno
 boxes, ViewBlock half-extents), then choose the (scale, page) whose composed +

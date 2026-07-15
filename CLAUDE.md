@@ -19,7 +19,7 @@ It sits on top of two Apache 2.0 libraries:
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, the `linting/` and
 `recognition/` subpackages) → `_core.py` → stage modules (`export.py`,
-`repair.py`, `projection.py`, `sheet.py`, `analysis.py`, `drawing.py`, the
+`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
 `model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
 fluent `Sheet` facade (`sheet_dsl.py`), the Sheet-script emitter
@@ -96,9 +96,9 @@ upper one. (All surfaces are front doors onto the one engine,
   a feature's size off the build123d object — a second, *declared* front-end into
   the same IR the detectors fill). The narrow middle of the compiler hourglass;
   consumed by `annotations/from_model.py`.
-- **`sheet.py`** — the ADR 0004 **outer** compose-then-pack layout engine
-  (`choose_scale`, `ViewBlock`, zone/strip depths): a *stage module*, despite the
-  name — the user-facing `Sheet` lives in `sheet_dsl.py`.
+- **`compose.py`** — the ADR 0004 **outer** compose-then-pack layout engine
+  (`choose_scale`, `ViewBlock`, zone/strip depths). Née `sheet.py`; renamed
+  (#640) so the layout engine stops shadowing the user-facing `Sheet` facade.
 - **`sheet_dsl.py`** — the fluent declarative **`Sheet`** facade (ADR 0011):
   feature verbs (`hole`/`boss`/`slot`/…), aspect verbs (`.tolerance`/`.fit`/
   `.finish`), GD&T (`datum`/`control`). Facade tier: builds a `PartModel` via

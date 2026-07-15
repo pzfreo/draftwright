@@ -79,7 +79,7 @@ draftwright/
   make_drawing.py        # compatibility facade / public re-exports (transitional)
   builder.py             # build_drawing / make_drawing orchestration: analyse → assemble → repack → repair
   analysis.py            # STEP import, feature analysis, Analysis construction
-  sheet.py               # page sizes, choose_scale, ViewBlock, StripDepths, compose-then-pack/repack (ADR 0004)
+  compose.py             # née sheet.py (#640): page sizes, choose_scale, ViewBlock, StripDepths, compose-then-pack/repack (ADR 0004)
   projection.py          # view projection, exact silhouettes, iso fitting (_assemble, _project_iso, _fit_iso_view)
   drawing.py             # Drawing public facade
   registry.py            # annotation identity/ownership/pins/build-issues (see §2)
@@ -222,7 +222,7 @@ Follows the issue (#138) sequence, with §3 added as Step 0:
 - The import direction is an explicit DAG with no cycles, enforceable by a simple
   import-lint and (later) mypy.
 - ADRs 0002/0003/0004 get a clear home: lint/repair → `linting.py`/`repair.py`,
-  the solver → unchanged `layout.py`, compose-then-pack → `sheet.py`.
+  the solver → unchanged `layout.py`, compose-then-pack → `sheet.py` (since renamed `compose.py`, #640).
 
 **Negative / costs**
 - A long multi-PR migration with a real risk of a half-moved engine; mitigated by
@@ -263,7 +263,7 @@ Follows the issue (#138) sequence, with §3 added as Step 0:
 - **ADR 0004 — no decision change; anchor refresh needed.** Compose-then-pack and
   the `(scale, page)` search are unchanged, but 0004 names anchors by their
   *current* location (`_analyse`, `StripDepths`, `ViewBlock`, `_auto_annotate` in
-  `make_drawing.py`/`annotate.py`). After Steps 5–7 those live in `sheet.py`,
+  `make_drawing.py`/`annotate.py`). After Steps 5–7 those live in `sheet.py` (now `compose.py`),
   `projection.py`, and `annotations/orchestrator.py`. 0004 should get a short
   amendment noting the new module homes so its anchors don't go stale — a
   pointer, not a reversal.

@@ -32,6 +32,15 @@ from draftwright._core import (
     _legible_steps,
     _Projector,
 )
+from draftwright.compose import (
+    StripDepths,
+    _build_zones,
+    _est_hole_table_sizes,
+    _est_planned_bore_callout_width,
+    _layout_geometry,
+    _measure_strips,
+    choose_scale,
+)
 from draftwright.model import build_part_model
 from draftwright.model.ir import Datum, PartModel, StepFeature
 from draftwright.model.planner import plan_dimensions
@@ -46,15 +55,6 @@ from draftwright.recognition import (
     recognise_slots,
     recognise_turned_steps,
     step_level_zs,
-)
-from draftwright.sheet import (
-    StripDepths,
-    _build_zones,
-    _est_hole_table_sizes,
-    _est_planned_bore_callout_width,
-    _layout_geometry,
-    _measure_strips,
-    choose_scale,
 )
 
 _log = logging.getLogger(__name__)
