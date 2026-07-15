@@ -10,11 +10,15 @@ callers (two 0.3.0 features, plates #559 and step positions #555, already
 regressed onto it before the migration — that is the failure mode this test
 prevents from recurring).
 
-The guard is a **fail-closed allowlist** of ``(file, top-level function)`` pairs.
-Adding a new ``carve_free_position`` call anywhere in ``annotations/`` trips the
-test; the fix is to make the site a corridor candidate (the Amendment 8 pattern),
-not to widen the allowlist. The allowlist may only grow for a site recorded as an
-explicit exemption in ADR 0009's remaining-migration note.
+The guard is a **fail-closed allowlist** of ``(file, function)`` pairs. Every
+``carve_free_position`` call anywhere under ``annotations/`` is attributed to a caller
+— a top-level function, a class method, a nested closure's owning function, or
+``"<module>"`` for a bare module-scope call — and any caller outside the allowlist
+trips the test. The fix is to make the site a corridor candidate (the Amendment 8
+pattern), not to widen the allowlist. The allowlist may only grow for a site recorded
+as an explicit exemption in ADR 0009's remaining-migration note. (A rename-on-import
+alias — ``from ._common import carve_free_position as carve`` — is the one evasion
+static name-matching cannot follow; don't do that.)
 """
 
 from __future__ import annotations
@@ -42,14 +46,28 @@ _ALLOWED_CALLERS = {
 
 
 def _carve_callers(path: Path) -> set[str]:
-    """Names of the top-level functions in *path* that call ``carve_free_position``
-    (directly or from a nested closure)."""
+    """Names of the functions in *path* that call ``carve_free_position`` — every carve
+    call, wherever it lives, maps to a caller so the guard is genuinely fail-closed. A
+    call is attributed to its OUTERMOST enclosing function within the current module or
+    class scope: a nested closure's carve counts against the top-level function that owns
+    it (``render_plates``, not ``_build``), a class method's against the method name, and
+    a bare module-scope call against ``"<module>"``. Any of these outside the allowlist
+    trips the test."""
     tree = ast.parse(path.read_text(), filename=str(path))
     callers: set[str] = set()
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            if any(_is_carve_call(c) for c in ast.walk(node)):
-                callers.add(node.name)
+
+    def visit(node: ast.AST, owner: str | None) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                visit(child, None)  # a class body's methods each become their own owner
+            elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                visit(child, owner or child.name)  # the outermost fn owns nested closures
+            else:
+                if _is_carve_call(child):
+                    callers.add(owner or "<module>")
+                visit(child, owner)
+
+    visit(tree, None)
     return callers
 
 
@@ -72,7 +90,9 @@ def _is_carve_call(node: ast.AST) -> bool:
 def test_carve_free_position_callers_are_allowlisted():
     """No ``annotations/`` function calls ``carve_free_position`` outside the allowlist."""
     found: set[tuple[str, str]] = set()
-    for path in sorted(_ANNO_DIR.glob("*.py")):
+    for path in sorted(_ANNO_DIR.rglob("*.py")):  # rglob: covers any future subpackage too
+        if "__pycache__" in path.parts:
+            continue
         for fn in _carve_callers(path):
             found.add((path.name, fn))
     new = found - _ALLOWED_CALLERS
@@ -102,3 +122,21 @@ def test_migrated_passes_have_no_carve_caller():
     callers = _carve_callers(_ANNO_DIR / "from_model.py")
     assert "render_plates" not in callers
     assert "render_step_positions" not in callers
+
+
+def test_carve_callers_covers_methods_qualified_and_module_scope(tmp_path):
+    """The attribution is fail-closed beyond top-level bare calls: a class method, a
+    module-qualified callee, a nested closure, and a bare module-scope call each surface."""
+    src = (
+        "carve_free_position(a)\n"  # module scope → "<module>"
+        "class R:\n"
+        "    def m(self):\n"
+        "        return _common.carve_free_position(a)\n"  # method + qualified callee
+        "def render_outer():\n"
+        "    def _inner():\n"
+        "        return carve_free_position(a)\n"  # closure → attributed to render_outer
+        "    return _inner\n"
+    )
+    p = tmp_path / "probe.py"
+    p.write_text(src)
+    assert _carve_callers(p) == {"<module>", "m", "render_outer"}

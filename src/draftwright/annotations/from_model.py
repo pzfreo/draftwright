@@ -1882,7 +1882,11 @@ def render_step_positions(dwg, model, a) -> int:
 
         # ADR 0009 corridor candidate (#636): a shoulder position is a datum-referenced
         # location dim — force-kept in the datum-distance ladder, co-solving with the hole
-        # locations that share this above-view strip (was a solver-invisible carve).
+        # locations that share this above-view strip (was a solver-invisible carve). It
+        # dedups on its drawn page span like a slot position (#345): a hole location
+        # measuring the same datum-distance is the SAME physical dimension, so the two
+        # collapse to one leader (precedence 1 < a hole location's 2, so the hole wins and
+        # the coincident shoulder line is dropped, not stacked as a redundant duplicate).
         register_corridor(
             dwg,
             (view, "above"),
@@ -1896,6 +1900,8 @@ def render_step_positions(dwg, model, a) -> int:
                 order=(_LOC_SUBCHAIN, val, name),
                 on_place=lambda nm: None,
                 on_drop=_drop,
+                dedup=(view, round(p1[0], 1), round(p2[0], 1)),
+                precedence=1,
                 force=True,
                 feature=step,
             ),
