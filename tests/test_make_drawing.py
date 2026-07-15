@@ -194,6 +194,19 @@ class TestStepPosition:
         assert all(dwg.view_of(n) == "side" for n in pos)
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
+    def test_finalize_places_step_positions_without_other_corridor_work(self):
+        # #636 regression: render_step_positions now only REGISTERS corridor candidates,
+        # so finalize() must drain them even when there are no locations/slots/user-dims
+        # to otherwise trigger the shared drain. A stepped part with no holes is exactly
+        # that gap — before the fix the shoulder-position dims queued and vanished.
+        part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
+        dwg = build_drawing(part, auto_dims=False)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        with dwg.deferred():
+            dwg.dimension(step, "length", role="step_position")
+        placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
+        assert placed == ["20"]  # the shoulder position survives the recompose
+
     def test_centered_rebate_dimensions_both_shoulders(self):
         # A symmetric central channel has TWO shoulders; both positions must be given
         # (20 and 40 from the front datum), else the channel is under-constrained.

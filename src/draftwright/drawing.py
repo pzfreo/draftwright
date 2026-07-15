@@ -1513,8 +1513,12 @@ class Drawing:
             #      crossing-free ladder, one drain (auto-pass registers locations then slots,
             #      then a single drain_corridors, so a slot position coincident with a hole
             #      location dedups, #345). Register both, then drain once (Phase 2a + 2b).
+            #      step_position_ids gates the drain too: since #636 the A0b step-position
+            #      pass only *registers* corridor candidates, so this single drain is what
+            #      places them — without it a stepped part with no locations/slots/user-dims
+            #      would queue the shoulder-position dims and never place them.
             queued_dim_ids = set()
-            if only_loc or slot_feats or user_dim_ids:
+            if only_loc or slot_feats or user_dim_ids or step_position_ids:
                 assert a is not None and isinstance(model, PartModel)  # either ⟹ routable
                 if only_loc:
                     render_locations(self, model, a, only=only_loc, pinned=pinned_loc)

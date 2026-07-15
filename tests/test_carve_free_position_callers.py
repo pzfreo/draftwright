@@ -54,11 +54,19 @@ def _carve_callers(path: Path) -> set[str]:
 
 
 def _is_carve_call(node: ast.AST) -> bool:
-    return (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "carve_free_position"
-    )
+    """True for a call whose callee is *named* ``carve_free_position`` — whether bare
+    (``carve_free_position(...)``, the actual import style here) or module-qualified
+    (``_common.carve_free_position(...)``). A rename-on-import alias (``import ... as
+    carve``) would still slip through — static name-matching can't follow that — but
+    the direct and qualified forms cover every real caller and the obvious evasion."""
+    if not isinstance(node, ast.Call):
+        return False
+    fn = node.func
+    if isinstance(fn, ast.Name):
+        return fn.id == "carve_free_position"
+    if isinstance(fn, ast.Attribute):
+        return fn.attr == "carve_free_position"
+    return False
 
 
 def test_carve_free_position_callers_are_allowlisted():
