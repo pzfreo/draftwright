@@ -393,12 +393,6 @@ class Drawing:
     first :meth:`lint` otherwise).
     """
 
-    # Per-run placement scratch — created by _common.init_placement_scratch (auto-pass or
-    # finalize, #638), not in __init__; declared here so mypy knows their types.
-    _corridor_batch: dict
-    _escalations: list
-    _detail_requests: list
-
     def __init__(
         self,
         *,
@@ -923,7 +917,7 @@ class Drawing:
             )
         return matches[0], chosen, p1, p2
 
-    def _queue_dimension_intent(self, it, a, *, used_names=None) -> bool:
+    def _queue_dimension_intent(self, it, a, *, ctx, used_names=None) -> bool:
         """Queue a pinned/prioritized feature dimension into a shared corridor."""
         from draftwright.annotations._common import CorridorCandidate, register_corridor
 
@@ -991,7 +985,7 @@ class Drawing:
         if it.kwargs.get("pin"):
             priority = max(priority, 100.0)
         register_corridor(
-            self,
+            ctx,
             (view, side),
             strip,
             view,
@@ -1401,7 +1395,7 @@ class Drawing:
           ring via ``_maybe_tabulate_holes`` — last, so it sees the section + title block as
           obstacles. The density gate counts *all* analysis holes, so this is a full-
           reconstruction escalation (a partial hand-edit still tabulates the full count, #434);
-          ``_escalations`` is cleared after so a repeat batch can't re-fire the fixed-name table.
+          The escalations live only on the per-run ctx, so a repeat batch starts clean (#639).
 
         A slot records two size dims (``slot_width``/``slot_length``) on one feature; routing
         the feature also regenerates its model-derived datum **position** dim, so finalize
@@ -1418,14 +1412,12 @@ class Drawing:
         and leaves the rest recorded. A record → finalize → record-more → finalize
         sequence drains each batch (#428 review).
         """
-        # A populated _corridor_batch left by a prior finalize whose drain raised must still
-        # drain: the step-position pass (A0b) drops its intent the moment it registers, so a
-        # retry can reach here with no intents but pending candidates — early-returning then
-        # would strand them permanently (#636 review). _corridor_batch is created lower down,
-        # so a first call (no attr yet) still short-circuits on empty intents as before.
+        # Nothing recorded → nothing to replay (the live/auto-pass path). The corridor batch is
+        # a per-run local built below from these intents (#639), so an empty intent list has no
+        # pending placement work to strand.
         if not self._intents:
             return
-        from draftwright.annotations._common import drain_corridors, init_placement_scratch
+        from draftwright.annotations._common import PlacementContext, drain_corridors
         from draftwright.annotations.from_model import (
             render_diameters,
             render_height_ladder,
@@ -1443,12 +1435,11 @@ class Drawing:
         )
         from draftwright.model import PartModel, plan_dimensions
 
-        # Fresh corridor scratch for this finalize — the auto-pass seeds it in _auto_annotate but
-        # a detect-only build lacks it; render_locations/_annotate_holes/drain_corridors
-        # register/read here. All three are per-run: finalize is transactional (#647), so a raised
-        # drain rolls the drawing back and the retry re-runs from a clean slate, re-generating the
-        # batch (from the surviving intents) and any escalations — no cross-call persistence needed.
-        init_placement_scratch(self)
+        # Fresh per-run placement scratch, threaded to the passes rather than hung on the drawing
+        # (ADR 0005 §2, #639): render_locations/_annotate_holes/drain_corridors register/read here.
+        # A local — finalize is transactional (#647), so a raised drain rolls the drawing back and
+        # the retry re-runs from a clean slate with a new ctx; no cross-call persistence needed.
+        ctx = PlacementContext()
 
         model, a = self._part_model, self._analysis
         routable = model is not None and a is not None
@@ -1485,7 +1476,9 @@ class Drawing:
             # from starving the correlated step rungs.
             if height_ladder_ids:
                 assert a is not None and isinstance(model, PartModel)
-                render_height_ladder(self, model, a, include_overall=not explicit_envelope_height)
+                render_height_ladder(
+                    self, model, a, ctx=ctx, include_overall=not explicit_envelope_height
+                )
             self._intents = [it for it in self._intents if id(it) not in height_ladder_ids]
             # (A0b) prismatic step positions through the auto-pass renderer (all shoulders).
             # This only REGISTERS corridor candidates; they place at the B2 drain. Their intents
@@ -1494,7 +1487,7 @@ class Drawing:
             # a pure function of the still-present intents, so it needs no persistence, #639).
             if step_position_ids:
                 assert a is not None and isinstance(model, PartModel)
-                render_step_positions(self, model, a)
+                render_step_positions(self, model, a, ctx=ctx)
             # (A) live-replay every intent EXCEPT the routed callouts/locates and section
             #     (furniture, step/boss callouts, dimensions, axes-restricted locates).
             i = 0
@@ -1526,6 +1519,7 @@ class Drawing:
                     build_view_of_axis(a),
                     plan_dimensions(model),
                     feature_hole_keys(model, a),
+                    ctx=ctx,
                     only=only_callout,
                     place_furniture=False,
                 )
@@ -1545,15 +1539,15 @@ class Drawing:
             if only_loc or slot_feats or user_dim_ids or step_position_ids:
                 assert a is not None and isinstance(model, PartModel)  # either ⟹ routable
                 if only_loc:
-                    render_locations(self, model, a, only=only_loc, pinned=pinned_loc)
+                    render_locations(self, model, a, ctx=ctx, only=only_loc, pinned=pinned_loc)
                 if slot_feats:
-                    render_slots(self, model, a, only=slot_feats)
+                    render_slots(self, model, a, ctx=ctx, only=slot_feats)
                 used_dim_names: set[str] = set()
                 for it in self._intents:
                     if id(it) in user_dim_ids:
-                        if self._queue_dimension_intent(it, a, used_names=used_dim_names):
+                        if self._queue_dimension_intent(it, a, ctx=ctx, used_names=used_dim_names):
                             queued_dim_ids.add(id(it))
-                drain_corridors(self)
+                drain_corridors(ctx, self)
             self._intents = [
                 it
                 for it in self._intents
@@ -1569,7 +1563,7 @@ class Drawing:
             #       staggered tiers) — auto-pass S11b, after diameters, before section.
             if only_len:
                 assert a is not None and isinstance(model, PartModel)  # only_len ⟹ routable
-                render_step_lengths(self, plan_dimensions(model), only=only_len)
+                render_step_lengths(self, plan_dimensions(model), ctx=ctx, only=only_len)
             self._intents = [it for it in self._intents if id(it) not in len_ids]
             # (C) render the section LAST, reusing the reserved plan (its room check clears
             #     everything right of the side view; _add_section_view clears the reservation).
@@ -1581,18 +1575,17 @@ class Drawing:
             # (D, Phase 4c) dense-scattered plan-view holes escalate to the hole TABLE +
             #     balloon ring — LAST, mirroring the auto-pass (_maybe_tabulate_holes runs
             #     last in _auto_annotate) so the resolver sees the section + title block as
-            #     obstacles. It reads _escalations (the callout/location drops B1/B2 collected)
+            #     obstacles. It reads ctx.escalations (the callout/location drops B1/B2 collected)
             #     and the scattered-hole coverage recorded at the hole emit site even under
             #     place_furniture=False (#426 Ph4c) to find + replace the plan callouts. The
             #     density gate counts ALL analysis holes (a.holes), so this is a FULL-
             #     reconstruction escalation: a partial hand-edit that drops some callout() lines
             #     still tabulates the full count (documented full-reconstruction scope, #434).
-            #     Clear _escalations after so a repeat finalize batch can't re-fire against stale
-            #     drops and collide on the fixed name hole_table_plan.
+            #     The escalations live only on this per-run ctx (#639), discarded when finalize
+            #     returns — no drawing-level list to clear or leak into a later edit (#440).
             if routable:
                 assert a is not None
-                _maybe_tabulate_holes(self, a)
-                self._escalations = []
+                _maybe_tabulate_holes(self, a, ctx=ctx)
         except Exception:
             # (#647) Roll back a partial finalize so a corrected retry starts clean.
             self._registry.restore(reg_snap)

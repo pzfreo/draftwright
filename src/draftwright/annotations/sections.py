@@ -549,14 +549,14 @@ def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter:
     return True
 
 
-def _resolve_details(dwg, a: Analysis) -> None:
+def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
     """Resolve every queued :class:`DetailRequest` (#307) through the one generic
     detailer, lettering DETAIL A/B/… On a placement bail-out nothing is drawn for that
     request — the main view already carries the located head/block inline, so lint
     reports any un-located interior rather than coverage being silently lost. Clears
     the queue."""
-    reqs = list(getattr(dwg, "_detail_requests", ()) or ())
-    dwg._detail_requests = []
+    reqs = list(ctx.detail_requests)
+    ctx.detail_requests = []
     n_placed = 0  # letters advance only on a successful placement — no A/B gaps (#307 review)
     for req in reqs:
         if n_placed >= len(_DETAIL_LETTERS):
@@ -567,7 +567,7 @@ def _resolve_details(dwg, a: Analysis) -> None:
             n_placed += 1
 
 
-def _request_prismatic_detail(dwg, a: Analysis) -> None:
+def _request_prismatic_detail(dwg, a: Analysis, *, ctx) -> None:
     """Queue a detail of a prismatic part's crowded step-height band (#42), routed
     through the unified pipeline (#307).
 
@@ -593,9 +593,7 @@ def _request_prismatic_detail(dwg, a: Analysis) -> None:
     enlarged scale."""
     if len(a.step_zs) < 2:
         return
-    if not any(
-        e.kind == "step" and e.reason == "illegible" for e in getattr(dwg, "_escalations", ())
-    ):
+    if not any(e.kind == "step" and e.reason == "illegible" for e in ctx.escalations):
         return
     z0, z1 = min(a.step_zs), max(a.step_zs)
     pad = 0.08 * (z1 - z0) + 1.0
@@ -640,7 +638,7 @@ def _request_prismatic_detail(dwg, a: Analysis) -> None:
                 _log.info("detail step dim %d skipped (%s)", i, exc)
         return placed
 
-    dwg._detail_requests.append(
+    ctx.detail_requests.append(
         DetailRequest(
             axis="z",
             lo=band_lo,

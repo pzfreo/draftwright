@@ -30,7 +30,7 @@ from draftwright._core import (
     _tag_sequence,
 )
 from draftwright.analysis import _sizing_bores
-from draftwright.annotations._common import drain_corridors, init_placement_scratch
+from draftwright.annotations._common import PlacementContext, drain_corridors
 from draftwright.annotations.from_model import (
     render_boss_diameters,
     render_centermarks,
@@ -166,10 +166,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # not accumulate duplicate drop records.
     dwg._reset_build_issues()
     dwg._reset_dropped_callout_diams()
-    # Per-run placement scratch (detail requests / escalations / corridor batch) — reset each
-    # auto-pass; the single owner is init_placement_scratch (#638). The corridor batch is
-    # drained once at the end (drain_corridors, #345/#346).
-    init_placement_scratch(dwg)
+    # Per-run placement scratch (detail requests / escalations / corridor batch), threaded to the
+    # passes instead of hung on the Drawing (ADR 0005 §2, #639). Fresh each auto-pass; the corridor
+    # batch is drained once at the end (drain_corridors, #345/#346).
+    ctx = PlacementContext()
 
     # Tighten right-strip outer_limits to the actual iso view left edge now
     # that the iso has been projected and fitted.  Always apply so that any
@@ -257,10 +257,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     _reserve_section_row(dwg, a, _section)
     # Any hole/pattern member (declared holes render even where detection missed them).
     if feature_keys:
-        _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys)
+        _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys, ctx=ctx)
     # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
     # through the existing above-view strips. Replaces the engine's _add_location_dims.
-    render_locations(dwg, _model, a)
+    render_locations(dwg, _model, a, ctx=ctx)
 
     if a.cross_diams and a.is_rotational and not feature_keys:
         _log.info(
@@ -272,16 +272,16 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # through fv_zones.right preserving the leapfrog cursor (#237). Replaces the inline
     # dim_step_* + dim_height; the turned step-length chain (render_step_lengths) handles
     # turned parts, and a Z-turned overall height is suppressed there (ISO 129).
-    render_height_ladder(dwg, _model, a)
+    render_height_ladder(dwg, _model, a, ctx=ctx)
 
     # Plate/wall thicknesses on a multi-plate prismatic (#559): the thin extent of each
     # recognised slab, placed in the view where its thin axis is visible. A single flat
     # plate has none (its thickness IS the envelope height).
-    render_plates(dwg, _model, a)
+    render_plates(dwg, _model, a, ctx=ctx)
 
     # Prismatic step POSITIONS (#555): where each shoulder sits along its axis, so a
     # stepped block is fully constrained (the heights alone leave the shoulder implicit).
-    render_step_positions(dwg, _model, a)
+    render_step_positions(dwg, _model, a, ctx=ctx)
 
     # Chamfer callouts (#560): C{leg} / {leg}×{angle}° via a leader off each chamfer face.
     render_chamfers(dwg, _model, a)
@@ -296,17 +296,17 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # later subchain + mandatory priority keeps ISO outermost stacking and prevents
     # best-effort locations from starving the principal depth dimension (#477).
     if feature_keys:
-        _locate_off_axis_holes(dwg, a, which="across")
+        _locate_off_axis_holes(dwg, ctx, a, which="across")
 
     # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
     # queued into the shared corridor instead of claiming a post-hoc carve tier.
     # Suppression (square footprint / X-turned width) is the planner's decision (#250).
-    render_envelope(dwg, _groups, a)
+    render_envelope(dwg, _groups, a, ctx=ctx)
 
     # Prismatic step-height detail: queue it (only when build_drawing(detail_view=True))
     # — resolved with every other detail request below (#307).
     if detail_view:
-        _request_prismatic_detail(dwg, a)
+        _request_prismatic_detail(dwg, a, ctx=ctx)
 
     # Turned-part dimensions via the IR (ADR 0008 convergence). The model is built
     # once and fed to both renderers (#229 — no per-pass rebuild):
@@ -322,35 +322,35 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     render_boss_diameters(dwg, _groups, a)
     render_diameters(dwg, _groups)
     if a.prof is not None:
-        render_step_lengths(dwg, _groups)
+        render_step_lengths(dwg, _groups, ctx=ctx)
 
     # Side-drilled (X/Y-axis) hole HEIGHT locations — queued after the mandatory envelope
     # candidates so below/right corridors solve them together with GD&T/PMI at the drain.
     # The front-right prismatic height ladder remains immediate because its later witness
     # bases depend on earlier placed tiers (#477).
     if feature_keys:
-        _locate_off_axis_holes(dwg, a, which="along")
+        _locate_off_axis_holes(dwg, ctx, a, which="along")
 
     # Non-cylindrical machined features: slots / reduced across-flats sections
     # (#135) — IR renderer, placed through the zone strips (shared infra). Runs
     # after every hole/diameter pass so it claims strip space last.
-    render_slots(dwg, _model, a)
+    render_slots(dwg, _model, a, ctx=ctx)
 
     # Declared GD&T frames / datum symbols / surface finishes (ADR 0011 §4, #61) and
     # authored STEP PMI dims (#393) register into the same strips as first-class
     # candidates BEFORE the drain, so the one solve orders and spaces them crossing-free
     # with locations/slots rather than consuming leftovers as first-fit placements.
-    render_gdt(dwg, _model, a)
+    render_gdt(dwg, _model, a, ctx=ctx)
     if a.pmi_mode == "annotate" or (
         getattr(dwg, "_model_declared", False)
         and any(f.kind in ("authored_dimension", "pmi") for f in _model.features)
     ):
-        render_pmi(dwg, _model, a)
+        render_pmi(dwg, _model, a, ctx=ctx)
 
     # Now every corridor feeder pass has registered; solve each shared strip once
     # (ADR 0009 end state, #345/#346/#393) — dedup coincident spans, order the ladder —
     # BEFORE the section/detail views so they see the placed ladder as an obstacle.
-    drain_corridors(dwg)
+    drain_corridors(ctx, dwg)
 
     # Turned/circlip-groove callouts (#148c): {width} WIDE × ø{dia} via a leader off each
     # groove. A groove is a secondary leader-callout on a turned shaft — exactly where the
@@ -370,22 +370,20 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Resolve every queued enlarged-detail request (#307) — prismatic step bands and
     # crowded turned heads alike — through the one generic detailer, now that all
     # views and main-view annotations are placed (so the detail avoids them).
-    _resolve_details(dwg, a)
+    _resolve_details(dwg, a, ctx=ctx)
 
     _add_title_block(dwg, a)
 
     # Escalate to a hole table when the plan view is too dense to dimension
     # every hole — runs last so the table avoids every placed annotation
     # including the title block (#93).
-    _maybe_tabulate_holes(dwg, a)
-    # Don't leave the consumed escalations on the drawing: a later deferred edit
-    # (`build_drawing(part)` then `with dwg.deferred(): …`) would otherwise inherit
-    # them and re-fire finalize's leg D against stale drops, relocating the table
-    # (#440). Nothing reads _escalations after the table pass.
-    dwg._escalations = []
+    _maybe_tabulate_holes(dwg, a, ctx=ctx)
+    # The escalations live only on this per-run ctx (#639), discarded when _auto_annotate
+    # returns — so nothing carries stale drops into a later deferred edit (#440), and there is
+    # no drawing-level list to clear.
 
 
-def _maybe_tabulate_holes(dwg, a: Analysis):
+def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
     """Escalate to a per-instance hole table + balloons when the plan view is too
     dense to dimension every hole individually (#93); a dropped ISO pattern
     callout gets one grouped balloon of its own (#351 PR-3, ADR 0009 Amdt 1
@@ -411,9 +409,8 @@ def _maybe_tabulate_holes(dwg, a: Analysis):
     # Trigger on the first-class Escalation objects the hole placers collect (ADR 0009
     # Amdt 1, #351 PR-2), not by grepping the `*_dropped` lint strings. Byte-identical:
     # a "callout"/"location" Escalation is emitted 1:1 with each callout_dropped/
-    # location_ref_dropped code. `getattr` default guards the auto_dims=False path (which
-    # skips this whole pass anyway). The lint codes stay as the coverage surface.
-    escalations = getattr(dwg, "_escalations", ())
+    # location_ref_dropped code. The lint codes stay as the coverage surface.
+    escalations = ctx.escalations
     if not any(e.kind in ("callout", "location") for e in escalations):
         return
 

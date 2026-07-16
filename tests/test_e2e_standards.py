@@ -215,10 +215,10 @@ def test_dense_scattered_reconstruction_rebuilds_the_hole_table():
     auto = build_drawing(part)
     assert "hole_table_plan" in auto.annotations(), "fixture must escalate in the auto-pass"
     auto_codes = {i.code for i in auto.lint() if i.severity in ("warning", "error")}
-    # #440: the escalating build must not leave its consumed escalations on the drawing —
-    # else a later `with dwg.deferred(): …` edit would inherit them and re-fire leg D,
-    # relocating the table. (Here the build collected callout/location drops before tabulating.)
-    assert auto._escalations == []
+    # #440/#639: the escalating build must not leak its consumed escalations into a later
+    # `with dwg.deferred(): …` edit (which would re-fire leg D and relocate the table). Since
+    # #639 the escalations live on a per-run PlacementContext, discarded when the build returns
+    # — the leak is now impossible by construction (no drawing attribute to assert against).
 
     dwg = build_drawing(part, auto_dims=False)
     with dwg.deferred():
@@ -231,7 +231,7 @@ def test_dense_scattered_reconstruction_rebuilds_the_hole_table():
     assert snap(dwg) == snap(auto)  # same table + balloon tags, no orphaned callouts
     assert not [n for n in dwg.annotations() if n.startswith("hc_plan")]  # no duplicate callouts
     assert dwg._intents == []  # drained
-    assert dwg._escalations == []  # leg D cleared the consumed escalations (retry-safe)
+    # (#639) Escalations live on the per-run PlacementContext — no cross-run leak to assert.
     # Lint no worse than the auto-pass (the epic's soft-acceptance bar): the reconstruction
     # introduces NO warning/error code the auto-pass doesn't already have — no new
     # callout_dropped / location_ref_dropped / table_dropped. (It is a strict subset here:

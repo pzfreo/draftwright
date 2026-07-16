@@ -163,7 +163,7 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     )
 
 
-def _record_slot_drop(dwg, kind, idx, view, feat):
+def _record_slot_drop(ctx, dwg, kind, idx, view, feat):
     """Record a slot dim the layout could not place (#135).
 
     Info severity — a dim with no clear room is dropped as "place what fits",
@@ -177,12 +177,12 @@ def _record_slot_drop(dwg, kind, idx, view, feat):
         "slot_dim_dropped",
         f"slot{idx} {kind} dim not placed (no room beside the {view})",
     )
-    dwg._escalations.append(
+    ctx.escalations.append(
         Escalation(kind="slot", view=view, feature=feat, reason=f"no room beside the {view}")
     )
 
 
-def render_slots(dwg, model, a, *, only=None) -> int:
+def render_slots(dwg, model, a, *, ctx, only=None) -> int:
     """Dimension milled slots from the IR — width (the defining size, across
     ``width_axis``) + length (along ``long_axis``) + a position dim from the part
     datum, in the view the two axes span. Places through the engine's zone strips
@@ -292,10 +292,10 @@ def render_slots(dwg, model, a, *, only=None) -> int:
                         features={cname: _feat},
                     ):
                         return  # placed on the below strip
-                    _record_slot_drop(dwg, _dw, idx, vw[0], _feat)
+                    _record_slot_drop(ctx, dwg, _dw, idx, vw[0], _feat)
 
                 register_corridor(
-                    dwg,
+                    ctx,
                     (vw[0], "above"),
                     zn.above,
                     vw[0],
@@ -343,13 +343,13 @@ def render_slots(dwg, model, a, *, only=None) -> int:
         ):
             count += 1
         else:
-            _record_slot_drop(dwg, "width", i, name, s)
+            _record_slot_drop(ctx, dwg, "width", i, name, s)
         if _place(
             s.long_axis, s.lo, s.hi, s.w_center - half, s.w_center + half, s.length, "length"
         ):
             count += 1
         else:
-            _record_slot_drop(dwg, "length", i, name, s)
+            _record_slot_drop(ctx, dwg, "length", i, name, s)
         datum = _bb(s.long_axis, False)
         if (s.lo - datum) * a.SCALE >= 1.0:
             if _place(
@@ -364,7 +364,7 @@ def render_slots(dwg, model, a, *, only=None) -> int:
             ):
                 count += 1
             else:
-                _record_slot_drop(dwg, "position", i, name, s)
+                _record_slot_drop(ctx, dwg, "position", i, name, s)
     return count
 
 
@@ -384,6 +384,7 @@ _MIN_INPLACE_BORE_HALF_MM = 4.0
 
 def _location_candidate(
     dwg,
+    ctx,
     name,
     *,
     view,
@@ -409,7 +410,7 @@ def _location_candidate(
         dwg._record_build_issue(
             "warning", "location_ref_dropped", f"{nm} not placed (no room above the {edge})"
         )
-        dwg._escalations.append(Escalation("location", view, nm, "strip_full"))
+        ctx.escalations.append(Escalation("location", view, nm, "strip_full"))
 
     return CorridorCandidate(
         name=name,
@@ -426,7 +427,7 @@ def _location_candidate(
     )
 
 
-def render_locations(dwg, model, a, *, only=None, pinned=None) -> int:
+def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
     """Baseline X/Y hole-location dims from the IR (#238). The planner decides the
     intent (`plan_locations`: which refs, from which datum); this renderer owns the
     layout (Amendment 4) — X dims tier above the plan view, Y dims above the side
@@ -501,7 +502,7 @@ def render_locations(dwg, model, a, *, only=None, pinned=None) -> int:
             f"{_n_x_close} X location dim(s) too closely spaced to dimension legibly "
             "(use a detail view)",
         )
-        dwg._escalations.append(Escalation("location", "plan", None, "illegible"))
+        ctx.escalations.append(Escalation("location", "plan", None, "illegible"))
     _kept_x_set = set(_kept_x)
     x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
     # Register X-location dims into the shared plan-above corridor (ADR 0009 end state,
@@ -519,7 +520,7 @@ def render_locations(dwg, model, a, *, only=None, pinned=None) -> int:
         # dimension and annotations_of never over-claims it (review #406, ADR 0010).
         _xfeat = None if any(abs(o[0] - rx) < 0.5 and o[2] != feat for o in refs) else feat
         register_corridor(
-            dwg,
+            ctx,
             ("plan", "above"),
             a.pv_zones.above,
             "plan",
@@ -527,6 +528,7 @@ def render_locations(dwg, model, a, *, only=None, pinned=None) -> int:
             tier,
             _location_candidate(
                 dwg,
+                ctx,
                 _loc_name("m_locx", i),
                 view="plan",
                 span_key=(round(PX(datum_x), 1), round(PX(rx), 1)),
@@ -565,7 +567,7 @@ def render_locations(dwg, model, a, *, only=None, pinned=None) -> int:
             f"{_n_y_close} Y location dim(s) too closely spaced to dimension legibly "
             "(use a detail view)",
         )
-        dwg._escalations.append(Escalation("location", "side", None, "illegible"))
+        ctx.escalations.append(Escalation("location", "side", None, "illegible"))
     _kept_y_set = set(_kept_y)
     y_refs = [r for r in y_refs if r[1] not in _y_drawable or r[1] in _kept_y_set]
     # Cap the side-above strip below the iso view so Y-location dims never run under it
@@ -580,7 +582,7 @@ def render_locations(dwg, model, a, *, only=None, pinned=None) -> int:
         # Shared-Y location dim → unowned (see the X loop; review #406).
         _yfeat = None if any(abs(o[1] - ry) < 0.5 and o[2] != feat for o in refs) else feat
         register_corridor(
-            dwg,
+            ctx,
             ("side", "above"),
             a.sv_zones.above,
             "side",
@@ -588,6 +590,7 @@ def render_locations(dwg, model, a, *, only=None, pinned=None) -> int:
             tier,
             _location_candidate(
                 dwg,
+                ctx,
                 _loc_name("m_locy", i),
                 view="side",
                 span_key=(round(SX(datum_y), 1), round(SX(ry), 1)),
@@ -1271,7 +1274,7 @@ def render_boss_diameters(dwg, groups, a) -> int:
     return n
 
 
-def render_plates(dwg, model, a) -> int:
+def render_plates(dwg, model, a, *, ctx) -> int:
     """Plate/wall thicknesses (#559): the thin extent of each recognised slab
     (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z
     plate (horizontal slab) as a vertical dim left of the front elevation, a Y plate
@@ -1331,7 +1334,7 @@ def render_plates(dwg, model, a) -> int:
         # is physically full — the same outcome the prior solver-invisible carve gave, but now
         # co-solved with the locations/steps that share this strip.
         register_corridor(
-            dwg,
+            ctx,
             (view, side),
             strip,
             view,
@@ -1351,7 +1354,7 @@ def render_plates(dwg, model, a) -> int:
     return n
 
 
-def render_envelope(dwg, groups, a) -> int:
+def render_envelope(dwg, groups, a, *, ctx) -> int:
     """Overall width (plan, below) + depth (side, below) envelope dims via the IR,
     registered into the same below-strip corridor as feature/location/GD&T/PMI candidates.
     The overall dims use the last ladder subchain so they stack outermost by construction,
@@ -1366,7 +1369,7 @@ def render_envelope(dwg, groups, a) -> int:
 
     def _queue(name, strip, view, tier, distance, build):
         register_corridor(
-            dwg,
+            ctx,
             (view, "below"),
             strip,
             view,
@@ -1561,7 +1564,7 @@ def _next_steplen_start(dwg, prefix: str = "m_steplen") -> int:
     return max(idxs) + 1 if idxs else 0
 
 
-def render_step_lengths(dwg, groups, *, only=None) -> int:
+def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
     """Unified turned step-length chain (ADR 0008 #223): each `StepFeature`'s length
     span projects into the front view and joins the chain that tiles the turning axis
     so every shoulder is located. X-turned → horizontal chain above the view;
@@ -1628,7 +1631,7 @@ def render_step_lengths(dwg, groups, *, only=None) -> int:
                     hsegs = [(dwg.at(view, *a), dwg.at(view, *b), v, t) for a, b, v, t in _hw]
                     return _draw_step_chain(dwg, view, hsegs, f"dim_{view}_steplen", detail_scale)
 
-                dwg._detail_requests.append(
+                ctx.detail_requests.append(
                     DetailRequest(
                         axis="x",
                         lo=hlo,
@@ -1676,7 +1679,7 @@ def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
     return n, mean_rise
 
 
-def render_height_ladder(dwg, model, a, *, include_overall: bool = True) -> int:
+def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) -> int:
     """Front-view right ladder: prismatic step heights (from `StepLevelFeature`)
     stacked inner→outer, then the overall height outermost — through `fv_zones.right`,
     preserving the leapfrog witness cursor (#237). Replaces the engine's inline
@@ -1733,7 +1736,7 @@ def render_height_ladder(dwg, model, a, *, include_overall: bool = True) -> int:
             # gate, which previously could queue a spurious detail even when the uniform-
             # staircase branch above already fully documented the part with one
             # representative dim (a real bug this routing fixes as a side effect).
-            dwg._escalations.append(
+            ctx.escalations.append(
                 Escalation(kind="step", view="front", feature=step, reason="illegible")
             )
         for col, z in enumerate(kept):
@@ -1801,7 +1804,7 @@ def render_height_ladder(dwg, model, a, *, include_overall: bool = True) -> int:
     return n
 
 
-def render_step_positions(dwg, model, a) -> int:
+def render_step_positions(dwg, model, a, *, ctx) -> int:
     """Prismatic step POSITIONS (#555): where each shoulder sits along its axis,
     dimensioned from the part datum so a stepped block is fully constrained (the step
     heights alone leave the shoulder location implicit — two geometries draw the same
@@ -1854,7 +1857,7 @@ def render_step_positions(dwg, model, a) -> int:
         # duplicate to collapse, and deduping would only couple the shoulder to the hole's
         # lifecycle for no benefit.
         register_corridor(
-            dwg,
+            ctx,
             (view, "above"),
             strip,
             view,
@@ -2030,7 +2033,7 @@ def render_rotational(dwg, model, a) -> int:
     return n
 
 
-def _record_pmi_drop(dwg, ax, label, rec):
+def _record_pmi_drop(ctx, dwg, ax, label, rec):
     """Record a PMI dim the layout could not place (#208).
 
     Previously silent (#351 PR-4a) — a PMI dim that found no strip space just
@@ -2052,7 +2055,7 @@ def _record_pmi_drop(dwg, ax, label, rec):
     dwg._record_build_issue(
         "warning", "pmi_dropped", f"PMI {label!r} not placed (no room beside the {view})"
     )
-    dwg._escalations.append(
+    ctx.escalations.append(
         Escalation(kind="pmi", view=view, feature=rec, reason="no room beside the view")
     )
 
@@ -2102,7 +2105,7 @@ def _renderable_pmi_records(records):
     ]
 
 
-def render_pmi(dwg, model, a) -> int:
+def render_pmi(dwg, model, a, *, ctx) -> int:
     """Render imported authored dimensions from concept IR as first-class candidates.
 
     AP242 dimensional PMI lowers to ``AuthoredDimension``; unsupported raw PMI fallback
@@ -2332,10 +2335,10 @@ def render_pmi(dwg, model, a) -> int:
                         alt["side"],
                     )
                     return
-            _record_pmi_drop(dwg, _ax, _label, _rec)
+            _record_pmi_drop(ctx, dwg, _ax, _label, _rec)
 
         register_corridor(
-            dwg,
+            ctx,
             (primary["view"], primary["side"]),
             primary["strip"],
             primary["view"],
@@ -2517,7 +2520,7 @@ def render_pmi(dwg, model, a) -> int:
             queued += 1
         else:
             _log.info("PMI dim[%d] %s %.3g → no viable strip", idx, ax, rec.value)
-            _record_pmi_drop(dwg, ax, label, rec)
+            _record_pmi_drop(ctx, dwg, ax, label, rec)
 
     _log.info("PMI annotate: %d/%d dims queued", queued, len(usable))
     return queued
@@ -2562,7 +2565,7 @@ def _gdt_glyph(item, draft):
     return SurfaceFinish(item.ra, position=(0.0, 0.0), draft=draft)
 
 
-def render_gdt(dwg, model, a) -> int:
+def render_gdt(dwg, model, a, *, ctx) -> int:
     """Place declared GD&T frames / datum symbols / surface finishes (#61) as first-class
     ADR 0009 corridor candidates — registered into the SAME strip the feature's dimensions
     use, BEFORE ``drain_corridors``, so one solve orders and spaces them crossing-free with
@@ -2680,7 +2683,7 @@ def render_gdt(dwg, model, a) -> int:
             )
 
         register_corridor(
-            dwg,
+            ctx,
             (item.view, item.side),
             strip,
             item.view,

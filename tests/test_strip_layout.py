@@ -200,16 +200,17 @@ def test_strip_obstacles_keeps_section_hatch_in_every_per_view_query():
 
 def test_record_callout_drop_emits_a_callout_escalation():
     # PR-2 routing: a dropped hole callout emits a first-class Escalation into
-    # dwg._escalations (which the tabulation resolver now triggers on), alongside the
+    # ctx.escalations (which the tabulation resolver now triggers on), alongside the
     # `callout_dropped` lint code (kept for coverage). 1:1 with the code → byte-identical.
     # PR-3 (#351): `feature` now carries the dropped group's IR feature (a PatternFeature
     # when it's a fully-surviving recognised pattern, else None) rather than the diameter —
     # the resolver groups pattern balloons on it.
+    from draftwright.annotations._common import PlacementContext
     from draftwright.annotations.holes import _record_callout_drop
 
     class _Dwg:
         def __init__(s):
-            s._escalations, s._codes, s._dropped = [], [], []
+            s._codes, s._dropped = [], []
 
         def _drop_callout_diam(s, d):
             s._dropped.append(d)
@@ -217,38 +218,42 @@ def test_record_callout_drop_emits_a_callout_escalation():
         def _record_build_issue(s, sev, code, msg):
             s._codes.append(code)
 
+    ctx = PlacementContext()
     d = _Dwg()
-    _record_callout_drop(d, "plan", 6.0, "no room beside the view")
+    _record_callout_drop(ctx, d, "plan", 6.0, "no room beside the view")
     assert d._codes == ["callout_dropped"] and d._dropped == [6.0]
-    assert len(d._escalations) == 1
-    e = d._escalations[0]
+    assert len(ctx.escalations) == 1
+    e = ctx.escalations[0]
     assert e.kind == "callout" and e.view == "plan" and e.feature is None
 
+    ctx2 = PlacementContext()
     d2 = _Dwg()
     sentinel = object()
-    _record_callout_drop(d2, "plan", 6.0, "no room beside the view", sentinel)
-    assert d2._escalations[0].feature is sentinel
+    _record_callout_drop(ctx2, d2, "plan", 6.0, "no room beside the view", sentinel)
+    assert ctx2.escalations[0].feature is sentinel
 
 
 def test_record_slot_drop_emits_a_slot_escalation():
     # #351 PR-4a: a dropped slot dim (width/length/position) emits a first-class
     # "slot" Escalation alongside the existing slot_dim_dropped lint code — purely
     # additive, no resolver consumes it yet (slots have no natural grouping remedy).
+    from draftwright.annotations._common import PlacementContext
     from draftwright.annotations.from_model import _record_slot_drop
 
     class _Dwg:
         def __init__(s):
-            s._escalations, s._codes = [], []
+            s._codes = []
 
         def _record_build_issue(s, sev, code, msg):
             s._codes.append((sev, code))
 
+    ctx = PlacementContext()
     d = _Dwg()
     sentinel = object()
-    _record_slot_drop(d, "width", 0, "plan", sentinel)
+    _record_slot_drop(ctx, d, "width", 0, "plan", sentinel)
     assert d._codes == [("info", "slot_dim_dropped")]
-    assert len(d._escalations) == 1
-    e = d._escalations[0]
+    assert len(ctx.escalations) == 1
+    e = ctx.escalations[0]
     assert e.kind == "slot" and e.view == "plan" and e.feature is sentinel
 
 
@@ -257,34 +262,38 @@ def test_record_pmi_drop_emits_a_pmi_escalation():
     # code at all). Now records pmi_dropped + a first-class "pmi" Escalation.
     from types import SimpleNamespace
 
+    from draftwright.annotations._common import PlacementContext
     from draftwright.annotations.from_model import _record_pmi_drop
 
     class _Dwg:
         def __init__(s):
-            s._escalations, s._codes = [], []
+            s._codes = []
 
         def _record_build_issue(s, sev, code, msg):
             s._codes.append((sev, code))
 
+    ctx = PlacementContext()
     d = _Dwg()
     rec = SimpleNamespace(pmi_kind="linear")
-    _record_pmi_drop(d, "X", "12.0", rec)
+    _record_pmi_drop(ctx, d, "X", "12.0", rec)
     assert d._codes == [("warning", "pmi_dropped")]
-    assert len(d._escalations) == 1
-    e = d._escalations[0]
+    assert len(ctx.escalations) == 1
+    e = ctx.escalations[0]
     assert e.kind == "pmi" and e.view == "front" and e.feature is rec
 
+    ctx2 = PlacementContext()
     d2 = _Dwg()
-    _record_pmi_drop(d2, "Y", "12.0", SimpleNamespace(pmi_kind="linear"))
-    assert d2._escalations[0].view == "side"
+    _record_pmi_drop(ctx2, d2, "Y", "12.0", SimpleNamespace(pmi_kind="linear"))
+    assert ctx2.escalations[0].view == "side"
 
     # A bore diameter/radius uses a DIFFERENT view table (the view where the bore
     # appears as a circle) from linear dims — conflating the two mislabelled every
     # dropped bore diameter/radius (caught by review, #351 PR-4a).
     for ax, want_view in (("Z", "plan"), ("X", "side"), ("Y", "front")):
+        ctx3 = PlacementContext()
         d3 = _Dwg()
-        _record_pmi_drop(d3, ax, "ø12.0", SimpleNamespace(pmi_kind="diameter"))
-        assert d3._escalations[0].view == want_view, ax
+        _record_pmi_drop(ctx3, d3, ax, "ø12.0", SimpleNamespace(pmi_kind="diameter"))
+        assert ctx3.escalations[0].view == want_view, ax
 
 
 def test_escalation_is_a_frozen_value_with_default_remedies():
@@ -301,13 +310,6 @@ def test_escalation_is_a_frozen_value_with_default_remedies():
     assert e2.view is None and e2.remedies == ("table", "drop")
     with pytest.raises(dataclasses.FrozenInstanceError):  # immutable value object
         e.kind = "x"
-
-
-def test_build_initialises_empty_escalations_collector():
-    # Scaffolding only: the collector exists and starts empty; no placer emits into it
-    # yet, so the build stays behaviour-preserving.
-    dwg = build_drawing(Box(40, 30, 10))
-    assert dwg._escalations == []
 
 
 # --- plan_strip: the collect-then-solve seam (pure geometry, no OCC) --------
@@ -667,9 +669,11 @@ def test_place_strip_candidates_priority_survives_key_order():
 def test_register_corridor_uses_largest_tier_across_producers():
     # #477: below/right corridors now collect candidates from mixed producers
     # (locations, envelope, GD&T/PMI). Spacing must not depend on which pass registers first.
-    from types import SimpleNamespace
-
-    from draftwright.annotations._common import CorridorCandidate, register_corridor
+    from draftwright.annotations._common import (
+        CorridorCandidate,
+        PlacementContext,
+        register_corridor,
+    )
 
     def _cand(name):
         return CorridorCandidate(
@@ -680,16 +684,16 @@ def test_register_corridor_uses_largest_tier_across_producers():
             on_drop=lambda _nm: None,
         )
 
-    dwg = SimpleNamespace(_corridor_batch={})
+    ctx = PlacementContext()
     key = ("side", "below")
-    register_corridor(dwg, key, object(), "side", "y", 4.0, _cand("small"))
-    register_corridor(dwg, key, object(), "side", "y", 9.0, _cand("large"))
-    assert dwg._corridor_batch[key]["tier"] == 9.0
+    register_corridor(ctx, key, object(), "side", "y", 4.0, _cand("small"))
+    register_corridor(ctx, key, object(), "side", "y", 9.0, _cand("large"))
+    assert ctx.corridor_batch[key]["tier"] == 9.0
 
-    dwg = SimpleNamespace(_corridor_batch={})
-    register_corridor(dwg, key, object(), "side", "y", 9.0, _cand("large"))
-    register_corridor(dwg, key, object(), "side", "y", 4.0, _cand("small"))
-    assert dwg._corridor_batch[key]["tier"] == 9.0
+    ctx = PlacementContext()
+    register_corridor(ctx, key, object(), "side", "y", 9.0, _cand("large"))
+    register_corridor(ctx, key, object(), "side", "y", 4.0, _cand("small"))
+    assert ctx.corridor_batch[key]["tier"] == 9.0
 
 
 def test_place_strip_candidates_refills_after_late_forbid_rejection():

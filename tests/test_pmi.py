@@ -222,6 +222,7 @@ def test_render_pmi_drops_unrecognized_bore_axis_without_crashing():
     from build123d import Box
 
     from draftwright import build_drawing
+    from draftwright.annotations._common import PlacementContext
     from draftwright.annotations.from_model import render_pmi
     from draftwright.model import AuthoredDimension
     from draftwright.model.ir import Frame
@@ -237,6 +238,6 @@ def test_render_pmi_drops_unrecognized_bore_axis_without_crashing():
         ref_pts=((0.0, 0.0, 0.0), (5.0, 0.0, 0.0)),
     )
     model = SimpleNamespace(features=[bogus])
-    n = render_pmi(dwg, model, dwg._analysis)  # must not raise
+    n = render_pmi(dwg, model, dwg._analysis, ctx=PlacementContext())  # must not raise
     assert n == 0
     assert any(i.code == "pmi_dropped" for i in dwg._build_issues)  # graceful drop recorded
