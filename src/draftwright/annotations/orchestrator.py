@@ -169,7 +169,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Per-run placement scratch (detail requests / escalations / corridor batch) — reset each
     # auto-pass; the single owner is init_placement_scratch (#638). The corridor batch is
     # drained once at the end (drain_corridors, #345/#346).
-    init_placement_scratch(dwg)
+    init_placement_scratch(dwg, reset=True)
 
     # Tighten right-strip outer_limits to the actual iso view left edge now
     # that the iso has been projected and fitted.  Always apply so that any

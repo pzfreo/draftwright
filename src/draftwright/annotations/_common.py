@@ -532,19 +532,28 @@ def register_corridor(dwg, key, strip, view, axis, tier, cand):
     b["cands"].append(cand)
 
 
-def init_placement_scratch(dwg) -> None:
-    """Seed a FRESH set of the per-run placement scratch containers a build's passes share — the
-    corridor batch (:func:`register_corridor`/:func:`drain_corridors`), the escalation list (ADR
-    0009 Amdt 1, #351), and the enlarged-detail request list (#307). The single owner both entry
-    paths call (#638, #639), replacing the two hand-rolled copies that had drifted.
+def init_placement_scratch(dwg, *, reset: bool) -> None:
+    """Seed the per-run placement scratch containers a build's passes share — the corridor batch
+    (:func:`register_corridor`/:func:`drain_corridors`), the escalation list (ADR 0009 Amdt 1,
+    #351), and the enlarged-detail request list (#307). The single owner both entry paths call
+    (#638), replacing the two hand-rolled copies that had drifted.
 
-    Both the auto-pass (:func:`_auto_annotate`) and the record→finalize path (#426) start from a
-    clean slate each run: the corridor batch is a pure function of the still-present intents, so
-    there is no leftover to preserve — a raised drain simply leaves the intents recorded and a
-    retry rebuilds the batch (#639, replacing the earlier create-if-absent retry-safety)."""
+    The corridor batch is ALWAYS fresh: it is a pure function of the still-present intents (#639),
+    so a raised drain leaves the intents recorded and a retry rebuilds it — no leftover to
+    preserve. Escalations/detail-requests are NOT so lucky: B1 records a callout-drop escalation
+    and drops the producing callout intent *before* the fallible drain, so they can't be rebuilt
+    on a retry. ``reset=True`` (the auto-pass) clears them each run; ``reset=False`` (finalize)
+    creates-if-absent so a B1 escalation survives a raised B2 drain to the retry's hole-table
+    pass (#659 review)."""
     dwg._corridor_batch = {}
-    dwg._escalations = []
-    dwg._detail_requests = []
+    if reset:
+        dwg._escalations = []
+        dwg._detail_requests = []
+        return
+    if not hasattr(dwg, "_escalations"):
+        dwg._escalations = []
+    if not hasattr(dwg, "_detail_requests"):
+        dwg._detail_requests = []
 
 
 def drain_corridors(dwg):

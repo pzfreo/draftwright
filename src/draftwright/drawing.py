@@ -1445,9 +1445,11 @@ class Drawing:
 
         # Fresh corridor scratch for this finalize — the auto-pass seeds it in _auto_annotate but
         # a detect-only build lacks it; render_locations/_annotate_holes/drain_corridors
-        # register/read here. Rebuilt from the current intents each call (#639), so a raised
-        # drain strands nothing — the intents survive and a retry re-registers.
-        init_placement_scratch(self)
+        # register/read here. The batch is rebuilt from the current intents each call (#639), so a
+        # raised drain strands nothing — the intents survive and a retry re-registers. Escalations/
+        # detail-requests create-if-absent (reset=False): a B1 escalation whose callout intent is
+        # already dropped can't be rebuilt, so it must survive a raised B2 drain to the retry (#659).
+        init_placement_scratch(self, reset=False)
 
         model, a = self._part_model, self._analysis
         routable = model is not None and a is not None

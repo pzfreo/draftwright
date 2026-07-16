@@ -276,6 +276,27 @@ class TestStepPosition:
         placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
         assert placed == ["20"]
 
+    def test_scratch_reset_flag_preserves_unrebuildable_escalations(self):
+        # #659 review: the corridor batch is always fresh (rebuilt from intents), but escalations
+        # are NOT rebuildable — B1 records a callout-drop escalation and drops the producing callout
+        # intent BEFORE the fallible B2 drain. So on a finalize retry (reset=False) a pre-existing
+        # escalation must SURVIVE (create-if-absent) to reach the retry's hole-table pass; only the
+        # auto-pass (reset=True) clears it. The batch resets either way.
+        from types import SimpleNamespace
+
+        from draftwright.annotations._common import Escalation, init_placement_scratch
+
+        esc = Escalation(kind="callout", view="front", feature=None, reason="strip_full")
+        dwg = SimpleNamespace(
+            _corridor_batch={"stale": object()}, _escalations=[esc], _detail_requests=["d"]
+        )
+        init_placement_scratch(dwg, reset=False)  # finalize: preserve escalations/details
+        assert dwg._corridor_batch == {}  # batch always fresh
+        assert dwg._escalations == [esc] and dwg._detail_requests == ["d"]  # survive the retry
+
+        init_placement_scratch(dwg, reset=True)  # auto-pass: clean slate
+        assert dwg._corridor_batch == {} and dwg._escalations == [] and dwg._detail_requests == []
+
     def test_centered_rebate_dimensions_both_shoulders(self):
         # A symmetric central channel has TWO shoulders; both positions must be given
         # (20 and 40 from the front datum), else the channel is under-constrained.
