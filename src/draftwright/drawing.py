@@ -702,6 +702,11 @@ class Drawing:
         """
         return self._part_model
 
+    def attach_part_model(self, model) -> None:
+        """Attach the built PartModel so ``model()`` and feature edits see it. Lets the
+        orchestrator hand the model back without an ``annotations/`` attribute write (#639)."""
+        self._part_model = model
+
     def place_dim(
         self,
         p1,
@@ -1109,8 +1114,10 @@ class Drawing:
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
         if getattr(feature, "kind", None) in ("step", "boss"):
-            return add_feature_diameter(self, feature)
-        return add_feature_callout(self, feature, view=view, name=name)
+            return add_feature_diameter(self, feature, self._part_model)
+        return add_feature_callout(
+            self, feature, self._part_model, self._analysis, view=view, name=name
+        )
 
     def furniture(self, feature, *, view=None) -> list[str]:
         """Add a hole/pattern's non-dimensional **sheet furniture** (#419) — centre marks
@@ -1131,7 +1138,7 @@ class Drawing:
             return []
         from draftwright.annotations.holes import add_feature_furniture
 
-        return add_feature_furniture(self, feature, view=view)
+        return add_feature_furniture(self, feature, self._part_model, self._analysis, view=view)
 
     def section(self) -> list[str]:
         """Add the automatic full **section A–A** (#420) — the section half of the
@@ -1151,7 +1158,7 @@ class Drawing:
             return []
         from draftwright.annotations.sections import add_section
 
-        return add_section(self)
+        return add_section(self, self._part_model, self._analysis)
 
     def locate(self, feature, *, axes=None, pin=False) -> list[str]:
         """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern
@@ -1178,7 +1185,9 @@ class Drawing:
             return []
         from draftwright.annotations.holes import add_feature_location
 
-        return add_feature_location(self, feature, axes=axes, pin=pin)
+        return add_feature_location(
+            self, feature, self._part_model, self._analysis, axes=axes, pin=pin
+        )
 
     @contextlib.contextmanager
     def deferred(self):
