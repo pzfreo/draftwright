@@ -21,21 +21,27 @@ from __future__ import annotations
 
 import math
 
+import pytest
 from build123d import Align, Box, Cylinder, Pos, Rotation
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from draftwright import build_drawing
 
-# The layout-collision lint codes a clean sheet must never carry — mirrors
-# test_layout_property._DEFECTS / TestLayoutCleanlinessInvariant._DEFECTS. Duplicated
-# (a plain constant, not the Test class) to avoid importing a Test*-bound class.
+# The layout-collision lint codes a clean sheet must never carry. A SUPERSET of
+# test_layout_property._DEFECTS / TestLayoutCleanlinessInvariant._DEFECTS: those two
+# omit the label/leader collision codes below (a coverage gap in the seeded tier, to
+# align separately) — an adversarial finder should catch them too. `label_centerline_overlap`
+# (warning) and `leader_line_through_text` (error) are genuine layout defects, not the soft
+# `view_annotation_inside_extents` info code the sets deliberately exclude.
 _DEFECTS = {
     "view_annotation_overlap",
     "view_overlap",
     "view_out_of_bounds",
     "annotation_out_of_bounds",
     "annotation_overlap",
+    "label_centerline_overlap",
+    "leader_line_through_text",
 }
 
 # Each example is a full build; keep the count small and disable the per-example
@@ -151,13 +157,18 @@ def _slot(draw):
 _PARTS = st.one_of(_box_holes(), _bolt_circle(), _grid(), _turned_steps(), _counterbore(), _slot())
 
 
+# Generous timeout: on a failure Hypothesis shrinks (many extra builds at ~3-6 s each), and
+# the repo-wide 300 s pytest timeout would otherwise interrupt shrinking and replace the
+# minimized counterexample with an opaque timeout (#664 review).
+@pytest.mark.timeout(1200)
 @given(part=_PARTS)
 @_LAYOUT_SETTINGS
 def test_generated_part_has_no_layout_collisions(part):
     """A finished drawing of any generated part carries no layout-collision lint code.
-    On failure Hypothesis shrinks toward a minimal offending part — e.g. reverting the
-    #345 slot/hole dedup guard reproduces as a small counterexample here (the seeded
-    tier could only surface it as an opaque case index)."""
+    On failure Hypothesis shrinks toward a minimal offending part instead of an opaque seed
+    index (the seeded tier's advantage this tier adds). (A targeted slot+coincident-hole
+    strategy that would let this reproduce the #345 dedup bug on a guard revert is a noted
+    #641 gap-1 follow-up — these six strategies never combine a slot with a coincident hole.)"""
     dwg = build_drawing(part)
     hits = sorted({i.code for i in dwg.lint()} & _DEFECTS)
     assert not hits, f"layout defects in finished drawing: {hits}"
