@@ -1,0 +1,117 @@
+{
+  "annotations": [
+    {
+      "geom_bbox": [
+        71.2,
+        45.0,
+        79.2,
+        105.1
+      ],
+      "label": "30",
+      "label_bbox": [
+        76.1,
+        73.4,
+        78.3,
+        76.6
+      ],
+      "name": "dim_height",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        87.2,
+        33.0,
+        127.3,
+        41.0
+      ],
+      "label": "20",
+      "label_bbox": [
+        105.6,
+        33.9,
+        108.8,
+        36.1
+      ],
+      "name": "m_env_depth",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
+        15.8,
+        114.6,
+        39.3,
+        128.9
+      ],
+      "label": "18.6 A/F",
+      "label_bbox": [
+        15.8,
+        114.6,
+        29.8,
+        117.2
+      ],
+      "name": "m_flat_z0",
+      "type": "Leader",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        204.9,
+        78.9,
+        229.3,
+        81.6
+      ],
+      "label": "ISO VIEW (NTS)",
+      "label_bbox": [
+        204.9,
+        78.9,
+        229.3,
+        81.6
+      ],
+      "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        165.9,
+        10.9,
+        286.1,
+        27.1
+      ],
+      "label": "DRAWING",
+      "label_bbox": null,
+      "name": "title_block",
+      "type": "TitleBlock",
+      "view": null
+    }
+  ],
+  "build_issues": [],
+  "item_count": 5,
+  "views": {
+    "front": [
+      30.0,
+      45.0,
+      67.2,
+      105.0
+    ],
+    "iso": [
+      191.3,
+      86.2,
+      242.9,
+      179.8
+    ],
+    "plan": [
+      30.0,
+      125.0,
+      67.2,
+      165.0
+    ],
+    "side": [
+      87.2,
+      45.0,
+      127.2,
+      105.0
+    ]
+  }
+}
