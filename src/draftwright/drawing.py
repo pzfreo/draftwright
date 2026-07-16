@@ -1466,6 +1466,11 @@ class Drawing:
         views_snap = dict(self.views)
         coords_snap = dict(self._coords)
         coverage_snap = self._coverage.snapshot()
+        # render_locations narrows the side-above strip's outer_limit IN PLACE on the shared
+        # Analysis (from_model.py) — the one Analysis field a replay mutates. Capture + restore it
+        # too, else a raised drain leaves the retry solving against a stale cap (#647 review).
+        sv_above = getattr(getattr(a, "sv_zones", None), "above", None) if a is not None else None
+        sv_above_limit = sv_above.outer_limit if sv_above is not None else None
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
             # Reserve the section's cutting-plane row BEFORE the callout carve so the carve
@@ -1601,6 +1606,8 @@ class Drawing:
             self.views = views_snap
             self._coords = coords_snap
             self._coverage.restore(coverage_snap)
+            if sv_above is not None:
+                sv_above.outer_limit = sv_above_limit
             self._view_edge_cache.clear()
             raise
         finally:

@@ -320,6 +320,30 @@ class TestStepPosition:
         dwg.finalize()  # clean retry — the shoulder position places exactly once (no duplicate)
         assert len([n for n in dwg._named if n.startswith("dim_shoulder")]) == 1
 
+    def test_finalize_rolls_back_a_narrowed_analysis_bound(self, monkeypatch):
+        # #647 review: render_locations narrows a.sv_zones.above.outer_limit IN PLACE on the
+        # shared Analysis. A raise after that narrowing must restore it — else a corrected retry
+        # solves a side-above dim against a stale cap (the one Analysis field a replay mutates).
+        # Inject the in-place narrowing at the drain, then raise, and assert the bound is restored.
+        from draftwright.annotations import _common
+
+        part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)  # step → the B2 drain runs
+        dwg = build_drawing(part, auto_dims=False)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_position")
+        strip = dwg._analysis.sv_zones.above
+        limit_before = strip.outer_limit
+
+        def _boom(ctx, d):
+            strip.outer_limit = limit_before - 50.0  # mimic render_locations' in-place narrowing
+            raise RuntimeError("injected drain failure")
+
+        monkeypatch.setattr(_common, "drain_corridors", _boom)
+        with pytest.raises(RuntimeError):
+            dwg.finalize()
+        assert dwg._analysis.sv_zones.above.outer_limit == limit_before  # restored (#647 review)
+
     def test_centered_rebate_dimensions_both_shoulders(self):
         # A symmetric central channel has TWO shoulders; both positions must be given
         # (20 and 40 from the front datum), else the channel is under-constrained.
