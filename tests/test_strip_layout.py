@@ -207,29 +207,22 @@ def test_record_callout_drop_emits_a_callout_escalation():
     # the resolver groups pattern balloons on it.
     from draftwright.annotations._common import PlacementContext
     from draftwright.annotations.holes import _record_callout_drop
+    from draftwright.linting.coverage import CoverageState
+    from draftwright.registry import AnnotationRegistry
 
-    class _Dwg:
-        def __init__(s):
-            s._codes, s._dropped = [], []
-
-        def _drop_callout_diam(s, d):
-            s._dropped.append(d)
-
-        def _record_build_issue(s, sev, code, msg):
-            s._codes.append(code)
-
-    ctx = PlacementContext()
-    d = _Dwg()
-    _record_callout_drop(ctx, d, "plan", 6.0, "no room beside the view")
-    assert d._codes == ["callout_dropped"] and d._dropped == [6.0]
+    # The build-issue + dropped-diameter bookkeeping now routes through the ctx's registry/
+    # coverage (#639), not the drawing — so the dwg arg is inert here.
+    ctx = PlacementContext(registry=AnnotationRegistry(), coverage=CoverageState())
+    _record_callout_drop(ctx, object(), "plan", 6.0, "no room beside the view")
+    assert [i.code for i in ctx.registry._build_issues] == ["callout_dropped"]
+    assert ctx.coverage.dropped_diams == [6.0]
     assert len(ctx.escalations) == 1
     e = ctx.escalations[0]
     assert e.kind == "callout" and e.view == "plan" and e.feature is None
 
-    ctx2 = PlacementContext()
-    d2 = _Dwg()
+    ctx2 = PlacementContext(registry=AnnotationRegistry(), coverage=CoverageState())
     sentinel = object()
-    _record_callout_drop(ctx2, d2, "plan", 6.0, "no room beside the view", sentinel)
+    _record_callout_drop(ctx2, object(), "plan", 6.0, "no room beside the view", sentinel)
     assert ctx2.escalations[0].feature is sentinel
 
 
@@ -239,19 +232,14 @@ def test_record_slot_drop_emits_a_slot_escalation():
     # additive, no resolver consumes it yet (slots have no natural grouping remedy).
     from draftwright.annotations._common import PlacementContext
     from draftwright.annotations.from_model import _record_slot_drop
+    from draftwright.registry import AnnotationRegistry
 
-    class _Dwg:
-        def __init__(s):
-            s._codes = []
-
-        def _record_build_issue(s, sev, code, msg):
-            s._codes.append((sev, code))
-
-    ctx = PlacementContext()
-    d = _Dwg()
+    ctx = PlacementContext(registry=AnnotationRegistry())
     sentinel = object()
-    _record_slot_drop(ctx, d, "width", 0, "plan", sentinel)
-    assert d._codes == [("info", "slot_dim_dropped")]
+    _record_slot_drop(ctx, object(), "width", 0, "plan", sentinel)
+    assert [(i.severity, i.code) for i in ctx.registry._build_issues] == [
+        ("info", "slot_dim_dropped")
+    ]
     assert len(ctx.escalations) == 1
     e = ctx.escalations[0]
     assert e.kind == "slot" and e.view == "plan" and e.feature is sentinel
@@ -264,35 +252,28 @@ def test_record_pmi_drop_emits_a_pmi_escalation():
 
     from draftwright.annotations._common import PlacementContext
     from draftwright.annotations.from_model import _record_pmi_drop
+    from draftwright.registry import AnnotationRegistry
 
-    class _Dwg:
-        def __init__(s):
-            s._codes = []
-
-        def _record_build_issue(s, sev, code, msg):
-            s._codes.append((sev, code))
-
-    ctx = PlacementContext()
-    d = _Dwg()
+    ctx = PlacementContext(registry=AnnotationRegistry())
     rec = SimpleNamespace(pmi_kind="linear")
-    _record_pmi_drop(ctx, d, "X", "12.0", rec)
-    assert d._codes == [("warning", "pmi_dropped")]
+    _record_pmi_drop(ctx, object(), "X", "12.0", rec)
+    assert [(i.severity, i.code) for i in ctx.registry._build_issues] == [
+        ("warning", "pmi_dropped")
+    ]
     assert len(ctx.escalations) == 1
     e = ctx.escalations[0]
     assert e.kind == "pmi" and e.view == "front" and e.feature is rec
 
-    ctx2 = PlacementContext()
-    d2 = _Dwg()
-    _record_pmi_drop(ctx2, d2, "Y", "12.0", SimpleNamespace(pmi_kind="linear"))
+    ctx2 = PlacementContext(registry=AnnotationRegistry())
+    _record_pmi_drop(ctx2, object(), "Y", "12.0", SimpleNamespace(pmi_kind="linear"))
     assert ctx2.escalations[0].view == "side"
 
     # A bore diameter/radius uses a DIFFERENT view table (the view where the bore
     # appears as a circle) from linear dims — conflating the two mislabelled every
     # dropped bore diameter/radius (caught by review, #351 PR-4a).
     for ax, want_view in (("Z", "plan"), ("X", "side"), ("Y", "front")):
-        ctx3 = PlacementContext()
-        d3 = _Dwg()
-        _record_pmi_drop(ctx3, d3, ax, "ø12.0", SimpleNamespace(pmi_kind="diameter"))
+        ctx3 = PlacementContext(registry=AnnotationRegistry())
+        _record_pmi_drop(ctx3, object(), ax, "ø12.0", SimpleNamespace(pmi_kind="diameter"))
         assert ctx3.escalations[0].view == want_view, ax
 
 

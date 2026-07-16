@@ -162,14 +162,15 @@ def _declared_feature_keys(groups, a: Analysis) -> set:
 
 def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     """Add the standard automatic dimensions, centrelines, and title block."""
+    # Per-run placement scratch (detail requests / escalations / corridor batch) + references to
+    # the drawing's build-state stores (registry/coverage), threaded to the passes instead of hung
+    # on the Drawing (ADR 0005 §2, #639). Fresh each auto-pass; the corridor batch is drained once
+    # at the end (drain_corridors, #345/#346).
+    ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
     # Idempotent: clear build-time lint state so a second annotation pass does
     # not accumulate duplicate drop records.
-    dwg._reset_build_issues()
-    dwg._reset_dropped_callout_diams()
-    # Per-run placement scratch (detail requests / escalations / corridor batch), threaded to the
-    # passes instead of hung on the Drawing (ADR 0005 §2, #639). Fresh each auto-pass; the corridor
-    # batch is drained once at the end (drain_corridors, #345/#346).
-    ctx = PlacementContext()
+    ctx.reset_issues()
+    ctx.coverage.reset_dropped()
 
     # Tighten right-strip outer_limits to the actual iso view left edge now
     # that the iso has been projected and fitted.  Always apply so that any
@@ -212,7 +213,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     # Rotational furniture — OD dim + axis centrelines + concentric bore leaders — IR
     # renderer (#237), placed early like the engine's inline block it replaces.
-    render_rotational(dwg, _model, a)
+    render_rotational(dwg, _model, a, ctx=ctx)
 
     # Centre marks for every hole (all part classes) — IR renderer.
     render_centermarks(dwg, _groups)
@@ -284,12 +285,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     render_step_positions(dwg, _model, a, ctx=ctx)
 
     # Chamfer callouts (#560): C{leg} / {leg}×{angle}° via a leader off each chamfer face.
-    render_chamfers(dwg, _model, a)
-    render_fillets(dwg, _model, a)
+    render_chamfers(dwg, _model, a, ctx=ctx)
+    render_fillets(dwg, _model, a, ctx=ctx)
     # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
-    render_flats(dwg, _model, a)
+    render_flats(dwg, _model, a, ctx=ctx)
     # Blind-recess callouts (#148a): W × L × D DEEP via a leader off each floored pocket.
-    render_pockets(dwg, _model, a)
+    render_pockets(dwg, _model, a, ctx=ctx)
 
     # Side-drilled holes' in-plane (side-below) locations share the below corridor with
     # the overall envelope depth. They now queue into the same batch; the envelope's
@@ -319,7 +320,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Prismatic bosses get a plan-view ø leader BEFORE the turned row/column solve, which then
     # sees the ø as 'mentioned' and skips it (#629 — the column-left strip strands a boss ø when
     # tight, even on a half-empty sheet). No-op on turned parts (they keep the OD stack).
-    render_boss_diameters(dwg, _groups, a)
+    render_boss_diameters(dwg, _groups, a, ctx=ctx)
     render_diameters(dwg, _groups)
     if a.prof is not None:
         render_step_lengths(dwg, _groups, ctx=ctx)
@@ -357,7 +358,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # primary turned-length chain runs — so it places into remaining clear room only after
     # the corridor drain has finalised the diameter/step-length furniture (else its room
     # check can't see the not-yet-drained length dims and collides, #148c crowded-shaft).
-    render_grooves(dwg, _model, a)
+    render_grooves(dwg, _model, a, ctx=ctx)
 
     # The section view renders after the corridor-drained furniture exists, so
     # its full strip_obstacles room check can see side callouts, envelope dims,
@@ -482,7 +483,9 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
         # Structured coverage state (registered at placement time, #351 PR-4c), not
         # an annotation-name-prefix grep — the last stringly-typed inference this
         # resolver relied on (ADR 0009 Amdt 1).
-        replaced = {n: o for n, o in list(dwg.iter_annotations()) if dwg._is_scattered_hole_doc(n)}
+        replaced = {
+            n: o for n, o in list(dwg.iter_annotations()) if ctx.coverage.is_scattered_hole_doc(n)
+        }
         replaced_view = {n: dwg.view_of(n) for n in replaced}
         for n in replaced:
             dwg.remove(n)
@@ -495,14 +498,14 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
             )
             if table is not None:
                 break
-        dwg._drop_build_issues("table_dropped")
+        ctx.drop_issues("table_dropped")
         if table is None:
             # Even wrapped it will not fit — restore the callouts/dims and keep the
             # drop lint, so the sheet is never left with neither. The pattern
             # balloons below are unaffected — nothing of theirs was removed.
             for n, obj in replaced.items():
                 dwg.add(obj, n, view=replaced_view.get(n))
-            dwg._record_build_issue("warning", "table_dropped", "hole table did not fit the sheet")
+            ctx.record_issue("warning", "table_dropped", "hole table did not fit the sheet")
         else:
             # One entry per hole (with repeats) so the coverage *count* check sees
             # that the table documents every instance, not just each distinct
@@ -516,7 +519,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
             # pattern balloon sharing this resolver's combined band can still drop
             # (review follow-up: this used to clear callout_dropped wholesale here,
             # masking a dropped pattern balloon).
-            dwg._drop_build_issues("location_ref_dropped")
+            ctx.drop_issues("location_ref_dropped")
 
     balloon_specs = scattered_specs + pattern_specs
     placed_names: set = set()
@@ -552,4 +555,4 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
 
     unresolved = [e for e in escalations if e.kind == "callout" and not _resolved(e)]
     if not unresolved:
-        dwg._drop_build_issues("callout_dropped")
+        ctx.drop_issues("callout_dropped")

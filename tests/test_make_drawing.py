@@ -8957,9 +8957,11 @@ class TestPatternGroupBalloon:
         before = set(dwg.annotations())
         feat = self._fake_pattern(count=6, diameter=5.0)
         ctx = PlacementContext(
+            registry=dwg.registry,
+            coverage=dwg.coverage,
             escalations=[
                 Escalation(kind="callout", view="plan", feature=feat, reason="strip_full")
-            ]
+            ],
         )
         # Mirror what _record_callout_drop does in production, so clearing it below
         # actually exercises the resolve path rather than trivially passing.
@@ -8983,7 +8985,7 @@ class TestPatternGroupBalloon:
             self._fake_pattern(count=4, diameter=3.0, origin=(-15.0, -8.0, 0.0)),
             self._fake_pattern(count=6, diameter=5.0, origin=(15.0, 8.0, 0.0)),
         ]
-        ctx = PlacementContext()
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
         for feat in feats:
             ctx.escalations.append(
                 Escalation(kind="callout", view="plan", feature=feat, reason="strip_full")
@@ -9011,9 +9013,11 @@ class TestPatternGroupBalloon:
         dwg = build_drawing(_multi_hole_plate())
         feat = self._fake_pattern(count=3, diameter=4.0)
         ctx = PlacementContext(
+            registry=dwg.registry,
+            coverage=dwg.coverage,
             escalations=[
                 Escalation(kind="callout", view="front", feature=feat, reason="front strip full")
-            ]
+            ],
         )
         dwg._record_build_issue("warning", "callout_dropped", "synthetic front-view drop")
         _maybe_tabulate_holes(dwg, dwg._analysis, ctx=ctx)

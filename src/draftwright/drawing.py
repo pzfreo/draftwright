@@ -496,6 +496,16 @@ class Drawing:
     def _build_issues(self, value) -> None:
         self._registry._build_issues = value
 
+    @property
+    def registry(self):
+        """The AnnotationRegistry (identity/build-issue store) — the build handle the passes' PlacementContext references (#639)."""
+        return self._registry
+
+    @property
+    def coverage(self):
+        """The CoverageState — referenced by the run's PlacementContext (#639)."""
+        return self._coverage
+
     # -- coverage state (compat accessors, ADR 0005 §4) -----------------------
     # The CoverageState owner holds these three; exposed as their live containers
     # so code reading dwg._pattern_callouts / _patterned_holes /
@@ -1136,9 +1146,13 @@ class Drawing:
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("furniture", feature, {"view": view}))
             return []
+        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_furniture
 
-        return add_feature_furniture(self, feature, self._part_model, self._analysis, view=view)
+        ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
+        return add_feature_furniture(
+            self, feature, self._part_model, self._analysis, view=view, ctx=ctx
+        )
 
     def section(self) -> list[str]:
         """Add the automatic full **section A–A** (#420) — the section half of the
@@ -1448,7 +1462,7 @@ class Drawing:
         # (ADR 0005 §2, #639): render_locations/_annotate_holes/drain_corridors register/read here.
         # A local — finalize is transactional (#647), so a raised drain rolls the drawing back and
         # the retry re-runs from a clean slate with a new ctx; no cross-call persistence needed.
-        ctx = PlacementContext()
+        ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
 
         model, a = self._part_model, self._analysis
         routable = model is not None and a is not None

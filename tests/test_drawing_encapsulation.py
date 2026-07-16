@@ -36,17 +36,9 @@ _DWG_PRIVATE_READ_ALLOW: frozenset[str] = frozenset(
     {
         "_add_balloons",  # balloon-render helper the hole pass calls back through
         "_coords",  # cached per-view projected coordinates
-        "_cover_pattern",  # coverage bookkeeping for pattern callouts
-        "_cover_scattered_hole_doc",  # coverage bookkeeping for scattered-hole doc
-        "_drop_build_issues",  # drop-verb build-issue bookkeeping
-        "_drop_callout_diam",  # drop-verb dropped-diameter bookkeeping
         "_feature_of_hole_at",  # feature lookup by hole location
-        "_is_scattered_hole_doc",  # coverage predicate for scattered-hole doc
         "_named",  # the name→annotation index (free-name probing)
         "_part_model",  # the built PartModel (read; write now via attach_part_model, #639)
-        "_record_build_issue",  # build-issue sink
-        "_reset_build_issues",  # build-issue reset
-        "_reset_dropped_callout_diams",  # dropped-diameter reset
         "_model_declared",  # whether the model was declared (vs detected) — getattr probe
     }
 )

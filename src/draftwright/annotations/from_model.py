@@ -172,7 +172,7 @@ def _record_slot_drop(ctx, dwg, kind, idx, view, feat):
     no natural grouping remedy like a recognised hole pattern, so no resolver
     consumes this yet — purely additive.
     """
-    dwg._record_build_issue(
+    ctx.record_issue(
         "info",
         "slot_dim_dropped",
         f"slot{idx} {kind} dim not placed (no room beside the {view})",
@@ -401,13 +401,13 @@ def _location_candidate(
     it; only a physically full strip drops (``location_ref_dropped`` → hole-table escalate)."""
 
     def _placed(nm):
-        dwg._cover_scattered_hole_doc(nm)
+        ctx.coverage.cover_scattered_hole_doc(nm)
         if pinned:
             dwg.pin(nm)
 
     def _drop(nm):
         edge = "plan view" if view == "plan" else "side view"
-        dwg._record_build_issue(
+        ctx.record_issue(
             "warning", "location_ref_dropped", f"{nm} not placed (no room above the {edge})"
         )
         ctx.escalations.append(Escalation("location", view, nm, "strip_full"))
@@ -496,7 +496,7 @@ def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
     _kept_x, _n_x_close = _legible_locations(_x_drawable, a.SCALE)
     if _n_x_close:
-        dwg._record_build_issue(
+        ctx.record_issue(
             "warning",
             "location_ref_dropped",
             f"{_n_x_close} X location dim(s) too closely spaced to dimension legibly "
@@ -561,7 +561,7 @@ def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
     _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
     _kept_y, _n_y_close = _legible_locations(_y_drawable, a.SCALE)
     if _n_y_close:
-        dwg._record_build_issue(
+        ctx.record_issue(
             "warning",
             "location_ref_dropped",
             f"{_n_y_close} Y location dim(s) too closely spaced to dimension legibly "
@@ -926,7 +926,7 @@ def _corner_candidates(dwg, view, vb, members, reach):
         yield (tip, elbow, m)
 
 
-def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code) -> int:
+def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx) -> int:
     """Place one machined-feature leader callout per job (#637). A *job* is
     ``(name, view, vb, label, candidates)`` where *candidates* yields ``(tip, elbow,
     feature)`` lead positions to try in order. Places the first Leader whose label lands clear
@@ -945,13 +945,13 @@ def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code) -> int:
                 n += 1
                 break
         else:
-            dwg._record_build_issue(
+            ctx.record_issue(
                 "warning", drop_code, f"{noun} callout {label} not placed (no clear room)"
             )
     return n
 
 
-def render_chamfers(dwg, model, a) -> int:
+def render_chamfers(dwg, model, a, *, ctx) -> int:
     """Chamfer callouts (#560): a leader from each recognised chamfer face to its
     ``C{leg}`` / ``{leg}×{angle}°`` label, in the view normal to the chamfered edge (a Z
     edge reads in the plan, an X edge in the side, a Y edge in the front). The leader runs
@@ -977,7 +977,7 @@ def render_chamfers(dwg, model, a) -> int:
                 _corner_candidates(dwg, view, vb, [ch], reach),
             )
         )
-    return _leader_callout_pass(dwg, a, jobs, noun="chamfer", drop_code="chamfer_dropped")
+    return _leader_callout_pass(dwg, a, jobs, noun="chamfer", drop_code="chamfer_dropped", ctx=ctx)
 
 
 def _fillet_label(radius, count) -> str:
@@ -987,7 +987,7 @@ def _fillet_label(radius, count) -> str:
     return f"{count}× {r}" if count > 1 else r
 
 
-def render_fillets(dwg, model, a) -> int:
+def render_fillets(dwg, model, a, *, ctx) -> int:
     """Fillet radius callouts (#561): a leader from an external edge fillet to its
     ``R{radius}`` label — the arc analog of :func:`render_chamfers`. Equal-radius fillets on
     the same edge axis share ONE ``n× R`` callout (#561 acceptance), placed in the view
@@ -1020,7 +1020,7 @@ def render_fillets(dwg, model, a) -> int:
                 _corner_candidates(dwg, view, vb, ordered, reach),
             )
         )
-    return _leader_callout_pass(dwg, a, jobs, noun="fillet", drop_code="fillet_dropped")
+    return _leader_callout_pass(dwg, a, jobs, noun="fillet", drop_code="fillet_dropped", ctx=ctx)
 
 
 def _flat_label(across) -> str:
@@ -1030,7 +1030,7 @@ def _flat_label(across) -> str:
     return f"{_fmt(across)} A/F"
 
 
-def render_flats(dwg, model, a) -> int:
+def render_flats(dwg, model, a, *, ctx) -> int:
     """Machined-flat callouts (#148b): a leader from a flat truncating round stock to its
     ``{across} A/F`` label, in the view down the stock axis (a Z-axis bar reads in the plan).
     Flats sharing an axis and across-flats size — the faces of a double-D or hex — share ONE
@@ -1060,7 +1060,7 @@ def render_flats(dwg, model, a) -> int:
                 _corner_candidates(dwg, view, vb, ordered, reach),
             )
         )
-    return _leader_callout_pass(dwg, a, jobs, noun="flat", drop_code="flat_dropped")
+    return _leader_callout_pass(dwg, a, jobs, noun="flat", drop_code="flat_dropped", ctx=ctx)
 
 
 def _groove_label(width, diameter) -> str:
@@ -1126,7 +1126,7 @@ def _radial_candidates(dwg, view, vb, feature, reach):
         yield (tip, elbow, feature)
 
 
-def render_pockets(dwg, model, a) -> int:
+def render_pockets(dwg, model, a, *, ctx) -> int:
     """Blind-recess callouts (#148a): a leader from each floored slot/pocket to its
     ``W × L × D DEEP`` label, in the view normal to the recess opening (a Z-depth pocket
     reads in the plan, an X-depth in the side, a Y-depth in the front). A pocket sits
@@ -1153,10 +1153,10 @@ def render_pockets(dwg, model, a) -> int:
                 _radial_candidates(dwg, view, vb, pk, reach),
             )
         )
-    return _leader_callout_pass(dwg, a, jobs, noun="pocket", drop_code="pocket_dropped")
+    return _leader_callout_pass(dwg, a, jobs, noun="pocket", drop_code="pocket_dropped", ctx=ctx)
 
 
-def render_grooves(dwg, model, a) -> int:
+def render_grooves(dwg, model, a, *, ctx) -> int:
     """Turned/circlip-groove callouts (#148c): a leader from each annular groove in round
     stock to its ``{width} WIDE × ø{diameter}`` label. The groove's width is *axial*, so the
     callout lands in the **profile** view (the one showing the stock axis in-plane, where the
@@ -1186,10 +1186,10 @@ def render_grooves(dwg, model, a) -> int:
                 _radial_candidates(dwg, view, vb, gr, reach),
             )
         )
-    return _leader_callout_pass(dwg, a, jobs, noun="groove", drop_code="groove_dropped")
+    return _leader_callout_pass(dwg, a, jobs, noun="groove", drop_code="groove_dropped", ctx=ctx)
 
 
-def render_boss_diameters(dwg, groups, a) -> int:
+def render_boss_diameters(dwg, groups, a, *, ctx) -> int:
     """ø leaders for a PRISMATIC part's bosses (#629). A boss reads as a circle looking down its
     axis, so its diameter is called out with a leader to that circle in the view normal to the
     axis — a Z boss in the plan, X in the side, Y in the front — free to exit into clear margin
@@ -1266,7 +1266,7 @@ def render_boss_diameters(dwg, groups, a) -> int:
             placed = True
             break
         if not placed:
-            dwg._record_build_issue(
+            ctx.record_issue(
                 "warning",
                 "boss_dia_dropped",
                 f"boss ø{_fmt(dia)} callout not placed (no clear room)",
@@ -1323,7 +1323,7 @@ def render_plates(dwg, model, a, *, ctx) -> int:
             return _dim(pa, pb, side, pos - edge, draft, label=_fmt(val))
 
         def _drop(nm, val=val, view=view, stack=stack):
-            dwg._record_build_issue(
+            ctx.record_issue(
                 "warning",
                 "plate_thickness_dropped",
                 f"plate thickness {_fmt(val)} not dimensioned ({view} {stack}-strip full)",
@@ -1431,7 +1431,7 @@ def render_envelope(dwg, groups, a, *, ctx) -> int:
     return n
 
 
-def _record_step_chain_drop(dwg, why: str) -> None:
+def _record_step_chain_drop(dwg, why: str, *, ctx) -> None:
     """Record the ``step_dim_dropped`` lint warning when a turned step-length chain
     is dropped whole (#362). These drops were silent (debug log only) — the user got
     a drawing with no step-length dimensioning and no signal. Mirrors
@@ -1440,7 +1440,7 @@ def _record_step_chain_drop(dwg, why: str) -> None:
     ``_request_prismatic_detail`` (sections.py), which would redraw *prismatic*
     height-above-base dims for a *turned* chain — the wrong semantics #351 PR-4b
     removed. A Z-turned-appropriate detail-view remedy is a tracked follow-up."""
-    dwg._record_build_issue(
+    ctx.record_issue(
         "warning",
         "step_dim_dropped",
         f"step-length chain dropped: {why} at this scale (use a detail view)",
@@ -1448,7 +1448,7 @@ def _record_step_chain_drop(dwg, why: str) -> None:
 
 
 def _draw_step_chain(
-    dwg, view, segs, name_prefix, detail_scale=None, allow_collapse=True, *, start=0
+    dwg, view, segs, name_prefix, detail_scale=None, allow_collapse=True, *, ctx, start=0
 ) -> int:
     """Place a turned step-length chain in *view* from *segs* — each ``(pa, pb,
     value)`` already projected to *view*'s page coords, in axis order. Orientation is
@@ -1506,14 +1506,16 @@ def _draw_step_chain(
             else:
                 _log.info("step-length chain skipped: too dense even when staggered")
                 _record_step_chain_drop(
-                    dwg, "shoulders too dense to dimension even when staggered"
+                    dwg, "shoulders too dense to dimension even when staggered", ctx=ctx
                 )
                 return 0
         else:
             shoulder_ys = sorted({c for pa, pb, *_ in segs for c in (pa[1], pb[1])})
             if any(b - a < tier_step for a, b in zip(shoulder_ys, shoulder_ys[1:])):
                 _log.info("step-length chain skipped: shoulders too close to dimension")
-                _record_step_chain_drop(dwg, "turned shoulders too closely spaced to dimension")
+                _record_step_chain_drop(
+                    dwg, "turned shoulders too closely spaced to dimension", ctx=ctx
+                )
                 return 0
 
         candidates = []
@@ -1538,7 +1540,7 @@ def _draw_step_chain(
         if box is not None and not (
             page[0] <= box[0] and box[2] <= page[2] and page[1] <= box[1] and box[3] <= page[3]
         ):
-            _record_step_chain_drop(dwg, "a dimension would fall off the drawable page")
+            _record_step_chain_drop(dwg, "a dimension would fall off the drawable page", ctx=ctx)
             return 0
     for name, dim in candidates:
         if detail_scale is not None:
@@ -1629,7 +1631,9 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
                 def _redraw(dwg, view, detail_scale, _hw=ra):
                     # View-scoped name prefix so two detail views never collide (#307 review).
                     hsegs = [(dwg.at(view, *a), dwg.at(view, *b), v, t) for a, b, v, t in _hw]
-                    return _draw_step_chain(dwg, view, hsegs, f"dim_{view}_steplen", detail_scale)
+                    return _draw_step_chain(
+                        dwg, view, hsegs, f"dim_{view}_steplen", detail_scale, ctx=ctx
+                    )
 
                 ctx.detail_requests.append(
                     DetailRequest(
@@ -1649,10 +1653,10 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
             # The chain now mixes head-block(s) with real steps — never collapse it to a
             # uniform "N× v" representative (a block is not a repeated step, #307 review).
             return _draw_step_chain(
-                dwg, "front", main, "m_steplen", allow_collapse=False, start=start
+                dwg, "front", main, "m_steplen", allow_collapse=False, ctx=ctx, start=start
             )
 
-    return _draw_step_chain(dwg, "front", fsegs, "m_steplen", start=start)
+    return _draw_step_chain(dwg, "front", fsegs, "m_steplen", ctx=ctx, start=start)
 
 
 def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
@@ -1716,7 +1720,7 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
             right_ladder = px
             n += 1
         else:
-            dwg._record_build_issue(
+            ctx.record_issue(
                 "error",
                 "placement_unsatisfiable",
                 "representative step-height dimension dropped (front-view right strip full)",
@@ -1724,7 +1728,7 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
     elif levels:
         kept, n_close = _legible_steps(levels, a.bb.min.Z, a.SCALE)
         if n_close:
-            dwg._record_build_issue(
+            ctx.record_issue(
                 "warning",
                 "step_dim_dropped",
                 f"{n_close} step height(s) too closely spaced to dimension at this scale "
@@ -1743,7 +1747,7 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
             perp = tuple(sorted((FZ(a.bb.min.Z), FZ(z))))
             px = carve_free_position(dwg, a.fv_zones.right, "front", "x", _SLOT_DIM_STEP, perp)
             if px is None:
-                dwg._record_build_issue(
+                ctx.record_issue(
                     "error",
                     "placement_unsatisfiable",
                     f"{len(kept) - col} step-height dimension(s) dropped "
@@ -1842,7 +1846,7 @@ def render_step_positions(dwg, model, a, *, ctx) -> int:
             )
 
         def _drop(nm, val=val, view=view):
-            dwg._record_build_issue(
+            ctx.record_issue(
                 "warning",
                 "step_position_dropped",
                 f"step position {_fmt(val)} not dimensioned ({view} above-strip full)",
@@ -1877,7 +1881,7 @@ def render_step_positions(dwg, model, a, *, ctx) -> int:
     return n
 
 
-def render_rotational(dwg, model, a) -> int:
+def render_rotational(dwg, model, a, *, ctx) -> int:
     """Rotational furniture from the IR `RotationalFeature` (#237): the OD dim (above
     the front view), the rotation-axis centrelines (front + side), and the concentric
     bore leaders stacked to the left of the front view. Replaces the engine's inline
@@ -1961,11 +1965,11 @@ def render_rotational(dwg, model, a) -> int:
                     n += 1
                 dropped = [d for i, d in enumerate(rot.bores) if placed.get(f"{i:03d}") is None]
                 for d in dropped:
-                    dwg._drop_callout_diam(
+                    ctx.coverage.drop_diam(
                         d
                     )  # exclude from coverage — else double-reported (#374 rev)
                 if dropped:
-                    dwg._record_build_issue(
+                    ctx.record_issue(
                         "warning",
                         "callout_dropped",
                         f"{len(dropped)} concentric-bore diameter(s) {dropped} not annotated "
@@ -2052,7 +2056,7 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
         view = {"Z": "plan", "X": "side", "Y": "front"}.get(ax, "front")
     else:
         view = "front" if ax in ("X", "Z") else "side"
-    dwg._record_build_issue(
+    ctx.record_issue(
         "warning", "pmi_dropped", f"PMI {label!r} not placed (no room beside the {view})"
     )
     ctx.escalations.append(
@@ -2060,13 +2064,13 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
     )
 
 
-def _record_pmi_unrenderable(dwg, label, rec):
+def _record_pmi_unrenderable(dwg, label, rec, *, ctx):
     """Record an authored dimension whose reference geometry can't form a witness (fewer
     than two distinct reference points, or a sub-legible span). Distinct from
     ``pmi_dropped`` (a *placement* failure): this is a *validation* failure, so a caller
     sees a specific reason instead of a misleading "no room" — an authored dim is only
     ``pmi_dropped`` after a real candidate reaches the corridor solver and cannot fit (#562)."""
-    dwg._record_build_issue(
+    ctx.record_issue(
         "warning",
         "authored_dim_degenerate",
         f"authored dimension {label!r} has degenerate reference geometry (needs two "
@@ -2465,14 +2469,14 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
             placed = _front_linear(rec, ax, label, name_x, "above", "below", a.FV_Y)
             if placed is None:
                 _log.debug("PMI dim[%d] X: degenerate reference", idx)
-                _record_pmi_unrenderable(dwg, label, rec)
+                _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
                 continue
 
         elif ax == "Z":
             placed = _front_linear(rec, ax, label, name_z, "right", "left", a.FV_X)
             if placed is None:
                 _log.debug("PMI dim[%d] Z: degenerate reference", idx)
-                _record_pmi_unrenderable(dwg, label, rec)
+                _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
                 continue
 
         elif ax == "Y":
@@ -2481,7 +2485,7 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
             # only fires when a real candidate reached the solver (#562).
             if _witness_from_bbox(rec, "side") is None and _witness_from_bbox(rec, "plan") is None:
                 _log.debug("PMI dim[%d] Y: degenerate reference", idx)
-                _record_pmi_unrenderable(dwg, label, rec)
+                _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
                 continue
             # Try side view (Y maps to SX horizontal).
             wp = _witness_from_bbox(rec, "side")
@@ -2596,7 +2600,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
         name = f"m_gdt{i}"
         vk = views.get(item.view)
         if vk is None or item.side not in ("above", "below", "left", "right"):
-            dwg._record_build_issue(
+            ctx.record_issue(
                 "warning", "gdt_dropped", f"{name}: bad target {item.view!r}/{item.side!r}"
             )
             continue
@@ -2615,7 +2619,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
         try:
             gb = _gdt_glyph(item, draft).bounding_box().size
         except Exception as e:  # noqa: BLE001 — any glyph-spec error drops one item, not the build
-            dwg._record_build_issue(
+            ctx.record_issue(
                 "warning", "gdt_dropped", f"{name}: cannot render ({type(e).__name__}: {e})"
             )
             continue
@@ -2676,7 +2680,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     if not _box_hits(_anno_box(dim), (_tb,)):  # clear of the title block
                         dwg.add(dim, nm, view=_v, feature=_feat)  # placed on the alternate side
                         return
-            dwg._record_build_issue(
+            ctx.record_issue(
                 "warning",
                 "gdt_dropped",
                 f"{nm} not placed (no room in the {_v} {_s} strip or its opposite)",
