@@ -393,6 +393,12 @@ class Drawing:
     first :meth:`lint` otherwise).
     """
 
+    # Per-run placement scratch — created by _common.init_placement_scratch (auto-pass or
+    # finalize, #638), not in __init__; declared here so mypy knows their types.
+    _corridor_batch: dict
+    _escalations: list
+    _detail_requests: list
+
     def __init__(
         self,
         *,
@@ -1419,7 +1425,7 @@ class Drawing:
         # so a first call (no attr yet) still short-circuits on empty intents as before.
         if not self._intents and not getattr(self, "_corridor_batch", None):
             return
-        from draftwright.annotations._common import drain_corridors
+        from draftwright.annotations._common import drain_corridors, init_placement_scratch
         from draftwright.annotations.from_model import (
             render_diameters,
             render_height_ladder,
@@ -1437,14 +1443,10 @@ class Drawing:
         )
         from draftwright.model import PartModel, plan_dimensions
 
-        # Corridor state the auto-pass creates in _auto_annotate S0 but a detect-only build
-        # lacks — render_locations/_annotate_holes/drain_corridors register/read here.
-        if not hasattr(self, "_corridor_batch"):
-            self._corridor_batch: dict = {}
-        if not hasattr(self, "_escalations"):
-            self._escalations: list = []
-        if not hasattr(self, "_detail_requests"):
-            self._detail_requests: list = []
+        # Corridor state the auto-pass creates in _auto_annotate but a detect-only build lacks —
+        # render_locations/_annotate_holes/drain_corridors register/read here. reset=False keeps
+        # a _corridor_batch left by a prior finalize whose drain raised (#636 retry-safety).
+        init_placement_scratch(self, reset=False)
 
         model, a = self._part_model, self._analysis
         routable = model is not None and a is not None
