@@ -30,7 +30,7 @@ from draftwright._core import (
     _tag_sequence,
 )
 from draftwright.analysis import _sizing_bores
-from draftwright.annotations._common import drain_corridors
+from draftwright.annotations._common import drain_corridors, init_placement_scratch
 from draftwright.annotations.from_model import (
     render_boss_diameters,
     render_centermarks,
@@ -166,9 +166,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # not accumulate duplicate drop records.
     dwg._reset_build_issues()
     dwg._reset_dropped_callout_diams()
-    dwg._detail_requests = []  # renderers queue enlarged-detail requests here (#307)
-    dwg._escalations = []  # placers collect Escalation objects here (ADR 0009 Amdt 1, #351)
-    dwg._corridor_batch = {}  # passes register CorridorCandidates here; one drain solves each strip (#345/#346)
+    # Per-run placement scratch (detail requests / escalations / corridor batch) — reset each
+    # auto-pass; the single owner is init_placement_scratch (#638). The corridor batch is
+    # drained once at the end (drain_corridors, #345/#346).
+    init_placement_scratch(dwg, reset=True)
 
     # Tighten right-strip outer_limits to the actual iso view left edge now
     # that the iso has been projected and fitted.  Always apply so that any
