@@ -1212,7 +1212,7 @@ def _probe_box(s, edge, side, to_page, elbow_dx, draft, scale):
     """Probe a queued candidate's leader footprint up front (before it's chosen for placement),
     so a degenerate geometry (a hole essentially coincident with the strip edge) gets a
     defensive catch, matching _geom_box's "not every annotation bbox-es cleanly" idiom. Returns
-    the box or ``None``. Promoted (#638; pure)."""
+    the box or ``None``. Promoted (#638; side-effect-free bar a debug log on failure)."""
     try:
         leader, _, _ = _build_leader_at(s, edge, side, s[4], to_page, elbow_dx, draft, scale)
     except Exception as exc:  # noqa: BLE001 — geometry construction raises broadly
