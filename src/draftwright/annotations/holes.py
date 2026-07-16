@@ -65,7 +65,9 @@ from draftwright.model.planner import plan_locations
 _AXIS_ALIGN_COS = 0.9996
 
 
-def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | None = None) -> str:
+def add_feature_callout(
+    dwg, feature, model, a, *, view: str | None = None, name: str | None = None
+) -> str:
     """Add a hole/pattern ø-depth **leader callout** for *feature* — the #414 add verb,
     the callout-mechanism half of the editable surface (symmetric with :meth:`Drawing.drop`).
 
@@ -80,7 +82,6 @@ def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | No
     Raises ``ValueError`` if the drawing has no detected model, *feature* is not in it, or
     the feature exposes no hole callout (use :meth:`dimension` for a linear param instead).
     """
-    model = getattr(dwg, "_part_model", None)
     if model is None:
         raise ValueError("callout(): no detected model — build the drawing first")
     if not any(f is feature for f in model.features):
@@ -96,7 +97,6 @@ def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | No
             f"{type(feature).__name__} exposes none — use dimension() for a linear param"
         )
     draft = dwg.draft
-    a = getattr(dwg, "_analysis", None)
     members = feature.members or (feature.frame.origin,)
     # count comes from the spec (== feat.count) — the same source the auto-pass's
     # bare path uses — not re-derived from len(members) (#414 review).
@@ -176,7 +176,7 @@ def add_feature_callout(dwg, feature, *, view: str | None = None, name: str | No
 
 
 def add_feature_location(
-    dwg, feature, *, axes: tuple[str, ...] | None = None, pin: bool = False
+    dwg, feature, model, a, *, axes: tuple[str, ...] | None = None, pin: bool = False
 ) -> list[str]:
     """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern —
     the #418 ``locate()`` add verb (symmetric with :meth:`Drawing.drop`).
@@ -201,7 +201,6 @@ def add_feature_location(
     by the auto-pass). A feature with no datum-referenced ref (a datum-less model, a
     concentric/on-datum bore, or a ref deduped against a sibling) returns ``[]``.
     """
-    model = getattr(dwg, "_part_model", None)
     if model is None:
         raise ValueError("locate(): no detected model — build the drawing first")
     if not any(f is feature for f in model.features):
@@ -219,7 +218,6 @@ def add_feature_location(
             "locate(): only Z-axis holes/patterns have plan location dims; a side-drilled "
             "bore is located by the auto-pass, not this verb"
         )
-    a = getattr(dwg, "_analysis", None)
     if a is None:
         raise ValueError("locate(): no analysis — build the drawing first")
     want = {"x", "y"} if axes is None else {ax.lower() for ax in axes}
@@ -313,7 +311,7 @@ def add_feature_location(
     return names
 
 
-def add_feature_furniture(dwg, feature, *, view: str | None = None) -> list[str]:
+def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None) -> list[str]:
     """Add a hole/pattern's non-dimensional **sheet furniture** — the #419 ``furniture()``
     add verb (symmetric with :meth:`Drawing.drop`).
 
@@ -328,7 +326,6 @@ def add_feature_furniture(dwg, feature, *, view: str | None = None) -> list[str]
     Raises ``ValueError`` if the drawing has no detected model/analysis, *feature* is not
     in it, or *feature* is not a hole/pattern (use :meth:`dimension` for a linear param).
     """
-    model = getattr(dwg, "_part_model", None)
     if model is None:
         raise ValueError("furniture(): no detected model — build the drawing first")
     if not any(f is feature for f in model.features):
@@ -341,7 +338,6 @@ def add_feature_furniture(dwg, feature, *, view: str | None = None) -> list[str]
             f"furniture() draws a hole/pattern's centre marks + pattern furniture; "
             f"{type(feature).__name__} exposes none — use dimension() for a linear param"
         )
-    a = getattr(dwg, "_analysis", None)
     if a is None:
         raise ValueError("furniture(): no analysis — build the drawing first")
     view = view or _END_ON[feature.frame.axis]
@@ -375,7 +371,7 @@ def add_feature_furniture(dwg, feature, *, view: str | None = None) -> list[str]
     return sorted(set(dwg.annotations()) - before)
 
 
-def add_feature_diameter(dwg, feature) -> str:
+def add_feature_diameter(dwg, feature, model) -> str:
     """Add a turned **step/boss diameter** ø-leader — the #419 extension of the callout
     add verb to :class:`StepFeature` / :class:`BossFeature`.
 
@@ -387,7 +383,6 @@ def add_feature_diameter(dwg, feature) -> str:
     Raises ``ValueError`` if the feature exposes no step/boss diameter, its turning axis
     is unsupported, or there is no room to place the leader.
     """
-    model = getattr(dwg, "_part_model", None)
     if model is None:
         raise ValueError("callout(): no detected model — build the drawing first")
     if not any(f is feature for f in model.features):

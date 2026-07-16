@@ -205,7 +205,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (dwg.model()) and feature edits work even in manual mode (#398); fall back to
     # building it here for any direct caller that skipped _assemble.
     _model = dwg._part_model if dwg._part_model is not None else build_model(a)
-    dwg._part_model = _model
+    dwg.attach_part_model(_model)
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
     _groups = plan_dimensions(_model)

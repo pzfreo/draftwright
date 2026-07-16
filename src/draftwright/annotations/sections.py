@@ -79,7 +79,7 @@ def feature_hole_keys(model, a: Analysis) -> set[HoleRef]:
     return keys
 
 
-def add_section(dwg) -> list[str]:
+def add_section(dwg, model, a) -> list[str]:
     """Add the automatic full **section A–A** (ISO 128-44 arrows + ISO 128-50 hatch)
     — the #420 ``section()`` add verb.
 
@@ -94,10 +94,8 @@ def add_section(dwg) -> list[str]:
 
     Raises ``ValueError`` if the drawing has no detected model / analysis.
     """
-    model = getattr(dwg, "_part_model", None)
     if model is None:
         raise ValueError("section(): no detected model — build the drawing first")
-    a = getattr(dwg, "_analysis", None)
     if a is None:
         raise ValueError("section(): no analysis — build the drawing first")
     plan = plan_sections(model, feature_hole_keys(model, a))
