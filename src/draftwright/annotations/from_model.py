@@ -2356,6 +2356,42 @@ def render_pmi(dwg, model, a) -> int:
         )
         return True
 
+    def _front_linear(rec, ax, label, name, primary, secondary, center):
+        """An X- or Z-dominant linear PMI dim in the FRONT view (the two share one shape): the
+        witness spans the ref bbox; place ``[primary, secondary]`` when the perpendicular
+        midpoint sits on the primary side of the view centre, else fall back to ``[secondary]``
+        alone. Returns True/False placed, or ``None`` for a degenerate (no-witness) reference
+        so the caller can report it as a validation failure."""
+        wp = _witness_from_bbox(rec, "front")
+        if wp is None:
+            return None
+        p1, p2, avg = wp
+        zones = {
+            "above": a.fv_zones.above,
+            "below": a.fv_zones.below,
+            "right": a.fv_zones.right,
+            "left": a.fv_zones.left,
+        }
+        placed = False
+        if avg >= center:
+            placed = _queue_options(
+                [
+                    _dim_spec(p1, p2, zones[primary], label, name, "front", primary),
+                    _dim_spec(p1, p2, zones[secondary], label, name, "front", secondary),
+                ],
+                ax,
+                label,
+                rec,
+            )
+        if not placed:
+            placed = _queue_options(
+                [_dim_spec(p1, p2, zones[secondary], label, name, "front", secondary)],
+                ax,
+                label,
+                rec,
+            )
+        return placed
+
     queued = 0
     for idx, rec in enumerate(usable):
         ax = rec.dominant_axis
@@ -2419,54 +2455,18 @@ def render_pmi(dwg, model, a) -> int:
                 )
 
         elif ax == "X":
-            wp = _witness_from_bbox(rec, "front")
-            if wp is None:
+            placed = _front_linear(rec, ax, label, name_x, "above", "below", a.FV_Y)
+            if placed is None:
                 _log.debug("PMI dim[%d] X: degenerate reference", idx)
                 _record_pmi_unrenderable(dwg, label, rec)
                 continue
-            p1, p2, avg_pz = wp
-            if avg_pz >= a.FV_Y:
-                placed = _queue_options(
-                    [
-                        _dim_spec(p1, p2, a.fv_zones.above, label, name_x, "front", "above"),
-                        _dim_spec(p1, p2, a.fv_zones.below, label, name_x, "front", "below"),
-                    ],
-                    ax,
-                    label,
-                    rec,
-                )
-            if not placed:
-                placed = _queue_options(
-                    [_dim_spec(p1, p2, a.fv_zones.below, label, name_x, "front", "below")],
-                    ax,
-                    label,
-                    rec,
-                )
 
         elif ax == "Z":
-            wp = _witness_from_bbox(rec, "front")
-            if wp is None:
+            placed = _front_linear(rec, ax, label, name_z, "right", "left", a.FV_X)
+            if placed is None:
                 _log.debug("PMI dim[%d] Z: degenerate reference", idx)
                 _record_pmi_unrenderable(dwg, label, rec)
                 continue
-            p1, p2, avg_px = wp
-            if avg_px >= a.FV_X:
-                placed = _queue_options(
-                    [
-                        _dim_spec(p1, p2, a.fv_zones.right, label, name_z, "front", "right"),
-                        _dim_spec(p1, p2, a.fv_zones.left, label, name_z, "front", "left"),
-                    ],
-                    ax,
-                    label,
-                    rec,
-                )
-            if not placed:
-                placed = _queue_options(
-                    [_dim_spec(p1, p2, a.fv_zones.left, label, name_z, "front", "left")],
-                    ax,
-                    label,
-                    rec,
-                )
 
         elif ax == "Y":
             # A degenerate reference (no witness in EITHER candidate view) is a validation
