@@ -57,7 +57,7 @@ def _f(lo: float, hi: float) -> st.SearchStrategy[float]:
 
 
 @st.composite
-def _box_holes(draw) -> Box:
+def _box_holes(draw):
     """A box with 1-5 scattered through-holes (mirror of _template_box_holes)."""
     w, d, h = draw(_f(40, 160)), draw(_f(30, 120)), draw(_f(10, 40))
     part = Box(w, d, h)
@@ -74,7 +74,7 @@ def _box_holes(draw) -> Box:
 
 
 @st.composite
-def _bolt_circle(draw) -> Box:
+def _bolt_circle(draw):
     """A box with a 3-8 hole bolt circle (mirror of _template_bolt_circle)."""
     side, h = draw(_f(45, 100)), draw(_f(10, 25))
     part = Box(side, side, h)
@@ -91,7 +91,7 @@ def _bolt_circle(draw) -> Box:
 
 
 @st.composite
-def _grid(draw) -> Box:
+def _grid(draw):
     """A box with a rows x cols hole grid (mirror of _template_grid)."""
     rows, cols = draw(st.integers(2, 4)), draw(st.integers(2, 5))
     row_pitch, col_pitch = draw(_f(15, 30)), draw(_f(15, 30))
@@ -108,7 +108,7 @@ def _grid(draw) -> Box:
 
 
 @st.composite
-def _turned_steps(draw) -> Box:
+def _turned_steps(draw):
     """A turned shaft with 2-4 diameter/length steps, either axis (mirror of
     _template_turned_steps)."""
     b = Align.MIN
@@ -119,11 +119,12 @@ def _turned_steps(draw) -> Box:
         seg = Pos(0, 0, z) * Cylinder(dia / 2, ln, align=(Align.CENTER, Align.CENTER, b))
         s = seg if s is None else s + seg
         z += ln
+    assert s is not None  # the loop runs 2-4 times, so a segment is always built
     return Rotation(0, 90, 0) * s if draw(st.booleans()) else s
 
 
 @st.composite
-def _counterbore(draw) -> Box:
+def _counterbore(draw):
     """A box with a through-bore + counterbore, triggering section A-A (mirror of
     _template_counterbore)."""
     w, d, h = draw(_f(45, 100)), draw(_f(30, 70)), draw(_f(15, 35))
@@ -137,7 +138,7 @@ def _counterbore(draw) -> Box:
 
 
 @st.composite
-def _slot(draw) -> Box:
+def _slot(draw):
     """A box with one milled slot (mirror of _template_slot)."""
     w, d, h = draw(_f(50, 120)), draw(_f(40, 90)), draw(_f(10, 30))
     part = Box(w, d, h)
