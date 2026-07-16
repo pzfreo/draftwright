@@ -7721,7 +7721,9 @@ class TestLintSuggestions:
 
         dwg = build_drawing(Box(60, 40, 20))
         issue = LintIssue(
-            severity="warning", message="plate thickness 5.0 dropped", code="plate_thickness_dropped"
+            severity="warning",
+            message="plate thickness 5.0 dropped",
+            code="plate_thickness_dropped",
         )
         sug = _suggest_fix(issue, dwg)
         assert sug is not None
