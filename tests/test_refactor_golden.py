@@ -2,8 +2,9 @@
 
 These refactors (`render_pmi`, `_annotate_holes`, `finalize`, the #639 PlacementContext
 threading) are **behaviour-preserving** — the output must not change at all. This gate is a
-stronger, wider counterpart to the retired byte-exact golden (ADR 0007) and the ADR-0009
-`test_layout_snapshot`: it snapshots the FULL placement signature of a corpus chosen to
+stronger, wider counterpart to the retired byte-exact golden (ADR 0007) and the since-retired
+ADR-0009 `test_layout_snapshot` (#641 gap 3): it snapshots the FULL placement signature of a
+corpus chosen to
 exercise every path the split touches — machined-feature leader callouts (chamfer/fillet/
 flat/pocket/groove), off-axis hole locations, prismatic height ladders + step positions,
 sections, turned diameters, dense-hole table escalation — and also the **build-issue set**

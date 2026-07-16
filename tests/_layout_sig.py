@@ -1,12 +1,11 @@
 """Shared layout-signature helpers + the small part corpus.
 
 Extracted from the retired ``test_layout_snapshot.py`` (a temporary ADR 0009
-characterization gate, deleted once the migration landed — #319/#641 gap 3). The
-byte-exact snapshot gate is gone; cross-kernel placement coverage now rests on the
-RELATIONAL invariants (``test_layout_cleanliness`` archetypes, ``test_layout_property``
-seeded fuzz, ``test_layout_hypothesis`` adversarial fuzz — no per-kernel skips). But
-``_signature`` (a determinism fingerprint) and ``CORPUS`` (the exercised parts) are
-still used by those relational tests, so they live here.
+characterization gate, deleted once the migration landed — #319/#641 gap 3). ``_signature``
+(a determinism fingerprint) and ``CORPUS`` (the exercised parts) outlive it: ``_signature`` is
+used by ``test_layout_property`` (determinism gate) and ``test_layout_cleanliness``; ``CORPUS``
+by ``test_layout_cleanliness`` and ``test_strip_layout``. (``test_layout_hypothesis`` uses
+neither — it generates its own parts and checks lint codes, not this fingerprint.)
 
 Underscore-prefixed so pytest does not collect it as a test module.
 """

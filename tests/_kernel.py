@@ -3,16 +3,21 @@
 build123d 0.11 (the cadquery-ocp-novtk kernel, required for Python 3.13+ wheels) shifts the
 HLR projection very slightly for some geometries.
 
-The byte-exact placement gate that most SKIP_011 markers guarded (``test_layout_snapshot``) is
-**retired** (#319/#641 gap 3): cross-kernel placement coverage now rests on the RELATIONAL
-invariants (``test_layout_cleanliness`` archetypes, ``test_layout_property`` seeded fuzz,
-``test_layout_hypothesis`` adversarial fuzz), which run on every kernel with no skip.
+``test_layout_snapshot`` — a TEMPORARY, byte-exact ADR 0009 characterization gate marked
+"delete at P5 (#319)" — is **retired** (#641 gap 3). It skipped exactly one of its ten cases on
+0.11 (``box``); the other nine ran. Retiring it deliberately drops its *absolute*-position
+coverage (expected label/geometry positions, view bboxes, item count) — that was always
+temporary characterization for the strip-layout refactor, not a permanent guard. What remains,
+on every kernel with no skip, is the RELATIONAL coverage (``test_layout_cleanliness`` archetypes,
+``test_layout_property`` seeded fuzz, ``test_layout_hypothesis`` adversarial fuzz): collision-free,
+in-bounds, deterministic — NOT absolute positions. Permanent cross-kernel absolute-placement
+coverage, if wanted, is a separate, kernel-safe gate — not this one.
 
-The few remaining SKIP_011 markers guard **behavioural threshold** tests (a specific scale
-value, or the iso fitting at sheet scale vs. NTS) where 0.11's projection tips the assertion —
-and at the extreme (a very oversized part) the 0.11 layout genuinely differs (the iso overflows
-at minimum scale). That is a real kernel difference, not a characterization artifact — tracked
-by #665, not something to paper over by relaxing the assertion.
+The few remaining SKIP_011 markers guard **behavioural** tests where 0.11's projection genuinely
+differs — an extreme oversized part whose iso overflows at minimum scale, a CTC-01 iso that no
+longer fits at sheet scale, and the CTC-01 iso world→page mapping (its centroid lands on the iso
+bbox edge under 0.11's foreshortening). Real kernel differences, tracked by #665 — not papered
+over by relaxing the assertions.
 """
 
 import build123d
