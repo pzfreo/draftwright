@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from build123d_drafting.helpers import Dimension, SafeDimension
 
 from draftwright.layout import StripCandidate, plan_strip
+from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import _centerline_extent
 
 _log = logging.getLogger(__name__)
@@ -522,8 +524,10 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
 
 @dataclass
 class PlacementContext:
-    """The per-run placement scratch a build's passes share, threaded to them explicitly instead
-    of hung on the ``Drawing`` result object (ADR 0005 §2, #639): the corridor batch
+    """The per-run placement scratch a build's passes share — plus references to the drawing's
+    build-state stores (the ``registry`` build-issue sink + ``coverage`` bookkeeping) — threaded
+    to the passes explicitly instead of hung on the ``Drawing`` result object (ADR 0005 §2, #639):
+    the corridor batch
     (:func:`register_corridor`/:func:`drain_corridors`), the escalation list (ADR 0009 Amdt 1,
     #351), and the enlarged-detail request list (#307).
 
@@ -536,6 +540,22 @@ class PlacementContext:
     corridor_batch: dict = field(default_factory=dict)
     escalations: list = field(default_factory=list)
     detail_requests: list = field(default_factory=list)
+    # The drawing's build-state stores, referenced (not owned) by the run's passes (#639).
+    # Duck-typed as ``Any`` — matching the untyped ``Drawing._record_build_issue`` they replace —
+    # so mypy does not reject the delegating calls below.
+    registry: Any = None  # the drawing's AnnotationRegistry: build-issue sink + names
+    coverage: Any = None  # the drawing's CoverageState
+
+    def record_issue(self, severity, code, message) -> None:
+        """Record a build-time lint issue on the run's registry (#639). Replaces the passes'
+        old `dwg._record_build_issue`."""
+        self.registry.record_issue(LintIssue(severity=severity, code=code, message=message))
+
+    def reset_issues(self) -> None:
+        self.registry.reset_issues()
+
+    def drop_issues(self, *codes) -> None:
+        self.registry.drop_issues(codes)
 
 
 def register_corridor(ctx, key, strip, view, axis, tier, cand):

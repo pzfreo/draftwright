@@ -148,9 +148,13 @@ class TestStepChainDrop:
         return _Dwg()
 
     def test_crowded_vertical_chain_records_the_drop(self):
+        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.from_model import _draw_step_chain
+        from draftwright.registry import AnnotationRegistry
 
         dwg = self._stub_dwg()
+        # The drop lint routes through the ctx's registry now (#639), not the drawing.
+        ctx = PlacementContext(registry=AnnotationRegistry())
         # Vertical (chain-to-the-right) segs whose shoulder Ys are 0.1 mm apart —
         # far below tier_step (= font_size + 2*pad = 4). Values differ so the
         # uniform-collapse path is not taken. The chain is dropped whole.
@@ -158,10 +162,11 @@ class TestStepChainDrop:
             ((80.0, 10.0, 0), (80.0, 10.1, 0), 5.0),
             ((80.0, 10.1, 0), (80.0, 10.2, 0), 8.0),
         ]
-        placed = _draw_step_chain(dwg, "front", segs, "m_steplen")
+        placed = _draw_step_chain(dwg, "front", segs, "m_steplen", ctx=ctx)
         assert placed == 0
-        codes = [code for _sev, code, _msg in dwg.issues]
+        codes = [i.code for i in ctx.registry._build_issues]
         assert "step_dim_dropped" in codes, "silent drop no longer allowed (#362)"
+        assert ctx.escalations == []  # _record_step_chain_drop records lint only, no Escalation
 
 
 class TestDiameterColumnOccupancy:

@@ -311,7 +311,7 @@ def add_feature_location(
     return names
 
 
-def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None) -> list[str]:
+def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ctx) -> list[str]:
     """Add a hole/pattern's non-dimensional **sheet furniture** — the #419 ``furniture()``
     add verb (symmetric with :meth:`Drawing.drop`).
 
@@ -366,7 +366,7 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None) ->
             for nm in dwg._named
         ):
             j += 1
-        _add_furniture(dwg, a, view, j, feature, lambda loc: dwg.at(view, *loc))
+        _add_furniture(dwg, a, view, j, feature, lambda loc: dwg.at(view, *loc), ctx=ctx)
 
     return sorted(set(dwg.annotations()) - before)
 
@@ -468,8 +468,8 @@ def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None):
     else ``None`` — carried on the Escalation so the resolver can group by pattern
     identity (#351 PR-3).
     """
-    dwg._drop_callout_diam(diam)
-    dwg._record_build_issue(
+    ctx.coverage.drop_diam(diam)
+    ctx.record_issue(
         "warning",
         "callout_dropped",
         f"hole callout ø{_fmt(diam)} dropped from the {view} view ({reason})",
@@ -504,7 +504,7 @@ def _ir_off_axis_holes(model) -> list[_OffHole]:
     ]
 
 
-def _off_axis_drop(dwg, axis, view):
+def _off_axis_drop(dwg, axis, view, *, ctx):
     # Recorded at INFO under a code DISTINCT from the plan path's
     # ``location_ref_dropped`` (which is a warning). Two reasons:
     #  - Severity: a best-effort off-axis location dim that did not fit is not
@@ -518,7 +518,7 @@ def _off_axis_drop(dwg, axis, view):
     #    view, so it gets its own code.
     # (The plan path's primary top-view positions are expected on every
     # drawing, so a drop there stays a warning.) Promoted (#638).
-    dwg._record_build_issue(
+    ctx.record_issue(
         "info",
         "off_axis_location_dropped",
         f"{axis} location dim for a {view}-view hole not placed (no room beside the view)",
@@ -631,7 +631,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
         "y",
         cands,
         features=feats,
-        on_drop=lambda _nm: _off_axis_drop(dwg, "y", "side"),
+        on_drop=lambda _nm: _off_axis_drop(dwg, "y", "side", ctx=ctx),
         order_key=lambda nm, _i: order_y.get(nm, _i),
     )
 
@@ -678,7 +678,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
         "y",
         x_cands,
         features=x_feats,
-        on_drop=lambda _nm: _off_axis_drop(dwg, "x", "front"),
+        on_drop=lambda _nm: _off_axis_drop(dwg, "x", "front", ctx=ctx),
         order_key=lambda nm, _i: order_x.get(nm, _i),
     )
 
@@ -744,7 +744,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
             if _off_axis_emit(
                 dwg, tier, p_strip, p_view, "x", [_cand], force=True, features=_feature_map(p_view)
             ):
-                _off_axis_drop(dwg, "Z", p_view)
+                _off_axis_drop(dwg, "Z", p_view, ctx=ctx)
 
         _off_axis_queue(
             dwg,
@@ -811,7 +811,7 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which):
     _locate_along_z(dwg, ctx, a, off)
 
 
-def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_page):
+def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_page, *, ctx):
     """Pattern sheet furniture, added once its callout is placed (#92). Driven by the
     IR `PatternFeature` *feat* (members / bcd / pitch / grid), not a recogniser
     `Pattern` — ADR 0008 Amendment 6. Plain (unpatterned) plan callouts carry no
@@ -823,7 +823,7 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
     # Remember the bore-callout name AND the holes it documents (by position), so a
     # later hole-table escalation leaves the grouped pattern callout standing and
     # tabulates only the holes no *placed* pattern callout covers (#92).
-    dwg._cover_pattern(f"hc_{view}{j}", [HoleRef.of(m) for m in members])
+    ctx.coverage.cover_pattern(f"hc_{view}{j}", [HoleRef.of(m) for m in members])
     if feat.pattern == "bolt_circle":
         assert feat.bcd is not None  # a bolt circle always carries its BCD
         cx = sum(to_page(m)[0] for m in members) / len(members)
@@ -1553,7 +1553,7 @@ def _annotate_holes(
                     continue
                 if place_furniture:  # #426: finalize's furniture() replay owns furniture
                     idx, feat = furniture[name]
-                    _add_furniture(dwg, a, view, idx, feat, to_page)
+                    _add_furniture(dwg, a, view, idx, feat, to_page, ctx=ctx)
             continue
 
         # plan / side: two-pass leader placement.
@@ -1795,9 +1795,9 @@ def _annotate_holes(
                 # _maybe_tabulate_holes find + replace it (#426 Ph4c). Coverage-only, so the
                 # auto-pass (place_furniture=True) set is unchanged → byte-identical.
                 if view == "plan" and feat is None:
-                    dwg._cover_scattered_hole_doc(name)
+                    ctx.coverage.cover_scattered_hole_doc(name)
                 if place_furniture:  # #426: finalize's furniture() replay owns furniture
-                    _add_furniture(dwg, a, view, i, feat, to_page)
+                    _add_furniture(dwg, a, view, i, feat, to_page, ctx=ctx)
                 i += 1
             return i
 

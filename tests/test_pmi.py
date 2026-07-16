@@ -238,6 +238,9 @@ def test_render_pmi_drops_unrecognized_bore_axis_without_crashing():
         ref_pts=((0.0, 0.0, 0.0), (5.0, 0.0, 0.0)),
     )
     model = SimpleNamespace(features=[bogus])
-    n = render_pmi(dwg, model, dwg._analysis, ctx=PlacementContext())  # must not raise
+    # The pmi_dropped lint now routes through the ctx's registry/coverage (#639); wire them to
+    # the drawing's so the drop lands on dwg's build issues.
+    ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+    n = render_pmi(dwg, model, dwg._analysis, ctx=ctx)  # must not raise
     assert n == 0
     assert any(i.code == "pmi_dropped" for i in dwg._build_issues)  # graceful drop recorded
