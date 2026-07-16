@@ -61,18 +61,33 @@ def _is_dwg(node: ast.AST) -> bool:
     return isinstance(node, ast.Name) and node.id == "dwg"
 
 
-def _dwg_private_write_targets(tree: ast.Module) -> list[ast.Attribute]:
-    """Every ``dwg._<name> = …`` / ``dwg._<name>: T = …`` assignment target in the module."""
-    out: list[ast.Attribute] = []
+def _dwg_private_writes(tree: ast.Module) -> list[tuple[int, str]]:
+    """Every ``dwg._<name>`` MUTATION as ``(lineno, name)``. Detected by AST *context* rather
+    than by statement kind, so it catches plain/annotated/augmented assignment
+    (``dwg._x = …`` / ``dwg._x: T = …`` / ``dwg._x += …``) and ``del dwg._x`` uniformly (all
+    carry ``Store``/``Del`` context), plus constant-name ``setattr``/``delattr(dwg, "_x", …)``.
+    (Aliasing — ``a = dwg; a._x = …`` — is out of scope; no code does it and review would catch
+    it. Noted rather than solved, #639.)"""
+    out: list[tuple[int, str]] = []
     for node in ast.walk(tree):
-        targets: list[ast.expr] = []
-        if isinstance(node, ast.Assign):
-            targets = list(node.targets)
-        elif isinstance(node, ast.AnnAssign):
-            targets = [node.target]
-        for t in targets:
-            if isinstance(t, ast.Attribute) and _is_dwg(t.value) and t.attr.startswith("_"):
-                out.append(t)
+        if (
+            isinstance(node, ast.Attribute)
+            and _is_dwg(node.value)
+            and node.attr.startswith("_")
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        ):
+            out.append((node.lineno, node.attr))
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in ("setattr", "delattr")
+            and len(node.args) >= 2
+            and _is_dwg(node.args[0])
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+            and node.args[1].value.startswith("_")
+        ):
+            out.append((node.lineno, node.args[1].value))
     return out
 
 
@@ -96,16 +111,16 @@ def _dwg_getattr_probes(tree: ast.Module) -> list[str]:
 
 
 def _dwg_private_reads(tree: ast.Module) -> set[str]:
-    """Distinct ``dwg._<name>`` private reads: attribute accesses that are NOT an assignment
-    target, plus ``getattr(dwg, "_name", …)`` probes."""
-    write_targets = {id(t) for t in _dwg_private_write_targets(tree)}
+    """Distinct ``dwg._<name>`` private READS: attribute accesses in ``Load`` context (so a
+    write/delete target — ``Store``/``Del`` — is never miscounted as a read), plus
+    ``getattr(dwg, "_name", …)`` probes."""
     reads: set[str] = set()
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Attribute)
             and _is_dwg(node.value)
             and node.attr.startswith("_")
-            and id(node) not in write_targets
+            and isinstance(node.ctx, ast.Load)
         ):
             reads.add(node.attr)
     reads |= set(_dwg_getattr_probes(tree))
@@ -113,18 +128,38 @@ def _dwg_private_reads(tree: ast.Module) -> set[str]:
 
 
 def test_no_dwg_private_attribute_writes():
-    """No ``annotations/`` module assigns ``dwg._<name> = …`` (ADR 0005 §2 / #639): build state
-    flows in via parameters or a named method (``dwg.attach_part_model``), never a private poke."""
+    """No ``annotations/`` module mutates ``dwg._<name>`` (ADR 0005 §2 / #639): build state
+    flows in via parameters or a named method (``dwg.attach_part_model``), never a private poke.
+    Covers assignment / annotated / augmented / ``del`` / ``setattr`` / ``delattr`` forms."""
     offenders: list[str] = []
     for path in _anno_sources():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for t in _dwg_private_write_targets(tree):
-            offenders.append(f"{path.relative_to(_SRC)}:{t.lineno}: dwg.{t.attr} = …")
+        for lineno, attr in _dwg_private_writes(tree):
+            offenders.append(f"{path.relative_to(_SRC)}:{lineno}: dwg.{attr} mutated")
     assert not offenders, (
         "annotations/ must not write Drawing privates — the drawing is not the state bus "
         "(#639 / ADR 0005 §2). Thread the value in as a parameter or route it through a named "
         "Drawing method (e.g. attach_part_model):\n  " + "\n  ".join(offenders)
     )
+
+
+def test_write_guard_catches_every_mutation_form():
+    """Pin the guard itself: each way to mutate a ``dwg`` private is detected, so the
+    encapsulation check can't be evaded by reaching for ``setattr``/``+=``/``del`` (#662 review)."""
+    for snippet in (
+        "dwg._part_model = m",
+        "dwg._part_model: int = m",
+        "dwg._named += x",
+        "dwg._named |= x",
+        "del dwg._part_model",
+        'setattr(dwg, "_part_model", m)',
+        'delattr(dwg, "_part_model")',
+        "(dwg._a, y) = pair",  # tuple-unpack target
+    ):
+        writes = _dwg_private_writes(ast.parse(snippet))
+        assert writes, f"guard missed a mutation form: {snippet!r}"
+    # A pure read must NOT register as a write (else every read is a false positive).
+    assert not _dwg_private_writes(ast.parse("use(dwg._named)"))
 
 
 def test_no_analysis_or_part_model_probing():
@@ -146,7 +181,12 @@ def test_private_reads_are_a_documented_shrinking_allowlist():
     """Every distinct ``dwg._<name>`` private READ across annotations/ is in the documented
     allowlist — the compat surface #639 will shrink to zero. The allowlist may only SHRINK:
     removing a name (as its read is threaded through the API) is fine; adding one is a conscious
-    re-coupling that needs a one-line rationale in _DWG_PRIVATE_READ_ALLOW."""
+    re-coupling that needs a one-line rationale in _DWG_PRIVATE_READ_ALLOW.
+
+    Note (#662 review): this asserts current-state equality, not cross-revision monotonicity —
+    adding a read AND its allowlist entry in one change passes in-process. True shrink-only
+    enforcement would need CI to diff the allowlist against the base revision; here it rests on
+    the stale-entry assertion (below) + the allowlist growth being visible in review."""
     reads: set[str] = set()
     for path in _anno_sources():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
