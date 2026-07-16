@@ -89,6 +89,7 @@ def _drive_screw_x():
     with BuildPart() as p:
         Cylinder(radius=6, height=20)
         Hole(0.8, depth=8)
+    assert p.part is not None
     return Rotation(0, 90, 0) * p.part
 
 
