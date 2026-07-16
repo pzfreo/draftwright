@@ -112,6 +112,7 @@ ignore = ["E501"]
 [dependency-groups]
 dev = [
     "codespell>=2.3.0",
+    "hypothesis>=6",
     "mypy>=2.1.0",
     "pytest>=8",
     "pytest-cov>=5",
