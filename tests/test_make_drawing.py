@@ -7714,6 +7714,46 @@ class TestLintSuggestions:
         assert "place_dim" in sug
         assert "dim_height" in sug
 
+    def test_plate_thickness_dropped_suggestion_authors_a_thickness_dim(self):
+        # #641 gap 4: assert the snippet CONTENT, not just its presence — a dropped plate
+        # thickness must point at a feature-backed thickness dim, not a raw-coordinate hack.
+        from draftwright.linting import LintIssue, _suggest_fix
+
+        dwg = build_drawing(Box(60, 40, 20))
+        issue = LintIssue(
+            severity="warning", message="plate thickness 5.0 dropped", code="plate_thickness_dropped"
+        )
+        sug = _suggest_fix(issue, dwg)
+        assert sug is not None
+        assert "dwg.dimension" in sug
+        assert 'role="thickness"' in sug
+        assert "pin=True" in sug
+
+    def test_chamfer_dropped_suggestion_mentions_detail_view(self):
+        # #641 gap 4: a dropped chamfer leader should steer the user to an enlarged detail view.
+        from draftwright.linting import LintIssue, _suggest_fix
+
+        dwg = build_drawing(Box(60, 40, 20))
+        issue = LintIssue(
+            severity="warning", message="chamfer callout dropped", code="chamfer_dropped"
+        )
+        sug = _suggest_fix(issue, dwg)
+        assert sug is not None
+        assert "detail_view=True" in sug
+
+    def test_step_position_dropped_suggestion_mentions_detail_view(self):
+        # #641 gap 4: a dropped shoulder position rebuilds as a set, so the fix is to free strip
+        # room / use a detail view — NOT to author one shoulder by hand.
+        from draftwright.linting import LintIssue, _suggest_fix
+
+        dwg = build_drawing(Box(60, 40, 20))
+        issue = LintIssue(
+            severity="warning", message="step position dropped", code="step_position_dropped"
+        )
+        sug = _suggest_fix(issue, dwg)
+        assert sug is not None
+        assert "detail_view=True" in sug
+
     def test_unknown_code_has_no_suggestion(self):
         from draftwright.linting import LintIssue, _suggest_fix
 
