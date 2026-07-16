@@ -149,6 +149,27 @@ class CoverageState:
         """Diameters dropped by the cap (passed to lint_feature_coverage)."""
         return self._dropped_callout_diams
 
+    # -- transactional snapshot (#647) ----------------------------------------
+
+    def snapshot(self) -> tuple:
+        """Capture the mutable coverage collections so finalize's transaction can
+        roll a partial mutation back on a raise (#647) — the passes it replays
+        mutate coverage (drop_diam / cover_scattered_hole_doc / cover_pattern)."""
+        return (
+            set(self._pattern_callouts),
+            set(self._patterned_holes),
+            set(self._scattered_hole_docs),
+            list(self._dropped_callout_diams),
+        )
+
+    def restore(self, snap: tuple) -> None:
+        """Restore the collections captured by :meth:`snapshot`."""
+        pc, ph, shd, dropped = snap
+        self._pattern_callouts = set(pc)
+        self._patterned_holes = set(ph)
+        self._scattered_hole_docs = set(shd)
+        self._dropped_callout_diams = list(dropped)
+
 
 def lint_feature_coverage(
     part,

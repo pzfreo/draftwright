@@ -1457,12 +1457,15 @@ class Drawing:
         # state — a retry then starts from a clean slate and re-runs, rather than operating against
         # half-committed annotations/intents (the duplicate-corridor / partial-commit defects
         # #647 describes). The registry owns identity (named/view/feature/pins); items/intents/
-        # views/build-issues are the rest; the edge cache is recomputable so it is just cleared.
+        # views/build-issues/coverage/coords are the rest (a section view adds to BOTH views and
+        # _coords; the passes mutate coverage); the edge cache is recomputable so it is just cleared.
         reg_snap = self._registry.snapshot()
         issues_snap = list(self._build_issues)
         items_snap = list(self.items)
         intents_snap = list(self._intents)
         views_snap = dict(self.views)
+        coords_snap = dict(self._coords)
+        coverage_snap = self._coverage.snapshot()
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
             # Reserve the section's cutting-plane row BEFORE the callout carve so the carve
@@ -1586,13 +1589,18 @@ class Drawing:
             if routable:
                 assert a is not None
                 _maybe_tabulate_holes(self, a, ctx=ctx)
-        except Exception:
+        except BaseException:
             # (#647) Roll back a partial finalize so a corrected retry starts clean.
+            # BaseException (not just Exception) so a KeyboardInterrupt/SystemExit mid-drain
+            # still restores the drawing before propagating — the transaction is all-or-nothing
+            # on *any* raise, matching the guarantee this block advertises.
             self._registry.restore(reg_snap)
             self._build_issues = issues_snap
             self.items = items_snap
             self._intents = intents_snap
             self.views = views_snap
+            self._coords = coords_snap
+            self._coverage.restore(coverage_snap)
             self._view_edge_cache.clear()
             raise
         finally:

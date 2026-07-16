@@ -278,8 +278,9 @@ class TestStepPosition:
         # #647: finalize is transactional. A drain that raises AFTER an earlier stage already
         # committed annotations must not leave them behind — else a retry re-runs the source
         # intents and duplicates the measurement (the m_locx0 + m_locx1 defect). The rollback
-        # restores _named/items/_intents to the pre-finalize state, so a clean retry places each
-        # dimension exactly once.
+        # restores _named/items/_intents AND the coverage bookkeeping to the pre-finalize state
+        # (the B1 callout records scattered-hole coverage; leaving it mutated would make a later
+        # lint() false-clean, #647 review), so a clean retry places each dimension exactly once.
         from draftwright.annotations import _common
 
         # A step positioned in B2's drain, plus an off-centre hole whose callout live-places in
@@ -295,6 +296,7 @@ class TestStepPosition:
         dwg.dimension(step, "length", role="step_position")  # drained in B2
         names_before, items_before = set(dwg._named), len(dwg.items)
         intents_before = len(dwg._intents)
+        coverage_before = dwg._coverage.snapshot()
 
         calls = {"n": 0}
         real = _common.drain_corridors
@@ -312,6 +314,7 @@ class TestStepPosition:
         assert set(dwg._named) == names_before
         assert len(dwg.items) == items_before
         assert len(dwg._intents) == intents_before
+        assert dwg._coverage.snapshot() == coverage_before  # coverage restored (#647 review)
 
         monkeypatch.undo()
         dwg.finalize()  # clean retry — the shoulder position places exactly once (no duplicate)
