@@ -32,8 +32,8 @@ import math
 import random
 
 import pytest
+from _layout_sig import _signature
 from build123d import Align, Box, Cylinder, Pos, Rotation
-from test_layout_snapshot import _signature
 
 from draftwright import build_drawing
 
