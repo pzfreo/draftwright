@@ -1,0 +1,202 @@
+{
+  "annotations": [
+    {
+      "geom_bbox": [
+        114.7,
+        55.0,
+        122.7,
+        75.1
+      ],
+      "label": "20",
+      "label_bbox": [
+        119.6,
+        63.4,
+        121.8,
+        66.6
+      ],
+      "name": "dim_height",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        14.9,
+        108.7,
+        47.7,
+        111.3
+      ],
+      "label": "",
+      "label_bbox": [
+        14.9,
+        108.7,
+        28.7,
+        111.3
+      ],
+      "name": "hc_plan0",
+      "type": "Leader",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        46.7,
+        106.0,
+        54.7,
+        114.0
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "m_cm0",
+      "type": "CenterMark",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        131.4,
+        43.0,
+        191.5,
+        51.0
+      ],
+      "label": "60",
+      "label_bbox": [
+        159.8,
+        43.9,
+        163.0,
+        46.1
+      ],
+      "name": "m_env_depth",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
+        30.7,
+        83.0,
+        110.8,
+        91.0
+      ],
+      "label": "80",
+      "label_bbox": [
+        69.1,
+        83.9,
+        72.3,
+        86.1
+      ],
+      "name": "m_env_width",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        30.7,
+        112.0,
+        50.8,
+        167.0
+      ],
+      "label": "20",
+      "label_bbox": [
+        39.1,
+        163.9,
+        42.3,
+        166.1
+      ],
+      "name": "m_locx0",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        131.4,
+        77.0,
+        146.5,
+        87.0
+      ],
+      "label": "15",
+      "label_bbox": [
+        137.3,
+        83.9,
+        140.5,
+        86.1
+      ],
+      "name": "m_locy0",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
+        70.7,
+        135.0,
+        133.5,
+        166.7
+      ],
+      "label": "20 \u00d7 30 \u00d7 15 DEEP",
+      "label_bbox": [
+        103.3,
+        164.5,
+        133.5,
+        166.7
+      ],
+      "name": "m_pocket_yx0",
+      "type": "Leader",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        196.7,
+        92.9,
+        221.0,
+        95.6
+      ],
+      "label": "ISO VIEW (NTS)",
+      "label_bbox": [
+        196.7,
+        92.9,
+        221.0,
+        95.6
+      ],
+      "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        165.9,
+        10.9,
+        286.1,
+        27.1
+      ],
+      "label": "DRAWING",
+      "label_bbox": null,
+      "name": "title_block",
+      "type": "TitleBlock",
+      "view": null
+    }
+  ],
+  "build_issues": [],
+  "item_count": 10,
+  "views": {
+    "front": [
+      30.7,
+      55.0,
+      110.7,
+      75.0
+    ],
+    "iso": [
+      145.2,
+      100.3,
+      272.5,
+      194.7
+    ],
+    "plan": [
+      30.7,
+      95.0,
+      110.7,
+      155.0
+    ],
+    "side": [
+      131.4,
+      55.0,
+      191.4,
+      75.0
+    ]
+  }
+}

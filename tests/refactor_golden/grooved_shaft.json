@@ -1,0 +1,149 @@
+{
+  "annotations": [
+    {
+      "geom_bbox": [
+        39.9,
+        50.0,
+        40.1,
+        120.0
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "centerline_front",
+      "type": "Centerline",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        112.9,
+        50.0,
+        113.1,
+        120.0
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "centerline_side",
+      "type": "Centerline",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
+        30.0,
+        119.0,
+        50.1,
+        127.0
+      ],
+      "label": "\u00f820",
+      "label_bbox": [
+        37.5,
+        123.9,
+        42.5,
+        126.1
+      ],
+      "name": "dim_od",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        40.0,
+        70.0,
+        84.0,
+        91.7
+      ],
+      "label": "4 WIDE \u00d7 \u00f814",
+      "label_bbox": [
+        62.6,
+        89.5,
+        84.0,
+        91.7
+      ],
+      "name": "m_groove_z0",
+      "type": "Leader",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        40.0,
+        100.0,
+        83.9,
+        121.7
+      ],
+      "label": "4 WIDE \u00d7 \u00f816",
+      "label_bbox": [
+        62.6,
+        119.5,
+        83.9,
+        121.7
+      ],
+      "name": "m_groove_z1",
+      "type": "Leader",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        202.8,
+        86.3,
+        227.2,
+        89.0
+      ],
+      "label": "ISO VIEW (NTS)",
+      "label_bbox": [
+        202.8,
+        86.3,
+        227.2,
+        89.0
+      ],
+      "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        165.9,
+        10.9,
+        286.1,
+        27.1
+      ],
+      "label": "DRAWING",
+      "label_bbox": null,
+      "name": "title_block",
+      "type": "TitleBlock",
+      "view": null
+    }
+  ],
+  "build_issues": [
+    [
+      "warning",
+      "step_dim_dropped",
+      "step-length chain dropped: turned shoulders too closely spaced to dimension at this scale (use a detail view)"
+    ]
+  ],
+  "item_count": 7,
+  "views": {
+    "front": [
+      30.0,
+      55.0,
+      50.0,
+      115.0
+    ],
+    "iso": [
+      202.0,
+      93.7,
+      228.0,
+      172.3
+    ],
+    "plan": [
+      30.0,
+      135.0,
+      50.0,
+      155.0
+    ],
+    "side": [
+      103.0,
+      55.0,
+      123.0,
+      115.0
+    ]
+  }
+}

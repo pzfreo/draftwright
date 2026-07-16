@@ -1,0 +1,135 @@
+{
+  "annotations": [
+    {
+      "geom_bbox": [
+        124.0,
+        98.5,
+        132.0,
+        118.6
+      ],
+      "label": "20",
+      "label_bbox": [
+        128.9,
+        106.9,
+        131.1,
+        110.1
+      ],
+      "name": "dim_height",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        140.0,
+        86.5,
+        200.1,
+        94.5
+      ],
+      "label": "60",
+      "label_bbox": [
+        168.4,
+        87.4,
+        171.6,
+        89.6
+      ],
+      "name": "m_env_depth",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
+        30.0,
+        126.5,
+        120.1,
+        134.5
+      ],
+      "label": "90",
+      "label_bbox": [
+        73.4,
+        127.4,
+        76.6,
+        129.6
+      ],
+      "name": "m_env_width",
+      "type": "Dimension",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        117.7,
+        196.2,
+        135.4,
+        205.4
+      ],
+      "label": "R8",
+      "label_bbox": [
+        132.2,
+        203.2,
+        135.4,
+        205.4
+      ],
+      "name": "m_fillet_z0",
+      "type": "Leader",
+      "view": "plan"
+    },
+    {
+      "geom_bbox": [
+        302.8,
+        118.7,
+        327.2,
+        121.4
+      ],
+      "label": "ISO VIEW (NTS)",
+      "label_bbox": [
+        302.8,
+        118.7,
+        327.2,
+        121.4
+      ],
+      "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        258.9,
+        10.9,
+        409.1,
+        27.1
+      ],
+      "label": "DRAWING",
+      "label_bbox": null,
+      "name": "title_block",
+      "type": "TitleBlock",
+      "view": null
+    }
+  ],
+  "build_issues": [],
+  "item_count": 6,
+  "views": {
+    "front": [
+      30.0,
+      98.5,
+      120.0,
+      118.5
+    ],
+    "iso": [
+      246.1,
+      126.1,
+      379.6,
+      226.9
+    ],
+    "plan": [
+      30.0,
+      138.5,
+      120.0,
+      198.5
+    ],
+    "side": [
+      140.0,
+      98.5,
+      200.0,
+      118.5
+    ]
+  }
+}
