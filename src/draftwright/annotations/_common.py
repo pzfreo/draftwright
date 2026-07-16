@@ -22,7 +22,8 @@ _log = logging.getLogger(__name__)
 class Escalation:
     """A first-class "could not place this here" signal (ADR 0009 Amendment 1, P5-strand-2).
 
-    Placers *collect* one of these into ``dwg._escalations`` at the point of failure —
+    Placers *collect* one of these into the run's ``PlacementContext.escalations`` at the point
+    of failure —
     instead of recording a stringly-typed ``*_dropped`` lint code and letting the escalators
     grep for it — and one later resolver pass groups them by ``(view, feature-or-pattern)``,
     picks a remedy per group (ISO pattern-grouped balloon / table / detail / drop), and emits
@@ -519,49 +520,44 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
                 _promote_losers(c)
 
 
-def register_corridor(dwg, key, strip, view, axis, tier, cand):
+@dataclass
+class PlacementContext:
+    """The per-run placement scratch a build's passes share, threaded to them explicitly instead
+    of hung on the ``Drawing`` result object (ADR 0005 §2, #639): the corridor batch
+    (:func:`register_corridor`/:func:`drain_corridors`), the escalation list (ADR 0009 Amdt 1,
+    #351), and the enlarged-detail request list (#307).
+
+    All three are per-run — both entry paths (:func:`_auto_annotate` and ``Drawing.finalize``)
+    make a fresh one each build and discard it after draining/consuming. The corridor batch is a
+    pure function of the still-present intents; escalations/detail-requests need no cross-retry
+    persistence either, because finalize is transactional (#647): a raised drain rolls the drawing
+    back and the retry re-runs from a clean slate, re-generating them."""
+
+    corridor_batch: dict = field(default_factory=dict)
+    escalations: list = field(default_factory=list)
+    detail_requests: list = field(default_factory=list)
+
+
+def register_corridor(ctx, key, strip, view, axis, tier, cand):
     """Queue a :class:`CorridorCandidate` under a shared corridor *key* so one
     :func:`drain_corridors` places the whole cross-pass set together (ADR 0009 end state).
     The first registration for a key fixes its ``(strip, view, axis)``; mixed producers on
     the same corridor use the largest requested tier so spacing is not registration-order
     dependent."""
-    b = dwg._corridor_batch.setdefault(
+    b = ctx.corridor_batch.setdefault(
         key, {"strip": strip, "view": view, "axis": axis, "tier": tier, "cands": []}
     )
     b["tier"] = max(b["tier"], tier)
     b["cands"].append(cand)
 
 
-def init_placement_scratch(dwg, *, reset: bool) -> None:
-    """Seed the per-run placement scratch containers a build's passes share — the corridor batch
-    (:func:`register_corridor`/:func:`drain_corridors`), the escalation list (ADR 0009 Amdt 1,
-    #351), and the enlarged-detail request list (#307). The single owner both entry paths call
-    (#638), replacing the two hand-rolled copies that had drifted.
-
-    The corridor batch is ALWAYS fresh: it is a pure function of the still-present intents (#639),
-    so a raised drain leaves the intents recorded and a retry rebuilds it — no leftover to
-    preserve. Escalations/detail-requests are NOT so lucky: B1 records a callout-drop escalation
-    and drops the producing callout intent *before* the fallible drain, so they can't be rebuilt
-    on a retry. ``reset=True`` (the auto-pass) clears them each run; ``reset=False`` (finalize)
-    creates-if-absent so a B1 escalation survives a raised B2 drain to the retry's hole-table
-    pass (#659 review)."""
-    dwg._corridor_batch = {}
-    if reset:
-        dwg._escalations = []
-        dwg._detail_requests = []
-        return
-    if not hasattr(dwg, "_escalations"):
-        dwg._escalations = []
-    if not hasattr(dwg, "_detail_requests"):
-        dwg._detail_requests = []
-
-
-def drain_corridors(dwg):
+def drain_corridors(ctx, dwg):
     """Solve every registered corridor (one :func:`solve_corridor` per strip), then clear
-    the batch. Called once, after all corridor-feeding passes have registered."""
-    for b in dwg._corridor_batch.values():
+    the batch. Called once, after all corridor-feeding passes have registered. Takes both the
+    scratch *ctx* (the batch) and *dwg* (the drawing :func:`solve_corridor` places onto)."""
+    for b in ctx.corridor_batch.values():
         solve_corridor(dwg, b["strip"], b["view"], b["axis"], b["cands"], b["tier"])
-    dwg._corridor_batch = {}
+    ctx.corridor_batch = {}
 
 
 def place_strip_candidates(

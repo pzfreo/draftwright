@@ -388,7 +388,8 @@ def _largest_empty_rect(drawable, obstacles, *, warn: bool = True):
 @dataclass
 class DetailRequest:
     """A renderer's request for an enlarged detail of a region it could not draw
-    legibly at sheet scale (#307). Renderers append these to ``dwg._detail_requests``
+    legibly at sheet scale (#307). Renderers append these to the run's
+    ``PlacementContext.detail_requests``
     instead of building bespoke detail views; ``_resolve_details`` resolves them all
     through one generic detailer (crop → project → place → caption → marker), then
     calls ``redraw`` to draw the feature's own dims inside the placed detail view.

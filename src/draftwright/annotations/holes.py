@@ -460,7 +460,7 @@ def _legible_locations(positions, scale):
     return kept, n_too_close
 
 
-def _record_callout_drop(dwg, view, diam, reason, feat=None):
+def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None):
     """Record a hole callout the layout could not place (#36).
 
     A warning (the drawing is incomplete, not invalid), whose diameter is
@@ -482,7 +482,7 @@ def _record_callout_drop(dwg, view, diam, reason, feat=None):
     # First-class escalation object alongside the lint code (ADR 0009 Amdt 1, #351 PR-2).
     # The resolver (`_maybe_tabulate_holes`) triggers on these; the lint code stays for
     # coverage. 1:1 with the code emit, so the object trigger is byte-identical.
-    dwg._escalations.append(Escalation(kind="callout", view=view, feature=feat, reason=reason))
+    ctx.escalations.append(Escalation(kind="callout", view=view, feature=feat, reason=reason))
 
 
 class _OffHole(NamedTuple):
@@ -542,6 +542,7 @@ def _off_axis_emit(dwg, tier, strip, view, axis, cands, force=False, features=No
 
 def _off_axis_queue(
     dwg,
+    ctx,
     tier,
     strip,
     view,
@@ -564,7 +565,7 @@ def _off_axis_queue(
         return
     for i, (name, build) in enumerate(cands):
         register_corridor(
-            dwg,
+            ctx,
             (view, side),
             strip,
             view,
@@ -591,7 +592,7 @@ def _off_axis_owner(dwg, hole_locs):
     return next(iter(feats)) if len(feats) == 1 else None
 
 
-def _locate_across(dwg, a: Analysis, off):
+def _locate_across(dwg, ctx, a: Analysis, off):
     """The "across" phase (#133): an X-axis hole's Y position below the SIDE view, queued
     with the envelope so the overall depth dim stacks outside it (ISO order). Confined to the
     side view: a Y-axis hole's X position contends the FRONT-below strip with the
@@ -627,6 +628,7 @@ def _locate_across(dwg, a: Analysis, off):
     feats = {nm: _off_axis_owner(dwg, locs) for nm, locs in loc_by_name.items()}
     _off_axis_queue(
         dwg,
+        ctx,
         tier,
         a.sv_zones.below,
         "side",
@@ -639,7 +641,7 @@ def _locate_across(dwg, a: Analysis, off):
     )
 
 
-def _locate_along_planar(dwg, a: Analysis, off):
+def _locate_along_planar(dwg, ctx, a: Analysis, off):
     """The "along" phase's planar dim: a Y-axis hole's X position below the FRONT view, placed
     after the envelope + turned-diameter passes so it never evicts those from the contended
     front-below strip (#133). Promoted (#638)."""
@@ -673,6 +675,7 @@ def _locate_along_planar(dwg, a: Analysis, off):
     x_feats = {nm: _off_axis_owner(dwg, locs) for nm, locs in x_loc_by_name.items()}
     _off_axis_queue(
         dwg,
+        ctx,
         tier,
         a.fv_zones.below,
         "front",
@@ -685,7 +688,7 @@ def _locate_along_planar(dwg, a: Analysis, off):
     )
 
 
-def _locate_along_z(dwg, a: Analysis, off):
+def _locate_along_z(dwg, ctx, a: Analysis, off):
     """The "along" phase's height dim: a hole's height (Z) is visible to the RIGHT of both the
     side and the front view. Neither right strip is universally free, so try the natural strip
     first, then RELOCATE to the other view if a bore-callout leader sits in the natural
@@ -750,6 +753,7 @@ def _locate_along_z(dwg, a: Analysis, off):
 
         _off_axis_queue(
             dwg,
+            ctx,
             tier,
             strip,
             view,
@@ -763,7 +767,7 @@ def _locate_along_z(dwg, a: Analysis, off):
         )
 
 
-def _locate_off_axis_holes(dwg, a: Analysis, *, which):
+def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which):
     """Location dimensions for side-drilled holes (#133).
 
     An X-axis hole is a circle in the SIDE view (locate its Y below the view and
@@ -806,10 +810,10 @@ def _locate_off_axis_holes(dwg, a: Analysis, *, which):
     if not off:
         return
     if which == "across":
-        _locate_across(dwg, a, off)
+        _locate_across(dwg, ctx, a, off)
         return
-    _locate_along_planar(dwg, a, off)
-    _locate_along_z(dwg, a, off)
+    _locate_along_planar(dwg, ctx, a, off)
+    _locate_along_z(dwg, ctx, a, off)
 
 
 def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_page):
@@ -1371,7 +1375,7 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
 
 
 def _annotate_holes(
-    dwg, a: Analysis, view_of_axis, groups, feature_keys, *, only=None, place_furniture=True
+    dwg, a: Analysis, view_of_axis, groups, feature_keys, *, ctx, only=None, place_furniture=True
 ):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
 
@@ -1504,7 +1508,7 @@ def _annotate_holes(
                     side = "left"
                 else:
                     _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
-                    _record_callout_drop(dwg, view, dia, "no room beside the view", feat)
+                    _record_callout_drop(ctx, dwg, view, dia, "no room beside the view", feat)
                     continue
 
                 name = _hc_name(view, i)
@@ -1550,7 +1554,7 @@ def _annotate_holes(
                 if name in left_names:
                     dia, feat = meta[name]
                     _log.info("Hole callout ø%s skipped (front strip full)", _fmt(dia))
-                    _record_callout_drop(dwg, view, dia, "front strip full", feat)
+                    _record_callout_drop(ctx, dwg, view, dia, "front strip full", feat)
                     continue
                 if place_furniture:  # #426: finalize's furniture() replay owns furniture
                     idx, feat = furniture[name]
@@ -1647,7 +1651,7 @@ def _annotate_holes(
 
             if not can_right and not can_left:
                 _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
-                _record_callout_drop(dwg, view, dia, "no room beside the view", feat)
+                _record_callout_drop(ctx, dwg, view, dia, "no room beside the view", feat)
                 continue
 
             # Natural Y is the bore's own row; keep-out-band avoidance is now
@@ -1678,7 +1682,7 @@ def _annotate_holes(
             if not queue:
                 return start_i
 
-            ctx = _StripCtx(edge, min_gap, y_min, y_max, a, to_page, view_cx, view_cy, draft)
+            sctx = _StripCtx(edge, min_gap, y_min, y_max, a, to_page, view_cx, view_cy, draft)
 
             # Carve [y_min, y_max] around a set of keep-out intervals, assign each
             # candidate to its nearest free segment, then solve each segment
@@ -1695,7 +1699,7 @@ def _annotate_holes(
             # min_gap from its queue siblings and the keep-out rows. Used below
             # as the "cost of NOT avoiding [obstacles]" reference a carve-based
             # relocation must beat to be worth taking.
-            base_y, base_dropped = _carve_and_place(queue, band_intervals, key_prefix, ctx)
+            base_y, base_dropped = _carve_and_place(queue, band_intervals, key_prefix, sctx)
 
             # Carve around drawing-level obstacles this column's leaders would
             # cross too (e.g. the section cutting-plane arrow — #351 P5 strand
@@ -1724,7 +1728,7 @@ def _annotate_holes(
                 (max(y_min, o[1] - min_gap), min(y_max, o[3] + min_gap)) for o in occupied
             ]
             seg_y, _seg_dropped = _carve_and_place(
-                queue, band_intervals + obstacle_intervals, key_prefix, ctx, allow_snap=False
+                queue, band_intervals + obstacle_intervals, key_prefix, sctx, allow_snap=False
             )
 
             # Decide per candidate: take the carve-aware (obstacle-avoiding)
@@ -1773,7 +1777,7 @@ def _annotate_holes(
                     len(queue),
                 )
                 for s in dropped:
-                    _record_callout_drop(dwg, view, s[1], f"{side} strip full", s[3])
+                    _record_callout_drop(ctx, dwg, view, s[1], f"{side} strip full", s[3])
             if crossing:
                 _log.info(
                     "plan/side %s strip: %d bore callout(s) placed despite crossing an "

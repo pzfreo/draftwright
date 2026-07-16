@@ -208,10 +208,10 @@ class TestStepPosition:
         assert placed == ["20"]  # the shoulder position survives the recompose
 
     def test_finalize_drains_step_positions_after_a_mid_replay_raise(self, monkeypatch):
-        # #636 review: A0b registers the step-position corridor candidates and drops their
-        # intents BEFORE the fallible callout phase. If that phase raises and finalize() is
-        # retried, the recomputed step_position_ids is empty — so the drain must key off the
-        # pending corridor batch, not the intent set, or the candidates strand and vanish.
+        # #636/#647: A0b registers the step-position corridor candidates and drops their
+        # intents before the fallible B1 callout phase. If that phase raises, finalize's
+        # transactional rollback (#647) restores the step-position intent — so a retry
+        # re-registers from it and drains, rather than stranding the candidates.
         from draftwright.annotations import holes as _holes_mod
 
         part = (
@@ -235,20 +235,19 @@ class TestStepPosition:
 
         monkeypatch.setattr(_holes_mod, "_annotate_holes", _boom)
         with pytest.raises(RuntimeError):
-            dwg.finalize()  # A0b registered the step candidates; B1 raises → batch stranded
-        assert dwg._corridor_batch  # candidates persist, not yet drained
+            dwg.finalize()  # A0b registered the step candidates; B1 raises → rollback
+        # The rollback restored the step-position INTENT; nothing was committed.
+        assert any(it.kwargs.get("role") == "step_position" for it in dwg._intents)
         assert not [n for n in dwg._named if n.startswith("dim_shoulder")]
 
-        dwg.finalize()  # retry: step_position_ids is now empty, but the batch still drains
+        dwg.finalize()  # retry: re-registers from the surviving intent and drains
         placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
         assert placed == ["20"]
 
     def test_finalize_retries_when_the_drain_itself_raised(self, monkeypatch):
-        # #639: the corridor batch is TRANSIENT — a pure function of the still-recorded intents,
-        # not persistent state. A0b registers the step candidates but drops their intent only
-        # after the drain, so if drain_corridors ITSELF raises (step-only, no other intents), the
-        # step-position INTENT survives; a retry rebuilds the batch from it and drains — no
-        # stranded state to preserve (this replaced the earlier batch-persistence retry-safety).
+        # #647: finalize is transactional. If drain_corridors raises (step-only, no other
+        # intents), the rollback restores the pre-finalize state — so the step-position INTENT is
+        # back on the drawing and a clean retry re-runs from it and drains.
         from draftwright.annotations import _common
 
         part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)  # step only, no holes
@@ -260,42 +259,90 @@ class TestStepPosition:
         real = _common.drain_corridors
         calls = {"n": 0}
 
-        def _boom(d):
+        def _boom(ctx, d):
             calls["n"] += 1
             if calls["n"] == 1:
                 raise RuntimeError("injected drain failure")
-            return real(d)
+            return real(ctx, d)
 
         monkeypatch.setattr(_common, "drain_corridors", _boom)
         with pytest.raises(RuntimeError):
             dwg.finalize()  # A0b registered the candidates; the drain then raises
-        # The step-position INTENT survives (dropped only on drain success) — the source of truth
-        # a retry rebuilds from; nothing is stranded.
+        # The rollback restored the step-position INTENT; a retry re-runs from it and drains.
         assert any(it.kwargs.get("role") == "step_position" for it in dwg._intents)
         dwg.finalize()  # retry: re-registers from the surviving intent and drains
         placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
         assert placed == ["20"]
 
-    def test_scratch_reset_flag_preserves_unrebuildable_escalations(self):
-        # #659 review: the corridor batch is always fresh (rebuilt from intents), but escalations
-        # are NOT rebuildable — B1 records a callout-drop escalation and drops the producing callout
-        # intent BEFORE the fallible B2 drain. So on a finalize retry (reset=False) a pre-existing
-        # escalation must SURVIVE (create-if-absent) to reach the retry's hole-table pass; only the
-        # auto-pass (reset=True) clears it. The batch resets either way.
-        from types import SimpleNamespace
+    def test_finalize_rolls_back_a_partial_commit(self, monkeypatch):
+        # #647: finalize is transactional. A drain that raises AFTER an earlier stage already
+        # committed annotations must not leave them behind — else a retry re-runs the source
+        # intents and duplicates the measurement (the m_locx0 + m_locx1 defect). The rollback
+        # restores _named/items/_intents AND the coverage bookkeeping to the pre-finalize state
+        # (the B1 callout records scattered-hole coverage; leaving it mutated would make a later
+        # lint() false-clean, #647 review), so a clean retry places each dimension exactly once.
+        from draftwright.annotations import _common
 
-        from draftwright.annotations._common import Escalation, init_placement_scratch
-
-        esc = Escalation(kind="callout", view="front", feature=None, reason="strip_full")
-        dwg = SimpleNamespace(
-            _corridor_batch={"stale": object()}, _escalations=[esc], _detail_requests=["d"]
+        # A step positioned in B2's drain, plus an off-centre hole whose callout live-places in
+        # leg B1 — so an annotation is COMMITTED before the B2 drain raises, and must roll back.
+        part = (
+            Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15) - Pos(20, 15, 0) * Cylinder(3, 30)
         )
-        init_placement_scratch(dwg, reset=False)  # finalize: preserve escalations/details
-        assert dwg._corridor_batch == {}  # batch always fresh
-        assert dwg._escalations == [esc] and dwg._detail_requests == ["d"]  # survive the retry
+        dwg = build_drawing(part, auto_dims=False)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg._defer_intents = True
+        dwg.callout(hole)  # commits in leg B1, before the B2 drain
+        dwg.dimension(step, "length", role="step_position")  # drained in B2
+        names_before, items_before = set(dwg._named), len(dwg.items)
+        intents_before = len(dwg._intents)
+        coverage_before = dwg._coverage.snapshot()
 
-        init_placement_scratch(dwg, reset=True)  # auto-pass: clean slate
-        assert dwg._corridor_batch == {} and dwg._escalations == [] and dwg._detail_requests == []
+        calls = {"n": 0}
+        real = _common.drain_corridors
+
+        def _boom(ctx, d):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("injected drain failure")
+            return real(ctx, d)
+
+        monkeypatch.setattr(_common, "drain_corridors", _boom)
+        with pytest.raises(RuntimeError):
+            dwg.finalize()
+        # Rolled back to exactly the pre-finalize state — the B1 callout is gone again.
+        assert set(dwg._named) == names_before
+        assert len(dwg.items) == items_before
+        assert len(dwg._intents) == intents_before
+        assert dwg._coverage.snapshot() == coverage_before  # coverage restored (#647 review)
+
+        monkeypatch.undo()
+        dwg.finalize()  # clean retry — the shoulder position places exactly once (no duplicate)
+        assert len([n for n in dwg._named if n.startswith("dim_shoulder")]) == 1
+
+    def test_finalize_rolls_back_a_narrowed_analysis_bound(self, monkeypatch):
+        # #647 review: render_locations narrows a.sv_zones.above.outer_limit IN PLACE on the
+        # shared Analysis. A raise after that narrowing must restore it — else a corrected retry
+        # solves a side-above dim against a stale cap (the one Analysis field a replay mutates).
+        # Inject the in-place narrowing at the drain, then raise, and assert the bound is restored.
+        from draftwright.annotations import _common
+
+        part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)  # step → the B2 drain runs
+        dwg = build_drawing(part, auto_dims=False)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_position")
+        strip = dwg._analysis.sv_zones.above
+        limit_before = strip.outer_limit
+
+        def _boom(ctx, d):
+            strip.outer_limit = limit_before - 50.0  # mimic render_locations' in-place narrowing
+            raise RuntimeError("injected drain failure")
+
+        monkeypatch.setattr(_common, "drain_corridors", _boom)
+        with pytest.raises(RuntimeError):
+            dwg.finalize()
+        assert dwg._analysis.sv_zones.above.outer_limit == limit_before  # restored (#647 review)
 
     def test_centered_rebate_dimensions_both_shoulders(self):
         # A symmetric central channel has TWO shoulders; both positions must be given
@@ -5497,7 +5544,7 @@ class TestDetailView:
         # "step"/"illegible" Escalation render_height_ladder emits instead.
         from types import SimpleNamespace
 
-        from draftwright.annotations._common import Escalation
+        from draftwright.annotations._common import Escalation, PlacementContext
         from draftwright.annotations.sections import _request_prismatic_detail
 
         a = SimpleNamespace(
@@ -5505,16 +5552,15 @@ class TestDetailView:
             bb=SimpleNamespace(min=SimpleNamespace(Z=0.0), max=SimpleNamespace(Z=2.0)),
             SCALE=1.0,
         )
-        no_escalation = SimpleNamespace(_escalations=[], _detail_requests=[])
-        _request_prismatic_detail(no_escalation, a)
-        assert no_escalation._detail_requests == []
+        no_escalation = PlacementContext()
+        _request_prismatic_detail(None, a, ctx=no_escalation)
+        assert no_escalation.detail_requests == []
 
-        with_escalation = SimpleNamespace(
-            _escalations=[Escalation(kind="step", view="front", feature=None, reason="illegible")],
-            _detail_requests=[],
+        with_escalation = PlacementContext(
+            escalations=[Escalation(kind="step", view="front", feature=None, reason="illegible")],
         )
-        _request_prismatic_detail(with_escalation, a)
-        assert len(with_escalation._detail_requests) == 1
+        _request_prismatic_detail(None, a, ctx=with_escalation)
+        assert len(with_escalation.detail_requests) == 1
 
     def test_plain_part_gets_no_detail_view(self):
         dwg = build_drawing(Box(60, 40, 20))
@@ -6611,7 +6657,8 @@ class TestFeatureEdits:
                     dwg.locate(f)
         assert docs(dwg) == docs(auto)  # coverage restored under place_furniture=False
         assert dwg._intents == []  # drained
-        assert dwg._escalations == []  # leg D ran + cleared them for retry safety
+        # (#639) Escalations live on the per-run PlacementContext, discarded when finalize
+        # returns — no cross-run leak to assert against on the drawing.
 
     @staticmethod
     def _hc_ys(d):
@@ -8861,19 +8908,21 @@ class TestPatternGroupBalloon:
         )
 
     def test_dropped_pattern_gets_one_grouped_balloon(self):
-        from draftwright.annotations._common import Escalation
+        from draftwright.annotations._common import Escalation, PlacementContext
         from draftwright.annotations.orchestrator import _maybe_tabulate_holes
 
         dwg = build_drawing(_multi_hole_plate())  # sparse — density gate stays shut
         before = set(dwg.annotations())
         feat = self._fake_pattern(count=6, diameter=5.0)
-        dwg._escalations.append(
-            Escalation(kind="callout", view="plan", feature=feat, reason="strip_full")
+        ctx = PlacementContext(
+            escalations=[
+                Escalation(kind="callout", view="plan", feature=feat, reason="strip_full")
+            ]
         )
         # Mirror what _record_callout_drop does in production, so clearing it below
         # actually exercises the resolve path rather than trivially passing.
         dwg._record_build_issue("warning", "callout_dropped", "synthetic plan-view drop")
-        _maybe_tabulate_holes(dwg, dwg._analysis)
+        _maybe_tabulate_holes(dwg, dwg._analysis, ctx=ctx)
 
         assert "hole_table_plan" not in dwg.annotations()  # density gate untouched
         new_balloons = [
@@ -8884,7 +8933,7 @@ class TestPatternGroupBalloon:
         assert "callout_dropped" not in {i.code for i in dwg.lint()}  # resolved, not just hidden
 
     def test_multiple_dropped_patterns_get_distinct_non_overlapping_balloons(self):
-        from draftwright.annotations._common import Escalation
+        from draftwright.annotations._common import Escalation, PlacementContext
         from draftwright.annotations.orchestrator import _maybe_tabulate_holes
 
         dwg = build_drawing(_multi_hole_plate())
@@ -8892,11 +8941,12 @@ class TestPatternGroupBalloon:
             self._fake_pattern(count=4, diameter=3.0, origin=(-15.0, -8.0, 0.0)),
             self._fake_pattern(count=6, diameter=5.0, origin=(15.0, 8.0, 0.0)),
         ]
+        ctx = PlacementContext()
         for feat in feats:
-            dwg._escalations.append(
+            ctx.escalations.append(
                 Escalation(kind="callout", view="plan", feature=feat, reason="strip_full")
             )
-        _maybe_tabulate_holes(dwg, dwg._analysis)
+        _maybe_tabulate_holes(dwg, dwg._analysis, ctx=ctx)
 
         balloons = [n for n in dwg.annotations() if n.startswith("balloon_plan_")]
         assert {n.split("_")[2] for n in balloons} == {"4×A", "6×B"}
@@ -8913,16 +8963,18 @@ class TestPatternGroupBalloon:
     def test_unresolved_pattern_in_other_view_keeps_the_drop_lint(self):
         # A pattern drop the resolver does not cover (a non-plan view) must not
         # have its callout_dropped warning silently cleared.
-        from draftwright.annotations._common import Escalation
+        from draftwright.annotations._common import Escalation, PlacementContext
         from draftwright.annotations.orchestrator import _maybe_tabulate_holes
 
         dwg = build_drawing(_multi_hole_plate())
         feat = self._fake_pattern(count=3, diameter=4.0)
-        dwg._escalations.append(
-            Escalation(kind="callout", view="front", feature=feat, reason="front strip full")
+        ctx = PlacementContext(
+            escalations=[
+                Escalation(kind="callout", view="front", feature=feat, reason="front strip full")
+            ]
         )
         dwg._record_build_issue("warning", "callout_dropped", "synthetic front-view drop")
-        _maybe_tabulate_holes(dwg, dwg._analysis)
+        _maybe_tabulate_holes(dwg, dwg._analysis, ctx=ctx)
 
         assert not any(n.startswith("balloon_") for n in dwg.annotations())
         assert "callout_dropped" in {i.code for i in dwg.lint()}
