@@ -211,3 +211,32 @@ def test_build_pmi_features_mirrors_detection():
             for f in authored
         )
     assert build_pmi_features(None, bbox) == []  # None/empty → no features
+
+
+def test_render_pmi_drops_unrecognized_bore_axis_without_crashing():
+    # #638 review: the bore ø/R placement became a `_bore[axis]` table lookup. A diameter
+    # record whose dominant_axis doesn't resolve to X/Y/Z must still drop gracefully — as the
+    # old Z/X/Y if-chain did by falling through — not KeyError-crash the whole build.
+    from types import SimpleNamespace
+
+    from build123d import Box
+
+    from draftwright import build_drawing
+    from draftwright.annotations.from_model import render_pmi
+    from draftwright.model import AuthoredDimension
+    from draftwright.model.ir import Frame
+
+    dwg = build_drawing(Box(40, 30, 20), number="X")
+    bogus = AuthoredDimension(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        dimension_kind="diameter",
+        value=5.0,
+        label="ø5",
+        dominant_axis="Q",  # not X/Y/Z → matches no bore config
+        ref_bbox=(0.0, 0.0, 0.0, 5.0, 1.0, 1.0),
+        ref_pts=((0.0, 0.0, 0.0), (5.0, 0.0, 0.0)),
+    )
+    model = SimpleNamespace(features=[bogus])
+    n = render_pmi(dwg, model, dwg._analysis)  # must not raise
+    assert n == 0
+    assert any(i.code == "pmi_dropped" for i in dwg._build_issues)  # graceful drop recorded

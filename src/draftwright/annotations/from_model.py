@@ -2423,36 +2423,40 @@ def render_pmi(dwg, model, a) -> int:
             # narrow bores; bracket dims only when span fits the text.
             half_pg = half * a.SCALE  # bore radius on page (mm)
 
-            cfg = _bore[bore_axis]
-            u, v = cfg["centre"](cx_f, cy_f, cz_f)
-            if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
-                p1, p2 = cfg["span"](cx_f, cy_f, cz_f, half)
-                placed = _queue_options(
-                    [
-                        _dim_spec(p1, p2, cfg["zones"][s], label, name_d, cfg["view"], s)
-                        for s in cfg["order"]
-                    ],
-                    ax,
-                    label,
-                    rec,
-                )
-            else:
-                placed = _queue_options(
-                    [
-                        _leader_spec(
-                            (u, v + (half_pg if s == "above" else -half_pg), 0),
-                            cfg["zones"][s],
-                            label,
-                            name_d,
-                            cfg["view"],
-                            s,
-                        )
-                        for s in cfg["leader_order"]
-                    ],
-                    ax,
-                    label,
-                    rec,
-                )
+            # An unresolved bore axis (dominant_axis is an unrestricted string) matches no
+            # config — leave placed=False and fall through to the bottom drop, exactly as the
+            # old Z/X/Y if-chain did (never a KeyError crash).
+            cfg = _bore.get(bore_axis)
+            if cfg is not None:
+                u, v = cfg["centre"](cx_f, cy_f, cz_f)
+                if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
+                    p1, p2 = cfg["span"](cx_f, cy_f, cz_f, half)
+                    placed = _queue_options(
+                        [
+                            _dim_spec(p1, p2, cfg["zones"][s], label, name_d, cfg["view"], s)
+                            for s in cfg["order"]
+                        ],
+                        ax,
+                        label,
+                        rec,
+                    )
+                else:
+                    placed = _queue_options(
+                        [
+                            _leader_spec(
+                                (u, v + (half_pg if s == "above" else -half_pg), 0),
+                                cfg["zones"][s],
+                                label,
+                                name_d,
+                                cfg["view"],
+                                s,
+                            )
+                            for s in cfg["leader_order"]
+                        ],
+                        ax,
+                        label,
+                        rec,
+                    )
 
         elif ax == "X":
             placed = _front_linear(rec, ax, label, name_x, "above", "below", a.FV_Y)
