@@ -1132,6 +1132,31 @@ def build_view_of_axis(a: Analysis):
     }
 
 
+def _needs_section(feat: HoleFeature | PatternFeature):
+    """Whether a bore triggers the section view (_add_section_view): a counterbore, spotface,
+    or blind bottom. Promoted out of _annotate_holes (#638; pure)."""
+    bore = feat.member if isinstance(feat, PatternFeature) else feat
+    return bore.cbore is not None or bore.spotface is not None or not bore.through
+
+
+def _leader_hits(leader, tip, elbow, side, obstacles):
+    """True when *leader*'s rendered footprint truly overlaps any *obstacles* box — split into
+    the diagonal tip→elbow SHAFT (checked precisely via `_segment_hits_box`, since its AABB
+    over-claims the empty triangle it doesn't occupy — #305) and the elbow→label shelf+text
+    (axis-aligned, so the coarse AABB check there is already exact). Promoted (#638; pure)."""
+    full_box = _geom_box(leader)
+    if full_box is None or not _box_hits(full_box, obstacles):
+        return False  # fast reject: nowhere near any obstacle
+    if any(_segment_hits_box(tip, elbow, o) for o in obstacles):
+        return True
+    label_box = (
+        (elbow[0], full_box[1], full_box[2], full_box[3])
+        if side == "right"
+        else (full_box[0], full_box[1], elbow[0], full_box[3])
+    )
+    return _box_hits(label_box, obstacles)
+
+
 def _annotate_holes(
     dwg, a: Analysis, view_of_axis, groups, feature_keys, *, only=None, place_furniture=True
 ):
@@ -1169,10 +1194,6 @@ def _annotate_holes(
     # When present, its extension lines overhang the plan view boundary by
     # ~arrow_length, so plan-view elbow must sit that far outside to clear them.
     # Room-check failures may still skip the section, but the offset is harmless.
-    def _needs_section(feat: HoleFeature | PatternFeature) -> bool:
-        bore = feat.member if isinstance(feat, PatternFeature) else feat
-        return bore.cbore is not None or bore.spotface is not None or not bore.through
-
     will_have_section_line = any(
         isinstance(g.feature, HoleFeature | PatternFeature)
         and g.feature.frame.axis == "z"
@@ -1246,21 +1267,6 @@ def _annotate_holes(
         return name
 
     _hc_used = set(dwg._named)
-
-    def _add(view, i, tip, elbow, side, callout):
-        dwg.add(
-            Leader(
-                tip=(tip[0], tip[1], 0),
-                elbow=(elbow[0], elbow[1], 0),
-                label="",
-                draft=draft,
-                text_side=side,
-                callout=callout,
-            ),
-            _hc_name(view, i),
-            view=view,
-            feature=_feat_of_callout.get(id(callout)),
-        )
 
     for view, view_groups in by_view.items():
         to_page = view_of_axis[{"plan": "z", "front": "y", "side": "x"}[view]][1]
@@ -1487,25 +1493,6 @@ def _annotate_holes(
                 callout=callout,
             )
             return leader, tip, elbow
-
-        def _leader_hits(leader, tip, elbow, side, obstacles):
-            """True when *leader*'s rendered footprint truly overlaps any
-            *obstacles* box — split into the diagonal tip→elbow SHAFT (checked
-            precisely via `_segment_hits_box`, since its AABB over-claims the
-            empty triangle it doesn't occupy — #305, precise angled-leader
-            geometry is P4/#318) and the elbow→label shelf+text (genuinely
-            axis-aligned, so the coarse AABB check there is already exact)."""
-            full_box = _geom_box(leader)
-            if full_box is None or not _box_hits(full_box, obstacles):
-                return False  # fast reject: nowhere near any obstacle
-            if any(_segment_hits_box(tip, elbow, o) for o in obstacles):
-                return True
-            label_box = (
-                (elbow[0], full_box[1], full_box[2], full_box[3])
-                if side == "right"
-                else (full_box[0], full_box[1], elbow[0], full_box[3])
-            )
-            return _box_hits(label_box, obstacles)
 
         def _is_central(s):
             """The coaxial hole whose callout belongs *on* the view-centre row, and
