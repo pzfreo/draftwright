@@ -19,6 +19,7 @@ once the holes epic landed (#251).
 from __future__ import annotations
 
 import math
+from typing import Any
 
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
 from build123d_drafting.helpers import Centerline, CenterMark, HoleCallout, Leader, TitleBlock
@@ -2138,6 +2139,38 @@ def render_pmi(dwg, model, a) -> int:
 
     _SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
 
+    # Per-bore-axis ø/R placement as DATA (ADR 0008 orientation-as-data): each bore reads as a
+    # circle in ONE view, dimensioned across it in-plane when the page span fits the label, else
+    # led out to a shelf. This one table replaces three near-identical Z/X/Y blocks. `order` is
+    # the in-place above/below fallback; `leader_order` the narrow-bore one (Y historically
+    # prefers below first). `centre`/`span` project the circle centre and its ±half endpoints.
+    _bore: dict[str, dict[str, Any]] = {
+        "Z": {
+            "view": "plan",
+            "zones": {"above": a.pv_zones.above, "below": a.pv_zones.below},
+            "order": ("above", "below"),
+            "leader_order": ("above", "below"),
+            "centre": lambda cx, cy, cz: (PX(cx), PY(cy)),
+            "span": lambda cx, cy, cz, h: ((PX(cx - h), PY(cy), 0), (PX(cx + h), PY(cy), 0)),
+        },
+        "X": {
+            "view": "side",
+            "zones": {"above": a.sv_zones.above, "below": a.sv_zones.below},
+            "order": ("above", "below"),
+            "leader_order": ("above", "below"),
+            "centre": lambda cx, cy, cz: (SX(cy), SZ(cz)),
+            "span": lambda cx, cy, cz, h: ((SX(cy - h), SZ(cz), 0), (SX(cy + h), SZ(cz), 0)),
+        },
+        "Y": {
+            "view": "front",
+            "zones": {"above": a.fv_zones.above, "below": a.fv_zones.below},
+            "order": ("above", "below"),
+            "leader_order": ("below", "above"),
+            "centre": lambda cx, cy, cz: (FX(cx), FZ(cz)),
+            "span": lambda cx, cy, cz, h: ((FX(cx - h), FZ(cz), 0), (FX(cx + h), FZ(cz), 0)),
+        },
+    }
+
     def _bore_info(rec):
         """For Size_Diameter / Size_Radius records, return (bore_axis, cx, cy, cz).
 
@@ -2354,123 +2387,36 @@ def render_pmi(dwg, model, a) -> int:
             # narrow bores; bracket dims only when span fits the text.
             half_pg = half * a.SCALE  # bore radius on page (mm)
 
-            if bore_axis == "Z":
-                # Z-axis bore: circle visible in plan view.
-                if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
-                    p1 = (PX(cx_f - half), PY(cy_f), 0)
-                    p2 = (PX(cx_f + half), PY(cy_f), 0)
-                    placed = _queue_options(
-                        [
-                            _dim_spec(p1, p2, a.pv_zones.above, label, name_d, "plan", "above"),
-                            _dim_spec(p1, p2, a.pv_zones.below, label, name_d, "plan", "below"),
-                        ],
-                        ax,
-                        label,
-                        rec,
-                    )
-                else:
-                    placed = _queue_options(
-                        [
-                            _leader_spec(
-                                (PX(cx_f), PY(cy_f) + half_pg, 0),
-                                a.pv_zones.above,
-                                label,
-                                name_d,
-                                "plan",
-                                "above",
-                            ),
-                            _leader_spec(
-                                (PX(cx_f), PY(cy_f) - half_pg, 0),
-                                a.pv_zones.below,
-                                label,
-                                name_d,
-                                "plan",
-                                "below",
-                            ),
-                        ],
-                        ax,
-                        label,
-                        rec,
-                    )
-
-            elif bore_axis == "X":
-                # X-axis bore: circle visible in side view.
-                if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
-                    p1 = (SX(cy_f - half), SZ(cz_f), 0)
-                    p2 = (SX(cy_f + half), SZ(cz_f), 0)
-                    placed = _queue_options(
-                        [
-                            _dim_spec(p1, p2, a.sv_zones.above, label, name_d, "side", "above"),
-                            _dim_spec(p1, p2, a.sv_zones.below, label, name_d, "side", "below"),
-                        ],
-                        ax,
-                        label,
-                        rec,
-                    )
-                else:
-                    placed = _queue_options(
-                        [
-                            _leader_spec(
-                                (SX(cy_f), SZ(cz_f) + half_pg, 0),
-                                a.sv_zones.above,
-                                label,
-                                name_d,
-                                "side",
-                                "above",
-                            ),
-                            _leader_spec(
-                                (SX(cy_f), SZ(cz_f) - half_pg, 0),
-                                a.sv_zones.below,
-                                label,
-                                name_d,
-                                "side",
-                                "below",
-                            ),
-                        ],
-                        ax,
-                        label,
-                        rec,
-                    )
-
-            elif bore_axis == "Y":
-                # Y-axis bore: circle visible in front view as a circle.
-                if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
-                    p1 = (FX(cx_f - half), FZ(cz_f), 0)
-                    p2 = (FX(cx_f + half), FZ(cz_f), 0)
-                    placed = _queue_options(
-                        [
-                            _dim_spec(p1, p2, a.fv_zones.above, label, name_d, "front", "above"),
-                            _dim_spec(p1, p2, a.fv_zones.below, label, name_d, "front", "below"),
-                        ],
-                        ax,
-                        label,
-                        rec,
-                    )
-                else:
-                    # Narrow Y-axis bore historically prefers below, then above.
-                    placed = _queue_options(
-                        [
-                            _leader_spec(
-                                (FX(cx_f), FZ(cz_f) - half_pg, 0),
-                                a.fv_zones.below,
-                                label,
-                                name_d,
-                                "front",
-                                "below",
-                            ),
-                            _leader_spec(
-                                (FX(cx_f), FZ(cz_f) + half_pg, 0),
-                                a.fv_zones.above,
-                                label,
-                                name_d,
-                                "front",
-                                "above",
-                            ),
-                        ],
-                        ax,
-                        label,
-                        rec,
-                    )
+            cfg = _bore[bore_axis]
+            u, v = cfg["centre"](cx_f, cy_f, cz_f)
+            if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
+                p1, p2 = cfg["span"](cx_f, cy_f, cz_f, half)
+                placed = _queue_options(
+                    [
+                        _dim_spec(p1, p2, cfg["zones"][s], label, name_d, cfg["view"], s)
+                        for s in cfg["order"]
+                    ],
+                    ax,
+                    label,
+                    rec,
+                )
+            else:
+                placed = _queue_options(
+                    [
+                        _leader_spec(
+                            (u, v + (half_pg if s == "above" else -half_pg), 0),
+                            cfg["zones"][s],
+                            label,
+                            name_d,
+                            cfg["view"],
+                            s,
+                        )
+                        for s in cfg["leader_order"]
+                    ],
+                    ax,
+                    label,
+                    rec,
+                )
 
         elif ax == "X":
             wp = _witness_from_bbox(rec, "front")
