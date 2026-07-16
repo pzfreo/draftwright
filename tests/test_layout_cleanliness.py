@@ -40,9 +40,10 @@ from __future__ import annotations
 
 import pytest
 
-# Shared with the throwaway snapshot gate (test_layout_snapshot); both retire
-# together at P5 (#319) — do not delete that file before this one.
-from test_layout_snapshot import CORPUS, _signature
+# The corpus + determinism fingerprint, now in a shared helper after the byte-exact
+# snapshot gate was retired (#319/#641 gap 3): this relational cleanliness invariant is
+# part of what replaces it, on every kernel.
+from _layout_sig import CORPUS, _signature
 
 from draftwright import build_drawing
 from draftwright.annotations._common import CROSSABLE_TYPES

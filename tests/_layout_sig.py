@@ -1,33 +1,17 @@
-"""TEMPORARY characterization gate for the ADR 0009 strip-layout refactor.
+"""Shared layout-signature helpers + the small part corpus.
 
-Snapshots the **layout signature** of a corpus of parts — every annotation's
-owning view, type, label, and rounded bbox, plus each view's projected bbox — and
-fails on any drift. The boundary-labeling migration (ADR 0009, tracking #320) is
-*behaviour-preserving* through phases P0 (#317), P1 (#321) and P3 (#323); this gate
-catches any unintended placement change those phases must not introduce. At P2
-(#322) and P4 (#318) — where output deliberately improves — re-bless the affected
-snapshots **in that PR** as a reviewed diff.
+Extracted from the retired ``test_layout_snapshot.py`` (a temporary ADR 0009
+characterization gate, deleted once the migration landed — #319/#641 gap 3). ``_signature``
+(a determinism fingerprint) and ``CORPUS`` (the exercised parts) outlive it: ``_signature`` is
+used by ``test_layout_property`` (determinism gate) and ``test_layout_cleanliness``; ``CORPUS``
+by ``test_layout_cleanliness`` and ``test_strip_layout``. (``test_layout_hypothesis`` uses
+neither — it generates its own parts and checks lint codes, not this fingerprint.)
 
-It is deliberately coarser than the retired byte-exact golden harness (ADR 0007):
-it characterises *placement* (the thing the refactor touches), quantised to a
-0.1 mm grid (with a small bias so values on a rounding boundary stay stable under
-floating-point reordering — see `_round_bbox`), which is cross-platform-
-deterministic given the pinned fonts (ADR 0006).
-
-**This file and `tests/layout_snapshots/` are throwaway — delete them at P5 (#319).**
-
-Re-bless intentionally:
-    DRAFTWRIGHT_UPDATE_SNAPSHOTS=1 uv run pytest tests/test_layout_snapshot.py
+Underscore-prefixed so pytest does not collect it as a test module.
 """
 
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
-
-import pytest
-from _kernel import B123D_GE_011, SKIP_011
 from build123d import (
     Align,
     Box,
@@ -39,11 +23,6 @@ from build123d import (
     Pos,
     Rotation,
 )
-
-from draftwright import build_drawing
-
-_SNAP_DIR = Path(__file__).parent / "layout_snapshots"
-
 
 # --- corpus: small, fast parts that exercise the strip placers -------------
 
@@ -109,6 +88,7 @@ def _drive_screw_x():
     with BuildPart() as p:
         Cylinder(radius=6, height=20)
         Hole(0.8, depth=8)
+    assert p.part is not None
     return Rotation(0, 90, 0) * p.part
 
 
@@ -153,18 +133,12 @@ CORPUS = {
 # --- signature -------------------------------------------------------------
 
 
-# Quantise to a 0.1 mm grid with a 1e-6 bias.
-#
-# Two reasons for each part. (a) 0.1 mm, not finer: the placement drift this gate
-# cares about is ≥ ~1 mm. (b) the bias: a Dimension's *geometry* box edges land
-# *exactly* on the .X5 round-half boundary (the label centre ± a fixed font-derived
-# extent), and a leader/witness reroute or the refactor's reordered floating-point
-# placement sums shift a value by ~1 ULP — which would flip an on-boundary value's
-# rounding and false-FAIL with no real change. 1e-6 is far above the ~1e-13 FP-noise
-# floor and far below the 0.1 mm grid, so every on-boundary value resolves the same
-# way regardless of that noise. (Cross-platform stability of the *un*-biased values
-# is already proven by CI; the bias guards against the refactor's intra-platform FP
-# reordering.)
+# Quantise to a 0.1 mm grid with a 1e-6 bias. (a) 0.1 mm, not finer: the placement drift
+# this fingerprint cares about is >= ~1 mm. (b) the bias: a Dimension's geometry-box edges
+# can land exactly on the .X5 round-half boundary, and a ~1 ULP floating-point reorder would
+# otherwise flip an on-boundary value's rounding and spuriously change the signature. 1e-6
+# is far above the ~1e-13 FP-noise floor and far below the 0.1 mm grid, so on-boundary values
+# resolve the same way regardless of that noise.
 def _round_bbox(box):
     if box is None:
         return None
@@ -177,8 +151,7 @@ def _label_box(o):
 
 def _geom_box(o):
     # The FULL rendered geometry bbox — leader shafts/arrow tips, dimension witness
-    # and extension lines, hatch — none of which the label box covers. The leader-
-    # routing the refactor reroutes (ADR 0009 P4) is only visible here.
+    # and extension lines, hatch — none of which the label box covers.
     try:
         b = o.bounding_box()
         return (b.min.X, b.min.Y, b.max.X, b.max.Y)
@@ -187,6 +160,9 @@ def _geom_box(o):
 
 
 def _signature(dwg) -> dict:
+    """A determinism fingerprint of a finished drawing: every annotation's owning view,
+    type, label, and rounded bbox, plus each view's projected bbox and the render-list
+    size. Two builds of the same part must produce an identical signature."""
     annotations = sorted(
         (
             {
@@ -205,32 +181,6 @@ def _signature(dwg) -> dict:
     for vname, shapes in dwg.views.items():
         vis = shapes[0] if isinstance(shapes, (tuple, list)) else shapes
         views[vname] = _round_bbox(_geom_box(vis))
-    # Total render-list size catches drift in *unnamed* annotations too, which
+    # Total render-list size catches drift in unnamed annotations too, which
     # iter_annotations() (named only) would otherwise hide.
     return {"views": views, "annotations": annotations, "item_count": len(dwg.items)}
-
-
-@pytest.mark.parametrize("name", list(CORPUS))
-def test_layout_snapshot(name):
-    if name == "box" and B123D_GE_011:
-        pytest.skip(
-            SKIP_011
-        )  # the plain box tips a scale/layout threshold under 0.11's projection
-    dwg = build_drawing(CORPUS[name]())
-    sig = _signature(dwg)
-    snap = _SNAP_DIR / f"{name}.json"
-
-    if os.environ.get("DRAFTWRIGHT_UPDATE_SNAPSHOTS"):
-        _SNAP_DIR.mkdir(exist_ok=True)
-        snap.write_text(json.dumps(sig, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        return
-
-    assert snap.exists(), (
-        f"no snapshot for {name!r}; generate with "
-        f"DRAFTWRIGHT_UPDATE_SNAPSHOTS=1 uv run pytest tests/test_layout_snapshot.py"
-    )
-    expected = json.loads(snap.read_text(encoding="utf-8"))
-    assert sig == expected, (
-        f"layout drift for {name!r}. If intentional (P2/P4), re-bless with "
-        f"DRAFTWRIGHT_UPDATE_SNAPSHOTS=1; otherwise placement regressed."
-    )

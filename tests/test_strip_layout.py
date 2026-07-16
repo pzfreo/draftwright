@@ -979,7 +979,7 @@ def test_side_hole_z_dim_is_kept_not_dropped_under_policy_b():
     # side_drilled's bore-callout leader crosses the Z-location corridor and the front
     # alternate is too narrow to relocate into — policy B KEEPS the dim on its natural
     # view (never drop a real dimension) rather than clearing the overlap by dropping.
-    from test_layout_snapshot import CORPUS
+    from _layout_sig import CORPUS
 
     from draftwright import build_drawing
 
