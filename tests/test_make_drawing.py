@@ -244,11 +244,9 @@ class TestStepPosition:
         assert placed == ["20"]
 
     def test_finalize_retries_when_the_drain_itself_raised(self, monkeypatch):
-        # #639: the corridor batch is TRANSIENT — a pure function of the still-recorded intents,
-        # not persistent state. A0b registers the step candidates but drops their intent only
-        # after the drain, so if drain_corridors ITSELF raises (step-only, no other intents), the
-        # step-position INTENT survives; a retry rebuilds the batch from it and drains — no
-        # stranded state to preserve (this replaced the earlier batch-persistence retry-safety).
+        # #647: finalize is transactional. If drain_corridors raises (step-only, no other
+        # intents), the rollback restores the pre-finalize state — so the step-position INTENT is
+        # back on the drawing and a clean retry re-runs from it and drains.
         from draftwright.annotations import _common
 
         part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)  # step only, no holes
@@ -269,33 +267,56 @@ class TestStepPosition:
         monkeypatch.setattr(_common, "drain_corridors", _boom)
         with pytest.raises(RuntimeError):
             dwg.finalize()  # A0b registered the candidates; the drain then raises
-        # The step-position INTENT survives (dropped only on drain success) — the source of truth
-        # a retry rebuilds from; nothing is stranded.
+        # The rollback restored the step-position INTENT; a retry re-runs from it and drains.
         assert any(it.kwargs.get("role") == "step_position" for it in dwg._intents)
         dwg.finalize()  # retry: re-registers from the surviving intent and drains
         placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
         assert placed == ["20"]
 
-    def test_scratch_reset_flag_preserves_unrebuildable_escalations(self):
-        # #659 review: the corridor batch is always fresh (rebuilt from intents), but escalations
-        # are NOT rebuildable — B1 records a callout-drop escalation and drops the producing callout
-        # intent BEFORE the fallible B2 drain. So on a finalize retry (reset=False) a pre-existing
-        # escalation must SURVIVE (create-if-absent) to reach the retry's hole-table pass; only the
-        # auto-pass (reset=True) clears it. The batch resets either way.
-        from types import SimpleNamespace
+    def test_finalize_rolls_back_a_partial_commit(self, monkeypatch):
+        # #647: finalize is transactional. A drain that raises AFTER an earlier stage already
+        # committed annotations must not leave them behind — else a retry re-runs the source
+        # intents and duplicates the measurement (the m_locx0 + m_locx1 defect). The rollback
+        # restores _named/items/_intents to the pre-finalize state, so a clean retry places each
+        # dimension exactly once.
+        from draftwright.annotations import _common
 
-        from draftwright.annotations._common import Escalation, init_placement_scratch
-
-        esc = Escalation(kind="callout", view="front", feature=None, reason="strip_full")
-        dwg = SimpleNamespace(
-            _corridor_batch={"stale": object()}, _escalations=[esc], _detail_requests=["d"]
+        # A step positioned in B2's drain, plus an off-centre hole whose callout live-places in
+        # leg B1 — so an annotation is COMMITTED before the B2 drain raises, and must roll back.
+        part = (
+            Box(80, 60, 30)
+            - Pos(0, -20, 7.5) * Box(80, 20, 15)
+            - Pos(20, 15, 0) * Cylinder(3, 30)
         )
-        init_placement_scratch(dwg, reset=False)  # finalize: preserve escalations/details
-        assert dwg._corridor_batch == {}  # batch always fresh
-        assert dwg._escalations == [esc] and dwg._detail_requests == ["d"]  # survive the retry
+        dwg = build_drawing(part, auto_dims=False)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        dwg._defer_intents = True
+        dwg.callout(hole)  # commits in leg B1, before the B2 drain
+        dwg.dimension(step, "length", role="step_position")  # drained in B2
+        names_before, items_before = set(dwg._named), len(dwg.items)
+        intents_before = len(dwg._intents)
 
-        init_placement_scratch(dwg, reset=True)  # auto-pass: clean slate
-        assert dwg._corridor_batch == {} and dwg._escalations == [] and dwg._detail_requests == []
+        calls = {"n": 0}
+        real = _common.drain_corridors
+
+        def _boom(d):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("injected drain failure")
+            return real(d)
+
+        monkeypatch.setattr(_common, "drain_corridors", _boom)
+        with pytest.raises(RuntimeError):
+            dwg.finalize()
+        # Rolled back to exactly the pre-finalize state — the B1 callout is gone again.
+        assert set(dwg._named) == names_before
+        assert len(dwg.items) == items_before
+        assert len(dwg._intents) == intents_before
+
+        monkeypatch.undo()
+        dwg.finalize()  # clean retry — the shoulder position places exactly once (no duplicate)
+        assert len([n for n in dwg._named if n.startswith("dim_shoulder")]) == 1
 
     def test_centered_rebate_dimensions_both_shoulders(self):
         # A symmetric central channel has TWO shoulders; both positions must be given

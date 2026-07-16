@@ -1445,11 +1445,10 @@ class Drawing:
 
         # Fresh corridor scratch for this finalize — the auto-pass seeds it in _auto_annotate but
         # a detect-only build lacks it; render_locations/_annotate_holes/drain_corridors
-        # register/read here. The batch is rebuilt from the current intents each call (#639), so a
-        # raised drain strands nothing — the intents survive and a retry re-registers. Escalations/
-        # detail-requests create-if-absent (reset=False): a B1 escalation whose callout intent is
-        # already dropped can't be rebuilt, so it must survive a raised B2 drain to the retry (#659).
-        init_placement_scratch(self, reset=False)
+        # register/read here. All three are per-run: finalize is transactional (#647), so a raised
+        # drain rolls the drawing back and the retry re-runs from a clean slate, re-generating the
+        # batch (from the surviving intents) and any escalations — no cross-call persistence needed.
+        init_placement_scratch(self)
 
         model, a = self._part_model, self._analysis
         routable = model is not None and a is not None
@@ -1462,6 +1461,17 @@ class Drawing:
         only_loc, pinned_loc, only_callout = r.only_loc, r.pinned_loc, r.only_callout
         only_dia, only_len, slot_feats = r.only_dia, r.only_len, r.slot_feats
 
+        # (#647) Finalize is transactional: snapshot every collection it mutates so a raise
+        # part-way (a corridor solve, a replayed verb) rolls the drawing back to its pre-finalize
+        # state — a retry then starts from a clean slate and re-runs, rather than operating against
+        # half-committed annotations/intents (the duplicate-corridor / partial-commit defects
+        # #647 describes). The registry owns identity (named/view/feature/pins); items/intents/
+        # views/build-issues are the rest; the edge cache is recomputable so it is just cleared.
+        reg_snap = self._registry.snapshot()
+        issues_snap = list(self._build_issues)
+        items_snap = list(self.items)
+        intents_snap = list(self._intents)
+        views_snap = dict(self.views)
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
             # Reserve the section's cutting-plane row BEFORE the callout carve so the carve
@@ -1583,6 +1593,15 @@ class Drawing:
                 assert a is not None
                 _maybe_tabulate_holes(self, a)
                 self._escalations = []
+        except Exception:
+            # (#647) Roll back a partial finalize so a corrected retry starts clean.
+            self._registry.restore(reg_snap)
+            self._build_issues = issues_snap
+            self.items = items_snap
+            self._intents = intents_snap
+            self.views = views_snap
+            self._view_edge_cache.clear()
+            raise
         finally:
             self._defer_intents = deferred
 

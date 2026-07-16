@@ -532,28 +532,21 @@ def register_corridor(dwg, key, strip, view, axis, tier, cand):
     b["cands"].append(cand)
 
 
-def init_placement_scratch(dwg, *, reset: bool) -> None:
-    """Seed the per-run placement scratch containers a build's passes share — the corridor batch
-    (:func:`register_corridor`/:func:`drain_corridors`), the escalation list (ADR 0009 Amdt 1,
-    #351), and the enlarged-detail request list (#307). The single owner both entry paths call
-    (#638), replacing the two hand-rolled copies that had drifted.
+def init_placement_scratch(dwg) -> None:
+    """Seed a FRESH set of the per-run placement scratch containers a build's passes share — the
+    corridor batch (:func:`register_corridor`/:func:`drain_corridors`), the escalation list (ADR
+    0009 Amdt 1, #351), and the enlarged-detail request list (#307). The single owner both entry
+    paths call (#638), replacing the two hand-rolled copies that had drifted.
 
-    The corridor batch is ALWAYS fresh: it is a pure function of the still-present intents (#639),
-    so a raised drain leaves the intents recorded and a retry rebuilds it — no leftover to
-    preserve. Escalations/detail-requests are NOT so lucky: B1 records a callout-drop escalation
-    and drops the producing callout intent *before* the fallible drain, so they can't be rebuilt
-    on a retry. ``reset=True`` (the auto-pass) clears them each run; ``reset=False`` (finalize)
-    creates-if-absent so a B1 escalation survives a raised B2 drain to the retry's hole-table
-    pass (#659 review)."""
+    All three are per-run: both the auto-pass and the record→finalize path start from a clean
+    slate. The corridor batch is a pure function of the still-present intents (#639); escalations/
+    detail-requests need no cross-retry persistence either, because finalize is transactional — a
+    raised drain rolls the drawing back and the retry re-runs from a clean slate (#647), so it
+    re-generates them (this reverts the #659 create-if-absent workaround the pre-#647 finalize
+    needed)."""
     dwg._corridor_batch = {}
-    if reset:
-        dwg._escalations = []
-        dwg._detail_requests = []
-        return
-    if not hasattr(dwg, "_escalations"):
-        dwg._escalations = []
-    if not hasattr(dwg, "_detail_requests"):
-        dwg._detail_requests = []
+    dwg._escalations = []
+    dwg._detail_requests = []
 
 
 def drain_corridors(dwg):
