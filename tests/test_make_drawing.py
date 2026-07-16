@@ -244,10 +244,11 @@ class TestStepPosition:
         assert placed == ["20"]
 
     def test_finalize_retries_when_the_drain_itself_raised(self, monkeypatch):
-        # #636 review: the drain-gate fix is only reachable past `if not self._intents:
-        # return`. A0b drops the step intent as it registers, so if drain_corridors ITSELF
-        # raises (step-only batch, no other intents), a retry lands here with empty intents
-        # but a pending batch — the early-return must be batch-aware or the dim strands.
+        # #639: the corridor batch is TRANSIENT — a pure function of the still-recorded intents,
+        # not persistent state. A0b registers the step candidates but drops their intent only
+        # after the drain, so if drain_corridors ITSELF raises (step-only, no other intents), the
+        # step-position INTENT survives; a retry rebuilds the batch from it and drains — no
+        # stranded state to preserve (this replaced the earlier batch-persistence retry-safety).
         from draftwright.annotations import _common
 
         part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)  # step only, no holes
@@ -267,9 +268,11 @@ class TestStepPosition:
 
         monkeypatch.setattr(_common, "drain_corridors", _boom)
         with pytest.raises(RuntimeError):
-            dwg.finalize()  # A0b registered + dropped the step intent; the drain then raises
-        assert dwg._corridor_batch and not dwg._intents  # stranded batch, no intents left
-        dwg.finalize()  # retry: batch-aware early-return proceeds and drains the batch
+            dwg.finalize()  # A0b registered the candidates; the drain then raises
+        # The step-position INTENT survives (dropped only on drain success) — the source of truth
+        # a retry rebuilds from; nothing is stranded.
+        assert any(it.kwargs.get("role") == "step_position" for it in dwg._intents)
+        dwg.finalize()  # retry: re-registers from the surviving intent and drains
         placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
         assert placed == ["20"]
 
