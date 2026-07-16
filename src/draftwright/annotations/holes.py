@@ -1157,6 +1157,70 @@ def _leader_hits(leader, tip, elbow, side, obstacles):
     return _box_hits(label_box, obstacles)
 
 
+def _rim_tip(centre, elbow, dia, scale):
+    """Pull the tip from the hole centre to its circumference (bore *dia* mm). Promoted out of
+    _annotate_holes (#638; pure) — *scale* was the closed-over ``a.SCALE``."""
+    r = dia * scale / 2
+    dx, dy = elbow[0] - centre[0], elbow[1] - centre[1]
+    norm = math.hypot(dx, dy)
+    if norm <= r:
+        return centre
+    return (centre[0] + dx / norm * r, centre[1] + dy / norm * r)
+
+
+def _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, scale):
+    """The Leader a callout would draw for queue entry *s* at elbow-Y *y* — built but not
+    placed, so its footprint can be checked before committing (ADR 0009 P5 strand 3). Returns
+    ``(leader, tip, elbow)``. Promoted (#638; pure)."""
+    _locs, dia, callout, _feat, _ny, rep = s
+    centre = to_page(rep)
+    if side == "right":
+        elbow = (edge + elbow_dx, y)
+        tip = _rim_tip(centre, elbow, dia, scale)
+        tip = (min(tip[0], edge - draft.arrow_length), tip[1])
+    else:
+        elbow = (edge - elbow_dx, y)
+        tip = _rim_tip(centre, elbow, dia, scale)
+        tip = (max(tip[0], edge + draft.arrow_length), tip[1])
+    leader = Leader(
+        tip=(tip[0], tip[1], 0),
+        elbow=(elbow[0], elbow[1], 0),
+        label="",
+        draft=draft,
+        text_side=side,
+        callout=callout,
+    )
+    return leader, tip, elbow
+
+
+def _is_central(s, a, to_page, view_cx, view_cy, draft):
+    """The coaxial hole whose callout belongs *on* the view-centre row, and so is anchored there
+    (ADR 0009 Amendment 4) — the exact minimum-leader spacing solve can't then slide it off
+    centre on a tie. Prismatic parts only: on a turned/rotational round view the centre-line
+    itself runs through this row, so the coaxial bore is pushed OFF it (the ``forbidden``
+    centreline band) — anchoring is gated off exactly when the centreline band is on (ADR 0009
+    Amendment 5, P4c). ``s[5]`` is the representative hole location. Promoted (#638; pure)."""
+    rep = s[5]
+    if rep is None or a.is_rotational or a.prof is not None:
+        return False
+    cx, cy = to_page(rep)
+    tol = draft.font_size
+    return abs(cx - view_cx) < tol and abs(cy - view_cy) < tol
+
+
+def _probe_box(s, edge, side, to_page, elbow_dx, draft, scale):
+    """Probe a queued candidate's leader footprint up front (before it's chosen for placement),
+    so a degenerate geometry (a hole essentially coincident with the strip edge) gets a
+    defensive catch, matching _geom_box's "not every annotation bbox-es cleanly" idiom. Returns
+    the box or ``None``. Promoted (#638; pure)."""
+    try:
+        leader, _, _ = _build_leader_at(s, edge, side, s[4], to_page, elbow_dx, draft, scale)
+    except Exception as exc:  # noqa: BLE001 — geometry construction raises broadly
+        _log.debug("plan/side %s strip: probe leader failed (%s); omitted", side, exc)
+        return None
+    return _geom_box(leader)
+
+
 def _annotate_holes(
     dwg, a: Analysis, view_of_axis, groups, feature_keys, *, only=None, place_furniture=True
 ):
@@ -1245,15 +1309,6 @@ def _annotate_holes(
         _feat_of_callout[id(callout)] = feat  # provenance (#408)
         by_view.setdefault(view, []).append((locs, dia, callout, pat))
 
-    def _rim_tip(centre, elbow, dia):
-        """Pull the tip from the hole centre to its circumference (bore *dia* mm)."""
-        r = dia * a.SCALE / 2
-        dx, dy = elbow[0] - centre[0], elbow[1] - centre[1]
-        norm = math.hypot(dx, dy)
-        if norm <= r:
-            return centre
-        return (centre[0] + dx / norm * r, centre[1] + dy / norm * r)
-
     def _hc_name(view, i):
         # The auto-pass (only is None) numbers callouts positionally hc_{view}{i} — the
         # historical byte-identical scheme. The #426 finalize path (only set) may run after
@@ -1313,7 +1368,7 @@ def _annotate_holes(
                     _callout=callout,
                 ):
                     elbow = (_centre[0], pos)
-                    tip = _rim_tip(_centre, elbow, _dia)
+                    tip = _rim_tip(_centre, elbow, _dia, a.SCALE)
                     return Leader(
                         tip=(tip[0], tip[1], 0),
                         elbow=(elbow[0], elbow[1], 0),
@@ -1470,52 +1525,6 @@ def _annotate_holes(
         # cannot hold every callout, the smallest-bore features drop first so the most
         # significant survive (the same "largest wins" policy the front-view shaft rows
         # already use, line 638). Ties (equal bore) fall back to key = natural-Y order.
-        def _build_leader_at(s, edge, side, y):
-            """The Leader `_add` would draw for queue entry *s* at elbow-Y *y* —
-            built but not placed, so its footprint can be checked before
-            committing (ADR 0009 P5 strand 3). Returns ``(leader, tip, elbow)``."""
-            _locs, dia, callout, _feat, _ny, rep = s
-            centre = to_page(rep)
-            if side == "right":
-                elbow = (edge + elbow_dx, y)
-                tip = _rim_tip(centre, elbow, dia)
-                tip = (min(tip[0], edge - draft.arrow_length), tip[1])
-            else:
-                elbow = (edge - elbow_dx, y)
-                tip = _rim_tip(centre, elbow, dia)
-                tip = (max(tip[0], edge + draft.arrow_length), tip[1])
-            leader = Leader(
-                tip=(tip[0], tip[1], 0),
-                elbow=(elbow[0], elbow[1], 0),
-                label="",
-                draft=draft,
-                text_side=side,
-                callout=callout,
-            )
-            return leader, tip, elbow
-
-        def _is_central(s):
-            """The coaxial hole whose callout belongs *on* the view-centre row, and
-            so is anchored there (ADR 0009 Amendment 4) — the exact minimum-leader
-            spacing solve can't then slide it off centre on a tie (the equal-cost
-            placements differ only in *which* callout absorbs the shift, and for a
-            central feature that must not be the central one).
-
-            Prismatic parts only: on a turned/rotational round view the centre-line
-            *itself* runs through this row, so the coaxial bore must be pushed
-            **off** it (the ``forbidden`` centreline band) — the opposite of
-            anchoring. The two are mutually exclusive by part class, so anchoring
-            is gated off exactly when the centreline band is on (ADR 0009
-            Amendment 5, P4c). ``s[5]`` is the callout's representative hole
-            location (``None`` only for a left-queue entry with no left edge, which
-            never happens for a placed callout)."""
-            rep = s[5]
-            if rep is None or a.is_rotational or a.prof is not None:
-                return False
-            cx, cy = to_page(rep)
-            tol = draft.font_size
-            return abs(cx - view_cx) < tol and abs(cy - view_cy) < tol
-
         def _place_queue(queue, edge, side, key_prefix, start_i):
             if not queue:
                 return start_i
@@ -1566,7 +1575,7 @@ def _annotate_holes(
                             anchor=(edge, _snap(s[4])),
                             size=(s[2].callout_width, min_gap),
                             priority=s[1],
-                            anchored=_is_central(s),
+                            anchored=_is_central(s, a, to_page, view_cx, view_cy, draft),
                         )
                         for j, s in enumerate(cands_in)
                     ]
@@ -1596,7 +1605,7 @@ def _annotate_holes(
                         anchor=(edge, s[4]),
                         size=(s[2].callout_width, min_gap),
                         priority=s[1],  # bore diameter — largest wins over-capacity (D3)
-                        anchored=_is_central(s),
+                        anchored=_is_central(s, a, to_page, view_cx, view_cy, draft),
                     )
 
                 # Selection (ADR 0009 P2) must be GLOBAL across every carved segment,
@@ -1652,22 +1661,11 @@ def _annotate_holes(
             # position-dependent geometry (it runs from the fixed hole location
             # to the elbow), so probing everyone at one far-away Y badly
             # misjudges it.
-            def _probe_box(s):
-                # Unlike the old code (which only ever built a Leader for a
-                # candidate already chosen for placement), this probes EVERY
-                # queued candidate up front, including ones that may end up
-                # dropped — so a degenerate geometry unreachable before now
-                # (e.g. a hole essentially coincident with the strip edge) gets
-                # a defensive catch here too, matching _geom_box's own
-                # established "not every annotation bbox-es cleanly" idiom.
-                try:
-                    leader, _, _ = _build_leader_at(s, edge, side, s[4])
-                except Exception as exc:  # noqa: BLE001 — geometry construction raises broadly
-                    _log.debug("plan/side %s strip: probe leader failed (%s); omitted", side, exc)
-                    return None
-                return _geom_box(leader)
-
-            probe_boxes = [b for s in queue if (b := _probe_box(s)) is not None]
+            probe_boxes = [
+                b
+                for s in queue
+                if (b := _probe_box(s, edge, side, to_page, elbow_dx, draft, a.SCALE)) is not None
+            ]
             occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
             if probe_boxes:
                 band_lo = min(b[0] for b in probe_boxes)
@@ -1715,7 +1713,9 @@ def _annotate_holes(
                 else:
                     dropped.append(s)
                     continue
-                leader, tip, elbow = _build_leader_at(s, edge, side, y)
+                leader, tip, elbow = _build_leader_at(
+                    s, edge, side, y, to_page, elbow_dx, draft, a.SCALE
+                )
                 if _leader_hits(leader, tip, elbow, side, occupied):
                     crossing.append((s, y, leader))
                 else:
