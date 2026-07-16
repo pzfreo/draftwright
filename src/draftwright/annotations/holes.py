@@ -509,184 +509,144 @@ def _ir_off_axis_holes(model) -> list[_OffHole]:
     ]
 
 
-def _locate_off_axis_holes(dwg, a: Analysis, *, which):
-    """Location dimensions for side-drilled holes (#133).
+def _off_axis_drop(dwg, axis, view):
+    # Recorded at INFO under a code DISTINCT from the plan path's
+    # ``location_ref_dropped`` (which is a warning). Two reasons:
+    #  - Severity: a best-effort off-axis location dim that did not fit is not
+    #    a drawing DEFECT (the sheet is correct — no overlap, in bounds), it is
+    #    a completeness shortfall measured by the separate location-coverage
+    #    score (see the eval scoreboard), not by lint. So a valid sheet stays
+    #    lint-clean while the gap is still surfaced.
+    #  - Distinct code: ``_maybe_tabulate_holes`` triggers the plan-view hole
+    #    chart on ``location_ref_dropped`` and then clears it — a side-hole
+    #    height that did not fit must not tabulate (or be erased by) the plan
+    #    view, so it gets its own code.
+    # (The plan path's primary top-view positions are expected on every
+    # drawing, so a drop there stays a warning.) Promoted (#638).
+    dwg._record_build_issue(
+        "info",
+        "off_axis_location_dropped",
+        f"{axis} location dim for a {view}-view hole not placed (no room beside the view)",
+    )
 
-    An X-axis hole is a circle in the SIDE view (locate its Y below the view and
-    its Z to the right — the side view has no left strip); a Y-axis hole is a
-    circle in the FRONT view (locate its X below and its Z to the right). Each
-    view's strip is carved around the annotations already placed on it and the dims
-    are spaced within the free segments by one ``plan_strip`` solve (ADR 0009 / #321
-    P1b — the collect-then-solve seam replacing the old ``allocate`` + ``_box_hits``
-    tier-retry). A dim that finds no room is dropped and recorded as
-    ``off_axis_location_dropped`` — never force-stacked. Holes already covered by a
-    pattern callout are skipped.
 
-    Run in two phases (``which`` is ``"across"`` or ``"along"``) so each dim stacks in
-    the ISO order — overall dim OUTERMOST, feature/location dims nearer the view:
+def _off_axis_emit(dwg, tier, strip, view, axis, cands, force=False, features=None):
+    # The collect-then-solve strip placer lives in _common as the shared
+    # place_strip_candidates (P3, retiring the Strip cursor #150); this thin wrapper
+    # binds the pass's dwg + tier. *features* (name -> IR feature) attributes each dim
+    # for drop() (#408). Promoted (#638).
+    return place_strip_candidates(
+        dwg, strip, view, axis, cands, tier, force=force, features=features
+    )
 
-    - ``"across"`` — an X-axis hole's in-plane (Y, side-below) location, placed BEFORE
-      the envelope so the overall depth dim lands outside it (the side-view
-      counterpart of the plan view, where location dims already precede the
-      envelope). Fixes the inverted stack where the overall dim sat innermost and
-      forced the shorter location dim's arrows outside. The envelope and these
-      best-effort dims now co-solve in one corridor; envelope priority prevents
-      starvation.
-    - ``"along"`` — a Y-axis hole's X (front-below) location and every hole's height
-      (Z, right-strip), placed AFTER the envelope and the turned-diameter passes so
-      they never evict those overall dims from the contended front-below / right
-      strips (#133).
-    """
+
+def _off_axis_queue(
+    dwg,
+    tier,
+    strip,
+    view,
+    side,
+    axis,
+    cands,
+    *,
+    features=None,
+    force=True,
+    on_drop=None,
+    order_key=None,
+):
+    # Below/right side-hole locations feed the same corridor batch as envelope, GD&T,
+    # and PMI (#477). Their historical policy was force-keep unless the strip is
+    # physically full; callers with a relocation path provide an on_drop fallback.
+    # Promoted (#638).
+    if strip is None:
+        for name, _build in cands:
+            (on_drop or (lambda _nm: None))(name)
+        return
+    for i, (name, build) in enumerate(cands):
+        register_corridor(
+            dwg,
+            (view, side),
+            strip,
+            view,
+            axis,
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=build,
+                order=(1, order_key(name, i) if order_key is not None else i, name),
+                on_place=lambda _nm: None,
+                on_drop=(on_drop or (lambda _nm: None)),
+                force=force,
+                feature=(features or {}).get(name),
+            ),
+        )
+
+
+def _off_axis_owner(dwg, hole_locs):
+    # The IR hole feature owning a side-drilled location dim, or None when the dim's
+    # offset is shared by >1 distinct feature (unowned, so drop can't over-strip a
+    # sibling — mirrors the #398c shared-coordinate rule). Promoted (#638).
+    feats = {dwg._feature_of_hole_at(loc) for loc in hole_locs}
+    feats.discard(None)
+    return next(iter(feats)) if len(feats) == 1 else None
+
+
+def _locate_across(dwg, a: Analysis, off):
+    """The "across" phase (#133): an X-axis hole's Y position below the SIDE view, queued
+    with the envelope so the overall depth dim stacks outside it (ISO order). Confined to the
+    side view: a Y-axis hole's X position contends the FRONT-below strip with the
+    turned-diameter ø-row, so it stays in the "along" phase. Promoted out of
+    _locate_off_axis_holes (#638)."""
     draft = dwg.draft
-    model = dwg._part_model
-
-    def _coaxial(h):
-        # The turning-axis bore of a rotational part is located by its centreline, not
-        # a position dim (#309) — mirrors render_locations' concentric filter (the
-        # Z-turned/plan case) and coverage.py's coaxial exemption, for the X/Y-turned
-        # case whose dims come through THIS path. Suppresses the redundant offset+height
-        # dims; coverage already credits the bore via its centre mark, so lint stays
-        # clean. Non-rotational parts and genuine off-centre side-drilled holes keep
-        # their dims (the a.od_axis + perpendicular-centre gates).
-        if not a.is_rotational or h.axis != a.od_axis:
-            return False
-        centre = (a.cx, a.cy, a.cz)
-        return all(
-            abs(h.location[i] - centre[i]) <= _CONCENTRIC_TOL_MM
-            for i, ax in enumerate("xyz")
-            if ax != a.od_axis
-        )
-
-    # Off-axis holes sourced from the IR (ADR 0008 Am6; #584 WP1 B3) — the turning-axis
-    # concentric bore excluded (located by its centreline, not a position dim).
-    off = [h for h in _ir_off_axis_holes(model) if not _coaxial(h)]
-    if not off:
-        return
     SX, SZ = a.proj.side_x, a.proj.side_z
-    FX, FZ = a.proj.front_x, a.proj.front_z
-    dx, dy, dz = a.bb.min.X, a.bb.min.Y, a.bb.min.Z
+    dy, dz = a.bb.min.Y, a.bb.min.Z
     tier = draft.font_size + 2 * draft.pad_around_text
-
-    def _drop(axis, view):
-        # Recorded at INFO under a code DISTINCT from the plan path's
-        # ``location_ref_dropped`` (which is a warning). Two reasons:
-        #  - Severity: a best-effort off-axis location dim that did not fit is not
-        #    a drawing DEFECT (the sheet is correct — no overlap, in bounds), it is
-        #    a completeness shortfall measured by the separate location-coverage
-        #    score (see the eval scoreboard), not by lint. So a valid sheet stays
-        #    lint-clean while the gap is still surfaced.
-        #  - Distinct code: ``_maybe_tabulate_holes`` triggers the plan-view hole
-        #    chart on ``location_ref_dropped`` and then clears it — a side-hole
-        #    height that did not fit must not tabulate (or be erased by) the plan
-        #    view, so it gets its own code.
-        # (The plan path's primary top-view positions are expected on every
-        # drawing, so a drop there stays a warning.)
-        dwg._record_build_issue(
-            "info",
-            "off_axis_location_dropped",
-            f"{axis} location dim for a {view}-view hole not placed (no room beside the view)",
-        )
-
-    def _emit(strip, view, axis, cands, force=False, features=None):
-        # The collect-then-solve strip placer now lives in _common as the shared
-        # place_strip_candidates (P3, retiring the Strip cursor #150); this thin wrapper
-        # binds the pass's dwg + tier so the across/along/Z callers below are unchanged.
-        # *features* (name -> IR feature) attributes each dim for drop() (#408).
-        return place_strip_candidates(
-            dwg, strip, view, axis, cands, tier, force=force, features=features
-        )
-
-    def _queue(
-        strip,
-        view,
-        side,
-        axis,
-        cands,
-        *,
-        features=None,
-        force=True,
-        on_drop=None,
-        order_key=None,
-    ):
-        # Below/right side-hole locations now feed the same corridor batch as envelope,
-        # GD&T, and PMI (#477). Their historical policy was force-keep unless the strip is
-        # physically full; callers that have a relocation path provide an on_drop fallback.
-        if strip is None:
-            for name, _build in cands:
-                (on_drop or (lambda _nm: None))(name)
-            return
-        for i, (name, build) in enumerate(cands):
-            register_corridor(
-                dwg,
-                (view, side),
-                strip,
-                view,
-                axis,
-                tier,
-                CorridorCandidate(
-                    name=name,
-                    build=build,
-                    order=(1, order_key(name, i) if order_key is not None else i, name),
-                    on_place=lambda _nm: None,
-                    on_drop=(on_drop or (lambda _nm: None)),
-                    force=force,
-                    feature=(features or {}).get(name),
-                ),
-            )
-
-    def _off_axis_owner(hole_locs):
-        # The IR hole feature owning a side-drilled location dim, or None when the dim's
-        # offset is shared by >1 distinct feature (unowned, so drop can't over-strip a
-        # sibling — mirrors the #398c shared-coordinate rule). *hole_locs* are the model
-        # locations of every hole that contributed to this (deduped-by-offset) dim.
-        feats = {dwg._feature_of_hole_at(loc) for loc in hole_locs}
-        feats.discard(None)
-        return next(iter(feats)) if len(feats) == 1 else None
-
-    # "across" phase — an X-axis hole's Y position below the SIDE view, queued with
-    # the envelope so the overall depth dim stacks outside it (ISO order). Confined to
-    # the side view: a Y-axis hole's X position contends the FRONT-below strip with the
-    # turned-diameter ø-row, so it stays in the "along" phase (after the diameter pass),
-    # preserving the #133 priority.
-    if which == "across":
-        yw = SZ(dz) - _WITNESS_LIFT_MM
-        seen_y: set = set()
-        cands = []
-        order_y: dict = {}
-        loc_by_name: dict = {}  # dim name -> contributing hole locations (for provenance)
-        for h in (h for h in off if h.axis == "x"):
-            yo = round(abs(h.location[1] - dy), 2)
-            if yo * a.SCALE < 1.0:
-                continue
-            name = f"dim_loc_side_y{round(yo * 100)}"
-            loc_by_name.setdefault(name, []).append(h.location)
-            order_y[name] = yo
-            if yo not in seen_y:
-                seen_y.add(yo)
-                p_lo, p_hi = (SX(dy), yw, 0), (SX(h.location[1]), yw, 0)
-                cands.append(
-                    (
-                        name,
-                        lambda pos, pl=p_lo, ph=p_hi, lb=yo: _dim(
-                            pl, ph, "below", yw - pos, draft, label=_fmt(lb)
-                        ),
-                    )
+    yw = SZ(dz) - _WITNESS_LIFT_MM
+    seen_y: set = set()
+    cands = []
+    order_y: dict = {}
+    loc_by_name: dict = {}  # dim name -> contributing hole locations (for provenance)
+    for h in (h for h in off if h.axis == "x"):
+        yo = round(abs(h.location[1] - dy), 2)
+        if yo * a.SCALE < 1.0:
+            continue
+        name = f"dim_loc_side_y{round(yo * 100)}"
+        loc_by_name.setdefault(name, []).append(h.location)
+        order_y[name] = yo
+        if yo not in seen_y:
+            seen_y.add(yo)
+            p_lo, p_hi = (SX(dy), yw, 0), (SX(h.location[1]), yw, 0)
+            cands.append(
+                (
+                    name,
+                    lambda pos, pl=p_lo, ph=p_hi, lb=yo: _dim(
+                        pl, ph, "below", yw - pos, draft, label=_fmt(lb)
+                    ),
                 )
-        feats = {nm: _off_axis_owner(locs) for nm, locs in loc_by_name.items()}
-        _queue(
-            a.sv_zones.below,
-            "side",
-            "below",
-            "y",
-            cands,
-            features=feats,
-            on_drop=lambda _nm: _drop("y", "side"),
-            order_key=lambda nm, _i: order_y.get(nm, _i),
-        )
-        return
+            )
+    feats = {nm: _off_axis_owner(dwg, locs) for nm, locs in loc_by_name.items()}
+    _off_axis_queue(
+        dwg,
+        tier,
+        a.sv_zones.below,
+        "side",
+        "below",
+        "y",
+        cands,
+        features=feats,
+        on_drop=lambda _nm: _off_axis_drop(dwg, "y", "side"),
+        order_key=lambda nm, _i: order_y.get(nm, _i),
+    )
 
-    # "along" phase (after the envelope + turned-diameter passes): a Y-axis hole's X
-    # position below the FRONT view, then every hole's height (Z) to the right.
+
+def _locate_along_planar(dwg, a: Analysis, off):
+    """The "along" phase's planar dim: a Y-axis hole's X position below the FRONT view, placed
+    after the envelope + turned-diameter passes so it never evicts those from the contended
+    front-below strip (#133). Promoted (#638)."""
+    draft = dwg.draft
+    FX, FZ = a.proj.front_x, a.proj.front_z
+    dx, dz = a.bb.min.X, a.bb.min.Z
+    tier = draft.font_size + 2 * draft.pad_around_text
     xw = FZ(dz) - _WITNESS_LIFT_MM
     seen_x: set = set()
     x_cands = []
@@ -710,27 +670,32 @@ def _locate_off_axis_holes(dwg, a: Analysis, *, which):
                     ),
                 )
             )
-    x_feats = {nm: _off_axis_owner(locs) for nm, locs in x_loc_by_name.items()}
-    _queue(
+    x_feats = {nm: _off_axis_owner(dwg, locs) for nm, locs in x_loc_by_name.items()}
+    _off_axis_queue(
+        dwg,
+        tier,
         a.fv_zones.below,
         "front",
         "below",
         "y",
         x_cands,
         features=x_feats,
-        on_drop=lambda _nm: _drop("x", "front"),
+        on_drop=lambda _nm: _off_axis_drop(dwg, "x", "front"),
         order_key=lambda nm, _i: order_x.get(nm, _i),
     )
 
-    # Height offset (Z): a hole's height is visible to the RIGHT of both the side and
-    # the front view. Neither right strip is universally free — the side view's is
-    # contended by hole callouts (hc_side) + the section hatch, the front view's by the
-    # dim_height/dim_step ladder — so try the natural strip first, then RELOCATE to the
-    # other view (a disjoint block that cannot cross the natural view's leader) if a
-    # bore-callout leader sits in the natural corridor. If neither view takes it cleanly,
-    # KEEP it on the natural view (force) accepting the same-feature leader crossing —
-    # never drop a real dimension (policy B, #133 rework); only a physically full strip
-    # still drops.
+
+def _locate_along_z(dwg, a: Analysis, off):
+    """The "along" phase's height dim: a hole's height (Z) is visible to the RIGHT of both the
+    side and the front view. Neither right strip is universally free, so try the natural strip
+    first, then RELOCATE to the other view if a bore-callout leader sits in the natural
+    corridor; if neither takes it cleanly, KEEP it on the natural view (force) accepting the
+    same-feature crossing — never drop a real dim (policy B, #133). Promoted (#638)."""
+    draft = dwg.draft
+    SX, SZ = a.proj.side_x, a.proj.side_z
+    FX, FZ = a.proj.front_x, a.proj.front_z
+    dz = a.bb.min.Z
+    tier = draft.font_size + 2 * draft.pad_around_text
     zr, zrf = SX(a.bb.max.Y), FX(a.bb.max.X)
     z_locs: dict = {}  # z-offset -> contributing hole locations (for provenance)
     for h in off:
@@ -744,7 +709,7 @@ def _locate_off_axis_holes(dwg, a: Analysis, *, which):
             continue
         seen_z.add(zo)
         hz = h.location[2]
-        owner = _off_axis_owner(z_locs[zo])
+        owner = _off_axis_owner(dwg, z_locs[zo])
 
         def _zc(view, p_lo, p_hi, edge, _zo=zo):
             return (
@@ -773,13 +738,19 @@ def _locate_off_axis_holes(dwg, a: Analysis, *, which):
         ):
             for alt_strip, alt_view, alt_p_lo, alt_p_hi, alt_edge in _alts:
                 alt = _zc(alt_view, alt_p_lo, alt_p_hi, alt_edge)
-                if not _emit(alt_strip, alt_view, "x", [alt], features=_feature_map(alt_view)):
+                if not _off_axis_emit(
+                    dwg, tier, alt_strip, alt_view, "x", [alt], features=_feature_map(alt_view)
+                ):
                     return
             p_strip, p_view, _p_lo, _p_hi, _edge = _primary
-            if _emit(p_strip, p_view, "x", [_cand], force=True, features=_feature_map(p_view)):
-                _drop("Z", p_view)
+            if _off_axis_emit(
+                dwg, tier, p_strip, p_view, "x", [_cand], force=True, features=_feature_map(p_view)
+            ):
+                _off_axis_drop(dwg, "Z", p_view)
 
-        _queue(
+        _off_axis_queue(
+            dwg,
+            tier,
             strip,
             view,
             "right",
@@ -790,6 +761,55 @@ def _locate_off_axis_holes(dwg, a: Analysis, *, which):
             on_drop=_fallback,
             order_key=lambda _nm, _i, _zo=zo: _zo,
         )
+
+
+def _locate_off_axis_holes(dwg, a: Analysis, *, which):
+    """Location dimensions for side-drilled holes (#133).
+
+    An X-axis hole is a circle in the SIDE view (locate its Y below the view and
+    its Z to the right — the side view has no left strip); a Y-axis hole is a
+    circle in the FRONT view (locate its X below and its Z to the right). Each
+    view's strip is carved around the annotations already placed on it and the dims
+    are spaced within the free segments by one ``plan_strip`` solve (ADR 0009 / #321
+    P1b — the collect-then-solve seam replacing the old ``allocate`` + ``_box_hits``
+    tier-retry). A dim that finds no room is dropped and recorded as
+    ``off_axis_location_dropped`` — never force-stacked. Holes already covered by a
+    pattern callout are skipped.
+
+    Run in two phases (``which`` is ``"across"`` or ``"along"``) so each dim stacks in
+    the ISO order — overall dim OUTERMOST, feature/location dims nearer the view. The
+    ``across`` phase is `_locate_across`; the ``along`` phase is `_locate_along_planar`
+    (a Y-hole's X) then `_locate_along_z` (every hole's height), split out at #638.
+    """
+    model = dwg._part_model
+
+    def _coaxial(h):
+        # The turning-axis bore of a rotational part is located by its centreline, not
+        # a position dim (#309) — mirrors render_locations' concentric filter (the
+        # Z-turned/plan case) and coverage.py's coaxial exemption, for the X/Y-turned
+        # case whose dims come through THIS path. Suppresses the redundant offset+height
+        # dims; coverage already credits the bore via its centre mark, so lint stays
+        # clean. Non-rotational parts and genuine off-centre side-drilled holes keep
+        # their dims (the a.od_axis + perpendicular-centre gates).
+        if not a.is_rotational or h.axis != a.od_axis:
+            return False
+        centre = (a.cx, a.cy, a.cz)
+        return all(
+            abs(h.location[i] - centre[i]) <= _CONCENTRIC_TOL_MM
+            for i, ax in enumerate("xyz")
+            if ax != a.od_axis
+        )
+
+    # Off-axis holes sourced from the IR (ADR 0008 Am6; #584 WP1 B3) — the turning-axis
+    # concentric bore excluded (located by its centreline, not a position dim).
+    off = [h for h in _ir_off_axis_holes(model) if not _coaxial(h)]
+    if not off:
+        return
+    if which == "across":
+        _locate_across(dwg, a, off)
+        return
+    _locate_along_planar(dwg, a, off)
+    _locate_along_z(dwg, a, off)
 
 
 def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_page):
