@@ -155,7 +155,7 @@ def _resolve(node: ast.AST, pkg: list[str]) -> set[tuple[str, ...]]:
 def _classify(path: Path) -> dict[int, set[tuple[str, ...]]]:
     """Split a file's draftwright imports into {runtime, TYPE_CHECKING, lazy} full-module sets,
     by the context that actually executes each import (see the module docstring)."""
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     pkg = _package_parts(path)
     res: dict[int, set[tuple[str, ...]]] = {_RUN: set(), _TC: set(), _LAZY: set()}
 
@@ -332,7 +332,7 @@ _MODEL_MAY_IMPORT = {"_geometry", "fits", "fonts", "layout", "model", "recogniti
 def _draftwright_imports(path: Path) -> tuple[set[str], list[str]]:
     """The top-level ``draftwright.<name>`` submodules a source file imports, and any relative
     imports it uses (which the model waist forbids so the resolver need never interpret them)."""
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     submodules: set[str] = set()
     relative: list[str] = []
     for node in ast.walk(tree):
