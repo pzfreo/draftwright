@@ -25,6 +25,19 @@ cycle (:func:`test_no_module_level_import_cycles`), upward TYPE_CHECKING refs al
 (:data:`_TC_UPWARD_ALLOW`), upward lazy imports documented (:data:`_LAZY_UPWARD_EXEMPT`),
 fail-closed ranking (:func:`test_every_module_is_ranked`). The ``model/`` waist checks (the
 original #584 WP2) are kept for their relative-import rejection.
+
+Known limits (static analysis can't fully model these; none occurs in a way that could hide a
+DAG violation today, so they are accepted rather than chased):
+
+- **Dynamic imports.** ``importlib.import_module(x)`` / ``__import__(x)`` with a non-literal
+  argument can't be resolved statically. The two current uses (``__init__`` lazy public-API
+  loader, ``sheet_emit``'s emitter) both pass a variable and both live at the top layer
+  (L7/L8), where an upward edge is impossible anyway. A future dynamic import of an internal
+  module from a lower layer would not be seen — prefer a static import there.
+- **A function called during module init.** Imports inside a ``def`` are treated as lazy
+  (cycle-breakers). If a module defined such a function *and called it at module scope*, the
+  import would run at init but be excluded from the cycle graph. No module does this; if one
+  is added, hoist the import to module scope so the guard sees it.
 """
 
 from __future__ import annotations
@@ -115,8 +128,14 @@ def _module_full(path: Path) -> tuple[str, ...]:
 
 
 def _package_parts(path: Path) -> list[str]:
-    """The package a file lives in (its containing dir), for resolving relative imports."""
-    return ["draftwright", *path.relative_to(_SRC).parts[:-1]]
+    """The package a file lives in (its containing dir), for resolving relative imports. A path
+    outside the source tree (a synthetic probe in a test) has no package — its absolute imports
+    still resolve; relative ones aren't exercised."""
+    try:
+        rel = path.relative_to(_SRC)
+    except ValueError:
+        return ["draftwright"]
+    return ["draftwright", *rel.parts[:-1]]
 
 
 def _module_exists(dotted: tuple[str, ...]) -> bool:
@@ -152,17 +171,36 @@ def _resolve(node: ast.AST, pkg: list[str]) -> set[tuple[str, ...]]:
     return out
 
 
+def _typing_tc_names(tree: ast.Module) -> set[str]:
+    """The names in this module that resolve to ``typing.TYPE_CHECKING`` — the bare/aliased
+    ``from typing import TYPE_CHECKING [as X]`` bindings, plus the ``typing.TYPE_CHECKING``
+    attribute form for ``import typing [as t]``."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "typing":
+            for alias in node.names:
+                if alias.name == "TYPE_CHECKING":
+                    names.add(alias.asname or "TYPE_CHECKING")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "typing":
+                    names.add(f"{alias.asname or 'typing'}.TYPE_CHECKING")
+    return names
+
+
 def _classify(path: Path) -> dict[int, set[tuple[str, ...]]]:
     """Split a file's draftwright imports into {runtime, TYPE_CHECKING, lazy} full-module sets,
     by the context that actually executes each import (see the module docstring)."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     pkg = _package_parts(path)
     res: dict[int, set[tuple[str, ...]]] = {_RUN: set(), _TC: set(), _LAZY: set()}
+    tc_names = _typing_tc_names(tree)  # names actually bound to typing.TYPE_CHECKING here
 
     def _is_type_checking(test: ast.expr) -> bool:
-        return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
-            isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
-        )
+        # Binding-aware: only a name/attr that resolves to typing.TYPE_CHECKING counts, so a
+        # `from typing import TYPE_CHECKING as TC` alias is honoured and an unrelated
+        # `settings.TYPE_CHECKING` is not mistaken for it.
+        return ast.unparse(test) in tc_names
 
     def walk(node: ast.AST, ctx: int) -> None:
         if isinstance(node, ast.Import | ast.ImportFrom):
@@ -240,9 +278,14 @@ def test_no_module_level_import_cycles():
         src = ".".join(_module_full(path))
         graph.setdefault(src, set())
         for target in _classify(path)[_RUN]:
-            dst = ".".join(target)
-            if dst != src:
-                graph[src].add(dst)
+            # Importing draftwright.a.b.c first runs a's and a.b's __init__, so those parent
+            # packages are real init-time edges too — record them so a cycle passing through a
+            # package initializer can't hide (the bare `draftwright` root has no runtime
+            # out-edges, so it can't close a cycle; skip it as noise).
+            for k in range(2, len(target) + 1):
+                dst = ".".join(target[:k])
+                if dst != src:
+                    graph[src].add(dst)
 
     WHITE, GREY, BLACK = 0, 1, 2
     colour: dict[str, int] = {}
@@ -262,9 +305,14 @@ def test_no_module_level_import_cycles():
     for node in sorted(graph):
         if colour.get(node, WHITE) == WHITE:
             visit(node, [])
-    assert not cycles, (
-        "Module-level import cycle(s) — break with a lazy in-function import at one edge "
-        f"(the documented pattern): {cycles}"
+    # Report only cycles that span ≥2 distinct top-level submodules — the ARCHITECTURAL ones
+    # (a real cross-layer cycle, possibly mediated by a package __init__). A cycle contained
+    # in one submodule (a package ↔ its own submodule, the normal re-export/init-order pattern
+    # Python resolves by partial initialization) is not what the DAG guard is about.
+    cross = [c for c in cycles if len({_submodule(tuple(m.split("."))) for m in c}) > 1]
+    assert not cross, (
+        "Cross-submodule import cycle(s) — break with a lazy in-function import at one edge "
+        f"(the documented pattern): {cross}"
     )
 
 
@@ -322,6 +370,39 @@ def test_layer_guard_detects_a_synthetic_upward_import():
     targets = _resolve(node, ["draftwright"])
     assert any(_submodule(t) == "builder" for t in targets)
     assert _LAYERS["builder"] > _LAYERS["export"]
+
+
+def test_classifier_is_binding_aware_and_context_correct(tmp_path):
+    """The context classifier: a `TYPE_CHECKING as TC` alias is honoured, a `settings.TYPE_
+    CHECKING` lookalike is NOT, a module-scope `try:` import is runtime (not missed), and a
+    `def` body is lazy."""
+    src = (
+        "from typing import TYPE_CHECKING as TC\n"
+        "if TC:\n"
+        "    from draftwright.builder import build_drawing\n"  # type-only (aliased TC)
+        "class S:\n"
+        "    TYPE_CHECKING = True\n"
+        "if S.TYPE_CHECKING:\n"
+        "    from draftwright.drawing import Drawing\n"  # NOT typing.TYPE_CHECKING → runtime
+        "try:\n"
+        "    from draftwright.export import to_svg\n"  # module-scope try → runtime
+        "except Exception:\n"
+        "    pass\n"
+        "def load():\n"
+        "    from draftwright.cli import app\n"  # def body → lazy
+    )
+    p = tmp_path / "probe.py"
+    p.write_text(src, encoding="utf-8")
+    # _classify keys off the file path, not location under src, so point _package_parts at it
+    # by placing it where relative resolution isn't exercised (all imports here are absolute).
+    res = _classify(p)
+    run = {t[1] for t in res[_RUN]}
+    tc = {t[1] for t in res[_TC]}
+    lazy = {t[1] for t in res[_LAZY]}
+    assert "builder" in tc and "builder" not in run  # aliased TYPE_CHECKING honoured
+    assert "drawing" in run  # settings.TYPE_CHECKING lookalike NOT treated as type-only
+    assert "export" in run  # module-scope try import is runtime, not missed
+    assert lazy == {"cli"}  # only the def-body import is lazy
 
 
 # ── model/ IR-waist guards (original #584 WP2 — kept; add the relative-import rejection) ──
