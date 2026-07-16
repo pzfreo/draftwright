@@ -1423,7 +1423,7 @@ class Drawing:
         # retry can reach here with no intents but pending candidates — early-returning then
         # would strand them permanently (#636 review). _corridor_batch is created lower down,
         # so a first call (no attr yet) still short-circuits on empty intents as before.
-        if not self._intents and not getattr(self, "_corridor_batch", None):
+        if not self._intents:
             return
         from draftwright.annotations._common import drain_corridors, init_placement_scratch
         from draftwright.annotations.from_model import (
@@ -1443,9 +1443,12 @@ class Drawing:
         )
         from draftwright.model import PartModel, plan_dimensions
 
-        # Corridor state the auto-pass creates in _auto_annotate but a detect-only build lacks —
-        # render_locations/_annotate_holes/drain_corridors register/read here. reset=False keeps
-        # a _corridor_batch left by a prior finalize whose drain raised (#636 retry-safety).
+        # Fresh corridor scratch for this finalize — the auto-pass seeds it in _auto_annotate but
+        # a detect-only build lacks it; render_locations/_annotate_holes/drain_corridors
+        # register/read here. The batch is rebuilt from the current intents each call (#639), so a
+        # raised drain strands nothing — the intents survive and a retry re-registers. Escalations/
+        # detail-requests create-if-absent (reset=False): a B1 escalation whose callout intent is
+        # already dropped can't be rebuilt, so it must survive a raised B2 drain to the retry (#659).
         init_placement_scratch(self, reset=False)
 
         model, a = self._part_model, self._analysis
@@ -1475,10 +1478,13 @@ class Drawing:
                 render_height_ladder(self, model, a, include_overall=not explicit_envelope_height)
             self._intents = [it for it in self._intents if id(it) not in height_ladder_ids]
             # (A0b) prismatic step positions through the auto-pass renderer (all shoulders).
+            # This only REGISTERS corridor candidates; they place at the B2 drain. Their intents
+            # are dropped there (with locations/slots), NOT here — so a raise before the drain
+            # leaves them recorded and a retry rebuilds the batch from them (the corridor batch is
+            # a pure function of the still-present intents, so it needs no persistence, #639).
             if step_position_ids:
                 assert a is not None and isinstance(model, PartModel)
                 render_step_positions(self, model, a)
-            self._intents = [it for it in self._intents if id(it) not in step_position_ids]
             # (A) live-replay every intent EXCEPT the routed callouts/locates and section
             #     (furniture, step/boss callouts, dimensions, axes-restricted locates).
             i = 0
@@ -1516,19 +1522,17 @@ class Drawing:
             # Drop the placed callout intents NOW — before the fallible B2 — so a raise in
             # B2 can't re-route (and, via first-free hc_ naming, duplicate) them on a retry.
             self._intents = [it for it in self._intents if id(it) not in callout_ids]
-            # (B2) both-axes locations + slots through the SHARED location corridor — one
-            #      crossing-free ladder, one drain (auto-pass registers locations then slots,
-            #      then a single drain_corridors, so a slot position coincident with a hole
-            #      location dedups, #345). Register both, then drain once (Phase 2a + 2b).
-            #      A pending _corridor_batch gates the drain too: since #636 the A0b
-            #      step-position pass only *registers* corridor candidates, so this single
-            #      drain is what places them — without it a stepped part with no locations/
-            #      slots/user-dims would queue the shoulder-position dims and never place
-            #      them. Gating on the batch (not on step_position_ids) also drains a batch
-            #      stranded by a raise between A0b and here: a retry recomputes
-            #      step_position_ids empty, but the candidates persist and must still drain.
+            # (B2) both-axes locations + slots (+ the A0b step positions) through the SHARED
+            #      location corridor — one crossing-free ladder, one drain (auto-pass registers
+            #      locations then slots, then a single drain_corridors, so a slot position
+            #      coincident with a hole location dedups, #345). step_position_ids gates the
+            #      drain too: A0b only *registered* the shoulder candidates, so this drain is
+            #      what places them (else a stepped part with no locations/slots/user-dims would
+            #      queue them and never place them). Their intents — like locations/slots — are
+            #      dropped only AFTER the drain succeeds, so a raise leaves them recorded for a
+            #      clean retry (#639: the batch is transient, rebuilt from intents each finalize).
             queued_dim_ids = set()
-            if only_loc or slot_feats or user_dim_ids or self._corridor_batch:
+            if only_loc or slot_feats or user_dim_ids or step_position_ids:
                 assert a is not None and isinstance(model, PartModel)  # either ⟹ routable
                 if only_loc:
                     render_locations(self, model, a, only=only_loc, pinned=pinned_loc)
@@ -1543,7 +1547,7 @@ class Drawing:
             self._intents = [
                 it
                 for it in self._intents
-                if id(it) not in (corridor_ids | slot_ids | queued_dim_ids)
+                if id(it) not in (corridor_ids | slot_ids | queued_dim_ids | step_position_ids)
             ]
             # (B3) step/boss ø diameters through render_diameters' set-solve (row-below /
             #      column-left) — auto-pass S11b, after callouts/locations, before section.
