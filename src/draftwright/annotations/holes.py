@@ -66,7 +66,7 @@ _AXIS_ALIGN_COS = 0.9996
 
 
 def add_feature_callout(
-    dwg, feature, model, a, *, view: str | None = None, name: str | None = None
+    dwg, feature, model, a, *, view: str | None = None, name: str | None = None, ctx
 ) -> str:
     """Add a hole/pattern ø-depth **leader callout** for *feature* — the #414 add verb,
     the callout-mechanism half of the editable surface (symmetric with :meth:`Drawing.drop`).
@@ -155,7 +155,7 @@ def add_feature_callout(
     if name is None:
         i = 0
         name = f"hc_{view}0"
-        while name in dwg._named:
+        while name in ctx.registry:
             i += 1
             name = f"hc_{view}{i}"
     tip = _rim_tip(centre, elbow)
@@ -176,7 +176,7 @@ def add_feature_callout(
 
 
 def add_feature_location(
-    dwg, feature, model, a, *, axes: tuple[str, ...] | None = None, pin: bool = False
+    dwg, feature, model, a, *, axes: tuple[str, ...] | None = None, pin: bool = False, ctx
 ) -> list[str]:
     """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern —
     the #418 ``locate()`` add verb (symmetric with :meth:`Drawing.drop`).
@@ -242,7 +242,7 @@ def add_feature_location(
     SX, SZ = a.proj.side_x, a.proj.side_z
 
     def _uniq(prefix: str) -> str:
-        return f"{prefix}{_first_free_index(prefix, dwg._named)}"
+        return f"{prefix}{_first_free_index(prefix, ctx.registry)}"
 
     def _place(view: str, strip, p1, p2, baseline, label: str) -> str:
         perp = (min(p1, p2), max(p1, p2))
@@ -349,7 +349,7 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
     for loc in feature.members or (feature.frame.origin,):
         px, py, *_ = dwg.at(view, *loc)
         j = 0
-        while (nm := f"m_cm{j}") in dwg._named:
+        while (nm := f"m_cm{j}") in ctx.registry:
             j += 1
         dwg.add(CenterMark((px, py, 0), size, dwg.draft), nm, view=view, feature=feature)
 
@@ -363,7 +363,7 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
         while any(
             nm in (f"bc_{view}{j}", f"dim_pitch_{view}{j}")
             or nm.startswith(f"dim_pitch_{view}{j}_")
-            for nm in dwg._named
+            for nm in ctx.registry.names()
         ):
             j += 1
         _add_furniture(dwg, a, view, j, feature, lambda loc: dwg.at(view, *loc), ctx=ctx)
@@ -371,7 +371,7 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
     return sorted(set(dwg.annotations()) - before)
 
 
-def add_feature_diameter(dwg, feature, model) -> str:
+def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
     """Add a turned **step/boss diameter** ø-leader — the #419 extension of the callout
     add verb to :class:`StepFeature` / :class:`BossFeature`.
 
@@ -415,7 +415,7 @@ def add_feature_diameter(dwg, feature, model) -> str:
     # collides on m_dia_x0/z0 and clobbers an existing leader (#419 review F1).
     prefix = "m_dia_x" if axis == "x" else "m_dia_z"
     start = 0
-    while f"{prefix}{start}" in dwg._named:
+    while f"{prefix}{start}" in ctx.registry:
         start += 1
     before = set(dwg.annotations())
     if axis == "x":
@@ -578,11 +578,11 @@ def _off_axis_queue(
         )
 
 
-def _off_axis_owner(dwg, hole_locs):
+def _off_axis_owner(ctx, hole_locs):
     # The IR hole feature owning a side-drilled location dim, or None when the dim's
     # offset is shared by >1 distinct feature (unowned, so drop can't over-strip a
     # sibling — mirrors the #398c shared-coordinate rule). Promoted (#638).
-    feats = {dwg._feature_of_hole_at(loc) for loc in hole_locs}
+    feats = {ctx.feature_of_hole_at(loc) for loc in hole_locs}
     feats.discard(None)
     return next(iter(feats)) if len(feats) == 1 else None
 
@@ -620,7 +620,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
                     ),
                 )
             )
-    feats = {nm: _off_axis_owner(dwg, locs) for nm, locs in loc_by_name.items()}
+    feats = {nm: _off_axis_owner(ctx, locs) for nm, locs in loc_by_name.items()}
     _off_axis_queue(
         dwg,
         ctx,
@@ -667,7 +667,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
                     ),
                 )
             )
-    x_feats = {nm: _off_axis_owner(dwg, locs) for nm, locs in x_loc_by_name.items()}
+    x_feats = {nm: _off_axis_owner(ctx, locs) for nm, locs in x_loc_by_name.items()}
     _off_axis_queue(
         dwg,
         ctx,
@@ -707,7 +707,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
             continue
         seen_z.add(zo)
         hz = h.location[2]
-        owner = _off_axis_owner(dwg, z_locs[zo])
+        owner = _off_axis_owner(ctx, z_locs[zo])
 
         def _zc(view, p_lo, p_hi, edge, _zo=zo):
             return (
@@ -780,7 +780,7 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which):
     ``across`` phase is `_locate_across`; the ``along`` phase is `_locate_along_planar`
     (a Y-hole's X) then `_locate_along_z` (every hole's height), split out at #638.
     """
-    model = dwg._part_model
+    model = ctx.part_model
 
     def _coaxial(h):
         # The turning-axis bore of a rotational part is located by its centreline, not
@@ -1469,7 +1469,7 @@ def _annotate_holes(
         _hc_used.add(name)
         return name
 
-    _hc_used = set(dwg._named)
+    _hc_used = set(ctx.registry.names())
 
     for view, view_groups in by_view.items():
         to_page = view_of_axis[{"plan": "z", "front": "y", "side": "x"}[view]][1]
@@ -1605,7 +1605,7 @@ def _annotate_holes(
         reserved_rows = (
             [
                 to_page(h.location)[1]
-                for h in _ir_off_axis_holes(dwg._part_model)
+                for h in _ir_off_axis_holes(ctx.part_model)
                 if h.axis == off_axis_letter
             ]
             if off_axis_letter

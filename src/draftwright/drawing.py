@@ -613,6 +613,14 @@ class Drawing:
         """Return the :class:`ViewCoordinates` for a named view."""
         return self._coords[view]
 
+    def set_view_coordinates(self, view, coords) -> None:
+        """Override a view's projected coordinates (a repositioned detail/section band, #307)."""
+        self._coords[view] = coords
+
+    def drop_view_coordinates(self, view) -> None:
+        """Remove a view's projected coordinates (a bailed detail/section, #307)."""
+        self._coords.pop(view, None)
+
     def at(self, view, x, y, z):
         """Map a world point to a page point ``(px, py, 0)`` in ``view``."""
         px, py = self._coords[view].pp(x, y, z)
@@ -716,6 +724,12 @@ class Drawing:
         """Attach the built PartModel so ``model()`` and feature edits see it. Lets the
         orchestrator hand the model back without an ``annotations/`` attribute write (#639)."""
         self._part_model = model
+
+    @property
+    def model_declared(self) -> bool:
+        """Whether this drawing's model was **declared** by the caller (ADR 0011) rather than
+        detected — the public read the annotation pass threads onto its PlacementContext (#639)."""
+        return self._model_declared
 
     def place_dim(
         self,
@@ -1121,12 +1135,14 @@ class Drawing:
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("callout", feature, {"view": view, "name": name}))
             return ""
+        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
+        ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
         if getattr(feature, "kind", None) in ("step", "boss"):
-            return add_feature_diameter(self, feature, self._part_model)
+            return add_feature_diameter(self, feature, self._part_model, ctx=ctx)
         return add_feature_callout(
-            self, feature, self._part_model, self._analysis, view=view, name=name
+            self, feature, self._part_model, self._analysis, view=view, name=name, ctx=ctx
         )
 
     def furniture(self, feature, *, view=None) -> list[str]:
@@ -1197,10 +1213,12 @@ class Drawing:
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("locate", feature, {"axes": axes, "pin": pin}))
             return []
+        from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_location
 
+        ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
         return add_feature_location(
-            self, feature, self._part_model, self._analysis, axes=axes, pin=pin
+            self, feature, self._part_model, self._analysis, axes=axes, pin=pin, ctx=ctx
         )
 
     @contextlib.contextmanager
@@ -1462,7 +1480,12 @@ class Drawing:
         # (ADR 0005 §2, #639): render_locations/_annotate_holes/drain_corridors register/read here.
         # A local — finalize is transactional (#647), so a raised drain rolls the drawing back and
         # the retry re-runs from a clean slate with a new ctx; no cross-call persistence needed.
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
+        ctx = PlacementContext(
+            registry=self._registry,
+            coverage=self._coverage,
+            part_model=self.model(),
+            model_declared=self.model_declared,
+        )
 
         model, a = self._part_model, self._analysis
         routable = model is not None and a is not None
@@ -1588,7 +1611,7 @@ class Drawing:
             #      column-left) — auto-pass S11b, after callouts/locations, before section.
             if only_dia:
                 assert a is not None and isinstance(model, PartModel)  # only_dia ⟹ routable
-                render_diameters(self, plan_dimensions(model), only=only_dia)
+                render_diameters(self, plan_dimensions(model), ctx=ctx, only=only_dia)
             self._intents = [it for it in self._intents if id(it) not in dia_ids]
             # (B3b) turned step-length CHAIN through render_step_lengths (N× collapse /
             #       staggered tiers) — auto-pass S11b, after diameters, before section.
@@ -1747,7 +1770,7 @@ class Drawing:
             for tag, (holes, count) in zip(_tag_sequence(len(glist)), glist, strict=True)
         ]
 
-    def _add_balloons(self, view, specs):
+    def add_balloons(self, view, specs):
         """Place a leadered balloon for each ``(tag, j, hole)`` in *specs*,
         fitted into the halo the layout reserved around the view (#111).
 
@@ -1969,8 +1992,8 @@ class Drawing:
         )
 
     def _add_balloon(self, view, tag, j, hole):
-        """Single-balloon convenience over :meth:`_add_balloons` (#111)."""
-        self._add_balloons(view, [(tag, j, hole)])
+        """Single-balloon convenience over :meth:`add_balloons` (#111)."""
+        self.add_balloons(view, [(tag, j, hole)])
 
     def add_hole_table(self, view="plan", *, prefer="tr", name=None, balloons=True):
         """Add a hole table for *view*'s holes, placed in a free corner (#93).
@@ -1998,7 +2021,7 @@ class Drawing:
         # The table documents these diameters — let lint see that (#93).
         table.covers_diameters = tuple(diams)
         if balloons:
-            self._add_balloons(
+            self.add_balloons(
                 view,
                 [(tag, j, h) for tag, holes, _count in groups for j, h in enumerate(holes)],
             )

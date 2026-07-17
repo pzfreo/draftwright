@@ -205,8 +205,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (:func:`build_model`, attached to the drawing before this pass) so the read surface
     # (dwg.model()) and feature edits work even in manual mode (#398); fall back to
     # building it here for any direct caller that skipped _assemble.
-    _model = dwg._part_model if dwg._part_model is not None else build_model(a)
+    _model = dwg.model() if dwg.model() is not None else build_model(a)
     dwg.attach_part_model(_model)
+    # Thread the ensured model + declared flag onto the run's ctx so every pass reads them from
+    # ctx, not the drawing's privates (#639). Set AFTER attach so ctx sees the ensured model.
+    ctx.part_model = _model
+    ctx.model_declared = dwg.model_declared
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
     _groups = plan_dimensions(_model)
@@ -240,7 +244,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # path (gated on the declared flag; and on a fully-detected declared part the declared
     # keys already coincide with the detected ones).
     declared_keys: set = set()
-    if getattr(dwg, "_model_declared", False):
+    if ctx.model_declared:
         declared_keys = _declared_feature_keys(_groups, a)
         feature_keys = feature_keys | declared_keys
     # Decide the section trigger + cut-plane row now (pure function of _model/
@@ -321,7 +325,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # sees the ø as 'mentioned' and skips it (#629 — the column-left strip strands a boss ø when
     # tight, even on a half-empty sheet). No-op on turned parts (they keep the OD stack).
     render_boss_diameters(dwg, _groups, a, ctx=ctx)
-    render_diameters(dwg, _groups)
+    render_diameters(dwg, _groups, ctx=ctx)
     if a.prof is not None:
         render_step_lengths(dwg, _groups, ctx=ctx)
 
@@ -343,7 +347,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # with locations/slots rather than consuming leftovers as first-fit placements.
     render_gdt(dwg, _model, a, ctx=ctx)
     if a.pmi_mode == "annotate" or (
-        getattr(dwg, "_model_declared", False)
+        ctx.model_declared
         and any(f.kind in ("authored_dimension", "pmi") for f in _model.features)
     ):
         render_pmi(dwg, _model, a, ctx=ctx)
@@ -431,7 +435,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
     # part (e.g. NIST CTC-02) off the 61-row escalation (#111). Sourced from the IR —
     # a loose z-axis HoleFeature is by construction not a pattern member, so no
     # HoleRecord crosses here (ADR 0008 Am6; #584 WP1 B4).
-    _model = dwg._part_model
+    _model = ctx.part_model
     holes = [
         SimpleNamespace(location=pos, diameter=f.diameter)
         for f in (_model.features if _model is not None else ())
@@ -527,7 +531,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
         # One call: the strip solver must see every band member together, or two
         # independent _add_balloons calls could stack a pattern balloon on a
         # per-hole one in the same band.
-        dwg._add_balloons("plan", balloon_specs)
+        dwg.add_balloons("plan", balloon_specs)
         placed_names = {n for n, _ in dwg.iter_annotations()}
 
     # Clear `callout_dropped` only when EVERY dropped plan-view callout is now
