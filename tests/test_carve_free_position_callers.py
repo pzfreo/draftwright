@@ -41,9 +41,10 @@ _ALLOWED_CALLERS = {
     # Pending migration (#636), each with a genuine design fork:
     ("from_model.py", "render_height_ladder"),  # leapfrog witness cursor — needs rework
     ("from_model.py", "render_gdt"),  # PMI alt-strip fallback runs inside on_drop, post-drain
-    # Same on_drop/post-drain pattern as render_gdt (helpers ≥0.14): the primary
-    # placement IS the corridor candidate; the carve only runs in the drop fallthrough,
-    # after the drain, retrying the opposite/side-view strip before recording the drop.
+    # Beyond render_gdt's pattern (helpers ≥0.14): the primary placement IS the
+    # corridor candidate; the carve runs in a ctx.post_drain-DEFERRED drop fallthrough,
+    # after EVERY corridor has drained (#684 review — a mid-drain carve could pre-empt
+    # a later sibling's reserved corner), retrying the opposite/side-view strip.
     ("from_model.py", "render_plates"),
     ("holes.py", "add_feature_callout"),  # detect-only verb — no shared corridor drain
     ("holes.py", "add_feature_location"),  # detect-only verb — no shared corridor drain

@@ -1437,24 +1437,28 @@ def render_plates(dwg, model, a, *, ctx) -> int:
             return dim_footprint(pa, pb, side, pos - edge, draft, _fmt(val))
 
         def _drop(nm, val=val, view=view, stack=stack, alt=alt, feat=pl):  # noqa: B008
-            # Opposite-strip fallthrough (mirrors the GD&T #481 pattern): carve a free
-            # tier on the alternate strip — carve_free_position sees only already-placed
-            # annotations, so it cannot collide with an undrained sibling corridor.
-            for view2, side2, strip2, axis2, qa, qb, edge2 in alt or ():
-                if strip2 is None:
-                    continue
-                foot0 = dim_footprint(qa, qb, side2, tier, draft, _fmt(val))
-                perp = (foot0[1], foot0[3]) if axis2 == "x" else (foot0[0], foot0[2])
-                pos = carve_free_position(dwg, strip2, view2, axis2, tier, perp)
-                if pos is not None:
-                    dim = _dim(qa, qb, side2, pos - edge2, draft, label=_fmt(val))
-                    dwg.add(dim, nm, view=view2, feature=feat)
-                    return
-            ctx.record_issue(
-                "warning",
-                "plate_thickness_dropped",
-                f"plate thickness {_fmt(val)} not dimensioned ({view} {stack}-strip full)",
-            )
+            # Opposite-strip fallthrough (mirrors the GD&T #481 pattern), DEFERRED to
+            # ctx.post_drain so it runs after EVERY corridor has drained (#684 review):
+            # a mid-drain carve could occupy a corner a later sibling's force candidate
+            # needs; post-drain, carve_free_position sees all placed annotations.
+            def _retry(nm=nm, val=val, view=view, stack=stack, alt=alt, feat=feat):
+                for view2, side2, strip2, axis2, qa, qb, edge2 in alt or ():
+                    if strip2 is None:
+                        continue
+                    foot0 = dim_footprint(qa, qb, side2, tier, draft, _fmt(val))
+                    perp = (foot0[1], foot0[3]) if axis2 == "x" else (foot0[0], foot0[2])
+                    pos = carve_free_position(dwg, strip2, view2, axis2, tier, perp)
+                    if pos is not None:
+                        dim = _dim(qa, qb, side2, pos - edge2, draft, label=_fmt(val))
+                        dwg.add(dim, nm, view=view2, feature=feat)
+                        return
+                ctx.record_issue(
+                    "warning",
+                    "plate_thickness_dropped",
+                    f"plate thickness {_fmt(val)} not dimensioned ({view} {stack}-strip full)",
+                )
+
+            ctx.post_drain.append(_retry)
 
         # ADR 0009 corridor candidate (#636): a plate thickness is a size dim bound to one
         # view/strip (no alternate view), so it is force-kept and dropped only when the strip

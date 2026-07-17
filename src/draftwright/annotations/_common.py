@@ -636,6 +636,10 @@ class PlacementContext:
     corridor_batch: dict = field(default_factory=dict)
     escalations: list = field(default_factory=list)
     detail_requests: list = field(default_factory=list)
+    # Fallthrough callbacks a pass's on_drop queues to run AFTER every corridor has
+    # drained (#684 review): a mid-drain carve could occupy space a later sibling
+    # corridor's force candidate needs; deferral makes "post-drain" literally true.
+    post_drain: list = field(default_factory=list)
     # The drawing's build-state stores, referenced (not owned) by the run's passes (#639).
     # Duck-typed as ``Any`` — matching the untyped ``Drawing._record_build_issue`` they replace —
     # so mypy does not reject the delegating calls below.
@@ -729,6 +733,11 @@ def drain_corridors(ctx, dwg):
             dwg, b["strip"], b["view"], b["axis"], b["cands"], b["tier"], corner_reserves=reserves
         )
     ctx.corridor_batch = {}
+    # Deferred fallthroughs (opposite-strip retries) run once every strip has drained,
+    # so a retry can never pre-empt a corner a later sibling's force candidate needs.
+    pending, ctx.post_drain = ctx.post_drain, []
+    for cb in pending:
+        cb()
 
 
 def place_strip_candidates(
