@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import math
 import os
+import tempfile
 import warnings
 from dataclasses import dataclass
 from typing import NamedTuple
@@ -2349,39 +2350,56 @@ class Drawing:
             return svg_path, dxf_path
 
         # --- formats=... → {format: path} (requested order) ---
-        want = [formats] if isinstance(formats, str) else [f.lower() for f in formats]
+        want = [formats.lower()] if isinstance(formats, str) else [f.lower() for f in formats]
         unknown = [f for f in want if f not in self._EXPORT_FORMATS]
         if unknown:
             raise ValueError(
                 f"unknown export format(s) {unknown}; choose from {self._EXPORT_FORMATS}"
             )
+        if "png" in want and dpi <= 0:
+            raise ValueError(f"png export needs dpi > 0, got {dpi}")
         want_set = set(want)
         paths: dict[str, str] = {}
-        svg_path = self._write_svg(out) if (want_set & {"svg", "pdf", "png"}) else None
-        self.svg_path = svg_path
-        if "dxf" in want_set:
-            self.dxf_path = paths["dxf"] = self._write_dxf(out)
-        pdf_path = None
-        if want_set & {"pdf", "png"}:
-            assert svg_path is not None
-            pdf_path = out + ".pdf"
-            _render_pdf(svg_path, pdf_path, getattr(self, "_draftwright_link_rect", None))
-            _log.info("PDF → %s", pdf_path)
-        if "png" in want_set:
-            assert pdf_path is not None
-            paths["png"] = out + ".png"
-            _render_png(pdf_path, paths["png"], dpi=dpi)
-            _log.info("PNG → %s", paths["png"])
-        if "pdf" in want_set:
-            paths["pdf"] = pdf_path  # type: ignore[assignment]
-        if "svg" in want_set:
-            paths["svg"] = svg_path  # type: ignore[assignment]
-        # Drop intermediates that weren't themselves requested.
-        if svg_path is not None and "svg" not in want_set:
-            os.remove(svg_path)
-            self.svg_path = None
-        if pdf_path is not None and "pdf" not in want_set:
-            os.remove(pdf_path)
+        # Intermediates — the SVG behind a PDF/PNG, the PDF behind a PNG — go to a temp dir when
+        # not themselves requested, NEVER the user's <out>.svg/.pdf. Otherwise a later
+        # `export(out, formats="png")` would overwrite then delete an <out>.svg/.pdf an earlier
+        # export wrote (#677 review). The temp dir + its contents are removed when the stack closes.
+        with contextlib.ExitStack() as stack:
+            tmpdir: str | None = None
+
+            def _intermediate_stem() -> str:
+                nonlocal tmpdir
+                if tmpdir is None:
+                    tmpdir = stack.enter_context(
+                        tempfile.TemporaryDirectory(prefix="draftwright-export-")
+                    )
+                return os.path.join(tmpdir, "intermediate")
+
+            svg_path = None
+            if want_set & {"svg", "pdf", "png"}:
+                svg_path = self._write_svg(out if "svg" in want_set else _intermediate_stem())
+            self.svg_path = svg_path if "svg" in want_set else None
+            if "svg" in want_set:
+                paths["svg"] = svg_path  # type: ignore[assignment]
+
+            self.dxf_path = None
+            if "dxf" in want_set:
+                self.dxf_path = paths["dxf"] = self._write_dxf(out)
+
+            pdf_path = None
+            if want_set & {"pdf", "png"}:
+                assert svg_path is not None
+                pdf_path = (out if "pdf" in want_set else _intermediate_stem()) + ".pdf"
+                _render_pdf(svg_path, pdf_path, getattr(self, "_draftwright_link_rect", None))
+                _log.info("PDF → %s", pdf_path)
+                if "pdf" in want_set:
+                    paths["pdf"] = pdf_path
+
+            if "png" in want_set:
+                assert pdf_path is not None
+                paths["png"] = out + ".png"
+                _render_png(pdf_path, paths["png"], dpi=dpi)
+                _log.info("PNG → %s", paths["png"])
         return {f: paths[f] for f in want}
 
     def export_pdf(self, out=None) -> str:

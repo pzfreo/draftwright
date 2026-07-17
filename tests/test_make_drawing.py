@@ -9118,6 +9118,19 @@ class TestExportFormats:
         # the SVG + PDF written only to render the PNG are removed
         assert not (tmp_path / "p.svg").exists() and not (tmp_path / "p.pdf").exists()
 
+    def test_png_export_does_not_clobber_existing_outputs(self, tmp_path):
+        # #677 review (blocking): a later png-only export to the same stem must NOT overwrite
+        # then delete an SVG/PDF an earlier export wrote — intermediates go to a temp dir.
+        dwg = build_drawing(Box(60, 40, 20))
+        stem = str(tmp_path / "part")
+        dwg.export(stem, formats=("svg", "pdf"))
+        svg, pdf = tmp_path / "part.svg", tmp_path / "part.pdf"
+        svg_bytes, pdf_bytes = svg.read_bytes(), pdf.read_bytes()
+        dwg.export(stem, formats="png")  # must not touch the existing svg/pdf
+        assert (tmp_path / "part.png").exists()
+        assert svg.exists() and svg.read_bytes() == svg_bytes  # untouched, not deleted
+        assert pdf.exists() and pdf.read_bytes() == pdf_bytes
+
     def test_export_png_dpi_scales_the_raster(self, tmp_path):
         dwg = build_drawing(Box(60, 40, 20))
         lo = Path(dwg.export(str(tmp_path / "lo"), formats="png", dpi=72)["png"]).stat().st_size
@@ -9128,6 +9141,18 @@ class TestExportFormats:
         dwg = build_drawing(Box(30, 20, 10))
         with pytest.raises(ValueError, match="unknown export format"):
             dwg.export(str(tmp_path / "x"), formats=("svg", "jpeg"))
+
+    def test_export_format_is_case_insensitive(self, tmp_path):
+        # #677 review: a single-string format must normalise like an iterable one.
+        dwg = build_drawing(Box(30, 20, 10))
+        assert set(dwg.export(str(tmp_path / "u"), formats="PNG")) == {"png"}
+        assert set(dwg.export(str(tmp_path / "v"), formats=("SVG", "Dxf"))) == {"svg", "dxf"}
+
+    def test_export_png_zero_dpi_raises(self, tmp_path):
+        # #677 review: reject dpi<=0 before writing, so no intermediates are stranded.
+        dwg = build_drawing(Box(30, 20, 10))
+        with pytest.raises(ValueError, match="dpi > 0"):
+            dwg.export(str(tmp_path / "z"), formats="png", dpi=0)
 
     def test_export_pdf_is_deprecated_but_still_works(self, tmp_path):
         dwg = build_drawing(Box(30, 20, 10))
