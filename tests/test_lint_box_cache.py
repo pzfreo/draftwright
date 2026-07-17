@@ -57,6 +57,23 @@ def test_lint_drawing_measures_once_across_calls():
     assert ann.calls == 1, "persistent ann_box_cache must survive repeated lints"
 
 
+def test_lint_prunes_cache_entries_for_replaced_items():
+    # A replaced annotation (the repair loop swaps in a fresh object) must not
+    # stay strongly referenced by the persistent cache: lint() prunes entries
+    # whose object is no longer on the sheet, so the cache is bounded by live
+    # membership and released geometry can be collected.
+    dwg = build_drawing(Box(60, 40, 20) - Pos(10, 5, 0) * Cylinder(4, 20))
+    dwg.lint()
+    view_ids = {id(vis) for vis, _ in dwg.views.values()}
+    ann_keys = [k for k in dwg._ann_box_cache if k not in view_ids]
+    assert ann_keys, "lint cached no annotation boxes — the guard lost its subject"
+    departed = ann_keys[0]
+    dwg.items = [i for i in dwg.items if id(i) != departed]
+    dwg.lint()
+    assert departed not in dwg._ann_box_cache
+    assert set(dwg._ann_box_cache) <= {id(i) for i in dwg.items} | view_ids
+
+
 def test_relint_recomputes_no_annotation_boxes():
     # Integration: on a real drawing the second lint() must not re-measure any
     # annotation/view geometry — every full-box lookup hits the persisted cache.

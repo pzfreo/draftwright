@@ -39,6 +39,15 @@ def _ann_box(item, cache):
     measured at most once per cache lifetime. Entries are id-keyed and store the
     item itself for an identity check, so a caller-persisted cache can't return
     a stale box after ``id()`` reuse (same pattern as ``_view_edge_entries``).
+
+    Contract for a persisted cache: annotations must be *replaced*, never
+    mutated in place, once measured — the engine's universal discipline (the
+    repair loop's ``_replace_dim`` swaps in a freshly built object; every
+    ``.locate()`` happens at construction, before an object joins the sheet).
+    A caller that transforms a live object must clear its cache. A failed
+    measure is cached as ``None`` — deterministic for unchanged geometry, so
+    the affected checks skip the item exactly as their old per-site handlers
+    did, without re-raising per lint.
     """
     key = id(item)
     hit = cache.get(key)
