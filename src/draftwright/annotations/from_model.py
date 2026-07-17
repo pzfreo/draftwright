@@ -1449,7 +1449,24 @@ def render_plates(dwg, model, a, *, ctx) -> int:
                     perp = (foot0[1], foot0[3]) if axis2 == "x" else (foot0[0], foot0[2])
                     pos = carve_free_position(dwg, strip2, view2, axis2, tier, perp)
                     if pos is not None:
+                        # Accept-time validation (#684 r2): the carve accepted the
+                        # ANALYTICAL footprint — build once and re-check the real box
+                        # against live obstacles + the page before adding (the same
+                        # contract as the corridor's validation fallback). A miss
+                        # tries the next alternate.
                         dim = _dim(qa, qb, side2, pos - edge2, draft, label=_fmt(val))
+                        real = _geom_box(dim)
+                        page = (_MARGIN, _MARGIN, a.PAGE_W - _MARGIN, a.PAGE_H - _MARGIN)
+                        if real is not None and (
+                            _box_hits(
+                                real, strip_obstacles(dwg, view=view2, crossable=CROSSABLE_TYPES)
+                            )
+                            or real[0] < page[0]
+                            or real[1] < page[1]
+                            or real[2] > page[2]
+                            or real[3] > page[3]
+                        ):
+                            continue
                         dwg.add(dim, nm, view=view2, feature=feat)
                         return
                 ctx.record_issue(
@@ -1458,6 +1475,11 @@ def render_plates(dwg, model, a, *, ctx) -> int:
                     f"plate thickness {_fmt(val)} not dimensioned ({view} {stack}-strip full)",
                 )
 
+            # Queued retries run in registration order (deterministic; plates sort by
+            # axis/lo/hi) and pick their first viable alternate greedily — two plates
+            # contending for the same two alternates could in principle assign
+            # suboptimally (#684 r2, accepted: joint-solving deferred retries belongs
+            # to the L-shaped-occupancy/corner follow-up).
             ctx.post_drain.append(_retry)
 
         # ADR 0009 corridor candidate (#636): a plate thickness is a size dim bound to one
