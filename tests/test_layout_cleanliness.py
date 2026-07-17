@@ -61,13 +61,6 @@ _TOL_MM = 0.5
 #   PENDING <issue>   = a real invisible-occupant defect the named phase removes (delete
 #                       the entry in that PR).
 _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
-    # BENIGN (helpers ≥0.14): a tight-span location dim renders with outside-arrow
-    # tails, so its witness HULL crosses the height dim's hull at the strip corner at
-    # every position — an AABB artifact of representing an L-shaped dim as one box
-    # (the inks are disjoint: the region holds only a witness line crossing empty
-    # hull space). Resolved for real by L-shaped occupancy (see the #602 follow-up
-    # issue), which turns this entry back into a failure to burn down.
-    "dshape": {frozenset({"dim_height", "dim_loc_front_z400"})},
     # BENIGN: two location dims off a common datum share their extension-line span.
     "plate_holes": {frozenset({"m_locx0", "m_locx1"}), frozenset({"m_locy0", "m_locy1"})},
     # bracket: two BENIGN datum pairs (as plate_holes) PLUS one SPACE-CONSTRAINED
@@ -113,7 +106,14 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
         frozenset({"dim_loc_side_y2000", "m_env_depth"}),
     },
     # BENIGN (as side_drilled): envelope depth + location share the datum witness corridor.
-    "dshape": {frozenset({"dim_loc_side_y200", "m_env_depth"})},
+    # Second pair BENIGN (helpers ≥0.14): a tight-span location dim's outside-arrow
+    # tails put its witness HULL across the height dim's hull at the strip corner at
+    # every position — an AABB artifact of one-box occupancy for L-shaped ink (the
+    # inks are disjoint). Burns down with L-shaped occupancy (the #602 follow-up).
+    "dshape": {
+        frozenset({"dim_loc_side_y200", "m_env_depth"}),
+        frozenset({"dim_height", "dim_loc_front_z400"}),
+    },
     # holed_slot (#345/#346): all BENIGN datum-chain / shared-corridor overlaps — the
     # unified above-corridor solve places three X-location dims + the slot length as one
     # nested ladder off the common datum, so their extension-line spans share the corridor

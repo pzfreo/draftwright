@@ -836,3 +836,5 @@ resolved one.
   2's filed residual gaps), #524 (Amendment 8 solver-path consolidation), #381
   (banded-DP anchor-defeat gap; Amendment 9 retires the DP instead of fixing it
   in place).
+
+**2026-07-17 (helpers 0.14):** `render_plates` joins the on_drop/post-drain carve exemptions (as `render_gdt`): primary placement stays a corridor candidate; the carve runs only in the drop fallthrough (opposite/side-view strip). Witness-hull corner overlaps are an accepted one-box-occupancy artifact pending L-shaped occupancy (#602 follow-up).
