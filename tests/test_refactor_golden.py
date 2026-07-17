@@ -17,7 +17,9 @@ that reorders floating-point sums shifts a value ~1 ULP with no real placement c
 byte digest false-fails on; 0.1 mm catches the ~mm drift a wrong projector/sign/order causes
 while surviving that noise.
 
-**Throwaway:** delete this file and `tests/refactor_golden/` once #638 + #639 land.
+Originally a throwaway gate for #638 + #639; retained as the deviation gate for the #602
+performance work — perf refactors (placement-footprint separation, caching) are exactly the
+behaviour-preserving class this corpus polices, so it stays until that epic concludes.
 
 Re-bless intentionally (there should be NO intentional change during these refactors):
     DRAFTWRIGHT_UPDATE_GOLDEN=1 uv run pytest tests/test_refactor_golden.py
@@ -120,6 +122,20 @@ def _flange_dense():
     return flange
 
 
+def _grid_plate():
+    # The #602 benchmark: a plate with 15 holes in two regular grid patterns → grid pitch
+    # dims through _place_pitch_dim's bounded-offset fallback (the perf hotspot: the strip
+    # carve finds no free tier, so every candidate offset is footprint-tested).
+    plate = Box(120, 80, 10)
+    for i in range(3):
+        for j in range(3):
+            plate -= Pos(-45 + i * 15, -15 + j * 15, 0) * Cylinder(2.5, 10)
+    for i in range(2):
+        for j in range(3):
+            plate -= Pos(25 + i * 20, -20 + j * 18, 0) * Cylinder(4, 10)
+    return plate
+
+
 def _holed_slot():
     # A hole whose X-location coincides with a slot edge → the #345 corridor dedup path.
     from build123d import BuildPart, Hole, Locations, Mode
@@ -144,6 +160,7 @@ CORPUS = {
     "bracket_section": _bracket_section,
     "turned_stepped": _turned_stepped,
     "flange_dense": _flange_dense,
+    "grid_plate": _grid_plate,
     "holed_slot": _holed_slot,
 }
 
