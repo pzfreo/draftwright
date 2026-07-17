@@ -59,6 +59,7 @@ from draftwright.export import (
     fix_svg_page_size,
     sanitize_svg_arcs,
     set_dxf_metadata,
+    write_dxf,
 )
 from draftwright.fonts import PLEX_MONO
 from draftwright.intents import Intent
@@ -2315,7 +2316,8 @@ class Drawing:
         self._add_shapes(dxf_exp)
         set_dxf_metadata(dxf_exp)
         dxf_path = out + ".dxf"
-        dxf_exp.write(dxf_path)
+        # #602: skip ExportDXF.write's O(entities) zoom.extents pass — the page window is known.
+        write_dxf(dxf_exp, dxf_path, self.page_w, self.page_h)
         _log.info("DXF → %s", dxf_path)
         return dxf_path
 

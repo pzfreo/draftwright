@@ -123,6 +123,33 @@ def set_dxf_metadata(dxf) -> None:
         pass
 
 
+def write_dxf(dxf, path: str, page_w: float, page_h: float) -> None:
+    """Write *dxf* with the viewport zoomed to the known page window.
+
+    ``ExportDXF.write`` resets the viewport via ``ezdxf.zoom.extents`` — a
+    pure-Python walk of every modelspace entity that re-flattens each spline,
+    costing seconds on a dimension-dense sheet (#602; build123d#382 tracks
+    exposing viewport control). The drawing already lives in page-mm
+    coordinates ``(0, 0)–(page_w, page_h)``, so set that single-window
+    viewport directly and save. Best-effort: falls back to ``dxf.write`` if
+    the exporter's ezdxf internals aren't reachable (mirrors
+    ``set_dxf_metadata``).
+    """
+    doc = getattr(dxf, "_document", None)
+    msp = getattr(dxf, "_modelspace", None)
+    if doc is None or msp is None:
+        dxf.write(path)
+        return
+    try:
+        from ezdxf import zoom
+
+        zoom.window(msp, (0.0, 0.0), (page_w, page_h))
+    except Exception:
+        dxf.write(path)
+        return
+    doc.saveas(path, fmt="asc")
+
+
 def sanitize_svg_arcs(svg_path: str) -> int:
     """Rewrite near-degenerate elliptical arcs as straight line segments.
 
