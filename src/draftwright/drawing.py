@@ -445,6 +445,10 @@ class Drawing:
         # objects (self.views) repeatedly, so persisting it recomputes each
         # view's edges once instead of every lint (helpers #143/#164).
         self._view_edge_cache: dict = {}
+        # Same persistence idea for annotation bounding boxes (#602): an optimal
+        # bbox on fused dimension geometry costs ~10 ms and lint needs one per
+        # item; entries are identity-checked so replaced annotations re-measure.
+        self._ann_box_cache: dict = {}
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
         self._analysis: Analysis | None = None
@@ -1526,6 +1530,7 @@ class Drawing:
             if sv_above is not None:
                 sv_above.outer_limit = sv_above_limit
             self._view_edge_cache.clear()
+            self._ann_box_cache.clear()
             raise
         finally:
             self._defer_intents = deferred
@@ -2153,6 +2158,7 @@ class Drawing:
                 drawing_scale=self.scale,
                 view_shapes=view_shapes,
                 view_edge_cache=self._view_edge_cache,
+                ann_box_cache=self._ann_box_cache,
             )
         else:
             issues = []
@@ -2163,6 +2169,7 @@ class Drawing:
                     drawing_scale=_scale,
                     view_shapes=view_shapes,
                     view_edge_cache=self._view_edge_cache,
+                    ann_box_cache=self._ann_box_cache,
                 )
         if self.part is not None:
             # Reuse the single feature inventory from the build (#244) when present,

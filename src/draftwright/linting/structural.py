@@ -30,7 +30,30 @@ def _seg_intersects_rect(p, q, rect) -> bool:
     return bool(_seg_hits_box(p, q, rect, pad=0.0))
 
 
-def _centerline_extent(cl_item):
+def _ann_box(item, cache):
+    """*item*'s full rendered bbox as (min_x, min_y, max_x, max_y), or None; memoised.
+
+    An *optimal* ``bounding_box()`` on fused annotation geometry costs ~10 ms —
+    the dominant lint cost once the view edges are cached (#602). Every lint
+    check that needs a full box goes through this one memo, so an item is
+    measured at most once per cache lifetime. Entries are id-keyed and store the
+    item itself for an identity check, so a caller-persisted cache can't return
+    a stale box after ``id()`` reuse (same pattern as ``_view_edge_entries``).
+    """
+    key = id(item)
+    hit = cache.get(key)
+    if hit is not None and hit[0] is item:
+        return hit[1]
+    try:
+        bb = item.bounding_box()
+        box = (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
+    except Exception:
+        box = None
+    cache[key] = (item, box)
+    return box
+
+
+def _centerline_extent(cl_item, box_cache=None):
     """Return (min_x, min_y, max_x, max_y) for a centreline.
 
     Prefers the zero-width ``.segments`` (the true centreline) so a thin-faced
@@ -42,8 +65,10 @@ def _centerline_extent(cl_item):
         xs = [p[0] for s in segs for p in s]
         ys = [p[1] for s in segs for p in s]
         return (min(xs), min(ys), max(xs), max(ys))
-    bb = cl_item.bounding_box()
-    return (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
+    box = _ann_box(cl_item, box_cache if box_cache is not None else {})
+    if box is None:
+        raise ValueError("centreline bbox unavailable")
+    return box
 
 
 def _item_label(item) -> str:
@@ -88,6 +113,7 @@ def lint_drawing(
     drawing_scale: float = 1.0,
     view_shapes: list | None = None,
     view_edge_cache: dict | None = None,
+    ann_box_cache: dict | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
 
@@ -144,6 +170,12 @@ def lint_drawing(
             the same dict to successive lints; discard it when the view shapes
             change. Omit it (the default) for a fresh per-call cache, which
             behaves exactly as before.
+        ann_box_cache: optional dict memoising each *annotation's* full optimal
+            bounding box — the dominant remaining lint cost once view edges are
+            cached (#602). Same persistence contract as *view_edge_cache*;
+            entries are identity-checked, so a replaced annotation is re-measured
+            automatically. Omit it for a fresh per-call cache (which still
+            de-duplicates the several checks that need the same item's box).
 
     Returns:
         list[LintIssue].
@@ -156,6 +188,7 @@ def lint_drawing(
         raise ValueError(f"drawing_scale must be positive, got {drawing_scale}")
 
     issues: list[LintIssue] = []
+    box_cache = {} if ann_box_cache is None else ann_box_cache
 
     # Resolve page bounds: explicit arg beats module-level context.
     if page_bbox is None and _DRAWING_PAGE is not None:
@@ -164,9 +197,9 @@ def lint_drawing(
 
     for item in items:
         if getattr(item, "elbow", None) is not None:
-            _lint_leader(item, issues)
+            _lint_leader(item, issues, box_cache)
         elif getattr(item, "measured_length", None) is not None:
-            _lint_dim(item, part_bbox, issues, drawing_scale)
+            _lint_dim(item, part_bbox, issues, drawing_scale, box_cache)
 
     # Pairwise label-overlap check. The compare-box for a label-less item is an
     # *optimal* bounding_box() — expensive, and previously recomputed for both
@@ -178,8 +211,7 @@ def lint_drawing(
         lb = getattr(item, "label_bbox", None)
         if lb is not None:
             return lb
-        bb = item.bounding_box()
-        return (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
+        return _ann_box(item, box_cache)
 
     boxes: list = []
     for item in items:
@@ -204,7 +236,7 @@ def lint_drawing(
                 if is_cl_a or is_cl_b:
                     dim_item = item_b if is_cl_a else item_a
                     cl_item = item_a if is_cl_a else item_b
-                    _lint_centerline_dim_overlap(dim_item, cl_item, issues)
+                    _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache)
                     continue
 
                 # Compare label text extents, NOT full bounding boxes.
@@ -239,8 +271,10 @@ def lint_drawing(
     if page_bbox is not None:
         for item in items:
             try:
-                bb = item.bounding_box()
-                for detail in _overshoots((bb.min.X, bb.min.Y, bb.max.X, bb.max.Y), page_bbox):
+                bb = _ann_box(item, box_cache)
+                if bb is None:
+                    continue
+                for detail in _overshoots(bb, page_bbox):
                     lbl = _item_label(item) or "?"
                     issues.append(
                         LintIssue(
@@ -257,7 +291,12 @@ def lint_drawing(
 
     if view_shapes is not None:
         _lint_view_shapes(
-            view_shapes, items, issues, page_bbox=page_bbox, edge_cache=view_edge_cache
+            view_shapes,
+            items,
+            issues,
+            page_bbox=page_bbox,
+            edge_cache=view_edge_cache,
+            box_cache=box_cache,
         )
 
     # Principal envelope completeness check: verify each bbox extent appears
@@ -378,13 +417,15 @@ def _view_edge_entries(vs, cache):
     return entries
 
 
-def _lint_view_shapes(view_shapes, ann_items, issues, page_bbox=None, edge_cache=None) -> None:
+def _lint_view_shapes(
+    view_shapes, ann_items, issues, page_bbox=None, edge_cache=None, box_cache=None
+) -> None:
     """Check views against annotations (#159/#76), each other (#160), and the page (#75)."""
     # Build named bbox list; use the shape's id as fallback name.
     named_views = []
     view_shape_ids = set()
     for vs in view_shapes:
-        bb = _bbox2d(vs)
+        bb = _ann_box(vs, box_cache if box_cache is not None else {})
         if bb is None:
             continue
         name = getattr(vs, "label", None) or getattr(vs, "name", None) or f"view@{id(vs)}"
@@ -400,6 +441,7 @@ def _lint_view_shapes(view_shapes, ann_items, issues, page_bbox=None, edge_cache
     # mostly blank face, where placing callouts is a legitimate convention —
     # so a label over a blank region is reported as an info-level notice.
     cache = {} if edge_cache is None else edge_cache
+    ann_cache = box_cache if box_cache is not None else {}
     for vname, vbb, vs in named_views:
         vx0, vy0, vx1, vy1 = vbb
         for ann in ann_items:
@@ -413,7 +455,7 @@ def _lint_view_shapes(view_shapes, ann_items, issues, page_bbox=None, edge_cache
                 continue  # hatching is intentionally inside the section view
             try:
                 label_box = getattr(ann, "label_bbox", None)
-                ab = label_box if label_box is not None else _bbox2d(ann)
+                ab = label_box if label_box is not None else _ann_box(ann, ann_cache)
                 if ab is None:
                     continue
                 if not _bboxes_overlap_2d(vbb, ab):
@@ -485,18 +527,17 @@ def _lint_view_shapes(view_shapes, ann_items, issues, page_bbox=None, edge_cache
                 )
 
 
-def _lint_centerline_dim_overlap(dim_item, cl_item, issues) -> None:
+def _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache) -> None:
     """Flag label-vs-centerline overlap for a (dim, centerline) pair."""
     try:
-        cl_min_x, cl_min_y, cl_max_x, cl_max_y = _centerline_extent(cl_item)
+        cl_min_x, cl_min_y, cl_max_x, cl_max_y = _centerline_extent(cl_item, box_cache)
 
         label_bbox = getattr(dim_item, "label_bbox", None)
-        if label_bbox is not None:
-            lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
-        else:
-            db = dim_item.bounding_box()
-            lmin_x, lmin_y = db.min.X, db.min.Y
-            lmax_x, lmax_y = db.max.X, db.max.Y
+        if label_bbox is None:
+            label_bbox = _ann_box(dim_item, box_cache)
+        if label_bbox is None:
+            return
+        lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
 
         cl_w = cl_max_x - cl_min_x
         cl_h = cl_max_y - cl_min_y
@@ -530,7 +571,7 @@ def _lint_centerline_dim_overlap(dim_item, cl_item, issues) -> None:
         pass
 
 
-def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0) -> None:
+def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None) -> None:
     label = _item_label(item)
     measured = getattr(item, "measured_length", None)
 
@@ -565,14 +606,14 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0) -> None:
                 )
 
     if part_bbox is not None:
-        try:
-            db = item.bounding_box()
-        except Exception:
+        db = _ann_box(item, box_cache if box_cache is not None else {})
+        if db is None:
             return
-        ox = max(0.0, min(db.max.X, part_bbox.max.X) - max(db.min.X, part_bbox.min.X))
-        oy = max(0.0, min(db.max.Y, part_bbox.max.Y) - max(db.min.Y, part_bbox.min.Y))
+        dmin_x, dmin_y, dmax_x, dmax_y = db
+        ox = max(0.0, min(dmax_x, part_bbox.max.X) - max(dmin_x, part_bbox.min.X))
+        oy = max(0.0, min(dmax_y, part_bbox.max.Y) - max(dmin_y, part_bbox.min.Y))
         overlap = ox * oy
-        dim_area = max((db.max.X - db.min.X) * (db.max.Y - db.min.Y), 1e-9)
+        dim_area = max((dmax_x - dmin_x) * (dmax_y - dmin_y), 1e-9)
         if overlap / dim_area > 0.10:
             issues.append(
                 LintIssue(
@@ -586,14 +627,14 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0) -> None:
             )
 
 
-def _lint_leader(item, issues) -> None:
+def _lint_leader(item, issues, box_cache=None) -> None:
     try:
         box = getattr(item, "label_bbox", None)
-        if box is not None:
-            minx, miny, maxx, maxy = box
-        else:
-            tb = item.bounding_box()
-            minx, miny, maxx, maxy = tb.min.X, tb.min.Y, tb.max.X, tb.max.Y
+        if box is None:
+            box = _ann_box(item, box_cache if box_cache is not None else {})
+        if box is None:
+            return
+        minx, miny, maxx, maxy = box
         ex, ey = item.elbow
         if minx <= ex <= maxx and miny <= ey <= maxy:
             issues.append(
