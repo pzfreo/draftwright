@@ -445,6 +445,13 @@ class Drawing:
         # objects (self.views) repeatedly, so persisting it recomputes each
         # view's edges once instead of every lint (helpers #143/#164).
         self._view_edge_cache: dict = {}
+        # Same persistence idea for annotation bounding boxes (#602): an optimal
+        # bbox on fused dimension geometry costs ~10 ms and lint needs one per
+        # item; entries are identity-checked so replaced annotations re-measure.
+        # Entries are identity- AND location-token-checked (see _ann_box), so a
+        # replaced or in-place-relocated object re-measures; lint() prunes
+        # entries for departed objects.
+        self._ann_box_cache: dict = {}
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
         self._analysis: Analysis | None = None
@@ -1526,6 +1533,7 @@ class Drawing:
             if sv_above is not None:
                 sv_above.outer_limit = sv_above_limit
             self._view_edge_cache.clear()
+            self._ann_box_cache.clear()
             raise
         finally:
             self._defer_intents = deferred
@@ -2139,6 +2147,12 @@ class Drawing:
         # longer relies on the helpers set_page module-global (ADR 0007).
         page_bbox = (_MARGIN, _MARGIN, self.page_w - _MARGIN, self.page_h - _MARGIN)
         view_shapes = [vis for vis, _ in self.views.values()]
+        # Prune box-cache entries for objects no longer on the sheet, so replaced
+        # annotations (repair's _replace_dim swaps in a fresh object) don't keep
+        # their OCC geometry strongly referenced for the drawing's lifetime.
+        live = {id(i) for i in self.items} | {id(v) for v in view_shapes}
+        for stale in [k for k in self._ann_box_cache if k not in live]:
+            del self._ann_box_cache[stale]
         # Most annotations are at sheet scale, but a non-sheet-scale view (the
         # enlarged detail view, #42) tags its dims with `_dw_scale`. Lint each
         # scale group with its own drawing_scale so label-vs-measured is correct
@@ -2153,6 +2167,7 @@ class Drawing:
                 drawing_scale=self.scale,
                 view_shapes=view_shapes,
                 view_edge_cache=self._view_edge_cache,
+                ann_box_cache=self._ann_box_cache,
             )
         else:
             issues = []
@@ -2163,6 +2178,7 @@ class Drawing:
                     drawing_scale=_scale,
                     view_shapes=view_shapes,
                     view_edge_cache=self._view_edge_cache,
+                    ann_box_cache=self._ann_box_cache,
                 )
         if self.part is not None:
             # Reuse the single feature inventory from the build (#244) when present,
