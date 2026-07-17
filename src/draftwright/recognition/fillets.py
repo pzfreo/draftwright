@@ -116,7 +116,10 @@ def recognise_fillets(
 
         # Must bridge two axis-aligned faces on distinct in-plane axes (rounds a 90° edge).
         # Record each neighbour plane's coordinate so the convex test can rebuild the corner.
-        neigh_coord: dict[int, float] = {}
+        # Per axis, keep the closest neighbour plane; ties break on the coordinate
+        # itself so the pick is order-independent (the old strict-< kept whichever
+        # face OCC iteration happened to yield first).
+        neigh_best: dict[int, tuple[float, float]] = {}  # axis -> (distance, coord)
         seen_neighbours: set[int] = set()
         for e in f.edges():
             for g in edge_faces.get(e, ()):
@@ -126,10 +129,10 @@ def recognise_fillets(
                 aa = _axis_aligned_axis(g.wrapped)
                 if aa is not None and aa[0] != edge_i:
                     ax, coord = aa
-                    if ax not in neigh_coord or abs(coord - fc[ax]) < abs(
-                        neigh_coord[ax] - fc[ax]
-                    ):
-                        neigh_coord[ax] = coord
+                    key = (abs(coord - fc[ax]), coord)
+                    if ax not in neigh_best or key < neigh_best[ax]:
+                        neigh_best[ax] = key
+        neigh_coord = {ax: coord for ax, (_, coord) in neigh_best.items()}
         if oi[0] not in neigh_coord or oi[1] not in neigh_coord:
             continue
 
