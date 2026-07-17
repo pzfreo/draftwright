@@ -61,6 +61,13 @@ _TOL_MM = 0.5
 #   PENDING <issue>   = a real invisible-occupant defect the named phase removes (delete
 #                       the entry in that PR).
 _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
+    # BENIGN (helpers ≥0.14): a tight-span location dim renders with outside-arrow
+    # tails, so its witness HULL crosses the height dim's hull at the strip corner at
+    # every position — an AABB artifact of representing an L-shaped dim as one box
+    # (the inks are disjoint: the region holds only a witness line crossing empty
+    # hull space). Resolved for real by L-shaped occupancy (see the #602 follow-up
+    # issue), which turns this entry back into a failure to burn down.
+    "dshape": {frozenset({"dim_height", "dim_loc_front_z400"})},
     # BENIGN: two location dims off a common datum share their extension-line span.
     "plate_holes": {frozenset({"m_locx0", "m_locx1"}), frozenset({"m_locy0", "m_locy1"})},
     # bracket: two BENIGN datum pairs (as plate_holes) PLUS one SPACE-CONSTRAINED

@@ -1320,6 +1320,17 @@ def render_plates(dwg, model, a, *, ctx) -> int:
             p2 = dwg.at(view, a.bb.min.X, pl.v, pl.hi)
             edge = p1[0]
             pa, pb = (edge, p1[1], 0), (edge, p2[1], 0)
+            # Right-strip fallthrough anchors (helpers ≥0.14): a tight-span thickness
+            # dim's witness hull overlaps the below strip's at the view corner at EVERY
+            # position (AABB artifact — the ink never touches), so a full left strip
+            # retries on the opposite side before dropping.
+            q1 = dwg.at(view, a.bb.max.X, pl.v, pl.lo)
+            s1 = dwg.at("side", a.bb.min.X, a.bb.max.Y, pl.lo)
+            s2 = dwg.at("side", a.bb.min.X, a.bb.max.Y, pl.hi)
+            alt = [
+                ("front", "right", a.fv_zones.right, "x", (q1[0], p1[1], 0), (q1[0], p2[1], 0), q1[0]),
+                ("side", "right", a.sv_zones.right, "x", (s1[0], s1[1], 0), (s1[0], s2[1], 0), s1[0]),
+            ]
         elif pl.axis == "y":
             # Upright wall: horizontal dim above the side (end) view, which shows the
             # wall edge-on on the L-profile — a different view from the Z base plate.
@@ -1330,12 +1341,14 @@ def render_plates(dwg, model, a, *, ctx) -> int:
             p2 = dwg.at(view, a.bb.min.X, pl.hi, a.bb.max.Z)
             edge = p1[1]
             pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
+            alt = None
         else:  # x — thin wall along X → horizontal dim below the front view
             view, strip, stack, side = "front", a.fv_zones.below, "y", "below"
             p1 = dwg.at(view, pl.lo, pl.u, a.bb.min.Z)
             p2 = dwg.at(view, pl.hi, pl.u, a.bb.min.Z)
             edge = p1[1]
             pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
+            alt = None
         name = f"dim_plate_{pl.axis}{i}"
 
         def _build(pos, pa=pa, pb=pb, side=side, edge=edge, val=val):
@@ -1344,7 +1357,20 @@ def render_plates(dwg, model, a, *, ctx) -> int:
         def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, val=val):
             return dim_footprint(pa, pb, side, pos - edge, draft, _fmt(val))
 
-        def _drop(nm, val=val, view=view, stack=stack):
+        def _drop(nm, val=val, view=view, stack=stack, alt=alt, feat=pl):  # noqa: B008
+            # Opposite-strip fallthrough (mirrors the GD&T #481 pattern): carve a free
+            # tier on the alternate strip — carve_free_position sees only already-placed
+            # annotations, so it cannot collide with an undrained sibling corridor.
+            for view2, side2, strip2, axis2, qa, qb, edge2 in alt or ():
+                if strip2 is None:
+                    continue
+                foot0 = dim_footprint(qa, qb, side2, tier, draft, _fmt(val))
+                perp = (foot0[1], foot0[3]) if axis2 == "x" else (foot0[0], foot0[2])
+                pos = carve_free_position(dwg, strip2, view2, axis2, tier, perp)
+                if pos is not None:
+                    dim = _dim(qa, qb, side2, pos - edge2, draft, label=_fmt(val))
+                    dwg.add(dim, nm, view=view2, feature=feat)
+                    return
             ctx.record_issue(
                 "warning",
                 "plate_thickness_dropped",
