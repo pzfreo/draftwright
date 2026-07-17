@@ -154,7 +154,38 @@ def _slot(draw):
     return part - cutter
 
 
-_PARTS = st.one_of(_box_holes(), _bolt_circle(), _grid(), _turned_steps(), _counterbore(), _slot())
+@st.composite
+def _slot_and_hole(draw):
+    """A box with a milled slot PLUS a hole whose X-location coincides with the slot's near edge
+    (parametrising the `_holed_slot` corpus part) — the mixed slot+coincident-hole extreme the
+    base corpus lacked (#301/#641 gap 1). Fuzzes the shared slot/location corridor solve + the
+    #345/#346 coincident-dim dedup over varied geometry. (Note: #345 itself is a knife-edge
+    value-binning *duplicate*, not a geometric collision, so reverting its guard produces a
+    redundant dim this tier's `_DEFECTS` collision invariant does not detect — verified; see the
+    #641 gap-1 closing note. The strategy's value is the coverage extension, not a #345 repro.)"""
+    w, d, h = draw(_f(55, 100)), draw(_f(40, 70)), draw(_f(12, 25))
+    part = Box(w, d, h)
+    slot_len = draw(_f(min(w, d) * 0.25, min(w, d) * 0.45))
+    slot_w = draw(_f(6, 12))
+    part -= Box(slot_len, slot_w, h + 4)  # centred slot along X → near edge at x = -slot_len/2
+    dia = draw(_f(3, 5))
+    x0 = -slot_len / 2  # the slot's near edge — the coincident hole's X-location matches it
+    y_off = slot_w / 2 + dia + 5  # clear of the slot walls
+    part -= Pos(x0, y_off, 0) * Cylinder(dia / 2, h + 4)  # coincident with the slot edge (#345)
+    x1 = draw(_f(x0 + 10, w / 2 - 8))  # a distinct-X second rung, so the ladder has real rungs
+    part -= Pos(x1, -y_off, 0) * Cylinder(dia / 2, h + 4)
+    return part
+
+
+_PARTS = st.one_of(
+    _box_holes(),
+    _bolt_circle(),
+    _grid(),
+    _turned_steps(),
+    _counterbore(),
+    _slot(),
+    _slot_and_hole(),
+)
 
 
 # Generous timeout: on a failure Hypothesis shrinks (many extra builds at ~3-6 s each), and
