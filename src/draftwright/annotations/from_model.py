@@ -737,6 +737,24 @@ def _diameter_row_below(dwg, items, start: int = 0) -> int:
     min_gap = 2 * half_w + 2 * draft.pad_around_text
     # Place what fits; drop the smallest ø first, never the whole row (#298).
     survivors, xs = _place_what_fits(specs, 0, min_gap, fx0 + half_w, fx1 - half_w)
+    # A leader whose solved elbow lands LEFT of its tip flips its shelf (helpers'
+    # direction rule), extending the label leftward onto the previous label's slot —
+    # the min_gap model assumes rightward labels. Enforce elbow ≥ tip with a
+    # left-to-right min_gap cascade; when the cascade overflows the strip, drop the
+    # smallest ø (the #298 rule) and re-solve. No-op when no flip would occur.
+    while survivors and any(lx < sp[0][0] for sp, lx in zip(survivors, xs, strict=True)):
+        adj: list[float] = []
+        for sp, lx in zip(survivors, xs, strict=True):
+            v = max(lx, sp[0][0])
+            if adj:
+                v = max(v, adj[-1] + min_gap)
+            adj.append(v)
+        if adj[-1] <= fx1 - half_w:
+            xs = adj
+            break
+        drop = min(range(len(survivors)), key=lambda i: survivors[i][1])
+        survivors.pop(drop)
+        survivors, xs = _place_what_fits(survivors, 0, min_gap, fx0 + half_w, fx1 - half_w)
     for i, ((tip, dia, label, feat), lx) in enumerate(zip(survivors, xs, strict=True)):
         dwg.add(
             Leader(tip=(tip[0], tip[1], 0), elbow=(lx, label_y, 0), label=label, draft=draft),
