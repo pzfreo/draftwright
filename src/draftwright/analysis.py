@@ -772,4 +772,9 @@ def _analyse(
         out=out,
         pmi=pmi_records,
         pmi_mode=pmi,
+        # The sizing model IS the render model when detection ran (identical inputs by
+        # construction — #584 WP1 A); store it so the pipeline never detects twice
+        # (ADR 0008 Amdt 5, #602). A declared model (layout_model) is NOT stored: the
+        # builder coerces + decorates the caller's model itself.
+        model=sizing_model if layout_model is None else None,
     )

@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from build123d import (
     Shape,
@@ -269,8 +269,13 @@ def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=
     # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
     # work even in manual mode (#398). _auto_annotate reads this attached model rather
     # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
+    # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
+    # detectors run once per build (ADR 0008 Amdt 5, #602). build_model(a) remains the
+    # fallback for a manually-constructed Analysis with no stored model.
     dwg._part_model = (
-        _coerce_model(model, a.part, decorations) if model is not None else build_model(a)
+        _coerce_model(model, a.part, decorations)
+        if model is not None
+        else (a.model if a.model is not None else build_model(a))
     )
     if model is not None:
         # A declared model skips detection, so a turned shaft carries no RotationalFeature —
@@ -739,7 +744,7 @@ def _feature_listing(a: Analysis) -> str:
     dropped. Commenting any line drops exactly that intent (nothing is auto-drawn, so there
     is no double-dimension risk). Pure function of *a*.
     """
-    model = build_model(a)
+    model = cast(PartModel, a.model) if a.model is not None else build_model(a)
     feats = getattr(model, "features", [])
     if not feats:
         return (

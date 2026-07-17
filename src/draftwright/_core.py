@@ -563,6 +563,12 @@ class Analysis:
     out: str
     pmi: list
     pmi_mode: str
+    # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so
+    # the render path reuses it instead of re-running the detectors (ADR 0008 Amdt 5:
+    # one inventory, detected once; #602). Typed `object` because model/ sits above
+    # _core in the DAG. None when the caller declared a model (ADR 0011) or on a
+    # manually-built Analysis — consumers fall back to build_model(a).
+    model: object | None = None
 
 
 _greedy_strip_ys = _greedy_strip_1d
