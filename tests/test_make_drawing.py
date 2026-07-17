@@ -3067,10 +3067,15 @@ class TestFormatSelector:
 
         assert _parse_formats("dxf, pdf ,dxf") == ["dxf", "pdf"]
 
-    def test_parse_all_expands_to_three(self):
+    def test_parse_all_expands_to_all_four(self):
         from draftwright.cli import _parse_formats
 
-        assert _parse_formats("all") == ["pdf", "svg", "dxf"]
+        assert _parse_formats("all") == ["pdf", "svg", "dxf", "png"]
+
+    def test_parse_png(self):
+        from draftwright.cli import _parse_formats
+
+        assert _parse_formats("png,pdf") == ["png", "pdf"]
 
     def test_parse_unknown_format_raises(self):
         import typer
@@ -3089,67 +3094,43 @@ class TestFormatSelector:
             _parse_formats(" , ")
 
     class _FakeDwg:
-        """Records export() calls and writes real placeholder files so _emit's
-        temp-SVG cleanup can be observed."""
+        """Records the export(formats=) call and writes a placeholder per requested format, so
+        _emit's pass-through + ordering can be checked without a real render (the SVG→PDF→PNG
+        intermediate handling now lives inside Drawing.export, not _emit)."""
 
         def __init__(self, tmp):
             self.tmp = tmp
             self.calls = []
-            self.svg_path = None
 
-        def export(self, *, svg=True, dxf=True):
-            self.calls.append(("export", svg, dxf))
-            sp = str(self.tmp / "o.svg") if svg else None
-            dp = str(self.tmp / "o.dxf") if dxf else None
-            for p in (sp, dp):
-                if p:
-                    open(p, "w").close()
-            self.svg_path = sp
-            return sp, dp
+        def export(self, *, formats):
+            self.calls.append(("export", tuple(formats)))
+            paths = {}
+            for f in formats:
+                p = str(self.tmp / f"o.{f}")
+                open(p, "w").close()
+                paths[f] = p
+            return paths
 
-        def export_pdf(self):
-            self.calls.append(("export_pdf",))
-            pp = str(self.tmp / "o.pdf")
-            open(pp, "w").close()
-            return pp
-
-    def test_emit_pdf_only_discards_temp_svg(self, tmp_path):
+    def test_emit_delegates_to_export_and_orders_paths(self, tmp_path):
         from draftwright.cli import _emit
 
         dwg = self._FakeDwg(tmp_path)
-        out = _emit(dwg, ["pdf"])
+        out = _emit(dwg, ["pdf", "png", "dxf"])
 
-        assert out == [str(tmp_path / "o.pdf")]
-        # SVG was written to drive the PDF, then removed; DXF never written.
-        assert dwg.calls == [("export", True, False), ("export_pdf",)]
-        assert not (tmp_path / "o.svg").exists()
-        assert not (tmp_path / "o.dxf").exists()
-        assert (tmp_path / "o.pdf").exists()
-
-    def test_emit_svg_dxf_skips_pdf(self, tmp_path):
-        from draftwright.cli import _emit
-
-        dwg = self._FakeDwg(tmp_path)
-        out = _emit(dwg, ["svg", "dxf"])
-
-        assert out == [str(tmp_path / "o.svg"), str(tmp_path / "o.dxf")]
-        assert dwg.calls == [("export", True, True)]
-        assert (tmp_path / "o.svg").exists()
-        assert (tmp_path / "o.dxf").exists()
-
-    def test_emit_all_keeps_requested_svg(self, tmp_path):
-        from draftwright.cli import _emit
-
-        dwg = self._FakeDwg(tmp_path)
-        out = _emit(dwg, ["pdf", "svg", "dxf"])
-
+        # One export(formats=) call with the formats passed straight through; paths in order.
+        assert dwg.calls == [("export", ("pdf", "png", "dxf"))]
         assert out == [
             str(tmp_path / "o.pdf"),
-            str(tmp_path / "o.svg"),
+            str(tmp_path / "o.png"),
             str(tmp_path / "o.dxf"),
         ]
-        # SVG requested → kept, not discarded.
-        assert (tmp_path / "o.svg").exists()
+
+    def test_emit_png_only(self, tmp_path):
+        from draftwright.cli import _emit
+
+        dwg = self._FakeDwg(tmp_path)
+        assert _emit(dwg, ["png"]) == [str(tmp_path / "o.png")]
+        assert dwg.calls == [("export", ("png",))]
 
 
 # ---------------------------------------------------------------------------
@@ -9115,3 +9096,66 @@ class TestDraftwrightAttribution:
             if b"/URI" in chunk and b"pzfreo" in chunk:
                 found = True
         assert found, "PDF must embed a clickable draftwright URI link annotation"
+
+
+class TestExportFormats:
+    """The unified export(formats=...) → {format: path} API + PNG raster export
+    (permissive pypdfium2 + Pillow; SVG→PDF→PNG, no native cairo)."""
+
+    def test_export_returns_dict_of_requested_paths(self, tmp_path):
+        dwg = build_drawing(Box(60, 40, 20))
+        paths = dwg.export(str(tmp_path / "d"), formats=("svg", "dxf", "pdf", "png"))
+        assert set(paths) == {"svg", "dxf", "pdf", "png"}
+        for fmt, p in paths.items():
+            assert Path(p).exists() and Path(p).stat().st_size > 0, fmt
+            assert p.endswith("." + fmt)
+
+    def test_export_png_is_valid_and_cleans_intermediates(self, tmp_path):
+        dwg = build_drawing(Box(60, 40, 20))
+        paths = dwg.export(str(tmp_path / "p"), formats="png")  # single-format string accepted
+        assert set(paths) == {"png"}
+        assert Path(paths["png"]).read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"  # PNG magic
+        # the SVG + PDF written only to render the PNG are removed
+        assert not (tmp_path / "p.svg").exists() and not (tmp_path / "p.pdf").exists()
+
+    def test_png_export_does_not_clobber_existing_outputs(self, tmp_path):
+        # #677 review (blocking): a later png-only export to the same stem must NOT overwrite
+        # then delete an SVG/PDF an earlier export wrote — intermediates go to a temp dir.
+        dwg = build_drawing(Box(60, 40, 20))
+        stem = str(tmp_path / "part")
+        dwg.export(stem, formats=("svg", "pdf"))
+        svg, pdf = tmp_path / "part.svg", tmp_path / "part.pdf"
+        svg_bytes, pdf_bytes = svg.read_bytes(), pdf.read_bytes()
+        dwg.export(stem, formats="png")  # must not touch the existing svg/pdf
+        assert (tmp_path / "part.png").exists()
+        assert svg.exists() and svg.read_bytes() == svg_bytes  # untouched, not deleted
+        assert pdf.exists() and pdf.read_bytes() == pdf_bytes
+
+    def test_export_png_dpi_scales_the_raster(self, tmp_path):
+        dwg = build_drawing(Box(60, 40, 20))
+        lo = Path(dwg.export(str(tmp_path / "lo"), formats="png", dpi=72)["png"]).stat().st_size
+        hi = Path(dwg.export(str(tmp_path / "hi"), formats="png", dpi=220)["png"]).stat().st_size
+        assert hi > lo  # more pixels → a larger file
+
+    def test_export_unknown_format_raises(self, tmp_path):
+        dwg = build_drawing(Box(30, 20, 10))
+        with pytest.raises(ValueError, match="unknown export format"):
+            dwg.export(str(tmp_path / "x"), formats=("svg", "jpeg"))
+
+    def test_export_format_is_case_insensitive(self, tmp_path):
+        # #677 review: a single-string format must normalise like an iterable one.
+        dwg = build_drawing(Box(30, 20, 10))
+        assert set(dwg.export(str(tmp_path / "u"), formats="PNG")) == {"png"}
+        assert set(dwg.export(str(tmp_path / "v"), formats=("SVG", "Dxf"))) == {"svg", "dxf"}
+
+    def test_export_png_zero_dpi_raises(self, tmp_path):
+        # #677 review: reject dpi<=0 before writing, so no intermediates are stranded.
+        dwg = build_drawing(Box(30, 20, 10))
+        with pytest.raises(ValueError, match="dpi > 0"):
+            dwg.export(str(tmp_path / "z"), formats="png", dpi=0)
+
+    def test_export_pdf_is_deprecated_but_still_works(self, tmp_path):
+        dwg = build_drawing(Box(30, 20, 10))
+        with pytest.warns(DeprecationWarning, match="export_pdf"):
+            pdf = dwg.export_pdf(str(tmp_path / "old"))
+        assert Path(pdf).exists() and pdf.endswith(".pdf")
