@@ -22,7 +22,14 @@ import math
 from typing import Any
 
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
-from build123d_drafting.helpers import Centerline, CenterMark, HoleCallout, Leader, TitleBlock
+from build123d_drafting.helpers import (
+    DEFAULT_FONT_PATH,
+    Centerline,
+    CenterMark,
+    HoleCallout,
+    Leader,
+    TitleBlock,
+)
 
 from draftwright._core import (
     _DIAM_RE,
@@ -46,6 +53,7 @@ from draftwright._core import (
     _legible_steps,
     _log,
     _solve_strip_ys,
+    _text_size,
     _title_block_box,
     _tol_suffix,
 )
@@ -711,7 +719,21 @@ def _diameter_row_below(dwg, items, start: int = 0) -> int:
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
         specs.append((tip, dia, f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}", feat))
-    half_w = max(len(label) for _, _, label, _ in specs) * draft.font_size * _EST_CHAR_WIDTH_EM / 2
+    # Real measured width, not the per-char estimate: helpers >=0.14 label boxes are
+    # honest about the rendered string, so an underestimated min_gap here surfaces as a
+    # visible annotation_overlap between adjacent labels (hypothesis tier).
+    half_w = (
+        max(
+            _text_size(
+                label,
+                draft.font_size,
+                getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                getattr(draft, "font", "Arial"),
+            )[0]
+            for _, _, label, _ in specs
+        )
+        / 2
+    )
     min_gap = 2 * half_w + 2 * draft.pad_around_text
     # Place what fits; drop the smallest ø first, never the whole row (#298).
     survivors, xs = _place_what_fits(specs, 0, min_gap, fx0 + half_w, fx1 - half_w)
@@ -1328,8 +1350,24 @@ def render_plates(dwg, model, a, *, ctx) -> int:
             s1 = dwg.at("side", a.bb.min.X, a.bb.max.Y, pl.lo)
             s2 = dwg.at("side", a.bb.min.X, a.bb.max.Y, pl.hi)
             alt = [
-                ("front", "right", a.fv_zones.right, "x", (q1[0], p1[1], 0), (q1[0], p2[1], 0), q1[0]),
-                ("side", "right", a.sv_zones.right, "x", (s1[0], s1[1], 0), (s1[0], s2[1], 0), s1[0]),
+                (
+                    "front",
+                    "right",
+                    a.fv_zones.right,
+                    "x",
+                    (q1[0], p1[1], 0),
+                    (q1[0], p2[1], 0),
+                    q1[0],
+                ),
+                (
+                    "side",
+                    "right",
+                    a.sv_zones.right,
+                    "x",
+                    (s1[0], s1[1], 0),
+                    (s1[0], s2[1], 0),
+                    s1[0],
+                ),
             ]
         elif pl.axis == "y":
             # Upright wall: horizontal dim above the side (end) view, which shows the
