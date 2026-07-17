@@ -30,35 +30,45 @@ def _seg_intersects_rect(p, q, rect) -> bool:
     return bool(_seg_hits_box(p, q, rect, pad=0.0))
 
 
+def _loc_token(item):
+    """A cheap (~14 µs) fingerprint of *item*'s placement, or None if it has no
+    location. ``Shape.locate()`` transforms *in place*, so identity alone can't
+    detect a relocated live object — the token can."""
+    try:
+        loc = getattr(item, "location", None)
+        return None if loc is None else tuple(loc)
+    except Exception:
+        return None
+
+
 def _ann_box(item, cache):
     """*item*'s full rendered bbox as (min_x, min_y, max_x, max_y), or None; memoised.
 
     An *optimal* ``bounding_box()`` on fused annotation geometry costs ~10 ms —
     the dominant lint cost once the view edges are cached (#602). Every lint
     check that needs a full box goes through this one memo, so an item is
-    measured at most once per cache lifetime. Entries are id-keyed and store the
-    item itself for an identity check, so a caller-persisted cache can't return
-    a stale box after ``id()`` reuse (same pattern as ``_view_edge_entries``).
-
-    Contract for a persisted cache: annotations must be *replaced*, never
-    mutated in place, once measured — the engine's universal discipline (the
-    repair loop's ``_replace_dim`` swaps in a freshly built object; every
-    ``.locate()`` happens at construction, before an object joins the sheet).
-    A caller that transforms a live object must clear its cache. A failed
+    measured at most once per cache lifetime. Entries are id-keyed and store
+    the item itself plus its location token: the identity check means a
+    caller-persisted cache can't return a stale box after ``id()`` reuse (same
+    pattern as ``_view_edge_entries``), and the token check re-measures an
+    object relocated in place via ``.locate()``-style transforms — the engine
+    itself always *replaces* (the repair loop's ``_replace_dim`` swaps in a
+    freshly built object), but ``Drawing.items`` exposes live shapes. A failed
     measure is cached as ``None`` — deterministic for unchanged geometry, so
     the affected checks skip the item exactly as their old per-site handlers
     did, without re-raising per lint.
     """
     key = id(item)
     hit = cache.get(key)
-    if hit is not None and hit[0] is item:
-        return hit[1]
+    token = _loc_token(item)
+    if hit is not None and hit[0] is item and hit[1] == token:
+        return hit[2]
     try:
         bb = item.bounding_box()
         box = (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
     except Exception:
         box = None
-    cache[key] = (item, box)
+    cache[key] = (item, token, box)
     return box
 
 

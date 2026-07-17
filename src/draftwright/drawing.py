@@ -448,8 +448,9 @@ class Drawing:
         # Same persistence idea for annotation bounding boxes (#602): an optimal
         # bbox on fused dimension geometry costs ~10 ms and lint needs one per
         # item; entries are identity-checked so replaced annotations re-measure.
-        # Contract: items are replaced, never mutated in place, once on the
-        # sheet (see _ann_box); lint() prunes entries for departed objects.
+        # Entries are identity- AND location-token-checked (see _ann_box), so a
+        # replaced or in-place-relocated object re-measures; lint() prunes
+        # entries for departed objects.
         self._ann_box_cache: dict = {}
         self.svg_path: str | None = None
         self.dxf_path: str | None = None

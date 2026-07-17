@@ -44,9 +44,24 @@ def test_ann_box_memoises_and_identity_checks():
     assert a.calls == 1
     # A replacement object is re-measured even if the cache is stale.
     b = _FakeAnn()
-    cache[id(b)] = (a, (9.9, 9.9, 9.9, 9.9))  # simulated id-collision entry
+    cache[id(b)] = (a, None, (9.9, 9.9, 9.9, 9.9))  # simulated id-collision entry
     assert _ann_box(b, cache) == (0.0, 0.0, 10.0, 5.0)
     assert b.calls == 1
+
+
+def test_ann_box_remeasures_after_in_place_relocation():
+    # Shape.locate() transforms in place, and Drawing.items exposes live shapes —
+    # identity alone can't see the move, so the entry also carries a location
+    # token and a relocated object re-measures instead of serving its old box.
+    cache: dict = {}
+    ann = _FakeAnn()
+    ann.location = (0.0, 0.0, 0.0)
+    _ann_box(ann, cache)
+    _ann_box(ann, cache)
+    assert ann.calls == 1
+    ann.location = (25.0, 0.0, 0.0)  # simulate .locate() on the live object
+    _ann_box(ann, cache)
+    assert ann.calls == 2
 
 
 def test_lint_drawing_measures_once_across_calls():
