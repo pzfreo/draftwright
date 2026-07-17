@@ -124,7 +124,15 @@ def dim_footprint(p1, p2, side, distance, draft, label):
     off = abs(distance)
     gap = draft.extension_gap
     dxp, dyp = p2[0] - p1[0], p2[1] - p1[1]
-    w, h = _text_size(label, draft.font_size, getattr(draft, "font_path", DEFAULT_FONT_PATH))
+    # Mirror the renderer's font resolution exactly (helpers._font_path): the pinned
+    # font *file* when set, else the helpers default; an explicit font_path=None means
+    # name-based resolution of draft.font — so pass the name through too.
+    w, h = _text_size(
+        label,
+        draft.font_size,
+        getattr(draft, "font_path", DEFAULT_FONT_PATH),
+        getattr(draft, "font", "Arial"),
+    )
     hx, hy = (h / 2.0, w / 2.0) if abs(dyp) > abs(dxp) else (w / 2.0, h / 2.0)
     lcx = (p1[0] + p2[0]) / 2.0 + sx * off
     lcy = (p1[1] + p2[1]) / 2.0 + sy * off

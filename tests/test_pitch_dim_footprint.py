@@ -50,6 +50,17 @@ def test_dim_footprint_matches_real_geometry(p1, p2, side, distance, label):
     assert max(abs(e - r) for e, r in zip(est, real)) <= 0.15
 
 
+def test_dim_footprint_matches_name_resolved_font():
+    # font_path=None opts out of path-pinning: the renderer resolves the font *name*
+    # through the OS stack, and the footprint must measure with the same resolution
+    # (est and real go through the same fallback, so they agree on any platform).
+    draft = draft_preset(font_size=3.5, decimal_precision=1, font_path=None)
+    real = _geom_box(_dim((10, 20, 0), (40, 20, 0), (0, -1, 0), 15, draft, label="2× 15"))
+    est = dim_footprint((10, 20, 0), (40, 20, 0), (0, -1, 0), 15, draft, "2× 15")
+    assert real is not None
+    assert max(abs(e - r) for e, r in zip(est, real)) <= 0.15
+
+
 def _grid_plate():
     # The #602 benchmark part (same as the refactor-golden fixture): 15 holes in two
     # regular grids, whose pitch dims exhaust the strip carve and exercise the
@@ -65,18 +76,21 @@ def _grid_plate():
 
 
 def test_grid_pitch_dim_constructions_bounded(monkeypatch):
-    from draftwright.annotations import holes
+    # Count at the construction site (_core.Dimension, which every _dim call resolves
+    # at call time) rather than white-box patching annotations/ internals — the
+    # test_private_test_imports ratchet forbids new private imports from holes.
+    import draftwright._core as core
 
     pitch_builds = 0
-    real_dim = holes._dim
+    real_dimension = core.Dimension
 
-    def counting_dim(p1, p2, side, distance, draft, **kwargs):
+    def counting_dimension(p1, p2, side, distance, draft, **kwargs):
         nonlocal pitch_builds
         if "× " in (kwargs.get("label") or ""):
             pitch_builds += 1
-        return real_dim(p1, p2, side, distance, draft, **kwargs)
+        return real_dimension(p1, p2, side, distance, draft, **kwargs)
 
-    monkeypatch.setattr(holes, "_dim", counting_dim)
+    monkeypatch.setattr(core, "Dimension", counting_dimension)
     dwg = build_drawing(_grid_plate())
 
     placed = [name for name, _ in dwg.iter_annotations() if name.startswith("dim_pitch_")]

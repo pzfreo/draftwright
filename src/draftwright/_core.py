@@ -107,7 +107,9 @@ _QUOTED_RE = re.compile(r"'([^']*)'")
 
 
 @functools.lru_cache(maxsize=512)
-def _text_size(text: str, font_size: float, font_path: str = PLEX_MONO) -> tuple[float, float]:
+def _text_size(
+    text: str, font_size: float, font_path: str | None = PLEX_MONO, font: str = "Arial"
+) -> tuple[float, float]:
     """Measured rendered (width, height) (page-mm) of *text* at *font_size*.
 
     Uses build123d's ``Text`` — the same primitive ``Dimension``/``HoleCallout``
@@ -116,14 +118,17 @@ def _text_size(text: str, font_size: float, font_path: str = PLEX_MONO) -> tuple
     (``font_path``), not a system font *name*: name resolution substitutes a
     different font on Linux, which makes this estimate — and the layout it feeds —
     platform-variant (#149). The default is the same face the annotations render
-    with, so estimate and render agree.  Cached because the same numeric labels
-    recur across holes and the rasterisation is the costly part.
+    with, so estimate and render agree.  *font* only matters when a caller opts out
+    of path-pinning (``font_path=None``) — then the *name* resolves through the OS
+    font stack, exactly as the renderer would.  Cached because the same numeric
+    labels recur across holes and the rasterisation is the costly part.
     """
     if not text:
         return (0.0, 0.0)
     bb = Text(
         txt=text,
         font_size=font_size,
+        font=font,
         font_path=font_path,
         align=(Align.CENTER, Align.CENTER),
         mode=Mode.PRIVATE,
