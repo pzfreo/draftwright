@@ -82,7 +82,15 @@ def recognise_fillets(
     bb = part.bounding_box()
     max_ext = max(bb.max.X - bb.min.X, bb.max.Y - bb.min.Y, bb.max.Z - bb.min.Z)
     all_faces = list(part.faces())
-    face_edges = [(g, [e.wrapped for e in g.edges()]) for g in all_faces]
+    # Edge→faces adjacency, built once. build123d shape equality/hash is IsSame
+    # (same TShape + Location, orientation-insensitive) — the identical predicate
+    # the old per-pair scan used — so one dict pass replaces the
+    # O(faces² × edges²) IsSame sweep (#602: 3.7M IsSame calls, ~6 s of CTC-02's
+    # 10.8 s fillet detection).
+    edge_faces: dict = {}
+    for g in all_faces:
+        for ge in g.edges():
+            edge_faces.setdefault(ge, []).append(g)
 
     out: list[Fillet] = []
     for f in all_faces:
@@ -108,12 +116,13 @@ def recognise_fillets(
 
         # Must bridge two axis-aligned faces on distinct in-plane axes (rounds a 90° edge).
         # Record each neighbour plane's coordinate so the convex test can rebuild the corner.
-        my_edges = [e.wrapped for e in f.edges()]
         neigh_coord: dict[int, float] = {}
-        for g, g_edges in face_edges:
-            if g.wrapped.IsSame(fw):
-                continue
-            if any(a.IsSame(b) for a in my_edges for b in g_edges):
+        seen_neighbours: set[int] = set()
+        for e in f.edges():
+            for g in edge_faces.get(e, ()):
+                if g.wrapped.IsSame(fw) or id(g) in seen_neighbours:
+                    continue
+                seen_neighbours.add(id(g))
                 aa = _axis_aligned_axis(g.wrapped)
                 if aa is not None and aa[0] != edge_i:
                     ax, coord = aa
