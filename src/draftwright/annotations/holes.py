@@ -44,6 +44,7 @@ from draftwright.annotations._common import (
     carve_free_position,
     carve_free_segments,
     clear_label_of_centerlines,
+    dim_footprint,
     place_strip_candidates,
     register_corridor,
     strip_obstacles,
@@ -981,6 +982,8 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
         side, reach = max(cands, key=lambda c: c[0][0] * pref[0] + c[0][1] * pref[1])
     fallback_sides = [(side, reach)] + [c for c in cands if c[0] != side]
 
+    label = f"{n - 1}× {_fmt(pitch)}"
+
     def _make(off, side_vec=side, label_offset_x=0.0):
         return _dim(
             (p1[0], p1[1], 0),
@@ -988,7 +991,7 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
             side_vec,
             off,
             dwg.draft,
-            label=f"{n - 1}× {_fmt(pitch)}",
+            label=label,
             label_offset_x=label_offset_x,
         )
 
@@ -1115,10 +1118,11 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
                 ):
                     break
                 continue
-            probe = _make(offset, side_vec)
-            bb = _geom_box(probe)
-            if bb is None:
-                continue
+            # Analytical footprint, not built geometry (#602): a rejected offset must not
+            # pay the ~0.4 s OCC boolean-fuse cost of a full Dimension build.
+            bb = dim_footprint(
+                (p1[0], p1[1], 0), (p2[0], p2[1], 0), side_vec, offset, dwg.draft, label
+            )
             if (
                 bb[0] < page_box[0]
                 or bb[1] < page_box[1]
@@ -1127,6 +1131,20 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
             ):
                 continue
             if _box_hits(bb, obstacles):
+                continue
+            # Analytically clear — build the real geometry ONCE and re-validate its true
+            # box (the #602 validation fallback): a footprint/geometry mismatch degrades
+            # to a wasted probe and the loop resumes, never a collision.
+            probe = _make(offset, side_vec)
+            real = _geom_box(probe)
+            if (
+                real is None
+                or real[0] < page_box[0]
+                or real[1] < page_box[1]
+                or real[2] > page_box[2]
+                or real[3] > page_box[3]
+                or _box_hits(real, obstacles)
+            ):
                 continue
             dwg.add(
                 _clear_and_validate(offset, side_vec, page_box, obstacles, probe),
