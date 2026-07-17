@@ -16,10 +16,14 @@ Dependency-free (stdlib ``ast`` + ``pathlib``).
 Catches two white-box forms across ALL test-suite modules (not just ``test_*.py``): the direct
 ``from draftwright.annotations.<mod> import _name`` import, and module-alias attribute access
 (``from draftwright.annotations import holes as h; h._name`` / ``import ....holes as h; h._name``).
-**Known static-analysis gap:** fully *dynamic* access — ``sys.modules["...from_model"]._name``,
-``importlib.import_module``, ``__import__`` — can't be resolved statically. One such reach exists
-(``from_model._solve_strip_ys`` / ``_greedy_strip_ys``, monkeypatched via ``sys.modules`` in
-``test_make_drawing``); it is documented here rather than pinned, since the scanner can't detect it.
+**Known static-analysis gaps** (a ratchet, not a sandbox — it stops the *common* forms growing,
+not every reflective escape): fully *dynamic* access (``sys.modules["...from_model"]._name``,
+``importlib.import_module``, ``__import__``) and *string-name* reflection on a module alias
+(``getattr(h, "_x")`` / ``monkeypatch.setattr(h, "_x", …)``) can't be resolved statically. One such
+reach exists (``from_model._solve_strip_ys`` / ``_greedy_strip_ys``, monkeypatched via
+``sys.modules`` in ``test_make_drawing``) — documented here rather than pinned, since the scanner
+can't detect it. The alias table is also file-global (scope-insensitive): a later local named the
+same as a module alias would over-flag — safe (fail-closed), and none occurs today.
 """
 
 from __future__ import annotations
