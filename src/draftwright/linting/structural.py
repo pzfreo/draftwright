@@ -551,9 +551,11 @@ def _lint_view_shapes(
                 )
 
 
-def _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache) -> None:
+def _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache=None) -> None:
     """Flag label-vs-centerline overlap for a (dim, centerline) pair."""
     try:
+        if box_cache is None:
+            box_cache = {}
         cl_min_x, cl_min_y, cl_max_x, cl_max_y = _centerline_extent(cl_item, box_cache)
 
         label_bbox = getattr(dim_item, "label_bbox", None)
