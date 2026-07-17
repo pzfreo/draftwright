@@ -1457,7 +1457,7 @@ def render_plates(dwg, model, a, *, ctx) -> int:
                         dim = _dim(qa, qb, side2, pos - edge2, draft, label=_fmt(val))
                         real = _geom_box(dim)
                         page = (_MARGIN, _MARGIN, a.PAGE_W - _MARGIN, a.PAGE_H - _MARGIN)
-                        if real is not None and (
+                        if real is None or (
                             _box_hits(
                                 real, strip_obstacles(dwg, view=view2, crossable=CROSSABLE_TYPES)
                             )
