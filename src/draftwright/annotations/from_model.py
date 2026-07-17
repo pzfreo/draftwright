@@ -738,11 +738,34 @@ def _diameter_row_below(dwg, items, start: int = 0) -> int:
     # Place what fits; drop the smallest ø first, never the whole row (#298).
     survivors, xs = _place_what_fits(specs, 0, min_gap, fx0 + half_w, fx1 - half_w)
     # A leader whose solved elbow lands LEFT of its tip flips its shelf (helpers'
-    # direction rule), extending the label leftward onto the previous label's slot —
-    # the min_gap model assumes rightward labels. Enforce elbow ≥ tip with a
-    # left-to-right min_gap cascade; when the cascade overflows the strip, drop the
-    # smallest ø (the #298 rule) and re-solve. No-op when no flip would occur.
-    while survivors and any(lx < sp[0][0] for sp, lx in zip(survivors, xs, strict=True)):
+    # direction rule), extending the label LEFTWARD — the min_gap model assumes
+    # rightward labels, so a crowd-shifted elbow can land its flipped label on the
+    # previous one. A flip alone is fine (a lone edge leader flips harmlessly); only
+    # when direction-aware label intervals actually collide, enforce elbow ≥ tip with
+    # a left-to-right min_gap cascade; overflow drops the smallest ø (#298) and
+    # re-solves. No-op for ordinary rows.
+    _SHELF = 2.0  # helpers Leader: the label hangs one shelf-length off the elbow
+
+    def _label_ivals(svs, positions):
+        out = []
+        for sp, lx in zip(svs, positions, strict=True):
+            w_i = _text_size(
+                sp[2],
+                draft.font_size,
+                getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                getattr(draft, "font", "Arial"),
+            )[0]
+            if lx < sp[0][0]:  # flipped: label extends left of the elbow
+                out.append((lx - _SHELF - w_i, lx - _SHELF))
+            else:
+                out.append((lx + _SHELF, lx + _SHELF + w_i))
+        return out
+
+    def _collides(ivals):
+        pairs = zip(sorted(ivals), sorted(ivals)[1:])
+        return any(a1 > b0 for (_a0, a1), (b0, _b1) in pairs)
+
+    while len(survivors) > 1 and _collides(_label_ivals(survivors, xs)):
         adj: list[float] = []
         for sp, lx in zip(survivors, xs, strict=True):
             v = max(lx, sp[0][0])
