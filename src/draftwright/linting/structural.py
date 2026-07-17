@@ -53,7 +53,12 @@ def _ann_box(item, cache):
     pattern as ``_view_edge_entries``), and the token check re-measures an
     object relocated in place via ``.locate()``-style transforms — the engine
     itself always *replaces* (the repair loop's ``_replace_dim`` swaps in a
-    freshly built object), but ``Drawing.items`` exposes live shapes. A failed
+    freshly built object), but ``Drawing.items`` exposes live shapes. Known
+    limit, accepted: a mutation that changes geometry while *preserving*
+    ``.location`` (or mutating a location-less duck-typed stand-in) is
+    undetectable without hashing topology — which would cost as much as the
+    measure this memo avoids — so such objects must be replaced or the cache
+    cleared, per the engine-wide discipline above. A failed
     measure is cached as ``None`` — deterministic for unchanged geometry, so
     the affected checks skip the item exactly as their old per-site handlers
     did, without re-raising per lint.
