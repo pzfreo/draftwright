@@ -40,6 +40,11 @@ from draftwright.annotations._common import _geom_box, dim_footprint
         pytest.param((30, 10, 0), (30, 60, 0), (-1, 0, 0), 18, "2× 25", id="vert-left"),
         pytest.param((30, 10, 0), (30, 60, 0), (1, 0, 0), 40, "3× 16.7", id="vert-right"),
         pytest.param((10, 10, 0), (40, 30, 0), (-0.5547, 0.83205, 0), 20, "2× 18", id="diagonal"),
+        # Tight spans — helpers ≥0.14 flips to outside arrows (ink extends 2·al past
+        # each end); the narrowest also hangs the label past the far end.
+        pytest.param((10, 20, 0), (18, 20, 0), (0, -1, 0), 10, "8", id="tight-horiz"),
+        pytest.param((30, 10, 0), (30, 18, 0), (1, 0, 0), 12, "8", id="tight-vert"),
+        pytest.param((10, 20, 0), (14, 20, 0), (0, 1, 0), 10, "12.5", id="hung-label"),
     ],
 )
 def test_dim_footprint_matches_real_geometry(p1, p2, side, distance, label):

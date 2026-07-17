@@ -8,6 +8,7 @@ and an AABB overlap test (`_box_hits`). Bottom of the annotations DAG.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -113,12 +114,23 @@ def dim_footprint(p1, p2, side, distance, draft, label):
     clear of the object and overshooting the dimension line by the same ``gap``. The
     measured label is centred on the line's midpoint with its extents swapped for a
     vertical measured segment (the label is rotated); everything strokes at
-    ``line_width``. Arrows lie along the dimension line inside the extension-line
-    overshoot (at preset sizes), so they add nothing to the hull. The estimate is
-    metrically exact for the inline-label case; callers accepting a candidate off
-    this footprint must still build the real geometry once and re-validate its box
-    (the #602 validation fallback) so a mismatch (e.g. an externally relocated
-    label) degrades to a wasted probe, never a collision.
+    ``line_width``. With inside arrows the heads lie within the extension-line
+    overshoot (at preset sizes), so they add nothing to the hull.
+
+    Tight spans mirror helpers ≥0.14's outside-arrows flip (``_dim_line_ink``):
+    when the label and both heads don't fit — ``w + 2·al ≥ length`` or the shaft
+    piece beside a head would vanish — the ink extends ``2·arrow_length`` past
+    each end along the line. The label itself stays centred regardless of width
+    (``Dimension`` always passes an explicit ``label_t``, so the hang branch
+    never runs), and when its keep-clear reaches a witness end the witness's
+    overshoot past the dimension line is cut away with it. Without this model
+    the estimate under-covers exactly the dims v0.14 widens, and the
+    accept-time rebuild fails validation until the candidate is dropped (the
+    declared-plate 8 mm thickness dim was the first casualty). Assumes the
+    centred label (``label_offset_x=0``), like the rest of the estimate.
+    Callers accepting a candidate off this footprint must still build the real
+    geometry once and re-validate its box (the #602 validation fallback) so any
+    residual mismatch degrades to a wasted probe, never a collision.
     """
     if isinstance(side, str):  # mirror helpers._SIDE_VECTORS ("above"/"below"/"left"/"right")
         side = {
@@ -144,22 +156,26 @@ def dim_footprint(p1, p2, side, distance, draft, label):
     lcx = (p1[0] + p2[0]) / 2.0 + sx * off
     lcy = (p1[1] + p2[1]) / 2.0 + sy * off
     far = off + gap
-    xs = (
-        p1[0] + sx * gap,
-        p2[0] + sx * gap,
-        p1[0] + sx * far,
-        p2[0] + sx * far,
-        lcx - hx,
-        lcx + hx,
-    )
-    ys = (
-        p1[1] + sy * gap,
-        p2[1] + sy * gap,
-        p1[1] + sy * far,
-        p2[1] + sy * far,
-        lcy - hy,
-        lcy + hy,
-    )
+    xs = [p1[0] + sx * gap, p2[0] + sx * gap, lcx - hx, lcx + hx]
+    ys = [p1[1] + sy * gap, p2[1] + sy * gap, lcy - hy, lcy + hy]
+    # Helpers ≥0.14 tight-span behaviour. Along the line: the label's half-extent
+    # is w/2 regardless of orientation (the text rotates with the line); outside
+    # arrows extend the ink 2·al past each end when label+heads don't fit. Along
+    # the witness: the label keep-clear (h/2 + pad either side of the line) is
+    # cut out of a witness the centred label reaches, removing its overshoot
+    # unless a stub past the keep-clear survives (gap > h/2 + pad).
+    length = math.hypot(dxp, dyp)
+    al = getattr(draft, "arrow_length", 0.9 * draft.font_size)
+    tpad = getattr(draft, "pad_around_text", 0.0)
+    fits = length > 0 and (w + 2.0 * al < length) and (length / 2.0 - w / 2.0 - tpad > al / 2.0)
+    if not fits and length > 0:
+        ux, uy = dxp / length, dyp / length
+        xs += [p1[0] + sx * off - ux * 2.0 * al, p2[0] + sx * off + ux * 2.0 * al]
+        ys += [p1[1] + sy * off - uy * 2.0 * al, p2[1] + sy * off + uy * 2.0 * al]
+    label_covers_witness = length > 0 and length / 2.0 < w / 2.0 + tpad
+    if not label_covers_witness or gap > h / 2.0 + tpad:
+        xs += [p1[0] + sx * far, p2[0] + sx * far]
+        ys += [p1[1] + sy * far, p2[1] + sy * far]
     pad = draft.line_width / 2.0
     return (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
 
@@ -492,7 +508,7 @@ class CorridorCandidate:
     footprint: object | None = None
 
 
-def solve_corridor(dwg, strip, view, axis, cands, tier):
+def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=()):
     """One collect-then-solve over every :class:`CorridorCandidate` a shared strip
     accumulated across passes (ADR 0009 end state). Dedup → order → one non-force
     :func:`place_strip_candidates` pass → a force pass for the force-eligible leftovers →
@@ -564,6 +580,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
             anchored=anchored,
             naturals=naturals,
             footprints=foots,
+            corner_reserves=corner_reserves,
         )
     }
     force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
@@ -579,6 +596,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
                 tier,
                 force=True,
                 footprints=foots,
+                corner_reserves=corner_reserves,
                 features=feats,
                 sizes=sizes,
                 forbid=forbid,
@@ -679,9 +697,37 @@ def register_corridor(ctx, key, strip, view, axis, tier, cand):
 def drain_corridors(ctx, dwg):
     """Solve every registered corridor (one :func:`solve_corridor` per strip), then clear
     the batch. Called once, after all corridor-feeding passes have registered. Takes both the
-    scratch *ctx* (the batch) and *dwg* (the drawing :func:`solve_corridor` places onto)."""
-    for b in ctx.corridor_batch.values():
-        solve_corridor(dwg, b["strip"], b["view"], b["axis"], b["cands"], b["tier"])
+    scratch *ctx* (the batch) and *dwg* (the drawing :func:`solve_corridor` places onto).
+
+    Corner coordination (helpers ≥0.14): perpendicular strips of one view contest the
+    view corners — a tight-span dim's outside-arrow tails overhang past the view edge
+    into the sibling strip's band (an 8 mm plate-thickness dim on the left strip dips
+    below the view bottom; the below strip's own tight dim pokes left of the view edge).
+    Solved sequentially and blind, the first drain fills the corner and the second's
+    force-kept candidate hard-drops. So each solve receives the *innermost-tier
+    footprint boxes* of every not-yet-drained same-view sibling's **force** candidates
+    as extra obstacles: the earlier drain places clear of the corner the later one
+    provably needs. Reservation is exact (the candidate's own analytical footprint, at
+    the innermost position it would take), restricted to force candidates — principal
+    dims that would otherwise drop rather than relocate — so best-effort occupants
+    never lose capacity to it. Already-drained siblings need nothing: their dims are
+    real obstacles via :func:`strip_obstacles`."""
+    batches = list(ctx.corridor_batch.values())
+    for i, b in enumerate(batches):
+        reserves = []
+        for sib in batches[i + 1 :]:
+            if sib["view"] != b["view"] or sib["strip"] is None:
+                continue
+            s = sib["strip"]
+            inner_pos = s.anchor + s.direction * s.gap
+            for c in sib["cands"]:
+                if c.force and c.footprint is not None:
+                    box = c.footprint(inner_pos)
+                    if box is not None:
+                        reserves.append(box)
+        solve_corridor(
+            dwg, b["strip"], b["view"], b["axis"], b["cands"], b["tier"], corner_reserves=reserves
+        )
     ctx.corridor_batch = {}
 
 
@@ -701,6 +747,7 @@ def place_strip_candidates(
     anchored=None,
     naturals=None,
     footprints=None,
+    corner_reserves=(),
 ):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
@@ -822,6 +869,15 @@ def place_strip_candidates(
         in_band = [b for b in occupied if b[perp] < band_hi and b[perp + 2] > band_lo]
         out_of_band = [b for b in occupied if not (b[perp] < band_hi and b[perp + 2] > band_lo)]
         occupied = in_band
+        # Corner reserves (drain_corridors): projected boxes of not-yet-drained sibling
+        # corridors' force candidates. Same band relevance filter as real obstacles, but
+        # NEVER in out_of_band — a reserve is a projection, not geometry, so a survivor's
+        # real box must not be failed against it.
+        occupied += [
+            r
+            for r in corner_reserves
+            if r is not None and r[perp] < band_hi and r[perp + 2] > band_lo
+        ]
     blockers = () if force else corridor_blockers(dwg, view)
     segs = carve_free_segments(lo, hi, [(b[idx], b[idx + 2]) for b in occupied], pad)
     # Fill innermost-first (nearest the view), matching the old cursor's stack order.
