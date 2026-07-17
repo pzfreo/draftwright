@@ -2093,6 +2093,7 @@ def _bore_half_span(pmi_kind: str, value: float) -> float:
 # GD&T. It still lives in the outer run so it does not land between size/location dims.
 _PMI_SUBCHAIN = 3
 _PMI_CORRIDOR_PRIORITY = 1.0
+_PMI_SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
 
 
 def _renderable_pmi_records(records):
@@ -2107,6 +2108,396 @@ def _renderable_pmi_records(records):
         for r in records
         if r.pmi_kind in AUTHORED_DIMENSION_KINDS and r.value > 0 and len(r.ref_pts) >= 2
     ]
+
+
+def _bore_info(rec):
+    """For Size_Diameter / Size_Radius records, return (bore_axis, cx, cy, cz).
+
+    bore_axis is the bbox's LONGEST extent (the bore's depth direction).
+    Reuses rec.dominant_axis set by extract_pmi; falls back to re-sorting
+    the bbox spans only when dominant_axis is '?' (degenerate bbox).
+    The diameter/radius is then placed perpendicular to the bore axis in the
+    view where the bore appears as a circle.  Returns None if ref_bbox absent.
+    """
+    bb = rec.ref_bbox
+    if bb is None:
+        return None
+    bore_axis = rec.dominant_axis
+    if bore_axis == "?":
+        xmin, ymin, zmin, xmax, ymax, zmax = bb
+        spans = sorted(
+            [("X", abs(xmax - xmin)), ("Y", abs(ymax - ymin)), ("Z", abs(zmax - zmin))],
+            key=lambda t: t[1],
+            reverse=True,
+        )
+        bore_axis = spans[0][0]
+    cx_f = sum(p[0] for p in rec.ref_pts) / len(rec.ref_pts) if rec.ref_pts else 0.0
+    cy_f = sum(p[1] for p in rec.ref_pts) / len(rec.ref_pts) if rec.ref_pts else 0.0
+    cz_f = sum(p[2] for p in rec.ref_pts) / len(rec.ref_pts) if rec.ref_pts else 0.0
+    return bore_axis, cx_f, cy_f, cz_f
+
+
+def _pmi_witness_from_bbox(rec, view: str, a):
+    """Witness points from the outer edges of the combined reference bbox.
+
+    Gives the correct span for linear dims where both ref faces are flush
+    (e.g. two parallel faces of a slot or step).  Not suitable for bore
+    diameters — use _bore_info instead.
+
+    When the record carries no ``ref_bbox`` (an authored ``Sheet.dimension()`` with
+    only ``ref_pts``, #562), the span is derived from the ref points — so a ref_pts-only
+    dimension renders instead of silently vanishing.
+    """
+    FX = a.proj.front_x
+    FZ = a.proj.front_z
+    SX = a.proj.side_x
+    SZ = a.proj.side_z
+    PX = a.proj.plan_x
+    PY = a.proj.plan_y
+    bb = rec.ref_bbox
+    if bb is None:
+        pts = rec.ref_pts
+        if not pts or len(pts) < 2:
+            return None
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        zs = [p[2] for p in pts]
+        bb = (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+    xmin, ymin, zmin, xmax, ymax, zmax = bb
+    ax = rec.dominant_axis
+
+    if view == "front" and ax == "X":
+        p1 = (FX(xmin), FZ((zmin + zmax) / 2), 0)
+        p2 = (FX(xmax), FZ((zmin + zmax) / 2), 0)
+        avg_t = FZ((zmin + zmax) / 2)
+    elif view == "front" and ax == "Z":
+        p1 = (FX((xmin + xmax) / 2), FZ(zmin), 0)
+        p2 = (FX((xmin + xmax) / 2), FZ(zmax), 0)
+        avg_t = FX((xmin + xmax) / 2)
+    elif view == "side" and ax == "Y":
+        p1 = (SX(ymin), SZ((zmin + zmax) / 2), 0)
+        p2 = (SX(ymax), SZ((zmin + zmax) / 2), 0)
+        avg_t = SZ((zmin + zmax) / 2)
+    elif view == "plan" and ax == "Y":
+        avg_x = (xmin + xmax) / 2
+        p1 = (PX(avg_x), PY(ymin), 0)
+        p2 = (PX(avg_x), PY(ymax), 0)
+        avg_t = PX(avg_x)
+    else:
+        return None
+
+    span = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+    if span < 3:
+        return None
+    return p1, p2, avg_t
+
+
+def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
+    if strip is None:
+        return None
+    if side in ("above", "below"):
+        axis = "y"
+        perp = tuple(sorted((p1[0], p2[0])))
+        witness = max(p1[1], p2[1]) + 2 if side == "above" else min(p1[1], p2[1]) - 2
+        q1, q2 = (p1[0], witness, 0), (p2[0], witness, 0)
+    else:
+        axis = "x"
+        perp = tuple(sorted((p1[1], p2[1])))
+        witness = max(p1[0], p2[0]) + 2 if side == "right" else min(p1[0], p2[0]) - 2
+        q1, q2 = (witness, p1[1], 0), (witness, p2[1], 0)
+    lo, hi, _inner = strip_free_span(strip)
+    if side in ("above", "right") and hi <= witness:
+        return None
+    if side in ("below", "left") and lo >= witness:
+        return None
+
+    def _build(pos, _q1=q1, _q2=q2, _side=side, _w=witness, _label=label):
+        dist = pos - _w if _side in ("above", "right") else _w - pos
+        return _dim(_q1, _q2, _side, dist, draft, label=_label)
+
+    order_coord = min(perp)
+    return {
+        "name": name,
+        "build": _build,
+        "strip": strip,
+        "view": view,
+        "side": side,
+        "axis": axis,
+        "perp": perp,
+        "order": (_PMI_SUBCHAIN, order_coord, name),
+    }
+
+
+def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
+    if strip is None:
+        return None
+    axis = "y" if side in ("above", "below") else "x"
+    perp = (tip[0], tip[0]) if axis == "y" else (tip[1], tip[1])
+    order_coord = tip[0] if axis == "y" else tip[1]
+
+    def _build(pos, _tip=tip, _axis=axis, _label=label):
+        elbow = (_tip[0], pos, 0) if _axis == "y" else (pos, _tip[1], 0)
+        return Leader(_tip, elbow, _label, draft)
+
+    return {
+        "name": name,
+        "build": _build,
+        "strip": strip,
+        "view": view,
+        "side": side,
+        "axis": axis,
+        "perp": perp,
+        "order": (_PMI_SUBCHAIN, order_coord, name),
+    }
+
+
+def _pmi_place_one(dwg, spec, rec):
+    left = place_strip_candidates(
+        dwg,
+        spec["strip"],
+        spec["view"],
+        spec["axis"],
+        [(spec["name"], spec["build"])],
+        _PMI_SLOT,
+        force=True,
+        features={spec["name"]: rec},
+        priorities={spec["name"]: _PMI_CORRIDOR_PRIORITY},
+    )
+    return not left
+
+
+def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
+    specs = [s for s in options if s is not None]
+    if not specs:
+        return False
+    primary, alternates = specs[0], specs[1:]
+
+    def _drop(nm, _alts=alternates, _ax=ax, _label=label, _rec=rec):
+        for alt in _alts:
+            if _pmi_place_one(dwg, alt, _rec):
+                _log.info(
+                    "PMI dim %s placed on fallback %s/%s",
+                    nm,
+                    alt["view"],
+                    alt["side"],
+                )
+                return
+        _record_pmi_drop(ctx, dwg, _ax, _label, _rec)
+
+    register_corridor(
+        ctx,
+        (primary["view"], primary["side"]),
+        primary["strip"],
+        primary["view"],
+        primary["axis"],
+        _PMI_SLOT,
+        CorridorCandidate(
+            name=primary["name"],
+            build=primary["build"],
+            order=primary["order"],
+            on_place=lambda nm, _ax=ax, _label=label, _rec=rec: _log.info(
+                "PMI dim %s %.3g → annotated (%s)", _ax, _rec.value, _label
+            ),
+            on_drop=_drop,
+            priority=_PMI_CORRIDOR_PRIORITY,
+            force=True,
+            feature=rec,
+        ),
+    )
+    return True
+
+
+def _pmi_front_linear(dwg, a, ctx, rec, ax, label, name, primary, secondary, center):
+    """An X- or Z-dominant linear PMI dim in the FRONT view (the two share one shape): the
+    witness spans the ref bbox; place ``[primary, secondary]`` when the perpendicular
+    midpoint sits on the primary side of the view centre, else fall back to ``[secondary]``
+    alone. Returns True/False placed, or ``None`` for a degenerate (no-witness) reference
+    so the caller can report it as a validation failure."""
+    draft = dwg.draft
+    wp = _pmi_witness_from_bbox(rec, "front", a)
+    if wp is None:
+        return None
+    p1, p2, avg = wp
+    zones = {
+        "above": a.fv_zones.above,
+        "below": a.fv_zones.below,
+        "right": a.fv_zones.right,
+        "left": a.fv_zones.left,
+    }
+    placed = False
+    if avg >= center:
+        placed = _pmi_queue_options(
+            dwg,
+            ctx,
+            [
+                _pmi_dim_spec(p1, p2, zones[primary], label, name, "front", primary, draft),
+                _pmi_dim_spec(p1, p2, zones[secondary], label, name, "front", secondary, draft),
+            ],
+            ax,
+            label,
+            rec,
+        )
+    if not placed:
+        placed = _pmi_queue_options(
+            dwg,
+            ctx,
+            [_pmi_dim_spec(p1, p2, zones[secondary], label, name, "front", secondary, draft)],
+            ax,
+            label,
+            rec,
+        )
+    return placed
+
+
+def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
+    """Place one PMI record; returns True when it was queued/placed on a strip.
+
+    The old per-record dispatch of ``render_pmi``: diameter/radius via ``bore_cfg`` (the
+    ``_bore`` table), X/Z linears via the shared front-view shape, Y linears via the
+    side-then-plan fallback. A degenerate reference is recorded unrenderable and returns
+    False without escalating to the bottom drop.
+    """
+    ax = rec.dominant_axis
+    label = rec.label
+    placed = False
+    name_x = f"pmi_x_{idx}"
+    name_z = f"pmi_z_{idx}"
+    name_y = f"pmi_y_{idx}"
+    name_d = f"pmi_d_{idx}"
+
+    if rec.pmi_kind in ("diameter", "radius"):
+        # Bore size: centroid ± value/2 perpendicular to bore axis.
+        info = _bore_info(rec)
+        if info is None:
+            _log.debug("PMI dim[%d] diam: no ref_bbox, skip", idx)
+            return False
+        bore_axis, cx_f, cy_f, cz_f = info
+        # Resolved axis (handles _bore_info's '?' degenerate-bbox fallback); the diameter
+        # view table (Z→plan, X→side, Y→front) differs from the linear-dim one (#351 PR-4a).
+        ax = bore_axis
+        half = _bore_half_span(rec.pmi_kind, rec.value)
+        # Narrow bores (page span < text width) lead out to a shelf; bracket dims only
+        # when the span fits the label. An unresolved axis matches no cfg → bottom drop.
+        half_pg = half * a.SCALE  # bore radius on page (mm)
+        cfg = bore_cfg.get(bore_axis)
+        if cfg is not None:
+            u, v = cfg["centre"](cx_f, cy_f, cz_f)
+            if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
+                p1, p2 = cfg["span"](cx_f, cy_f, cz_f, half)
+                placed = _pmi_queue_options(
+                    dwg,
+                    ctx,
+                    [
+                        _pmi_dim_spec(
+                            p1, p2, cfg["zones"][s], label, name_d, cfg["view"], s, draft
+                        )
+                        for s in cfg["order"]
+                    ],
+                    ax,
+                    label,
+                    rec,
+                )
+            else:
+                placed = _pmi_queue_options(
+                    dwg,
+                    ctx,
+                    [
+                        _pmi_leader_spec(
+                            (u, v + (half_pg if s == "above" else -half_pg), 0),
+                            cfg["zones"][s],
+                            label,
+                            name_d,
+                            cfg["view"],
+                            s,
+                            draft,
+                        )
+                        for s in cfg["leader_order"]
+                    ],
+                    ax,
+                    label,
+                    rec,
+                )
+
+    elif ax == "X":
+        placed = _pmi_front_linear(dwg, a, ctx, rec, ax, label, name_x, "above", "below", a.FV_Y)
+        if placed is None:
+            _log.debug("PMI dim[%d] X: degenerate reference", idx)
+            _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
+            return False
+
+    elif ax == "Z":
+        placed = _pmi_front_linear(dwg, a, ctx, rec, ax, label, name_z, "right", "left", a.FV_X)
+        if placed is None:
+            _log.debug("PMI dim[%d] Z: degenerate reference", idx)
+            _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
+            return False
+
+    elif ax == "Y":
+        # A degenerate reference (no witness in EITHER candidate view) is a validation
+        # failure, not a placement one — report it distinctly (#562).
+        if (
+            _pmi_witness_from_bbox(rec, "side", a) is None
+            and _pmi_witness_from_bbox(rec, "plan", a) is None
+        ):
+            _log.debug("PMI dim[%d] Y: degenerate reference", idx)
+            _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
+            return False
+        # Try side view (Y maps to SX horizontal).
+        wp = _pmi_witness_from_bbox(rec, "side", a)
+        if wp is not None:
+            p1, p2, avg_sz = wp
+            if avg_sz >= a.SV_Y:
+                placed = _pmi_queue_options(
+                    dwg,
+                    ctx,
+                    [
+                        _pmi_dim_spec(
+                            p1, p2, a.sv_zones.above, label, name_y, "side", "above", draft
+                        ),
+                        _pmi_dim_spec(
+                            p1, p2, a.sv_zones.below, label, name_y, "side", "below", draft
+                        ),
+                    ],
+                    ax,
+                    label,
+                    rec,
+                )
+            if not placed:
+                placed = _pmi_queue_options(
+                    dwg,
+                    ctx,
+                    [
+                        _pmi_dim_spec(
+                            p1, p2, a.sv_zones.below, label, name_y, "side", "below", draft
+                        )
+                    ],
+                    ax,
+                    label,
+                    rec,
+                )
+        # Fall back: plan view (Y maps to PY vertical).
+        if not placed:
+            wp = _pmi_witness_from_bbox(rec, "plan", a)
+            if wp is not None:
+                p1, p2, _ = wp
+                placed = _pmi_queue_options(
+                    dwg,
+                    ctx,
+                    [
+                        _pmi_dim_spec(
+                            p1, p2, a.pv_zones.below, label, name_y, "plan", "below", draft
+                        )
+                    ],
+                    ax,
+                    label,
+                    rec,
+                )
+
+    if placed:
+        return True
+    _log.info("PMI dim[%d] %s %.3g → no viable strip", idx, ax, rec.value)
+    _record_pmi_drop(ctx, dwg, ax, label, rec)
+    return False
 
 
 def render_pmi(dwg, model, a, *, ctx) -> int:
@@ -2144,8 +2535,6 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
     PX = a.proj.plan_x
     PY = a.proj.plan_y
 
-    _SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
-
     # Per-bore-axis ø/R placement as DATA (ADR 0008 orientation-as-data): each bore reads as a
     # circle in ONE view, dimensioned across it in-plane when the page span fits the label, else
     # led out to a shelf. This one table replaces three near-identical Z/X/Y blocks. `order` is
@@ -2178,354 +2567,10 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
         },
     }
 
-    def _bore_info(rec):
-        """For Size_Diameter / Size_Radius records, return (bore_axis, cx, cy, cz).
-
-        bore_axis is the bbox's LONGEST extent (the bore's depth direction).
-        Reuses rec.dominant_axis set by extract_pmi; falls back to re-sorting
-        the bbox spans only when dominant_axis is '?' (degenerate bbox).
-        The diameter/radius is then placed perpendicular to the bore axis in the
-        view where the bore appears as a circle.  Returns None if ref_bbox absent.
-        """
-        bb = rec.ref_bbox
-        if bb is None:
-            return None
-        bore_axis = rec.dominant_axis
-        if bore_axis == "?":
-            xmin, ymin, zmin, xmax, ymax, zmax = bb
-            spans = sorted(
-                [("X", abs(xmax - xmin)), ("Y", abs(ymax - ymin)), ("Z", abs(zmax - zmin))],
-                key=lambda t: t[1],
-                reverse=True,
-            )
-            bore_axis = spans[0][0]
-        cx_f = sum(p[0] for p in rec.ref_pts) / len(rec.ref_pts) if rec.ref_pts else 0.0
-        cy_f = sum(p[1] for p in rec.ref_pts) / len(rec.ref_pts) if rec.ref_pts else 0.0
-        cz_f = sum(p[2] for p in rec.ref_pts) / len(rec.ref_pts) if rec.ref_pts else 0.0
-        return bore_axis, cx_f, cy_f, cz_f
-
-    def _witness_from_bbox(rec, view: str):
-        """Witness points from the outer edges of the combined reference bbox.
-
-        Gives the correct span for linear dims where both ref faces are flush
-        (e.g. two parallel faces of a slot or step).  Not suitable for bore
-        diameters — use _bore_info instead.
-
-        When the record carries no ``ref_bbox`` (an authored ``Sheet.dimension()`` with
-        only ``ref_pts``, #562), the span is derived from the ref points — so a ref_pts-only
-        dimension renders instead of silently vanishing.
-        """
-        bb = rec.ref_bbox
-        if bb is None:
-            pts = rec.ref_pts
-            if not pts or len(pts) < 2:
-                return None
-            xs = [p[0] for p in pts]
-            ys = [p[1] for p in pts]
-            zs = [p[2] for p in pts]
-            bb = (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
-        xmin, ymin, zmin, xmax, ymax, zmax = bb
-        ax = rec.dominant_axis
-
-        if view == "front" and ax == "X":
-            p1 = (FX(xmin), FZ((zmin + zmax) / 2), 0)
-            p2 = (FX(xmax), FZ((zmin + zmax) / 2), 0)
-            avg_t = FZ((zmin + zmax) / 2)
-        elif view == "front" and ax == "Z":
-            p1 = (FX((xmin + xmax) / 2), FZ(zmin), 0)
-            p2 = (FX((xmin + xmax) / 2), FZ(zmax), 0)
-            avg_t = FX((xmin + xmax) / 2)
-        elif view == "side" and ax == "Y":
-            p1 = (SX(ymin), SZ((zmin + zmax) / 2), 0)
-            p2 = (SX(ymax), SZ((zmin + zmax) / 2), 0)
-            avg_t = SZ((zmin + zmax) / 2)
-        elif view == "plan" and ax == "Y":
-            avg_x = (xmin + xmax) / 2
-            p1 = (PX(avg_x), PY(ymin), 0)
-            p2 = (PX(avg_x), PY(ymax), 0)
-            avg_t = PX(avg_x)
-        else:
-            return None
-
-        span = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
-        if span < 3:
-            return None
-        return p1, p2, avg_t
-
-    def _dim_spec(p1, p2, strip, label, name, view, side):
-        if strip is None:
-            return None
-        if side in ("above", "below"):
-            axis = "y"
-            perp = tuple(sorted((p1[0], p2[0])))
-            witness = max(p1[1], p2[1]) + 2 if side == "above" else min(p1[1], p2[1]) - 2
-            q1, q2 = (p1[0], witness, 0), (p2[0], witness, 0)
-        else:
-            axis = "x"
-            perp = tuple(sorted((p1[1], p2[1])))
-            witness = max(p1[0], p2[0]) + 2 if side == "right" else min(p1[0], p2[0]) - 2
-            q1, q2 = (witness, p1[1], 0), (witness, p2[1], 0)
-        lo, hi, _inner = strip_free_span(strip)
-        if side in ("above", "right") and hi <= witness:
-            return None
-        if side in ("below", "left") and lo >= witness:
-            return None
-
-        def _build(pos, _q1=q1, _q2=q2, _side=side, _w=witness, _label=label):
-            dist = pos - _w if _side in ("above", "right") else _w - pos
-            return _dim(_q1, _q2, _side, dist, draft, label=_label)
-
-        order_coord = min(perp)
-        return {
-            "name": name,
-            "build": _build,
-            "strip": strip,
-            "view": view,
-            "side": side,
-            "axis": axis,
-            "perp": perp,
-            "order": (_PMI_SUBCHAIN, order_coord, name),
-        }
-
-    def _leader_spec(tip, strip, label, name, view, side):
-        if strip is None:
-            return None
-        axis = "y" if side in ("above", "below") else "x"
-        perp = (tip[0], tip[0]) if axis == "y" else (tip[1], tip[1])
-        order_coord = tip[0] if axis == "y" else tip[1]
-
-        def _build(pos, _tip=tip, _axis=axis, _label=label):
-            elbow = (_tip[0], pos, 0) if _axis == "y" else (pos, _tip[1], 0)
-            return Leader(_tip, elbow, _label, draft)
-
-        return {
-            "name": name,
-            "build": _build,
-            "strip": strip,
-            "view": view,
-            "side": side,
-            "axis": axis,
-            "perp": perp,
-            "order": (_PMI_SUBCHAIN, order_coord, name),
-        }
-
-    def _place_one(spec, rec):
-        left = place_strip_candidates(
-            dwg,
-            spec["strip"],
-            spec["view"],
-            spec["axis"],
-            [(spec["name"], spec["build"])],
-            _SLOT,
-            force=True,
-            features={spec["name"]: rec},
-            priorities={spec["name"]: _PMI_CORRIDOR_PRIORITY},
-        )
-        return not left
-
-    def _queue_options(options, ax, label, rec):
-        specs = [s for s in options if s is not None]
-        if not specs:
-            return False
-        primary, alternates = specs[0], specs[1:]
-
-        def _drop(nm, _alts=alternates, _ax=ax, _label=label, _rec=rec):
-            for alt in _alts:
-                if _place_one(alt, _rec):
-                    _log.info(
-                        "PMI dim %s placed on fallback %s/%s",
-                        nm,
-                        alt["view"],
-                        alt["side"],
-                    )
-                    return
-            _record_pmi_drop(ctx, dwg, _ax, _label, _rec)
-
-        register_corridor(
-            ctx,
-            (primary["view"], primary["side"]),
-            primary["strip"],
-            primary["view"],
-            primary["axis"],
-            _SLOT,
-            CorridorCandidate(
-                name=primary["name"],
-                build=primary["build"],
-                order=primary["order"],
-                on_place=lambda nm, _ax=ax, _label=label, _rec=rec: _log.info(
-                    "PMI dim %s %.3g → annotated (%s)", _ax, _rec.value, _label
-                ),
-                on_drop=_drop,
-                priority=_PMI_CORRIDOR_PRIORITY,
-                force=True,
-                feature=rec,
-            ),
-        )
-        return True
-
-    def _front_linear(rec, ax, label, name, primary, secondary, center):
-        """An X- or Z-dominant linear PMI dim in the FRONT view (the two share one shape): the
-        witness spans the ref bbox; place ``[primary, secondary]`` when the perpendicular
-        midpoint sits on the primary side of the view centre, else fall back to ``[secondary]``
-        alone. Returns True/False placed, or ``None`` for a degenerate (no-witness) reference
-        so the caller can report it as a validation failure."""
-        wp = _witness_from_bbox(rec, "front")
-        if wp is None:
-            return None
-        p1, p2, avg = wp
-        zones = {
-            "above": a.fv_zones.above,
-            "below": a.fv_zones.below,
-            "right": a.fv_zones.right,
-            "left": a.fv_zones.left,
-        }
-        placed = False
-        if avg >= center:
-            placed = _queue_options(
-                [
-                    _dim_spec(p1, p2, zones[primary], label, name, "front", primary),
-                    _dim_spec(p1, p2, zones[secondary], label, name, "front", secondary),
-                ],
-                ax,
-                label,
-                rec,
-            )
-        if not placed:
-            placed = _queue_options(
-                [_dim_spec(p1, p2, zones[secondary], label, name, "front", secondary)],
-                ax,
-                label,
-                rec,
-            )
-        return placed
-
     queued = 0
     for idx, rec in enumerate(usable):
-        ax = rec.dominant_axis
-        label = rec.label
-        placed = False
-        name_x = f"pmi_x_{idx}"
-        name_z = f"pmi_z_{idx}"
-        name_y = f"pmi_y_{idx}"
-        name_d = f"pmi_d_{idx}"
-
-        if rec.pmi_kind in ("diameter", "radius"):
-            # --- Bore size: centroid ± value/2 perpendicular to bore axis ---
-            info = _bore_info(rec)
-            if info is None:
-                _log.debug("PMI dim[%d] diam: no ref_bbox, skip", idx)
-                continue
-            bore_axis, cx_f, cy_f, cz_f = info
-            # Resolved axis (handles the '?' degenerate-bbox fallback _bore_info does
-            # internally) — reused below for the drop escalation's view, since the
-            # bore-diameter view table (Z→plan, X→side, Y→front) differs from the
-            # linear-dim one just below (#351 PR-4a review).
-            ax = bore_axis
-            half = _bore_half_span(rec.pmi_kind, rec.value)
-
-            # Bore diameter page span = diameter × scale.  When the span is
-            # narrower than ~8 mm the centred label text overflows the gap
-            # and the extension lines punch through it.  Use a Leader
-            # (arrowhead at bore edge, text on a horizontal shelf) for
-            # narrow bores; bracket dims only when span fits the text.
-            half_pg = half * a.SCALE  # bore radius on page (mm)
-
-            # An unresolved bore axis (dominant_axis is an unrestricted string) matches no
-            # config — leave placed=False and fall through to the bottom drop, exactly as the
-            # old Z/X/Y if-chain did (never a KeyError crash).
-            cfg = _bore.get(bore_axis)
-            if cfg is not None:
-                u, v = cfg["centre"](cx_f, cy_f, cz_f)
-                if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
-                    p1, p2 = cfg["span"](cx_f, cy_f, cz_f, half)
-                    placed = _queue_options(
-                        [
-                            _dim_spec(p1, p2, cfg["zones"][s], label, name_d, cfg["view"], s)
-                            for s in cfg["order"]
-                        ],
-                        ax,
-                        label,
-                        rec,
-                    )
-                else:
-                    placed = _queue_options(
-                        [
-                            _leader_spec(
-                                (u, v + (half_pg if s == "above" else -half_pg), 0),
-                                cfg["zones"][s],
-                                label,
-                                name_d,
-                                cfg["view"],
-                                s,
-                            )
-                            for s in cfg["leader_order"]
-                        ],
-                        ax,
-                        label,
-                        rec,
-                    )
-
-        elif ax == "X":
-            placed = _front_linear(rec, ax, label, name_x, "above", "below", a.FV_Y)
-            if placed is None:
-                _log.debug("PMI dim[%d] X: degenerate reference", idx)
-                _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
-                continue
-
-        elif ax == "Z":
-            placed = _front_linear(rec, ax, label, name_z, "right", "left", a.FV_X)
-            if placed is None:
-                _log.debug("PMI dim[%d] Z: degenerate reference", idx)
-                _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
-                continue
-
-        elif ax == "Y":
-            # A degenerate reference (no witness in EITHER candidate view) is a validation
-            # failure, not a placement one — report it distinctly so the bottom "no room"
-            # only fires when a real candidate reached the solver (#562).
-            if _witness_from_bbox(rec, "side") is None and _witness_from_bbox(rec, "plan") is None:
-                _log.debug("PMI dim[%d] Y: degenerate reference", idx)
-                _record_pmi_unrenderable(dwg, label, rec, ctx=ctx)
-                continue
-            # Try side view (Y maps to SX horizontal).
-            wp = _witness_from_bbox(rec, "side")
-            if wp is not None:
-                p1, p2, avg_sz = wp
-                if avg_sz >= a.SV_Y:
-                    placed = _queue_options(
-                        [
-                            _dim_spec(p1, p2, a.sv_zones.above, label, name_y, "side", "above"),
-                            _dim_spec(p1, p2, a.sv_zones.below, label, name_y, "side", "below"),
-                        ],
-                        ax,
-                        label,
-                        rec,
-                    )
-                if not placed:
-                    placed = _queue_options(
-                        [_dim_spec(p1, p2, a.sv_zones.below, label, name_y, "side", "below")],
-                        ax,
-                        label,
-                        rec,
-                    )
-            # Fall back: plan view (Y maps to PY vertical).
-            if not placed:
-                wp = _witness_from_bbox(rec, "plan")
-                if wp is not None:
-                    p1, p2, _ = wp
-                    placed = _queue_options(
-                        [_dim_spec(p1, p2, a.pv_zones.below, label, name_y, "plan", "below")],
-                        ax,
-                        label,
-                        rec,
-                    )
-
-        if placed:
+        if _place_pmi_record(dwg, a, ctx, rec, idx, _bore, draft):
             queued += 1
-        else:
-            _log.info("PMI dim[%d] %s %.3g → no viable strip", idx, ax, rec.value)
-            _record_pmi_drop(ctx, dwg, ax, label, rec)
-
     _log.info("PMI annotate: %d/%d dims queued", queued, len(usable))
     return queued
 
