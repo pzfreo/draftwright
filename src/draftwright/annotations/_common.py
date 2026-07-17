@@ -482,7 +482,13 @@ class CorridorCandidate:
     # Analytical ``pos -> (x0, y0, x1, y1)`` footprint of the geometry ``build(pos)``
     # would produce (#602): lets the strip solve measure and evaluate this candidate
     # without constructing OCC geometry at all (see :func:`dim_footprint`). ``None``
-    # falls back to one probe build at the strip edge + the box-shift model.
+    # falls back to one probe build at the strip edge + the box-shift model. CONTRACT:
+    # the footprint must be accurate — its PERPENDICULAR extent feeds the obstacle
+    # band filter, so an underestimate hides obstacles from the carve. The solve
+    # re-validates each built survivor against the blockers, the forbid box and the
+    # band-filtered-out obstacles, so a miss costs a wasted build and a retry, but
+    # keeping footprints truthful (``dim_footprint``, ±0.05 mm) is what keeps that
+    # fallback rare and the placement identical to the probe path.
     footprint: object | None = None
 
 
@@ -803,9 +809,19 @@ def place_strip_candidates(
         return tuple(box)
 
     occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+    # Obstacles OUTSIDE the batch's predicted perpendicular band are invisible to the
+    # carve below by design — but that makes the band prediction itself load-bearing: a
+    # candidate whose real geometry exceeds its predicted band could land on one with no
+    # check ever seeing it (review #679). Keep the filtered-out set: the post-build
+    # validation re-checks each survivor's REAL box against it. In-band overlaps are NOT
+    # validated — witness lines legitimately cross the boxes of dims stacked further in
+    # (ISO 129-1), which is exactly why the carve projects onto the stacking axis only.
+    out_of_band: list = []
     if pbands:
         band_lo, band_hi = min(p[0] for p in pbands), max(p[1] for p in pbands)
-        occupied = [b for b in occupied if b[perp] < band_hi and b[perp + 2] > band_lo]
+        in_band = [b for b in occupied if b[perp] < band_hi and b[perp + 2] > band_lo]
+        out_of_band = [b for b in occupied if not (b[perp] < band_hi and b[perp + 2] > band_lo)]
+        occupied = in_band
     blockers = () if force else corridor_blockers(dwg, view)
     segs = carve_free_segments(lo, hi, [(b[idx], b[idx + 2]) for b in occupied], pad)
     # Fill innermost-first (nearest the view), matching the old cursor's stack order.
@@ -913,6 +929,13 @@ def place_strip_candidates(
                     continue
                 fb = (forbid or {}).get(name)
                 if fb is not None and _box_hits(real, (fb,)):
+                    rejected_total.append((name, build))
+                    continue
+                # A survivor whose real geometry escaped the batch's predicted
+                # perpendicular band could overlap an obstacle the carve was never
+                # shown (review #679) — the one collision class the stacking-axis
+                # model cannot tolerate. Never fires while predictions are accurate.
+                if _box_hits(real, out_of_band):
                     rejected_total.append((name, build))
                     continue
             placed.append((name, dim))
