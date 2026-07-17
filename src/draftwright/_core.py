@@ -107,8 +107,8 @@ _QUOTED_RE = re.compile(r"'([^']*)'")
 
 
 @functools.lru_cache(maxsize=512)
-def _text_width(text: str, font_size: float, font_path: str = PLEX_MONO) -> float:
-    """Measured rendered width (page-mm) of *text* at *font_size*.
+def _text_size(text: str, font_size: float, font_path: str = PLEX_MONO) -> tuple[float, float]:
+    """Measured rendered (width, height) (page-mm) of *text* at *font_size*.
 
     Uses build123d's ``Text`` — the same primitive ``Dimension``/``HoleCallout``
     stroke their labels with — so callout-width estimates use real glyph metrics
@@ -120,18 +120,20 @@ def _text_width(text: str, font_size: float, font_path: str = PLEX_MONO) -> floa
     recur across holes and the rasterisation is the costly part.
     """
     if not text:
-        return 0.0
-    return (
-        Text(
-            txt=text,
-            font_size=font_size,
-            font_path=font_path,
-            align=(Align.CENTER, Align.CENTER),
-            mode=Mode.PRIVATE,
-        )
-        .bounding_box()
-        .size.X
-    )
+        return (0.0, 0.0)
+    bb = Text(
+        txt=text,
+        font_size=font_size,
+        font_path=font_path,
+        align=(Align.CENTER, Align.CENTER),
+        mode=Mode.PRIVATE,
+    ).bounding_box()
+    return (bb.size.X, bb.size.Y)
+
+
+def _text_width(text: str, font_size: float, font_path: str = PLEX_MONO) -> float:
+    """Measured rendered width (page-mm) of *text* — see :func:`_text_size`."""
+    return _text_size(text, font_size, font_path)[0]
 
 
 # Cheap mean glyph advance as a fraction of the em (font size), for label-width ESTIMATES in

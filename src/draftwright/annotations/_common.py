@@ -11,8 +11,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from build123d_drafting.helpers import Dimension, SafeDimension
+from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, SafeDimension
 
+from draftwright._core import _text_size
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import _centerline_extent
@@ -98,6 +99,54 @@ def _geom_box(o):
     except Exception as exc:  # noqa: BLE001 — not every annotation bbox-es cleanly
         _log.debug("strip occupancy: %s did not bbox (%s); omitted", type(o).__name__, exc)
         return None
+
+
+def dim_footprint(p1, p2, side, distance, draft, label):
+    """Analytical page-mm AABB ``(x0, y0, x1, y1)`` of the :class:`Dimension` that
+    ``_dim(p1, p2, side, distance, draft, label=label)`` would build — WITHOUT
+    constructing any OCC geometry (#602: a rejected candidate must not pay the
+    rendering cost).
+
+    Mirrors ``helpers.Dimension`` / build123d ``ExtensionLine``: each extension line
+    is the object→dimension-line segment *translated* ``extension_gap`` along itself,
+    so it spans ``p + side·gap`` → ``p + side·(distance + gap)`` — starting ``gap``
+    clear of the object and overshooting the dimension line by the same ``gap``. The
+    measured label is centred on the line's midpoint with its extents swapped for a
+    vertical measured segment (the label is rotated); everything strokes at
+    ``line_width``. Arrows lie along the dimension line inside the extension-line
+    overshoot (at preset sizes), so they add nothing to the hull. The estimate is
+    metrically exact for the inline-label case; callers accepting a candidate off
+    this footprint must still build the real geometry once and re-validate its box
+    (the #602 validation fallback) so a mismatch (e.g. an externally relocated
+    label) degrades to a wasted probe, never a collision.
+    """
+    sx, sy = side[0], side[1]
+    off = abs(distance)
+    gap = draft.extension_gap
+    dxp, dyp = p2[0] - p1[0], p2[1] - p1[1]
+    w, h = _text_size(label, draft.font_size, getattr(draft, "font_path", DEFAULT_FONT_PATH))
+    hx, hy = (h / 2.0, w / 2.0) if abs(dyp) > abs(dxp) else (w / 2.0, h / 2.0)
+    lcx = (p1[0] + p2[0]) / 2.0 + sx * off
+    lcy = (p1[1] + p2[1]) / 2.0 + sy * off
+    far = off + gap
+    xs = (
+        p1[0] + sx * gap,
+        p2[0] + sx * gap,
+        p1[0] + sx * far,
+        p2[0] + sx * far,
+        lcx - hx,
+        lcx + hx,
+    )
+    ys = (
+        p1[1] + sy * gap,
+        p2[1] + sy * gap,
+        p1[1] + sy * far,
+        p2[1] + sy * far,
+        lcy - hy,
+        lcy + hy,
+    )
+    pad = draft.line_width / 2.0
+    return (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
 
 
 CROSSABLE_TYPES = frozenset({"Centerline", "CenterlineCircle", "CenterMark"})
