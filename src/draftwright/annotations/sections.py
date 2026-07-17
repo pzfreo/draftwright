@@ -502,8 +502,9 @@ def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter:
     except Exception as exc:  # noqa: BLE001 — projection raises broadly on cast geometry
         _log.warning("Detail %s skipped (projection failed: %s)", letter, exc)
         return False
-    dwg._coords[view_name] = ViewCoordinates(
-        view_axes(camera, (0, 0, 1), la), DX, DY, dcx, dcy, dcz, detail_scale
+    dwg.set_view_coordinates(
+        view_name,
+        ViewCoordinates(view_axes(camera, (0, 0, 1), la), DX, DY, dcx, dcy, dcz, detail_scale),
     )
 
     # The feature draws its own dims inside the detail. If nothing legible lands even
@@ -512,7 +513,7 @@ def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter:
     # head/block inline, so lint reports any un-located interior) (#307 review).
     if not req.redraw(dwg, view_name, detail_scale):
         dwg.views.pop(view_name, None)
-        dwg._coords.pop(view_name, None)
+        dwg.drop_view_coordinates(view_name)
         _log.info("Detail %s skipped (no legible dims at the detail scale)", letter)
         return False
 

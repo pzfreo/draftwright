@@ -474,7 +474,7 @@ def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
     # m_locx{i}, the historical byte-identical scheme. The finalize() path (only set) may
     # run AFTER live-replayed locate() dims already hold m_loc names, so there it allocates
     # the first FREE index to avoid Drawing.add silently replacing one (#429 review).
-    _loc_used = set(dwg._named) if only is not None else None
+    _loc_used = set(ctx.registry.names()) if only is not None else None
 
     def _loc_name(prefix: str, i: int) -> str:
         if _loc_used is None:
@@ -748,7 +748,7 @@ def _diameter_column_left(dwg, items, start: int = 0) -> int:
     return placed
 
 
-def render_diameters(dwg, groups, tol: float = 0.15, *, only=None) -> int:
+def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
     """ø leaders for a turned part's external step/boss diameters, from the IR —
     one distinct callout per diameter, in a tidy row below the front view
     (X-turning) or a column to its left (Z-turning). Orientation is the feature
@@ -803,7 +803,7 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, only=None) -> int:
     def _next_start(prefix):
         idxs = [
             int(n[len(prefix) :])
-            for n in dwg._named
+            for n in ctx.registry.names()
             if n.startswith(prefix) and n[len(prefix) :].isdigit()
         ]
         return max(idxs) + 1 if idxs else 0
@@ -1549,12 +1549,12 @@ def _draw_step_chain(
     return len(candidates)
 
 
-def _next_steplen_start(dwg, prefix: str = "m_steplen") -> int:
+def _next_steplen_start(ctx, prefix: str = "m_steplen") -> int:
     """First free m_steplen index past the MAX existing one — the #426 finalize path names
     the chain as a contiguous run from one start, so it must clear every existing name (max+1,
     not first-free: a gap below an occupied index would let the run wrap onto it, #432)."""
     idxs: list[int] = []
-    for n in dwg._named:
+    for n in ctx.registry.names():
         if not n.startswith(prefix):
             continue
         rest = n[len(prefix) :]
@@ -1597,7 +1597,7 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
     draft = dwg.draft
     # only=None (auto-pass) → start=0, historical m_steplen naming, byte-identical. The
     # finalize path (only set) starts past existing m_steplen names (#426 naming seam).
-    start = _next_steplen_start(dwg) if only is not None else 0
+    start = _next_steplen_start(ctx) if only is not None else 0
     fsegs = [(dwg.at("front", *a), dwg.at("front", *b), v, t) for a, b, v, t in rows]
     horizontal = abs(fsegs[0][1][0] - fsegs[0][0][0]) >= abs(fsegs[0][1][1] - fsegs[0][0][1])
 

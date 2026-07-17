@@ -49,6 +49,11 @@ class AnnotationRegistry:
     def __contains__(self, name) -> bool:
         return name in self._named
 
+    def names(self) -> set:
+        """The set of registered annotation names — the free-name probe surface the render
+        passes read (#639, replacing their old ``dwg._named`` reach)."""
+        return set(self._named)
+
     def named(self, name):
         """The object registered under *name*, or ``None``."""
         return self._named.get(name)

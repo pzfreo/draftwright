@@ -30,18 +30,13 @@ _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright"
 _ANNO_DIR = _SRC / "annotations"
 
 # Distinct ``dwg._<name>`` private reads (attribute access + ``getattr(dwg, "_name", …)`` probes)
-# the annotations layer still relies on. This is the compat surface #639 will shrink to zero;
-# it may only SHRINK. One-line rationale per entry:
-_DWG_PRIVATE_READ_ALLOW: frozenset[str] = frozenset(
-    {
-        "_add_balloons",  # balloon-render helper the hole pass calls back through
-        "_coords",  # cached per-view projected coordinates
-        "_feature_of_hole_at",  # feature lookup by hole location
-        "_named",  # the name→annotation index (free-name probing)
-        "_part_model",  # the built PartModel (read; write now via attach_part_model, #639)
-        "_model_declared",  # whether the model was declared (vs detected) — getattr probe
-    }
-)
+# the annotations layer still relies on. #639 drove this to ZERO: the annotation render layer no
+# longer reads any Drawing private — the model/model-declared flag/hole-feature index ride the
+# per-run PlacementContext, the balloon render + view-coordinate mutations go through public
+# Drawing methods (``add_balloons``/``set_view_coordinates``/``drop_view_coordinates``), and the
+# name→annotation index is read through ``ctx.registry`` (``__contains__``/``names()``). The
+# allowlist may only SHRINK; it is now empty and must stay so.
+_DWG_PRIVATE_READ_ALLOW: frozenset[str] = frozenset()
 
 
 def _anno_sources() -> list[Path]:
@@ -154,18 +149,20 @@ def test_write_guard_catches_every_mutation_form():
     assert not _dwg_private_writes(ast.parse("use(dwg._named)"))
 
 
-def test_no_analysis_or_part_model_probing():
-    """No ``annotations/`` module probes ``getattr(dwg, "_analysis"/"_part_model", …)`` — the
-    model and analysis are threaded in as parameters now (#639)."""
+def test_no_build_context_probing():
+    """No ``annotations/`` module probes the drawing for build context via
+    ``getattr(dwg, "_analysis"/"_part_model"/"_model_declared", …)`` — the model, analysis, and
+    model-declared flag are all threaded in as parameters / on the PlacementContext now (#639)."""
     offenders: list[str] = []
     for path in _anno_sources():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for name in _dwg_getattr_probes(tree):
-            if name in ("_analysis", "_part_model"):
+            if name in ("_analysis", "_part_model", "_model_declared"):
                 offenders.append(f"{path.relative_to(_SRC)}: getattr(dwg, {name!r}, …)")
     assert not offenders, (
-        "annotations/ must not probe the drawing for the model/analysis — pass them in as "
-        "parameters (#639 / ADR 0005 §2):\n  " + "\n  ".join(offenders)
+        "annotations/ must not probe the drawing for the model/analysis/model-declared flag — "
+        "pass them in as parameters or on the PlacementContext (#639 / ADR 0005 §2):\n  "
+        + "\n  ".join(offenders)
     )
 
 

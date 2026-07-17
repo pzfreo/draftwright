@@ -545,6 +545,33 @@ class PlacementContext:
     # so mypy does not reject the delegating calls below.
     registry: Any = None  # the drawing's AnnotationRegistry: build-issue sink + names
     coverage: Any = None  # the drawing's CoverageState
+    # The ensured PartModel (ADR 0008 IR) the run's passes read, threaded off the drawing so
+    # they no longer reach into ``dwg._part_model`` (#639). Both entry paths set it from the
+    # PUBLIC ``dwg.model()`` after the model is ensured/attached.
+    part_model: Any = None
+    # Whether the model was DECLARED (vs detected) — the ADR 0011 gate the orchestrator reads,
+    # threaded off ``getattr(dwg, "_model_declared")`` (#639).
+    model_declared: bool = False
+    # Per-run cache for :meth:`feature_of_hole_at` — the model is fixed after build, so a
+    # per-ctx (per-run) index is correct (mirrors the old ``Drawing._hole_feature_index``).
+    _hole_feature_index: Any = field(default=None, repr=False)
+
+    def feature_of_hole_at(self, location):
+        """The IR hole/pattern feature whose member sits at model-space *location*, or ``None``
+        (#408/#639). Attributes a balloon (which carries a recognition hole, not the IR feature)
+        to its feature so :meth:`Drawing.drop` clears it. Cached on the run's ctx — the model is
+        fixed after build."""
+        m = self.part_model
+        if m is None:
+            return None
+        if self._hole_feature_index is None:
+            idx: dict = {}
+            for f in getattr(m, "features", []):
+                if getattr(f, "kind", None) in ("hole", "pattern"):
+                    for loc in getattr(f, "members", None) or (f.frame.origin,):
+                        idx[tuple(round(c, 3) for c in loc)] = f
+            self._hole_feature_index = idx
+        return self._hole_feature_index.get(tuple(round(c, 3) for c in location))
 
     def record_issue(self, severity, code, message) -> None:
         """Record a build-time lint issue on the run's registry (#639). Replaces the passes'

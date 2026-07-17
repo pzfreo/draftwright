@@ -8691,7 +8691,7 @@ class TestHoleTable:
         )
         hole = SimpleNamespace(location=(0.0, 0.0, 0.0), diameter=4.0)
 
-        Drawing._add_balloons(stub, "plan", [("A", 0, hole)])
+        Drawing.add_balloons(stub, "plan", [("A", 0, hole)])
 
         top_call = next(call for call in calls if call[2] == "x" and call[1])
         _view, _members, _axis, line, *_rest, fs, r = top_call
@@ -8734,7 +8734,7 @@ class TestHoleTable:
         )
         holes = [SimpleNamespace(location=(float(i), 0.0, 0.0), diameter=4.0) for i in range(6)]
 
-        Drawing._add_balloons(
+        Drawing.add_balloons(
             stub, "plan", [(chr(ord("A") + i), 0, h) for i, h in enumerate(holes)]
         )
 
@@ -8782,7 +8782,7 @@ class TestHoleTable:
         )
         hole = SimpleNamespace(location=(0.0, 0.0, 0.0), diameter=4.0)
 
-        Drawing._add_balloons(stub, "plan", [("A", 0, hole)])
+        Drawing.add_balloons(stub, "plan", [("A", 0, hole)])
 
         left_members = next(call[1] for call in calls if call[2] == "y" and call[3] < a.PV_X)
         right_members = next(call[1] for call in calls if call[2] == "y" and call[3] > a.PV_X)
@@ -8959,6 +8959,7 @@ class TestPatternGroupBalloon:
         ctx = PlacementContext(
             registry=dwg.registry,
             coverage=dwg.coverage,
+            part_model=dwg.model(),  # (#639) the tabulation resolver reads the model off ctx now
             escalations=[
                 Escalation(kind="callout", view="plan", feature=feat, reason="strip_full")
             ],
@@ -8985,7 +8986,9 @@ class TestPatternGroupBalloon:
             self._fake_pattern(count=4, diameter=3.0, origin=(-15.0, -8.0, 0.0)),
             self._fake_pattern(count=6, diameter=5.0, origin=(15.0, 8.0, 0.0)),
         ]
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        ctx = PlacementContext(
+            registry=dwg.registry, coverage=dwg.coverage, part_model=dwg.model()
+        )
         for feat in feats:
             ctx.escalations.append(
                 Escalation(kind="callout", view="plan", feature=feat, reason="strip_full")
@@ -9015,6 +9018,7 @@ class TestPatternGroupBalloon:
         ctx = PlacementContext(
             registry=dwg.registry,
             coverage=dwg.coverage,
+            part_model=dwg.model(),
             escalations=[
                 Escalation(kind="callout", view="front", feature=feat, reason="front strip full")
             ],
