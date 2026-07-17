@@ -120,6 +120,13 @@ def dim_footprint(p1, p2, side, distance, draft, label):
     (the #602 validation fallback) so a mismatch (e.g. an externally relocated
     label) degrades to a wasted probe, never a collision.
     """
+    if isinstance(side, str):  # mirror helpers._SIDE_VECTORS ("above"/"below"/"left"/"right")
+        side = {
+            "above": (0.0, 1.0, 0.0),
+            "below": (0.0, -1.0, 0.0),
+            "left": (-1.0, 0.0, 0.0),
+            "right": (1.0, 0.0, 0.0),
+        }[side]
     sx, sy = side[0], side[1]
     off = abs(distance)
     gap = draft.extension_gap
@@ -472,6 +479,17 @@ class CorridorCandidate:
     # the title block, which is placed after the corridor drain so the strip carve can't see
     # it (#481). ``None`` (every dim) skips the check → byte-identical.
     forbid: object | None = None
+    # Analytical ``pos -> (x0, y0, x1, y1)`` footprint of the geometry ``build(pos)``
+    # would produce (#602): lets the strip solve measure and evaluate this candidate
+    # without constructing OCC geometry at all (see :func:`dim_footprint`). ``None``
+    # falls back to one probe build at the strip edge + the box-shift model. CONTRACT:
+    # the footprint must be accurate — its PERPENDICULAR extent feeds the obstacle
+    # band filter, so an underestimate hides obstacles from the carve. The solve
+    # re-validates each built survivor against the blockers, the forbid box and the
+    # band-filtered-out obstacles, so a miss costs a wasted build and a retry, but
+    # keeping footprints truthful (``dim_footprint``, ±0.05 mm) is what keeps that
+    # fallback rare and the placement identical to the probe path.
+    footprint: object | None = None
 
 
 def solve_corridor(dwg, strip, view, axis, cands, tier):
@@ -529,6 +547,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
     prio = {c.name: c.priority for c in kept if c.priority}  # over-capacity survival rank (#357)
     anchored = {c.name: c.anchored for c in kept if c.anchored}
     naturals = {c.name: c.natural for c in kept if c.natural is not None}
+    foots = {c.name: c.footprint for c in kept if c.footprint is not None}  # analytical (#602)
     left = {
         n
         for n, _ in place_strip_candidates(
@@ -544,6 +563,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
             priorities=prio,
             anchored=anchored,
             naturals=naturals,
+            footprints=foots,
         )
     }
     force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
@@ -558,6 +578,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier):
                 force_pairs,
                 tier,
                 force=True,
+                footprints=foots,
                 features=feats,
                 sizes=sizes,
                 forbid=forbid,
@@ -679,6 +700,7 @@ def place_strip_candidates(
     priorities=None,
     anchored=None,
     naturals=None,
+    footprints=None,
 ):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
@@ -756,13 +778,50 @@ def place_strip_candidates(
     # obstacles out first. The perpendicular extent is independent of the tier position,
     # so a single probe build per candidate suffices; the corridor check below already
     # uses the full 2-D box, so it needs no such filter.
-    pbands = [
-        (b[perp], b[perp + 2]) for _n, build in cands if (b := _geom_box(build(lo))) is not None
-    ]
+    #
+    # That one probe build is also this call's entire MEASUREMENT step (#602): every
+    # candidate is a fixed feature-side anchor (witness origin / leader shaft end)
+    # plus a dim line that translates with the tier position, so its box at position
+    # ``pos`` is the probe box with the OUTWARD stacking-axis edge shifted by
+    # ``pos - lo`` — no further geometry is built to evaluate a position. The
+    # segment loop below re-solves and re-checks on these predicted boxes only;
+    # each finally-accepted candidate is built once and its real box re-validated
+    # (a prediction miss degrades to a later-segment retry, never a collision).
+    # A candidate with an analytical *footprints* entry (#602) needs no probe build at
+    # all — its box at any position is computed, not measured.
+    probe_boxes = {
+        name: (footprints[name](lo) if name in (footprints or {}) else _geom_box(build(lo)))
+        for name, build in cands
+    }
+    pbands = [(b[perp], b[perp + 2]) for b in probe_boxes.values() if b is not None]
+
+    def _predicted_box(name, pos):
+        fp = (footprints or {}).get(name)
+        if fp is not None:
+            return fp(pos)
+        pb = probe_boxes.get(name)
+        if pb is None:
+            return None
+        box = list(pb)
+        # The moving edge is the one AWAY from the view (`inner`); the feature-side
+        # edge is anchored geometry and stays put.
+        box[idx + 2 if inner == lo else idx] += pos - lo
+        return tuple(box)
+
     occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+    # Obstacles OUTSIDE the batch's predicted perpendicular band are invisible to the
+    # carve below by design — but that makes the band prediction itself load-bearing: a
+    # candidate whose real geometry exceeds its predicted band could land on one with no
+    # check ever seeing it (review #679). Keep the filtered-out set: the post-build
+    # validation re-checks each survivor's REAL box against it. In-band overlaps are NOT
+    # validated — witness lines legitimately cross the boxes of dims stacked further in
+    # (ISO 129-1), which is exactly why the carve projects onto the stacking axis only.
+    out_of_band: list = []
     if pbands:
         band_lo, band_hi = min(p[0] for p in pbands), max(p[1] for p in pbands)
-        occupied = [b for b in occupied if b[perp] < band_hi and b[perp + 2] > band_lo]
+        in_band = [b for b in occupied if b[perp] < band_hi and b[perp + 2] > band_lo]
+        out_of_band = [b for b in occupied if not (b[perp] < band_hi and b[perp + 2] > band_lo)]
+        occupied = in_band
     blockers = () if force else corridor_blockers(dwg, view)
     segs = carve_free_segments(lo, hi, [(b[idx], b[idx + 2]) for b in occupied], pad)
     # Fill innermost-first (nearest the view), matching the old cursor's stack order.
@@ -821,8 +880,15 @@ def place_strip_candidates(
             if pos is None:  # segment over its estimated capacity (shouldn't occur)
                 rejected.append((name, build))
                 continue
-            dim = build(pos)
-            if not force and _box_hits(_geom_box(dim), blockers):  # corridor crosses a leader
+            # Predicted box, not built geometry (#602): the refill loop re-evaluates
+            # every already-accepted candidate each iteration, so building here made
+            # the drain quadratic in OCC builds.
+            box = _predicted_box(name, pos)
+            if box is None:  # probe didn't bbox — measure the old way, once per check
+                box = _geom_box(build(pos))
+            if (
+                not force and box is not None and _box_hits(box, blockers)
+            ):  # corridor crosses a leader
                 rejected.append((name, build))
                 continue
             # A forbidden box (the title block, #481) is rejected even under force — it is
@@ -830,10 +896,10 @@ def place_strip_candidates(
             # must still not stack onto it. `forbid` maps names to their box (only GD&T sets it,
             # so dims are byte-identical). Returned unplaced → the caller's on_drop fallthrough.
             fb = (forbid or {}).get(name)
-            if fb is not None and _box_hits(_geom_box(dim), (fb,)):
+            if fb is not None and box is not None and _box_hits(box, (fb,)):
                 rejected.append((name, build))
                 continue
-            accepted.append(((name, build), dim))
+            accepted.append(((name, build), pos))
         return accepted, rejected
 
     for seg_lo, seg_hi in segs:
@@ -849,9 +915,32 @@ def place_strip_candidates(
             if vacancies <= 0 or not todo:
                 break
             fill, todo = _take_for_segment(todo, vacancies)
-            take = [nb for nb, _dim in accepted] + fill
+            take = [nb for nb, _pos in accepted] + fill
+        # Build each survivor ONCE at its solved position and re-validate the real box
+        # (the #602 validation fallback): a prediction miss is returned to the pool for
+        # the next segment — exactly where a same-segment rejection would have sent it.
+        placed = []
+        for (name, build), pos in accepted:
+            dim = build(pos)
+            real = _geom_box(dim)
+            if real is not None:
+                if not force and _box_hits(real, blockers):
+                    rejected_total.append((name, build))
+                    continue
+                fb = (forbid or {}).get(name)
+                if fb is not None and _box_hits(real, (fb,)):
+                    rejected_total.append((name, build))
+                    continue
+                # A survivor whose real geometry escaped the batch's predicted
+                # perpendicular band could overlap an obstacle the carve was never
+                # shown (review #679) — the one collision class the stacking-axis
+                # model cannot tolerate. Never fires while predictions are accurate.
+                if _box_hits(real, out_of_band):
+                    rejected_total.append((name, build))
+                    continue
+            placed.append((name, dim))
         todo = todo + rejected_total
-        for (name, _build), dim in accepted:
+        for name, dim in placed:
             # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed
             # dims — `features` maps this batch's names to their source IR feature.
             dwg.add(dim, name, view=view, feature=(features or {}).get(name))

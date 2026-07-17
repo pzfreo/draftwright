@@ -75,6 +75,57 @@ def _grid_plate():
     return plate
 
 
+def _scattered_plate():
+    # The #602 second benchmark (same as the refactor-golden fixture): ten holes, four
+    # diameters, no pattern → a large corridor-candidate set through
+    # place_strip_candidates' measure/plan/build seam.
+    plate = Box(140, 90, 12)
+    spots = [
+        (-55, -30, 3),
+        (-40, 25, 4),
+        (-20, -10, 2.5),
+        (-5, 35, 5),
+        (10, -35, 3),
+        (25, 10, 4),
+        (40, -20, 2.5),
+        (55, 30, 5),
+        (60, -38, 3),
+        (-60, 38, 4),
+    ]
+    for x, y, r in spots:
+        plate -= Pos(x, y, 0) * Cylinder(r, 12)
+    return plate
+
+
+def test_corridor_dim_constructions_bounded(monkeypatch):
+    # #602 queue item 2: corridor candidates are measured analytically (footprint
+    # callables) or by ONE probe build; evaluation runs on predicted boxes; a placed
+    # dim is built once. So total Dimension constructions must stay close to the
+    # PLACED count — before the seam this part built 59 for 21 placed (probe per
+    # candidate per pass + a rebuild per refill-loop iteration).
+    import draftwright._core as core
+
+    builds = 0
+    real_dimension = core.Dimension
+
+    def counting_dimension(p1, p2, side, distance, draft, **kwargs):
+        nonlocal builds
+        builds += 1
+        return real_dimension(p1, p2, side, distance, draft, **kwargs)
+
+    monkeypatch.setattr(core, "Dimension", counting_dimension)
+    dwg = build_drawing(_scattered_plate())
+
+    from build123d_drafting.helpers import Dimension
+
+    placed = [name for name, o in dwg.iter_annotations() if isinstance(o, Dimension)]
+    assert placed, "fixture no longer places dimensions — the guard lost its subject"
+    assert builds <= len(placed) + 5, (
+        f"{builds} Dimension builds for {len(placed)} placed — the #602 corridor "
+        f"measure/build separation regressed to probing or re-evaluating with built geometry"
+    )
+
+
 def test_grid_pitch_dim_constructions_bounded(monkeypatch):
     # Count at the construction site (_core.Dimension, which every _dim call resolves
     # at call time) rather than white-box patching annotations/ internals — the

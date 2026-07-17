@@ -58,6 +58,7 @@ from draftwright.annotations._common import (
     _geom_box,
     carve_free_position,
     carve_free_segments,
+    dim_footprint,
     place_strip_candidates,
     register_corridor,
     strip_free_span,
@@ -393,6 +394,7 @@ def _location_candidate(
     build,
     feature=None,
     pinned=False,
+    footprint=None,
 ):
     """A :class:`CorridorCandidate` for a datum-referenced hole/pattern location dim.
     Location dims outrank a coincident slot-position line in dedup (#345) and form the
@@ -424,6 +426,7 @@ def _location_candidate(
         priority=100.0 if pinned else 0.0,
         force=True,
         feature=feature,  # provenance (ADR 0010): the located hole/pattern
+        footprint=footprint,  # analytical measure — no probe build (#602)
     )
 
 
@@ -543,6 +546,14 @@ def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
                 ),
                 feature=_xfeat,
                 pinned=pin_ref,
+                footprint=lambda pos, _rx=rx, _ry=ry: dim_footprint(
+                    (PX(datum_x), PY(_ry), 0),
+                    (PX(_rx), PY(_ry), 0),
+                    "above",
+                    pos - PY(_ry),
+                    draft,
+                    _fmt(_rx - datum_x),
+                ),
             ),
         )
 
@@ -605,6 +616,14 @@ def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
                 ),
                 feature=_yfeat,
                 pinned=pin_ref,
+                footprint=lambda pos, _ry=ry: dim_footprint(
+                    (SX(datum_y), SZ(a.bb.max.Z), 0),
+                    (SX(_ry), SZ(a.bb.max.Z), 0),
+                    "above",
+                    pos - side_top,
+                    draft,
+                    _fmt(_ry - datum_y),
+                ),
             ),
         )
     return n
@@ -1322,6 +1341,9 @@ def render_plates(dwg, model, a, *, ctx) -> int:
         def _build(pos, pa=pa, pb=pb, side=side, edge=edge, val=val):
             return _dim(pa, pb, side, pos - edge, draft, label=_fmt(val))
 
+        def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, val=val):
+            return dim_footprint(pa, pb, side, pos - edge, draft, _fmt(val))
+
         def _drop(nm, val=val, view=view, stack=stack):
             ctx.record_issue(
                 "warning",
@@ -1348,6 +1370,7 @@ def render_plates(dwg, model, a, *, ctx) -> int:
                 on_drop=_drop,
                 force=True,
                 feature=pl,
+                footprint=_foot,  # analytical measure — no probe build (#602)
             ),
         )
         n += 1
@@ -1367,7 +1390,7 @@ def render_envelope(dwg, groups, a, *, ctx) -> int:
         return 0
     n = 0
 
-    def _queue(name, strip, view, tier, distance, build):
+    def _queue(name, strip, view, tier, distance, build, footprint=None):
         register_corridor(
             ctx,
             (view, "below"),
@@ -1383,6 +1406,7 @@ def render_envelope(dwg, groups, a, *, ctx) -> int:
                 on_drop=lambda _nm: None,
                 priority=_MANDATORY_OVERALL_PRIORITY,
                 force=True,
+                footprint=footprint,  # analytical measure — no probe build (#602)
             ),
         )
 
@@ -1405,6 +1429,9 @@ def render_envelope(dwg, groups, a, *, ctx) -> int:
                 dwg.draft,
                 label=_fmt(_v),
             ),
+            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.param.value: dim_footprint(
+                (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _fmt(_v)
+            ),
         )
         n += 1
     depth = _env_pd(env, "depth")
@@ -1425,6 +1452,9 @@ def render_envelope(dwg, groups, a, *, ctx) -> int:
                 _w - pos,
                 dwg.draft,
                 label=_fmt(_v),
+            ),
+            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.param.value: dim_footprint(
+                (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _fmt(_v)
             ),
         )
         n += 1

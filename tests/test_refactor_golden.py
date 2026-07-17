@@ -136,6 +136,27 @@ def _grid_plate():
     return plate
 
 
+def _scattered_plate():
+    # The #602 second benchmark: ten holes, four diameters, no regular pattern → a large
+    # corridor-candidate set through place_strip_candidates (the measure/build seam).
+    plate = Box(140, 90, 12)
+    spots = [
+        (-55, -30, 3),
+        (-40, 25, 4),
+        (-20, -10, 2.5),
+        (-5, 35, 5),
+        (10, -35, 3),
+        (25, 10, 4),
+        (40, -20, 2.5),
+        (55, 30, 5),
+        (60, -38, 3),
+        (-60, 38, 4),
+    ]
+    for x, y, r in spots:
+        plate -= Pos(x, y, 0) * Cylinder(r, 12)
+    return plate
+
+
 def _holed_slot():
     # A hole whose X-location coincides with a slot edge → the #345 corridor dedup path.
     from build123d import BuildPart, Hole, Locations, Mode
@@ -161,6 +182,7 @@ CORPUS = {
     "turned_stepped": _turned_stepped,
     "flange_dense": _flange_dense,
     "grid_plate": _grid_plate,
+    "scattered_plate": _scattered_plate,
     "holed_slot": _holed_slot,
 }
 
