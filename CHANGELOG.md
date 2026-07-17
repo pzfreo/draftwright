@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## v0.3.1 — 2026-07-17
+
+Also lands the **#635 consolidation epic** (P1–P6, all six children closed): the render
+layer's state bus is retired (`annotations/` reads zero `Drawing` privates,
+machine-enforced), the three complexity hotspots are split (nesting ≤2), the whole-package
+import DAG + a test-import ratchet are enforced, and the test suite gains a Hypothesis fuzz
+tier + relational cross-kernel placement gates. All internal / behaviour-preserving
+(byte-identical golden) — no output change.
 
 ### Added
 
