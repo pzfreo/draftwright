@@ -12,6 +12,14 @@ Some pinned entries are legitimate pure-helper unit tests (label formatters, spa
 direct coverage is worth keeping; the ratchet's job is to stop the surface *growing*, not to force
 every helper test onto the public seam. Mirrors ``test_import_boundaries`` / ``test_drawing_encapsulation``.
 Dependency-free (stdlib ``ast`` + ``pathlib``).
+
+Catches two white-box forms across ALL test-suite modules (not just ``test_*.py``): the direct
+``from draftwright.annotations.<mod> import _name`` import, and module-alias attribute access
+(``from draftwright.annotations import holes as h; h._name`` / ``import ....holes as h; h._name``).
+**Known static-analysis gap:** fully *dynamic* access — ``sys.modules["...from_model"]._name``,
+``importlib.import_module``, ``__import__`` — can't be resolved statically. One such reach exists
+(``from_model._solve_strip_ys`` / ``_greedy_strip_ys``, monkeypatched via ``sys.modules`` in
+``test_make_drawing``); it is documented here rather than pinned, since the scanner can't detect it.
 """
 
 from __future__ import annotations
@@ -46,27 +54,66 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         ("sections", "_section_hatch_edges"),
         ("sections", "_request_prismatic_detail"),
         ("orchestrator", "_maybe_tabulate_holes"),
+        # Module-alias attribute access (`from ... import holes as h; h._annotate_holes`).
+        ("holes", "_annotate_holes"),
     }
 )
 
+_ANNO = "draftwright.annotations"
+
+
+def _module_aliases(tree: ast.Module) -> dict[str, str]:
+    """Map each local name bound to one of the big annotation modules → that module's short name.
+    Covers ``import draftwright.annotations.holes as h`` and ``from draftwright.annotations import
+    holes as h`` (or ``... import holes`` — the plain name binds to the module)."""
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:  # e.g. draftwright.annotations.holes [as h]
+                if (
+                    a.name.startswith(f"{_ANNO}.")
+                    and a.name.split(".")[-1] in _MODULES
+                    and a.asname
+                ):
+                    aliases[a.asname] = a.name.split(".")[-1]
+        elif isinstance(node, ast.ImportFrom) and node.module == _ANNO:
+            for a in node.names:  # from draftwright.annotations import holes [as h]
+                if a.name in _MODULES:
+                    aliases[a.asname or a.name] = a.name
+    return aliases
+
 
 def _private_anno_test_imports() -> set[tuple[str, str]]:
-    """Every ``from draftwright.annotations.<mod> import _name`` in the test suite, where *mod*
-    is one of the big modules and *_name* is private (leading underscore)."""
+    """Every white-box reach into a big annotation module's PRIVATE from the whole test suite:
+    a ``from draftwright.annotations.<mod> import _name`` import, OR a module-alias attribute
+    access ``<alias>._name`` where *alias* is bound to one of the big modules."""
     found: set[tuple[str, str]] = set()
-    for path in sorted(_TESTS.glob("test_*.py")):
+    for path in sorted(_TESTS.glob("*.py")):
+        if path.name == Path(__file__).name:
+            continue  # don't scan this ratchet (it names the modules as strings)
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        # (a) direct `from ...annotations.<mod> import _name`
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.ImportFrom) and node.module):
-                continue
-            if not node.module.startswith("draftwright.annotations."):
-                continue
-            mod = node.module.split(".")[-1]
-            if mod not in _MODULES:
-                continue
-            for alias in node.names:
-                if alias.name.startswith("_"):
-                    found.add((mod, alias.name))
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.startswith(f"{_ANNO}.")
+                and node.module.split(".")[-1] in _MODULES
+            ):
+                mod = node.module.split(".")[-1]
+                for alias in node.names:
+                    if alias.name.startswith("_"):
+                        found.add((mod, alias.name))
+        # (b) module-alias attribute access `<alias>._name`
+        aliases = _module_aliases(tree)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in aliases
+                and node.attr.startswith("_")
+            ):
+                found.add((aliases[node.value.id], node.attr))
     return found
 
 
