@@ -1249,7 +1249,7 @@ class _StripCtx(NamedTuple):
     min_gap: float
     y_min: float
     y_max: float
-    a: object
+    a: Analysis
     to_page: object
     view_cx: float
     view_cy: float
@@ -1369,6 +1369,459 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
     return y_by_id, dropped_ids
 
 
+def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft):
+    """The ``by_view`` callout-assembly loop, promoted out of ``_annotate_holes`` (#638).
+
+    Returns ``(by_view, feat_of_callout)`` — one ``(locs, dia, callout, pat)`` spec per
+    surviving hole/pattern group keyed by target view, plus the callout→feature ``id()`` map.
+
+    The IR is the single grouping + geometry authority (#238 B2/B3, Amendment 6):
+    build_part_model already split the holes into one DimensionGroup per pattern +
+    one per machining-spec group of un-patterned holes. Iterate those groups and
+    assemble each view's callout specs from IR data only — *feature_keys* (the
+    surviving feature-hole positions, supplied by the orchestrator) gates which
+    members are dimensioned; no recogniser Hole/Pattern object is used.
+    """
+    by_view: dict = {}
+    # Callout → source IR feature, for provenance (#408 / ADR 0010). The callout object
+    # flows unchanged from here through the by_view/queue tuples to both emit sites, so an
+    # id() map tags it there without threading a feature through the placement machinery.
+    _feat_of_callout: dict[int, object] = {}
+    for g in groups:
+        feat = g.feature
+        if not isinstance(feat, HoleFeature | PatternFeature):
+            continue
+        if only is not None and feat not in only:  # #426 finalize: recorded callout subset
+            continue
+        members = feat.members or (g.anchor,)
+        # surviving member *locations* (IR geometry — no recogniser Hole, Amendment 6)
+        locs = [m for m in members if HoleRef.of(m) in feature_keys]
+        if not locs:  # all members filtered out (e.g. concentric bore, rotational)
+            continue
+        # A pattern earns its sheet furniture (centre-line / pitch dims) only if ALL
+        # its members survived the feature-holes filter — the engine's feature_patterns
+        # gate. Otherwise the surviving members are placed as plain holes.
+        pat = feat if isinstance(feat, PatternFeature) and len(locs) == len(members) else None
+        spec = hole_callout_spec(g)
+        if spec is None:  # not a hole-bearing callout
+            continue
+        # A pattern only partially surviving the feature-holes filter (a member is a
+        # concentric bore on a rotational part) is rendered as plain holes — drop its
+        # pattern suffix too, so the callout doesn't claim "EQ SP ON … BC" / "(r×c)"
+        # for a subset with no centre-line/pitch furniture (#262; matches the engine).
+        if isinstance(feat, PatternFeature) and pat is None:
+            spec = {**spec, "suffix": None}
+        dia = spec["diameter"]  # bore diameter (mm), for the leader rim tip
+        count = len(locs) if len(locs) > 1 else None
+        callout = callout_from_spec(spec, draft, count)
+        if callout is None:
+            continue
+        view = view_of_axis[feat.frame.axis][0]
+        _feat_of_callout[id(callout)] = feat  # provenance (#408)
+        by_view.setdefault(view, []).append((locs, dia, callout, pat))
+    return by_view, _feat_of_callout
+
+
+def _hc_name(only, view, i, hc_used):
+    """The callout name for view *view* at index *i* (#638; the #430 first-free scheme).
+
+    The auto-pass (only is None) numbers callouts positionally hc_{view}{i} — the
+    historical byte-identical scheme. The #426 finalize path (only set) may run after
+    a prior batch already placed hc_ names on this view, so it allocates the first FREE
+    index to avoid Drawing.add silently replacing an earlier callout (#430 review).
+    *hc_used* is mutated in the finalize path exactly as the old closure did.
+    """
+    if only is None:
+        return f"hc_{view}{i}"
+    prefix = f"hc_{view}"
+    name = f"{prefix}{_first_free_index(prefix, hc_used)}"
+    hc_used.add(name)
+    return name
+
+
+def _place_front_callouts(
+    dwg,
+    a,
+    view,
+    specs,
+    to_page,
+    *,
+    ctx,
+    hc_used,
+    feat_of_callout,
+    only,
+    place_furniture,
+    draft,
+    gap,
+    min_gap,
+    tb_left,
+    tb_top,
+):
+    """Front-view (vertical-shaft) hole callouts, placed below the view through the strip
+    solver (#638). Emits names via ``_hc_name`` and drops anything the strip can't hold."""
+    # Below the view, vertical shafts. Rows are solved as one strip batch rather
+    # than assigned by `i * min_gap` (#513). Candidate order stays right-to-left
+    # so inner-to-outer rows preserve the historical crossing guard shape, but
+    # over-capacity is now priority-ranked by bore diameter.
+    specs.sort(key=lambda s: max(to_page(loc)[0] for loc in s[0]), reverse=True)
+    cands = []
+    features = {}
+    priorities = {}
+    forbid = {}
+    furniture = {}
+    meta = {}
+    tb_box = (tb_left, _TB_CLEAR, a.PAGE_W - _TB_CLEAR, tb_top)
+    for i, (locs, dia, callout, feat) in enumerate(specs):
+        w = callout.callout_width
+        centre = to_page(max(locs, key=lambda loc: to_page(loc)[0]))
+        if centre[0] + gap + w <= a.PAGE_W - a.margin:
+            side = "right"
+        elif centre[0] - gap - w >= a.margin:
+            side = "left"
+        else:
+            _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
+            _record_callout_drop(ctx, dwg, view, dia, "no room beside the view", feat)
+            continue
+
+        name = _hc_name(only, view, i, hc_used)
+
+        def _build(
+            pos,
+            _centre=centre,
+            _dia=dia,
+            _side=side,
+            _callout=callout,
+        ):
+            elbow = (_centre[0], pos)
+            tip = _rim_tip(_centre, elbow, _dia, a.SCALE)
+            return Leader(
+                tip=(tip[0], tip[1], 0),
+                elbow=(elbow[0], elbow[1], 0),
+                label="",
+                draft=draft,
+                text_side=_side,
+                callout=_callout,
+            )
+
+        cands.append((name, _build))
+        features[name] = feat_of_callout.get(id(callout))
+        priorities[name] = dia
+        forbid[name] = tb_box
+        furniture[name] = (i, feat)
+        meta[name] = (dia, feat)
+
+    left = place_strip_candidates(
+        dwg,
+        a.fv_zones.below,
+        "front",
+        "y",
+        cands,
+        min_gap,
+        features=features,
+        priorities=priorities,
+        forbid=forbid,
+    )
+    left_names = {name for name, _ in left}
+    for name, _build in cands:
+        if name in left_names:
+            dia, feat = meta[name]
+            _log.info("Hole callout ø%s skipped (front strip full)", _fmt(dia))
+            _record_callout_drop(ctx, dwg, view, dia, "front strip full", feat)
+            continue
+        if place_furniture:  # #426: finalize's furniture() replay owns furniture
+            idx, feat = furniture[name]
+            _add_furniture(dwg, a, view, idx, feat, to_page, ctx=ctx)
+
+
+def _place_queue(
+    queue,
+    side,
+    key_prefix,
+    start_i,
+    *,
+    sctx: _StripCtx,
+    view,
+    dwg,
+    ctx,
+    band_intervals,
+    elbow_dx,
+    feat_of_callout,
+    hc_used,
+    only,
+    place_furniture,
+):
+    """Pass 2 — Y placement + selection via the collect-then-solve seam (#638; #321 P1a).
+
+    Each queued callout becomes a StripCandidate placed by ``_carve_and_place`` (bottoming out
+    in the min-leader PAVA solve, Amendment 4); the pre-sorted-by-natural-Y queue keeps leaders
+    crossing-free, and over-capacity drops the smallest bore first (priority = diameter, D3/#322).
+    Emits names via ``_hc_name`` starting at *start_i* and returns the next index.
+    """
+    if not queue:
+        return start_i
+
+    edge = sctx.edge
+    min_gap = sctx.min_gap
+    y_min = sctx.y_min
+    y_max = sctx.y_max
+    a = sctx.a
+    to_page = sctx.to_page
+    draft = sctx.draft
+
+    # Baseline: bands only, ignoring drawing-level obstacles entirely —
+    # every candidate pulled toward its own natural Y, respecting only
+    # min_gap from its queue siblings and the keep-out rows. Used below
+    # as the "cost of NOT avoiding [obstacles]" reference a carve-based
+    # relocation must beat to be worth taking.
+    base_y, base_dropped = _carve_and_place(queue, band_intervals, key_prefix, sctx)
+
+    # Carve around drawing-level obstacles this column's leaders would
+    # cross too (e.g. the section cutting-plane arrow — #351 P5 strand
+    # 3): a Y-only solve can't see an obstacle it never measures, the
+    # textbook invisible-occupant defect. Probed at each candidate's OWN
+    # natural Y, not a shared reference — a callout's leader shaft is
+    # position-dependent geometry (it runs from the fixed hole location
+    # to the elbow), so probing everyone at one far-away Y badly
+    # misjudges it.
+    probe_boxes = [
+        b
+        for s in queue
+        if (b := _probe_box(s, edge, side, to_page, elbow_dx, draft, a.SCALE)) is not None
+    ]
+    occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+    if probe_boxes:
+        band_lo = min(b[0] for b in probe_boxes)
+        band_hi = max(b[2] for b in probe_boxes)
+        occupied = [o for o in occupied if o[0] < band_hi and o[2] > band_lo]
+    # Obstacles get their own min_gap clearance, pre-inflated here (same
+    # amount the old dedicated carve applied); bands already carry their
+    # clearance in `band_intervals`'s half-width. Combining both into one
+    # carve call needs each pre-inflated by its own amount, not a single
+    # shared pad, so `_carve_and_place` above always carves with `pad=0`.
+    obstacle_intervals = [
+        (max(y_min, o[1] - min_gap), min(y_max, o[3] + min_gap)) for o in occupied
+    ]
+    seg_y, _seg_dropped = _carve_and_place(
+        queue, band_intervals + obstacle_intervals, key_prefix, sctx, allow_snap=False
+    )
+
+    # Decide per candidate: take the carve-aware (obstacle-avoiding) position ONLY when a free
+    # one exists AND it costs no more than one row's nudge (min_gap) over accepting a crossing
+    # at the natural-pull baseline (user, 2026-07-02 — a large relocation to dodge a thin
+    # obstacle is worse than a small, visible, correctable crossing; a tight win is still taken).
+    _RELOCATE_TOLERANCE = min_gap
+    placed: list = []  # (s, elbow_y, leader) — leader built once, reused at emit
+    crossing: list = []  # ditto, kept despite an obstacle crossing (policy B)
+    dropped: list = []  # s — genuinely no room anywhere, not just a crossing
+    for s in queue:
+        sid = id(s)
+        natural = s[4]
+        cand_y = seg_y.get(sid)
+        base_ok = sid in base_y and sid not in base_dropped
+        if cand_y is not None and base_ok:
+            d_seg = abs(cand_y - natural)
+            d_base = abs(base_y[sid] - natural)
+            y = cand_y if d_seg <= d_base + _RELOCATE_TOLERANCE else base_y[sid]
+        elif cand_y is not None:
+            y = cand_y  # baseline dropped it outright — the carve saved it
+        elif base_ok:
+            y = base_y[sid]  # no free segment took it — fall back to baseline
+        else:
+            dropped.append(s)
+            continue
+        leader, tip, elbow = _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, a.SCALE)
+        if _leader_hits(leader, tip, elbow, side, occupied):
+            crossing.append((s, y, leader))
+        else:
+            placed.append((s, y, leader))
+
+    if dropped:
+        _log.warning(
+            "plan/side %s strip: %d of %d bore callouts skipped (strip full)",
+            side,
+            len(dropped),
+            len(queue),
+        )
+        for s in dropped:
+            _record_callout_drop(ctx, dwg, view, s[1], f"{side} strip full", s[3])
+    if crossing:
+        _log.info(
+            "plan/side %s strip: %d bore callout(s) placed despite crossing an "
+            "obstacle (policy B — kept, not dropped)",
+            side,
+            len(crossing),
+        )
+    placed.extend(crossing)
+    # Emit survivors in natural-Y order so the hc_{view}{i} names + centre-
+    # mark indices land on the same callouts as the old queue-order emit
+    # (the queue itself was already sorted by natural Y before Pass 2).
+    i = start_i
+    for s, _elbow_y, leader in sorted(placed, key=lambda p: p[0][4]):
+        _locs, dia, callout, feat, _ny, rep = s
+        name = _hc_name(only, view, i, hc_used)
+        dwg.add(leader, name, view=view, feature=feat_of_callout.get(id(callout)))
+        # A plain (unpatterned) plan callout is a scattered-hole-table candidate
+        # (#351): record its coverage against the ACTUAL placed name, regardless of
+        # place_furniture, so finalize (place_furniture=False) still lets
+        # _maybe_tabulate_holes find + replace it (#426 Ph4c). Coverage-only, so the
+        # auto-pass (place_furniture=True) set is unchanged → byte-identical.
+        if view == "plan" and feat is None:
+            ctx.coverage.cover_scattered_hole_doc(name)
+        if place_furniture:  # #426: finalize's furniture() replay owns furniture
+            _add_furniture(dwg, a, view, i, feat, to_page, ctx=ctx)
+        i += 1
+    return i
+
+
+def _place_planside_callouts(
+    dwg,
+    a,
+    view,
+    specs,
+    to_page,
+    *,
+    ctx,
+    hc_used,
+    feat_of_callout,
+    only,
+    place_furniture,
+    draft,
+    gap,
+    min_gap,
+    will_have_section_line,
+    iso_y0,
+    plan_right,
+    plan_left,
+    side_right,
+):
+    """Plan/side-view two-pass leader callout placement (#638): Pass 1 assigns each spec to the
+    nearer strip edge that fits the page; Pass 2 (``_place_queue``) solves Y placement +
+    over-capacity drop per edge, right then left with index continuity (``next_i``)."""
+    edge_right = plan_right if view == "plan" else side_right
+    edge_left = plan_left if view == "plan" else None
+
+    right_strip = a.pv_zones.right if view == "plan" else a.sv_zones.right
+    # Elbow offset past the view boundary: only needed in the plan view when a section line will
+    # be placed (its extension lines overhang by ~arrow_length). Else 0, terminating at the edge.
+    elbow_dx = draft.arrow_length if view == "plan" and will_have_section_line else 0.0
+
+    # Y bounds: elbows must stay within the view's projected Y extent.
+    if view == "plan":
+        y_min, y_max = a.PV_Y - a.pv_hh, a.PV_Y + a.pv_hh
+    else:
+        y_min, y_max = a.SV_Y - a.fv_hh, a.SV_Y + a.fv_hh
+
+    # Round view's horizontal centre axis (page coords).
+    view_cx = a.PV_X if view == "plan" else a.SV_X
+    view_cy = a.PV_Y if view == "plan" else a.SV_Y
+
+    # Keep-out bands (ADR 0009 Amendment 5/9, P4c, #318/#381) `(centre, half_width)` — page rows
+    # a callout's "⌀… ↓…" text may not sit on, folded into `_place_queue`'s obstacle carve so the
+    # spacing solve avoids them by construction. Two causes, keyed on the crossing line:
+    #  - location-dim extension-line rows where `_locate_off_axis_holes` will draw the off-axis
+    #    bores' dims (from hole geometry; patterned holes skipped to match it — no per-hole loc
+    #    dim). A conservative superset guard: over-reserved rows are still valid, never under; and
+    #  - the centre line of a turned/rotational round view — a coaxial bore led out along it has
+    #    its callout crossed by the centre mark / centreline (#305). Near-centre callouts only.
+    clr = draft.font_size + 3 * draft.pad_around_text  # clearance off a crossing line
+    off_axis_letter = {"side": "x", "front": "y"}.get(view)
+    reserved_rows = (
+        [
+            to_page(h.location)[1]
+            for h in _ir_off_axis_holes(ctx.part_model)
+            if h.axis == off_axis_letter
+        ]
+        if off_axis_letter
+        else []
+    )
+    forbidden = [(r, clr) for r in reserved_rows]
+    if a.is_rotational or a.prof is not None:
+        forbidden.append((view_cy, clr))
+    band_intervals = [(c - h, c + h) for c, h in forbidden]
+
+    # --- Pass 1: boundary assignment ---
+    right_queue = []  # (locs, dia, callout, feat, natural_y, rep)
+    left_queue = []
+
+    for locs, dia, callout, feat in specs:
+        w = callout.callout_width
+        rep_r = max(locs, key=lambda loc: to_page(loc)[0])
+        centre_r = to_page(rep_r)
+        d_right = edge_right - centre_r[0]
+
+        if edge_left is not None:
+            rep_l = min(locs, key=lambda loc: to_page(loc)[0])
+            centre_l = to_page(rep_l)
+            d_left = centre_l[0] - edge_left
+        else:
+            rep_l = centre_l = None
+            d_left = float("inf")
+
+        # Side callouts below the iso view may reach full page width; plan is constrained by iso.
+        right_limit = (
+            right_strip.outer_limit
+            if view == "plan" or centre_r[1] >= iso_y0 - draft.font_size
+            else a.PAGE_W - a.margin
+        )
+        can_right = (edge_right + elbow_dx) + gap + w <= right_limit
+        can_left = edge_left is not None and (edge_left - elbow_dx) - gap - w >= a.margin
+
+        if not can_right and not can_left:
+            _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
+            _record_callout_drop(ctx, dwg, view, dia, "no room beside the view", feat)
+            continue
+
+        # Natural Y is the bore's own row; keep-out-band avoidance is `_place_queue`'s carve.
+        if can_right and (not can_left or d_right <= d_left):
+            right_queue.append((locs, dia, callout, feat, centre_r[1], rep_r))
+        else:
+            left_queue.append((locs, dia, callout, feat, centre_l[1], rep_l))
+
+    # Sort each queue by natural Y so leaders don't cross.
+    right_queue.sort(key=lambda s: s[4])
+    left_queue.sort(key=lambda s: s[4])
+
+    # --- Pass 2: Y placement + selection via the collect-then-solve seam ---
+    sctx_right = _StripCtx(edge_right, min_gap, y_min, y_max, a, to_page, view_cx, view_cy, draft)
+    next_i = _place_queue(
+        right_queue,
+        "right",
+        "hc_r",
+        0,
+        sctx=sctx_right,
+        view=view,
+        dwg=dwg,
+        ctx=ctx,
+        band_intervals=band_intervals,
+        elbow_dx=elbow_dx,
+        feat_of_callout=feat_of_callout,
+        hc_used=hc_used,
+        only=only,
+        place_furniture=place_furniture,
+    )
+    if left_queue:
+        assert edge_left is not None  # populated only when edge_left is set
+        sctx_left = _StripCtx(
+            edge_left, min_gap, y_min, y_max, a, to_page, view_cx, view_cy, draft
+        )
+        _place_queue(
+            left_queue,
+            "left",
+            "hc_l",
+            next_i,
+            sctx=sctx_left,
+            view=view,
+            dwg=dwg,
+            ctx=ctx,
+            band_intervals=band_intervals,
+            elbow_dx=elbow_dx,
+            feat_of_callout=feat_of_callout,
+            hc_used=hc_used,
+            only=only,
+            place_furniture=place_furniture,
+        )
+
+
 def _annotate_holes(
     dwg, a: Analysis, view_of_axis, groups, feature_keys, *, ctx, only=None, place_furniture=True
 ):
@@ -1413,63 +1866,13 @@ def _annotate_holes(
         for g in groups
     )
 
-    # The IR is the single grouping + geometry authority (#238 B2/B3, Amendment 6):
-    # build_part_model already split the holes into one DimensionGroup per pattern +
-    # one per machining-spec group of un-patterned holes. Iterate those groups and
-    # assemble each view's callout specs from IR data only — *feature_keys* (the
-    # surviving feature-hole positions, supplied by the orchestrator) gates which
-    # members are dimensioned; no recogniser Hole/Pattern object is used.
-    by_view: dict = {}
-    # Callout → source IR feature, for provenance (#408 / ADR 0010). The callout object
-    # flows unchanged from here through the by_view/queue tuples to both emit sites, so an
-    # id() map tags it there without threading a feature through the placement machinery.
-    _feat_of_callout: dict[int, object] = {}
-    for g in groups:
-        feat = g.feature
-        if not isinstance(feat, HoleFeature | PatternFeature):
-            continue
-        if only is not None and feat not in only:  # #426 finalize: recorded callout subset
-            continue
-        members = feat.members or (g.anchor,)
-        # surviving member *locations* (IR geometry — no recogniser Hole, Amendment 6)
-        locs = [m for m in members if HoleRef.of(m) in feature_keys]
-        if not locs:  # all members filtered out (e.g. concentric bore, rotational)
-            continue
-        # A pattern earns its sheet furniture (centre-line / pitch dims) only if ALL
-        # its members survived the feature-holes filter — the engine's feature_patterns
-        # gate. Otherwise the surviving members are placed as plain holes.
-        pat = feat if isinstance(feat, PatternFeature) and len(locs) == len(members) else None
-        spec = hole_callout_spec(g)
-        if spec is None:  # not a hole-bearing callout
-            continue
-        # A pattern only partially surviving the feature-holes filter (a member is a
-        # concentric bore on a rotational part) is rendered as plain holes — drop its
-        # pattern suffix too, so the callout doesn't claim "EQ SP ON … BC" / "(r×c)"
-        # for a subset with no centre-line/pitch furniture (#262; matches the engine).
-        if isinstance(feat, PatternFeature) and pat is None:
-            spec = {**spec, "suffix": None}
-        dia = spec["diameter"]  # bore diameter (mm), for the leader rim tip
-        count = len(locs) if len(locs) > 1 else None
-        callout = callout_from_spec(spec, draft, count)
-        if callout is None:
-            continue
-        view = view_of_axis[feat.frame.axis][0]
-        _feat_of_callout[id(callout)] = feat  # provenance (#408)
-        by_view.setdefault(view, []).append((locs, dia, callout, pat))
+    by_view, feat_of_callout = _assemble_view_callouts(
+        a, view_of_axis, groups, feature_keys, only, draft
+    )
 
-    def _hc_name(view, i):
-        # The auto-pass (only is None) numbers callouts positionally hc_{view}{i} — the
-        # historical byte-identical scheme. The #426 finalize path (only set) may run after
-        # a prior batch already placed hc_ names on this view, so it allocates the first FREE
-        # index to avoid Drawing.add silently replacing an earlier callout (#430 review).
-        if only is None:
-            return f"hc_{view}{i}"
-        prefix = f"hc_{view}"
-        name = f"{prefix}{_first_free_index(prefix, _hc_used)}"
-        _hc_used.add(name)
-        return name
-
-    _hc_used = set(ctx.registry.names())
+    # One shared name pool across every view + both branches (#430): built once and
+    # mutated by `_hc_name`'s finalize path — never copied.
+    hc_used = set(ctx.registry.names())
 
     for view, view_groups in by_view.items():
         to_page = view_of_axis[{"plan": "z", "front": "y", "side": "x"}[view]][1]
@@ -1482,325 +1885,41 @@ def _annotate_holes(
         specs.sort(key=lambda s: s[1], reverse=True)
 
         if view == "front":
-            # Below the view, vertical shafts. Rows are solved as one strip batch rather
-            # than assigned by `i * min_gap` (#513). Candidate order stays right-to-left
-            # so inner-to-outer rows preserve the historical crossing guard shape, but
-            # over-capacity is now priority-ranked by bore diameter.
-            specs.sort(key=lambda s: max(to_page(loc)[0] for loc in s[0]), reverse=True)
-            cands = []
-            features = {}
-            priorities = {}
-            forbid = {}
-            furniture = {}
-            meta = {}
-            tb_box = (tb_left, _TB_CLEAR, a.PAGE_W - _TB_CLEAR, tb_top)
-            for i, (locs, dia, callout, feat) in enumerate(specs):
-                w = callout.callout_width
-                centre = to_page(max(locs, key=lambda loc: to_page(loc)[0]))
-                if centre[0] + gap + w <= a.PAGE_W - a.margin:
-                    side = "right"
-                elif centre[0] - gap - w >= a.margin:
-                    side = "left"
-                else:
-                    _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
-                    _record_callout_drop(ctx, dwg, view, dia, "no room beside the view", feat)
-                    continue
-
-                name = _hc_name(view, i)
-
-                def _build(
-                    pos,
-                    _centre=centre,
-                    _dia=dia,
-                    _side=side,
-                    _callout=callout,
-                ):
-                    elbow = (_centre[0], pos)
-                    tip = _rim_tip(_centre, elbow, _dia, a.SCALE)
-                    return Leader(
-                        tip=(tip[0], tip[1], 0),
-                        elbow=(elbow[0], elbow[1], 0),
-                        label="",
-                        draft=draft,
-                        text_side=_side,
-                        callout=_callout,
-                    )
-
-                cands.append((name, _build))
-                features[name] = _feat_of_callout.get(id(callout))
-                priorities[name] = dia
-                forbid[name] = tb_box
-                furniture[name] = (i, feat)
-                meta[name] = (dia, feat)
-
-            left = place_strip_candidates(
+            _place_front_callouts(
                 dwg,
-                a.fv_zones.below,
-                "front",
-                "y",
-                cands,
-                min_gap,
-                features=features,
-                priorities=priorities,
-                forbid=forbid,
+                a,
+                view,
+                specs,
+                to_page,
+                ctx=ctx,
+                hc_used=hc_used,
+                feat_of_callout=feat_of_callout,
+                only=only,
+                place_furniture=place_furniture,
+                draft=draft,
+                gap=gap,
+                min_gap=min_gap,
+                tb_left=tb_left,
+                tb_top=tb_top,
             )
-            left_names = {name for name, _ in left}
-            for name, _build in cands:
-                if name in left_names:
-                    dia, feat = meta[name]
-                    _log.info("Hole callout ø%s skipped (front strip full)", _fmt(dia))
-                    _record_callout_drop(ctx, dwg, view, dia, "front strip full", feat)
-                    continue
-                if place_furniture:  # #426: finalize's furniture() replay owns furniture
-                    idx, feat = furniture[name]
-                    _add_furniture(dwg, a, view, idx, feat, to_page, ctx=ctx)
-            continue
-
-        # plan / side: two-pass leader placement.
-        # Pass 1 — boundary assignment: each spec goes to the nearest strip
-        #   boundary (right or left) whose label fits within the page.
-        # Pass 2 — Y placement via Cassowary: leaders stay within the view's
-        #   Y extent, are at least min_gap apart, and stay near their natural
-        #   (hole-centre) Y position.
-        edge_right = plan_right if view == "plan" else side_right
-        edge_left = plan_left if view == "plan" else None
-
-        right_strip = a.pv_zones.right if view == "plan" else a.sv_zones.right
-        # Elbow offset past the view boundary: only needed in the plan view when
-        # a section line will be placed (its extension lines overhang by
-        # ~arrow_length).  Side view and section-free plan views use 0 so the
-        # shaft terminates at the boundary instead of crossing it.
-        elbow_dx = draft.arrow_length if view == "plan" and will_have_section_line else 0.0
-
-        # Y bounds: elbows must stay within the view's projected Y extent.
-        if view == "plan":
-            y_min, y_max = a.PV_Y - a.pv_hh, a.PV_Y + a.pv_hh
         else:
-            y_min, y_max = a.SV_Y - a.fv_hh, a.SV_Y + a.fv_hh
-
-        # Round view's horizontal centre axis (page coords).
-        view_cx = a.PV_X if view == "plan" else a.SV_X
-        view_cy = a.PV_Y if view == "plan" else a.SV_Y
-
-        # Keep-out bands (ADR 0009 Amendment 5, P4c, #318) — the page rows a callout's
-        # "⌀… ↓…" text may not sit on, folded into `_place_queue`'s obstacle carve
-        # (ADR 0009 Amendment 9, #381) so the spacing solve avoids them by
-        # construction (retiring the old `_coaxial_lift` pre-solve nudge, and — since
-        # Amendment 9 — the separate banded-DP solve). Each is `(centre, half_width)`.
-        # Two causes, keyed on the crossing line, not the part's shape:
-        #  - location-dim extension lines: the rows where `_locate_off_axis_holes`
-        #    will draw the off-axis bores' height/offset dims. Computed from hole
-        #    geometry (the callout carries no feature link; its own row equals its
-        #    bore's row). Patterned holes are skipped to match `_locate_off_axis_holes`
-        #    (`h not in patterned`) — they carry no per-hole location dim, so reserving
-        #    their rows would only force needless avoidance. A superset guard, not an
-        #    exact match: rows for dims that later dedup/drop/sub-mm-gate stay
-        #    over-reserved (conservative — a spurious avoidance is still valid), never
-        #    under; and
-        #  - the centre line of a turned/rotational round view — a coaxial bore led
-        #    out along it has its callout text crossed by the centre mark / centreline
-        #    (#305). Only a near-centre callout is close enough for the band to move.
-        clr = draft.font_size + 3 * draft.pad_around_text  # clearance off a crossing line
-        off_axis_letter = {"side": "x", "front": "y"}.get(view)
-        reserved_rows = (
-            [
-                to_page(h.location)[1]
-                for h in _ir_off_axis_holes(ctx.part_model)
-                if h.axis == off_axis_letter
-            ]
-            if off_axis_letter
-            else []
-        )
-        forbidden = [(r, clr) for r in reserved_rows]
-        if a.is_rotational or a.prof is not None:
-            forbidden.append((view_cy, clr))
-        band_intervals = [(c - h, c + h) for c, h in forbidden]
-
-        # --- Pass 1: boundary assignment ---
-        right_queue = []  # (locs, dia, callout, feat, natural_y, rep)
-        left_queue = []
-
-        for locs, dia, callout, feat in specs:
-            w = callout.callout_width
-            rep_r = max(locs, key=lambda loc: to_page(loc)[0])
-            centre_r = to_page(rep_r)
-            d_right = edge_right - centre_r[0]
-
-            if edge_left is not None:
-                rep_l = min(locs, key=lambda loc: to_page(loc)[0])
-                centre_l = to_page(rep_l)
-                d_left = centre_l[0] - edge_left
-            else:
-                rep_l = centre_l = None
-                d_left = float("inf")
-
-            # Side callouts below the iso view (always the case in practice) may
-            # reach the full page width; plan callouts are constrained by the iso.
-            right_limit = (
-                right_strip.outer_limit
-                if view == "plan" or centre_r[1] >= iso_y0 - draft.font_size
-                else a.PAGE_W - a.margin
+            _place_planside_callouts(
+                dwg,
+                a,
+                view,
+                specs,
+                to_page,
+                ctx=ctx,
+                hc_used=hc_used,
+                feat_of_callout=feat_of_callout,
+                only=only,
+                place_furniture=place_furniture,
+                draft=draft,
+                gap=gap,
+                min_gap=min_gap,
+                will_have_section_line=will_have_section_line,
+                iso_y0=iso_y0,
+                plan_right=plan_right,
+                plan_left=plan_left,
+                side_right=side_right,
             )
-            can_right = (edge_right + elbow_dx) + gap + w <= right_limit
-            can_left = edge_left is not None and (edge_left - elbow_dx) - gap - w >= a.margin
-
-            if not can_right and not can_left:
-                _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
-                _record_callout_drop(ctx, dwg, view, dia, "no room beside the view", feat)
-                continue
-
-            # Natural Y is the bore's own row; keep-out-band avoidance is now
-            # `_place_queue`'s carve (`band_intervals`, below), not a pre-solve lift.
-            if can_right and (not can_left or d_right <= d_left):
-                right_queue.append((locs, dia, callout, feat, centre_r[1], rep_r))
-            else:
-                left_queue.append((locs, dia, callout, feat, centre_l[1], rep_l))
-
-        # Sort each queue by natural Y so leaders don't cross.
-        right_queue.sort(key=lambda s: s[4])
-        left_queue.sort(key=lambda s: s[4])
-
-        # --- Pass 2: Y placement + selection via the collect-then-solve seam ---
-        # Each queued callout becomes a StripCandidate (a measured render-intent);
-        # one plan_strip per side does the site-ordered spacing and the over-capacity
-        # drop (ADR 0009 / #321 P1a). This is the first *production* placer routed
-        # through plan_strip — it replaces the bespoke _solve_strip_via_layout + the
-        # greedy prefix-drop. plan_strip bottoms out in the min-leader PAVA solve
-        # (_solve_strip_1d_pava, Amendment 4), and
-        # the queue is pre-sorted by natural Y (so plan_strip's (anchor_y, key) order is
-        # the queue order → leaders stay crossing-free). Over-capacity selection is now
-        # by real per-feature priority — the hole DIAMETER (D3/#322): when the strip
-        # cannot hold every callout, the smallest-bore features drop first so the most
-        # significant survive (the same "largest wins" policy the front-view shaft rows
-        # already use, line 638). Ties (equal bore) fall back to key = natural-Y order.
-        def _place_queue(queue, edge, side, key_prefix, start_i):
-            if not queue:
-                return start_i
-
-            sctx = _StripCtx(edge, min_gap, y_min, y_max, a, to_page, view_cx, view_cy, draft)
-
-            # Carve [y_min, y_max] around a set of keep-out intervals, assign each
-            # candidate to its nearest free segment, then solve each segment
-            # independently with the plain PAVA solve — the ONE carve+assign+solve
-            # mechanism, reused below both for the bands-only baseline and for
-            # bands+drawing-obstacles together (ADR 0009 Amendment 9, #381). This
-            # retires the separate banded-DP solve: an anchored candidate assigned
-            # to its own band-free segment never needs cross-segment reasoning to
-            # stay off a reserved row. *intervals* must already carry their own
-            # clearance (pre-inflated) — this carves with `pad=0`.
-
-            # Baseline: bands only, ignoring drawing-level obstacles entirely —
-            # every candidate pulled toward its own natural Y, respecting only
-            # min_gap from its queue siblings and the keep-out rows. Used below
-            # as the "cost of NOT avoiding [obstacles]" reference a carve-based
-            # relocation must beat to be worth taking.
-            base_y, base_dropped = _carve_and_place(queue, band_intervals, key_prefix, sctx)
-
-            # Carve around drawing-level obstacles this column's leaders would
-            # cross too (e.g. the section cutting-plane arrow — #351 P5 strand
-            # 3): a Y-only solve can't see an obstacle it never measures, the
-            # textbook invisible-occupant defect. Probed at each candidate's OWN
-            # natural Y, not a shared reference — a callout's leader shaft is
-            # position-dependent geometry (it runs from the fixed hole location
-            # to the elbow), so probing everyone at one far-away Y badly
-            # misjudges it.
-            probe_boxes = [
-                b
-                for s in queue
-                if (b := _probe_box(s, edge, side, to_page, elbow_dx, draft, a.SCALE)) is not None
-            ]
-            occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-            if probe_boxes:
-                band_lo = min(b[0] for b in probe_boxes)
-                band_hi = max(b[2] for b in probe_boxes)
-                occupied = [o for o in occupied if o[0] < band_hi and o[2] > band_lo]
-            # Obstacles get their own min_gap clearance, pre-inflated here (same
-            # amount the old dedicated carve applied); bands already carry their
-            # clearance in `band_intervals`'s half-width. Combining both into one
-            # carve call needs each pre-inflated by its own amount, not a single
-            # shared pad, so `_carve_and_place` above always carves with `pad=0`.
-            obstacle_intervals = [
-                (max(y_min, o[1] - min_gap), min(y_max, o[3] + min_gap)) for o in occupied
-            ]
-            seg_y, _seg_dropped = _carve_and_place(
-                queue, band_intervals + obstacle_intervals, key_prefix, sctx, allow_snap=False
-            )
-
-            # Decide per candidate: take the carve-aware (obstacle-avoiding)
-            # position ONLY when a free one exists AND it doesn't cost much more
-            # displacement than simply accepting a crossing at the natural-pull
-            # baseline (user, 2026-07-02 — a large relocation to dodge a thin
-            # obstacle is worse than a small, visible, correctable crossing,
-            # matching the existing side_drilled corridor-relocate precedent).
-            # A tight avoidance win is still taken: it is a genuine improvement.
-            # One row's worth of nudge (min_gap, the smallest spacing unit this
-            # placer already reasons in) is "cheap"; more than that is a real
-            # repositioning, not a nudge.
-            _RELOCATE_TOLERANCE = min_gap
-            placed: list = []  # (s, elbow_y, leader) — leader built once, reused at emit
-            crossing: list = []  # ditto, kept despite an obstacle crossing (policy B)
-            dropped: list = []  # s — genuinely no room anywhere, not just a crossing
-            for s in queue:
-                sid = id(s)
-                natural = s[4]
-                cand_y = seg_y.get(sid)
-                base_ok = sid in base_y and sid not in base_dropped
-                if cand_y is not None and base_ok:
-                    d_seg = abs(cand_y - natural)
-                    d_base = abs(base_y[sid] - natural)
-                    y = cand_y if d_seg <= d_base + _RELOCATE_TOLERANCE else base_y[sid]
-                elif cand_y is not None:
-                    y = cand_y  # baseline dropped it outright — the carve saved it
-                elif base_ok:
-                    y = base_y[sid]  # no free segment took it — fall back to baseline
-                else:
-                    dropped.append(s)
-                    continue
-                leader, tip, elbow = _build_leader_at(
-                    s, edge, side, y, to_page, elbow_dx, draft, a.SCALE
-                )
-                if _leader_hits(leader, tip, elbow, side, occupied):
-                    crossing.append((s, y, leader))
-                else:
-                    placed.append((s, y, leader))
-
-            if dropped:
-                _log.warning(
-                    "plan/side %s strip: %d of %d bore callouts skipped (strip full)",
-                    side,
-                    len(dropped),
-                    len(queue),
-                )
-                for s in dropped:
-                    _record_callout_drop(ctx, dwg, view, s[1], f"{side} strip full", s[3])
-            if crossing:
-                _log.info(
-                    "plan/side %s strip: %d bore callout(s) placed despite crossing an "
-                    "obstacle (policy B — kept, not dropped)",
-                    side,
-                    len(crossing),
-                )
-            placed.extend(crossing)
-            # Emit survivors in natural-Y order so the hc_{view}{i} names + centre-
-            # mark indices land on the same callouts as the old queue-order emit
-            # (the queue itself was already sorted by natural Y before Pass 2).
-            i = start_i
-            for s, _elbow_y, leader in sorted(placed, key=lambda p: p[0][4]):
-                _locs, dia, callout, feat, _ny, rep = s
-                name = _hc_name(view, i)
-                dwg.add(leader, name, view=view, feature=_feat_of_callout.get(id(callout)))
-                # A plain (unpatterned) plan callout is a scattered-hole-table candidate
-                # (#351): record its coverage against the ACTUAL placed name, regardless of
-                # place_furniture, so finalize (place_furniture=False) still lets
-                # _maybe_tabulate_holes find + replace it (#426 Ph4c). Coverage-only, so the
-                # auto-pass (place_furniture=True) set is unchanged → byte-identical.
-                if view == "plan" and feat is None:
-                    ctx.coverage.cover_scattered_hole_doc(name)
-                if place_furniture:  # #426: finalize's furniture() replay owns furniture
-                    _add_furniture(dwg, a, view, i, feat, to_page, ctx=ctx)
-                i += 1
-            return i
-
-        next_i = _place_queue(right_queue, edge_right, "right", "hc_r", 0)
-        assert edge_left is not None or not left_queue  # populated only when edge_left is set
-        _place_queue(left_queue, edge_left, "left", "hc_l", next_i)
