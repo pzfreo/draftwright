@@ -23,12 +23,12 @@ app = typer.Typer(
     # source-panel traceback buries clean domain errors (e.g. "could not read STEP
     # file") in developer noise.
     pretty_exceptions_enable=False,
-    help="Zero-AI STEP -> technical drawing (PDF by default; SVG/DXF via --format, "
+    help="Zero-AI STEP -> technical drawing (PDF by default; SVG/DXF/PNG via --format, "
     "or an editable .py script).",
 )
 
-# Output formats the --format selector understands ('all' expands to all three).
-_FORMATS = ("pdf", "svg", "dxf")
+# Output formats the --format selector understands ('all' expands to all four).
+_FORMATS = ("pdf", "svg", "dxf", "png")
 
 
 class PmiMode(str, Enum):
@@ -61,15 +61,9 @@ def _parse_formats(value: str) -> list[str]:
 
 
 def _emit(dwg, formats: list[str]) -> list[str]:
-    """Write the requested formats and return their paths in *formats* order.
-    PDF renders from an on-disk SVG, so the SVG is written to drive the PDF even
-    when it wasn't itself requested — and removed again afterwards."""
-    want = {f: f in formats for f in _FORMATS}
-    svg_path, dxf_path = dwg.export(svg=want["svg"] or want["pdf"], dxf=want["dxf"])
-    pdf_path = dwg.export_pdf() if want["pdf"] else None
-    if want["pdf"] and not want["svg"] and svg_path is not None:
-        os.remove(svg_path)  # temp SVG, written only to render the PDF
-    paths = {"pdf": pdf_path, "svg": svg_path, "dxf": dxf_path}
+    """Write the requested formats and return their paths in *formats* order. ``export`` handles
+    the SVG→PDF→PNG intermediate chain and removes any it wasn't asked to keep."""
+    paths = dwg.export(formats=formats)
     return [paths[f] for f in formats]
 
 
@@ -134,7 +128,7 @@ def main(
         "pdf",
         "--format",
         "-f",
-        help="Comma-list of output formats: pdf, svg, dxf (or 'all'). E.g. --format pdf,dxf",
+        help="Comma-list of output formats: pdf, svg, dxf, png (or 'all'). E.g. --format pdf,png",
     ),
     verbose: bool = typer.Option(
         False,

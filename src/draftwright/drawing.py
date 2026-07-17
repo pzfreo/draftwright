@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+import os
 import warnings
 from dataclasses import dataclass
 from typing import NamedTuple
@@ -51,6 +52,7 @@ from draftwright.annotations._common import carve_free_position, strip_obstacles
 from draftwright.export import (
     _export_shape,
     _render_pdf,
+    _render_png,
     add_svg_hyperlink,
     add_svg_metadata,
     fix_svg_page_size,
@@ -2266,18 +2268,11 @@ class Drawing:
             ],
         }
 
-    def export(self, out=None, *, svg=True, dxf=True) -> tuple[str | None, str | None]:
-        """Lint, then write the requested vector formats. Returns
-        ``(svg_path, dxf_path)`` — each is ``None`` when that format is skipped.
-        Both default on (the unchanged one-shot behaviour; the CLI's ``--format``
-        selector is the only caller that turns one off)."""
-        self.finalize()  # #426: drain any recorded intents before export (no-op if none)
-        out = out if out is not None else self.out
-        for _ext in (".svg", ".dxf"):
-            if out.endswith(_ext):
-                out = out[: -len(_ext)]
-                break
+    # The output formats export() understands. PDF renders from the SVG, PNG from the PDF —
+    # so requesting pdf/png writes the SVG (and pdf) as intermediates, cleaned up if not asked for.
+    _EXPORT_FORMATS = ("svg", "dxf", "pdf", "png")
 
+    def _lint_and_log(self) -> None:
         issues = self.lint()
         if issues:
             _log.warning("Lint issues:")
@@ -2286,75 +2281,120 @@ class Drawing:
         else:
             _log.info("Lint: OK")
 
+    def _write_svg(self, out: str) -> str:
+        """Write the SVG (part/hidden/dims layers, page-size fix, arc sanitise, hyperlink +
+        metadata) and return its path. The PDF and PNG renders both read this SVG."""
         blk = Color(0, 0, 0)
         grey = Color(0.5, 0.5, 0.5)
         blue = Color(0, 0.2, 0.7)
+        svg_exp = ExportSVG(margin=10)
+        svg_exp.add_layer("part", line_color=blk, line_weight=0.5)
+        svg_exp.add_layer("hidden", line_color=grey, line_weight=0.25, line_type=LineType.HIDDEN)
+        svg_exp.add_layer("dims", line_color=blue, fill_color=blue, line_weight=0.05)
+        self._add_shapes(svg_exp)
+        svg_path = out + ".svg"
+        svg_exp.write(svg_path)
+        fix_svg_page_size(svg_path, self.page_w, self.page_h)
+        n_arcs = sanitize_svg_arcs(svg_path)
+        if n_arcs:
+            _log.info("Rewrote %d degenerate (near-zero-radius) arc(s) as line segments", n_arcs)
+        link_rect = getattr(self, "_draftwright_link_rect", None)
+        if link_rect is not None:
+            add_svg_hyperlink(svg_path, link_rect)
+        add_svg_metadata(svg_path)
+        _log.info("SVG → %s", svg_path)
+        return svg_path
 
-        svg_path = None
-        if svg:
-            svg_exp = ExportSVG(margin=10)
-            svg_exp.add_layer("part", line_color=blk, line_weight=0.5)
-            svg_exp.add_layer(
-                "hidden", line_color=grey, line_weight=0.25, line_type=LineType.HIDDEN
+    def _write_dxf(self, out: str) -> str:
+        """Write the DXF (part/hidden/dims layers + metadata) and return its path."""
+        dxf_exp = ExportDXF()
+        dxf_exp.add_layer("part", line_weight=0.5)
+        dxf_exp.add_layer("hidden", line_weight=0.25)
+        dxf_exp.add_layer("dims", line_weight=0.05)
+        self._add_shapes(dxf_exp)
+        set_dxf_metadata(dxf_exp)
+        dxf_path = out + ".dxf"
+        dxf_exp.write(dxf_path)
+        _log.info("DXF → %s", dxf_path)
+        return dxf_path
+
+    def export(
+        self, out=None, *, formats=None, svg=None, dxf=None, dpi: int = 150
+    ) -> dict[str, str] | tuple[str | None, str | None]:
+        """Lint, then write the requested output *formats*; return ``{format: path}``.
+
+        *formats* is a format name or an iterable from ``("svg", "dxf", "pdf", "png")``
+        (default ``("pdf",)``). PDF renders from the SVG and PNG from the PDF, so the SVG/PDF are
+        written as intermediates and removed when not themselves requested. *dpi* sets the PNG
+        raster resolution.
+
+        Legacy (kept for back-compat): the boolean ``svg=``/``dxf=`` keywords — and calling
+        ``export()`` with no ``formats`` — select those two vector formats and return the old
+        ``(svg_path, dxf_path)`` tuple. Prefer ``formats=[...]`` (the dict API); ``export_pdf`` is
+        likewise superseded by ``export(formats=("pdf",))`` and now warns.
+        """
+        self.finalize()  # #426: drain any recorded intents before export (no-op if none)
+        out = out if out is not None else self.out
+        for _ext in self._EXPORT_FORMATS:
+            if out.endswith("." + _ext):
+                out = out[: -(len(_ext) + 1)]
+                break
+        self._lint_and_log()
+
+        # --- legacy path: svg=/dxf= keywords → the old (svg, dxf) tuple (back-compat) ---
+        if formats is None:
+            svg_path = self._write_svg(out) if (svg is None or svg) else None
+            dxf_path = self._write_dxf(out) if (dxf is None or dxf) else None
+            self.svg_path, self.dxf_path = svg_path, dxf_path
+            return svg_path, dxf_path
+
+        # --- formats=... → {format: path} (requested order) ---
+        want = [formats] if isinstance(formats, str) else [f.lower() for f in formats]
+        unknown = [f for f in want if f not in self._EXPORT_FORMATS]
+        if unknown:
+            raise ValueError(
+                f"unknown export format(s) {unknown}; choose from {self._EXPORT_FORMATS}"
             )
-            svg_exp.add_layer("dims", line_color=blue, fill_color=blue, line_weight=0.05)
-            self._add_shapes(svg_exp)
-            svg_path = out + ".svg"
-            svg_exp.write(svg_path)
-            fix_svg_page_size(svg_path, self.page_w, self.page_h)
-            n_arcs = sanitize_svg_arcs(svg_path)
-            if n_arcs:
-                _log.info(
-                    "Rewrote %d degenerate (near-zero-radius) arc(s) as line segments", n_arcs
-                )
-            link_rect = getattr(self, "_draftwright_link_rect", None)
-            if link_rect is not None:
-                add_svg_hyperlink(svg_path, link_rect)
-            add_svg_metadata(svg_path)
-            _log.info("SVG → %s", svg_path)
-
-        dxf_path = None
-        if dxf:
-            dxf_exp = ExportDXF()
-            dxf_exp.add_layer("part", line_weight=0.5)
-            dxf_exp.add_layer("hidden", line_weight=0.25)
-            dxf_exp.add_layer("dims", line_weight=0.05)
-            self._add_shapes(dxf_exp)
-            set_dxf_metadata(dxf_exp)
-            dxf_path = out + ".dxf"
-            dxf_exp.write(dxf_path)
-            _log.info("DXF → %s", dxf_path)
-
+        want_set = set(want)
+        paths: dict[str, str] = {}
+        svg_path = self._write_svg(out) if (want_set & {"svg", "pdf", "png"}) else None
         self.svg_path = svg_path
-        self.dxf_path = dxf_path
-        return svg_path, dxf_path
+        if "dxf" in want_set:
+            self.dxf_path = paths["dxf"] = self._write_dxf(out)
+        pdf_path = None
+        if want_set & {"pdf", "png"}:
+            assert svg_path is not None
+            pdf_path = out + ".pdf"
+            _render_pdf(svg_path, pdf_path, getattr(self, "_draftwright_link_rect", None))
+            _log.info("PDF → %s", pdf_path)
+        if "png" in want_set:
+            assert pdf_path is not None
+            paths["png"] = out + ".png"
+            _render_png(pdf_path, paths["png"], dpi=dpi)
+            _log.info("PNG → %s", paths["png"])
+        if "pdf" in want_set:
+            paths["pdf"] = pdf_path  # type: ignore[assignment]
+        if "svg" in want_set:
+            paths["svg"] = svg_path  # type: ignore[assignment]
+        # Drop intermediates that weren't themselves requested.
+        if svg_path is not None and "svg" not in want_set:
+            os.remove(svg_path)
+            self.svg_path = None
+        if pdf_path is not None and "pdf" not in want_set:
+            os.remove(pdf_path)
+        return {f: paths[f] for f in want}
 
     def export_pdf(self, out=None) -> str:
-        """Write a PDF rendered from the SVG (via ``svglib`` + ``reportlab``, both
-        core dependencies — pure Python, no native cairo, so PDF works on every
-        platform).  Calls :meth:`export` first if the SVG hasn't been written yet.
-        Returns the PDF path.
-
-        The PDF carries a 'generated by draftwright' Creator metadata field and,
-        over the title-block URL row, a clickable hyperlink to the project (a
-        real PDF link annotation — the SVG ``<a>`` element is not understood by
-        the PDF renderer, so it is added here via reportlab)."""
-        try:
-            import reportlab  # noqa: F401  (import-guard; the real work is in _render_pdf)
-            import svglib  # noqa: F401
-        except ImportError as exc:
-            raise ImportError(
-                "PDF export requires svglib + reportlab (core dependencies); reinstall draftwright"
-            ) from exc
-
-        svg_path = getattr(self, "svg_path", None)
-        if svg_path is None:
-            svg_path, _ = self.export(out=out)
-        assert svg_path is not None  # export() writes the SVG by default
-        pdf_path = svg_path[:-4] + ".pdf" if svg_path.endswith(".svg") else svg_path + ".pdf"
-        _render_pdf(svg_path, pdf_path, getattr(self, "_draftwright_link_rect", None))
-        _log.info("PDF → %s", pdf_path)
-        return pdf_path
+        """Deprecated — use ``export(out, formats=("pdf",))["pdf"]``. Renders a PDF (svglib +
+        reportlab) with the draftwright metadata + clickable title-block link."""
+        warnings.warn(
+            "Drawing.export_pdf() is deprecated; use export(formats=('pdf',))['pdf'].",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        paths = self.export(out, formats=("pdf",))
+        assert isinstance(paths, dict)  # formats=... always returns the {format: path} dict
+        return paths["pdf"]
 
     def _add_shapes(self, exporter):
         """Add every view layer and annotation to *exporter* with error context."""

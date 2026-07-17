@@ -139,12 +139,15 @@ entry. Keep `_LAYERS` and this section in step.
   via the package surface.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
-- **`export.py`** — SVG/DXF/PDF export + post-processing (page-size fix,
+- **`export.py`** — SVG/DXF/PDF/PNG export + post-processing (page-size fix,
   attribution hyperlink/metadata, DXF metadata, arc sanitisation, element-wise
-  shape-export degradation, pure-Python PDF render via svglib + reportlab — no
-  native cairo, #288). The first **module-split** step of
-  #138 (ADR 0005): `Drawing.export()` / `export_pdf()` stay as thin wrappers.
-  Sits below `make_drawing.py`, above `_core.py`.
+  shape-export degradation). The render chain is **SVG → PDF → PNG**: PDF via
+  svglib + reportlab (`_render_pdf`, #288), PNG via **pypdfium2 + Pillow**
+  (`_render_png`) — both pure-wheel, **no native cairo** and permissively
+  licensed (BSD/Apache/HPND, dual-license-clean). The unified
+  `Drawing.export(out, *, formats=("pdf",)) → {format: path}` is the front door
+  (the legacy `svg=`/`dxf=` tuple form + `export_pdf` are back-compat/deprecated
+  wrappers). Sits below `make_drawing.py`, above `_core.py`.
 - **`repair.py`** — the deterministic lint→repair loop (#30 / ADR 0002): the
   re-place helpers (`_find_dim`/`_replace_dim`/`_repair_*`/`repair_drawing`) take
   the drawing duck-typed as `dwg`; `Drawing.repair()` stays a thin wrapper.
@@ -270,6 +273,10 @@ Current ADRs:
 
 - `build123d-drafting-helpers>=0.13.0` (Apache 2.0)
 - `build123d>=0.9.0` (Apache 2.0)
+- Export render chain: `reportlab` (BSD) + `svglib` (LGPL) for PDF; `pypdfium2`
+  (Apache-2.0, wrapping Google PDFium BSD-3) + `pillow` (HPND) for PNG. All
+  pure-wheel (no native cairo) and — except svglib's weak-copyleft LGPL — permissive,
+  so the render path stays dual-license-friendly.
 
 The 1D strip solve (`layout.py`) is the dependency-free minimum-total-leader-length
 **PAVA** algorithm (`_solve_strip_1d_pava`, ADR 0009 Amdt 4); the earlier Cassowary

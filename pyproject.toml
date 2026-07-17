@@ -19,6 +19,11 @@ dependencies = [
     "build123d>=0.11,<0.12 ; python_full_version >= '3.13'",
     "build123d-drafting-helpers>=0.13.1",
     "numpy>=1.24",
+    # PNG raster export (SVG→PDF→PNG). Both permissively licensed (Pillow HPND; pypdfium2
+    # Apache-2.0 wrapping Google PDFium BSD-3) and ship pre-built wheels with NO native system
+    # deps — so PNG works cross-platform without cairo (ADR 0006) and stays dual-license-clean.
+    "pillow>=10",
+    "pypdfium2>=4",
     "reportlab>=4.0",
     "svglib>=1.5",
     "typer>=0.12",

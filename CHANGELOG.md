@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **PNG raster export** — `--format png` on the CLI, or `Drawing.export(formats=("png",))`.
+  Rendered SVG → PDF → PNG via **pypdfium2** (Apache-2.0, Google PDFium BSD-3) + **Pillow**
+  (HPND) — both permissively licensed and pure-wheel, so PNG works cross-platform with **no
+  native cairo** (ADR 0006) and keeps the render path dual-license-friendly. `dpi=` sets the
+  raster resolution.
+
+### Changed
+
+- **Unified export API** — `Drawing.export(out, *, formats=("pdf",)) → {format: path}` is now
+  the single entry point over `svg`/`dxf`/`pdf`/`png`; it returns a dict and internally handles
+  the SVG→PDF→PNG intermediate chain (writing/cleaning up intermediates it wasn't asked to keep).
+  The CLI `--format` gains `png`.
+
+### Deprecated
+
+- `Drawing.export_pdf()` — use `export(formats=("pdf",))["pdf"]`; the method now warns.
+- The legacy `export(svg=, dxf=)` boolean keywords and their `(svg_path, dxf_path)` tuple return
+  — kept for back-compat; prefer `formats=[...]` (the dict API).
+
 ## v0.3.0 — 2026-07-14
 
 **Breaking — feature-recogniser API renamed** (ADR 0013 / #568): *deliberate* breaks with

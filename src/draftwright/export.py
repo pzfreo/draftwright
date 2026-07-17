@@ -195,6 +195,27 @@ def _render_pdf(svg_path: str, pdf_path: str, link_rect=None) -> None:
         renderPDF.drawToFile(drawing, pdf_path)
 
 
+def _render_png(pdf_path: str, png_path: str, *, dpi: int = 150) -> None:
+    """Rasterise *pdf_path* (page 1) to *png_path* at *dpi*, via pypdfium2 (Google PDFium,
+    BSD-3-Clause) + Pillow (HPND) — both permissively licensed, pre-built wheels with NO native
+    system deps, so PNG works cross-platform without cairo (ADR 0006). The PNG rides on the PDF
+    render, so the raster matches the vector output exactly."""
+    try:
+        import pypdfium2 as pdfium
+    except ImportError as exc:  # pragma: no cover — packaging guard
+        raise ImportError(
+            "PNG export requires pypdfium2 + Pillow (core dependencies); reinstall draftwright"
+        ) from exc
+
+    pdf = pdfium.PdfDocument(pdf_path)
+    try:
+        page = pdf[0]
+        bitmap = page.render(scale=dpi / 72.0)  # PDF user space is 72 dpi
+        bitmap.to_pil().save(png_path)  # PIL encodes the PNG
+    finally:
+        pdf.close()
+
+
 def _elements(shape):
     """Decompose *shape* for export retry: faces plus any loose edges."""
     faces = list(shape.faces())
