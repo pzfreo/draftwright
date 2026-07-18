@@ -217,9 +217,13 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
     # helpers (>=0.11) cannot project for the oblique iso (pp() needs the full
     # foreshortening basis). Rebuild from the raw viewport so dwg.at("iso", ...)
     # maps world points correctly — also covers an iso re-projected at a
-    # different scale than the sheet.
-    dwg._coords["iso"] = ViewCoordinates.from_viewport(
-        camera, (0, 0, 1), la, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale
+    # different scale than the sheet. Through the public override verb, not a
+    # direct _coords poke (#699 slice d).
+    dwg.set_view_coordinates(
+        "iso",
+        ViewCoordinates.from_viewport(
+            camera, (0, 0, 1), la, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale
+        ),
     )
 
 

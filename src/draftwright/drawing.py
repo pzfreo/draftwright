@@ -2021,7 +2021,7 @@ class Drawing:
         n_arcs = sanitize_svg_arcs(svg_path)
         if n_arcs:
             _log.info("Rewrote %d degenerate (near-zero-radius) arc(s) as line segments", n_arcs)
-        link_rect = getattr(self, "_draftwright_link_rect", None)
+        link_rect = getattr(self.get_annotation("title_block"), "draftwright_link_rect", None)
         if link_rect is not None:
             add_svg_hyperlink(svg_path, link_rect)
         add_svg_metadata(svg_path)
@@ -2113,7 +2113,11 @@ class Drawing:
             if want_set & {"pdf", "png"}:
                 assert svg_path is not None
                 pdf_path = (out if "pdf" in want_set else _intermediate_stem()) + ".pdf"
-                _render_pdf(svg_path, pdf_path, getattr(self, "_draftwright_link_rect", None))
+                _render_pdf(
+                    svg_path,
+                    pdf_path,
+                    getattr(self.get_annotation("title_block"), "draftwright_link_rect", None),
+                )
                 _log.info("PDF → %s", pdf_path)
                 if "pdf" in want_set:
                     paths["pdf"] = pdf_path

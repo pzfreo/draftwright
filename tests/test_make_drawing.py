@@ -9140,8 +9140,9 @@ class TestDraftwrightAttribution:
         # against the placed block's bounding box so it catches drift if the rect
         # or the upstream TitleBlock layout ever diverge.
         dwg = build_drawing(Box(60, 40, 20))
-        x0, y0, x1, y1 = dwg._draftwright_link_rect
         tb = dwg.get_annotation("title_block")
+        # The rect rides the title-block annotation (#699 slice d), not the drawing.
+        x0, y0, x1, y1 = tb.draftwright_link_rect
         bb = tb.bounding_box()
         cell = tb.drawn_by_cell_bbox()  # build-frame; block min corner is at bb.min
         assert x1 == pytest.approx(bb.max.X, abs=0.5)  # flush to block right edge
