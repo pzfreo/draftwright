@@ -915,14 +915,16 @@ def env_dim_placed(pd) -> bool:
     return pd is not None and not pd.suppressed and pd.param.span is not None
 
 
-def _chamfer_label(ch) -> str:
+def _chamfer_label(leg, ch) -> str:
     """The chamfer callout string: ``C{leg}`` for an equal-leg 45° chamfer, else
-    ``{leg} × {angle}°`` (#560). Formatting lives in the render layer, not on the IR
-    feature — every other feature's label is formed by the planner/renderer too, so a
-    ``ChamferFeature`` stays pure data (ADR 0013 §7)."""
-    if abs(ch.leg1 - ch.leg2) < 0.05 and abs(ch.angle - 45.0) < 0.5:
-        return f"C{_fmt(ch.leg1)}"
-    return f"{_fmt(ch.leg1)} × {_fmt(ch.angle)}°"
+    ``{leg} × {angle}°`` (#560). *leg* is the PLANNED value (``pd.param.value`` —
+    the planner-authoritative number, #724 review); the feature supplies only the
+    geometric *form* discriminators (``leg2``/``angle``). Formatting lives in the
+    render layer, not on the IR feature — every other feature's label is formed by
+    the planner/renderer too, so a ``ChamferFeature`` stays pure data (ADR 0013 §7)."""
+    if abs(leg - ch.leg2) < 0.05 and abs(ch.angle - 45.0) < 0.5:
+        return f"C{_fmt(leg)}"
+    return f"{_fmt(leg)} × {_fmt(ch.angle)}°"
 
 
 # ── Shared machined-feature leader-callout pass (#637) ──────────────────────────────────
@@ -1007,20 +1009,39 @@ def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx, geom_clear=False
     return n
 
 
-def render_chamfers(dwg, model, a, *, ctx) -> int:
+def render_chamfers(dwg, groups, a, *, ctx) -> int:
     """Chamfer callouts (#560): a leader from each recognised chamfer face to its
     ``C{leg}`` / ``{leg}×{angle}°`` label, in the view normal to the chamfered edge (a Z
     edge reads in the plan, an X edge in the side, a Y edge in the front). The leader runs
     diagonally OUT of the corner the chamfer sits on into clear margin, and is dropped
-    (lint, not silently) if it would overprint placed geometry. Returns the count placed."""
-    reach = _leader_callout_reach(dwg.draft)
-    view_of = {"z": "plan", "x": "side", "y": "front"}
-    chamfers = [f for f in model.features if f.kind == "chamfer"]
+    (lint, not silently) if it would overprint placed geometry. Returns the count placed.
+
+    Planner-fed (#724 / #698): the leg VALUE + its tolerance come from the planner's
+    ``DimParameter`` (as in ``render_boss_diameters``), never raw geometry — formatting
+    ``ch.leg1`` directly dropped an authored chamfer tolerance (the #629 class). The dim
+    is bound explicitly by ``(role, kind)``, never positionally. Only the C-vs-leg×angle
+    *form* discriminators (``leg2``/``angle``) read off the feature;
+    ``g.view`` is safe because a ChamferFeature's frame axis IS its edge axis
+    (both ``detect.py`` and ``declare.chamfer`` build ``Frame(…, ch.axis)``), and
+    ``_END_ON`` matches the pass's old z→plan / x→side / y→front map exactly."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    chamfer_groups = [g for g in groups if g.feature_kind == "chamfer"]
     jobs = []
-    for i, ch in enumerate(sorted(chamfers, key=lambda f: (f.axis, f.frame.origin))):
-        view = view_of.get(ch.axis)
-        if view is None:
+    for i, g in enumerate(
+        sorted(chamfer_groups, key=lambda g: (g.feature.axis, g.feature.frame.origin))
+    ):
+        ch = g.feature
+        # Bind the intended planned dim EXPLICITLY by (role, kind), never dims[0]
+        # (#724 review): the pattern the remaining #698 migrations copy must not
+        # silently grab the wrong dimension on a multi-parameter kind.
+        pd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("chamfer", "length")),
+            None,
+        )
+        if pd is None or pd.suppressed:
             continue
+        view = g.view
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
@@ -1029,7 +1050,7 @@ def render_chamfers(dwg, model, a, *, ctx) -> int:
                 f"m_chamfer_{ch.axis}{i}",
                 view,
                 vb,
-                _chamfer_label(ch),
+                _chamfer_label(pd.param.value, ch) + _tol_suffix(pd.param.tolerance, draft),
                 _corner_candidates(dwg, view, vb, [ch], reach),
             )
         )
