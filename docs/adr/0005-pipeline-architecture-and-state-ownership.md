@@ -2,9 +2,10 @@
 
 - **Status:** Accepted (module split complete; the deferred follow-ups are
   closed — see the 2026-07-15 status note below; §4's compat-alias exit
-  criterion is now met by #699 slice c: the seven aliases are tracked by
-  **#720** with removal target **0.4.0**, and external call sites are
-  redirected to the public reads)
+  prerequisites are met by #699 slice c — the seven aliases are tracked by
+  **#720** with removal target **0.4.0** and external call sites are
+  redirected to the public reads — with the deletion itself remaining #720's
+  0.4.0 work)
 - **Date:** 2026-06-27
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Progress:** Execution roadmap with per-phase tracking issues:
@@ -192,15 +193,16 @@ and a removal target; the migration is not "done" until tests are redirected to
 the public/registry API and the aliases are deleted. A facade with no exit date is
 a failure mode, not a success.
 
-> **Status (2026-07-18, #699 slice c):** this criterion is now met. The seven
-> live aliases (`_named`/`_anno_view`/`_pinned`/`_build_issues` on the registry
-> side; `_pattern_callouts`/`_patterned_holes`/`_dropped_callout_diams` on the
-> coverage side) are tracked by **#720** with removal target **0.4.0**. The one
-> production reach-through (`sheet.py`'s `set(dwg._named)`) and the test-file
-> reach-throughs were redirected to the public reads (`annotations()` /
-> `iter_annotations()` / `get_annotation()` / `view_of()` /
-> `registry.pinned_names()` / `registry.issues`); only `drawing.py` internals
-> ride the aliases until the 0.4.0 deletion.
+> **Status (2026-07-18, #699 slice c):** the tracking and redirect
+> *prerequisites* of this criterion are now met — the deletion itself remains
+> open until 0.4.0. The seven live aliases (`_named`/`_anno_view`/`_pinned`/
+> `_build_issues` on the registry side; `_pattern_callouts`/`_patterned_holes`/
+> `_dropped_callout_diams` on the coverage side) are tracked by **#720** with
+> removal target **0.4.0**. The one production reach-through (`sheet.py`'s
+> `set(dwg._named)`) and the test-file reach-throughs were redirected to the
+> public reads (`annotations()` / `iter_annotations()` / `get_annotation()` /
+> `view_of()` / `registry.pinned_names()` / `registry.issues`); only
+> `drawing.py` internals ride the aliases until #720 deletes them.
 
 ### 5. Migration order (each step its own releasable PR)
 

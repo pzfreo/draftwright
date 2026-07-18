@@ -189,11 +189,14 @@ class AnnotationRegistry:
     # -- build issues ---------------------------------------------------------
 
     @property
-    def issues(self) -> list:
-        """The recorded build-time :class:`LintIssue`\\s (read surface, #720 —
-        callers stop reaching through ``dwg._build_issues``; ``Drawing.lint()``
-        already merges these into its report)."""
-        return self._build_issues
+    def issues(self) -> tuple:
+        """The recorded build-time :class:`LintIssue`\\s, as an immutable snapshot
+        (read surface, #720 — callers stop reaching through ``dwg._build_issues``;
+        ``Drawing.lint()`` already merges these into its report). A tuple, not the
+        live list (Codex review): mutation must go through :meth:`record_issue` /
+        :meth:`drop_issues` / :meth:`reset_issues`, or the alias exit would just
+        recreate the state-bus reach-through under a public name."""
+        return tuple(self._build_issues)
 
     def record_issue(self, issue) -> None:
         """Record a build-time :class:`LintIssue` (already constructed)."""

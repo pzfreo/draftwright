@@ -56,8 +56,9 @@
   #720): removal target **0.4.0**, per ADR 0005 §4. Read through the public
   surface instead — `annotations()`, `iter_annotations()`, `get_annotation()`,
   `view_of()`, `registry.pinned_names()`/`is_pinned()`, and the new
-  `registry.issues`. All production and test call sites in this repo are
-  already redirected.
+  `registry.issues`. All external production and test call sites in this repo
+  are already redirected (`drawing.py` internals ride the aliases until the
+  #720 deletion).
 - **`draftwright.sheet_dsl`** (belated announcement — the alias shim shipped
   in 0.3.1 when #640 renamed the module to `draftwright.sheet`): importing it
   warns; it will be removed in **0.4.0**. Import from `draftwright.sheet`, or
