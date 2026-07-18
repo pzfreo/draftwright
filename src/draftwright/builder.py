@@ -36,7 +36,11 @@ from draftwright._core import (
     _tb_width,
 )
 from draftwright.analysis import _analyse
-from draftwright.annotate import _auto_annotate, build_model, build_rotational_feature
+from draftwright.annotations.orchestrator import (
+    _auto_annotate,
+    build_model,
+    build_rotational_feature,
+)
 from draftwright.annotations.sections import feature_hole_keys
 from draftwright.compose import (
     ViewBlock,

@@ -71,6 +71,22 @@ class CounterSink(Record):
     depth: float
 
 
+def cone_rims(face):
+    """``(minor_edge, major_edge, included_angle°)`` of a conical *face* — its two circular
+    rims (smallest- and largest-radius) and the full cone angle (2 dp) — or ``None`` when
+    the cone has fewer than two circular rims (a drill-point cone / degenerate). The
+    single-face cone read shared by :func:`recognise_countersinks` and the declared
+    front-end (``model/declare.read_countersink``), #704."""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+
+    circles = sorted(face.edges().filter_by(GeomType.CIRCLE), key=lambda e: e.radius)
+    if len(circles) < 2:
+        return None
+    cone = BRepAdaptor_Surface(face.wrapped).Cone()
+    included = round(2 * abs(math.degrees(cone.SemiAngle())), 2)
+    return circles[0], circles[-1], included
+
+
 def _parallel(a, b) -> bool:
     return bool(abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) > 1 - 1e-3)
 
@@ -100,15 +116,13 @@ def recognise_countersinks(part) -> list[CounterSink]:
 
     out: list[CounterSink] = []
     for f in cones:
-        circles = sorted(f.edges().filter_by(GeomType.CIRCLE), key=lambda e: e.radius)
-        if len(circles) < 2:
+        rims = cone_rims(f)  # the shared single-face cone read (#704)
+        if rims is None:
             continue  # drill-point cone (one circle + apex) or degenerate
-        minor_e, major_e = circles[0], circles[-1]
+        minor_e, major_e, included_angle = rims
         minor_r, major_r = minor_e.radius, major_e.radius
         if major_r < _MIN_MAJOR_RATIO * minor_r:
             continue  # too little flare — an edge break / deburr, not a screw seat
-        cone = BRepAdaptor_Surface(f.wrapped).Cone()
-        included_angle = round(2 * abs(math.degrees(cone.SemiAngle())), 2)
         if included_angle > _MAX_INCLUDED_ANGLE:
             continue  # a near-flat cone is a draft/relief/washer face, not a countersink
         opening = major_e.arc_center

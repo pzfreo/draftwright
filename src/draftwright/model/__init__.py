@@ -23,6 +23,7 @@ reads recognised geometry, by design (ground truth, not the plan).
 from __future__ import annotations
 
 from draftwright.model.declare import (
+    authored_dimension,
     boss,
     chamfer,
     control_frame,
@@ -100,6 +101,7 @@ __all__ = [
     "StepFeature",
     "PlateFeature",
     "StepLevelFeature",
+    "authored_dimension",
     "build_part_model",
     "build_pmi_features",
     "boss",

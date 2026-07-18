@@ -22,7 +22,8 @@ below 1.0 permanently (exactly the #158 reason ``feature_diameters`` avoids that
 census is the one honest signal, so that is all this reports.
 
 Bottom of the DAG beside the recognisers: depends only on :mod:`draftwright.recognition` +
-build123d, and nothing in the engine imports it.
+build123d, and nothing in the engine imports it. Ranked 0 in the machine-enforced DAG
+(``tests/test_import_boundaries.py``), so importing the engine from here fails CI (#704).
 """
 
 from __future__ import annotations

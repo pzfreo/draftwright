@@ -12,6 +12,30 @@
   tuple. **Breaking** for callers unpacking that tuple: use
   `sheet.export(stem, formats=("svg", "dxf"))` and read the dict.
 
+### Added
+
+- **`draftwright.model.authored_dimension`** (#704): the IR constructor behind
+  `Sheet.dimension()`, extracted so `build_drawing(model=…)` callers can author
+  a pre-measured drafting dimension without the `Sheet` façade.
+
+### Fixed
+
+- **`model.chamfer(face=…)` rejects a non-planar face** (#704): the declared
+  front-end silently accepted a curved face (`normal_at()` does not fail on
+  one) and read garbage legs off it — e.g. a fillet or countersink face became
+  a bogus `ChamferFeature`. It now raises the documented `ValueError`, using
+  the recogniser's own planarity gate (`classify_bevel`), so declared and
+  detected chamfers classify identically by construction.
+
+### Removed
+
+- **Three orphaned root exports** (#704): `draftwright.recognise_face_levels`
+  (one recogniser of ~12 — incoherent as a top-level surface; import it from
+  `draftwright.recognition`), `draftwright.dedup_diams` (an analysis internal),
+  and `draftwright.fix_svg_page_size` (still available from `draftwright.export`
+  and the `draftwright.make_drawing` facade). None had any internal or test
+  consumer via the root API.
+
 ### Deprecated
 
 - **`draftwright.sheet_dsl`** (belated announcement — the alias shim shipped
