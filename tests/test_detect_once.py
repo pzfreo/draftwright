@@ -66,6 +66,43 @@ def test_generate_script_detects_once(fillet_counter, tmp_path):
     )
 
 
+@pytest.fixture
+def cyls_counter(monkeypatch):
+    """Count ``analyse_cylinders`` scans everywhere the name is import-bound —
+    patching only ``_features`` would miss the recognisers' own bindings."""
+    import draftwright.analysis as analysis
+    import draftwright.drawing as drawing
+    import draftwright.recognition._features as _features
+    import draftwright.recognition.flats as flats
+    import draftwright.recognition.grooves as grooves
+    import draftwright.recognition.turned as turned
+
+    calls = {"n": 0}
+    real = _features.analyse_cylinders
+
+    def counting(part):
+        calls["n"] += 1
+        return real(part)
+
+    for mod in (_features, analysis, drawing, flats, grooves, turned):
+        monkeypatch.setattr(mod, "analyse_cylinders", counting)
+    return calls
+
+
+def test_cylinder_scan_runs_once_per_build(cyls_counter):
+    # #703: one analyse_cylinders scan per build, threaded to every substrate
+    # recogniser (holes/bosses/turned/grooves/flats) via ``cyls=``. Injection
+    # alone can't pin this — a recogniser that ignores ``cyls`` and self-scans,
+    # or a dropped call-site threading, returns identical records; only the
+    # scan count regresses.
+    dwg = build_drawing(_filleted())
+    dwg.lint()
+    assert cyls_counter["n"] == 1, (
+        f"analyse_cylinders ran {cyls_counter['n']}× in one build+lint — a recogniser "
+        f"or lint path is re-scanning instead of sharing the one Analysis scan (#703)"
+    )
+
+
 def test_declared_model_runs_no_detection(fillet_counter):
     # ADR 0011: a caller-declared model skips detection entirely — build_part_model is
     # never invoked (the sizing path uses the declared model; the builder coerces it),
