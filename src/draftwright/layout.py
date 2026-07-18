@@ -44,6 +44,7 @@ non-linear) stays deferred (#94) and may never be needed — see that ADR's
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal, NamedTuple
 
@@ -196,6 +197,104 @@ def _solve_strip_1d_pava(naturals, gaps, lo, hi, weights=None):
 # ---------------------------------------------------------------------------
 # Collect-then-solve strip stage (ADR 0009)
 # ---------------------------------------------------------------------------
+
+
+# ── balloon band assignment (#516; moved from drawing.py, #699) ─────────────────────────
+@dataclass
+class _FlowEdge:
+    to: int
+    rev: int
+    cap: int
+    cost: int
+
+
+def _strip_capacity(lo: float, hi: float, gap: float) -> int:
+    """Number of uniform balloon centres that can fit in ``[lo, hi]``."""
+
+    if hi < lo:
+        return 0
+    return int(math.floor((hi - lo) / gap + 1e-9)) + 1
+
+
+def _assign_balloon_bands(members, choices_by_member, capacities):
+    """Global max-cardinality/min-cost assignment of balloons to side bands (#516)."""
+
+    band_order = ("left", "right", "top", "bottom")
+    bands = [b for b in band_order if capacities.get(b, 0) > 0]
+    assigned: dict[str, list] = {b: [] for b in band_order}
+    if not members or not bands:
+        return assigned, len(members)
+
+    source = 0
+    member0 = 1
+    band0 = member0 + len(members)
+    sink = band0 + len(bands)
+    graph: list[list[_FlowEdge]] = [[] for _ in range(sink + 1)]
+
+    def add_edge(fr: int, to: int, cap: int, cost: int) -> _FlowEdge:
+        fwd = _FlowEdge(to, len(graph[to]), cap, cost)
+        rev = _FlowEdge(fr, len(graph[fr]), 0, -cost)
+        graph[fr].append(fwd)
+        graph[to].append(rev)
+        return fwd
+
+    used_edges: dict[tuple[int, str], _FlowEdge] = {}
+    for i, choices in enumerate(choices_by_member):
+        add_edge(source, member0 + i, 1, 0)
+        for j, band in enumerate(bands):
+            if band not in choices:
+                continue
+            # Costs are integerised for deterministic shortest paths; the tiny band
+            # ordinal keeps exact ties stable without changing real distance order.
+            cost = int(round(max(0.0, choices[band]) * 1000)) + band_order.index(band)
+            used_edges[(i, band)] = add_edge(member0 + i, band0 + j, 1, cost)
+    for j, band in enumerate(bands):
+        add_edge(band0 + j, sink, capacities[band], 0)
+
+    def shortest_path():
+        dist = [math.inf] * len(graph)
+        prev: list[tuple[int, int] | None] = [None] * len(graph)
+        in_queue = [False] * len(graph)
+        queue = [source]
+        dist[source] = 0
+        in_queue[source] = True
+        while queue:
+            v = queue.pop(0)
+            in_queue[v] = False
+            for ei, edge in enumerate(graph[v]):
+                if edge.cap <= 0:
+                    continue
+                nd = dist[v] + edge.cost
+                if nd >= dist[edge.to]:
+                    continue
+                dist[edge.to] = nd
+                prev[edge.to] = (v, ei)
+                if not in_queue[edge.to]:
+                    queue.append(edge.to)
+                    in_queue[edge.to] = True
+        return prev if prev[sink] is not None else None
+
+    max_flow = min(len(members), sum(capacities.get(b, 0) for b in bands))
+    flow = 0
+    while flow < max_flow and (prev := shortest_path()) is not None:
+        v = sink
+        while v != source:
+            pv, ei = prev[v]
+            edge = graph[pv][ei]
+            edge.cap -= 1
+            graph[v][edge.rev].cap += 1
+            v = pv
+        flow += 1
+
+    placed = 0
+    for i, member in enumerate(members):
+        for band in bands:
+            edge = used_edges.get((i, band))
+            if edge is not None and edge.cap == 0:
+                assigned[band].append(member)
+                placed += 1
+                break
+    return assigned, len(members) - placed
 
 
 @dataclass(frozen=True)

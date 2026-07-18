@@ -120,9 +120,8 @@ def test_estimated_table_size_matches_rendered():
     # _est_table_size; the annotation pass renders them via _build_table. Both now
     # draw from the one _core._table_metrics — this pins estimator == rendered, the
     # exact drift ADR 0004 names as the failure mode to guard against.
-    from draftwright._core import _FONT_SIZE, _wrap_rows, draft_preset
+    from draftwright._core import _FONT_SIZE, _build_table, _wrap_rows, draft_preset
     from draftwright.compose import _est_table_size
-    from draftwright.drawing import _build_table
 
     draft = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
     header = ("TAG", "ø", "X", "Y")

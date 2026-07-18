@@ -53,7 +53,8 @@ entry. Keep `_LAYERS` and this section in step.
     `--version` stay sub-second (#313). Entry point: `draftwright.cli:app`.
   - **`drawing.py`** — the `Drawing` result object (`.lint()`/`.add()`/`.place_dim()`/
     `.repair()`/`.export*()`; delegates identity to `registry`, coverage to `lint`)
-    plus `_build_table` and `FeatureInfo`. Sits below `builder` (which constructs it).
+    plus `FeatureInfo` (`_build_table` moved beside `_table_metrics` in `_core`, #699).
+    Sits below `builder` (which constructs it).
     *(The build context lives in ONE typed `BuildState` on `Drawing` (`_build`:
     analysis, part model, lint's geometry caches) — filled at a single site in
     `builder._assemble`, read through compat properties, single-writer-guarded
@@ -78,6 +79,9 @@ entry. Keep `_LAYERS` and this section in step.
     (incl. side-drilled #133), pitch/grid dims, slots (the largest *pass*).
   - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
     ISO 128-50 hatching).
+  - **`annotations/balloons.py`** — the leadered hole-balloon pass (#111/#516;
+    moved down from `Drawing`, #699). `Drawing.add_balloons` is the public verb
+    threading build state in; the band-assignment flow solver lives in `layout.py`.
   - **`annotations/_common.py`** — the ADR 0009 corridor-solve engine
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`) plus `_box_hits`, at the
@@ -93,8 +97,10 @@ entry. Keep `_LAYERS` and this section in step.
   page/slot/margin layout constants.
 - **`layout.py`** — the constraint-based layout engine (ADR 0003): the deterministic
   1D PAVA strip solve (`_solve_strip_1d_pava`, plus `plan_strip`/`StripCandidate`,
-  the ADR 0009 collect-then-solve entry point) and the 2D free-rectangle placer
-  (`fit_box`). Sits *below* the domain API.
+  the ADR 0009 collect-then-solve entry point), the 2D free-rectangle placer
+  (`fit_box`), and the balloon band-assignment min-cost max-flow solve
+  (`_assign_balloon_bands`, #516; here since #699 — solvers live in the solver
+  layer). Sits *below* the domain API.
 - **`_geometry.py`** — model-neutral geometry primitives (`_xyz`, `HoleRef`,
   `_axis_letter`, `_END_ON`) plus the #700 shared page-plane maths (`_fmt`,
   `_boxes_overlap`, the two segment/box tests); the DAG's bottom leaf (guarded

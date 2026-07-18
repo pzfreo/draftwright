@@ -31,6 +31,7 @@ from draftwright._core import (
 )
 from draftwright.analysis import _sizing_bores
 from draftwright.annotations._common import PlacementContext, drain_corridors
+from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.from_model import (
     render_boss_diameters,
     render_centermarks,
@@ -520,9 +521,10 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
     placed_names: set = set()
     if balloon_specs:
         # One call: the strip solver must see every band member together, or two
-        # independent _add_balloons calls could stack a pattern balloon on a
-        # per-hole one in the same band.
-        dwg.add_balloons("plan", balloon_specs)
+        # independent render_balloons calls could stack a pattern balloon on a
+        # per-hole one in the same band. Called sideways into the render layer
+        # (#699) — no longer an upward duck-typed dwg.add_balloons call.
+        render_balloons(dwg, a, "plan", balloon_specs, ctx)
         placed_names = {n for n, _ in dwg.iter_annotations()}
 
     # Clear `callout_dropped` only when EVERY dropped plan-view callout is now

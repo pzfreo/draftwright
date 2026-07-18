@@ -1685,9 +1685,8 @@ class TestDepthEstimators:
         assert _est_right_strip_depth(3) == pytest.approx(69.5, abs=0.01)
 
     def test_right_depth_grows_per_step_uncapped(self):
-        from draftwright._core import _SLOT_DIM_STEP
+        from draftwright._core import _SLOT_DIM_STEP, _STRIP_SPACING
         from draftwright.compose import _est_right_strip_depth
-        from draftwright.drawing import _STRIP_SPACING
 
         # #36: no cap — each further step adds one slot + one spacing.
         assert _est_right_strip_depth(10) > _est_right_strip_depth(3)
@@ -1710,9 +1709,13 @@ class TestDepthEstimators:
         # _est_right_strip_depth(n) must reserve enough corridor for dim_height + n
         # dim_steps stacked from the view edge (gap, then `spacing` between dims) — the
         # cursor-free capacity condition the carve places into (ADR 0009 / #150).
-        from draftwright._core import _SLOT_DIM_HEIGHT, _SLOT_DIM_STEP, _STRIP_SPACING
+        from draftwright._core import (
+            _SLOT_DIM_HEIGHT,
+            _SLOT_DIM_STEP,
+            _STRIP_GAP,
+            _STRIP_SPACING,
+        )
         from draftwright.compose import _est_right_strip_depth
-        from draftwright.drawing import _STRIP_GAP
 
         for n_steps in (0, 1, 3):
             est = _est_right_strip_depth(n_steps)
@@ -1722,9 +1725,8 @@ class TestDepthEstimators:
 
     def test_pv_below_depth_fits_in_exact_corridor(self):
         # _est_pv_below_depth() must reserve enough for one dim_width from the view edge.
-        from draftwright._core import _SLOT_DIM_WIDTH
+        from draftwright._core import _SLOT_DIM_WIDTH, _STRIP_GAP
         from draftwright.compose import _est_pv_below_depth
-        from draftwright.drawing import _STRIP_GAP
 
         assert _STRIP_GAP + _SLOT_DIM_WIDTH <= _est_pv_below_depth() + 1e-9
 
@@ -6886,10 +6888,13 @@ class TestFeatureEdits:
 
     def test_balloon_is_owned_by_its_hole(self):
         # #408 C: a balloon (which carries a recognition hole) attributes to the IR feature.
+        from draftwright.annotations._common import PlacementContext
+
         dwg = build_drawing(_holed_plate())
         a = dwg._analysis
         hole_obj = a.holes[0]
-        feat = dwg._feature_of_hole_at(hole_obj.location)
+        # the attribution index lives on the run ctx (#639/#699); build one to query it
+        feat = PlacementContext(part_model=dwg.model()).feature_of_hole_at(hole_obj.location)
         assert feat is not None
         dwg._add_balloon("plan", "A", 0, hole_obj)
         bln = next(n for n in dwg.annotations() if n.startswith("balloon_"))
@@ -8621,21 +8626,23 @@ class TestHoleTable:
         dwg.add_hole_table("plan", balloons=False)
         assert not any(n.startswith("balloon_") for n in dwg.annotations())
 
-    def test_place_band_reports_dropped_overflow(self):
+    def test_place_band_reports_dropped_overflow(self, monkeypatch):
         # #1a review follow-up: a band too small for every balloon drops its tail
         # (the strip solver's prefix fallback) — _place_band must REPORT the dropped
-        # count so _add_balloons can surface it as `balloon_dropped` lint, instead of
-        # the balloons vanishing silently. 5 balloons needing a 10 mm gap in a 20 mm
-        # band fit only 3 (at 0, 10, 20); the other 2 are dropped and reported.
-        from types import SimpleNamespace
+        # count so render_balloons can surface it as `balloon_dropped` lint, instead
+        # of the balloons vanishing silently. 5 balloons needing a 10 mm gap in a
+        # 20 mm band fit only 3 (at 0, 10, 20); the other 2 are dropped and reported.
+        import draftwright.annotations.balloons as balloons
 
         rendered: list = []
-        stub = SimpleNamespace(_render_balloon=lambda *a: rendered.append(a))
+        monkeypatch.setattr(balloons, "_render_balloon", lambda *a: rendered.append(a))
         members = [("t", 0, object(), 0.0, float(i)) for i in range(5)]
-        dropped = Drawing._place_band(stub, "plan", members, "y", 50.0, 0.0, 20.0, 10.0, 3.0, 5.0)
+        dropped = balloons._place_band(
+            None, "plan", members, "y", 50.0, 0.0, 20.0, 10.0, 3.0, 5.0, None
+        )
         assert dropped == 2 and len(rendered) == 3
 
-    def test_balloon_ring_depth_uses_bare_obstacle_footprints(self):
+    def test_balloon_ring_depth_uses_bare_obstacle_footprints(self, monkeypatch):
         from types import SimpleNamespace
 
         from draftwright._core import _STRIP_GAP
@@ -8657,33 +8664,35 @@ class TestHoleTable:
         pt = a.PV_Y + a.pv_hh
         bare_obstacle = self._Boxed((35.0, pt + 2.0, 65.0, pt + 12.0))
 
-        def place_band(view, members, axis, line, lo, hi, gap, fs, r):
+        import draftwright.annotations.balloons as balloons
+
+        def place_band(dwg, view, members, axis, line, lo, hi, gap, fs, r, ctx):
             calls.append((view, members, axis, line, lo, hi, gap, fs, r))
             return 0
 
+        monkeypatch.setattr(balloons, "_place_band", place_band)
+        coords = {"plan": SimpleNamespace(pp=lambda *_loc: (50.0, 58.0))}
         stub = SimpleNamespace(
-            _analysis=a,
-            _coords={"plan": SimpleNamespace(pp=lambda *_loc: (50.0, 58.0))},
+            coords=coords.__getitem__,
             draft=SimpleNamespace(font_size=3.0),
             iter_annotations=lambda: iter([("bare_obstacle", bare_obstacle)]),
             view_of=lambda _name: "plan",
-            _place_band=place_band,
-            _record_build_issue=lambda *_args: None,
         )
+        ctx = SimpleNamespace(record_issue=lambda *_args: None)
         hole = SimpleNamespace(location=(0.0, 0.0, 0.0), diameter=4.0)
 
-        Drawing.add_balloons(stub, "plan", [("A", 0, hole)])
+        balloons.render_balloons(stub, a, "plan", [("A", 0, hole)], ctx)
 
         top_call = next(call for call in calls if call[2] == "x" and call[1])
         _view, _members, _axis, line, *_rest, fs, r = top_call
         assert line == pytest.approx(pt + 12.0 + _STRIP_GAP + r)
         assert fs == 3.0
 
-    def test_balloon_assignment_rebalances_across_bands_before_dropping(self):
+    def test_balloon_assignment_rebalances_across_bands_before_dropping(self, monkeypatch):
         from types import SimpleNamespace
 
         from draftwright._core import _STRIP_GAP, _STRIP_SPACING
-        from draftwright.drawing import _strip_capacity
+        from draftwright.layout import _strip_capacity
 
         calls = []
         a = SimpleNamespace(
@@ -8700,23 +8709,25 @@ class TestHoleTable:
             fv_hh=5.0,
         )
 
-        def place_band(view, members, axis, line, lo, hi, gap, fs, r):
+        import draftwright.annotations.balloons as balloons
+
+        def place_band(dwg, view, members, axis, line, lo, hi, gap, fs, r, ctx):
             calls.append((view, list(members), axis, line, lo, hi, gap, fs, r))
             return 0
 
+        monkeypatch.setattr(balloons, "_place_band", place_band)
+        coords = {"plan": SimpleNamespace(pp=lambda *_loc: (50.0, 58.0))}
         stub = SimpleNamespace(
-            _analysis=a,
-            _coords={"plan": SimpleNamespace(pp=lambda *_loc: (50.0, 58.0))},
+            coords=coords.__getitem__,
             draft=SimpleNamespace(font_size=3.0),
             iter_annotations=lambda: iter(()),
             view_of=lambda _name: "plan",
-            _place_band=place_band,
-            _record_build_issue=lambda *_args: None,
         )
+        ctx = SimpleNamespace(record_issue=lambda *_args: None)
         holes = [SimpleNamespace(location=(float(i), 0.0, 0.0), diameter=4.0) for i in range(6)]
 
-        Drawing.add_balloons(
-            stub, "plan", [(chr(ord("A") + i), 0, h) for i, h in enumerate(holes)]
+        balloons.render_balloons(
+            stub, a, "plan", [(chr(ord("A") + i), 0, h) for i, h in enumerate(holes)], ctx
         )
 
         fs = stub.draft.font_size
@@ -8729,7 +8740,9 @@ class TestHoleTable:
         assert len(top_members) == top_cap
         assert len(side_members) == len(holes) - top_cap
 
-    def test_balloon_assignment_cost_uses_actual_band_line_after_furniture_depth(self):
+    def test_balloon_assignment_cost_uses_actual_band_line_after_furniture_depth(
+        self, monkeypatch
+    ):
         from types import SimpleNamespace
 
         calls = []
@@ -8748,22 +8761,24 @@ class TestHoleTable:
         )
         right_obstacle = self._Boxed((71.0, 45.0, 115.0, 55.0))
 
-        def place_band(view, members, axis, line, lo, hi, gap, fs, r):
+        import draftwright.annotations.balloons as balloons
+
+        def place_band(dwg, view, members, axis, line, lo, hi, gap, fs, r, ctx):
             calls.append((view, list(members), axis, line, lo, hi, gap, fs, r))
             return 0
 
+        monkeypatch.setattr(balloons, "_place_band", place_band)
+        coords = {"plan": SimpleNamespace(pp=lambda *_loc: (60.0, 50.0))}
         stub = SimpleNamespace(
-            _analysis=a,
-            _coords={"plan": SimpleNamespace(pp=lambda *_loc: (60.0, 50.0))},
+            coords=coords.__getitem__,
             draft=SimpleNamespace(font_size=3.0),
             iter_annotations=lambda: iter([("right_obstacle", right_obstacle)]),
             view_of=lambda _name: "plan",
-            _place_band=place_band,
-            _record_build_issue=lambda *_args: None,
         )
+        ctx = SimpleNamespace(record_issue=lambda *_args: None)
         hole = SimpleNamespace(location=(0.0, 0.0, 0.0), diameter=4.0)
 
-        Drawing.add_balloons(stub, "plan", [("A", 0, hole)])
+        balloons.render_balloons(stub, a, "plan", [("A", 0, hole)], ctx)
 
         left_members = next(call[1] for call in calls if call[2] == "y" and call[3] < a.PV_X)
         right_members = next(call[1] for call in calls if call[2] == "y" and call[3] > a.PV_X)
@@ -8829,7 +8844,7 @@ class TestHoleTable:
         assert Path(svg).stat().st_size > 0 and Path(dxf).stat().st_size > 0
 
     def test_table_geometry_is_deterministic(self):
-        from draftwright.drawing import _build_table
+        from draftwright._core import _build_table
 
         rows = [("TAG", "⌀", "QTY"), ("A", "ø10", "2")]
         a = build_drawing(Box(60, 40, 20)).draft

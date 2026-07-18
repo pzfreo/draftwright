@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from draftwright.compose import StripDepths
     from draftwright.recognition import TurnedProfile
 
-from build123d import Align, BoundBox, Location, Mode, Shape, Text
+from build123d import Align, BoundBox, Compound, Edge, Location, Mode, Shape, Text, Vector
 from build123d_drafting.helpers import (
     Dimension,
     TitleBlock,
@@ -131,6 +131,55 @@ def _table_metrics(rows, font_size, pad_around_text, block_cols=None):
         cursor += col_w[c]
         rights.append(cursor)
     return lefts, rights, cursor, row_h * len(rows), row_h, bc
+
+
+def _build_table(rows, draft, block_cols=None):
+    """Build a generic data-table annotation at the origin (bottom-left ``(0, 0)``).
+
+    *rows* is a list of equal-length string tuples; ``rows[0]`` is the header,
+    drawn at the top. Returns a :class:`Compound` of grid rules + cell text,
+    carrying ``.table_size = (w, h)`` so it can be positioned via
+    :func:`fit_box`. Column widths are sized to their content via real glyph
+    metrics (:func:`_text_width`). Generic — the hole table, and gear/BOM/
+    revision tables, all build through here.
+
+    When the rows are a wrapped chart of *block_cols*-wide side-by-side blocks
+    (see :func:`_wrap_rows`), each block is drawn as its own bordered grid with
+    a whitespace gap between them, so the blocks read as separate tables rather
+    than one run-on grid.
+    """
+    fs = draft.font_size
+    ncol = len(rows[0])
+    # One sizing model, shared with compose's footprint estimate (#700).
+    lefts, rights, total_w, total_h, row_h, bc = _table_metrics(
+        rows, fs, draft.pad_around_text, block_cols
+    )
+    ys = [i * row_h for i in range(len(rows) + 1)]
+    children = []
+    for b in range(ncol // bc):  # one bordered grid per block
+        cols = range(b * bc, b * bc + bc)
+        bl, br = lefts[b * bc], rights[b * bc + bc - 1]
+        for x in [lefts[c] for c in cols] + [br]:  # column rules + block edges
+            children.append(Edge.make_line(Vector(x, 0, 0), Vector(x, total_h, 0)))
+        for y in ys:  # horizontal rules stop at the block edge, not the gap
+            children.append(Edge.make_line(Vector(bl, y, 0), Vector(br, y, 0)))
+    for ri, row in enumerate(rows):  # rows[0] (header) sits at the top
+        cy = total_h - (ri + 0.5) * row_h
+        for ci, cell in enumerate(row):
+            if not str(cell):
+                continue
+            cx = (lefts[ci] + rights[ci]) / 2
+            text = Text(
+                txt=str(cell),
+                font_size=fs,
+                font_path=PLEX_MONO,
+                align=(Align.CENTER, Align.CENTER),
+                mode=Mode.PRIVATE,
+            ).locate(Location((cx, cy, 0)))
+            children.extend(text.faces())
+    table = Compound(children=children)
+    table.table_size = (total_w, total_h)
+    return table
 
 
 def _tol_suffix(tolerance, draft) -> str:
