@@ -39,7 +39,7 @@ from draftwright.annotations._common import (
     Escalation,
     _box_hits,
     _geom_box,
-    _segment_hits_box,
+    _segment_crosses_box,
     box_within_page_and_clear,
     carve_free_position,
     carve_free_segments,
@@ -1176,13 +1176,13 @@ def _needs_section(feat: HoleFeature | PatternFeature):
 
 def _leader_hits(leader, tip, elbow, side, obstacles):
     """True when *leader*'s rendered footprint truly overlaps any *obstacles* box — split into
-    the diagonal tip→elbow SHAFT (checked precisely via `_segment_hits_box`, since its AABB
+    the diagonal tip→elbow SHAFT (checked precisely via `_segment_crosses_box`, since its AABB
     over-claims the empty triangle it doesn't occupy — #305) and the elbow→label shelf+text
     (axis-aligned, so the coarse AABB check there is already exact). Promoted (#638; pure)."""
     full_box = _geom_box(leader)
     if full_box is None or not _box_hits(full_box, obstacles):
         return False  # fast reject: nowhere near any obstacle
-    if any(_segment_hits_box(tip, elbow, o) for o in obstacles):
+    if any(_segment_crosses_box(tip, elbow, o) for o in obstacles):
         return True
     label_box = (
         (elbow[0], full_box[1], full_box[2], full_box[3])

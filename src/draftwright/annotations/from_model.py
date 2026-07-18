@@ -940,16 +940,24 @@ def _leader_callout_reach(draft) -> float:
     return float(draft.font_size + 6 * draft.pad_around_text)
 
 
-def _label_lands_clear(ldr, obstacles, silhouette, page) -> bool:
+def _label_lands_clear(ldr, obstacles, silhouette, page, *, geom_clear=False) -> bool:
     """True when a leader's LABEL box sits in clear margin: off other annotations
     (*obstacles*), off the part *silhouette* (the leader line may cross into the view, its
-    text may not), and inside the *page* margin box. The single accept test the five callout
-    passes share (was the identical six-line guard, copied five times)."""
-    label = getattr(ldr, "label_bbox", None) or _anno_box(ldr)
-    if label is None:
+    text may not), and inside the *page* margin box. The single accept test the callout
+    passes share (was the identical six-line guard, copied five times).
+
+    With *geom_clear* the obstacle test uses the FULL ``_geom_box`` footprint (shaft +
+    arrow + label) instead of the label box — the shaft is the invisible occupant a
+    label-only box hides (#133/#305/#358), so a rim-anchored boss ø leader must clear
+    the other callouts/witnesses along its whole length (#629/#700). The silhouette/
+    page checks stay on the label box, since such a shaft legitimately starts inside
+    the view."""
+    geom = _geom_box(ldr) if geom_clear else None
+    label = getattr(ldr, "label_bbox", None) or (geom if geom_clear else _anno_box(ldr))
+    if label is None or (geom_clear and geom is None):
         return False
     return not (
-        _box_hits(label, obstacles)
+        _box_hits(geom if geom_clear else label, obstacles)
         or _box_hits(label, [silhouette])
         or label[0] < page[0]
         or label[1] < page[1]
@@ -974,21 +982,21 @@ def _corner_candidates(dwg, view, vb, members, reach):
         yield (tip, elbow, m)
 
 
-def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx) -> int:
+def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx, geom_clear=False) -> int:
     """Place one machined-feature leader callout per job (#637). A *job* is
     ``(name, view, vb, label, candidates)`` where *candidates* yields ``(tip, elbow,
     feature)`` lead positions to try in order. Places the first Leader whose label lands clear
-    (:func:`_label_lands_clear`), attributed to that candidate's feature; if none of a job's
-    candidates land, records ``<noun> callout … not placed`` as ``<drop_code>`` lint (never a
-    silent drop). Obstacles are recomputed per job so a callout placed earlier is avoided.
-    Returns the count placed."""
+    (:func:`_label_lands_clear`, with *geom_clear* passed through), attributed to that
+    candidate's feature; if none of a job's candidates land, records ``<noun> callout … not
+    placed`` as ``<drop_code>`` lint (never a silent drop). Obstacles are recomputed per job
+    so a callout placed earlier is avoided. Returns the count placed."""
     page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
     n = 0
     for name, view, vb, label, candidates in jobs:
         obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
         for tip, elbow, feature in candidates:
             ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label, draft=dwg.draft)
-            if _label_lands_clear(ldr, obstacles, vb, page):
+            if _label_lands_clear(ldr, obstacles, vb, page, geom_clear=geom_clear):
                 dwg.add(ldr, name, view=view, feature=feature)
                 n += 1
                 break
@@ -1158,17 +1166,20 @@ _POCKET_LEAD_DIRS = (
 )
 
 
-def _radial_candidates(dwg, view, vb, feature, reach):
-    """Lead candidates for a mid-face feature (pocket/groove): from the feature's projected
-    origin, one candidate per :data:`_POCKET_LEAD_DIRS` direction — exit the silhouette along
-    it (:func:`_ray_exit_dist`) then *reach* on into the margin, so even a centre-of-view
-    feature clears the part. Yields ``(tip, elbow, feature)`` (same feature each time;
-    nearest-clear wins in the pass)."""
+def _radial_candidates(dwg, view, vb, feature, reach, *, rim=0.0):
+    """Lead candidates for a mid-face feature (pocket/groove/boss ø): from the feature's
+    projected origin, one candidate per :data:`_POCKET_LEAD_DIRS` direction — exit the
+    silhouette along it (:func:`_ray_exit_dist`) then *reach* on into the margin, so even
+    a centre-of-view feature clears the part. A non-zero *rim* (page units) advances the
+    arrow tip that far along the lead direction, so a boss ø leader's arrowhead lands on
+    the boss circle rather than its centre (#629/#700). Yields ``(tip, elbow, feature)``
+    (same feature each time; nearest-clear wins in the pass)."""
     x0, y0, x1, y1 = vb
-    tip = dwg.at(view, *feature.frame.origin)
+    origin = dwg.at(view, *feature.frame.origin)
     for dx, dy in _POCKET_LEAD_DIRS:
         d = math.hypot(dx, dy)
         ux, uy = dx / d, dy / d
+        tip = (origin[0] + ux * rim, origin[1] + uy * rim)
         exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
         elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
         yield (tip, elbow, feature)
@@ -1250,7 +1261,11 @@ def render_boss_diameters(dwg, groups, a, *, ctx) -> int:
     in the OD stack. The turned column-left strip, applied to a prismatic boss, strands its ø
     whenever that narrow strip is tight — dropping the callout even on a half-empty sheet (#629).
     Run BEFORE ``render_diameters`` so a placed boss ø is 'mentioned' and not re-placed. A boss
-    whose ø a coincident feature already carries is skipped; an unplaceable one drops lint-visibly."""
+    whose ø a coincident feature already carries is skipped; an unplaceable one drops lint-visibly.
+
+    Placement rides the shared :func:`_leader_callout_pass` adapter (#700 — never a sixth copy
+    of the ray-exit loop, #637): rim-anchored :func:`_radial_candidates`, accepted with
+    ``geom_clear`` (the full shaft, not just the label, must clear other annotations)."""
     if a.is_rotational or a.prof is not None:
         # A turned profile means round stock — a band emitted as a boss (#298) belongs in the
         # OD diameter row/column, not an end-on plan leader. Only true prismatic parts qualify.
@@ -1259,9 +1274,8 @@ def render_boss_diameters(dwg, groups, a, *, ctx) -> int:
     view_of = {"z": "plan", "x": "side", "y": "front"}  # the view looking down the boss axis
     boss_groups = [g for g in groups if g.feature_kind == "boss"]
     mentioned = _mentioned_diameters(dwg)
-    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
     reach = draft.font_size + 6 * draft.pad_around_text
-    n = 0
+    jobs = []
     for bi, g in enumerate(
         sorted(boss_groups, key=lambda g: (g.feature.frame.axis, g.feature.frame.origin))
     ):
@@ -1279,47 +1293,19 @@ def render_boss_diameters(dwg, groups, a, *, ctx) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        x0, y0, x1, y1 = vb
-        center = dwg.at(view, *b.frame.origin)
-        r_page = dia / 2 * a.SCALE  # the boss circle radius in page units
-        label_str = f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}"
-        obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        placed = False
-        for dx, dy in _POCKET_LEAD_DIRS:
-            d = math.hypot(dx, dy)
-            ux, uy = dx / d, dy / d
-            arrow = (center[0] + ux * r_page, center[1] + uy * r_page)  # arrowhead on the rim
-            exit_d = _ray_exit_dist(center[0], center[1], ux, uy, (x0, y0, x1, y1))
-            elbow = (center[0] + ux * (exit_d + reach), center[1] + uy * (exit_d + reach), 0)
-            ldr = Leader(tip=(arrow[0], arrow[1], 0), elbow=elbow, label=label_str, draft=draft)
-            # _geom_box is the FULL footprint (shaft + arrow + label); the shaft is the invisible
-            # occupant a label-only box hides (#133/#305/#358), so it — not _anno_box — is what
-            # must clear the other callouts/witnesses. The silhouette/page checks use the label
-            # box, since the shaft legitimately starts at the boss rim inside the view.
-            geom = _geom_box(ldr)
-            label = getattr(ldr, "label_bbox", None) or geom
-            if (
-                geom is None
-                or label is None
-                or _box_hits(geom, obstacles)  # shaft or label crosses a callout/witness
-                or _box_hits(label, [(x0, y0, x1, y1)])  # label over the part silhouette
-                or label[0] < page[0]
-                or label[1] < page[1]
-                or label[2] > page[2]
-                or label[3] > page[3]
-            ):
-                continue
-            dwg.add(ldr, f"m_bossdia_{b.frame.axis}{bi}", view=view, feature=b)
-            n += 1
-            placed = True
-            break
-        if not placed:
-            ctx.record_issue(
-                "warning",
-                "boss_dia_dropped",
-                f"boss ø{_fmt(dia)} callout not placed (no clear room)",
+        jobs.append(
+            (
+                f"m_bossdia_{b.frame.axis}{bi}",
+                view,
+                vb,
+                f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}",
+                # arrowhead on the boss circle's rim, not its centre
+                _radial_candidates(dwg, view, vb, b, reach, rim=dia / 2 * a.SCALE),
             )
-    return n
+        )
+    return _leader_callout_pass(
+        dwg, a, jobs, noun="boss", drop_code="boss_dia_dropped", ctx=ctx, geom_clear=True
+    )
 
 
 def render_plates(dwg, model, a, *, ctx) -> int:

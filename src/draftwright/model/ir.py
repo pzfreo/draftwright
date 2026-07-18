@@ -23,6 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
+from draftwright._geometry import _fmt
+
 if TYPE_CHECKING:
     from draftwright.fits import FitClass
 
@@ -79,10 +81,6 @@ class DimParameter:
     # renders its own class-code / deviation suffix; ``None`` when untoleranced. Set by the
     # planner from the caller's ``decorations`` — geometry never supplies it.
     tolerance: float | tuple[float, float] | FitClass | None = None
-
-
-def _fmt(v: float) -> str:
-    return f"{v:.0f}" if abs(v - round(v)) < 1e-6 else f"{v:.1f}"
 
 
 def display(p: DimParameter) -> str:

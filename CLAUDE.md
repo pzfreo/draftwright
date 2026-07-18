@@ -80,8 +80,9 @@ entry. Keep `_LAYERS` and this section in step.
     ISO 128-50 hatching).
   - **`annotations/_common.py`** — the ADR 0009 corridor-solve engine
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
-    `place_strip_candidates`, `PlacementContext`) plus the shared bbox helpers
-    (`_anno_box`, `_box_hits`), at the bottom of the annotations DAG.
+    `place_strip_candidates`, `PlacementContext`) plus `_box_hits`, at the
+    bottom of the annotations DAG. (The bbox/segment primitives it delegates to
+    live in `_core`/`_geometry` since #700.)
   Submodules import only down or sideways — `_core`/`layout`/`analysis`/
   `projection`/the `model/` IR/`linting.structural`/third-party, never
   `annotate`/`make_drawing`/`drawing` (the drawing is duck-typed as `dwg`) — so
@@ -95,8 +96,10 @@ entry. Keep `_LAYERS` and this section in step.
   the ADR 0009 collect-then-solve entry point) and the 2D free-rectangle placer
   (`fit_box`). Sits *below* the domain API.
 - **`_geometry.py`** — model-neutral geometry primitives (`_xyz`, `HoleRef`,
-  `_axis_letter`, `_END_ON`); the DAG's bottom leaf (guarded by
-  `test_geometry_is_a_leaf`) so the IR waist uses them without importing `_core`.
+  `_axis_letter`, `_END_ON`) plus the #700 shared page-plane maths (`_fmt`,
+  `_boxes_overlap`, the two segment/box tests); the DAG's bottom leaf (guarded
+  by `test_geometry_is_a_leaf`) so the IR waist uses them without importing
+  `_core`.
 - **`fits.py`** — the ISO 286 fit tables (`fit_deviation`, `FitClass`; ADR 0011
   P2a.2): a rank-0 leaf consumed by `_core`, `model/ir` and `sheet`.
 - **`intents.py`** — the deferred-placement "low IR" behind `Drawing.finalize()`

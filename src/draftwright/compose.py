@@ -16,7 +16,6 @@ measure-and-repack pass (`_repack`, coupled to `_assemble`) stays in the builder
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -41,13 +40,16 @@ from draftwright._core import (
     _TB_H,
     Strip,
     ViewZones,
+    _anno_box,
     _fmt,
     _largest_empty_rect,
     _parse_page,
+    _table_metrics,
     _tag_sequence,
     _tb_width,
     _text_width,
     _tol_suffix,
+    _wrap_rows,
 )
 from draftwright.layout import fit_box
 
@@ -144,39 +146,19 @@ def _will_balloon(model) -> bool:
     return bool(covered < 0.8 * total)
 
 
-def _wrap_table_rows(header, data, ncols):
-    """Local mirror of the hole-table row wrapping used by the annotation pass."""
-
-    per = math.ceil(len(data) / ncols)
-    blank = ("",) * len(header)
-    wide = [tuple(header) * ncols]
-    for r in range(per):
-        row: tuple = ()
-        for c in range(ncols):
-            idx = c * per + r
-            row += data[idx] if idx < len(data) else blank
-        wide.append(row)
-    return wide
-
-
 def _est_table_size(
     rows, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0, block_cols=None
 ):
-    """Table footprint estimate matching ``drawing._build_table``'s sizing model."""
+    """Table footprint estimate — ``drawing._build_table``'s sizing, from the
+    shared :func:`draftwright._core._table_metrics` so the ADR 0004
+    ``table_fits`` fitness check can never desynchronise from what renders
+    (#700; pinned by ``test_sheet_tables``)."""
 
     if not rows:
         return None
-    fs = font_size
-    pad = pad_around_text
-    row_h = fs + 2 * pad
-    ncol = len(rows[0])
-    bc = block_cols if (block_cols and ncol % block_cols == 0 and block_cols < ncol) else ncol
-    block_gap = 3 * pad
-    col_w = [
-        max(max(_text_width(str(r[c]), fs) for r in rows) + 2 * pad, fs * 2.5) for c in range(ncol)
-    ]
-    total_w = sum(col_w) + (max(ncol // bc - 1, 0) * block_gap)
-    total_h = row_h * len(rows)
+    _lefts, _rights, total_w, total_h, _row_h, _bc = _table_metrics(
+        rows, font_size, pad_around_text, block_cols
+    )
     return (total_w, total_h)
 
 
@@ -215,7 +197,7 @@ def _est_hole_table_sizes(
         for ncols in (1, 2, 3, 4)
         if (
             size := _est_table_size(
-                _wrap_table_rows(header, data, ncols), font_size, pad_around_text, len(header)
+                _wrap_rows(header, data, ncols), font_size, pad_around_text, len(header)
             )
         )
         is not None
@@ -632,23 +614,6 @@ def _view_geom(a) -> dict:
     }
 
 
-def _anno_bbox(o):
-    """Page-space bbox of an annotation: its text ``label_bbox`` if it has one,
-    else its geometric bounding box; ``None`` if neither resolves."""
-    lb = getattr(o, "label_bbox", None)
-    if lb is not None:
-        return lb
-    try:
-        b = o.bounding_box()
-        return (b.min.X, b.min.Y, b.max.X, b.max.Y)
-    except Exception as exc:  # noqa: BLE001 — not every annotation bbox-es cleanly
-        # Fails open: an un-bbox-able annotation drops out of the overlap count and
-        # the measured footprint. Surface it so a silently-missed repack trigger is
-        # debuggable rather than invisible (#121).
-        _log.debug("annotation %r has no resolvable bbox: %s", type(o).__name__, exc)
-        return None
-
-
 def _attribute_annotations(dwg, a):
     """Yield ``(name, view, bbox, is_label)`` for every annotation OWNED by an
     orthographic view, per the view recorded at creation (``dwg.view_of``).
@@ -666,7 +631,7 @@ def _attribute_annotations(dwg, a):
         if view not in ("front", "plan", "side"):
             continue
         label = getattr(o, "label_bbox", None)
-        bb = label if label is not None else _anno_bbox(o)
+        bb = label if label is not None else _anno_box(o)
         if bb is None:
             continue
         yield name, view, bb, label is not None

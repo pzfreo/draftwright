@@ -39,7 +39,7 @@ from build123d_drafting.helpers import (
 # now live in the leaf `draftwright._geometry` so the IR waist (`model/`) can use them
 # without importing this stage-level grab-bag (ADR 0008; #584 WP2). Re-exported here for
 # the above-`_core` consumers (annotations/sheet/drawing/linting) that already import them.
-from draftwright._geometry import _END_ON, HoleRef, _axis_letter, _xyz  # noqa: F401
+from draftwright._geometry import _END_ON, HoleRef, _axis_letter, _fmt, _xyz  # noqa: F401
 from draftwright.fits import FitClass
 from draftwright.fonts import PLEX_MONO, PLEX_SANS_CONDENSED
 from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
@@ -58,10 +58,79 @@ _FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built 
 _TB_H = 35.0
 
 
-def _fmt(v: float) -> str:
-    """Format a float as integer string if whole, otherwise 1 dp."""
-    r = round(v)
-    return str(r) if abs(v - r) < 1e-6 else f"{v:.1f}"
+def _shape_box2d(shape):
+    """``(x0, y0, x1, y1)`` page-plane bbox of a build123d shape, or ``None`` on
+    failure — the one home of the bounding-box-read idiom (#700; the memoised /
+    logging variants in ``linting.structural`` and ``annotations._common`` layer
+    their policies over the same read)."""
+    try:
+        bb = shape.bounding_box()
+        return (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
+    except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
+        return None
+
+
+def _anno_box(o):
+    """Page-space bbox ``(x0, y0, x1, y1)`` of an annotation — its text
+    ``label_bbox`` if it has one, else its geometric bounding box; ``None`` if
+    neither resolves (logged at debug: a silently un-bbox-able annotation drops
+    out of overlap counts and measured footprints, #121). The one copy behind
+    ``annotations._common`` and ``compose`` (#700)."""
+    lb = getattr(o, "label_bbox", None)
+    if lb is not None:
+        return lb
+    box = _shape_box2d(o)
+    if box is None:
+        _log.debug("annotation %r has no resolvable bbox", type(o).__name__)
+    return box
+
+
+def _wrap_rows(header, data, ncols):
+    """Reshape *data* rows into *ncols* side-by-side blocks (a wider, shorter
+    table), each block headed by *header* — so a long hole chart fits the page.
+    Shared by the annotation pass and the compose-time footprint estimate (#700).
+    """
+    per = math.ceil(len(data) / ncols)
+    blank = ("",) * len(header)
+    wide = [tuple(header) * ncols]
+    for r in range(per):
+        row: tuple = ()
+        for c in range(ncols):
+            idx = c * per + r
+            row += data[idx] if idx < len(data) else blank
+        wide.append(row)
+    return wide
+
+
+def _table_metrics(rows, font_size, pad_around_text, block_cols=None):
+    """The sizing model of a data table: per-column left/right edges (page-mm,
+    block gaps inserted), total width/height, row height and effective block
+    width, as ``(lefts, rights, total_w, total_h, row_h, bc)``.
+
+    The ONE place table geometry is computed (#700): ``drawing._build_table``
+    draws from it and ``compose._est_table_size`` estimates from it, so the
+    ADR 0004 ``table_fits`` fitness check can never desynchronise from what
+    renders (the drift ADR 0004 names as the failure mode to guard against).
+    """
+    fs = font_size
+    pad = pad_around_text
+    row_h = fs + 2 * pad
+    ncol = len(rows[0])
+    # Only treat as multi-block when block_cols evenly divides the row width.
+    bc = block_cols if (block_cols and ncol % block_cols == 0 and block_cols < ncol) else ncol
+    block_gap = 3 * pad  # whitespace between side-by-side blocks
+    col_w = [
+        max(max(_text_width(str(r[c]), fs) for r in rows) + 2 * pad, fs * 2.5) for c in range(ncol)
+    ]
+    # Per-column left/right edges, inserting block_gap before each new block.
+    lefts, rights, cursor = [], [], 0.0
+    for c in range(ncol):
+        if c > 0 and c % bc == 0:
+            cursor += block_gap
+        lefts.append(cursor)
+        cursor += col_w[c]
+        rights.append(cursor)
+    return lefts, rights, cursor, row_h * len(rows), row_h, bc
 
 
 def _tol_suffix(tolerance, draft) -> str:

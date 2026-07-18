@@ -115,6 +115,27 @@ def test_a_dropped_table_frees_its_name():
     assert any(i.code == "table_dropped" for i in dwg._build_issues)  # the drop is still recorded
 
 
+def test_estimated_table_size_matches_rendered():
+    # #700: compose's table_fits fitness check (ADR 0004) sizes tables via
+    # _est_table_size; the annotation pass renders them via _build_table. Both now
+    # draw from the one _core._table_metrics — this pins estimator == rendered, the
+    # exact drift ADR 0004 names as the failure mode to guard against.
+    from draftwright._core import _FONT_SIZE, _wrap_rows, draft_preset
+    from draftwright.compose import _est_table_size
+    from draftwright.drawing import _build_table
+
+    draft = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
+    header = ("TAG", "ø", "X", "Y")
+    data = [(f"A{i}", f"ø{3 + i}.5", str(10 * i), str(5 * i)) for i in range(5)]
+    for ncols in (1, 2, 3):
+        rows = _wrap_rows(header, data, ncols)
+        table = _build_table(rows, draft, block_cols=len(header))
+        est = _est_table_size(rows, draft.font_size, draft.pad_around_text, len(header))
+        assert est == pytest.approx(table.table_size), (
+            f"ncols={ncols}: estimated footprint {est} != rendered {table.table_size}"
+        )
+
+
 def test_model_inspection_ignores_tables():
     # model() is the cheap no-render inspection path — tables are render-time, so declaring one
     # must not affect the IR model or raise.
