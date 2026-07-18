@@ -263,25 +263,10 @@ Current ADRs:
   was **retired** here — byte-exact digests are friction during deliberate output
   evolution; regression coverage rests on the geometry-level + `test_e2e_standards`
   suites. See ADR 0005 §3's retirement note.)
-- **0008** — **Accepted, migration complete** (one path, 2026-06-30): the
-  part-drawing **compiler** — detectors → a Feature/DimParameter **IR/PartModel**
-  → a dimensioning **planner** → render-intents → the shared layout/projection/
-  export infra. One feature inventory, detected once; orientation/feature-kind are
-  *data in the IR*, not code branches. Roadmaps: `docs/plans/0008-*-roadmap.md`.
-- **0009** — **Accepted, largely implemented** (Amendments 1–9; supersedes/
-  subsumes #150): **collect-then-solve** per-strip annotation placement
-  (boundary labeling). Strip passes stop placing-as-they-go;
-  every strip occupant is collected as a candidate and one solve per strip does
-  select → assign → order(=feature order ⇒ crossing-free) → space. Removes the
-  invisible-occupant collision class (#133/#225/#305) by construction; the inner
-  per-view layer to 0004's outer block packing; consumes 0008's render-intents.
-  **Migration complete** (#636 closed, epic #635): every auto-pass strip
-  occupant joins the solve, so the by-construction guarantee holds; the
-  remaining `carve_free_position` callers are explicit exemptions (post-drain
-  fallthroughs, manual post-build verbs, the diagonal pitch fallback) pinned by
-  the fail-closed `tests/test_carve_free_position_callers.py`.
-  Research: `docs/research/annotation-placement-boundary-labeling.md`. Roadmap:
-  `docs/plans/strip-layout-boundary-labeling-roadmap.md`.
+- **0008** — **Superseded by 0015** (#697): the compiler-convergence why-trail,
+  frozen. Read 0015 for current state.
+- **0009** — **Superseded by 0014** (#697): the collect-then-solve why-trail
+  (9 amendments), frozen. Read 0014 for current state.
 - **0010** — **Accepted** (decision; work pending): **annotation provenance seam**.
   The editable-surface epic needs "which annotations did this feature/intent
   produce?" (for `drop`/`dimension`/`finalize`/the #400 emitter). Rather than
@@ -323,6 +308,19 @@ Current ADRs:
   the deferred Phase-2 deployment (gated on a second committed consumer).
   Remaining Phase 1: the typed `detect.py` adapter registry (roadmap item 1c).
   Roadmap: `docs/plans/0013-shared-recognisers-roadmap.md`.
+- **0014** — **Accepted** (supersedes 0009, #697): **collect-then-solve
+  annotation placement as built** — collect every strip occupant as a
+  candidate; one solve per strip (select → order(=feature order ⇒
+  crossing-free) → space, the PAVA L1 solve); post-#636 the guarantee holds for
+  every auto-pass occupant, with the `carve_free_position` exemptions pinned
+  fail-closed. Includes the strip/zone/corridor glossary and the
+  StripCandidate↔CorridorCandidate layering.
+- **0015** — **Accepted** (supersedes 0008, #697): **the part-drawing compiler
+  as built** — detectors + declared features → the one PartModel waist (two
+  tiers, ADR 0013) → planner → render-intents → shared infra; with the
+  **honest planner-coverage split** (which kinds flow through `plan_dimensions`
+  vs bypass it — convergence tracked by #698) and the lint/coverage carve-out
+  stated properly. New feature kinds must take the planner path.
 
 ## Dependencies
 
