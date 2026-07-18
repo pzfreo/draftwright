@@ -85,6 +85,8 @@ draftwright/
   repair.py              # deterministic repair loop (ADR 0002)
   export.py              # SVG/DXF/PDF export + post-processing
   tables.py              # generic table construction/placement helpers
+                         #   (never created — table GEOMETRY converged into _core._table_metrics/_build_table,
+                         #    the one sizing model (#700/#699); PLACEMENT stayed a Drawing verb, add_table)
   annotations/
     orchestrator.py      # auto_annotate sequencing (_auto_annotate)
     envelope.py          # OD/width/depth/height/step dims

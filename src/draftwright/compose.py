@@ -149,7 +149,7 @@ def _will_balloon(model) -> bool:
 def _est_table_size(
     rows, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0, block_cols=None
 ):
-    """Table footprint estimate — ``drawing._build_table``'s sizing, from the
+    """Table footprint estimate — ``_core._build_table``'s sizing, from the
     shared :func:`draftwright._core._table_metrics` so the ADR 0004
     ``table_fits`` fitness check can never desynchronise from what renders
     (#700; pinned by ``test_sheet_tables``)."""

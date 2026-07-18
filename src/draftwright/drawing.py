@@ -19,21 +19,15 @@ from dataclasses import field as dataclasses_field
 from typing import NamedTuple
 
 from build123d import (
-    Align,
-    Circle,
     Color,
     Compound,
-    Edge,
     ExportDXF,
     ExportSVG,
     LineType,
     Location,
-    Mode,
-    Text,
     Vector,
 )
 from build123d_drafting.helpers import (
-    Leader,
     ViewCoordinates,
     annotate,
     view_axes,
@@ -41,16 +35,19 @@ from build123d_drafting.helpers import (
 
 from draftwright._core import (
     _MARGIN,
-    _STRIP_GAP,
-    _STRIP_SPACING,
     Analysis,
+    _build_table,
     _dim,
     _fmt,
     _log,
-    _table_metrics,
     _tag_sequence,
 )
-from draftwright.annotations._common import carve_free_position, strip_obstacles
+from draftwright.annotations._common import (
+    PlacementContext,
+    carve_free_position,
+    strip_obstacles,
+)
+from draftwright.annotations.balloons import render_balloons
 from draftwright.export import (
     _export_shape,
     _render_pdf,
@@ -62,13 +59,8 @@ from draftwright.export import (
     set_dxf_metadata,
     write_dxf,
 )
-from draftwright.fonts import PLEX_MONO
 from draftwright.intents import Intent
-from draftwright.layout import (
-    _greedy_strip_1d,
-    _solve_strip_1d,
-    fit_box,
-)
+from draftwright.layout import fit_box
 from draftwright.linting import (
     CoverageState,
     LintIssue,
@@ -86,153 +78,6 @@ from draftwright.projection import (
 from draftwright.recognition import analyse_cylinders
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
-
-
-def _build_table(rows, draft, block_cols=None):
-    """Build a generic data-table annotation at the origin (bottom-left ``(0, 0)``).
-
-    *rows* is a list of equal-length string tuples; ``rows[0]`` is the header,
-    drawn at the top. Returns a :class:`Compound` of grid rules + cell text,
-    carrying ``.table_size = (w, h)`` so it can be positioned via
-    :func:`fit_box`. Column widths are sized to their content via real glyph
-    metrics (:func:`_text_width`). Generic — the hole table, and gear/BOM/
-    revision tables, all build through here.
-
-    When the rows are a wrapped chart of *block_cols*-wide side-by-side blocks
-    (see :func:`_wrap_rows`), each block is drawn as its own bordered grid with
-    a whitespace gap between them, so the blocks read as separate tables rather
-    than one run-on grid.
-    """
-    fs = draft.font_size
-    ncol = len(rows[0])
-    # One sizing model, shared with compose's footprint estimate (#700).
-    lefts, rights, total_w, total_h, row_h, bc = _table_metrics(
-        rows, fs, draft.pad_around_text, block_cols
-    )
-    ys = [i * row_h for i in range(len(rows) + 1)]
-    children = []
-    for b in range(ncol // bc):  # one bordered grid per block
-        cols = range(b * bc, b * bc + bc)
-        bl, br = lefts[b * bc], rights[b * bc + bc - 1]
-        for x in [lefts[c] for c in cols] + [br]:  # column rules + block edges
-            children.append(Edge.make_line(Vector(x, 0, 0), Vector(x, total_h, 0)))
-        for y in ys:  # horizontal rules stop at the block edge, not the gap
-            children.append(Edge.make_line(Vector(bl, y, 0), Vector(br, y, 0)))
-    for ri, row in enumerate(rows):  # rows[0] (header) sits at the top
-        cy = total_h - (ri + 0.5) * row_h
-        for ci, cell in enumerate(row):
-            if not str(cell):
-                continue
-            cx = (lefts[ci] + rights[ci]) / 2
-            text = Text(
-                txt=str(cell),
-                font_size=fs,
-                font_path=PLEX_MONO,
-                align=(Align.CENTER, Align.CENTER),
-                mode=Mode.PRIVATE,
-            ).locate(Location((cx, cy, 0)))
-            children.extend(text.faces())
-    table = Compound(children=children)
-    table.table_size = (total_w, total_h)
-    return table
-
-
-@dataclass
-class _FlowEdge:
-    to: int
-    rev: int
-    cap: int
-    cost: int
-
-
-def _strip_capacity(lo: float, hi: float, gap: float) -> int:
-    """Number of uniform balloon centres that can fit in ``[lo, hi]``."""
-
-    if hi < lo:
-        return 0
-    return int(math.floor((hi - lo) / gap + 1e-9)) + 1
-
-
-def _assign_balloon_bands(members, choices_by_member, capacities):
-    """Global max-cardinality/min-cost assignment of balloons to side bands (#516)."""
-
-    band_order = ("left", "right", "top", "bottom")
-    bands = [b for b in band_order if capacities.get(b, 0) > 0]
-    assigned: dict[str, list] = {b: [] for b in band_order}
-    if not members or not bands:
-        return assigned, len(members)
-
-    source = 0
-    member0 = 1
-    band0 = member0 + len(members)
-    sink = band0 + len(bands)
-    graph: list[list[_FlowEdge]] = [[] for _ in range(sink + 1)]
-
-    def add_edge(fr: int, to: int, cap: int, cost: int) -> _FlowEdge:
-        fwd = _FlowEdge(to, len(graph[to]), cap, cost)
-        rev = _FlowEdge(fr, len(graph[fr]), 0, -cost)
-        graph[fr].append(fwd)
-        graph[to].append(rev)
-        return fwd
-
-    used_edges: dict[tuple[int, str], _FlowEdge] = {}
-    for i, choices in enumerate(choices_by_member):
-        add_edge(source, member0 + i, 1, 0)
-        for j, band in enumerate(bands):
-            if band not in choices:
-                continue
-            # Costs are integerised for deterministic shortest paths; the tiny band
-            # ordinal keeps exact ties stable without changing real distance order.
-            cost = int(round(max(0.0, choices[band]) * 1000)) + band_order.index(band)
-            used_edges[(i, band)] = add_edge(member0 + i, band0 + j, 1, cost)
-    for j, band in enumerate(bands):
-        add_edge(band0 + j, sink, capacities[band], 0)
-
-    def shortest_path():
-        dist = [math.inf] * len(graph)
-        prev: list[tuple[int, int] | None] = [None] * len(graph)
-        in_queue = [False] * len(graph)
-        queue = [source]
-        dist[source] = 0
-        in_queue[source] = True
-        while queue:
-            v = queue.pop(0)
-            in_queue[v] = False
-            for ei, edge in enumerate(graph[v]):
-                if edge.cap <= 0:
-                    continue
-                nd = dist[v] + edge.cost
-                if nd >= dist[edge.to]:
-                    continue
-                dist[edge.to] = nd
-                prev[edge.to] = (v, ei)
-                if not in_queue[edge.to]:
-                    queue.append(edge.to)
-                    in_queue[edge.to] = True
-        return prev if prev[sink] is not None else None
-
-    max_flow = min(len(members), sum(capacities.get(b, 0) for b in bands))
-    flow = 0
-    while flow < max_flow and (prev := shortest_path()) is not None:
-        v = sink
-        while v != source:
-            pv, ei = prev[v]
-            edge = graph[pv][ei]
-            edge.cap -= 1
-            graph[v][edge.rev].cap += 1
-            v = pv
-        flow += 1
-
-    placed = 0
-    for i, member in enumerate(members):
-        for band in bands:
-            edge = used_edges.get((i, band))
-            if edge is not None and edge.cap == 0:
-                assigned[band].append(member)
-                placed += 1
-                break
-    return assigned, len(members) - placed
-
 
 # Codes that check standards/geometry correctness rather than pure page
 # layout. Grouped so a caller (and the #30 repair loop) can tell a wrong
@@ -455,9 +300,6 @@ class Drawing:
         # than it being detected — gates the model-driven hole/pattern render membership so a
         # declared hole draws even where detection missed it, no-op for the detected path (#448).
         self._model_declared: bool = False
-        # Lazy model-location → IR hole/pattern feature index (#408), so a balloon —
-        # which holds a recognition hole, not the IR feature — can attribute itself.
-        self._hole_feature_index: dict | None = None
         # Deferred placement intents (#426 Phase 1). When _defer_intents is True the add
         # verbs record an Intent instead of placing; finalize() drains them (Phase 1
         # replays through the live helpers). Default off → the live path is unchanged.
@@ -1810,222 +1652,19 @@ class Drawing:
         """Place a leadered balloon for each ``(tag, j, hole)`` in *specs*,
         fitted into the halo the layout reserved around the view (#111).
 
-        Each hole is assigned to the nearest reserved band — left, right, or top
-        of the plan view (never the bottom: the front view abuts it there) — and
-        the balloons in each band are spread along it with the 1D strip solver so
-        none overlap, each pulled toward its hole's coordinate.  A :class:`Leader`
-        then runs from the hole rim to the glyph.  Because the layout reserved
-        this band before placing the views (:func:`_est_plan_halo` /
-        :func:`_will_balloon`), the balloons sit in clear space off the part and
-        no leader crosses a neighbouring view.
+        Public verb over the :mod:`draftwright.annotations.balloons` render pass
+        (#699: the pass lives in the render layer; this owner method threads the
+        build state in). Each hole is assigned to a reserved band — left, right,
+        top or bottom — by a global max-cardinality/min-cost assignment (#516),
+        each band is spread with the 1D strip solver, and a :class:`Leader` runs
+        from the hole rim to each glyph.
         """
-        a = self._analysis
-        if view not in self._coords or a is None:
+        if view not in self._coords or self._analysis is None:
             return
-        pp = self._coords[view].pp
-        fs = self.draft.font_size
-        r = fs * 1.5  # circle comfortably larger than the glyph
-        standoff = _STRIP_GAP
-        gap = 2 * r + 2 * _STRIP_SPACING  # min centre-to-centre: balloon + padding both sides
-
-        # Plan-view page edges; the reserved bands sit just outside them.
-        pl, pr = a.PV_X - a.fv_hw, a.PV_X + a.fv_hw
-        pt, pb = a.PV_Y + a.pv_hh, a.PV_Y - a.pv_hh
-        sv_left = a.SV_X - a.sv_hw
-        margin, ph, pw = a.margin, a.PAGE_H, a.PAGE_W
-
-        # Stack the balloon ring *beyond* the annotations already placed around the
-        # plan view, not on top of them (#121). Measure the REAL depth every placed
-        # occupant extends into each band from its full rendered footprint — leader
-        # shafts, centreline geometry, tables, and bare extension lines included.
-        # This intentionally shares the same full-footprint occupancy source as
-        # corridor placement (#518), instead of re-growing a per-furniture allowlist.
-        top_dim = bot_dim = left_dim = right_dim = 0.0
-        for x0, y0, x1, y1 in strip_obstacles(self, view=view):
-            if x1 > pl and x0 < pr:  # spans the plan's width → top/bottom bands
-                if y1 > pt:
-                    top_dim = max(top_dim, y1 - pt)
-                if y0 < pb:
-                    bot_dim = max(bot_dim, pb - y0)
-            if y1 > pb and y0 < pt:  # spans the plan's height → left/right bands
-                if x0 < pl:
-                    left_dim = max(left_dim, pl - x0)
-                if x1 > pr:
-                    right_dim = max(right_dim, x1 - pr)
-
-        # A dense part can stack many pitch dims on one side (holes._place_pitch_dim
-        # pushes each successive one 10 mm further out, #92), so the measured depth
-        # can exceed the room between the view and the page edge. Clamp each band so
-        # its *ring itself* never lands off the drawable area (#349 follow-up) — the
-        # ring then sits at the margin and overlaps the far witness lines instead,
-        # which is only a tolerated warning (structural.py compares label_bbox, not
-        # the full bbox, for overlap), never the out_of_bounds error.
-        left_dim = min(left_dim, max(0.0, pl - standoff - 2 * r - margin))
-        right_dim = min(right_dim, max(0.0, pw - margin - pr - standoff - 2 * r))
-        top_dim = min(top_dim, max(0.0, ph - margin - pt - standoff - 2 * r))
-        bot_dim = min(bot_dim, max(0.0, pb - standoff - 2 * r - margin))
-
-        # A bottom band (below PV, beyond the overall-width dim) is usable only
-        # when the FV↔PV gap has room for the width dim *and* a balloon row;
-        # otherwise bottom-edge holes fall back to the nearest side/top band.
-        bottom_line = pb - bot_dim - standoff - r
-        has_bottom = pb - (a.FV_Y + a.fv_hh) > bot_dim + standoff + 2 * r
-
-        # left/right balloons vary in Y at a fixed X just outside the part; top
-        # and bottom balloons vary in X at a fixed Y just beyond it. Each line is
-        # offset by its side's dim depth so the ring sits clear of the dims.
-        band_defs = {
-            "left": ("y", pl - left_dim - standoff - r, margin + r, ph - margin - r),
-            "right": ("y", pr + right_dim + standoff + r, margin + r, ph - margin - r),
-            "top": ("x", pt + top_dim + standoff + r, pl - standoff, sv_left - r),
-            "bottom": ("x", bottom_line, pl - standoff, sv_left - r),
-        }
-
-        # Globally assign holes across the usable reserved bands.  Nearest-band
-        # greedy could crowd one side and drop balloons while another side sat
-        # empty; the assignment maximises placed balloons first, then minimises
-        # leader distance to the ACTUAL post-depth band lines (#516).
-        members = []
-        choices_by_member = []
-        for tag, j, hole in specs:
-            cx, cy = pp(*hole.location)
-            choices = {
-                "left": abs(cx - band_defs["left"][1]),
-                "right": abs(band_defs["right"][1] - cx),
-                "top": abs(band_defs["top"][1] - cy),
-            }
-            if has_bottom:
-                choices["bottom"] = abs(cy - band_defs["bottom"][1])
-            members.append((tag, j, hole, cx, cy))
-            choices_by_member.append(choices)
-
-        capacities = {
-            name: (_strip_capacity(lo, hi, gap) if name != "bottom" or has_bottom else 0)
-            for name, (_axis, _line, lo, hi) in band_defs.items()
-        }
-        bands, dropped = _assign_balloon_bands(members, choices_by_member, capacities)
-        dropped += self._place_band(
-            view,
-            bands["left"],
-            *band_defs["left"],
-            gap,
-            fs,
-            r,
+        ctx = PlacementContext(
+            registry=self._registry, coverage=self._coverage, part_model=self._part_model
         )
-        dropped += self._place_band(
-            view,
-            bands["right"],
-            *band_defs["right"],
-            gap,
-            fs,
-            r,
-        )
-        dropped += self._place_band(
-            view,
-            bands["top"],
-            *band_defs["top"],
-            gap,
-            fs,
-            r,
-        )
-        dropped += self._place_band(
-            view,
-            bands["bottom"],
-            *band_defs["bottom"],
-            gap,
-            fs,
-            r,
-        )
-        # A band too crowded to hold every balloon drops its tail (the strip solver's
-        # prefix fallback) — record it instead of letting the balloons vanish silently
-        # (review follow-up). The resolver keeps the callout_dropped lint for a pattern
-        # whose balloon did not land, so a missing pattern balloon is still a coverage gap.
-        if dropped:
-            self._record_build_issue(
-                "warning",
-                "balloon_dropped",
-                f"{dropped} balloon(s) could not fit their reserved band and were dropped",
-            )
-
-    def _place_band(self, view, members, axis, line, lo, hi, gap, fs, r) -> int:
-        """Spread *members* (``(tag, j, hole, cx, cy)``) along one reserved band
-        with the strip solver, then render a leadered balloon for each (#111).
-
-        *axis* is the band's free axis (``"y"`` for the left/right bands, ``"x"``
-        for the top); *line* is the fixed coordinate of the other axis.  Overflow
-        beyond ``[lo, hi]`` drops the tail rather than running balloons off-page.
-        Returns the number of members dropped, so the caller can surface it as lint
-        (a silently truncated balloon leaves a hole undocumented — the resolver
-        must know, review follow-up).
-        """
-        if not members:
-            return 0
-        k = 4 if axis == "y" else 3  # index of cy / cx in the member tuple
-        members.sort(key=lambda m: m[k])
-        naturals = [m[k] for m in members]
-        coords = (
-            _solve_strip_1d(naturals, gap, lo, hi)
-            or _greedy_strip_1d(naturals, gap, lo, hi)
-            or _greedy_strip_1d(naturals, gap, lo, hi, prefix=True)
-        )
-        for (tag, j, hole, cx, cy), c in zip(members, coords):
-            bx, by = (line, c) if axis == "y" else (c, line)
-            self._render_balloon(view, tag, j, hole, cx, cy, bx, by, fs, r)
-        return len(members) - len(coords)
-
-    def _feature_of_hole_at(self, location):
-        """The IR hole/pattern feature whose member sits at model-space *location*, or
-        ``None`` (#408). Attributes a balloon (which carries a recognition hole, not the
-        IR feature) to its feature so :meth:`drop` clears it. Cached — the model is fixed
-        after build."""
-        m = self._part_model
-        if m is None:
-            return None
-        if self._hole_feature_index is None:
-            idx: dict = {}
-            for f in getattr(m, "features", []):
-                if getattr(f, "kind", None) in ("hole", "pattern"):
-                    for loc in getattr(f, "members", None) or (f.frame.origin,):
-                        idx[tuple(round(c, 3) for c in loc)] = f
-            self._hole_feature_index = idx
-        return self._hole_feature_index.get(tuple(round(c, 3) for c in location))
-
-    def _render_balloon(self, view, tag, j, hole, cx, cy, bx, by, fs, r):
-        """Build and add one balloon glyph + leader at solved centre ``(bx, by)``
-        for hole ``(cx, cy)`` (#111)."""
-        loc = Location((bx, by, 0))
-        # The annotation layer fills closed paths, so a circle edge renders as a
-        # disc. A thin annular FACE fills as a ring — i.e. a circle outline.
-        ring_faces = [f.moved(loc) for f in (Circle(r) - Circle(r - 0.35)).faces()]
-        text = Text(
-            txt=tag,
-            font_size=fs,
-            font_path=PLEX_MONO,
-            align=(Align.CENTER, Align.CENTER),
-            mode=Mode.PRIVATE,
-        ).locate(loc)
-        parts = [*ring_faces, *text.faces()]
-        # Leader from the hole rim to the balloon's near edge — the glyph is the
-        # label, so label="".  Skipped when the balloon could not clear the hole
-        # (degenerate fallback), where a leader would be a stub through the ring.
-        dx, dy = bx - cx, by - cy
-        dist = math.hypot(dx, dy)
-        hole_r = hole.diameter * self.scale / 2
-        if dist > hole_r + r:
-            ux, uy = dx / dist, dy / dist
-            tip = (cx + ux * hole_r, cy + uy * hole_r, 0)
-            elbow = (bx - ux * r, by - uy * r, 0)
-            parts.append(Leader(tip, elbow, "", self.draft))
-        balloon = Compound(children=parts)
-        # Furniture that legitimately sits on the view geometry — exempt from the
-        # annotation-overlap / centreline lint, as the section arrows do.
-        balloon.is_centerline = True
-        self.add(
-            balloon,
-            f"balloon_{view}_{tag}_{j}",
-            view=view,
-            feature=self._feature_of_hole_at(hole.location),
-        )
+        render_balloons(self, self._analysis, view, specs, ctx)
 
     def _add_balloon(self, view, tag, j, hole):
         """Single-balloon convenience over :meth:`add_balloons` (#111)."""
