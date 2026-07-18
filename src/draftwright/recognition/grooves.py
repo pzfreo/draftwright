@@ -74,12 +74,15 @@ class Groove(Record):
     at: tuple[float, float, float]
 
 
-def recognise_grooves(part) -> list[Groove]:
+def recognise_grooves(part, *, cyls=None) -> list[Groove]:
     """Recognise the turned grooves of *part* (see module docstring). Returns one
     :class:`Groove` per external band whose OD is a strict local minimum between two
     contiguous larger bands on the same shaft, sorted deterministically. Empty when the
-    part has no round stock or no groove."""
-    z_cyls, cross_cyls = analyse_cylinders(part)
+    part has no round stock or no groove.
+
+    Pass *cyls* — a precomputed ``analyse_cylinders(part)`` result — to avoid
+    re-scanning the solid (mirrors ``recognise_holes``'s parameter, #703)."""
+    z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
     ext = [c for c in (*z_cyls, *cross_cyls) if c.get("external")]
     if not ext:
         return []

@@ -37,6 +37,7 @@ from draftwright.recognition import (
     Slot,
     StepShoulder,
     TurnedStep,
+    analyse_cylinders,
     recognise_bosses,
     recognise_chamfers,
     recognise_countersinks,
@@ -233,6 +234,23 @@ def test_part_based_recognisers_are_keyword_only_after_part():
             assert p.kind == inspect.Parameter.KEYWORD_ONLY, (
                 f"{fn.__name__}: '{p.name}' must be keyword-only (injected dep / tuning)"
             )
+
+
+def test_cylinder_substrate_is_injectable():
+    """#703: the three turned-stock recognisers accept a precomputed
+    ``analyse_cylinders`` result (``cyls=``) and return identical records to a
+    self-scan — the caller owns the one scan (ADR 0013 §2 / ADR 0008 Am5),
+    mirroring ``recognise_holes``/``recognise_bosses``."""
+    dshaft = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)
+    grooved = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))
+    for fn, part in (
+        (recognise_turned_steps, _turned_shaft()),
+        (recognise_grooves, grooved),
+        (recognise_flats, dshaft),
+    ):
+        records = fn(part)
+        assert records, f"{fn.__name__}: fixture no longer triggers the recogniser"
+        assert fn(part, cyls=analyse_cylinders(part)) == records
 
 
 def test_derived_recogniser_takes_single_positional_inventory():

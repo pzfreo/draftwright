@@ -517,7 +517,7 @@ def _analyse(
     # recognise_face_levels admitted it). Prismatic and other parts keep the
     # general face-level scan, which recognise_turned_steps cannot replace (no
     # cylinders → no profile).
-    _turned = TurnedProfile.from_steps(recognise_turned_steps(part))
+    _turned = TurnedProfile.from_steps(recognise_turned_steps(part, cyls=(z_cyls, cross_cyls)))
     if _turned is not None and _turned.axis == "z":
         step_zs = [z for z in _turned.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
     else:
@@ -566,6 +566,7 @@ def _analyse(
             step_zs=step_zs,
             rotational=(od_diam, _bores, od_axis) if is_rotational else None,
             pmi=pmi_records,
+            cyls=(z_cyls, cross_cyls),
         )
     )
     sizing_groups = plan_dimensions(sizing_model)

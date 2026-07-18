@@ -28,6 +28,7 @@ build123d, and nothing in the engine imports it.
 from __future__ import annotations
 
 from draftwright.recognition import (
+    analyse_cylinders,
     recognise_bosses,
     recognise_chamfers,
     recognise_countersinks,
@@ -46,20 +47,22 @@ from draftwright.recognition import (
 def feature_census(part) -> dict[str, int]:
     """The count of recognised features per kind for *part* (see module docs).
 
-    Runs every feature recogniser once — injecting hole patterns from the recognised holes (the
-    one ADR 0013 dependency) — and returns ``{kind: count}`` with a stable, complete set of
+    Runs every feature recogniser once — injecting hole patterns from the recognised holes and
+    one shared cylinder scan into every substrate recogniser (#703) — and returns
+    ``{kind: count}`` with a stable, complete set of
     keys (a kind absent from the part reports ``0``, not a missing key). The prismatic
     *substrate* recognisers (face levels, step shoulders — #555) are excluded: they feed other
     recognisers rather than being distinct machined features, and their level-derivation belongs
     to the model layer, not a metric."""
-    holes = recognise_holes(part)
-    records = {
+    cyls = analyse_cylinders(part)
+    holes = recognise_holes(part, cyls=cyls)
+    records: dict[str, list] = {
         "hole": holes,
         "hole_pattern": recognise_hole_patterns(holes),
-        "boss": recognise_bosses(part),
-        "step": recognise_turned_steps(part),
-        "groove": recognise_grooves(part),
-        "flat": recognise_flats(part),
+        "boss": recognise_bosses(part, cyls=cyls),
+        "step": recognise_turned_steps(part, cyls=cyls),
+        "groove": recognise_grooves(part, cyls=cyls),
+        "flat": recognise_flats(part, cyls=cyls),
         "slot": recognise_slots(part),
         "pocket": recognise_pockets(part),
         "chamfer": recognise_chamfers(part),
