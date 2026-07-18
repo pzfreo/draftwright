@@ -134,7 +134,7 @@ entry. Keep `_LAYERS` and this section in step.
   `.finish`), GD&T (`datum`/`control`). Facade tier: builds a `PartModel` via
   `model/declare.py` and calls `build_drawing(model=…)`. Née `sheet_dsl.py`
   (renamed #640 — it's a fluent facade, not a DSL, per ADR 0001; a deprecated
-  `sheet_dsl` alias shim remains for one release).
+  `sheet_dsl` alias shim remains until 0.4.0).
 - **`sheet_emit.py`** — the Sheet-script emitter behind `--script --style sheet`:
   generates an editable `Sheet` script from a detected model. Facade tier;
   imports `builder` downward at module level, but `builder`'s lazy `_cli` shim

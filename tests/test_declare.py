@@ -1300,6 +1300,22 @@ class TestSheet:
         warns = [i for i in dwg.lint() if i.severity in ("warning", "error")]
         assert warns == [], [i.code for i in warns]
 
+    def test_sheet_export_defaults_to_pdf_dict(self, tmp_path):
+        # #702: the facade speaks the modern export API — PDF by default (matching
+        # the CLI), {format: path} return — not the deprecated (svg, dxf) tuple.
+        sheet = Sheet(Box(40, 40, 10), title="EXPORT", number="DWG-702")
+        sheet.envelope()
+        paths = sheet.export(str(tmp_path / "dwg702"))
+        assert set(paths) == {"pdf"}
+        assert paths["pdf"].endswith(".pdf") and (tmp_path / "dwg702.pdf").exists()
+
+    def test_sheet_export_formats_passthrough(self, tmp_path):
+        sheet = Sheet(Box(40, 40, 10), title="EXPORT", number="DWG-702B")
+        sheet.envelope()
+        paths = sheet.export(str(tmp_path / "dwg702b"), formats=("svg", "dxf"))
+        assert set(paths) == {"svg", "dxf"}
+        assert (tmp_path / "dwg702b.svg").exists() and (tmp_path / "dwg702b.dxf").exists()
+
     def test_hole_depth_makes_it_blind(self):
         part = Box(40, 40, 10) - Pos(0, 0, 5) * Cylinder(3, 10)
         sheet = Sheet(part)

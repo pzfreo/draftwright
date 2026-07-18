@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **`Sheet.export` speaks the modern export API** (#702): it now takes
+  `formats=` (any of svg/dxf/pdf/png, default **PDF** — matching the CLI
+  default) and `dpi=`, and returns the `{format: path}` dict. Previously it
+  rode the deprecated legacy path, could only write SVG+DXF — the flagship
+  facade couldn't produce a PDF — and returned the old `(svg_path, dxf_path)`
+  tuple. **Breaking** for callers unpacking that tuple: use
+  `sheet.export(stem, formats=("svg", "dxf"))` and read the dict.
+
+### Deprecated
+
+- **`draftwright.sheet_dsl`** (belated announcement — the alias shim shipped
+  in 0.3.1 when #640 renamed the module to `draftwright.sheet`): importing it
+  warns; it will be removed in **0.4.0**. Import from `draftwright.sheet`, or
+  just `from draftwright import Sheet`.
+
 ## v0.3.3 — 2026-07-18
 
 The **layout-quality release**: the occupancy model gets honest about ink shape,

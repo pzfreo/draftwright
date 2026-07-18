@@ -94,7 +94,7 @@ sheet.envelope()
 sheet.datum("A", plate.faces().sort_by()[-1])             # datum A on the top face
 hole = sheet.hole(bore).finish("1.6").note("M3x0.5 TAP")  # ⌀8 bore, Ra 1.6, tapped
 sheet.control(hole).position(0.1, to="A", diameter=True)  # ⌀0.1 position wrt A
-sheet.export("plate")                                     # writes plate.svg + plate.dxf
+sheet.export("plate")                                     # writes plate.pdf
 ```
 
 Every aspect the geometry can't carry is a declared verb: `.tolerance(±)` / `.fit("H7")`
