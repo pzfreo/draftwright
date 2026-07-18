@@ -41,6 +41,11 @@ _ALLOWED_CALLERS = {
     # Pending migration (#636), each with a genuine design fork:
     ("from_model.py", "render_height_ladder"),  # leapfrog witness cursor — needs rework
     ("from_model.py", "render_gdt"),  # PMI alt-strip fallback runs inside on_drop, post-drain
+    # Beyond render_gdt's pattern (helpers ≥0.14): the primary placement IS the
+    # corridor candidate; the carve runs in a ctx.post_drain-DEFERRED drop fallthrough,
+    # after EVERY corridor has drained (#684 review — a mid-drain carve could preempt
+    # a later sibling's reserved corner), retrying the opposite/side-view strip.
+    ("from_model.py", "render_plates"),
     ("holes.py", "add_feature_callout"),  # detect-only verb — no shared corridor drain
     ("holes.py", "add_feature_location"),  # detect-only verb — no shared corridor drain
 }
@@ -135,7 +140,8 @@ def test_guard_detects_a_synthetic_caller():
 def test_migrated_passes_have_no_carve_caller():
     """Positive control: the #636-migrated passes are clean (regression tripwire)."""
     callers = _carve_callers(_ANNO_DIR / "from_model.py")
-    assert "render_plates" not in callers
+    # render_plates' PRIMARY placement stays corridor-registered; its allowlisted carve
+    # is the post-drain on_drop fallthrough only (as render_gdt) — helpers ≥0.14.
     assert "render_step_positions" not in callers
 
 

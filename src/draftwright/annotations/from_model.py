@@ -22,7 +22,14 @@ import math
 from typing import Any
 
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
-from build123d_drafting.helpers import Centerline, CenterMark, HoleCallout, Leader, TitleBlock
+from build123d_drafting.helpers import (
+    DEFAULT_FONT_PATH,
+    Centerline,
+    CenterMark,
+    HoleCallout,
+    Leader,
+    TitleBlock,
+)
 
 from draftwright._core import (
     _DIAM_RE,
@@ -46,6 +53,7 @@ from draftwright._core import (
     _legible_steps,
     _log,
     _solve_strip_ys,
+    _text_size,
     _title_block_box,
     _tol_suffix,
 )
@@ -711,10 +719,65 @@ def _diameter_row_below(dwg, items, start: int = 0) -> int:
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
         specs.append((tip, dia, f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}", feat))
-    half_w = max(len(label) for _, _, label, _ in specs) * draft.font_size * _EST_CHAR_WIDTH_EM / 2
+    # Real measured width, not the per-char estimate: helpers >=0.14 label boxes are
+    # honest about the rendered string, so an underestimated min_gap here surfaces as a
+    # visible annotation_overlap between adjacent labels (hypothesis tier).
+    half_w = (
+        max(
+            _text_size(
+                label,
+                draft.font_size,
+                getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                getattr(draft, "font", "Arial"),
+            )[0]
+            for _, _, label, _ in specs
+        )
+        / 2
+    )
     min_gap = 2 * half_w + 2 * draft.pad_around_text
     # Place what fits; drop the smallest ø first, never the whole row (#298).
     survivors, xs = _place_what_fits(specs, 0, min_gap, fx0 + half_w, fx1 - half_w)
+    # A leader whose solved elbow lands LEFT of its tip flips its shelf (helpers'
+    # direction rule), extending the label LEFTWARD — the min_gap model assumes
+    # rightward labels, so a crowd-shifted elbow can land its flipped label on the
+    # previous one. A flip alone is fine (a lone edge leader flips harmlessly); only
+    # when direction-aware label intervals actually collide, enforce elbow ≥ tip with
+    # a left-to-right min_gap cascade; overflow drops the smallest ø (#298) and
+    # re-solves. No-op for ordinary rows.
+    _SHELF = 2.0  # helpers Leader: the label hangs one shelf-length off the elbow
+
+    def _label_ivals(svs, positions):
+        out = []
+        for sp, lx in zip(svs, positions, strict=True):
+            w_i = _text_size(
+                sp[2],
+                draft.font_size,
+                getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                getattr(draft, "font", "Arial"),
+            )[0]
+            if lx < sp[0][0]:  # flipped: label extends left of the elbow
+                out.append((lx - _SHELF - w_i, lx - _SHELF))
+            else:
+                out.append((lx + _SHELF, lx + _SHELF + w_i))
+        return out
+
+    def _collides(ivals):
+        pairs = zip(sorted(ivals), sorted(ivals)[1:])
+        return any(a1 > b0 for (_a0, a1), (b0, _b1) in pairs)
+
+    while len(survivors) > 1 and _collides(_label_ivals(survivors, xs)):
+        adj: list[float] = []
+        for sp, lx in zip(survivors, xs, strict=True):
+            v = max(lx, sp[0][0])
+            if adj:
+                v = max(v, adj[-1] + min_gap)
+            adj.append(v)
+        if adj[-1] <= fx1 - half_w:
+            xs = adj
+            break
+        drop = min(range(len(survivors)), key=lambda i: survivors[i][1])
+        survivors.pop(drop)
+        survivors, xs = _place_what_fits(survivors, 0, min_gap, fx0 + half_w, fx1 - half_w)
     for i, ((tip, dia, label, feat), lx) in enumerate(zip(survivors, xs, strict=True)):
         dwg.add(
             Leader(tip=(tip[0], tip[1], 0), elbow=(lx, label_y, 0), label=label, draft=draft),
@@ -1320,6 +1383,33 @@ def render_plates(dwg, model, a, *, ctx) -> int:
             p2 = dwg.at(view, a.bb.min.X, pl.v, pl.hi)
             edge = p1[0]
             pa, pb = (edge, p1[1], 0), (edge, p2[1], 0)
+            # Right-strip fallthrough anchors (helpers ≥0.14): a tight-span thickness
+            # dim's witness hull overlaps the below strip's at the view corner at EVERY
+            # position (AABB artifact — the ink never touches), so a full left strip
+            # retries on the opposite side before dropping.
+            q1 = dwg.at(view, a.bb.max.X, pl.v, pl.lo)
+            s1 = dwg.at("side", a.bb.min.X, a.bb.max.Y, pl.lo)
+            s2 = dwg.at("side", a.bb.min.X, a.bb.max.Y, pl.hi)
+            alt = [
+                (
+                    "front",
+                    "right",
+                    a.fv_zones.right,
+                    "x",
+                    (q1[0], p1[1], 0),
+                    (q1[0], p2[1], 0),
+                    q1[0],
+                ),
+                (
+                    "side",
+                    "right",
+                    a.sv_zones.right,
+                    "x",
+                    (s1[0], s1[1], 0),
+                    (s1[0], s2[1], 0),
+                    s1[0],
+                ),
+            ]
         elif pl.axis == "y":
             # Upright wall: horizontal dim above the side (end) view, which shows the
             # wall edge-on on the L-profile — a different view from the Z base plate.
@@ -1330,12 +1420,14 @@ def render_plates(dwg, model, a, *, ctx) -> int:
             p2 = dwg.at(view, a.bb.min.X, pl.hi, a.bb.max.Z)
             edge = p1[1]
             pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
+            alt = None
         else:  # x — thin wall along X → horizontal dim below the front view
             view, strip, stack, side = "front", a.fv_zones.below, "y", "below"
             p1 = dwg.at(view, pl.lo, pl.u, a.bb.min.Z)
             p2 = dwg.at(view, pl.hi, pl.u, a.bb.min.Z)
             edge = p1[1]
             pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
+            alt = None
         name = f"dim_plate_{pl.axis}{i}"
 
         def _build(pos, pa=pa, pb=pb, side=side, edge=edge, val=val):
@@ -1344,12 +1436,51 @@ def render_plates(dwg, model, a, *, ctx) -> int:
         def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, val=val):
             return dim_footprint(pa, pb, side, pos - edge, draft, _fmt(val))
 
-        def _drop(nm, val=val, view=view, stack=stack):
-            ctx.record_issue(
-                "warning",
-                "plate_thickness_dropped",
-                f"plate thickness {_fmt(val)} not dimensioned ({view} {stack}-strip full)",
-            )
+        def _drop(nm, val=val, view=view, stack=stack, alt=alt, feat=pl):  # noqa: B008
+            # Opposite-strip fallthrough (mirrors the GD&T #481 pattern), DEFERRED to
+            # ctx.post_drain so it runs after EVERY corridor has drained (#684 review):
+            # a mid-drain carve could occupy a corner a later sibling's force candidate
+            # needs; post-drain, carve_free_position sees all placed annotations.
+            def _retry(nm=nm, val=val, view=view, stack=stack, alt=alt, feat=feat):
+                for view2, side2, strip2, axis2, qa, qb, edge2 in alt or ():
+                    if strip2 is None:
+                        continue
+                    foot0 = dim_footprint(qa, qb, side2, tier, draft, _fmt(val))
+                    perp = (foot0[1], foot0[3]) if axis2 == "x" else (foot0[0], foot0[2])
+                    pos = carve_free_position(dwg, strip2, view2, axis2, tier, perp)
+                    if pos is not None:
+                        # Accept-time validation (#684 r2): the carve accepted the
+                        # ANALYTICAL footprint — build once and re-check the real box
+                        # against live obstacles + the page before adding (the same
+                        # contract as the corridor's validation fallback). A miss
+                        # tries the next alternate.
+                        dim = _dim(qa, qb, side2, pos - edge2, draft, label=_fmt(val))
+                        real = _geom_box(dim)
+                        page = (_MARGIN, _MARGIN, a.PAGE_W - _MARGIN, a.PAGE_H - _MARGIN)
+                        if real is None or (
+                            _box_hits(
+                                real, strip_obstacles(dwg, view=view2, crossable=CROSSABLE_TYPES)
+                            )
+                            or real[0] < page[0]
+                            or real[1] < page[1]
+                            or real[2] > page[2]
+                            or real[3] > page[3]
+                        ):
+                            continue
+                        dwg.add(dim, nm, view=view2, feature=feat)
+                        return
+                ctx.record_issue(
+                    "warning",
+                    "plate_thickness_dropped",
+                    f"plate thickness {_fmt(val)} not dimensioned ({view} {stack}-strip full)",
+                )
+
+            # Queued retries run in registration order (deterministic; plates sort by
+            # axis/lo/hi) and pick their first viable alternate greedily — two plates
+            # contending for the same two alternates could in principle assign
+            # suboptimally (#684 r2, accepted: joint-solving deferred retries belongs
+            # to the L-shaped-occupancy/corner follow-up).
+            ctx.post_drain.append(_retry)
 
         # ADR 0009 corridor candidate (#636): a plate thickness is a size dim bound to one
         # view/strip (no alternate view), so it is force-kept and dropped only when the strip

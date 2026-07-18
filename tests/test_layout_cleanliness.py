@@ -106,7 +106,14 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
         frozenset({"dim_loc_side_y2000", "m_env_depth"}),
     },
     # BENIGN (as side_drilled): envelope depth + location share the datum witness corridor.
-    "dshape": {frozenset({"dim_loc_side_y200", "m_env_depth"})},
+    # Second pair BENIGN (helpers ≥0.14): a tight-span location dim's outside-arrow
+    # tails put its witness HULL across the height dim's hull at the strip corner at
+    # every position — an AABB artifact of one-box occupancy for L-shaped ink (the
+    # inks are disjoint). Burns down with L-shaped occupancy (the #602 follow-up).
+    "dshape": {
+        frozenset({"dim_loc_side_y200", "m_env_depth"}),
+        frozenset({"dim_height", "dim_loc_front_z400"}),
+    },
     # holed_slot (#345/#346): all BENIGN datum-chain / shared-corridor overlaps — the
     # unified above-corridor solve places three X-location dims + the slot length as one
     # nested ladder off the common datum, so their extension-line spans share the corridor
