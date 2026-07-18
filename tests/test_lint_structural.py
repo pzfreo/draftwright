@@ -417,3 +417,47 @@ class TestLintViewShapes:
         view = self._make_box_shape(80, 10, 40, 30)
         codes = {i.code for i in lint_drawing([], view_shapes=[view])}
         assert "view_out_of_bounds" not in codes
+
+
+class TestLintSelfSilencing:
+    """#701: the check bodies run unguarded — only the fragile duck-typed reads
+    are caught, and every swallowed failure is logged, so a broken check fails
+    loudly instead of silently reporting nothing forever."""
+
+    def test_raising_label_bbox_is_logged_not_swallowed(self, caplog):
+        import logging
+
+        class BadLabelBbox:
+            elbow = (1.0, 1.0)  # leader-like → dispatched to _lint_leader
+
+            @property
+            def label_bbox(self):
+                raise RuntimeError("boom")
+
+        with caplog.at_level(logging.WARNING, logger="draftwright.linting.structural"):
+            issues = lint_drawing([BadLabelBbox()])
+        assert "unreadable label_bbox" in caplog.text
+        assert isinstance(issues, list)  # lint completed; the bad item was skipped
+
+    def test_broken_elbow_is_logged_not_swallowed(self, caplog):
+        import logging
+
+        item = SimpleNamespace(elbow=object(), label_bbox=(0.0, 0.0, 10.0, 5.0), label="L")
+        with caplog.at_level(logging.WARNING, logger="draftwright.linting.structural"):
+            issues = lint_drawing([item])
+        assert "unreadable elbow" in caplog.text
+        assert not any(i.code == "leader_line_through_text" for i in issues)
+
+    def test_leader_elbow_inside_label_still_flagged(self):
+        # the check itself still fires once the reads succeed
+        item = SimpleNamespace(elbow=(5.0, 2.0), label_bbox=(0.0, 0.0, 10.0, 5.0), label="L")
+        issues = lint_drawing([item])
+        assert any(i.code == "leader_line_through_text" for i in issues)
+
+    def test_internal_bug_fails_loudly_not_silently(self):
+        # a malformed 2-tuple label_bbox breaks the pairwise overlap arithmetic;
+        # pre-#701 the whole-body `except Exception: pass` hid it forever.
+        a = SimpleNamespace(label_bbox=(0.0, 0.0), label="A")
+        b = SimpleNamespace(label_bbox=(0.0, 0.0, 4.0, 4.0), label="B")
+        with pytest.raises(IndexError):
+            lint_drawing([a, b])

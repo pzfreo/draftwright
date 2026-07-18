@@ -10,11 +10,14 @@ since draftwright threads the page extent directly (see ``Drawing.lint``).
 
 from __future__ import annotations
 
+import logging
 import re
 
 from build123d import GeomType
 
 from draftwright.linting.issues import LintIssue
+
+_log = logging.getLogger(__name__)
 
 # Inert: draftwright always passes page_bbox explicitly (the set_page global
 # coupling is severed, ADR 0007). Kept so the vendored body is a faithful copy.
@@ -71,7 +74,12 @@ def _ann_box(item, cache):
     try:
         bb = item.bounding_box()
         box = (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — not every annotation bbox-es cleanly
+        # #701: cached once per item, so this logs once — a silently skipped item
+        # is the wrong failure mode for lint (same rationale as _common._geom_box).
+        _log.debug(
+            "lint: %s did not bbox (%s); box-dependent checks skip it", type(item).__name__, exc
+        )
         box = None
     cache[key] = (item, token, box)
     return box
@@ -101,6 +109,20 @@ def _item_label(item) -> str:
     — e.g. a vanilla build123d ``ExtensionLine`` that does not retain its
     constructor label."""
     return getattr(item, "label", "") or getattr(item, "_annotate_label", "") or ""
+
+
+def _label_bbox(item):
+    """``item.label_bbox`` or ``None`` — the one duck-typed read the lint checks
+    guard, so a raising property on a user-supplied item cannot kill lint. It is
+    logged, not swallowed (#701: a check that silently skips an item can silently
+    disable itself)."""
+    try:
+        return getattr(item, "label_bbox", None)
+    except Exception as exc:  # noqa: BLE001 — duck-typed items may misbehave
+        _log.warning(
+            "lint: unreadable label_bbox on %s (%s); item skipped", type(item).__name__, exc
+        )
+        return None
 
 
 def _label_value(label: str) -> float | None:
@@ -232,7 +254,7 @@ def lint_drawing(
     # result is identical. Centre lines are compared via _centerline_extent, not
     # this box, so they don't need one.
     def _label_box(item):
-        lb = getattr(item, "label_bbox", None)
+        lb = _label_bbox(item)
         if lb is not None:
             return lb
         return _ann_box(item, box_cache)
@@ -242,76 +264,71 @@ def lint_drawing(
         if getattr(item, "is_centerline", False):
             boxes.append(None)
             continue
-        try:
-            boxes.append(_label_box(item))
-        except Exception:
-            boxes.append(None)
+        boxes.append(_label_box(item))
 
+    # #701: the check body runs unguarded — the fragile duck-typed reads happened
+    # above (boxes) or inside the callee; a bug here must fail loudly, not silently
+    # disable the check forever.
     for i, item_a in enumerate(items):
         for j in range(i + 1, len(items)):
             item_b = items[j]
-            try:
-                is_cl_a = getattr(item_a, "is_centerline", False)
-                is_cl_b = getattr(item_b, "is_centerline", False)
+            is_cl_a = getattr(item_a, "is_centerline", False)
+            is_cl_b = getattr(item_b, "is_centerline", False)
 
-                if is_cl_a and is_cl_b:
-                    continue
+            if is_cl_a and is_cl_b:
+                continue
 
-                if is_cl_a or is_cl_b:
-                    dim_item = item_b if is_cl_a else item_a
-                    cl_item = item_a if is_cl_a else item_b
-                    _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache)
-                    continue
+            if is_cl_a or is_cl_b:
+                dim_item = item_b if is_cl_a else item_a
+                cl_item = item_a if is_cl_a else item_b
+                _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache)
+                continue
 
-                # Compare label text extents, NOT full bounding boxes.
-                # Full bbox includes witness lines which legitimately overlap for
-                # stacked dims (every inner bbox is a subset of the outer one).
-                # label_bbox is the keep-clear region around the value text — the
-                # thing that actually matters to a reader.
-                la_box = boxes[i]
-                lb_box = boxes[j]
-                if la_box is None or lb_box is None:
-                    continue
-                ox = max(0.0, min(la_box[2], lb_box[2]) - max(la_box[0], lb_box[0]))
-                oy = max(0.0, min(la_box[3], lb_box[3]) - max(la_box[1], lb_box[1]))
-                if ox > 0.5 and oy > 0.5:
-                    la = getattr(item_a, "label", "?")
-                    lb = getattr(item_b, "label", "?")
-                    issues.append(
-                        LintIssue(
-                            severity="warning",
-                            message=(
-                                f"labels '{la}' and '{lb}' overlap by "
-                                f"{ox:.1f}×{oy:.1f} mm — use label_offset_x or "
-                                f"increase dim offset to separate them"
-                            ),
-                            code="annotation_overlap",
-                        )
+            # Compare label text extents, NOT full bounding boxes.
+            # Full bbox includes witness lines which legitimately overlap for
+            # stacked dims (every inner bbox is a subset of the outer one).
+            # label_bbox is the keep-clear region around the value text — the
+            # thing that actually matters to a reader.
+            la_box = boxes[i]
+            lb_box = boxes[j]
+            if la_box is None or lb_box is None:
+                continue
+            ox = max(0.0, min(la_box[2], lb_box[2]) - max(la_box[0], lb_box[0]))
+            oy = max(0.0, min(la_box[3], lb_box[3]) - max(la_box[1], lb_box[1]))
+            if ox > 0.5 and oy > 0.5:
+                la = getattr(item_a, "label", "?")
+                lb = getattr(item_b, "label", "?")
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        message=(
+                            f"labels '{la}' and '{lb}' overlap by "
+                            f"{ox:.1f}×{oy:.1f} mm — use label_offset_x or "
+                            f"increase dim offset to separate them"
+                        ),
+                        code="annotation_overlap",
                     )
-            except Exception:
-                pass
+                )
 
     # Page-bounds check — annotations must stay within the drawable area.
+    # (#701: unguarded — _ann_box absorbs the fragile measure; the rest is arithmetic.)
     if page_bbox is not None:
         for item in items:
-            try:
-                bb = _ann_box(item, box_cache)
-                if bb is None:
-                    continue
-                for detail in _overshoots(bb, page_bbox):
-                    lbl = _item_label(item) or "?"
-                    issues.append(
-                        LintIssue(
-                            severity="error",
-                            message=(
-                                f"annotation '{lbl}' extends past drawable area "
-                                f"({detail}) — increase margin or reduce offset"
-                            ),
-                            code="annotation_out_of_bounds",
-                        )
+            bb = _ann_box(item, box_cache)
+            if bb is None:
+                continue
+            for detail in _overshoots(bb, page_bbox):
+                lbl = _item_label(item) or "?"
+                issues.append(
+                    LintIssue(
+                        severity="error",
+                        message=(
+                            f"annotation '{lbl}' extends past drawable area "
+                            f"({detail}) — increase margin or reduce offset"
+                        ),
+                        code="annotation_out_of_bounds",
                     )
-            except Exception:
-                pass
+                )
 
     if view_shapes is not None:
         _lint_view_shapes(
@@ -477,43 +494,40 @@ def _lint_view_shapes(
                 continue  # a datum target sits on the part face by definition
             if getattr(ann, "is_section_hatch", False):
                 continue  # hatching is intentionally inside the section view
-            try:
-                label_box = getattr(ann, "label_bbox", None)
-                ab = label_box if label_box is not None else _ann_box(ann, ann_cache)
-                if ab is None:
-                    continue
-                if not _bboxes_overlap_2d(vbb, ab):
-                    continue
-                albl = (
-                    getattr(ann, "label", None) or getattr(ann, "name", None) or type(ann).__name__
+            # #701: unguarded — _label_bbox/_ann_box/_view_edge_entries absorb the
+            # fragile reads; a bug in the check itself must fail loudly.
+            label_box = _label_bbox(ann)
+            ab = label_box if label_box is not None else _ann_box(ann, ann_cache)
+            if ab is None:
+                continue
+            if not _bboxes_overlap_2d(vbb, ab):
+                continue
+            albl = getattr(ann, "label", None) or getattr(ann, "name", None) or type(ann).__name__
+            what = "label of annotation" if label_box is not None else "annotation"
+            edges = _view_edge_entries(vs, cache)
+            if edges is None or _edges_intersect_rect(edges, ab):
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        message=(
+                            f"view '{vname}' line-work overlaps {what} '{albl}' "
+                            f"— increase view spacing or move the annotation"
+                        ),
+                        code="view_annotation_overlap",
+                    )
                 )
-                what = "label of annotation" if label_box is not None else "annotation"
-                edges = _view_edge_entries(vs, cache)
-                if edges is None or _edges_intersect_rect(edges, ab):
-                    issues.append(
-                        LintIssue(
-                            severity="warning",
-                            message=(
-                                f"view '{vname}' line-work overlaps {what} '{albl}' "
-                                f"— increase view spacing or move the annotation"
-                            ),
-                            code="view_annotation_overlap",
-                        )
+            else:
+                issues.append(
+                    LintIssue(
+                        severity="info",
+                        message=(
+                            f"{what} '{albl}' lies inside view '{vname}' extents "
+                            f"[x={vx0:.1f}–{vx1:.1f}, y={vy0:.1f}–{vy1:.1f}] over a "
+                            f"blank region — legitimate for callouts on large faces"
+                        ),
+                        code="view_annotation_inside_extents",
                     )
-                else:
-                    issues.append(
-                        LintIssue(
-                            severity="info",
-                            message=(
-                                f"{what} '{albl}' lies inside view '{vname}' extents "
-                                f"[x={vx0:.1f}–{vx1:.1f}, y={vy0:.1f}–{vy1:.1f}] over a "
-                                f"blank region — legitimate for callouts on large faces"
-                            ),
-                            code="view_annotation_inside_extents",
-                        )
-                    )
-            except Exception:
-                pass
+                )
 
     # #160 — view shape vs view shape bounding box overlaps
     for i, (aname, abb, _) in enumerate(named_views):
@@ -552,49 +566,56 @@ def _lint_view_shapes(
 
 
 def _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache=None) -> None:
-    """Flag label-vs-centerline overlap for a (dim, centerline) pair."""
+    """Flag label-vs-centerline overlap for a (dim, centerline) pair.
+
+    #701: only the centreline measure is guarded (malformed ``segments`` /
+    unmeasurable bbox on a duck-typed item) and the skip is logged; the overlap
+    arithmetic runs unguarded so a bug fails loudly instead of silently
+    disabling the check.
+    """
+    if box_cache is None:
+        box_cache = {}
     try:
-        if box_cache is None:
-            box_cache = {}
         cl_min_x, cl_min_y, cl_max_x, cl_max_y = _centerline_extent(cl_item, box_cache)
+    except Exception as exc:  # noqa: BLE001 — duck-typed centreline may not measure
+        _log.debug("lint: centreline did not measure (%s); overlap check skips it", exc)
+        return
 
-        label_bbox = getattr(dim_item, "label_bbox", None)
-        if label_bbox is None:
-            label_bbox = _ann_box(dim_item, box_cache)
-        if label_bbox is None:
-            return
-        lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
+    label_bbox = _label_bbox(dim_item)
+    if label_bbox is None:
+        label_bbox = _ann_box(dim_item, box_cache)
+    if label_bbox is None:
+        return
+    lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
 
-        cl_w = cl_max_x - cl_min_x
-        cl_h = cl_max_y - cl_min_y
+    cl_w = cl_max_x - cl_min_x
+    cl_h = cl_max_y - cl_min_y
 
-        if cl_w < 0.1:
-            cl_x = (cl_min_x + cl_max_x) / 2.0
-            ox = min(cl_x - lmin_x, lmax_x - cl_x) if lmin_x < cl_x < lmax_x else 0.0
-        else:
-            ox = max(0.0, min(lmax_x, cl_max_x) - max(lmin_x, cl_min_x))
+    if cl_w < 0.1:
+        cl_x = (cl_min_x + cl_max_x) / 2.0
+        ox = min(cl_x - lmin_x, lmax_x - cl_x) if lmin_x < cl_x < lmax_x else 0.0
+    else:
+        ox = max(0.0, min(lmax_x, cl_max_x) - max(lmin_x, cl_min_x))
 
-        if cl_h < 0.1:
-            cl_y = (cl_min_y + cl_max_y) / 2.0
-            oy = min(cl_y - lmin_y, lmax_y - cl_y) if lmin_y < cl_y < lmax_y else 0.0
-        else:
-            oy = max(0.0, min(lmax_y, cl_max_y) - max(lmin_y, cl_min_y))
+    if cl_h < 0.1:
+        cl_y = (cl_min_y + cl_max_y) / 2.0
+        oy = min(cl_y - lmin_y, lmax_y - cl_y) if lmin_y < cl_y < lmax_y else 0.0
+    else:
+        oy = max(0.0, min(lmax_y, cl_max_y) - max(lmin_y, cl_min_y))
 
-        if ox > 0.5 and oy > 0.5:
-            dim_label = getattr(dim_item, "label", "?")
-            issues.append(
-                LintIssue(
-                    severity="warning",
-                    message=(
-                        f"label '{dim_label}' overlaps centerline by "
-                        f"{ox:.1f}×{oy:.1f} mm — use label_offset_x to shift "
-                        f"or increase dim offset to clear the centerline"
-                    ),
-                    code="label_centerline_overlap",
-                )
+    if ox > 0.5 and oy > 0.5:
+        dim_label = getattr(dim_item, "label", "?")
+        issues.append(
+            LintIssue(
+                severity="warning",
+                message=(
+                    f"label '{dim_label}' overlaps centerline by "
+                    f"{ox:.1f}×{oy:.1f} mm — use label_offset_x to shift "
+                    f"or increase dim offset to clear the centerline"
+                ),
+                code="label_centerline_overlap",
             )
-    except Exception:
-        pass
+        )
 
 
 def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None) -> None:
@@ -654,29 +675,36 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
 
 
 def _lint_leader(item, issues, box_cache=None) -> None:
+    # #701: was a whole-body `except Exception: pass` — an internal bug silently
+    # disabled the check forever. Only the duck-typed reads are guarded now.
+    box = _label_bbox(item)
+    if box is None:
+        box = _ann_box(item, box_cache if box_cache is not None else {})
+    if box is None:
+        return
+    minx, miny, maxx, maxy = box
     try:
-        box = getattr(item, "label_bbox", None)
-        if box is None:
-            box = _ann_box(item, box_cache if box_cache is not None else {})
-        if box is None:
-            return
-        minx, miny, maxx, maxy = box
         ex, ey = item.elbow
-        if minx <= ex <= maxx and miny <= ey <= maxy:
-            issues.append(
-                LintIssue(
-                    severity="error",
-                    message=(
-                        f"Leader '{getattr(item, 'label', '?')}': elbow point "
-                        f"({ex:.2f}, {ey:.2f}) is inside the label bbox — leader "
-                        f"line passes through the text"
-                    ),
-                    location=item.elbow,
-                    code="leader_line_through_text",
-                )
+    except Exception as exc:  # noqa: BLE001 — duck-typed elbow may not unpack
+        _log.warning(
+            "lint: unreadable elbow on leader %r (%s); leader_line_through_text skipped",
+            _item_label(item) or "?",
+            exc,
+        )
+        return
+    if minx <= ex <= maxx and miny <= ey <= maxy:
+        issues.append(
+            LintIssue(
+                severity="error",
+                message=(
+                    f"Leader '{getattr(item, 'label', '?')}': elbow point "
+                    f"({ex:.2f}, {ey:.2f}) is inside the label bbox — leader "
+                    f"line passes through the text"
+                ),
+                location=item.elbow,
+                code="leader_line_through_text",
             )
-    except Exception:
-        pass
+        )
 
 
 def _seg_hits_box(p, q, box, pad=0.2):
