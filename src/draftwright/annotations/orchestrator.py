@@ -364,7 +364,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     def _s_chamfers():
         # Chamfer callouts (#560): C{leg} / {leg}×{angle}° via a leader off each chamfer face.
-        render_chamfers(dwg, _model, a, ctx=ctx)
+        # Planner-fed (#724): consumes the DimensionGroups so an authored tolerance renders.
+        render_chamfers(dwg, _groups, a, ctx=ctx)
 
     def _s_fillets():
         render_fillets(dwg, _model, a, ctx=ctx)

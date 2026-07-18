@@ -1007,20 +1007,32 @@ def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx, geom_clear=False
     return n
 
 
-def render_chamfers(dwg, model, a, *, ctx) -> int:
+def render_chamfers(dwg, groups, a, *, ctx) -> int:
     """Chamfer callouts (#560): a leader from each recognised chamfer face to its
     ``C{leg}`` / ``{leg}×{angle}°`` label, in the view normal to the chamfered edge (a Z
     edge reads in the plan, an X edge in the side, a Y edge in the front). The leader runs
     diagonally OUT of the corner the chamfer sits on into clear margin, and is dropped
-    (lint, not silently) if it would overprint placed geometry. Returns the count placed."""
-    reach = _leader_callout_reach(dwg.draft)
-    view_of = {"z": "plan", "x": "side", "y": "front"}
-    chamfers = [f for f in model.features if f.kind == "chamfer"]
+    (lint, not silently) if it would overprint placed geometry. Returns the count placed.
+
+    Planner-fed (#724 / #698): the leg + its tolerance come from the planner's
+    ``DimParameter`` (as in ``render_boss_diameters``), never raw geometry — formatting
+    ``ch.leg1`` directly dropped an authored chamfer tolerance (the #629 class). The
+    C-vs-leg×angle *form* stays geometric (:func:`_chamfer_label` reads legs/angle off the
+    feature); ``g.view`` is safe because a ChamferFeature's frame axis IS its edge axis
+    (both ``detect.py`` and ``declare.chamfer`` build ``Frame(…, ch.axis)``), and
+    ``_END_ON`` matches the pass's old z→plan / x→side / y→front map exactly."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    chamfer_groups = [g for g in groups if g.feature_kind == "chamfer"]
     jobs = []
-    for i, ch in enumerate(sorted(chamfers, key=lambda f: (f.axis, f.frame.origin))):
-        view = view_of.get(ch.axis)
-        if view is None:
+    for i, g in enumerate(
+        sorted(chamfer_groups, key=lambda g: (g.feature.axis, g.feature.frame.origin))
+    ):
+        ch = g.feature
+        pd = g.dims[0]
+        if pd.suppressed:
             continue
+        view = g.view
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
@@ -1029,7 +1041,7 @@ def render_chamfers(dwg, model, a, *, ctx) -> int:
                 f"m_chamfer_{ch.axis}{i}",
                 view,
                 vb,
-                _chamfer_label(ch),
+                _chamfer_label(ch) + _tol_suffix(pd.param.tolerance, draft),
                 _corner_candidates(dwg, view, vb, [ch], reach),
             )
         )

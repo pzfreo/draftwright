@@ -102,13 +102,14 @@ the groups the orchestrator computed for them.
 | boss diameters | `from_model.render_boss_diameters` | `plan_dimensions` |
 | envelope (overall W/D/L, with model-level suppression) | `from_model.render_envelope` | `plan_dimensions` |
 | turned step lengths (the chain) | `from_model.render_step_lengths` | `plan_dimensions` |
+| chamfers (C{leg} / {leg}×{angle}° leader, #724) | `from_model.render_chamfers` | `plan_dimensions` |
 | section trigger + cut plane | `sections._add_section_view` etc. | `plan_sections` → `SectionPlan` |
 
 **Planner-bypassing today** (the renderer takes `model`, re-filters
 `model.features` by kind, and formats raw fields — its computed
 `DimensionGroup`s are discarded):
 
-- `render_slots`, `render_chamfers`, `render_fillets`, `render_flats`,
+- `render_slots`, `render_fillets`, `render_flats`,
   `render_pockets`, `render_grooves`, `render_plates`, `render_rotational`
   (OD/centreline/bore furniture), `render_pmi` — all in
   `annotations/from_model.py`.
@@ -131,8 +132,9 @@ no-double-dimensioning/suppression rules currently have no single home
 `_CONVENTION` in `planner.py` has entries only for the planner-fed roles.
 
 **The convergence tracker is #698** — extend `_CONVENTION` +
-`plan_dimensions` kind-by-kind (chamfer, fillet, flat, groove, pocket, plate,
-slots first) and convert each renderer to consume its group, pulling the
+`plan_dimensions` kind-by-kind (chamfer landed first, #724; fillet, flat,
+groove, pocket, plate, slots next) and convert each renderer to consume its
+group, pulling the
 scattered suppression rules into the planner as each kind migrates. This ADR
 deliberately does **not** claim that work done; it records the split so the
 ADR stays true while #698 proceeds. New feature kinds must take the planner

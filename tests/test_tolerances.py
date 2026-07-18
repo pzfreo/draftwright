@@ -9,13 +9,14 @@ into the label string, matching what ``Dimension(tolerance=…)`` formats (helpe
 precision (1 dp today), so tests use tolerances that survive 1 dp.
 """
 
-from build123d import Box, Cylinder, Pos, Rot
+from build123d import Axis, Box, Cylinder, Pos, Rot
+from build123d import chamfer as b3d_chamfer
 from build123d_drafting.helpers import draft_preset
 
-from draftwright import Sheet
+from draftwright import Sheet, build_drawing
 from draftwright._core import _tol_suffix
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
-from draftwright.model import PartModel, hole, step
+from draftwright.model import PartModel, chamfer, hole, step
 from draftwright.model.planner import plan_dimensions
 
 
@@ -77,6 +78,23 @@ class TestPlannerDecorations:
         model = PartModel(bbox=part.bounding_box(), orientation="x", features=[st])
         groups = plan_dimensions(model)
         assert all(pd.param.tolerance is None for pd in groups[0].dims)
+
+    def test_chamfer_dim_is_leader_with_folded_tolerance(self):
+        # #724: the chamfer leg routes through the planner — convention "leader", with an
+        # authored decoration folded onto DimParameter.tolerance like every planner-fed kind.
+        ch = chamfer(axis="z", leg=12, at=(39, 24, 0))
+        model = PartModel(
+            bbox=Box(90, 60, 20).bounding_box(),
+            orientation=None,
+            features=[ch],
+            decorations={(ch, "length"): 0.2},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "chamfer")
+        (pd,) = g.dims
+        assert pd.convention == "leader"
+        assert pd.param.tolerance == 0.2
+        assert not pd.suppressed
+        assert g.view == "plan"  # frame axis == edge axis; a Z-edge chamfer reads in the plan
 
 
 class TestCalloutRendering:
@@ -191,6 +209,43 @@ class TestSheetTolerance:
 
         assert any(n.startswith("hc_plan") for n in dwg.annotations())
         assert "callout_dropped" not in {i.code for i in dwg.lint()}
+
+
+class TestChamferTolerance:
+    """#724 (the #629 class, latent): a chamfer's authored tolerance must render on the
+    placed callout — the pass now consumes the planner's DimensionGroup, whose param
+    carries the folded decoration, instead of formatting raw feature fields."""
+
+    @staticmethod
+    def _chamfered_plate():
+        plate = Box(90, 60, 20)
+        e = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)[-1]
+        return b3d_chamfer(e, 12)
+
+    def test_authored_chamfer_tolerance_renders_on_callout(self):
+        # Declared model (ADR 0011): the caller holds the feature object, so the
+        # decoration keys on it. (Sheet.chamfer returns the Sheet, not an aspect handle,
+        # so build_drawing(model=…, decorations=…) is the authoring surface here.)
+        ch = chamfer(axis="z", leg=12, at=(39, 24, 0))  # bevel midpoint of the cut corner
+        dwg = build_drawing(
+            self._chamfered_plate(),
+            model=[ch],
+            decorations={(ch, "length"): 0.2},
+            number="X",
+        )
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_chamfer")
+        ]
+        assert labels == ["C12 ±0.2"], labels
+
+    def test_untolerated_chamfer_label_unchanged(self):
+        # No decoration → the planner path is byte-identical to the old raw-field label.
+        ch = chamfer(axis="z", leg=12, at=(39, 24, 0))
+        dwg = build_drawing(self._chamfered_plate(), model=[ch], number="X")
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_chamfer")
+        ]
+        assert labels == ["C12"], labels
 
 
 class TestToleranceHandle:

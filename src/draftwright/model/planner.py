@@ -47,6 +47,7 @@ _CONVENTION = {
     ("bolt_circle", "diameter"): "leader",  # BCD (a pitch-circle diameter)
     ("pitch", "length"): "pitch",  # linear-array pitch — distinct from a plain linear dim
     ("grid_pitch", "length"): "pitch",
+    ("chamfer", "length"): "leader",  # C{leg} / {leg}×{angle}° leader callout (#724)
 }
 
 

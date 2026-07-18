@@ -32,6 +32,12 @@
 
 ### Fixed
 
+- **Authored chamfer tolerances now render** (#724 / #698): `render_chamfers`
+  consumes the planner's `DimensionGroup` (chamfer joins `_CONVENTION` as a
+  leader), so a `decorations`-authored ± / limit tolerance on a chamfer leg
+  reaches the placed callout (`C12 ±0.2`). Previously the pass formatted raw
+  feature fields and silently dropped it — the latent #629 bug class the ADR
+  0015 bypass list documents. Untolerated chamfer labels/views are unchanged.
 - **`model.chamfer(face=…)` rejects a non-planar face** (#704): the declared
   front-end silently accepted a curved face (`normal_at()` does not fail on
   one) and read garbage legs off it — e.g. a fillet or countersink face became
