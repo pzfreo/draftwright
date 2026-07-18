@@ -84,7 +84,7 @@ def test_build_issues_accumulate_in_order():
     r = AnnotationRegistry()
     r.record_issue("first")
     r.record_issue("second")
-    assert r._build_issues == ["first", "second"]
+    assert r.issues == ["first", "second"]
 
 
 class _Issue:
@@ -97,12 +97,12 @@ def test_drop_issues_by_code_and_reset():
     for c in ("a", "b", "c"):
         r.record_issue(_Issue(c))
     r.drop_issues(["b"])
-    assert [i.code for i in r._build_issues] == ["a", "c"]
+    assert [i.code for i in r.issues] == ["a", "c"]
     r.drop_issues(("a", "c"))  # accepts any iterable of codes
-    assert r._build_issues == []
+    assert r.issues == []
     r.record_issue(_Issue("x"))
     r.reset_issues()
-    assert r._build_issues == []
+    assert r.issues == []
 
 
 def test_snapshot_restore_round_trips_view_and_pin_metadata():

@@ -310,6 +310,11 @@ class Drawing:
     # The registry owns these four; they are exposed as their live containers so
     # code that reads or mutates ``dwg._named`` / ``_anno_view`` / ``_pinned`` /
     # ``_build_issues`` keeps working until those call sites are redirected.
+    # DEPRECATED alias set — tracked by #720, REMOVAL TARGET 0.4.0 (the §4 exit
+    # criterion: every alias carries a tracking issue + removal date). External
+    # call sites were redirected to the public reads (annotations() /
+    # iter_annotations() / get_annotation() / view_of() / registry.*) in #699
+    # slice c; only drawing.py internals still ride these until deletion.
     @property
     def _named(self) -> dict:
         return self._registry._named
@@ -356,6 +361,8 @@ class Drawing:
     # The CoverageState owner holds these three; exposed as their live containers
     # so code reading dwg._pattern_callouts / _patterned_holes /
     # _dropped_callout_diams keeps working until those sites are redirected.
+    # DEPRECATED alias set — tracked by #720, REMOVAL TARGET 0.4.0 (see the
+    # registry alias block above; ``dwg.coverage`` is the public handle).
     @property
     def _pattern_callouts(self) -> set:
         return self._coverage._pattern_callouts

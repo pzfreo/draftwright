@@ -113,7 +113,7 @@ class TestBuildDrawingPmi:
         """pmi='off' produces an identical drawing to not passing pmi at all."""
         stem = str(tmp_path / "ctc01_no_pmi")
         dwg = build_drawing(str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="off")
-        pmi_names = [n for n in dwg._named if n.startswith("pmi_")]
+        pmi_names = [n for n in dwg.annotations() if n.startswith("pmi_")]
         assert pmi_names == [], f"pmi='off' should add no pmi_ annotations, got {pmi_names}"
 
     def test_pmi_report_extracts_but_does_not_annotate(self, tmp_path):
@@ -123,12 +123,12 @@ class TestBuildDrawingPmi:
         a = dwg._analysis
         assert hasattr(a, "pmi"), "_analysis should have .pmi attribute"
         assert len(a.pmi) > 0, "pmi='report' should populate pmi records"
-        pmi_names = [n for n in dwg._named if n.startswith("pmi_")]
+        pmi_names = [n for n in dwg.annotations() if n.startswith("pmi_")]
         assert pmi_names == [], "pmi='report' should not add drawing annotations"
 
     def test_pmi_annotate_adds_dims(self, ctc01_annotated):
         """pmi='annotate' adds at least one pmi_ dimension to the drawing."""
-        pmi_names = [n for n in ctc01_annotated._named if n.startswith("pmi_")]
+        pmi_names = [n for n in ctc01_annotated.annotations() if n.startswith("pmi_")]
         assert len(pmi_names) >= 1, f"expected ≥1 pmi_ annotation, got {pmi_names}"
 
     def test_pmi_annotate_drawing_lint_clean(self, ctc01_annotated):
@@ -145,7 +145,7 @@ class TestBuildDrawingPmi:
 
     def test_pmi_annotation_names_unique(self, ctc01_annotated):
         """All pmi_ annotation names in the drawing are unique."""
-        pmi_names = [n for n in ctc01_annotated._named if n.startswith("pmi_")]
+        pmi_names = [n for n in ctc01_annotated.annotations() if n.startswith("pmi_")]
         assert len(pmi_names) == len(set(pmi_names)), f"duplicate pmi names: {pmi_names}"
 
 
@@ -161,8 +161,8 @@ class TestDeclaredModelPmi:
         declared = build_drawing(
             str(CTC01), out=str(tmp_path / "d"), title="P", model=[], pmi="annotate"
         )
-        auto_pmi = {n for n in auto._named if n.startswith("pmi_")}
-        decl_pmi = {n for n in declared._named if n.startswith("pmi_")}
+        auto_pmi = {n for n in auto.annotations() if n.startswith("pmi_")}
+        decl_pmi = {n for n in declared.annotations() if n.startswith("pmi_")}
         assert auto_pmi
         # The declared path has fewer auto-generated dimensions competing for strip capacity,
         # so it may place extra authored PMI. The #472 invariant is no loss: every PMI dim the
@@ -172,7 +172,7 @@ class TestDeclaredModelPmi:
     def test_declared_model_pmi_off_stays_clean(self, tmp_path):
         # the synthesis is gated on pmi_mode == 'annotate' — a declared build without PMI stays 0
         dwg = build_drawing(str(CTC01), out=str(tmp_path / "off"), title="P", model=[])
-        assert [n for n in dwg._named if n.startswith("pmi_")] == []
+        assert [n for n in dwg.annotations() if n.startswith("pmi_")] == []
 
 
 def test_build_pmi_features_mirrors_detection():
@@ -243,4 +243,4 @@ def test_render_pmi_drops_unrecognized_bore_axis_without_crashing():
     ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
     n = render_pmi(dwg, model, dwg._analysis, ctx=ctx)  # must not raise
     assert n == 0
-    assert any(i.code == "pmi_dropped" for i in dwg._build_issues)  # graceful drop recorded
+    assert any(i.code == "pmi_dropped" for i in dwg.registry.issues)  # graceful drop recorded

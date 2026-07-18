@@ -516,7 +516,7 @@ class TestFillet:
         dwg = build_drawing(self._filleted(3), number="X")
         names = [n for n in dwg.annotations() if n.startswith("m_fillet")]
         assert len(names) == 1  # ONE grouped callout, not four
-        assert dwg._named[names[0]].label == "4× R3"
+        assert dwg.get_annotation(names[0]).label == "4× R3"
 
     def test_needs_axis_radius_at(self):
         with pytest.raises(ValueError):
@@ -588,7 +588,7 @@ class TestFlat:
         assert len(fs) == 2 and all(f.across == pytest.approx(10, abs=0.05) for f in fs)
         names = [n for n in dwg.annotations() if n.startswith("m_flat")]
         assert len(names) == 1  # one across-flats callout, not two
-        assert dwg._named[names[0]].label == _flat_label(10)
+        assert dwg.get_annotation(names[0]).label == _flat_label(10)
 
     def test_slot_wall_is_not_a_flat(self):
         # A slot's two facing walls point *toward* the axis — not flats (the #148b distinction).
@@ -756,8 +756,8 @@ class TestPocket:
         dwg = build_drawing(Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8), number="X")
         names = [n for n in dwg.annotations() if n.startswith("m_pocket")]
         assert len(names) == 1
-        assert dwg._named[names[0]].label == "20 × 30 × 8 DEEP"
-        assert dwg._anno_view[names[0]] == "plan"  # z-depth opening → plan view
+        assert dwg.get_annotation(names[0]).label == "20 × 30 × 8 DEEP"
+        assert dwg.view_of(names[0]) == "plan"  # z-depth opening → plan view
         assert not any(i.severity == "error" for i in dwg.lint())
 
     def test_side_depth_pocket_reads_in_the_side_view(self):
@@ -765,8 +765,8 @@ class TestPocket:
         dwg = build_drawing(Box(60, 60, 60) - Pos(24, 0, 0) * Box(12, 20, 30), number="X")
         names = [n for n in dwg.annotations() if n.startswith("m_pocket")]
         assert len(names) == 1
-        assert dwg._named[names[0]].label == "20 × 30 × 12 DEEP"
-        assert dwg._anno_view[names[0]] == "side"  # x-depth opening → side view
+        assert dwg.get_annotation(names[0]).label == "20 × 30 × 12 DEEP"
+        assert dwg.view_of(names[0]) == "side"  # x-depth opening → side view
         assert not any(i.severity == "error" for i in dwg.lint())
 
     def test_declared_pocket_renders_its_callout(self):
@@ -790,7 +790,9 @@ class TestPocket:
         assert len(pks) == 1 and pks[0].depth == 8
         names = [n for n in dwg.annotations() if n.startswith("m_pocket")]
         assert len(names) == 1
-        assert dwg._named[names[0]].label == "20 × 30 × 8 DEEP"  # declare-path number wiring
+        assert (
+            dwg.get_annotation(names[0]).label == "20 × 30 × 8 DEEP"
+        )  # declare-path number wiring
         assert not any(i.severity == "error" for i in dwg.lint())
 
     def test_hole_and_boss_safeguards_intact(self):
@@ -820,7 +822,7 @@ class TestCountersink:
         dwg = build_drawing(
             part, model=[hole(diameter=6, at=(0, 0, 6), axis="z", csink=(14, 90))], number="X"
         )
-        leaders = [dwg._named[n] for n in dwg._named if n.startswith("hc_")]
+        leaders = [dwg.get_annotation(n) for n in dwg.annotations() if n.startswith("hc_")]
         assert leaders and any(14.0 in ldr.covers_diameters for ldr in leaders)
 
     def test_fluent_countersink_reads_the_cone(self):
@@ -876,7 +878,9 @@ class TestPlate:
         lbr = Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50)
         model = [plate(Box(80, 50, 8)), plate(axis="x", lo=-40, hi=-32, u=0, v=27)]
         dwg = build_drawing(lbr, model=model, number="X")
-        plate_dims = {n: dwg._named[n].label for n in dwg._named if n.startswith("dim_plate")}
+        plate_dims = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_plate")
+        }
         assert sorted(plate_dims) == ["dim_plate_x0", "dim_plate_z0"]  # both slabs dimensioned
         assert sorted(plate_dims.values()) == ["8", "8"]  # each 8 thick
         assert [i for i in dwg.lint() if i.severity != "info"] == []
@@ -939,9 +943,9 @@ class TestStepLevel:
         det = next(x for x in detect_part_model(part).features if x.kind == "step_level")
         expected = str(int(det.shoulders[0][1] - det.datum[0]))
         dwg = build_drawing(part, model=[step_level(part)], number="X")
-        assert dwg._named["dim_shoulder_x0"].label == expected
+        assert dwg.get_annotation("dim_shoulder_x0").label == expected
         assert dwg.view_of("dim_shoulder_x0") == "plan"
-        assert "dim_height" in dwg._named
+        assert "dim_height" in dwg.annotations()
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     def test_needs_base_and_levels(self):
@@ -1160,7 +1164,7 @@ class TestModelSeam:
         assert not [i for i in dwg.lint() if i.severity == "error"]
         # the bolt-circle centreline furniture (bc_*) proves the pattern rendered, not
         # just that members were populated
-        assert any(n.startswith("bc_") for n in dwg._named), sorted(dwg._named)
+        assert any(n.startswith("bc_") for n in dwg.annotations()), sorted(dwg.annotations())
 
     def test_declared_pattern_renders_at_its_declared_position(self):
         # #448: a declared hole/pattern renders at its DECLARED position even where it does
@@ -1176,7 +1180,9 @@ class TestModelSeam:
         member = hole(diameter=6, at=(r, 0, z), axis="z")
         pat = pattern(member, kind="bolt_circle", count=4, bcd=2 * r, at=(0, 0, z), angle=0)
         dwg = build_drawing(part, model=[envelope(plate), pat])
-        assert any(n.startswith("bc_") for n in dwg._named), sorted(dwg._named)  # rendered
+        assert any(n.startswith("bc_") for n in dwg.annotations()), sorted(
+            dwg.annotations()
+        )  # rendered
         warns = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
         assert warns  # the physically-present 45° holes remain flagged as undimensioned
 

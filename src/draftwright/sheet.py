@@ -769,7 +769,7 @@ class Sheet:
         # (feature annotations + earlier tables) so a table NEVER silently overwrites another
         # object via dwg.add (#493 review). A collision with an explicit name is warned; a table
         # that doesn't fit still records `table_dropped` lint inside add_table.
-        used = set(dwg._named)
+        used = set(dwg.annotations())  # public read — not the _named alias (#720)
         for t in self._tables:
             name = t["name"]
             if name in used:

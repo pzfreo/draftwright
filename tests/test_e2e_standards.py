@@ -150,8 +150,8 @@ def test_ctc02_top_balloon_ring_hugs_dimensions():
     # Highest plan-view dimension spanning the plan width above it — the real
     # obstruction the top ring must clear.
     dim_top = pt
-    for name, obj in dwg._named.items():
-        if not name.startswith("dim_") or dwg._anno_view.get(name) != "plan":
+    for name, obj in dwg.iter_annotations():
+        if not name.startswith("dim_") or dwg.view_of(name) != "plan":
             continue
         bb = obj.bounding_box()
         if bb.max.X > pl and bb.min.X < pr and bb.max.Y > pt:
@@ -163,7 +163,7 @@ def test_ctc02_top_balloon_ring_hugs_dimensions():
     # highest dim; the fix keeps the whole ring within a small standoff of it.
     balloon_tops = [
         obj.bounding_box().max.Y
-        for name, obj in dwg._named.items()
+        for name, obj in dwg.iter_annotations()
         if name.startswith("balloon_plan")
     ]
     assert balloon_tops, "expected balloons on CTC-02"

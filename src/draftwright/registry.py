@@ -176,11 +176,24 @@ class AnnotationRegistry:
     def is_pinned(self, name) -> bool:
         return name in self._pinned
 
+    def pinned_names(self) -> frozenset:
+        """The names currently pinned, as an immutable snapshot — the public read
+        behind set-shaped queries (``placed <= registry.pinned_names()``), so
+        callers stop reaching through ``dwg._pinned`` (#720)."""
+        return frozenset(self._pinned)
+
     def pinned_object_ids(self) -> set:
         """``id()`` of every currently-pinned object still on the drawing."""
         return {id(self._named[n]) for n in self._pinned if n in self._named}
 
     # -- build issues ---------------------------------------------------------
+
+    @property
+    def issues(self) -> list:
+        """The recorded build-time :class:`LintIssue`\\s (read surface, #720 —
+        callers stop reaching through ``dwg._build_issues``; ``Drawing.lint()``
+        already merges these into its report)."""
+        return self._build_issues
 
     def record_issue(self, issue) -> None:
         """Record a build-time :class:`LintIssue` (already constructed)."""

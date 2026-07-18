@@ -82,7 +82,7 @@ def test_face_datum_places_lint_clean():
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     s.datum("A", _top_face(part))
     dwg = s.build()
-    assert [n for n in dwg._named if "gdt" in n]  # the datum placed
+    assert [n for n in dwg.annotations() if "gdt" in n]  # the datum placed
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
 
@@ -98,7 +98,7 @@ def test_finish_before_depth_keeps_provenance():
     h.depth(5)  # replaces the hole feature (through=False)
     dwg = s.build()
     hole_feat = next(f for f in s.features if f.kind == "hole")
-    fin_names = [n for n in dwg._named if "gdt" in n]
+    fin_names = [n for n in dwg.annotations() if "gdt" in n]
     assert fin_names, "the finish placed"
     # provenance re-bound to the FINAL (depth=5) hole, not the stale through hole
     assert set(fin_names) <= set(dwg.annotations_of(hole_feat))
@@ -114,8 +114,8 @@ def test_feature_default_side_is_view_aware_and_places():
     s.envelope()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20)).finish("1.6")
     dwg = s.build()
-    assert "m_gdt0" in dwg._named
-    assert not [i for i in dwg._build_issues if i.code == "gdt_dropped"]
+    assert "m_gdt0" in dwg.annotations()
+    assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
 
 
 # -- P2c.2: control frames -----------------------------------------------------------------
@@ -159,7 +159,7 @@ def test_control_frames_place_lint_clean():
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     s.control(0).position(0.1, to="A").perpendicularity(0.05, to="A")  # default plan/above
     dwg = s.build()
-    placed = [n for n in dwg._named if "gdt" in n]
+    placed = [n for n in dwg.annotations() if "gdt" in n]
     assert len(placed) == 2  # both frames stack
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 

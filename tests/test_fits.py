@@ -201,7 +201,7 @@ class TestSheetFit:
         )
 
     def _dias(self, dwg):
-        return {n: dwg._named[n].label for n in dwg._named if n.startswith("m_dia")}
+        return {n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")}
 
     def test_boss_fit_class_renders_on_leader(self):
         s = Sheet(self._stepped_shaft())
