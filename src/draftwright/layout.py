@@ -26,8 +26,8 @@ What actually lives here today:
   production-facing collect-then-solve entry point built on top of it
   (selection, ordering, anchoring); the lower-level
   `_solve_strip_1d`/`_greedy_strip_1d` primitives are unit-tested in isolation
-  and consumed directly by the balloon-spread and diameter-row passes (via the
-  `_core` aliases). Keep-out-band avoidance
+  and consumed directly by the balloon-spread pass (imported from here) and
+  the diameter-row pass (via the `_core` aliases). Keep-out-band avoidance
   (a callout must not sit on a centre-line or a location-dim row) briefly lived
   as a `plan_strip`-internal banded solve (ADR 0009 Amendment 5, #318); that had
   a cross-segment correctness gap (#381), so Amendment 9 retired it in favour of

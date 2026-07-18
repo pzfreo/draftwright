@@ -137,9 +137,10 @@ entry. Keep `_LAYERS` and this section in step.
   `sheet_dsl` alias shim remains for one release).
 - **`sheet_emit.py`** — the Sheet-script emitter behind `--script --style sheet`:
   generates an editable `Sheet` script from a detected model. Facade tier;
-  imports `builder` downward — the old builder/cli/sheet_emit lazy-import cycle
-  is gone; the one remaining upward edge is the sanctioned `builder._cli` compat
-  shim (#523, rescoped).
+  imports `builder` downward at module level, but `builder`'s lazy `_cli` shim
+  still closes a builder→cli→sheet_emit lazy-import cycle (the `builder→cli`
+  edge is the one `_LAZY_UPWARD_EXEMPT` entry) — breaking it is tracked by
+  #523 (open).
 - **`score.py`** — `feature_census` (#148f/#608): a standalone
   recognition-completeness measurement tool; depends only on `recognition/` +
   build123d, and nothing in the engine imports it.

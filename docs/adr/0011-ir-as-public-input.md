@@ -6,7 +6,7 @@
   → `DimParameter.tolerance`) and **P2a.2 fit-class** (`.fit("H7")` → ISO 286 deviation,
   `draftwright/fits.py`, riding the same `tolerance` field as a `FitClass` marker) landed;
   **P2b GD&T+finish** (#478) and **P2c aspect verbs** (`sheet.datum`/`.control`/`.finish`,
-  #480/#482) landed 2026-07-06/07; only **P2d PMI-sourced auto-GD&T** (#62) remains
+  #480/#482) landed 2026-07-06; only **P2d PMI-sourced auto-GD&T** (#62) remains
   pending per the #446 roadmap. Phase 2
   execution plan:
   [`docs/plans/0011-phase2-aspects-roadmap.md`](../plans/0011-phase2-aspects-roadmap.md).

@@ -87,8 +87,10 @@ same iterate-and-fix laps — with no fluency in draftwright internals required.
 ## Current state vs target
 
 *(Refreshed 2026-07-18 — the original "mostly unbuilt" roadmap here long predated
-the build-out.)* The loop is **built**: the domain-semantic edit API (#25–28 —
-`dimension()`/`callout()`/`locate()`/`drop()` on the model, ADR 0010/0012),
+the build-out.)* The loop is **built**: the read/query API (#25–28 — `place_dim()`/
+`features()`/`annotations()`/`view_bounds()`) plus the domain-semantic edit
+verbs (`dimension()`/`callout()`/`locate()`/`drop()`, shipped under the
+ADR 0010/0012 editable-surface work),
 per-issue suggestions (#29, `linting/suggest.py`), and the deterministic
 lint→repair loop (#30, `repair.py`, with `Drawing.repair()` as the thin
 wrapper) all shipped. Repair remains the *safety net*, not the primary
