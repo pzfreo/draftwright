@@ -109,7 +109,8 @@ Updated 2026-07-08.
     the `bracket` fixture's PENDING overlap (`hc_plan0`/`section_arrow_right`) is fixed —
     `_annotate_holes`'s plan/side hole-callout placer (`holes.py`) now consults
     `strip_obstacles` (it never had, predating the P0–P3 carve migration), with a new
-    precise line-segment-vs-box intersection test (`_segment_hits_box`, `_common.py`) for
+    precise line-segment-vs-box intersection test (`_segment_hits_box`, `_common.py`;
+    since #700 `_geometry._segment_crosses_box`) for
     the diagonal leader shaft — a plain AABB check over-claims a diagonal's empty
     triangle and caused 5 real regressions before the precise geometry landed. Plus
     **policy B** (user, 2026-07-02): a callout is only relocated to avoid an obstacle

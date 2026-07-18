@@ -64,7 +64,10 @@ def _fmt(v: float) -> str:
 def _boxes_overlap(a, b) -> bool:
     """True when two ``(x0, y0, x1, y1)`` AABBs overlap (strict: a touch is not
     an overlap). The one pairwise test behind both the placement-side
-    ``_box_hits`` and the lint-side overlap checks (#700)."""
+    ``_box_hits`` and the lint-side overlap checks (#700). Nuance: a degenerate
+    (zero-width/height) box strictly inside the other counts as overlapping
+    here, where the pre-#700 ``_box_hits`` form said no — the conservative
+    direction for obstacle tests (rejects, never overprints)."""
     return bool(a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1])
 
 

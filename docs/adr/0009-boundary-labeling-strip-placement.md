@@ -280,7 +280,8 @@ made this concrete and costly: a plain AABB collision check caused **5 real
 regressions** on ordinary fixtures with no actual crossing, because a callout's
 diagonal shaft merely *near* an obstacle registered as blocked.
 
-The fix, `_segment_hits_box` (`annotations/_common.py`) — a precise
+The fix, `_segment_hits_box` (`annotations/_common.py`; since #700
+`_geometry._segment_crosses_box`) — a precise
 line-segment-vs-AABB intersection test, used for the diagonal shaft portion of
 a leader only (the elbow→label shelf+text stays an ordinary AABB check, since
 it genuinely is axis-aligned) — is a **direct, reusable building block for P4**
