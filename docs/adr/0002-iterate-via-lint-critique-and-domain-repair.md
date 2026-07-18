@@ -86,12 +86,14 @@ same iterate-and-fix laps — with no fluency in draftwright internals required.
 
 ## Current state vs target
 
-- **Exists:** the engine, `lint()` / `lint_summary()` (the critique), and the
-  deterministic gains that minimise iteration.
-- **Roadmap (mostly unbuilt):** the domain-semantic edit API (#25–28), per-issue
-  suggestions (#29), and the lint→repair loop (#30). Until these land, the
-  "domain-fix" step falls back to the DSL — the path ADR 0001 deprecates — so
-  building this layer is the work that makes the loop real.
+*(Refreshed 2026-07-18 — the original "mostly unbuilt" roadmap here long predated
+the build-out.)* The loop is **built**: the domain-semantic edit API (#25–28 —
+`dimension()`/`callout()`/`locate()`/`drop()` on the model, ADR 0010/0012),
+per-issue suggestions (#29, `linting/suggest.py`), and the deterministic
+lint→repair loop (#30, `repair.py`, with `Drawing.repair()` as the thin
+wrapper) all shipped. Repair remains the *safety net*, not the primary
+placement mechanism — ADR 0009's collect-then-solve is the structural cure for
+the collision classes repair used to mop up.
 
 ## Related
 

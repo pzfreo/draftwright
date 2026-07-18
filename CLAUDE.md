@@ -17,8 +17,9 @@ It sits on top of two Apache 2.0 libraries:
 ## Architecture
 
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
-top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, the `linting/` and
-`recognition/` subpackages) → `_core.py` → stage modules (`export.py`,
+top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
+`fits.py`, `intents.py`, the `linting/` and `recognition/` subpackages) →
+`_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
 `model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
@@ -37,7 +38,7 @@ cycle-breakers (`builder`↔`cli`); the one type-only upward reference
 (`_core`→`compose.StripDepths`, under `TYPE_CHECKING`) is an explicit allowlist
 entry. Keep `_LAYERS` and this section in step.
 
-- **`make_drawing.py`** — thin compat facade (~17 lines) re-exporting the public
+- **`make_drawing.py`** — thin compat facade (~20 lines) re-exporting the public
   surface (`Drawing`, `build_drawing`, `make_drawing`, `generate_script`, `_cli`,
   `FeatureInfo`, `fix_svg_page_size`, `lint_feature_coverage`) so existing imports
   and the `draftwright` CLI entry point keep working. The engine lives in:
@@ -63,9 +64,10 @@ entry. Keep `_LAYERS` and this section in step.
   **`annotations/`** subpackage (#164 / ADR 0005, P5):
   - **`annotations/orchestrator.py`** — `_auto_annotate`, the single entry point
     (called by `build_drawing`); classifies the part and drives the render passes
-    + title block. End state (ADR 0008) is `build model → plan → render`; a little
-    inline engine code (some envelope/step-ladder placement) remains here pending
-    the last convergence steps.
+    + title block. End state (ADR 0008) is `build model → plan → render`; some
+    inline engine code remains — chiefly `_maybe_tabulate_holes` (the
+    hole-table/balloon escalation resolver) and the iso right-strip
+    outer-limit tightening — pending the last convergence steps.
   - **`annotations/from_model.py`** — the **IR render layer** (largest annotations
     module): turns the planner's `DimensionGroup`/render-intents into placed
     dimensions/callouts/centre marks/section triggers. This is where the turned,
@@ -76,8 +78,10 @@ entry. Keep `_LAYERS` and this section in step.
     (incl. side-drilled #133), pitch/grid dims, slots (the largest *pass*).
   - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
     ISO 128-50 hatching).
-  - **`annotations/_common.py`** — shared placement helpers (`_anno_box`,
-    `_occupied_boxes`, `_box_hits`) at the bottom of the annotations DAG.
+  - **`annotations/_common.py`** — the ADR 0009 corridor-solve engine
+    (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
+    `place_strip_candidates`, `PlacementContext`) plus the shared bbox helpers
+    (`_anno_box`, `_box_hits`), at the bottom of the annotations DAG.
   Submodules import only down or sideways — `_core`/`layout`/`analysis`/
   `projection`/the `model/` IR/`linting.structural`/third-party, never
   `annotate`/`make_drawing`/`drawing` (the drawing is duck-typed as `dwg`) — so
@@ -89,7 +93,15 @@ entry. Keep `_LAYERS` and this section in step.
 - **`layout.py`** — the constraint-based layout engine (ADR 0003): the deterministic
   1D PAVA strip solve (`_solve_strip_1d_pava`, plus `plan_strip`/`StripCandidate`,
   the ADR 0009 collect-then-solve entry point) and the 2D free-rectangle placer
-  (`place_box`/`fit_box`). Sits *below* the domain API.
+  (`fit_box`). Sits *below* the domain API.
+- **`_geometry.py`** — model-neutral geometry primitives (`_xyz`, `HoleRef`,
+  `_axis_letter`, `_END_ON`); the DAG's bottom leaf (guarded by
+  `test_geometry_is_a_leaf`) so the IR waist uses them without importing `_core`.
+- **`fits.py`** — the ISO 286 fit tables (`fit_deviation`, `FitClass`; ADR 0011
+  P2a.2): a rank-0 leaf consumed by `_core`, `model/ir` and `sheet`.
+- **`intents.py`** — the deferred-placement "low IR" behind `Drawing.finalize()`
+  (#426): a dependency-free leaf recording edit-verb intents for the recompose
+  (deliberately stringly-typed in its Phase-1 form).
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
   identity/ownership/pins/build-issues (#138 / ADR 0005, Step 2). `Drawing`
   delegates here and keeps the render list; `_named`/`_anno_view`/`_pinned`/
@@ -97,8 +109,8 @@ entry. Keep `_LAYERS` and this section in step.
 - **`linting/`** — the lint subpackage (#138 / ADR 0005; ADR 0007: draftwright
   owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
-  `suggest.py` (`_suggest_fix`, #29 snippets). Depends only on `_core` +
-  build123d_drafting. `_QUOTED_RE` (a lint-message label regex shared with the
+  `suggest.py` (`_suggest_fix`, #29 snippets). Depends only on `_core`,
+  `recognition/` (typed hole records in `coverage.py`) + build123d_drafting. `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
 - **`model/`** — the ADR 0008 IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
@@ -112,6 +124,11 @@ entry. Keep `_LAYERS` and this section in step.
   (`choose_scale`, `ViewBlock`, zone/strip depths). Née `sheet.py`; renamed
   (#640) so the layout engine stops shadowing the user-facing `Sheet` facade
   (which now owns the `sheet.py` name).
+- **`analysis.py`** — the `_analyse` stage: solid classification, the one-shot
+  feature-inventory detection (ADR 0008 Am5), view sizing, and the strip/zone
+  model (`fv_zones`/`pv_zones`/`sv_zones`) that ADR 0009 placement reads.
+- **`projection.py`** — HLR projection and view-coordinate transforms
+  (`_assemble`'s geometry half; #161).
 - **`sheet.py`** — the fluent declarative **`Sheet`** facade (ADR 0011):
   feature verbs (`hole`/`boss`/`slot`/…), aspect verbs (`.tolerance`/`.fit`/
   `.finish`), GD&T (`datum`/`control`). Facade tier: builds a `PartModel` via
@@ -120,7 +137,12 @@ entry. Keep `_LAYERS` and this section in step.
   `sheet_dsl` alias shim remains for one release).
 - **`sheet_emit.py`** — the Sheet-script emitter behind `--script --style sheet`:
   generates an editable `Sheet` script from a detected model. Facade tier;
-  #523 tracks breaking its lazy-import cycle with `builder`/`cli`.
+  imports `builder` downward — the old builder/cli/sheet_emit lazy-import cycle
+  is gone; the one remaining upward edge is the sanctioned `builder._cli` compat
+  shim (#523, rescoped).
+- **`score.py`** — `feature_census` (#148f/#608): a standalone
+  recognition-completeness measurement tool; depends only on `recognition/` +
+  build123d, and nothing in the engine imports it.
 - **`recognition/`** — feature recognition (ADR 0007: draftwright owns it, not
   helpers). Every feature recogniser follows the **uniform contract** (ADR 0013 / #568,
   spelled out in `recognition/__init__.py`): `recognise_<feature>(part, *, <injected
@@ -134,10 +156,13 @@ entry. Keep `_LAYERS` and this section in step.
   `recognise_hole_patterns` + the feature/pattern types; plus the cylinder-analysis
   *substrate* `analyse_cylinders`/`feature_diameters`/`full_cylinders`, which keep their
   names — a tuple-of-dicts / diameter query, not `list[record]` recognisers),
-  `slots.py` (the milled-slot recogniser, #135), `turned.py` (`recognise_turned_steps`
-  — turned-shaft shoulders, OD-silhouette filtered), and `levels.py`
-  (`recognise_face_levels` prismatic horizontal face levels + `recognise_step_shoulders`
-  → `StepShoulder`, #191/#555). Bottom of the DAG: depends only on build123d/OCP. Import
+  `slots.py` (the milled-slot + pocket recognisers, #135/#148), `turned.py`
+  (`recognise_turned_steps` — turned-shaft shoulders, OD-silhouette filtered),
+  `levels.py` (`recognise_face_levels` prismatic horizontal face levels +
+  `recognise_step_shoulders` → `StepShoulder`, #191/#555), the #148-epic
+  recognisers `chamfers.py`/`fillets.py`/`flats.py`/`grooves.py`/`plates.py`/
+  `countersinks.py`, and `_record.py` (the shared frozen-`Record` mixin,
+  `.to_dict()`). Bottom of the DAG: depends only on build123d/OCP. Import
   via the package surface.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
@@ -201,12 +226,13 @@ Current ADRs:
   bus; annotation identity/pins/build-issues moved to `registry.py`, coverage
   state to `linting/`, build context (`Analysis`, edge cache) into the pipeline.
   Stages split into `builder`/`analysis`/`compose` (née `sheet`, #640)/`projection`/`linting/`/`repair`/
-  `export`/`annotations/` (all #160–#166 landed; `make_drawing.py` 3,907 → ~17
+  `export`/`annotations/` (all #160–#166 landed; `make_drawing.py` 3,907 → ~20
   facade). `layout.py` unchanged. **Roadmap:** `docs/plans/138-module-split-roadmap.md`.
-  One deferred follow-up remains: full build-context threading off `Drawing`
-  (§2), tracked by **#639** (consolidation epic #635). (The other —
-  `annotations/envelope.py` — was overtaken by ADR 0008: the envelope pass
-  converged into `annotations/from_model.py` instead.)
+  Both deferred follow-ups are resolved: the §2 build-context threading closed
+  via **#639** (epic #635 — one typed `BuildState`, empty-allowlist ratchet), and
+  `annotations/envelope.py` was overtaken by ADR 0008 (the envelope pass
+  converged into `annotations/from_model.py` instead). §4's compat-alias exit is
+  tracked by **#699**.
 - **0006** — **Accepted** (#149): deterministic cross-platform layout via bundled,
   path-pinned fonts. Layout depends on measured text width; resolving a font *name*
   (`"Arial"`) substitutes a different font on Linux, drifting the whole sheet ~1 mm.
@@ -231,10 +257,11 @@ Current ADRs:
   select → assign → order(=feature order ⇒ crossing-free) → space. Removes the
   invisible-occupant collision class (#133/#225/#305) by construction; the inner
   per-view layer to 0004's outer block packing; consumes 0008's render-intents.
-  **Remaining migration:** a handful of render passes (plates, height ladder,
-  step positions, some hole helpers) still place via the solver-invisible
-  `carve_free_position` — tracked by **#636** (consolidation epic #635); the
-  by-construction guarantee holds only once those join the solve.
+  **Migration complete** (#636 closed, epic #635): every auto-pass strip
+  occupant joins the solve, so the by-construction guarantee holds; the
+  remaining `carve_free_position` callers are explicit exemptions (post-drain
+  fallthroughs, manual post-build verbs, the diagonal pitch fallback) pinned by
+  the fail-closed `tests/test_carve_free_position_callers.py`.
   Research: `docs/research/annotation-placement-boundary-labeling.md`. Roadmap:
   `docs/plans/strip-layout-boundary-labeling-roadmap.md`.
 - **0010** — **Accepted** (decision; work pending): **annotation provenance seam**.
@@ -270,6 +297,14 @@ Current ADRs:
   once; pin is the escape valve so the user never fights the solver. `place_dim()` is now
   the deprecated raw-coordinate escape hatch. The #477 below/right fold-in landed as a
   dependency.
+- **0013** — **Accepted** (#568; Phase 1 in progress): the **uniform recogniser
+  contract** — `recognise_<feature>(part, *, <injected deps>) -> list[<frozen
+  record>]` (plus the part-less *derived* shape, e.g.
+  `recognise_hole_patterns(holes)`), mechanically enforced by
+  `tests/test_recogniser_contract.py`. The shared `b123d-recognisers` package is
+  the deferred Phase-2 deployment (gated on a second committed consumer).
+  Remaining Phase 1: the typed `detect.py` adapter registry (roadmap item 1c).
+  Roadmap: `docs/plans/0013-shared-recognisers-roadmap.md`.
 
 ## Dependencies
 

@@ -1,11 +1,14 @@
 """Shared low-level primitives for the draftwright drawing engine.
 
-This module sits below :mod:`draftwright.make_drawing` and
-:mod:`draftwright.annotate`: it holds the data structures and small helpers
-both layers depend on (the :class:`Analysis` namespace and its field types,
-the dimension/format helpers, and the layout constants).  It imports only from
-:mod:`draftwright.layout` and third-party libraries -- never from
-``make_drawing`` -- so the module graph stays a DAG (#98 Phase C).
+This module sits below the stage modules (``analysis``/``projection``/
+``compose``/``annotations/``/``export``/``repair`` — its real consumers since
+the ADR 0005 split): it holds the data structures and small helpers they all
+depend on (the :class:`Analysis` namespace and its field types, the
+dimension/format helpers, and the layout constants).  It imports only from the
+leaf tier (:mod:`draftwright.layout`, :mod:`draftwright._geometry`,
+:mod:`draftwright.fits`, :mod:`draftwright.fonts`) and third-party libraries —
+never upward — so the module graph stays a DAG (machine-enforced by
+``tests/test_import_boundaries.py``).
 """
 
 from __future__ import annotations
@@ -565,9 +568,11 @@ class Analysis:
     pmi_mode: str
     # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so
     # the render path reuses it instead of re-running the detectors (ADR 0008 Amdt 5:
-    # one inventory, detected once; #602). Typed `object` because model/ sits above
-    # _core in the DAG. None when the caller declared a model (ADR 0011) or on a
-    # manually-built Analysis — consumers fall back to build_model(a).
+    # one inventory, detected once; #602). Typed `object` to keep _core free of a
+    # runtime model/ import (model/ sits BELOW _core in _LAYERS, so a typed
+    # `PartModel | None` is legal — a possible tightening). None when the caller
+    # declared a model (ADR 0011) or on a manually-built Analysis — consumers fall
+    # back to build_model(a).
     model: object | None = None
 
 

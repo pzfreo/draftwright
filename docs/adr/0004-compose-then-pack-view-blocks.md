@@ -1,6 +1,7 @@
 # ADR 0004 — Compose-then-pack: views as blocks carrying their annotation footprint
 
-- **Status:** Accepted (2026-06-19; amended 2026-06-20 and 2026-07-09 — see Amendments)
+- **Status:** Accepted (2026-06-19; amended 2026-06-20, 2026-07-09 and
+  2026-07-18 — see Amendments)
 - **Date:** 2026-06-19
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -125,7 +126,7 @@ above where OCCT's annotation arcs actually degenerate (`Geom_TrimmedCurve U1==U
   view-local space.
 - The **page-level packing stays fixed-topology** (plan above front sharing X;
   side beside front sharing Y; iso and table in free rectangles via
-  `place_box` / `fit_box`). It is **not** the full global 2D solve deferred in
+  `fit_box`). It is **not** the full global 2D solve deferred in
   #94, which we keep deferred — most "2D freedom" is forbidden by projection
   alignment, and a global non-overlap solve is disjunctive/NP-hard and
   non-deterministic. Fixed-topology + composed footprints + local free-rect
@@ -238,7 +239,7 @@ Decisions:
 This ADR names its anchors by their *current* location: `_analyse`,
 `StripDepths`, `ViewBlock`, `_repack`, `choose_scale` in `make_drawing.py`, and
 `_auto_annotate` in `annotate.py`. [ADR 0005](0005-pipeline-architecture-and-state-ownership.md)
-(Accepted, in progress) relocates these **without changing this decision** —
+(Accepted; the split is complete) relocated these **without changing this decision** —
 sheet planning/compose-then-pack to `sheet.py` (#162; since renamed `compose.py`, #640), projection/`_assemble` to
 `projection.py` (#161) / `builder.py` (#165), `_analyse` to `analysis.py` (#163),
 annotation sequencing to `annotations/orchestrator.py` (#164). Refresh the anchor
@@ -260,3 +261,26 @@ blocks, free-rectangle placement for furniture, and a fixed-point measure/repack
 loop. That is the intended architecture from this ADR, not a temporary halfway
 state. Remaining open issues are targeted hardening, coverage, detail-view
 capability, and manual-intent integration work.
+
+## Amendment (2026-07-18) — reconciling the absolute wording with the as-built loop
+
+Two of this ADR's absolutes read stricter than the accepted implementation; the
+code is right, and the text is hereby reconciled rather than left to mislead:
+
+1. **"The prediction problem disappears" (Decision rule 1) — prediction survives
+   as the pass-1 seed.** The composer's scale/page fitness still runs a-priori
+   estimators (`_will_balloon`, the `_est_*_depth` family in `compose.py`) to
+   seed the first compose; the **measure-and-repack fixed-point loop**
+   (`builder._repack_to_fixed_point`) is the corrective that makes the final
+   footprint the *actual* laid-out extent. Escalation authority did move to the
+   per-instance layout (the 2026-07-09 amendment); the estimators remain as
+   seeds, backstopped — not decision-makers. Retiring them entirely is possible
+   future convergence, not the current state.
+2. **"Geometry is built only once" / "never bbox-measured OCC geometry" — the
+   search is box-math; the measured pass reads built annotations.** The
+   `(scale, page)` *search* reasons purely over page-mm boxes (the O(n²)
+   perf motive this rule encodes). After a full build, the bounded repack loop
+   (≤ `_REPACK_MAX_ITER` extra `_assemble` runs) and the out-of-bounds check
+   (`_annotations_out_of_bounds`) deliberately measure the *built* annotations'
+   real bounding boxes — O(n) per bounded iteration, matching what lint tests.
+   The rule constrains the fitness search, not the post-build verification.

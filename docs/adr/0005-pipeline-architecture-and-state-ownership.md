@@ -1,7 +1,8 @@
 # ADR 0005 — Compiler-pipeline module boundaries and single-owner build state
 
-- **Status:** Accepted (module split complete; one follow-up remains — see the
-  2026-07-15 note below)
+- **Status:** Accepted (module split complete; the deferred follow-ups are
+  closed — see the 2026-07-15 status note below; §4's compat-alias exit
+  criterion is tracked by #699)
 - **Date:** 2026-06-27
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Progress:** Execution roadmap with per-phase tracking issues:

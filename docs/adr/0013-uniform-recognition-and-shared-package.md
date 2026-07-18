@@ -22,6 +22,14 @@ JSON-serializable (no build123d type leaks); (c) **codespell-enforced** — wire
 CI lint job. The recogniser-signature shape (part + keyword-only) is asserted by the same
 contract test.
 
+**Amendment 2 (2026-07-18) — the *derived* shape is part-less.** §2's derived-feature
+example (`recognise_patterns(part, *, holes)`) predates the implementation. A derived
+recogniser is a pure function of already-recognised records and never touches the
+solid, so `part` would be a dead argument. The sanctioned derived shape is
+`recognise_hole_patterns(holes)` — the inventory positional, no `part` — exactly as
+`recognition/__init__.py` documents and `tests/test_recogniser_contract.py` enforces.
+The base-feature shape (`part` first, keyword-only tuning/deps) is unchanged.
+
 ## Context
 
 Two findings, one from inside draftwright and one from a sibling project, meet here.

@@ -17,10 +17,12 @@
 - **Supersedes the original 0008** ("unified feature model") with a concrete
   architecture. Step 1 (unify Z step recognition, #191/#193) stands.
 - **Amendment 7** (2026-07-12): the "one inventory" waist is now two tiers — a
-  shared *geometric* recognition record feeding the *dimensioning* IR through a uniform
-  `detect.py` adapter protocol (typed per-record converters, not one universal
-  converter) (ADR 0013). Amendment 6 (no recognition object crosses the boundary) is
-  preserved.
+  shared *geometric* recognition record feeding the *dimensioning* IR through
+  `detect.py` (ADR 0013). The record tier is landed; the uniform adapter
+  protocol there (typed per-record converters, not one universal converter) is
+  **decided but pending** — ADR 0013 Phase 1 / roadmap item 1c; `detect.py`
+  today remains bespoke per-feature translators. Amendment 6 (no recognition
+  object crosses the boundary) is preserved.
 - **Amendment 8** (2026-07-13, epic #584 WP1): Amendment 6 is enforced across the
   **render** path — the hole/pattern/boss recognition records no longer survive into the
   annotation/table/section/callout renderers. `annotations/` (sections, hole callouts,
@@ -37,7 +39,7 @@
     flagged. `linting/` also stays a leaf (no `model` import) by design. Coverage reading
     recognition is the check working, not a leak.
 
-## Current decision (as amended, 2026-07-12)
+## Current decision (as amended, 2026-07-13)
 
 *The part-drawing engine is a **compiler**.* detectors → a **Feature / DimParameter IR**
 (`PartModel`) → a dimensioning **planner** → **render-intents** → the shared
@@ -46,9 +48,13 @@ detected once** (`_analyse`); the orchestrator is **build model → plan → ren
 Orientation / feature-kind are *data in the IR*, not code branches. The migration is
 **complete — one path**: each step deleted the per-feature engine pass it replaced (not
 reproduce-and-swap, not two permanent paths — Am 2/3). The IR↔infra boundary is
-**IR-typed** — no recognition object crosses it (Am 6). The waist is now **two tiers**
-(Am 7): a shared **geometric recognition record** feeds the dimensioning IR through a
-uniform `detect.py` adapter protocol (a typed registry of per-record converters).
+**IR-typed** — no recognition object crosses it (Am 6), with one sanctioned exception:
+**lint/coverage reads recognised geometry, not the IR** (Am 8) — ground-truth
+validation sourced from the plan would be circular. The waist is now **two tiers**
+(Am 7): a shared **geometric recognition record** feeds the dimensioning IR through
+`detect.py`; the uniform adapter protocol there (a typed registry of per-record
+converters) is decided but **not yet built** — ADR 0013 Phase 1 (roadmap 1c) tracks
+it, and `detect.py` today remains bespoke per-feature translators.
 
 *The amendments below are the reasoning trail (contract refinement → out-grow strategy →
 one-path convergence → IR/infra boundary → one-inventory foundation → IR-typed interface →

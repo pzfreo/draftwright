@@ -760,7 +760,7 @@ def _analyse(
         fv_hh=fv_hh,
         pv_hh=pv_hh,
         sv_hw=sv_hw,
-        # Strip / zone layout model (Phase 1 — regions defined, not yet used)
+        # Strip / zone layout model — the per-view strips ADR 0009 placement reads
         fv_zones=fv_zones,
         pv_zones=pv_zones,
         sv_zones=sv_zones,
