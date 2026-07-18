@@ -101,11 +101,14 @@ class Flat(Record):
     at: tuple[float, float, float]
 
 
-def recognise_flats(part) -> list[Flat]:
+def recognise_flats(part, *, cyls=None) -> list[Flat]:
     """Recognise the machined flats of *part* (see module docstring). Returns one
     :class:`Flat` per qualifying planar face truncating round stock, sorted
-    deterministically. Empty when the part has no round stock or no flat."""
-    z_cyls, cross_cyls = analyse_cylinders(part)
+    deterministically. Empty when the part has no round stock or no flat.
+
+    Pass *cyls* — a precomputed ``analyse_cylinders(part)`` result — to avoid
+    re-scanning the solid (mirrors ``recognise_holes``'s parameter, #703)."""
+    z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
     ext = [c for c in (*z_cyls, *cross_cyls) if c.get("external")]
     if not ext:
         return []

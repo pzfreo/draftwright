@@ -125,6 +125,7 @@ def build_model(a: Analysis):
         step_zs=a.step_zs,
         rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
         pmi=a.pmi,
+        cyls=a.cyls,
     )
 
 

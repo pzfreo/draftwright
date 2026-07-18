@@ -53,7 +53,7 @@ def feature_census(part) -> dict[str, int]:
     recognisers rather than being distinct machined features, and their level-derivation belongs
     to the model layer, not a metric."""
     holes = recognise_holes(part)
-    records = {
+    records: dict[str, list] = {
         "hole": holes,
         "hole_pattern": recognise_hole_patterns(holes),
         "boss": recognise_bosses(part),

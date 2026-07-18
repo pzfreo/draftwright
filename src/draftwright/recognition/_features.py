@@ -1041,7 +1041,7 @@ def _rect_grid(members, pts):
     )
 
 
-def recognise_hole_patterns(holes) -> list:
+def recognise_hole_patterns(holes) -> list[BoltCircle | LinearArray | RectGrid]:
     """Recognise :class:`BoltCircle`, :class:`LinearArray`, and
     :class:`RectGrid` patterns among *holes* (``HoleRecord`` records, e.g.
     from :func:`recognise_holes`).

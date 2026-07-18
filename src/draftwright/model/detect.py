@@ -210,6 +210,7 @@ def build_part_model(
     step_zs=None,
     rotational=None,
     pmi=None,
+    cyls=None,
 ) -> PartModel:
     """Run the detectors and assemble the :class:`PartModel` IR for *part*.
 
@@ -222,7 +223,12 @@ def build_part_model(
     ``step_zs`` (prismatic horizontal face levels) and ``rotational`` (``(od, bores)``
     or ``None``) are *classification* inputs from `_analyse` — the IR can't derive
     them from geometry alone — feeding the prismatic step ladder (#237) and the
-    rotational OD/bore furniture (#237)."""
+    rotational OD/bore furniture (#237).
+
+    ``cyls`` is a precomputed ``analyse_cylinders(part)`` result threaded into every
+    cylinder-substrate recogniser called here (holes/bosses/turned/grooves/flats), so
+    the solid is scanned once per build (#703); omitted, each recogniser scans for
+    itself."""
     bbox = part.bounding_box()
     features: list[Feature] = []
 
@@ -230,7 +236,7 @@ def build_part_model(
     # (count× member-diameter + pattern dims); its member holes are NOT also
     # emitted individually — the grouped-callout rule the engine uses.
     if holes is None:
-        holes = recognise_holes(part, csinks=recognise_countersinks(part))
+        holes = recognise_holes(part, cyls=cyls, csinks=recognise_countersinks(part))
     if patterns is None:
         patterns = recognise_hole_patterns(holes)
     patterned: set[int] = set()
@@ -304,11 +310,11 @@ def build_part_model(
     # its two walls read as shoulders, so recognise_turned_steps also delimits it as a
     # middle "step". Emitting both a StepFeature and a GrooveFeature for one band would
     # double-dimension the floor ø (ISO 129) and break ADR 0008's one-band-one-owner waist.
-    grooves = recognise_grooves(part)
+    grooves = recognise_grooves(part, cyls=cyls)
 
     # Turned profile → step segments; else external bosses → diameters.
     if prof is _UNSET:
-        prof = TurnedProfile.from_steps(recognise_turned_steps(part))
+        prof = TurnedProfile.from_steps(recognise_turned_steps(part, cyls=cyls))
     orientation = prof.axis if prof is not None else None
     if prof is not None:
         idx = "xyz".index(prof.axis)
@@ -350,7 +356,7 @@ def build_part_model(
         # floor is likewise a narrow reduced band, but the groove callout already carries its
         # ø, so it is suppressed here (_boss_is_groove_floor) to avoid a duplicate boss ø.
         step_dias = [s.diameter for s in prof.steps]
-        raw_bosses = recognise_bosses(part) if bosses is None else bosses
+        raw_bosses = recognise_bosses(part, cyls=cyls) if bosses is None else bosses
         for b in _distinct_by_diameter(raw_bosses):
             if all(
                 abs(b.diameter - d) > _DIA_TOL for d in step_dias
@@ -362,7 +368,7 @@ def build_part_model(
                     )
                 )
     else:
-        raw_bosses = recognise_bosses(part) if bosses is None else bosses
+        raw_bosses = recognise_bosses(part, cyls=cyls) if bosses is None else bosses
         bosses_d = _distinct_by_diameter(raw_bosses)
         for b in bosses_d:
             # A grooved round body can still fail the turned-step squareness gate (e.g. a
@@ -485,7 +491,7 @@ def build_part_model(
     # rotational branch): a D-shaft / hex head IS round stock and classifies rotational,
     # yet its flat still needs a callout. The recogniser self-gates on OD adjacency, so a
     # part with no round stock yields none.
-    for flat in recognise_flats(part):
+    for flat in recognise_flats(part, cyls=cyls):
         at = flat.at
         features.append(
             FlatFeature(

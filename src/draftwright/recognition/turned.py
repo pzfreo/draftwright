@@ -108,15 +108,18 @@ class TurnedProfile(Record):
         return (*(s.lo for s in self.steps), self.steps[-1].hi)
 
 
-def recognise_turned_steps(part) -> list[TurnedStep]:
+def recognise_turned_steps(part, *, cyls=None) -> list[TurnedStep]:
     """Recognise the axial steps of a stepped turned ``part``.
 
     Returns ``[]`` for a non-turned part, a plain (single-diameter) cylinder, or
     anything with fewer than two steps — nothing to dimension axially. Each
     :class:`TurnedStep` carries the turning ``axis``; aggregate them with
     :meth:`TurnedProfile.from_steps` if the axis/shoulders unit is wanted.
+
+    Pass *cyls* — a precomputed ``analyse_cylinders(part)`` result — to avoid
+    re-scanning the solid (mirrors ``recognise_holes``'s parameter, #703).
     """
-    z_cyls, cross_cyls = analyse_cylinders(part)
+    z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
     ext = [c for c in (*z_cyls, *cross_cyls) if c.get("external")]
     if not ext:
         return []
