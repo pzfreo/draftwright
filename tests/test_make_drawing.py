@@ -39,8 +39,8 @@ def _state_snapshot(dwg):
     names, pins, and the per-view (visible, hidden) tuples (by identity)."""
     return (
         len(dwg.items),
-        frozenset(dwg._named),
-        frozenset(dwg._pinned),
+        frozenset(dwg.annotations()),
+        frozenset(dwg.registry.pinned_names()),
         {k: (id(vis), id(hid)) for k, (vis, hid) in dwg.views.items()},
     )
 
@@ -110,7 +110,7 @@ class TestDedupDiams:
 
 
 def _plate_labels(d):
-    return sorted(str(o.label) for o in d._named.values() if getattr(o, "label", None))
+    return sorted(str(o.label) for _, o in d.iter_annotations() if getattr(o, "label", None))
 
 
 def _l_bracket():
@@ -139,7 +139,9 @@ class TestPlateThickness:
         assert lbl.count("10") == 2  # BOTH plate thicknesses (base Z + wall Y) — were ABSENT
         assert "15" in lbl  # valid base-hole location dim — unchanged (see #564)
         # thickness dims come from recognised prismatic feature intent, not a view heuristic
-        plate_dims = {n: dwg._named[n].label for n in dwg._named if n.startswith("dim_plate")}
+        plate_dims = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_plate")
+        }
         assert sorted(plate_dims.values()) == ["10", "10"]
         # base thickness in the front elevation, wall thickness in the side (end) view —
         # different characteristic views so the two legs read as distinct features (#559).
@@ -152,7 +154,7 @@ class TestPlateThickness:
         # A single plate's thickness IS the overall height (dim_height) — the plate
         # recogniser must not add a duplicate.
         dwg = build_drawing(Box(80, 60, 10), number="X")
-        assert not [n for n in dwg._named if n.startswith("dim_plate")]
+        assert not [n for n in dwg.annotations() if n.startswith("dim_plate")]
         assert _plate_labels(dwg).count("10") == 1  # only dim_height
 
     def test_channel_gap_is_not_read_as_a_plate(self):
@@ -163,7 +165,9 @@ class TestPlateThickness:
             Box(80, 60, 10) + Pos(0, -25, 30) * Box(80, 10, 40) + Pos(0, 25, 30) * Box(80, 10, 40)
         )
         dwg = build_drawing(part, number="X")
-        plate_vals = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_plate"))
+        plate_vals = sorted(
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_plate")
+        )
         # each 10-thick wall is a plate (Y), but the 40 mm air gap between them is NOT
         assert "40" not in plate_vals
         assert "50" not in plate_vals
@@ -173,7 +177,7 @@ class TestPlateThickness:
         # thicknesses — plate detection is gated off for it.
         part = Cylinder(20, 8)  # a thin disc: thin in Z, but rotational
         dwg = build_drawing(part, number="X")
-        assert not [n for n in dwg._named if n.startswith("dim_plate")]
+        assert not [n for n in dwg.annotations() if n.startswith("dim_plate")]
 
 
 class TestStepPosition:
@@ -189,7 +193,11 @@ class TestStepPosition:
         assert {"80", "60", "30", "15"} <= set(lbl)  # overall + heights already present
         assert "20" in lbl or "40" in lbl  # step position / shelf depth — was ABSENT
         # from recognised step intent, in the side (profile) view where the step reads
-        pos = {n: dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder")}
+        pos = {
+            n: dwg.get_annotation(n).label
+            for n in dwg.annotations()
+            if n.startswith("dim_shoulder")
+        }
         assert list(pos.values()) == ["20"]
         assert all(dwg.view_of(n) == "side" for n in pos)
         assert [i for i in dwg.lint() if i.severity != "info"] == []
@@ -204,7 +212,9 @@ class TestStepPosition:
         step = next(f for f in dwg.model().features if f.kind == "step_level")
         with dwg.deferred():
             dwg.dimension(step, "length", role="step_position")
-        placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
+        placed = sorted(
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_shoulder")
+        )
         assert placed == ["20"]  # the shoulder position survives the recompose
 
     def test_finalize_drains_step_positions_after_a_mid_replay_raise(self, monkeypatch):
@@ -238,10 +248,12 @@ class TestStepPosition:
             dwg.finalize()  # A0b registered the step candidates; B1 raises → rollback
         # The rollback restored the step-position INTENT; nothing was committed.
         assert any(it.kwargs.get("role") == "step_position" for it in dwg._intents)
-        assert not [n for n in dwg._named if n.startswith("dim_shoulder")]
+        assert not [n for n in dwg.annotations() if n.startswith("dim_shoulder")]
 
         dwg.finalize()  # retry: re-registers from the surviving intent and drains
-        placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
+        placed = sorted(
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_shoulder")
+        )
         assert placed == ["20"]
 
     def test_finalize_retries_when_the_drain_itself_raised(self, monkeypatch):
@@ -271,7 +283,9 @@ class TestStepPosition:
         # The rollback restored the step-position INTENT; a retry re-runs from it and drains.
         assert any(it.kwargs.get("role") == "step_position" for it in dwg._intents)
         dwg.finalize()  # retry: re-registers from the surviving intent and drains
-        placed = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
+        placed = sorted(
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_shoulder")
+        )
         assert placed == ["20"]
 
     def test_finalize_rolls_back_a_partial_commit(self, monkeypatch):
@@ -294,7 +308,7 @@ class TestStepPosition:
         dwg._defer_intents = True
         dwg.callout(hole)  # commits in leg B1, before the B2 drain
         dwg.dimension(step, "length", role="step_position")  # drained in B2
-        names_before, items_before = set(dwg._named), len(dwg.items)
+        names_before, items_before = set(dwg.annotations()), len(dwg.items)
         intents_before = len(dwg._intents)
         coverage_before = dwg._coverage.snapshot()
 
@@ -311,14 +325,14 @@ class TestStepPosition:
         with pytest.raises(RuntimeError):
             dwg.finalize()
         # Rolled back to exactly the pre-finalize state — the B1 callout is gone again.
-        assert set(dwg._named) == names_before
+        assert set(dwg.annotations()) == names_before
         assert len(dwg.items) == items_before
         assert len(dwg._intents) == intents_before
         assert dwg._coverage.snapshot() == coverage_before  # coverage restored (#647 review)
 
         monkeypatch.undo()
         dwg.finalize()  # clean retry — the shoulder position places exactly once (no duplicate)
-        assert len([n for n in dwg._named if n.startswith("dim_shoulder")]) == 1
+        assert len([n for n in dwg.annotations() if n.startswith("dim_shoulder")]) == 1
 
     def test_finalize_rolls_back_a_narrowed_analysis_bound(self, monkeypatch):
         # #647 review: render_locations narrows a.sv_zones.above.outer_limit IN PLACE on the
@@ -348,7 +362,9 @@ class TestStepPosition:
         # A symmetric central channel has TWO shoulders; both positions must be given
         # (20 and 40 from the front datum), else the channel is under-constrained.
         dwg = build_drawing(Box(80, 60, 30) - Pos(0, 0, 7.5) * Box(80, 20, 15), number="X")
-        pos = sorted(dwg._named[n].label for n in dwg._named if n.startswith("dim_shoulder"))
+        pos = sorted(
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_shoulder")
+        )
         assert pos == ["20", "40"]
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
@@ -356,32 +372,32 @@ class TestStepPosition:
         # A step whose shoulder runs along X is located above the plan view (the axis→view
         # mapping the hole-location ladder uses), not the side view.
         dwg = build_drawing(Box(80, 60, 30) - Pos(-25, 0, 7.5) * Box(30, 60, 15), number="X")
-        pos = {n: dwg.view_of(n) for n in dwg._named if n.startswith("dim_shoulder")}
+        pos = {n: dwg.view_of(n) for n in dwg.annotations() if n.startswith("dim_shoulder")}
         assert pos and set(pos.values()) == {"plan"}
 
     def test_plain_block_has_no_step_position(self):
         # No step → no shoulder dim.
         dwg = build_drawing(Box(40, 30, 12), number="X")
-        assert not [n for n in dwg._named if n.startswith("dim_shoulder")]
+        assert not [n for n in dwg.annotations() if n.startswith("dim_shoulder")]
 
     def test_through_slot_is_not_a_step_shoulder(self):
         # A slot's walls are interior vertical faces but not step risers (no step level);
         # the slot recogniser dimensions them, so no spurious step-position dim appears.
         dwg = build_drawing(Box(50, 30, 20) - Box(20, 8, 30), number="X")
-        assert not [n for n in dwg._named if n.startswith("dim_shoulder")]
+        assert not [n for n in dwg.annotations() if n.startswith("dim_shoulder")]
 
     def test_raised_pad_is_not_a_step_shoulder(self):
         # #555 review: a raised rectangular pad/island rises from the base-top level, but
         # its walls do NOT span the part edge-to-edge — only a genuine step/rebate does. A
         # pad must not be mis-located as a shoulder.
         dwg = build_drawing(Box(80, 60, 10) + Pos(0, 0, 10) * Box(40, 40, 10), number="X")
-        assert not [n for n in dwg._named if n.startswith("dim_shoulder")]
+        assert not [n for n in dwg.annotations() if n.startswith("dim_shoulder")]
 
     def test_blind_pocket_is_not_a_step_shoulder(self):
         # #555 review: a blind pocket's floor IS a step level, but its walls are bounded
         # (not full-span), so it is not read as a step shoulder.
         dwg = build_drawing(Box(80, 60, 30) - Pos(0, 0, 5) * Box(30, 20, 20), number="X")
-        assert not [n for n in dwg._named if n.startswith("dim_shoulder")]
+        assert not [n for n in dwg.annotations() if n.startswith("dim_shoulder")]
 
     def test_step_position_round_trips_through_generated_script(self, tmp_path):
         # #555 review: the --script reconstruction (record→finalize) must keep the step
@@ -400,7 +416,9 @@ class TestStepPosition:
         assert src.count('role="step_position"') == 1  # ONE verb rebuilds all shoulders
         ns = {"__file__": script_path}
         exec(src, ns)  # noqa: S102 — executing our own generated reconstruction (must not crash)
-        labels = [str(o.label) for o in ns["dwg"]._named.values() if getattr(o, "label", None)]
+        labels = [
+            str(o.label) for _, o in ns["dwg"].iter_annotations() if getattr(o, "label", None)
+        ]
         assert "20" in labels and "40" in labels  # both shoulder positions survive
 
     def test_step_position_round_trips_through_declared_model(self):
@@ -418,13 +436,14 @@ class TestStepPosition:
             datum=(-40, -30, -15),
         )
         dwg = build_drawing(part, model=[step], number="X")
-        labels = [str(o.label) for o in dwg._named.values() if getattr(o, "label", None)]
+        labels = [str(o.label) for _, o in dwg.iter_annotations() if getattr(o, "label", None)]
         assert "20" in labels
 
 
 def _chamfer_text(dwg):
     return " ".join(
-        str(getattr(o, "label", "") or getattr(o, "text", "") or "") for o in dwg._named.values()
+        str(getattr(o, "label", "") or getattr(o, "text", "") or "")
+        for _, o in dwg.iter_annotations()
     )
 
 
@@ -447,7 +466,9 @@ class TestChamferCallout:
     def test_equal_leg_45_uses_c_form_and_participates_in_lint(self):
         # The callout is a real placed leader (named, in a view) and the sheet lints clean.
         dwg = build_drawing(self._chamfered_plate(12), number="X")
-        callouts = {n: dwg._named[n].label for n in dwg._named if n.startswith("m_chamfer")}
+        callouts = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_chamfer")
+        }
         assert list(callouts.values()) == ["C12"]
         assert all(dwg.view_of(n) == "plan" for n in callouts)  # Z-edge reads in the plan
         assert [i for i in dwg.lint() if i.severity != "info"] == []
@@ -474,7 +495,9 @@ class TestChamferCallout:
         assert abs(ch.leg1 - ch.leg2) >= 0.05
         assert abs(ch.leg1 - 14) < 0.05 and abs(ch.leg2 - 8) < 0.05
         assert abs(ch.angle - 29.74) < 0.5
-        callout = next(dwg._named[n].label for n in dwg._named if n.startswith("m_chamfer"))
+        callout = next(
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_chamfer")
+        )
         assert "C" not in callout and "°" in callout
 
     def test_leader_anchors_on_the_bevel_interior_not_an_endpoint(self):
@@ -525,12 +548,12 @@ class TestChamferCallout:
         part = Box(60, 40, 30)
         e = part.edges().filter_by(Axis.X).sort_by(lambda e: e.center().Y + e.center().Z)[-1]
         dwg = build_drawing(chamfer(e, 6), number="X")
-        callouts = {n: dwg.view_of(n) for n in dwg._named if n.startswith("m_chamfer")}
+        callouts = {n: dwg.view_of(n) for n in dwg.annotations() if n.startswith("m_chamfer")}
         assert callouts and set(callouts.values()) == {"side"}
 
     def test_plain_box_has_no_chamfer_callout(self):
         dwg = build_drawing(Box(40, 30, 12), number="X")
-        assert not [n for n in dwg._named if n.startswith("m_chamfer")]
+        assert not [n for n in dwg.annotations() if n.startswith("m_chamfer")]
 
     def test_turned_part_has_no_chamfer_feature(self):
         # A turned part's chamfers are conical (not oblique planar) — none recognised.
@@ -679,8 +702,8 @@ class TestFlatCallout:
         dwg = build_drawing(Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40), number="X")
         names = [n for n in dwg.annotations() if n.startswith("m_flat")]
         assert len(names) == 1
-        assert dwg._named[names[0]].label == _flat_label(15)
-        assert dwg._anno_view[names[0]] == "plan"  # a Z-axis bar reads down the axis (plan)
+        assert dwg.get_annotation(names[0]).label == _flat_label(15)
+        assert dwg.view_of(names[0]) == "plan"  # a Z-axis bar reads down the axis (plan)
 
     def test_offcentre_recess_wall_is_not_a_flat(self):
         # A slot/recess offset to one side of the axis has a near wall whose outward normal
@@ -783,9 +806,9 @@ class TestGrooveCallout:
         dwg = build_drawing(self._grooved(8, 4, 10), number="X")
         names = [n for n in dwg.annotations() if n.startswith("m_groove")]
         assert len(names) == 1
-        assert dwg._named[names[0]].label == _groove_label(4, 16)
+        assert dwg.get_annotation(names[0]).label == _groove_label(4, 16)
         # A groove's width is axial → it reads in a profile view (axis in-plane), not down it.
-        assert dwg._anno_view[names[0]] == "front"
+        assert dwg.view_of(names[0]) == "front"
         assert not any(i.severity == "error" for i in dwg.lint())
 
     def test_groove_floor_diameter_is_not_double_dimensioned(self):
@@ -795,7 +818,9 @@ class TestGrooveCallout:
         # separate step ø — ISO 129 / ADR 0008 one-band-one-owner (#148c review).
         dwg = build_drawing(self._grooved(8, 4, 10), number="X")
         floor_labels = [
-            n for n in dwg.annotations() if "ø16" in str(getattr(dwg._named[n], "label", ""))
+            n
+            for n in dwg.annotations()
+            if "ø16" in str(getattr(dwg.get_annotation(n), "label", ""))
         ]
         assert floor_labels == [n for n in floor_labels if n.startswith("m_groove")]
         assert len(floor_labels) == 1
@@ -842,7 +867,11 @@ class TestGrooveCallout:
         narrow = Cylinder(10, 40) - Pos(0, 0, 10) * (Cylinder(10, 1.3) - Cylinder(9, 1.3))
         assert len(recognise_grooves(narrow)) == 1
         dwg = build_drawing(narrow, number="X")
-        floor = [n for n in dwg.annotations() if "ø18" in str(getattr(dwg._named[n], "label", ""))]
+        floor = [
+            n
+            for n in dwg.annotations()
+            if "ø18" in str(getattr(dwg.get_annotation(n), "label", ""))
+        ]
         assert floor == [n for n in floor if n.startswith("m_groove")]
         assert len(floor) == 1
 
@@ -869,7 +898,11 @@ class TestGrooveCallout:
         part = Cylinder(10, 40) - Pos(0, 0, 5) * (Cylinder(10, 2) - Cylinder(8, 2))
         part += Box(40, 12, 4)
         dwg = build_drawing(part, number="X")
-        floor = [n for n in dwg.annotations() if "ø16" in str(getattr(dwg._named[n], "label", ""))]
+        floor = [
+            n
+            for n in dwg.annotations()
+            if "ø16" in str(getattr(dwg.get_annotation(n), "label", ""))
+        ]
         assert floor == [n for n in floor if n.startswith("m_groove")]
         assert len(floor) == 1
 
@@ -912,8 +945,8 @@ class TestCountersinkCallout:
         # The wider csk callout must reserve room in the layout estimate and place —
         # NOT drop like it did before the estimator learned about countersinks.
         dwg = build_drawing(self._csk_plate(), number="X")
-        assert not any(getattr(i, "code", None) == "callout_dropped" for i in dwg._build_issues)
-        leaders = [dwg._named[n] for n in dwg._named if n.startswith("hc_")]
+        assert not any(getattr(i, "code", None) == "callout_dropped" for i in dwg.registry.issues)
+        leaders = [dwg.get_annotation(n) for n in dwg.annotations() if n.startswith("hc_")]
         assert leaders, "no hole callout placed"
         # The placed callout covers both the bore (6) and the csk major (14).
         assert any(14.0 in ldr.covers_diameters for ldr in leaders)
@@ -1450,8 +1483,8 @@ class TestStripZones:
 
         part = Box(60, 40, 30)
         dwg = build_drawing(part)
-        assert "dim_height" in dwg._named
-        ann = dwg._named["dim_height"]
+        assert "dim_height" in dwg.annotations()
+        ann = dwg.get_annotation("dim_height")
         # label is the part height
         assert ann.label == "30"
 
@@ -1480,8 +1513,8 @@ class TestStripZones:
         # renderer m_env_width, still routed through pv_zones.below).
         part = Box(80, 40, 20)
         dwg = build_drawing(part)
-        assert "m_env_width" in dwg._named
-        ann = dwg._named["m_env_width"]
+        assert "m_env_width" in dwg.annotations()
+        ann = dwg.get_annotation("m_env_width")
         assert ann.label == "80"
 
     def test_dim_locx_routed_through_pv_above_strip(self):
@@ -1492,7 +1525,7 @@ class TestStripZones:
 
         part = Box(80, 60, 20) - Pos(20, 10, 0) * Cylinder(5, 20)
         dwg = build_drawing(part)
-        locx_dims = [v for n, v in dwg._named.items() if n.startswith("m_locx")]
+        locx_dims = [v for n, v in dwg.iter_annotations() if n.startswith("m_locx")]
         assert len(locx_dims) >= 1, "expected m_locx0 to be generated for off-datum cylinder"
         plan_top = dwg.views["plan"][0].bounding_box().max.Y
         assert all(d.dim_level_y > plan_top for d in locx_dims)
@@ -1506,7 +1539,7 @@ class TestStripZones:
         # Cylinder at Y=10 → offset from datum_y=bb.min.Y → generates dim_locy0
         part = Box(80, 60, 20) - Pos(0, 10, 0) * Cylinder(5, 20)
         dwg = build_drawing(part)
-        locy_dims = [v for n, v in dwg._named.items() if n.startswith("m_locy")]
+        locy_dims = [v for n, v in dwg.iter_annotations() if n.startswith("m_locy")]
         assert len(locy_dims) >= 1, "expected m_locy0 to be generated for off-datum cylinder"
         side_top = dwg.views["side"][0].bounding_box().max.Y
         assert all(d.dim_level_y > side_top for d in locy_dims)
@@ -1525,8 +1558,8 @@ class TestStripZones:
         dwg = build_drawing(part)
         a = dwg._analysis
         # dim_height and at least one dim_step must be generated
-        assert "dim_height" in dwg._named
-        step_dims = [n for n in dwg._named if n.startswith("dim_step")]
+        assert "dim_height" in dwg.annotations()
+        step_dims = [n for n in dwg.annotations() if n.startswith("dim_step")]
         assert len(step_dims) >= 1, "dim_step must appear after Phase 3 corridor widening"
         # The FV→SV gap must equal the estimator value for the height-gated count.
         # Use the same gate _analyse() applies: (z - bb.min.Z) * SCALE >= 20.
@@ -1566,8 +1599,8 @@ class TestStripZones:
 
         part = Box(60, 40, 30)
         dwg = build_drawing(part)
-        assert "dim_height" in dwg._named
-        assert dwg._named["dim_height"].label == "30"
+        assert "dim_height" in dwg.annotations()
+        assert dwg.get_annotation("dim_height").label == "30"
 
     def test_overall_height_dim_sits_outside_step_dims(self):
         # staircase.step review: the overall-height dimension must nest OUTSIDE
@@ -1581,12 +1614,12 @@ class TestStripZones:
             Box(40, 12, 60) - Pos(10, 0, 30) * Box(20, 12, 30) - Pos(-10, 0, 40) * Box(20, 12, 20)
         )
         dwg = build_drawing(part)
-        assert "dim_height" in dwg._named
-        step_dims = [n for n in dwg._named if n.startswith("dim_step")]
+        assert "dim_height" in dwg.annotations()
+        step_dims = [n for n in dwg.annotations() if n.startswith("dim_step")]
         assert step_dims, "expected at least one step dim"
-        height_x = dwg._named["dim_height"].bounding_box().max.X
+        height_x = dwg.get_annotation("dim_height").bounding_box().max.X
         for n in step_dims:
-            step_x = dwg._named[n].bounding_box().max.X
+            step_x = dwg.get_annotation(n).bounding_box().max.X
             assert height_x > step_x, f"overall height must sit outside {n}"
 
     def test_right_strip_outer_limits_tightened_to_iso(self):
@@ -1642,8 +1675,10 @@ class TestStripZones:
         # (IR renderer m_env_depth, still routed through sv_zones.below).
         part = Box(80, 40, 20)
         dwg = build_drawing(part)
-        assert "m_env_depth" in dwg._named, "expected m_env_depth for part with width != depth"
-        ann = dwg._named["m_env_depth"]
+        assert "m_env_depth" in dwg.annotations(), (
+            "expected m_env_depth for part with width != depth"
+        )
+        ann = dwg.get_annotation("m_env_depth")
         assert ann.label == "40", f"depth label should be y_size=40, got {ann.label!r}"
 
     def test_dim_depth_absent_for_square_plan(self):
@@ -1654,7 +1689,9 @@ class TestStripZones:
 
         part = Box(60, 60, 20)  # square plan: x_size == y_size
         dwg = build_drawing(part)
-        assert "m_env_depth" not in dwg._named, "depth dim should be skipped for square plan"
+        assert "m_env_depth" not in dwg.annotations(), (
+            "depth dim should be skipped for square plan"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2279,7 +2316,7 @@ class TestTwoPassLayout:
         dwg = build_drawing(part)
         a = dwg._analysis
         sv_left = a.SV_X - a.sv_hw
-        for name, ann in dwg._named.items():
+        for name, ann in dwg.iter_annotations():
             if name.startswith("hc_plan") and getattr(ann, "label_bbox", None):
                 lx1 = ann.label_bbox[2]  # right edge of callout label
                 assert lx1 <= sv_left + 0.5, (
@@ -2326,7 +2363,7 @@ class TestTwoPassLayout:
         assert available > needed, (
             f"pv_zones.below available {available:.1f} mm must exceed needed {needed:.1f} mm"
         )
-        assert "m_env_width" in dwg._named, "width dim must not be skipped"
+        assert "m_env_width" in dwg.annotations(), "width dim must not be skipped"
 
 
 class TestComposeThenPackRepack:
@@ -2686,18 +2723,18 @@ class TestComposeThenPackRepack:
             )
 
         dwg.add(_leader("A"), "tag", view="front")
-        assert dwg._anno_view["tag"] == "front"
+        assert dwg.view_of("tag") == "front"
 
         dwg.add(_leader("B"), "tag")  # replacement, view-less → clears stale tag
-        assert "tag" not in dwg._anno_view
+        assert dwg.view_of("tag") is None
 
         dwg.add(_leader("C"), "tag2", view="plan")
         dwg.remove("tag2")
-        assert "tag2" not in dwg._anno_view
+        assert dwg.view_of("tag2") is None
 
         dwg.add(_leader("D"), "tag3", view="side")
         dwg.clear_annotations()  # keeps title_block only
-        assert "tag3" not in dwg._anno_view
+        assert dwg.view_of("tag3") is None
 
 
 class TestLayoutCleanlinessInvariant:
@@ -2818,7 +2855,7 @@ class TestHolePatternCallouts:
     @pytest.mark.timeout(120)
     def test_rect_grid_one_callout_and_two_pitch_dims(self):
         dwg = build_drawing(self._grid_part())
-        named = dwg._named
+        named = dict(dwg.iter_annotations())
         hc = [n for n in named if n.startswith("hc_")]
         pitch = [n for n in named if n.startswith("dim_pitch_")]
         # one grouped callout covering all eight holes — not eight callouts
@@ -2856,10 +2893,10 @@ class TestHolePatternCallouts:
                 part -= Pos(x * ca - y * sa, x * sa + y * ca, 0) * Cylinder(4, 12)
         dwg = build_drawing(part)
         scale = dwg._analysis.SCALE
-        pitch = [n for n in dwg._named if n.startswith("dim_pitch_")]
+        pitch = [n for n in dwg.annotations() if n.startswith("dim_pitch_")]
         assert len(pitch) == 2, f"expected two grid pitch dims, got {pitch}"
         for n in pitch:
-            dim = dwg._named[n]
+            dim = dwg.get_annotation(n)
             sp = dim._dw_spec
             span = math.hypot(sp.p2[0] - sp.p1[0], sp.p2[1] - sp.p1[1]) / scale
             k, p = dim.label.split("× ")
@@ -2877,7 +2914,7 @@ class TestHolePatternCallouts:
     @pytest.mark.timeout(120)
     def test_perimeter_rows_dimensioned_not_per_hole(self):
         dwg = build_drawing(self._perimeter_part())
-        named = dwg._named
+        named = dict(dwg.iter_annotations())
         pitch = [n for n in named if n.startswith("dim_pitch_")]
         # each recognised edge row (5 holes, pitch 25) gets its own pitch dim
         assert len(pitch) >= 2, f"expected the edge rows dimensioned, got {pitch}"
@@ -3404,7 +3441,7 @@ def test_build_drawing_auto_dims_false():
     # #74 — views, scale, page, and title block only; no turned-part dims.
     dwg = build_drawing(Cylinder(15, 40), auto_dims=False)
     assert set(dwg.views) == {"front", "plan", "side", "iso"}
-    assert [a for a in dwg.items] == [dwg._named["title_block"]]
+    assert [a for a in dwg.items] == [dwg.get_annotation("title_block")]
 
 
 @pytest.mark.timeout(60)
@@ -3416,7 +3453,7 @@ def test_clear_annotations_keeps_title_block():
     assert removed
     assert all(a not in dwg.items for a in removed)
     assert len(dwg.items) == 1
-    assert "title_block" in dwg._named and len(dwg._named) == 1
+    assert "title_block" in dwg.annotations() and len(dwg.annotations()) == 1
 
 
 @pytest.mark.timeout(60)
@@ -3427,7 +3464,7 @@ def test_clear_annotations_keep_custom_and_unnamed_removed():
     )
     dwg.add(Leader(tip=dwg.at("front", 0, 0, 0), elbow=(6, 6, 0), label="U", draft=dwg.draft))
     dwg.clear_annotations(keep=("title_block", "ldr_k"))
-    assert set(dwg._named) == {"title_block", "ldr_k"}
+    assert set(dwg.annotations()) == {"title_block", "ldr_k"}
     assert keep_me in dwg.items
     assert len(dwg.items) == 2  # unnamed leader removed too
 
@@ -3758,17 +3795,17 @@ class TestPrismaticClassification:
             - Pos(-30, -15, 0) * Cylinder(8, 30)
         )
         dwg = build_drawing(part)
-        assert "dim_od" not in dwg._named
-        assert "centerline_front" not in dwg._named
-        assert "centerline_side" not in dwg._named
-        assert not any(name.startswith("ldr_z") for name in dwg._named)
+        assert "dim_od" not in dwg.annotations()
+        assert "centerline_front" not in dwg.annotations()
+        assert "centerline_side" not in dwg.annotations()
+        assert not any(name.startswith("ldr_z") for name in dwg.annotations())
 
     @pytest.mark.timeout(60)
     def test_rotational_part_keeps_turned_annotations(self):
         dwg = build_drawing(Cylinder(30, 40) - Cylinder(10, 40))
-        assert "dim_od" in dwg._named
-        assert "centerline_front" in dwg._named
-        assert "ldr_z0" in dwg._named
+        assert "dim_od" in dwg.annotations()
+        assert "centerline_front" in dwg.annotations()
+        assert "ldr_z0" in dwg.annotations()
 
     @pytest.mark.timeout(60)
     def test_z_axis_stepped_shaft_calls_out_step_diameters(self):
@@ -3782,7 +3819,7 @@ class TestPrismaticClassification:
         assert "ø30" in diam_labels and "ø20" in diam_labels
         # The step diameter is placed by the IR renderer's left-hand column (#131,
         # migrated to from_model.render_diameters → m_dia_z names).
-        assert any(name.startswith("m_dia_z") for name in dwg._named)
+        assert any(name.startswith("m_dia_z") for name in dwg.annotations())
         assert not [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
 
     @pytest.mark.timeout(60)
@@ -3794,7 +3831,7 @@ class TestPrismaticClassification:
 
         part = Box(12, 40, 30) - Pos(0, 8, 6) * Rot(0, 90, 0) * Cylinder(3, 12)
         dwg = build_drawing(part)
-        loc = {name for name in dwg._named if name.startswith("dim_loc")}
+        loc = {name for name in dwg.annotations() if name.startswith("dim_loc")}
         # Fully located: the in-plane (Y) offset below the side view AND the
         # height (Z) offset to its right (#133). The Z routes to whichever right
         # strip is free — side here (no section view to contend it).
@@ -3816,8 +3853,8 @@ class TestPrismaticClassification:
         # redundant centred one — this isolates the stacking order.
         part = Box(12, 11, 40) - Pos(0, 2, 6) * Rot(0, 90, 0) * Cylinder(3, 12)
         dwg = build_drawing(part)
-        env = dwg._named.get("m_env_depth")
-        loc = [o for n, o in dwg._named.items() if n.startswith("dim_loc_side_y")]
+        env = dwg.get_annotation("m_env_depth")
+        loc = [o for n, o in dwg.iter_annotations() if n.startswith("dim_loc_side_y")]
         assert env is not None and loc, "expected an envelope-depth dim and a side location dim"
 
         def ymid(o):
@@ -3841,17 +3878,19 @@ class TestPrismaticClassification:
         for y, z in [(-9, -20), (-5, -8), (7, 4), (10, 16)]:
             part -= Pos(0, y, z) * Rot(0, 90, 0) * Cylinder(1.5, 12)
         dwg = build_drawing(part)
-        ylocs = [n for n in dwg._named if n.startswith("dim_loc_side_y")]
+        ylocs = [n for n in dwg.annotations() if n.startswith("dim_loc_side_y")]
         assert len(ylocs) >= 2, "expected several side-below location dims for strip pressure"
-        assert "m_env_depth" in dwg._named, "the mandatory overall depth dim was starved"
+        assert "m_env_depth" in dwg.annotations(), "the mandatory overall depth dim was starved"
         assert dwg.lint_summary()["by_code"].get("missing_principal_dimension", 0) == 0
 
         def ymid(o):
             bb = o.bounding_box()
             return (bb.min.Y + bb.max.Y) / 2
 
-        env = dwg._named["m_env_depth"]
-        assert all(ymid(dwg._named[n]) > ymid(env) for n in ylocs), "locations must stack inside"
+        env = dwg.get_annotation("m_env_depth")
+        assert all(ymid(dwg.get_annotation(n)) > ymid(env) for n in ylocs), (
+            "locations must stack inside"
+        )
 
     def test_square_footprint_does_not_reserve_a_suppressed_envelope_tier(self):
         # When the planner suppresses the depth dim (square footprint / X-turned),
@@ -3862,8 +3901,10 @@ class TestPrismaticClassification:
 
         part = Box(20, 20, 40) - Pos(0, 4, 0) * Rot(0, 90, 0) * Cylinder(2, 20)
         dwg = build_drawing(part)
-        assert "m_env_depth" not in dwg._named  # square footprint → depth suppressed
-        assert [n for n in dwg._named if n.startswith("dim_loc_side_y")], "location was dropped"
+        assert "m_env_depth" not in dwg.annotations()  # square footprint → depth suppressed
+        assert [n for n in dwg.annotations() if n.startswith("dim_loc_side_y")], (
+            "location was dropped"
+        )
         assert dwg.lint_summary()["by_code"].get("off_axis_location_dropped", 0) == 0
 
     @pytest.mark.timeout(60)
@@ -3881,7 +3922,7 @@ class TestPrismaticClassification:
             - Pos(25, 0, -5) * Rot(90, 0, 0) * Cylinder(4, 50)
         )
         dwg = build_drawing(part)
-        xlocs = {n for n in dwg._named if n.startswith("dim_loc_front_x")}
+        xlocs = {n for n in dwg.annotations() if n.startswith("dim_loc_front_x")}
         assert len(xlocs) == 2, f"both side-drilled holes must be located, got {xlocs}"
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
@@ -3894,7 +3935,7 @@ class TestPrismaticClassification:
         box = Box(60, 60, 20)
         part = fillet(box.edges().filter_by(Axis.Z), 25)
         dwg = build_drawing(part)
-        assert "dim_od" not in dwg._named
+        assert "dim_od" not in dwg.annotations()
 
 
 # ---------------------------------------------------------------------------
@@ -4108,7 +4149,7 @@ class TestLintFeatureCoverage:
         part = Box(100, 60, 20) - Pos(20, 10, 0) * Cylinder(5, 30)
         dwg = build_drawing(part)
         assert "feature_not_dimensioned" not in [i.code for i in dwg.lint()]
-        for name in [n for n in dwg._named if n.startswith("hc_")]:
+        for name in [n for n in dwg.annotations() if n.startswith("hc_")]:
             dwg.remove(name)
         codes = [i.code for i in dwg.lint()]
         assert "feature_not_dimensioned" in codes
@@ -4214,28 +4255,28 @@ class TestAutoHoleAnnotations:
 
     @pytest.mark.timeout(120)
     def test_identical_holes_share_one_counted_callout(self, plate_drawing):
-        hc = [n for n in plate_drawing._named if n.startswith("hc_plan")]
+        hc = [n for n in plate_drawing.annotations() if n.startswith("hc_plan")]
         # 3 distinct Z specs (4× ø10 thru, ø8 cbore stack, ø12 blind), not 6
         assert len(hc) == 3
 
     @pytest.mark.timeout(120)
     def test_callouts_cover_all_feature_diameters(self, plate_drawing):
         covered = set()
-        for name, ann in plate_drawing._named.items():
+        for name, ann in plate_drawing.iter_annotations():
             if name.startswith("hc_"):
                 covered.update(getattr(ann, "covers_diameters", ()))
         assert covered == {10.0, 8.0, 16.0, 6.0, 12.0}
 
     @pytest.mark.timeout(120)
     def test_cross_axis_hole_gets_side_view_callout(self, plate_drawing):
-        (name,) = [n for n in plate_drawing._named if n.startswith("hc_side")]
-        assert plate_drawing._named[name].covers_diameters == (6.0,)
+        (name,) = [n for n in plate_drawing.annotations() if n.startswith("hc_side")]
+        assert plate_drawing.get_annotation(name).covers_diameters == (6.0,)
 
     @pytest.mark.timeout(120)
     def test_every_hole_gets_a_centre_mark(self, plate_drawing):
-        cm = [n for n in plate_drawing._named if n.startswith("m_cm")]
+        cm = [n for n in plate_drawing.annotations() if n.startswith("m_cm")]
         assert len(cm) == 7  # 6 z-holes in plan + 1 x-hole in side
-        assert all(plate_drawing._named[n].is_centerline for n in cm)
+        assert all(plate_drawing.get_annotation(n).is_centerline for n in cm)
 
     @pytest.mark.timeout(120)
     def test_sheet_is_lint_clean(self, plate_drawing):
@@ -4249,8 +4290,8 @@ class TestAutoHoleAnnotations:
         # must not cross the view outline (#127).
         part = Box(80, 60, 10) - Pos(25, 15, 0) * Cylinder(4, 10)
         dwg = build_drawing(part)
-        assert "section_line" not in dwg._named
-        hc = dwg._named.get("hc_plan0")
+        assert "section_line" not in dwg.annotations()
+        hc = dwg.get_annotation("hc_plan0")
         assert hc is not None
         plan_right = (
             dwg._analysis.PV_X + (dwg._analysis.bb.max.X - dwg._analysis.cx) * dwg._analysis.SCALE
@@ -4269,7 +4310,7 @@ class TestAutoHoleAnnotations:
             - Pos(20, 0, -1.25) * Cylinder(2.5, 7.5)
         )
         dwg = build_drawing(part)
-        assert len([n for n in dwg._named if n.startswith("hc_")]) == 1
+        assert len([n for n in dwg.annotations() if n.startswith("hc_")]) == 1
 
     @pytest.mark.timeout(60)
     def test_two_front_view_specs_fit_below_the_view(self):
@@ -4282,7 +4323,7 @@ class TestAutoHoleAnnotations:
             - Pos(25, 0, -5) * Cylinder(4, 50, rotation=(90, 0, 0))
         )
         dwg = build_drawing(part)
-        assert len([n for n in dwg._named if n.startswith("hc_front")]) == 2
+        assert len([n for n in dwg.annotations() if n.startswith("hc_front")]) == 2
         # Both side-drilled holes are now located (#225 fixed), so the sheet is
         # fully lint-clean — no filtered feature_not_located warning.
         assert [i for i in dwg.lint() if i.severity != "info"] == []
@@ -4297,7 +4338,7 @@ class TestAutoHoleAnnotations:
             part = part - Pos(-50 + i * 20, 0, 0) * Cylinder(r, 10)
         dwg = build_drawing(part)
         covered = set()
-        for name, ann in dwg._named.items():
+        for name, ann in dwg.iter_annotations():
             if name.startswith("hc_"):
                 covered.update(ann.covers_diameters)
         assert covered == {2.0, 3.0, 4.0, 5.0, 6.0, 8.0}
@@ -4306,10 +4347,10 @@ class TestAutoHoleAnnotations:
     @pytest.mark.timeout(60)
     def test_rotational_part_keeps_leader_annotations(self):
         dwg = build_drawing(Cylinder(30, 40) - Cylinder(10, 40))
-        assert "ldr_z0" in dwg._named
-        assert not any(n.startswith("hc_") for n in dwg._named)
+        assert "ldr_z0" in dwg.annotations()
+        assert not any(n.startswith("hc_") for n in dwg.annotations())
         # the central bore still gets a centre mark in the plan view
-        assert any(n.startswith("m_cm") and dwg._anno_view.get(n) == "plan" for n in dwg._named)
+        assert any(n.startswith("m_cm") and dwg.view_of(n) == "plan" for n in dwg.annotations())
 
     @pytest.mark.timeout(60)
     def test_plan_bore_leaders_elbow_outside_view(self):
@@ -4322,10 +4363,10 @@ class TestAutoHoleAnnotations:
         plan_right = a.PV_X + (a.bb.max.X - a.cx) * a.SCALE
         arrow_len = dwg.draft.arrow_length
         old_corridor = 0.6 * a.DIM_PAD  # ≈ 10.8 mm — the old, oversized offset
-        hc_plan_names = [n for n in dwg._named if n.startswith("hc_plan")]
+        hc_plan_names = [n for n in dwg.annotations() if n.startswith("hc_plan")]
         assert hc_plan_names, "Expected at least one plan-view bore callout"
         for name in hc_plan_names:
-            ldr = dwg._named[name]
+            ldr = dwg.get_annotation(name)
             assert ldr.elbow[0] >= plan_right - 1e-6, (
                 f"{name}: elbow x={ldr.elbow[0]:.3f} is inside the view "
                 f"(plan_right={plan_right:.3f})"
@@ -4380,10 +4421,10 @@ class TestHolePatternAnnotations:
             ang = math.radians(60 * i + 15)
             part = part - Pos(30 * math.cos(ang), 30 * math.sin(ang), 0) * Cylinder(4, 12)
         dwg = build_drawing(part)
-        assert any(n.startswith("bc_plan") for n in dwg._named)
+        assert any(n.startswith("bc_plan") for n in dwg.annotations())
         (hc8,) = [
             a
-            for n, a in dwg._named.items()
+            for n, a in dwg.iter_annotations()
             if n.startswith("hc_") and 8.0 in getattr(a, "covers_diameters", ())
         ]
         assert hc8.covers_count == 6
@@ -4395,7 +4436,7 @@ class TestHolePatternAnnotations:
         for i in range(5):
             part = part - Pos(-40 + i * 20, 0, 0) * Cylinder(3, 10)
         dwg = build_drawing(part)
-        assert dwg._named["dim_pitch_plan0"].label == "4× 20"
+        assert dwg.get_annotation("dim_pitch_plan0").label == "4× 20"
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(120)
@@ -4407,8 +4448,8 @@ class TestHolePatternAnnotations:
             part = part - Pos(-30 + i * 20, 8, 4) * Cylinder(3, 6)
             part = part - Pos(-30 + i * 20, -8, -4) * Cylinder(3, 6)
         dwg = build_drawing(part)
-        assert len([n for n in dwg._named if n.startswith("hc_plan")]) == 2
-        assert len([n for n in dwg._named if n.startswith("dim_pitch_plan")]) == 2
+        assert len([n for n in dwg.annotations() if n.startswith("hc_plan")]) == 2
+        assert len([n for n in dwg.annotations() if n.startswith("dim_pitch_plan")]) == 2
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(120)
@@ -4419,7 +4460,7 @@ class TestHolePatternAnnotations:
         for i in range(4):
             part = part - Pos(-30 + i * 20, 18, 0) * Cylinder(3, 10)
         dwg = build_drawing(part)
-        dim = dwg._named["dim_pitch_plan0"]
+        dim = dwg.get_annotation("dim_pitch_plan0")
         plan_top = dwg.views["plan"][0].bounding_box().max.Y
         assert dim.dim_level_y > plan_top
         assert [i for i in dwg.lint() if i.severity != "info"] == []
@@ -4434,7 +4475,7 @@ class TestHolePatternAnnotations:
         for i in range(4):
             part = part - Pos(15, -52.5 + i * 35, 0) * Cylinder(2.5, 10)
         dwg = build_drawing(part)
-        assert "dim_pitch_plan0" in dwg._named
+        assert "dim_pitch_plan0" in dwg.annotations()
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(60)
@@ -4495,54 +4536,54 @@ class TestLocationDimsAndSection:
 
     @pytest.mark.timeout(120)
     def test_x_dims_above_the_plan_view(self, plate_drawing):
-        labels = {a.label for n, a in plate_drawing._named.items() if n.startswith("m_locx")}
+        labels = {a.label for n, a in plate_drawing.iter_annotations() if n.startswith("m_locx")}
         assert labels == {"50", "30"}
         plan_top = plate_drawing.views["plan"][0].bounding_box().max.Y
         assert all(
             a.dim_level_y > plan_top
-            for n, a in plate_drawing._named.items()
+            for n, a in plate_drawing.iter_annotations()
             if n.startswith("m_locx")
         )
 
     @pytest.mark.timeout(120)
     def test_y_dims_above_the_side_view(self, plate_drawing):
-        labels = {a.label for n, a in plate_drawing._named.items() if n.startswith("m_locy")}
+        labels = {a.label for n, a in plate_drawing.iter_annotations() if n.startswith("m_locy")}
         assert labels == {"50", "40"}
         side_top = plate_drawing.views["side"][0].bounding_box().max.Y
         assert all(
             a.dim_level_y > side_top
-            for n, a in plate_drawing._named.items()
+            for n, a in plate_drawing.iter_annotations()
             if n.startswith("m_locy")
         )
 
     @pytest.mark.timeout(120)
     def test_section_view_with_cutting_plane_markers(self, plate_drawing):
         assert "section_aa" in plate_drawing.views
-        assert plate_drawing._named["section_caption"].label == "SECTION A–A"
-        assert plate_drawing._named["section_line"].is_centerline
-        assert plate_drawing._named["section_a_left"].label == "A"
-        assert plate_drawing._named["section_a_right"].label == "A"
+        assert plate_drawing.get_annotation("section_caption").label == "SECTION A–A"
+        assert plate_drawing.get_annotation("section_line").is_centerline
+        assert plate_drawing.get_annotation("section_a_left").label == "A"
+        assert plate_drawing.get_annotation("section_a_right").label == "A"
 
     @pytest.mark.timeout(120)
     def test_section_end_arrows_present(self, plate_drawing):
         # ISO 128-44: cutting-plane ends must have wings + solid filled arrowheads
         for side in ("left", "right"):
-            wing = plate_drawing._named[f"section_wing_{side}"]
-            arrow = plate_drawing._named[f"section_arrow_{side}"]
+            wing = plate_drawing.get_annotation(f"section_wing_{side}")
+            arrow = plate_drawing.get_annotation(f"section_arrow_{side}")
             # wing is a single-edge Compound (the perpendicular stub stroke)
             assert len(wing.edges()) == 1
             # arrow is a filled solid (Arrow produces faces, not open barbs)
             assert len(list(arrow.faces())) >= 1
         # wings are below the section line (tip_y < line y)
-        sl_y = plate_drawing._named["section_line"].bounding_box().min.Y
-        wl_y = plate_drawing._named["section_wing_left"].bounding_box().min.Y
+        sl_y = plate_drawing.get_annotation("section_line").bounding_box().min.Y
+        wl_y = plate_drawing.get_annotation("section_wing_left").bounding_box().min.Y
         assert wl_y < sl_y
 
     @pytest.mark.timeout(120)
     def test_section_hatch_present_and_45_degrees(self, plate_drawing):
         # ISO 128-50: 45° hatching on the cut face
-        assert "section_hatch" in plate_drawing._named
-        hatch = plate_drawing._named["section_hatch"]
+        assert "section_hatch" in plate_drawing.annotations()
+        hatch = plate_drawing.get_annotation("section_hatch")
         edges = list(hatch.edges())
         assert len(edges) > 0
         # Each hatch edge should be at approximately 45° (slope ≈ 1)
@@ -4561,9 +4602,9 @@ class TestLocationDimsAndSection:
         part = Box(80, 60, 10) - Pos(20, 10, 0) * Cylinder(5, 10)
         dwg = build_drawing(part)
         assert "section_aa" not in dwg.views
-        assert "section_line" not in dwg._named
+        assert "section_line" not in dwg.annotations()
         # but it still gets located
-        assert any(n.startswith("m_locx") for n in dwg._named)
+        assert any(n.startswith("m_locx") for n in dwg.annotations())
 
     @pytest.mark.timeout(120)
     def test_underside_cbore_triggers_a_section(self):
@@ -4611,7 +4652,7 @@ class TestLocationDimsAndSection:
         dwg = build_drawing(part)
         if "section_aa" in dwg.views:
             sb = dwg.views["section_aa"][0].bounding_box()
-            for name, ann in dwg._named.items():
+            for name, ann in dwg.iter_annotations():
                 if name.startswith("dim_step") and getattr(ann, "label_bbox", None):
                     x0, y0, x1, y1 = ann.label_bbox
                     assert not (
@@ -4632,7 +4673,7 @@ class TestLocationDimsAndSection:
         for z, r in ((-20, 1.0), (-12, 1.2), (-4, 1.4), (20, 1.6)):
             part -= Pos(0, 0, z) * Cylinder(r, 60, rotation=(0, 90, 0))
         dwg = build_drawing(part)
-        assert len([n for n in dwg._named if n.startswith("hc_side")]) == 4
+        assert len([n for n in dwg.annotations() if n.startswith("hc_side")]) == 4
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(120)
@@ -4662,7 +4703,7 @@ class TestLocationDimsAndSection:
         for x in (-30, -10, 10, 30):
             part = part - Pos(x, 0, 6) * Cylinder(4, 8)
         dwg = build_drawing(part)
-        labels = sorted(a.label for n, a in dwg._named.items() if n.startswith("m_locx"))
+        labels = sorted(a.label for n, a in dwg.iter_annotations() if n.startswith("m_locx"))
         assert labels == ["20"]
 
     @pytest.mark.timeout(120)
@@ -4681,8 +4722,10 @@ class TestLocationDimsAndSection:
         for y in (-12, 0, 12):
             part = part - Pos(15, y, 8) * Cylinder(2, 60, rotation=(0, 90, 0))
         dwg = build_drawing(part)
-        locy = [a.dim_level_y for n, a in dwg._named.items() if n.startswith("m_locy")]
-        pitch = [a.dim_level_y for n, a in dwg._named.items() if n.startswith("dim_pitch_side")]
+        locy = [a.dim_level_y for n, a in dwg.iter_annotations() if n.startswith("m_locy")]
+        pitch = [
+            a.dim_level_y for n, a in dwg.iter_annotations() if n.startswith("dim_pitch_side")
+        ]
         assert locy and pitch
         assert min(abs(ly - py) for ly in locy for py in pitch) >= 8
 
@@ -4697,7 +4740,7 @@ class TestLocationDimsAndSection:
         part = Compound(children=[solid, pmi])
         dwg = build_drawing(part)
         assert "section_aa" in dwg.views
-        assert dwg._named["dim_height"].label == "20"  # not the PMI z-extent
+        assert dwg.get_annotation("dim_height").label == "20"  # not the PMI z-extent
         # the views contain no line-work above the solid's top
         for vis, hid in dwg.views.values():
             assert vis.bounding_box().size.Y < 200  # sanity: no 160mm phantom
@@ -4706,7 +4749,7 @@ class TestLocationDimsAndSection:
     def test_rotational_part_gets_neither(self):
         dwg = build_drawing(Cylinder(30, 40) - Cylinder(10, 40))
         assert "section_aa" not in dwg.views
-        assert not any(n.startswith(("m_loc", "dim_loc")) for n in dwg._named)
+        assert not any(n.startswith(("m_loc", "dim_loc")) for n in dwg.annotations())
 
 
 class TestIsRotational:
@@ -4732,13 +4775,13 @@ class TestIsRotational:
         # concentric, but it is a hole — not an OD.
         part = Box(100, 100, 10) - Cylinder(42.5, 12)
         dwg = build_drawing(part)
-        assert "dim_od" not in dwg._named
+        assert "dim_od" not in dwg.annotations()
 
     @pytest.mark.timeout(60)
     def test_off_centre_bore_is_prismatic(self):
         part = Box(100, 100, 20) - Pos(8, 0, 0) * Cylinder(42, 30)
         dwg = build_drawing(part)
-        assert "dim_od" not in dwg._named
+        assert "dim_od" not in dwg.annotations()
 
     @pytest.mark.timeout(60)
     def test_mirrored_turned_part_stays_rotational(self):
@@ -4751,7 +4794,7 @@ class TestIsRotational:
         flags = {c["diameter"]: c["external"] for c in z_cyls}
         assert flags[60.0] is True and flags[20.0] is False
         dwg = build_drawing(part)
-        assert "dim_od" in dwg._named
+        assert "dim_od" in dwg.annotations()
 
     @pytest.mark.timeout(60)
     def test_dim_od_uses_the_external_cylinder(self):
@@ -4763,7 +4806,7 @@ class TestIsRotational:
             - Pos(0, 0, -7.5) * Cylinder(45, 5)
         )
         dwg = build_drawing(part)
-        assert dwg._named["dim_od"].label == "ø85"
+        assert dwg.get_annotation("dim_od").label == "ø85"
 
     @pytest.mark.timeout(60)
     def test_unrounded_od_does_not_duplicate_a_bore_leader(self, monkeypatch):
@@ -4786,8 +4829,8 @@ class TestIsRotational:
 
         monkeypatch.setattr(md, "analyse_cylinders", unrounded)
         dwg = build_drawing(Cylinder(30, 40) - Cylinder(10, 40))
-        assert dwg._named["dim_od"].label == "ø60"
-        leader_labels = [a.label for n, a in dwg._named.items() if n.startswith("ldr_z")]
+        assert dwg.get_annotation("dim_od").label == "ø60"
+        leader_labels = [a.label for n, a in dwg.iter_annotations() if n.startswith("ldr_z")]
         assert leader_labels == ["ø20"]
 
     @pytest.mark.timeout(60)
@@ -4848,18 +4891,20 @@ class TestTurnedPlusDrilledFlange:
         # The turned base set is correct today and must stay so.
         dwg = build_drawing(self._flange())
         assert dwg._analysis.is_rotational
-        assert "dim_od" in dwg._named
-        assert "centerline_front" in dwg._named
+        assert "dim_od" in dwg.annotations()
+        assert "centerline_front" in dwg.annotations()
 
     @pytest.mark.timeout(60)
     def test_flange_composes_od_with_bolt_circle_furniture(self):
         dwg = build_drawing(self._flange())
         # Turned base set — already works.
-        assert "dim_od" in dwg._named
+        assert "dim_od" in dwg.annotations()
         # Feature-driven furniture for the bolt circle — withheld today.
-        assert any(n.startswith("hc_") for n in dwg._named), "expected hole callouts"
-        assert any(n.startswith("m_loc") for n in dwg._named), "expected location dims"
-        assert any(n.startswith("bc_") for n in dwg._named), "expected bolt-circle furniture"
+        assert any(n.startswith("hc_") for n in dwg.annotations()), "expected hole callouts"
+        assert any(n.startswith("m_loc") for n in dwg.annotations()), "expected location dims"
+        assert any(n.startswith("bc_") for n in dwg.annotations()), (
+            "expected bolt-circle furniture"
+        )
 
 
 class TestTurnedMultiBoreOverflow:
@@ -4885,7 +4930,9 @@ class TestTurnedMultiBoreOverflow:
         bores = {d for d in a.z_diams if d != a.od_diam}
         assert bores == {60.0, 44.0, 30.0, 16.0}
         annotated = {
-            float(ann.label.lstrip("ø")) for n, ann in dwg._named.items() if n.startswith("ldr_z")
+            float(ann.label.lstrip("ø"))
+            for n, ann in dwg.iter_annotations()
+            if n.startswith("ldr_z")
         }
         # Acceptance (#10): annotate all, or surface the overflow via lint —
         # never drop a bore with no trace.
@@ -4916,12 +4963,12 @@ class TestStepHeightThreshold:
     def test_step_above_page_gate_is_dimensioned(self):
         # 21 mm of page height — dimensioned. Guards the gate's upper side.
         dwg = build_drawing(self._stepped(21), scale=1.0, page="A2")
-        assert any(n.startswith("dim_step") for n in dwg._named)
+        assert any(n.startswith("dim_step") for n in dwg.annotations())
 
     @pytest.mark.timeout(60)
     def test_real_step_just_below_page_gate_still_dimensioned(self):
         dwg = build_drawing(self._stepped(19), scale=1.0, page="A2")
-        assert any(n.startswith("dim_step") for n in dwg._named)
+        assert any(n.startswith("dim_step") for n in dwg.annotations())
 
 
 # ---------------------------------------------------------------------------
@@ -5112,7 +5159,7 @@ class TestLintSummaryAndDrops:
             side = 120 - i * 18
             tower += Pos(0, 0, i * 15) * Box(side, side, 15)
         dwg = build_drawing(tower)
-        assert "dim_step_typ" in dwg._named, "uniform staircase should get a TYP dim"
+        assert "dim_step_typ" in dwg.annotations(), "uniform staircase should get a TYP dim"
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
     def test_legible_steps_gate_drops_closely_spaced(self):
@@ -5156,7 +5203,7 @@ class TestLintSummaryAndDrops:
         ]:
             plate -= Pos(x, y, 0) * Cylinder(r, 8)
         dwg = build_drawing(plate)
-        n_loc = len([n for n in dwg._named if n.startswith(("m_locx", "m_locy"))])
+        n_loc = len([n for n in dwg.annotations() if n.startswith(("m_locx", "m_locy"))])
         assert n_loc > 4, f"expected adaptive >4 location dims, got {n_loc}"
         assert "location_ref_dropped" not in {i.code for i in dwg.lint()}
 
@@ -5202,8 +5249,8 @@ class TestLintSummaryAndDrops:
             plate -= Pos(x, y, 0) * Cylinder(1.2, 8)
         dwg = build_drawing(plate)
         codes = {i.code for i in dwg.lint()}
-        n_locx = len([n for n in dwg._named if n.startswith("m_locx")])
-        n_locy = len([n for n in dwg._named if n.startswith("m_locy")])
+        n_locx = len([n for n in dwg.annotations() if n.startswith("m_locx")])
+        n_locy = len([n for n in dwg.annotations() if n.startswith("m_locy")])
         assert "location_ref_dropped" in codes  # closely-spaced refs were trimmed
         assert not any(i.severity == "error" for i in dwg.lint())
         # The kept set is strictly fewer than the ten holes per axis.
@@ -5224,7 +5271,7 @@ class TestLintSummaryAndDrops:
         part -= Pos(-36.5, 0, 0) * Cylinder(1.5, 20)  # ~2.8 mm from the edge hole
         dwg = build_drawing(part)
         # The real neighbour is dimensioned...
-        assert any(n.startswith("m_locx") for n in dwg._named)
+        assert any(n.startswith("m_locx") for n in dwg.annotations())
         # ...and the gate did not record a spurious X spacing drop.
         x_spacing_drops = [
             i for i in dwg.lint() if i.code == "location_ref_dropped" and "X location" in i.message
@@ -5244,10 +5291,10 @@ class TestLintSummaryAndDrops:
 
         dwg = build_drawing(Box(60, 40, 30))
         dwg._record_build_issue("warning", "callout_dropped", "stale")
-        assert any(i.message == "stale" for i in dwg._build_issues)
+        assert any(i.message == "stale" for i in dwg.registry.issues)
         _auto_annotate(dwg, dwg._analysis)
-        assert not any(i.message == "stale" for i in dwg._build_issues)
-        assert dwg._dropped_callout_diams == []
+        assert not any(i.message == "stale" for i in dwg.registry.issues)
+        assert dwg.coverage.dropped_diams == []
 
     def test_repeated_lint_is_stable(self):
         # lint()/lint_summary() are idempotent — repeated calls return the same
@@ -5295,7 +5342,7 @@ class TestLayoutGeneralisation:
         by the coaxial-bore tests."""
         tx0, ty0, tx1, ty1 = label_bbox
         crossings = []
-        for n, o in dwg._named.items():
+        for n, o in dwg.iter_annotations():
             if n == callout_name:
                 continue
             try:
@@ -5335,12 +5382,12 @@ class TestLayoutGeneralisation:
 
         assert dwg._analysis.is_rotational, "flange should classify as rotational"
         # Turned base set.
-        assert "dim_od" in dwg._named
-        assert "centerline_front" in dwg._named
-        assert "centerline_side" in dwg._named
+        assert "dim_od" in dwg.annotations()
+        assert "centerline_front" in dwg.annotations()
+        assert "centerline_side" in dwg.annotations()
         # Drilled furniture.
-        assert any(n.startswith("hc_") for n in dwg._named), "expected a hole callout"
-        assert any(n.startswith("bc_") for n in dwg._named), "expected a pitch circle"
+        assert any(n.startswith("hc_") for n in dwg.annotations()), "expected a hole callout"
+        assert any(n.startswith("bc_") for n in dwg.annotations()), "expected a pitch circle"
         # No error-severity lint (warnings tolerated).
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
@@ -5361,7 +5408,7 @@ class TestLayoutGeneralisation:
             flange -= Pos(30 * math.cos(ang), 30 * math.sin(ang), 0) * Cylinder(r, 10)
         dwg = build_drawing(flange)
 
-        n_callouts = len([n for n in dwg._named if n.startswith("hc_")])
+        n_callouts = len([n for n in dwg.annotations() if n.startswith("hc_")])
         assert n_callouts > 4, f"expected adaptive >4 callouts, got {n_callouts}"
         assert "callout_dropped" not in {i.code for i in dwg.lint()}
 
@@ -5380,7 +5427,7 @@ class TestLayoutGeneralisation:
             Hole(0.8, depth=8)  # coaxial axial bore: ⌀1.6, depth 8
         dwg = build_drawing(Rotation(0, 90, 0) * p.part, scale=2.0)  # axis along X
 
-        hc = [(n, o) for n, o in dwg._named.items() if n.startswith("hc_side")]
+        hc = [(n, o) for n, o in dwg.iter_annotations() if n.startswith("hc_side")]
         assert hc, "expected a bore callout on the round (side) view"
         name, leader = hc[0]
         crossings = self._lines_crossing_label(dwg, name, leader.label_bbox)
@@ -5405,7 +5452,7 @@ class TestLayoutGeneralisation:
         dwg = build_drawing(Rotation(0, 90, 0) * part, scale=2.0)
         assert dwg._analysis.prof is not None and not dwg._analysis.is_rotational
 
-        hc = [(n, o) for n, o in dwg._named.items() if n.startswith("hc_side")]
+        hc = [(n, o) for n, o in dwg.iter_annotations() if n.startswith("hc_side")]
         assert hc, "expected a bore callout on the round (side) view"
         name, leader = hc[0]
         crossings = self._lines_crossing_label(dwg, name, leader.label_bbox)
@@ -5427,7 +5474,7 @@ class TestLayoutGeneralisation:
         assert not dwg._analysis.is_rotational
         plan_mids = [
             (o.label_bbox[1] + o.label_bbox[3]) / 2
-            for n, o in dwg._named.items()
+            for n, o in dwg.iter_annotations()
             if n.startswith("hc_plan") and getattr(o, "label_bbox", None)
         ]
         assert plan_mids, "expected plan-view hole callouts"
@@ -5464,7 +5511,7 @@ class TestLayoutGeneralisation:
             assert legible is expect, (
                 f"length={length} scale={a.SCALE}: legibility expectation wrong"
             )
-            has_step = "dim_step_0" in dwg._named
+            has_step = "dim_step_0" in dwg.annotations()
             assert has_step is expect, (
                 f"length={length}: step dim present={has_step}, expected {expect}"
             )
@@ -5496,8 +5543,8 @@ class TestDetailView:
         # detail_view=False (default) — no detail view even when shoulders are crowded.
         dwg = build_drawing(_crowded_shoulder_part())
         assert "detail_a" not in dwg.views
-        assert "detail_caption" not in dwg._named
-        assert not any(n.startswith("dim_detail") for n in dwg._named)
+        assert "detail_caption" not in dwg.annotations()
+        assert not any(n.startswith("dim_detail") for n in dwg.annotations())
 
     def test_crowded_shoulders_get_a_detail_view_when_requested(self):
         from draftwright._core import _legible_steps
@@ -5510,8 +5557,8 @@ class TestDetailView:
         assert n_dropped >= 1
         # The detail view, its caption, and at least one detail step dim exist.
         assert "detail_a" in dwg.views
-        assert "detail_caption_A" in dwg._named
-        assert any(n.startswith("dim_detail_a_step") for n in dwg._named)
+        assert "detail_caption_A" in dwg.annotations()
+        assert any(n.startswith("dim_detail_a_step") for n in dwg.annotations())
         # Drawn at a larger scale than the sheet.
         assert dwg._coords["detail_a"]._scale > a.SCALE
         # No error-severity lint introduced.
@@ -5548,8 +5595,8 @@ class TestDetailView:
     def test_plain_part_gets_no_detail_view(self):
         dwg = build_drawing(Box(60, 40, 20))
         assert "detail_a" not in dwg.views
-        assert "detail_caption" not in dwg._named
-        assert not any(n.startswith("dim_detail") for n in dwg._named)
+        assert "detail_caption" not in dwg.annotations()
+        assert not any(n.startswith("dim_detail") for n in dwg.annotations())
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
 
@@ -5574,7 +5621,7 @@ class TestTypDimensioning:
 
     def test_uniform_staircase_gets_typ_dim(self):
         dwg = build_drawing(_uniform_staircase(n_treads=8, rise=15.0))
-        named = dwg._named
+        named = dict(dwg.iter_annotations())
         assert "dim_step_typ" in named, "expected a single representative step dim"
         assert not any(k.startswith("dim_step_") and k != "dim_step_typ" for k in named)
         assert named["dim_step_typ"].label == "8× 15"
@@ -5583,8 +5630,8 @@ class TestTypDimensioning:
 
     def test_typ_label_fractional_rise(self):
         dwg = build_drawing(_uniform_staircase(n_treads=5, rise=12.5, going=18.0))
-        assert "dim_step_typ" in dwg._named
-        assert dwg._named["dim_step_typ"].label == "5× 12.5"
+        assert "dim_step_typ" in dwg.annotations()
+        assert dwg.get_annotation("dim_step_typ").label == "5× 12.5"
 
     def test_irregular_staircase_gets_per_step_dims(self):
         # Non-uniform rises → fall back to per-step ladder.
@@ -5599,8 +5646,8 @@ class TestTypDimensioning:
             b = Pos(w / 2, 0, total_h / 2) * Box(w, 30, total_h)
             part = b if part is None else part + b
         dwg = build_drawing(part)
-        assert "dim_step_typ" not in dwg._named
-        assert any(k.startswith("dim_step_") and k != "dim_step_typ" for k in dwg._named)
+        assert "dim_step_typ" not in dwg.annotations()
+        assert any(k.startswith("dim_step_") and k != "dim_step_typ" for k in dwg.annotations())
 
     def test_two_step_part_not_detected_as_pattern(self):
         # Only 2 interior steps → below the ≥3 threshold; per-step path used.
@@ -5637,8 +5684,10 @@ class TestTypDimensioning:
     def test_three_step_part_gets_typ_dim(self):
         # Integration: exactly 3 interior steps (the minimum threshold) → TYP path.
         dwg = build_drawing(_uniform_staircase(n_treads=4, rise=20.0))
-        assert "dim_step_typ" in dwg._named
-        assert not any(k.startswith("dim_step_") and k != "dim_step_typ" for k in dwg._named)
+        assert "dim_step_typ" in dwg.annotations()
+        assert not any(
+            k.startswith("dim_step_") and k != "dim_step_typ" for k in dwg.annotations()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -5909,7 +5958,7 @@ class TestFeatureEdits:
         centre = next(f for f in dwg.model().features if f.kind == "hole" and len(f.members) == 1)
         names = dwg.locate(centre, pin=True)
         assert names
-        assert set(names) <= dwg._pinned
+        assert set(names) <= dwg.registry.pinned_names()
 
     def test_locate_dedups_coincident_members(self):
         # The 4 corner ø10 holes group into one HoleFeature (X∈{25,-25}, Y∈{20,-20});
@@ -6407,7 +6456,7 @@ class TestFeatureEdits:
             dwg.locate(hole, pin=True)
         locs = {n for n in dwg.annotations_of(hole) if n.startswith("m_loc")}
         assert locs
-        assert locs <= dwg._pinned
+        assert locs <= dwg.registry.pinned_names()
         assert dwg._intents == []
 
     def test_finalize_pins_shared_location_when_later_ref_requested_pin(self):
@@ -6427,7 +6476,7 @@ class TestFeatureEdits:
             n for n in dwg.annotations() if n.startswith("m_locx") and dwg.get_annotation(n).label
         }
         assert shared_x
-        assert shared_x <= dwg._pinned
+        assert shared_x <= dwg.registry.pinned_names()
 
     def test_finalize_routes_pinned_dimension_as_corridor_candidate(self):
         # #511: a deferred user dimension(pin=True) is a feature intent, not a raw
@@ -6448,9 +6497,9 @@ class TestFeatureEdits:
             )
 
         assert "user_width" in dwg.annotations_of(env)
-        assert "user_width" in dwg._pinned
-        assert dwg._named["user_width"]._dw_spec.side == "below"
-        assert dwg._named["user_width"]._dw_spec.distance == 12
+        assert dwg.registry.is_pinned("user_width")
+        assert dwg.get_annotation("user_width")._dw_spec.side == "below"
+        assert dwg.get_annotation("user_width")._dw_spec.distance == 12
         assert dwg._intents == []
 
     def test_finalize_mixed_corridor_batch_places_each_exactly_once(self):
@@ -6480,7 +6529,7 @@ class TestFeatureEdits:
         assert len([n for n in dwg.annotations() if n.startswith("dim_shoulder")]) == 1
         assert [n for n in dwg.annotations() if n.startswith("dim_step")]  # rung placed
         assert {n for n in dwg.annotations_of(hole) if n.startswith("m_loc")}
-        assert "user_width" in dwg.annotations() and "user_width" in dwg._pinned
+        assert "user_width" in dwg.annotations() and dwg.registry.is_pinned("user_width")
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
     def test_deferred_dimension_generated_names_do_not_collide_in_one_batch(self):
@@ -6495,7 +6544,7 @@ class TestFeatureEdits:
 
         names = {n for n in dwg.annotations_of(env) if n.startswith("dim_length")}
         assert names == {"dim_length0", "dim_length1"}
-        assert names <= dwg._pinned
+        assert names <= dwg.registry.pinned_names()
 
     def test_live_dimension_pin_pins_raw_escape_hatch_result(self):
         # #511/ADR 0012: live dimension() still uses the single-position page-coordinate
@@ -6506,7 +6555,7 @@ class TestFeatureEdits:
 
         assert name == "live_width"
         assert "live_width" in dwg.annotations_of(env)
-        assert "live_width" in dwg._pinned
+        assert dwg.registry.is_pinned("live_width")
 
     def test_malformed_pinned_dimension_still_surfaces_live_valueerror(self):
         # #511 review: pin=True must not make a non-linear hole diameter look corridor
@@ -6544,7 +6593,7 @@ class TestFeatureEdits:
         dwg.finalize()
         locs = {n for n in dwg.annotations_of(hole) if n.startswith("m_locx")}
         assert locs
-        assert locs <= dwg._pinned
+        assert locs <= dwg.registry.pinned_names()
 
     def test_finalize_mixes_axes_restricted_and_both_axes_locate(self):
         # #429 review: an axes-restricted locate (live, names m_locx0) + a both-axes locate
@@ -7484,7 +7533,9 @@ class TestSlotDimensioning:
         # the near (lo) edge is -10-(-30) = 20.
         part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20)
         dwg = build_drawing(part)
-        labels = {n: dwg._named[n].label for n in dwg._named if n.startswith("m_slot")}
+        labels = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_slot")
+        }
         assert labels.get("m_slot0_width") == "8"
         assert labels.get("m_slot0_length") == "20"
         assert labels.get("m_slot0_pos") == "20"
@@ -7501,7 +7552,7 @@ class TestSlotDimensioning:
         # to the displayed value or the label-vs-measured lint trips (#135).
         part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 4.75, 20)
         dwg = build_drawing(part)
-        assert dwg._named["m_slot0_width"].label == "4.8"
+        assert dwg.get_annotation("m_slot0_width").label == "4.8"
         assert [i for i in dwg.lint() if i.code == "label_vs_measured"] == []
 
     @pytest.mark.timeout(60)
@@ -7519,11 +7570,11 @@ class TestSlotDimensioning:
 
         external = [
             o.label_bbox
-            for n, o in dwg._named.items()
+            for n, o in dwg.iter_annotations()
             if not n.startswith("m_slot") and getattr(o, "label_bbox", None) is not None
         ]
         assert external  # the holes produced callouts
-        for n, o in dwg._named.items():
+        for n, o in dwg.iter_annotations():
             if not n.startswith("m_slot"):
                 continue
             g = o.bounding_box()
@@ -7544,8 +7595,8 @@ class TestPlaceDim:
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
         _deprecated_place_dim(dwg, p1, p2, "below", "plan", dwg.draft, name="my_dim", label="80")
-        assert "my_dim" in dwg._named
-        assert dwg._named["my_dim"].label == "80"
+        assert "my_dim" in dwg.annotations()
+        assert dwg.get_annotation("my_dim").label == "80"
 
     def test_place_dim_returns_dimension_object(self):
         from build123d_drafting.helpers import Dimension
@@ -7824,8 +7875,8 @@ class TestRepair:
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
         dwg.repair()
-        assert dwg._named["ov1"]._dw_spec.distance == 8
-        assert dwg._named["ov2"]._dw_spec.distance == 8
+        assert dwg.get_annotation("ov1")._dw_spec.distance == 8
+        assert dwg.get_annotation("ov2")._dw_spec.distance == 8
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
     def test_repair_dim_inside_part_flips_side(self):
@@ -7846,7 +7897,7 @@ class TestRepair:
             code="dim_inside_part",
         )
         assert _repair_dim_inside_part(dwg, issue) is True
-        new = dwg._named["x"]
+        new = dwg.get_annotation("x")
         assert new is not dim
         assert new._dw_spec.side == "below"
         assert new in dwg.items and dim not in dwg.items
@@ -7869,7 +7920,7 @@ class TestRepair:
         dwg.lint = lambda: [issue]
         dwg.repair(max_iter=5)
         # Flipped exactly once → ends on "below", not back to "above".
-        assert dwg._named["x"]._dw_spec.side == "below"
+        assert dwg.get_annotation("x")._dw_spec.side == "below"
 
     def test_repair_idempotent_on_clean_drawing(self):
         # build_drawing already repairs by default, so a second pass is a no-op:
@@ -7911,8 +7962,8 @@ class TestRepair:
 
         dwg.lint = fake_lint
         dwg.repair(max_iter=3)
-        assert dwg._named["x"] is orig
-        assert dwg._named["x"]._dw_spec.distance == 8
+        assert dwg.get_annotation("x") is orig
+        assert dwg.get_annotation("x")._dw_spec.distance == 8
         assert calls["n"] == 1
 
     def test_build_drawing_repair_flag_is_respected(self):
@@ -7948,15 +7999,15 @@ class TestPin:
         dwg = self._two_overlapping()
         dwg.pin("a")
         dwg.repair()
-        assert dwg._named["a"]._dw_spec.distance == 8
-        assert dwg._named["b"]._dw_spec.distance == 8
+        assert dwg.get_annotation("a")._dw_spec.distance == 8
+        assert dwg.get_annotation("b")._dw_spec.distance == 8
 
     def test_unpin_lets_repair_move_it_again(self):
         dwg = self._two_overlapping()
         dwg.pin("a").unpin("a")
         dwg.repair()
-        assert dwg._named["a"]._dw_spec.distance == 8
-        assert dwg._named["b"]._dw_spec.distance == 8
+        assert dwg.get_annotation("a")._dw_spec.distance == 8
+        assert dwg.get_annotation("b")._dw_spec.distance == 8
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
     def test_pin_unknown_name_raises(self):
@@ -7974,8 +8025,8 @@ class TestPin:
         dwg = self._two_overlapping()
         dwg.pin("a").pin("b")
         dwg.repair()
-        assert dwg._named["a"]._dw_spec.distance == 8
-        assert dwg._named["b"]._dw_spec.distance == 8
+        assert dwg.get_annotation("a")._dw_spec.distance == 8
+        assert dwg.get_annotation("b")._dw_spec.distance == 8
 
     def test_pinning_a_non_dim_then_repair_does_not_crash(self):
         # _find_dim builds an id-set over pinned objects of any type; pinning a
@@ -7995,9 +8046,9 @@ class TestPin:
         # Re-add a fresh "a" at the same overlapping spot; it must NOT inherit
         # the old pin, so repair is free to move it.
         dwg.add(_dim((40.0, 20.0, 0.0), (80.0, 20.0, 0.0), "above", 8, dwg.draft, label="AA"), "a")
-        assert "a" not in dwg._pinned
+        assert not dwg.registry.is_pinned("a")
         dwg.repair()
-        assert dwg._named["a"]._dw_spec.distance == 8
+        assert dwg.get_annotation("a")._dw_spec.distance == 8
 
 
 class TestAnnotationsQuery:
@@ -8012,7 +8063,7 @@ class TestAnnotationsQuery:
         assert all(isinstance(k, str) and isinstance(v, str) for k, v in anns.items())
         # Every key resolves, and its reported type matches the live object.
         for name, type_name in anns.items():
-            assert type(dwg._named[name]).__name__ == type_name
+            assert type(dwg.get_annotation(name)).__name__ == type_name
 
     def test_annotations_omits_unnamed(self):
         from draftwright._core import _dim
@@ -8128,17 +8179,21 @@ class TestPrismaticBossDiameter:
     def test_prismatic_boss_diameter_is_a_plan_leader(self):
         dwg = build_drawing(self._box_boss())
         # the boss ø routes to the plan-view leader path, not the turned column
-        assert any(n.startswith("m_bossdia_") for n in dwg._named)
-        boss = next(o for n, o in dwg._named.items() if n.startswith("m_bossdia_"))
+        assert any(n.startswith("m_bossdia_") for n in dwg.annotations())
+        boss = next(o for n, o in dwg.iter_annotations() if n.startswith("m_bossdia_"))
         assert boss.label == "ø28"
         # and it is not ALSO emitted by the turned column (no double-dimensioning)
-        assert not any(o.label == "ø28" for n, o in dwg._named.items() if n.startswith("m_dia_z"))
+        assert not any(
+            o.label == "ø28" for n, o in dwg.iter_annotations() if n.startswith("m_dia_z")
+        )
 
     def test_shelled_cover_boss_diameter_not_dropped(self):
         # The regression: even forced onto A4 (scale 0.5, front view against the left
         # margin) the boss ø28 places into the clear sheet, so it never lints uncovered.
         dwg = build_drawing(self._shelled_cover(), page="A4")
-        assert any(o.label == "ø28" for o in dwg._named.values() if getattr(o, "label", None))
+        assert any(
+            o.label == "ø28" for _, o in dwg.iter_annotations() if getattr(o, "label", None)
+        )
         assert dwg.lint_summary()["by_code"].get("feature_not_dimensioned", 0) == 0
 
     def test_boss_diameter_carries_authored_tolerance(self):
@@ -8150,15 +8205,15 @@ class TestPrismaticBossDiameter:
         s = Sheet.from_part(Box(90, 64, 38) + Pos(0, 0, 24) * Cylinder(14, 10))
         s.of(Pos(0, 0, 24) * Cylinder(14, 10)).tolerance(0.0, 0.1)  # tolerance the boss ⌀28
         dwg = s.build()
-        labels = [o.label for n, o in dwg._named.items() if n.startswith("m_bossdia_")]
+        labels = [o.label for n, o in dwg.iter_annotations() if n.startswith("m_bossdia_")]
         assert labels and any("0.1" in str(lbl) for lbl in labels), labels
 
     def test_turned_part_boss_stays_in_the_column(self):
         # A rotational shaft's step/OD diameters keep the m_dia column — render_boss_diameters
         # is a prismatic-only pass and must not fire on a turned body.
         dwg = build_drawing(Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(10, 30))
-        assert not any(n.startswith("m_bossdia_") for n in dwg._named)
-        assert any(n.startswith("m_dia_z") for n in dwg._named)
+        assert not any(n.startswith("m_bossdia_") for n in dwg.annotations())
+        assert any(n.startswith("m_dia_z") for n in dwg.annotations())
 
 
 class TestTurnedDiameters:
@@ -8168,7 +8223,7 @@ class TestTurnedDiameters:
 
     def test_each_external_diameter_gets_a_callout(self):
         dwg = build_drawing(_x_stepped_shaft())
-        labels = {o.label for n, o in dwg._named.items() if n.startswith("m_dia")}
+        labels = {o.label for n, o in dwg.iter_annotations() if n.startswith("m_dia")}
         assert "ø30" in labels
         assert "ø16" in labels
 
@@ -8183,7 +8238,7 @@ class TestTurnedDiameters:
         # diameters never share an x and never collide: label xs are min_gap
         # apart and inside the front view's page bounds.
         dwg = build_drawing(_x_stepped_shaft())
-        leaders = [o for n, o in dwg._named.items() if n.startswith("m_dia")]
+        leaders = [o for n, o in dwg.iter_annotations() if n.startswith("m_dia")]
         assert len(leaders) >= 2
         xs = sorted(ldr.elbow[0] for ldr in leaders)
         assert all(b - a > 1.0 for a, b in zip(xs, xs[1:]))  # spread, not stacked
@@ -8192,7 +8247,7 @@ class TestTurnedDiameters:
         # A plain Z disc's OD is covered by dim_od (rotational), so render_diameters
         # skips it (already mentioned) — no m_dia callouts appear.
         dwg = build_drawing(Cylinder(15, 40))  # plain Z disc/shaft
-        assert not any(n.startswith("m_dia") for n in dwg._named)
+        assert not any(n.startswith("m_dia") for n in dwg.annotations())
 
     def test_horizontal_round_body_od_on_profile(self):
         # A horizontal (X-axis) single-OD cylinder shows its OD as a clean profile-view
@@ -8203,10 +8258,12 @@ class TestTurnedDiameters:
         for rot, axis in ((Rot(0, 90, 0), "x"), (Rot(90, 0, 0), "y")):
             dwg = build_drawing(rot * Cylinder(25, 40), number="X")
             assert dwg._analysis.od_axis == axis
-            assert "dim_od" in dwg._named, f"{axis}: OD not on profile"
-            assert not any(n.startswith("m_dia") for n in dwg._named), f"{axis}: end-on leader"
+            assert "dim_od" in dwg.annotations(), f"{axis}: OD not on profile"
+            assert not any(n.startswith("m_dia") for n in dwg.annotations()), (
+                f"{axis}: end-on leader"
+            )
             # the OD (50) appears once (ø50), not also as a bare envelope "50"
-            labels = [str(o.label) for o in dwg._named.values() if getattr(o, "label", None)]
+            labels = [str(o.label) for _, o in dwg.iter_annotations() if getattr(o, "label", None)]
             assert "50" not in labels, f"{axis}: OD double-dimensioned as envelope"
             assert [i for i in dwg.lint() if i.severity != "info"] == []
 
@@ -8221,7 +8278,7 @@ class TestTurnedDiameters:
         monkeypatch.setattr(m, "_solve_strip_ys", lambda *a, **k: None)
         monkeypatch.setattr(m, "_greedy_strip_ys", lambda *a, **k: None)
         dwg = build_drawing(_x_stepped_shaft())  # must not raise
-        assert not any(n.startswith("m_dia") for n in dwg._named)
+        assert not any(n.startswith("m_dia") for n in dwg.annotations())
 
     def test_nested_band_under_silhouette_gets_a_callout(self):
         # #298: a narrow ø6 external band sits under the ø30 flange silhouette, so
@@ -8236,7 +8293,7 @@ class TestTurnedDiameters:
 
         part = Rotation(0, 90, 0) * (cyl(3, 0.5, 0.0) + cyl(15, 20, 0.5) + cyl(10, 15, 20.5))
         dwg = build_drawing(part)
-        labels = {o.label for n, o in dwg._named.items() if n.startswith("m_dia")}
+        labels = {o.label for n, o in dwg.iter_annotations() if n.startswith("m_dia")}
         assert {"ø6", "ø30", "ø20"} <= labels  # the nested ø6 is now called out
         assert dwg.lint_summary()["by_code"].get("feature_not_dimensioned", 0) == 0
 
@@ -8253,7 +8310,7 @@ class TestTurnedDiameters:
         # A ~4 mm shaft: ø6 tip, ø10 flange, ø8 body — three callouts won't fit the row.
         part = Rotation(0, 90, 0) * (cyl(3, 0.5, 0.0) + cyl(5, 1.7, 0.5) + cyl(4, 2.0, 2.2))
         dwg = build_drawing(part)
-        labels = {o.label for n, o in dwg._named.items() if n.startswith("m_dia")}
+        labels = {o.label for n, o in dwg.iter_annotations() if n.startswith("m_dia")}
         assert {"ø10", "ø8"} <= labels  # the significant ODs survive, not dropped wholesale
         undim = {i.message.split()[2] for i in dwg.lint() if i.code == "feature_not_dimensioned"}
         assert "ø6" in undim  # only the finest band falls to honest lint
@@ -8265,14 +8322,14 @@ class TestTurnedLengths:
 
     def test_each_step_length_is_dimensioned(self):
         dwg = build_drawing(_x_stepped_shaft())  # ø30 l40 then ø16 l30
-        labels = {o.label for n, o in dwg._named.items() if n.startswith("m_steplen")}
+        labels = {o.label for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
         assert labels == {"40", "30"}
 
     def test_overall_width_suppressed_for_turned_part(self):
         # The complete chain conveys the overall length, so the envelope width dim
         # is dropped — no double dimensioning (ISO 129).
         dwg = build_drawing(_x_stepped_shaft())
-        assert "m_env_width" not in dwg._named
+        assert "m_env_width" not in dwg.annotations()
 
     def test_turned_part_lints_clean(self):
         dwg = build_drawing(_x_stepped_shaft())
@@ -8291,7 +8348,7 @@ class TestTurnedLengths:
         stack += Pos(0, 0, 10) * Cylinder(7, 8, align=(Align.CENTER, Align.CENTER, b))
         stack += Pos(0, 0, 18) * Cylinder(4, 12, align=(Align.CENTER, Align.CENTER, b))
         dwg = build_drawing(Rotation(0, 90, 0) * stack)
-        assert len([n for n in dwg._named if n.startswith("m_steplen")]) == 3
+        assert len([n for n in dwg.annotations() if n.startswith("m_steplen")]) == 3
 
     def test_uniform_staircase_collapses_to_n_times(self):
         # A uniform run (4 equal-length steps) collapses to one "N× length" dim
@@ -8304,13 +8361,13 @@ class TestTurnedLengths:
         for i, r in enumerate([25, 20, 15], start=1):
             shaft += Pos(0, 0, 10 * i) * Cylinder(r, 10, align=(Align.CENTER, Align.CENTER, b))
         dwg = build_drawing(shaft)
-        steplen = {n: o.label for n, o in dwg._named.items() if n.startswith("m_steplen")}
+        steplen = {n: o.label for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
         assert steplen == {"m_steplen_typ": "4× 10"}, steplen
         assert "axial_length_missing" not in {i.code for i in dwg.lint()}
 
     def test_prismatic_part_has_no_step_lengths(self):
         dwg = build_drawing(Box(80, 60, 20))
-        assert not any(n.startswith("m_steplen") for n in dwg._named)
+        assert not any(n.startswith("m_steplen") for n in dwg.annotations())
 
     def test_grooved_shaft_step_chain_not_flagged_axial_missing(self):
         # A groove band is excluded from the step-length chain (#606) and dimensioned by its
@@ -8328,7 +8385,7 @@ class TestTurnedLengths:
             + Pos(0, 0, 107) * Cylinder(14, 32)
         ) - Pos(0, 0, 61.5) * Cylinder(8, 123)
         dwg = build_drawing(shaft, number="X")
-        assert any(n.startswith("m_groove") for n in dwg._named)  # the ø26 band IS a groove
+        assert any(n.startswith("m_groove") for n in dwg.annotations())  # the ø26 band IS a groove
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
     def test_chain_skips_gracefully_when_no_room(self):
@@ -8344,7 +8401,9 @@ class TestTurnedLengths:
             part = seg if part is None else part + seg
             z += 2.0
         dwg = build_drawing(Rotation(0, 90, 0) * part, page="90x70", scale=4.0)
-        assert not any(n.startswith("m_steplen") for n in dwg._named)  # skipped, not off-page
+        assert not any(
+            n.startswith("m_steplen") for n in dwg.annotations()
+        )  # skipped, not off-page
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) >= 1
 
     def test_dense_chain_skips_instead_of_cramming(self):
@@ -8365,7 +8424,7 @@ class TestTurnedLengths:
             shaft = seg if shaft is None else shaft + seg
             z += ln
         dwg = build_drawing(Rotation(0, 90, 0) * shaft)
-        boxes = [_anno_box(o) for n, o in dwg._named.items() if n.startswith("m_steplen")]
+        boxes = [_anno_box(o) for n, o in dwg.iter_annotations() if n.startswith("m_steplen")]
 
         def overlap(a, c):
             return a and c and not (a[2] <= c[0] or a[0] >= c[2] or a[3] <= c[1] or a[1] >= c[3])
@@ -8396,7 +8455,7 @@ class TestTurnedLengths:
             z += ln
         dwg = build_drawing(Rotation(0, 90, 0) * shaft, scale=2.0)
         assert "detail_a" not in dwg.views  # above floor → no detail, staggered in place
-        steps = {n: o for n, o in dwg._named.items() if n.startswith("m_steplen")}
+        steps = {n: o for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
         assert len(steps) == 5  # every segment dimensioned, none dropped
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
         # Two tiers: the dims sit at (at least) two distinct offset rows.
@@ -8431,8 +8490,8 @@ class TestTurnedLengths:
             z += ln
         dwg = build_drawing(Rotation(0, 90, 0) * shaft, scale=2.0)
         assert "detail_a" in dwg.views  # crowded head → enlarged detail
-        assert "25" in {o.label for n, o in dwg._named.items() if n.startswith("m_steplen")}
-        assert len([n for n in dwg._named if n.startswith("dim_detail_a_steplen")]) >= 3
+        assert "25" in {o.label for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
+        assert len([n for n in dwg.annotations() if n.startswith("dim_detail_a_steplen")]) >= 3
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
     def test_two_sub_floor_runs_get_separate_non_colliding_details(self):
@@ -8451,7 +8510,7 @@ class TestTurnedLengths:
             z += ln
         dwg = build_drawing(Rotation(0, 90, 0) * shaft, page="A2", scale=2.0)
         assert {"detail_a", "detail_b"} <= set(dwg.views)
-        names = [n for n in dwg._named if "steplen" in n and "detail" in n]
+        names = [n for n in dwg.annotations() if "steplen" in n and "detail" in n]
         assert len(names) == len(set(names))  # no eviction — all detail dims survive
         assert any(n.startswith("dim_detail_a_") for n in names)
         assert any(n.startswith("dim_detail_b_") for n in names)
@@ -8474,7 +8533,7 @@ class TestTurnedLengths:
             shaft = seg if shaft is None else shaft + seg
             z += ln
         dwg = build_drawing(Rotation(0, 90, 0) * shaft, scale=2.0)
-        main = {o.label for n, o in dwg._named.items() if n.startswith("m_steplen")}
+        main = {o.label for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
         assert not any("×" in v for v in main)  # no false uniform-staircase collapse
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
@@ -8495,7 +8554,7 @@ class TestStepLadderRecognition:
         # The turned part is now dimensioned by the unified IR step-length chain
         # (#223): two real OD segments (each length 30), and crucially NO '45'
         # bore-floor phantom — recognise_turned_steps excludes the internal bore.
-        labels = [o.label for n, o in dwg._named.items() if n.startswith("m_steplen")]
+        labels = [o.label for n, o in dwg.iter_annotations() if n.startswith("m_steplen")]
         assert labels == ["30", "30"]  # both real segments
         assert "45" not in labels  # no bore-floor phantom
 
@@ -8505,9 +8564,11 @@ class TestStepLadderRecognition:
         # A Z-turned stepped shaft is now located by the unified IR step-length
         # chain (#223), not the old engine ladder. Both segments are dimensioned.
         dwg = build_drawing(Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30), number="D-1")
-        labels = [o.label for n, o in dwg._named.items() if n.startswith("m_steplen")]
+        labels = [o.label for n, o in dwg.iter_annotations() if n.startswith("m_steplen")]
         assert labels == ["30", "30"]
-        assert not any(n.startswith("dim_step") for n in dwg._named)  # ladder retired for turned
+        assert not any(
+            n.startswith("dim_step") for n in dwg.annotations()
+        )  # ladder retired for turned
 
 
 class TestAxialCoverageLint:
@@ -8822,15 +8883,15 @@ class TestHoleTable:
         before = {i.code for i in dwg.lint()}
         dwg.add_hole_table("plan")
         assert {i.code for i in dwg.lint()} == before
-        assert dwg._named["hole_table_plan"].covers_diameters == (16.0, 10.0)
+        assert dwg.get_annotation("hole_table_plan").covers_diameters == (16.0, 10.0)
 
     def test_table_does_not_overlap_views_or_title_block(self):
         dwg = build_drawing(_multi_hole_plate())
         dwg.add_hole_table("plan")
-        tb = self._bbox(dwg._named["hole_table_plan"])
+        tb = self._bbox(dwg.get_annotation("hole_table_plan"))
         for v in dwg.views:
             assert self._area(tb, dwg.view_bounds(v)) == 0.0, v
-        assert self._area(tb, self._bbox(dwg._named["title_block"])) == 0.0
+        assert self._area(tb, self._bbox(dwg.get_annotation("title_block"))) == 0.0
 
     def test_no_holes_in_view_returns_none(self):
         from build123d import Box
@@ -9024,7 +9085,7 @@ class TestPatternGroupBalloon:
         balloons = [n for n in dwg.annotations() if n.startswith("balloon_plan_")]
         assert {n.split("_")[2] for n in balloons} == {"4×A", "6×B"}
         # The shared-band placement (one _add_balloons call) must not stack them.
-        boxes = [dwg._named[n].bounding_box() for n in balloons]
+        boxes = [dwg.get_annotation(n).bounding_box() for n in balloons]
         b0, b1 = boxes
         overlaps = (
             b0.min.X < b1.max.X
@@ -9080,7 +9141,7 @@ class TestDraftwrightAttribution:
         # or the upstream TitleBlock layout ever diverge.
         dwg = build_drawing(Box(60, 40, 20))
         x0, y0, x1, y1 = dwg._draftwright_link_rect
-        tb = dwg._named["title_block"]
+        tb = dwg.get_annotation("title_block")
         bb = tb.bounding_box()
         cell = tb.drawn_by_cell_bbox()  # build-frame; block min corner is at bb.min
         assert x1 == pytest.approx(bb.max.X, abs=0.5)  # flush to block right edge

@@ -22,7 +22,7 @@ def test_notes_block_places_lint_clean():
     s = _sheet()
     s.notes(["BREAK ALL EDGES 0.3", "DEBURR", "M3x0.5 TAP"])
     dwg = s.build()
-    assert "notes0" in dwg._named
+    assert "notes0" in dwg.annotations()
     assert not [
         x for x in dwg.lint() if x.code in ("annotation_overlap", "annotation_out_of_bounds")
     ]
@@ -46,7 +46,7 @@ def test_generic_table_places_and_stringifies():
     s = _sheet()
     s.table([("REV", "DATE", "BY"), ("A", "2026-07-06", "PF")], prefer="br")
     dwg = s.build()
-    assert "table0" in dwg._named
+    assert "table0" in dwg.annotations()
     # cells are stringified (a non-str is accepted)
     s2 = _sheet()
     s2.table([("QTY",), (3,)])
@@ -58,7 +58,7 @@ def test_multiple_tables_get_unique_names():
     s.notes(["x"])
     s.table([("a",), ("b",)])
     dwg = s.build()
-    assert {"notes0", "table1"} <= set(dwg._named)
+    assert {"notes0", "table1"} <= set(dwg.annotations())
 
 
 def test_chains_and_returns_sheet():
@@ -91,8 +91,10 @@ def test_table_never_overwrites_a_feature_annotation():
     s.table([("R",), ("A",)], name="m_env_width")  # a real feature-annotation name
     with pytest.warns(UserWarning, match="already taken"):
         dwg = s.build()
-    assert "m_env_width" in dwg._named  # the original width dimension survives
-    assert any(n.startswith("m_env_width_") for n in dwg._named)  # table placed under a fresh name
+    assert "m_env_width" in dwg.annotations()  # the original width dimension survives
+    assert any(
+        n.startswith("m_env_width_") for n in dwg.annotations()
+    )  # table placed under a fresh name
 
 
 def test_auto_name_does_not_collide_with_an_explicit_one():
@@ -101,7 +103,9 @@ def test_auto_name_does_not_collide_with_an_explicit_one():
     s.table([("x",), ("y",)], name="table1")
     s.table([("p",), ("q",)])  # auto-names table1 -> collision
     dwg = s.build()
-    assert "table1" in dwg._named and any(n.startswith("table1_") for n in dwg._named)
+    assert "table1" in dwg.annotations() and any(
+        n.startswith("table1_") for n in dwg.annotations()
+    )
 
 
 def test_a_dropped_table_frees_its_name():
@@ -111,8 +115,10 @@ def test_a_dropped_table_frees_its_name():
     s.table([("H",)] + [(str(i),) for i in range(300)], name="rev")  # too tall → dropped
     s.table([("A",), ("B",)], name="rev")  # small, same name → should get the freed "rev"
     dwg = s.build()
-    assert "rev" in dwg._named  # the fitting table took the freed name
-    assert any(i.code == "table_dropped" for i in dwg._build_issues)  # the drop is still recorded
+    assert "rev" in dwg.annotations()  # the fitting table took the freed name
+    assert any(
+        i.code == "table_dropped" for i in dwg.registry.issues
+    )  # the drop is still recorded
 
 
 def test_estimated_table_size_matches_rendered():

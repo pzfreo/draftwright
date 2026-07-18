@@ -110,10 +110,10 @@ class TestSheetTolerance:
         )
 
     def _dias(self, dwg):
-        return {n: dwg._named[n].label for n in dwg._named if n.startswith("m_dia")}
+        return {n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")}
 
     def _steplen_tol(self, dwg, name):
-        o = dwg._named[name]
+        o = dwg.get_annotation(name)
         return o._dw_spec.kwargs.get("tolerance")
 
     def test_boss_diameter_tolerance_renders_on_leader(self):
@@ -138,7 +138,7 @@ class TestSheetTolerance:
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x").tolerance(0.0, 0.2)
         s.step(diameter=12, length=10, at=(15, 0, 0), axis="x")
         dwg = s.build()
-        tols = {self._steplen_tol(dwg, n) for n in dwg._named if n.startswith("m_steplen")}
+        tols = {self._steplen_tol(dwg, n) for n in dwg.annotations() if n.startswith("m_steplen")}
         assert (0.0, 0.2) in tols
 
     def test_step_tolerance_defaults_to_length_not_diameter(self):
@@ -149,7 +149,9 @@ class TestSheetTolerance:
         dwg = s.build()
         # the bare .tolerance() went to the length dim; the OD leader stays plain
         assert all("±" not in lbl and "+" not in lbl for lbl in self._dias(dwg).values())
-        assert 0.1 in {self._steplen_tol(dwg, n) for n in dwg._named if n.startswith("m_steplen")}
+        assert 0.1 in {
+            self._steplen_tol(dwg, n) for n in dwg.annotations() if n.startswith("m_steplen")
+        }
 
     def test_step_on_diameter_tolerances_the_od(self):
         shaft = self._stepped_shaft()
@@ -169,7 +171,9 @@ class TestSheetTolerance:
         dwg = s.build()
         assert all("±" not in lbl and "+" not in lbl for lbl in self._dias(dwg).values())
         assert all(
-            self._steplen_tol(dwg, n) is None for n in dwg._named if n.startswith("m_steplen")
+            self._steplen_tol(dwg, n) is None
+            for n in dwg.annotations()
+            if n.startswith("m_steplen")
         )
 
     def test_toleranced_hole_callout_participates_in_layout_sizing(self):
@@ -185,7 +189,7 @@ class TestSheetTolerance:
         s.hole(diameter=8, at=(0, 0, 4), axis="z").tolerance(0.1)
         dwg = s.build()
 
-        assert any(n.startswith("hc_plan") for n in dwg._named)
+        assert any(n.startswith("hc_plan") for n in dwg.annotations())
         assert "callout_dropped" not in {i.code for i in dwg.lint()}
 
 

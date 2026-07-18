@@ -164,7 +164,7 @@ class TestStepChainDrop:
         ]
         placed = _draw_step_chain(dwg, "front", segs, "m_steplen", ctx=ctx)
         assert placed == 0
-        codes = [i.code for i in ctx.registry._build_issues]
+        codes = [i.code for i in ctx.registry.issues]
         assert "step_dim_dropped" in codes, "silent drop no longer allowed (#362)"
         assert ctx.escalations == []  # _record_step_chain_drop records lint only, no Escalation
 

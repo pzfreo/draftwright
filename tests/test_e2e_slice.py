@@ -19,7 +19,7 @@ def _plate():
 
 
 def _labels(dwg):
-    return sorted(str(o.label) for o in dwg._named.values() if getattr(o, "label", None))
+    return sorted(str(o.label) for _, o in dwg.iter_annotations() if getattr(o, "label", None))
 
 
 def test_prismatic_plate_sized_and_error_free():
@@ -59,7 +59,7 @@ def test_dense_plate_callouts_dont_collide():
         for y in (-20, 20):
             part -= Pos(x, y, 0) * Cylinder(4, 30)
     dwg = build_drawing(part, number="X")
-    assert any(n.startswith("hc_") for n in dwg._named)  # hole callouts placed
+    assert any(n.startswith("hc_") for n in dwg.annotations())  # hole callouts placed
     s = dwg.lint_summary()
     assert s["by_code"].get("annotation_overlap", 0) == 0
     assert s["by_code"].get("view_annotation_overlap", 0) == 0

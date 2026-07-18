@@ -46,17 +46,17 @@ def test_control_frame_places_first_class():
         diameter=True,
     )
     dwg = _build(frame)
-    assert "m_gdt0" in dwg._named
-    assert not [i for i in dwg._build_issues if i.code == "gdt_dropped"]
+    assert "m_gdt0" in dwg.annotations()
+    assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
     # It rendered the actual frame geometry (a wide box, not an empty leader).
-    assert dwg._named["m_gdt0"].bounding_box().size.X > 15
+    assert dwg.get_annotation("m_gdt0").bounding_box().size.X > 15
 
 
 def test_datum_and_finish_place():
     datum = DatumRef(frame=Frame((30.0, 0.0, 0.0), "z"), letter="A", view="plan", side="above")
     finish = Finish(frame=Frame((0.0, 25.0, 0.0), "z"), ra="3.2", view="front", side="above")
     dwg = _build(datum, finish)
-    placed = {n for n in dwg._named if n.startswith("m_gdt")}
+    placed = {n for n in dwg.annotations() if n.startswith("m_gdt")}
     assert placed == {"m_gdt0", "m_gdt1"}
 
 
@@ -81,10 +81,10 @@ def test_stacked_frames_reserve_real_footprint():
         side="above",
     )
     dwg = _build(f0, f1)
-    assert {"m_gdt0", "m_gdt1"} <= set(dwg._named)
+    assert {"m_gdt0", "m_gdt1"} <= set(dwg.annotations())
     h = _fcf_height()
-    c0 = dwg._named["m_gdt0"].bounding_box().max.Y - h / 2
-    c1 = dwg._named["m_gdt1"].bounding_box().max.Y - h / 2
+    c0 = dwg.get_annotation("m_gdt0").bounding_box().max.Y - h / 2
+    c1 = dwg.get_annotation("m_gdt1").bounding_box().max.Y - h / 2
     assert abs(c0 - c1) >= h - 1e-6  # glyphs do not overlap in the stack
 
 
@@ -100,12 +100,12 @@ def test_congested_side_falls_through_to_opposite():
         side="below",
     )
     dwg = _build(frame)
-    assert "m_gdt0" in dwg._named  # recovered on the opposite side
-    assert not [i for i in dwg._build_issues if i.code == "gdt_dropped"]
+    assert "m_gdt0" in dwg.annotations()  # recovered on the opposite side
+    assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
     # It landed ABOVE the plan view (the fallthrough side): the frame (leader's far end) sits
     # above the view centre, whereas a below placement would keep the whole box at/under it.
-    assert dwg._named["m_gdt0"].bounding_box().max.Y > dwg._analysis.PV_Y + 10
+    assert dwg.get_annotation("m_gdt0").bounding_box().max.Y > dwg._analysis.PV_Y + 10
 
 
 @pytest.mark.parametrize("side", ["above", "below"])
@@ -138,8 +138,8 @@ def test_bad_target_drops_without_crashing():
         side="above",
     )
     dwg = _build(frame)
-    assert [i for i in dwg._build_issues if i.code == "gdt_dropped"]
-    assert "m_gdt0" not in dwg._named
+    assert [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
+    assert "m_gdt0" not in dwg.annotations()
 
 
 def test_invalid_glyph_spec_drops_not_crashes():
@@ -153,9 +153,9 @@ def test_invalid_glyph_spec_drops_not_crashes():
         side="above",
     )
     dwg = _build(frame)  # must not raise
-    dropped = [i for i in dwg._build_issues if i.code == "gdt_dropped"]
+    dropped = [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
     assert dropped and "m_gdt0" in dropped[0].message
-    assert "m_gdt0" not in dwg._named
+    assert "m_gdt0" not in dwg.annotations()
 
 
 def test_wide_frame_in_narrow_strip_drops_not_overshoots():
@@ -173,8 +173,8 @@ def test_wide_frame_in_narrow_strip_drops_not_overshoots():
         datums=("A", "B"),
     )
     dwg = _build(frame)
-    assert [i for i in dwg._build_issues if i.code == "gdt_dropped"]
-    assert "m_gdt0" not in dwg._named
+    assert [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
+    assert "m_gdt0" not in dwg.annotations()
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
 
@@ -191,7 +191,7 @@ def test_degenerate_leader_site_does_not_crash():
         side="above",
     )
     dwg = _build(frame)  # must not raise
-    assert "m_gdt0" in dwg._named
+    assert "m_gdt0" in dwg.annotations()
 
 
 def test_placement_is_lint_clean():

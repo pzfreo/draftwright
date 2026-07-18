@@ -35,7 +35,7 @@ def test_strip_obstacles_captures_bare_centreline():
     # A label-box-only occupancy misses bare centrelines; the complete occupancy
     # must not — a centreline through a callout's row is exactly the #305 blind spot.
     dwg = build_drawing(_drive_screw_x())
-    cl = dwg._named["centerline_front"]
+    cl = dwg.get_annotation("centerline_front")
     b = cl.bounding_box()
     cbox = (b.min.X, b.min.Y, b.max.X, b.max.Y)
 
@@ -189,7 +189,7 @@ def test_strip_obstacles_view_filter_drops_other_ortho_views():
         (n for n, _ in dwg.iter_annotations() if dwg.view_of(n) in ("front", "plan")), None
     )
     assert other is not None, "fixture should place a front/plan annotation"
-    o = dwg._named[other]
+    o = dwg.get_annotation(other)
     lb2 = getattr(o, "label_bbox", None)
     if lb2 is not None:
         cx, cy = (lb2[0] + lb2[2]) / 2, (lb2[1] + lb2[3]) / 2
@@ -209,8 +209,8 @@ def test_strip_obstacles_keeps_section_hatch_in_every_per_view_query():
     # re-open that blind spot (review S1).
     part = Box(80, 60, 20) - Cylinder(4, 20) - Pos(10, 5, -7) * Cylinder(6, 6)
     dwg = build_drawing(part)
-    assert "section_hatch" in dwg._named and dwg.view_of("section_hatch") is None
-    b = dwg._named["section_hatch"].bounding_box()
+    assert "section_hatch" in dwg.annotations() and dwg.view_of("section_hatch") is None
+    b = dwg.get_annotation("section_hatch").bounding_box()
     hbox = (b.min.X, b.min.Y, b.max.X, b.max.Y)
     for v in ("front", "plan", "side"):
         assert any(_same(x, hbox) for x in strip_obstacles(dwg, view=v)), f"hatch dropped from {v}"
@@ -235,7 +235,7 @@ def test_record_callout_drop_emits_a_callout_escalation():
     # coverage (#639), not the drawing — so the dwg arg is inert here.
     ctx = PlacementContext(registry=AnnotationRegistry(), coverage=CoverageState())
     _record_callout_drop(ctx, object(), "plan", 6.0, "no room beside the view")
-    assert [i.code for i in ctx.registry._build_issues] == ["callout_dropped"]
+    assert [i.code for i in ctx.registry.issues] == ["callout_dropped"]
     assert ctx.coverage.dropped_diams == [6.0]
     assert len(ctx.escalations) == 1
     e = ctx.escalations[0]
@@ -258,9 +258,7 @@ def test_record_slot_drop_emits_a_slot_escalation():
     ctx = PlacementContext(registry=AnnotationRegistry())
     sentinel = object()
     _record_slot_drop(ctx, object(), "width", 0, "plan", sentinel)
-    assert [(i.severity, i.code) for i in ctx.registry._build_issues] == [
-        ("info", "slot_dim_dropped")
-    ]
+    assert [(i.severity, i.code) for i in ctx.registry.issues] == [("info", "slot_dim_dropped")]
     assert len(ctx.escalations) == 1
     e = ctx.escalations[0]
     assert e.kind == "slot" and e.view == "plan" and e.feature is sentinel
@@ -278,9 +276,7 @@ def test_record_pmi_drop_emits_a_pmi_escalation():
     ctx = PlacementContext(registry=AnnotationRegistry())
     rec = SimpleNamespace(pmi_kind="linear")
     _record_pmi_drop(ctx, object(), "X", "12.0", rec)
-    assert [(i.severity, i.code) for i in ctx.registry._build_issues] == [
-        ("warning", "pmi_dropped")
-    ]
+    assert [(i.severity, i.code) for i in ctx.registry.issues] == [("warning", "pmi_dropped")]
     assert len(ctx.escalations) == 1
     e = ctx.escalations[0]
     assert e.kind == "pmi" and e.view == "front" and e.feature is rec
@@ -1025,10 +1021,10 @@ def _plan_above_ladder(dwg):
     """(name, dim) for every plan-view dimension with a horizontal witness — the plan-above
     corridor the location + slot passes share."""
     out = []
-    for name in dwg._named:
+    for name in dwg.annotations():
         o = dwg.get_annotation(name)
         spec = getattr(o, "_dw_spec", None)
-        if spec is None or dwg._anno_view.get(name) != "plan":
+        if spec is None or dwg.view_of(name) != "plan":
             continue
         if abs(spec.p1[1] - spec.p2[1]) > 1e-6:
             continue  # vertical witness → a right/left dim, not the above ladder
@@ -1072,7 +1068,7 @@ def test_corridor_orders_location_ladder_monotonically():
     # stack outward monotonically as the measured value grows, not interleaved.
     dwg = build_drawing(_holed_slot())
     rungs = []
-    for name in dwg._named:
+    for name in dwg.annotations():
         if not name.startswith("m_locx"):
             continue
         o = dwg.get_annotation(name)

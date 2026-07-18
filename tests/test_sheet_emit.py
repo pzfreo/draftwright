@@ -110,7 +110,7 @@ class TestEmit:
         assert feat.upper_tol == 0.1
         assert feat.lower_tol == 0.0
         assert feat.source == "sheet"
-        assert any(n.startswith("pmi_") for n in sheet.build()._named)
+        assert any(n.startswith("pmi_") for n in sheet.build().annotations())
 
     def test_sheet_dimension_rejects_unrenderable_kind(self):
         from draftwright import Sheet
@@ -162,9 +162,9 @@ class TestEmit:
                 at=ref_pts[0],
             )
             dwg = sheet.build()
-            placed = [n for n in dwg._named if n.startswith("pmi_")]
+            placed = [n for n in dwg.annotations() if n.startswith("pmi_")]
             assert placed, f"{axis}: ref_pts-only dim was not placed"
-            assert not any(i.code == "pmi_dropped" for i in dwg._build_issues), axis
+            assert not any(i.code == "pmi_dropped" for i in dwg.registry.issues), axis
 
     def test_degenerate_refpts_reports_specific_code_not_no_room(self):
         # #562: a genuinely unrenderable ref (two coincident points → no span) reports a
@@ -182,7 +182,7 @@ class TestEmit:
             at=(-38, -30, 5),
         )
         dwg = sheet.build()
-        codes = {i.code for i in dwg._build_issues}
+        codes = {i.code for i in dwg.registry.issues}
         assert "authored_dim_degenerate" in codes
         assert "pmi_dropped" not in codes
 
@@ -475,9 +475,9 @@ class TestEmit:
         # the front view), co-solved with dim_step/dim_height on one running ladder.
         # The old side placement was an artifact: the carve-placed ladder crowded the
         # front strip, forcing the fallback; the corridor co-solve fits both.
-        assert "dim_loc_front_z7500" in dwg._named
-        assert "dim_loc_side_z7500" not in dwg._named
-        assert "dim_step_0" in dwg._named
+        assert "dim_loc_front_z7500" in dwg.annotations()
+        assert "dim_loc_side_z7500" not in dwg.annotations()
+        assert "dim_step_0" in dwg.annotations()
 
     def test_needs_hole_import_only_when_a_pattern_is_present(self):
         # `hole` is only imported when a pattern line references it
@@ -928,7 +928,7 @@ def _annotation_signature(dwg):
         return (_r(b.min.X), _r(b.min.Y), _r(b.max.X), _r(b.max.Y))
 
     rows = []
-    for name, obj in dwg._named.items():
+    for name, obj in dwg.iter_annotations():
         spec = getattr(obj, "_dw_spec", None)
         if spec is not None:
             detail = (

@@ -21,7 +21,7 @@ class TestOf:
         s = Sheet.from_part(_shaft())
         s.of(Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10)).fit("g6")  # the ⌀12 collar
         dwg = s.build()
-        dias = {n: dwg._named[n].label for n in dwg._named if n.startswith("m_dia")}
+        dias = {n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")}
         assert any(lbl == "ø12 g6" for lbl in dias.values()), dias
 
     def test_of_index_returns_a_decoratable_handle(self):

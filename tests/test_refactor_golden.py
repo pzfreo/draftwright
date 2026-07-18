@@ -227,7 +227,7 @@ def _signature(dwg) -> dict:
     # Build issues (drops / escalations / warnings) — the drop logic in _annotate_holes and
     # render_pmi is load-bearing and a placement-only snapshot would miss a change to it.
     # Lists, not tuples: JSON has no tuple type, so tuples would fail the round-trip compare.
-    issues = sorted([i.severity, i.code, i.message] for i in dwg._build_issues)
+    issues = sorted([i.severity, i.code, i.message] for i in dwg.registry.issues)
     return {
         "views": views,
         "annotations": annotations,

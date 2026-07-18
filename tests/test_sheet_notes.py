@@ -77,8 +77,8 @@ def test_note_places_lint_clean():
     s.envelope()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20)).note("M3x0.5 TAP")
     dwg = s.build()
-    assert "m_gdt0" in dwg._named  # the note placed as a GD&T-kind corridor item
-    assert not [i for i in dwg._build_issues if i.code == "gdt_dropped"]
+    assert "m_gdt0" in dwg.annotations()  # the note placed as a GD&T-kind corridor item
+    assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
 
@@ -89,7 +89,7 @@ def test_face_note_places_lint_clean():
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     s.note("BREAK ALL EDGES 0.3", _top_face(part))
     dwg = s.build()
-    assert [n for n in dwg._named if "gdt" in n]  # the note placed
+    assert [n for n in dwg.annotations() if "gdt" in n]  # the note placed
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
 
@@ -105,7 +105,7 @@ def test_note_before_depth_keeps_provenance():
     h.depth(5)  # replaces the hole feature (through=False)
     dwg = s.build()
     hole_feat = next(f for f in s.features if f.kind == "hole")
-    nt_names = [n for n in dwg._named if "gdt" in n]
+    nt_names = [n for n in dwg.annotations() if "gdt" in n]
     assert nt_names, "the note placed"
     # provenance re-bound to the FINAL (depth=5) hole, not the stale through hole
     assert set(nt_names) <= set(dwg.annotations_of(hole_feat))
