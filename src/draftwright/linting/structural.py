@@ -111,17 +111,27 @@ def _item_label(item) -> str:
     return getattr(item, "label", "") or getattr(item, "_annotate_label", "") or ""
 
 
+# Items whose raising label_bbox was already warned about — several checks read the
+# same item's label_bbox (per centreline pair, per view), so an unmemoised warning
+# would flood the log O(n²) on one bad item (#711 review).
+_warned_label_bbox: set[int] = set()
+
+
 def _label_bbox(item):
-    """``item.label_bbox`` or ``None`` — the one duck-typed read the lint checks
-    guard, so a raising property on a user-supplied item cannot kill lint. It is
-    logged, not swallowed (#701: a check that silently skips an item can silently
-    disable itself)."""
+    """``item.label_bbox`` or ``None`` — a raising property on a user-supplied
+    duck-typed item cannot kill lint; it is logged (once per item), not swallowed
+    (#701: a check that silently skips an item can silently disable itself).
+    Known hole: a property that raises ``AttributeError`` *internally* is
+    indistinguishable from an absent attribute through ``getattr`` and reads as a
+    silent ``None``."""
     try:
         return getattr(item, "label_bbox", None)
     except Exception as exc:  # noqa: BLE001 — duck-typed items may misbehave
-        _log.warning(
-            "lint: unreadable label_bbox on %s (%s); item skipped", type(item).__name__, exc
-        )
+        if id(item) not in _warned_label_bbox:
+            _warned_label_bbox.add(id(item))
+            _log.warning(
+                "lint: unreadable label_bbox on %s (%s); item skipped", type(item).__name__, exc
+            )
         return None
 
 
@@ -208,7 +218,7 @@ def lint_drawing(
             features, surface-finish marks) are tested by the label-text
             extents only — witness lines, leader shafts, datum triangles, and
             finish marks may enter the view freely.  Shapes whose bounding box
-            cannot be computed are silently skipped.
+            cannot be computed are skipped (logged at debug, #701).
         view_edge_cache: optional dict, persisted by the caller across repeated
             ``lint_drawing`` calls on the *same* views, that memoises each view
             shape's per-edge bounding boxes — the dominant cost when a drawing
@@ -701,7 +711,7 @@ def _lint_leader(item, issues, box_cache=None) -> None:
                     f"({ex:.2f}, {ey:.2f}) is inside the label bbox — leader "
                     f"line passes through the text"
                 ),
-                location=item.elbow,
+                location=(ex, ey),
                 code="leader_line_through_text",
             )
         )

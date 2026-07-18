@@ -436,7 +436,8 @@ class TestLintSelfSilencing:
 
         with caplog.at_level(logging.WARNING, logger="draftwright.linting.structural"):
             issues = lint_drawing([BadLabelBbox()])
-        assert "unreadable label_bbox" in caplog.text
+        # several checks read the same item's label_bbox — warned exactly once (#711 review)
+        assert caplog.text.count("unreadable label_bbox") == 1
         assert isinstance(issues, list)  # lint completed; the bad item was skipped
 
     def test_broken_elbow_is_logged_not_swallowed(self, caplog):
