@@ -27,7 +27,7 @@ def _find_dim(dwg, label):
     """
     # Identity-based, matching clear_annotations: "this specific object", not
     # build123d's geometric Shape equality.
-    pinned_ids = dwg._registry.pinned_object_ids()
+    pinned_ids = dwg.registry.pinned_object_ids()
     for o in dwg.items:
         if id(o) in pinned_ids:
             continue
@@ -42,7 +42,7 @@ def _replace_dim(dwg, old, new):
     if getattr(old, "_dw_scale", None) is not None:
         new._dw_scale = old._dw_scale
     dwg.items[dwg.items.index(old)] = new
-    dwg._registry.replace_object(old, new)
+    dwg.registry.replace_object(old, new)
 
 
 def _repair_dim_inside_part(dwg, issue) -> bool:
@@ -68,7 +68,7 @@ def repair_drawing(dwg, max_iter: int = 3):
         if not before:
             break
         snap_annotations = list(dwg.items)
-        snap_registry = dwg._registry.snapshot()
+        snap_registry = dwg.registry.snapshot()
         changed = False
         for issue in before:
             if issue.code not in _REPAIRABLE_CODES:
@@ -86,7 +86,7 @@ def repair_drawing(dwg, max_iter: int = 3):
         if len(dwg.lint()) > len(before):
             # The repairs net-worsened the sheet — undo this pass and stop.
             dwg.items[:] = snap_annotations
-            dwg._registry.restore(snap_registry)
+            dwg.registry.restore(snap_registry)
             break
     return dwg
 
@@ -128,7 +128,7 @@ def reconcile_witness_labels(dwg) -> int:
         return segs
 
     pad = 1.0  # keep-clear each side of a crossing stroke
-    pinned_ids = dwg._registry.pinned_object_ids()  # a pin is deliberate — never moved (#693 r1)
+    pinned_ids = dwg.registry.pinned_object_ids()  # a pin is deliberate — never moved (#693 r1)
     dims = [
         (name, o)
         for name, o in dwg.iter_annotations()

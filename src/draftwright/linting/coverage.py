@@ -292,7 +292,7 @@ def lint_location_coverage(
     gap left out of :func:`lint_feature_coverage` (#218).
 
     *dwg* is the drawing, duck-typed: it must offer ``at(view, x, y, z)`` projection,
-    a ``_named`` mapping, and ``_anno_view``. For each hole, project its centre into
+    ``iter_annotations()``, and ``view_of()``. For each hole, project its centre into
     the view normal to its axis (:data:`_END_ON`) and check the placed annotations:
 
     - **centre mark** — a ``CenterMark`` whose centre coincides with the projected
@@ -448,7 +448,7 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     (:func:`_axial_covered_from_drawing`), not a build-time side channel — so it
     judges any producer. A shortfall yields one ``axial_length_missing`` issue.
 
-    *dwg* is the drawing, duck-typed (needs ``at``/``_named``/``_anno_view``).
+    *dwg* is the drawing, duck-typed (needs ``at``/``annotations``/``view_of``).
 
     Covers **X- and Z-axis** turning: both are now located by the unified IR
     step-length chain (ADR 0008 #223), so a missing chain on either is a real gap
@@ -472,9 +472,7 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     # callout on the turning axis as covering its band — so a fully-dimensioned grooved shaft
     # (N−1 step lengths + the groove width) is not flagged (#628); a *dropped* groove callout
     # leaves its band uncovered, so a genuine gap still fires (reconcile rendered, not intent).
-    covered += sum(
-        1 for name in getattr(dwg, "_named", {}) if name.startswith(f"m_groove_{prof.axis}")
-    )
+    covered += sum(1 for name in dwg.annotations() if name.startswith(f"m_groove_{prof.axis}"))
     if covered >= n:
         return []
     return [

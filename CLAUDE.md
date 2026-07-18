@@ -59,7 +59,10 @@ entry. Keep `_LAYERS` and this section in step.
     analysis, part model, lint's geometry caches) — filled at a single site in
     `builder._assemble`, read through compat properties, single-writer-guarded
     by `test_drawing_encapsulation`. ADR 0005 §2 / #639 closed: `annotations/`
-    has zero private `Drawing` reads (empty allowlist ratchet).)*
+    has zero private `Drawing` reads (empty allowlist ratchet) — and since #699
+    slice d the state-bus guard covers the WHOLE engine: no module but
+    `drawing.py` touches `dwg._*` (rationale-carrying allowlist, builder's
+    fill site only).)*
 - **`annotate.py`** — thin compat facade re-exporting `_auto_annotate` (the
   orchestrator) from `annotations/`. The annotation passes were split into the
   **`annotations/`** subpackage (#164 / ADR 0005, P5):

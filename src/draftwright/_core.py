@@ -752,18 +752,22 @@ def _title_block_box(dwg, a: Analysis):
 def _add_title_block(dwg, a: Analysis):
     """Add the title block annotation."""
     tb, cell = _make_title_block(dwg, a)
-    dwg.add(tb, "title_block")
 
     # Record that cell's page-space rectangle so export() can place a clickable
     # draftwright hyperlink over the "… / draftwright" author text. The build-frame
-    # cell corners are offset by the block's page location (bx, _TB_CLEAR).
+    # cell corners are offset by the block's page location (bx, _TB_CLEAR). The
+    # rect rides the title-block annotation itself (like ``covers_diameters`` /
+    # ``is_centerline`` riders), NOT an expando poked onto the drawing — the
+    # drawing is not the state bus (#699 slice d); export reads it back via
+    # ``get_annotation("title_block")``, so a removed block drops its link too.
     bx = a.PAGE_W - a.TB_W - _TB_CLEAR
-    dwg._draftwright_link_rect = (
+    tb.draftwright_link_rect = (
         bx + cell["min_x"],
         _TB_CLEAR + cell["min_y"],
         bx + cell["max_x"],
         _TB_CLEAR + cell["max_y"],
     )
+    dwg.add(tb, "title_block")
 
 
 def _iso_bbox(dwg):
