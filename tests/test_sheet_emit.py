@@ -470,8 +470,13 @@ class TestEmit:
         ns = {}
         exec(compile(Path(py).read_text(encoding="utf-8"), py, "exec"), ns)
         dwg = ns["sheet"].build()
-        assert "dim_loc_side_z7500" in dwg._named
-        assert "dim_loc_front_z7500" not in dwg._named
+        # (#636) The Y-drilled hole's Z location joins the FRONT right ladder —
+        # _locate_along_z's documented primary for a Y-axis hole (its circle shows in
+        # the front view), co-solved with dim_step/dim_height on one running ladder.
+        # The old side placement was an artifact: the carve-placed ladder crowded the
+        # front strip, forcing the fallback; the corridor co-solve fits both.
+        assert "dim_loc_front_z7500" in dwg._named
+        assert "dim_loc_side_z7500" not in dwg._named
         assert "dim_step_0" in dwg._named
 
     def test_needs_hole_import_only_when_a_pattern_is_present(self):

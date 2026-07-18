@@ -1584,7 +1584,9 @@ class Drawing:
             render_height_ladder(
                 self, model, a, ctx=ctx, include_overall=not explicit_envelope_height
             )
-        self._intents = [it for it in self._intents if id(it) not in height_ladder_ids]
+        # (#636) A0 now only REGISTERS ladder candidates; they place at the B2 drain.
+        # Their intents drop there (with step positions), NOT here — a raise before the
+        # drain leaves them recorded so a retry rebuilds the batch (#639).
         # A0b — prismatic step positions through the auto-pass renderer (all shoulders).
         # This only REGISTERS corridor candidates; they place at the B2 drain. Their intents
         # are dropped there (with locations/slots), NOT here — so a raise before the drain leaves
@@ -1638,7 +1640,7 @@ class Drawing:
         #      them. Their intents — like locations/slots — are dropped only AFTER the drain
         #      succeeds, so a raise leaves them recorded for a clean retry (#639).
         queued_dim_ids = set()
-        if only_loc or slot_feats or user_dim_ids or step_position_ids:
+        if only_loc or slot_feats or user_dim_ids or step_position_ids or height_ladder_ids:
             assert a is not None and isinstance(model, PartModel)  # either ⟹ routable
             if only_loc:
                 render_locations(self, model, a, ctx=ctx, only=only_loc, pinned=pinned_loc)
@@ -1653,7 +1655,10 @@ class Drawing:
         self._intents = [
             it
             for it in self._intents
-            if id(it) not in (corridor_ids | slot_ids | queued_dim_ids | step_position_ids)
+            if id(it)
+            not in (
+                corridor_ids | slot_ids | queued_dim_ids | step_position_ids | height_ladder_ids
+            )
         ]
         # B3 — step/boss ø diameters through render_diameters' set-solve (row-below /
         #      column-left) — auto-pass S11b, after callouts/locations, before section.
