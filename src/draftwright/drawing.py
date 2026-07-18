@@ -47,8 +47,8 @@ from draftwright._core import (
     _dim,
     _fmt,
     _log,
+    _table_metrics,
     _tag_sequence,
-    _text_width,
 )
 from draftwright.annotations._common import carve_free_position, strip_obstacles
 from draftwright.export import (
@@ -104,25 +104,11 @@ def _build_table(rows, draft, block_cols=None):
     than one run-on grid.
     """
     fs = draft.font_size
-    pad = draft.pad_around_text
-    row_h = fs + 2 * pad
     ncol = len(rows[0])
-    # Only treat as multi-block when block_cols evenly divides the row width.
-    bc = block_cols if (block_cols and ncol % block_cols == 0 and block_cols < ncol) else ncol
-    block_gap = 3 * pad  # whitespace between side-by-side blocks
-    col_w = [
-        max(max(_text_width(str(r[c]), fs) for r in rows) + 2 * pad, fs * 2.5) for c in range(ncol)
-    ]
-    # Per-column left/right edges, inserting block_gap before each new block.
-    lefts, rights, cursor = [], [], 0.0
-    for c in range(ncol):
-        if c > 0 and c % bc == 0:
-            cursor += block_gap
-        lefts.append(cursor)
-        cursor += col_w[c]
-        rights.append(cursor)
-    total_w = cursor
-    total_h = row_h * len(rows)
+    # One sizing model, shared with compose's footprint estimate (#700).
+    lefts, rights, total_w, total_h, row_h, bc = _table_metrics(
+        rows, fs, draft.pad_around_text, block_cols
+    )
     ys = [i * row_h for i in range(len(rows) + 1)]
     children = []
     for b in range(ncol // bc):  # one bordered grid per block

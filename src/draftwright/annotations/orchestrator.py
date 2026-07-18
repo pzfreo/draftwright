@@ -15,7 +15,6 @@ bore set, side-drilled locations, the hole table) + the section/PMI passes.
 
 from __future__ import annotations
 
-import math
 from types import SimpleNamespace
 
 from draftwright._core import (
@@ -28,6 +27,7 @@ from draftwright._core import (
     _iso_bbox,
     _log,
     _tag_sequence,
+    _wrap_rows,  # noqa: F401 — re-exported via the annotate facade (#700: one copy, in _core)
 )
 from draftwright.analysis import _sizing_bores
 from draftwright.annotations._common import PlacementContext, drain_corridors
@@ -73,22 +73,6 @@ from draftwright.model import (
     plan_sections,
 )
 from draftwright.repair import reconcile_witness_labels
-
-
-def _wrap_rows(header, data, ncols):
-    """Reshape *data* rows into *ncols* side-by-side blocks (a wider, shorter
-    table), each block headed by *header* — so a long hole chart fits the page.
-    """
-    per = math.ceil(len(data) / ncols)
-    blank = ("",) * len(header)
-    wide = [tuple(header) * ncols]
-    for r in range(per):
-        row: tuple = ()
-        for c in range(ncols):
-            idx = c * per + r
-            row += data[idx] if idx < len(data) else blank
-        wide.append(row)
-    return wide
 
 
 def _concentric_bore_diams(a: Analysis) -> list:

@@ -14,7 +14,8 @@ from typing import Any
 
 from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, SafeDimension
 
-from draftwright._core import _text_size
+from draftwright._core import _anno_box, _text_size  # noqa: F401 — _anno_box re-exported (#700)
+from draftwright._geometry import _boxes_overlap, _segment_crosses_box  # noqa: F401
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import _centerline_extent
@@ -56,22 +57,6 @@ class Escalation:
     feature: object
     reason: str
     remedies: tuple[str, ...] = field(default_factory=tuple)
-
-
-def _anno_box(o):
-    """Page-space bbox ``(x0, y0, x1, y1)`` of an annotation — its text
-    ``label_bbox`` if it has one, else its geometric bounding box; ``None`` if
-    neither resolves.  Twin of ``compose._anno_bbox`` (annotations sits above
-    compose in the DAG, so the mirror is deliberate — consolidation tracked by
-    #700)."""
-    lb = getattr(o, "label_bbox", None)
-    if lb is not None:
-        return lb
-    try:
-        b = o.bounding_box()
-        return (b.min.X, b.min.Y, b.max.X, b.max.Y)
-    except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
-        return None
 
 
 def _geom_box(o):
@@ -402,16 +387,12 @@ def corridor_blockers(dwg, view):
 
 
 def _box_hits(bb, boxes):
-    """True when ``bb`` overlaps any box in ``boxes`` (strict AABB test). Slightly
-    more conservative than the within-view label lint (which tolerates a 0.5 mm
-    sliver): a touch counts as a hit, so a candidate never overprints — at worst
-    it is dropped a hair early."""
-    if bb is None:
-        return False
-    for c in boxes:
-        if min(bb[2], c[2]) > max(bb[0], c[0]) and min(bb[3], c[3]) > max(bb[1], c[1]):
-            return True
-    return False
+    """True when ``bb`` overlaps any box in ``boxes`` (strict AABB test,
+    :func:`draftwright._geometry._boxes_overlap`). Slightly more conservative
+    than the within-view label lint (which tolerates a 0.5 mm sliver): a touch
+    does not count as an overlap, so a candidate never overprints — at worst it
+    is dropped a hair early."""
+    return bb is not None and any(_boxes_overlap(bb, c) for c in boxes)
 
 
 def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
@@ -427,47 +408,6 @@ def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
         and bb[3] <= page_box[3]
         and not _box_hits(bb, obstacles)
     )
-
-
-def _segment_hits_box(p1, p2, box) -> bool:
-    """True when line segment *p1*-*p2* intersects axis-aligned *box*
-    ``(x0, y0, x1, y1)`` — the precise counterpart of :func:`_box_hits` for a
-    genuinely diagonal shaft (ADR 0009 P4/#318, #305: "a diagonal leader's box
-    over-claims its empty triangle"). Boxing an angled segment for a coarse
-    reject is correct and cheap; boxing it for the final accept/reject decision
-    over-avoids free space a real diagonal never crosses. Endpoint-in-box and
-    the 4 edge-crossing cases (a standard segment/AABB test).
-
-    The crossing test uses strict inequality deliberately, not an inclusive
-    ``<= 0`` — an inclusive test also treats a segment merely COLLINEAR with
-    one of the box's (infinite) edge lines as a hit, regardless of whether it
-    is anywhere near the box along that line (verified: a vertical segment at
-    ``x == box.x0`` but far outside ``[y0, y1]`` false-hits under `<=`). That
-    false-positive class is common (any axis-aligned shaft sharing an X or Y
-    coordinate with an edge), unlike the strict form's own known gap — a
-    segment passing exactly through two opposite corners is a measure-zero
-    event for the continuous, non-integer leader positions this computes over
-    (review finding, #351 P5 strand 3: tried the inclusive form, reverted)."""
-    x0, y0, x1, y1 = box
-
-    def _inside(p):
-        return x0 <= p[0] <= x1 and y0 <= p[1] <= y1
-
-    if _inside(p1) or _inside(p2):
-        return True
-
-    def _cross(o, a, b):
-        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-
-    def _seg_seg(a1, a2, b1, b2):
-        d1, d2 = _cross(b1, b2, a1), _cross(b1, b2, a2)
-        d3, d4 = _cross(a1, a2, b1), _cross(a1, a2, b2)
-        return ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and (
-            (d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)
-        )
-
-    corners = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
-    return any(_seg_seg(p1, p2, corners[i], corners[(i + 1) % 4]) for i in range(4))
 
 
 @dataclass

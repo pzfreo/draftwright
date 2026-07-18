@@ -15,6 +15,8 @@ import re
 
 from build123d import GeomType
 
+from draftwright._core import _shape_box2d
+from draftwright._geometry import _boxes_overlap, _segment_clips_box
 from draftwright.linting.issues import LintIssue
 
 _log = logging.getLogger(__name__)
@@ -27,10 +29,10 @@ _DRAWING_PAGE = None
 def _seg_intersects_rect(p, q, rect) -> bool:
     """True if segment p→q intersects the (min_x, min_y, max_x, max_y) rect.
 
-    Thin wrapper over :func:`_seg_hits_box` (the same Liang–Barsky clip) with no
-    padding, kept for call-site readability.
+    Thin wrapper over :func:`draftwright._geometry._segment_clips_box` (the
+    Liang–Barsky clip) with no padding, kept for call-site readability.
     """
-    return bool(_seg_hits_box(p, q, rect, pad=0.0))
+    return bool(_segment_clips_box(p, q, rect, pad=0.0))
 
 
 def _loc_token(item):
@@ -387,22 +389,6 @@ def lint_drawing(
     return issues
 
 
-def _bbox2d(shape):
-    """Return (minx, miny, maxx, maxy) for a build123d shape, or None on failure."""
-    try:
-        bb = shape.bounding_box()
-        return bb.min.X, bb.min.Y, bb.max.X, bb.max.Y
-    except Exception:
-        return None
-
-
-def _bboxes_overlap_2d(a, b) -> bool:
-    """True if two (minx, miny, maxx, maxy) rectangles overlap in XY."""
-    ax0, ay0, ax1, ay1 = a
-    bx0, by0, bx1, by1 = b
-    return bool(ax0 < bx1 and ax1 > bx0 and ay0 < by1 and ay1 > by0)
-
-
 def _overshoots(bb, bounds) -> list[str]:
     """Sides where (min_x, min_y, max_x, max_y) *bb* spills past *bounds*, as text."""
     bx0, by0, bx1, by1 = bounds
@@ -430,7 +416,7 @@ def _edges_intersect_rect(edge_entries, rect) -> bool:
         try:
             if eb is None:
                 return True  # unanalysable edge — count as a hit
-            if not _bboxes_overlap_2d(eb, rect):
+            if not _boxes_overlap(eb, rect):
                 continue
             if e.geom_type == GeomType.LINE:
                 s, t = e.start_point(), e.end_point()
@@ -461,7 +447,7 @@ def _view_edge_entries(vs, cache):
     if hit is not None and hit[0] is vs:
         return hit[1]
     try:
-        entries: list | None = [(e, _bbox2d(e)) for e in vs.edges()]
+        entries: list | None = [(e, _shape_box2d(e)) for e in vs.edges()]
     except Exception:
         entries = None
     cache[key] = (vs, entries)
@@ -510,7 +496,7 @@ def _lint_view_shapes(
             ab = label_box if label_box is not None else _ann_box(ann, ann_cache)
             if ab is None:
                 continue
-            if not _bboxes_overlap_2d(vbb, ab):
+            if not _boxes_overlap(vbb, ab):
                 continue
             albl = getattr(ann, "label", None) or getattr(ann, "name", None) or type(ann).__name__
             what = "label of annotation" if label_box is not None else "annotation"
@@ -544,7 +530,7 @@ def _lint_view_shapes(
         ax0, ay0, ax1, ay1 = abb
         for bname, bbb, _ in named_views[i + 1 :]:
             bx0, by0, bx1, by1 = bbb
-            if _bboxes_overlap_2d(abb, bbb):
+            if _boxes_overlap(abb, bbb):
                 issues.append(
                     LintIssue(
                         severity="warning",
@@ -715,26 +701,3 @@ def _lint_leader(item, issues, box_cache=None) -> None:
                 code="leader_line_through_text",
             )
         )
-
-
-def _seg_hits_box(p, q, box, pad=0.2):
-    """Liang–Barsky: does segment p->q intersect the padded AABB box?"""
-    minx, miny, maxx, maxy = box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad
-    x0, y0 = p
-    dx, dy = q[0] - x0, q[1] - y0
-    t0, t1 = 0.0, 1.0
-    for pp, qq in ((-dx, x0 - minx), (dx, maxx - x0), (-dy, y0 - miny), (dy, maxy - y0)):
-        if abs(pp) < 1e-12:
-            if qq < 0:
-                return False
-        else:
-            r = qq / pp
-            if pp < 0:
-                if r > t1:
-                    return False
-                t0 = max(t0, r)
-            else:
-                if r < t0:
-                    return False
-                t1 = min(t1, r)
-    return t0 <= t1
