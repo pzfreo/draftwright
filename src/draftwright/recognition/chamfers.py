@@ -129,13 +129,14 @@ def recognise_chamfers(part, *, tol: float = 0.5, max_leg_frac: float = 0.45) ->
         fw = f.wrapped
         # The shared single-face read (classification thresholds + legs = the face's OWN
         # in-plane bbox extents, not measured against a possibly distant outermost wall).
+        # (The old extra skew gate on the in-plane normal components was unreachable — a
+        # unit normal with two components < 0.05 forces the third > 0.99, which "aligned"
+        # already rejects — so it was dropped when the thresholds moved, #704 review.)
         try:
-            edge_i, nv, span, leg_hi, leg_lo = classify_bevel(f)
+            edge_i, _nv, span, leg_hi, leg_lo = classify_bevel(f)
         except BevelReject:
             continue
         oi = [j for j in (0, 1, 2) if j != edge_i]
-        if abs(nv[oi[0]]) < 0.05 or abs(nv[oi[1]]) < 0.05:
-            continue
         fc = {i: 0.5 * (span[i][0] + span[i][1]) for i in (0, 1, 2)}  # face centre
         if leg_lo < tol:
             continue

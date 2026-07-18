@@ -18,6 +18,15 @@
   `Sheet.dimension()`, extracted so `build_drawing(model=…)` callers can author
   a pre-measured drafting dimension without the `Sheet` façade.
 
+### Fixed
+
+- **`model.chamfer(face=…)` rejects a non-planar face** (#704): the declared
+  front-end silently accepted a curved face (`normal_at()` does not fail on
+  one) and read garbage legs off it — e.g. a fillet or countersink face became
+  a bogus `ChamferFeature`. It now raises the documented `ValueError`, using
+  the recogniser's own planarity gate (`classify_bevel`), so declared and
+  detected chamfers classify identically by construction.
+
 ### Removed
 
 - **Three orphaned root exports** (#704): `draftwright.recognise_face_levels`

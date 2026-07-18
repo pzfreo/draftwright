@@ -48,7 +48,11 @@ draftwright.model.ir import HoleFeature``.
 
 ``analyse_cylinders`` / ``full_cylinders`` / ``feature_diameters`` are **not** recognisers
 under this contract — they are cylinder-analysis *substrate* (a tuple of dicts / a diameter
-query), and deliberately keep their names.
+query), and deliberately keep their names. Likewise the **shared single-face reads**
+(``classify_bevel``/``BevelReject``, ``fillet_anchor``, ``cone_rims``,
+``floor_face_anchor``, ``step_level_zs``, #704): helpers shared with the declared
+front-end (``model/declare``), not recognisers — they traffic in build123d/OCP objects,
+so a future ADR 0013 Phase-2 package extraction would keep them internal, not surface.
 """
 
 from __future__ import annotations
