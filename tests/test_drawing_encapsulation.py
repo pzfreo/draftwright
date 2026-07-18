@@ -44,8 +44,10 @@ def _anno_sources() -> list[Path]:
 
 
 def _is_dwg(node: ast.AST) -> bool:
-    """Whether *node* is the bare ``dwg`` name (the duck-typed drawing)."""
-    return isinstance(node, ast.Name) and node.id == "dwg"
+    """Whether *node* is a bare conventional drawing-receiver name (``dwg``, or
+    ``drawing`` since the #699 slice-d whole-engine guard — a rename must not be
+    the evasion; see _DRAWING_RECEIVER_NAMES)."""
+    return isinstance(node, ast.Name) and node.id in _DRAWING_RECEIVER_NAMES
 
 
 def _dwg_private_writes(tree: ast.Module) -> list[tuple[int, str]]:
@@ -158,11 +160,16 @@ def test_write_guard_catches_every_mutation_form():
         'dwg._coords["iso"] = v',  # subscript mutation through a private (#699 slice d)
         'del dwg._coords["iso"]',
         'dwg._coords["iso"] += v',
+        "drawing._part_model = m",  # the rename evasion (#699 slice d, Codex review)
     ):
         writes = _dwg_private_writes(ast.parse(snippet))
         assert writes, f"guard missed a mutation form: {snippet!r}"
     # A pure read must NOT register as a write (else every read is a false positive).
     assert not _dwg_private_writes(ast.parse("use(dwg._named)"))
+    # The aliasing evasion is caught as the alias itself (#699 slice d, Codex review):
+    assert _drawing_aliases(ast.parse("d = dwg"))
+    assert _drawing_aliases(ast.parse("if (d := drawing): pass"))
+    assert not _drawing_aliases(ast.parse("d = other"))  # unrelated binds don't flag
 
 
 def test_no_build_context_probing():
@@ -210,9 +217,11 @@ def test_private_reads_are_a_documented_shrinking_allowlist():
 
 
 # The whole-engine guard's sanctioned exceptions (#699 slice d). Keys are file names
-# under src/draftwright/ (drawing.py itself — the owner — is exempt from the scan);
-# values are the private names that file may READ or WRITE on the duck-typed ``dwg``,
-# each with a rationale. May only shrink, like _DWG_PRIVATE_READ_ALLOW.
+# under src/draftwright/, keyed by _SRC-RELATIVE posix path (not basename — a future
+# nested builder.py must not inherit the root builder's exemption, Codex review);
+# drawing.py itself — the owner — is exempt from the scan. Values are the private
+# names that file may READ or WRITE on the duck-typed ``dwg``, each with a
+# rationale. May only shrink, like _DWG_PRIVATE_READ_ALLOW.
 _ENGINE_DWG_PRIVATE_ALLOW: dict[str, frozenset[str]] = {
     # builder._assemble is THE sanctioned build-state fill site (#639): it fills
     # dwg._build.analysis/part_model (a _build READ + field store, pinned exactly by
@@ -221,25 +230,61 @@ _ENGINE_DWG_PRIVATE_ALLOW: dict[str, frozenset[str]] = {
     "builder.py": frozenset({"_build", "_model_declared"}),
 }
 
+# The drawing-receiver naming convention the engine guard matches. The scan is
+# receiver-NAME based (static analysis cannot type a duck-typed parameter), so its
+# guarantee is exactly: no engine module touches ``<receiver>._<name>`` under these
+# conventional names, and no module REBINDS one of them (the aliasing check below
+# fail-closes the ``d = dwg; d._x`` evasion by flagging the alias itself). A
+# drawing passed in under a novel parameter name remains out of static reach —
+# review's job, as the annotations guard has always noted (Codex review, #699 d).
+_DRAWING_RECEIVER_NAMES = ("dwg", "drawing")
+
+
+def _drawing_aliases(tree: ast.Module) -> list[tuple[int, str]]:
+    """Every simple rebinding of a conventional drawing receiver —
+    ``x = dwg`` / ``x = drawing`` (plain or walrus) — as ``(lineno, alias)``.
+    Flagged wholesale in the engine guard: aliasing is the cheap evasion of a
+    receiver-name scan, so the alias itself is the offence."""
+    out: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        value = getattr(node, "value", None)
+        if (
+            isinstance(node, (ast.Assign, ast.NamedExpr))
+            and isinstance(value, ast.Name)
+            and value.id in _DRAWING_RECEIVER_NAMES
+        ):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for t in targets:
+                if isinstance(t, ast.Name):
+                    out.append((node.lineno, t.id))
+    return out
+
 
 def test_no_engine_module_touches_drawing_privates():
-    """#699 slice d: the state-bus guard, widened from ``annotations/`` to the WHOLE
+    """#699 slice d: the state-bus guard, widened from ``annotations/`` to the whole
     engine. No module under src/draftwright/ except ``drawing.py`` (the owner) may
-    read or mutate ``dwg._<name>`` privates on the duck-typed drawing — the audit
-    found the coupling class regrowing exactly where the #639 ratchet didn't police
-    (_core's link-rect expando, projection's ``_coords["iso"]`` poke, repair's
-    ``_registry`` reads). Fail-closed with a rationale-carrying allowlist."""
+    read or mutate ``dwg._<name>``/``drawing._<name>`` privates on the duck-typed
+    drawing — the audit found the coupling class regrowing exactly where the #639
+    ratchet didn't police (_core's link-rect expando, projection's
+    ``_coords["iso"]`` poke, repair's ``_registry`` reads). Fail-closed with a
+    rationale-carrying allowlist; rebinding a receiver name (``d = dwg``) is
+    itself an offence, so the scan can't be evaded by a one-line alias. The
+    residual static limit — a drawing arriving under a novel parameter name — is
+    documented at _DRAWING_RECEIVER_NAMES."""
     offenders: list[str] = []
     for path in sorted(_SRC.rglob("*.py")):
         if "__pycache__" in path.parts or path.name == "drawing.py":
             continue
-        allow = _ENGINE_DWG_PRIVATE_ALLOW.get(path.name, frozenset())
+        rel = path.relative_to(_SRC).as_posix()
+        allow = _ENGINE_DWG_PRIVATE_ALLOW.get(rel, frozenset())
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for lineno, attr in _dwg_private_writes(tree):
             if attr not in allow:
-                offenders.append(f"{path.relative_to(_SRC)}:{lineno}: dwg.{attr} mutated")
+                offenders.append(f"{rel}:{lineno}: dwg.{attr} mutated")
         for attr in sorted(_dwg_private_reads(tree) - allow):
-            offenders.append(f"{path.relative_to(_SRC)}: dwg.{attr} read")
+            offenders.append(f"{rel}: dwg.{attr} read")
+        for lineno, alias in _drawing_aliases(tree):
+            offenders.append(f"{rel}:{lineno}: drawing receiver rebound to {alias!r}")
     assert not offenders, (
         "Engine modules must not touch Drawing privates — the drawing is not the state "
         "bus (#699 slice d / ADR 0005 §2). Use the public surface (registry, "
