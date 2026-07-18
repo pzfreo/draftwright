@@ -1,6 +1,12 @@
 # ADR 0008 — The part-drawing compiler: a Feature/DimParameter IR and a dimensioning planner
 
-- **Status:** Accepted — **migration complete; one path** (2026-06-30). The
+- **Status:** **Superseded by [ADR 0015](0015-part-drawing-compiler-as-built.md)**
+  (2026-07-18, #697). After 8 amendments — two of which existed only as status
+  bullets, and a "Current decision" section predating the last of them — 0015
+  restates the compiler shape as-built in one clean pass (including the honest
+  planner-coverage split, #698). This file is **frozen** as the historical
+  why-trail — do not amend it further; changes go to 0015.
+- **Original status:** Accepted — **migration complete; one path** (2026-06-30). The
   correctness-judged strangler converged on ONE feature→dimension path (Amendment 3),
   which *feeds* the engine's shared layout/table/section/projection/export
   infrastructure rather than reabsorbing it (Amendment 4), **through an IR-typed

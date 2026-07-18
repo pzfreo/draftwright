@@ -1,7 +1,12 @@
 # ADR 0009 — Boundary labeling: collect-then-solve per-strip annotation placement
 
-- **Status:** Accepted (2026-06-30)
+- **Status:** **Superseded by [ADR 0014](0014-collect-then-solve-annotation-placement.md)**
+  (2026-07-18, #697). After 9 amendments + 2 dated notes this record's instructed
+  reading path (header first) yielded stale state; 0014 restates the current
+  collect-then-solve decision in one clean pass. This file is **frozen** as the
+  historical why-trail — do not amend it further; changes go to 0014.
 - **Deciders:** Paul Fremantle (pzfreo)
+- **Originally accepted:** 2026-06-30
 
 ## Current decision (as amended, 2026-07-18)
 
