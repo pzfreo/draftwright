@@ -128,10 +128,13 @@ def reconcile_witness_labels(dwg) -> int:
         return segs
 
     pad = 1.0  # keep-clear each side of a crossing stroke
+    pinned_ids = dwg._registry.pinned_object_ids()  # a pin is deliberate — never moved (#693 r1)
     dims = [
         (name, o)
         for name, o in dwg.iter_annotations()
-        if getattr(o, "_dw_spec", None) is not None and getattr(o, "label_bbox", None) is not None
+        if getattr(o, "_dw_spec", None) is not None
+        and getattr(o, "label_bbox", None) is not None
+        and id(o) not in pinned_ids
     ]
     shifted = 0
     for name, dim in dims:
@@ -143,29 +146,31 @@ def reconcile_witness_labels(dwg) -> int:
         span_lo, span_hi = sorted((s.p1[ax], s.p2[ax]))
         mid = (lb[ax] + lb[ax + 2]) / 2.0
         half = (lb[ax + 2] - lb[ax]) / 2.0
+        # Threats = EVERY axis-aligned transverse stroke whose fixed-axis extent
+        # reaches the label's band, across the WHOLE span — not just those crossing
+        # the label's current position (#693 r1: a shift must not land ON another
+        # witness further along the line). Diagonal strokes (leader shafts) are
+        # skipped: a single travel coordinate does not describe them, and moving a
+        # label off an AABB-midpoint guess produced false positives; they were
+        # never this pass's target class.
+        oth = 1 - ax
         threats = []
         for other, oo in dwg.iter_annotations():
             if other == name:
                 continue
             for seg in getattr(oo, "segments", None) or ():
                 (x0, y0), (x1, y1) = seg
-                sdx, sdy = x1 - x0, y1 - y0
-                # transverse to the label line only (parallel = stacked shafts, exempt)
-                if (abs(sdy) > abs(sdx)) == vertical:
+                sdx, sdy = abs(x1 - x0), abs(y1 - y0)
+                if min(sdx, sdy) > 0.1:  # diagonal — skip (see above)
                     continue
+                if (sdy > sdx) == vertical:
+                    continue  # parallel = stacked shafts, exempt
                 sb = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
-                # A drawn stroke is a zero-thickness line: crossing = its constant
-                # coordinate strictly inside the label band on the label's travel
-                # axis, plus real overlap on the other axis (>0.5 mm, the lint
-                # threshold). An AABB two-axis test can never fire on a line box.
-                oth = 1 - ax
-                t = (sb[ax] + sb[ax + 2]) / 2.0
-                if (
-                    lb[ax] + 0.3 < t < lb[ax + 2] - 0.3
-                    and min(sb[oth + 2], lb[oth + 2]) - max(sb[oth], lb[oth]) > 0.5
-                ):
-                    threats.append(t)
-        if not threats:
+                if min(sb[oth + 2], lb[oth + 2]) - max(sb[oth], lb[oth]) > 0.5:
+                    threats.append((sb[ax] + sb[ax + 2]) / 2.0)
+        # Shift only a label that is CURRENTLY crossed; but block every threat as a
+        # destination, so the chosen spot cannot trade one crossing for another.
+        if not any(lb[ax] + 0.3 < t < lb[ax + 2] - 0.3 for t in threats):
             continue
         segs = _free_segments(
             span_lo, span_hi, [(t - pad - half, t + pad + half) for t in threats]
