@@ -109,12 +109,14 @@ def main(
         None, help="Page-size override: A4..A0 or WIDTHxHEIGHT in mm, e.g. 420x297 (default: auto)"
     ),
     script: bool = typer.Option(
-        False, "--script", help="Write an editable .py drawing script instead of SVG+DXF"
+        False,
+        "--script",
+        help="Write an editable .py drawing script instead of the rendered drawing",
     ),
     style: str = typer.Option(
         "sheet",
         "--style",
-        help="--script flavour: 'sheet' (declarative Sheet DSL - one line per feature, "
+        help="--script flavour: 'sheet' (declarative Sheet script - one line per feature, "
         "default) or 'imperative' (edit-verb reconstruction)",
     ),
     pmi: PmiMode = typer.Option(
@@ -162,7 +164,7 @@ def main(
         if style == "sheet":
             from draftwright.sheet_emit import generate_sheet_script, resolve_object_spec
 
-            # The Sheet DSL now carries the title-block / layout aspects (#474), so forward all
+            # The Sheet script now carries the title-block / layout aspects (#474), so forward all
             # four flags — the generated script reproduces them on re-run (no more inert warning).
             if _looks_like_object_spec(step_file):
                 # STEP_FILE is a `module:attr` / `file.py:attr` spec → reference a live object

@@ -3,7 +3,7 @@
 The fluent ``Sheet`` facade was never a DSL (ADR 0001 decided against one), and
 the module name collided with the ADR 0004 layout engine (now ``compose.py``).
 Import from :mod:`draftwright.sheet` — or just ``from draftwright import Sheet``.
-This frozen alias will be removed in a future release.
+This frozen alias will be removed in 0.4.0.
 """
 
 import warnings

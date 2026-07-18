@@ -815,8 +815,10 @@ class Sheet:
                 used.add(name)
         return dwg
 
-    def export(self, stem=None):
-        """Build and export the drawing (SVG + DXF). *stem* defaults to the drawing
-        number, lower-cased."""
+    def export(self, stem=None, *, formats=("pdf",), dpi=150):
+        """Build the drawing and write the requested *formats* — a format name or an
+        iterable from ``("svg", "dxf", "pdf", "png")``, default PDF (matching the
+        CLI); return ``{format: path}``. *dpi* sets the PNG raster resolution.
+        *stem* defaults to the drawing number, lower-cased."""
         stem = stem or self._opts["out"] or self._opts["number"].lower()
-        return self.build().export(stem)
+        return self.build().export(stem, formats=formats, dpi=dpi)

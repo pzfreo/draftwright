@@ -541,7 +541,7 @@ class TestGenerate:
         stem = tmp_path / "gen"
         py = generate_sheet_script(str(step), out=str(stem))
         exec(compile(open(py, encoding="utf-8").read(), py, "exec"), {})
-        assert (tmp_path / "gen.svg").exists()
+        assert (tmp_path / "gen.pdf").exists()  # #702: Sheet.export defaults to PDF
 
     def test_title_from_basename_not_the_out_path(self, tmp_path):
         step = tmp_path / "widget.step"
@@ -904,7 +904,7 @@ class TestCli:
         assert r.exit_code == 0, r.output
         py = tmp_path / "g.py"
         exec(compile(open(py, encoding="utf-8").read(), str(py), "exec"), {})
-        assert (tmp_path / "g.svg").exists()
+        assert (tmp_path / "g.pdf").exists()  # #702: Sheet.export defaults to PDF
 
 
 def _annotation_signature(dwg):
