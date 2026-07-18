@@ -440,6 +440,25 @@ class TestLintSelfSilencing:
         assert caplog.text.count("unreadable label_bbox") == 1
         assert isinstance(issues, list)  # lint completed; the bad item was skipped
 
+    def test_raising_label_bbox_warns_once_per_run_not_per_process(self, caplog):
+        # The warning memo is run-local (Codex sweep review): a second lint of the
+        # same bad item warns again — no process-global set to suppress it (or to
+        # mis-suppress an unrelated later object that reused a freed id).
+        import logging
+
+        class BadLabelBbox:
+            elbow = (1.0, 1.0)
+
+            @property
+            def label_bbox(self):
+                raise RuntimeError("boom")
+
+        item = BadLabelBbox()
+        with caplog.at_level(logging.WARNING, logger="draftwright.linting.structural"):
+            lint_drawing([item])
+            lint_drawing([item])
+        assert caplog.text.count("unreadable label_bbox") == 2
+
     def test_broken_elbow_is_logged_not_swallowed(self, caplog):
         import logging
 

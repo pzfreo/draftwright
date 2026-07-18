@@ -113,24 +113,26 @@ def _item_label(item) -> str:
     return getattr(item, "label", "") or getattr(item, "_annotate_label", "") or ""
 
 
-# Items whose raising label_bbox was already warned about — several checks read the
-# same item's label_bbox (per centreline pair, per view), so an unmemoised warning
-# would flood the log O(n²) on one bad item (#711 review).
-_warned_label_bbox: set[int] = set()
-
-
-def _label_bbox(item):
+def _label_bbox(item, warned=None):
     """``item.label_bbox`` or ``None`` — a raising property on a user-supplied
     duck-typed item cannot kill lint; it is logged (once per item), not swallowed
     (#701: a check that silently skips an item can silently disable itself).
+    *warned* is the per-``lint_drawing``-run set of already-warned item ids —
+    several checks read the same item's label_bbox (per centreline pair, per
+    view), so an unmemoised warning would flood the log O(n²) on one bad item
+    (#711 review). Run-local, not module-global (Codex sweep review): ids are
+    only meaningful while the run holds the items alive, and a shared global
+    would cross-talk between overlapping runs. ``None`` (a direct helper call)
+    just warns every time.
     Known hole: a property that raises ``AttributeError`` *internally* is
     indistinguishable from an absent attribute through ``getattr`` and reads as a
     silent ``None``."""
     try:
         return getattr(item, "label_bbox", None)
     except Exception as exc:  # noqa: BLE001 — duck-typed items may misbehave
-        if id(item) not in _warned_label_bbox:
-            _warned_label_bbox.add(id(item))
+        if warned is None or id(item) not in warned:
+            if warned is not None:
+                warned.add(id(item))
             _log.warning(
                 "lint: unreadable label_bbox on %s (%s); item skipped", type(item).__name__, exc
             )
@@ -247,6 +249,9 @@ def lint_drawing(
 
     issues: list[LintIssue] = []
     box_cache = {} if ann_box_cache is None else ann_box_cache
+    # Per-run label_bbox warning memo (#711 review / Codex sweep): threaded to every
+    # check so one bad item warns once per lint run, with no cross-run global state.
+    warned_label_bbox: set[int] = set()
 
     # Resolve page bounds: explicit arg beats module-level context.
     if page_bbox is None and _DRAWING_PAGE is not None:
@@ -255,7 +260,7 @@ def lint_drawing(
 
     for item in items:
         if getattr(item, "elbow", None) is not None:
-            _lint_leader(item, issues, box_cache)
+            _lint_leader(item, issues, box_cache, warned=warned_label_bbox)
         elif getattr(item, "measured_length", None) is not None:
             _lint_dim(item, part_bbox, issues, drawing_scale, box_cache)
 
@@ -266,7 +271,7 @@ def lint_drawing(
     # result is identical. Centre lines are compared via _centerline_extent, not
     # this box, so they don't need one.
     def _label_box(item):
-        lb = _label_bbox(item)
+        lb = _label_bbox(item, warned_label_bbox)
         if lb is not None:
             return lb
         return _ann_box(item, box_cache)
@@ -293,7 +298,9 @@ def lint_drawing(
             if is_cl_a or is_cl_b:
                 dim_item = item_b if is_cl_a else item_a
                 cl_item = item_a if is_cl_a else item_b
-                _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache)
+                _lint_centerline_dim_overlap(
+                    dim_item, cl_item, issues, box_cache, warned=warned_label_bbox
+                )
                 continue
 
             # Compare label text extents, NOT full bounding boxes.
@@ -350,6 +357,7 @@ def lint_drawing(
             page_bbox=page_bbox,
             edge_cache=view_edge_cache,
             box_cache=box_cache,
+            warned=warned_label_bbox,
         )
 
     # Principal envelope completeness check: verify each bbox extent appears
@@ -455,7 +463,7 @@ def _view_edge_entries(vs, cache):
 
 
 def _lint_view_shapes(
-    view_shapes, ann_items, issues, page_bbox=None, edge_cache=None, box_cache=None
+    view_shapes, ann_items, issues, page_bbox=None, edge_cache=None, box_cache=None, warned=None
 ) -> None:
     """Check views against annotations (#159/#76), each other (#160), and the page (#75)."""
     # Build named bbox list; use the shape's id as fallback name.
@@ -492,7 +500,7 @@ def _lint_view_shapes(
                 continue  # hatching is intentionally inside the section view
             # #701: unguarded — _label_bbox/_ann_box/_view_edge_entries absorb the
             # fragile reads; a bug in the check itself must fail loudly.
-            label_box = _label_bbox(ann)
+            label_box = _label_bbox(ann, warned)
             ab = label_box if label_box is not None else _ann_box(ann, ann_cache)
             if ab is None:
                 continue
@@ -561,7 +569,7 @@ def _lint_view_shapes(
                 )
 
 
-def _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache=None) -> None:
+def _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache=None, warned=None) -> None:
     """Flag label-vs-centerline overlap for a (dim, centerline) pair.
 
     #701: only the centreline measure is guarded (malformed ``segments`` /
@@ -577,7 +585,7 @@ def _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache=None) -> N
         _log.debug("lint: centreline did not measure (%s); overlap check skips it", exc)
         return
 
-    label_bbox = _label_bbox(dim_item)
+    label_bbox = _label_bbox(dim_item, warned)
     if label_bbox is None:
         label_bbox = _ann_box(dim_item, box_cache)
     if label_bbox is None:
@@ -670,10 +678,10 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
             )
 
 
-def _lint_leader(item, issues, box_cache=None) -> None:
+def _lint_leader(item, issues, box_cache=None, warned=None) -> None:
     # #701: was a whole-body `except Exception: pass` — an internal bug silently
     # disabled the check forever. Only the duck-typed reads are guarded now.
-    box = _label_bbox(item)
+    box = _label_bbox(item, warned)
     if box is None:
         box = _ann_box(item, box_cache if box_cache is not None else {})
     if box is None:
