@@ -47,7 +47,6 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         ("from_model", "_bore_half_span"),
         ("from_model", "_diameter_column_left"),
         ("from_model", "_renderable_pmi_records"),
-        ("from_model", "_envelope_tier"),
         ("holes", "_legible_locations"),
         # Pass-level helpers exercised directly (candidates to retarget onto the ctx seam later).
         ("from_model", "_draw_step_chain"),

@@ -61,21 +61,9 @@ from draftwright.projection import (
     _project_iso,
 )
 
-_TB_W = 150.0
-# Minimum acceptable projected view dimension (page-mm).  Below this, annotation
-# geometry (leader wires, centre marks, bore callout elbows) can degenerate and
-# cause OCCT Standard_DomainError / SIGABRT (#129).
-
-
-# ---------------------------------------------------------------------------
-# SVG post-processing
-# ---------------------------------------------------------------------------
-
-
-# Equidistance tolerance (page-mm) for accepting a sampled silhouette spline as
-# a circle about a known projected axis.  Loose enough to swallow HLR's spline
-# approximation error, tight enough not to round a genuinely off-axis curve.
-
+# A view centre must move by more than this (mm) for the measure-and-repack
+# pass to re-assemble.  Below it, the estimate already matched the measured
+# footprint and pass 1 stands (the common, non-ballooned case).
 _REPACK_TOL = 0.75
 _REPACK_MAX_ITER = 3
 

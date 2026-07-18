@@ -10,10 +10,8 @@ import draftwright.layout as L
 from draftwright.layout import (
     _ANCHOR_WEIGHT,
     _greedy_strip_1d,
-    _greedy_strip_1d_var,
     _solve_strip_1d,
     _solve_strip_1d_pava,
-    _solve_strip_1d_var,
     fit_box,
 )
 
@@ -64,37 +62,6 @@ class TestGreedyStrip1d:
         assert out == [0, 8]
 
 
-class TestPerPairGaps:
-    """#81: per-pair gaps in the 1D primitive (heterogeneous slot depths)."""
-
-    def test_var_honours_each_pair_gap(self):
-        # All naturals at 0; gaps [4, 10] → packs to 0, 4, 14.
-        out = _solve_strip_1d_var([0.0, 0.0, 0.0], [4.0, 10.0], 0.0, 100.0)
-        assert out is not None
-        assert out[1] - out[0] >= 4.0 - 1e-9
-        assert out[2] - out[1] >= 10.0 - 1e-9
-
-    def test_var_matches_scalar_for_uniform_gaps(self):
-        # The uniform special case must reproduce the scalar primitive exactly.
-        naturals = [1.0, 1.0, 1.0, 1.0]
-        var = _solve_strip_1d_var(naturals, [3.0, 3.0, 3.0], 0.0, 100.0)
-        scalar = _solve_strip_1d(naturals, 3.0, 0.0, 100.0)
-        assert var == scalar
-
-    def test_var_infeasible_when_gaps_exceed_span(self):
-        # sum(gaps) = 14 > span 10 → None.
-        assert _solve_strip_1d_var([0.0, 0.0, 0.0], [4.0, 10.0], 0.0, 10.0) is None
-
-    def test_var_empty_and_single(self):
-        assert _solve_strip_1d_var([], [], 0.0, 10.0) == []
-        assert _solve_strip_1d_var([5.0], [], 0.0, 10.0) == [5.0]
-
-    def test_greedy_var_prefix_drops_overflow(self):
-        # gaps [4, 4]; span 6 fits only the first two → prefix stops before #3.
-        out = _greedy_strip_1d_var([0.0, 0.0, 0.0], [4.0, 4.0], 0.0, 6.0, prefix=True)
-        assert out == [0.0, 4.0]
-
-
 class TestSolveStrip1dPava:
     """P4b (#318, ADR 0009 Amendment 4): minimum-total-leader-length placement via
     weighted-median PAVA — the exact L1 optimum the earlier ``scipy.optimize.linprog``
@@ -113,7 +80,7 @@ class TestSolveStrip1dPava:
 
     def test_infeasible_returns_none(self):
         # sum(gaps) = 14 > span 10 → None, same provably-infeasible contract
-        # as _solve_strip_1d_var.
+        # as _solve_strip_1d.
         assert _solve_strip_1d_pava([0.0, 0.0, 0.0], [4.0, 10.0], 0.0, 10.0) is None
 
     def test_honours_bounds_and_gaps(self):

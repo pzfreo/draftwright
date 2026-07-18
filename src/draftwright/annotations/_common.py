@@ -1,8 +1,8 @@
 """Shared annotation-placement helpers (#138 / ADR 0005, P5).
 
 Page-box geometry the passes share: an annotation's bbox (`_anno_box`), the
-set of already-placed boxes a candidate must not overprint (`_occupied_boxes`),
-and an AABB overlap test (`_box_hits`). Bottom of the annotations DAG.
+complete strip occupancy (`strip_obstacles`), and an AABB overlap test
+(`_box_hits`). Bottom of the annotations DAG.
 """
 
 from __future__ import annotations
@@ -72,21 +72,6 @@ def _anno_box(o):
         return (b.min.X, b.min.Y, b.max.X, b.max.Y)
     except Exception:  # noqa: BLE001 — not every annotation bbox-es cleanly
         return None
-
-
-def _occupied_boxes(dwg):
-    """Boxes of already-placed annotations a location dim must not overprint:
-    every label-bearing annotation (hole callouts, other dims) plus the section
-    hatch.  Bare centrelines/leaders are excluded — those legitimately cross a
-    dimension and lint does not flag them."""
-    boxes = []
-    for name, o in dwg.iter_annotations():
-        if getattr(o, "label_bbox", None) is None and name != "section_hatch":
-            continue
-        bb = _anno_box(o)
-        if bb is not None:
-            boxes.append(bb)
-    return boxes
 
 
 def _geom_box(o):
@@ -309,8 +294,8 @@ def strip_obstacles(dwg, view=None, *, crossable=()):
     consumer may legitimately overlap — e.g. a location dim crosses a centre line
     but a leader does not; see :data:`CROSSABLE_TYPES`).
 
-    Unlike :func:`_occupied_boxes` (label boxes only, with bare centrelines
-    excluded), this captures the geometry a label box hides — leader shafts and
+    Unlike the retired label-box-only ``_occupied_boxes`` (which excluded bare
+    centrelines), this captures the geometry a label box hides — leader shafts and
     arrow tips, dimension witness/extension lines, centrelines, and the section
     hatch. That hidden geometry is the 'invisible occupant' class behind the
     recurring strip overlaps (#133/#225/#305): a placer that consults only label
@@ -321,7 +306,7 @@ def strip_obstacles(dwg, view=None, *, crossable=()):
     strip placer must still avoid — and drops only the *other* ortho views' blocks
     (which compose-then-pack keeps disjoint, ADR 0004). The section hatch
     (``view_of`` ``None``) is therefore present in every per-view query, the way
-    :func:`_occupied_boxes` special-cased it; restricting it to ``view=None`` would
+    ``_occupied_boxes`` special-cased it; restricting it to ``view=None`` would
     re-open the very blind spot this closes.
 
     Boxes are AABBs ``(x0, y0, x1, y1)`` (use with :func:`_box_hits`) — intentionally

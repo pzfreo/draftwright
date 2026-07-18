@@ -124,9 +124,9 @@ def add_feature_callout(
     centre = dwg.at(view, *max(members, key=lambda m: dwg.at(view, *m)[0]))[:2]
 
     if view == "front":  # below the view (matches the auto-pass's front-callout side)
-        zones = getattr(a, "fv_zones", None) if a is not None else None
-        strip = getattr(zones, "below", None) if zones is not None else None
-        elbow_y = vy0 - max(tier, 0.6 * getattr(a, "DIM_PAD", 12.0))
+        zones = a.fv_zones if a is not None else None
+        strip = zones.below if zones is not None else None
+        elbow_y = vy0 - max(tier, 0.6 * (a.DIM_PAD if a is not None else 12.0))
         if strip is not None:
             coord = carve_free_position(
                 dwg, strip, view, "y", tier, (centre[0], centre[0] + gap + w)
@@ -138,11 +138,9 @@ def add_feature_callout(
         tside = "right" if centre[0] + gap + w <= room_right else "left"
     else:  # plan / side → to the right of the view
         zones = (
-            getattr(a, {"plan": "pv_zones", "side": "sv_zones"}[view], None)
-            if a is not None
-            else None
+            getattr(a, {"plan": "pv_zones", "side": "sv_zones"}[view]) if a is not None else None
         )
-        strip = getattr(zones, "right", None) if zones is not None else None
+        strip = zones.right if zones is not None else None
         elbow_x = vx1 + gap
         if strip is not None:
             coord = carve_free_position(
@@ -286,7 +284,7 @@ def add_feature_location(
             names.append(
                 _place(
                     "plan",
-                    getattr(a.pv_zones, "above", None),
+                    a.pv_zones.above,
                     PX(dx),
                     PX(rx),
                     PY(ry),
@@ -302,7 +300,7 @@ def add_feature_location(
             names.append(
                 _place(
                     "side",
-                    getattr(a.sv_zones, "above", None),
+                    a.sv_zones.above,
                     SX(dy),
                     SX(ry),
                     SZ(a.bb.max.Z),

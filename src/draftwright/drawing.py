@@ -87,21 +87,6 @@ from draftwright.recognition import analyse_cylinders
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
 
-_TB_W = 150.0
-# Minimum acceptable projected view dimension (page-mm).  Below this, annotation
-# geometry (leader wires, centre marks, bore callout elbows) can degenerate and
-# cause OCCT Standard_DomainError / SIGABRT (#129).
-
-
-# ---------------------------------------------------------------------------
-# SVG post-processing
-# ---------------------------------------------------------------------------
-
-
-# Equidistance tolerance (page-mm) for accepting a sampled silhouette spline as
-# a circle about a known projected axis.  Loose enough to swallow HLR's spline
-# approximation error, tight enough not to round a genuinely off-axis curve.
-
 
 def _build_table(rows, draft, block_cols=None):
     """Build a generic data-table annotation at the origin (bottom-left ``(0, 0)``).
@@ -568,25 +553,9 @@ class Drawing:
         self._coverage._dropped_callout_diams = value
 
     # -- coverage state operations (used by the annotation passes) ------------
-    def _cover_pattern(self, callout_name, holes):
-        """Record that placed *callout_name* documents *holes* (#92)."""
-        self._coverage.cover_pattern(callout_name, holes)
-
-    def _is_hole_patterned(self, hole) -> bool:
-        """Is *hole* already documented by a placed pattern callout?"""
-        return self._coverage.is_hole_patterned(hole)
-
-    def _cover_scattered_hole_doc(self, name) -> None:
-        """Record that placed *name* is a scattered hole callout / location dim (#351 PR-4c)."""
-        self._coverage.cover_scattered_hole_doc(name)
-
     def _is_scattered_hole_doc(self, name) -> bool:
         """Is *name* a placed scattered hole callout / location dim?"""
         return self._coverage.is_scattered_hole_doc(name)
-
-    def _reset_dropped_callout_diams(self):
-        """Clear dropped-diameter tracking (top of :func:`_auto_annotate`)."""
-        self._coverage.reset_dropped()
 
     def _drop_callout_diam(self, diam):
         """Record a diameter dropped by the per-view callout cap."""
@@ -1562,7 +1531,7 @@ class Drawing:
         # render_locations narrows the side-above strip's outer_limit IN PLACE on the shared
         # Analysis (from_model.py) — the one Analysis field a replay mutates. Capture + restore it
         # too, else a raised drain leaves the retry solving against a stale cap (#647 review).
-        sv_above = getattr(getattr(a, "sv_zones", None), "above", None) if a is not None else None
+        sv_above = a.sv_zones.above if a is not None else None
         sv_above_limit = sv_above.outer_limit if sv_above is not None else None
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
         try:
@@ -2155,16 +2124,6 @@ class Drawing:
         dropped feature is never silent."""
         self._registry.record_issue(LintIssue(severity=severity, code=code, message=message))
 
-    def _reset_build_issues(self):
-        """Clear build-time issues — called at the top of :func:`_auto_annotate`
-        so re-annotation does not accumulate them."""
-        self._registry.reset_issues()
-
-    def _drop_build_issues(self, *codes):
-        """Drop recorded build issues whose code is in *codes* (a fallback that
-        restored tentatively-dropped annotations un-records their drop)."""
-        self._registry.drop_issues(codes)
-
     # -- repair ---------------------------------------------------------------
     def repair(self, max_iter: int = 3):
         """Close the lint→repair loop: act on violations, don't only report them.
@@ -2497,8 +2456,3 @@ class Drawing:
         for ann in self.items:
             label = getattr(ann, "label", "") or type(ann).__name__
             _export_shape(exporter, ann, "dims", f"annotation {label!r}")
-
-
-# A view centre must move by more than this (mm) for the measure-and-repack
-# pass to re-assemble.  Below it, the estimate already matched the measured
-# footprint and pass 1 stands (the common, non-ballooned case).

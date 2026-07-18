@@ -85,49 +85,12 @@ def _solve_strip_1d(naturals, min_gap, lo, hi):
     *naturals* must be sorted ascending; each solved value is bounded to
     ``[lo, hi]`` and adjacent values are at least *min_gap* apart. Delegates to
     the deterministic minimum-total-leader-length PAVA solve
-    (:func:`_solve_strip_1d_pava`) — the uniform-gap special case of
-    :func:`_solve_strip_1d_var` — which retired the earlier Cassowary
+    (:func:`_solve_strip_1d_pava`), which retired the earlier Cassowary
     (kiwisolver) constraint-satisfaction solve (its arbitrary feasible vertex
     was replaced by the L1-optimal, dependency-free placement)."""
     if not naturals:
         return []
     return _solve_strip_1d_pava(naturals, [min_gap] * (len(naturals) - 1), lo, hi)
-
-
-def _greedy_strip_1d_var(naturals, gaps, lo, hi, *, prefix=False):
-    """Greedy 1D placement with **per-pair** gaps (ADR 0003 phase 3a, #81).
-
-    ``gaps[i]`` is the minimum ``naturals[i+1] - naturals[i]`` separation;
-    ``len(gaps) == max(len(naturals) - 1, 0)``. Otherwise identical to
-    :func:`_greedy_strip_1d` (its uniform special case is ``gaps = [g]*(n-1)``).
-    """
-    result: list = []
-    for i, nat in enumerate(naturals):
-        floor = lo if i == 0 else result[-1] + gaps[i - 1]
-        v = max(floor, nat)
-        if v > hi:
-            if prefix:
-                break
-            return None
-        result.append(v)
-    return result
-
-
-def _solve_strip_1d_var(naturals, gaps, lo, hi):
-    """1D placement with **per-pair** gaps (ADR 0003 phase 3a, #81).
-
-    Like :func:`_solve_strip_1d`, but the required separation between adjacent
-    items is ``gaps[i]`` rather than one uniform value — used when heterogeneous
-    items (e.g. a deep step-dim slot next to a shallow height slot) share one
-    strip (see :attr:`StripCandidate.size`).
-    ``len(gaps)`` must be ``max(len(naturals) - 1, 0)``.
-
-    Delegates to :func:`_solve_strip_1d_pava` — same contract (``None`` when
-    provably infeasible), but the L1-optimal, deterministic, dependency-free
-    placement that retired the Cassowary (kiwisolver) satisfaction solve."""
-    if not naturals:
-        return []
-    return _solve_strip_1d_pava(naturals, gaps, lo, hi)
 
 
 _ANCHOR_WEIGHT = 1.0e6
@@ -180,7 +143,7 @@ def _solve_strip_1d_pava(naturals, gaps, lo, hi, weights=None):
     that dwarfs the others (``_ANCHOR_WEIGHT``) makes that point win every pool
     median, pinning it at its natural position while the rest flow around it.
 
-    Same contract as :func:`_solve_strip_1d_var`: *naturals* sorted ascending,
+    Same contract as :func:`_solve_strip_1d` (per-pair gaps): *naturals* sorted ascending,
     ``len(gaps) == max(len(naturals) - 1, 0)``, and returns ``None`` (never
     raises) when the fixed set is provably infeasible — the caller's
     drop-and-retry loop depends on that.
