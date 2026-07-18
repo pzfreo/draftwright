@@ -204,7 +204,9 @@ def test_build_state_has_a_single_construction_and_fill_site():
     setter and ``attach_part_model`` route through BuildState (drawing.py). The
     three cache/model legacy attrs are GETTER-ONLY by design — a wholesale
     replacement must go through BuildState, so an accidental one fails loudly
-    rather than silently forking the single-writer story.
+    rather than silently forking the single-writer story. (Aliasing —
+    ``state = dwg._build; state.x = …`` — is out of scope here as in
+    ``_dwg_private_writes`` above: no code does it, review would catch it.)
     """
     from pathlib import Path
 
@@ -234,7 +236,17 @@ def test_build_state_has_a_single_construction_and_fill_site():
                 and len(node.args) >= 2
                 and isinstance(node.args[1], ast.Constant)
                 and isinstance(node.args[1].value, str)
-                and node.args[1].value in watched
+                and (
+                    node.args[1].value in watched
+                    # setattr(dwg._build, "analysis", …) — BuildState field names
+                    # count too when the receiver is a _build attribute (#691 r2).
+                    or (
+                        node.args[1].value
+                        in ("analysis", "part_model", "view_edge_cache", "ann_box_cache")
+                        and isinstance(node.args[0], ast.Attribute)
+                        and node.args[0].attr == "_build"
+                    )
+                )
             ):
                 hit = node.args[1].value
             if hit is not None:

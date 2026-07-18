@@ -19,14 +19,11 @@
   **Follow-up status (2026-07-15):** the `annotations/envelope.py` extraction was
   **overtaken by ADR 0008** — the envelope pass converged into
   `annotations/from_model.py` with the other IR render passes, so no standalone
-  module is planned. The §2 build-context threading remains **open**: build
-  context (`_analysis`, edge cache, part model) and per-run placement state
-  (corridor batch, escalations, detail requests) still live as private
-  attributes on `Drawing`, reached into by the annotation passes
-  (`getattr(dwg, "_analysis", None)` and ~70 other `dwg._*` accesses) — the
-  state-bus disease §2 names. Executing it (an explicit placement context
-  passed to every pass) is tracked by **#639** in the consolidation epic
-  **#635**.
+  module is planned. The §2 build-context threading is **closed**
+  (2026-07-18, #639 — see the dated amendment at the end of this file): the
+  passes take an explicit `PlacementContext` and make zero private `Drawing`
+  reads (empty fail-closed ratchet); the build context lives in one typed
+  `BuildState` filled at a single `builder._assemble` site.
 
 ## Context
 
@@ -275,3 +272,5 @@ Follows the issue (#138) sequence, with §3 added as Step 0:
   [ADR 0002](0002-iterate-via-lint-critique-and-domain-repair.md),
   [ADR 0003](0003-constraint-based-layout.md),
   [ADR 0004](0004-compose-then-pack-view-blocks.md).
+
+**Amendment (2026-07-18) — §2 closed (#639):** `Drawing` is no longer the implicit state bus. The render passes take an explicit `PlacementContext` and make **zero** private `Drawing` reads (the `_DWG_PRIVATE_READ_ALLOW` ratchet is empty and fail-closed). The build context (`Analysis`, part model, lint geometry caches) lives in one typed `BuildState` on the drawing, filled at a single `builder._assemble` site and single-writer-guarded; it serves the Drawing's own methods (lint/finalize/repair/edit verbs) and the test surface — hosting its own state was never the §2 sin, passes reaching in was.
