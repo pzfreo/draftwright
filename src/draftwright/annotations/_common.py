@@ -255,6 +255,48 @@ def clear_label_of_centerlines(label_bbox, centerlines, gap):
     return target_x - lmin_x
 
 
+def occupancy_boxes(o):
+    """*o*'s occupancy as a list of AABBs — decomposed, not one hull (#685).
+
+    An annotation's rendered hull includes large EMPTY corner regions (a dimension's
+    ink is L-shaped: witness lines + a dim-line band), and helpers ≥0.14's honest
+    tight-span rendering made those hulls big enough to collide structurally at view
+    corners while the inks stay disjoint. For an annotation exposing ``.segments``
+    (helpers ≥0.14 reports the drawn line pieces: witness lines, shafts, box
+    strokes), return one box per stroke — inflated by ``_STROKE_PAD`` to cover line
+    width plus the arrowheads at stroke junctions — plus its ``label_bbox``.
+    Anything else (leaders, hatch, title block) keeps its single hull box.
+
+    Consumers treat the result exactly like a list of hull boxes; the
+    perpendicular-band filter in the carve then does the rest — a witness sliver
+    carves only its own sliver, and an out-of-band dim-line band stops blocking a
+    sibling strip's corner entirely.
+    """
+    segs = getattr(o, "segments", None)
+    if not segs:
+        b = _geom_box(o)
+        return [b] if b is not None else []
+    out = []
+    for (x0, y0), (x1, y1) in segs:
+        out.append(
+            (
+                min(x0, x1) - _STROKE_PAD,
+                min(y0, y1) - _STROKE_PAD,
+                max(x0, x1) + _STROKE_PAD,
+                max(y0, y1) + _STROKE_PAD,
+            )
+        )
+    lb = getattr(o, "label_bbox", None)
+    if lb is not None:
+        out.append((lb[0], lb[1], lb[2], lb[3]))
+    return out
+
+
+# Stroke inflation for decomposed occupancy: line_width/2 (~0.08) plus the arrowhead
+# half-width at the stroke junctions (~1 mm at preset arrow lengths), rounded up.
+_STROKE_PAD = 1.2
+
+
 def strip_obstacles(dwg, view=None, *, crossable=()):
     """The COMPLETE occupancy for strip placement (ADR 0009): every placed
     annotation's full rendered footprint, optionally restricted to *view*, minus
@@ -292,9 +334,7 @@ def strip_obstacles(dwg, view=None, *, crossable=()):
                 continue  # owned by a different ortho view → its own (disjoint) block
         if type(o).__name__ in crossable:
             continue  # this consumer may cross it (centre lines/marks for a dim)
-        bb = _geom_box(o)
-        if bb is not None:
-            boxes.append(bb)
+        boxes.extend(occupancy_boxes(o))  # decomposed, not one hull (#685)
     return boxes
 
 
