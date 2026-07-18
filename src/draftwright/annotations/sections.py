@@ -563,7 +563,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             continue
         letter = _DETAIL_LETTERS[n_placed]
         placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
-        if not placed and req.kind == "prismatic-steps" and "dim_height" in dwg._named:
+        if not placed and req.kind == "prismatic-steps" and "dim_height" in dwg.annotations():
             # (#636) The user's explicit detail request outranks the overall-height
             # dim: pre-migration, the solver-invisible carve silently dropped
             # dim_height on exactly these crowded parts, and the detail took that
