@@ -75,6 +75,72 @@ from draftwright.model import (
 )
 from draftwright.repair import reconcile_witness_labels
 
+# ── the ONE auto-pass stage sequence (#699 slice b) ──────────────────────────
+# The canonical order of the annotation stages. `_auto_annotate` executes it, and
+# `Drawing._drain_intents` (the finalize drain) walks the SAME tuple for its routed
+# subset — so a reordering here reorders BOTH build paths, and the hand-mirrored
+# "mirroring the auto-pass" divergence class is gone by construction. Stages a path
+# does not run are simply absent from its dict ("live_replay"/"user_dims" are
+# finalize-only; most render stages are auto-only); an unknown stage key is an
+# assertion error in both consumers. Order matters through four mechanisms (see
+# the #699 slice-b analysis): immediate placers read live occupancy at call time,
+# corridor drain order follows key-creation order, some registrations read strip
+# state, and post-drain fallbacks run in registration order.
+_PASS_SEQUENCE: tuple[str, ...] = (
+    "rotational",
+    "centermarks",
+    "reserve_section",
+    "live_replay",  # finalize-only: recorded verbs replay before the routed solves
+    "hole_callouts",
+    "locations",
+    "height_ladder",
+    "plates",
+    "step_positions",
+    "chamfers",
+    "fillets",
+    "flats",
+    "pockets",
+    "off_axis_across",
+    "envelope",
+    "detail_request",
+    "boss_diameters",  # documented invariant: before "diameters" (ø then 'mentioned')
+    "diameters",
+    "step_lengths",
+    "off_axis_along",
+    "slots",
+    "user_dims",  # finalize-only: pin/priority dims queue into the shared corridor
+    "gdt",
+    "pmi",
+    "drain",
+    "grooves",
+    "section",
+    "details",
+    "title_block",
+    "tabulate",
+)
+
+
+def run_stages(stages: dict, sequence: tuple[str, ...] = _PASS_SEQUENCE) -> None:
+    """Run the *stages* a path implements in the canonical *sequence* order.
+
+    The shared executor of the one pass list (#699 slice b): both build paths hand
+    their name→thunk dict here, so neither can run a stage the sequence does not
+    name (assertion) nor in an order of its own."""
+    unknown = set(stages) - set(sequence)
+    assert not unknown, f"stages not in _PASS_SEQUENCE: {sorted(unknown)}"
+    for name in sequence:
+        fn = stages.get(name)
+        if fn is not None:
+            fn()
+
+
+def drain_and_reconcile(ctx, dwg) -> None:
+    """Solve every registered corridor once (ADR 0009 end state, #345/#346/#393),
+    then reconcile witness-crossing labels (#690) — the drain step both build
+    paths share verbatim (#699 slice b)."""
+    drain_corridors(ctx, dwg)
+    reconcile_witness_labels(dwg)
+
 
 def _concentric_bore_diams(a: Analysis) -> list:
     """Distinct bore diameters on the rotation axis, in z_diams order (#10).
