@@ -65,10 +65,14 @@ entry. Keep `_LAYERS` and this section in step.
   **`annotations/`** subpackage (#164 / ADR 0005, P5):
   - **`annotations/orchestrator.py`** — `_auto_annotate`, the single entry point
     (called by `build_drawing`); classifies the part and drives the render passes
-    + title block. End state (ADR 0008) is `build model → plan → render`; some
-    inline engine code remains — chiefly `_maybe_tabulate_holes` (the
-    hole-table/balloon escalation resolver) and the iso right-strip
-    outer-limit tightening — pending the last convergence steps.
+    + title block. Owns **`_PASS_SEQUENCE`** — the ONE canonical stage order
+    (#699 slice b): `_auto_annotate` and `Drawing._drain_intents` (the finalize
+    drain) both hand name→thunk dicts to the shared `run_stages`, so the two
+    build paths cannot diverge in sequencing (the drain step itself is the
+    shared `drain_and_reconcile`). End state (ADR 0008) is
+    `build model → plan → render`; some inline engine code remains — chiefly
+    `_maybe_tabulate_holes` (the hole-table/balloon escalation resolver) and the
+    iso right-strip outer-limit tightening — pending the last convergence steps.
   - **`annotations/from_model.py`** — the **IR render layer** (largest annotations
     module): turns the planner's `DimensionGroup`/render-intents into placed
     dimensions/callouts/centre marks/section triggers. This is where the turned,
