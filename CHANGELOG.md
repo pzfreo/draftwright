@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.3.2 — 2026-07-18
+
+The **performance release**: the #602 perf loop (six PRs) plus the
+build123d-drafting-helpers 0.14 upgrade. A dimension-dense drawing now builds
+roughly **14× faster** than v0.3.1 (grid-plate benchmark 40 s → 2.8 s; NIST
+CTC-02 ~107 s → well under half); the full test tier dropped ~14 min → ~3.5 min.
+
+### Performance
+
+- **Placement measures, then builds** (#678, #679): corridor/strip candidates are
+  evaluated on analytical footprints (`dim_footprint`) or a single probe box; an
+  accepted candidate builds its OCC geometry exactly once and re-validates the
+  real box. Dimension constructions on the scattered-plate benchmark: 59 → 21
+  (= the placed count).
+- **Detect once** (#682): the sizing model `_analyse` builds pre-scale is stored
+  on `Analysis.model` and reused as the render model — restoring ADR 0008
+  Amendment 5 ("one inventory, detected once"). ~13 s off CTC-02.
+- **Fillet recognition de-quadratised** (#683): edge→faces adjacency map replaces
+  the O(faces²×edges²) `IsSame` sweep (3.7 M calls on CTC-02); 10.8 s → 4.6 s,
+  byte-identical records.
+- **Lint bounding boxes memoised** (#681): `Drawing.lint()` 0.88 s → 0.07 s per
+  call (identity+location-token-checked cache beside the #143 view-edge cache).
+- **DXF viewport from the known page window** (#680): skips `ezdxf.zoom.extents`'
+  per-entity walk; ~2.4 s per DXF export.
+- **helpers 0.14** (#684): boolean-free dimension ink (upstream #177, filed and
+  fixed same-day) — ~25 ms per `Dimension`, was ~234 ms.
+
+### Changed
+
+- **Tight-span dimensions now render honestly** (helpers 0.14): ISO outside
+  arrows where 0.13 silently degraded to a bare line. Ink extents grow on such
+  dims; placement models the flip analytically. Two placement-golden fixtures
+  re-blessed (ink extent only).
+- Diameter-row leader labels space by **measured text width** and repair
+  helpers' shelf-flip collisions (crowded rows only; ordinary rows unchanged).
+- A plate-thickness dim whose home strip corner is structurally contested falls
+  through to the opposite strip / side view instead of dropping (#684; the
+  underlying one-box-occupancy artifact is tracked as #685).
+
+### Fixed
+
+- `recognise_fillets` neighbour tie-break is order-independent (#683 review).
+- Lint's annotation-box cache prunes departed objects and detects in-place
+  relocation (#681 review).
+
 ## v0.3.1 — 2026-07-17
 
 Also lands the **#635 consolidation epic** (P1–P6, all six children closed): the render
