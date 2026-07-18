@@ -28,6 +28,8 @@ import math
 import warnings
 
 from draftwright.model.ir import (
+    AUTHORED_DIMENSION_KINDS,
+    AuthoredDimension,
     BossFeature,
     ChamferFeature,
     ControlFrame,
@@ -258,23 +260,24 @@ def hole(
 def read_countersink(cone) -> tuple[float, float]:
     """``(major_diameter, included_angle°)`` of a countersink **cone** tool — the larger rim ⌀
     and the full cone angle, read off its conical **face** (not a removed edge, #576 lesson).
-    Mirrors :func:`recognition.recognise_countersinks`' cone geometry."""
+    The cone geometry is the recogniser's own
+    :func:`~draftwright.recognition.countersinks.cone_rims` (#704), so a declared
+    countersink reads identically to a detected one by construction."""
     from build123d import GeomType
-    from OCP.BRepAdaptor import BRepAdaptor_Surface
+
+    from draftwright.recognition import cone_rims
 
     faces = cone.faces().filter_by(GeomType.CONE)
     if not faces:
         raise ValueError("countersink(cone=...) needs a conical tool (a build123d Cone)")
-    f = faces[0]
-    circles = f.edges().filter_by(GeomType.CIRCLE)
-    if len(circles) < 2:
+    rims = cone_rims(faces[0])
+    if rims is None:
         raise ValueError(
             "countersink(cone=...) needs a flared cone with two distinct-radius rims; a "
             "single-rim drill-point cone is not a countersink"
         )
-    major = 2 * max(e.radius for e in circles)
-    semi = abs(BRepAdaptor_Surface(f.wrapped).Cone().SemiAngle())
-    return round(major, 4), round(2 * math.degrees(semi), 2)
+    _minor_e, major_e, included = rims
+    return round(2 * major_e.radius, 4), included
 
 
 def boss(obj=None, *, diameter=None, at=None, axis=None) -> BossFeature:
@@ -323,29 +326,26 @@ def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None)
 def _read_chamfer_face(face) -> tuple[str, float, float, Point]:
     """Read a chamfer off its **oblique planar bevel face**: the axis (the edge the chamfer
     runs along), the two legs (the face's in-plane extents), and a point **on the bevel** (the
-    face centre — not the removed sharp corner). The leader point agrees with the recogniser
-    (recognition/chamfers.py) in the two **in-plane** (placement) coordinates; the along-edge
-    coordinate is view depth, so it need not match exactly."""
+    face centre — not the removed sharp corner). The classification + leg geometry is the
+    recogniser's own :func:`~draftwright.recognition.chamfers.classify_bevel` (#704), so a
+    declared chamfer reads identically to a detected one by construction; only the
+    user-facing error messages live here."""
+    from draftwright.recognition import BevelReject, classify_bevel
+
     try:
-        nrm = face.normal_at()
-    except Exception:  # noqa: BLE001 — a degenerate/non-planar face has no clean normal
+        edge_i, _nv, _span, hi, lo = classify_bevel(face)
+    except BevelReject as e:
+        if e.reason == "aligned":
+            raise ValueError(
+                "chamfer(face=...) needs an OBLIQUE planar face (the bevel); an axis-aligned "
+                "face is not a chamfer — declare with axis=, leg=, at= instead"
+            ) from None
+        if e.reason == "compound":
+            raise ValueError(
+                "chamfer(face=...): the bevel must run along one principal axis; "
+                "use axis=, leg=, at="
+            ) from None
         raise ValueError("chamfer(face=...) needs an oblique planar bevel face") from None
-    nv = (nrm.X, nrm.Y, nrm.Z)
-    if max(abs(c) for c in nv) > 0.99:
-        raise ValueError(
-            "chamfer(face=...) needs an OBLIQUE planar face (the bevel); an axis-aligned "
-            "face is not a chamfer — declare with axis=, leg=, at= instead"
-        )
-    edge_i = next((i for i in range(3) if abs(nv[i]) < 0.05), None)
-    if edge_i is None:  # oblique on all three axes → a compound corner bevel
-        raise ValueError(
-            "chamfer(face=...): the bevel must run along one principal axis; use axis=, leg=, at="
-        )
-    oi = [j for j in range(3) if j != edge_i]
-    bb = face.bounding_box()
-    span = ((bb.min.X, bb.max.X), (bb.min.Y, bb.max.Y), (bb.min.Z, bb.max.Z))
-    hi = max(span[oi[0]][1] - span[oi[0]][0], span[oi[1]][1] - span[oi[1]][0])
-    lo = min(span[oi[0]][1] - span[oi[0]][0], span[oi[1]][1] - span[oi[1]][0])
     c = face.center()
     # No angle: it is always derivable from the legs, so returning it would let a leg-only
     # override leave a stale, contradicting angle (#580 review). chamfer() derives it.
@@ -415,20 +415,19 @@ def _read_fillet_face(face) -> tuple[str, float, Point]:
             "fillet(face=...): the round must run along one principal axis; use axis=, radius=, at="
         )
     edge_i = max(range(3), key=lambda i: comp[i])
-    # Anchor on the curved radius surface itself — a point at the middle of the trimmed face's
-    # angular (U) and axial (V) parameter spans — NOT the bbox centre, which sits off the round
-    # near the virtual sharp corner (#622). Evaluated exactly as recognition/fillets.py does, so
-    # a declared fillet's leader tip is identical to the detected one's.
-    u_mid = 0.5 * (s.FirstUParameter() + s.LastUParameter())
-    v_mid = 0.5 * (s.FirstVParameter() + s.LastVParameter())
-    p = s.Value(u_mid, v_mid)
+    # Anchor on the curved radius surface itself — the recogniser's own fillet_anchor
+    # (#622 lesson: never the bbox centre), so a declared fillet's leader tip is
+    # identical to the detected one's by construction (#704).
+    from draftwright.recognition import fillet_anchor
+
+    p = fillet_anchor(s)
     return (
         "xyz"[edge_i],
         round(s.Cylinder().Radius(), 3),
         (
-            round(p.X(), 4),
-            round(p.Y(), 4),
-            round(p.Z(), 4),
+            round(p[0], 4),
+            round(p[1], 4),
+            round(p[2], 4),
         ),
     )
 
@@ -509,11 +508,11 @@ def _read_groove_face(face) -> tuple[str, float, float, Point]:
     axis_i = max(range(3), key=lambda i: comp[i])
     bb = face.bounding_box()
     span = ((bb.min.X, bb.max.X), (bb.min.Y, bb.max.Y), (bb.min.Z, bb.max.Z))[axis_i]
-    c = (
-        0.5 * (bb.min.X + bb.max.X),
-        0.5 * (bb.min.Y + bb.max.Y),
-        0.5 * (bb.min.Z + bb.max.Z),
-    )
+    # The leader tip is the recogniser's own floor_face_anchor (#704), so a declared
+    # groove anchors identically to a detected one by construction.
+    from draftwright.recognition import floor_face_anchor
+
+    c = floor_face_anchor(face)
     return (
         "xyz"[axis_i],
         round(span[1] - span[0], 3),
@@ -1233,4 +1232,70 @@ def control_frame(
         diameter=bool(diameter),
         modifier=modifier,
         origin=origin,
+    )
+
+
+def _point3(name: str, p) -> Point:
+    vals = tuple(float(c) for c in p)
+    if len(vals) != 3:
+        raise ValueError(f"dimension() {name} must be a 3-tuple")
+    return (vals[0], vals[1], vals[2])
+
+
+def authored_dimension(
+    *,
+    kind: str,
+    value: float,
+    label: str,
+    dominant_axis: str,
+    ref_pts,
+    ref_bbox=None,
+    at=None,
+    axis: str | None = None,
+    upper_tol: float | None = None,
+    lower_tol: float | None = None,
+    source: str = "sheet",
+    source_kind: str | None = None,
+) -> AuthoredDimension:
+    """A pre-authored drafting dimension from explicit measured values — the IR constructor
+    behind :meth:`Sheet.dimension` (#704: extracted so ``build_drawing(model=…)`` callers can
+    author one without the façade). Validates the kind against
+    :data:`~draftwright.model.ir.AUTHORED_DIMENSION_KINDS`, needs ≥2 ``ref_pts``, and derives
+    ``at`` (the ``ref_bbox`` centre, else the ``ref_pts`` centroid) when not given."""
+    _require_positive(value=value)
+    dim_kind = str(kind).lower()
+    if dim_kind not in AUTHORED_DIMENSION_KINDS:
+        allowed = ", ".join(sorted(AUTHORED_DIMENSION_KINDS))
+        raise ValueError(f"dimension() kind must be one of: {allowed}")
+    pts = tuple(_point3("ref_pts item", p) for p in ref_pts)
+    if len(pts) < 2:
+        raise ValueError("dimension() needs at least two ref_pts")
+    bbox = None if ref_bbox is None else tuple(float(c) for c in ref_bbox)
+    if bbox is not None and len(bbox) != 6:
+        raise ValueError("dimension() ref_bbox must be a 6-tuple")
+    dom = str(dominant_axis).upper()
+    if dom not in ("X", "Y", "Z"):
+        if not (dom == "?" and dim_kind in ("diameter", "radius") and bbox is not None):
+            raise ValueError("dimension() dominant_axis must be X, Y, or Z")
+    if at is None:
+        if bbox is not None:
+            x0, y0, z0, x1, y1, z1 = bbox
+            at = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+        else:
+            n = len(pts)
+            at = tuple(sum(p[i] for p in pts) / n for i in range(3))
+    origin = _point3("at", at)
+    ax = _norm_axis(axis or (dom.lower() if dom in ("X", "Y", "Z") else "z"))
+    return AuthoredDimension(
+        frame=Frame(origin, ax),
+        dimension_kind=dim_kind,
+        value=float(value),
+        label=str(label),
+        dominant_axis=dom,
+        upper_tol=upper_tol,
+        lower_tol=lower_tol,
+        ref_bbox=bbox,
+        ref_pts=pts,
+        source=source,
+        source_kind=source_kind or dim_kind,
     )

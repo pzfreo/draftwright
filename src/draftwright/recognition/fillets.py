@@ -56,6 +56,19 @@ class Fillet(Record):
     at: tuple[float, float, float]
 
 
+def fillet_anchor(s) -> tuple[float, float, float]:
+    """A leader-tip point **on** the trimmed cylindrical blend face *s* (a
+    ``BRepAdaptor_Surface``) — the middle of its angular (U) and axial (V) parameter spans.
+    Never the bbox centre, which sits off the round near the virtual sharp corner (#622).
+    The one implementation shared by :func:`recognise_fillets` and the declared front-end
+    (``model/declare._read_fillet_face``), so a declared fillet's leader tip is identical
+    to the detected one's (#704)."""
+    u_mid = 0.5 * (s.FirstUParameter() + s.LastUParameter())
+    v_mid = 0.5 * (s.FirstVParameter() + s.LastVParameter())
+    p = s.Value(u_mid, v_mid)
+    return (p.X(), p.Y(), p.Z())
+
+
 def _axis_aligned_axis(face_wrapped) -> tuple[int, float] | None:
     """``(axis_index, coordinate)`` of a planar axis-aligned face — the plane's axis and
     where it sits — or None if the face is not planar or not axis-aligned. Sign-agnostic
@@ -151,23 +164,20 @@ def recognise_fillets(
         if clsf.State() == TopAbs_IN:
             continue  # concave corner — an internal round / slot-wall blend, not an edge fillet
 
-        # Anchor the leader on the curved radius surface itself, not the face bounding-box
-        # centre — that centre sits near the arc's centre of curvature / virtual sharp corner,
-        # off the surface (#622). Evaluate a point at the middle of the trimmed face's angular
-        # (U) and axial (V) parameter spans; the adaptor's bounds are the FACE's trimmed range
-        # (already gated below a full turn above), so a periodic seam is handled by using those
-        # bounds directly rather than the raw 0..2π surface range. On-face for the ordinary
-        # quarter-round edge blend (a UV-rectangular patch); a fillet whose UV region is punched
-        # by an interior hole through its centre could still land mid-UV in that void — rare, and
-        # no worse than the bbox centre it replaces (review).
-        u_mid = 0.5 * (s.FirstUParameter() + s.LastUParameter())
-        v_mid = 0.5 * (s.FirstVParameter() + s.LastVParameter())
-        p = s.Value(u_mid, v_mid)
+        # Anchor the leader on the curved radius surface itself via the shared
+        # fillet_anchor (#622 lesson, one implementation with declare's front-end, #704).
+        # The adaptor's bounds are the FACE's trimmed range (already gated below a full
+        # turn above), so a periodic seam is handled by using those bounds directly rather
+        # than the raw 0..2π surface range. On-face for the ordinary quarter-round edge
+        # blend (a UV-rectangular patch); a fillet whose UV region is punched by an
+        # interior hole through its centre could still land mid-UV in that void — rare,
+        # and no worse than the bbox centre it replaces (review).
+        p = fillet_anchor(s)
         out.append(
             Fillet(
                 axis="xyz"[edge_i],
                 radius=round(radius, 3),
-                at=(round(p.X(), 3), round(p.Y(), 3), round(p.Z(), 3)),
+                at=(round(p[0], 3), round(p[1], 3), round(p[2], 3)),
             )
         )
     return sorted(out, key=lambda c: (c.axis, c.at))

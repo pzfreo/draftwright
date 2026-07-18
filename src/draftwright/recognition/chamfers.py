@@ -59,6 +59,44 @@ class Chamfer(Record):
     at: tuple[float, float, float]
 
 
+class BevelReject(ValueError):
+    """*face* is not a single-axis oblique planar bevel; ``reason`` says why:
+    ``"nonplanar"``, ``"degenerate"`` (no clean normal), ``"aligned"`` (axis-aligned or a
+    shallow draft angle — a real face, not a chamfer), or ``"compound"`` (oblique on all
+    three axes — a corner bevel, out of scope)."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def classify_bevel(face):
+    """The single-face oblique-bevel read shared by :func:`recognise_chamfers` and the
+    declared front-end (``model/declare._read_chamfer_face``) — one home for the
+    normal→axis classification thresholds and the leg geometry (#704). Returns
+    ``(edge_i, nv, span, leg_hi, leg_lo)``: the along-edge axis index, the unit normal,
+    per-axis ``(lo, hi)`` bbox spans, and the two in-plane leg lengths (unrounded,
+    ``leg_hi >= leg_lo``). Raises :class:`BevelReject` when the face is not one."""
+    if BRepAdaptor_Surface(face.wrapped).GetType() != GeomAbs_Plane:
+        raise BevelReject("nonplanar")
+    try:
+        nvec = face.normal_at()
+    except Exception:  # noqa: BLE001 — a degenerate face has no clean normal
+        raise BevelReject("degenerate") from None
+    nv = (nvec.X, nvec.Y, nvec.Z)
+    if max(abs(c) for c in nv) > 0.99:
+        raise BevelReject("aligned")
+    edge_i = next((i for i in (0, 1, 2) if abs(nv[i]) < 0.05), None)
+    if edge_i is None:
+        raise BevelReject("compound")
+    oi = [j for j in (0, 1, 2) if j != edge_i]
+    fb = face.bounding_box()
+    span = {0: (fb.min.X, fb.max.X), 1: (fb.min.Y, fb.max.Y), 2: (fb.min.Z, fb.max.Z)}
+    leg_u = span[oi[0]][1] - span[oi[0]][0]
+    leg_v = span[oi[1]][1] - span[oi[1]][0]
+    return edge_i, nv, span, max(leg_u, leg_v), min(leg_u, leg_v)
+
+
 def _axis_aligned_axis(face_wrapped) -> tuple[int, float] | None:
     """The axis a planar face's normal aligns with and that plane's fixed coordinate along
     it, or None if the face is not planar or not axis-aligned. Sign-agnostic (only
@@ -89,32 +127,19 @@ def recognise_chamfers(part, *, tol: float = 0.5, max_leg_frac: float = 0.45) ->
     out: list[Chamfer] = []
     for f in all_faces:
         fw = f.wrapped
-        s = BRepAdaptor_Surface(fw)
-        if s.GetType() != GeomAbs_Plane:
-            continue
+        # The shared single-face read (classification thresholds + legs = the face's OWN
+        # in-plane bbox extents, not measured against a possibly distant outermost wall).
         try:
-            nvec = f.normal_at()
-        except Exception:  # noqa: BLE001 — a degenerate face has no clean normal
+            edge_i, nv, span, leg_hi, leg_lo = classify_bevel(f)
+        except BevelReject:
             continue
-        nv = (nvec.X, nvec.Y, nvec.Z)
-        if max(abs(c) for c in nv) > 0.99:
-            continue  # axis-aligned (a real face) or a shallow draft angle — not a chamfer
-        edge_i = next((i for i in (0, 1, 2) if abs(nv[i]) < 0.05), None)
-        if edge_i is None:
-            continue  # a compound corner bevel (oblique on all axes) — out of scope
         oi = [j for j in (0, 1, 2) if j != edge_i]
         if abs(nv[oi[0]]) < 0.05 or abs(nv[oi[1]]) < 0.05:
             continue
-        # Legs = the chamfer face's OWN in-plane bbox extents — read from the face itself,
-        # not measured against a (possibly distant) outermost wall.
-        fb = f.bounding_box()
-        span = {0: (fb.min.X, fb.max.X), 1: (fb.min.Y, fb.max.Y), 2: (fb.min.Z, fb.max.Z)}
         fc = {i: 0.5 * (span[i][0] + span[i][1]) for i in (0, 1, 2)}  # face centre
-        leg_u = span[oi[0]][1] - span[oi[0]][0]
-        leg_v = span[oi[1]][1] - span[oi[1]][0]
-        if leg_u < tol or leg_v < tol:
+        if leg_lo < tol:
             continue
-        if max(leg_u, leg_v) > max_leg_frac * max(ext.values()):
+        if leg_hi > max_leg_frac * max(ext.values()):
             continue  # a ramp/wedge spanning a large fraction of the part — not an edge break
         # Must bridge two axis-aligned faces on distinct in-plane axes (a chamfer replaces
         # a sharp 90° edge). A hex side abuts oblique faces. Record each neighbour plane's
@@ -157,12 +182,12 @@ def recognise_chamfers(part, *, tol: float = 0.5, max_leg_frac: float = 0.45) ->
         # of the convex planar bevel lies on the face; this also matches declare's
         # _read_chamfer_face, so detected and declared chamfers anchor identically.
         fctr = f.center()
-        angle = math.degrees(math.atan2(min(leg_u, leg_v), max(leg_u, leg_v)))
+        angle = math.degrees(math.atan2(leg_lo, leg_hi))
         out.append(
             Chamfer(
                 axis="xyz"[edge_i],
-                leg1=round(max(leg_u, leg_v), 3),
-                leg2=round(min(leg_u, leg_v), 3),
+                leg1=round(leg_hi, 3),
+                leg2=round(leg_lo, 3),
                 angle=round(angle, 2),
                 at=(round(fctr.X, 3), round(fctr.Y, 3), round(fctr.Z, 3)),
             )

@@ -68,11 +68,16 @@ from draftwright.recognition._features import (
     recognise_hole_patterns,
     recognise_holes,
 )
-from draftwright.recognition.chamfers import Chamfer, recognise_chamfers
-from draftwright.recognition.countersinks import CounterSink, recognise_countersinks
-from draftwright.recognition.fillets import Fillet, recognise_fillets
+from draftwright.recognition.chamfers import (
+    BevelReject,
+    Chamfer,
+    classify_bevel,
+    recognise_chamfers,
+)
+from draftwright.recognition.countersinks import CounterSink, cone_rims, recognise_countersinks
+from draftwright.recognition.fillets import Fillet, fillet_anchor, recognise_fillets
 from draftwright.recognition.flats import Flat, recognise_flats
-from draftwright.recognition.grooves import Groove, recognise_grooves
+from draftwright.recognition.grooves import Groove, floor_face_anchor, recognise_grooves
 from draftwright.recognition.levels import (
     FaceLevel,
     StepShoulder,
@@ -104,7 +109,12 @@ __all__ = [
     "StepShoulder",
     "TurnedProfile",
     "TurnedStep",
+    "BevelReject",
     "analyse_cylinders",
+    "classify_bevel",
+    "cone_rims",
+    "fillet_anchor",
+    "floor_face_anchor",
     "recognise_face_levels",
     "recognise_step_shoulders",
     "step_level_zs",

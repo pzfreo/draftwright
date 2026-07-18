@@ -62,6 +62,7 @@ _LAYERS: dict[str, int] = {
     "registry": 0,
     "intents": 0,
     "recognition": 0,
+    "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
     "model": 0,  # the ADR 0008 IR waist — depends only on rank-0 leaves (guarded below too)
     # 1 — the shared drawing/layout primitives
     "_core": 1,
@@ -87,7 +88,6 @@ _LAYERS: dict[str, int] = {
     "sheet_dsl": 7,  # frozen deprecation shim — re-exports the sheet facade (renamed, #640)
     "sheet_emit": 7,
     "cli": 7,
-    "score": 7,
     # 8 — the package root: the public API surface, above everything
     "__init__": 8,
 }

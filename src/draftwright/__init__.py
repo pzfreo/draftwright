@@ -23,15 +23,12 @@ from typing import TYPE_CHECKING
 # none of these names, so they stay sub-second instead of paying for the kernel
 # on every TAB press (#313). Each name maps to the submodule that provides it.
 _LAZY = {
-    "recognise_face_levels": "draftwright.recognition",
-    "dedup_diams": "draftwright.analysis",
     "build_drawing": "draftwright.builder",
     "generate_script": "draftwright.builder",
     "make_drawing": "draftwright.builder",
     "Drawing": "draftwright.drawing",
     "FeatureInfo": "draftwright.drawing",
     "Sheet": "draftwright.sheet",
-    "fix_svg_page_size": "draftwright.export",
     "lint_feature_coverage": "draftwright.linting",
     "PmiRecord": "draftwright.pmi",
     "extract_pmi": "draftwright.pmi",
@@ -72,14 +69,11 @@ _sys.modules[__name__].__class__ = _DraftwrightModule
 
 
 if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel cost
-    from draftwright.analysis import dedup_diams
     from draftwright.builder import build_drawing, generate_script, make_drawing
     from draftwright.compose import choose_scale
     from draftwright.drawing import Drawing, FeatureInfo
-    from draftwright.export import fix_svg_page_size
     from draftwright.linting import lint_feature_coverage
     from draftwright.pmi import PmiRecord, extract_pmi
-    from draftwright.recognition import recognise_face_levels
     from draftwright.sheet import Sheet
 
 
@@ -95,12 +89,9 @@ __all__ = [
     "FeatureInfo",
     "PmiRecord",
     "Sheet",
-    "recognise_face_levels",
     "build_drawing",
     "choose_scale",
-    "dedup_diams",
     "extract_pmi",
-    "fix_svg_page_size",
     "generate_script",
     "lint_feature_coverage",
     "make_drawing",

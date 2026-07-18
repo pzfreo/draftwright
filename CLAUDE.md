@@ -146,7 +146,8 @@ entry. Keep `_LAYERS` and this section in step.
   #523 (open).
 - **`score.py`** — `feature_census` (#148f/#608): a standalone
   recognition-completeness measurement tool; depends only on `recognition/` +
-  build123d, and nothing in the engine imports it.
+  build123d, and nothing in the engine imports it. Ranked 0 in `_LAYERS` (#704),
+  so that leaf status is machine-enforced.
 - **`recognition/`** — feature recognition (ADR 0007: draftwright owns it, not
   helpers). Every feature recogniser follows the **uniform contract** (ADR 0013 / #568,
   spelled out in `recognition/__init__.py`): `recognise_<feature>(part, *, <injected

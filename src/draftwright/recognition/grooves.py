@@ -74,6 +74,20 @@ class Groove(Record):
     at: tuple[float, float, float]
 
 
+def floor_face_anchor(face) -> tuple[float, float, float]:
+    """The groove leader-tip anchor: the **bbox centre** of the floor face (the reduced-OD
+    band), unrounded. The one anchor contract shared by :func:`recognise_grooves` and the
+    declared front-end (``model/declare._read_groove_face``), #704 — the substrates differ
+    (band dicts from ``analyse_cylinders`` vs a single user-supplied face), but the leader
+    tip must not."""
+    bb = face.bounding_box()
+    return (
+        0.5 * (bb.min.X + bb.max.X),
+        0.5 * (bb.min.Y + bb.max.Y),
+        0.5 * (bb.min.Z + bb.max.Z),
+    )
+
+
 def recognise_grooves(part, *, cyls=None) -> list[Groove]:
     """Recognise the turned grooves of *part* (see module docstring). Returns one
     :class:`Groove` per external band whose OD is a strict local minimum between two
@@ -118,12 +132,8 @@ def recognise_grooves(part, *, cyls=None) -> list[Groove]:
             wider_wall = max(prev["s_hi"] - prev["s_lo"], nxt["s_hi"] - nxt["s_lo"])
             if cur_w >= wider_wall - _WIDTH_MARGIN:
                 continue
-            bb = cur["face"].bounding_box()
-            at = (
-                round(0.5 * (bb.min.X + bb.max.X), 3),
-                round(0.5 * (bb.min.Y + bb.max.Y), 3),
-                round(0.5 * (bb.min.Z + bb.max.Z), 3),
-            )
+            cx, cy, cz = floor_face_anchor(cur["face"])
+            at = (round(cx, 3), round(cy, 3), round(cz, 3))
             out.append(
                 Groove(
                     axis=cur["axis"],

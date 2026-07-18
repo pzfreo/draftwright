@@ -1428,3 +1428,38 @@ class TestSheetDslShim:
         assert "Sheet" in dir(shim)
         public = {n for n in dir(sheet) if not n.startswith("_")}
         assert public <= set(shim.__all__)
+
+
+class TestAuthoredDimension:
+    """``model.authored_dimension`` — the IR constructor behind ``Sheet.dimension`` (#704),
+    so ``build_drawing(model=…)`` callers can author one without the façade."""
+
+    _KW = dict(
+        kind="linear",
+        value=40,
+        label="40",
+        dominant_axis="X",
+        ref_bbox=(-20, -10, -5, 20, 10, 5),
+        ref_pts=[(-20, 0, 0), (20, 0, 0)],
+        upper_tol=0.1,
+        lower_tol=0.0,
+    )
+
+    def test_matches_the_sheet_facade_feature(self):
+        # The façade must append EXACTLY the feature the constructor builds — the
+        # frozen-dataclass equality pins the delegation against re-inlining drift.
+        from draftwright.model import authored_dimension
+        from draftwright.sheet import Sheet
+
+        sheet = Sheet(Box(40, 20, 10), title="P")
+        sheet.dimension(**self._KW)
+        via_facade = next(f for f in sheet.features if f.kind == "authored_dimension")
+        assert authored_dimension(**self._KW) == via_facade
+
+    def test_validates_without_the_facade(self):
+        from draftwright.model import authored_dimension
+
+        with pytest.raises(ValueError, match="kind must be one of"):
+            authored_dimension(**{**self._KW, "kind": "liner"})
+        with pytest.raises(ValueError, match="at least two ref_pts"):
+            authored_dimension(**{**self._KW, "ref_pts": [(0, 0, 0)]})
