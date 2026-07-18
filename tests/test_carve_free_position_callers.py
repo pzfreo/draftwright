@@ -43,7 +43,7 @@ _ALLOWED_CALLERS = {
     ("from_model.py", "render_gdt"),  # PMI alt-strip fallback runs inside on_drop, post-drain
     # Beyond render_gdt's pattern (helpers ≥0.14): the primary placement IS the
     # corridor candidate; the carve runs in a ctx.post_drain-DEFERRED drop fallthrough,
-    # after EVERY corridor has drained (#684 review — a mid-drain carve could pre-empt
+    # after EVERY corridor has drained (#684 review — a mid-drain carve could preempt
     # a later sibling's reserved corner), retrying the opposite/side-view strip.
     ("from_model.py", "render_plates"),
     ("holes.py", "add_feature_callout"),  # detect-only verb — no shared corridor drain

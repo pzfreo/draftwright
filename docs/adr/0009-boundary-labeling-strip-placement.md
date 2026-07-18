@@ -837,4 +837,4 @@ resolved one.
   (banded-DP anchor-defeat gap; Amendment 9 retires the DP instead of fixing it
   in place).
 
-**2026-07-17 (helpers 0.14):** `render_plates` joins the on_drop carve exemptions: primary placement stays a corridor candidate; the fallthrough carve is DEFERRED via `ctx.post_drain` until every corridor has drained (so it cannot pre-empt a sibling's reserved corner), then retries the opposite/side-view strip. Witness-hull corner overlaps are an accepted one-box-occupancy artifact pending L-shaped occupancy (#602 follow-up).
+**2026-07-17 (helpers 0.14):** `render_plates` joins the on_drop carve exemptions: primary placement stays a corridor candidate; the fallthrough carve is DEFERRED via `ctx.post_drain` until every corridor has drained (so it cannot preempt a sibling's reserved corner), then retries the opposite/side-view strip. Witness-hull corner overlaps are an accepted one-box-occupancy artifact pending L-shaped occupancy (#602 follow-up).

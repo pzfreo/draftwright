@@ -734,7 +734,7 @@ def drain_corridors(ctx, dwg):
         )
     ctx.corridor_batch = {}
     # Deferred fallthroughs (opposite-strip retries) run once every strip has drained,
-    # so a retry can never pre-empt a corner a later sibling's force candidate needs.
+    # so a retry can never preempt a corner a later sibling's force candidate needs.
     pending, ctx.post_drain = ctx.post_drain, []
     for cb in pending:
         cb()
