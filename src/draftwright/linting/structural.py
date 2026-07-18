@@ -115,7 +115,10 @@ def _item_label(item) -> str:
 
 # Items whose raising label_bbox was already warned about — several checks read the
 # same item's label_bbox (per centreline pair, per view), so an unmemoised warning
-# would flood the log O(n²) on one bad item (#711 review).
+# would flood the log O(n²) on one bad item (#711 review). Cleared at each
+# lint_drawing entry: ids are only meaningful while the run holds the items alive,
+# and an ever-growing process-global set could suppress a warning for an unrelated
+# later object that reused a freed id (Codex sweep).
 _warned_label_bbox: set[int] = set()
 
 
@@ -245,6 +248,7 @@ def lint_drawing(
     if drawing_scale <= 0:
         raise ValueError(f"drawing_scale must be positive, got {drawing_scale}")
 
+    _warned_label_bbox.clear()  # per-run memo: dedup within this lint, not the process
     issues: list[LintIssue] = []
     box_cache = {} if ann_box_cache is None else ann_box_cache
 
