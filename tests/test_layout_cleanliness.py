@@ -61,21 +61,46 @@ _TOL_MM = 0.5
 #   PENDING <issue>   = a real invisible-occupant defect the named phase removes (delete
 #                       the entry in that PR).
 _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
-    # bracket: the two SPACE-CONSTRAINED central-row crossings (policy B, user
-    # 2026-07-02): hc_plan0's wide label straddles the thin section arrow on the
-    # plan centre row, and hc_plan1's DIAGONAL leader shaft's AABB clips the same
-    # arrow by <1 mm — the placer verifies the diagonal precisely
-    # (_segment_hits_box), so the flag is AABB-of-diagonal conservatism, not ink
-    # contact. Every datum pair burned down with L-shaped occupancy (#685).
+    # The honest post-#685 oracle exempts only TRANSVERSE stroke crossings; two
+    # remaining BENIGN classes stay allowlisted:
+    #  - PARALLEL WITNESS SHARING: location dims chained off a common datum, and
+    #    stacked step/slot ladders, share their extension-line corridor — the
+    #    standard ISO 129-1 running-dimension presentation. Distinguishing shared
+    #    witness corridors from a genuine collinear dim-line overprint needs
+    #    semantic stroke roles helpers does not expose (possible follow-up).
+    #  - POLICY-B ARROW CROSSINGS (bracket): hc_plan0's wide label straddles the
+    #    thin section arrow on the plan centre row; hc_plan1's DIAGONAL shaft AABB
+    #    clips the same arrow by <1 mm (the placer verifies the diagonal precisely).
+    # dshape's dim_height pair stays PENDING #636 (height-ladder carve is invisible
+    # to the solve — a real stroke-through-label).
     "bracket": {
         frozenset({"hc_plan0", "section_arrow_right"}),
         frozenset({"hc_plan1", "section_arrow_right"}),
+        frozenset({"m_locx0", "m_locx1"}),
+        frozenset({"m_locy0", "m_locy1"}),
     },
-    # dshape PENDING #636: the Z-location dim's line passes through dim_height's
-    # label — dim_height is placed by the height-ladder CARVE, invisible to the
-    # corridor solve, so the solve cannot space the pair. Burns down when the
-    # ladder joins the solve (#636).
-    "dshape": {frozenset({"dim_height", "dim_loc_front_z400"})},
+    "dshape": {
+        frozenset({"dim_height", "dim_loc_front_z400"}),
+        frozenset({"dim_loc_side_y200", "m_env_depth"}),
+    },
+    "holed_slot": {
+        frozenset({"m_locx0", "m_locx1"}),
+        frozenset({"m_locx0", "m_locx2"}),
+        frozenset({"m_locx1", "m_locx2"}),
+        frozenset({"m_slot0_length", "m_locx0"}),
+        frozenset({"m_slot0_length", "m_locx1"}),
+        frozenset({"m_locy0", "m_locy1"}),
+    },
+    "plate_holes": {frozenset({"m_locx0", "m_locx1"}), frozenset({"m_locy0", "m_locy1"})},
+    "side_drilled": {
+        frozenset({"hc_side0", "dim_loc_side_z2300"}),
+        frozenset({"dim_loc_side_y2000", "m_env_depth"}),
+    },
+    "slotted": {frozenset({"m_slot0_length", "m_slot0_pos"})},
+    "turned_shaft": {
+        frozenset({"m_steplen0", "m_steplen1"}),
+        frozenset({"m_steplen1", "m_steplen2"}),
+    },
 }
 
 
@@ -162,7 +187,9 @@ def _observed_overlaps(dwg) -> set[frozenset[str]]:
             if not (v1 == v2 or v1 is None or v2 is None):
                 continue  # two distinct ortho views → disjoint blocks (ADR 0004)
             if any(
-                _overlaps(b1, b2, _TOL_MM) and not (s1 and s2) for b1, s1 in bs1 for b2, s2 in bs2
+                _overlaps(b1, b2, _TOL_MM) and not _benign_crossing(d1, d2)
+                for b1, d1 in bs1
+                for b2, d2 in bs2
             ):
                 hits.add(frozenset({n1, n2}))
     return hits
