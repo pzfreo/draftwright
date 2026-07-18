@@ -1362,7 +1362,7 @@ class TestScaleMinimum:
         with pytest.warns(UserWarning, match="legibility floor"):
             sheet = Sheet(Box(680, 860, 80), scale="1:10")
             sheet.export(str(tmp_path / "s"))
-        assert (tmp_path / "s.svg").exists()
+        assert (tmp_path / "s.pdf").exists()  # #702: Sheet.export defaults to PDF
 
 
 class TestSectionHatchEdges:
