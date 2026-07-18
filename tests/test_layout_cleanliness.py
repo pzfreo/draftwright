@@ -122,7 +122,10 @@ def _observed_overlaps(dwg) -> set[frozenset[str]]:
         if not segs:
             b = _geom_box(o)
             return [(b, None)] if b is not None else []
-        pad = 1.2  # line width + arrowhead half-width at stroke junctions
+        # Mirror production (strip_obstacles): the pad scales with the preset's
+        # arrow geometry, so the oracle exercises the same occupancy model.
+        al = getattr(getattr(dwg, "draft", None), "arrow_length", None)
+        pad = max(1.2, al / 2) if al else 1.2
         out = []
         for (x0, y0), (x1, y1) in segs:
             ln = _m.hypot(x1 - x0, y1 - y0) or 1.0
@@ -141,7 +144,7 @@ def _observed_overlaps(dwg) -> set[frozenset[str]]:
         if d1 is None or d2 is None:
             return False
         cross = abs(d1[0] * d2[1] - d1[1] * d2[0])  # |sin| of the angle between
-        return cross > 0.5  # >=30 deg: a transverse crossing, not an overprint
+        return cross >= 0.5  # >=30 deg: a transverse crossing, not an overprint
 
     named = [
         (name, _boxes(o), type(o).__name__, dwg.view_of(name))

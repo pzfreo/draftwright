@@ -89,10 +89,12 @@ def test_strip_obstacles_captures_full_leader_footprint_not_just_label():
     assert all(_holds(obst, px, py) for px, py in seg_pts), (
         "leader stroke endpoints missing from strip_obstacles"
     )
-    tip_x = gb.min.X if gb.min.X < lb[0] - 0.5 else gb.max.X
-    assert not _holds(occ, tip_x, (gb.min.Y + gb.max.Y) / 2), (
-        "label-only occupancy should not reach the tip"
+    # Negative check on a REAL shaft endpoint outside the label box (#688 r2):
+    # a diagonal shaft's hull midpoint need not lie on the shaft.
+    outside = next(
+        (px, py) for px, py in seg_pts if not (lb[0] <= px <= lb[2] and lb[1] <= py <= lb[3])
     )
+    assert not _holds(occ, *outside), "label-only occupancy should not reach the shaft"
 
 
 def test_coaxial_bore_on_rotational_part_is_not_over_located():
