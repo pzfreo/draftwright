@@ -67,8 +67,14 @@ The load-bearing properties, all live in the code today:
    `recognition/`) and declaration (`model/declare.py`, ADR 0011:
    `hole`/`boss`/`step`/… constructors that read a feature's size off the
    build123d object, or take explicit values) both emit the **same** IR
-   `Feature` types into the same `PartModel`. Everything downstream is
-   producer-blind.
+   `Feature` types into the same `PartModel`, so no renderer branches on
+   feature *types* by producer. Downstream is not fully producer-**blind**,
+   though: one declared-provenance flag survives — `builder.build_drawing`
+   synthesises rotational/PMI features for a caller-declared model (a declared
+   turned shaft must render with the same furniture detection produces, #472)
+   and records `model_declared`, which the orchestrator reads to widen the
+   hole-callout membership set to declared positions detection missed
+   (ADR 0011 #448). The flag gates *parity behaviours*, not divergent paths.
 5. **The IR→infrastructure boundary is IR-typed** (0008 Am 6, kept): shared
    services take model-space locations, `DimParameter`s, feature kinds, and
    frozen value keys (`HoleRef`), enforced by their signatures. The shared
@@ -146,8 +152,10 @@ reads the **placed drawing** (dimension witness endpoints, callout labels —
 channel, and never the plan. Sourcing coverage from the dimensioning plan
 would be circular: a feature the planner (or a bypassing renderer) omitted
 would never be flagged. Coverage reading recognition is the check *working*.
-Structurally, `linting/` stays a leaf with **no `draftwright.model` import**
-(machine-checked by `tests/test_import_boundaries.py`), so the carve-out
+Structurally, `linting/` has **no `draftwright.model` import** — machine-checked
+by the dedicated `test_linting_does_not_import_model` guard in
+`tests/test_import_boundaries.py` (the general layer rule alone would permit
+linting→model, so the carve-out gets its own fail-closed assertion) — so it
 cannot silently widen into IR coupling. The only other place recognition
 records cross is the sanctioned `build_part_model` boundary itself.
 

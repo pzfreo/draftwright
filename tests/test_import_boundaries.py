@@ -460,3 +460,18 @@ def test_geometry_is_a_leaf():
     submodules, relative = _draftwright_imports(_SRC / "_geometry.py")
     assert submodules == set()
     assert relative == []
+
+
+def test_linting_does_not_import_model():
+    """``linting/`` must not import ``draftwright.model`` (ADR 0015's lint/coverage
+    carve-out): coverage reads recognised geometry + the placed drawing for ground
+    truth, never the dimensioning IR — sourcing coverage from the plan would be
+    circular (a feature the planner omitted would never be flagged). The general
+    `_LAYERS` DAG rule alone would PERMIT linting→model (model ranks below), so
+    this dedicated assertion pins the carve-out (#697 review)."""
+    for path in sorted((_SRC / "linting").glob("*.py")):
+        submodules, _ = _draftwright_imports(path)
+        assert "model" not in submodules, (
+            f"{path.name} imports draftwright.model — the lint/coverage carve-out "
+            "(ADR 0015) forbids IR coupling in linting/"
+        )

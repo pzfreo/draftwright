@@ -48,9 +48,12 @@ Per view, per strip: **collect → solve → emit.**
     band assignment — a deterministic min-cost max-flow solve
     (`_assign_balloon_bands`, `layout.py`, #516).
   - **Order** — label order along the strip = site/feature order (candidates
-    sort by anchor coordinate, ties by key), so leaders are **crossing-free by
-    construction**; corridor candidates additionally carry an `order` key
-    segregating size dims from the monotonic datum-location ladder (#346).
+    sort by anchor coordinate), so leaders between **distinct** strip-axis
+    coordinates are **crossing-free by construction**; coincident sites
+    tie-break by key for determinism, which is not crossing-optimal
+    (`plan_strip`'s own docstring carries the same qualifier). Corridor
+    candidates additionally carry an `order` key segregating size dims from
+    the monotonic datum-location ladder (#346).
   - **Space** — the deterministic minimum-total-leader-length **L1 solve**:
     `_solve_strip_1d_pava` (`layout.py`), weighted-median PAVA with per-pair
     gaps, a global box clamp, and a fixed *lower-median* tie convention —
@@ -91,10 +94,12 @@ placement reason alone. Realised as `force=True` candidates (a second
 
 ## The by-construction guarantee and its exemptions
 
-Every automatic-pass strip occupant is a candidate in the shared solve, so the
-invisible-occupant collision class cannot recur — *provided* no pass regresses
-onto the solver-invisible single-position carve (`carve_free_position`,
-`annotations/_common.py`). A **fail-closed guard**
+Every **non-exempt** automatic-pass strip occupant is a candidate in the shared
+solve; the exempt placements below run only *after* the drain (or off the strip
+axes entirely), so they see the completed occupancy rather than racing it. That
+is what removes the invisible-occupant collision class — *provided* no pass
+regresses onto the solver-invisible single-position carve
+(`carve_free_position`, `annotations/_common.py`). A **fail-closed guard**
 (`tests/test_carve_free_position_callers.py`, `_ALLOWED_CALLERS`) pins the
 only permitted callers; any new caller anywhere under `annotations/` trips it.
 The current allowlist, each an explicit exemption:
