@@ -169,6 +169,7 @@ def test_write_guard_catches_every_mutation_form():
     # The aliasing evasion is caught as the alias itself (#699 slice d, Codex review):
     assert _drawing_aliases(ast.parse("d = dwg"))
     assert _drawing_aliases(ast.parse("if (d := drawing): pass"))
+    assert _drawing_aliases(ast.parse("d: object = dwg"))  # annotated form (review r2)
     assert not _drawing_aliases(ast.parse("d = other"))  # unrelated binds don't flag
 
 
@@ -249,7 +250,7 @@ def _drawing_aliases(tree: ast.Module) -> list[tuple[int, str]]:
     for node in ast.walk(tree):
         value = getattr(node, "value", None)
         if (
-            isinstance(node, (ast.Assign, ast.NamedExpr))
+            isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
             and isinstance(value, ast.Name)
             and value.id in _DRAWING_RECEIVER_NAMES
         ):
