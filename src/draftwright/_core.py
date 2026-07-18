@@ -107,8 +107,8 @@ def _table_metrics(rows, font_size, pad_around_text, block_cols=None):
     block gaps inserted), total width/height, row height and effective block
     width, as ``(lefts, rights, total_w, total_h, row_h, bc)``.
 
-    The ONE place table geometry is computed (#700): ``drawing._build_table``
-    draws from it and ``compose._est_table_size`` estimates from it, so the
+    The ONE place table geometry is computed (#700): :func:`_build_table` (below,
+    since #699) draws from it and ``compose._est_table_size`` estimates from it, so the
     ADR 0004 ``table_fits`` fitness check can never desynchronise from what
     renders (the drift ADR 0004 names as the failure mode to guard against).
     """
