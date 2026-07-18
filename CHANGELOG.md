@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.3.3 — 2026-07-18
+
+The **layout-quality release**: the occupancy model gets honest about ink shape,
+the last solver-invisible pass joins the corridor solve, and crossed labels shift
+themselves clear. Also completes the #635 consolidation epic (ADR 0005 fully
+executed; ADR 0009's no-invisible-occupant guarantee now holds by construction
+for every auto-pass).
+
+### Added
+
+- **Witness-crossing label shifts** (#690): a dimension label crossed by another
+  dimension's witness stroke now shifts along its own line to clear it — a
+  deterministic post-drain pass using the repair machinery (destination-aware,
+  axis-aligned only, pinned dims exempt).
+
+### Changed
+
+- **L-shaped occupancy** (#685): placement obstacles decompose into per-stroke
+  boxes + label box (helpers ≥0.14 `segments`) instead of one hull, with
+  preset-aware arrowhead pads. View-corner contention between perpendicular
+  strips disappears by construction (a plate-thickness dim returns to its
+  natural strip); packing tightens. The cleanliness ratchet mirrors the model —
+  only transverse stroke crossings are exempt, so parallel overprints and label
+  contacts are detected honestly (twelve hull-artifact allowlist entries burned
+  down; the legitimate shared-datum running-dimension pairs are documented).
+- **Height ladder joins the corridor solve** (#636): step heights + overall
+  height are corridor candidates (the leapfrog witness cursor survives as a
+  deterministic build-time chain; the overall height stacks outermost by
+  construction and packs tighter). An explicitly-requested crowded-step detail
+  view now *deliberately* demotes the overall-height dim when the sheet cannot
+  hold both (previously the carve dropped it silently); a Y-drilled hole's Z
+  location joins the front running ladder per the documented routing.
+- **One typed `BuildState`** (#639): the drawing's build context (analysis,
+  part model, lint geometry caches) consolidates into a single object filled at
+  one builder site, single-writer-guarded; the render passes make zero private
+  `Drawing` reads (fail-closed empty allowlist).
+
+### Fixed
+
+- A prismatic detail view no longer loses both the detail *and* the height dim
+  when space is tight (transactional demotion).
+- The GD&T alternate-strip fallback defers until every corridor has drained, so
+  it can never preempt a sibling strip's reserved corner.
+
 ## v0.3.2 — 2026-07-18
 
 The **performance release**: the #602 perf loop (six PRs) plus the
