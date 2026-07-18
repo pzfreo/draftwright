@@ -110,22 +110,38 @@ def _observed_overlaps(dwg) -> set[frozenset[str]]:
     # local mirror of annotations/_common.occupancy_boxes (the private-import
     # ratchet keeps tests off annotations/ internals); hull fallback otherwise.
     def _boxes(o):
-        # (box, is_stroke) pairs: a stroke×stroke contact is a legitimate ISO 129-1
-        # crossing (an outer dim's witness passes through inner tiers) and does not
-        # count; any overlap involving a label or a hull-fallback box does.
+        # (box, direction) pairs: direction is the stroke's unit vector, or None for
+        # a label / hull-fallback box. A TRANSVERSE stroke-stroke crossing (>=30 deg
+        # between directions) is a legitimate ISO 129-1 crossing (an outer dim's
+        # witness passes through inner tiers) and does not count; near-parallel
+        # stroke overlap (collinear overprint) and any label/hull involvement do
+        # (#688 review - the blanket stroke exemption hid overprints).
+        import math as _m
+
         segs = getattr(o, "segments", None)
         if not segs:
             b = _geom_box(o)
-            return [(b, False)] if b is not None else []
+            return [(b, None)] if b is not None else []
         pad = 1.2  # line width + arrowhead half-width at stroke junctions
-        out = [
-            ((min(x0, x1) - pad, min(y0, y1) - pad, max(x0, x1) + pad, max(y0, y1) + pad), True)
-            for (x0, y0), (x1, y1) in segs
-        ]
+        out = []
+        for (x0, y0), (x1, y1) in segs:
+            ln = _m.hypot(x1 - x0, y1 - y0) or 1.0
+            out.append(
+                (
+                    (min(x0, x1) - pad, min(y0, y1) - pad, max(x0, x1) + pad, max(y0, y1) + pad),
+                    ((x1 - x0) / ln, (y1 - y0) / ln),
+                )
+            )
         lb = getattr(o, "label_bbox", None)
         if lb is not None:
-            out.append(((lb[0], lb[1], lb[2], lb[3]), False))
+            out.append(((lb[0], lb[1], lb[2], lb[3]), None))
         return out
+
+    def _benign_crossing(d1, d2):
+        if d1 is None or d2 is None:
+            return False
+        cross = abs(d1[0] * d2[1] - d1[1] * d2[0])  # |sin| of the angle between
+        return cross > 0.5  # >=30 deg: a transverse crossing, not an overprint
 
     named = [
         (name, _boxes(o), type(o).__name__, dwg.view_of(name))

@@ -255,7 +255,7 @@ def clear_label_of_centerlines(label_bbox, centerlines, gap):
     return target_x - lmin_x
 
 
-def occupancy_boxes(o):
+def occupancy_boxes(o, stroke_pad=None):
     """*o*'s occupancy as a list of AABBs — decomposed, not one hull (#685).
 
     An annotation's rendered hull includes large EMPTY corner regions (a dimension's
@@ -276,14 +276,15 @@ def occupancy_boxes(o):
     if not segs:
         b = _geom_box(o)
         return [b] if b is not None else []
+    pad = _STROKE_PAD if stroke_pad is None else stroke_pad
     out = []
     for (x0, y0), (x1, y1) in segs:
         out.append(
             (
-                min(x0, x1) - _STROKE_PAD,
-                min(y0, y1) - _STROKE_PAD,
-                max(x0, x1) + _STROKE_PAD,
-                max(y0, y1) + _STROKE_PAD,
+                min(x0, x1) - pad,
+                min(y0, y1) - pad,
+                max(x0, x1) + pad,
+                max(y0, y1) + pad,
             )
         )
     lb = getattr(o, "label_bbox", None)
@@ -292,8 +293,11 @@ def occupancy_boxes(o):
     return out
 
 
-# Stroke inflation for decomposed occupancy: line_width/2 (~0.08) plus the arrowhead
-# half-width at the stroke junctions (~1 mm at preset arrow lengths), rounded up.
+# Fallback stroke inflation for decomposed occupancy: line_width/2 (~0.08) plus the
+# arrowhead half-width at stroke junctions at DEFAULT presets. Arrow geometry scales
+# with font_size (#688 review), so callers that know the draft derive the pad as
+# max(_STROKE_PAD, draft.arrow_length / 2) — arrow half-LENGTH bounds the head's
+# half-width (aspect < 1) AND its protrusion past an inside-arrow shaft trim (al/2).
 _STROKE_PAD = 1.2
 
 
@@ -326,6 +330,9 @@ def strip_obstacles(dwg, view=None, *, crossable=()):
 
     The occupancy source for the collect-then-solve carve — every migrated renderer's
     ``place_strip_candidates`` call wires this in (#321/#150/P3)."""
+    # Preset-aware stroke pad (#688 review): arrowheads scale with font_size.
+    al = getattr(getattr(dwg, "draft", None), "arrow_length", None)
+    pad = max(_STROKE_PAD, al / 2) if al else _STROKE_PAD
     boxes = []
     for name, o in dwg.iter_annotations():
         if view is not None:
@@ -334,7 +341,7 @@ def strip_obstacles(dwg, view=None, *, crossable=()):
                 continue  # owned by a different ortho view → its own (disjoint) block
         if type(o).__name__ in crossable:
             continue  # this consumer may cross it (centre lines/marks for a dim)
-        boxes.extend(occupancy_boxes(o))  # decomposed, not one hull (#685)
+        boxes.extend(occupancy_boxes(o, stroke_pad=pad))  # decomposed, not one hull (#685)
     return boxes
 
 

@@ -75,20 +75,24 @@ def test_strip_obstacles_captures_full_leader_footprint_not_just_label():
 
     obst = strip_obstacles(dwg)
     occ = _occupied_boxes(dwg)
+
     # #685 decomposed occupancy: assert the shaft REGION beyond the label is covered —
     # some obstacle box must contain the leader's tip-side extreme, which the label
     # box does not reach.
+    # #688 review: sample the ACTUAL segment endpoints (a diagonal shaft's hull
+    # midpoint is not on the shaft), with no slack beyond the production pad.
+    def _holds(boxes, px, py):
+        return any(x[0] <= px <= x[2] and x[1] <= py <= x[3] for x in boxes)
+
+    seg_pts = [pt for seg in leader.segments for pt in seg]
+    assert seg_pts, "leader exposes no segments - the decomposed contract lost its subject"
+    assert all(_holds(obst, px, py) for px, py in seg_pts), (
+        "leader stroke endpoints missing from strip_obstacles"
+    )
     tip_x = gb.min.X if gb.min.X < lb[0] - 0.5 else gb.max.X
-    tip_y = (gb.min.Y + gb.max.Y) / 2
-
-    def _holds(boxes, px, py, slack=1.5):
-        return any(
-            x[0] - slack <= px <= x[2] + slack and x[1] - slack <= py <= x[3] + slack
-            for x in boxes
-        )
-
-    assert _holds(obst, tip_x, tip_y), "leader shaft region missing from strip_obstacles"
-    assert not _holds(occ, tip_x, tip_y), "label-only occupancy should not reach the tip"
+    assert not _holds(occ, tip_x, (gb.min.Y + gb.max.Y) / 2), (
+        "label-only occupancy should not reach the tip"
+    )
 
 
 def test_coaxial_bore_on_rotational_part_is_not_over_located():
