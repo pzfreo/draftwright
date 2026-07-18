@@ -72,6 +72,7 @@ from draftwright.model import (
     plan_dimensions,
     plan_sections,
 )
+from draftwright.repair import reconcile_witness_labels
 
 
 def _wrap_rows(header, data, ncols):
@@ -356,6 +357,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (ADR 0009 end state, #345/#346/#393) — dedup coincident spans, order the ladder —
     # BEFORE the section/detail views so they see the placed ladder as an obstacle.
     drain_corridors(ctx, dwg)
+    # (#690) Witness-crossing label reconciliation — after every corridor (and its
+    # deferred fallthroughs) has placed: shift any dim label a FOREIGN transverse
+    # stroke crosses, along its own line, via the repair machinery. Deterministic,
+    # runs in both build paths.
+    reconcile_witness_labels(dwg)
 
     # Turned/circlip-groove callouts (#148c): {width} WIDE × ø{dia} via a leader off each
     # groove. A groove is a secondary leader-callout on a turned shaft — exactly where the
