@@ -4,6 +4,18 @@
 
 ### Changed
 
+- **`finalize()` drains in the auto-pass's order** (#699 slice b): both build
+  paths now execute the orchestrator's one canonical `_PASS_SEQUENCE` (via the
+  shared `run_stages`), removing the hand-mirrored second orchestration in
+  `Drawing._drain_intents`. For the deferred/finalize path this reorders three
+  things toward auto-pass parity: the turned diameter/step-length set-solves now
+  place *before* the corridor drain (matching the auto-pass's obstacle
+  visibility); slots register after them; and the register-only height-ladder /
+  step-position stages register *after* locations — observable too, since
+  registration order decides corridor key-creation (= drain) order and
+  same-priority tie-breaks (Codex review; the new order is exactly the
+  auto-pass's). Recompose output may shift accordingly; the auto-pass order is
+  unchanged.
 - **`Sheet.export` speaks the modern export API** (#702): it now takes
   `formats=` (any of svg/dxf/pdf/png, default **PDF** — matching the CLI
   default) and `dpi=`, and returns the `{format: path}` dict. Previously it

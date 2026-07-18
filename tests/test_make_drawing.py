@@ -6453,6 +6453,36 @@ class TestFeatureEdits:
         assert dwg._named["user_width"]._dw_spec.distance == 12
         assert dwg._intents == []
 
+    def test_finalize_mixed_corridor_batch_places_each_exactly_once(self):
+        # #699 slice b (Codex review): the drain stages now run in the auto-pass's
+        # canonical _PASS_SEQUENCE order, which moved the register-only height-ladder /
+        # step-position stages AFTER locations. Registration order decides corridor
+        # KEY-creation order (= drain order) and same-priority tie-breaks, so the reorder
+        # is observable — pin the mixed-batch outcome: locations, a height rung, a
+        # shoulder position and a pinned user dimension all competing in one deferred
+        # batch must each place exactly once, with no error-severity lint and nothing
+        # left recorded.
+        part = (
+            Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15) - Pos(20, 15, 0) * Cylinder(3, 30)
+        )
+        dwg = build_drawing(part, auto_dims=False)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        with dwg.deferred():
+            dwg.locate(hole)  # the locations corridor (plan/side above)
+            dwg.dimension(step, "length", role="step_height")  # the front-right ladder
+            dwg.dimension(step, "length", role="step_position")  # the shoulder corridor
+            dwg.dimension(  # a pinned user dim joins the same drain (ADR 0012)
+                env, "length", role="width", side="below", name="user_width", pin=True
+            )
+        assert dwg._intents == []  # every routed intent drained
+        assert len([n for n in dwg.annotations() if n.startswith("dim_shoulder")]) == 1
+        assert [n for n in dwg.annotations() if n.startswith("dim_step")]  # rung placed
+        assert {n for n in dwg.annotations_of(hole) if n.startswith("m_loc")}
+        assert "user_width" in dwg.annotations() and "user_width" in dwg._pinned
+        assert [i for i in dwg.lint() if i.severity == "error"] == []
+
     def test_deferred_dimension_generated_names_do_not_collide_in_one_batch(self):
         # #511 review: generated names must be reserved before the corridor drain. Otherwise
         # two same-kind dimensions recorded in one deferred batch both choose dim_length0 and
