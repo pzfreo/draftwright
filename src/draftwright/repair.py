@@ -89,3 +89,99 @@ def repair_drawing(dwg, max_iter: int = 3):
             dwg._registry.restore(snap_registry)
             break
     return dwg
+
+
+def reconcile_witness_labels(dwg) -> int:
+    """Shift a dimension's label along its own line when ANOTHER dimension's
+    stroke crosses it (#690) — the perpendicular-axis conflict class tier
+    co-solving cannot fix (a location dim's witness must cross the whole strip
+    to reach its tier; any inner label at that height gets crossed wherever
+    the tiers land — the dshape ``dim_height`` case).
+
+    Runs as a deterministic late pipeline pass (both build paths call it after
+    every corridor has drained), using the repair machinery: offenders rebuild
+    once via :func:`_replace_dim` with the minimal clearing ``label_offset_x``.
+    Detection mirrors the cleanliness ratchet's decomposed model (#685): a
+    foreign drawn stroke (helpers ``.segments``) TRANSVERSE to the label's own
+    dim line, crossing its ``label_bbox`` by >0.5 mm on both axes. Parallel
+    strokes are the legitimate stacked-shaft pattern and never count. The shift
+    is clamped to the dimension's own span (a label pushed past its witness
+    ends reads as the neighbour's); an unshiftable label is left where it is —
+    unchanged output, and lint reports it exactly as before. Returns the count
+    shifted."""
+
+    def _free_segments(lo, hi, blocked):
+        # Local minimal interval-subtraction (repair sits below annotations/ in the
+        # DAG, so it cannot import the corridor carve; ~the same ten lines).
+        segs = [(lo, hi)]
+        for b_lo, b_hi in sorted(blocked):
+            nxt = []
+            for s_lo, s_hi in segs:
+                if b_hi <= s_lo or b_lo >= s_hi:
+                    nxt.append((s_lo, s_hi))
+                    continue
+                if b_lo > s_lo:
+                    nxt.append((s_lo, b_lo))
+                if b_hi < s_hi:
+                    nxt.append((b_hi, s_hi))
+            segs = nxt
+        return segs
+
+    pad = 1.0  # keep-clear each side of a crossing stroke
+    dims = [
+        (name, o)
+        for name, o in dwg.iter_annotations()
+        if getattr(o, "_dw_spec", None) is not None and getattr(o, "label_bbox", None) is not None
+    ]
+    shifted = 0
+    for name, dim in dims:
+        s = dim._dw_spec
+        lb = dim.label_bbox
+        dx, dy = s.p2[0] - s.p1[0], s.p2[1] - s.p1[1]
+        vertical = abs(dy) > abs(dx)  # the label travels along the dim line
+        ax = 1 if vertical else 0  # page axis the label moves along
+        span_lo, span_hi = sorted((s.p1[ax], s.p2[ax]))
+        mid = (lb[ax] + lb[ax + 2]) / 2.0
+        half = (lb[ax + 2] - lb[ax]) / 2.0
+        threats = []
+        for other, oo in dwg.iter_annotations():
+            if other == name:
+                continue
+            for seg in getattr(oo, "segments", None) or ():
+                (x0, y0), (x1, y1) = seg
+                sdx, sdy = x1 - x0, y1 - y0
+                # transverse to the label line only (parallel = stacked shafts, exempt)
+                if (abs(sdy) > abs(sdx)) == vertical:
+                    continue
+                sb = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+                # A drawn stroke is a zero-thickness line: crossing = its constant
+                # coordinate strictly inside the label band on the label's travel
+                # axis, plus real overlap on the other axis (>0.5 mm, the lint
+                # threshold). An AABB two-axis test can never fire on a line box.
+                oth = 1 - ax
+                t = (sb[ax] + sb[ax + 2]) / 2.0
+                if (
+                    lb[ax] + 0.3 < t < lb[ax + 2] - 0.3
+                    and min(sb[oth + 2], lb[oth + 2]) - max(sb[oth], lb[oth]) > 0.5
+                ):
+                    threats.append(t)
+        if not threats:
+            continue
+        segs = _free_segments(
+            span_lo, span_hi, [(t - pad - half, t + pad + half) for t in threats]
+        )
+        best = None
+        for g_lo, g_hi in segs:
+            if g_hi - g_lo < 2 * half:
+                continue
+            c = min(max(mid, g_lo + half), g_hi - half)
+            if best is None or abs(c - mid) < abs(best - mid):
+                best = c
+        if best is None or abs(best - mid) <= 0.05:
+            continue
+        off = best - mid
+        kwargs = dict(s.kwargs)
+        kwargs["label_offset_x"] = kwargs.get("label_offset_x", 0.0) + off
+        _replace_dim(dwg, dim, _dim(s.p1, s.p2, s.side, s.distance, s.draft, **kwargs))
+        shifted += 1
+    return shifted

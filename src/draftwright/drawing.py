@@ -1560,6 +1560,7 @@ class Drawing:
             feature_hole_keys,
         )
         from draftwright.model import PartModel, plan_dimensions
+        from draftwright.repair import reconcile_witness_labels
 
         _section = r.section
         corridor_ids, callout_ids, dia_ids = r.corridor_ids, r.callout_ids, r.dia_ids
@@ -1652,6 +1653,8 @@ class Drawing:
                     if self._queue_dimension_intent(it, a, ctx=ctx, used_names=used_dim_names):
                         queued_dim_ids.add(id(it))
             drain_corridors(ctx, self)
+            # (#690) Same witness-crossing label reconciliation as the auto-pass drain.
+            reconcile_witness_labels(self)
         self._intents = [
             it
             for it in self._intents
