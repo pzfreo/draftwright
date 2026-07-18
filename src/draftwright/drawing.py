@@ -557,10 +557,6 @@ class Drawing:
         """Is *name* a placed scattered hole callout / location dim?"""
         return self._coverage.is_scattered_hole_doc(name)
 
-    def _drop_callout_diam(self, diam):
-        """Record a diameter dropped by the per-view callout cap."""
-        self._coverage.drop_diam(diam)
-
     # -- views ----------------------------------------------------------------
     def add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
         """Project ``shape`` from ``camera`` and place it at ``position``.

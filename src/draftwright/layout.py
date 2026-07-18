@@ -143,7 +143,7 @@ def _solve_strip_1d_pava(naturals, gaps, lo, hi, weights=None):
     that dwarfs the others (``_ANCHOR_WEIGHT``) makes that point win every pool
     median, pinning it at its natural position while the rest flow around it.
 
-    Same contract as :func:`_solve_strip_1d` (per-pair gaps): *naturals* sorted ascending,
+    Same contract as :func:`_solve_strip_1d`, but with per-pair *gaps*: *naturals* sorted ascending,
     ``len(gaps) == max(len(naturals) - 1, 0)``, and returns ``None`` (never
     raises) when the fixed set is provably infeasible — the caller's
     drop-and-retry loop depends on that.

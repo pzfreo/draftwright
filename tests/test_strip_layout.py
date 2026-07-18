@@ -138,7 +138,7 @@ def test_rotational_bore_leaders_symmetric_when_room():
 
 
 def test_rotational_bore_leader_overflow_excluded_from_coverage():
-    # #374 review: a dropped bore must be registered via _drop_callout_diam so coverage lint does
+    # #374 review: a dropped bore must be registered via ctx.coverage.drop_diam so coverage lint does
     # not double-report it as feature_not_dimensioned on top of the callout_dropped warning.
     from build123d import Cylinder, Pos
 
