@@ -120,12 +120,16 @@ _PASS_SEQUENCE: tuple[str, ...] = (
 )
 
 
-def run_stages(stages: dict, sequence: tuple[str, ...] = _PASS_SEQUENCE) -> None:
-    """Run the *stages* a path implements in the canonical *sequence* order.
+def run_stages(stages: dict, sequence: tuple[str, ...] | None = None) -> None:
+    """Run the *stages* a path implements in the canonical *sequence* order
+    (``_PASS_SEQUENCE``, resolved at call time so a test/instrumentation rebinding
+    is honoured — Codex review).
 
     The shared executor of the one pass list (#699 slice b): both build paths hand
     their name→thunk dict here, so neither can run a stage the sequence does not
     name (assertion) nor in an order of its own."""
+    if sequence is None:
+        sequence = _PASS_SEQUENCE
     unknown = set(stages) - set(sequence)
     assert not unknown, f"stages not in _PASS_SEQUENCE: {sorted(unknown)}"
     for name in sequence:
