@@ -194,19 +194,53 @@ def test_private_reads_are_a_documented_shrinking_allowlist():
 
 
 def test_build_state_has_a_single_construction_and_fill_site():
-    """#639: the BuildState is constructed in Drawing.__init__ and FILLED at exactly
-    one site (builder._assemble); attach_part_model is the one sanctioned later
-    write (the finalize re-attach path). Fail-closed: any new `_build` write
-    elsewhere in src/ must be argued here."""
-    import re
+    """#639: the writer inventory for the build context, fail-closed and AST-based
+    (#691 review — a regex missed augmented assignment / setattr / tuple targets).
+
+    Detected uniformly by Store/Del context + constant-name setattr on ANY receiver:
+    every write whose target attribute is ``_build``, ``_build.<field>``, or one of
+    the four legacy names. The sanctioned inventory: Drawing.__init__ constructs;
+    builder._assemble fills analysis+part_model once; the ``_analysis`` compat
+    setter and ``attach_part_model`` route through BuildState (drawing.py). The
+    three cache/model legacy attrs are GETTER-ONLY by design — a wholesale
+    replacement must go through BuildState, so an accidental one fails loudly
+    rather than silently forking the single-writer story.
+    """
     from pathlib import Path
 
+    watched = {"_build", "_analysis", "_part_model", "_view_edge_cache", "_ann_box_cache"}
     src = Path(__file__).parent.parent / "src" / "draftwright"
     writers: dict[str, list[str]] = {}
+
+    def _attr_root(node):
+        # dwg._build.part_model → ("_build", "part_model"); dwg._analysis → ("_analysis", None)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute):
+            if node.value.attr in watched:
+                return f"{node.value.attr}.{node.attr}"
+        if isinstance(node, ast.Attribute) and node.attr in watched:
+            return node.attr
+        return None
+
     for py in sorted(src.rglob("*.py")):
-        for m in re.finditer(r"[\w.]+\._build(?:\.\w+)? *=[^=]", py.read_text(encoding="utf-8")):
-            writers.setdefault(py.name, []).append(m.group(0).strip(" ="))
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            hit = None
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                hit = _attr_root(node)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in ("setattr", "delattr")
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+                and node.args[1].value in watched
+            ):
+                hit = node.args[1].value
+            if hit is not None:
+                writers.setdefault(py.name, []).append(hit)
+
     assert writers == {
-        "builder.py": ["dwg._build.analysis", "dwg._build.part_model"],
-        "drawing.py": ["self._build", "self._build.analysis", "self._build.part_model"],
+        "builder.py": ["_build.analysis", "_build.part_model"],
+        "drawing.py": ["_build", "_build.analysis", "_build.part_model"],
     }, writers

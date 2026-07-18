@@ -753,7 +753,13 @@ class Drawing:
         """
         return self._part_model
 
-    # --- build-context compat properties (#639): one BuildState, thin views ------
+    # --- build-context compat properties (#639): one BuildState, thin views.
+    # _part_model and the two caches are GETTER-ONLY by design (#691 review):
+    # zero assignment sites exist in src/ or tests/, and a future wholesale
+    # replacement must go through BuildState (attach_part_model / the caches'
+    # in-place mutation) so it fails loudly instead of silently forking the
+    # single-writer inventory the encapsulation guard pins. _analysis keeps a
+    # setter for manual-construction flows (also inventoried by the guard).
     @property
     def _analysis(self):
         return self._build.analysis
