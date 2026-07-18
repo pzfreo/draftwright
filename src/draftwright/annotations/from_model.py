@@ -1933,9 +1933,21 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
             solved[name] = pos
             return _dim((base, zmin, 0), (base, ztop, 0), "right", pos - base, draft, label=label)
 
-        def _foot(pos, ztop=ztop, label=label):
+        def _foot(pos, ztop=ztop, label=label, k=k):
+            # Predecessor-aware prediction (#689 review): the conservative
+            # edge-anchored witness can falsely exhaust the strip when an inner
+            # obstacle sits in the already-traversed region. Use the same solved
+            # map the build chain uses — empty on the first evaluation (edge-based,
+            # the prior behaviour), tight on later-segment retries.
+            base = edge2
+            for pn in reversed(names[:k]):
+                if pn in solved:
+                    base = solved[pn]
+                    break
+            if pos - base < 0.5:  # degenerate guard: never model a zero-length offset
+                base = edge2
             return dim_footprint(
-                (edge2, zmin, 0), (edge2, ztop, 0), "right", pos - edge2, draft, label
+                (base, zmin, 0), (base, ztop, 0), "right", pos - base, draft, label
             )
 
         def _drop(nm, drop_msg=drop_msg, name=name):

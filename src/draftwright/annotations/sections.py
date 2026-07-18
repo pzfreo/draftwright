@@ -570,11 +570,17 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             # room. The corridor solve now places dim_height when it fits — so on a
             # no-room prismatic detail, demote it DELIBERATELY (same outcome, now
             # explicit and logged) and retry the detail once.
-            dwg.remove("dim_height")
-            _log.warning(
-                "dim_height demoted: the requested crowded-step detail view takes its room"
-            )
+            hview = dwg.view_of("dim_height")
+            hobj = dwg.remove("dim_height")
             placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
+            if placed:
+                _log.warning(
+                    "dim_height demoted: the requested crowded-step detail view takes its room"
+                )
+            else:
+                # Transactional (#689 review): the detail may fail for reasons other
+                # than dim_height's room — restore it rather than losing BOTH.
+                dwg.add(hobj, "dim_height", view=hview)
         if placed:
             n_placed += 1
 
