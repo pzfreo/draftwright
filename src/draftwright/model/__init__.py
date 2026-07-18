@@ -5,13 +5,14 @@ A stable intermediate representation (`PartModel` of `Feature` objects exposing
 recognition heuristics) and a *dimensioning planner* (back-end). The narrow waist
 that lets new shapes be new types, not new branches.
 
-**Status:** wired into `build_drawing` in production (ADR 0008 convergence,
-in progress). `build_part_model` is built once per build from `_analyse`'s single
-feature inventory (Amendment 5) and consumed by the renderers in
-`annotations/from_model.py` (turned step lengths/diameters, centre marks, envelope
-width/depth, slots) and by the lint coverage checks. Remaining engine passes
-(holes, sections, PMI, the prismatic step-ladder) are migrating onto it — see
-`docs/plans/0008-convergence-roadmap.md`.
+**Status:** the ADR 0008 convergence is **complete — one path** (2026-06-30).
+`build_part_model` runs once per build from `_analyse`'s single feature
+inventory (Amendment 5); every render pass consumes the IR — the
+`annotations/from_model.py` renderers (turned/diameters, centre marks,
+envelope, step lengths, height ladder, PMI, GD&T, …), the hole/section passes
+(`annotations/holes.py` / `sections.py` via `plan_dimensions` /
+`plan_sections`), and page/scale sizing (Amendment 8). Coverage lint alone
+reads recognised geometry, by design (ground truth, not the plan).
 
 - :mod:`.ir` — the IR: `DimParameter`, `Datum`, `Frame`, the `Feature` protocol,
   the concrete feature types, and `PartModel`.

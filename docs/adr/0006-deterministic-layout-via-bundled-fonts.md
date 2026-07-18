@@ -55,8 +55,11 @@ commercial distribution. It can return later as an opt-in, user-supplied font.
 
 **Positive**
 - Layout is **deterministic across Linux / macOS / Windows** — drawings are
-  reproducible, and the ADR-0005 golden gate now pins a **real part** (CTC-01),
-  closing its deferred real-part-coverage limitation.
+  reproducible. (At the time, this let the ADR-0005 golden gate pin a real part,
+  CTC-01; that byte-exact golden harness was later **retired** — ADR 0005 §3 /
+  ADR 0007 — and regression coverage now rests on the geometry-level and
+  `test_e2e_standards` suites. Determinism remains the point: identical layout
+  on every platform.)
 - Fixes the silent **typeface-substitution** bug (consistent IBM Plex everywhere),
   and removes the proprietary-Arial default.
 

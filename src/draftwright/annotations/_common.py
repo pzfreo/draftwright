@@ -61,8 +61,9 @@ class Escalation:
 def _anno_box(o):
     """Page-space bbox ``(x0, y0, x1, y1)`` of an annotation — its text
     ``label_bbox`` if it has one, else its geometric bounding box; ``None`` if
-    neither resolves.  Local mirror of ``make_drawing._anno_bbox`` (annotate sits
-    below make_drawing, so it cannot import from it)."""
+    neither resolves.  Twin of ``compose._anno_bbox`` (annotations sits above
+    compose in the DAG, so the mirror is deliberate — consolidation tracked by
+    #700)."""
     lb = getattr(o, "label_bbox", None)
     if lb is not None:
         return lb

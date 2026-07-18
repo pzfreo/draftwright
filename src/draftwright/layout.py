@@ -25,16 +25,17 @@ What actually lives here today:
   once PAVA gave the exact L1 placement). :func:`plan_strip` is the
   production-facing collect-then-solve entry point built on top of it
   (selection, ordering, anchoring); the lower-level
-  `_solve_strip_1d*`/`_greedy_strip_1d*` functions are unit-tested in
-  isolation and used by `plan_strip`'s anchored solve. Keep-out-band avoidance
+  `_solve_strip_1d`/`_greedy_strip_1d` primitives are unit-tested in isolation
+  and consumed directly by the balloon-spread pass (imported from here) and
+  the diameter-row pass (via the `_core` aliases). Keep-out-band avoidance
   (a callout must not sit on a centre-line or a location-dim row) briefly lived
   as a `plan_strip`-internal banded solve (ADR 0009 Amendment 5, #318); that had
   a cross-segment correctness gap (#381), so Amendment 9 retired it in favour of
   the caller carving bands into the same obstacle segmentation it already uses
   (`holes.py`) — `plan_strip` itself no longer knows about bands.
-- :func:`fit_box` (+ the thin ``place_box`` naming used at call sites) — the 2D
-  free-rectangle placer for tables/GD&T frames/BOM blocks (#93), the one part
-  of the original `LayoutSolver` surface that is genuinely shared.
+- :func:`fit_box` — the 2D free-rectangle placer for tables/GD&T frames/BOM
+  blocks (#93), the one part of the original `LayoutSolver` surface that is
+  genuinely shared.
 
 Global 2D non-overlap (the disjunctive constraint ADR 0003 notes is
 non-linear) stays deferred (#94) and may never be needed — see that ADR's
@@ -266,8 +267,9 @@ class StripCandidate:
             :func:`_solve_strip_1d_pava`, so it stays a spacing hint, not a hard
             pin (an anchored candidate can still be *dropped* when over capacity).
 
-    An ``eligible_sides`` field joins when the multi-side *assign* step lands
-    (P2, #322); the P0 seam places on a single, caller-chosen strip.
+    Candidates place on a single, caller-chosen strip; side *assignment* stays
+    with the caller (the multi-side generalisation was considered in P2/#322
+    and not needed — passes pick the strip before solving).
     """
 
     key: str
@@ -294,8 +296,10 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     keeps leaders crossing-free when the sites have **distinct** strip-axis
     coordinates. Sites that share that coordinate are ordered deterministically by
     ``key``; that tie-break is *not* crossing-optimal (it doesn't see the
-    perpendicular coordinate that decides those crossings) — resolving ties
-    crossing-optimally is the P4 assign/order step (#318). Then spaces the labels
+    perpendicular coordinate that decides those crossings) — P4 (#318, closed)
+    delivered the min-leader PAVA spacing solve instead, and crossing-optimal
+    tie-resolution remains a possible refinement should a real part force it.
+    Then spaces the labels
     within ``[lo, hi]``, at least *min_gap* apart, via the per-pair solve
     described below.
 

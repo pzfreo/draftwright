@@ -153,7 +153,10 @@ the `origin`-back-link mechanism dropped as unnecessary).
   single owner of annotation identity/ownership; provenance is the new axis, and its
   sink.
 - [ADR 0008](0008-unified-feature-model-and-dimensioning-planner.md) — the IR/planner
-  intent boundary is where the seam lives; `origin` extends the IR feature types.
+  intent boundary is where the seam lives. (`origin` survives only on the
+  *aspect* features — `ControlFrame`/`DatumRef`/`Finish`/`Note` — as a
+  targeting handle; see Amendment 2. The universal
+  back-link on IR feature types was never needed and was not built.)
 - [ADR 0009](0009-boundary-labeling-strip-placement.md) — the corridor placer is a
   layer that must carry the intent through to its deferred add.
 - Issues: #398 (edit-by-feature), #400 (expanded semantic script), #388 (finalize).

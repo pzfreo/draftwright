@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (core implemented; the unifying *global 2-D* solve stays
   deferred — #94; amended 2026-07-10 — see Correction). The 1-D strip solve,
-  `place_box`/`fit_box`, and pins (#89) have shipped — the concrete carrier is
+  `fit_box`, and pins (#89) have shipped — the concrete carrier is
   `StripCandidate`/`plan_strip`/`CorridorCandidate`, not the original
   `Placeable`/`LayoutSolver` model, which was retired (#547). The **assignment
   layer** and **escalation ladder** for per-view strip placement are made
@@ -200,8 +200,8 @@ never be needed.** This is a deliberate scope correction, not an omission.
 
 ## Current state vs target
 
-- **Exists:** the deterministic 1D strip solve (`_solve_strip_1d_pava`) and 2D
-  `fit_box`/`place_box` free-rectangle placer, in `layout.py`; `plan_strip`/
+- **Exists:** the deterministic 1D strip solve (`_solve_strip_1d_pava`) and the
+  2D `fit_box` free-rectangle placer, in `layout.py`; `plan_strip`/
   `StripCandidate` (ADR 0009 collect-then-solve) and `solve_corridor`/
   `CorridorCandidate` (`annotations/_common.py`) as the production strip-
   placement path hole callouts, turned diameters, and every other strip
@@ -231,9 +231,11 @@ entrenching `plan_strip` as the real path.
 By 2026-07-10, `Placeable`/`LayoutSolver` had no caller anywhere in `src/`
 outside their own tests. Rather than leave a fully-tested, zero-consumer class
 in the tree as a standing (and, per the above, actively misleading) claim about
-what production code does, it was deleted (#547). `fit_box`/`place_box` — the
-2D free-rectangle placer, the one part of the original surface every consumer
+what production code does, it was deleted (#547). `fit_box` — the 2D
+free-rectangle placer, the one part of the original surface every consumer
 actually shares (tables, GD&T) — is unaffected and remains in `layout.py`.
+(The `place_box` wrapper name went with `LayoutSolver`; read `place_box`
+elsewhere in this document as `fit_box`, its surviving carrier.)
 
 This does not change the ADR's decision (constraint-based, deterministic,
 two-layer layout); it corrects which concrete types realise it. Read

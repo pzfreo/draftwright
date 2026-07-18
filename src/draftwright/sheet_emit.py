@@ -7,7 +7,8 @@ line per feature — that the user edits / comments-out / extends, then re-runs.
 **Detected input only writes numbers (the part-seam form, ADR 0011 Amdt 1 decision).** For a STEP
 file or a recovered solid the number *is* the ground truth, so a detected value is honest. We never
 fabricate a build123d part to chase a number-free layer — a synthesised solid silently drops what
-detection didn't model (chamfers, fillets, turned profiles) yet reads as authoritative. A caller who
+detection didn't model (a misread band, a thread's true form, an unrecognised relief) yet reads as
+authoritative. A caller who
 *has* the objects (mode 3b) wires their real part into the seam and swaps the number lines for
 ``sheet.hole(obj)`` references — the emitter's numbers are a starting point, not a ceiling.
 
