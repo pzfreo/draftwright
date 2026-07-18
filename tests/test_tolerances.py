@@ -247,6 +247,32 @@ class TestChamferTolerance:
         ]
         assert labels == ["C12"], labels
 
+    def test_renderer_displays_the_planned_value_not_the_raw_field(self):
+        # #724 review: the renderer must be planner-AUTHORITATIVE — the displayed leg is
+        # pd.param.value, and the dim is bound by (role, kind), never dims[0]. Feed
+        # render_chamfers a hand-built group whose planned value deliberately differs
+        # from the feature's raw leg1 (and carries a decoy first dim) and assert the
+        # label shows the planned value. This is the seam the remaining #698 kind
+        # migrations copy.
+        from dataclasses import replace
+
+        from draftwright.annotations._common import PlacementContext
+        from draftwright.annotations.from_model import render_chamfers
+
+        ch = chamfer(axis="z", leg=12, at=(39, 24, 0))
+        dwg = build_drawing(self._chamfered_plate(), model=[ch], number="X", auto_dims=False)
+        (g,) = [g for g in plan_dimensions(dwg.model()) if g.feature_kind == "chamfer"]
+        (pd,) = g.dims
+        decoy = replace(pd, param=replace(pd.param, role="decoy", value=99.0))
+        planned = replace(pd, param=replace(pd.param, value=7.0))  # ≠ ch.leg1 == 12
+        g2 = replace(g, dims=(decoy, planned))
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        assert render_chamfers(dwg, [g2], dwg._analysis, ctx=ctx) == 1
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_chamfer")
+        ]
+        assert labels == ["7 × 45°"], labels  # planned 7 ≠ leg2 12 → leg×angle form
+
 
 class TestToleranceHandle:
     def test_hole_tolerance_survives_feature_replacement(self):

@@ -578,7 +578,7 @@ class TestChamferCallout:
         dwg = build_drawing(chamfer(e, 6), number="X")
         chamfers = [f for f in dwg.model().features if f.kind == "chamfer"]
         assert len(chamfers) == 1
-        assert _chamfer_label(chamfers[0]) == "C6"
+        assert _chamfer_label(chamfers[0].leg1, chamfers[0]) == "C6"
 
     def test_hex_prism_side_faces_are_not_chamfers(self):
         # #560 review: a polygon prism's oblique sides are REAL faces, not chamfers — they
@@ -642,7 +642,7 @@ class TestChamferCallout:
         dwg = build_drawing(chamfer(e, 2.5), number="X")
         chamfers = [f for f in dwg.model().features if f.kind == "chamfer"]
         assert len(chamfers) == 1
-        assert _chamfer_label(chamfers[0]) == "C2.5"
+        assert _chamfer_label(chamfers[0].leg1, chamfers[0]) == "C2.5"
 
 
 class TestFlatCallout:

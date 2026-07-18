@@ -347,7 +347,7 @@ class TestChamfer:
         part = Box(90, 60, 10) + Pos(0, 0, 10) * Box(50, 40, 10)
         dwg = build_drawing(part, model=[chamfer(axis="z", leg=6, at=(25, 20, 10))], number="X")
         chs = [f for f in dwg.model().features if f.kind == "chamfer"]
-        assert len(chs) == 1 and _chamfer_label(chs[0]) == "C6"
+        assert len(chs) == 1 and _chamfer_label(chs[0].leg1, chs[0]) == "C6"
 
     def test_needs_axis_at_and_leg(self):
         with pytest.raises(ValueError):
