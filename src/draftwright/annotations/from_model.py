@@ -1846,46 +1846,40 @@ def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
 
 def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) -> int:
     """Front-view right ladder: prismatic step heights (from `StepLevelFeature`)
-    stacked inner→outer, then the overall height outermost — through `fv_zones.right`,
-    preserving the leapfrog witness cursor (#237). Replaces the engine's inline
-    `dim_step_*` + `dim_height`. A turned part has no `StepLevelFeature` (its steps are
-    the IR length chain); a Z-turned part suppresses the overall height (the chain
-    tiles it, ISO 129). Returns the count placed."""
+    stacked inner→outer, then the overall height outermost — registered as
+    :class:`CorridorCandidate`s in the shared ``(front, right)`` corridor (#636;
+    formerly the last solver-invisible `carve_free_position` auto-pass). The leapfrog
+    witness cursor (#237) survives as a *build-time chain*: candidates share a
+    ``solved`` position map, and each dim's witness anchors on its nearest already-
+    built predecessor's line (the view edge for the first) — build order follows the
+    candidate order, so the chain is deterministic. Prediction uses an analytical
+    footprint with the witness modelled from the view edge (a conservative
+    over-cover along the stack axis; the accept-time real-box validation trims any
+    drift). A turned part has no `StepLevelFeature`; a Z-turned part suppresses the
+    overall height (the chain tiles it, ISO 129). Returns the count REGISTERED."""
     draft = dwg.draft
     FX, FZ = a.proj.front_x, a.proj.front_z
-    right_ladder = FX(a.bb.max.X) + 2
-    n = 0
+    edge2 = FX(a.bb.max.X) + 2
+    zmin = FZ(a.bb.min.Z)
+    tier = draft.font_size + 2 * draft.pad_around_text
     step = next((f for f in model.features if f.kind == "step_level"), None)
     levels = list(step.levels) if step is not None else []
-    # Uniform staircase → one representative "N× rise" dim; else the per-step ladder
-    # (legibility-gated). Turned parts have no levels, so neither fires.
     rep = _detect_step_repeat(levels, a.bb.min.Z, a.bb.max.Z) if levels else None
+
+    # The chain, inner→outer: (name, page-z top, label, tier size, drop message).
+    chain: list = []
     if rep is not None:
         n_rep, rise = rep
         first = sorted(levels)[0]
-        perp = tuple(sorted((FZ(a.bb.min.Z), FZ(first))))
-        px = carve_free_position(dwg, a.fv_zones.right, "front", "x", _SLOT_DIM_STEP, perp)
-        if px is not None:
-            dwg.add(
-                _dim(
-                    (right_ladder, FZ(a.bb.min.Z), 0),
-                    (right_ladder, FZ(first), 0),
-                    "right",
-                    px - right_ladder,
-                    draft,
-                    label=f"{n_rep}× {_fmt(rise)}",
-                ),
+        chain.append(
+            (
                 "dim_step_typ",
-                view="front",
-            )
-            right_ladder = px
-            n += 1
-        else:
-            ctx.record_issue(
-                "error",
-                "placement_unsatisfiable",
+                FZ(first),
+                f"{n_rep}× {_fmt(rise)}",
+                _SLOT_DIM_STEP,
                 "representative step-height dimension dropped (front-view right strip full)",
             )
+        )
     elif levels:
         kept, n_close = _legible_steps(levels, a.bb.min.Z, a.SCALE)
         if n_close:
@@ -1896,77 +1890,96 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
                 "(use a detail view)",
             )
             # First-class escalation alongside the lint code (ADR 0009 Amdt 1, #351
-            # PR-4b) — `_request_prismatic_detail` (sections.py) triggers the detail-view
-            # remedy on this instead of independently recomputing the same legibility
-            # gate, which previously could queue a spurious detail even when the uniform-
-            # staircase branch above already fully documented the part with one
-            # representative dim (a real bug this routing fixes as a side effect).
+            # PR-4b) — `_request_prismatic_detail` (sections.py) consumes this instead
+            # of recomputing the legibility gate.
             ctx.escalations.append(
                 Escalation(kind="step", view="front", feature=step, reason="illegible")
             )
         for col, z in enumerate(kept):
-            perp = tuple(sorted((FZ(a.bb.min.Z), FZ(z))))
-            px = carve_free_position(dwg, a.fv_zones.right, "front", "x", _SLOT_DIM_STEP, perp)
-            if px is None:
-                ctx.record_issue(
-                    "error",
-                    "placement_unsatisfiable",
-                    f"{len(kept) - col} step-height dimension(s) dropped "
-                    "(front-view right strip full)",
+            chain.append(
+                (
+                    f"dim_step_{col}",
+                    FZ(z),
+                    _fmt(z - a.bb.min.Z),
+                    _SLOT_DIM_STEP,
+                    "step-height dimension dropped (front-view right strip full)",
                 )
-                break
-            dwg.add(
-                _dim(
-                    (right_ladder, FZ(a.bb.min.Z), 0),
-                    (right_ladder, FZ(z), 0),
-                    "right",
-                    px - right_ladder,
-                    draft,
-                    label=_fmt(z - a.bb.min.Z),
-                ),
-                f"dim_step_{col}",
-                view="front",
             )
-            right_ladder = px
-            n += 1
 
-    # Overall height — placed last so it sits OUTERMOST; suppressed for a Z-turned
-    # part (its IR step-length chain already tiles the full height, ISO 129) and for
-    # an X/Y rotational body (its Z extent IS the OD, dimensioned by render_rotational
-    # — #222).
     rot = next((f for f in model.features if f.kind == "rotational"), None)
     od_is_height = rot is not None and rot.frame.axis in ("x", "y")
     suppress_height = (not include_overall) or model.orientation == "z" or od_is_height
-    px = (
-        None
-        if suppress_height
-        else carve_free_position(
-            dwg,
+    if not suppress_height:
+        chain.append(
+            (
+                "dim_height",
+                FZ(a.bb.max.Z),
+                _fmt(a.z_size),
+                _SLOT_DIM_HEIGHT,
+                "overall height dimension dropped (front-view right strip full)",
+            )
+        )
+
+    names = [c[0] for c in chain]
+    solved: dict[str, float] = {}
+    for k, (name, ztop, label, _tsize, drop_msg) in enumerate(chain):
+
+        def _build(pos, name=name, ztop=ztop, label=label, k=k):
+            base = edge2
+            for pn in reversed(names[:k]):  # nearest already-built predecessor's line
+                if pn in solved:
+                    base = solved[pn]
+                    break
+            solved[name] = pos
+            return _dim((base, zmin, 0), (base, ztop, 0), "right", pos - base, draft, label=label)
+
+        def _foot(pos, ztop=ztop, label=label, k=k):
+            # Predecessor-aware prediction (#689 review): the conservative
+            # edge-anchored witness can falsely exhaust the strip when an inner
+            # obstacle sits in the already-traversed region. Use the same solved
+            # map the build chain uses — empty on the first evaluation (edge-based,
+            # the prior behaviour), tight on later-segment retries.
+            base = edge2
+            for pn in reversed(names[:k]):
+                if pn in solved:
+                    base = solved[pn]
+                    break
+            if pos - base < 0.5:  # degenerate guard: never model a zero-length offset
+                base = edge2
+            return dim_footprint(
+                (base, zmin, 0), (base, ztop, 0), "right", pos - base, draft, label
+            )
+
+        def _drop(nm, drop_msg=drop_msg, name=name):
+            solved.pop(name, None)
+            ctx.record_issue("error", "placement_unsatisfiable", drop_msg)
+
+        register_corridor(
+            ctx,
+            ("front", "right"),
             a.fv_zones.right,
             "front",
             "x",
-            _SLOT_DIM_HEIGHT,
-            tuple(sorted((FZ(a.bb.min.Z), FZ(a.bb.max.Z)))),
-            outermost=True,
-        )
-    )
-    if px is not None:
-        dwg.add(
-            _dim(
-                (right_ladder, FZ(a.bb.min.Z), 0),
-                (right_ladder, FZ(a.bb.max.Z), 0),
-                "right",
-                px - right_ladder,
-                draft,
-                label=_fmt(a.z_size),
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=_build,
+                # Steps stack inner→outer in chain order; the overall height rides the
+                # OVERALL subchain so it lands outermost by construction (as the
+                # envelope dims do), replacing the old carve's outermost=True.
+                order=(
+                    (_OVERALL_SUBCHAIN, 0, name)
+                    if name == "dim_height"
+                    else (_SIZE_SUBCHAIN, k, name)
+                ),
+                on_place=lambda nm: None,
+                on_drop=_drop,
+                force=True,  # principal dims: only a physically full strip drops them
+                feature=step if name != "dim_height" else None,
+                footprint=_foot,
             ),
-            "dim_height",
-            view="front",
         )
-        n += 1
-    elif not suppress_height:
-        _log.warning("dim_height skipped: fv_zones.right strip full")
-    return n
+    return len(chain)
 
 
 def render_step_positions(dwg, model, a, *, ctx) -> int:
@@ -2868,29 +2881,44 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
         ):
             # Fallthrough (#481): the declared/derived side is full — try the OPPOSITE side of
             # the same view before dropping, so a congested default still places somewhere
-            # legible rather than vanishing. Best-effort (mirrors render_slots' below-fallthrough):
-            # carve a free tier on the alternate strip and place there; carve_free_position only
-            # ever sees already-placed annotations, so it can't collide with a not-yet-drained
-            # sibling corridor. Force semantics (no corridor-cross check) match the primary path,
-            # BUT reject a spot over the (not-yet-placed) title block — a below/right strip runs
-            # into it, and carve can't see it (#481 review).
-            alt = {"above": "below", "below": "above", "left": "right", "right": "left"}[_s]
-            alt_strip = getattr(_zones, alt, None)
-            if alt_strip is not None:
-                axis2 = "y" if alt in ("above", "below") else "x"
-                extent = _sz[1] if axis2 == "y" else _sz[0]  # the glyph's stacking-axis size
-                perp = (_px, _px + _sz[0]) if _hz else (_py - _sz[1] / 2, _py + _sz[1] / 2)
-                pos = carve_free_position(dwg, alt_strip, _v, axis2, max(tier, extent), perp)
-                if pos is not None:
-                    dim = _bld(pos)
-                    if not _box_hits(_anno_box(dim), (_tb,)):  # clear of the title block
-                        dwg.add(dim, nm, view=_v, feature=_feat)  # placed on the alternate side
-                        return
-            ctx.record_issue(
-                "warning",
-                "gdt_dropped",
-                f"{nm} not placed (no room in the {_v} {_s} strip or its opposite)",
-            )
+            # legible rather than vanishing. DEFERRED via ctx.post_drain (#636, the plate
+            # pattern): the carve then runs after EVERY corridor has drained, so it cannot
+            # preempt a corner a later sibling's force candidate needs. Force semantics
+            # (no corridor-cross check) match the primary path, BUT reject a spot over the
+            # (not-yet-placed) title block — a below/right strip runs into it, and the
+            # carve can't see it (#481 review).
+            def _retry(
+                nm=nm,
+                _v=_v,
+                _s=_s,
+                _zones=_zones,
+                _px=_px,
+                _py=_py,
+                _hz=_hz,
+                _sz=_sz,
+                _bld=_bld,
+                _feat=_feat,
+                _tb=_tb,
+            ):
+                alt = {"above": "below", "below": "above", "left": "right", "right": "left"}[_s]
+                alt_strip = getattr(_zones, alt, None)
+                if alt_strip is not None:
+                    axis2 = "y" if alt in ("above", "below") else "x"
+                    extent = _sz[1] if axis2 == "y" else _sz[0]  # the glyph's stacking-axis size
+                    perp = (_px, _px + _sz[0]) if _hz else (_py - _sz[1] / 2, _py + _sz[1] / 2)
+                    pos = carve_free_position(dwg, alt_strip, _v, axis2, max(tier, extent), perp)
+                    if pos is not None:
+                        dim = _bld(pos)
+                        if not _box_hits(_anno_box(dim), (_tb,)):  # clear of the title block
+                            dwg.add(dim, nm, view=_v, feature=_feat)  # alternate side
+                            return
+                ctx.record_issue(
+                    "warning",
+                    "gdt_dropped",
+                    f"{nm} not placed (no room in the {_v} {_s} strip or its opposite)",
+                )
+
+            ctx.post_drain.append(_retry)
 
         register_corridor(
             ctx,

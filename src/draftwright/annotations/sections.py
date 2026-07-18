@@ -562,7 +562,26 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             _log.info("detail request '%s' dropped: detail letters A–H exhausted", req.kind)
             continue
         letter = _DETAIL_LETTERS[n_placed]
-        if _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter):
+        placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
+        if not placed and req.kind == "prismatic-steps" and "dim_height" in dwg.annotations():
+            # (#636) The user's explicit detail request outranks the overall-height
+            # dim: pre-migration, the solver-invisible carve silently dropped
+            # dim_height on exactly these crowded parts, and the detail took that
+            # room. The corridor solve now places dim_height when it fits — so on a
+            # no-room prismatic detail, demote it DELIBERATELY (same outcome, now
+            # explicit and logged) and retry the detail once.
+            hview = dwg.view_of("dim_height")
+            hobj = dwg.remove("dim_height")
+            placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
+            if placed:
+                _log.warning(
+                    "dim_height demoted: the requested crowded-step detail view takes its room"
+                )
+            else:
+                # Transactional (#689 review): the detail may fail for reasons other
+                # than dim_height's room — restore it rather than losing BOTH.
+                dwg.add(hobj, "dim_height", view=hview)
+        if placed:
             n_placed += 1
 
 
