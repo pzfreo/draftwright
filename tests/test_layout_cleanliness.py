@@ -71,8 +71,12 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
     #  - POLICY-B ARROW CROSSINGS (bracket): hc_plan0's wide label straddles the
     #    thin section arrow on the plan centre row; hc_plan1's DIAGONAL shaft AABB
     #    clips the same arrow by <1 mm (the placer verifies the diagonal precisely).
-    # dshape's dim_height pair stays PENDING #636 (height-ladder carve is invisible
-    # to the solve — a real stroke-through-label).
+    # dshape's dim_height pair: the location dim's WITNESS must cross the whole
+    # right strip to reach its tier, and dim_height's label sits at a fixed height
+    # on that path — co-solving tiers (the #636 ladder migration) cannot separate a
+    # perpendicular-axis conflict. Remedy = label-offset shifting for witness
+    # crossings (the #129 centreline machinery generalised) — see the follow-up
+    # issue referenced in ADR 0009's migration note.
     "bracket": {
         frozenset({"hc_plan0", "section_arrow_right"}),
         frozenset({"hc_plan1", "section_arrow_right"}),

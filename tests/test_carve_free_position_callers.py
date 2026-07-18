@@ -39,15 +39,18 @@ _ALLOWED_CALLERS = {
     # axis-aligned strip tier, so it cannot be a solve candidate at all.
     ("holes.py", "_place_pitch_dim"),
     # Pending migration (#636), each with a genuine design fork:
-    ("from_model.py", "render_height_ladder"),  # leapfrog witness cursor — needs rework
-    ("from_model.py", "render_gdt"),  # PMI alt-strip fallback runs inside on_drop, post-drain
+    ("from_model.py", "render_gdt"),  # alt-strip fallback DEFERRED via ctx.post_drain (#636)
     # Beyond render_gdt's pattern (helpers ≥0.14): the primary placement IS the
     # corridor candidate; the carve runs in a ctx.post_drain-DEFERRED drop fallthrough,
     # after EVERY corridor has drained (#684 review — a mid-drain carve could preempt
     # a later sibling's reserved corner), retrying the opposite/side-view strip.
     ("from_model.py", "render_plates"),
-    ("holes.py", "add_feature_callout"),  # detect-only verb — no shared corridor drain
-    ("holes.py", "add_feature_location"),  # detect-only verb — no shared corridor drain
+    # Manual post-build verbs (the #426 half of the convergence): a single user-driven
+    # annotation onto a FINISHED sheet, where every occupant is already placed — the
+    # carve is the correct tool and there is no shared drain to join. Recorded as an
+    # explicit exemption in ADR 0009's migration note (#636 close-out).
+    ("holes.py", "add_feature_callout"),
+    ("holes.py", "add_feature_location"),
 }
 
 
