@@ -53,9 +53,11 @@ entry. Keep `_LAYERS` and this section in step.
   - **`drawing.py`** — the `Drawing` result object (`.lint()`/`.add()`/`.place_dim()`/
     `.repair()`/`.export*()`; delegates identity to `registry`, coverage to `lint`)
     plus `_build_table` and `FeatureInfo`. Sits below `builder` (which constructs it).
-    *(The build context `_analysis`/`_view_edge_cache` still lives on `Drawing`;
-    threading it through an explicit placement context, ADR 0005 §2, is tracked
-    by #639 in the #635 consolidation epic.)*
+    *(The build context lives in ONE typed `BuildState` on `Drawing` (`_build`:
+    analysis, part model, lint's geometry caches) — filled at a single site in
+    `builder._assemble`, read through compat properties, single-writer-guarded
+    by `test_drawing_encapsulation`. ADR 0005 §2 / #639 closed: `annotations/`
+    has zero private `Drawing` reads (empty allowlist ratchet).)*
 - **`annotate.py`** — thin compat facade re-exporting `_auto_annotate` (the
   orchestrator) from `annotations/`. The annotation passes were split into the
   **`annotations/`** subpackage (#164 / ADR 0005, P5):

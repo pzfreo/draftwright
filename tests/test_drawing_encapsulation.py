@@ -191,3 +191,22 @@ def test_private_reads_are_a_documented_shrinking_allowlist():
         "Allowlisted private read(s) no longer used — good, #639 is shrinking. Remove them "
         f"from _DWG_PRIVATE_READ_ALLOW to keep it honest: {sorted(stale)}"
     )
+
+
+def test_build_state_has_a_single_construction_and_fill_site():
+    """#639: the BuildState is constructed in Drawing.__init__ and FILLED at exactly
+    one site (builder._assemble); attach_part_model is the one sanctioned later
+    write (the finalize re-attach path). Fail-closed: any new `_build` write
+    elsewhere in src/ must be argued here."""
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).parent.parent / "src" / "draftwright"
+    writers: dict[str, list[str]] = {}
+    for py in sorted(src.rglob("*.py")):
+        for m in re.finditer(r"[\w.]+\._build(?:\.\w+)? *=[^=]", py.read_text(encoding="utf-8")):
+            writers.setdefault(py.name, []).append(m.group(0).strip(" ="))
+    assert writers == {
+        "builder.py": ["dwg._build.analysis", "dwg._build.part_model"],
+        "drawing.py": ["self._build", "self._build.analysis", "self._build.part_model"],
+    }, writers

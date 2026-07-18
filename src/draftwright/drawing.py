@@ -15,6 +15,7 @@ import os
 import tempfile
 import warnings
 from dataclasses import dataclass
+from dataclasses import field as dataclasses_field
 from typing import NamedTuple
 
 from build123d import (
@@ -368,6 +369,36 @@ class _IntentRouting:
     slot_feats: set
 
 
+@dataclass
+class BuildState:
+    """The build context a finished :class:`Drawing` carries (ADR 0005 §2 / #639).
+
+    One typed home for what used to be four loose private attributes:
+
+    - ``analysis`` — the pipeline's :class:`Analysis` namespace.
+    - ``part_model`` — the detected/declared ADR-0008 PartModel (read surface for
+      semantic edits, #397).
+    - ``view_edge_cache`` — lint's per-view edge bboxes, keyed on id(view shape)
+      (helpers #143/#164).
+    - ``ann_box_cache`` — lint's annotation bounding boxes (#602): identity- AND
+      location-token-checked entries (see ``_ann_box``), pruned by ``lint()``.
+
+    Builder fills it at one site; the compat properties on ``Drawing`` read
+    through it, so ``dwg._analysis``-style test inspection keeps working.
+    """
+
+    analysis: Analysis | None = None
+    part_model: object | None = None
+    view_edge_cache: dict = dataclasses_field(default_factory=dict)
+    ann_box_cache: dict = dataclasses_field(default_factory=dict)
+
+    def clear_geometry_caches(self) -> None:
+        """The one invalidation seam (finalize rollback): view edges + annotation
+        boxes together — a rolled-back drawing must re-measure everything."""
+        self.view_edge_cache.clear()
+        self.ann_box_cache.clear()
+
+
 class Drawing:
     """A composable technical drawing — the editable form of :func:`make_drawing`.
 
@@ -440,24 +471,15 @@ class Drawing:
         # _pattern_callouts / _patterned_holes / _dropped_callout_diams remain
         # reachable as properties below.
         self._coverage = CoverageState()
-        # One per-drawing cache for lint_drawing's per-view edge bboxes, keyed on
-        # id(view shape). repair() / lint_summary() lint the SAME projected view
-        # objects (self.views) repeatedly, so persisting it recomputes each
-        # view's edges once instead of every lint (helpers #143/#164).
-        self._view_edge_cache: dict = {}
-        # Same persistence idea for annotation bounding boxes (#602): an optimal
-        # bbox on fused dimension geometry costs ~10 ms and lint needs one per
-        # item; entries are identity-checked so replaced annotations re-measure.
-        # Entries are identity- AND location-token-checked (see _ann_box), so a
-        # replaced or in-place-relocated object re-measures; lint() prunes
-        # entries for departed objects.
-        self._ann_box_cache: dict = {}
+        # ADR 0005 §2 (#639): the drawing's build context in ONE typed object —
+        # analysis, part model, and the two geometry caches lint persists.
+        # Constructed empty here; builder._assemble fills it at a single site.
+        # The render passes never read it off the drawing (the empty
+        # _DWG_PRIVATE_READ_ALLOW ratchet) — it serves the Drawing's OWN methods
+        # (lint / finalize / repair / the edit verbs) and the test surface.
+        self._build = BuildState()
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
-        self._analysis: Analysis | None = None
-        # The detected ADR-0008 PartModel this drawing was built from (attached by
-        # the annotation orchestrator). Read surface for semantic edits (#397).
-        self._part_model: object | None = None
         # True when the caller SUPPLIED the model (build_drawing(model=…), ADR 0011) rather
         # than it being detected — gates the model-driven hole/pattern render membership so a
         # declared hole draws even where detection missed it, no-op for the detected path (#448).
@@ -731,10 +753,31 @@ class Drawing:
         """
         return self._part_model
 
+    # --- build-context compat properties (#639): one BuildState, thin views ------
+    @property
+    def _analysis(self):
+        return self._build.analysis
+
+    @_analysis.setter
+    def _analysis(self, a) -> None:
+        self._build.analysis = a
+
+    @property
+    def _part_model(self):
+        return self._build.part_model
+
+    @property
+    def _view_edge_cache(self) -> dict:
+        return self._build.view_edge_cache
+
+    @property
+    def _ann_box_cache(self) -> dict:
+        return self._build.ann_box_cache
+
     def attach_part_model(self, model) -> None:
         """Attach the built PartModel so ``model()`` and feature edits see it. Lets the
         orchestrator hand the model back without an ``annotations/`` attribute write (#639)."""
-        self._part_model = model
+        self._build.part_model = model
 
     @property
     def model_declared(self) -> bool:
@@ -1532,8 +1575,7 @@ class Drawing:
             self._coverage.restore(coverage_snap)
             if sv_above is not None:
                 sv_above.outer_limit = sv_above_limit
-            self._view_edge_cache.clear()
-            self._ann_box_cache.clear()
+            self._build.clear_geometry_caches()
             raise
         finally:
             self._defer_intents = deferred
