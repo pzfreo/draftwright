@@ -61,71 +61,45 @@ _TOL_MM = 0.5
 #   PENDING <issue>   = a real invisible-occupant defect the named phase removes (delete
 #                       the entry in that PR).
 _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
-    # BENIGN: two location dims off a common datum share their extension-line span.
-    "plate_holes": {frozenset({"m_locx0", "m_locx1"}), frozenset({"m_locy0", "m_locy1"})},
-    # bracket: two BENIGN datum pairs (as plate_holes) PLUS one SPACE-CONSTRAINED
-    # crossing (reclassified from PENDING, #351 P5 strand 3):
-    #  - _annotate_holes's plan/side callout placer now carves the column around
-    #    strip_obstacles (the section arrow reserved early via _reserve_section_row,
-    #    sections.py) and verifies each solved position with PRECISE (not
-    #    AABB-only) leader-footprint geometry (_segment_hits_box for the diagonal
-    #    tip->elbow shaft) — so a callout is never dropped or misjudged just for
-    #    being NEAR an obstacle.
-    #  - SPACE-CONSTRAINED {hc_plan0, section_arrow_right}: hc_plan0 is the
-    #    CENTRAL bore's callout, anchored on the plan-view centre row (ADR 0009
-    #    Amendment 4). Its wide label box (X≈80–140) straddles the thin section
-    #    arrow (X≈124–126), whose Y-band sits on that same centre row — the
-    #    crossing is unavoidable for this cramped part without an outer-layout
-    #    rescale (ADR 0004). Policy B (user, 2026-07-02) keeps the central callout
-    #    on its row rather than drop it or pay a large relocation. The offset
-    #    cbore callout (hc_plan1) now flows clear of the arrow — P4b's min-leader
-    #    PAVA solve, with the central bore anchored, no longer crosses it (the
-    #    scipy-LP prototype briefly did; Amendment 4).
+    # The honest post-#685 oracle exempts only TRANSVERSE stroke crossings; two
+    # remaining BENIGN classes stay allowlisted:
+    #  - PARALLEL WITNESS SHARING: location dims chained off a common datum, and
+    #    stacked step/slot ladders, share their extension-line corridor — the
+    #    standard ISO 129-1 running-dimension presentation. Distinguishing shared
+    #    witness corridors from a genuine collinear dim-line overprint needs
+    #    semantic stroke roles helpers does not expose (possible follow-up).
+    #  - POLICY-B ARROW CROSSINGS (bracket): hc_plan0's wide label straddles the
+    #    thin section arrow on the plan centre row; hc_plan1's DIAGONAL shaft AABB
+    #    clips the same arrow by <1 mm (the placer verifies the diagonal precisely).
+    # dshape's dim_height pair stays PENDING #636 (height-ladder carve is invisible
+    # to the solve — a real stroke-through-label).
     "bracket": {
+        frozenset({"hc_plan0", "section_arrow_right"}),
+        frozenset({"hc_plan1", "section_arrow_right"}),
         frozenset({"m_locx0", "m_locx1"}),
         frozenset({"m_locy0", "m_locy1"}),
-        frozenset({"hc_plan0", "section_arrow_right"}),
     },
-    # side_drilled: one BENIGN datum overlap PLUS one PENDING defect.
-    #  - BENIGN {dim_loc_side_y2000, m_env_depth}: the envelope depth (dy→y1) and the
-    #    location (dy→hole_y) are a dimension chain off the common `dy` datum — they
-    #    share the view-edge witness corridor, exactly like the datum pairs above.
-    #    The cursor→carve envelope migration (#321) moves the depth dim to its
-    #    box-consistent tier but the shared witness corridor persists — structural,
-    #    not a placer defect. (Was mislabelled PENDING before the migration measured it.)
-    #  - SPACE-CONSTRAINED {hc_side0, dim_loc_side_z2300}: the bore-callout leader
-    #    crosses the Z location dim's witness corridor. The #321 P1b corridor-aware pass
-    #    rejects the side strip and tries to RELOCATE the dim to the front view — but for
-    #    this part the front-right slot (≈10.7 mm between dim_height and the side view) is
-    #    too narrow for a tier (≈11 mm). With no roomy alternate, policy B KEEPS the dim
-    #    on its natural view (never drop a real dimension) and accepts the same-feature
-    #    crossing. Not a placer blind spot — a tight-packing constraint that only an
-    #    outer-layout rescale (ADR 0004) or a roomier part would let the pass clear.
-    "side_drilled": {
-        frozenset({"hc_side0", "dim_loc_side_z2300"}),
-        frozenset({"dim_loc_side_y2000", "m_env_depth"}),
-    },
-    # BENIGN (as side_drilled): envelope depth + location share the datum witness corridor.
-    # Second pair BENIGN (helpers ≥0.14): a tight-span location dim's outside-arrow
-    # tails put its witness HULL across the height dim's hull at the strip corner at
-    # every position — an AABB artifact of one-box occupancy for L-shaped ink (the
-    # inks are disjoint). Burns down with L-shaped occupancy (the #602 follow-up).
     "dshape": {
-        frozenset({"dim_loc_side_y200", "m_env_depth"}),
         frozenset({"dim_height", "dim_loc_front_z400"}),
+        frozenset({"dim_loc_side_y200", "m_env_depth"}),
     },
-    # holed_slot (#345/#346): all BENIGN datum-chain / shared-corridor overlaps — the
-    # unified above-corridor solve places three X-location dims + the slot length as one
-    # nested ladder off the common datum, so their extension-line spans share the corridor
-    # (exactly the plate_holes class). Labels never collide (verified) and lint is clean;
-    # this is standard running-dimension presentation, not an invisible-occupant overlap.
     "holed_slot": {
         frozenset({"m_locx0", "m_locx1"}),
         frozenset({"m_locx0", "m_locx2"}),
         frozenset({"m_locx1", "m_locx2"}),
+        frozenset({"m_slot0_length", "m_locx0"}),
         frozenset({"m_slot0_length", "m_locx1"}),
-        frozenset({"m_slot0_length", "m_locx2"}),
         frozenset({"m_locy0", "m_locy1"}),
+    },
+    "plate_holes": {frozenset({"m_locx0", "m_locx1"}), frozenset({"m_locy0", "m_locy1"})},
+    "side_drilled": {
+        frozenset({"hc_side0", "dim_loc_side_z2300"}),
+        frozenset({"dim_loc_side_y2000", "m_env_depth"}),
+    },
+    "slotted": {frozenset({"m_slot0_length", "m_slot0_pos"})},
+    "turned_shaft": {
+        frozenset({"m_steplen0", "m_steplen1"}),
+        frozenset({"m_steplen1", "m_steplen2"}),
     },
 }
 
@@ -154,22 +128,69 @@ def _observed_overlaps(dwg) -> set[frozenset[str]]:
     Named annotations only — like ``strip_obstacles``, which iterates
     ``iter_annotations`` (unnamed items contribute to the determinism ``item_count``
     but carry no position guard; production places none through the strip stage)."""
+
+    # Decomposed occupancy (#685): an annotation with `.segments` (helpers ≥0.14
+    # reports the drawn line pieces) is a set of stroke boxes + its label box, not
+    # one hull — a dimension's empty L-corners no longer count as overlap. The
+    # local mirror of annotations/_common.occupancy_boxes (the private-import
+    # ratchet keeps tests off annotations/ internals); hull fallback otherwise.
+    def _boxes(o):
+        # (box, direction) pairs: direction is the stroke's unit vector, or None for
+        # a label / hull-fallback box. A TRANSVERSE stroke-stroke crossing (>=30 deg
+        # between directions) is a legitimate ISO 129-1 crossing (an outer dim's
+        # witness passes through inner tiers) and does not count; near-parallel
+        # stroke overlap (collinear overprint) and any label/hull involvement do
+        # (#688 review - the blanket stroke exemption hid overprints).
+        import math as _m
+
+        segs = getattr(o, "segments", None)
+        if not segs:
+            b = _geom_box(o)
+            return [(b, None)] if b is not None else []
+        # Mirror production (strip_obstacles): the pad scales with the preset's
+        # arrow geometry, so the oracle exercises the same occupancy model.
+        al = getattr(getattr(dwg, "draft", None), "arrow_length", None)
+        pad = max(1.2, al / 2) if al else 1.2
+        out = []
+        for (x0, y0), (x1, y1) in segs:
+            ln = _m.hypot(x1 - x0, y1 - y0) or 1.0
+            out.append(
+                (
+                    (min(x0, x1) - pad, min(y0, y1) - pad, max(x0, x1) + pad, max(y0, y1) + pad),
+                    ((x1 - x0) / ln, (y1 - y0) / ln),
+                )
+            )
+        lb = getattr(o, "label_bbox", None)
+        if lb is not None:
+            out.append(((lb[0], lb[1], lb[2], lb[3]), None))
+        return out
+
+    def _benign_crossing(d1, d2):
+        if d1 is None or d2 is None:
+            return False
+        cross = abs(d1[0] * d2[1] - d1[1] * d2[0])  # |sin| of the angle between
+        return cross >= 0.5  # >=30 deg: a transverse crossing, not an overprint
+
     named = [
-        (name, _geom_box(o), type(o).__name__, dwg.view_of(name))
+        (name, _boxes(o), type(o).__name__, dwg.view_of(name))
         for name, o in dwg.iter_annotations()
     ]
     hits: set[frozenset[str]] = set()
     for i in range(len(named)):
-        n1, b1, t1, v1 = named[i]
-        if b1 is None or t1 in CROSSABLE_TYPES:
+        n1, bs1, t1, v1 = named[i]
+        if not bs1 or t1 in CROSSABLE_TYPES:
             continue
         for j in range(i + 1, len(named)):
-            n2, b2, t2, v2 = named[j]
-            if b2 is None or t2 in CROSSABLE_TYPES:
+            n2, bs2, t2, v2 = named[j]
+            if not bs2 or t2 in CROSSABLE_TYPES:
                 continue
             if not (v1 == v2 or v1 is None or v2 is None):
                 continue  # two distinct ortho views → disjoint blocks (ADR 0004)
-            if _overlaps(b1, b2, _TOL_MM):
+            if any(
+                _overlaps(b1, b2, _TOL_MM) and not _benign_crossing(d1, d2)
+                for b1, d1 in bs1
+                for b2, d2 in bs2
+            ):
                 hits.add(frozenset({n1, n2}))
     return hits
 

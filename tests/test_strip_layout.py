@@ -45,8 +45,19 @@ def test_strip_obstacles_captures_centreline_that_occupied_boxes_drops():
     obst = strip_obstacles(dwg)
     occ = _occupied_boxes(dwg)
 
-    assert any(_same(x, cbox) for x in obst), "centreline missing from strip_obstacles"
-    assert not any(_same(x, cbox) for x in occ), "expected _occupied_boxes to exclude centrelines"
+    # #685 decomposed occupancy: the centreline arrives as stroke boxes (possibly
+    # several pieces), not one exact hull — assert its midpoint and both ends are
+    # each inside some obstacle box, and none of them in _occupied_boxes.
+    my = (cbox[1] + cbox[3]) / 2
+    pts = [(cbox[0] + 0.5, my), ((cbox[0] + cbox[2]) / 2, my), (cbox[2] - 0.5, my)]
+
+    def _holds(boxes, px, py):
+        return any(x[0] <= px <= x[2] and x[1] <= py <= x[3] for x in boxes)
+
+    assert all(_holds(obst, *pt) for pt in pts), "centreline missing from strip_obstacles"
+    assert not any(_holds(occ, *pt) for pt in pts), (
+        "expected _occupied_boxes to exclude centrelines"
+    )
 
 
 def test_strip_obstacles_captures_full_leader_footprint_not_just_label():
@@ -58,16 +69,32 @@ def test_strip_obstacles_captures_full_leader_footprint_not_just_label():
 
     lb = leader.label_bbox
     gb = leader.bounding_box()
-    full = (gb.min.X, gb.min.Y, gb.max.X, gb.max.Y)
 
     # the leader genuinely extends beyond its label (else the test proves nothing)
     assert gb.min.X < lb[0] - 0.5 or gb.max.X > lb[2] + 0.5, "leader shaft not past its label?"
 
     obst = strip_obstacles(dwg)
     occ = _occupied_boxes(dwg)
-    assert any(_same(x, full) for x in obst), "full leader footprint missing from strip_obstacles"
-    # _occupied_boxes records (at most) the narrower label box for this leader
-    assert not any(_same(x, full) for x in occ)
+
+    # #685 decomposed occupancy: assert the shaft REGION beyond the label is covered —
+    # some obstacle box must contain the leader's tip-side extreme, which the label
+    # box does not reach.
+    # #688 review: sample the ACTUAL segment endpoints (a diagonal shaft's hull
+    # midpoint is not on the shaft), with no slack beyond the production pad.
+    def _holds(boxes, px, py):
+        return any(x[0] <= px <= x[2] and x[1] <= py <= x[3] for x in boxes)
+
+    seg_pts = [pt for seg in leader.segments for pt in seg]
+    assert seg_pts, "leader exposes no segments - the decomposed contract lost its subject"
+    assert all(_holds(obst, px, py) for px, py in seg_pts), (
+        "leader stroke endpoints missing from strip_obstacles"
+    )
+    # Negative check on a REAL shaft endpoint outside the label box (#688 r2):
+    # a diagonal shaft's hull midpoint need not lie on the shaft.
+    outside = next(
+        (px, py) for px, py in seg_pts if not (lb[0] <= px <= lb[2] and lb[1] <= py <= lb[3])
+    )
+    assert not _holds(occ, *outside), "label-only occupancy should not reach the shaft"
 
 
 def test_coaxial_bore_on_rotational_part_is_not_over_located():
@@ -176,10 +203,18 @@ def test_strip_obstacles_view_filter_drops_other_ortho_views():
         (n for n, _ in dwg.iter_annotations() if dwg.view_of(n) in ("front", "plan")), None
     )
     assert other is not None, "fixture should place a front/plan annotation"
-    b = dwg._named[other].bounding_box()
-    obox = (b.min.X, b.min.Y, b.max.X, b.max.Y)
-    assert any(_same(x, obox) for x in everywhere)
-    assert not any(_same(x, obox) for x in side), f"{other} (other ortho view) leaked into side"
+    o = dwg._named[other]
+    lb2 = getattr(o, "label_bbox", None)
+    if lb2 is not None:
+        cx, cy = (lb2[0] + lb2[2]) / 2, (lb2[1] + lb2[3]) / 2
+    else:
+        b = o.bounding_box()
+        cx, cy = (b.min.X + b.max.X) / 2, (b.min.Y + b.max.Y) / 2
+    # #685: compare by containment of the annotation's solid centre, not hull identity.
+    assert any(x[0] <= cx <= x[2] and x[1] <= cy <= x[3] for x in everywhere)
+    assert not any(x[0] <= cx <= x[2] and x[1] <= cy <= x[3] for x in side), (
+        f"{other} (other ortho view) leaked into side"
+    )
 
 
 def test_strip_obstacles_keeps_section_hatch_in_every_per_view_query():
