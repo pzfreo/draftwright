@@ -141,6 +141,12 @@ def reconcile_witness_labels(dwg) -> int:
         s = dim._dw_spec
         lb = dim.label_bbox
         dx, dy = s.p2[0] - s.p1[0], s.p2[1] - s.p1[1]
+        if min(abs(dx), abs(dy)) > 0.1:
+            # A diagonal dim's label_offset_x moves BOTH page coordinates — the
+            # axis-aligned solve below cannot describe it (#693 r2). Skip, same
+            # tolerance as the stroke rule; the diagonal pitch fallback already
+            # places with its own clearance search.
+            continue
         vertical = abs(dy) > abs(dx)  # the label travels along the dim line
         ax = 1 if vertical else 0  # page axis the label moves along
         span_lo, span_hi = sorted((s.p1[ax], s.p2[ax]))
