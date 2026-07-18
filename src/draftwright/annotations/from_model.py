@@ -65,7 +65,6 @@ from draftwright.annotations._common import (
     _box_hits,
     _geom_box,
     carve_free_position,
-    carve_free_segments,
     dim_footprint,
     place_strip_candidates,
     register_corridor,
@@ -815,9 +814,9 @@ def _diameter_column_left(dwg, items, start: int = 0) -> int:
     # Place what fits; drop the smallest ø first, never the whole column (#298).
     survivors, ys = _place_what_fits(specs, 1, min_gap, fy0 + half_h, fy1 - half_h)
     # Full-footprint occupancy (leader shafts, witness/extension lines, hatch) — NOT
-    # the label-box-only `_occupied_boxes`, which is blind to a bore callout's leader
-    # SHAFT, so a ø label could silently overprint it (the #133/#225/#305 invisible-
-    # occupant class, #358). Centre lines stay crossable (a diameter dim may cross one).
+    # a label-box-only view, which is blind to a bore callout's leader SHAFT, so a
+    # ø label could silently overprint it (the #133/#225/#305 invisible-occupant
+    # class, #358). Centre lines stay crossable (a diameter dim may cross one).
     occupied = strip_obstacles(dwg, view="front", crossable=CROSSABLE_TYPES)
     placed = 0
     for i, ((tip, dia, label, feat), ly) in enumerate(zip(survivors, ys, strict=True)):
@@ -914,39 +913,6 @@ def env_dim_placed(pd) -> bool:
     decision, shared with the orchestrator's side-below tier reservation so the two
     can never drift (#316 review)."""
     return pd is not None and not pd.suppressed and pd.param.span is not None
-
-
-def _envelope_tier(dwg, strip, view, size):
-    """The page-coord at which an envelope dim of *size* stacks OUTSIDE every placed
-    obstacle in *view* on *strip* — the outermost free tier that fits, placed at its
-    inner (view-facing) edge — or None if no free tier fits.
-
-    Cursor-free (ADR 0009 carve), unlike the ``Strip.allocate`` it replaces: the
-    envelope dim lands beyond the feature/location dims already placed on this strip
-    (they become obstacles here), giving the ISO 'overall dim outermost' stack **by
-    construction**. That is enforced here by choosing the *outermost* fitting free
-    segment — NOT merely the one nearest the view, which would land the envelope
-    inside any obstacle sitting in a middle/outer tier (a callout label, a leader
-    shaft) whenever an inner tier happened to be free, inverting the stack. The old
-    ``allocate`` gave the right order only because an earlier pass had advanced a
-    shared cursor; that coupling inverted the moment the location pass moved to
-    ``plan_strip`` (#321), which never advances the cursor. Reading obstacle boxes
-    decouples the two passes. The current renderer queues envelope dims into the shared
-    corridor instead; #133 mandatory-dim starvation is guarded by envelope priority.
-
-    Assumes a below/above strip (Y stacking axis) — the only strips ``render_envelope``
-    uses; a left/right strip would need the X interval of each obstacle box."""
-    lo, hi, inner = strip_free_span(strip)
-    obst = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-    segs = carve_free_segments(lo, hi, [(b[1], b[3]) for b in obst], strip.spacing)
-    # Fit tolerant of float error at the reservation boundary (#133): the guaranteed
-    # segment is exactly `size` wide in the saturated worst case.
-    fitting = [s for s in segs if s[1] - s[0] >= size - 1e-9]
-    if not fitting:
-        return None
-    if inner == hi:  # below/left: outermost = smallest coords; place at seg inner (hi) edge
-        return min(fitting, key=lambda s: s[0])[1]
-    return max(fitting, key=lambda s: s[1])[0]  # above/right: outermost = largest coords
 
 
 def _chamfer_label(ch) -> str:

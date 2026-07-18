@@ -2,7 +2,7 @@
 
 Grows with the boundary-labeling migration (tracking #320). P0b (#317): the
 complete per-strip occupancy model — `strip_obstacles` — that closes the
-`_occupied_boxes` blind spots behind #133/#225/#305. P0c (#317): the
+label-box-only blind spots behind #133/#225/#305. P0c (#317): the
 collect-then-solve seam — `StripCandidate` (a measured render-intent) + `plan_strip`
 (order = site order ⇒ crossing-free, then 1-D spacing). P2 (#322): `plan_strip`
 priority selection — drop the lowest-priority candidates until the rest fit, the
@@ -15,10 +15,7 @@ from __future__ import annotations
 from build123d import Box, BuildPart, Cylinder, Hole, Pos, Rotation
 
 from draftwright import build_drawing
-from draftwright.annotations._common import (
-    _occupied_boxes,
-    strip_obstacles,
-)
+from draftwright.annotations._common import strip_obstacles
 from draftwright.layout import StripCandidate, plan_strip
 
 
@@ -34,20 +31,19 @@ def _drive_screw_x():
     return Rotation(0, 90, 0) * p.part
 
 
-def test_strip_obstacles_captures_centreline_that_occupied_boxes_drops():
-    # _occupied_boxes excludes bare centrelines; the complete occupancy must not —
-    # a centreline through a callout's row is exactly the #305 blind spot.
+def test_strip_obstacles_captures_bare_centreline():
+    # A label-box-only occupancy misses bare centrelines; the complete occupancy
+    # must not — a centreline through a callout's row is exactly the #305 blind spot.
     dwg = build_drawing(_drive_screw_x())
     cl = dwg._named["centerline_front"]
     b = cl.bounding_box()
     cbox = (b.min.X, b.min.Y, b.max.X, b.max.Y)
 
     obst = strip_obstacles(dwg)
-    occ = _occupied_boxes(dwg)
 
     # #685 decomposed occupancy: the centreline arrives as stroke boxes (possibly
     # several pieces), not one exact hull — assert its midpoint and both ends are
-    # each inside some obstacle box, and none of them in _occupied_boxes.
+    # each inside some obstacle box.
     my = (cbox[1] + cbox[3]) / 2
     pts = [(cbox[0] + 0.5, my), ((cbox[0] + cbox[2]) / 2, my), (cbox[2] - 0.5, my)]
 
@@ -55,15 +51,12 @@ def test_strip_obstacles_captures_centreline_that_occupied_boxes_drops():
         return any(x[0] <= px <= x[2] and x[1] <= py <= x[3] for x in boxes)
 
     assert all(_holds(obst, *pt) for pt in pts), "centreline missing from strip_obstacles"
-    assert not any(_holds(occ, *pt) for pt in pts), (
-        "expected _occupied_boxes to exclude centrelines"
-    )
 
 
 def test_strip_obstacles_captures_full_leader_footprint_not_just_label():
-    # A bore callout's leader shaft extends well past its text box. _occupied_boxes
-    # records only the label box; strip_obstacles must record the full footprint,
-    # or a placer thinks the shaft's row is free (#133/#225).
+    # A bore callout's leader shaft extends well past its text box. A label-box-only
+    # occupancy records only the label box; strip_obstacles must record the full
+    # footprint, or a placer thinks the shaft's row is free (#133/#225).
     dwg = build_drawing(_drive_screw_x())
     name, leader = next((n, o) for n, o in dwg.iter_annotations() if n.startswith("hc_"))
 
@@ -74,7 +67,6 @@ def test_strip_obstacles_captures_full_leader_footprint_not_just_label():
     assert gb.min.X < lb[0] - 0.5 or gb.max.X > lb[2] + 0.5, "leader shaft not past its label?"
 
     obst = strip_obstacles(dwg)
-    occ = _occupied_boxes(dwg)
 
     # #685 decomposed occupancy: assert the shaft REGION beyond the label is covered —
     # some obstacle box must contain the leader's tip-side extreme, which the label
@@ -89,12 +81,6 @@ def test_strip_obstacles_captures_full_leader_footprint_not_just_label():
     assert all(_holds(obst, px, py) for px, py in seg_pts), (
         "leader stroke endpoints missing from strip_obstacles"
     )
-    # Negative check on a REAL shaft endpoint outside the label box (#688 r2):
-    # a diagonal shaft's hull midpoint need not lie on the shaft.
-    outside = next(
-        (px, py) for px, py in seg_pts if not (lb[0] <= px <= lb[2] and lb[1] <= py <= lb[3])
-    )
-    assert not _holds(occ, *outside), "label-only occupancy should not reach the shaft"
 
 
 def test_coaxial_bore_on_rotational_part_is_not_over_located():
@@ -152,7 +138,7 @@ def test_rotational_bore_leaders_symmetric_when_room():
 
 
 def test_rotational_bore_leader_overflow_excluded_from_coverage():
-    # #374 review: a dropped bore must be registered via _drop_callout_diam so coverage lint does
+    # #374 review: a dropped bore must be registered via ctx.coverage.drop_diam so coverage lint does
     # not double-report it as feature_not_dimensioned on top of the callout_dropped warning.
     from build123d import Cylinder, Pos
 
@@ -219,8 +205,8 @@ def test_strip_obstacles_view_filter_drops_other_ortho_views():
 
 def test_strip_obstacles_keeps_section_hatch_in_every_per_view_query():
     # The section hatch is owned by no ortho view (view_of is None); a per-view
-    # strip solve must still avoid it — _occupied_boxes special-cased it by name,
-    # and restricting it to view=None would re-open that blind spot (review S1).
+    # strip solve must still avoid it — restricting it to view=None would
+    # re-open that blind spot (review S1).
     part = Box(80, 60, 20) - Cylinder(4, 20) - Pos(10, 5, -7) * Cylinder(6, 6)
     dwg = build_drawing(part)
     assert "section_hatch" in dwg._named and dwg.view_of("section_hatch") is None
@@ -423,8 +409,8 @@ def test_plan_strip_uses_per_pair_gaps_for_heterogeneous_sizes():
     # the same per-pair-gap rule #81 originally added for the (since-retired,
     # #547) LayoutSolver.solve_strip's heterogeneous Placeables. Exercises
     # plan_strip's own gap-list wiring (ordered[i]/[i+1] indexing, idx
-    # selection), not just the underlying _solve_strip_1d_var primitive (which
-    # is already covered elsewhere, in isolation).
+    # selection), not just the underlying PAVA primitive (which is already
+    # covered elsewhere, in isolation).
     cands = [
         StripCandidate("a", (0.0, 0.0), (6, 4), priority=0),
         StripCandidate("b", (0.0, 0.0), (6, 4), priority=0),
@@ -927,11 +913,11 @@ def test_plan_strip_rejects_duplicate_keys():
         plan_strip([_cand("a", 10), _cand("a", 20)], lo=0, hi=100, min_gap=5)
 
 
-# --- _envelope_tier: overall dim stacks OUTSIDE every obstacle (#321 P3a-envelope) ---
+# --- fake-dwg strip-occupancy queries (#321) ---
 
 
 def _fake_dwg(obstacles, view="side", types=None):
-    # Minimal dwg for strip_obstacles/_envelope_tier/corridor_blockers: named
+    # Minimal dwg for strip_obstacles/corridor_blockers: named
     # annotations exposing a bounding_box() and a single owning view. obstacles:
     # {name: (x0, y0, x1, y1)}; *types* optionally maps a name to its annotation
     # class name (default "_Obst") so corridor_blockers' type filter can be exercised.
@@ -1002,29 +988,6 @@ def test_side_hole_z_dim_is_kept_not_dropped_under_policy_b():
     dwg = build_drawing(CORPUS["side_drilled"]())
     names = {n for n, _ in dwg.iter_annotations()}
     assert any(n.startswith("dim_loc_") and "_z" in n for n in names), "Z location dim was dropped"
-
-
-def test_envelope_tier_stacks_outside_a_middle_tier_obstacle():
-    # A below strip (anchor 61, gap 10 → inner tier at 51, outer_limit 10). An obstacle
-    # sits in a MIDDLE tier [30,36] with the inner tier [40,51] left FREE. The overall
-    # dim must land OUTSIDE it (≤ 30 − spacing), not in the nearer-the-view free tier —
-    # picking the innermost free segment would invert the ISO stack (review #1).
-    from draftwright._core import Strip
-    from draftwright.annotations.from_model import _envelope_tier
-
-    strip = Strip(anchor=61.0, outer_limit=10.0, direction=-1.0)  # gap 10, spacing 2.5
-    dwg = _fake_dwg({"mid": (100.0, 30.0, 120.0, 36.0)})
-    pd = _envelope_tier(dwg, strip, "side", size=8.0)
-    assert pd is not None and pd <= 30.0, f"envelope inverted into inner tier: pd={pd}"
-
-
-def test_envelope_tier_uses_inner_tier_when_strip_is_clear():
-    # No obstacles → the overall dim takes the innermost tier (anchor − gap = 51).
-    from draftwright._core import Strip
-    from draftwright.annotations.from_model import _envelope_tier
-
-    strip = Strip(anchor=61.0, outer_limit=10.0, direction=-1.0)
-    assert _envelope_tier(_fake_dwg({}), strip, "side", size=8.0) == 51.0
 
 
 # --- unified above-corridor solve (ADR 0009 end state, #345/#346) -----------
