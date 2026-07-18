@@ -265,14 +265,13 @@ def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=
         cyls=a.cyls,
         assembly=assembly,
     )
-    dwg._analysis = a  # expose analysis namespace for testing and future strip access
     # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
     # work even in manual mode (#398). _auto_annotate reads this attached model rather
     # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
     # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
     # detectors run once per build (ADR 0008 Amdt 5, #602). build_model(a) remains the
     # fallback for a manually-constructed Analysis with no stored model.
-    dwg._part_model = (
+    pm = (
         _coerce_model(model, a.part, decorations)
         if model is not None
         else (a.model if a.model is not None else build_model(a))
@@ -283,23 +282,25 @@ def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=
         # (rot furniture). Synthesise it from the (unconditional) analysis so a declared /
         # emitted-script turned part reproduces the detected drawing (#472). Gated on the
         # caller not having declared one, so an explicit choice wins.
-        pm = dwg._part_model
         if not any(f.kind == "rotational" for f in pm.features):
             rot = build_rotational_feature(a)
             if rot is not None:
-                dwg._part_model = replace(pm, features=[*pm.features, rot])
+                pm = replace(pm, features=[*pm.features, rot])
         # PMI (STEP AP242) is likewise detection-sourced, so a declared / emitted-script model
         # carries none. When PMI annotation is on, synthesise the same imported drafting
         # annotations detection would (render_pmi reads them off the model, gated on a.pmi_mode)
         # so a re-run reproduces the PMI dims (#472). Gated on the caller not having declared
         # imported authored annotations, so an explicit set wins.
-        pm = dwg._part_model
         if a.pmi_mode == "annotate" and not any(
             f.kind in ("authored_dimension", "pmi") for f in pm.features
         ):
             pmi_feats = build_pmi_features(a.pmi, a.part.bounding_box())
             if pmi_feats:
-                dwg._part_model = replace(pm, features=[*pm.features, *pmi_feats])
+                pm = replace(pm, features=[*pm.features, *pmi_feats])
+    # ADR 0005 §2 (#639): the ONE build-context attachment — analysis + finished model
+    # in a single typed BuildState; the compat properties on Drawing read through it.
+    dwg._build.analysis = a
+    dwg._build.part_model = pm
     dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
 
     part_s = a.part.scale(a.SCALE)

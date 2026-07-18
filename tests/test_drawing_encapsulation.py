@@ -191,3 +191,68 @@ def test_private_reads_are_a_documented_shrinking_allowlist():
         "Allowlisted private read(s) no longer used — good, #639 is shrinking. Remove them "
         f"from _DWG_PRIVATE_READ_ALLOW to keep it honest: {sorted(stale)}"
     )
+
+
+def test_build_state_has_a_single_construction_and_fill_site():
+    """#639: the writer inventory for the build context, fail-closed and AST-based
+    (#691 review — a regex missed augmented assignment / setattr / tuple targets).
+
+    Detected uniformly by Store/Del context + constant-name setattr on ANY receiver:
+    every write whose target attribute is ``_build``, ``_build.<field>``, or one of
+    the four legacy names. The sanctioned inventory: Drawing.__init__ constructs;
+    builder._assemble fills analysis+part_model once; the ``_analysis`` compat
+    setter and ``attach_part_model`` route through BuildState (drawing.py). The
+    three cache/model legacy attrs are GETTER-ONLY by design — a wholesale
+    replacement must go through BuildState, so an accidental one fails loudly
+    rather than silently forking the single-writer story. (Aliasing —
+    ``state = dwg._build; state.x = …`` — is out of scope here as in
+    ``_dwg_private_writes`` above: no code does it, review would catch it.)
+    """
+    from pathlib import Path
+
+    watched = {"_build", "_analysis", "_part_model", "_view_edge_cache", "_ann_box_cache"}
+    src = Path(__file__).parent.parent / "src" / "draftwright"
+    writers: dict[str, list[str]] = {}
+
+    def _attr_root(node):
+        # dwg._build.part_model → ("_build", "part_model"); dwg._analysis → ("_analysis", None)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute):
+            if node.value.attr in watched:
+                return f"{node.value.attr}.{node.attr}"
+        if isinstance(node, ast.Attribute) and node.attr in watched:
+            return node.attr
+        return None
+
+    for py in sorted(src.rglob("*.py")):
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            hit = None
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                hit = _attr_root(node)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in ("setattr", "delattr")
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+                and (
+                    node.args[1].value in watched
+                    # setattr(dwg._build, "analysis", …) — BuildState field names
+                    # count too when the receiver is a _build attribute (#691 r2).
+                    or (
+                        node.args[1].value
+                        in ("analysis", "part_model", "view_edge_cache", "ann_box_cache")
+                        and isinstance(node.args[0], ast.Attribute)
+                        and node.args[0].attr == "_build"
+                    )
+                )
+            ):
+                hit = node.args[1].value
+            if hit is not None:
+                writers.setdefault(py.name, []).append(hit)
+
+    assert writers == {
+        "builder.py": ["_build.analysis", "_build.part_model"],
+        "drawing.py": ["_build", "_build.analysis", "_build.part_model"],
+    }, writers
