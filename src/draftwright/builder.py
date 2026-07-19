@@ -851,15 +851,11 @@ def _feature_listing(a: Analysis) -> str:
             continue
         if kind in ("hole", "pattern"):
             body.append("dwg.callout(f)")
-            if feat.frame.axis == "z":
-                body.append("dwg.locate(f)")
-            else:
-                # locate() is Z-axis only (it rejects side-drilled bores by contract, #133);
-                # an off-axis bore's position is auto-pass-only. Flag it like a gap kind (#424).
-                body.append(
-                    f"#     locate() is Z-axis only — this {feat.frame.axis}-drilled bore's "
-                    "position is auto-pass-only (#133). auto_dims=True to keep it."
-                )
+            # locate() records the position intent for a hole on ANY axis (#426/#133): a
+            # Z-plan hole drains through render_locations, a side-drilled (X/Y) bore through
+            # the whole-model _locate_off_axis_holes pass — finalize routes by the feature's
+            # axis, so the same verb line reconstructs both.
+            body.append("dwg.locate(f)")
             body.append("dwg.furniture(f)")
         elif kind in ("step", "boss"):
             if feat.frame.axis in ("x", "z"):

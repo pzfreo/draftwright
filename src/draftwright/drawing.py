@@ -179,6 +179,7 @@ class _IntentRouting:
     explicit_envelope_height: bool
     user_dim_ids: set
     rotational_ids: set
+    off_axis_loc_ids: set
     only_loc: set
     pinned_loc: set
     only_callout: set
@@ -1178,7 +1179,24 @@ class Drawing:
         corridor_ids = {
             id(it)
             for it in self._intents
-            if routable and it.kind == "locate" and it.kwargs.get("axes") is None
+            if routable
+            and it.kind == "locate"
+            and it.kwargs.get("axes") is None
+            # Z-plan holes only — render_locations places X/Y position dims. A side-drilled
+            # (X/Y-axis) bore's location is a different pass (off_axis_loc_ids below).
+            and getattr(getattr(it.feature, "frame", None), "axis", None) == "z"
+        }
+        # Side-drilled (X/Y-axis) hole locations (#133/#426): a separate whole-model pass
+        # (_locate_off_axis_holes), placed at the shared drain like the Z-plan corridor —
+        # not render_locations (Z-only, #133) and never live-replayed (add_feature_location
+        # raises on non-Z; the intent is routed here before it can reach that verb).
+        off_axis_loc_ids = {
+            id(it)
+            for it in self._intents
+            if routable
+            and it.kind == "locate"
+            and it.kwargs.get("axes") is None
+            and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y")
         }
         callout_ids = {
             id(it)
@@ -1301,6 +1319,7 @@ class Drawing:
             explicit_envelope_height=explicit_envelope_height,
             user_dim_ids=user_dim_ids,
             rotational_ids=rotational_ids,
+            off_axis_loc_ids=off_axis_loc_ids,
             only_loc=only_loc,
             pinned_loc=pinned_loc,
             only_callout=only_callout,
@@ -1487,7 +1506,11 @@ class Drawing:
             render_step_lengths,
             render_step_positions,
         )
-        from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
+        from draftwright.annotations.holes import (
+            _annotate_holes,
+            _locate_off_axis_holes,
+            build_view_of_axis,
+        )
         from draftwright.annotations.orchestrator import (
             _maybe_tabulate_holes,
             drain_and_reconcile,
@@ -1538,6 +1561,7 @@ class Drawing:
                 | r.step_position_ids
                 | r.user_dim_ids
                 | r.rotational_ids  # drained by _s_rotational; no _replay_intent branch
+                | r.off_axis_loc_ids  # drained by the off-axis stages; locate() raises on non-Z
             )
             i = 0
             while i < len(self._intents):
@@ -1576,6 +1600,22 @@ class Drawing:
             if r.only_loc:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
                 render_locations(self, model, a, ctx=ctx, only=r.only_loc, pinned=r.pinned_loc)
+
+        def _s_off_axis_across():
+            # Side-drilled holes' in-plane (side-below) locations — REGISTER-only, whole-model
+            # (_locate_off_axis_holes reads the IR's X/Y holes, no only= subset); they place at
+            # the shared drain. Whole-model like the auto pass: commenting SOME dwg.locate lines
+            # still redraws every side-drilled location; commenting them ALL empties the bucket.
+            if r.off_axis_loc_ids:
+                assert a is not None
+                _locate_off_axis_holes(self, ctx, a, which="across")
+
+        def _s_off_axis_along():
+            # Side-drilled (X/Y-axis) hole HEIGHT locations — register-only, placed at the drain
+            # (mirrors the auto pass's off_axis_along stage; after the envelope candidates).
+            if r.off_axis_loc_ids:
+                assert a is not None
+                _locate_off_axis_holes(self, ctx, a, which="along")
 
         def _s_height_ladder():
             # Prismatic step-height ladder through the auto-pass renderer. (#636) This
@@ -1648,6 +1688,7 @@ class Drawing:
             # shared verbatim with the auto-pass (drain_and_reconcile).
             if (
                 r.only_loc
+                or r.off_axis_loc_ids
                 or r.slot_feats
                 or r.user_dim_ids
                 or r.step_position_ids
@@ -1661,6 +1702,7 @@ class Drawing:
                 if id(it)
                 not in (
                     r.corridor_ids
+                    | r.off_axis_loc_ids
                     | r.slot_ids
                     | queued_dim_ids
                     | r.step_position_ids
@@ -1720,6 +1762,8 @@ class Drawing:
         run_stages(
             {
                 "rotational": _s_rotational,
+                "off_axis_across": _s_off_axis_across,
+                "off_axis_along": _s_off_axis_along,
                 "reserve_section": _s_reserve_section,
                 "live_replay": _s_live_replay,
                 "hole_callouts": _s_hole_callouts,

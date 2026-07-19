@@ -142,10 +142,6 @@ def test_generated_script_matches_direct_turned_head_detail(tmp_path):
 
 
 @pytest.mark.timeout(240)
-@pytest.mark.xfail(
-    strict=True,
-    reason="non-Z hole location dimensions are still auto-pass-only in generated scripts",
-)
 def test_generated_script_matches_direct_side_drilled_locations(tmp_path):
     """Compare actual location annotations, not only the emitter's gap comment."""
     part = (
