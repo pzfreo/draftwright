@@ -37,9 +37,10 @@ that the edit surface is the model; #400 made the model a **read** surface
 The missing half is symmetric: let the caller **supply the IR as an input**, so
 detection becomes *a* producer of the model, not the *only* one.
 
-The `proto/declare-features` spike proved the seam is small: the orchestrator already
-honours a pre-set `dwg._part_model` (`orchestrator.py:170`) — `build_drawing` merely
-always overwrote it with detection.
+The historical `proto/declare-features` spike proved the seam was small by
+pre-setting drawing model state before orchestration. The production seam is now
+explicit: `builder._assemble` attaches the selected `PartModel` through
+`BuildState`, and the orchestrator consumes that attached model.
 
 ## Decision
 

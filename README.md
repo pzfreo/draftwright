@@ -159,14 +159,16 @@ dwg.repair()                # auto-fix mechanically-fixable lint; never worsens
 
 Each `LintIssue` carries a domain-meaningful `code` and, when computable, a
 ready-to-apply `suggestion`. See `docs/adr/` for the design (deterministic
-generation, the lint→repair loop, and the constraint-based layout engine).
+generation, the lint→repair loop, and collect-then-solve placement).
 
 ## Architecture
 
-draftwright is structured as a **part-drawing compiler** (ADR 0008): feature
-detectors → a `PartModel` IR (`Feature`s exposing `DimParameter`s) → a dimensioning
-planner → renderers, feeding a shared layout/projection/export stack. It builds on
-two libraries:
+draftwright is structured as a **part-drawing compiler** (ADR 0015): recognised
+or declared features converge on a `PartModel` IR, then planner-fed and
+sanctioned model-routed render intents feed shared placement, projection, and
+export. Coverage lint independently compares recognised geometry with the
+placed drawing, so an upstream omission cannot hide from verification. It
+builds on two libraries:
 
 ```
 draftwright
@@ -179,8 +181,7 @@ primitives (`Dimension`, `Leader`, etc.) live in `build123d-drafting-helpers` an
 be used independently. The compiler is largely converged in production — turned
 dims/lengths, centre marks, envelope, slots, holes (callouts/locations/grouping),
 the section A–A trigger, the prismatic step-ladder + rotational furniture, and PMI/GD&T
-are all on the IR — the migration is complete (one path; the orchestrator is
-build → plan → render). See
+are all on the IR. See
 [`docs/target-architecture.md`](docs/target-architecture.md) and
 [`docs/layout-algorithm-primer.md`](docs/layout-algorithm-primer.md) for a short walkthrough, plus
 [`docs/adr/`](docs/adr/). The engine handles view layout (strip/zone model), scale
