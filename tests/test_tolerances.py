@@ -17,7 +17,7 @@ from build123d_drafting.helpers import draft_preset
 from draftwright import Sheet, build_drawing
 from draftwright._core import _tol_suffix
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
-from draftwright.model import PartModel, chamfer, fillet, flat, hole, step
+from draftwright.model import PartModel, chamfer, fillet, flat, groove, hole, step
 from draftwright.model.planner import plan_dimensions
 
 
@@ -130,6 +130,26 @@ class TestPlannerDecorations:
         assert pd.param.tolerance == 0.2
         assert not pd.suppressed
         assert g.view == "plan"  # frame axis == stock axis; a Z-bar flat reads in the plan
+
+    def test_groove_dims_are_leaders_with_independent_tolerances(self):
+        # #727: the multi-param case — width (kind "length") and floor ø (kind "diameter")
+        # are distinct decoration keys, so the one groove callout carries BOTH, each with
+        # its own folded tolerance.
+        gr = groove(axis="z", width=4, diameter=16, at=(0, 0, 0))
+        model = PartModel(
+            bbox=Cylinder(10, 40).bounding_box(),
+            orientation=None,
+            features=[gr],
+            decorations={(gr, "length"): 0.1, (gr, "diameter"): 0.5},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "groove")
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key[("groove", "length")]
+        dpd = by_key[("groove", "diameter")]
+        assert wpd.convention == "leader" and dpd.convention == "leader"
+        assert wpd.param.tolerance == 0.1
+        assert dpd.param.tolerance == 0.5
+        assert not wpd.suppressed and not dpd.suppressed
 
 
 class TestCalloutRendering:
@@ -374,6 +394,40 @@ class TestFlatTolerance:
         dwg = build_drawing(self._flatted_bar(), model=[fl], number="X")
         labels = [dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_flat")]
         assert labels == ["17 A/F"], labels
+
+
+class TestGrooveTolerance:
+    """#727 (the #629 class, latent): a groove's authored width/floor-ø tolerances must
+    render on the placed callout — the pass now consumes the planner's DimensionGroups,
+    binding EACH of the two params explicitly by (role, kind). Each tolerance suffix
+    interleaves after its own value."""
+
+    @staticmethod
+    def _grooved_shaft():
+        # Z round stock with one annular groove at mid-height (floor ø16, 4 wide).
+        return Cylinder(10, 40) - (Cylinder(10.5, 4) - Cylinder(8, 4))
+
+    def test_authored_groove_tolerances_render_on_callout(self):
+        gr = groove(axis="z", width=4, diameter=16, at=(0, 0, 0))
+        dwg = build_drawing(
+            self._grooved_shaft(),
+            model=[gr],
+            decorations={(gr, "length"): 0.1, (gr, "diameter"): 0.5},
+            number="X",
+        )
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_groove")
+        ]
+        assert labels == ["4 ±0.1 WIDE × ø16 ±0.5"], labels
+
+    def test_untolerated_groove_label_unchanged(self):
+        # No decoration → the planner path is byte-identical to the old raw-field label.
+        gr = groove(axis="z", width=4, diameter=16, at=(0, 0, 0))
+        dwg = build_drawing(self._grooved_shaft(), model=[gr], number="X")
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_groove")
+        ]
+        assert labels == ["4 WIDE × ø16"], labels
 
 
 class TestToleranceHandle:

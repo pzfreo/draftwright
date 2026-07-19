@@ -472,7 +472,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # room only after the corridor drain has finalised the diameter/step-length
         # furniture (else its room check can't see the not-yet-drained length dims and
         # collides, #148c crowded-shaft).
-        render_grooves(dwg, _model, a, ctx=ctx)
+        # Planner-fed (#727): consumes the DimensionGroups so authored tolerances render.
+        render_grooves(dwg, _groups, a, ctx=ctx)
 
     def _s_section():
         # The section view renders after the corridor-drained furniture exists, so

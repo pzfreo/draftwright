@@ -1175,11 +1175,14 @@ def render_flats(dwg, groups, a, *, ctx) -> int:
     return _leader_callout_pass(dwg, a, jobs, noun="flat", drop_code="flat_dropped", ctx=ctx)
 
 
-def _groove_label(width, diameter) -> str:
+def _groove_label(width, diameter, wsfx="", dsfx="") -> str:
     """The turned/circlip-groove callout string: ``{width} WIDE × ø{diameter}`` — the groove's
-    axial width and its floor diameter (#148c). Formatting lives in the render layer, not on
-    the IR feature (ADR 0013 §7)."""
-    return f"{_fmt(width)} WIDE × ø{_fmt(diameter)}"
+    axial width and its floor diameter (#148c). *width*/*diameter* are the PLANNED values
+    (``pd.param.value``, #727); *wsfx*/*dsfx* are each value's pre-formatted tolerance
+    suffix, interleaved so a tolerance rides its own number (``4 ±0.1 WIDE × ø16 ±0.05``) —
+    the two params carry independent tolerances (kinds "length"/"diameter"). Formatting
+    lives in the render layer, not on the IR feature (ADR 0013 §7)."""
+    return f"{_fmt(width)}{wsfx} WIDE × ø{_fmt(diameter)}{dsfx}"
 
 
 def _ray_exit_dist(px, py, ux, uy, rect) -> float:
@@ -1271,7 +1274,7 @@ def render_pockets(dwg, model, a, *, ctx) -> int:
     return _leader_callout_pass(dwg, a, jobs, noun="pocket", drop_code="pocket_dropped", ctx=ctx)
 
 
-def render_grooves(dwg, model, a, *, ctx) -> int:
+def render_grooves(dwg, groups, a, *, ctx) -> int:
     """Turned/circlip-groove callouts (#148c): a leader from each annular groove in round
     stock to its ``{width} WIDE × ø{diameter}`` label. The groove's width is *axial*, so the
     callout lands in the **profile** view (the one showing the stock axis in-plane, where the
@@ -1280,12 +1283,32 @@ def render_grooves(dwg, model, a, *, ctx) -> int:
     collapsed by size — two identical grooves on one shaft or on parallel shafts must each be
     dimensioned). The groove sits on the axis, so the leader exits the silhouette
     (``_ray_exit_dist``) toward each margin (nearest clear wins) and is dropped (lint, not
-    silently) if none lands clear. Returns the count placed."""
-    reach = _leader_callout_reach(dwg.draft)
+    silently) if none lands clear. Returns the count placed.
+
+    Planner-fed (#727 / #698): a groove is the multi-parameter case — width AND floor ø in
+    one label — so EACH value + its tolerance is bound explicitly by its ``(role, kind)``
+    (``("groove", "length")`` / ``("groove", "diameter")``), never positionally, never
+    ``dims[0]``. Formatting ``gr.width``/``gr.diameter`` directly dropped an authored
+    tolerance (the #629 class). The pass KEEPS its own axis→view map: ``g.view`` is
+    ``_END_ON`` (end-on: z→plan), but a groove reads in the PROFILE view where its axial
+    width is visible — not provably identical, so the map stays."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
     view_of = {"z": "front", "x": "front", "y": "side"}
-    grooves = [f for f in model.features if f.kind == "groove"]
+    groove_groups = [g for g in groups if g.feature_kind == "groove"]
     jobs = []
-    for gi, gr in enumerate(sorted(grooves, key=lambda f: (f.axis, f.frame.origin))):
+    for gi, g in enumerate(
+        sorted(groove_groups, key=lambda g: (g.feature.axis, g.feature.frame.origin))
+    ):
+        gr = g.feature
+        wpd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("groove", "length")), None
+        )
+        dpd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("groove", "diameter")), None
+        )
+        if wpd is None or dpd is None or wpd.suppressed or dpd.suppressed:
+            continue
         view = view_of.get(gr.axis)
         if view is None:
             continue
@@ -1297,7 +1320,12 @@ def render_grooves(dwg, model, a, *, ctx) -> int:
                 f"m_groove_{gr.axis}{gi}",
                 view,
                 vb,
-                _groove_label(gr.width, gr.diameter),
+                _groove_label(
+                    wpd.param.value,
+                    dpd.param.value,
+                    wsfx=_tol_suffix(wpd.param.tolerance, draft),
+                    dsfx=_tol_suffix(dpd.param.tolerance, draft),
+                ),
                 _radial_candidates(dwg, view, vb, gr, reach),
             )
         )
