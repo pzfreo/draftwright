@@ -1183,6 +1183,10 @@ class Drawing:
             and a.prof is not None
             and it.kind == "dimension"
             and getattr(it.feature, "kind", None) == "step"
+            # X/Z-turned only, like dia_ids above — render_step_lengths skips Y-turned
+            # steps (#661/#731), so routing one would silently drop the user's explicit
+            # verb; live replay surfaces dimension()'s own behaviour instead.
+            and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "z")
             and it.kwargs.get("param") == "length"
             and it.kwargs.get("role") == "step"
         }

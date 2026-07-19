@@ -71,6 +71,16 @@
   retry now finds the height dim by its envelope attribution, not only the
   auto-pass `dim_height` name. Three script-parity characterisation tests
   (single detail, two details, turned head) flip from xfail to passing.
+- **Y-turned stepped shafts no longer crash** (#661): `render_step_lengths`
+  projected every step span into the front view, where a Y-axis span is end-on
+  (a point) — `Dimension` then raised "start and end points must be different"
+  on BOTH the direct build and a generated script's finalize. Y-axis steps are
+  now skipped (no step render pipeline consumes Y, #731 — mirroring
+  `render_diameters`' x/z bucketing), the emitter flags the gap as a comment
+  instead of emitting an unreplayable `dimension()` verb, and a hand-written
+  Y step-length intent live-replays (surfacing the verb's own behaviour) rather
+  than vanishing into the routed no-op. The Y-axis script-parity
+  characterisation test flips from xfail to passing.
 - **`--format` now reaches `--script` output** (#709, from the #702 adversarial
   review): `--script -f svg` used to silently emit a PDF-producing script — the
   CLI parsed the flag but never forwarded it. Both emitters now thread it

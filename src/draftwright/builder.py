@@ -863,12 +863,15 @@ def _feature_listing(a: Analysis) -> str:
             if feat.frame.axis in ("x", "z"):
                 body.append("dwg.callout(f)")
             else:
-                # callout() places X/Z-turned diameters only; a Y-turned step/boss is
-                # auto-pass-only (its diameter is not placeable, and the auto-pass skips it too).
+                # No step render pipeline consumes a Y-turned step/boss (#731): the
+                # auto-pass skips its ø AND its length (the span is end-on in the front
+                # view), so emit neither verb — a dimension() here could not replay
+                # (#661). Flagged like the other gap kinds (#424), never silently dropped.
                 body.append(
-                    f"#     callout() places X/Z-turned diameters only — this "
-                    f"{feat.frame.axis}-turned step/boss is auto-pass-only. auto_dims=True to keep it."
+                    f"#     the {feat.frame.axis}-turned step/boss ø and length are not "
+                    "drawn (no Y-turned step pipeline, #731) — the auto-pass skips them too."
                 )
+                continue
         elif kind == "step_level":
             body.append(
                 'dwg.dimension(f, "length", role="step_height")   # prismatic height ladder'

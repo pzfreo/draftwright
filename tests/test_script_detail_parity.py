@@ -181,13 +181,6 @@ def test_generated_script_matches_direct_rotational_furniture(tmp_path):
 
 
 @pytest.mark.timeout(240)
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the generated reconstruction attempts an end-on Y-axis step-length dimension "
-        "and raises because its projected endpoints coincide"
-    ),
-)
 def test_generated_script_matches_direct_y_axis_turned_diameter_policy(tmp_path):
     """Y-axis turned output runs and follows the direct no-diameter policy."""
     part = Rotation(90, 0, 0) * _turned_shaft([(20, 20), (14, 15)])
