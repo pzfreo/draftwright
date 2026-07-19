@@ -8261,6 +8261,31 @@ class TestPrismaticBossDiameter:
         assert feature.height == pytest.approx(10)
         assert feature.span is not None
 
+    def test_issue_632_declarative_cover_reconciles_rendered_boss_height(self):
+        """The original #632 repro stays covered end-to-end: declaration → IR →
+        planner → renderer → lint, including its shell, bore, and pocket declarations."""
+        from draftwright import Sheet
+
+        wall, length, width, height = 3.0, 90, 64, 38
+        pocket = Pos(0, 0, -wall) * Box(length - 2 * wall, width - 2 * wall, height)
+        boss = Pos(0, 0, height / 2 + 5) * Cylinder(14, 10)
+        bore = Pos(0, 0, 15) * Cylinder(6, 40)
+        cover = Box(length, width, height) - pocket + boss - bore
+
+        sheet = Sheet(cover, title="C")
+        sheet.envelope()
+        sheet.boss(boss)
+        sheet.hole(bore).through()
+        sheet.pocket(pocket)
+        dwg = sheet.build()
+
+        height_name = next(n for n in dwg.annotations() if n.startswith("m_bossheight_"))
+        assert dwg.get_annotation(height_name).label == "10"
+        assert dwg.lint_summary()["by_code"].get("boss_height_missing", 0) == 0
+
+        dwg.remove(height_name)
+        assert dwg.lint_summary()["by_code"]["boss_height_missing"] == 1
+
     def test_shelled_cover_boss_diameter_not_dropped(self):
         # The regression: even forced onto A4 (scale 0.5, front view against the left
         # margin) the boss ø28 places into the clear sheet, so it never lints uncovered.
