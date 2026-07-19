@@ -79,6 +79,32 @@ class TestTraceRecording:
             build_drawing(Box(60, 40, 20), out=str(tmp_path / stem), trace=True)
         assert (tmp_path / "a.trace.json").read_bytes() == (tmp_path / "b.trace.json").read_bytes()
 
+    def test_recorder_failure_disarms_and_never_aborts(self, tmp_path, caplog, monkeypatch):
+        # The never-aborts guarantee covers the recording HOOKS, not just write():
+        # every public recorder method is guarded (_never_aborts), so an internal
+        # failure mid-build logs ONE warning, disarms the recorder, and the build
+        # completes. Disarm semantics = partial-disable: whatever was recorded/
+        # written before the failure stays; nothing further is recorded or written.
+        from draftwright.annotations._common import SolveTrace
+
+        def _boom(strip):
+            raise RuntimeError("injected recorder failure")
+
+        # _strip_rec is internal to begin_solve/begin_pass — a genuine in-method
+        # failure the guard must swallow (the first corridor solve trips it).
+        monkeypatch.setattr(SolveTrace, "_strip_rec", staticmethod(_boom))
+        with caplog.at_level(logging.WARNING, logger="draftwright.annotations._common"):
+            dwg = _build_box(tmp_path, trace=True)
+        msgs = [r.getMessage() for r in caplog.records if "recorder failed" in r.getMessage()]
+        assert len(msgs) == 1, "ONE warning, then silence (disarmed)"
+        assert "tracing disabled" in msgs[0]
+        assert dwg.solve_trace is not None and dwg.solve_trace._broken
+        # Nothing was written after the disarm (it fired before the first write).
+        assert not (tmp_path / "t.trace.json").exists()
+        # A disarmed snapshot returns the sentinel and restore tolerates it.
+        assert dwg.solve_trace.snapshot() is None
+        dwg.solve_trace.restore(None)
+
     def test_unwritable_trace_path_never_aborts_the_build(self, tmp_path, caplog):
         # Recording-only: an unwritable path degrades to a warning — the build (and
         # any export after it) must complete untouched.
@@ -125,6 +151,26 @@ class TestPassEvents:
         assert chain["items"] and all(
             i["outcome"] in ("placed", "dropped") for i in chain["items"]
         )
+
+
+class TestTracedUntracedParity:
+    def test_tracing_never_changes_the_drawing(self, tmp_path):
+        # "Zero output change" is a contract, not a comment: tracing takes a different
+        # obstacle-construction branch (named (owner, box) records projected back to
+        # bare boxes), so pin trace=False vs trace=True to an identical drawing
+        # signature — names/types/labels/label+geom boxes/view boxes/item count/build
+        # issues (test_refactor_golden's fingerprint). The part exercises corridor
+        # solves (envelope dims) AND immediate leader callouts (chamfer + pocket).
+        from build123d import Axis
+        from build123d import chamfer as b3d_chamfer
+        from test_refactor_golden import _signature
+
+        plate = Box(90, 60, 20)
+        e = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)[-1]
+        part = b3d_chamfer(e, 12) - Pos(0, 0, 7.5) * Box(30, 18, 5)
+        s_off = _signature(build_drawing(part, out=str(tmp_path / "off"), trace=False))
+        s_on = _signature(build_drawing(part, out=str(tmp_path / "on"), trace=True))
+        assert s_off == s_on
 
 
 class TestFinalizeTransaction:

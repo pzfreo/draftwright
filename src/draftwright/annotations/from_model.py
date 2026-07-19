@@ -2676,7 +2676,9 @@ def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
     }
 
 
-def _pmi_place_one(dwg, spec, rec):
+def _pmi_place_one(dwg, spec, rec, trace=None):
+    # *trace* (#736): a PMI dim's post-drop fallback is a standalone strip pass —
+    # traced as a pass_event like the other standalone placers.
     left = place_strip_candidates(
         dwg,
         spec["strip"],
@@ -2687,6 +2689,8 @@ def _pmi_place_one(dwg, spec, rec):
         force=True,
         features={spec["name"]: rec},
         priorities={spec["name"]: _PMI_CORRIDOR_PRIORITY},
+        trace=trace,
+        trace_label="pmi_fallback",
     )
     return not left
 
@@ -2699,7 +2703,7 @@ def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
 
     def _drop(nm, _alts=alternates, _ax=ax, _label=label, _rec=rec):
         for alt in _alts:
-            if _pmi_place_one(dwg, alt, _rec):
+            if _pmi_place_one(dwg, alt, _rec, trace=ctx.trace):
                 _log.info(
                     "PMI dim %s placed on fallback %s/%s",
                     nm,

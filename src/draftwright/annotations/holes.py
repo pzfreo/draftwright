@@ -524,13 +524,23 @@ def _off_axis_drop(dwg, axis, view, *, ctx):
     )
 
 
-def _off_axis_emit(dwg, tier, strip, view, axis, cands, force=False, features=None):
+def _off_axis_emit(dwg, tier, strip, view, axis, cands, force=False, features=None, trace=None):
     # The collect-then-solve strip placer lives in _common as the shared
     # place_strip_candidates (P3, retiring the Strip cursor #150); this thin wrapper
     # binds the pass's dwg + tier. *features* (name -> IR feature) attributes each dim
-    # for drop() (#408). Promoted (#638).
+    # for drop() (#408). Promoted (#638). *trace* (#736): a standalone strip pass —
+    # traced as a pass_event like the other standalone placers.
     return place_strip_candidates(
-        dwg, strip, view, axis, cands, tier, force=force, features=features
+        dwg,
+        strip,
+        view,
+        axis,
+        cands,
+        tier,
+        force=force,
+        features=features,
+        trace=trace,
+        trace_label="off_axis_locations",
     )
 
 
@@ -736,12 +746,27 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
             for alt_strip, alt_view, alt_p_lo, alt_p_hi, alt_edge in _alts:
                 alt = _zc(alt_view, alt_p_lo, alt_p_hi, alt_edge)
                 if not _off_axis_emit(
-                    dwg, tier, alt_strip, alt_view, "x", [alt], features=_feature_map(alt_view)
+                    dwg,
+                    tier,
+                    alt_strip,
+                    alt_view,
+                    "x",
+                    [alt],
+                    features=_feature_map(alt_view),
+                    trace=ctx.trace,
                 ):
                     return
             p_strip, p_view, _p_lo, _p_hi, _edge = _primary
             if _off_axis_emit(
-                dwg, tier, p_strip, p_view, "x", [_cand], force=True, features=_feature_map(p_view)
+                dwg,
+                tier,
+                p_strip,
+                p_view,
+                "x",
+                [_cand],
+                force=True,
+                features=_feature_map(p_view),
+                trace=ctx.trace,
             ):
                 _off_axis_drop(dwg, "Z", p_view, ctx=ctx)
 

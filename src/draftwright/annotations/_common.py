@@ -7,6 +7,7 @@ complete strip occupancy (`strip_obstacles`), and an AABB overlap test
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import math
@@ -62,6 +63,29 @@ class Escalation:
     remedies: tuple[str, ...] = field(default_factory=tuple)
 
 
+def _never_aborts(method):
+    """Recording can never abort a build (#736 review): any exception inside a
+    :class:`SolveTrace` recording method logs ONE warning, disarms the recorder
+    (sets ``_broken`` — every later guarded call no-ops), and returns ``None``.
+    A recorder bug degrades to "no trace", never a failed drawing/export. The
+    guard lives HERE, on the recorder, rather than at every hook site — the hooks
+    stay bare ``trace is None`` checks (nil cost off) and no call site can forget
+    the try/except."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if self._broken:
+            return None
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 — the whole point: never propagate
+            self._broken = True
+            _log.warning("trace: recorder failed, tracing disabled: %s", exc)
+            return None
+
+    return wrapper
+
+
 class SolveTrace:
     """The opt-in solve-trace recorder (#736): one JSON file per build explaining every
     strip placement decision — the #733 post-mortem's "why is this strip full" answer
@@ -88,7 +112,8 @@ class SolveTrace:
       with reasons, unplaced leftovers), and per-candidate ``outcomes`` (placed /
       dropped-with-reason / deduped / promoted / deferred-to-post-drain).
     * ``pass_events`` — everything placed OUTSIDE a corridor solve: the standalone
-      strip passes (slot fallthroughs, front hole callouts) and the *immediate*
+      strip passes (slot fallthroughs, front hole callouts, off-axis locations,
+      PMI fallbacks) and the *immediate*
       placers — the post-drain machined-feature leader callouts
       (chamfer/fillet/flat/pocket/groove/boss ø) and the turned diameter row/column
       and step-length set-solves. Each entry carries ``seq``/``phase``, a pass
@@ -103,9 +128,17 @@ class SolveTrace:
         jq '.solves[].outcomes[] | select(.name == "dim_height")' t.trace.json
         jq '.pass_events[] | select(.label == "pocket_callouts") | .items[]' t.trace.json
 
-    Recording-only: an unwritable path degrades to a logged warning (:meth:`write`
-    never aborts a build), and :meth:`snapshot`/:meth:`restore` let ``finalize()``'s
-    #647 transaction roll a failed drain's records back out of the trace.
+    Recording-only, so the recorder can never abort a build: every public recording
+    method is wrapped by :func:`_never_aborts` — an internal failure logs ONE
+    warning (``trace: recorder failed, tracing disabled``), disarms the recorder
+    (``_broken``), and every later call no-ops. **Disarm semantics are
+    partial-disable**: records made before the failure stay in memory and any file
+    already written stays on disk, but nothing further is recorded or written (a
+    disarmed :meth:`snapshot` returns the ``None`` sentinel, which :meth:`restore`
+    tolerates). Separately, an *unwritable path* degrades to a per-attempt logged
+    warning without disarming (:meth:`write`), and :meth:`snapshot`/:meth:`restore`
+    let ``finalize()``'s #647 transaction roll a failed drain's records back out of
+    the trace.
     """
 
     def __init__(self, path):
@@ -117,12 +150,14 @@ class SolveTrace:
         self._phase_n = 0
         self._seq = 0
         self._current: dict | None = None
+        self._broken = False  # set by _never_aborts on the first internal failure
 
     def _next_seq(self) -> int:
         """One global event counter across solves + pass_events (decision order)."""
         self._seq += 1
         return self._seq - 1
 
+    @_never_aborts
     def snapshot(self):
         """The trace's rollback point for finalize's #647 transaction: capture the
         record counts + phase/seq counters so :meth:`restore` can truncate a failed
@@ -137,8 +172,12 @@ class SolveTrace:
             self._phase_n,
         )
 
+    @_never_aborts
     def restore(self, snap) -> None:
-        """Roll the trace back to *snap* (see :meth:`snapshot`)."""
+        """Roll the trace back to *snap* (see :meth:`snapshot`). Tolerates the
+        ``None`` sentinel a disarmed/failed :meth:`snapshot` returns (no-op)."""
+        if snap is None:
+            return
         n_solves, n_events, n_esc, seq, phase, phase_n = snap
         del self.solves[n_solves:]
         del self.pass_events[n_events:]
@@ -148,6 +187,7 @@ class SolveTrace:
         self._phase_n = phase_n
         self._current = None
 
+    @_never_aborts
     def begin_phase(self, label) -> None:
         """Start a new annotate run (``auto``) / finalize drain (``finalize``); each
         run's solves are labelled ``<label>:<n>`` so a measure-and-repack build keeps
@@ -167,6 +207,7 @@ class SolveTrace:
             "spacing": strip.spacing,
         }
 
+    @_never_aborts
     def begin_solve(self, key, view, axis, tier, strip, cands) -> None:
         """Open a corridor-solve record (called by :func:`solve_corridor`)."""
         self._current = {
@@ -195,9 +236,11 @@ class SolveTrace:
         }
         self.solves.append(self._current)
 
+    @_never_aborts
     def end_solve(self) -> None:
         self._current = None
 
+    @_never_aborts
     def begin_pass(self, *, force, label=None, strip=None, view=None, axis=None) -> dict:
         """Open a placement-pass record (called by :func:`place_strip_candidates`) —
         nested under the open corridor solve, or a standalone ``pass_events`` entry
@@ -226,6 +269,7 @@ class SolveTrace:
             self.pass_events.append(rec)
         return rec
 
+    @_never_aborts
     def end_pass(self, rec) -> None:
         """Close a placement-pass record. For a standalone ``pass_events`` entry the
         per-candidate story is folded into ``items`` (the jq contract:
@@ -243,6 +287,7 @@ class SolveTrace:
             for n in rec.pop("unplaced")
         ]
 
+    @_never_aborts
     def pass_event(self, label, **fields) -> dict:
         """Open a ``pass_events`` record for an *immediate* placer (the #733 gap: the
         post-drain machined-feature callouts and the turned diameter/step-length
@@ -259,6 +304,7 @@ class SolveTrace:
         self.pass_events.append(rec)
         return rec
 
+    @_never_aborts
     def record_outcome(self, name, outcome, **extra) -> None:
         """Record a candidate's solve-level outcome; a ``placed`` outcome is enriched
         with its position and a reason-less ``dropped`` with the last recorded
@@ -280,6 +326,7 @@ class SolveTrace:
             rec["reason"] = reason
         self._current["outcomes"].append(rec)
 
+    @_never_aborts
     def record_escalations(self, escalations) -> None:
         """Snapshot the run's :class:`Escalation` list (called once per annotate run)."""
         for e in escalations:
@@ -293,6 +340,7 @@ class SolveTrace:
                 }
             )
 
+    @_never_aborts
     def write(self) -> None:
         """Dump the trace JSON to :attr:`path` (once per build; a successful finalize
         re-writes). **Recording-only, so it must never abort a build**: an unwritable
