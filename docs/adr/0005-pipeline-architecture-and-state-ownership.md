@@ -1,11 +1,8 @@
 # ADR 0005 — Compiler-pipeline module boundaries and single-owner build state
 
-- **Status:** Accepted (module split complete; the deferred follow-ups are
-  closed — see the 2026-07-15 status note below; §4's compat-alias exit
-  prerequisites are met by #699 slice c — the seven aliases are tracked by
-  **#720** with removal target **0.4.0** and external call sites are
-  redirected to the public reads — with the deletion itself remaining #720's
-  0.4.0 work)
+- **Status:** Accepted; implemented. The lasting contract is summarized in the
+  2026-07-19 amendment. Compatibility-alias deletion remains tracked by #720
+  for 0.4.0.
 - **Date:** 2026-06-27
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Progress:** Execution roadmap with per-phase tracking issues:
@@ -84,7 +81,7 @@ draftwright/
   projection.py          # view projection, exact silhouettes, iso fitting (_assemble, _project_iso, _fit_iso_view)
   drawing.py             # Drawing public facade
   registry.py            # annotation identity/ownership/pins/build-issues (see §2)
-  linting.py             # lint_feature_coverage, suggestions, scoring, summary (ADR 0002)
+  linting/               # coverage, issues, structural lint, suggestions (ADR 0002)
   repair.py              # deterministic repair loop (ADR 0002)
   export.py              # SVG/DXF/PDF export + post-processing
   tables.py              # generic table construction/placement helpers
@@ -92,17 +89,20 @@ draftwright/
                          #    the one sizing model (#700/#699); PLACEMENT stayed a Drawing verb, add_table)
   annotations/
     orchestrator.py      # auto_annotate sequencing (_auto_annotate)
-    envelope.py          # OD/width/depth/height/step dims
+    _common.py           # shared annotation placement/rendering helpers
+    from_model.py        # IR planner/render passes, including envelope features
     holes.py             # hole callouts, location dims, hole-table escalation
-    turned.py            # turned-diameter leaders
     sections.py          # section/detail views
-    pmi.py               # PMI annotation placement
+    balloons.py          # balloon rendering and placement
   layout.py              # UNCHANGED — solver/placement abstraction (ADR 0003)
   _core.py               # shared primitives below builder/annotations (Analysis types, _dim/_fmt, layout constants)
 ```
 
-`layout.py` keeps its current responsibility exactly (ADR 0003); it stays the
-bottom of the DAG with `_core.py`.
+This is the landed module shape. The earlier proposal named standalone
+`envelope.py`, `turned.py`, and `pmi.py` modules; those responsibilities
+converged into `from_model.py` and the shared annotation modules instead.
+`layout.py` keeps its current responsibility (ADR 0003) near the bottom of the
+DAG with `_core.py`.
 
 ### 2. Build-time state gets explicit owners — three, not one god-object
 
@@ -291,3 +291,27 @@ Follows the issue (#138) sequence, with §3 added as Step 0:
   [ADR 0004](0004-compose-then-pack-view-blocks.md).
 
 **Amendment (2026-07-18) — §2 closed (#639):** `Drawing` is no longer the implicit state bus. The render passes take an explicit `PlacementContext` and make **zero** private `Drawing` reads (the `_DWG_PRIVATE_READ_ALLOW` ratchet is empty and fail-closed). The build context (`Analysis`, part model, lint geometry caches) lives in one typed `BuildState` on the drawing, filled at a single `builder._assemble` site and single-writer-guarded; it serves the Drawing's own methods (lint/finalize/repair/edit verbs) and the test surface — hosting its own state was never the §2 sin, passes reaching in was.
+
+## Amendment — current architecture contract (2026-07-19)
+
+The original migration plan, measurements, golden-harness discussion, module
+proposals, and prerequisite warnings above are retained as implementation
+history. They are not current work instructions. The lasting decision is:
+
+1. Compiler stages have explicit module homes: orchestration in `builder.py`,
+   analysis in `analysis.py`, outer layout in `compose.py`, projection in
+   `projection.py`, annotation passes in `annotations/`, lint in `linting/`,
+   repair in `repair.py`, and export in `export.py`.
+2. `Drawing` is the public editable object, not an implicit communication bus.
+   Render passes receive an explicit `PlacementContext`; their fail-closed
+   private-read allowlist is empty.
+3. Build artefacts are held in one typed `BuildState`, populated at the single
+   `builder._assemble` boundary. Annotation identity belongs to `Registry`, and
+   lint coverage belongs to `CoverageState`.
+4. Import direction and state encapsulation are executable contracts enforced
+   by `test_import_boundaries.py` and `test_drawing_encapsulation.py`.
+5. Seven private compatibility aliases remain only for the 0.4.0 transition;
+   #720 owns their deletion. They are not sanctioned extension points.
+
+This amendment is the reader's current entry point. The dated sections above
+explain how the package reached it.

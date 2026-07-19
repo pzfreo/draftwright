@@ -115,22 +115,20 @@ hard rejection is `_MIN_RENDER_MM` (0.1 mm) — a conservative geometry floor we
 above where OCCT's annotation arcs actually degenerate (`Geom_TrimmedCurve U1==U2`,
 ~1e-4 mm); there we raise a clean message rather than crash.
 
-### Relationship to ADR 0003 and the deferred 2D solve
+### Relationship to retired ADR 0003 and the rejected 2D solve
 
-- ADR 0003 governs the **inner** layout (placing a view's own annotations in its
-  zones via the `Placeable`/Cassowary system) — now made concrete by
-  [ADR 0009](0009-boundary-labeling-strip-placement.md) (collect-then-solve
-  boundary labeling per strip). This ADR governs the **outer** layout (composing
-  view+annotation blocks and packing them on the page). A block's footprint is
-  the deterministic bounding box that the ADR-0009 inner solve produces in
-  view-local space.
+- [ADR 0014](0014-collect-then-solve-annotation-placement.md) governs the
+  **inner** layout: collect-then-solve annotation placement per corridor. This
+  ADR governs the **outer** layout: composing view+annotation blocks and
+  packing them on the page. ADR 0003 is retained only as the retired historical
+  proposal that preceded these two concrete contracts.
 - The **page-level packing stays fixed-topology** (plan above front sharing X;
   side beside front sharing Y; iso and table in free rectangles via
-  `fit_box`). It is **not** the full global 2D solve deferred in
-  #94, which we keep deferred — most "2D freedom" is forbidden by projection
-  alignment, and a global non-overlap solve is disjunctive/NP-hard and
-  non-deterministic. Fixed-topology + composed footprints + local free-rect
-  placement is the right amount of structure.
+  `fit_box`). The full global 2D solve in #94 was closed as superseded and
+  unnecessary: most "2D freedom" is forbidden by projection alignment, while
+  a global non-overlap solve is disjunctive/NP-hard and risks nondeterminism.
+  Fixed-topology + composed footprints + local free-rect placement is the
+  accepted amount of structure.
 
 ### Implementation state (updated 2026-07-09)
 

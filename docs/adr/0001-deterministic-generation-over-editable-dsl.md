@@ -118,16 +118,19 @@ rejected primitive dump (§3) nor a bespoke serialized DSL, but the **detected
   B-rep faces/edges (no tags/names), semantically poorer than authored objects;
   the detected model is uniform and semantic for both. (This is the concrete form
   of "get me from a STEP input to somewhere like if I had build123d objects.")
-- **Edit against the model, re-solve deterministically.** Tweaks reference feature
-  handles from `dwg.model()` (read half, #397) via a feature-targeted write API
-  (#398), and `finalize_drawing(dwg)` (#388) re-runs the ADR-0009 layout. No dead
-  coordinates; edits survive a re-draft — the property §3 rejected primitive dumps
-  for lacking. This surface has an optional **executable form** (#400): emit the
+- **Edit against the model, then deterministically drain recorded intents.**
+  Tweaks reference feature handles from `dwg.model()` (read half, #397) via a
+  feature-targeted write API (#398). `Drawing.finalize()` (#388) routes intents
+  recorded in deferred mode through the current ADR-0014 corridor machinery.
+  It does not rerun automatic annotation or guarantee a single
+  automatic-plus-user re-solve; ADR 0012 records that narrower landed contract.
+  This surface has an optional **executable form** (#400): emit the
   planner's per-feature intents as a readable, editable script of *semantic* calls
   (not page coordinates). That is a sanctioned narrowing of §3's "de-emphasise
   code generation" — code generation at the *intent* level dodges the dead-coordinate
-  failure §3 actually rejected — provided the emitter serializes the planner's real
-  intents (faithful by construction) and a round-trip test holds.
+  failure §3 actually rejected — provided the emitter serializes the planner's
+  real intents. Script/direct equality must be demonstrated per feature path
+  rather than assumed by construction; known gaps are tracked by #426/#661/#707.
 - **Topology is an optional accelerant, not a dependency.** When the caller
   authored the part (the b123d scenario) they may *also* reference a raw
   `Face`/`Edge`/tag (§4's "edit the solid" made concrete for annotation);

@@ -49,11 +49,13 @@ refinement model, with the lint system as the machine-readable critic.
 
 4. **Make the loop cheap to close.** Two mechanisms reduce the fix step to near
    review-only:
-   - **Per-issue `suggestion` (#29):** each lint issue carries a computed,
-     ready-to-apply domain-API call, so the caller reviews/applies rather than
-     invents.
-   - **lint→repair loop (#30):** computable suggestions are auto-applied; only
-     genuinely judgement-bearing issues reach the human/AI.
+   - **Per-issue `suggestion` (#29):** supported lint issues can carry a computed
+     domain-API call for a caller to review and apply. Suggestions are advisory;
+     they are not a general executable repair program.
+   - **lint→repair loop (#30):** automatic repair is deliberately allowlisted.
+     Today `repair.py` handles only the mechanically clear `dim_inside_part`
+     case; all other suggestions and judgement-bearing issues remain with the
+     caller.
 
 The loop is the API-side equivalent of the interactive laps: the engine gives the
 first lap free, lint gives the critique, and the domain API + repair loop give the
@@ -91,10 +93,12 @@ the build-out.)* The loop is **built**: the read/query API (#25–28 — `place_
 `features()`/`annotations()`/`view_bounds()`) plus the domain-semantic edit
 verbs (`dimension()`/`callout()`/`locate()`/`drop()`, shipped under the
 ADR 0010/0012 editable-surface work),
-per-issue suggestions (#29, `linting/suggest.py`), and the deterministic
-lint→repair loop (#30, `repair.py`, with `Drawing.repair()` as the thin
-wrapper) all shipped. Repair remains the *safety net*, not the primary
-placement mechanism — ADR 0009's collect-then-solve is the structural cure for
+per-issue advisory suggestions (#29, `linting/suggest.py`), and a narrow
+deterministic repair hook (#30, `repair.py`, with `Drawing.repair()` as the thin
+wrapper) all shipped. The hook currently repairs only `dim_inside_part` and
+does not execute arbitrary `Issue.suggestion` values. Repair remains the
+*safety net*, not the primary placement mechanism — ADR 0014's
+collect-then-solve contract is the structural cure for
 the collision classes repair used to mop up.
 
 ## Related
