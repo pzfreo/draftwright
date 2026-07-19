@@ -9,7 +9,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 
 def _read(relative: str) -> str:
-    return (_ROOT / relative).read_text()
+    return (_ROOT / relative).read_text(encoding="utf-8")
 
 
 def test_live_architecture_docs_name_current_compiler_authority():
