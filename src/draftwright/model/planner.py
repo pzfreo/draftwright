@@ -53,6 +53,10 @@ _CONVENTION = {
     # One groove callout carries BOTH params: {width} WIDE × ø{diameter} (#727)
     ("groove", "length"): "leader",
     ("groove", "diameter"): "leader",
+    # One pocket callout carries all THREE params: W × L × D DEEP (#728)
+    ("pocket_width", "length"): "leader",
+    ("pocket_length", "length"): "leader",
+    ("pocket_depth", "length"): "leader",
 }
 
 

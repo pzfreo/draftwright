@@ -32,6 +32,19 @@
 
 ### Fixed
 
+- **Authored fillet, flat, groove and pocket tolerances now render**
+  (#725/#726/#727/#728 / #698): the four leader-callout kinds join `_CONVENTION`
+  and their renderers (`render_fillets`/`render_flats`/`render_grooves`/
+  `render_pockets`) consume the planner's `DimensionGroup`s, binding each
+  planned dim explicitly by `(role, kind)` — so a `decorations`-authored ± /
+  limit tolerance reaches the placed callout (`R8 ±0.1`, `17 ±0.2 A/F`,
+  `4 ±0.1 WIDE × ø16 ±0.5`, `18 ±0.2 × 30 ±0.2 × 5 ±0.2 DEEP`; on a
+  multi-value label each suffix rides its own number). Previously all four
+  passes formatted raw feature fields and silently dropped it — the latent #629
+  bug class the ADR 0015 bypass list documents. The fillet `n× R` and flat
+  double-D/hex collapses stay render-side (first-authored tolerance wins, the
+  `render_diameters` precedent); a pocket's three values share one authored
+  tolerance (all kind `"length"`). Untolerated labels/views are unchanged.
 - **Authored chamfer tolerances now render** (#724 / #698): `render_chamfers`
   consumes the planner's `DimensionGroup` (chamfer joins `_CONVENTION` as a
   leader), so a `decorations`-authored ± / limit tolerance on a chamfer leg

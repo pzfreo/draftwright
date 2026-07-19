@@ -1202,13 +1202,17 @@ def _ray_exit_dist(px, py, ux, uy, rect) -> float:
     return max(min([t for t in ts if t > 0], default=0.0), 0.0)
 
 
-def _pocket_label(pk) -> str:
-    """The pocket callout string: ``{width} × {length} × {depth} DEEP`` (#148a). The ISO
-    depth glyph (↧) is drawn as geometry by the helper's hole callouts, not as font text —
-    a plain :class:`Leader` label has no access to it, so this uses the font-safe ``DEEP``
-    word (the vendored Plex Mono lacks ↧). Formatting lives in the render layer (ADR
-    0013 §7)."""
-    return f"{_fmt(pk.width)} × {_fmt(pk.length)} × {_fmt(pk.depth)} DEEP"
+def _pocket_label(width, length, depth, wsfx="", lsfx="", dsfx="") -> str:
+    """The pocket callout string: ``{width} × {length} × {depth} DEEP`` (#148a). The values
+    are the PLANNED ones (``pd.param.value``, #728); *wsfx*/*lsfx*/*dsfx* are each value's
+    pre-formatted tolerance suffix, interleaved so a tolerance rides its own number. (All
+    three params share kind ``"length"``, so today one authored decoration folds onto all
+    three — the per-value suffixes render that honestly; independent tolerancing needs an
+    authoring-surface change, #698.) The ISO depth glyph (↧) is drawn as geometry by the
+    helper's hole callouts, not as font text — a plain :class:`Leader` label has no access
+    to it, so this uses the font-safe ``DEEP`` word (the vendored Plex Mono lacks ↧).
+    Formatting lives in the render layer (ADR 0013 §7)."""
+    return f"{_fmt(width)}{wsfx} × {_fmt(length)}{lsfx} × {_fmt(depth)}{dsfx} DEEP"
 
 
 # Unit lead directions tried (nearest-clear wins), diagonals first so a central pocket's
@@ -1244,18 +1248,38 @@ def _radial_candidates(dwg, view, vb, feature, reach, *, rim=0.0):
         yield (tip, elbow, feature)
 
 
-def render_pockets(dwg, model, a, *, ctx) -> int:
+def render_pockets(dwg, groups, a, *, ctx) -> int:
     """Blind-recess callouts (#148a): a leader from each floored slot/pocket to its
     ``W × L × D DEEP`` label, in the view normal to the recess opening (a Z-depth pocket
     reads in the plan, an X-depth in the side, a Y-depth in the front). A pocket sits
     mid-face, so — unlike a corner chamfer — the leader is tried toward each margin
     direction (nearest clear wins) and the callout is dropped (lint, not silently) if none
-    lands in clear room. Returns the count placed."""
-    reach = _leader_callout_reach(dwg.draft)
+    lands in clear room. Returns the count placed.
+
+    Planner-fed (#728 / #698): the multi-parameter case — width, length AND depth in one
+    label — so EACH value + its tolerance is bound explicitly by its ``(role, kind)``
+    (``pocket_width``/``pocket_length``/``pocket_depth``, all kind ``"length"``), never
+    positionally, never ``dims[0]``. Formatting ``pk.width``… directly dropped an authored
+    tolerance (the #629 class). The pass KEEPS its own axis→view map: ``g.view`` keys on
+    the frame axis, which is the pocket's LONG axis, but the callout reads in the view
+    normal to the DEPTH axis — not identical, so the map stays."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
     view_of = {"z": "plan", "x": "side", "y": "front"}
-    pockets = [f for f in model.features if f.kind == "pocket"]
+    pocket_groups = [g for g in groups if g.feature_kind == "pocket"]
     jobs = []
-    for i, pk in enumerate(sorted(pockets, key=lambda f: (f.width_axis, f.frame.origin))):
+    for i, g in enumerate(
+        sorted(pocket_groups, key=lambda g: (g.feature.width_axis, g.feature.frame.origin))
+    ):
+        pk = g.feature
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key.get(("pocket_width", "length"))
+        lpd = by_key.get(("pocket_length", "length"))
+        dpd = by_key.get(("pocket_depth", "length"))
+        if wpd is None or lpd is None or dpd is None:
+            continue
+        if wpd.suppressed or lpd.suppressed or dpd.suppressed:
+            continue
         view = view_of.get(pk.depth_axis)
         if view is None:
             continue
@@ -1267,7 +1291,14 @@ def render_pockets(dwg, model, a, *, ctx) -> int:
                 f"m_pocket_{pk.width_axis}{pk.long_axis}{i}",
                 view,
                 vb,
-                _pocket_label(pk),
+                _pocket_label(
+                    wpd.param.value,
+                    lpd.param.value,
+                    dpd.param.value,
+                    wsfx=_tol_suffix(wpd.param.tolerance, draft),
+                    lsfx=_tol_suffix(lpd.param.tolerance, draft),
+                    dsfx=_tol_suffix(dpd.param.tolerance, draft),
+                ),
                 _radial_candidates(dwg, view, vb, pk, reach),
             )
         )
