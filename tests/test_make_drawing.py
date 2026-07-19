@@ -8251,6 +8251,31 @@ class TestPrismaticBossDiameter:
         assert len(issues) == 1
         assert issues[0].severity == "warning"
 
+    def test_unplaceable_boss_height_reports_one_authoritative_issue(self):
+        # Adversarial review of #632: a physically absent corridor forces the
+        # candidate's drop path. Reconciliation must report the omission once,
+        # rather than adding boss_height_dropped + boss_height_missing for one gap.
+        from types import SimpleNamespace
+
+        from draftwright.annotations._common import PlacementContext, drain_corridors
+        from draftwright.annotations.from_model import render_boss_heights
+        from draftwright.model import plan_dimensions
+
+        dwg = build_drawing(self._box_boss(), auto_dims=False)
+        analysis = dwg._analysis
+        constrained = SimpleNamespace(
+            **{
+                **vars(analysis),
+                "fv_zones": SimpleNamespace(**{**vars(analysis.fv_zones), "right": None}),
+            }
+        )
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg._coverage)
+        render_boss_heights(dwg, plan_dimensions(dwg.model()), constrained, ctx=ctx)
+        drain_corridors(ctx, dwg)
+
+        boss_issues = [i for i in dwg.lint() if i.code.startswith("boss_height_")]
+        assert [i.code for i in boss_issues] == ["boss_height_missing"]
+
     def test_declared_boss_object_carries_height_into_the_model(self):
         from draftwright import Sheet
 

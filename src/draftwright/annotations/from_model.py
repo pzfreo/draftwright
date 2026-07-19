@@ -1613,9 +1613,10 @@ def render_boss_heights(dwg, groups, a, *, ctx) -> int:
                 build=build,
                 order=(_SIZE_SUBCHAIN, bi, name),
                 on_place=lambda _nm: None,
-                on_drop=lambda _nm, value=pd.param.value: ctx.record_issue(
-                    "warning", "boss_height_dropped", f"boss height {_fmt(value)} not dimensioned"
-                ),
+                # Live feature reconciliation below Drawing.lint() is authoritative:
+                # an absent height becomes one boss_height_missing issue. Recording a
+                # second build-time drop here would double-count the same omission.
+                on_drop=lambda _nm: None,
                 force=True,
                 feature=b,
                 footprint=footprint,
