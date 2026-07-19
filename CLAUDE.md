@@ -320,10 +320,10 @@ Current ADRs:
 - **0015** — **Accepted** (supersedes 0008, #697): **the part-drawing compiler
   as built** — detectors + declared features → the one PartModel waist (two
   tiers, ADR 0013) → planner → render-intents → shared infra; with the
-  planner-coverage split (dimension-bearing kinds flow through
-  `plan_dimensions`; correlated furniture/aspects remain model-routed by design)
-  and the lint/coverage carve-out stated properly. Planner convergence #698 is
-  complete; new kinds must add every applicable IR, planning, rendering,
+  planner-coverage split (the #698 migrations are complete; correlated
+  furniture/aspects remain model-routed by design, while rotational OD/bore
+  groups are residual debt tracked by #754) and the lint/coverage carve-out
+  stated properly. New kinds must add every applicable IR, planning, rendering,
   coverage, and test surface while keeping orientation data-driven.
 
 ## Dependencies

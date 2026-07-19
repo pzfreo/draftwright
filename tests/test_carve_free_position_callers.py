@@ -4,9 +4,9 @@
 *without* joining the shared corridor solve — the "solver-invisible" placement
 the ADR 0014 collect-then-solve model exists to retire. Its guarantee (the
 invisible-occupant collision class removed **by construction**) only holds once
-every auto-pass strip occupant is a candidate in the solve. #636 migrates the
-remainder; this guard stops the legacy path from silently attracting **new**
-callers (two 0.3.0 features, plates #559 and step positions #555, already
+every non-exempt auto-pass strip occupant is a candidate in the solve. #636
+completed that migration; this guard stops the legacy path from silently
+attracting **new** callers (two 0.3.0 features, plates #559 and step positions #555, already
 regressed onto it before the migration — that is the failure mode this test
 prevents from recurring).
 
@@ -30,15 +30,15 @@ from pathlib import Path
 _ANNO_DIR = Path(__file__).resolve().parent.parent / "src" / "draftwright" / "annotations"
 
 # The only ``annotations/`` functions permitted to call ``carve_free_position``.
-# Each is either a permanent exemption or a site still tracked by #636 for
-# migration. Removing an entry as its site migrates is the intended direction;
-# the allowlist must never grow for un-migrated new work.
+# Each is a permanent exemption recorded by ADR 0014. Removing an entry when a
+# site no longer needs the carve is still the intended direction; the allowlist
+# must never grow without an ADR amendment.
 _ALLOWED_CALLERS = {
     # Permanent exemption (ADR 0014): the pitch-dim fallback searches an
     # arbitrary diagonal outward vector — a diagonal dim cannot occupy a 1-D
     # axis-aligned strip tier, so it cannot be a solve candidate at all.
     ("holes.py", "_place_pitch_dim"),
-    # Pending migration (#636), each with a genuine design fork:
+    # Post-drain fallbacks retained explicitly by ADR 0014:
     ("from_model.py", "render_gdt"),  # alt-strip fallback DEFERRED via ctx.post_drain (#636)
     # Beyond render_gdt's pattern (helpers ≥0.14): the primary placement IS the
     # corridor candidate; the carve runs in a ctx.post_drain-DEFERRED drop fallthrough,

@@ -39,16 +39,19 @@ pending typed adapter-registry refinement.
 
 The planner maps a feature's typed `DimParameter`s to `DimensionGroup`s,
 choosing conventions and views from semantic roles and feature frames. Issue
-#698 completed the migration of every dimension-bearing feature pass that fits
-that abstraction. Holes/patterns, locations, turned and boss diameters,
+#698 completed its planned migrations of dimension-bearing feature passes.
+Holes/patterns, locations, turned and boss diameters,
 envelopes, step lengths, chamfers, fillets, flats, grooves, pockets, plates,
 slots, and section triggers consume planner output.
 
-Some rendering remains model-routed **by design**:
+Some rendering remains model-routed:
 
-- rotational OD/centreline/bore furniture and pre-authored PMI;
+- rotational centrelines are furniture, but rotational OD/bore dimensions still
+  discard computed planner groups; that residual debt is tracked by #754;
+- pre-authored PMI exposes no dimension parameters and is model-routed by design;
 - correlated step-height and step-position sets, which must not be flattened
-  into independent dimensions;
+  into independent dimensions, are model-routed by design even though their
+  computed groups are not consumed;
 - GD&T and finish placement intents, which are not `DimParameter`s.
 
 Adding a feature kind therefore means adding the applicable recognition and/or
@@ -86,8 +89,8 @@ feature inventory.
 - Detection and declaration converge on the same frozen `PartModel` IR.
 - Recognition records cross only at the sanctioned `model/detect.py` adapter
   boundary.
-- Dimension-bearing feature passes use the planner; explicitly correlated
-  furniture and aspect passes may remain model-routed.
+- Dimension-bearing feature passes use planner output unless an ADR records a
+  correlated-set exception; #754 tracks the remaining rotational exception.
 - Orientation and view choice are derived from feature data, not duplicated by
   producer or axis.
 - Render intents feed shared placement, projection, tables, sections, and export;

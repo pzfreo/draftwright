@@ -12,26 +12,19 @@ def _read(relative: str) -> str:
     return (_ROOT / relative).read_text()
 
 
-def _prose(relative: str) -> str:
-    """Read prose with Markdown wrapping made irrelevant to phrase assertions."""
-    return " ".join(_read(relative).split())
-
-
 def test_live_architecture_docs_name_current_compiler_authority():
-    target = _prose("docs/target-architecture.md")
-    assert "current compiler contract; ADR 0008 is its frozen historical" in target
+    target = _read("docs/target-architecture.md")
+    readme = _read("README.md")
     assert "target state defined by [ADR 0008]" not in target
+    assert "part-drawing compiler** (ADR 0008)" not in readme
 
 
 def test_live_architecture_docs_record_planner_convergence_complete():
-    target = _prose("docs/target-architecture.md")
-    adr = _prose("docs/adr/0015-part-drawing-compiler-as-built.md")
-    claude = _prose("CLAUDE.md")
-    assert "#698 completed" in target
-    assert "Planner convergence #698 is complete" in claude
-    assert "convergence is now complete" in adr
+    adr = _read("docs/adr/0015-part-drawing-compiler-as-built.md")
+    claude = _read("CLAUDE.md")
     assert "while #698 proceeds" not in adr
     assert "convergence tracked by #698" not in claude
+    assert "deliberately does **not** claim that work done" not in adr
 
 
 def test_current_architecture_docs_have_no_source_line_anchors():
@@ -46,5 +39,5 @@ def test_current_architecture_docs_have_no_source_line_anchors():
 
 def test_carve_guard_points_to_current_placement_adr():
     guard = _read("tests/test_carve_free_position_callers.py")
-    assert "amending ADR 0014" in guard
-    assert "amendment in ADR 0009" not in guard.lower()
+    assert "ADR 0009's remaining-migration note" not in guard
+    assert "Pending migration (#636)" not in guard

@@ -1,10 +1,10 @@
 # ADR 0015 — The part-drawing compiler, as built
 
 - **Status:** Accepted. **Supersedes [ADR 0008](0008-unified-feature-model-and-dimensioning-planner.md).**
-- **Amendment 1** (2026-07-19): planner convergence #698 is complete. All
-  dimension-bearing feature passes suited to `DimensionGroup` planning now
-  consume planner output; correlated furniture and aspect passes remain
-  model-routed by design. The open/closed consequence is narrowed accordingly.
+- **Amendment 1** (2026-07-19): the migrations tracked by planner-convergence
+  epic #698 are complete. The remaining model-routed passes are classified
+  honestly below, including rotational dimension debt now tracked by #754.
+  The open/closed consequence is narrowed accordingly.
 - **Date:** 2026-07-18
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -91,9 +91,11 @@ The load-bearing properties, all live in the code today:
 
 0008 §3 claimed "one rule set over DimParameters … uniformly". The 2026-07-18
 audit found that many dimension-bearing feature passes still bypassed it and
-opened **#698**. That convergence is now complete: `orchestrator._auto_annotate`
-calls `plan_dimensions` exactly once and threads its `DimensionGroup`s to every
-dimension-bearing renderer suited to group-per-feature planning.
+opened **#698**. The migrations owned by that epic are now complete:
+`orchestrator._auto_annotate` calls `plan_dimensions` exactly once and threads
+its `DimensionGroup`s to the migrated renderers. The audit of this amendment
+found one residual dimension-bearing bypass, rotational OD/bores, now tracked
+separately by #754.
 
 **Planner-fed today** (the renderer consumes `DimensionGroup`s from
 `plan_dimensions`, or another planner entry point):
@@ -115,17 +117,20 @@ dimension-bearing renderer suited to group-per-feature planning.
 | slots (width/length linear dims, #730; the datum position dim stays model-derived — it is drawing state, not a feature parameter) | `from_model.render_slots` | `plan_dimensions` |
 | section trigger + cut plane | `sections._add_section_view` etc. | `plan_sections` → `SectionPlan` |
 
-**Intentionally model-routed today** (these passes do not discard applicable
-`DimensionGroup`s; their inputs are furniture, correlated sets, or aspects that
-do not fit group-per-parameter planning):
+**Model-routed today** (where a feature exposes parameters, `plan_dimensions`
+still computes a group that these passes do not consume):
 
-- `render_rotational`
-  (OD/centreline/bore furniture), `render_pmi` — both in
-  `annotations/from_model.py`.
+- `render_rotational` formats OD and bore parameters from raw
+  `RotationalFeature` fields, discarding their computed group and any authored
+  decoration folded into it. That is debt tracked by #754. Its axis centrelines
+  are furniture and remain model-routed.
 - `render_height_ladder` and `render_step_positions` are also model-routed,
   **by design**: `StepLevelFeature` carries correlated sets that must never be
   flattened into independent dims, so group-per-feature is the wrong shape for
-  them. Their model-routing is sanctioned, not debt.
+  them. Their computed groups are discarded; the whole-set renderers are the
+  sanctioned owner of those correlated dimensions.
+- `render_pmi` is model-routed by design: authored PMI features expose no
+  parameters for `plan_dimensions`, so no group is computed or discarded.
 - `render_gdt` is model-routed and **out of the planner's scope by design**:
   `ControlFrame`/`DatumRef`/`Finish` (ADR 0011 P2b) are placement intents, not
   `DimParameter`-bearing features — there is nothing for `plan_dimensions` to
@@ -135,9 +140,9 @@ do not fit group-per-parameter planning):
 dimension parameters and where dimension-level convention and suppression
 belong. #698 migrated chamfer, fillet, flat, groove, pocket, plate, and slot
 dimensions (#724–#730), closing the latent authored-tolerance failure class for
-those features. Model-routed passes remain legitimate only where there is no
-independent `DimParameter` to plan or where flattening a correlated set would
-destroy its semantics.
+those features. Model-routing is legitimate where there is no independent
+`DimParameter` to plan or where flattening a correlated set would destroy its
+semantics; otherwise it remains explicit debt such as #754.
 
 ## The lint/coverage carve-out
 
@@ -195,8 +200,10 @@ boundary decisions), not for current state. Step 1 of the original 0008
 ## Related
 
 - #697 — the audit item mandating this supersession (and ADR 0014's).
-- #698 — completed planner-bypass convergence epic tracked by this ADR's
-  coverage table and Amendment 1.
+- #698 — completed planner-bypass migration epic tracked by this ADR's coverage
+  table and Amendment 1.
+- #754 — residual rotational OD/bore planner bypass found during Amendment 1's
+  accuracy review.
 - #699 — the one canonical `_PASS_SEQUENCE` shared by the auto-pass and
   `finalize()` (orchestrator `run_stages`), which orders the passes named
   above.
