@@ -1564,6 +1564,67 @@ def render_boss_diameters(dwg, groups, a, *, ctx) -> int:
     )
 
 
+def render_boss_heights(dwg, groups, a, *, ctx) -> int:
+    """Queue the axial height of each prismatic boss in a profile-view corridor (#632)."""
+    if a.is_rotational or a.prof is not None:
+        return 0
+    tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
+    specs = {
+        "z": ("front", "right", a.fv_zones.right, "x"),
+        "x": ("front", "above", a.fv_zones.above, "y"),
+        "y": ("side", "above", a.sv_zones.above, "y"),
+    }
+    n = 0
+    for bi, g in enumerate(
+        sorted(
+            (g for g in groups if g.feature_kind == "boss"),
+            key=lambda g: (g.feature.frame.axis, g.feature.frame.origin),
+        )
+    ):
+        b = g.feature
+        pd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("boss_height", "length")),
+            None,
+        )
+        if pd is None or pd.suppressed or pd.param.span is None:
+            continue
+        view, side, strip, stack = specs[b.frame.axis]
+        p1 = dwg.at(view, *pd.param.span[0])
+        p2 = dwg.at(view, *pd.param.span[1])
+        edge = max(p1[0], p2[0]) if side == "right" else max(p1[1], p2[1])
+        label = _fmt(pd.param.value) + _tol_suffix(pd.param.tolerance, dwg.draft)
+        name = f"m_bossheight_{b.frame.axis}{bi}"
+
+        def build(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
+            return _dim(p1, p2, side, abs(pos - edge), dwg.draft, label=label)
+
+        def footprint(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
+            return dim_footprint(p1, p2, side, abs(pos - edge), dwg.draft, label)
+
+        register_corridor(
+            ctx,
+            (view, side),
+            strip,
+            view,
+            stack,
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=build,
+                order=(_SIZE_SUBCHAIN, bi, name),
+                on_place=lambda _nm: None,
+                on_drop=lambda _nm, value=pd.param.value: ctx.record_issue(
+                    "warning", "boss_height_dropped", f"boss height {_fmt(value)} not dimensioned"
+                ),
+                force=True,
+                feature=b,
+                footprint=footprint,
+            ),
+        )
+        n += 1
+    return n
+
+
 def render_plates(dwg, groups, a, *, ctx) -> int:
     """Plate/wall thicknesses (#559): the thin extent of each recognised slab
     (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z

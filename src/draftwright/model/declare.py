@@ -280,7 +280,7 @@ def read_countersink(cone) -> tuple[float, float]:
     return round(2 * major_e.radius, 4), included
 
 
-def boss(obj=None, *, diameter=None, at=None, axis=None) -> BossFeature:
+def boss(obj=None, *, diameter=None, height=None, at=None, axis=None, span=None) -> BossFeature:
     """An external cylindrical boss / OD. Either ``boss(cylinder)`` or
     ``boss(diameter=6, at=(0, 0, 0), axis="x")`` (parametric). An object supplies
     *defaults*; any explicit keyword overrides that field (#451)."""
@@ -289,12 +289,21 @@ def boss(obj=None, *, diameter=None, at=None, axis=None) -> BossFeature:
         axis = r_axis if axis is None else axis
         diameter = r_diameter if diameter is None else diameter
         at = r_at if at is None else at
+        if height is None:
+            bb = obj.bounding_box()
+            height = [bb.size.X, bb.size.Y, bb.size.Z]["xyz".index(_norm_axis(axis))]
     if diameter is None or at is None or axis is None:
         raise ValueError("boss() needs an object, or explicit diameter=, at= and axis=")
     axis = _norm_axis(axis)
     _require_positive(diameter=diameter)
+    if height is not None:
+        _require_positive(height=height)
     _require_point("at", at)
-    return BossFeature(frame=Frame(origin=at, axis=axis), diameter=diameter)
+    if height is not None and span is None:
+        span = _span(at, axis, height)
+    return BossFeature(
+        frame=Frame(origin=at, axis=axis), diameter=diameter, height=height, span=span
+    )
 
 
 def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None) -> StepFeature:

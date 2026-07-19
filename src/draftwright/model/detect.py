@@ -365,6 +365,11 @@ def build_part_model(
                     BossFeature(
                         frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
                         diameter=b.diameter,
+                        height=b.height,
+                        span=(
+                            tuple(float(b.location[i] - b.axis[i] * b.height) for i in range(3)),
+                            _xyz(b.location),
+                        ),
                     )
                 )
     else:
@@ -381,6 +386,11 @@ def build_part_model(
                 BossFeature(
                     frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
                     diameter=b.diameter,
+                    height=b.height,
+                    span=(
+                        tuple(float(b.location[i] - b.axis[i] * b.height) for i in range(3)),
+                        _xyz(b.location),
+                    ),
                 )
             )
         # Overall envelope dims for a *prismatic* part — not a round single-OD body

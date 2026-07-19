@@ -8230,6 +8230,37 @@ class TestPrismaticBossDiameter:
             o.label == "ø28" for n, o in dwg.iter_annotations() if n.startswith("m_dia_z")
         )
 
+    def test_prismatic_boss_height_is_dimensioned_in_profile(self):
+        # #632: the boss's own 10 mm axial extent is independent of the 48 mm
+        # overall envelope and must be modeled and rendered explicitly.
+        dwg = build_drawing(self._box_boss())
+        heights = [(n, o) for n, o in dwg.iter_annotations() if n.startswith("m_bossheight_")]
+        assert len(heights) == 1
+        name, dim = heights[0]
+        assert dim.label == "10"
+        assert dwg.view_of(name) == "front"
+        assert not any(i.code == "boss_height_missing" for i in dwg.lint())
+
+    def test_removed_boss_height_is_linted_from_live_drawing(self):
+        # Coverage is drawing-derived: deleting the rendered height must expose the
+        # gap even though the overall envelope and boss diameter remain present.
+        dwg = build_drawing(self._box_boss())
+        height_name = next(n for n in dwg.annotations() if n.startswith("m_bossheight_"))
+        dwg.remove(height_name)
+        issues = [i for i in dwg.lint() if i.code == "boss_height_missing"]
+        assert len(issues) == 1
+        assert issues[0].severity == "warning"
+
+    def test_declared_boss_object_carries_height_into_the_model(self):
+        from draftwright import Sheet
+
+        boss_obj = Pos(0, 0, 24) * Cylinder(14, 10)
+        sheet = Sheet.from_part(Box(90, 64, 38) + boss_obj)
+        sheet.boss(boss_obj)
+        feature = next(f for f in sheet.build().model().features if f.kind == "boss")
+        assert feature.height == pytest.approx(10)
+        assert feature.span is not None
+
     def test_shelled_cover_boss_diameter_not_dropped(self):
         # The regression: even forced onto A4 (scale 0.5, front view against the left
         # margin) the boss ø28 places into the clear sheet, so it never lints uncovered.
@@ -8257,6 +8288,7 @@ class TestPrismaticBossDiameter:
         dwg = build_drawing(Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(10, 30))
         assert not any(n.startswith("m_bossdia_") for n in dwg.annotations())
         assert any(n.startswith("m_dia_z") for n in dwg.annotations())
+        assert not any(i.code == "boss_height_missing" for i in dwg.lint())
 
 
 class TestTurnedDiameters:
