@@ -66,6 +66,7 @@ from draftwright.annotations._common import (
     _geom_box,
     carve_free_position,
     dim_footprint,
+    full_strip_message,
     place_strip_candidates,
     register_corridor,
     strip_free_span,
@@ -317,6 +318,8 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
                         [_cand_for("below", _bh)],
                         tier,
                         features={cname: _feat},
+                        trace=ctx.trace,
+                        trace_label="slot_below_fallthrough",
                     ):
                         return  # placed on the below strip
                     _record_slot_drop(ctx, dwg, _dw, idx, vw[0], _feat)
@@ -359,7 +362,15 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
                     continue
                 axis = "y" if side in ("above", "below") else "x"
                 if not place_strip_candidates(
-                    dwg, strip, vw[0], axis, [_cand_for(side, hi)], tier, features={cname: s}
+                    dwg,
+                    strip,
+                    vw[0],
+                    axis,
+                    [_cand_for(side, hi)],
+                    tier,
+                    features={cname: s},
+                    trace=ctx.trace,
+                    trace_label=f"slot_{side}",
                 ):
                     return True
             return False
@@ -2080,7 +2091,10 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
 
         def _drop(nm, drop_msg=drop_msg, name=name):
             solved.pop(name, None)
-            ctx.record_issue("error", "placement_unsatisfiable", drop_msg)
+            # Name what filled the strip (#736): the #733 diagnosis ("which occupants
+            # exhausted the front-right strip?") becomes a glance at the lint message.
+            msg = full_strip_message(drop_msg, dwg, a.fv_zones.right, "front", "x")
+            ctx.record_issue("error", "placement_unsatisfiable", msg)
 
         register_corridor(
             ctx,

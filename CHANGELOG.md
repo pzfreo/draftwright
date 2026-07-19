@@ -26,6 +26,17 @@
 
 ### Added
 
+- **Solve-trace / explain mode** (#736, from the #733 post-mortem): opt-in
+  observability for strip placement. `build_drawing(trace=…)` or
+  `DRAFTWRIGHT_TRACE=<path-or-dir>` writes ONE JSON file per build recording
+  every strip solve — corridor key, strip bounds, the candidate set, the
+  obstacles that carved the strip (with owning annotation names), the free
+  segments, and each candidate's outcome (placed / dropped-with-reason /
+  deduped / promoted / deferred-to-post-drain) — so "why did X drop" is one
+  `jq` query. A `placement_unsatisfiable` strip-full drop now also names the
+  top occupants in its lint message (`…strip full; occupied by: …`). Default
+  off; zero output change, nil cost when off.
+
 - **`draftwright.model.authored_dimension`** (#704): the IR constructor behind
   `Sheet.dimension()`, extracted so `build_drawing(model=…)` callers can author
   a pre-measured drafting dimension without the `Sheet` façade.

@@ -9,6 +9,7 @@ stage modules -- never make_drawing -- so the graph stays a DAG.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -36,6 +37,7 @@ from draftwright._core import (
     _tb_width,
 )
 from draftwright.analysis import _analyse
+from draftwright.annotations._common import SolveTrace
 from draftwright.annotations.orchestrator import (
     _auto_annotate,
     build_model,
@@ -236,10 +238,14 @@ def detect_part_model(part, *, pmi="off") -> PartModel:
     return model
 
 
-def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=None) -> Drawing:
+def _assemble(
+    a, out, assembly, detail_view, auto_dims, model=None, decorations=None, trace=None
+) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
     passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
-    repacked analysis it is also pass 2 of the measure-and-repack loop (#121)."""
+    repacked analysis it is also pass 2 of the measure-and-repack loop (#121).
+    *trace* is the opt-in #736 solve-trace recorder (attached to the drawing's
+    build state so the annotate + finalize paths thread it), or ``None``."""
     cxs, cys, czs = a.cx * a.SCALE, a.cy * a.SCALE, a.cz * a.SCALE
     dist = a.bbox_max * a.SCALE + 100
 
@@ -294,6 +300,8 @@ def _assemble(a, out, assembly, detail_view, auto_dims, model=None, decorations=
     dwg._build.analysis = a
     dwg._build.part_model = pm
     dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
+    if trace is not None:  # opt-in solve trace (#736), threaded via a named method
+        dwg.attach_solve_trace(trace)
 
     part_s = a.part.scale(a.SCALE)
     dwg.add_view("front", part_s, (cxs, cys - dist, czs), (0, 0, 1), (a.FV_X, a.FV_Y), scaled=True)
@@ -354,7 +362,16 @@ def _needs_repack(dwg, a) -> bool:
 
 
 def _repack(
-    a, dwg, out, assembly, detail_view, scale=None, page=None, model=None, decorations=None
+    a,
+    dwg,
+    out,
+    assembly,
+    detail_view,
+    scale=None,
+    page=None,
+    model=None,
+    decorations=None,
+    trace=None,
 ):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
     when a view collides across views, pack the blocks disjoint — escalating the
@@ -484,13 +501,29 @@ def _repack(
         sv_zones=sv_zones,
     )
     dwg2 = _assemble(
-        a2, out, assembly, detail_view, auto_dims=True, model=model, decorations=decorations
+        a2,
+        out,
+        assembly,
+        detail_view,
+        auto_dims=True,
+        model=model,
+        decorations=decorations,
+        trace=trace,
     )
     return a2, dwg2
 
 
 def _repack_to_fixed_point(
-    a, dwg, out, assembly, detail_view, scale=None, page=None, model=None, decorations=None
+    a,
+    dwg,
+    out,
+    assembly,
+    detail_view,
+    scale=None,
+    page=None,
+    model=None,
+    decorations=None,
+    trace=None,
 ):
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
     cur_a, cur_dwg = a, dwg
@@ -505,6 +538,7 @@ def _repack_to_fixed_point(
             page=page,
             model=model,
             decorations=decorations,
+            trace=trace,
         )
         if repacked is None:
             if _needs_repack(cur_dwg, cur_a):
@@ -523,6 +557,27 @@ def _repack_to_fixed_point(
     return cur_a, cur_dwg
 
 
+def _resolve_trace(trace, out) -> SolveTrace | None:
+    """Resolve :func:`build_drawing`'s ``trace`` option to a :class:`SolveTrace`
+    recorder, or ``None`` (off — the default). ``None`` consults the
+    ``DRAFTWRIGHT_TRACE`` env var; ``False`` forces off; ``True`` writes
+    ``<out>.trace.json`` beside the drawing; a path-or-directory writes there."""
+    if trace is False:
+        return None
+    if trace is None:
+        env = os.environ.get("DRAFTWRIGHT_TRACE", "")
+        if not env:
+            return None
+        trace = env
+    if trace is True:
+        path = Path(f"{out}.trace.json")
+    else:
+        path = Path(trace)
+        if path.is_dir():
+            path = path / f"{Path(out).name}.trace.json"
+    return SolveTrace(path)
+
+
 def build_drawing(
     step_file: str | Path | Shape,
     out: str | None = None,
@@ -539,6 +594,7 @@ def build_drawing(
     assembly: bool | None = None,
     model: Sequence[Feature] | PartModel | None = None,
     decorations: dict | None = None,
+    trace: str | Path | bool | None = None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -575,6 +631,16 @@ def build_drawing(
             it (#448); the one remaining detection-dependent bit is the off-axis
             side-drilled hole *location* dim, which needs recogniser-Hole geometry a
             declared feature doesn't carry. See ADR 0011.)
+        trace: the opt-in **solve-trace / explain mode** (#736): record every strip
+            placement decision — per corridor solve, the candidate set, the obstacles
+            that carved the strip (with owning annotation names), the free segments,
+            and each candidate's outcome (placed/dropped-with-reason/deduped/
+            promoted) — as ONE JSON file per build. ``True`` writes
+            ``<out>.trace.json`` beside the drawing; a path writes there (a
+            directory gets ``<stem>.trace.json`` inside it). Default ``None``
+            consults the ``DRAFTWRIGHT_TRACE`` env var (same path-or-directory
+            semantics); ``False`` forces it off. **Zero output change**: tracing
+            never alters a placement decision, and off (the default) costs nothing.
 
     Returns:
         A :class:`Drawing` with the standard front/plan/side/iso views projected
@@ -587,6 +653,7 @@ def build_drawing(
             out = out[: -len(_ext)]
             break
     title = title or stem.replace("_", " ").upper()
+    tracer = _resolve_trace(trace, out)
 
     a = _analyse(
         step_file,
@@ -606,7 +673,16 @@ def build_drawing(
     # per-view footprints and re-pack the blocks disjoint if a view actually
     # moves (#121, ADR 0004 — "lay out, don't predict").  Non-ballooned parts
     # measure ≈ estimate, so they skip pass 2 and stand byte-identical.
-    dwg = _assemble(a, out, assembly, detail_view, auto_dims, model=model, decorations=decorations)
+    dwg = _assemble(
+        a,
+        out,
+        assembly,
+        detail_view,
+        auto_dims,
+        model=model,
+        decorations=decorations,
+        trace=tracer,
+    )
     if auto_dims:
         repacked = _repack_to_fixed_point(
             a,
@@ -618,6 +694,7 @@ def build_drawing(
             page=page,
             model=model,
             decorations=decorations,
+            trace=tracer,
         )
         if repacked is not None:
             a, dwg = repacked
@@ -627,6 +704,8 @@ def build_drawing(
         # A no-op on a clean sheet, so default-on costs nothing when there is
         # nothing to fix.
         dwg.repair()
+    if tracer is not None:  # one JSON per build; Drawing.finalize() re-writes it (#736)
+        tracer.write()
     return dwg
 
 

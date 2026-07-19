@@ -228,6 +228,14 @@ down it knows only numbers.
 - Deterministic, explainable, dependency-free placement; over-capacity is a
   priority-ranked selection with first-class escalation, not an arrival-order
   drop.
+- The explanation is **recordable** (#736, from the #733 post-mortem): the
+  opt-in solve trace — `build_drawing(trace=…)` or `DRAFTWRIGHT_TRACE=<path>` —
+  dumps one JSON file per build with every strip solve's candidates, carving
+  obstacles (named), free segments, and per-candidate outcomes
+  (`SolveTrace`, threaded as `PlacementContext.trace`; default off, nil cost),
+  and a `placement_unsatisfiable` strip-full drop names the occupants that
+  filled the strip. Diagnosing a drop is a `jq` query, not a custom-script
+  rebuild.
 - Honest edges that remain: placement is per-view (cross-view contention rests
   on ADR 0004); AABB occupancy is deliberately conservative for diagonal
   leaders (the precise `_geometry._segment_crosses_box` test covers leader

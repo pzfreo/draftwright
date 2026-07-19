@@ -1536,6 +1536,8 @@ def _place_front_callouts(
         features=features,
         priorities=priorities,
         forbid=forbid,
+        trace=ctx.trace,
+        trace_label="front_hole_callouts",
     )
     left_names = {name for name, _ in left}
     for name, _build in cands:
