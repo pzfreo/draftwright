@@ -17,6 +17,7 @@ import functools
 import logging
 import math
 import re
+from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -483,19 +484,38 @@ def _largest_empty_rect(drawable, obstacles, *, warn: bool = True):
     xs = sorted({dx0, dx1, *(c for o in obstacles for c in (o[0], o[2]) if dx0 < c < dx1)})
     ys = sorted({dy0, dy1, *(c for o in obstacles for c in (o[1], o[3]) if dy0 < c < dy1)})
 
+    # The score is min(width, height), so any candidate whose width OR height is
+    # ``<= best_score`` cannot beat the best found so far. Because ``xs``/``ys`` are
+    # sorted and ``best_score`` only grows, we skip those candidates outright rather
+    # than enumerate-then-reject them: ``break`` the outer loop once even its widest
+    # candidate is too small, and ``bisect`` the inner loop's start past every pair
+    # narrower than ``best_score``. This is an exact prune — skipped candidates could
+    # never satisfy ``score > best_score`` — so the result (and its tie-breaking) is
+    # identical to the naive quadruple loop, but the detail-view caller (which passes
+    # every placed-annotation footprint, not just the handful of views) no longer
+    # triggers an O(N⁴) blow-up (#661).
     best = None
     best_score = 0.0
-    for i in range(len(xs) - 1):
-        for j in range(i + 1, len(xs)):
-            rx0, rx1 = xs[i], xs[j]
-            for k in range(len(ys) - 1):
-                for m in range(k + 1, len(ys)):
-                    ry0, ry1 = ys[k], ys[m]
-                    if any(
-                        rx0 < o[2] and o[0] < rx1 and ry0 < o[3] and o[1] < ry1 for o in obstacles
-                    ):
+    nx, ny = len(xs), len(ys)
+    for i in range(nx - 1):
+        rx0 = xs[i]
+        if xs[-1] - rx0 <= best_score:
+            break  # widest strip from here on can't beat best (rx0 only grows)
+        for j in range(bisect_right(xs, rx0 + best_score), nx):
+            rx1 = xs[j]
+            width = rx1 - rx0
+            # only obstacles overlapping the x-strip [rx0, rx1] can block it
+            strip = [(o[1], o[3]) for o in obstacles if o[0] < rx1 and rx0 < o[2]]
+            for k in range(ny - 1):
+                ry0 = ys[k]
+                if ys[-1] - ry0 <= best_score:
+                    break  # tallest gap from here can't beat best (ry0 only grows)
+                for m in range(bisect_right(ys, ry0 + best_score), ny):
+                    ry1 = ys[m]
+                    if any(ry0 < oy1 and oy0 < ry1 for (oy0, oy1) in strip):
                         continue
-                    score = min(rx1 - rx0, ry1 - ry0)
+                    height = ry1 - ry0
+                    score = width if width < height else height
                     if score > best_score:
                         best_score = score
                         best = (rx0, ry0, rx1, ry1)

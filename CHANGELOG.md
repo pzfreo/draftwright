@@ -58,6 +58,17 @@
 
 ### Fixed
 
+- **`_largest_empty_rect` no longer blows up on crowded detail views** (#661):
+  the largest-empty-rectangle placer enumerated every candidate rectangle
+  (O(N⁴) in the coordinate-cut count) — fine for the iso view's handful of
+  obstacles, but the detail-view placer feeds it *every* placed-annotation
+  footprint, so a two-detail turned part reached ~70 obstacles and spent ~13 s
+  in a single call (multi-minute on the slower Windows CI runners, which tipped
+  some jobs over their wall-clock budget). It now skips candidates that provably
+  can't beat the best found so far (a `bisect` past every too-narrow pair, an
+  early `break` once even the widest is too small): the same exact result and
+  tie-break — verified identical to the naïve search across 3 000 random cases —
+  at ~85× the speed on the pathological input (12.6 s → 0.15 s).
 - **`finalize()` resolves queued detail requests — detail views now exist on the
   edit path** (#661): the finalize drain was missing the auto pass's
   `detail_request`/`details` stages, so a crowded turned head's queued

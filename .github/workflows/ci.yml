@@ -41,10 +41,6 @@ jobs:
         # A few exact-position snapshots are skipped on 0.11 (see tests/_kernel.py).
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
-    # DIAGNOSTIC (temporary, #661): normal fast tier is ~10 min; cap so the Windows
-    # OCC hang dies with the faulthandler dump already flushed, instead of running to
-    # the 6h default. Reverted with the pyproject faulthandler diagnostic.
-    timeout-minutes: 18
 
     steps:
       - uses: actions/checkout@v6

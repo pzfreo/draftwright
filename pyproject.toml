@@ -69,11 +69,6 @@ include = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 timeout = 300
-# DIAGNOSTIC (temporary, #661 Windows hang): force the thread-based timeout so it
-# fires on Windows (no SIGALRM), and dump every thread's stack — including the OCP
-# C-call site — if any test stalls past 120s. Reverted once the hang is root-caused.
-timeout_method = "thread"
-faulthandler_timeout = 120
 # `slow` covers the heavy end-to-end builds over the large NIST CTC fixtures
 # (minutes each), deselected by default. `smoke` is a curated, build-light subset
 # (~30 s) for a quick local "did I break something obvious" check — run it with
