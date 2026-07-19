@@ -153,9 +153,12 @@ unaffected.
 Consequently, the original **one global solve over automatic features plus user
 edits remains a target, not a landed guarantee**. Generated scripts can approach
 that target when they faithfully record the same semantic intents before
-finalization, but direct and script output are not guaranteed equal; detail-view
-reconstruction is a known example. Track full script/direct equality and
-automatic-plus-user recomposition in #426/#661/#707. ADR 0014 is the current
+finalization, but direct and script output are not guaranteed equal.
+(Detail-view reconstruction was the canonical example until #661 landed,
+2026-07-19: the finalize drain now runs the "detail_request"/"details" stages,
+so queued detail requests resolve on the edit path like the auto pass.) Track
+full script/direct equality and
+automatic-plus-user recomposition in #426/#707. ADR 0014 is the current
 placement contract; ADR 0009 is retained only as its historical predecessor.
 
 The 2026-07-19 correction replaces the earlier "fully landed" wording, which
@@ -176,7 +179,7 @@ For current callers, this ADR means only the following:
    the newly solved population.
 5. `Drawing.place_dim()` remains the raw, scale-frozen, unsolved escape hatch.
 6. Script/direct equality and full recomposition remain tracked by
-   #426/#661/#707.
+   #426/#707 (the #661 detail-view slice landed 2026-07-19).
 
 The original target and phased plan above are retained to show why the intent
 mechanism was introduced; this summary plus ADR 0014 describe the behavior that

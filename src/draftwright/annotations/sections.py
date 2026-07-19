@@ -38,6 +38,7 @@ from draftwright._core import (
     Analysis,
     DetailRequest,
     HoleRef,
+    _anno_box,
     _dim,
     _fmt,
     _iso_bbox,
@@ -563,26 +564,48 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             continue
         letter = _DETAIL_LETTERS[n_placed]
         placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
-        if not placed and req.kind == "prismatic-steps" and "dim_height" in dwg.annotations():
+        hname = _overall_height_name(dwg) if not placed and req.kind == "prismatic-steps" else None
+        if hname is not None:
             # (#636) The user's explicit detail request outranks the overall-height
             # dim: pre-migration, the solver-invisible carve silently dropped
             # dim_height on exactly these crowded parts, and the detail took that
             # room. The corridor solve now places dim_height when it fits — so on a
             # no-room prismatic detail, demote it DELIBERATELY (same outcome, now
             # explicit and logged) and retry the detail once.
-            hview = dwg.view_of("dim_height")
-            hobj = dwg.remove("dim_height")
+            hview = dwg.view_of(hname)
+            hobj = dwg.remove(hname)
             placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
             if placed:
                 _log.warning(
-                    "dim_height demoted: the requested crowded-step detail view takes its room"
+                    "%s demoted: the requested crowded-step detail view takes its room", hname
                 )
             else:
                 # Transactional (#689 review): the detail may fail for reasons other
-                # than dim_height's room — restore it rather than losing BOTH.
-                dwg.add(hobj, "dim_height", view=hview)
+                # than the height dim's room — restore it rather than losing BOTH.
+                dwg.add(hobj, hname, view=hview)
         if placed:
             n_placed += 1
+
+
+def _overall_height_name(dwg) -> str | None:
+    """The overall-height dimension's annotation name, however it was placed (#661).
+
+    The auto pass names it ``dim_height`` (``render_height_ladder``). On the
+    finalize path an explicit envelope-height verb live-replays under an
+    auto-assigned ``dim_length{n}`` name instead — identified here by its envelope
+    feature attribution plus its portrait (taller-than-wide) footprint, which
+    singles the height out from the landscape width/depth envelope dims."""
+    if "dim_height" in dwg.annotations():
+        return "dim_height"
+    model = dwg.model()
+    for feat in getattr(model, "features", ()):
+        if getattr(feat, "kind", None) != "envelope":
+            continue
+        for name, obj in dwg.annotations_of(feat).items():
+            box = _anno_box(obj)
+            if box is not None and (box[3] - box[1]) > (box[2] - box[0]):
+                return str(name)
+    return None
 
 
 def _request_prismatic_detail(dwg, a: Analysis, *, ctx) -> None:

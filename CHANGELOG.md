@@ -58,6 +58,19 @@
 
 ### Fixed
 
+- **`finalize()` resolves queued detail requests — detail views now exist on the
+  edit path** (#661): the finalize drain was missing the auto pass's
+  `detail_request`/`details` stages, so a crowded turned head's queued
+  `DetailRequest` died with the per-run context and a prismatic
+  `detail_view=True` build never even queued one — generated scripts silently
+  lost every DETAIL A/B view. `build_drawing(detail_view=…)` is now persisted on
+  the build state so the drain gates the prismatic request exactly as the auto
+  pass does; the details stage re-projects the iso at sheet scale for the
+  free-rectangle search and refits it after (mirroring the auto pass's ordering,
+  where details place before the iso is fitted); and the overall-height demotion
+  retry now finds the height dim by its envelope attribution, not only the
+  auto-pass `dim_height` name. Three script-parity characterisation tests
+  (single detail, two details, turned head) flip from xfail to passing.
 - **`--format` now reaches `--script` output** (#709, from the #702 adversarial
   review): `--script -f svg` used to silently emit a PDF-producing script — the
   CLI parsed the flag but never forwarded it. Both emitters now thread it

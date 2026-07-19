@@ -5642,6 +5642,41 @@ class TestDetailView:
         assert not any(n.startswith("dim_detail") for n in dwg.annotations())
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
+    def test_finalize_places_and_rolls_back_a_detail_view(self, monkeypatch):
+        # #661 + #647: the finalize drain queues + resolves detail requests like the
+        # auto pass (gated on the persisted detail_view opt-in). A raise in a LATER
+        # stage (tabulate) must roll a placed detail view back — views, coordinates,
+        # and its annotations alike — so a retry starts clean and places it once.
+        from draftwright.annotations import orchestrator as _orch
+
+        dwg = build_drawing(_crowded_shoulder_part(), auto_dims=False, detail_view=True)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_height")
+
+        real = _orch._maybe_tabulate_holes
+        calls = {"n": 0}
+
+        def _boom(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("injected tabulate failure")
+            return real(*a, **k)
+
+        monkeypatch.setattr(_orch, "_maybe_tabulate_holes", _boom)
+        with pytest.raises(RuntimeError):
+            dwg.finalize()  # the details stage placed detail_a; tabulate then raises
+        # Rolled back: no detail view, view coordinates, or detail annotations survive.
+        assert "detail_a" not in dwg.views
+        assert "detail_a" not in dwg._coords
+        assert not any(n.startswith(("detail_", "dim_detail_")) for n in dwg.annotations())
+        assert any(it.kwargs.get("role") == "step_height" for it in dwg._intents)
+
+        dwg.finalize()  # retry from the restored intents — the detail places exactly once
+        assert "detail_a" in dwg.views
+        assert "detail_caption_A" in dwg.annotations()
+        assert any(n.startswith("dim_detail_a_step") for n in dwg.annotations())
+
 
 # ---------------------------------------------------------------------------
 # Issue #45: TYP / representative dimensioning for uniform step patterns

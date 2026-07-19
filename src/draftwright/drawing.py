@@ -201,6 +201,10 @@ class BuildState:
     - ``trace`` — the opt-in solve-trace recorder (#736,
       :class:`~draftwright.annotations._common.SolveTrace`), or ``None`` (default:
       tracing off). Carried here so the finalize path traces like the auto pass.
+    - ``detail_view`` — the caller's ``build_drawing(detail_view=...)`` opt-in,
+      persisted so the finalize drain gates the prismatic detail request exactly
+      as the auto pass does (#661) — on the ``auto_dims=False`` path the flag
+      would otherwise be consumed nowhere.
 
     Builder fills it at one site; the compat properties on ``Drawing`` read
     through it, so ``dwg._analysis``-style test inspection keeps working.
@@ -211,6 +215,7 @@ class BuildState:
     view_edge_cache: dict = dataclasses_field(default_factory=dict)
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
     trace: Any = None
+    detail_view: bool = False
 
     def clear_geometry_caches(self) -> None:
         """The one invalidation seam (finalize rollback): view edges + annotation
@@ -1316,12 +1321,21 @@ class Drawing:
           register-only stages queue into the SHARED corridor (a slot position coincident
           with a hole location collapses to one dim, #345; pin/priority user dims join as
           first-class candidates, ADR 0012);
+        * **detail_request** — when the build opted in (``build_drawing(detail_view=True)``,
+          persisted on ``BuildState``) and the ladder stage recorded a "step"/"illegible"
+          escalation, the prismatic step-height detail is queued, exactly as the auto
+          pass gates it (#661);
         * **diameters / step_lengths** — the X/Z-turned set-solves place immediately,
-          before the drain, exactly as the auto-pass runs them;
+          before the drain, exactly as the auto-pass runs them (a crowded X-turned
+          head queues its enlarged ``DetailRequest`` here, #304/#307);
         * **drain** — one ``drain_and_reconcile`` places every queued candidate
           (crossing-free, deduped, monotone ladder) + the #690 label reconciliation;
         * **section** — renders after the drained furniture exists (its room check clears
           the side view's right);
+        * **details** — every queued detail request resolves through the one generic
+          detailer, after the drain + section so it avoids everything placed (#661 —
+          pre-fix the finalize path never resolved the queue, so the edit path
+          produced no detail views);
         * **tabulate** — dense-scattered plan holes escalate to the hole **table** +
           balloon ring via ``_maybe_tabulate_holes`` — last, so it sees the section +
           title block as obstacles. The density gate counts *all* analysis holes, so this
@@ -1447,7 +1461,9 @@ class Drawing:
         )
         from draftwright.annotations.sections import (
             _add_section_view,
+            _request_prismatic_detail,
             _reserve_section_row,
+            _resolve_details,
             feature_hole_keys,
         )
         from draftwright.model import PartModel, plan_dimensions
@@ -1532,6 +1548,16 @@ class Drawing:
                 assert a is not None and isinstance(model, PartModel)
                 render_step_positions(self, model, a, ctx=ctx)
 
+        def _s_detail_request():
+            # Prismatic step-height detail (#661): queue it exactly as the auto pass
+            # does — gated on the build's detail_view opt-in (persisted on BuildState;
+            # the auto path's build_drawing(detail_view=True) gate), firing only when
+            # the ladder stage above recorded the "step"/"illegible" escalation
+            # (_request_prismatic_detail's own check). Resolved in the "details" stage.
+            if self._build.detail_view and routable:
+                assert a is not None
+                _request_prismatic_detail(self, a, ctx=ctx)
+
         def _s_diameters():
             # Step/boss ø diameters through render_diameters' set-solve (row-below /
             # column-left) — placed immediately, before the corridor drain, exactly as
@@ -1605,6 +1631,31 @@ class Drawing:
                 assert a is not None
                 _add_section_view(self, a, r.section)
 
+        def _s_details():
+            # Resolve every queued enlarged-detail request (#661): the prismatic
+            # request queued above and the crowded turned-head requests
+            # render_step_lengths queues (the requests live only on this per-run
+            # ctx, so an unresolved queue would die with it). Same position as the
+            # auto pass: after the drain + section, so the detail's free-rectangle
+            # search sees every placed annotation as an obstacle.
+            if ctx.detail_requests:
+                assert a is not None
+                from draftwright.projection import _fit_iso_view, _project_iso
+
+                # Mirror the auto pass's iso ordering (#661): there, details resolve
+                # while the iso still stands at sheet scale (it is fitted into its
+                # zone only after _auto_annotate returns), so the free-rectangle
+                # search is not blocked by the grown iso. The finalize path inherits
+                # the already-fitted iso from the build — re-project it at sheet
+                # scale for the resolve, then refit it into its zone (deterministic:
+                # same zone + geometry reproduce the build's fit; the #647 snapshot
+                # covers views/_coords, so a raise mid-stage rolls the iso back too).
+                if "iso" in self.views:
+                    _project_iso(self, a, a.SCALE)
+                _resolve_details(self, a, ctx=ctx)
+                if "iso" in self.views:
+                    _fit_iso_view(self, a, annotate=False)
+
         def _s_tabulate():
             # Dense-scattered plan-view holes escalate to the hole TABLE + balloon ring —
             # last, so the resolver sees the section + title block as obstacles. It reads
@@ -1627,12 +1678,14 @@ class Drawing:
                 "locations": _s_locations,
                 "height_ladder": _s_height_ladder,
                 "step_positions": _s_step_positions,
+                "detail_request": _s_detail_request,
                 "diameters": _s_diameters,
                 "step_lengths": _s_step_lengths,
                 "slots": _s_slots,
                 "user_dims": _s_user_dims,
                 "drain": _s_drain,
                 "section": _s_section,
+                "details": _s_details,
                 "tabulate": _s_tabulate,
             }
         )

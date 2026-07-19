@@ -130,7 +130,9 @@ rejected primitive dump (§3) nor a bespoke serialized DSL, but the **detected
   code generation" — code generation at the *intent* level dodges the dead-coordinate
   failure §3 actually rejected — provided the emitter serializes the planner's
   real intents. Script/direct equality must be demonstrated per feature path
-  rather than assumed by construction; known gaps are tracked by #426/#661/#707.
+  rather than assumed by construction; known gaps are tracked by #426/#707
+  (the #661 detail-view gap closed 2026-07-19 — finalize resolves queued detail
+  requests like the auto pass).
 - **Topology is an optional accelerant, not a dependency.** When the caller
   authored the part (the b123d scenario) they may *also* reference a raw
   `Face`/`Edge`/tag (§4's "edit the solid" made concrete for annotation);

@@ -299,6 +299,10 @@ def _assemble(
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a
     dwg._build.part_model = pm
+    # Persist the caller's detail-view opt-in: on the auto_dims=False path the flag
+    # reaches no pass here, but the finalize drain gates the prismatic detail
+    # request on it exactly as the auto pass does (#661).
+    dwg._build.detail_view = detail_view
     dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
     if trace is not None:  # opt-in solve trace (#736), threaded via a named method
         dwg.attach_solve_trace(trace)
