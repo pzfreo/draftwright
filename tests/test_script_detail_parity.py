@@ -67,12 +67,36 @@ def crowded_step(tmp_path):
     return path
 
 
-def _scripted_drawing(part, tmp_path, name):
+def _run_generated_script(step, tmp_path, name, *, scale=None, page=None, detail_view=None):
+    """Execute an emitted script with the same build settings as its direct peer.
+
+    ``generate_script`` does not yet expose ``detail_view``. Because the generated file is
+    explicitly an editable surface, inject that setting into its ``build_drawing`` call when
+    a parity fixture needs it. This keeps the comparison inputs equal without changing the
+    production emitter merely to enable a characterization test.
+    """
+    script = Path(
+        generate_script(
+            str(step),
+            out=str(tmp_path / name),
+            scale=scale,
+            page=page,
+        )
+    )
+    if detail_view is not None:
+        source = script.read_text(encoding="utf-8")
+        anchor = "    page=PAGE,\n"
+        assert source.count(anchor) == 1, "generated build_drawing call changed"
+        source = source.replace(anchor, anchor + f"    detail_view={detail_view!r},\n")
+        script.write_text(source, encoding="utf-8")
+    return runpy.run_path(str(script))["dwg"]
+
+
+def _scripted_drawing(part, tmp_path, name, **build_settings):
     """Round-trip *part* through the actual generated imperative script."""
     step = tmp_path / f"{name}.step"
     export_step(part, str(step))
-    script = generate_script(str(step), out=str(tmp_path / name))
-    return step, runpy.run_path(str(Path(script)))["dwg"]
+    return step, _run_generated_script(step, tmp_path, name, **build_settings)
 
 
 @pytest.mark.timeout(180)
@@ -97,9 +121,7 @@ def test_direct_build_detail_fixture_really_triggers(crowded_step):
 def test_generated_script_matches_direct_detail_view(crowded_step, tmp_path):
     """Target behaviour: executing the script preserves the direct detail output."""
     direct = build_drawing(str(crowded_step), detail_view=True)
-
-    script = generate_script(str(crowded_step), out=str(tmp_path / "scripted"))
-    scripted = runpy.run_path(str(Path(script)))["dwg"]
+    scripted = _run_generated_script(crowded_step, tmp_path, "scripted", detail_view=True)
 
     assert _detail_signature(scripted) == _detail_signature(direct)
 
@@ -113,7 +135,7 @@ def test_generated_script_matches_two_direct_detail_views(tmp_path):
     """Two separated fine-step runs retain distinct DETAIL A/B output."""
     specs = [(4, 1.5), (6, 2.0), (4, 2.5), (3, 22), (6, 1.5), (4, 2.0), (5, 2.5), (2, 22)]
     part = Rotation(0, 90, 0) * _turned_shaft(specs)
-    step, scripted = _scripted_drawing(part, tmp_path, "two_details")
+    step, scripted = _scripted_drawing(part, tmp_path, "two_details", page="A2", scale=2.0)
     direct = build_drawing(str(step), page="A2", scale=2.0)
 
     assert {"detail_a", "detail_b"} <= set(direct.views)  # guard the fixture
@@ -129,7 +151,7 @@ def test_generated_script_matches_direct_turned_head_detail(tmp_path):
     """The turned-head detail route has parity, independently of prismatic details."""
     specs = [(4, 1.5), (6, 2.0), (4, 2.5), (3, 25.0)]
     part = Rotation(0, 90, 0) * _turned_shaft(specs)
-    step, scripted = _scripted_drawing(part, tmp_path, "turned_detail")
+    step, scripted = _scripted_drawing(part, tmp_path, "turned_detail", scale=2.0)
     direct = build_drawing(str(step), scale=2.0)
 
     assert "detail_a" in direct.views  # guard the fixture
