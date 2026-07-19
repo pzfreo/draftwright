@@ -1428,7 +1428,7 @@ def render_boss_diameters(dwg, groups, a, *, ctx) -> int:
     )
 
 
-def render_plates(dwg, model, a, *, ctx) -> int:
+def render_plates(dwg, groups, a, *, ctx) -> int:
     """Plate/wall thicknesses (#559): the thin extent of each recognised slab
     (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z
     plate (horizontal slab) as a vertical dim left of the front elevation, a Y plate
@@ -1436,14 +1436,31 @@ def render_plates(dwg, model, a, *, ctx) -> int:
     shows it edge-on, an X plate below the front view. Base and wall land in different
     views so the two legs of a multi-plate prismatic read as distinct features rather
     than the overall envelope. A slab whose strip is full is dropped with a lint code
-    (like the step ladder), not silently. Returns the count placed."""
+    (like the step ladder), not silently. Returns the count placed.
+
+    Planner-fed (#729 / #698): the thickness VALUE + its tolerance come from the
+    planner's ``DimParameter``, bound explicitly by ``(role, kind)`` —
+    ``("thickness", "length")`` — never ``dims[0]``. Formatting ``pl.hi - pl.lo``
+    directly dropped an authored tolerance (the #629 class). Placement mechanics
+    (strips, tier stacking, the allowlisted carve fallthrough) are untouched. The
+    pass KEEPS its own axis→view map: ``g.view`` is ``_END_ON`` (z→plan / y→front /
+    x→side), not the edge-on profile view a thickness dim reads in (z→front-left,
+    y→side-above, x→front-below)."""
     draft = dwg.draft
     tier = draft.font_size + 2 * draft.pad_around_text
-    plates = [f for f in model.features if f.kind == "plate"]
+    plate_groups = [g for g in groups if g.feature_kind == "plate"]
     n = 0
     counts: dict = {"x": 0, "y": 0, "z": 0}
-    for pl in sorted(plates, key=lambda f: (f.axis, f.lo, f.hi)):
-        val = pl.hi - pl.lo
+    for g in sorted(plate_groups, key=lambda g: (g.feature.axis, g.feature.lo, g.feature.hi)):
+        pl = g.feature
+        pd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("thickness", "length")),
+            None,
+        )
+        if pd is None or pd.suppressed:
+            continue
+        val = pd.param.value
+        lbl = _fmt(val) + _tol_suffix(pd.param.tolerance, draft)
         i = counts[pl.axis]
         counts[pl.axis] += 1
         if pl.axis == "z":
@@ -1502,22 +1519,22 @@ def render_plates(dwg, model, a, *, ctx) -> int:
             alt = None
         name = f"dim_plate_{pl.axis}{i}"
 
-        def _build(pos, pa=pa, pb=pb, side=side, edge=edge, val=val):
-            return _dim(pa, pb, side, pos - edge, draft, label=_fmt(val))
+        def _build(pos, pa=pa, pb=pb, side=side, edge=edge, lbl=lbl):
+            return _dim(pa, pb, side, pos - edge, draft, label=lbl)
 
-        def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, val=val):
-            return dim_footprint(pa, pb, side, pos - edge, draft, _fmt(val))
+        def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, lbl=lbl):
+            return dim_footprint(pa, pb, side, pos - edge, draft, lbl)
 
-        def _drop(nm, val=val, view=view, stack=stack, alt=alt, feat=pl):  # noqa: B008
+        def _drop(nm, val=val, lbl=lbl, view=view, stack=stack, alt=alt, feat=pl):  # noqa: B008
             # Opposite-strip fallthrough (mirrors the GD&T #481 pattern), DEFERRED to
             # ctx.post_drain so it runs after EVERY corridor has drained (#684 review):
             # a mid-drain carve could occupy a corner a later sibling's force candidate
             # needs; post-drain, carve_free_position sees all placed annotations.
-            def _retry(nm=nm, val=val, view=view, stack=stack, alt=alt, feat=feat):
+            def _retry(nm=nm, val=val, lbl=lbl, view=view, stack=stack, alt=alt, feat=feat):
                 for view2, side2, strip2, axis2, qa, qb, edge2 in alt or ():
                     if strip2 is None:
                         continue
-                    foot0 = dim_footprint(qa, qb, side2, tier, draft, _fmt(val))
+                    foot0 = dim_footprint(qa, qb, side2, tier, draft, lbl)
                     perp = (foot0[1], foot0[3]) if axis2 == "x" else (foot0[0], foot0[2])
                     pos = carve_free_position(dwg, strip2, view2, axis2, tier, perp)
                     if pos is not None:
@@ -1526,7 +1543,7 @@ def render_plates(dwg, model, a, *, ctx) -> int:
                         # against live obstacles + the page before adding (the same
                         # contract as the corridor's validation fallback). A miss
                         # tries the next alternate.
-                        dim = _dim(qa, qb, side2, pos - edge2, draft, label=_fmt(val))
+                        dim = _dim(qa, qb, side2, pos - edge2, draft, label=lbl)
                         real = _geom_box(dim)
                         page = (_MARGIN, _MARGIN, a.PAGE_W - _MARGIN, a.PAGE_H - _MARGIN)
                         if real is None or (

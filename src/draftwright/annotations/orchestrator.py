@@ -361,7 +361,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Plate/wall thicknesses on a multi-plate prismatic (#559): the thin extent of each
         # recognised slab, placed in the view where its thin axis is visible. A single flat
         # plate has none (its thickness IS the envelope height).
-        render_plates(dwg, _model, a, ctx=ctx)
+        # Planner-fed (#729): consumes the DimensionGroups so an authored tolerance renders.
+        render_plates(dwg, _groups, a, ctx=ctx)
 
     def _s_step_positions():
         # Prismatic step POSITIONS (#555): where each shoulder sits along its axis, so a

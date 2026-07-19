@@ -57,6 +57,11 @@ _CONVENTION = {
     ("pocket_width", "length"): "leader",
     ("pocket_length", "length"): "leader",
     ("pocket_depth", "length"): "leader",
+    # A plate thickness is a linear Dimension. That IS the table default, but the
+    # entry is explicit anyway (#744 review): this table is the one convention
+    # registry, and a planner-fed kind relying on the implicit default would erode
+    # that — unknown pairs should eventually fail loudly, not silently go linear.
+    ("thickness", "length"): "linear",
 }
 
 
