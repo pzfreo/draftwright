@@ -306,12 +306,17 @@ class SolveTrace:
             "pass_events": self.pass_events,
             "escalations": self.escalations,
         }
-        text = json.dumps(data, indent=1)
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:
+            # Serialisation stays inside the guard (orchestrator review): in finalize
+            # the write runs within the #647 transaction, so a raising dumps() would
+            # roll back and ABORT a user's finalize over a recorder bug. The strict
+            # no-default dumps still fails tests visibly — the schema/determinism
+            # tests parse this file, and a skipped write leaves nothing to parse.
+            text = json.dumps(data, indent=1)
             tmp.write_text(text, encoding="utf-8")
             os.replace(tmp, self.path)
-        except OSError as exc:
+        except (OSError, TypeError, ValueError) as exc:
             _log.warning("trace: could not write %s: %s", self.path, exc)
 
 
