@@ -228,6 +228,22 @@ down it knows only numbers.
 - Deterministic, explainable, dependency-free placement; over-capacity is a
   priority-ranked selection with first-class escalation, not an arrival-order
   drop.
+- The explanation is **recordable** (#736, from the #733 post-mortem): the
+  opt-in solve trace — `build_drawing(trace=…)` or `DRAFTWRIGHT_TRACE=<path>` —
+  dumps one JSON file per build with two distinct record types: `solves` (each
+  corridor solve's candidates, carving obstacles (named), free segments, and
+  per-candidate outcomes) and `pass_events` (the standalone strip passes plus
+  the *immediate* placers — the post-drain machined-feature leader callouts and
+  the turned diameter/step-length set-solves — each with per-item
+  placed/dropped outcomes, so the pre-#734 drain-time occupants stay visible
+  post-drain). `SolveTrace` is threaded as `PlacementContext.trace` (default
+  off, nil cost), participates in `finalize()`'s #647 transaction
+  (snapshot/restore on rollback; the file is rewritten only after a successful
+  drain), and is recording-only — an unwritable path logs a warning, never
+  aborts a build. A `placement_unsatisfiable` strip-full drop names the
+  occupants that filled the strip. Diagnosing a drop is a `jq` query
+  (`.solves[].outcomes[]` for corridor dims, `.pass_events[].items[]` for the
+  rest), not a custom-script rebuild.
 - Honest edges that remain: placement is per-view (cross-view contention rests
   on ADR 0004); AABB occupancy is deliberately conservative for diagonal
   leaders (the precise `_geometry._segment_crosses_box` test covers leader

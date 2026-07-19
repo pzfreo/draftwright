@@ -344,7 +344,7 @@ def test_build_state_has_a_single_construction_and_fill_site():
                     # count too when the receiver is a _build attribute (#691 r2).
                     or (
                         node.args[1].value
-                        in ("analysis", "part_model", "view_edge_cache", "ann_box_cache")
+                        in ("analysis", "part_model", "view_edge_cache", "ann_box_cache", "trace")
                         and isinstance(node.args[0], ast.Attribute)
                         and node.args[0].attr == "_build"
                     )
@@ -356,5 +356,12 @@ def test_build_state_has_a_single_construction_and_fill_site():
 
     assert writers == {
         "builder.py": ["_build.analysis", "_build.part_model"],
-        "drawing.py": ["_build", "_build.analysis", "_build.part_model"],
+        # _build.trace: attach_solve_trace — the #736 solve-trace recorder rides
+        # BuildState like the rest of the build context (filled via the named
+        # method by builder._assemble — its ONLY caller; read by the annotate/
+        # finalize ctx threading). The recorder also participates in finalize()'s
+        # #647 transaction: finalize snapshots it beside the registry/coverage
+        # snapshots and restores it on rollback, so a failed drain leaves no
+        # trace records for placements that no longer exist.
+        "drawing.py": ["_build", "_build.analysis", "_build.part_model", "_build.trace"],
     }, writers

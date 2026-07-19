@@ -233,7 +233,15 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # the drawing's build-state stores (registry/coverage), threaded to the passes instead of hung
     # on the Drawing (ADR 0005 §2, #639). Fresh each auto-pass; the corridor batch is drained once
     # at the end (drain_corridors, #345/#346).
-    ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+    ctx = PlacementContext(
+        registry=dwg.registry,
+        coverage=dwg.coverage,
+        # The opt-in solve-trace recorder (#736), attached to the drawing's build state
+        # by the builder; getattr because dwg is duck-typed in tests. None = off.
+        trace=getattr(dwg, "solve_trace", None),
+    )
+    if ctx.trace is not None:
+        ctx.trace.begin_phase("auto")  # one phase per annotate run (repack re-runs this)
     # Idempotent: clear build-time lint state so a second annotation pass does
     # not accumulate duplicate drop records.
     ctx.reset_issues()
@@ -533,6 +541,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "tabulate": _s_tabulate,
         }
     )
+    if ctx.trace is not None:  # snapshot the run's escalations into the trace (#736)
+        ctx.trace.record_escalations(ctx.escalations)
     # The escalations live only on this per-run ctx (#639), discarded when _auto_annotate
     # returns — so nothing carries stale drops into a later deferred edit (#440), and there is
     # no drawing-level list to clear.

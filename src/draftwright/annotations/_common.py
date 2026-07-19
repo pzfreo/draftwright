@@ -7,9 +7,13 @@ complete strip occupancy (`strip_obstacles`), and an AABB overlap test
 
 from __future__ import annotations
 
+import functools
+import json
 import logging
 import math
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, SafeDimension
@@ -57,6 +61,309 @@ class Escalation:
     feature: object
     reason: str
     remedies: tuple[str, ...] = field(default_factory=tuple)
+
+
+def _never_aborts(method):
+    """Recording can never abort a build (#736 review): any exception inside a
+    :class:`SolveTrace` recording method logs ONE warning, disarms the recorder
+    (sets ``_broken`` — every later guarded call no-ops), and returns ``None``.
+    A recorder bug degrades to "no trace", never a failed drawing/export. The
+    guard lives HERE, on the recorder, rather than at every hook site — the hooks
+    stay bare ``trace is None`` checks (nil cost off) and no call site can forget
+    the try/except."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if self._broken:
+            return None
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 — the whole point: never propagate
+            self._broken = True
+            _log.warning("trace: recorder failed, tracing disabled: %s", exc)
+            return None
+
+    return wrapper
+
+
+class SolveTrace:
+    """The opt-in solve-trace recorder (#736): one JSON file per build explaining every
+    strip placement decision — the #733 post-mortem's "why is this strip full" answer
+    as a glance instead of a custom script.
+
+    Activated by ``build_drawing(trace=...)`` or the ``DRAFTWRIGHT_TRACE`` env var
+    (see :func:`draftwright.builder.build_drawing`); threaded onto each run's
+    :class:`PlacementContext` (``ctx.trace``) so both the auto-annotate and finalize
+    paths trace. **Default off, and off means nil cost**: every hook site is a plain
+    ``trace is None`` check — no dict is ever built.
+
+    JSON shape (``version`` 2): ``{"version", "solves": [...], "pass_events": [...],
+    "escalations": [...]}`` — two DISTINCT record types, not one masquerading as the
+    other:
+
+    * ``solves`` — the corridor solves. Each entry carries ``seq`` (a global event
+      counter shared with ``pass_events``, so the build's decision order is
+      reconstructable), ``phase`` (``auto:N``/``finalize:N`` — one per annotate run),
+      ``corridor`` (the ``[view, side]`` key), ``view``/``axis``/``tier``, the
+      ``strip`` bounds (anchor/outer_limit/direction/gap/spacing), the full candidate
+      set (name, order, priority, size, force, anchored, dedup, precedence), the
+      placement ``passes`` (per pass: the carved span, the in-band obstacles with
+      their owning annotation names, the free segments, placed positions, rejections
+      with reasons, unplaced leftovers), and per-candidate ``outcomes`` (placed /
+      dropped-with-reason / deduped / promoted / deferred-to-post-drain).
+    * ``pass_events`` — everything placed OUTSIDE a corridor solve: the standalone
+      strip passes (slot fallthroughs, front hole callouts, off-axis locations,
+      PMI fallbacks) and the *immediate*
+      placers — the post-drain machined-feature leader callouts
+      (chamfer/fillet/flat/pocket/groove/boss ø) and the turned diameter row/column
+      and step-length set-solves. Each entry carries ``seq``/``phase``, a pass
+      ``label``, and ``items`` — one outcome dict per attempted annotation
+      (``placed`` with its position, or ``dropped`` with a reason). The #733 gap:
+      pre-#734 these callouts were the drain-time occupants; post-drain, their own
+      story must still be in the trace.
+
+    The ``jq`` contract: ``.solves[].outcomes[]`` for corridor dims,
+    ``.pass_events[].items[]`` for everything else::
+
+        jq '.solves[].outcomes[] | select(.name == "dim_height")' t.trace.json
+        jq '.pass_events[] | select(.label == "pocket_callouts") | .items[]' t.trace.json
+
+    Recording-only, so the recorder can never abort a build: every public recording
+    method is wrapped by :func:`_never_aborts` — an internal failure logs ONE
+    warning (``trace: recorder failed, tracing disabled``), disarms the recorder
+    (``_broken``), and every later call no-ops. **Disarm semantics are
+    partial-disable**: records made before the failure stay in memory and any file
+    already written stays on disk, but nothing further is recorded or written (a
+    disarmed :meth:`snapshot` returns the ``None`` sentinel, which :meth:`restore`
+    tolerates). Separately, an *unwritable path* degrades to a per-attempt logged
+    warning without disarming (:meth:`write`), and :meth:`snapshot`/:meth:`restore`
+    let ``finalize()``'s #647 transaction roll a failed drain's records back out of
+    the trace.
+    """
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.solves: list[dict] = []
+        self.pass_events: list[dict] = []
+        self.escalations: list[dict] = []
+        self._phase = ""
+        self._phase_n = 0
+        self._seq = 0
+        self._current: dict | None = None
+        self._broken = False  # set by _never_aborts on the first internal failure
+
+    def _next_seq(self) -> int:
+        """One global event counter across solves + pass_events (decision order)."""
+        self._seq += 1
+        return self._seq - 1
+
+    @_never_aborts
+    def snapshot(self):
+        """The trace's rollback point for finalize's #647 transaction: capture the
+        record counts + phase/seq counters so :meth:`restore` can truncate a failed
+        drain's records — a rolled-back finalize must not leave trace entries
+        describing placements that no longer exist."""
+        return (
+            len(self.solves),
+            len(self.pass_events),
+            len(self.escalations),
+            self._seq,
+            self._phase,
+            self._phase_n,
+        )
+
+    @_never_aborts
+    def restore(self, snap) -> None:
+        """Roll the trace back to *snap* (see :meth:`snapshot`). Tolerates the
+        ``None`` sentinel a disarmed/failed :meth:`snapshot` returns (no-op)."""
+        if snap is None:
+            return
+        n_solves, n_events, n_esc, seq, phase, phase_n = snap
+        del self.solves[n_solves:]
+        del self.pass_events[n_events:]
+        del self.escalations[n_esc:]
+        self._seq = seq
+        self._phase = phase
+        self._phase_n = phase_n
+        self._current = None
+
+    @_never_aborts
+    def begin_phase(self, label) -> None:
+        """Start a new annotate run (``auto``) / finalize drain (``finalize``); each
+        run's solves are labelled ``<label>:<n>`` so a measure-and-repack build keeps
+        its passes apart."""
+        self._phase_n += 1
+        self._phase = f"{label}:{self._phase_n}"
+
+    @staticmethod
+    def _strip_rec(strip):
+        if strip is None:
+            return None
+        return {
+            "anchor": strip.anchor,
+            "outer_limit": strip.outer_limit,
+            "direction": strip.direction,
+            "gap": strip.gap,
+            "spacing": strip.spacing,
+        }
+
+    @_never_aborts
+    def begin_solve(self, key, view, axis, tier, strip, cands) -> None:
+        """Open a corridor-solve record (called by :func:`solve_corridor`)."""
+        self._current = {
+            "seq": self._next_seq(),
+            "phase": self._phase,
+            "corridor": list(key) if key is not None else None,
+            "view": view,
+            "axis": axis,
+            "tier": tier,
+            "strip": self._strip_rec(strip),
+            "candidates": [
+                {
+                    "name": c.name,
+                    "order": list(c.order),
+                    "priority": c.priority,
+                    "size": list(c.size) if c.size is not None else None,
+                    "force": c.force,
+                    "anchored": c.anchored,
+                    "dedup": list(c.dedup) if c.dedup is not None else None,
+                    "precedence": c.precedence,
+                }
+                for c in cands
+            ],
+            "passes": [],
+            "outcomes": [],
+        }
+        self.solves.append(self._current)
+
+    @_never_aborts
+    def end_solve(self) -> None:
+        self._current = None
+
+    @_never_aborts
+    def begin_pass(self, *, force, label=None, strip=None, view=None, axis=None) -> dict:
+        """Open a placement-pass record (called by :func:`place_strip_candidates`) —
+        nested under the open corridor solve, or a standalone ``pass_events`` entry
+        (with *label*) for a pass-local strip placement outside any corridor."""
+        rec: dict = {
+            "force": force,
+            "obstacles": [],
+            "free_segments": [],
+            "placed": [],
+            "rejected": [],
+            "unplaced": [],
+        }
+        if self._current is not None:
+            self._current["passes"].append(rec)
+        else:
+            rec = {
+                "seq": self._next_seq(),
+                "phase": self._phase,
+                "label": label,
+                "view": view,
+                "axis": axis,
+                "strip": self._strip_rec(strip),
+                **rec,
+                "items": [],
+            }
+            self.pass_events.append(rec)
+        return rec
+
+    @_never_aborts
+    def end_pass(self, rec) -> None:
+        """Close a placement-pass record. For a standalone ``pass_events`` entry the
+        per-candidate story is folded into ``items`` (the jq contract:
+        ``.pass_events[].items[]``): each placed candidate with its position, each
+        leftover as ``dropped`` with its last rejection reason (default
+        ``strip_full``). A pass nested under a corridor solve keeps its raw
+        placed/unplaced lists — the solve's ``outcomes`` carry the summary there."""
+        if "items" not in rec:
+            return
+        reasons = {e["name"]: e["reason"] for e in rec["rejected"]}
+        rec["items"] = [
+            {"name": e["name"], "outcome": "placed", "pos": e["pos"]} for e in rec.pop("placed")
+        ] + [
+            {"name": n, "outcome": "dropped", "reason": reasons.get(n, "strip_full")}
+            for n in rec.pop("unplaced")
+        ]
+
+    @_never_aborts
+    def pass_event(self, label, **fields) -> dict:
+        """Open a ``pass_events`` record for an *immediate* placer (the #733 gap: the
+        post-drain machined-feature callouts and the turned diameter/step-length
+        set-solves place outside any strip solve, but their story must be in the
+        trace too). Returns the record; the caller appends one outcome dict per
+        attempted annotation to ``rec["items"]``."""
+        rec = {
+            "seq": self._next_seq(),
+            "phase": self._phase,
+            "label": label,
+            **fields,
+            "items": [],
+        }
+        self.pass_events.append(rec)
+        return rec
+
+    @_never_aborts
+    def record_outcome(self, name, outcome, **extra) -> None:
+        """Record a candidate's solve-level outcome; a ``placed`` outcome is enriched
+        with its position and a reason-less ``dropped`` with the last recorded
+        rejection reason (default ``strip_full``) from this solve's passes."""
+        if self._current is None:
+            return
+        rec: dict = {"name": name, "outcome": outcome, **extra}
+        if outcome == "placed":
+            for p in self._current["passes"]:
+                for e in p["placed"]:
+                    if e["name"] == name:
+                        rec["pos"] = e["pos"]
+        elif outcome == "dropped" and "reason" not in rec:
+            reason = "strip_full"
+            for p in self._current["passes"]:
+                for e in p["rejected"]:
+                    if e["name"] == name:
+                        reason = e["reason"]
+            rec["reason"] = reason
+        self._current["outcomes"].append(rec)
+
+    @_never_aborts
+    def record_escalations(self, escalations) -> None:
+        """Snapshot the run's :class:`Escalation` list (called once per annotate run)."""
+        for e in escalations:
+            self.escalations.append(
+                {
+                    "phase": self._phase,
+                    "kind": e.kind,
+                    "view": e.view,
+                    "reason": e.reason,
+                    "feature": type(e.feature).__name__ if e.feature is not None else None,
+                }
+            )
+
+    @_never_aborts
+    def write(self) -> None:
+        """Dump the trace JSON to :attr:`path` (once per build; a successful finalize
+        re-writes). **Recording-only, so it must never abort a build** — with the two
+        documented degradations kept distinct (final review): an *unwritable path* is
+        environmental and possibly transient, so it warns per attempt WITHOUT
+        disarming (a later finalize rewrite may succeed); a *serialisation failure*
+        is an internal recorder bug, so the strict no-``default=`` ``dumps`` raises
+        past this method's ``OSError``-only guard into :func:`_never_aborts`, which
+        disarms permanently with one warning. The rewrite is atomic
+        (``<path>.tmp`` then :func:`os.replace`) so a reader never sees a torn file."""
+        data = {
+            "version": 2,
+            "solves": self.solves,
+            "pass_events": self.pass_events,
+            "escalations": self.escalations,
+        }
+        text = json.dumps(data, indent=1)  # recorder-bug failures → decorator disarm
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        try:
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, self.path)
+        except OSError as exc:
+            _log.warning("trace: could not write %s: %s", self.path, exc)
 
 
 def _geom_box(o):
@@ -272,12 +579,18 @@ def occupancy_boxes(o, stroke_pad=None):
 _STROKE_PAD = 1.2
 
 
-def strip_obstacles(dwg, view=None, *, crossable=()):
+def strip_obstacles(dwg, view=None, *, crossable=(), named=False):
     """The COMPLETE occupancy for strip placement (ADR 0009): every placed
     annotation's full rendered footprint, optionally restricted to *view*, minus
     any annotation whose type name is in *crossable* (things this particular
     consumer may legitimately overlap — e.g. a location dim crosses a centre line
     but a leader does not; see :data:`CROSSABLE_TYPES`).
+
+    With *named* (the #736 trace/diagnosis flavour) each box comes back as an
+    ``(owner-name, box)`` pair — the same boxes, tagged with the annotation name
+    they decompose from — so a trace or a "what filled this strip" message can
+    attribute the occupancy. Default off: the hot placement path carries bare
+    boxes, unchanged.
 
     Unlike the retired label-box-only ``_occupied_boxes`` (which excluded bare
     centrelines), this captures the geometry a label box hides — leader shafts and
@@ -304,7 +617,7 @@ def strip_obstacles(dwg, view=None, *, crossable=()):
     # Preset-aware stroke pad (#688 review): arrowheads scale with font_size.
     al = getattr(getattr(dwg, "draft", None), "arrow_length", None)
     pad = max(_STROKE_PAD, al / 2) if al else _STROKE_PAD
-    boxes = []
+    boxes: list = []
     for name, o in dwg.iter_annotations():
         if view is not None:
             owner = dwg.view_of(name)
@@ -312,8 +625,40 @@ def strip_obstacles(dwg, view=None, *, crossable=()):
                 continue  # owned by a different ortho view → its own (disjoint) block
         if type(o).__name__ in crossable:
             continue  # this consumer may cross it (centre lines/marks for a dim)
-        boxes.extend(occupancy_boxes(o, stroke_pad=pad))  # decomposed, not one hull (#685)
+        occ = occupancy_boxes(o, stroke_pad=pad)  # decomposed, not one hull (#685)
+        boxes.extend(((name, b) for b in occ) if named else occ)
     return boxes
+
+
+def strip_occupants(dwg, strip, view, axis, limit=3):
+    """The names of the annotations whose footprints occupy *strip*'s free span,
+    ranked by covered stacking-axis extent (largest first; ties by name) — the
+    "what filled this strip" answer the #736 enriched drop message and the solve
+    trace share. ``[]`` when the strip is absent or nothing overlaps it."""
+    if strip is None:
+        return []
+    lo, hi, _inner = strip_free_span(strip)
+    idx = 1 if axis == "y" else 0
+    cover: dict[str, float] = {}
+    for name, box in strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES, named=True):
+        ov = min(hi, box[idx + 2]) - max(lo, box[idx])
+        if ov > 0:
+            cover[name] = cover.get(name, 0.0) + ov
+    return sorted(cover, key=lambda n: (-cover[n], n))[:limit]
+
+
+def full_strip_message(base, dwg, strip, view, axis):
+    """Extend a ``"…strip full)"`` drop message with the top occupant names (#736):
+    ``"…strip full; occupied by: dim_a, ldr_b)"`` — so a placement_unsatisfiable
+    drop names what filled the strip instead of demanding a custom-script rebuild
+    (the #733 diagnosis). Returns *base* unchanged when no occupant is known."""
+    occ = strip_occupants(dwg, strip, view, axis)
+    if not occ:
+        return base
+    who = ", ".join(occ)
+    if base.endswith(")"):
+        return f"{base[:-1]}; occupied by: {who})"
+    return f"{base} (occupied by: {who})"
 
 
 def strip_free_span(strip):
@@ -481,15 +826,22 @@ class CorridorCandidate:
     footprint: object | None = None
 
 
-def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=()):
+def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, key=None, ctx=None):
     """One collect-then-solve over every :class:`CorridorCandidate` a shared strip
     accumulated across passes (ADR 0009 end state). Dedup → order → one non-force
     :func:`place_strip_candidates` pass → a force pass for the force-eligible leftovers →
     dispatch each candidate's ``on_place``/``on_drop``. This is what removes the duplicate
     span (#345) and the interleaved ladder (#346) by construction: a single solve sees the
-    full set, so coincident spans collapse and the order is one monotonic chain."""
+    full set, so coincident spans collapse and the order is one monotonic chain.
+
+    *key* (the corridor's ``(view, side)``) and *ctx* are threaded by
+    :func:`drain_corridors` for the opt-in solve trace (#736, ``ctx.trace``) — when
+    tracing is off (``ctx`` is ``None`` or carries no trace) both are inert."""
     if not cands:
         return
+    trace = None if ctx is None else ctx.trace
+    if trace is not None:
+        trace.begin_solve(key, view, axis, tier, strip, cands)
     # Dedup: keep the highest-precedence candidate per coincidence key (tie-break on name,
     # deterministic — ADR 0001). A displaced duplicate is a *loser*: while its winner is
     # drawn it is silently dropped (never starved, so firing its pass's drop lint would be a
@@ -515,19 +867,29 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=()):
     for group in losers.values():
         group.sort(key=lambda c: (-c.precedence, c.name))
     kept.sort(key=lambda c: c.order)
+    if trace is not None:  # record who lost each dedup group (a loser never starves)
+        for dk, group in losers.items():
+            for loser in group:
+                trace.record_outcome(loser.name, "deduped", winner=winners[dk].name)
 
     def _promote_losers(dropped_winner):
         # The winner did not place → hand its measurement to the best surviving loser
         # (e.g. the slot position's below-strip fallthrough), then stop.
         for loser in losers.get(dropped_winner.dedup, ()):
             loser.on_drop(loser.name)
+            if trace is not None:
+                trace.record_outcome(loser.name, "promoted")
             break
 
     if strip is None:  # no such strip on this drawing — every candidate drops
         for c in kept:
             c.on_drop(c.name)
+            if trace is not None:
+                trace.record_outcome(c.name, "dropped", reason="no_strip")
             if c.dedup is not None:
                 _promote_losers(c)
+        if trace is not None:
+            trace.end_solve()
         return
     pairs = [(c.name, c.build) for c in kept]
     feats = {c.name: c.feature for c in kept if c.feature is not None}  # provenance (ADR 0010)
@@ -554,6 +916,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=()):
             naturals=naturals,
             footprints=foots,
             corner_reserves=corner_reserves,
+            trace=trace,
         )
     }
     force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
@@ -576,6 +939,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=()):
                 priorities=prio,
                 anchored=anchored,
                 naturals=naturals,
+                trace=trace,
             )
         }
         if force_pairs
@@ -585,10 +949,19 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=()):
         placed = c.name not in left or (c.force and c.name not in still)
         if placed:
             c.on_place(c.name)  # placed in the corridor-respecting pass or the force pass
+            if trace is not None:
+                trace.record_outcome(c.name, "placed")
         else:
+            n_deferred = len(ctx.post_drain) if trace is not None else 0
             c.on_drop(c.name)  # dropped / not force-kept — the pass's drop handler runs
+            if trace is not None:  # did on_drop queue a post-drain fallthrough?
+                trace.record_outcome(
+                    c.name, "dropped", deferred_post_drain=len(ctx.post_drain) > n_deferred
+                )
             if c.dedup is not None:  # a deduped winner failed → promote its top loser
                 _promote_losers(c)
+    if trace is not None:
+        trace.end_solve()
 
 
 @dataclass
@@ -613,6 +986,11 @@ class PlacementContext:
     # drained (#684 review): a mid-drain carve could occupy space a later sibling
     # corridor's force candidate needs; deferral makes "post-drain" literally true.
     post_drain: list = field(default_factory=list)
+    # The opt-in solve-trace recorder (#736) — a :class:`SolveTrace` threaded off the
+    # drawing's build state by both entry paths, or ``None`` (the default: tracing off,
+    # every hook a bare None check). Ctx state, not a module global, so the finalize
+    # path traces exactly like the auto pass.
+    trace: Any = None
     # The drawing's build-state stores, referenced (not owned) by the run's passes (#639).
     # Duck-typed as ``Any`` — matching the untyped ``Drawing._record_build_issue`` they replace —
     # so mypy does not reject the delegating calls below.
@@ -689,10 +1067,10 @@ def drain_corridors(ctx, dwg):
     dims that would otherwise drop rather than relocate — so best-effort occupants
     never lose capacity to it. Already-drained siblings need nothing: their dims are
     real obstacles via :func:`strip_obstacles`."""
-    batches = list(ctx.corridor_batch.values())
-    for i, b in enumerate(batches):
+    batches = list(ctx.corridor_batch.items())
+    for i, (key, b) in enumerate(batches):
         reserves = []
-        for sib in batches[i + 1 :]:
+        for _sk, sib in batches[i + 1 :]:
             if sib["view"] != b["view"] or sib["strip"] is None:
                 continue
             s = sib["strip"]
@@ -703,7 +1081,15 @@ def drain_corridors(ctx, dwg):
                     if box is not None:
                         reserves.append(box)
         solve_corridor(
-            dwg, b["strip"], b["view"], b["axis"], b["cands"], b["tier"], corner_reserves=reserves
+            dwg,
+            b["strip"],
+            b["view"],
+            b["axis"],
+            b["cands"],
+            b["tier"],
+            corner_reserves=reserves,
+            key=key,  # corridor identity + trace threading (#736)
+            ctx=ctx,
         )
     ctx.corridor_batch = {}
     # Deferred fallthroughs (opposite-strip retries) run once every strip has drained,
@@ -730,6 +1116,8 @@ def place_strip_candidates(
     naturals=None,
     footprints=None,
     corner_reserves=(),
+    trace=None,
+    trace_label=None,
 ):
     """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
@@ -769,9 +1157,21 @@ def place_strip_candidates(
     the dim cleanly: keep it on its natural view and accept the (same-feature) leader
     crossing rather than drop a real dimension (policy B). Candidates that find no strip
     tier AT ALL are still returned (a physically full strip — the caller records the
-    genuine drop)."""
+    genuine drop).
+
+    *trace* is the opt-in :class:`SolveTrace` recorder (#736), ``None`` (default) = off
+    with nil cost; :func:`solve_corridor` threads it for corridor solves, and a
+    standalone caller may pass ``trace=ctx.trace`` with a *trace_label* naming its
+    pass. The recorded pass carries the carved span, the in-band obstacles with their
+    owning annotation names, the free segments, per-candidate placements/rejections
+    (with reasons), and the unplaced leftovers."""
     if strip is None or not cands:
         return list(cands)
+    tp = (
+        trace.begin_pass(force=force, label=trace_label, strip=strip, view=view, axis=axis)
+        if trace is not None
+        else None
+    )
     lo, hi, inner = strip_free_span(strip)
     idx = 1 if axis == "y" else 0
 
@@ -837,7 +1237,13 @@ def place_strip_candidates(
         box[idx + 2 if inner == lo else idx] += pos - lo
         return tuple(box)
 
-    occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+    if tp is None:
+        occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        owners = {}
+    else:  # tracing: same boxes, tagged with their owning annotation names (#736)
+        named = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES, named=True)
+        occupied = [b for _, b in named]
+        owners = {id(b): n for n, b in named}
     # Obstacles OUTSIDE the batch's predicted perpendicular band are invisible to the
     # carve below by design — but that makes the band prediction itself load-bearing: a
     # candidate whose real geometry exceeds its predicted band could land on one with no
@@ -864,6 +1270,15 @@ def place_strip_candidates(
     segs = carve_free_segments(lo, hi, [(b[idx], b[idx + 2]) for b in occupied], pad)
     # Fill innermost-first (nearest the view), matching the old cursor's stack order.
     segs.sort(key=lambda s: abs((s[0] if inner == lo else s[1]) - inner))
+    if tp is not None:  # the diagnosis payload: what carved this strip, and what's left
+        tp["span"] = [lo, hi]
+        tp["obstacles"] = [
+            # owner None = a corner reserve (a projection, not placed geometry)
+            {"owner": owners.get(id(b)), "box": list(b)}
+            for b in occupied
+        ]
+        tp["out_of_band"] = len(out_of_band)
+        tp["free_segments"] = [list(s) for s in segs]
     todo = list(cands)
 
     def _take_for_segment(items, n):
@@ -913,9 +1328,17 @@ def place_strip_candidates(
         res = plan_strip([sc for sc, _ in triples], seg_lo, seg_hi, pad, axis=axis)
         accepted = []
         rejected = []
+
+        def _reject(name, reason):  # trace-only (#736): why this candidate left this segment
+            if tp is not None:
+                tp["rejected"].append(
+                    {"name": name, "reason": reason, "segment": [seg_lo, seg_hi]}
+                )
+
         for sc, (name, build) in triples:
             pos = res.placed.get(sc.key)
             if pos is None:  # segment over its estimated capacity (shouldn't occur)
+                _reject(name, "over_capacity")
                 rejected.append((name, build))
                 continue
             # Predicted box, not built geometry (#602): the refill loop re-evaluates
@@ -927,6 +1350,7 @@ def place_strip_candidates(
             if (
                 not force and box is not None and _box_hits(box, blockers)
             ):  # corridor crosses a leader
+                _reject(name, "corridor_blocked")
                 rejected.append((name, build))
                 continue
             # A forbidden box (the title block, #481) is rejected even under force — it is
@@ -935,6 +1359,7 @@ def place_strip_candidates(
             # so dims are byte-identical). Returned unplaced → the caller's on_drop fallthrough.
             fb = (forbid or {}).get(name)
             if fb is not None and box is not None and _box_hits(box, (fb,)):
+                _reject(name, "forbid_box")
                 rejected.append((name, build))
                 continue
             accepted.append(((name, build), pos))
@@ -963,10 +1388,16 @@ def place_strip_candidates(
             real = _geom_box(dim)
             if real is not None:
                 if not force and _box_hits(real, blockers):
+                    if tp is not None:
+                        tp["rejected"].append(
+                            {"name": name, "reason": "real_box_corridor_blocked"}
+                        )
                     rejected_total.append((name, build))
                     continue
                 fb = (forbid or {}).get(name)
                 if fb is not None and _box_hits(real, (fb,)):
+                    if tp is not None:
+                        tp["rejected"].append({"name": name, "reason": "real_box_forbid"})
                     rejected_total.append((name, build))
                     continue
                 # A survivor whose real geometry escaped the batch's predicted
@@ -974,14 +1405,21 @@ def place_strip_candidates(
                 # shown (review #679) — the one collision class the stacking-axis
                 # model cannot tolerate. Never fires while predictions are accurate.
                 if _box_hits(real, out_of_band):
+                    if tp is not None:
+                        tp["rejected"].append({"name": name, "reason": "real_box_out_of_band"})
                     rejected_total.append((name, build))
                     continue
             placed.append((name, dim))
+            if tp is not None:
+                tp["placed"].append({"name": name, "pos": pos})
         todo = todo + rejected_total
         for name, dim in placed:
             # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed
             # dims — `features` maps this batch's names to their source IR feature.
             dwg.add(dim, name, view=view, feature=(features or {}).get(name))
+    if tp is not None:
+        tp["unplaced"] = [n for n, _ in todo]
+        trace.end_pass(tp)  # folds a standalone pass's items; no-op when corridor-nested
     return todo
 
 

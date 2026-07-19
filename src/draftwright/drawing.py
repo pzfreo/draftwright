@@ -16,7 +16,7 @@ import tempfile
 import warnings
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from build123d import (
     Color,
@@ -198,6 +198,9 @@ class BuildState:
       (helpers #143/#164).
     - ``ann_box_cache`` — lint's annotation bounding boxes (#602): identity- AND
       location-token-checked entries (see ``_ann_box``), pruned by ``lint()``.
+    - ``trace`` — the opt-in solve-trace recorder (#736,
+      :class:`~draftwright.annotations._common.SolveTrace`), or ``None`` (default:
+      tracing off). Carried here so the finalize path traces like the auto pass.
 
     Builder fills it at one site; the compat properties on ``Drawing`` read
     through it, so ``dwg._analysis``-style test inspection keeps working.
@@ -207,6 +210,7 @@ class BuildState:
     part_model: object | None = None
     view_edge_cache: dict = dataclasses_field(default_factory=dict)
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
+    trace: Any = None
 
     def clear_geometry_caches(self) -> None:
         """The one invalidation seam (finalize rollback): view edges + annotation
@@ -584,6 +588,18 @@ class Drawing:
         """Attach the built PartModel so ``model()`` and feature edits see it. Lets the
         orchestrator hand the model back without an ``annotations/`` attribute write (#639)."""
         self._build.part_model = model
+
+    @property
+    def solve_trace(self):
+        """The opt-in solve-trace recorder threaded through this build (#736), or
+        ``None`` (the default — tracing off). See ``build_drawing(trace=...)``."""
+        return self._build.trace
+
+    def attach_solve_trace(self, trace) -> None:
+        """Attach the #736 :class:`~draftwright.annotations._common.SolveTrace` recorder
+        so the annotate and finalize paths thread it onto their per-run
+        ``PlacementContext`` (build state flows through a named method, #639)."""
+        self._build.trace = trace
 
     @property
     def model_declared(self) -> bool:
@@ -1344,7 +1360,15 @@ class Drawing:
             coverage=self._coverage,
             part_model=self.model(),
             model_declared=self.model_declared,
+            trace=self._build.trace,  # the finalize drain traces too (#736)
         )
+        # The solve trace joins the transaction (#736 review): the recorder appends during
+        # the drain, so a rolled-back finalize must also truncate those records — else the
+        # trace (and a rewritten file) would describe placements that no longer exist.
+        # Snapshot BEFORE opening the finalize phase: the phase counter is trace state too.
+        trace_snap = ctx.trace.snapshot() if ctx.trace is not None else None
+        if ctx.trace is not None:
+            ctx.trace.begin_phase("finalize")
 
         model, a = self._part_model, self._analysis
         routable = model is not None and a is not None
@@ -1386,10 +1410,16 @@ class Drawing:
             self._coverage.restore(coverage_snap)
             if sv_above is not None:
                 sv_above.outer_limit = sv_above_limit
+            if trace_snap is not None:  # roll the failed drain's records out of the trace
+                ctx.trace.restore(trace_snap)
             self._build.clear_geometry_caches()
             raise
         finally:
             self._defer_intents = deferred
+        # Re-write the trace file only AFTER a successful drain (#736) — never mid-drain,
+        # so a rollback cannot leave a file describing rolled-back placements.
+        if ctx.trace is not None:
+            ctx.trace.write()
 
     def _drain_intents(self, ctx, model, a, r) -> None:
         """The mutating half of :meth:`finalize` (#638): the drain stages, keyed by the
