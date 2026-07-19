@@ -367,7 +367,11 @@ def build_part_model(
                         diameter=b.diameter,
                         height=b.height,
                         span=(
-                            tuple(float(b.location[i] - b.axis[i] * b.height) for i in range(3)),
+                            (
+                                float(b.location[0] - b.axis[0] * b.height),
+                                float(b.location[1] - b.axis[1] * b.height),
+                                float(b.location[2] - b.axis[2] * b.height),
+                            ),
                             _xyz(b.location),
                         ),
                     )
@@ -388,7 +392,11 @@ def build_part_model(
                     diameter=b.diameter,
                     height=b.height,
                     span=(
-                        tuple(float(b.location[i] - b.axis[i] * b.height) for i in range(3)),
+                        (
+                            float(b.location[0] - b.axis[0] * b.height),
+                            float(b.location[1] - b.axis[1] * b.height),
+                            float(b.location[2] - b.axis[2] * b.height),
+                        ),
                         _xyz(b.location),
                     ),
                 )
