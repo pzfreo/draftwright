@@ -310,8 +310,9 @@ def test_generated_script_roundtrip_is_lint_error_free(tmp_path, name, factory):
     the in-process `_reconstruct` mirror): it wraps the intent verbs in `with dwg.deferred():`
     and relies on `finalize()` running on block exit — a behavior only the *executed* script
     exercises. We append a lint epilogue so the script reports ITS OWN drawing's lint to
-    stdout (no rebuild in this process), then assert exit 0 + SVG/DXF written + no
-    error-severity lint (warnings tolerated, matching _assert_meets_standards)."""
+    stdout (no rebuild in this process), then assert exit 0 + the exported file written
+    (PDF — the #709 default, aligned with the direct CLI) + no error-severity lint
+    (warnings tolerated, matching _assert_meets_standards)."""
     import json
     import subprocess
     import sys
@@ -335,8 +336,10 @@ def test_generated_script_roundtrip_is_lint_error_free(tmp_path, name, factory):
         [sys.executable, py], capture_output=True, text=True, cwd=str(tmp_path), timeout=300
     )
     assert r.returncode == 0, f"{name}: generated script failed:\n{r.stderr[-2000:]}"
-    assert (tmp_path / f"{name}.svg").exists(), f"{name}: no SVG written"
-    assert (tmp_path / f"{name}.dxf").exists(), f"{name}: no DXF written"
+    # #709: generated scripts default to PDF like the direct CLI (the old SVG+DXF
+    # legacy-tuple default is gone; the slow tier caught this assertion post-merge
+    # because the PR gate excludes it, #153).
+    assert (tmp_path / f"{name}.pdf").exists(), f"{name}: no PDF written"
     marker = [ln for ln in r.stdout.splitlines() if ln.startswith("LINT_ERRORS=")]
     assert marker, f"{name}: no LINT_ERRORS line in stdout:\n{r.stdout[-1000:]}"
     errs = json.loads(marker[-1].split("=", 1)[1])
