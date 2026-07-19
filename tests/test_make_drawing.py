@@ -6439,9 +6439,13 @@ class TestFeatureEdits:
         self._reconstruct(dwg)  # many callout(step) calls — none may raise "no room"
         dwg.repair()  # the script must reach repair(), not abort before it
 
-    def test_generated_script_flags_side_drilled_locate_as_a_comment(self):
-        # #427 review F1: the emitted --script must gate dwg.locate(f) on a Z-axis hole —
-        # a side-drilled bore gets a flagged comment, not a bare locate() that would crash.
+    def test_generated_script_emits_locate_for_side_drilled_holes(self):
+        # #426/#133 (supersedes the #427 F1 gap comment): the emitter now records
+        # dwg.locate(f) for a side-drilled bore too. Safe because locate()'s deferred
+        # branch records the intent WITHOUT the Z-axis check, and finalize routes the
+        # off-axis location to the whole-model _locate_off_axis_holes pass — never the
+        # Z-only live verb (which still raises). End-to-end execution + the dim_loc_*
+        # parity is covered by test_generated_script_matches_direct_side_drilled_locations.
         import tempfile
         from pathlib import Path
 
@@ -6454,7 +6458,8 @@ class TestFeatureEdits:
             step = Path(d) / "sd.step"
             export_step(part, str(step))
             content = Path(generate_script(str(step), out=str(Path(d) / "sd"))).read_text()
-        assert "locate() is Z-axis only" in content  # the gate fired, no bare locate() crash
+        assert "locate() is Z-axis only" not in content  # the old gap comment is gone
+        assert "dwg.locate(f)" in content  # the side-drilled location is now reconstructed
 
     def test_intent_reconstruction_comment_drops_exactly_that(self):
         # #400 Ph2 soft acceptance: commenting one verb line drops exactly that annotation.

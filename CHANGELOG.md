@@ -58,6 +58,18 @@
 
 ### Fixed
 
+- **Generated imperative script reconstructs side-drilled hole locations**
+  (#426/#133): an X/Y-axis (side-drilled) bore gets `dim_loc_*` position dims in
+  the direct build, but the `--script` emitter emitted a gap comment instead of a
+  `locate()` for non-Z holes (because `locate()`/`render_locations` are Z-plan
+  only, #133). The emitter now emits `dwg.locate(f)` for holes on any axis;
+  `finalize()` routes by the feature's axis — Z-plan holes drain through
+  `render_locations` as before, side-drilled bores through the whole-model
+  `_locate_off_axis_holes` pass (registered at the auto-pass's own
+  `off_axis_across`/`off_axis_along` stages, placed at the shared drain). The
+  Z-only `locate()` live contract is untouched (side-drilled locates never reach
+  it — they route to the off-axis stages). Closes the last direct-vs-generated
+  script parity gap tracked by #426.
 - **Generated imperative script reconstructs rotational furniture** (#426/#424):
   a turned/cylindrical part's `dwg.model()` carries a `RotationalFeature`, but the
   `--script` emitter parked it in the gap-comment list, so an executed
