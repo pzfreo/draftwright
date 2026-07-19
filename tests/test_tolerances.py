@@ -626,6 +626,41 @@ class TestPlateTolerance:
         ]
         assert labels == ["8 ±0.1"], labels
 
+    def test_tolerance_survives_the_post_drain_carve_fallthrough(self):
+        # #744 review: when the primary corridor candidate DROPS, the deferred carve
+        # retry rebuilds the dim from its own captured label — the tolerance must ride
+        # along, not be reconstructed from the raw value. Drive the fallthrough
+        # deterministically: register via render_plates, fire the candidate's on_drop
+        # (what the solve does on a full strip), then run the deferred post_drain
+        # retries — the relocated dim must still read "8 ±0.1".
+        from draftwright.annotations._common import PlacementContext
+        from draftwright.annotations.from_model import render_plates
+
+        pl = self._plate_feature()
+        dwg = build_drawing(
+            self._flat_plate(),
+            model=[pl],
+            decorations={(pl, "length"): 0.1},
+            number="X",
+            auto_dims=False,
+        )
+        (g,) = [g for g in plan_dimensions(dwg.model()) if g.feature_kind == "plate"]
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        assert render_plates(dwg, [g], dwg._analysis, ctx=ctx) == 1
+        (cand,) = [
+            c
+            for b in ctx.corridor_batch.values()
+            for c in b["cands"]
+            if c.name.startswith("dim_plate")
+        ]
+        cand.on_drop(cand.name)  # the solve's full-strip signal
+        for cb in ctx.post_drain:  # the deferred opposite-strip retries
+            cb()
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_plate")
+        ]
+        assert labels == ["8 ±0.1"], labels
+
     def test_untolerated_plate_label_unchanged(self):
         # No decoration → the planner path is byte-identical to the old raw-field label.
         pl = self._plate_feature()
