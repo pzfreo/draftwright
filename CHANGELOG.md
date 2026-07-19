@@ -69,6 +69,15 @@
   early `break` once even the widest is too small): the same exact result and
   tie-break — verified identical to the naïve search across 3 000 random cases —
   at ~85× the speed on the pathological input (12.6 s → 0.15 s).
+- **Detail-view height demotion is pin- and provenance-safe** (#661, user
+  review): when a crowded prismatic detail needs the overall-height dim's room it
+  is demoted and the detail retried, but (a) the canonical `dim_height` name was
+  handed to that retry unconditionally — a *pinned* or user-replaced height could
+  be removed; it now passes the same pin/label guards as the generalised
+  `dim_length{n}` path (a pin, ADR 0012, is never demoted), and (b) if the retry
+  also failed, the restore re-added only object/name/view, orphaning the dim from
+  its envelope feature (lost `annotations_of`/`drop`/re-discovery); it now
+  snapshots and restores the feature provenance and pin too.
 - **`finalize()` resolves queued detail requests — detail views now exist on the
   edit path** (#661): the finalize drain was missing the auto pass's
   `detail_request`/`details` stages, so a crowded turned head's queued

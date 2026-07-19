@@ -575,6 +575,8 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             # no-room prismatic detail, demote it DELIBERATELY (same outcome, now
             # explicit and logged) and retry the detail once.
             hview = dwg.view_of(hname)
+            hfeat = dwg.registry.feature_of(hname)
+            hpinned = dwg.registry.is_pinned(hname)
             hobj = dwg.remove(hname)
             placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
             if placed:
@@ -584,7 +586,15 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             else:
                 # Transactional (#689 review): the detail may fail for reasons other
                 # than the height dim's room — restore it rather than losing BOTH.
-                dwg.add(hobj, hname, view=hview)
+                # remove() also forgot the feature provenance + pin (#89), so restore
+                # them (user review): without the feature the restored dim drops off
+                # annotations_of(envelope) / drop(feature), and a later finalize's
+                # _overall_height_name can no longer rediscover it. (hpinned is
+                # defensive — _overall_height_name never returns a pinned name — but
+                # keeps this remove/re-add correct in isolation.)
+                dwg.add(hobj, hname, view=hview, feature=hfeat)
+                if hpinned:
+                    dwg.pin(hname)
         if placed:
             n_placed += 1
 
@@ -606,9 +616,21 @@ def _overall_height_name(dwg, a: Analysis) -> str | None:
     **unambiguous**: zero or several surviving candidates (e.g. a hand-authored
     twin of the height dim, or a square part whose depth label equals its height)
     return ``None``, and the caller simply proceeds without a demotion retry."""
-    if "dim_height" in dwg.annotations():
-        return "dim_height"
     height_label = _fmt(a.z_size)
+    # The auto pass names the overall height `dim_height`; subject it to the SAME
+    # demotion-safety guards as the generalised names (user review, #661): never
+    # demote a PINNED dim (a pin is the user's "this stays put", ADR 0012), and
+    # reject a replacement whose label no longer equals the part height (identity —
+    # guards a user-substituted annotation under the canonical name). A guard
+    # failure falls through to the generalised search, which finds nothing under
+    # `dim_height` and returns None: no demotion, the safe outcome.
+    canonical = dwg.registry.named("dim_height")
+    if (
+        canonical is not None
+        and not dwg.registry.is_pinned("dim_height")
+        and getattr(canonical, "label", None) == height_label
+    ):
+        return "dim_height"
     candidates = []
     for feat in getattr(dwg.model(), "features", ()):
         if getattr(feat, "kind", None) != "envelope":
