@@ -1190,12 +1190,14 @@ class Drawing:
         # (_locate_off_axis_holes), placed at the shared drain like the Z-plan corridor —
         # not render_locations (Z-only, #133) and never live-replayed (add_feature_location
         # raises on non-Z; the intent is routed here before it can reach that verb).
+        # NB: no ``axes is None`` guard, unlike corridor_ids — the off-axis pass ignores the
+        # axes selector, so EVERY side-drilled locate (incl. a hand-written axes=… one) must
+        # route here, else it would live-replay into add_feature_location's ValueError.
         off_axis_loc_ids = {
             id(it)
             for it in self._intents
             if routable
             and it.kind == "locate"
-            and it.kwargs.get("axes") is None
             and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y")
         }
         callout_ids = {

@@ -827,8 +827,11 @@ def _feature_listing(a: Analysis) -> str:
     concentric-bore leaders, #424/#426). A section A–A is recorded when a
     counterbored/spotfaced/blind Z-hole warrants one (finalize renders it last). Feature
     kinds with no verb yet (pmi) are emitted as flagged comments naming the gap (#424) —
-    never silently dropped. Commenting any line drops exactly that intent (nothing is
-    auto-drawn, so there is no double-dimension risk). Pure function of *a*.
+    never silently dropped. Commenting a per-feature verb line drops exactly that intent
+    (nothing is auto-drawn, so there is no double-dimension risk); the WHOLE-MODEL passes —
+    ``rotational``, the ``dwg.locate(f)`` of side-drilled bores, and the ``role="step_height"``
+    height ladder — reconstruct as a set, so commenting *some* of their lines still redraws
+    the whole group and only commenting them *all* drops it. Pure function of *a*.
     """
     model = cast(PartModel, a.model) if a.model is not None else build_model(a)
     feats = getattr(model, "features", [])
