@@ -389,6 +389,29 @@ class TestFilletTolerance:
         ]
         assert labels == ["R8"], labels
 
+    def test_collapse_conflicting_tolerances_first_authored_wins(self):
+        # #742 review: when equal-radius fillets with DIFFERENT authored tolerances share
+        # one n×R callout, the FIRST-AUTHORED tolerance wins (the render_diameters
+        # precedent) — never the spatially-first member, whose identity would change if
+        # the geometry moved. Author the (+,+)-corner fillet first with ±0.1; the
+        # (-,-)-corner one (which sorts spatially FIRST by frame.origin) second with
+        # ±0.5. Spatial-first-wins would show ±0.5; authored-first shows ±0.1.
+        plate = Box(90, 60, 20)
+        es = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)
+        part = b3d_fillet([es[0], es[-1]], 8)
+        f_pp = fillet(axis="z", radius=8, at=(41, 26, 0))  # authored first
+        f_mm = fillet(axis="z", radius=8, at=(-41, -26, 0))  # spatially first
+        dwg = build_drawing(
+            part,
+            model=[f_pp, f_mm],
+            decorations={(f_pp, "radius"): 0.1, (f_mm, "radius"): 0.5},
+            number="X",
+        )
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_fillet")
+        ]
+        assert labels == ["2× R8 ±0.1"], labels
+
 
 class TestFlatTolerance:
     """#726 (the #629 class, latent): a machined flat's authored across-flats tolerance
@@ -452,6 +475,31 @@ class TestGrooveTolerance:
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_groove")
         ]
         assert labels == ["4 WIDE × ø16"], labels
+
+    def test_renderer_displays_the_planned_values_not_the_raw_fields(self):
+        # #742 review — the multi-param decoy proof for groove (the #724/#728 shape): the
+        # renderer must be planner-AUTHORITATIVE, binding width and floor ø each by
+        # (role, kind), never positionally. A decoy first dim plus a planned width
+        # deliberately different from the raw feature field must render the planned value.
+        from dataclasses import replace
+
+        from draftwright.annotations._common import PlacementContext
+        from draftwright.annotations.from_model import render_grooves
+
+        gr = groove(axis="z", width=4, diameter=16, at=(0, 0, 0))
+        dwg = build_drawing(self._grooved_shaft(), model=[gr], number="X", auto_dims=False)
+        (g,) = [g for g in plan_dimensions(dwg.model()) if g.feature_kind == "groove"]
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key[("groove", "length")]
+        decoy = replace(wpd, param=replace(wpd.param, role="decoy", value=99.0))
+        planned_w = replace(wpd, param=replace(wpd.param, value=7.0))  # ≠ gr.width == 4
+        g2 = replace(g, dims=(decoy, planned_w, by_key[("groove", "diameter")]))
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        assert render_grooves(dwg, [g2], dwg._analysis, ctx=ctx) == 1
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_groove")
+        ]
+        assert labels == ["7 WIDE × ø16"], labels
 
 
 class TestPocketTolerance:

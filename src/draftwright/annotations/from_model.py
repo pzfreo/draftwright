@@ -1103,15 +1103,18 @@ def render_fillets(dwg, groups, a, *, ctx) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
+        # First-AUTHORED tolerance wins: scan `members` in planner/model order (the
+        # render_diameters precedent — Codex review), not the spatially-sorted
+        # `ordered`, whose winner would change if the geometry moved.
         tol = next(
-            (pd.param.tolerance for _, pd in ordered if pd.param.tolerance is not None), None
+            (pd.param.tolerance for _, pd in members if pd.param.tolerance is not None), None
         )
         jobs.append(
             (
                 f"m_fillet_{axis}{gi}",
                 view,
                 vb,
-                _fillet_label(ordered[0][1].param.value, len(ordered)) + _tol_suffix(tol, draft),
+                _fillet_label(members[0][1].param.value, len(ordered)) + _tol_suffix(tol, draft),
                 _corner_candidates(dwg, view, vb, [g.feature for g, _ in ordered], reach),
             )
         )
@@ -1160,15 +1163,17 @@ def render_flats(dwg, groups, a, *, ctx) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
+        # First-AUTHORED tolerance wins (planner/model order, not spatial — see the
+        # fillet pass / render_diameters precedent, Codex review).
         tol = next(
-            (pd.param.tolerance for _, pd in ordered if pd.param.tolerance is not None), None
+            (pd.param.tolerance for _, pd in members if pd.param.tolerance is not None), None
         )
         jobs.append(
             (
                 f"m_flat_{axis}{gi}",
                 view,
                 vb,
-                _flat_label(ordered[0][1].param.value, _tol_suffix(tol, draft)),
+                _flat_label(members[0][1].param.value, _tol_suffix(tol, draft)),
                 _corner_candidates(dwg, view, vb, [g.feature for g, _ in ordered], reach),
             )
         )
