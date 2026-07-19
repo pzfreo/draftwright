@@ -487,6 +487,39 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     ]
 
 
+def lint_boss_height_coverage(part, dwg, features, assembly=None) -> list:
+    """Report modeled boss heights that have no rendered linear dimension (#632).
+
+    Coverage is reconciled from the drawing registry's feature provenance, not a
+    renderer side channel: a boss is covered only when one of its live annotations
+    is a ``Dimension``. Boss diameter annotations are leaders, so they cannot mask a
+    missing axial height. Bosses without a modeled height retain the historical
+    diameter-only contract and are outside this check.
+    """
+    bosses = [
+        feature
+        for feature in features
+        if getattr(feature, "kind", None) == "boss"
+        and getattr(feature, "height", None) is not None
+    ]
+    missing = sum(
+        1
+        for boss in bosses
+        if not any(isinstance(ann, Dimension) for ann in dwg.annotations_of(boss).values())
+    )
+    if not missing:
+        return []
+    if assembly is None:
+        assembly = len(part.solids()) > 1
+    return [
+        LintIssue(
+            severity="info" if assembly else "warning",
+            code="boss_height_missing",
+            message=f"{missing} boss height(s) are not dimensioned",
+        )
+    ]
+
+
 def lint_declaration_reconciliation(features, cyls) -> list:
     """Flag a *declared* cylindrical feature with no matching geometry in the part (#487).
 

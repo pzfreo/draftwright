@@ -58,6 +58,16 @@
 
 ### Fixed
 
+- **Boss heights are modeled, rendered, and coverage-checked** (#632): detected
+  and object-declared cylindrical bosses now carry their axial extent through
+  `BossFeature` and the dimension planner. Prismatic bosses receive a linear
+  height dimension in a profile view in addition to their end-on diameter
+  leader. `Drawing.lint()` reconciles that modeled height against the live
+  feature-owned `Dimension`, reporting `boss_height_missing` if it is removed
+  or otherwise absent (demoted to `info` on assembly drawings). This closes the
+  declarative false-negative where a boss's diameter and the overall envelope
+  were documented but its own independent height was not.
+
 - **`--format` now reaches `--script` output** (#709, from the #702 adversarial
   review): `--script -f svg` used to silently emit a PDF-producing script — the
   CLI parsed the flag but never forwarded it. Both emitters now thread it

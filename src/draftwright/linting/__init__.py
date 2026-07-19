@@ -19,6 +19,7 @@ from __future__ import annotations
 from draftwright.linting.coverage import (
     CoverageState,
     lint_axial_coverage,
+    lint_boss_height_coverage,
     lint_declaration_reconciliation,
     lint_feature_coverage,
     lint_location_coverage,
@@ -32,6 +33,7 @@ __all__ = [
     "LintIssue",
     "_suggest_fix",
     "lint_axial_coverage",
+    "lint_boss_height_coverage",
     "lint_declaration_reconciliation",
     "lint_drawing",
     "lint_feature_coverage",

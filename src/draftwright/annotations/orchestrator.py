@@ -34,6 +34,7 @@ from draftwright.annotations._common import PlacementContext
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.from_model import (
     render_boss_diameters,
+    render_boss_heights,
     render_centermarks,
     render_chamfers,
     render_diameters,
@@ -100,6 +101,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "envelope",
     "detail_request",
     "boss_diameters",  # documented invariant: before "diameters" (ø then 'mentioned')
+    "boss_heights",
     "diameters",
     "step_lengths",
     "off_axis_along",
@@ -424,6 +426,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # (they keep the OD stack).
         render_boss_diameters(dwg, _groups, a, ctx=ctx)
 
+    def _s_boss_heights():
+        render_boss_heights(dwg, _groups, a, ctx=ctx)
+
     def _s_diameters():
         # Turned-part dimensions via the IR (ADR 0008 convergence). The model is built
         # once and fed to both renderers (#229 — no per-pass rebuild): ø leaders, row
@@ -527,6 +532,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "envelope": _s_envelope,
             "detail_request": _s_detail_request,
             "boss_diameters": _s_boss_diameters,
+            "boss_heights": _s_boss_heights,
             "diameters": _s_diameters,
             "step_lengths": _s_step_lengths,
             "off_axis_along": _s_off_axis_along,

@@ -306,14 +306,19 @@ class PocketFeature:
 
 @dataclass(frozen=True)
 class BossFeature:
-    """An external cylindrical boss/OD on a non-turned part — its diameter."""
+    """An external cylindrical boss/OD — its diameter and optional axial height."""
 
     frame: Frame
     diameter: float
+    height: float | None = None
+    span: tuple[Point, Point] | None = None
     kind: ClassVar[str] = "boss"
 
     def parameters(self) -> list[DimParameter]:
-        return [DimParameter("diameter", "boss", self.diameter)]
+        params = [DimParameter("diameter", "boss", self.diameter)]
+        if self.height is not None:
+            params.append(DimParameter("length", "boss_height", self.height, span=self.span))
+        return params
 
     def references(self) -> list[Datum]:
         return []
