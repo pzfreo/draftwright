@@ -343,28 +343,26 @@ class SolveTrace:
     @_never_aborts
     def write(self) -> None:
         """Dump the trace JSON to :attr:`path` (once per build; a successful finalize
-        re-writes). **Recording-only, so it must never abort a build**: an unwritable
-        path degrades to a logged warning, and the rewrite is atomic
-        (``<path>.tmp`` then :func:`os.replace`) so a reader never sees a torn file.
-        Serialisation is strict (no ``default=``): a non-JSON-native field is a
-        recorder bug and should fail tests visibly, not be papered over."""
+        re-writes). **Recording-only, so it must never abort a build** — with the two
+        documented degradations kept distinct (final review): an *unwritable path* is
+        environmental and possibly transient, so it warns per attempt WITHOUT
+        disarming (a later finalize rewrite may succeed); a *serialisation failure*
+        is an internal recorder bug, so the strict no-``default=`` ``dumps`` raises
+        past this method's ``OSError``-only guard into :func:`_never_aborts`, which
+        disarms permanently with one warning. The rewrite is atomic
+        (``<path>.tmp`` then :func:`os.replace`) so a reader never sees a torn file."""
         data = {
             "version": 2,
             "solves": self.solves,
             "pass_events": self.pass_events,
             "escalations": self.escalations,
         }
+        text = json.dumps(data, indent=1)  # recorder-bug failures → decorator disarm
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:
-            # Serialisation stays inside the guard (orchestrator review): in finalize
-            # the write runs within the #647 transaction, so a raising dumps() would
-            # roll back and ABORT a user's finalize over a recorder bug. The strict
-            # no-default dumps still fails tests visibly — the schema/determinism
-            # tests parse this file, and a skipped write leaves nothing to parse.
-            text = json.dumps(data, indent=1)
             tmp.write_text(text, encoding="utf-8")
             os.replace(tmp, self.path)
-        except (OSError, TypeError, ValueError) as exc:
+        except OSError as exc:
             _log.warning("trace: could not write %s: %s", self.path, exc)
 
 
