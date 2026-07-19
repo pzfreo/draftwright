@@ -374,15 +374,19 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         render_chamfers(dwg, _groups, a, ctx=ctx)
 
     def _s_fillets():
-        render_fillets(dwg, _model, a, ctx=ctx)
+        # Fillet callouts (#561): R{radius} (grouped n× R) via a leader off each rounded edge.
+        # Planner-fed (#725): consumes the DimensionGroups so an authored tolerance renders.
+        render_fillets(dwg, _groups, a, ctx=ctx)
 
     def _s_flats():
         # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
-        render_flats(dwg, _model, a, ctx=ctx)
+        # Planner-fed (#726): consumes the DimensionGroups so an authored tolerance renders.
+        render_flats(dwg, _groups, a, ctx=ctx)
 
     def _s_pockets():
         # Blind-recess callouts (#148a): W × L × D DEEP via a leader off each floored pocket.
-        render_pockets(dwg, _model, a, ctx=ctx)
+        # Planner-fed (#728): consumes the DimensionGroups so authored tolerances render.
+        render_pockets(dwg, _groups, a, ctx=ctx)
 
     def _s_off_axis_across():
         # Side-drilled holes' in-plane (side-below) locations share the below corridor with
@@ -469,7 +473,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # room only after the corridor drain has finalised the diameter/step-length
         # furniture (else its room check can't see the not-yet-drained length dims and
         # collides, #148c crowded-shaft).
-        render_grooves(dwg, _model, a, ctx=ctx)
+        # Planner-fed (#727): consumes the DimensionGroups so authored tolerances render.
+        render_grooves(dwg, _groups, a, ctx=ctx)
 
     def _s_section():
         # The section view renders after the corridor-drained furniture exists, so

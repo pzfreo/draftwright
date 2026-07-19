@@ -11,12 +11,13 @@ precision (1 dp today), so tests use tolerances that survive 1 dp.
 
 from build123d import Axis, Box, Cylinder, Pos, Rot
 from build123d import chamfer as b3d_chamfer
+from build123d import fillet as b3d_fillet
 from build123d_drafting.helpers import draft_preset
 
 from draftwright import Sheet, build_drawing
 from draftwright._core import _tol_suffix
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
-from draftwright.model import PartModel, chamfer, hole, step
+from draftwright.model import PartModel, chamfer, fillet, flat, groove, hole, pocket, step
 from draftwright.model.planner import plan_dimensions
 
 
@@ -95,6 +96,84 @@ class TestPlannerDecorations:
         assert pd.param.tolerance == 0.2
         assert not pd.suppressed
         assert g.view == "plan"  # frame axis == edge axis; a Z-edge chamfer reads in the plan
+
+    def test_fillet_dim_is_leader_with_folded_tolerance(self):
+        # #725: the fillet radius routes through the planner — convention "leader", with an
+        # authored decoration folded onto DimParameter.tolerance (keyed by kind "radius").
+        fl = fillet(axis="z", radius=8, at=(41, 26, 0))
+        model = PartModel(
+            bbox=Box(90, 60, 20).bounding_box(),
+            orientation=None,
+            features=[fl],
+            decorations={(fl, "radius"): 0.1},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "fillet")
+        (pd,) = g.dims
+        assert pd.convention == "leader"
+        assert pd.param.tolerance == 0.1
+        assert not pd.suppressed
+        assert g.view == "plan"  # frame axis == edge axis; a Z-edge fillet reads in the plan
+
+    def test_flat_dim_is_leader_with_folded_tolerance(self):
+        # #726: the across-flats size routes through the planner — convention "leader",
+        # with an authored decoration folded onto DimParameter.tolerance (kind "length").
+        fl = flat(axis="z", across=17, at=(7, 0, 0))
+        model = PartModel(
+            bbox=Cylinder(10, 30).bounding_box(),
+            orientation=None,
+            features=[fl],
+            decorations={(fl, "length"): 0.2},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "flat")
+        (pd,) = g.dims
+        assert pd.convention == "leader"
+        assert pd.param.tolerance == 0.2
+        assert not pd.suppressed
+        assert g.view == "plan"  # frame axis == stock axis; a Z-bar flat reads in the plan
+
+    def test_groove_dims_are_leaders_with_independent_tolerances(self):
+        # #727: the multi-param case — width (kind "length") and floor ø (kind "diameter")
+        # are distinct decoration keys, so the one groove callout carries BOTH, each with
+        # its own folded tolerance.
+        gr = groove(axis="z", width=4, diameter=16, at=(0, 0, 0))
+        model = PartModel(
+            bbox=Cylinder(10, 40).bounding_box(),
+            orientation=None,
+            features=[gr],
+            decorations={(gr, "length"): 0.1, (gr, "diameter"): 0.5},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "groove")
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key[("groove", "length")]
+        dpd = by_key[("groove", "diameter")]
+        assert wpd.convention == "leader" and dpd.convention == "leader"
+        assert wpd.param.tolerance == 0.1
+        assert dpd.param.tolerance == 0.5
+        assert not wpd.suppressed and not dpd.suppressed
+
+    def test_pocket_dims_are_leaders_one_length_tolerance_folds_onto_all_three(self):
+        # #728: a pocket's width/length/depth are three distinct-ROLE params sharing kind
+        # "length", and decorations key on (feature, kind) — so ONE authored length
+        # tolerance folds onto ALL THREE values (documented behaviour; independent
+        # per-role tolerancing is an authoring-surface gap tracked under #698).
+        pk = pocket(width=18, length=30, depth=5, long_axis="x", width_axis="y", lo=-15, hi=15)
+        model = PartModel(
+            bbox=Box(90, 60, 20).bounding_box(),
+            orientation=None,
+            features=[pk],
+            decorations={(pk, "length"): 0.2},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "pocket")
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        assert set(by_key) == {
+            ("pocket_width", "length"),
+            ("pocket_length", "length"),
+            ("pocket_depth", "length"),
+        }
+        for pd in by_key.values():
+            assert pd.convention == "leader"
+            assert pd.param.tolerance == 0.2
+            assert not pd.suppressed
 
 
 class TestCalloutRendering:
@@ -272,6 +351,228 @@ class TestChamferTolerance:
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_chamfer")
         ]
         assert labels == ["7 × 45°"], labels  # planned 7 ≠ leg2 12 → leg×angle form
+
+
+class TestFilletTolerance:
+    """#725 (the #629 class, latent): a fillet's authored tolerance must render on the
+    placed ``R`` callout — the pass now consumes the planner's DimensionGroups. The
+    equal-radius ``n×`` collapse stays render-side (#698: planner-side grouping out of
+    scope); the displayed radius + tolerance come from the members' planned dims."""
+
+    @staticmethod
+    def _filleted_plate():
+        plate = Box(90, 60, 20)
+        e = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)[-1]
+        return b3d_fillet(e, 8)
+
+    def test_authored_fillet_tolerance_renders_on_callout(self):
+        # Declared model (ADR 0011): the caller holds the feature object, so the
+        # decoration keys on it — (feature, "radius") for a fillet.
+        fl = fillet(axis="z", radius=8, at=(41, 26, 0))  # on the rounded corner
+        dwg = build_drawing(
+            self._filleted_plate(),
+            model=[fl],
+            decorations={(fl, "radius"): 0.1},
+            number="X",
+        )
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_fillet")
+        ]
+        assert labels == ["R8 ±0.1"], labels
+
+    def test_untolerated_fillet_label_unchanged(self):
+        # No decoration → the planner path is byte-identical to the old raw-field label.
+        fl = fillet(axis="z", radius=8, at=(41, 26, 0))
+        dwg = build_drawing(self._filleted_plate(), model=[fl], number="X")
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_fillet")
+        ]
+        assert labels == ["R8"], labels
+
+    def test_collapse_conflicting_tolerances_first_authored_wins(self):
+        # #742 review: when equal-radius fillets with DIFFERENT authored tolerances share
+        # one n×R callout, the FIRST-AUTHORED tolerance wins (the render_diameters
+        # precedent) — never the spatially-first member, whose identity would change if
+        # the geometry moved. Author the (+,+)-corner fillet first with ±0.1; the
+        # (-,-)-corner one (which sorts spatially FIRST by frame.origin) second with
+        # ±0.5. Spatial-first-wins would show ±0.5; authored-first shows ±0.1.
+        plate = Box(90, 60, 20)
+        es = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)
+        part = b3d_fillet([es[0], es[-1]], 8)
+        f_pp = fillet(axis="z", radius=8, at=(41, 26, 0))  # authored first
+        f_mm = fillet(axis="z", radius=8, at=(-41, -26, 0))  # spatially first
+        dwg = build_drawing(
+            part,
+            model=[f_pp, f_mm],
+            decorations={(f_pp, "radius"): 0.1, (f_mm, "radius"): 0.5},
+            number="X",
+        )
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_fillet")
+        ]
+        assert labels == ["2× R8 ±0.1"], labels
+
+
+class TestFlatTolerance:
+    """#726 (the #629 class, latent): a machined flat's authored across-flats tolerance
+    must render on the placed A/F callout — the pass now consumes the planner's
+    DimensionGroups. The suffix interleaves after the value (the tolerance rides the
+    number, not the A/F qualifier)."""
+
+    @staticmethod
+    def _flatted_bar():
+        # A D-shaft: Z round stock with one milled flat at x = 7 (across = 7 + 10 = 17).
+        return Cylinder(10, 30) - Pos(12, 0, 0) * Box(10, 40, 40)
+
+    def test_authored_flat_tolerance_renders_on_callout(self):
+        fl = flat(axis="z", across=17, at=(7, 0, 0))  # the flat face centre
+        dwg = build_drawing(
+            self._flatted_bar(),
+            model=[fl],
+            decorations={(fl, "length"): 0.2},
+            number="X",
+        )
+        labels = [dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_flat")]
+        assert labels == ["17 ±0.2 A/F"], labels
+
+    def test_untolerated_flat_label_unchanged(self):
+        # No decoration → the planner path is byte-identical to the old raw-field label.
+        fl = flat(axis="z", across=17, at=(7, 0, 0))
+        dwg = build_drawing(self._flatted_bar(), model=[fl], number="X")
+        labels = [dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_flat")]
+        assert labels == ["17 A/F"], labels
+
+
+class TestGrooveTolerance:
+    """#727 (the #629 class, latent): a groove's authored width/floor-ø tolerances must
+    render on the placed callout — the pass now consumes the planner's DimensionGroups,
+    binding EACH of the two params explicitly by (role, kind). Each tolerance suffix
+    interleaves after its own value."""
+
+    @staticmethod
+    def _grooved_shaft():
+        # Z round stock with one annular groove at mid-height (floor ø16, 4 wide).
+        return Cylinder(10, 40) - (Cylinder(10.5, 4) - Cylinder(8, 4))
+
+    def test_authored_groove_tolerances_render_on_callout(self):
+        gr = groove(axis="z", width=4, diameter=16, at=(0, 0, 0))
+        dwg = build_drawing(
+            self._grooved_shaft(),
+            model=[gr],
+            decorations={(gr, "length"): 0.1, (gr, "diameter"): 0.5},
+            number="X",
+        )
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_groove")
+        ]
+        assert labels == ["4 ±0.1 WIDE × ø16 ±0.5"], labels
+
+    def test_untolerated_groove_label_unchanged(self):
+        # No decoration → the planner path is byte-identical to the old raw-field label.
+        gr = groove(axis="z", width=4, diameter=16, at=(0, 0, 0))
+        dwg = build_drawing(self._grooved_shaft(), model=[gr], number="X")
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_groove")
+        ]
+        assert labels == ["4 WIDE × ø16"], labels
+
+    def test_renderer_displays_the_planned_values_not_the_raw_fields(self):
+        # #742 review — the multi-param decoy proof for groove (the #724/#728 shape): the
+        # renderer must be planner-AUTHORITATIVE, binding width and floor ø each by
+        # (role, kind), never positionally. A decoy first dim plus a planned width
+        # deliberately different from the raw feature field must render the planned value.
+        from dataclasses import replace
+
+        from draftwright.annotations._common import PlacementContext
+        from draftwright.annotations.from_model import render_grooves
+
+        gr = groove(axis="z", width=4, diameter=16, at=(0, 0, 0))
+        dwg = build_drawing(self._grooved_shaft(), model=[gr], number="X", auto_dims=False)
+        (g,) = [g for g in plan_dimensions(dwg.model()) if g.feature_kind == "groove"]
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key[("groove", "length")]
+        decoy = replace(wpd, param=replace(wpd.param, role="decoy", value=99.0))
+        planned_w = replace(wpd, param=replace(wpd.param, value=7.0))  # ≠ gr.width == 4
+        g2 = replace(g, dims=(decoy, planned_w, by_key[("groove", "diameter")]))
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        assert render_grooves(dwg, [g2], dwg._analysis, ctx=ctx) == 1
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_groove")
+        ]
+        assert labels == ["7 WIDE × ø16"], labels
+
+
+class TestPocketTolerance:
+    """#728 (the #629 class, latent): a pocket's authored tolerance must render on the
+    placed W × L × D callout — the pass now consumes the planner's DimensionGroups,
+    binding EACH of the three params explicitly by (role, kind). All three share kind
+    "length", so one authored decoration suffixes all three values (see the planner
+    test); the decoy test below proves the explicit multi-param binding."""
+
+    @staticmethod
+    def _pocketed_plate():
+        # A blind 30 × 18 × 5 recess in the top face of a plate.
+        return Box(90, 60, 20) - Pos(0, 0, 7.5) * Box(30, 18, 5)
+
+    @staticmethod
+    def _pocket_feature():
+        return pocket(width=18, length=30, depth=5, long_axis="x", width_axis="y", lo=-15, hi=15)
+
+    def test_authored_pocket_tolerance_renders_on_callout(self):
+        pk = self._pocket_feature()
+        dwg = build_drawing(
+            self._pocketed_plate(),
+            model=[pk],
+            decorations={(pk, "length"): 0.2},
+            number="X",
+        )
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_pocket")
+        ]
+        assert labels == ["18 ±0.2 × 30 ±0.2 × 5 ±0.2 DEEP"], labels
+
+    def test_untolerated_pocket_label_unchanged(self):
+        # No decoration → the planner path is byte-identical to the old raw-field label.
+        pk = self._pocket_feature()
+        dwg = build_drawing(self._pocketed_plate(), model=[pk], number="X")
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_pocket")
+        ]
+        assert labels == ["18 × 30 × 5 DEEP"], labels
+
+    def test_renderer_displays_the_planned_values_not_the_raw_fields(self):
+        # #698 multi-param binding proof (the #724 decoy shape): the renderer must be
+        # planner-AUTHORITATIVE — each displayed value is its pd.param.value, bound by
+        # (role, kind), never positionally. Feed render_pockets a hand-built group with a
+        # decoy first dim and a planned width deliberately different from the feature's
+        # raw field, and assert the label shows the planned value in the width slot.
+        from dataclasses import replace
+
+        from draftwright.annotations._common import PlacementContext
+        from draftwright.annotations.from_model import render_pockets
+
+        pk = self._pocket_feature()
+        dwg = build_drawing(self._pocketed_plate(), model=[pk], number="X", auto_dims=False)
+        (g,) = [g for g in plan_dimensions(dwg.model()) if g.feature_kind == "pocket"]
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key[("pocket_width", "length")]
+        decoy = replace(wpd, param=replace(wpd.param, role="decoy", value=99.0))
+        planned_w = replace(wpd, param=replace(wpd.param, value=7.0))  # ≠ pk.width == 18
+        g2 = replace(
+            g,
+            dims=(
+                decoy,
+                planned_w,
+                by_key[("pocket_length", "length")],
+                by_key[("pocket_depth", "length")],
+            ),
+        )
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        assert render_pockets(dwg, [g2], dwg._analysis, ctx=ctx) == 1
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_pocket")
+        ]
+        assert labels == ["7 × 30 × 5 DEEP"], labels
 
 
 class TestToleranceHandle:

@@ -48,6 +48,15 @@ _CONVENTION = {
     ("pitch", "length"): "pitch",  # linear-array pitch — distinct from a plain linear dim
     ("grid_pitch", "length"): "pitch",
     ("chamfer", "length"): "leader",  # C{leg} / {leg}×{angle}° leader callout (#724)
+    ("fillet", "radius"): "leader",  # R{radius} (grouped n× R) leader callout (#725)
+    ("flat", "length"): "leader",  # {across} A/F across-flats leader callout (#726)
+    # One groove callout carries BOTH params: {width} WIDE × ø{diameter} (#727)
+    ("groove", "length"): "leader",
+    ("groove", "diameter"): "leader",
+    # One pocket callout carries all THREE params: W × L × D DEEP (#728)
+    ("pocket_width", "length"): "leader",
+    ("pocket_length", "length"): "leader",
+    ("pocket_depth", "length"): "leader",
 }
 
 

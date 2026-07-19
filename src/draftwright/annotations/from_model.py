@@ -1064,87 +1064,130 @@ def _fillet_label(radius, count) -> str:
     return f"{count}× {r}" if count > 1 else r
 
 
-def render_fillets(dwg, model, a, *, ctx) -> int:
+def render_fillets(dwg, groups, a, *, ctx) -> int:
     """Fillet radius callouts (#561): a leader from an external edge fillet to its
     ``R{radius}`` label — the arc analog of :func:`render_chamfers`. Equal-radius fillets on
     the same edge axis share ONE ``n× R`` callout (#561 acceptance), placed in the view
     normal to the rounded edge, led diagonally out of the corner into clear margin, and
-    dropped (lint, not silently) if it would overprint placed geometry. Returns the count."""
-    reach = _leader_callout_reach(dwg.draft)
-    view_of = {"z": "plan", "x": "side", "y": "front"}
-    fillets = [f for f in model.features if f.kind == "fillet"]
-    groups: dict = {}
-    for fl in fillets:
-        groups.setdefault((fl.axis, round(fl.radius, 3)), []).append(fl)
+    dropped (lint, not silently) if it would overprint placed geometry. Returns the count.
+
+    Planner-fed (#725 / #698): the radius VALUE + its tolerance come from the planner's
+    ``DimParameter`` (as in ``render_chamfers``), bound explicitly by ``(role, kind)``,
+    never positionally — formatting ``fl.radius`` directly dropped an authored tolerance
+    (the #629 class). The equal-radius ``n× R`` COLLAPSE stays render-side (grouping by
+    ``(axis, value)`` here, as before) — planner-side grouping is a structural change,
+    explicitly out of scope for this migration (#698). Where grouped members' authored
+    tolerances differ, the first (member-order) authored one wins — the documented
+    ``render_diameters`` shared-ø precedent. ``g.view`` is safe: a FilletFeature's frame
+    axis IS its edge axis (both ``detect.py`` and ``declare.fillet`` build
+    ``Frame(…, axis)``), and ``_END_ON`` matches the pass's old z→plan / x→side /
+    y→front map exactly."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    collapse: dict = {}
+    for g in (g for g in groups if g.feature_kind == "fillet"):
+        pd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("fillet", "radius")),
+            None,
+        )
+        if pd is None or pd.suppressed:
+            continue
+        collapse.setdefault((g.feature.axis, round(pd.param.value, 3)), []).append((g, pd))
     jobs = []
-    for gi, ((axis, radius), members) in enumerate(sorted(groups.items())):
-        view = view_of.get(axis)
-        if view is None:
-            continue
-        vb = dwg.view_bounds(view)
-        if vb is None:
-            continue
+    for gi, ((axis, _radius), members) in enumerate(sorted(collapse.items())):
         # One grouped ``n× R`` callout, but its leader may anchor at ANY of the equal fillets
         # — _corner_candidates tries each corner (nearest-clear first) so the group is not
         # dropped just because its first corner leads into an occupied region.
-        ordered = sorted(members, key=lambda f: f.frame.origin)
+        ordered = sorted(members, key=lambda gp: gp[0].feature.frame.origin)
+        view = ordered[0][0].view
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        # First-AUTHORED tolerance wins: scan `members` in planner/model order (the
+        # render_diameters precedent — Codex review), not the spatially-sorted
+        # `ordered`, whose winner would change if the geometry moved.
+        tol = next(
+            (pd.param.tolerance for _, pd in members if pd.param.tolerance is not None), None
+        )
         jobs.append(
             (
                 f"m_fillet_{axis}{gi}",
                 view,
                 vb,
-                _fillet_label(radius, len(members)),
-                _corner_candidates(dwg, view, vb, ordered, reach),
+                _fillet_label(members[0][1].param.value, len(ordered)) + _tol_suffix(tol, draft),
+                _corner_candidates(dwg, view, vb, [g.feature for g, _ in ordered], reach),
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="fillet", drop_code="fillet_dropped", ctx=ctx)
 
 
-def _flat_label(across) -> str:
+def _flat_label(across, sfx="") -> str:
     """The machined-flat callout string: ``{across} A/F`` (across flats) — the standard
-    abbreviation for a spanner-flat / D / hex size (#148b). Formatting lives in the render
-    layer, not on the IR feature (ADR 0013 §7)."""
-    return f"{_fmt(across)} A/F"
+    abbreviation for a spanner-flat / D / hex size (#148b). *across* is the PLANNED value
+    (``pd.param.value``, #726); *sfx* is the pre-formatted tolerance suffix, interleaved
+    after the value (``17 ±0.2 A/F`` — the tolerance rides the number, not the ``A/F``
+    qualifier). Formatting lives in the render layer, not on the IR feature (ADR 0013 §7)."""
+    return f"{_fmt(across)}{sfx} A/F"
 
 
-def render_flats(dwg, model, a, *, ctx) -> int:
+def render_flats(dwg, groups, a, *, ctx) -> int:
     """Machined-flat callouts (#148b): a leader from a flat truncating round stock to its
     ``{across} A/F`` label, in the view down the stock axis (a Z-axis bar reads in the plan).
     Flats sharing an axis and across-flats size — the faces of a double-D or hex — share ONE
     callout. The leader runs diagonally out of the flat into clear margin, and is dropped
-    (lint, not silently) if it would overprint placed geometry. Returns the count placed."""
-    reach = _leader_callout_reach(dwg.draft)
-    view_of = {"z": "plan", "x": "side", "y": "front"}
-    flats = [f for f in model.features if f.kind == "flat"]
-    groups: dict = {}
-    for fl in flats:
-        groups.setdefault((fl.axis, round(fl.across, 3)), []).append(fl)
-    jobs = []
-    for gi, ((axis, across), members) in enumerate(sorted(groups.items())):
-        view = view_of.get(axis)
-        if view is None:
+    (lint, not silently) if it would overprint placed geometry. Returns the count placed.
+
+    Planner-fed (#726 / #698): the across-flats VALUE + its tolerance come from the
+    planner's ``DimParameter``, bound explicitly by ``(role, kind)`` — formatting
+    ``fl.across`` directly dropped an authored tolerance (the #629 class). The shared
+    double-D/hex collapse stays render-side (planner-side grouping out of scope, #698);
+    first-authored tolerance wins across grouped members (the ``render_diameters``
+    precedent). ``g.view`` is safe: a FlatFeature's frame axis IS its stock axis (both
+    ``detect.py`` and ``declare.flat`` build ``Frame(…, axis)``), and ``_END_ON`` matches
+    the pass's old z→plan / x→side / y→front map exactly."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    collapse: dict = {}
+    for g in (g for g in groups if g.feature_kind == "flat"):
+        pd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("flat", "length")),
+            None,
+        )
+        if pd is None or pd.suppressed:
             continue
+        collapse.setdefault((g.feature.axis, round(pd.param.value, 3)), []).append((g, pd))
+    jobs = []
+    for gi, ((axis, _across), members) in enumerate(sorted(collapse.items())):
+        ordered = sorted(members, key=lambda gp: gp[0].feature.frame.origin)
+        view = ordered[0][0].view
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        ordered = sorted(members, key=lambda f: f.frame.origin)
+        # First-AUTHORED tolerance wins (planner/model order, not spatial — see the
+        # fillet pass / render_diameters precedent, Codex review).
+        tol = next(
+            (pd.param.tolerance for _, pd in members if pd.param.tolerance is not None), None
+        )
         jobs.append(
             (
                 f"m_flat_{axis}{gi}",
                 view,
                 vb,
-                _flat_label(across),
-                _corner_candidates(dwg, view, vb, ordered, reach),
+                _flat_label(members[0][1].param.value, _tol_suffix(tol, draft)),
+                _corner_candidates(dwg, view, vb, [g.feature for g, _ in ordered], reach),
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="flat", drop_code="flat_dropped", ctx=ctx)
 
 
-def _groove_label(width, diameter) -> str:
+def _groove_label(width, diameter, wsfx="", dsfx="") -> str:
     """The turned/circlip-groove callout string: ``{width} WIDE × ø{diameter}`` — the groove's
-    axial width and its floor diameter (#148c). Formatting lives in the render layer, not on
-    the IR feature (ADR 0013 §7)."""
-    return f"{_fmt(width)} WIDE × ø{_fmt(diameter)}"
+    axial width and its floor diameter (#148c). *width*/*diameter* are the PLANNED values
+    (``pd.param.value``, #727); *wsfx*/*dsfx* are each value's pre-formatted tolerance
+    suffix, interleaved so a tolerance rides its own number (``4 ±0.1 WIDE × ø16 ±0.05``) —
+    the two params carry independent tolerances (kinds "length"/"diameter"). Formatting
+    lives in the render layer, not on the IR feature (ADR 0013 §7)."""
+    return f"{_fmt(width)}{wsfx} WIDE × ø{_fmt(diameter)}{dsfx}"
 
 
 def _ray_exit_dist(px, py, ux, uy, rect) -> float:
@@ -1164,13 +1207,17 @@ def _ray_exit_dist(px, py, ux, uy, rect) -> float:
     return max(min([t for t in ts if t > 0], default=0.0), 0.0)
 
 
-def _pocket_label(pk) -> str:
-    """The pocket callout string: ``{width} × {length} × {depth} DEEP`` (#148a). The ISO
-    depth glyph (↧) is drawn as geometry by the helper's hole callouts, not as font text —
-    a plain :class:`Leader` label has no access to it, so this uses the font-safe ``DEEP``
-    word (the vendored Plex Mono lacks ↧). Formatting lives in the render layer (ADR
-    0013 §7)."""
-    return f"{_fmt(pk.width)} × {_fmt(pk.length)} × {_fmt(pk.depth)} DEEP"
+def _pocket_label(width, length, depth, wsfx="", lsfx="", dsfx="") -> str:
+    """The pocket callout string: ``{width} × {length} × {depth} DEEP`` (#148a). The values
+    are the PLANNED ones (``pd.param.value``, #728); *wsfx*/*lsfx*/*dsfx* are each value's
+    pre-formatted tolerance suffix, interleaved so a tolerance rides its own number. (All
+    three params share kind ``"length"``, so today one authored decoration folds onto all
+    three — the per-value suffixes render that honestly; independent tolerancing needs an
+    authoring-surface change, #698.) The ISO depth glyph (↧) is drawn as geometry by the
+    helper's hole callouts, not as font text — a plain :class:`Leader` label has no access
+    to it, so this uses the font-safe ``DEEP`` word (the vendored Plex Mono lacks ↧).
+    Formatting lives in the render layer (ADR 0013 §7)."""
+    return f"{_fmt(width)}{wsfx} × {_fmt(length)}{lsfx} × {_fmt(depth)}{dsfx} DEEP"
 
 
 # Unit lead directions tried (nearest-clear wins), diagonals first so a central pocket's
@@ -1206,18 +1253,38 @@ def _radial_candidates(dwg, view, vb, feature, reach, *, rim=0.0):
         yield (tip, elbow, feature)
 
 
-def render_pockets(dwg, model, a, *, ctx) -> int:
+def render_pockets(dwg, groups, a, *, ctx) -> int:
     """Blind-recess callouts (#148a): a leader from each floored slot/pocket to its
     ``W × L × D DEEP`` label, in the view normal to the recess opening (a Z-depth pocket
     reads in the plan, an X-depth in the side, a Y-depth in the front). A pocket sits
     mid-face, so — unlike a corner chamfer — the leader is tried toward each margin
     direction (nearest clear wins) and the callout is dropped (lint, not silently) if none
-    lands in clear room. Returns the count placed."""
-    reach = _leader_callout_reach(dwg.draft)
+    lands in clear room. Returns the count placed.
+
+    Planner-fed (#728 / #698): the multi-parameter case — width, length AND depth in one
+    label — so EACH value + its tolerance is bound explicitly by its ``(role, kind)``
+    (``pocket_width``/``pocket_length``/``pocket_depth``, all kind ``"length"``), never
+    positionally, never ``dims[0]``. Formatting ``pk.width``… directly dropped an authored
+    tolerance (the #629 class). The pass KEEPS its own axis→view map: ``g.view`` keys on
+    the frame axis, which is the pocket's LONG axis, but the callout reads in the view
+    normal to the DEPTH axis — not identical, so the map stays."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
     view_of = {"z": "plan", "x": "side", "y": "front"}
-    pockets = [f for f in model.features if f.kind == "pocket"]
+    pocket_groups = [g for g in groups if g.feature_kind == "pocket"]
     jobs = []
-    for i, pk in enumerate(sorted(pockets, key=lambda f: (f.width_axis, f.frame.origin))):
+    for i, g in enumerate(
+        sorted(pocket_groups, key=lambda g: (g.feature.width_axis, g.feature.frame.origin))
+    ):
+        pk = g.feature
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key.get(("pocket_width", "length"))
+        lpd = by_key.get(("pocket_length", "length"))
+        dpd = by_key.get(("pocket_depth", "length"))
+        if wpd is None or lpd is None or dpd is None:
+            continue
+        if wpd.suppressed or lpd.suppressed or dpd.suppressed:
+            continue
         view = view_of.get(pk.depth_axis)
         if view is None:
             continue
@@ -1229,14 +1296,21 @@ def render_pockets(dwg, model, a, *, ctx) -> int:
                 f"m_pocket_{pk.width_axis}{pk.long_axis}{i}",
                 view,
                 vb,
-                _pocket_label(pk),
+                _pocket_label(
+                    wpd.param.value,
+                    lpd.param.value,
+                    dpd.param.value,
+                    wsfx=_tol_suffix(wpd.param.tolerance, draft),
+                    lsfx=_tol_suffix(lpd.param.tolerance, draft),
+                    dsfx=_tol_suffix(dpd.param.tolerance, draft),
+                ),
                 _radial_candidates(dwg, view, vb, pk, reach),
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="pocket", drop_code="pocket_dropped", ctx=ctx)
 
 
-def render_grooves(dwg, model, a, *, ctx) -> int:
+def render_grooves(dwg, groups, a, *, ctx) -> int:
     """Turned/circlip-groove callouts (#148c): a leader from each annular groove in round
     stock to its ``{width} WIDE × ø{diameter}`` label. The groove's width is *axial*, so the
     callout lands in the **profile** view (the one showing the stock axis in-plane, where the
@@ -1245,12 +1319,32 @@ def render_grooves(dwg, model, a, *, ctx) -> int:
     collapsed by size — two identical grooves on one shaft or on parallel shafts must each be
     dimensioned). The groove sits on the axis, so the leader exits the silhouette
     (``_ray_exit_dist``) toward each margin (nearest clear wins) and is dropped (lint, not
-    silently) if none lands clear. Returns the count placed."""
-    reach = _leader_callout_reach(dwg.draft)
+    silently) if none lands clear. Returns the count placed.
+
+    Planner-fed (#727 / #698): a groove is the multi-parameter case — width AND floor ø in
+    one label — so EACH value + its tolerance is bound explicitly by its ``(role, kind)``
+    (``("groove", "length")`` / ``("groove", "diameter")``), never positionally, never
+    ``dims[0]``. Formatting ``gr.width``/``gr.diameter`` directly dropped an authored
+    tolerance (the #629 class). The pass KEEPS its own axis→view map: ``g.view`` is
+    ``_END_ON`` (end-on: z→plan), but a groove reads in the PROFILE view where its axial
+    width is visible — not provably identical, so the map stays."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
     view_of = {"z": "front", "x": "front", "y": "side"}
-    grooves = [f for f in model.features if f.kind == "groove"]
+    groove_groups = [g for g in groups if g.feature_kind == "groove"]
     jobs = []
-    for gi, gr in enumerate(sorted(grooves, key=lambda f: (f.axis, f.frame.origin))):
+    for gi, g in enumerate(
+        sorted(groove_groups, key=lambda g: (g.feature.axis, g.feature.frame.origin))
+    ):
+        gr = g.feature
+        wpd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("groove", "length")), None
+        )
+        dpd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("groove", "diameter")), None
+        )
+        if wpd is None or dpd is None or wpd.suppressed or dpd.suppressed:
+            continue
         view = view_of.get(gr.axis)
         if view is None:
             continue
@@ -1262,7 +1356,12 @@ def render_grooves(dwg, model, a, *, ctx) -> int:
                 f"m_groove_{gr.axis}{gi}",
                 view,
                 vb,
-                _groove_label(gr.width, gr.diameter),
+                _groove_label(
+                    wpd.param.value,
+                    dpd.param.value,
+                    wsfx=_tol_suffix(wpd.param.tolerance, draft),
+                    dsfx=_tol_suffix(dpd.param.tolerance, draft),
+                ),
                 _radial_candidates(dwg, view, vb, gr, reach),
             )
         )
