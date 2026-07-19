@@ -1,13 +1,6 @@
 # ADR 0013 — A uniform recogniser/feature contract (with `b123d-recognisers` as its deferred shared deployment)
 
-- **Status:** Accepted. **The primary decision is a uniform, geometry-only
-  recogniser/feature contract** (§2 + the two-layer model §3; subsumes #568) — the
-  recogniser *intake* pulled up to the standard the IR `Feature` inventory already
-  meets (ADR 0008). It is delivered inside draftwright now (**Phase 1, in progress**)
-  and is worth doing for draftwright alone. Extracting that contract to a standalone
-  shared package `b123d-recognisers` (§1) is a **secondary, deferred deployment**
-  (**Phase 2**, gated on a second committed consumer). **The consistency is the point;
-  the package is one optional way to ship it.**
+- **Status:** Accepted; Phase 1 is in progress (the core contract is enforced, typed adapter registry pending), and Phase 2 package extraction is deferred.
 - **Date:** 2026-07-12
 - **Deciders:** Paul Fremantle (pzfreo)
 

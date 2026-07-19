@@ -1,16 +1,8 @@
 # ADR 0011 — The IR as a public input: declare features, don't only detect them
 
-- **Status:** Accepted — Phase 0 (the `model=` seam + object→feature constructors) and
-  Phase 1 (the `Sheet` façade) landed; Phase 2 (aspect renderers) underway: **P2a
-  toleranced dimensions** (±/limit on a diameter/step/hole, via a `decorations=` side-layer
-  → `DimParameter.tolerance`) and **P2a.2 fit-class** (`.fit("H7")` → ISO 286 deviation,
-  `draftwright/fits.py`, riding the same `tolerance` field as a `FitClass` marker) landed;
-  **P2b GD&T+finish** (#478) and **P2c aspect verbs** (`sheet.datum`/`.control`/`.finish`,
-  #480/#482) landed 2026-07-06; only **P2d PMI-sourced auto-GD&T** (#62) remains
-  pending per the #446 roadmap. Phase 2
-  execution plan:
-  [`docs/plans/0011-phase2-aspects-roadmap.md`](../plans/0011-phase2-aspects-roadmap.md).
-  **Amendment 1** (2026-07-05): the three authoring modes + the **mode-3 generation surface**
+- **Status:** Accepted; core landed, with #62/#462/#495 remaining under roadmap #446 (see Amendment 2).
+- **Phase 2 plan:** [`docs/plans/0011-phase2-aspects-roadmap.md`](../plans/0011-phase2-aspects-roadmap.md).
+- **Amendment 1** (2026-07-05): the three authoring modes + the **mode-3 generation surface**
   (a declarative `Sheet`-DSL emitter, #461/#462/#463) — sequenced *before* P2b. Decided: for
   detected input, emit a **part-seam** with detected numbers; reconstruction deferred.
 - **Date:** 2026-07-05
@@ -19,7 +11,8 @@
 ## Context
 
 draftwright compiles a solid into a drawing through one waist: the **IR
-`PartModel`** — a list of frozen `Feature` dataclasses (ADR 0008). Everything
+`PartModel`** — a list of frozen `Feature` dataclasses (introduced by retired
+ADR 0008; current compiler contract: ADR 0015). Everything
 downstream of it — the planner, render-intents, the ADR-0009 layout, lint,
 export — reads *that*, never the raw solid. Today there is exactly **one producer**
 of the IR: **feature detection** (`recognition/` → `build_part_model`), which
@@ -271,8 +264,29 @@ generation surface is the differentiator; GD&T is additive rendering behind the 
 
 - **Extends ADR 0001 Amendment 1** (both inputs converge at the detected IR) — the
   caller is now a first-class *producer* of that IR, not only an editor of it.
-- **Builds on ADR 0008** (the unified feature model / dimensioning planner) — the
+- **Builds on ADR 0015** (which supersedes ADR 0008's unified feature-model
+  history) — the
   PartModel waist is exactly the seam that makes a single `model=` input possible with
   zero downstream change.
 - **Complements #400** (the editable surface): read (`dwg.model()`) + edit (verbs) +
   now **input** (`model=`).
+
+## Amendment 2 — current delivery boundary (2026-07-19)
+
+The `model=` seam, object-to-feature constructors, hybrid declaration, `Sheet`
+façade, tolerances/fits, finish, datum, and feature-control verbs have landed.
+That makes the public IR input a current contract.
+
+The ADR is not fully complete in every authoring mode:
+
+- #62 remains the PMI-to-automatic-GD&T ingestion path.
+- #462 remains the number-free object-reading surface for size-bearing aspects
+  such as counterbores and spotfaces.
+- #495 remains raw-cutter/intersection-based slot reading.
+- #707 separately tracks declarative script versus direct-output fidelity; this
+  ADR guarantees semantic input, not byte-identical rendering.
+
+The earlier phrase “only P2d remains” referred only to the aspect-renderer
+sequence and did not account for the still-open authoring-completeness work.
+This amendment is authoritative for delivery status; the original phases above
+remain the historical execution record.

@@ -1,11 +1,11 @@
-# ADR 0012 — User annotation edits are pinned, priority-ranked candidates in the one global solve
+# ADR 0012 — User annotation edits are pinned, priority-ranked corridor candidates
 
-- **Status:** Accepted; landed (2026-07-08 — see Amendment 1). Supersedes #396,
-  extends #388/#426.
+- **Status:** Accepted; partially landed (2026-07-08; accuracy correction
+  2026-07-19 — see Amendment 1). Supersedes #396, extends #388/#426.
 - **Date:** 2026-07-07
 - **Deciders:** Paul Fremantle (pzfreo)
 
-## Context
+## Context at the time of the decision
 
 Two placement worlds exist today and do not meet:
 
@@ -32,7 +32,10 @@ sheet **can fit sub-optimally** (dims that the batch would have ordered, dropped
 priority, or deduped). That is the intended edit workflow, so the failure is real, not
 hypothetical.
 
-## Decision
+## Original decision and target
+
+The following records the target accepted on 2026-07-07. Read it with Amendment
+1 for the narrower behavior that actually landed.
 
 **A user annotation edit is a *dimension intent* carrying `(pin, priority)`, placed by the
 same global corridor solve as the automatic dimensions — not a raw single-slot poke.**
@@ -77,7 +80,7 @@ frozen imperative placement (never re-optimised) or an unconstrained re-solve (j
 - **Performance.** A full re-solve per edit is costly, so edits accumulate on the model and
   a *recompose runs the solve once* (`finalize_drawing`), rather than per `place_dim` call.
 
-## Consequences
+## Intended consequences
 
 - `dimension()` gains `pin=` and `priority=` and records a dimension intent on the model
   (in addition to, or in place of, the raw annotation). `place_dim()` is deprecated for
@@ -94,7 +97,7 @@ frozen imperative placement (never re-optimised) or an unconstrained re-solve (j
 - The **#477 below/right fold-in** is promoted from an open non-goal to a dependency (a
   user dim on a below/right strip needs those ladders in the corridor).
 
-## Phased work (tracking issue to follow)
+## Original phased work
 
 1. **Intent + knobs.** A scale-independent dimension-intent representation on the model;
    `pin=`/`priority=` on `dimension()` recording it. `place_dim()` remains raw-coordinate
@@ -108,11 +111,12 @@ frozen imperative placement (never re-optimised) or an unconstrained re-solve (j
 5. **Escape hatch.** Keep deprecated raw single-slot `place_dim` for arbitrary-page-coordinate,
    unsolved placement, clearly documented.
 
-## Amendment 1 — all five phases landed (2026-07-08)
+## Amendment 1 — recorded-intent corridor solving landed (2026-07-08; corrected 2026-07-19)
 
-**Status:** Accepted; fully landed. Umbrella **#511**, closed 2026-07-08.
+**Status:** Accepted; partially landed. Umbrella **#511** closed 2026-07-08,
+but the implementation is narrower than the original global-recompose proposal.
 
-All five phased-work items above shipped:
+The recorded-intent mechanism shipped:
 
 1. **Intent + knobs** — `Drawing.dimension(..., pin=, priority=)` records a
    scale-independent dimension intent (`draftwright/intents.py`) when the
@@ -124,10 +128,13 @@ All five phased-work items above shipped:
    (`annotations/_common.py`), `anchored=pin` and `priority=priority` carried
    straight through. Landed via #531 ("Add pinned locate candidates") and #532
    ("Route pinned dimension intents through corridor"), both merged 2026-07-08.
-3. **Recompose** — `Drawing.finalize()` is the realised recompose step; it is
-   idempotent and drains the full recorded intent set (auto features + user
-   edits) through the orchestration in one pass (see its docstring for the
-   full A/B1/B2/B3/C/D solver ordering it preserves).
+3. **Recorded-intent drain, not full recompose** — `Drawing.finalize()` is
+   idempotent and drains the intents recorded while the drawing is deferred.
+   It does **not** rerun `_auto_annotate`, reconstruct the automatic candidate
+   population, or co-solve a later user edit with annotations already committed
+   to the drawing. Existing annotations are obstacles for that drain. The
+   `_PASS_SEQUENCE`-keyed drain describes routing of the recorded subsets; it
+   is not one sheet-global solve.
 4. **Below/right dependency (#477)** — closed 2026-07-08 as part of the
    broader "finish the ADR 0009 unification" umbrella; the below/right ladders
    are corridor registrants, so a user dim there co-solves.
@@ -143,6 +150,34 @@ exit, and `export()`/`export_pdf()` call it unconditionally (a no-op once
 intents are drained) so a script that never opts into `deferred()` is
 unaffected.
 
-Found while auditing this ADR's status for accuracy (#548): the "work pending"
-status line had not been updated since the epic closed, understating that the
-core mechanism this ADR proposed is live.
+Consequently, the original **one global solve over automatic features plus user
+edits remains a target, not a landed guarantee**. Generated scripts can approach
+that target when they faithfully record the same semantic intents before
+finalization, but direct and script output are not guaranteed equal; detail-view
+reconstruction is a known example. Track full script/direct equality and
+automatic-plus-user recomposition in #426/#661/#707. ADR 0014 is the current
+placement contract; ADR 0009 is retained only as its historical predecessor.
+
+The 2026-07-19 correction replaces the earlier "fully landed" wording, which
+incorrectly equated draining recorded intents with reconstructing and solving
+the complete automatic-plus-user population.
+
+## Current contract summary (2026-07-19)
+
+For current callers, this ADR means only the following:
+
+1. Semantic edit verbs may record scale-independent intents while a drawing is
+   deferred.
+2. `Drawing.finalize()` drains those recorded intents deterministically through
+   corridor-specific routing, carrying pin and priority where supported.
+3. Finalization does not reconstruct automatic candidates and is not a global
+   automatic-plus-user recompose.
+4. Existing annotations therefore participate as obstacles, not as members of
+   the newly solved population.
+5. `Drawing.place_dim()` remains the raw, scale-frozen, unsolved escape hatch.
+6. Script/direct equality and full recomposition remain tracked by
+   #426/#661/#707.
+
+The original target and phased plan above are retained to show why the intent
+mechanism was introduced; this summary plus ADR 0014 describe the behavior that
+exists today.

@@ -32,7 +32,8 @@ layer boundaries before `dwg.add`:
 Tagging each pass in turn (398c, 398d, …) treats the symptom pass by pass. The common
 **root** is that there is no single seam recording, per planned intent, the annotation
 names it emitted. The planner already produces one `DimensionGroup` per feature
-(ADR 0008), and the render layer consumes groups and calls `dwg.add` — but the
+(ADR 0015, superseding ADR 0008), and the render layer consumes groups and calls
+`dwg.add` — but the
 `group → names` mapping is discarded at the moment it is known.
 
 ## Decision
@@ -152,11 +153,13 @@ the `origin`-back-link mechanism dropped as unnecessary).
 - [ADR 0005](0005-pipeline-architecture-and-state-ownership.md) — the registry is the
   single owner of annotation identity/ownership; provenance is the new axis, and its
   sink.
-- [ADR 0008](0008-unified-feature-model-and-dimensioning-planner.md) — the IR/planner
+- [ADR 0015](0015-part-drawing-compiler-as-built.md) — the current IR/planner
+  contract (superseding ADR 0008); the
   intent boundary is where the seam lives. (`origin` survives only on the
   *aspect* features — `ControlFrame`/`DatumRef`/`Finish`/`Note` — as a
   targeting handle; see Amendment 2. The universal
   back-link on IR feature types was never needed and was not built.)
-- [ADR 0009](0009-boundary-labeling-strip-placement.md) — the corridor placer is a
+- [ADR 0014](0014-collect-then-solve-annotation-placement.md) — the current
+  corridor-placement contract (superseding ADR 0009) is a
   layer that must carry the intent through to its deferred add.
 - Issues: #398 (edit-by-feature), #400 (expanded semantic script), #388 (finalize).

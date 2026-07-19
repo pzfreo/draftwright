@@ -198,11 +198,11 @@ down it knows only numbers.
   algorithm ("label *i* sits here because order + min-gap + shortest leader"),
   never a metaheuristic; repair stays a peephole safety net (it no longer
   touches `annotation_overlap`).
-- **ADR 0003** (still Accepted) — the constraint-based inner-layout frame this
-  ADR realises for the strips. The carrier is `StripCandidate`/`plan_strip`,
-  not 0003's original `Placeable`/`LayoutSolver` (deleted unused, #547 — see
-  0003's 2026-07-10 correction); the deferred global 2-D solve (#94) remains
-  deferred.
+- **ADR 0003** (retired) — the historical constraint-based inner-layout frame.
+  This ADR is its implemented successor for strips. The carrier is
+  `StripCandidate`/`plan_strip`, not 0003's deleted
+  `Placeable`/`LayoutSolver`. The page-global 2-D solve in #94 was closed as
+  superseded and unnecessary; ADR 0004 owns the fixed-topology outer layout.
 - **ADR 0004** — the **outer** layer: compose-then-pack keeps view blocks
   disjoint; this ADR is the **inner** per-view layer whose deterministic
   annotation boxes are exactly the block footprints 0004 packs.

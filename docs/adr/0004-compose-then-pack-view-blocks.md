@@ -30,8 +30,9 @@ recurring class of failures (surfaced while making dense hole patterns legible,
   drawing (NIST CTC-02, ~60 balloons) sits at the CI timeout.
 
 Each symptom is a patch on the same flaw: annotations are second-class citizens
-placed post-hoc, competing for scraps. ADR 0003 settles how *annotations within
-a view* are placed (the `Placeable`/Cassowary inner layout). This ADR settles
+placed post-hoc, competing for scraps. ADR 0014 now settles how *annotations
+within a view* are placed (collect-then-solve corridors; retired ADR 0003 holds
+the earlier `Placeable`/Cassowary exploration). This ADR settles
 the layer around it: **how a view and its full annotation set are composed into
 one placeable block, and how those blocks are packed onto the page and scaled.**
 
@@ -115,22 +116,20 @@ hard rejection is `_MIN_RENDER_MM` (0.1 mm) — a conservative geometry floor we
 above where OCCT's annotation arcs actually degenerate (`Geom_TrimmedCurve U1==U2`,
 ~1e-4 mm); there we raise a clean message rather than crash.
 
-### Relationship to ADR 0003 and the deferred 2D solve
+### Relationship to retired ADR 0003 and the rejected 2D solve
 
-- ADR 0003 governs the **inner** layout (placing a view's own annotations in its
-  zones via the `Placeable`/Cassowary system) — now made concrete by
-  [ADR 0009](0009-boundary-labeling-strip-placement.md) (collect-then-solve
-  boundary labeling per strip). This ADR governs the **outer** layout (composing
-  view+annotation blocks and packing them on the page). A block's footprint is
-  the deterministic bounding box that the ADR-0009 inner solve produces in
-  view-local space.
+- [ADR 0014](0014-collect-then-solve-annotation-placement.md) governs the
+  **inner** layout: collect-then-solve annotation placement per corridor. This
+  ADR governs the **outer** layout: composing view+annotation blocks and
+  packing them on the page. ADR 0003 is retained only as the retired historical
+  proposal that preceded these two concrete contracts.
 - The **page-level packing stays fixed-topology** (plan above front sharing X;
   side beside front sharing Y; iso and table in free rectangles via
-  `fit_box`). It is **not** the full global 2D solve deferred in
-  #94, which we keep deferred — most "2D freedom" is forbidden by projection
-  alignment, and a global non-overlap solve is disjunctive/NP-hard and
-  non-deterministic. Fixed-topology + composed footprints + local free-rect
-  placement is the right amount of structure.
+  `fit_box`). The full global 2D solve in #94 was closed as superseded and
+  unnecessary: most "2D freedom" is forbidden by projection alignment, while
+  a global non-overlap solve is disjunctive/NP-hard and risks nondeterminism.
+  Fixed-topology + composed footprints + local free-rect placement is the
+  accepted amount of structure.
 
 ### Implementation state (updated 2026-07-09)
 
@@ -222,7 +221,7 @@ Decisions:
 3. **Acceptance test = the inter-view overlap.** A step is correct when
    **plan-view labels do not overlap front-view dimensions** (and lint is clean)
    on the hard case (NIST CTC-02), *not* when output is unchanged.
-4. **Footprint stays a box layout** (page-mm rectangles via the ADR-0003 inner
+4. **Footprint stays a box layout** (page-mm rectangles via the ADR-0014 inner
    layout in view-local space) — never bbox-measured OCC geometry (the O(n²)
    `lint()` wall, ~110 s on CTC-02, is the standing evidence).
 5. **Tracked as #121.** The root cause is "annotations placed *after* views are

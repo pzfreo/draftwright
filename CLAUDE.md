@@ -89,7 +89,7 @@ entry. Keep `_LAYERS` and this section in step.
   - **`annotations/balloons.py`** — the leadered hole-balloon pass (#111/#516;
     moved down from `Drawing`, #699). `Drawing.add_balloons` is the public verb
     threading build state in; the band-assignment flow solver lives in `layout.py`.
-  - **`annotations/_common.py`** — the ADR 0009 corridor-solve engine
+  - **`annotations/_common.py`** — the ADR 0014 corridor-solve engine
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`) plus `_box_hits`, at the
     bottom of the annotations DAG. (The bbox/segment primitives it delegates to
@@ -102,9 +102,10 @@ entry. Keep `_LAYERS` and this section in step.
   the `Analysis` namespace and its field types (`_Projector`, `Strip`, `ViewZones`),
   the dimension/format helpers (`_dim`, `_fmt`, `_add_title_block`, …), and the
   page/slot/margin layout constants.
-- **`layout.py`** — the constraint-based layout engine (ADR 0003): the deterministic
+- **`layout.py`** — the deterministic placement primitives used by ADRs 0004/0014:
+  the deterministic
   1D PAVA strip solve (`_solve_strip_1d_pava`, plus `plan_strip`/`StripCandidate`,
-  the ADR 0009 collect-then-solve entry point), the 2D free-rectangle placer
+  the ADR 0014 collect-then-solve entry point), the 2D free-rectangle placer
   (`fit_box`), and the balloon band-assignment min-cost max-flow solve
   (`_assign_balloon_bands`, #516; here since #699 — solvers live in the solver
   layer). Sits *below* the domain API.
@@ -142,7 +143,7 @@ entry. Keep `_LAYERS` and this section in step.
   (which now owns the `sheet.py` name).
 - **`analysis.py`** — the `_analyse` stage: solid classification, the one-shot
   feature-inventory detection (ADR 0008 Am5), view sizing, and the strip/zone
-  model (`fv_zones`/`pv_zones`/`sv_zones`) that ADR 0009 placement reads.
+  model (`fv_zones`/`pv_zones`/`sv_zones`) that ADR 0014 placement reads.
 - **`projection.py`** — HLR projection and view-coordinate transforms
   (`_assemble`'s geometry half; #161).
 - **`sheet.py`** — the fluent declarative **`Sheet`** facade (ADR 0011):
@@ -229,8 +230,8 @@ Current ADRs:
 - **0001** — deterministic generation over an editable DSL.
 - **0002** — iterate via lint-critique and domain-repair (repair is a *safety
   net*, not the primary placement mechanism).
-- **0003** — constraint-based **inner** layout (the deterministic PAVA strip
-  solve in `layout.py`): placing one view's annotations within its own zones.
+- **0003** — **Retired**: historical universal-solver exploration. Its live
+  responsibilities are split between 0004 (outer layout) and 0014 (inner placement).
 - **0004** — **compose-then-pack** (Accepted; the **outer** layout): each view is
   a *block* = `view_rect(scale) + its annotation boxes`; choose `(scale, page)`
   by a monotone search whose fitness function is composing + packing the blocks
@@ -248,9 +249,10 @@ Current ADRs:
   facade). `layout.py` unchanged. **Roadmap:** `docs/plans/138-module-split-roadmap.md`.
   Both deferred follow-ups are resolved: the §2 build-context threading closed
   via **#639** (epic #635 — one typed `BuildState`, empty-allowlist ratchet), and
-  `annotations/envelope.py` was overtaken by ADR 0008 (the envelope pass
+  `annotations/envelope.py` was overtaken by the compiler convergence now
+  recorded in ADR 0015 (the envelope pass
   converged into `annotations/from_model.py` instead). §4's compat-alias exit is
-  tracked by **#699**.
+  tracked by **#720** for 0.4.0.
 - **0006** — **Accepted** (#149): deterministic cross-platform layout via bundled,
   path-pinned fonts. Layout depends on measured text width; resolving a font *name*
   (`"Arial"`) substitutes a different font on Linux, drifting the whole sheet ~1 mm.
@@ -267,15 +269,15 @@ Current ADRs:
   frozen. Read 0015 for current state.
 - **0009** — **Superseded by 0014** (#697): the collect-then-solve why-trail
   (9 amendments), frozen. Read 0014 for current state.
-- **0010** — **Accepted** (decision; work pending): **annotation provenance seam**.
+- **0010** — **Accepted; landed**: **annotation provenance seam**.
   The editable-surface epic needs "which annotations did this feature/intent
   produce?" (for `drop`/`dimension`/`finalize`/the #400 emitter). Rather than
   tagging each render pass (the link is lost at the corridor placer, the
   diameter-spec flattening, and the recognition→IR boundary), record
   `intent → [names]` **once** at the intent→render seam, with an `origin` back-link
-  on IR features. The registry's `_anno_feature` (#398b) is the sink; the seam is
-  the automatic populator. Re-plans #398c–e, enables #400.
-- **0011** — **Accepted** (Phase 0+1 + Phase 2 aspects landed; P2d PMI-source pending):
+  on every IR feature was rejected; aspect features retain targeting handles.
+  The render seam is the automatic populator and the contract is audit-tested.
+- **0011** — **Accepted** (core landed; #62/#462/#495 remain):
   **the IR as a public input** — declare features, don't only detect them.
   `build_drawing(part, model=…)` accepts a caller-supplied `PartModel`/`Sequence[Feature]`
   and **skips detection**; object→feature constructors
@@ -285,21 +287,21 @@ Current ADRs:
   "beautiful-Python" surface over the existing renderers. **Aspects geometry can't carry
   are now built:** tolerance/fit ride `DimParameter` (P2a/P2a.2); **GD&T + surface finish**
   are standalone IR features (`ControlFrame`/`DatumRef`/`Finish`, `model/ir.py`) placed as
-  first-class ADR 0009 corridor candidates by `render_gdt` (P2b #478), authored via
+  first-class ADR 0014 corridor candidates by `render_gdt` (P2b #478), authored via
   `sheet.datum`/`sheet.control(…).position(…)`/`.finish` whose target view+strip derive
   from the referenced feature/face (`declare.gdt_target`, P2c #480/#482). PMI-sourced
-  auto-GD&T is the last item (#62). Sidesteps #298 misdetection; complements #400 (read +
-  edit → now also input). Roadmap: `docs/plans/0011-phase2-aspects-roadmap.md`; #446/#445.
-- **0012** — **Accepted; landed** (2026-07-08, umbrella #511 closed — supersedes #396,
-  extends #388/#426): **user annotation edits are pinned, priority-ranked candidates in
-  the one global solve.** A `dimension(..., pin=, priority=)` edit records a
+  auto-GD&T remains #62; number-free aspects remain #462 and raw-cutter slot reading
+  remains #495. Sidesteps #298 misdetection; complements #400 (read + edit → now also
+  input). Roadmap: `docs/plans/0011-phase2-aspects-roadmap.md`; #446/#445.
+- **0012** — **Accepted; partially landed** (2026-07-08; corrected 2026-07-19):
+  user annotation edits are pinned, priority-ranked corridor candidates. A
+  `dimension(..., pin=, priority=)` edit records a
   scale-independent *dimension intent* on the model — **pin** = the solver's `anchored`/
   `_ANCHOR_WEIGHT` (stays put while the rest flow around it), **priority** =
-  `CorridorCandidate.priority` (#357) — placed by the **same** `solve_corridor` as the
-  auto dims, re-run by the recompose (`Drawing.finalize()`, #426). Edit freely, recompose
-  once; pin is the escape valve so the user never fights the solver. `place_dim()` is now
-  the deprecated raw-coordinate escape hatch. The #477 below/right fold-in landed as a
-  dependency.
+  `CorridorCandidate.priority` (#357). `Drawing.finalize()` drains only recorded
+  deferred intents through `_PASS_SEQUENCE`; it does not reconstruct auto candidates or
+  perform a global auto-plus-user recompose. `place_dim()` remains the deprecated raw-
+  coordinate escape hatch. Full recomposition/parity remains #426/#661/#707.
 - **0013** — **Accepted** (#568; Phase 1 in progress): the **uniform recogniser
   contract** — `recognise_<feature>(part, *, <injected deps>) -> list[<frozen
   record>]` (plus the part-less *derived* shape, e.g.

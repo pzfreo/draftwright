@@ -1,13 +1,9 @@
 # ADR 0003 — Constraint-based layout: one solver for every placeable
 
-- **Status:** Accepted (core implemented; the unifying *global 2-D* solve stays
-  deferred — #94; amended 2026-07-10 — see Correction). The 1-D strip solve,
-  `fit_box`, and pins (#89) have shipped — the concrete carrier is
-  `StripCandidate`/`plan_strip`/`CorridorCandidate`, not the original
-  `Placeable`/`LayoutSolver` model, which was retired (#547). The **assignment
-  layer** and **escalation ladder** for per-view strip placement are made
-  concrete by [ADR 0009](0009-boundary-labeling-strip-placement.md)
-  (collect-then-solve boundary labeling).
+- **Status:** **Retired (2026-07-19). Superseded jointly by
+  [ADR 0004](0004-compose-then-pack-view-blocks.md) and
+  [ADR 0014](0014-collect-then-solve-annotation-placement.md).** See the final
+  amendment. Retained as the historical record of the solver exploration.
 - **Date:** 2026-06-18
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -252,10 +248,28 @@ Migration sections as the conceptual shape that was later realised by
 - [ADR 0005](0005-pipeline-architecture-and-state-ownership.md) — module
   boundaries and single-owner build state; `layout.py` is unchanged, but pin
   state moves to `registry.py`.
-- [ADR 0009](0009-boundary-labeling-strip-placement.md) — makes this ADR's
+- [ADR 0014](0014-collect-then-solve-annotation-placement.md) — makes this ADR's
   assignment layer and escalation ladder concrete for per-view strip placement
-  (collect-then-solve boundary labeling); the per-view inner layer to ADR 0004's
-  outer block packing.
+  (collect-then-solve annotation placement); the per-view inner layer to ADR
+  0004's outer block packing. It supersedes ADR 0009, which remains the
+  historical design record.
 - Issue #77 (external turned diameters — the first `Placeable`); the phased
   layout issues (protocol/solver → port callouts → port dims → tables/GD&T);
   #61/#62 (GD&T — beneficiaries of the unified placement).
+
+## Final amendment — retired, not deferred (2026-07-19)
+
+This ADR is no longer a current architecture contract.
+
+- Its proposed shared `Placeable`/`LayoutSolver` carrier was deleted in #547
+  after production placement converged on corridor candidates instead.
+- Its page-global free 2-D solve was explicitly closed as unnecessary in #94,
+  not left as deferred work. Projection alignment makes page topology mostly
+  fixed; ADR 0004's compose-then-pack model is the accepted outer layout.
+- ADR 0014 is the accepted inner annotation-placement contract: collect,
+  select, assign, and solve deterministic one-dimensional corridors, with
+  `fit_box` for bounded free-rectangle furniture placement.
+
+Read the Decision, Migration, and earlier Correction sections above as design
+history. For current implementation guidance, use ADR 0004 for view/page
+composition and ADR 0014 for annotation placement.
