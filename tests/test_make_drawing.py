@@ -5677,6 +5677,78 @@ class TestDetailView:
         assert "detail_caption_A" in dwg.annotations()
         assert any(n.startswith("dim_detail_a_step") for n in dwg.annotations())
 
+    @staticmethod
+    def _deferred_height_build(pin):
+        """A finalize-path build whose crowded-step detail must fight the explicit
+        envelope-height dimension for room (the #661 demotion scenario)."""
+        dwg = build_drawing(_crowded_shoulder_part(), auto_dims=False, detail_view=True)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_height")
+        dwg.dimension(env, "length", role="height", pin=pin)
+        dwg.finalize()
+        return dwg
+
+    def test_detail_demotion_never_touches_a_pinned_height_dim(self):
+        # Codex review of #661: _overall_height_name identifies the finalize path's
+        # envelope-height dim by attribution + label + portrait footprint — heuristics,
+        # since the registry stores features, not roles. A PIN is the user's "this
+        # stays put" (ADR 0012) and outranks the demotion heuristic, so a pinned
+        # height dim must never be demoted; with no other room the detail then drops
+        # gracefully (the inline ladder + step_dim_dropped lint still cover the part).
+        pinned = self._deferred_height_build(pin=True)
+        assert "dim_length0" in pinned.annotations()  # the pinned height dim survives
+        assert pinned.registry.is_pinned("dim_length0")
+        assert "detail_a" not in pinned.views  # detail dropped rather than demoting a pin
+
+        # Control — identical build without the pin: the demotion retry fires and the
+        # detail takes the height dim's room, proving the pin was the deciding factor.
+        unpinned = self._deferred_height_build(pin=False)
+        assert "dim_length0" not in unpinned.annotations()  # demoted
+        assert "detail_a" in unpinned.views
+
+    def test_finalize_rolls_back_a_raise_between_iso_reproject_and_refit(self, monkeypatch):
+        # Codex review of #661: the details stage re-projects the iso at sheet scale,
+        # resolves the queue, then refits the iso. A raise INSIDE that window (here:
+        # the refit itself, as the finalize path resolves it from the projection
+        # module per call) must roll the whole #647 transaction back — the fitted
+        # iso, the placed detail view/coords, its annotations, and the intents.
+        from draftwright import projection as _proj
+
+        dwg = build_drawing(_crowded_shoulder_part(), auto_dims=False, detail_view=True)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_height")
+        iso_before = dwg.views["iso"]
+        names_before = set(dwg.annotations())
+        intents_before = len(dwg._intents)
+
+        real = _proj._fit_iso_view
+        calls = {"n": 0}
+
+        def _boom(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("injected iso refit failure")
+            return real(*a, **k)
+
+        monkeypatch.setattr(_proj, "_fit_iso_view", _boom)
+        with pytest.raises(RuntimeError):
+            dwg.finalize()  # iso re-projected + detail placed, then the refit raises
+        # Full rollback: the build's fitted iso is back (the exact snapshot objects),
+        # the detail view/coords/annotations are gone, and the intents survive.
+        assert dwg.views["iso"] is iso_before
+        assert "detail_a" not in dwg.views
+        assert "detail_a" not in dwg._coords
+        assert set(dwg.annotations()) == names_before
+        assert len(dwg._intents) == intents_before
+
+        dwg.finalize()  # clean retry: the refit runs and the detail places
+        assert calls["n"] == 2
+        assert "detail_a" in dwg.views
+        assert "detail_caption_A" in dwg.annotations()
+
 
 # ---------------------------------------------------------------------------
 # Issue #45: TYP / representative dimensioning for uniform step patterns

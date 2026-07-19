@@ -564,7 +564,9 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             continue
         letter = _DETAIL_LETTERS[n_placed]
         placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
-        hname = _overall_height_name(dwg) if not placed and req.kind == "prismatic-steps" else None
+        hname = (
+            _overall_height_name(dwg, a) if not placed and req.kind == "prismatic-steps" else None
+        )
         if hname is not None:
             # (#636) The user's explicit detail request outranks the overall-height
             # dim: pre-migration, the solver-invisible carve silently dropped
@@ -587,25 +589,39 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             n_placed += 1
 
 
-def _overall_height_name(dwg) -> str | None:
+def _overall_height_name(dwg, a: Analysis) -> str | None:
     """The overall-height dimension's annotation name, however it was placed (#661).
 
     The auto pass names it ``dim_height`` (``render_height_ladder``). On the
     finalize path an explicit envelope-height verb live-replays under an
-    auto-assigned ``dim_length{n}`` name instead — identified here by its envelope
-    feature attribution plus its portrait (taller-than-wide) footprint, which
-    singles the height out from the landscape width/depth envelope dims."""
+    auto-assigned ``dim_length{n}`` name instead — identified by three cues, since
+    the registry attributes features but not roles: envelope feature attribution,
+    a portrait (taller-than-wide) footprint (the depth dim beside the plan view is
+    portrait too, so the footprint alone cannot single the height out), and a label
+    equal to the part's overall height.
+
+    The generalised path is demotion-safe, not best-effort (Codex review): a
+    **pinned** name is never a candidate — a pin is the user's "this stays put"
+    (ADR 0012), which outranks the demotion heuristic — and the match must be
+    **unambiguous**: zero or several surviving candidates (e.g. a hand-authored
+    twin of the height dim, or a square part whose depth label equals its height)
+    return ``None``, and the caller simply proceeds without a demotion retry."""
     if "dim_height" in dwg.annotations():
         return "dim_height"
-    model = dwg.model()
-    for feat in getattr(model, "features", ()):
+    height_label = _fmt(a.z_size)
+    candidates = []
+    for feat in getattr(dwg.model(), "features", ()):
         if getattr(feat, "kind", None) != "envelope":
             continue
         for name, obj in dwg.annotations_of(feat).items():
+            if dwg.registry.is_pinned(name):
+                continue
+            if getattr(obj, "label", None) != height_label:
+                continue
             box = _anno_box(obj)
             if box is not None and (box[3] - box[1]) > (box[2] - box[0]):
-                return str(name)
-    return None
+                candidates.append(str(name))
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _request_prismatic_detail(dwg, a: Analysis, *, ctx) -> None:
