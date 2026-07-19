@@ -1029,11 +1029,16 @@ def _write_script(
         "# ── Export ────────────────────────────────────────────────────────────────────\n"
         # The modern dict form, honouring the CLI's --format (#709); the legacy
         # `svg_path, dxf_path = dwg.export(_stem)` tuple path is deprecated.
-        f"paths = dwg.export(_stem, formats={tuple(formats)!r})\n"
-        "for _fmt, _path in paths.items():\n"
+        f"_formats = {tuple(formats)!r}\n"
+        "paths = dwg.export(_stem, formats=_formats)\n"
+        # Print in the REQUESTED order (#755 review): Drawing.export returns its
+        # dict in dependency order (svg before the png derived from it), so
+        # iterating paths.items() would reorder `-f png,svg` output vs the
+        # direct CLI's _emit, which prints as requested.
+        "for _fmt in _formats:\n"
         # ASCII arrow: a Unicode → crashes the print on a Windows cp1252 console
         # (UnicodeEncodeError) — the generated script must run everywhere.
-        '    print(f"{_fmt.upper()} -> {_path}")\n'
+        '    print(f"{_fmt.upper()} -> {paths[_fmt]}")\n'
     )
 
     content = header + cog_block + run_section

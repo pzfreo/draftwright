@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **Imperative `--script` output defaults to PDF and the modern export form**
+  (#709). **Breaking** for regenerated imperative scripts: without `-f`, a
+  regenerated script now writes `<stem>.pdf` (was SVG+DXF via the deprecated
+  legacy tuple), and the script-visible variables changed from
+  `svg_path, dxf_path` to a `paths` dict printed in the requested-format order.
+  This aligns the imperative flavour with the Sheet flavour and the direct CLI,
+  which have defaulted to PDF since #702/#288. Migration: regenerate with
+  `--format svg,dxf` to keep the old outputs. Previously-generated scripts are
+  unaffected (they carry their own export lines).
 - **`finalize()` drains in the auto-pass's order** (#699 slice b): both build
   paths now execute the orchestrator's one canonical `_PASS_SEQUENCE` (via the
   shared `run_stages`), removing the hand-mirrored second orchestration in
@@ -49,19 +58,16 @@
 
 ### Fixed
 
-- **`--format` now reaches `--script` output; the imperative script exports the
-  modern way** (#709, from the #702 adversarial review): `--script -f svg` used
-  to silently emit a PDF-producing script — the CLI parsed the flag but never
-  forwarded it. Both emitters now thread it through: the Sheet script emits
-  `sheet.export(stem, formats=(…,))` when non-default (bare call for the PDF
-  default), and the imperative template swaps the deprecated legacy tuple
-  (`svg_path, dxf_path = dwg.export(_stem)` — which made imperative scripts
-  produce SVG+DXF while sheet scripts produced PDF) for the modern dict form
-  `paths = dwg.export(_stem, formats=…)` with a matching print loop, so both
-  flavours default to PDF and honour `--format`. `generate_script` /
-  `generate_sheet_script` grow a `formats=` parameter. The dormant
-  script-parity characterisation module (`test_script_detail_parity.py`) is
-  also un-skipped so its strict xfails give the remaining gaps CI signal.
+- **`--format` now reaches `--script` output** (#709, from the #702 adversarial
+  review): `--script -f svg` used to silently emit a PDF-producing script — the
+  CLI parsed the flag but never forwarded it. Both emitters now thread it
+  through: the Sheet script emits `sheet.export(stem, formats=(…,))` when
+  non-default (bare call for the PDF default), the imperative template embeds
+  the requested tuple and prints in the **requested** order, and
+  `generate_script` / `generate_sheet_script` grow a `formats=` parameter. The
+  dormant script-parity characterisation module
+  (`test_script_detail_parity.py`) is also un-skipped so its strict xfails give
+  the remaining gaps CI signal.
 
 - **Authored fillet, flat, groove, pocket, plate and slot tolerances now render**
   (#725/#726/#727/#728/#729/#730 / #698): the four leader-callout kinds join

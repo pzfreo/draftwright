@@ -3677,7 +3677,8 @@ def test_generate_script_uses_modern_dict_export(tmp_path):
     step = tmp_path / "p.step"
     export_step(Box(30, 20, 10), str(step))
     content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text()
-    assert "paths = dwg.export(_stem, formats=('pdf',))" in content
+    assert "_formats = ('pdf',)" in content
+    assert "paths = dwg.export(_stem, formats=_formats)" in content
     assert "svg_path, dxf_path = dwg.export" not in content  # the legacy tuple is gone
 
 
@@ -3688,7 +3689,28 @@ def test_generate_script_forwards_formats(tmp_path):
     content = Path(
         generate_script(str(step), out=str(tmp_path / "p"), formats=("svg", "png"))
     ).read_text()
-    assert "paths = dwg.export(_stem, formats=('svg', 'png'))" in content
+    assert "_formats = ('svg', 'png')" in content
+
+
+def test_generated_script_prints_in_requested_order(tmp_path):
+    # #755 review: Drawing.export returns its dict in DEPENDENCY order (svg before
+    # the png derived from it), so printing paths.items() would reorder a
+    # `-f png,svg` request vs the direct CLI's _emit. The template must iterate
+    # the requested tuple. Execute a non-canonical-order script and assert the
+    # printed order matches the request.
+    import subprocess
+    import sys
+
+    step = tmp_path / "p.step"
+    export_step(Box(30, 20, 10), str(step))
+    py = generate_script(str(step), out=str(tmp_path / "p"), formats=("png", "svg"))
+    r = subprocess.run(
+        [sys.executable, py], capture_output=True, text=True, cwd=str(tmp_path), timeout=150
+    )
+    assert r.returncode == 0, f"generated script failed:\n{r.stderr[-1500:]}"
+    assert (tmp_path / "p.png").exists() and (tmp_path / "p.svg").exists()
+    png_at, svg_at = r.stdout.find("PNG ->"), r.stdout.find("SVG ->")
+    assert 0 <= png_at < svg_at, f"requested png,svg order not preserved:\n{r.stdout}"
 
 
 def test_generate_script_defaults_are_auto(tmp_path):

@@ -923,7 +923,8 @@ class TestCli:
         )
         assert r.exit_code == 0, r.output
         src = (tmp_path / "g.py").read_text(encoding="utf-8")
-        assert "paths = dwg.export(_stem, formats=('svg', 'dxf'))" in src
+        assert "_formats = ('svg', 'dxf')" in src
+        assert "paths = dwg.export(_stem, formats=_formats)" in src
 
     def test_bad_style_is_rejected(self, tmp_path):
         from typer.testing import CliRunner
