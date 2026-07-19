@@ -38,6 +38,10 @@ _MODULES = {"from_model", "holes", "sections", "orchestrator"}
 # Pinned (module, private_name) white-box test-imports. May only SHRINK (#641 gap 2).
 _ALLOW: frozenset[tuple[str, str]] = frozenset(
     {
+        # The canonical stage order IS the priority contract for the immediate placers
+        # (#733): the sequence pin test exists precisely to guard it, so its white-box
+        # read is the point, not a coupling smell.
+        ("orchestrator", "_PASS_SEQUENCE"),
         # Pure label/format helpers — legitimate unit tests (formatting logic, not coupling).
         ("from_model", "_chamfer_label"),
         ("from_model", "_fillet_label"),

@@ -1299,3 +1299,25 @@ def test_box_within_page_and_clear_rejects_a_shift_that_hits_an_obstacle():
     assert not box_within_page_and_clear((-5, 10, 5, 20), page_box, obstacles), (
         "off-page box accepted"
     )
+
+
+def test_leader_decoration_stages_follow_the_drain():
+    # #733: best-effort machined-feature leader callouts place AFTER the corridor
+    # drain, so a principal dim that registers early but places at the drain can
+    # never have its strip stolen by an immediate callout (the CTC-02/04 regression:
+    # #689 moved the ladder to register-then-drain and pocket/fillet callouts filled
+    # its strip first). Ordering IS the priority encoding for the immediate placers,
+    # and _PASS_SEQUENCE is its single source of truth — pin it.
+    from draftwright.annotations.orchestrator import _PASS_SEQUENCE
+
+    drain = _PASS_SEQUENCE.index("drain")
+    section = _PASS_SEQUENCE.index("section")
+    for stage in ("chamfers", "fillets", "flats", "pockets", "grooves"):
+        i = _PASS_SEQUENCE.index(stage)
+        # After the drain (principals exist first) but BEFORE the section/details/
+        # title block, which must see the callouts as obstacles (Codex review).
+        assert drain < i < section, (
+            f"{stage!r} must place after the drain and before the section — decoration "
+            "never starves a principal dim, and later views must see it (#733)"
+        )
+    assert section < _PASS_SEQUENCE.index("details") < _PASS_SEQUENCE.index("title_block")

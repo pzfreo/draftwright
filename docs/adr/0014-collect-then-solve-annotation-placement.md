@@ -83,6 +83,19 @@ before each strip solves, the innermost-tier footprints of not-yet-drained
 same-view siblings' **force** candidates join its obstacles, and `on_drop`
 fallthroughs are deferred via `ctx.post_drain` until every strip has drained.
 
+**Best-effort leader decoration places after the drain** (#733, generalising
+the grooves precedent): the machined-feature leader-callout passes
+(chamfers/fillets/flats/pockets/grooves) sit *after* the `"drain"` stage in
+`_PASS_SEQUENCE`, so a principal dim that registers early but places only at
+the drain can never have its strip stolen by an immediate callout — the
+callouts' clear-room check sees the full drained occupancy and yields (a
+warning-level drop) where a principal dim now sits. Pre-#636 the ladder's
+early *placement* enforced this implicitly; once it became register-then-drain,
+a pocket callout could fill the front-right strip and hard-drop the forced
+overall-height dim (CTC-04). Ordering, not reservation: a predicted-footprint
+reserve was tried and rejected — phantom reservations displaced callouts into
+exactly the space other principals needed.
+
 **Policy B** (two-precedent pattern, ratified 2026-07-02 — 0009 Amendment 2):
 when avoiding an occupant would cost more than a bounded relocation, keep the
 annotation at its natural position and accept a visible, logged crossing —

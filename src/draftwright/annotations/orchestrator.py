@@ -96,10 +96,6 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "height_ladder",
     "plates",
     "step_positions",
-    "chamfers",
-    "fillets",
-    "flats",
-    "pockets",
     "off_axis_across",
     "envelope",
     "detail_request",
@@ -112,6 +108,16 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "gdt",
     "pmi",
     "drain",
+    # Best-effort machined-feature leader DECORATION places after the drain (#733,
+    # generalising the grooves precedent): a principal dim that registers early but
+    # places at the drain must never have its strip stolen by an immediate callout —
+    # pre-#636 the ladder's early placement enforced this implicitly; post-#636 the
+    # ordering must. The callouts' clear-room check sees the full drained occupancy
+    # and yields (drops with a warning) where a principal dim now sits.
+    "chamfers",
+    "fillets",
+    "flats",
+    "pockets",
     "grooves",
     "section",
     "details",
@@ -423,8 +429,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_off_axis_along():
         # Side-drilled (X/Y-axis) hole HEIGHT locations — queued after the mandatory
         # envelope candidates so below/right corridors solve them together with GD&T/PMI
-        # at the drain. The front-right prismatic height ladder remains immediate because
-        # its later witness bases depend on earlier placed tiers (#477).
+        # at the drain. (The front-right height ladder's leapfrog witness chain — #477 —
+        # survives inside its candidates' build closures since #636; nothing here
+        # places immediately.)
         if feature_keys:
             _locate_off_axis_holes(dwg, ctx, a, which="along")
 
