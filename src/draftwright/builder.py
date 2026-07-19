@@ -805,8 +805,6 @@ def _fmt_pt(p) -> str:
 # Feature kinds with no intent verb yet — emitted as a flagged comment, never a broken
 # call. The build_drawing(auto_dims=True) pointer recovers the full auto drawing (#424).
 _GAP_KINDS = {
-    "rotational": "auto-pass draws the overall OD + centrelines + concentric bore leaders; "
-    "out of scope for the intent verbs (#419)",
     "pmi": "pre-authored PMI, rendered by --pmi annotate; an add verb is deferred to #422",
 }
 
@@ -825,11 +823,12 @@ def _feature_listing(a: Analysis) -> str:
     ADR-0008 IR): holes/patterns → ``callout`` + ``locate`` + ``furniture``; steps/bosses →
     ``callout`` (ø); steps/envelopes/slots → ``dimension(...)`` per linear param; prismatic
     step levels → one ``dimension(..., role="step_height")`` intent that regenerates the
-    correlated height ladder. A section A–A is recorded when a counterbored/spotfaced/blind
-    Z-hole warrants one (finalize renders it last). Feature kinds with no verb yet
-    (rotational, pmi) are emitted as flagged comments naming the gap (#424) — never silently
-    dropped. Commenting any line drops exactly that intent (nothing is auto-drawn, so there
-    is no double-dimension risk). Pure function of *a*.
+    correlated height ladder; a rotational body → ``rotational`` (OD + centrelines +
+    concentric-bore leaders, #424/#426). A section A–A is recorded when a
+    counterbored/spotfaced/blind Z-hole warrants one (finalize renders it last). Feature
+    kinds with no verb yet (pmi) are emitted as flagged comments naming the gap (#424) —
+    never silently dropped. Commenting any line drops exactly that intent (nothing is
+    auto-drawn, so there is no double-dimension risk). Pure function of *a*.
     """
     model = cast(PartModel, a.model) if a.model is not None else build_model(a)
     feats = getattr(model, "features", [])
@@ -847,6 +846,9 @@ def _feature_listing(a: Analysis) -> str:
             body.append(f"#     {kind} — {_GAP_KINDS[kind]}. auto_dims=True to keep it.")
             continue
         body.append(f"f = dwg.model().features[{i}]")
+        if kind == "rotational":
+            body.append("dwg.rotational(f)")  # OD + centrelines + bore leaders (#424/#426)
+            continue
         if kind in ("hole", "pattern"):
             body.append("dwg.callout(f)")
             if feat.frame.axis == "z":

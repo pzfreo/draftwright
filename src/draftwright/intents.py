@@ -1,7 +1,7 @@
 """Deferred placement intents — the low IR of the layout backend (#426).
 
-The add verbs (`callout`/`locate`/`furniture`/`dimension`/`section`) place *live* by
-default. When a :class:`~draftwright.drawing.Drawing` is in **deferred** mode
+The add verbs (`callout`/`locate`/`furniture`/`dimension`/`section`/`rotational`) place
+*live* by default. When a :class:`~draftwright.drawing.Drawing` is in **deferred** mode
 (``_defer_intents``), each verb records an :class:`Intent` instead of placing, and
 ``Drawing.finalize()`` drains the recorded list.
 
@@ -19,8 +19,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# The five add verbs that record intents (`section` is part-level → feature is None).
-IntentKind = str  # "callout" | "locate" | "furniture" | "dimension" | "section"
+# The add verbs that record intents (`section`/`rotational` are part-/whole-model → the
+# feature arg is the part's rotational feature or None for a section).
+IntentKind = str  # "callout" | "locate" | "furniture" | "dimension" | "section" | "rotational"
 
 
 @dataclass
