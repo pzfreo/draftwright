@@ -32,23 +32,26 @@
 
 ### Fixed
 
-- **Authored fillet, flat, groove, pocket and plate tolerances now render**
-  (#725/#726/#727/#728/#729 / #698): the four leader-callout kinds join
+- **Authored fillet, flat, groove, pocket, plate and slot tolerances now render**
+  (#725/#726/#727/#728/#729/#730 / #698): the four leader-callout kinds join
   `_CONVENTION` and their renderers (`render_fillets`/`render_flats`/
-  `render_grooves`/`render_pockets`) — and the plate-thickness linear pass
-  (`render_plates`, riding `_CONVENTION`'s `"linear"` default) — consume the
+  `render_grooves`/`render_pockets`) — and the plate-thickness and slot
+  width/length linear passes
+  (`render_plates`/`render_slots`, explicit `"linear"` entries) — consume the
   planner's `DimensionGroup`s, binding each
   planned dim explicitly by `(role, kind)` — so a `decorations`-authored ± /
   limit tolerance reaches the placed callout (`R8 ±0.1`, `17 ±0.2 A/F`,
   `4 ±0.1 WIDE × ø16 ±0.5`, `18 ±0.2 × 30 ±0.2 × 5 ±0.2 DEEP`, a `10 ±0.1`
-  thickness dim; on a
-  multi-value label each suffix rides its own number). Previously all five
+  thickness dim, an `8 ±0.1` slot width; on a
+  multi-value label each suffix rides its own number). Previously all six
   passes formatted raw feature fields and silently dropped it — the latent #629
   bug class the ADR 0015 bypass list documents. The fillet `n× R` and flat
   double-D/hex collapses stay render-side (first-authored tolerance wins, the
-  `render_diameters` precedent); a pocket's three values share one authored
-  tolerance (all kind `"length"`). Untolerated labels/views/placement are
-  unchanged.
+  `render_diameters` precedent); a pocket's three values — and a slot's
+  width + length — share one authored
+  tolerance (all kind `"length"`). The slot's model-derived datum position dim
+  and its corridor/immediate placement mechanics are untouched. Untolerated
+  labels/views/placement are unchanged.
 - **Authored chamfer tolerances now render** (#724 / #698): `render_chamfers`
   consumes the planner's `DimensionGroup` (chamfer joins `_CONVENTION` as a
   leader), so a `decorations`-authored ± / limit tolerance on a chamfer leg

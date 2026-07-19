@@ -62,6 +62,10 @@ _CONVENTION = {
     # registry, and a planner-fed kind relying on the implicit default would erode
     # that — unknown pairs should eventually fail loudly, not silently go linear.
     ("thickness", "length"): "linear",
+    # A slot's width + length are linear Dimensions with witness lines (#730) —
+    # again the table default, entered explicitly per the #744 review rule above.
+    ("slot_width", "length"): "linear",
+    ("slot_length", "length"): "linear",
 }
 
 
@@ -109,14 +113,29 @@ class DimensionGroup:
         return self.feature.frame.origin
 
 
+# The PROFILE view per axis — the orthographic view whose page plane CONTAINS the
+# axis, so an axial length along it is measurable there (in its `_END_ON` view the
+# span is degenerate — a point). The front view is the x–z plane, so X- and Z-turned
+# axes both derive to "front" by that one containment rule (X/Z parity); a Y axis
+# lies in the side (y–z) plane — the same map the groove profile callouts use.
+_PROFILE = {"x": "front", "z": "front", "y": "side"}
+
+
 def _group_view(feature: Feature) -> str:
     """The single view a feature's callout lands on — derived from the feature's
     axis, never hardcoded, so X and Z are handled by the same rule (parity). A
-    turned step's length + OD read on the lengthwise (front) profile view; a
     diameter callout (hole / boss) reads on the view where the cylinder is end-on
-    (z→plan, x→side, y→front)."""
+    (z→plan, x→side, y→front). A turned step is the opposite case (#731): its
+    length + OD read where the turning axis lies IN-PLANE — `_PROFILE`, not
+    `_END_ON` — which derives to "front" for both X- and Z-turned steps because
+    the front view is the x–z plane. That matches the renderers per axis:
+    `render_step_lengths` draws the chain on the front view (X → horizontal
+    above, Z → vertical right) and `render_diameters` hangs its ø row/column off
+    the front view (X → row below, Z → column left). A Y-axis step derives to
+    its geometric profile ("side"); no step render pipeline consumes Y today
+    (`render_diameters` buckets x/z only)."""
     if feature.kind == "step":
-        return "front"
+        return _PROFILE.get(feature.frame.axis, "front")
     return _END_ON.get(feature.frame.axis, "plan")
 
 

@@ -221,6 +221,30 @@ class TestPlanner:
         assert hole_view(z_hole) == "plan"  # Z hole seen end-on in plan
         assert hole_view(x_hole) == "side"  # X hole seen end-on in side — not 'plan'
 
+    def test_step_group_view_is_the_derived_profile_view(self):
+        # #731: a turned step's view is DERIVED from its frame axis by the profile
+        # (in-plane containment) rule, not hardcoded per kind. An axial length is
+        # degenerate in its end-on view; it reads where the axis lies IN the view
+        # plane — the front view is the x–z plane, so X- and Z-turned steps BOTH
+        # derive to "front" by one rule (exactly where render_step_lengths draws
+        # the chain — X horizontal above, Z vertical right — and render_diameters
+        # hangs the ø row below / column left, per axis). A Y-axis step derives to
+        # its geometric profile plane ("side", y–z); no step render pipeline
+        # consumes a Y step today.
+        def view_of(axis):
+            st = StepFeature(
+                frame=Frame((0, 0, 0), axis),
+                length=20.0,
+                diameter=8.0,
+                span=((0, 0, 0), (20, 0, 0)),
+            )
+            (g,) = plan_dimensions(PartModel(bbox=None, orientation=axis, features=[st]))
+            return g.view
+
+        assert view_of("x") == "front"  # x lies in the front (x–z) plane
+        assert view_of("z") == "front"  # z too — the same containment rule, X/Z parity
+        assert view_of("y") == "side"  # y's profile plane is the side (y–z) view
+
     def test_pattern_count_survives_the_planner(self):
         # The planned group must still expose the feature metadata (count, pattern)
         # so a renderer can emit "6× ø6", not just ø6 + ø50 (the narrow-waist gap
