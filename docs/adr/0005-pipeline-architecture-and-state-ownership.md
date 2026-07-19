@@ -1,8 +1,6 @@
 # ADR 0005 — Compiler-pipeline module boundaries and single-owner build state
 
-- **Status:** Accepted; implemented. The lasting contract is summarized in the
-  2026-07-19 amendment. Compatibility-alias deletion remains tracked by #720
-  for 0.4.0.
+- **Status:** Accepted; implemented, with compatibility-alias deletion tracked by #720 for 0.4.0.
 - **Date:** 2026-06-27
 - **Deciders:** Paul Fremantle (pzfreo)
 - **Progress:** Execution roadmap with per-phase tracking issues:
@@ -94,14 +92,14 @@ draftwright/
     holes.py             # hole callouts, location dims, hole-table escalation
     sections.py          # section/detail views
     balloons.py          # balloon rendering and placement
-  layout.py              # UNCHANGED — solver/placement abstraction (ADR 0003)
+  layout.py              # placement primitives consumed by ADRs 0004/0014
   _core.py               # shared primitives below builder/annotations (Analysis types, _dim/_fmt, layout constants)
 ```
 
-This is the landed module shape. The earlier proposal named standalone
+This is the landed shape of the modules this ADR proposed. The earlier proposal named standalone
 `envelope.py`, `turned.py`, and `pmi.py` modules; those responsibilities
 converged into `from_model.py` and the shared annotation modules instead.
-`layout.py` keeps its current responsibility (ADR 0003) near the bottom of the
+`layout.py` keeps its placement-primitives responsibility near the bottom of the
 DAG with `_core.py`.
 
 ### 2. Build-time state gets explicit owners — three, not one god-object
@@ -306,7 +304,8 @@ history. They are not current work instructions. The lasting decision is:
    Render passes receive an explicit `PlacementContext`; their fail-closed
    private-read allowlist is empty.
 3. Build artefacts are held in one typed `BuildState`, populated at the single
-   `builder._assemble` boundary. Annotation identity belongs to `Registry`, and
+   `builder._assemble` boundary. Annotation identity belongs to
+   `AnnotationRegistry`, and
    lint coverage belongs to `CoverageState`.
 4. Import direction and state encapsulation are executable contracts enforced
    by `test_import_boundaries.py` and `test_drawing_encapsulation.py`.

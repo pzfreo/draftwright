@@ -133,8 +133,8 @@ The recorded-intent mechanism shipped:
    It does **not** rerun `_auto_annotate`, reconstruct the automatic candidate
    population, or co-solve a later user edit with annotations already committed
    to the drawing. Existing annotations are obstacles for that drain. The
-   A/B1/B2/B3/C/D ordering in its docstring describes routing of the recorded
-   subsets; it is not one sheet-global solve.
+   `_PASS_SEQUENCE`-keyed drain describes routing of the recorded subsets; it
+   is not one sheet-global solve.
 4. **Below/right dependency (#477)** — closed 2026-07-08 as part of the
    broader "finish the ADR 0009 unification" umbrella; the below/right ladders
    are corridor registrants, so a user dim there co-solves.

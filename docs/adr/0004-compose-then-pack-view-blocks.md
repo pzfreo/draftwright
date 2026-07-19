@@ -30,8 +30,9 @@ recurring class of failures (surfaced while making dense hole patterns legible,
   drawing (NIST CTC-02, ~60 balloons) sits at the CI timeout.
 
 Each symptom is a patch on the same flaw: annotations are second-class citizens
-placed post-hoc, competing for scraps. ADR 0003 settles how *annotations within
-a view* are placed (the `Placeable`/Cassowary inner layout). This ADR settles
+placed post-hoc, competing for scraps. ADR 0014 now settles how *annotations
+within a view* are placed (collect-then-solve corridors; retired ADR 0003 holds
+the earlier `Placeable`/Cassowary exploration). This ADR settles
 the layer around it: **how a view and its full annotation set are composed into
 one placeable block, and how those blocks are packed onto the page and scaled.**
 
@@ -220,7 +221,7 @@ Decisions:
 3. **Acceptance test = the inter-view overlap.** A step is correct when
    **plan-view labels do not overlap front-view dimensions** (and lint is clean)
    on the hard case (NIST CTC-02), *not* when output is unchanged.
-4. **Footprint stays a box layout** (page-mm rectangles via the ADR-0003 inner
+4. **Footprint stays a box layout** (page-mm rectangles via the ADR-0014 inner
    layout in view-local space) — never bbox-measured OCC geometry (the O(n²)
    `lint()` wall, ~110 s on CTC-02, is the standing evidence).
 5. **Tracked as #121.** The root cause is "annotations placed *after* views are

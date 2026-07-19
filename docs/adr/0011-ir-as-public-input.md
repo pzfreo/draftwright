@@ -1,13 +1,8 @@
 # ADR 0011 — The IR as a public input: declare features, don't only detect them
 
-- **Status:** Accepted; core public-input and `Sheet` façade landed. Aspect
-  rendering is mostly landed. Remaining scope is explicit: PMI-sourced
-  auto-GD&T (#62), number-free object-reading aspects (#462), and raw-cutter
-  slot reading (#495), under roadmap #446. See Amendment 2.
-  Phase 2
-  execution plan:
-  [`docs/plans/0011-phase2-aspects-roadmap.md`](../plans/0011-phase2-aspects-roadmap.md).
-  **Amendment 1** (2026-07-05): the three authoring modes + the **mode-3 generation surface**
+- **Status:** Accepted; core landed, with #62/#462/#495 remaining under roadmap #446 (see Amendment 2).
+- **Phase 2 plan:** [`docs/plans/0011-phase2-aspects-roadmap.md`](../plans/0011-phase2-aspects-roadmap.md).
+- **Amendment 1** (2026-07-05): the three authoring modes + the **mode-3 generation surface**
   (a declarative `Sheet`-DSL emitter, #461/#462/#463) — sequenced *before* P2b. Decided: for
   detected input, emit a **part-seam** with detected numbers; reconstruction deferred.
 - **Date:** 2026-07-05
@@ -16,7 +11,8 @@
 ## Context
 
 draftwright compiles a solid into a drawing through one waist: the **IR
-`PartModel`** — a list of frozen `Feature` dataclasses (ADR 0008). Everything
+`PartModel`** — a list of frozen `Feature` dataclasses (introduced by retired
+ADR 0008; current compiler contract: ADR 0015). Everything
 downstream of it — the planner, render-intents, the ADR-0009 layout, lint,
 export — reads *that*, never the raw solid. Today there is exactly **one producer**
 of the IR: **feature detection** (`recognition/` → `build_part_model`), which
@@ -268,7 +264,8 @@ generation surface is the differentiator; GD&T is additive rendering behind the 
 
 - **Extends ADR 0001 Amendment 1** (both inputs converge at the detected IR) — the
   caller is now a first-class *producer* of that IR, not only an editor of it.
-- **Builds on ADR 0008** (the unified feature model / dimensioning planner) — the
+- **Builds on ADR 0015** (which supersedes ADR 0008's unified feature-model
+  history) — the
   PartModel waist is exactly the seam that makes a single `model=` input possible with
   zero downstream change.
 - **Complements #400** (the editable surface): read (`dwg.model()`) + edit (verbs) +

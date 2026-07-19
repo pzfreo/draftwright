@@ -58,8 +58,9 @@ verification — detection happens once, three consumers read it.
 
 ## Layout
 
-- **Inner** (constraint-based, ADR 0003): a 1-D Cassowary strip solver spreads a
-  view's labels; a 2-D free-rectangle placer fits boxes in the view's zones.
+- **Inner** (collect-then-solve, ADR 0014): a dependency-free weighted-median
+  PAVA solver places labels in deterministic 1-D corridors; `fit_box` handles
+  bounded free-rectangle furniture placement. ADR 0003 is retired history.
 - **Outer** (compose-then-pack, ADR 0004): each view is a *block* = projected
   geometry + its annotation boxes; `(scale, page)` is chosen by a monotone search
   that packs the blocks **disjoint** — so cross-view overlap cannot occur.
