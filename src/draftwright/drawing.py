@@ -1523,10 +1523,11 @@ class Drawing:
         def _s_slots():
             # Slots regenerate width + length + the model-derived datum position (a
             # superset of the recorded slot intents — auto-pass parity by design) and
-            # register into the shared corridor.
+            # register into the shared corridor. Planner-fed (#730): the width/length
+            # values + tolerances come from the plan, like the auto-pass.
             if r.slot_feats:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
-                render_slots(self, model, a, ctx=ctx, only=r.slot_feats)
+                render_slots(self, plan_dimensions(model), a, ctx=ctx, only=r.slot_feats)
 
         def _s_user_dims():
             # User-authored pin/priority dimensions queue into the shared corridor as

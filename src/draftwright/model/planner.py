@@ -62,6 +62,10 @@ _CONVENTION = {
     # registry, and a planner-fed kind relying on the implicit default would erode
     # that — unknown pairs should eventually fail loudly, not silently go linear.
     ("thickness", "length"): "linear",
+    # A slot's width + length are linear Dimensions with witness lines (#730) —
+    # again the table default, entered explicitly per the #744 review rule above.
+    ("slot_width", "length"): "linear",
+    ("slot_length", "length"): "linear",
 }
 
 

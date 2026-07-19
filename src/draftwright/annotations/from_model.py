@@ -190,21 +190,35 @@ def _record_slot_drop(ctx, dwg, kind, idx, view, feat):
     )
 
 
-def render_slots(dwg, model, a, *, ctx, only=None) -> int:
+def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
     """Dimension milled slots from the IR — width (the defining size, across
     ``width_axis``) + length (along ``long_axis``) + a position dim from the part
     datum, in the view the two axes span. Places through the engine's zone strips
     (shared infra, ADR 0008 Amend. 4); a dim with no clear room is dropped and
-    recorded at info severity (place-what-fits). Sources `SlotFeature`s from the
-    model; replaces the engine's `_annotate_slots`. Returns the count placed.
+    recorded at info severity (place-what-fits). Sources slot `DimensionGroup`s
+    from the plan; replaces the engine's `_annotate_slots`. Returns the count placed.
+
+    Planner-fed (#730 / #698): the width + length VALUES and their tolerances come
+    from the planner's ``DimParameter``s, bound explicitly by ``(role, kind)`` —
+    ``("slot_width", "length")`` / ``("slot_length", "length")`` — never positionally.
+    Formatting ``s.width``/``s.length`` directly dropped an authored tolerance (the
+    #629 class). Placement mechanics are untouched: which dims register into the
+    (view, "above") corridor vs place immediately, the ``on_drop`` below-strip
+    fallthrough, the position-vs-hole-location dedup key, and the witness geometry
+    (still the feature's raw fields) all behave as before. The datum POSITION dim
+    stays model-derived (datum → ``s.lo`` is drawing state, not a feature parameter
+    — `SlotFeature.parameters()` has no position param) and carries no tolerance.
+    The pass KEEPS its own axis→view map (the view the slot's two in-plane axes
+    span); ``g.view`` is ``_END_ON`` of the frame axis, which is not that view.
 
     ``only`` (a set of `SlotFeature`s, #426 Phase 2b) restricts placement to a recorded
     subset for ``finalize()``; ``only=None`` (the auto-pass) places all slots, byte-
     identically. Skips filtered slots **in place** so ``i`` stays the slot's model index
     (the ``m_slot{i}_*`` names must match the auto-pass — never re-enumerate a compacted
-    list)."""
-    slots = [f for f in model.features if f.kind == "slot"]
-    if not slots:
+    list; `plan_dimensions` emits one group per slot in model order, so enumerating the
+    slot groups preserves that index)."""
+    slot_groups = [g for g in groups if g.feature_kind == "slot"]
+    if not slot_groups:
         return 0
     draft = dwg.draft
     tier = draft.font_size + 2 * draft.pad_around_text
@@ -218,7 +232,8 @@ def render_slots(dwg, model, a, *, ctx, only=None) -> int:
         return getattr(a.bb.max if hi else a.bb.min, axis.upper())
 
     count = 0
-    for i, s in enumerate(slots):
+    for i, g in enumerate(slot_groups):
+        s = g.feature
         if only is not None and s not in only:
             continue  # #426 Ph2b: skip in place — i must stay the model index
         view = views[frozenset((s.width_axis, s.long_axis))]
@@ -230,9 +245,10 @@ def render_slots(dwg, model, a, *, ctx, only=None) -> int:
             p_hi,
             perp_lo,
             perp_hi,
-            label,
+            value,
             kind,
             anchor="center",
+            sfx="",
             vw=view,
             zn=zones,
             ha=h_axis,
@@ -240,6 +256,9 @@ def render_slots(dwg, model, a, *, ctx, only=None) -> int:
             vp=v_proj,
             idx=i,
         ):
+            # The rendered label: the PLANNED value + its pre-formatted tolerance suffix
+            # (#730 — planner-authoritative; sfx="" keeps untolerated labels byte-identical).
+            lbl = _fmt(value) + sfx
             # Raw (pre-snap) endpoints — the dedup key must share a basis with the
             # hole-location key (which uses the raw ref), else the ~0.05 mm snap gap can
             # push a coincident span into an adjacent 0.1 mm page bin and the #345
@@ -247,7 +266,7 @@ def render_slots(dwg, model, a, *, ctx, only=None) -> int:
             raw_lo, raw_hi = p_lo, p_hi
             # Snap the geometric span to the displayed (1-dp) value so drawn length
             # matches the label (else label-vs-measured lint trips).
-            disp = float(_fmt(label))
+            disp = float(_fmt(value))
             sgn = 1.0 if p_hi >= p_lo else -1.0
             if anchor == "center":
                 mid = (p_lo + p_hi) / 2
@@ -272,8 +291,8 @@ def render_slots(dwg, model, a, *, ctx, only=None) -> int:
                     e_lo, e_hi = (witness, meas_proj(p_lo), 0), (witness, meas_proj(p_hi), 0)
                 return (
                     cname,
-                    lambda pos, _el=e_lo, _eh=e_hi, _s=side, _w=witness: _dim(
-                        _el, _eh, _s, abs(pos - _w), draft, label=_fmt(label)
+                    lambda pos, _el=e_lo, _eh=e_hi, _s=side, _w=witness, _l=lbl: _dim(
+                        _el, _eh, _s, abs(pos - _w), draft, label=_l
                     ),
                 )
 
@@ -345,19 +364,39 @@ def render_slots(dwg, model, a, *, ctx, only=None) -> int:
                     return True
             return False
 
+        # Bind each planned dim explicitly by (role, kind) — never positionally (#730).
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key.get(("slot_width", "length"))
+        lpd = by_key.get(("slot_length", "length"))
         half = s.width / 2
-        if _place(
-            s.width_axis, s.w_center - half, s.w_center + half, s.lo, s.hi, s.width, "width"
-        ):
-            count += 1
-        else:
-            _record_slot_drop(ctx, dwg, "width", i, name, s)
-        if _place(
-            s.long_axis, s.lo, s.hi, s.w_center - half, s.w_center + half, s.length, "length"
-        ):
-            count += 1
-        else:
-            _record_slot_drop(ctx, dwg, "length", i, name, s)
+        if wpd is not None and not wpd.suppressed:
+            if _place(
+                s.width_axis,
+                s.w_center - half,
+                s.w_center + half,
+                s.lo,
+                s.hi,
+                wpd.param.value,
+                "width",
+                sfx=_tol_suffix(wpd.param.tolerance, draft),
+            ):
+                count += 1
+            else:
+                _record_slot_drop(ctx, dwg, "width", i, name, s)
+        if lpd is not None and not lpd.suppressed:
+            if _place(
+                s.long_axis,
+                s.lo,
+                s.hi,
+                s.w_center - half,
+                s.w_center + half,
+                lpd.param.value,
+                "length",
+                sfx=_tol_suffix(lpd.param.tolerance, draft),
+            ):
+                count += 1
+            else:
+                _record_slot_drop(ctx, dwg, "length", i, name, s)
         datum = _bb(s.long_axis, False)
         if (s.lo - datum) * a.SCALE >= 1.0:
             if _place(

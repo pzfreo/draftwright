@@ -444,7 +444,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Non-cylindrical machined features: slots / reduced across-flats sections
         # (#135) — IR renderer, placed through the zone strips (shared infra). Runs
         # after every hole/diameter pass so it claims strip space last.
-        render_slots(dwg, _model, a, ctx=ctx)
+        # Planner-fed (#730): consumes the DimensionGroups so authored tolerances render.
+        render_slots(dwg, _groups, a, ctx=ctx)
 
     def _s_gdt():
         # Declared GD&T frames / datum symbols / surface finishes (ADR 0011 §4, #61)

@@ -17,7 +17,18 @@ from build123d_drafting.helpers import draft_preset
 from draftwright import Sheet, build_drawing
 from draftwright._core import _tol_suffix
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
-from draftwright.model import PartModel, chamfer, fillet, flat, groove, hole, plate, pocket, step
+from draftwright.model import (
+    PartModel,
+    chamfer,
+    fillet,
+    flat,
+    groove,
+    hole,
+    plate,
+    pocket,
+    slot,
+    step,
+)
 from draftwright.model.planner import plan_dimensions
 
 
@@ -194,6 +205,30 @@ class TestPlannerDecorations:
         assert pd.param.value == 8.0  # hi - lo — exactly what the renderer displays
         assert pd.param.tolerance == 0.1
         assert not pd.suppressed
+
+    def test_slot_dims_are_linear_with_folded_tolerance(self):
+        # #730: a slot's width + length route through the planner — convention "linear"
+        # (explicit _CONVENTION entries per the #744 review rule), each bound by its
+        # (role, kind). Both share kind "length" and decorations key on (feature, kind),
+        # so ONE authored length tolerance folds onto BOTH values (documented behaviour,
+        # the pocket precedent; independent per-role tolerancing is an authoring-surface
+        # gap tracked under #698).
+        sl = slot(width=8, length=20, long_axis="x", width_axis="y", lo=-10, hi=10, w_center=0)
+        model = PartModel(
+            bbox=Box(50, 30, 20).bounding_box(),
+            orientation=None,
+            features=[sl],
+            decorations={(sl, "length"): 0.1},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "slot")
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        assert set(by_key) == {("slot_width", "length"), ("slot_length", "length")}
+        wpd = by_key[("slot_width", "length")]
+        lpd = by_key[("slot_length", "length")]
+        assert wpd.convention == "linear" and lpd.convention == "linear"
+        assert wpd.param.value == 8.0 and lpd.param.value == 20.0
+        assert wpd.param.tolerance == 0.1 and lpd.param.tolerance == 0.1
+        assert not wpd.suppressed and not lpd.suppressed
 
 
 class TestCalloutRendering:
@@ -697,6 +732,117 @@ class TestPlateTolerance:
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_plate")
         ]
         assert labels == ["7"], labels
+
+
+class TestSlotTolerance:
+    """#730 (the #629 class, latent): a slot's authored width/length tolerances must
+    render on the placed linear dims — the pass now consumes the planner's
+    DimensionGroups, binding each dim explicitly by (role, kind) ==
+    ("slot_width"/"slot_length", "length"). Only the VALUE and TOLERANCE source
+    changed; the placement mechanics — corridor registration for the horizontal
+    plan/side dims, immediate strip placement for the rest, the below-strip on_drop
+    fallthrough, the position dedup key, and the model-derived datum position dim —
+    are untouched. (Sheet.slot returns Sheet, not a tolerance handle, so the
+    declared-model decorations path is the authoring surface, as for the siblings.)"""
+
+    @staticmethod
+    def _slotted_block():
+        return Box(50, 30, 20) - Box(20, 8, 30)  # enclosed through-slot (#135)
+
+    @staticmethod
+    def _slot_feature():
+        return slot(width=8, length=20, long_axis="x", width_axis="y", lo=-10, hi=10, w_center=0)
+
+    def test_authored_slot_tolerance_renders_on_dims(self):
+        # Declared model (ADR 0011); the decoration keys on (feature, "length"), which
+        # BOTH slot params share — so one authored tolerance rides both the width dim
+        # (immediate right/left placement) and the length dim (corridor-drained). The
+        # model-derived datum position dim has no parameter, so it stays untoleranced.
+        sl = self._slot_feature()
+        dwg = build_drawing(
+            self._slotted_block(),
+            model=[sl],
+            decorations={(sl, "length"): 0.1},
+            number="X",
+        )
+        labels = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_slot")
+        }
+        assert labels == {
+            "m_slot0_width": "8 ±0.1",
+            "m_slot0_length": "20 ±0.1",
+            "m_slot0_pos": "15",
+        }, labels
+
+    def test_untolerated_slot_labels_unchanged(self):
+        # No decoration → the planner path is byte-identical to the old raw-field labels.
+        sl = self._slot_feature()
+        dwg = build_drawing(self._slotted_block(), model=[sl], number="X")
+        labels = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_slot")
+        }
+        assert labels == {
+            "m_slot0_width": "8",
+            "m_slot0_length": "20",
+            "m_slot0_pos": "15",
+        }, labels
+
+    def test_tolerance_survives_the_below_strip_fallthrough(self):
+        # #744 review lesson, applied to the slot pass: when the corridor candidate
+        # DROPS, _below_or_drop rebuilds the dim from its own captured label — the
+        # tolerance must ride along, not be reconstructed from the raw field. Drive the
+        # fallthrough deterministically: register via render_slots, then fire the length
+        # candidate's on_drop (the solve's full-strip signal) — the relocated below-strip
+        # dim must still read "20 ±0.1".
+        from draftwright.annotations._common import PlacementContext
+        from draftwright.annotations.from_model import render_slots
+
+        sl = self._slot_feature()
+        dwg = build_drawing(
+            self._slotted_block(),
+            model=[sl],
+            decorations={(sl, "length"): 0.1},
+            number="X",
+            auto_dims=False,
+        )
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        assert render_slots(dwg, plan_dimensions(dwg.model()), dwg._analysis, ctx=ctx) == 3
+        (cand,) = [
+            c
+            for b in ctx.corridor_batch.values()
+            for c in b["cands"]
+            if c.name == "m_slot0_length"
+        ]
+        cand.on_drop(cand.name)  # the solve's full-strip signal
+        assert dwg.get_annotation("m_slot0_length").label == "20 ±0.1"
+
+    def test_renderer_displays_the_planned_values_not_the_raw_fields(self):
+        # #698 binding proof (the #724 decoy shape): the renderer must be
+        # planner-AUTHORITATIVE — each displayed value is its pd.param.value, bound by
+        # (role, kind), never positionally. Feed render_slots a hand-built group with a
+        # decoy first dim and planned width/length deliberately different from the raw
+        # feature fields; the width places immediately, the length via the corridor
+        # drain — both must show the planned value.
+        from dataclasses import replace
+
+        from draftwright.annotations._common import PlacementContext, drain_corridors
+        from draftwright.annotations.from_model import render_slots
+
+        sl = self._slot_feature()
+        dwg = build_drawing(self._slotted_block(), model=[sl], number="X", auto_dims=False)
+        (g,) = [g for g in plan_dimensions(dwg.model()) if g.feature_kind == "slot"]
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key[("slot_width", "length")]
+        lpd = by_key[("slot_length", "length")]
+        decoy = replace(wpd, param=replace(wpd.param, role="decoy", value=99.0))
+        planned_w = replace(wpd, param=replace(wpd.param, value=7.0))  # ≠ sl.width == 8
+        planned_l = replace(lpd, param=replace(lpd.param, value=19.0))  # ≠ sl.length == 20
+        g2 = replace(g, dims=(decoy, planned_w, planned_l))
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        assert render_slots(dwg, [g2], dwg._analysis, ctx=ctx) == 3
+        drain_corridors(ctx, dwg)
+        assert dwg.get_annotation("m_slot0_width").label == "7"
+        assert dwg.get_annotation("m_slot0_length").label == "19"
 
 
 class TestToleranceHandle:
