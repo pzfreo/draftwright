@@ -60,6 +60,13 @@ class TestEmit:
         assert "sheet.add(EnvelopeFeature(" in src
         assert src.rstrip().endswith("sheet.export('drawing')")
 
+    def test_non_default_formats_are_emitted_into_the_export_call(self):
+        # #709: --format must survive into the generated script; the default (pdf)
+        # keeps the bare call so a plain script matches Sheet.export's own default.
+        src = _script_for(_plate(), formats=("svg", "dxf"))
+        assert src.rstrip().endswith("sheet.export('drawing', formats=('svg', 'dxf'))")
+        assert _script_for(_plate(), formats=("pdf",)).rstrip().endswith("sheet.export('drawing')")
+
     def test_step_seam_preserves_detected_ctc01_envelope(self, tmp_path):
         # #536: build123d.import_step reports CTC01's raw bbox as 1170 × 650, but the
         # detector's solid-body envelope is 800 × 450. The generated STEP-seam script
@@ -863,6 +870,61 @@ class TestCli:
         assert "number='DWG-001'" in ctor
         for kw in ("drawn_by=", "tolerance=", "scale=", "page="):
             assert kw not in ctor
+
+    def test_format_is_forwarded_into_the_sheet_script(self, tmp_path):
+        # #709: `--script -f svg` used to silently emit a PDF-producing script.
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(
+            app, [str(step), "--script", "-f", "svg", "--out", str(tmp_path / "g")]
+        )
+        assert r.exit_code == 0, r.output
+        src = (tmp_path / "g.py").read_text(encoding="utf-8")
+        assert f"sheet.export({str(tmp_path / 'g')!r}, formats=('svg',))" in src
+
+    def test_default_format_keeps_the_bare_sheet_export_call(self, tmp_path):
+        # No --format → the emitted call stays bare (Sheet.export defaults to PDF).
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(app, [str(step), "--script", "--out", str(tmp_path / "g")])
+        assert r.exit_code == 0, r.output
+        src = (tmp_path / "g.py").read_text(encoding="utf-8")
+        assert f"sheet.export({str(tmp_path / 'g')!r})" in src
+        assert "formats=" not in src
+
+    def test_format_is_forwarded_into_the_imperative_script(self, tmp_path):
+        # #709: the imperative flavour honours --format too, via the modern dict export.
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(
+            app,
+            [
+                str(step),
+                "--script",
+                "--style",
+                "imperative",
+                "-f",
+                "svg,dxf",
+                "--out",
+                str(tmp_path / "g"),
+            ],
+        )
+        assert r.exit_code == 0, r.output
+        src = (tmp_path / "g.py").read_text(encoding="utf-8")
+        assert "_formats = ('svg', 'dxf')" in src
+        assert "paths = dwg.export(_stem, formats=_formats)" in src
 
     def test_bad_style_is_rejected(self, tmp_path):
         from typer.testing import CliRunner

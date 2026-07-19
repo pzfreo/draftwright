@@ -905,13 +905,19 @@ def _feature_listing(a: Analysis) -> str:
     return "\n".join(header + ["with dwg.deferred():"] + indented) + "\n"
 
 
-def _write_script(a: Analysis, scale: float | None = None, page: str | None = None) -> str:
+def _write_script(
+    a: Analysis,
+    scale: float | None = None,
+    page: str | None = None,
+    formats: Sequence[str] = ("pdf",),
+) -> str:
     """Write an editable script at ``a.out + '.py'`` that calls make_drawing().
 
     ``scale``/``page`` are the caller's *overrides* (``None`` = auto); ``pmi`` is
     carried from the analysis (``a.pmi_mode``). All three are preserved as config
     fields and threaded into the emitted ``build_drawing(...)`` call so the script
-    reproduces the CLI's intent (#388).
+    reproduces the CLI's intent (#388). ``formats`` (the CLI's ``--format``, #709)
+    is baked into the emitted ``dwg.export(...)`` call for the same reason.
     """
     py_path = a.out + ".py"
     py_name = Path(py_path).name
@@ -1021,11 +1027,18 @@ def _write_script(a: Analysis, scale: float | None = None, page: str | None = No
         "dwg.repair()\n"
         "\n"
         "# ── Export ────────────────────────────────────────────────────────────────────\n"
-        "svg_path, dxf_path = dwg.export(_stem)\n"
+        # The modern dict form, honouring the CLI's --format (#709); the legacy
+        # `svg_path, dxf_path = dwg.export(_stem)` tuple path is deprecated.
+        f"_formats = {tuple(formats)!r}\n"
+        "paths = dwg.export(_stem, formats=_formats)\n"
+        # Print in the REQUESTED order (#755 review): Drawing.export returns its
+        # dict in dependency order (svg before the png derived from it), so
+        # iterating paths.items() would reorder `-f png,svg` output vs the
+        # direct CLI's _emit, which prints as requested.
+        "for _fmt in _formats:\n"
         # ASCII arrow: a Unicode → crashes the print on a Windows cp1252 console
         # (UnicodeEncodeError) — the generated script must run everywhere.
-        'print(f"SVG -> {svg_path}")\n'
-        'print(f"DXF -> {dxf_path}")\n'
+        '    print(f"{_fmt.upper()} -> {paths[_fmt]}")\n'
     )
 
     content = header + cog_block + run_section
@@ -1044,8 +1057,12 @@ def generate_script(
     pmi: Literal["off", "report", "annotate"] = "off",
     scale: float | None = None,
     page: str | None = None,
+    formats: Sequence[str] = ("pdf",),
 ) -> str:
     """Generate an editable Cog-enabled drawing script from a STEP file.
+
+    ``formats`` (the CLI's ``--format``, #709) is baked into the script's
+    ``dwg.export(...)`` call so a re-run writes the requested outputs.
 
     Returns:
         Path to the generated ``.py`` file.
@@ -1069,7 +1086,7 @@ def generate_script(
     # 0.001 / --page A9) instead of writing the script and deferring — inconsistent with
     # a large unfittable scale, which already defers (review #401).
     a = _analyse(step_file, title, number, tolerance, drawn_by, out, pmi=pmi)
-    return _write_script(a, scale=scale, page=page)
+    return _write_script(a, scale=scale, page=page, formats=formats)
 
 
 # ---------------------------------------------------------------------------

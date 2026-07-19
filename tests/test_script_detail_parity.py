@@ -13,13 +13,10 @@ from build123d import Align, Box, Cylinder, Pos, Rot, Rotation, export_step
 
 from draftwright import build_drawing, generate_script
 
-# Characterisation is checked in now so the known direct/script gaps have executable
-# acceptance criteria, but the group is intentionally dormant until the equality work is
-# scheduled. Keep the strict xfails below: removing this module skip should immediately show
-# which individual gaps remain (#707 umbrella; #661 details; #426 reconstruction convergence).
-pytestmark = pytest.mark.skip(
-    reason="temporarily disabled pending generated-script equality work (#707, #661, #426)"
-)
+# Characterisation with executable acceptance criteria for the known direct/script gaps
+# (#707 umbrella; #661 details; #426 reconstruction convergence). The strict xfails below
+# ARE the acceptance criteria: a fix that closes a gap surfaces as an XPASS failure and
+# the xfail is then removed deliberately, in that fix's PR (#709 un-skipped the module).
 
 
 def _crowded_shoulders():
