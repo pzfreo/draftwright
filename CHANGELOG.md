@@ -45,6 +45,22 @@
   the recogniser's own planarity gate (`classify_bevel`), so declared and
   detected chamfers classify identically by construction.
 
+### Fixed
+
+- **CTC-02/04 no longer drop step-height / overall-height dims** (#733): when
+  the height ladder joined the corridor solve (#689) it silently moved from
+  "places early" to "registers early, places at the drain" — so the immediate
+  machined-feature leader callouts (pockets on CTC-04) filled the front-right
+  strip first and the FORCED principal dims hard-dropped
+  (`placement_unsatisfiable`), a priority inversion the old stage ordering had
+  prevented implicitly. The leader-callout stages (chamfers/fillets/flats/
+  pockets) now sit **after the corridor drain** in `_PASS_SEQUENCE` (joining
+  grooves, which already placed post-drain for exactly this reason): principal
+  dims win by construction, and a callout with no clear room yields with a
+  warning, never a principal-dim error. Callout leaders may shift (they now
+  route around the drained dims); on the `hex_bar` golden this *recovers* a
+  silently starved `m_env_width` envelope dim.
+
 ### Removed
 
 - **Three orphaned root exports** (#704): `draftwright.recognise_face_levels`

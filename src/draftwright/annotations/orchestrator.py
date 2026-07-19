@@ -96,10 +96,6 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "height_ladder",
     "plates",
     "step_positions",
-    "chamfers",
-    "fillets",
-    "flats",
-    "pockets",
     "off_axis_across",
     "envelope",
     "detail_request",
@@ -112,6 +108,16 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "gdt",
     "pmi",
     "drain",
+    # Best-effort machined-feature leader DECORATION places after the drain (#733,
+    # generalising the grooves precedent): a principal dim that registers early but
+    # places at the drain must never have its strip stolen by an immediate callout —
+    # pre-#636 the ladder's early placement enforced this implicitly; post-#636 the
+    # ordering must. The callouts' clear-room check sees the full drained occupancy
+    # and yields (drops with a warning) where a principal dim now sits.
+    "chamfers",
+    "fillets",
+    "flats",
+    "pockets",
     "grooves",
     "section",
     "details",
