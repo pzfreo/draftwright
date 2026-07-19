@@ -53,9 +53,11 @@ The load-bearing properties, all live in the code today:
    detect-only path as a cheap seed (`Sheet.from_part`).
 2. **Orientation and feature kind are data in the IR**, never code branches in
    the back-end: `Feature.frame` carries the axis; the planner derives a
-   group's view from it by one rule (`_END_ON`), so X and Z are symmetric.
-   (One residue: `planner._group_view` special-cases `kind == "step"` → front —
-   flagged in #698.)
+   group's view from it by one rule — `_END_ON` for a diameter callout,
+   `_PROFILE` (the in-plane containment rule: front is the x–z plane, so X and
+   Z both derive to front) for a turned step's length/OD — so X and Z are
+   symmetric. (The former residue — a hardcoded `kind == "step"` → front —
+   was replaced by that derivation in #731.)
 3. **The waist is two tiers.** The lower tier is the geometry-only recognition
    record produced under the uniform `recognise_<feature>` contract (ADR 0013);
    the upper tier is the dimensioning IR `Feature`. They are joined by the

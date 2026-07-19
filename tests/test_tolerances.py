@@ -166,7 +166,7 @@ class TestPlannerDecorations:
         # #728: a pocket's width/length/depth are three distinct-ROLE params sharing kind
         # "length", and decorations key on (feature, kind) — so ONE authored length
         # tolerance folds onto ALL THREE values (documented behaviour; independent
-        # per-role tolerancing is an authoring-surface gap tracked under #698).
+        # per-role tolerancing is an authoring-surface gap, tracked by #746).
         pk = pocket(width=18, length=30, depth=5, long_axis="x", width_axis="y", lo=-15, hi=15)
         model = PartModel(
             bbox=Box(90, 60, 20).bounding_box(),
@@ -212,7 +212,7 @@ class TestPlannerDecorations:
         # (role, kind). Both share kind "length" and decorations key on (feature, kind),
         # so ONE authored length tolerance folds onto BOTH values (documented behaviour,
         # the pocket precedent; independent per-role tolerancing is an authoring-surface
-        # gap tracked under #698).
+        # gap, tracked by #746).
         sl = slot(width=8, length=20, long_axis="x", width_axis="y", lo=-10, hi=10, w_center=0)
         model = PartModel(
             bbox=Box(50, 30, 20).bounding_box(),
