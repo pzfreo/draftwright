@@ -2054,6 +2054,16 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
     for g in groups:
         if g.feature_kind != "step":
             continue
+        if g.feature.frame.axis not in ("x", "z"):
+            # A Y-turned step's length span is end-on in the front view — it projects
+            # to a point, and a degenerate segment raises inside _dim ("start and end
+            # points must be different", #661). No step render pipeline consumes Y
+            # today (#731, mirroring render_diameters' x/z bucketing), so skip it
+            # rather than crash the build.
+            _log.info(
+                "step-length chain skipped: %s-turned steps are unsupported", g.feature.frame.axis
+            )
+            continue
         if only is not None and g.feature not in only:  # #426 finalize: recorded subset
             continue
         length = next(

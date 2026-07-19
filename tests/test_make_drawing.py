@@ -5642,6 +5642,176 @@ class TestDetailView:
         assert not any(n.startswith("dim_detail") for n in dwg.annotations())
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
+    def test_finalize_places_and_rolls_back_a_detail_view(self, monkeypatch):
+        # #661 + #647: the finalize drain queues + resolves detail requests like the
+        # auto pass (gated on the persisted detail_view opt-in). A raise in a LATER
+        # stage (tabulate) must roll a placed detail view back — views, coordinates,
+        # and its annotations alike — so a retry starts clean and places it once.
+        from draftwright.annotations import orchestrator as _orch
+
+        dwg = build_drawing(_crowded_shoulder_part(), auto_dims=False, detail_view=True)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_height")
+
+        real = _orch._maybe_tabulate_holes
+        calls = {"n": 0}
+
+        def _boom(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("injected tabulate failure")
+            return real(*a, **k)
+
+        monkeypatch.setattr(_orch, "_maybe_tabulate_holes", _boom)
+        with pytest.raises(RuntimeError):
+            dwg.finalize()  # the details stage placed detail_a; tabulate then raises
+        # Rolled back: no detail view, view coordinates, or detail annotations survive.
+        assert "detail_a" not in dwg.views
+        assert "detail_a" not in dwg._coords
+        assert not any(n.startswith(("detail_", "dim_detail_")) for n in dwg.annotations())
+        assert any(it.kwargs.get("role") == "step_height" for it in dwg._intents)
+
+        dwg.finalize()  # retry from the restored intents — the detail places exactly once
+        assert "detail_a" in dwg.views
+        assert "detail_caption_A" in dwg.annotations()
+        assert any(n.startswith("dim_detail_a_step") for n in dwg.annotations())
+
+    @staticmethod
+    def _deferred_height_build(pin):
+        """A finalize-path build whose crowded-step detail must fight the explicit
+        envelope-height dimension for room (the #661 demotion scenario)."""
+        dwg = build_drawing(_crowded_shoulder_part(), auto_dims=False, detail_view=True)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_height")
+        dwg.dimension(env, "length", role="height", pin=pin)
+        dwg.finalize()
+        return dwg
+
+    def test_detail_demotion_never_touches_a_pinned_height_dim(self):
+        # Codex review of #661: _overall_height_name identifies the finalize path's
+        # envelope-height dim by attribution + label + portrait footprint — heuristics,
+        # since the registry stores features, not roles. A PIN is the user's "this
+        # stays put" (ADR 0012) and outranks the demotion heuristic, so a pinned
+        # height dim must never be demoted; with no other room the detail then drops
+        # gracefully (the inline ladder + step_dim_dropped lint still cover the part).
+        pinned = self._deferred_height_build(pin=True)
+        assert "dim_length0" in pinned.annotations()  # the pinned height dim survives
+        assert pinned.registry.is_pinned("dim_length0")
+        assert "detail_a" not in pinned.views  # detail dropped rather than demoting a pin
+
+        # Control — identical build without the pin: the demotion retry fires and the
+        # detail takes the height dim's room, proving the pin was the deciding factor.
+        unpinned = self._deferred_height_build(pin=False)
+        assert "dim_length0" not in unpinned.annotations()  # demoted
+        assert "detail_a" in unpinned.views
+
+    def test_finalize_rolls_back_a_raise_between_iso_reproject_and_refit(self, monkeypatch):
+        # Codex review of #661: the details stage re-projects the iso at sheet scale,
+        # resolves the queue, then refits the iso. A raise INSIDE that window (here:
+        # the refit itself, as the finalize path resolves it from the projection
+        # module per call) must roll the whole #647 transaction back — the fitted
+        # iso, the placed detail view/coords, its annotations, and the intents.
+        from draftwright import projection as _proj
+
+        dwg = build_drawing(_crowded_shoulder_part(), auto_dims=False, detail_view=True)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_height")
+        iso_before = dwg.views["iso"]
+        names_before = set(dwg.annotations())
+        intents_before = len(dwg._intents)
+
+        real = _proj._fit_iso_view
+        calls = {"n": 0}
+
+        def _boom(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("injected iso refit failure")
+            return real(*a, **k)
+
+        monkeypatch.setattr(_proj, "_fit_iso_view", _boom)
+        with pytest.raises(RuntimeError):
+            dwg.finalize()  # iso re-projected + detail placed, then the refit raises
+        # Full rollback: the build's fitted iso is back (the exact snapshot objects),
+        # the detail view/coords/annotations are gone, and the intents survive.
+        assert dwg.views["iso"] is iso_before
+        assert "detail_a" not in dwg.views
+        assert "detail_a" not in dwg._coords
+        assert set(dwg.annotations()) == names_before
+        assert len(dwg._intents) == intents_before
+
+        dwg.finalize()  # clean retry: the refit runs and the detail places
+        assert calls["n"] == 2
+        assert "detail_a" in dwg.views
+        assert "detail_caption_A" in dwg.annotations()
+
+    def test_overall_height_name_guards_the_canonical_dim_height(self):
+        # user review of #661: the canonical `dim_height` fast path must obey the
+        # SAME demotion-safety guards as the generalised dim_length{n} path. Before
+        # this fix it returned "dim_height" unconditionally, so a pinned — or
+        # user-replaced — canonical height was still handed to the demotion retry and
+        # removed. (The existing demotion test only exercises the dim_length0 path.)
+        from draftwright.annotations.sections import _overall_height_name
+
+        dwg = build_drawing(_crowded_shoulder_part())  # no detail -> dim_height stays
+        a = dwg._analysis
+        assert "dim_height" in dwg.annotations()
+        assert _overall_height_name(dwg, a) == "dim_height"  # canonical, unpinned, correct
+
+        dwg.pin("dim_height")
+        assert _overall_height_name(dwg, a) is None  # a pin is never demoted (ADR 0012)
+        dwg.unpin("dim_height")
+        assert _overall_height_name(dwg, a) == "dim_height"  # unpin restores it
+
+        # A user replacement under the canonical name whose label is no longer the
+        # part height fails the identity guard -> not a demotion target.
+        replacement = next(
+            dwg.registry.named(n)
+            for n in dwg.annotations()
+            if n != "dim_height"
+            and getattr(dwg.registry.named(n), "label", None) not in (None, _fmt(a.z_size))
+        )
+        dwg.add(replacement, "dim_height", view="front")
+        assert _overall_height_name(dwg, a) is None
+
+    def test_failed_demotion_retry_restores_height_dim_provenance(self, monkeypatch):
+        # user review of #661: when the demotion retry ALSO fails, the height dim is
+        # restored — including the feature provenance + pin that remove() dropped —
+        # so annotations_of(envelope) / drop(envelope) / a later finalize's
+        # _overall_height_name can still rediscover it. Pre-fix the re-add restored
+        # only object/name/view, silently orphaning the dim from its envelope.
+        from draftwright.annotations import sections as _sec
+
+        dwg = build_drawing(_crowded_shoulder_part(), auto_dims=False, detail_view=True)
+        step = next(f for f in dwg.model().features if f.kind == "step_level")
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        dwg._defer_intents = True
+        dwg.dimension(step, "length", role="step_height")
+        dwg.dimension(env, "length", role="height")  # unpinned -> demotion fires
+
+        real = _sec._render_detail
+        calls = {"n": 0}
+
+        def _fail_retry(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                return False  # the demotion retry fails -> the restore path must run
+            return real(*args, **kwargs)  # call 1: no room -> triggers the demotion
+
+        monkeypatch.setattr(_sec, "_render_detail", _fail_retry)
+        dwg.finalize()
+
+        assert calls["n"] >= 2  # the retry ran (demotion was attempted and failed)
+        assert "detail_a" not in dwg.views  # both attempts failed -> no detail placed
+        # The height dim is restored WITH provenance, not just object/name/view:
+        assert "dim_length0" in dwg.annotations()
+        assert dwg.registry.feature_of("dim_length0") == env
+        assert "dim_length0" in dwg.annotations_of(env)
+
 
 # ---------------------------------------------------------------------------
 # Issue #45: TYP / representative dimensioning for uniform step patterns

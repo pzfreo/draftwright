@@ -355,7 +355,10 @@ def test_build_state_has_a_single_construction_and_fill_site():
                 writers.setdefault(py.name, []).append(hit)
 
     assert writers == {
-        "builder.py": ["_build.analysis", "_build.part_model"],
+        # _build.detail_view: the caller's build_drawing(detail_view=…) opt-in,
+        # persisted at the one fill site so the finalize drain gates the
+        # prismatic detail request exactly as the auto pass does (#661).
+        "builder.py": ["_build.analysis", "_build.part_model", "_build.detail_view"],
         # _build.trace: attach_solve_trace — the #736 solve-trace recorder rides
         # BuildState like the rest of the build context (filled via the named
         # method by builder._assemble — its ONLY caller; read by the annotate/

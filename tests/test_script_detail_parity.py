@@ -1,8 +1,9 @@
 """Characterisation tests for direct/generated-script detail-view parity.
 
-These tests deliberately avoid prescribing the implementation.  They capture the
-smallest known mismatch: the direct automatic build can escalate crowded shoulders
-into a detail view, while the imperative script reconstruction currently cannot.
+These tests deliberately avoid prescribing the implementation.  The detail-view
+escalation gap they were written against is fixed (#661: the finalize drain now
+queues and resolves detail requests like the auto pass); the remaining xfails
+capture the still-open gaps — side-drilled location dims and rotational furniture.
 """
 
 import runpy
@@ -108,13 +109,6 @@ def test_direct_build_detail_fixture_really_triggers(crowded_step):
 
 
 @pytest.mark.timeout(240)
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "generated imperative scripts use auto_dims=False and do not yet carry "
-        "detail-view escalation into their intent reconstruction"
-    ),
-)
 def test_generated_script_matches_direct_detail_view(crowded_step, tmp_path):
     """Target behaviour: executing the script preserves the direct detail output."""
     direct = build_drawing(str(crowded_step), detail_view=True)
@@ -124,10 +118,6 @@ def test_generated_script_matches_direct_detail_view(crowded_step, tmp_path):
 
 
 @pytest.mark.timeout(300)
-@pytest.mark.xfail(
-    strict=True,
-    reason="generated scripts do not yet reconstruct multiple automatic detail views",
-)
 def test_generated_script_matches_two_direct_detail_views(tmp_path):
     """Two separated fine-step runs retain distinct DETAIL A/B output."""
     specs = [(4, 1.5), (6, 2.0), (4, 2.5), (3, 22), (6, 1.5), (4, 2.0), (5, 2.5), (2, 22)]
@@ -140,10 +130,6 @@ def test_generated_script_matches_two_direct_detail_views(tmp_path):
 
 
 @pytest.mark.timeout(240)
-@pytest.mark.xfail(
-    strict=True,
-    reason="generated scripts do not yet reconstruct turned-head detail escalation",
-)
 def test_generated_script_matches_direct_turned_head_detail(tmp_path):
     """The turned-head detail route has parity, independently of prismatic details."""
     specs = [(4, 1.5), (6, 2.0), (4, 2.5), (3, 25.0)]
@@ -195,13 +181,6 @@ def test_generated_script_matches_direct_rotational_furniture(tmp_path):
 
 
 @pytest.mark.timeout(240)
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the generated reconstruction attempts an end-on Y-axis step-length dimension "
-        "and raises because its projected endpoints coincide"
-    ),
-)
 def test_generated_script_matches_direct_y_axis_turned_diameter_policy(tmp_path):
     """Y-axis turned output runs and follows the direct no-diameter policy."""
     part = Rotation(90, 0, 0) * _turned_shaft([(20, 20), (14, 15)])

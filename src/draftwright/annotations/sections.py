@@ -38,6 +38,7 @@ from draftwright._core import (
     Analysis,
     DetailRequest,
     HoleRef,
+    _anno_box,
     _dim,
     _fmt,
     _iso_bbox,
@@ -563,26 +564,86 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             continue
         letter = _DETAIL_LETTERS[n_placed]
         placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
-        if not placed and req.kind == "prismatic-steps" and "dim_height" in dwg.annotations():
+        hname = (
+            _overall_height_name(dwg, a) if not placed and req.kind == "prismatic-steps" else None
+        )
+        if hname is not None:
             # (#636) The user's explicit detail request outranks the overall-height
             # dim: pre-migration, the solver-invisible carve silently dropped
             # dim_height on exactly these crowded parts, and the detail took that
             # room. The corridor solve now places dim_height when it fits — so on a
             # no-room prismatic detail, demote it DELIBERATELY (same outcome, now
             # explicit and logged) and retry the detail once.
-            hview = dwg.view_of("dim_height")
-            hobj = dwg.remove("dim_height")
+            hview = dwg.view_of(hname)
+            hfeat = dwg.registry.feature_of(hname)
+            hpinned = dwg.registry.is_pinned(hname)
+            hobj = dwg.remove(hname)
             placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
             if placed:
                 _log.warning(
-                    "dim_height demoted: the requested crowded-step detail view takes its room"
+                    "%s demoted: the requested crowded-step detail view takes its room", hname
                 )
             else:
                 # Transactional (#689 review): the detail may fail for reasons other
-                # than dim_height's room — restore it rather than losing BOTH.
-                dwg.add(hobj, "dim_height", view=hview)
+                # than the height dim's room — restore it rather than losing BOTH.
+                # remove() also forgot the feature provenance + pin (#89), so restore
+                # them (user review): without the feature the restored dim drops off
+                # annotations_of(envelope) / drop(feature), and a later finalize's
+                # _overall_height_name can no longer rediscover it. (hpinned is
+                # defensive — _overall_height_name never returns a pinned name — but
+                # keeps this remove/re-add correct in isolation.)
+                dwg.add(hobj, hname, view=hview, feature=hfeat)
+                if hpinned:
+                    dwg.pin(hname)
         if placed:
             n_placed += 1
+
+
+def _overall_height_name(dwg, a: Analysis) -> str | None:
+    """The overall-height dimension's annotation name, however it was placed (#661).
+
+    The auto pass names it ``dim_height`` (``render_height_ladder``). On the
+    finalize path an explicit envelope-height verb live-replays under an
+    auto-assigned ``dim_length{n}`` name instead — identified by three cues, since
+    the registry attributes features but not roles: envelope feature attribution,
+    a portrait (taller-than-wide) footprint (the depth dim beside the plan view is
+    portrait too, so the footprint alone cannot single the height out), and a label
+    equal to the part's overall height.
+
+    The generalised path is demotion-safe, not best-effort (Codex review): a
+    **pinned** name is never a candidate — a pin is the user's "this stays put"
+    (ADR 0012), which outranks the demotion heuristic — and the match must be
+    **unambiguous**: zero or several surviving candidates (e.g. a hand-authored
+    twin of the height dim, or a square part whose depth label equals its height)
+    return ``None``, and the caller simply proceeds without a demotion retry."""
+    height_label = _fmt(a.z_size)
+    # The auto pass names the overall height `dim_height`; subject it to the SAME
+    # demotion-safety guards as the generalised names (user review, #661): never
+    # demote a PINNED dim (a pin is the user's "this stays put", ADR 0012), and
+    # reject a replacement whose label no longer equals the part height (identity —
+    # guards a user-substituted annotation under the canonical name). A guard
+    # failure falls through to the generalised search, which finds nothing under
+    # `dim_height` and returns None: no demotion, the safe outcome.
+    canonical = dwg.registry.named("dim_height")
+    if (
+        canonical is not None
+        and not dwg.registry.is_pinned("dim_height")
+        and getattr(canonical, "label", None) == height_label
+    ):
+        return "dim_height"
+    candidates = []
+    for feat in getattr(dwg.model(), "features", ()):
+        if getattr(feat, "kind", None) != "envelope":
+            continue
+        for name, obj in dwg.annotations_of(feat).items():
+            if dwg.registry.is_pinned(name):
+                continue
+            if getattr(obj, "label", None) != height_label:
+                continue
+            box = _anno_box(obj)
+            if box is not None and (box[3] - box[1]) > (box[2] - box[0]):
+                candidates.append(str(name))
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _request_prismatic_detail(dwg, a: Analysis, *, ctx) -> None:

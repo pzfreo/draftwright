@@ -299,6 +299,10 @@ def _assemble(
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a
     dwg._build.part_model = pm
+    # Persist the caller's detail-view opt-in: on the auto_dims=False path the flag
+    # reaches no pass here, but the finalize drain gates the prismatic detail
+    # request on it exactly as the auto pass does (#661).
+    dwg._build.detail_view = detail_view
     dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
     if trace is not None:  # opt-in solve trace (#736), threaded via a named method
         dwg.attach_solve_trace(trace)
@@ -859,12 +863,15 @@ def _feature_listing(a: Analysis) -> str:
             if feat.frame.axis in ("x", "z"):
                 body.append("dwg.callout(f)")
             else:
-                # callout() places X/Z-turned diameters only; a Y-turned step/boss is
-                # auto-pass-only (its diameter is not placeable, and the auto-pass skips it too).
+                # No step render pipeline consumes a Y-turned step/boss (#731): the
+                # auto-pass skips its ø AND its length (the span is end-on in the front
+                # view), so emit neither verb — a dimension() here could not replay
+                # (#661). Flagged like the other gap kinds (#424), never silently dropped.
                 body.append(
-                    f"#     callout() places X/Z-turned diameters only — this "
-                    f"{feat.frame.axis}-turned step/boss is auto-pass-only. auto_dims=True to keep it."
+                    f"#     the {feat.frame.axis}-turned step/boss ø and length are not "
+                    "drawn (no Y-turned step pipeline, #731) — the auto-pass skips them too."
                 )
+                continue
         elif kind == "step_level":
             body.append(
                 'dwg.dimension(f, "length", role="step_height")   # prismatic height ladder'
