@@ -1362,6 +1362,11 @@ class Drawing:
             model_declared=self.model_declared,
             trace=self._build.trace,  # the finalize drain traces too (#736)
         )
+        # The solve trace joins the transaction (#736 review): the recorder appends during
+        # the drain, so a rolled-back finalize must also truncate those records — else the
+        # trace (and a rewritten file) would describe placements that no longer exist.
+        # Snapshot BEFORE opening the finalize phase: the phase counter is trace state too.
+        trace_snap = ctx.trace.snapshot() if ctx.trace is not None else None
         if ctx.trace is not None:
             ctx.trace.begin_phase("finalize")
 
@@ -1405,11 +1410,15 @@ class Drawing:
             self._coverage.restore(coverage_snap)
             if sv_above is not None:
                 sv_above.outer_limit = sv_above_limit
+            if trace_snap is not None:  # roll the failed drain's records out of the trace
+                ctx.trace.restore(trace_snap)
             self._build.clear_geometry_caches()
             raise
         finally:
             self._defer_intents = deferred
-        if ctx.trace is not None:  # re-write the trace with the finalize solves (#736)
+        # Re-write the trace file only AFTER a successful drain (#736) — never mid-drain,
+        # so a rollback cannot leave a file describing rolled-back placements.
+        if ctx.trace is not None:
             ctx.trace.write()
 
     def _drain_intents(self, ctx, model, a, r) -> None:

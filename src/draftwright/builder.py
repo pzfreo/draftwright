@@ -632,15 +632,26 @@ def build_drawing(
             side-drilled hole *location* dim, which needs recogniser-Hole geometry a
             declared feature doesn't carry. See ADR 0011.)
         trace: the opt-in **solve-trace / explain mode** (#736): record every strip
-            placement decision — per corridor solve, the candidate set, the obstacles
-            that carved the strip (with owning annotation names), the free segments,
-            and each candidate's outcome (placed/dropped-with-reason/deduped/
-            promoted) — as ONE JSON file per build. ``True`` writes
-            ``<out>.trace.json`` beside the drawing; a path writes there (a
-            directory gets ``<stem>.trace.json`` inside it). Default ``None``
-            consults the ``DRAFTWRIGHT_TRACE`` env var (same path-or-directory
-            semantics); ``False`` forces it off. **Zero output change**: tracing
-            never alters a placement decision, and off (the default) costs nothing.
+            placement decision as ONE JSON file per build (schema ``version`` 2),
+            with two record types. ``solves`` — the corridor solves: the candidate
+            set, the obstacles that carved the strip (with owning annotation names),
+            the free segments, and each candidate's outcome (placed/dropped-with-
+            reason/deduped/promoted). ``pass_events`` — everything placed outside a
+            corridor solve: the standalone strip passes plus the *immediate* placers
+            (the post-drain machined-feature leader callouts and the turned
+            diameter/step-length set-solves), each with per-item outcomes. The
+            ``jq`` contract — corridor dims vs everything else::
+
+                jq '.solves[].outcomes[] | select(.name == "dim_height")' t.trace.json
+                jq '.pass_events[] | select(.label == "pocket_callouts") | .items[]' t.trace.json
+
+            ``True`` writes ``<out>.trace.json`` beside the drawing; a path writes
+            there (a directory gets ``<stem>.trace.json`` inside it). Default
+            ``None`` consults the ``DRAFTWRIGHT_TRACE`` env var (same
+            path-or-directory semantics); ``False`` forces it off. **Zero output
+            change**: tracing never alters a placement decision, and off (the
+            default) costs nothing. Recording-only: an unwritable trace path logs a
+            warning and never aborts the build/export.
 
     Returns:
         A :class:`Drawing` with the standard front/plan/side/iso views projected

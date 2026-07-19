@@ -28,14 +28,20 @@
 
 - **Solve-trace / explain mode** (#736, from the #733 post-mortem): opt-in
   observability for strip placement. `build_drawing(trace=…)` or
-  `DRAFTWRIGHT_TRACE=<path-or-dir>` writes ONE JSON file per build recording
-  every strip solve — corridor key, strip bounds, the candidate set, the
-  obstacles that carved the strip (with owning annotation names), the free
-  segments, and each candidate's outcome (placed / dropped-with-reason /
-  deduped / promoted / deferred-to-post-drain) — so "why did X drop" is one
-  `jq` query. A `placement_unsatisfiable` strip-full drop now also names the
-  top occupants in its lint message (`…strip full; occupied by: …`). Default
-  off; zero output change, nil cost when off.
+  `DRAFTWRIGHT_TRACE=<path-or-dir>` writes ONE JSON file per build (schema v2)
+  with two record types: `solves` — every corridor solve's key, strip bounds,
+  candidate set, the obstacles that carved the strip (with owning annotation
+  names), the free segments, and each candidate's outcome (placed /
+  dropped-with-reason / deduped / promoted / deferred-to-post-drain) — and
+  `pass_events` — the standalone strip passes plus the *immediate* placers
+  (post-drain machined-feature leader callouts, the turned diameter row/column
+  and step-length set-solves), each with per-item placed/dropped outcomes. So
+  "why did X drop" is one `jq` query (`.solves[].outcomes[]` /
+  `.pass_events[].items[]`). A `placement_unsatisfiable` strip-full drop now
+  also names the top occupants in its lint message (`…strip full; occupied
+  by: …`). Recording-only: an unwritable path logs a warning (never aborts a
+  build), writes are atomic, and the recorder joins `finalize()`'s #647
+  rollback. Default off; zero output change, nil cost when off.
 
 - **`draftwright.model.authored_dimension`** (#704): the IR constructor behind
   `Sheet.dimension()`, extracted so `build_drawing(model=…)` callers can author

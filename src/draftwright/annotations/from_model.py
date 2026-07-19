@@ -742,14 +742,16 @@ def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
     return [], []
 
 
-def _diameter_row_below(dwg, items, start: int = 0) -> int:
+def _diameter_row_below(dwg, items, start: int = 0, trace=None) -> int:
     """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
     *items* is ``[(anchor, diameter), ...]``. The row is dropped clear of anything
     already below the profile; labels spread along page-x by the ADR-0003 strip
     solve. Skips (returns 0) if there is no room — the diameters then surface as
-    ``feature_not_dimensioned``."""
+    ``feature_not_dimensioned``. *trace* (#736): one ``pass_events`` record with a
+    placed/dropped item per callout."""
     if not items:
         return 0
+    ev = trace.pass_event("diameter_row_below", view="front") if trace is not None else None
     draft = dwg.draft
     fx0, fy0, fx1, _ = dwg.view_bounds("front")
     obstacle_bottom = fy0
@@ -762,6 +764,11 @@ def _diameter_row_below(dwg, items, start: int = 0) -> int:
             obstacle_bottom = min(obstacle_bottom, ob.min.Y)
     label_y = obstacle_bottom - (draft.font_size + 4 * draft.pad_around_text)
     if label_y < _MARGIN + draft.font_size:
+        if ev is not None:
+            ev["items"].extend(
+                {"label": f"ø{_fmt(d)}", "outcome": "dropped", "reason": "no_room_below"}
+                for _, d, _, _ in items
+            )
         return 0
     specs = []  # (tip_page, dia, label, feature), tip on the step's bottom silhouette
     for anchor, dia, feat, dtol in items:
@@ -827,6 +834,13 @@ def _diameter_row_below(dwg, items, start: int = 0) -> int:
         drop = min(range(len(survivors)), key=lambda i: survivors[i][1])
         survivors.pop(drop)
         survivors, xs = _place_what_fits(survivors, 0, min_gap, fx0 + half_w, fx1 - half_w)
+    if ev is not None:  # the specs the fit solve squeezed out (#298 smallest-first drops)
+        kept = {id(s) for s in survivors}
+        ev["items"].extend(
+            {"label": s[2], "outcome": "dropped", "reason": "squeezed_out"}
+            for s in specs
+            if id(s) not in kept
+        )
     for i, ((tip, dia, label, feat), lx) in enumerate(zip(survivors, xs, strict=True)):
         dwg.add(
             Leader(tip=(tip[0], tip[1], 0), elbow=(lx, label_y, 0), label=label, draft=draft),
@@ -834,16 +848,27 @@ def _diameter_row_below(dwg, items, start: int = 0) -> int:
             view="front",
             feature=feat,
         )
+        if ev is not None:
+            ev["items"].append(
+                {
+                    "name": f"m_dia_x{start + i}",
+                    "label": label,
+                    "outcome": "placed",
+                    "pos": [lx, label_y],
+                }
+            )
     return len(survivors)
 
 
-def _diameter_column_left(dwg, items, start: int = 0) -> int:
+def _diameter_column_left(dwg, items, start: int = 0, trace=None) -> int:
     """ø-callout column to the LEFT of the front view for Z-turned step/boss
     diameters (#131) — the page-Y mirror of the row-below. A per-label occupancy
     gate drops only a label that would overprint a bore leader / existing callout
-    sharing the left region (#144), never the whole column. Returns the count placed."""
+    sharing the left region (#144), never the whole column. Returns the count placed.
+    *trace* (#736): one ``pass_events`` record with a placed/dropped item per callout."""
     if not items:
         return 0
+    ev = trace.pass_event("diameter_column_left", view="front") if trace is not None else None
     draft = dwg.draft
     fx0, fy0, _, fy1 = dwg.view_bounds("front")
     label_w = (
@@ -853,6 +878,11 @@ def _diameter_column_left(dwg, items, start: int = 0) -> int:
     )
     elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
     if elbow_x - label_w < _MARGIN:
+        if ev is not None:
+            ev["items"].extend(
+                {"label": f"ø{_fmt(d)}", "outcome": "dropped", "reason": "no_room_left"}
+                for _, d, _, _ in items
+            )
         return 0
     specs = []  # (tip_page, dia, label, feature), tip on the step's left silhouette
     for anchor, dia, feat, dtol in items:
@@ -867,13 +897,33 @@ def _diameter_column_left(dwg, items, start: int = 0) -> int:
     # a label-box-only view, which is blind to a bore callout's leader SHAFT, so a
     # ø label could silently overprint it (the #133/#225/#305 invisible-occupant
     # class, #358). Centre lines stay crossable (a diameter dim may cross one).
+    if ev is not None:  # the specs the fit solve squeezed out (#298 smallest-first drops)
+        kept = {id(s) for s in survivors}
+        ev["items"].extend(
+            {"label": s[2], "outcome": "dropped", "reason": "squeezed_out"}
+            for s in specs
+            if id(s) not in kept
+        )
     occupied = strip_obstacles(dwg, view="front", crossable=CROSSABLE_TYPES)
     placed = 0
     for i, ((tip, dia, label, feat), ly) in enumerate(zip(survivors, ys, strict=True)):
         ldr = Leader(tip=(tip[0], tip[1], 0), elbow=(elbow_x, ly, 0), label=label, draft=draft)
         if _box_hits(_anno_box(ldr), occupied):
+            if ev is not None:
+                ev["items"].append(
+                    {"label": label, "outcome": "dropped", "reason": "label_occupied"}
+                )
             continue  # would overprint a bore leader / existing callout — drop just this one
         dwg.add(ldr, f"m_dia_z{start + i}", view="front", feature=feat)
+        if ev is not None:
+            ev["items"].append(
+                {
+                    "name": f"m_dia_z{start + i}",
+                    "label": label,
+                    "outcome": "placed",
+                    "pos": [elbow_x, ly],
+                }
+            )
         occupied.append(_anno_box(ldr))
         placed += 1
     return placed
@@ -941,9 +991,10 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
 
     start_x = _next_start("m_dia_x") if only is not None else 0
     start_z = _next_start("m_dia_z") if only is not None else 0
-    return _diameter_row_below(dwg, _items(row_buckets), start=start_x) + _diameter_column_left(
-        dwg, _items(col_buckets), start=start_z
-    )
+    trace = getattr(ctx, "trace", None)  # the immediate placers report to the trace too (#736)
+    return _diameter_row_below(
+        dwg, _items(row_buckets), start=start_x, trace=trace
+    ) + _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace)
 
 
 def _env_pd(group, role):
@@ -1041,21 +1092,56 @@ def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx, geom_clear=False
     (:func:`_label_lands_clear`, with *geom_clear* passed through), attributed to that
     candidate's feature; if none of a job's candidates land, records ``<noun> callout … not
     placed`` as ``<drop_code>`` lint (never a silent drop). Obstacles are recomputed per job
-    so a callout placed earlier is avoided. Returns the count placed."""
+    so a callout placed earlier is avoided. Returns the count placed.
+
+    Traced (#736): with ``ctx.trace`` on, one ``pass_events`` record
+    (``<noun>_callouts``) carries a per-job item — name, view, label, candidates
+    tried, obstacle count, placed tip/elbow or the drop reason. Post-#734 these
+    callouts place after the drain, so without this the #733 story ("why did this
+    pocket callout land here / drop") would be invisible to the trace."""
+    trace = getattr(ctx, "trace", None)
+    ev = trace.pass_event(f"{noun}_callouts") if trace is not None and jobs else None
     page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
     n = 0
     for name, view, vb, label, candidates in jobs:
         obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        tried = 0
         for tip, elbow, feature in candidates:
+            tried += 1
             ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label, draft=dwg.draft)
             if _label_lands_clear(ldr, obstacles, vb, page, geom_clear=geom_clear):
                 dwg.add(ldr, name, view=view, feature=feature)
+                if ev is not None:
+                    ev["items"].append(
+                        {
+                            "name": name,
+                            "view": view,
+                            "label": label,
+                            "candidates_tried": tried,
+                            "obstacles": len(obstacles),
+                            "outcome": "placed",
+                            "tip": [tip[0], tip[1]],
+                            "elbow": [elbow[0], elbow[1]],
+                        }
+                    )
                 n += 1
                 break
         else:
             ctx.record_issue(
                 "warning", drop_code, f"{noun} callout {label} not placed (no clear room)"
             )
+            if ev is not None:
+                ev["items"].append(
+                    {
+                        "name": name,
+                        "view": view,
+                        "label": label,
+                        "candidates_tried": tried,
+                        "obstacles": len(obstacles),
+                        "outcome": "dropped",
+                        "reason": "no_clear_room",
+                    }
+                )
     return n
 
 
@@ -1766,6 +1852,8 @@ def _draw_step_chain(
     vb = dwg.view_bounds(view)
     if vb is None:
         return 0
+    trace = getattr(ctx, "trace", None)  # the immediate placers report to the trace too (#736)
+    ev = trace.pass_event("step_length_chain", view=view) if trace is not None else None
     x0, y0, x1, y1 = vb
     draft = dwg.draft
     gap = draft.font_size + 4 * draft.pad_around_text
@@ -1808,6 +1896,10 @@ def _draw_step_chain(
                 _record_step_chain_drop(
                     dwg, "shoulders too dense to dimension even when staggered", ctx=ctx
                 )
+                if ev is not None:
+                    ev["items"].append(
+                        {"name": name_prefix, "outcome": "dropped", "reason": "too_dense"}
+                    )
                 return 0
         else:
             shoulder_ys = sorted({c for pa, pb, *_ in segs for c in (pa[1], pb[1])})
@@ -1816,6 +1908,14 @@ def _draw_step_chain(
                 _record_step_chain_drop(
                     dwg, "turned shoulders too closely spaced to dimension", ctx=ctx
                 )
+                if ev is not None:
+                    ev["items"].append(
+                        {
+                            "name": name_prefix,
+                            "outcome": "dropped",
+                            "reason": "shoulders_too_close",
+                        }
+                    )
                 return 0
 
         candidates = []
@@ -1841,11 +1941,20 @@ def _draw_step_chain(
             page[0] <= box[0] and box[2] <= page[2] and page[1] <= box[1] and box[3] <= page[3]
         ):
             _record_step_chain_drop(dwg, "a dimension would fall off the drawable page", ctx=ctx)
+            if ev is not None:
+                ev["items"].append(
+                    {"name": name_prefix, "outcome": "dropped", "reason": "off_page"}
+                )
             return 0
     for name, dim in candidates:
         if detail_scale is not None:
             dim._dw_scale = detail_scale
         dwg.add(dim, name, view=view)
+        if ev is not None:
+            b = _anno_box(dim)
+            ev["items"].append(
+                {"name": name, "outcome": "placed", "box": list(b) if b is not None else None}
+            )
     return len(candidates)
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -72,29 +73,80 @@ class SolveTrace:
     paths trace. **Default off, and off means nil cost**: every hook site is a plain
     ``trace is None`` check — no dict is ever built.
 
-    JSON shape (``version`` 1): ``{"version", "solves": [...], "escalations": [...]}``.
-    Each solve entry carries ``seq`` (the drain's batch order), ``phase``
-    (``auto:N``/``finalize:N`` — one per annotate run), ``corridor`` (the
-    ``[view, side]`` key, or ``null`` + ``label`` for a standalone strip pass),
-    ``view``/``axis``/``tier``, the ``strip`` bounds
-    (anchor/outer_limit/direction/gap/spacing), the full candidate set (name, order,
-    priority, size, force, anchored, dedup, precedence), the placement ``passes``
-    (per pass: the carved span, the in-band obstacles with their owning annotation
-    names, the free segments, placed positions, rejections with reasons, unplaced
-    leftovers), and per-candidate ``outcomes`` (placed / dropped-with-reason /
-    deduped / promoted / deferred-to-post-drain). ``jq`` answers "why did X drop"
-    in one query, e.g.::
+    JSON shape (``version`` 2): ``{"version", "solves": [...], "pass_events": [...],
+    "escalations": [...]}`` — two DISTINCT record types, not one masquerading as the
+    other:
+
+    * ``solves`` — the corridor solves. Each entry carries ``seq`` (a global event
+      counter shared with ``pass_events``, so the build's decision order is
+      reconstructable), ``phase`` (``auto:N``/``finalize:N`` — one per annotate run),
+      ``corridor`` (the ``[view, side]`` key), ``view``/``axis``/``tier``, the
+      ``strip`` bounds (anchor/outer_limit/direction/gap/spacing), the full candidate
+      set (name, order, priority, size, force, anchored, dedup, precedence), the
+      placement ``passes`` (per pass: the carved span, the in-band obstacles with
+      their owning annotation names, the free segments, placed positions, rejections
+      with reasons, unplaced leftovers), and per-candidate ``outcomes`` (placed /
+      dropped-with-reason / deduped / promoted / deferred-to-post-drain).
+    * ``pass_events`` — everything placed OUTSIDE a corridor solve: the standalone
+      strip passes (slot fallthroughs, front hole callouts) and the *immediate*
+      placers — the post-drain machined-feature leader callouts
+      (chamfer/fillet/flat/pocket/groove/boss ø) and the turned diameter row/column
+      and step-length set-solves. Each entry carries ``seq``/``phase``, a pass
+      ``label``, and ``items`` — one outcome dict per attempted annotation
+      (``placed`` with its position, or ``dropped`` with a reason). The #733 gap:
+      pre-#734 these callouts were the drain-time occupants; post-drain, their own
+      story must still be in the trace.
+
+    The ``jq`` contract: ``.solves[].outcomes[]`` for corridor dims,
+    ``.pass_events[].items[]`` for everything else::
 
         jq '.solves[].outcomes[] | select(.name == "dim_height")' t.trace.json
+        jq '.pass_events[] | select(.label == "pocket_callouts") | .items[]' t.trace.json
+
+    Recording-only: an unwritable path degrades to a logged warning (:meth:`write`
+    never aborts a build), and :meth:`snapshot`/:meth:`restore` let ``finalize()``'s
+    #647 transaction roll a failed drain's records back out of the trace.
     """
 
     def __init__(self, path):
         self.path = Path(path)
         self.solves: list[dict] = []
+        self.pass_events: list[dict] = []
         self.escalations: list[dict] = []
         self._phase = ""
         self._phase_n = 0
+        self._seq = 0
         self._current: dict | None = None
+
+    def _next_seq(self) -> int:
+        """One global event counter across solves + pass_events (decision order)."""
+        self._seq += 1
+        return self._seq - 1
+
+    def snapshot(self):
+        """The trace's rollback point for finalize's #647 transaction: capture the
+        record counts + phase/seq counters so :meth:`restore` can truncate a failed
+        drain's records — a rolled-back finalize must not leave trace entries
+        describing placements that no longer exist."""
+        return (
+            len(self.solves),
+            len(self.pass_events),
+            len(self.escalations),
+            self._seq,
+            self._phase,
+            self._phase_n,
+        )
+
+    def restore(self, snap) -> None:
+        """Roll the trace back to *snap* (see :meth:`snapshot`)."""
+        n_solves, n_events, n_esc, seq, phase, phase_n = snap
+        del self.solves[n_solves:]
+        del self.pass_events[n_events:]
+        del self.escalations[n_esc:]
+        self._seq = seq
+        self._phase = phase
+        self._phase_n = phase_n
+        self._current = None
 
     def begin_phase(self, label) -> None:
         """Start a new annotate run (``auto``) / finalize drain (``finalize``); each
@@ -118,7 +170,7 @@ class SolveTrace:
     def begin_solve(self, key, view, axis, tier, strip, cands) -> None:
         """Open a corridor-solve record (called by :func:`solve_corridor`)."""
         self._current = {
-            "seq": len(self.solves),
+            "seq": self._next_seq(),
             "phase": self._phase,
             "corridor": list(key) if key is not None else None,
             "view": view,
@@ -148,8 +200,8 @@ class SolveTrace:
 
     def begin_pass(self, *, force, label=None, strip=None, view=None, axis=None) -> dict:
         """Open a placement-pass record (called by :func:`place_strip_candidates`) —
-        nested under the open corridor solve, or a standalone solve entry (with
-        *label*) for a pass-local strip placement outside any corridor."""
+        nested under the open corridor solve, or a standalone ``pass_events`` entry
+        (with *label*) for a pass-local strip placement outside any corridor."""
         rec: dict = {
             "force": force,
             "obstacles": [],
@@ -161,20 +213,50 @@ class SolveTrace:
         if self._current is not None:
             self._current["passes"].append(rec)
         else:
-            self.solves.append(
-                {
-                    "seq": len(self.solves),
-                    "phase": self._phase,
-                    "corridor": None,
-                    "label": label,
-                    "view": view,
-                    "axis": axis,
-                    "strip": self._strip_rec(strip),
-                    "candidates": None,
-                    "passes": [rec],
-                    "outcomes": [],
-                }
-            )
+            rec = {
+                "seq": self._next_seq(),
+                "phase": self._phase,
+                "label": label,
+                "view": view,
+                "axis": axis,
+                "strip": self._strip_rec(strip),
+                **rec,
+                "items": [],
+            }
+            self.pass_events.append(rec)
+        return rec
+
+    def end_pass(self, rec) -> None:
+        """Close a placement-pass record. For a standalone ``pass_events`` entry the
+        per-candidate story is folded into ``items`` (the jq contract:
+        ``.pass_events[].items[]``): each placed candidate with its position, each
+        leftover as ``dropped`` with its last rejection reason (default
+        ``strip_full``). A pass nested under a corridor solve keeps its raw
+        placed/unplaced lists — the solve's ``outcomes`` carry the summary there."""
+        if "items" not in rec:
+            return
+        reasons = {e["name"]: e["reason"] for e in rec["rejected"]}
+        rec["items"] = [
+            {"name": e["name"], "outcome": "placed", "pos": e["pos"]} for e in rec.pop("placed")
+        ] + [
+            {"name": n, "outcome": "dropped", "reason": reasons.get(n, "strip_full")}
+            for n in rec.pop("unplaced")
+        ]
+
+    def pass_event(self, label, **fields) -> dict:
+        """Open a ``pass_events`` record for an *immediate* placer (the #733 gap: the
+        post-drain machined-feature callouts and the turned diameter/step-length
+        set-solves place outside any strip solve, but their story must be in the
+        trace too). Returns the record; the caller appends one outcome dict per
+        attempted annotation to ``rec["items"]``."""
+        rec = {
+            "seq": self._next_seq(),
+            "phase": self._phase,
+            "label": label,
+            **fields,
+            "items": [],
+        }
+        self.pass_events.append(rec)
         return rec
 
     def record_outcome(self, name, outcome, **extra) -> None:
@@ -212,9 +294,25 @@ class SolveTrace:
             )
 
     def write(self) -> None:
-        """Dump the trace JSON to :attr:`path` (once per build; finalize re-writes)."""
-        data = {"version": 1, "solves": self.solves, "escalations": self.escalations}
-        self.path.write_text(json.dumps(data, indent=1, default=str), encoding="utf-8")
+        """Dump the trace JSON to :attr:`path` (once per build; a successful finalize
+        re-writes). **Recording-only, so it must never abort a build**: an unwritable
+        path degrades to a logged warning, and the rewrite is atomic
+        (``<path>.tmp`` then :func:`os.replace`) so a reader never sees a torn file.
+        Serialisation is strict (no ``default=``): a non-JSON-native field is a
+        recorder bug and should fail tests visibly, not be papered over."""
+        data = {
+            "version": 2,
+            "solves": self.solves,
+            "pass_events": self.pass_events,
+            "escalations": self.escalations,
+        }
+        text = json.dumps(data, indent=1)
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        try:
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, self.path)
+        except OSError as exc:
+            _log.warning("trace: could not write %s: %s", self.path, exc)
 
 
 def _geom_box(o):
@@ -1270,6 +1368,7 @@ def place_strip_candidates(
             dwg.add(dim, name, view=view, feature=(features or {}).get(name))
     if tp is not None:
         tp["unplaced"] = [n for n, _ in todo]
+        trace.end_pass(tp)  # folds a standalone pass's items; no-op when corridor-nested
     return todo
 
 

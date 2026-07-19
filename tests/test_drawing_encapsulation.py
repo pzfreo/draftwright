@@ -358,6 +358,10 @@ def test_build_state_has_a_single_construction_and_fill_site():
         "builder.py": ["_build.analysis", "_build.part_model"],
         # _build.trace: attach_solve_trace — the #736 solve-trace recorder rides
         # BuildState like the rest of the build context (filled via the named
-        # method by builder._assemble; read by the annotate/finalize ctx threading).
+        # method by builder._assemble — its ONLY caller; read by the annotate/
+        # finalize ctx threading). The recorder also participates in finalize()'s
+        # #647 transaction: finalize snapshots it beside the registry/coverage
+        # snapshots and restores it on rollback, so a failed drain leaves no
+        # trace records for placements that no longer exist.
         "drawing.py": ["_build", "_build.analysis", "_build.part_model", "_build.trace"],
     }, writers
