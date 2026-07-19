@@ -58,6 +58,13 @@
 
 ### Fixed
 
+- **Emitted `Sheet` script now faithfully reproduces the direct CLI drawing**
+  (#707): the divergence reported against 0.3.3 on the Maquetto GRM-03 part was
+  closed by #709 (script `--format` forwarding) + #661 (finalize detail drain).
+  Locked with a vendored-fixture regression that asserts the full invariant the
+  issue named — same views, annotation inventory, page, scale **and** lint
+  between `build_drawing(...)` and the executed emitted `Sheet` — not just the
+  annotation signature the synthetic parity cases check.
 - **`_largest_empty_rect` no longer blows up on crowded detail views** (#661):
   the largest-empty-rectangle placer enumerated every candidate rectangle
   (O(N⁴) in the coordinate-cut count) — fine for the iso view's handful of

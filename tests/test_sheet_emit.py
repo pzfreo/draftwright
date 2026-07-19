@@ -1089,6 +1089,26 @@ class TestRoundTripParity:
 
         assert aspects(scripted) == aspects(direct)
 
+    def test_grm03_vendored_fixture_full_parity(self, tmp_path, monkeypatch):
+        # #707: GRM-03 (the Maquetto thumbwheel drive screw) is the real STEP that
+        # surfaced "emitted Sheet != direct CLI drawing" against 0.3.3. #709 (format
+        # forwarding) + #661 (finalize detail drain) closed the divergence; this
+        # vendored-fixture regression LOCKS the full invariant #707 names — same
+        # views, annotation inventory, page, scale AND lint — not just the annotation
+        # signature the synthetic parity cases above check. A turned stepped part
+        # (1 hole + 4 steps + 1 boss), so it also guards the rotational-furniture
+        # path end to end through the emitted Sheet.
+        fixture = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw.step"
+        direct = build_drawing(step_file=str(fixture), title="PART")
+        scripted = _drawing_from_generated_script(fixture, tmp_path, monkeypatch)
+
+        assert _annotation_signature(scripted) == _annotation_signature(direct)
+        assert sorted(scripted.views) == sorted(direct.views)
+        da, sa = direct._analysis, scripted._analysis
+        assert round(sa.SCALE, 4) == round(da.SCALE, 4)
+        assert (sa.PAGE_W, sa.PAGE_H) == (da.PAGE_W, da.PAGE_H)
+        assert scripted.lint_summary()["by_code"] == direct.lint_summary()["by_code"]
+
     def test_turned_x_shaft_parity(self, tmp_path, monkeypatch):
         # a horizontal turned shaft (X axis) — genuinely rotational: is_rotational + od_axis='x',
         # driving the non-Z branch of build_rotational_feature (bores=(), Frame axis='x'). A
