@@ -178,6 +178,7 @@ class _IntentRouting:
     step_position_ids: set
     explicit_envelope_height: bool
     user_dim_ids: set
+    rotational_ids: set
     only_loc: set
     pinned_loc: set
     only_callout: set
@@ -1052,6 +1053,29 @@ class Drawing:
             self, feature, self._part_model, self._analysis, view=view, ctx=ctx
         )
 
+    def rotational(self, feature) -> list[str]:
+        """Add a rotational part's **turned furniture** (#424/#426) — the overall OD
+        dimension, the axis centrelines, and any concentric-bore leaders.
+
+        The editable handle for the whole-model rotational renderer: where the
+        per-feature verbs place callouts/locations, ``rotational`` draws the furniture
+        the auto-pass synthesises for a part's ``RotationalFeature`` (a turned /
+        cylindrical body). *feature* is the rotational feature from :meth:`model`.
+        Placed by the shared :func:`render_rotational` — the same whole-model renderer
+        the auto-pass runs, so a script-reconstructed drawing is byte-identical to the
+        direct build (no ``only=`` subset, no positional-naming seam: the renderer
+        names its own outputs ``dim_od`` / ``centerline_*`` / ``ldr_*``). Returns ``[]``.
+        """
+        if self._defer_intents:  # #426: record, don't place — finalize() drains it
+            self._intents.append(Intent("rotational", feature, {}))
+            return []
+        from draftwright.annotations._common import PlacementContext
+        from draftwright.annotations.from_model import render_rotational
+
+        ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
+        render_rotational(self, self._part_model, self._analysis, ctx=ctx)
+        return []
+
     def section(self) -> list[str]:
         """Add the automatic full **section A–A** (#420) — the section half of the
         editable surface.
@@ -1254,6 +1278,9 @@ class Drawing:
             for it in self._intents
             if self._user_dim_uses_corridor(it, routable, already_routed)
         }
+        # Rotational furniture intent (#424/#426): the whole-model render_rotational —
+        # no per-feature subset, so just the id set; it drains at the "rotational" slot.
+        rotational_ids = {id(it) for it in self._intents if routable and it.kind == "rotational"}
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
         pinned_loc = {
             it.feature for it in self._intents if id(it) in corridor_ids and it.kwargs.get("pin")
@@ -1273,6 +1300,7 @@ class Drawing:
             step_position_ids=step_position_ids,
             explicit_envelope_height=explicit_envelope_height,
             user_dim_ids=user_dim_ids,
+            rotational_ids=rotational_ids,
             only_loc=only_loc,
             pinned_loc=pinned_loc,
             only_callout=only_callout,
@@ -1454,6 +1482,7 @@ class Drawing:
             render_diameters,
             render_height_ladder,
             render_locations,
+            render_rotational,
             render_slots,
             render_step_lengths,
             render_step_positions,
@@ -1476,6 +1505,18 @@ class Drawing:
         routable = model is not None and a is not None
         queued_dim_ids: set = set()
 
+        def _s_rotational():
+            # Rotational furniture — OD dim + axis centrelines + concentric-bore leaders —
+            # through the shared whole-model render_rotational (#424/#426). Runs FIRST (its
+            # "rotational" _PASS_SEQUENCE slot), so on a turned STEPPED part it places before
+            # the diameter/callout stages exactly as the auto-pass does. No only= subset and
+            # fixed literal output names (dim_od/centerline_*) ⇒ byte-identical to the auto
+            # pass, so the reconstruction matches (== not ⊇, unlike the #424 diameter case).
+            if r.rotational_ids:
+                assert a is not None and isinstance(model, PartModel)
+                render_rotational(self, model, a, ctx=ctx)
+            self._intents = [it for it in self._intents if id(it) not in r.rotational_ids]
+
         def _s_reserve_section():
             # Reserve the section's cutting-plane row BEFORE the callout carve so the
             # carve sees it as an obstacle (Coupling A, ADR 0009 P5 strand 3); rendered
@@ -1496,6 +1537,7 @@ class Drawing:
                 | r.height_ladder_ids
                 | r.step_position_ids
                 | r.user_dim_ids
+                | r.rotational_ids  # drained by _s_rotational; no _replay_intent branch
             )
             i = 0
             while i < len(self._intents):
@@ -1677,6 +1719,7 @@ class Drawing:
 
         run_stages(
             {
+                "rotational": _s_rotational,
                 "reserve_section": _s_reserve_section,
                 "live_replay": _s_live_replay,
                 "hole_callouts": _s_hole_callouts,

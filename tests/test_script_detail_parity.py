@@ -164,10 +164,6 @@ def test_generated_script_matches_direct_side_drilled_locations(tmp_path):
 
 
 @pytest.mark.timeout(240)
-@pytest.mark.xfail(
-    strict=True,
-    reason="rotational OD and centreline furniture are not represented by script intents",
-)
 def test_generated_script_matches_direct_rotational_furniture(tmp_path):
     """A plain cylinder characterises the smallest rotational reconstruction gap."""
     step, scripted = _scripted_drawing(Cylinder(15, 40), tmp_path, "rotational")

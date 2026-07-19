@@ -58,6 +58,17 @@
 
 ### Fixed
 
+- **Generated imperative script reconstructs rotational furniture** (#426/#424):
+  a turned/cylindrical part's `dwg.model()` carries a `RotationalFeature`, but the
+  `--script` emitter parked it in the gap-comment list, so an executed
+  reconstruction of e.g. a plain cylinder was missing `dim_od` and the
+  `centerline_front`/`centerline_side` marks the direct build draws. A new
+  `Drawing.rotational(feature)` add-verb records the intent, and `finalize()`
+  drains it through the shared whole-model `render_rotational` at the auto-pass's
+  own `"rotational"` stage — byte-identical to the direct build (no `only=` subset,
+  fixed literal names, so no naming-seam or `⊇`-vs-`==` gap). The emitter now emits
+  `dwg.rotational(f)` for rotational features. Closes the rotational half of the
+  direct-vs-generated-script convergence.
 - **Emitted `Sheet` script now faithfully reproduces the direct CLI drawing**
   (#707): the divergence reported against 0.3.3 on the Maquetto GRM-03 part was
   closed by #709 (script `--format` forwarding) + #661 (finalize detail drain).
