@@ -66,6 +66,7 @@ from draftwright.linting import (
     LintIssue,
     _suggest_fix,
     lint_axial_coverage,
+    lint_boss_height_coverage,
     lint_declaration_reconciliation,
     lint_drawing,
     lint_feature_coverage,
@@ -2008,6 +2009,16 @@ class Drawing:
                 assembly=self.assembly,
                 **prof_kw,
             )
+            model = self._part_model
+            # Turned bosses/bands remain in the OD + axial-step policy; this check is
+            # specifically for a prismatic boss's independent projection height.
+            if model is not None and (a is None or (not a.is_rotational and a.prof is None)):
+                issues += lint_boss_height_coverage(
+                    self.part,
+                    self,
+                    getattr(model, "features", ()),
+                    assembly=self.assembly,
+                )
             issues += lint_location_coverage(
                 self.part,
                 self,
