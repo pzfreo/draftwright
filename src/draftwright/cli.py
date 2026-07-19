@@ -179,6 +179,7 @@ def main(
                     scale=scale,
                     page=page,
                     part_expr=seam,
+                    formats=tuple(formats),
                 )
             else:
                 py_path = generate_sheet_script(
@@ -191,6 +192,7 @@ def main(
                     scale=scale,
                     page=page,
                     pmi=pmi.value,
+                    formats=tuple(formats),
                 )
         else:
             if _looks_like_object_spec(step_file):
@@ -209,6 +211,7 @@ def main(
                 pmi=pmi.value,
                 scale=scale,
                 page=page,
+                formats=tuple(formats),
             )
         print(py_path)
         return

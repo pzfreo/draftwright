@@ -22,6 +22,7 @@ fixtures (#472).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from build123d import Shape
@@ -253,6 +254,7 @@ def emit_sheet_script(
     tolerance: str = "ISO 2768-m",
     scale=None,
     page=None,
+    formats: Sequence[str] = ("pdf",),
 ) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
 
@@ -260,6 +262,9 @@ def emit_sheet_script(
     seam); *stem* is the output basename the script exports to. The title-block / layout aspects
     (``drawn_by``/``tolerance``/``scale``/``page``, #474) are emitted into the ``Sheet(...)``
     constructor only when non-default, so a plain drawing keeps a clean one-line constructor.
+    *formats* (the CLI's ``--format``, #709) is emitted into the ``sheet.export(...)`` call when
+    it differs from ``Sheet.export``'s own default (PDF), so a re-run reproduces the requested
+    outputs.
 
     AP242 PMI cannot be re-extracted from the ``import_step`` seam, so detected dimensional PMI is
     emitted as declared Sheet dimensions; unsupported raw PMI records are kept as explicit
@@ -303,7 +308,15 @@ def emit_sheet_script(
     ]
     if _needs_section(model):
         lines.append("# Section A–A auto-triggers from the counterbore/blind bore above.")
-    lines += ["", f"sheet.export({stem!r})"]
+    # Only spell out formats when they differ from Sheet.export's own default (PDF),
+    # mirroring the constructor's non-default-aspects-only rule above (#709).
+    fmts = tuple(formats)
+    export_call = (
+        f"sheet.export({stem!r})"
+        if fmts == ("pdf",)
+        else f"sheet.export({stem!r}, formats={fmts!r})"
+    )
+    lines += ["", export_call]
     return "\n".join(lines) + "\n"
 
 
@@ -420,6 +433,7 @@ def generate_sheet_script(
     page=None,
     pmi: str = "off",
     part_expr: str | None = None,
+    formats: Sequence[str] = ("pdf",),
 ) -> str:
     """Write a declarative ``Sheet``-DSL script for *step_file* (a STEP path or a build123d
     object). Returns the path to the generated ``.py``. The mode-3 declarative counterpart of
@@ -427,7 +441,9 @@ def generate_sheet_script(
 
     ``tolerance``/``drawn_by``/``scale``/``page`` are the title-block / layout aspects (#474):
     when non-default they are emitted into the generated ``Sheet(...)`` so a re-run reproduces
-    them. ``pmi`` is threaded to detection so AP242 PMI features surface (flagged inline).
+    them. ``formats`` (the CLI's ``--format``, #709) is likewise emitted into the
+    ``sheet.export(...)`` call when non-default (PDF). ``pmi`` is threaded to detection so
+    AP242 PMI features surface (flagged inline).
     *part_expr*, when given, overrides the ``part = …`` seam — e.g. the import seam from
     :func:`resolve_object_spec` so the script references a live module (#469)."""
     is_shape = isinstance(step_file, Shape)
@@ -458,6 +474,7 @@ def generate_sheet_script(
         tolerance=tolerance,
         scale=scale,
         page=page,
+        formats=formats,
     )
     py_path = f"{stem}.py"
     Path(py_path).write_text(script, encoding="utf-8")  # the script has box-drawing / × / ← glyphs

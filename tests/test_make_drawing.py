@@ -3671,6 +3671,26 @@ def test_generate_script_preserves_pmi_scale_page(tmp_path):
     assert "pmi=PMI," in content and "scale=SCALE," in content and "page=PAGE," in content
 
 
+def test_generate_script_uses_modern_dict_export(tmp_path):
+    # #709: the emitted export is the modern {format: path} dict form (default pdf,
+    # matching the CLI / sheet flavour) — never the deprecated legacy tuple path.
+    step = tmp_path / "p.step"
+    export_step(Box(30, 20, 10), str(step))
+    content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text()
+    assert "paths = dwg.export(_stem, formats=('pdf',))" in content
+    assert "svg_path, dxf_path = dwg.export" not in content  # the legacy tuple is gone
+
+
+def test_generate_script_forwards_formats(tmp_path):
+    # #709: --format reaches the emitted export call.
+    step = tmp_path / "p.step"
+    export_step(Box(30, 20, 10), str(step))
+    content = Path(
+        generate_script(str(step), out=str(tmp_path / "p"), formats=("svg", "png"))
+    ).read_text()
+    assert "paths = dwg.export(_stem, formats=('svg', 'png'))" in content
+
+
 def test_generate_script_defaults_are_auto(tmp_path):
     # Defaults: no overrides → PMI off, SCALE/PAGE None (auto) — still emitted so the
     # fields exist for the user to set.
@@ -3776,7 +3796,8 @@ def test_generated_script_runs_and_preserves_pmi(tmp_path):
         env=env,
     )
     assert r.returncode == 0, f"generated script failed:\n{r.stderr[-1500:]}"
-    assert (tmp_path / "p.svg").exists(), "generated script did not write the SVG"
+    # #709: the emitted export defaults to PDF (the CLI / sheet-flavour default).
+    assert (tmp_path / "p.pdf").exists(), "generated script did not write the PDF"
 
 
 # ---------------------------------------------------------------------------
