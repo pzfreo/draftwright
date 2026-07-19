@@ -57,6 +57,8 @@ _CONVENTION = {
     ("pocket_width", "length"): "leader",
     ("pocket_length", "length"): "leader",
     ("pocket_depth", "length"): "leader",
+    # A plate thickness ("thickness", "length") is a linear Dimension — the default —
+    # so it needs no entry here; render_plates is planner-fed regardless (#729).
 }
 
 

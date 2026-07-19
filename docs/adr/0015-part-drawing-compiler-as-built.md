@@ -107,13 +107,14 @@ the groups the orchestrator computed for them.
 | flats ({across} A/F leader, #726) | `from_model.render_flats` | `plan_dimensions` |
 | grooves ({width} WIDE × ø{diameter} leader, #727) | `from_model.render_grooves` | `plan_dimensions` |
 | pockets (W × L × D DEEP leader, #728) | `from_model.render_pockets` | `plan_dimensions` |
+| plates (thickness linear dim, #729) | `from_model.render_plates` | `plan_dimensions` |
 | section trigger + cut plane | `sections._add_section_view` etc. | `plan_sections` → `SectionPlan` |
 
 **Planner-bypassing today** (the renderer takes `model`, re-filters
 `model.features` by kind, and formats raw fields — its computed
 `DimensionGroup`s are discarded):
 
-- `render_slots`, `render_plates`, `render_rotational`
+- `render_slots`, `render_rotational`
   (OD/centreline/bore furniture), `render_pmi` — all in
   `annotations/from_model.py`.
 - `render_height_ladder` and `render_step_positions` are also model-routed,
@@ -136,7 +137,8 @@ no-double-dimensioning/suppression rules currently have no single home
 
 **The convergence tracker is #698** — extend `_CONVENTION` +
 `plan_dimensions` kind-by-kind (chamfer landed first, #724; fillet/flat/
-groove/pocket followed, #725–#728; plate, slots next) and convert each
+groove/pocket followed, #725–#728; plate, #729 — the first *linear*-convention
+migration, no `_CONVENTION` entry needed; slots next) and convert each
 renderer to consume its
 group, pulling the
 scattered suppression rules into the planner as each kind migrates. This ADR

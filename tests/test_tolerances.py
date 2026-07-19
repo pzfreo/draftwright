@@ -17,7 +17,7 @@ from build123d_drafting.helpers import draft_preset
 from draftwright import Sheet, build_drawing
 from draftwright._core import _tol_suffix
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
-from draftwright.model import PartModel, chamfer, fillet, flat, groove, hole, pocket, step
+from draftwright.model import PartModel, chamfer, fillet, flat, groove, hole, plate, pocket, step
 from draftwright.model.planner import plan_dimensions
 
 
@@ -174,6 +174,26 @@ class TestPlannerDecorations:
             assert pd.convention == "leader"
             assert pd.param.tolerance == 0.2
             assert not pd.suppressed
+
+    def test_plate_dim_is_linear_with_folded_tolerance(self):
+        # #729: the plate thickness routes through the planner — convention "linear"
+        # (the _CONVENTION default; the first non-leader kind migration, so no table
+        # entry), with an authored decoration folded onto DimParameter.tolerance
+        # (kind "length").
+        pl = plate(axis="z", lo=-4, hi=4, u=0, v=0)
+        model = PartModel(
+            bbox=Box(80, 50, 8).bounding_box(),
+            orientation=None,
+            features=[pl],
+            decorations={(pl, "length"): 0.1},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "plate")
+        (pd,) = g.dims
+        assert (pd.param.role, pd.param.kind) == ("thickness", "length")
+        assert pd.convention == "linear"
+        assert pd.param.value == 8.0  # hi - lo — exactly what the renderer displays
+        assert pd.param.tolerance == 0.1
+        assert not pd.suppressed
 
 
 class TestCalloutRendering:
@@ -573,6 +593,75 @@ class TestPocketTolerance:
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_pocket")
         ]
         assert labels == ["7 × 30 × 5 DEEP"], labels
+
+
+class TestPlateTolerance:
+    """#729 (the #629 class, latent): a plate's authored thickness tolerance must render
+    on the placed linear dim — the pass now consumes the planner's DimensionGroups,
+    binding the dim explicitly by (role, kind) == ("thickness", "length"). Only the
+    VALUE and TOLERANCE source changed; the strip/tier placement mechanics (including
+    the allowlisted carve fallthrough) are untouched."""
+
+    @staticmethod
+    def _flat_plate():
+        return Box(80, 50, 8)
+
+    @staticmethod
+    def _plate_feature():
+        return plate(axis="z", lo=-4, hi=4, u=0, v=0)
+
+    def test_authored_plate_tolerance_renders_on_dim(self):
+        # Declared model (ADR 0011): detection's ≥2-axis scope guard doesn't apply, so a
+        # single declared slab renders its thickness dim; the decoration keys on
+        # (feature, "length").
+        pl = self._plate_feature()
+        dwg = build_drawing(
+            self._flat_plate(),
+            model=[pl],
+            decorations={(pl, "length"): 0.1},
+            number="X",
+        )
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_plate")
+        ]
+        assert labels == ["8 ±0.1"], labels
+
+    def test_untolerated_plate_label_unchanged(self):
+        # No decoration → the planner path is byte-identical to the old raw-field label.
+        pl = self._plate_feature()
+        dwg = build_drawing(self._flat_plate(), model=[pl], number="X")
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_plate")
+        ]
+        assert labels == ["8"], labels
+
+    def test_renderer_displays_the_planned_value_not_the_raw_fields(self):
+        # #698 binding proof (the #724 decoy shape): the renderer must be
+        # planner-AUTHORITATIVE — the displayed thickness is pd.param.value, bound by
+        # (role, kind), never dims[0]. Feed render_plates a hand-built group with a decoy
+        # first dim and a planned value deliberately different from the feature's raw
+        # hi - lo, and assert the placed dim shows the planned value. Unlike the leader
+        # passes, render_plates registers corridor candidates, so the batch is drained
+        # before reading the label.
+        from dataclasses import replace
+
+        from draftwright.annotations._common import PlacementContext, drain_corridors
+        from draftwright.annotations.from_model import render_plates
+
+        pl = self._plate_feature()
+        dwg = build_drawing(self._flat_plate(), model=[pl], number="X", auto_dims=False)
+        (g,) = [g for g in plan_dimensions(dwg.model()) if g.feature_kind == "plate"]
+        (pd,) = g.dims
+        decoy = replace(pd, param=replace(pd.param, role="decoy", value=99.0))
+        planned = replace(pd, param=replace(pd.param, value=7.0))  # ≠ pl.hi - pl.lo == 8
+        g2 = replace(g, dims=(decoy, planned))
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        assert render_plates(dwg, [g2], dwg._analysis, ctx=ctx) == 1
+        drain_corridors(ctx, dwg)
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_plate")
+        ]
+        assert labels == ["7"], labels
 
 
 class TestToleranceHandle:
