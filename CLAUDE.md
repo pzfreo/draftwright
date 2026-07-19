@@ -72,14 +72,14 @@ entry. Keep `_LAYERS` and this section in step.
     (#699 slice b): `_auto_annotate` and `Drawing._drain_intents` (the finalize
     drain) both hand name→thunk dicts to the shared `run_stages`, so the two
     build paths cannot diverge in sequencing (the drain step itself is the
-    shared `drain_and_reconcile`). End state (ADR 0008) is
-    `build model → plan → render`; some inline engine code remains — chiefly
+    shared `drain_and_reconcile`). The current ADR 0015 shape is
+    `build model → plan/model-routed intents → render`; some inline engine code remains — chiefly
     `_maybe_tabulate_holes` (the hole-table/balloon escalation resolver) and the
     iso right-strip outer-limit tightening — pending the last convergence steps.
   - **`annotations/from_model.py`** — the **IR render layer** (largest annotations
     module): turns the planner's `DimensionGroup`/render-intents into placed
     dimensions/callouts/centre marks/section triggers. This is where the turned,
-    PMI/GD&T, envelope/OD, centre-mark and step-length passes converged (ADR 0008,
+    PMI/GD&T, envelope/OD, centre-mark and step-length passes converged (ADR 0015,
     #200/#208/#237) — the old per-feature `annotations/{turned,pmi}.py` modules
     were deleted as each migrated here.
   - **`annotations/holes.py`** — hole/pattern callouts, balloons, location dims
@@ -129,7 +129,7 @@ entry. Keep `_LAYERS` and this section in step.
   `suggest.py` (`_suggest_fix`, #29 snippets). Depends only on `_core`,
   `recognition/` (typed hole records in `coverage.py`) + build123d_drafting. `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
-- **`model/`** — the ADR 0008 IR waist: `ir.py` (the `Feature`/`DimParameter`/
+- **`model/`** — the ADR 0015 IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
   `Feature` objects, adapting `recognition/`), `planner.py` (`plan_dimensions` —
   one rule set → a `DimensionGroup` per feature, + `plan_sections`), and
@@ -142,7 +142,7 @@ entry. Keep `_LAYERS` and this section in step.
   (#640) so the layout engine stops shadowing the user-facing `Sheet` facade
   (which now owns the `sheet.py` name).
 - **`analysis.py`** — the `_analyse` stage: solid classification, the one-shot
-  feature-inventory detection (ADR 0008 Am5), view sizing, and the strip/zone
+  feature-inventory detection (ADR 0015), view sizing, and the strip/zone
   model (`fv_zones`/`pv_zones`/`sv_zones`) that ADR 0014 placement reads.
 - **`projection.py`** — HLR projection and view-coordinate transforms
   (`_assemble`'s geometry half; #161).
@@ -214,7 +214,7 @@ incomplete until they weigh the change against the ADRs, not just its local
 correctness. Ask: does this feature round-trip **all** the surfaces its kind
 requires — recognise **+** emit **+** declare (ADR 0011 / epic #574; no
 recognition-only debt)? Does it fit the compiler pipeline and one-inventory waist
-(ADR 0008)? Does it conform to the recogniser contract (ADR 0013)? Does it sit
+(ADR 0015)? Does it conform to the recogniser contract (ADR 0013)? Does it sit
 where it belongs in the DAG, or re-introduce a coupling an ADR removed? Does it
 place geometry through the corridor solve rather than around it, and extend a
 shared pass rather than adding another copy (consolidation epic #635)? A change
@@ -320,9 +320,11 @@ Current ADRs:
 - **0015** — **Accepted** (supersedes 0008, #697): **the part-drawing compiler
   as built** — detectors + declared features → the one PartModel waist (two
   tiers, ADR 0013) → planner → render-intents → shared infra; with the
-  **honest planner-coverage split** (which kinds flow through `plan_dimensions`
-  vs bypass it — convergence tracked by #698) and the lint/coverage carve-out
-  stated properly. New feature kinds must take the planner path.
+  planner-coverage split (dimension-bearing kinds flow through
+  `plan_dimensions`; correlated furniture/aspects remain model-routed by design)
+  and the lint/coverage carve-out stated properly. Planner convergence #698 is
+  complete; new kinds must add every applicable IR, planning, rendering,
+  coverage, and test surface while keeping orientation data-driven.
 
 ## Dependencies
 

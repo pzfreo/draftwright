@@ -1,6 +1,10 @@
 # ADR 0015 — The part-drawing compiler, as built
 
 - **Status:** Accepted. **Supersedes [ADR 0008](0008-unified-feature-model-and-dimensioning-planner.md).**
+- **Amendment 1** (2026-07-19): planner convergence #698 is complete. All
+  dimension-bearing feature passes suited to `DimensionGroup` planning now
+  consume planner output; correlated furniture and aspect passes remain
+  model-routed by design. The open/closed consequence is narrowed accordingly.
 - **Date:** 2026-07-18
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -85,13 +89,11 @@ The load-bearing properties, all live in the code today:
 
 ## The planner, honestly: what flows through it and what bypasses it
 
-0008 §3 claimed "one rule set over DimParameters … uniformly". As built, that
-centralisation covers a **core, not the whole surface** — the 2026-07-18 audit
-finding, tracked as **#698**. `orchestrator._auto_annotate` calls
-`plan_dimensions` exactly once and threads the `DimensionGroup`s to every
-renderer that reads them; but a majority of feature kinds are rendered by
-passes that take the `model` and format raw feature fields directly, ignoring
-the groups the orchestrator computed for them.
+0008 §3 claimed "one rule set over DimParameters … uniformly". The 2026-07-18
+audit found that many dimension-bearing feature passes still bypassed it and
+opened **#698**. That convergence is now complete: `orchestrator._auto_annotate`
+calls `plan_dimensions` exactly once and threads its `DimensionGroup`s to every
+dimension-bearing renderer suited to group-per-feature planning.
 
 **Planner-fed today** (the renderer consumes `DimensionGroup`s from
 `plan_dimensions`, or another planner entry point):
@@ -113,9 +115,9 @@ the groups the orchestrator computed for them.
 | slots (width/length linear dims, #730; the datum position dim stays model-derived — it is drawing state, not a feature parameter) | `from_model.render_slots` | `plan_dimensions` |
 | section trigger + cut plane | `sections._add_section_view` etc. | `plan_sections` → `SectionPlan` |
 
-**Planner-bypassing today** (the renderer takes `model`, re-filters
-`model.features` by kind, and formats raw fields — its computed
-`DimensionGroup`s are discarded):
+**Intentionally model-routed today** (these passes do not discard applicable
+`DimensionGroup`s; their inputs are furniture, correlated sets, or aspects that
+do not fit group-per-parameter planning):
 
 - `render_rotational`
   (OD/centreline/bore furniture), `render_pmi` — both in
@@ -129,25 +131,13 @@ the groups the orchestrator computed for them.
   `DimParameter`-bearing features — there is nothing for `plan_dimensions` to
   plan.
 
-**Why the bypass list matters** (from #698, adversarially verified): the
-planner is where authored decorations fold onto the parameter
-(`plan_dimensions` merges `model.decorations` into `DimParameter.tolerance`),
-so a bypassed kind silently drops an authored tolerance — the exact #629 bug
-class already fixed for bosses, latent in the bypassed passes. And ISO 129
-no-double-dimensioning/suppression rules currently have no single home
-(`detect.py` exclusions, `planner._suppression`, per-renderer collapses).
-`_CONVENTION` in `planner.py` has entries only for the planner-fed roles.
-
-**The convergence tracker is #698** — extend `_CONVENTION` +
-`plan_dimensions` kind-by-kind (chamfer landed first, #724; fillet/flat/
-groove/pocket followed, #725–#728; plate, #729 — the first *linear*-convention
-migration; slots, #730 — the mixed corridor/immediate pass) and convert each
-renderer to consume its
-group, pulling the
-scattered suppression rules into the planner as each kind migrates. This ADR
-deliberately does **not** claim that work done; it records the split so the
-ADR stays true while #698 proceeds. New feature kinds must take the planner
-path, not add to the bypass list.
+**Why the split matters:** the planner is where authored decorations fold onto
+dimension parameters and where dimension-level convention and suppression
+belong. #698 migrated chamfer, fillet, flat, groove, pocket, plate, and slot
+dimensions (#724–#730), closing the latent authored-tolerance failure class for
+those features. Model-routed passes remain legitimate only where there is no
+independent `DimParameter` to plan or where flattening a correlated set would
+destroy its semantics.
 
 ## The lint/coverage carve-out
 
@@ -184,10 +174,10 @@ records cross is the sanctioned `build_part_model` boundary itself.
 
 ## Consequences
 
-- New shapes remain **new `Feature` types + a detector and/or declare
-  constructor**, never new back-end branches — with the added, explicit rule
-  that their rendering goes through `plan_dimensions` (#698), so the planner's
-  coverage grows instead of shrinking.
+- New shapes require the applicable detector and/or declaration constructor,
+  IR adapter/declaration, planner convention for dimension parameters,
+  renderer/stage support, coverage, and tests. Orientation and view selection
+  must remain data-driven rather than growing producer- or axis-specific paths.
 - The duplicate-recogniser and orientation-gate bug classes stay designed out
   (one inventory, axis-as-data).
 - The ADR now matches the code: readers get the real planner coverage and the
@@ -205,8 +195,8 @@ boundary decisions), not for current state. Step 1 of the original 0008
 ## Related
 
 - #697 — the audit item mandating this supersession (and ADR 0014's).
-- #698 — the planner-bypass audit finding; the convergence epic this ADR's
-  coverage table tracks.
+- #698 — completed planner-bypass convergence epic tracked by this ADR's
+  coverage table and Amendment 1.
 - #699 — the one canonical `_PASS_SEQUENCE` shared by the auto-pass and
   `finalize()` (orchestrator `run_stages`), which orders the passes named
   above.
