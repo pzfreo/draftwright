@@ -60,6 +60,12 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         ("holes", "_place_pitch_dim"),
         ("sections", "_section_hatch_edges"),
         ("sections", "_request_prismatic_detail"),
+        # Detail-height demotion-safety internals with no public seam (#661 user
+        # review): _overall_height_name is unit-tested for its pin/identity guards,
+        # and _render_detail is monkeypatched to force the failed-retry restore path
+        # (asserting feature provenance survives) — white-box is the point.
+        ("sections", "_overall_height_name"),
+        ("sections", "_render_detail"),
         ("orchestrator", "_maybe_tabulate_holes"),
         # Module-alias attribute access (`from ... import holes as h; h._annotate_holes`).
         ("holes", "_annotate_holes"),
