@@ -1064,37 +1064,55 @@ def _fillet_label(radius, count) -> str:
     return f"{count}× {r}" if count > 1 else r
 
 
-def render_fillets(dwg, model, a, *, ctx) -> int:
+def render_fillets(dwg, groups, a, *, ctx) -> int:
     """Fillet radius callouts (#561): a leader from an external edge fillet to its
     ``R{radius}`` label — the arc analog of :func:`render_chamfers`. Equal-radius fillets on
     the same edge axis share ONE ``n× R`` callout (#561 acceptance), placed in the view
     normal to the rounded edge, led diagonally out of the corner into clear margin, and
-    dropped (lint, not silently) if it would overprint placed geometry. Returns the count."""
-    reach = _leader_callout_reach(dwg.draft)
-    view_of = {"z": "plan", "x": "side", "y": "front"}
-    fillets = [f for f in model.features if f.kind == "fillet"]
-    groups: dict = {}
-    for fl in fillets:
-        groups.setdefault((fl.axis, round(fl.radius, 3)), []).append(fl)
+    dropped (lint, not silently) if it would overprint placed geometry. Returns the count.
+
+    Planner-fed (#725 / #698): the radius VALUE + its tolerance come from the planner's
+    ``DimParameter`` (as in ``render_chamfers``), bound explicitly by ``(role, kind)``,
+    never positionally — formatting ``fl.radius`` directly dropped an authored tolerance
+    (the #629 class). The equal-radius ``n× R`` COLLAPSE stays render-side (grouping by
+    ``(axis, value)`` here, as before) — planner-side grouping is a structural change,
+    explicitly out of scope for this migration (#698). Where grouped members' authored
+    tolerances differ, the first (member-order) authored one wins — the documented
+    ``render_diameters`` shared-ø precedent. ``g.view`` is safe: a FilletFeature's frame
+    axis IS its edge axis (both ``detect.py`` and ``declare.fillet`` build
+    ``Frame(…, axis)``), and ``_END_ON`` matches the pass's old z→plan / x→side /
+    y→front map exactly."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    collapse: dict = {}
+    for g in (g for g in groups if g.feature_kind == "fillet"):
+        pd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("fillet", "radius")),
+            None,
+        )
+        if pd is None or pd.suppressed:
+            continue
+        collapse.setdefault((g.feature.axis, round(pd.param.value, 3)), []).append((g, pd))
     jobs = []
-    for gi, ((axis, radius), members) in enumerate(sorted(groups.items())):
-        view = view_of.get(axis)
-        if view is None:
-            continue
-        vb = dwg.view_bounds(view)
-        if vb is None:
-            continue
+    for gi, ((axis, _radius), members) in enumerate(sorted(collapse.items())):
         # One grouped ``n× R`` callout, but its leader may anchor at ANY of the equal fillets
         # — _corner_candidates tries each corner (nearest-clear first) so the group is not
         # dropped just because its first corner leads into an occupied region.
-        ordered = sorted(members, key=lambda f: f.frame.origin)
+        ordered = sorted(members, key=lambda gp: gp[0].feature.frame.origin)
+        view = ordered[0][0].view
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        tol = next(
+            (pd.param.tolerance for _, pd in ordered if pd.param.tolerance is not None), None
+        )
         jobs.append(
             (
                 f"m_fillet_{axis}{gi}",
                 view,
                 vb,
-                _fillet_label(radius, len(members)),
-                _corner_candidates(dwg, view, vb, ordered, reach),
+                _fillet_label(ordered[0][1].param.value, len(ordered)) + _tol_suffix(tol, draft),
+                _corner_candidates(dwg, view, vb, [g.feature for g, _ in ordered], reach),
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="fillet", drop_code="fillet_dropped", ctx=ctx)

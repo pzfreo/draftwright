@@ -11,12 +11,13 @@ precision (1 dp today), so tests use tolerances that survive 1 dp.
 
 from build123d import Axis, Box, Cylinder, Pos, Rot
 from build123d import chamfer as b3d_chamfer
+from build123d import fillet as b3d_fillet
 from build123d_drafting.helpers import draft_preset
 
 from draftwright import Sheet, build_drawing
 from draftwright._core import _tol_suffix
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
-from draftwright.model import PartModel, chamfer, hole, step
+from draftwright.model import PartModel, chamfer, fillet, hole, step
 from draftwright.model.planner import plan_dimensions
 
 
@@ -95,6 +96,23 @@ class TestPlannerDecorations:
         assert pd.param.tolerance == 0.2
         assert not pd.suppressed
         assert g.view == "plan"  # frame axis == edge axis; a Z-edge chamfer reads in the plan
+
+    def test_fillet_dim_is_leader_with_folded_tolerance(self):
+        # #725: the fillet radius routes through the planner — convention "leader", with an
+        # authored decoration folded onto DimParameter.tolerance (keyed by kind "radius").
+        fl = fillet(axis="z", radius=8, at=(41, 26, 0))
+        model = PartModel(
+            bbox=Box(90, 60, 20).bounding_box(),
+            orientation=None,
+            features=[fl],
+            decorations={(fl, "radius"): 0.1},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "fillet")
+        (pd,) = g.dims
+        assert pd.convention == "leader"
+        assert pd.param.tolerance == 0.1
+        assert not pd.suppressed
+        assert g.view == "plan"  # frame axis == edge axis; a Z-edge fillet reads in the plan
 
 
 class TestCalloutRendering:
@@ -272,6 +290,43 @@ class TestChamferTolerance:
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_chamfer")
         ]
         assert labels == ["7 × 45°"], labels  # planned 7 ≠ leg2 12 → leg×angle form
+
+
+class TestFilletTolerance:
+    """#725 (the #629 class, latent): a fillet's authored tolerance must render on the
+    placed ``R`` callout — the pass now consumes the planner's DimensionGroups. The
+    equal-radius ``n×`` collapse stays render-side (#698: planner-side grouping out of
+    scope); the displayed radius + tolerance come from the members' planned dims."""
+
+    @staticmethod
+    def _filleted_plate():
+        plate = Box(90, 60, 20)
+        e = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)[-1]
+        return b3d_fillet(e, 8)
+
+    def test_authored_fillet_tolerance_renders_on_callout(self):
+        # Declared model (ADR 0011): the caller holds the feature object, so the
+        # decoration keys on it — (feature, "radius") for a fillet.
+        fl = fillet(axis="z", radius=8, at=(41, 26, 0))  # on the rounded corner
+        dwg = build_drawing(
+            self._filleted_plate(),
+            model=[fl],
+            decorations={(fl, "radius"): 0.1},
+            number="X",
+        )
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_fillet")
+        ]
+        assert labels == ["R8 ±0.1"], labels
+
+    def test_untolerated_fillet_label_unchanged(self):
+        # No decoration → the planner path is byte-identical to the old raw-field label.
+        fl = fillet(axis="z", radius=8, at=(41, 26, 0))
+        dwg = build_drawing(self._filleted_plate(), model=[fl], number="X")
+        labels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_fillet")
+        ]
+        assert labels == ["R8"], labels
 
 
 class TestToleranceHandle:

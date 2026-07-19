@@ -374,7 +374,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         render_chamfers(dwg, _groups, a, ctx=ctx)
 
     def _s_fillets():
-        render_fillets(dwg, _model, a, ctx=ctx)
+        # Fillet callouts (#561): R{radius} (grouped n× R) via a leader off each rounded edge.
+        # Planner-fed (#725): consumes the DimensionGroups so an authored tolerance renders.
+        render_fillets(dwg, _groups, a, ctx=ctx)
 
     def _s_flats():
         # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
