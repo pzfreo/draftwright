@@ -49,6 +49,7 @@ _CONVENTION = {
     ("grid_pitch", "length"): "pitch",
     ("chamfer", "length"): "leader",  # C{leg} / {leg}×{angle}° leader callout (#724)
     ("fillet", "radius"): "leader",  # R{radius} (grouped n× R) leader callout (#725)
+    ("flat", "length"): "leader",  # {across} A/F across-flats leader callout (#726)
 }
 
 

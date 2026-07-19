@@ -380,7 +380,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     def _s_flats():
         # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
-        render_flats(dwg, _model, a, ctx=ctx)
+        # Planner-fed (#726): consumes the DimensionGroups so an authored tolerance renders.
+        render_flats(dwg, _groups, a, ctx=ctx)
 
     def _s_pockets():
         # Blind-recess callouts (#148a): W × L × D DEEP via a leader off each floored pocket.

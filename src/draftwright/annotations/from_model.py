@@ -1118,41 +1118,58 @@ def render_fillets(dwg, groups, a, *, ctx) -> int:
     return _leader_callout_pass(dwg, a, jobs, noun="fillet", drop_code="fillet_dropped", ctx=ctx)
 
 
-def _flat_label(across) -> str:
+def _flat_label(across, sfx="") -> str:
     """The machined-flat callout string: ``{across} A/F`` (across flats) — the standard
-    abbreviation for a spanner-flat / D / hex size (#148b). Formatting lives in the render
-    layer, not on the IR feature (ADR 0013 §7)."""
-    return f"{_fmt(across)} A/F"
+    abbreviation for a spanner-flat / D / hex size (#148b). *across* is the PLANNED value
+    (``pd.param.value``, #726); *sfx* is the pre-formatted tolerance suffix, interleaved
+    after the value (``17 ±0.2 A/F`` — the tolerance rides the number, not the ``A/F``
+    qualifier). Formatting lives in the render layer, not on the IR feature (ADR 0013 §7)."""
+    return f"{_fmt(across)}{sfx} A/F"
 
 
-def render_flats(dwg, model, a, *, ctx) -> int:
+def render_flats(dwg, groups, a, *, ctx) -> int:
     """Machined-flat callouts (#148b): a leader from a flat truncating round stock to its
     ``{across} A/F`` label, in the view down the stock axis (a Z-axis bar reads in the plan).
     Flats sharing an axis and across-flats size — the faces of a double-D or hex — share ONE
     callout. The leader runs diagonally out of the flat into clear margin, and is dropped
-    (lint, not silently) if it would overprint placed geometry. Returns the count placed."""
-    reach = _leader_callout_reach(dwg.draft)
-    view_of = {"z": "plan", "x": "side", "y": "front"}
-    flats = [f for f in model.features if f.kind == "flat"]
-    groups: dict = {}
-    for fl in flats:
-        groups.setdefault((fl.axis, round(fl.across, 3)), []).append(fl)
-    jobs = []
-    for gi, ((axis, across), members) in enumerate(sorted(groups.items())):
-        view = view_of.get(axis)
-        if view is None:
+    (lint, not silently) if it would overprint placed geometry. Returns the count placed.
+
+    Planner-fed (#726 / #698): the across-flats VALUE + its tolerance come from the
+    planner's ``DimParameter``, bound explicitly by ``(role, kind)`` — formatting
+    ``fl.across`` directly dropped an authored tolerance (the #629 class). The shared
+    double-D/hex collapse stays render-side (planner-side grouping out of scope, #698);
+    first-authored tolerance wins across grouped members (the ``render_diameters``
+    precedent). ``g.view`` is safe: a FlatFeature's frame axis IS its stock axis (both
+    ``detect.py`` and ``declare.flat`` build ``Frame(…, axis)``), and ``_END_ON`` matches
+    the pass's old z→plan / x→side / y→front map exactly."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    collapse: dict = {}
+    for g in (g for g in groups if g.feature_kind == "flat"):
+        pd = next(
+            (d for d in g.dims if (d.param.role, d.param.kind) == ("flat", "length")),
+            None,
+        )
+        if pd is None or pd.suppressed:
             continue
+        collapse.setdefault((g.feature.axis, round(pd.param.value, 3)), []).append((g, pd))
+    jobs = []
+    for gi, ((axis, _across), members) in enumerate(sorted(collapse.items())):
+        ordered = sorted(members, key=lambda gp: gp[0].feature.frame.origin)
+        view = ordered[0][0].view
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        ordered = sorted(members, key=lambda f: f.frame.origin)
+        tol = next(
+            (pd.param.tolerance for _, pd in ordered if pd.param.tolerance is not None), None
+        )
         jobs.append(
             (
                 f"m_flat_{axis}{gi}",
                 view,
                 vb,
-                _flat_label(across),
-                _corner_candidates(dwg, view, vb, ordered, reach),
+                _flat_label(ordered[0][1].param.value, _tol_suffix(tol, draft)),
+                _corner_candidates(dwg, view, vb, [g.feature for g, _ in ordered], reach),
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="flat", drop_code="flat_dropped", ctx=ctx)

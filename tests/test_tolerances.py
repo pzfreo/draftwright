@@ -17,7 +17,7 @@ from build123d_drafting.helpers import draft_preset
 from draftwright import Sheet, build_drawing
 from draftwright._core import _tol_suffix
 from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
-from draftwright.model import PartModel, chamfer, fillet, hole, step
+from draftwright.model import PartModel, chamfer, fillet, flat, hole, step
 from draftwright.model.planner import plan_dimensions
 
 
@@ -113,6 +113,23 @@ class TestPlannerDecorations:
         assert pd.param.tolerance == 0.1
         assert not pd.suppressed
         assert g.view == "plan"  # frame axis == edge axis; a Z-edge fillet reads in the plan
+
+    def test_flat_dim_is_leader_with_folded_tolerance(self):
+        # #726: the across-flats size routes through the planner — convention "leader",
+        # with an authored decoration folded onto DimParameter.tolerance (kind "length").
+        fl = flat(axis="z", across=17, at=(7, 0, 0))
+        model = PartModel(
+            bbox=Cylinder(10, 30).bounding_box(),
+            orientation=None,
+            features=[fl],
+            decorations={(fl, "length"): 0.2},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "flat")
+        (pd,) = g.dims
+        assert pd.convention == "leader"
+        assert pd.param.tolerance == 0.2
+        assert not pd.suppressed
+        assert g.view == "plan"  # frame axis == stock axis; a Z-bar flat reads in the plan
 
 
 class TestCalloutRendering:
@@ -327,6 +344,36 @@ class TestFilletTolerance:
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_fillet")
         ]
         assert labels == ["R8"], labels
+
+
+class TestFlatTolerance:
+    """#726 (the #629 class, latent): a machined flat's authored across-flats tolerance
+    must render on the placed A/F callout — the pass now consumes the planner's
+    DimensionGroups. The suffix interleaves after the value (the tolerance rides the
+    number, not the A/F qualifier)."""
+
+    @staticmethod
+    def _flatted_bar():
+        # A D-shaft: Z round stock with one milled flat at x = 7 (across = 7 + 10 = 17).
+        return Cylinder(10, 30) - Pos(12, 0, 0) * Box(10, 40, 40)
+
+    def test_authored_flat_tolerance_renders_on_callout(self):
+        fl = flat(axis="z", across=17, at=(7, 0, 0))  # the flat face centre
+        dwg = build_drawing(
+            self._flatted_bar(),
+            model=[fl],
+            decorations={(fl, "length"): 0.2},
+            number="X",
+        )
+        labels = [dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_flat")]
+        assert labels == ["17 ±0.2 A/F"], labels
+
+    def test_untolerated_flat_label_unchanged(self):
+        # No decoration → the planner path is byte-identical to the old raw-field label.
+        fl = flat(axis="z", across=17, at=(7, 0, 0))
+        dwg = build_drawing(self._flatted_bar(), model=[fl], number="X")
+        labels = [dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_flat")]
+        assert labels == ["17 A/F"], labels
 
 
 class TestToleranceHandle:
