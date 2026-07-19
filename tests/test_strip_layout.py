@@ -1311,8 +1311,13 @@ def test_leader_decoration_stages_follow_the_drain():
     from draftwright.annotations.orchestrator import _PASS_SEQUENCE
 
     drain = _PASS_SEQUENCE.index("drain")
+    section = _PASS_SEQUENCE.index("section")
     for stage in ("chamfers", "fillets", "flats", "pockets", "grooves"):
-        assert _PASS_SEQUENCE.index(stage) > drain, (
-            f"{stage!r} must place after the drain — decoration never starves a "
-            "principal dim (#733)"
+        i = _PASS_SEQUENCE.index(stage)
+        # After the drain (principals exist first) but BEFORE the section/details/
+        # title block, which must see the callouts as obstacles (Codex review).
+        assert drain < i < section, (
+            f"{stage!r} must place after the drain and before the section — decoration "
+            "never starves a principal dim, and later views must see it (#733)"
         )
+    assert section < _PASS_SEQUENCE.index("details") < _PASS_SEQUENCE.index("title_block")

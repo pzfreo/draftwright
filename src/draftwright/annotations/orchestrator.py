@@ -429,8 +429,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_off_axis_along():
         # Side-drilled (X/Y-axis) hole HEIGHT locations — queued after the mandatory
         # envelope candidates so below/right corridors solve them together with GD&T/PMI
-        # at the drain. The front-right prismatic height ladder remains immediate because
-        # its later witness bases depend on earlier placed tiers (#477).
+        # at the drain. (The front-right height ladder's leapfrog witness chain — #477 —
+        # survives inside its candidates' build closures since #636; nothing here
+        # places immediately.)
         if feature_keys:
             _locate_off_axis_holes(dwg, ctx, a, which="along")
 
