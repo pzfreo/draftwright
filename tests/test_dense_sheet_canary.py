@@ -12,11 +12,12 @@ and the decoration (pocket/fillet dims) is what gets shed, never a principal.
 
 This is the fast-tier tripwire for that guarantee. The synthetic part below double-loads
 the same strip the CTC cases do: a four-step tower stacks a step-height chain + overall
-height on the front-view right strip, and eight blind pockets milled into the **front
-face** put competing pocket dimensions on the same strip — enough that the strip overflows
-and *something must drop*. Post-#734 the something is decoration (pockets), never a
-principal, so the sheet stays free of error-severity lint. Build time is a couple of
-seconds, so it runs on every PR.
+height on the front-view right strip, and blind pockets milled into the **front face** put
+competing pocket callouts on the same view. Pre-#734 the register-then-drain ordering let
+an immediate pocket callout claim strip room a principal needed, so a step-height dim was
+dropped (``placement_unsatisfiable``); post-#734 the principals drain and place first, so
+every principal survives and the sheet stays free of error-severity lint. Build time is a
+couple of seconds, so it runs on every PR.
 
 It is a genuine regression test, empirically calibrated against the fix, not a smoke test:
 run against the pre-#734 commit ``190e9ba`` (#636/PR #689) this exact part drops a
@@ -42,13 +43,14 @@ _N_POCKETS = 8
 
 
 def _contended_front_strip_part():
-    """A part whose front-view right strip is over-full: a step-height chain + overall
-    height (the principals) competing with eight front-face pocket dimensions (decoration).
+    """A part whose front-view right strip is contended: a step-height chain + overall
+    height (the principals) competing with front-face pocket callouts (decoration).
 
-    The four-step tower stacks the height chain on the front-right strip; the eight blind
-    pockets milled into the front face (``-Y``) add pocket dimensions to the same strip.
-    The combined demand exceeds the strip at the auto scale, so the layout must drop
-    something — and #734 guarantees it is decoration, not a principal."""
+    The four-step tower stacks the height chain on the front-right strip; the blind pockets
+    milled into the front face (``-Y``) add competing pocket callouts to the same view.
+    Pre-#734 the greedy register-then-drain ordering let a pocket callout claim strip room a
+    principal needed, dropping a step-height dim; post-#734 the principals place first and
+    all survive (#734: principals win by construction)."""
     part = Box(60, 40, 60)
     z, w = 60, 50
     for _ in range(4):  # step tower → the front-right step-height chain
@@ -83,10 +85,15 @@ def test_full_front_strip_sheds_decoration_not_principal_dims():
     assert len(steps) >= 5, f"step-height chain thinned out — expected >=5, got {steps}"
     assert all(dwg.view_of(n) == "front" for n in ["dim_height", *steps])
 
-    # 3. Non-vacuous: the strip really is over-full, so guards 1–2 aren't trivially met.
-    #    Some pockets are dimensioned (recognition works) but not all — decoration is the
-    #    thing being shed under the pressure, exactly as #734 intends.
+    # 3. Non-vacuous: the competing pocket decoration really is present, and on the SAME
+    #    (front) view as the height chain — so guards 1–2 aren't trivially met by a part
+    #    with no strip contention. (The decoration is not itself shed on main; the pre-#734
+    #    ordering is what dropped a principal — see the docstring.) Fails closed: a future
+    #    geometry change that removes the competing load would quietly turn this back into a
+    #    smoke test, and this guard trips instead.
     pockets = [n for n in anns if n.startswith("m_pocket")]
-    assert 0 < len(pockets) < _N_POCKETS, (
-        f"expected the full strip to shed some (not all) pocket decoration, got {pockets}"
+    assert pockets, "no competing pocket decoration placed — the front strip is not contended"
+    assert all(dwg.view_of(n) == "front" for n in pockets), (
+        f"pocket decoration landed off the front view — not contending the height chain: "
+        f"{[(n, dwg.view_of(n)) for n in pockets]}"
     )
