@@ -106,6 +106,9 @@ def main(
     date: str = typer.Option("", help="Date for the title block"),
     revision: str = typer.Option("A", help="Revision for the title block"),
     company: str = typer.Option("", help="Company / legal owner for the title block"),
+    frame: bool = typer.Option(
+        False, "--frame", help="Draw a sheet border; content reserves clearance inside it"
+    ),
     scale: float | None = typer.Option(
         None, help="Drawing-scale override, e.g. 5 for 5:1 or 0.5 for 1:2 (default: auto)"
     ),
@@ -242,6 +245,7 @@ def main(
         date=date,
         revision=revision,
         company=company,
+        frame=frame,
     )
     for path in _emit(dwg, formats):
         print(path)

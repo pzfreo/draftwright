@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- **Opt-in drawn sheet frame / border** (#767): `build_drawing(frame=True)` /
+  `Sheet(frame=True)` / `--frame` draws a border rectangle at the page margin. It's
+  the *content boundary* (Option B), not a rectangle over the drawing: turning it on
+  raises the effective content margin, and because `compose._layout_geometry` is the
+  single authority shared by scale/page selection **and** placement, the reservation
+  flows through `choose_scale` — so a framed drawing may pick a smaller scale / larger
+  page (ADR 0004), with content clearing the border. Default `frame=False` is
+  byte-identical (guarded by the golden + layout-cleanliness suites). The page-spanning
+  border carries an `is_sheet_frame` rider so lint skips it.
+
 ## v0.3.4 — 2026-07-20
 
 ### Changed

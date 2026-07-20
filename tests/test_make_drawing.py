@@ -14,7 +14,7 @@ from build123d import Box, Compound, Cylinder, Edge, Pos, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
 from draftwright import Drawing, build_drawing, make_drawing
-from draftwright._core import _MIN_VIEW_MM, _fmt
+from draftwright._core import _MARGIN, _MIN_VIEW_MM, _fmt
 from draftwright.analysis import (
     _converge_step_sizing,
     _is_rotational,
@@ -9260,6 +9260,56 @@ def dense_plate_dwg():
     just to read a different property). Tests that mutate the drawing (append an
     escalation, record an issue, run the resolver) must build their own."""
     return build_drawing(_dense_plate())
+
+
+class TestSheetFrame:
+    """#767: an opt-in drawn sheet border (Option B) — the border is the content boundary,
+    so turning it on RESERVES clearance that flows through scale/page selection (ADR 0004),
+    not a rectangle drawn over content. Default off ⇒ byte-identical (guarded elsewhere)."""
+
+    def test_frame_off_by_default(self):
+        dwg = build_drawing(Box(80, 60, 20))
+        assert "sheet_frame" not in dwg.annotations()
+        assert dwg._analysis.margin == _MARGIN  # no reservation
+
+    def test_frame_drawn_at_the_margin_and_content_clears_it(self):
+        dwg = build_drawing(Box(80, 60, 20), frame=True)
+        a = dwg._analysis
+        fr = dwg.get_annotation("sheet_frame")
+        assert fr is not None and getattr(fr, "is_sheet_frame", False)
+        # the border is at the _MARGIN inset, strictly within the page
+        b = fr.bounding_box()
+        assert abs(b.min.X - _MARGIN) < 0.5 and abs(b.min.Y - _MARGIN) < 0.5
+        assert (
+            abs(b.max.X - (a.PAGE_W - _MARGIN)) < 0.5 and abs(b.max.Y - (a.PAGE_H - _MARGIN)) < 0.5
+        )
+        # content reserved a band inside the border: a.margin is raised, and every view +
+        # annotation clears the inner rectangle (not merely the page).
+        assert a.margin > _MARGIN
+        inner = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+        for n, o in dwg.iter_annotations():
+            if n in ("sheet_frame", "title_block"):
+                continue
+            bb = o.bounding_box()
+            assert bb.min.X >= inner[0] - 0.5 and bb.min.Y >= inner[1] - 0.5
+            assert bb.max.X <= inner[2] + 0.5 and bb.max.Y <= inner[3] + 0.5
+
+    def test_reservation_flows_through_scale_selection(self):
+        # The border consumes layout budget BEFORE choose_scale, so the framed scale is never
+        # larger than the unframed one (monotone reservation), and the margin proves it is active.
+        part = Box(180, 130, 40)
+        a0 = build_drawing(part)._analysis
+        a1 = build_drawing(part, frame=True)._analysis
+        assert a1.margin == _MARGIN + 6.0  # _FRAME_BAND reserved
+        assert a1.SCALE <= a0.SCALE + 1e-9
+
+    def test_frame_build_is_lint_clean(self):
+        dwg = build_drawing(Box(80, 60, 20), frame=True)
+        by_code = dwg.lint_summary()["by_code"]
+        # the page-spanning border must not trip overlap / bounds lint
+        assert by_code.get("annotation_overlap", 0) == 0
+        assert by_code.get("annotation_out_of_bounds", 0) == 0
+        assert by_code.get("view_annotation_overlap", 0) == 0
 
 
 class TestEscalation:

@@ -21,6 +21,7 @@ from draftwright._core import (
     _TABULATE_MIN_HOLES,
     Analysis,
     HoleRef,
+    _add_sheet_frame,
     _add_title_block,
     _concentric_with_axis,
     _fmt,
@@ -125,6 +126,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "details",
     "title_block",
     "tabulate",
+    "sheet_frame",
 )
 
 
@@ -508,6 +510,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_title_block():
         _add_title_block(dwg, a)
 
+    def _s_sheet_frame():
+        # The sheet border, drawn LAST (#767) — gated on the frame opt-in; content already
+        # reserved room via the raised a.margin, so this only draws.
+        if a.frame:
+            _add_sheet_frame(dwg, a)
+
     def _s_tabulate():
         # Escalate to a hole table when the plan view is too dense to dimension
         # every hole — runs last so the table avoids every placed annotation
@@ -545,6 +553,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "details": _s_details,
             "title_block": _s_title_block,
             "tabulate": _s_tabulate,
+            "sheet_frame": _s_sheet_frame,
         }
     )
     if ctx.trace is not None:  # snapshot the run's escalations into the trace (#736)
