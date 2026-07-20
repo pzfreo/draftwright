@@ -15,11 +15,33 @@ from a bounded strategy so shrinking reduces real geometry.
 Budget: each example is one real OCC build (~3-6 s), so the example count is
 deliberately small and the per-example deadline is disabled. This is a bounded CI
 tier, not an exhaustive sweep — the seeded tier remains the determinism gate.
+
+Reproducibility (#692): the tier is ``derandomize=True`` by default, so every run
+generates the *same* fixed 25-example set of input parts rather than a fresh random
+draw. This is the same fixed-seed philosophy as the seeded `test_layout_property.py`
+tier, and it fixes the #692 defect: previously the tier drew random examples with no
+persisted example database, so a failure surfaced on a seed-dependent *minority* of
+runs and never replayed on the next — untrustworthy as a PR gate. Now the search is
+deterministic, so within a build environment a failure recurs on every run; the input
+is also reproducible from the ``@reproduce_failure`` blob ``print_blob=True`` emits
+(the geometry it replays into is a pure function of that input — guarded by
+``test_layout_cleanliness`` — with fonts path-pinned per ADR 0006). Derandomising
+fixes input *generation*, not the OCC build result, so a genuine layout defect may
+still surface on one matrix leg (build123d/OCP versions differ across the Python legs)
+before another — the pre-existing cross-config property the seeded tier shares, not
+new flakiness this introduces.
+
+Genuine exploratory fuzzing — the shrink-and-find value that once surfaced the
+diameter-row shelf-flip bug — is opted into with ``DRAFTWRIGHT_FUZZ_EXPLORE=1 pytest
+tests/test_layout_hypothesis.py`` (``--hypothesis-seed`` does *not* override
+``derandomize``), which draws a fresh random set and can be scheduled as a nightly
+job; pin any failure it minimises as an ``@example`` here.
 """
 
 from __future__ import annotations
 
 import math
+import os
 
 import pytest
 from build123d import Align, Box, Cylinder, Pos, Rotation
@@ -46,10 +68,17 @@ _DEFECTS = {
 
 # Each example is a full build; keep the count small and disable the per-example
 # deadline (OCC builds blow any millisecond budget). too_slow/filter health checks
-# are expected here for the same reason.
+# are expected here for the same reason. `derandomize` + `print_blob` (#692) make the
+# tier a reproducible PR gate: the same fixed example set every run, and any failure
+# prints a paste-able `@reproduce_failure` blob (see the module docstring). Set
+# DRAFTWRIGHT_FUZZ_EXPLORE=1 to draw a fresh random set instead (`--hypothesis-seed`
+# does not override derandomize, so the env var is the exploration opt-in).
+_EXPLORE = os.environ.get("DRAFTWRIGHT_FUZZ_EXPLORE") == "1"
 _LAYOUT_SETTINGS = settings(
     max_examples=25,
     deadline=None,
+    derandomize=not _EXPLORE,
+    print_blob=True,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
 )
 
