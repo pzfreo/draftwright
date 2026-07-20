@@ -8527,6 +8527,56 @@ class TestPrismaticBossDiameter:
         dwg.remove(height_name)
         assert dwg.lint_summary()["by_code"]["boss_height_missing"] == 1
 
+    def test_issue_631_step_on_boss_raises(self):
+        # #631: reaching for .step(boss) declared a z-turned segment at the boss cylinder,
+        # which flipped the height ladder into turned-suppression and silently dropped the
+        # overall height (net −1 annotation, no height dim). The wrong-verb misuse must fail
+        # loudly instead — .boss() is the verb for a boss. Covers both the lone .step(boss)
+        # and the .boss(boss)+.step(boss) collision (both z-oriented on a prismatic body).
+        from draftwright import Sheet
+
+        boss = Pos(0, 0, 24) * Cylinder(14, 10)
+        part = Box(90, 64, 38) + boss
+        for extra_boss in (False, True):
+            sheet = Sheet(part, title="C")
+            sheet.envelope()
+            if extra_boss:
+                sheet.boss(boss)
+            sheet.step(boss)
+            with pytest.raises(ValueError, match="don't span this part's full height"):
+                sheet.build()
+
+    def test_issue_631_stepped_boss_on_plate_raises(self):
+        # The guard keys on the exact suppression premise (do the steps span the full
+        # height?), not a rotational classifier — so even a stepped boss whose two stacked
+        # cylinders read as a turned PROFILE, sat on a square plate, is caught: the steps
+        # cover only the boss, not the plate below, so the overall height would be dropped.
+        from draftwright import Sheet
+
+        lower = Pos(0, 0, 25) * Cylinder(35, 10)
+        upper = Pos(0, 0, 35) * Cylinder(25, 10)
+        part = Box(100, 100, 20) + lower + upper
+        sheet = Sheet(part, title="C")
+        sheet.envelope()
+        sheet.step(lower)
+        sheet.step(upper)
+        with pytest.raises(ValueError, match="don't span this part's full height"):
+            sheet.build()
+
+    def test_issue_631_interior_gap_between_steps_raises(self):
+        # Coverage is a union tiling, not a reach-to-each-end check: two z-steps that touch
+        # both ends of a z=[0,40] body but leave a 15..25 interior gap do NOT convey the
+        # full height (the gap length is unmeasured), so this must still raise.
+        from draftwright.model.declare import step
+
+        part = Pos(0, 0, 20) * Cylinder(10, 40)  # z-extent [0, 40]
+        model = [
+            step(diameter=20, length=15, at=(0, 0, 7.5), axis="z"),  # z [0, 15]
+            step(diameter=20, length=15, at=(0, 0, 32.5), axis="z"),  # z [25, 40]
+        ]
+        with pytest.raises(ValueError, match="don't span this part's full height"):
+            build_drawing(part, model=model, number="X")
+
     def test_shelled_cover_boss_diameter_not_dropped(self):
         # The regression: even forced onto A4 (scale 0.5, front view against the left
         # margin) the boss ø28 places into the clear sheet, so it never lints uncovered.
