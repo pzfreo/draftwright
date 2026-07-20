@@ -58,6 +58,13 @@
 
 ### Added
 
+- **Object-reference script workflow: docs + an inline tip** (#770/#771): a
+  generated `Sheet` script from a **live-source** input (a `module:attr` /
+  `file.py:attr` object spec, or a build123d object) now carries an inline tip
+  showing how to swap each detected-numbers line for a reference to your object
+  (ADR 0011 declare — the size is read off the object). A STEP-sourced script is
+  unchanged (byte-stable — no object to reference). The README documents the full
+  from-a-part-to-an-object-referenced-script workflow.
 - **Knurl callout verb** (#765): `sheet.diameter(shaft).knurl("0.8")` →
   `KNURL 0.8 STRAIGHT` (or `.knurl("0.8", "DIAMOND")`). Named sugar over
   `.note()` with canonical formatting — a knurl is a text callout on a leader,

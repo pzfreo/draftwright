@@ -100,11 +100,40 @@ sheet.export("plate")                                     # writes plate.pdf
 Every aspect the geometry can't carry is a declared verb: `.tolerance(±)` / `.fit("H7")`
 (ISO 286), `.finish("Ra")` (ISO 1302), `sheet.datum(letter, ref)` (ISO 5459), and
 `sheet.control(ref)` with all 14 ISO 1101 characteristics
-(`.position`/`.flatness`/`.perpendicularity`/`.circular_runout`/…), plus `sheet.note(text, ref)`
-/ `.note(text)` for free-text shop callouts (thread specs, `DEBURR`, knurl). A feature verb returns
+(`.position`/`.flatness`/`.perpendicularity`/`.circular_runout`/…), plus `.thread("M3x0.5")`
+(a tap/thread spec folded onto the hole callout), `.knurl("0.8")`, and `sheet.note(text, ref)`
+/ `.note(text)` for any other free-text shop callout (`DEBURR`, chip-relief). A feature verb returns
 a chainable handle (`sheet.hole(bore)`) that the aspect and `control(...)` verbs decorate;
 targets are placed automatically — the view and strip are derived from the referenced
 feature or face, with `view=`/`side=` overrides.
+
+### From a part to an object-referenced script
+
+`draftwright part.step --script` writes an editable `Sheet` script. When you built the part
+yourself (rather than importing a STEP), pass your **live source** as a `module:attr` (or
+`file.py:attr`) object spec, and the script binds `part` back to your real object:
+
+```bash
+draftwright mymodule:thumbwheel --script
+```
+
+The emitted values are *detected* off the geometry — honest, and a good starting point. Since
+you have the objects, swap each numbered line for a reference so the object stays the single
+source of truth (ADR 0011 — the size is read off the object, no numbers restated):
+
+```python
+# generated (detected):
+sheet.step(diameter=8, length=25, at=(0, 0, 12), axis="z")
+
+# edited to reference your objects:
+features = mymodule.thumbwheel_features()
+part = features.part
+sheet.step(features.journal)
+sheet.hole(features.m3_bore).thread("M3x0.5").finish("1.6")   # tapped + Ra on the same hole
+```
+
+An object-sourced script carries an inline tip pointing at exactly this edit; a STEP-sourced
+script keeps the detected numbers (there's no object to reference).
 
 ## What it produces
 

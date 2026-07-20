@@ -258,6 +258,7 @@ def emit_sheet_script(
     date: str = "",
     revision: str = "A",
     company: str = "",
+    object_ref: bool = False,
     formats: Sequence[str] = ("pdf",),
 ) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
@@ -313,6 +314,18 @@ def emit_sheet_script(
         f"sheet = Sheet(part, {', '.join(ctor)})",
         "",
         "# ── Features (each line is one declared feature) ──────────────────────────────",
+        # For a live-source part (#771), the values below were read off YOUR objects — point
+        # each line back at the object to keep it a single source of truth (a STEP-sourced
+        # script has no such objects, so this note is emitted only for object inputs).
+        *(
+            [
+                "# Object-reference tip: you built these objects, so swap a numbered arg for the",
+                "# object itself to read the size off it — e.g.  sheet.step(journal)  /",
+                "#  sheet.hole(m3_bore).thread('M3x0.5')  — no numbers restated (ADR 0011 declare).",
+            ]
+            if object_ref
+            else []
+        ),
         *(_feature_line(f) for f in model.features),
         "",
         "# ── Views ─────────────────────────────────────────────────────────────────────",
@@ -494,6 +507,7 @@ def generate_sheet_script(
         date=date,
         revision=revision,
         company=company,
+        object_ref=is_shape,  # a live Shape / resolved object-spec has objects to reference (#771)
         formats=formats,
     )
     py_path = f"{stem}.py"
