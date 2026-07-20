@@ -54,6 +54,20 @@ def test_dim_handle_note():
     assert nt.text == "KNURL 0.8 STRAIGHT" and nt.view == "plan"
 
 
+def test_dim_handle_knurl():
+    # #765: knurl() is sugar over note() with canonical KNURL formatting.
+    part = _part()
+    s = Sheet(part)
+    s.diameter(Pos(30, 0, 0) * Cylinder(8, 20)).knurl("0.8")
+    nt = next(f for f in s.features if f.kind == "note")
+    assert nt.text == "KNURL 0.8 STRAIGHT" and nt.view == "plan"
+
+    s2 = Sheet(part)
+    s2.diameter(Pos(30, 0, 0) * Cylinder(8, 20)).knurl("0.5", "DIAMOND")
+    nt2 = next(f for f in s2.features if f.kind == "note")
+    assert nt2.text == "KNURL 0.5 DIAMOND"
+
+
 def test_view_side_overrides_win():
     part = _part()
     s = Sheet(part)
