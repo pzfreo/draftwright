@@ -57,6 +57,7 @@ from draftwright.compose import (
 from draftwright.drawing import Drawing
 from draftwright.fonts import PLEX_MONO
 from draftwright.model import (
+    BossFeature,
     Datum,
     Feature,
     PartModel,
@@ -287,6 +288,24 @@ def _assemble(
             rot = build_rotational_feature(a)
             if rot is not None:
                 pm = replace(pm, features=[*pm.features, rot])
+        # A boss and a coincident step declared at the SAME cylinder is a wrong-verb
+        # collision (#631): the step flips the height ladder into turned-suppression and
+        # silently drops the overall height while rendering nothing itself. Fail loudly —
+        # .step() is for a turned profile, not a boss on a prismatic part.
+        steps = [f for f in pm.features if isinstance(f, StepFeature)]
+        bosses = [f for f in pm.features if isinstance(f, BossFeature)]
+        for s in steps:
+            if any(
+                s.frame.axis == b.frame.axis
+                and all(abs(a0 - b0) < 1e-6 for a0, b0 in zip(s.frame.origin, b.frame.origin))
+                and abs(s.diameter - b.diameter) < 1e-6
+                for b in bosses
+            ):
+                raise ValueError(
+                    "a boss and a step were declared at the same cylinder — use .boss() "
+                    "for an external cylinder on a prismatic part (it renders its own ø and "
+                    "height); .step() declares a segment of a turned profile."
+                )
         # PMI (STEP AP242) is likewise detection-sourced, so a declared / emitted-script model
         # carries none. When PMI annotation is on, synthesise the same imported drafting
         # annotations detection would (render_pmi reads them off the model, gated on a.pmi_mode)
