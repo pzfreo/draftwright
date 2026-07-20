@@ -116,6 +116,12 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
             suffix = f"EQ SP ON ø{_fmt(feat.bcd)} BC"
         elif feat.pattern == "grid" and feat.rows and feat.cols:
             suffix = f"({feat.rows}×{feat.cols})"
+    # A thread spec (#764) folds onto the compound callout — it lives on the bore hole
+    # (the pattern's member for a threaded array). Lead with it (the tap/thread is the
+    # defining call), then any pattern suffix: e.g. "M3x0.5" or "M3x0.5 EQ SP ON ø50 BC".
+    hole = feat.member if isinstance(feat, PatternFeature) else feat
+    thread = getattr(hole, "thread", None)
+    suffix = " ".join(p for p in (thread, suffix) if p) or None
     return {
         "diameter": bore,
         "count": count if count and count > 1 else None,

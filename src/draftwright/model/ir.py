@@ -130,6 +130,10 @@ class HoleFeature:
     # A countersink (flat-head screw seat): ``(major_diameter, included_angle°)`` or
     # ``None`` — plain tuple, the IR stays decoupled from the recogniser's type (#558).
     csink: tuple[float, float] | None = None
+    # A thread spec (tap/thread), e.g. ``"M3x0.5"`` — free text folded onto the hole's
+    # compound callout (#764). A declaration-only aspect (ADR 0011 side-layer): threads
+    # are cosmetic, rarely modelled as geometry, so there is no recogniser — declare + emit.
+    thread: str | None = None
     kind: ClassVar[str] = "hole"
 
     def parameters(self) -> list[DimParameter]:

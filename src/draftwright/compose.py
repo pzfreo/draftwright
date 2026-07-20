@@ -252,6 +252,12 @@ def _est_planned_bore_callout_width(
                 suffix = f"EQ SP ON ø{_fmt(feat.bcd)} BC"
             elif getattr(feat, "pattern", None) == "grid" and feat.rows and feat.cols:
                 suffix = f"({feat.rows}×{feat.cols})"
+        # The thread spec (#764) widens the callout — mirror hole_callout_spec so the strip
+        # reservation matches the rendered width (the #261 estimator/render agreement), else a
+        # threaded callout is reserved too narrow and dropped for "no room beside the view".
+        hole = getattr(feat, "member", feat)
+        thread = getattr(hole, "thread", None)
+        suffix = " ".join(p for p in (thread, suffix) if p) or None
 
         token_w: list[float] = []
         count = getattr(feat, "count", None)

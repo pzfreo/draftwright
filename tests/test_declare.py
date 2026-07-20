@@ -854,6 +854,64 @@ class TestCountersink:
             hole(diameter=6, at=(0, 0, 0), axis="z", csink=(14, 200))
 
 
+class TestThread:
+    """#764: a first-class thread/tap callout on a hole — an ADR-0011 declaration-only
+    aspect (threads are cosmetic, not modelled geometry, so declare + emit, no recogniser).
+    It rides the EXISTING hole compound leader (like csink) rather than a new placement path."""
+
+    def test_declare_and_fluent_carry_the_thread(self):
+        h = hole(diameter=2.5, at=(0, 0, 6), axis="z", through=True, thread="M3x0.5")
+        assert h.thread == "M3x0.5"
+        s = Sheet(Box(90, 60, 12) - Pos(0, 0, 0) * Cylinder(1.25, 12))
+        s.hole(diameter=2.5, at=(0, 0, 6), axis="z").thread("M3x0.5")
+        assert s._features[0].thread == "M3x0.5"
+
+    def test_empty_spec_rejected(self):
+        s = Sheet(Box(30, 30, 12))
+        with pytest.raises(ValueError):
+            s.hole(diameter=2.5, at=(0, 0, 6), axis="z").thread("  ")
+
+    def test_thread_folds_into_the_callout_and_is_not_dropped(self):
+        # The thread widens the callout; if the strip estimator did not reserve for it the
+        # callout would drop for "no room beside the view" (the #261 estimator/render
+        # agreement). Assert it renders, lint is clean, and the spec carries the thread.
+        from draftwright.annotations.from_model import hole_callout_spec
+        from draftwright.model import plan_dimensions
+
+        part = Box(90, 60, 12) - Pos(0, 0, 0) * Cylinder(1.25, 12)
+        dwg = build_drawing(
+            part,
+            model=[hole(diameter=2.5, at=(0, 0, 6), axis="z", through=True, thread="M3x0.5")],
+            number="X",
+        )
+        assert [n for n in dwg.annotations() if n.startswith("hc_")]  # rendered, not dropped
+        assert dwg.lint_summary()["by_code"].get("callout_dropped", 0) == 0
+        g = next(
+            g for g in plan_dimensions(dwg.model()) if getattr(g.feature, "kind", None) == "hole"
+        )
+        assert "M3x0.5" in (hole_callout_spec(g)["suffix"] or "")
+
+    def test_estimator_matches_the_rendered_width(self):
+        # The #261 invariant made explicit: the layout-tier width estimate must be >= the
+        # rendered callout width, or placement drops. This is the guard that would have
+        # caught the estimator missing the thread suffix.
+        from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
+        from draftwright.compose import _est_planned_bore_callout_width
+        from draftwright.model import plan_dimensions
+
+        part = Box(90, 60, 12) - Pos(0, 0, 0) * Cylinder(1.25, 12)
+        dwg = build_drawing(
+            part,
+            model=[hole(diameter=2.5, at=(0, 0, 6), axis="z", through=True, thread="M3x0.5")],
+            number="X",
+        )
+        groups = list(plan_dimensions(dwg.model()))
+        g = next(gg for gg in groups if getattr(gg.feature, "kind", None) == "hole")
+        rendered = callout_from_spec(hole_callout_spec(g), dwg.draft, None).callout_width
+        estimated = _est_planned_bore_callout_width(groups, dwg.draft)
+        assert estimated >= rendered  # estimator reserves at least the rendered width
+
+
 class TestPlate:
     """#577: declare a thin slab's thickness — the third ADR-0011 surface for #559."""
 

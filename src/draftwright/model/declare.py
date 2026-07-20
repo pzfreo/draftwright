@@ -219,6 +219,7 @@ def hole(
     cbore=None,
     spotface=None,
     csink=None,
+    thread=None,
     count=1,
     members=(),
 ) -> HoleFeature:
@@ -227,7 +228,8 @@ def hole(
 
     ``cbore`` / ``spotface`` are ``(diameter, depth)`` pairs; ``csink`` is a
     ``(major_diameter, included_angle)`` pair (a flat-head seat, callout ``⌵ Ø.. × ..°``);
-    ``count`` + ``members`` describe a machining-spec group drawn as one ``count×`` callout.
+    ``thread`` is a tap/thread spec string (e.g. ``"M3x0.5"``) folded onto the callout
+    (#764); ``count`` + ``members`` describe a machining-spec group drawn as one ``count×``.
 
     An object supplies *defaults*; any explicit keyword overrides that field (#451)."""
     if obj is not None:
@@ -254,6 +256,7 @@ def hole(
         cbore=cbore,
         spotface=spotface,
         csink=csink,
+        thread=thread,
     )
 
 
