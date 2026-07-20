@@ -21,6 +21,7 @@ from draftwright._core import (
     _TABULATE_MIN_HOLES,
     Analysis,
     HoleRef,
+    _add_projection_symbol,
     _add_sheet_frame,
     _add_title_block,
     _concentric_with_axis,
@@ -127,6 +128,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "title_block",
     "tabulate",
     "sheet_frame",
+    "projection_symbol",
 )
 
 
@@ -516,6 +518,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         if a.frame:
             _add_sheet_frame(dwg, a)
 
+    def _s_projection_symbol():
+        # ISO 5456-2 projection-method glyph (#769) in the reserved title-block band.
+        if a.projection:
+            _add_projection_symbol(dwg, a)
+
     def _s_tabulate():
         # Escalate to a hole table when the plan view is too dense to dimension
         # every hole — runs last so the table avoids every placed annotation
@@ -554,6 +561,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "title_block": _s_title_block,
             "tabulate": _s_tabulate,
             "sheet_frame": _s_sheet_frame,
+            "projection_symbol": _s_projection_symbol,
         }
     )
     if ctx.trace is not None:  # snapshot the run's escalations into the trace (#736)

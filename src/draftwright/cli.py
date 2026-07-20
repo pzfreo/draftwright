@@ -109,6 +109,9 @@ def main(
     frame: bool = typer.Option(
         False, "--frame", help="Draw a sheet border; content reserves clearance inside it"
     ),
+    projection: str = typer.Option(
+        "", "--projection", help="Projection-method symbol: 'third' or 'first' (default: none)"
+    ),
     scale: float | None = typer.Option(
         None, help="Drawing-scale override, e.g. 5 for 5:1 or 0.5 for 1:2 (default: auto)"
     ),
@@ -246,6 +249,7 @@ def main(
         revision=revision,
         company=company,
         frame=frame,
+        projection=projection or None,
     )
     for path in _emit(dwg, formats):
         print(path)

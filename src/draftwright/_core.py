@@ -726,6 +726,8 @@ class Analysis:
     # Draw a sheet border/frame (#767). When True, `margin` is already the reserved content
     # margin (`_content_margin(True)`), so content clears the frame drawn at `_MARGIN`.
     frame: bool = False
+    # Projection-method symbol (#769): "third" / "first" (ISO 5456-2) or None (omit).
+    projection: str | None = None
     # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so
     # the render path reuses it instead of re-running the detectors (ADR 0008 Amdt 5:
     # one inventory, detected once; #602). Typed `object` to keep _core free of a
@@ -837,6 +839,33 @@ def _add_sheet_frame(dwg, a: Analysis):
     """Add the sheet border (#767), drawn last like the title block. No-op is the caller's
     (gated on ``a.frame``)."""
     dwg.add(_make_sheet_frame(a), "sheet_frame")
+
+
+def _add_projection_symbol(dwg, a: Analysis):
+    """Place the ISO 5456-2 projection-method glyph (#769) in the reserved title-block band,
+    just above the drawn title block (deterministic empty space — the block reserves _TB_H but
+    draws shorter). Registered ``projection_symbol`` with an ``is_projection_symbol`` identity
+    rider. Unlike the page-spanning frame it is NOT lint-exempt: it's a small, well-placed glyph,
+    so lint covers it and a future mispositioning is caught. Gated on ``a.projection``."""
+    from build123d_drafting import ProjectionSymbol
+
+    sym = ProjectionSymbol(
+        a.projection,
+        draft=draft_preset(
+            font_size=dwg.draft.font_size,
+            decimal_precision=dwg.draft.decimal_precision,
+            font_path=PLEX_SANS_CONDENSED,
+        ),
+    )
+    b = sym.bounding_box()
+    bx, by = (b.min.X + b.max.X) / 2, (b.min.Y + b.max.Y) / 2
+    w, h = b.max.X - b.min.X, b.max.Y - b.min.Y
+    # Right side of the title-block column, near the top of its reserved band.
+    cx = a.PAGE_W - _TB_CLEAR - w / 2 - 3
+    cy = _TB_CLEAR + _TB_H - h / 2 - 2
+    sym = sym.locate(Location((cx - bx, cy - by, 0)))
+    sym.is_projection_symbol = True
+    dwg.add(sym, "projection_symbol")
 
 
 def _iso_bbox(dwg):
