@@ -287,6 +287,33 @@ def _assemble(
             rot = build_rotational_feature(a)
             if rot is not None:
                 pm = replace(pm, features=[*pm.features, rot])
+        # A z step declares a segment of a z-turned profile; the height ladder then suppresses
+        # the overall height on the premise the step-length chain conveys it (from_model
+        # render_height_ladder). That premise holds only if the declared steps span the part's
+        # FULL z-extent — a boss, or even a stepped boss on a plate, declared via .step()
+        # leaves the bulk unspanned, so suppression silently drops the overall height (#631).
+        # Guard on that exact condition rather than a classifier proxy (is_rotational / prof
+        # both have blind spots): raise when the z-steps don't reach both ends of the part.
+        z_steps = [f for f in pm.features if isinstance(f, StepFeature) and f.frame.axis == "z"]
+        if pm.orientation == "z" and z_steps:
+            tol = 1e-3 * max(a.z_size, 1.0)  # small absolute float epsilon, floored
+            # The step lengths convey the overall height only if the steps TILE the z-extent
+            # contiguously — a single reach to each end isn't enough (an interior gap would
+            # still leave height unconveyed). Walk the spans low→high, extending coverage.
+            spans = sorted(
+                (min(p0[2], p1[2]), max(p0[2], p1[2])) for f in z_steps for (p0, p1) in [f.span]
+            )
+            covered = a.bb.min.Z
+            for lo, hi in spans:
+                if lo <= covered + tol:
+                    covered = max(covered, hi)
+            if spans[0][0] > a.bb.min.Z + tol or covered < a.bb.max.Z - tol:
+                raise ValueError(
+                    "step() declares a segment of a turned profile, but the declared steps "
+                    "don't span this part's full height — it is not a turned (rotational) "
+                    "body. For a boss (an external cylinder on a prismatic part) use .boss() "
+                    "— it renders its own ø and height."
+                )
         # PMI (STEP AP242) is likewise detection-sourced, so a declared / emitted-script model
         # carries none. When PMI annotation is on, synthesise the same imported drafting
         # annotations detection would (render_pmi reads them off the model, gated on a.pmi_mode)
