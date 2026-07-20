@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Generated `Sheet` script round-trips `--frame` / `--zones` / `--projection`**:
+  the sheet-furniture flags added in #767/#768/#769 were not emitted into the
+  generated `Sheet(...)` constructor (nor forwarded by the CLI's `--script` path),
+  so a regenerated script dropped the border / zone ruler / projection symbol —
+  the script no longer matched the direct CLI drawing. The emitter now emits
+  `frame=True` / `zones=True` / `projection=…` when set (a plain drawing keeps a
+  clean constructor), and the CLI forwards them to `generate_sheet_script`.
+
 ### Added
 
 - **ISO 5457 zone-grid border ruler** (#768): `build_drawing(zones=True)` /

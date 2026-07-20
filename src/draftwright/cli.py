@@ -195,6 +195,9 @@ def main(
                     date=date,
                     revision=revision,
                     company=company,
+                    frame=frame,
+                    zones=zones,
+                    projection=projection or None,
                     part_expr=seam,
                     formats=tuple(formats),
                 )
@@ -212,6 +215,9 @@ def main(
                     date=date,
                     revision=revision,
                     company=company,
+                    frame=frame,
+                    zones=zones,
+                    projection=projection or None,
                     pmi=pmi.value,
                     formats=tuple(formats),
                 )

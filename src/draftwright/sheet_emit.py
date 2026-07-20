@@ -258,6 +258,9 @@ def emit_sheet_script(
     date: str = "",
     revision: str = "A",
     company: str = "",
+    frame: bool = False,
+    zones: bool = False,
+    projection: str | None = None,
     object_ref: bool = False,
     formats: Sequence[str] = ("pdf",),
 ) -> str:
@@ -300,6 +303,12 @@ def emit_sheet_script(
         ctor.append(f"revision={revision!r}")
     if company:
         ctor.append(f"company={company!r}")
+    if frame:
+        ctor.append("frame=True")
+    if zones:
+        ctor.append("zones=True")
+    if projection:
+        ctor.append(f"projection={projection!r}")
     lines = [
         _HEADER,
         "from draftwright import Sheet",
@@ -460,6 +469,9 @@ def generate_sheet_script(
     date: str = "",
     revision: str = "A",
     company: str = "",
+    frame: bool = False,
+    zones: bool = False,
+    projection: str | None = None,
     pmi: str = "off",
     part_expr: str | None = None,
     formats: Sequence[str] = ("pdf",),
@@ -507,6 +519,9 @@ def generate_sheet_script(
         date=date,
         revision=revision,
         company=company,
+        frame=frame,
+        zones=zones,
+        projection=projection,
         object_ref=is_shape,  # a live Shape / resolved object-spec has objects to reference (#771)
         formats=formats,
     )

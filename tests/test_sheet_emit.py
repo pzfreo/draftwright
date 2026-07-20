@@ -1140,6 +1140,49 @@ class TestRoundTripParity:
 
         assert fields(scripted) == fields(direct) == ("STEEL", "2026-07-20", "B", "ACME")
 
+    def test_frame_zones_projection_round_trip(self, tmp_path, monkeypatch):
+        # Script parity: --frame/--zones/--projection on the CLI must round-trip into the
+        # emitted Sheet so the regenerated drawing matches the direct build (the furniture
+        # was added in #767/#768/#769 but not wired into the emitter until now).
+        from draftwright import Sheet
+
+        flags = dict(frame=True, zones=True, projection="third")
+        step = tmp_path / "part.step"
+        export_step(_plate(), str(step))
+        direct = build_drawing(step_file=str(step), title="PART", **flags)
+
+        captured = {}
+        monkeypatch.setattr(
+            Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+        )
+        py = generate_sheet_script(str(step), out=str(tmp_path / "gen"), title="PART", **flags)
+        ctor = next(
+            line
+            for line in open(py, encoding="utf-8").read().splitlines()
+            if line.startswith("sheet = Sheet(")
+        )
+        assert "frame=True" in ctor and "zones=True" in ctor and "projection='third'" in ctor
+        exec(compile(open(py, encoding="utf-8").read(), py, "exec"), {})
+        scripted = captured["dwg"]
+
+        def furniture(dwg):
+            names = set(dwg.annotations())
+            return (
+                "sheet_frame" in names,
+                "zone_grid" in names,
+                "projection_symbol" in names,
+            )
+
+        assert furniture(scripted) == furniture(direct) == (True, True, True)
+        # a plain script carries none of them
+        plain_py = generate_sheet_script(str(step), out=str(tmp_path / "plain"), title="PART")
+        plain_ctor = next(
+            line
+            for line in open(plain_py, encoding="utf-8").read().splitlines()
+            if line.startswith("sheet = Sheet(")
+        )
+        assert "frame" not in plain_ctor and "zones" not in plain_ctor
+
     def test_grm03_vendored_fixture_full_parity(self, tmp_path, monkeypatch):
         # #707: GRM-03 (the Maquetto thumbwheel drive screw) is the real STEP that
         # surfaced "emitted Sheet != direct CLI drawing" against 0.3.3. #709 (format
