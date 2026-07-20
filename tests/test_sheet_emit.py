@@ -593,11 +593,11 @@ class TestObjectSpec:
         # object-reference idiom; a STEP-sourced script does NOT — the numbers ARE the honest
         # source and there are no objects to reference (keeps STEP scripts byte-stable).
         py = generate_sheet_script(Box(60, 40, 12), out=str(tmp_path / "shape"))
-        assert "Object-reference tip" in Path(py).read_text()
+        assert "Object-reference tip" in Path(py).read_text(encoding="utf-8")
         step = tmp_path / "p.step"
         export_step(Box(60, 40, 12), str(step))
         py2 = generate_sheet_script(str(step), out=str(tmp_path / "step"))
-        assert "Object-reference tip" not in Path(py2).read_text()
+        assert "Object-reference tip" not in Path(py2).read_text(encoding="utf-8")
 
     def test_zero_arg_factory_is_called(self, tmp_path):
         p = self._mod(tmp_path)
