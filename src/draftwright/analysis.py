@@ -470,6 +470,10 @@ def _analyse(
     pmi="off",
     model=None,
     decorations=None,
+    material="",
+    date="",
+    revision="A",
+    company="",
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -770,6 +774,10 @@ def _analyse(
         number=number,
         tolerance=tolerance,
         drawn_by=drawn_by,
+        material=material,
+        date=date,
+        revision=revision,
+        company=company,
         out=out,
         pmi=pmi_records,
         pmi_mode=pmi,

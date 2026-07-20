@@ -58,6 +58,14 @@
 
 ### Added
 
+- **Standing ISO 7200 title-block fields** (#766): `material`, `date`, `revision`,
+  and `company` (legal owner) are now first-class — settable on `build_drawing` /
+  `make_drawing`, the `Sheet(...)` constructor, and the CLI (`--material` /
+  `--date` / `--revision` / `--company`), and emitted into the generated `Sheet`
+  script when non-default so a re-run reproduces them. Defaults preserve the prior
+  output (revision `A`, the rest blank). The `revision`/`legal_owner` cells the
+  renderer previously hardcoded now flow from these. (The imperative `--script`
+  flavour's title-block round-trip of these fields is a follow-up.)
 - **First-class thread/tap callout on a hole** (#764): ``sheet.hole(...).thread("M3x0.5")``
   (and ``declare.hole(..., thread=)``) folds a tap/thread spec onto the hole's existing
   compound leader (e.g. ``ø2.5 THRU M3x0.5``) — a structured aspect that round-trips, so

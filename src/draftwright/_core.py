@@ -704,6 +704,13 @@ class Analysis:
     out: str
     pmi: list
     pmi_mode: str
+    # Standing ISO 7200 title-block fields (#766) — defaulted, so they sit after the
+    # non-default fields above. Defaults preserve the prior output: revision "A", the rest
+    # blank (the TitleBlock helper's own defaults).
+    material: str = ""
+    date: str = ""
+    revision: str = "A"
+    company: str = ""
     # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so
     # the render path reuses it instead of re-running the detectors (ADR 0008 Amdt 5:
     # one inventory, detected once; #602). Typed `object` to keep _core free of a
@@ -741,8 +748,10 @@ def _make_title_block(dwg, a: Analysis):
         scale=format_drawing_scale(a.SCALE),
         general_tolerance=a.tolerance,
         designed_by=_attribution_author(a.drawn_by),
-        revision="A",
-        legal_owner="",
+        material=a.material,
+        date=a.date,
+        revision=a.revision,
+        legal_owner=a.company,
         width=a.TB_W,
         # Title block renders in condensed sans (the tight ISO 7200 cells), a
         # different face from the monospace dimensions — so it carries its own

@@ -254,6 +254,10 @@ def emit_sheet_script(
     tolerance: str = "ISO 2768-m",
     scale=None,
     page=None,
+    material: str = "",
+    date: str = "",
+    revision: str = "A",
+    company: str = "",
     formats: Sequence[str] = ("pdf",),
 ) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
@@ -287,6 +291,14 @@ def emit_sheet_script(
         ctor.append(f"scale={scale!r}")
     if page is not None:
         ctor.append(f"page={page!r}")
+    if material:
+        ctor.append(f"material={material!r}")
+    if date:
+        ctor.append(f"date={date!r}")
+    if revision != "A":  # "A" is build_drawing's own default
+        ctor.append(f"revision={revision!r}")
+    if company:
+        ctor.append(f"company={company!r}")
     lines = [
         _HEADER,
         "from draftwright import Sheet",
@@ -431,6 +443,10 @@ def generate_sheet_script(
     drawn_by: str = "",
     scale=None,
     page=None,
+    material: str = "",
+    date: str = "",
+    revision: str = "A",
+    company: str = "",
     pmi: str = "off",
     part_expr: str | None = None,
     formats: Sequence[str] = ("pdf",),
@@ -474,6 +490,10 @@ def generate_sheet_script(
         tolerance=tolerance,
         scale=scale,
         page=page,
+        material=material,
+        date=date,
+        revision=revision,
+        company=company,
         formats=formats,
     )
     py_path = f"{stem}.py"
