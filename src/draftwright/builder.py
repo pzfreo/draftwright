@@ -296,9 +296,18 @@ def _assemble(
         # both have blind spots): raise when the z-steps don't reach both ends of the part.
         z_steps = [f for f in pm.features if isinstance(f, StepFeature) and f.frame.axis == "z"]
         if pm.orientation == "z" and z_steps:
-            zs = [z for f in z_steps for (_, _, z) in f.span]
-            tol = 1e-3 * max(a.z_size, 1.0)
-            if min(zs) > a.bb.min.Z + tol or max(zs) < a.bb.max.Z - tol:
+            tol = 1e-3 * max(a.z_size, 1.0)  # small absolute float epsilon, floored
+            # The step lengths convey the overall height only if the steps TILE the z-extent
+            # contiguously — a single reach to each end isn't enough (an interior gap would
+            # still leave height unconveyed). Walk the spans low→high, extending coverage.
+            spans = sorted(
+                (min(p0[2], p1[2]), max(p0[2], p1[2])) for f in z_steps for (p0, p1) in [f.span]
+            )
+            covered = a.bb.min.Z
+            for lo, hi in spans:
+                if lo <= covered + tol:
+                    covered = max(covered, hi)
+            if spans[0][0] > a.bb.min.Z + tol or covered < a.bb.max.Z - tol:
                 raise ValueError(
                     "step() declares a segment of a turned profile, but the declared steps "
                     "don't span this part's full height — it is not a turned (rotational) "

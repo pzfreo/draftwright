@@ -8563,6 +8563,20 @@ class TestPrismaticBossDiameter:
         with pytest.raises(ValueError, match="don't span this part's full height"):
             sheet.build()
 
+    def test_issue_631_interior_gap_between_steps_raises(self):
+        # Coverage is a union tiling, not a reach-to-each-end check: two z-steps that touch
+        # both ends of a z=[0,40] body but leave a 15..25 interior gap do NOT convey the
+        # full height (the gap length is unmeasured), so this must still raise.
+        from draftwright.model.declare import step
+
+        part = Pos(0, 0, 20) * Cylinder(10, 40)  # z-extent [0, 40]
+        model = [
+            step(diameter=20, length=15, at=(0, 0, 7.5), axis="z"),  # z [0, 15]
+            step(diameter=20, length=15, at=(0, 0, 32.5), axis="z"),  # z [25, 40]
+        ]
+        with pytest.raises(ValueError, match="don't span this part's full height"):
+            build_drawing(part, model=model, number="X")
+
     def test_shelled_cover_boss_diameter_not_dropped(self):
         # The regression: even forced onto A4 (scale 0.5, front view against the left
         # margin) the boss ø28 places into the clear sheet, so it never lints uncovered.
