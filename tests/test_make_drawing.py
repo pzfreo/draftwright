@@ -8543,7 +8543,7 @@ class TestPrismaticBossDiameter:
             if extra_boss:
                 sheet.boss(boss)
             sheet.step(boss)
-            with pytest.raises(ValueError, match="not.*rotational about z"):
+            with pytest.raises(ValueError, match="not a turned"):
                 sheet.build()
 
     def test_shelled_cover_boss_diameter_not_dropped(self):

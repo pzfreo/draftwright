@@ -287,22 +287,23 @@ def _assemble(
             rot = build_rotational_feature(a)
             if rot is not None:
                 pm = replace(pm, features=[*pm.features, rot])
-        # A z-oriented step declares a segment of a z-turned profile; on a part that is
-        # not z-rotational it renders nothing yet still flips the height ladder into
-        # turned-suppression (orientation is set from any StepFeature), silently dropping
-        # the overall height (#631). Fail loudly — the caller reached for .step() on a boss.
-        # Only the z case suppresses height, and is_rotational is reliable there: it tests
-        # x≈y extent, exactly a z-turned body — so this catches .step(boss) whether or not a
-        # coincident .boss() was also declared, and never fires on a genuine z-turned part.
+        # A z-oriented step declares a segment of a z-turned profile; on a part that is not
+        # turned it renders nothing yet still flips the height ladder into turned-suppression
+        # (orientation is set from any StepFeature), silently dropping the overall height
+        # (#631). Fail loudly — the caller reached for .step() on a boss. Only the z case
+        # suppresses height, and `is_rotational or prof is not None` is the engine's own
+        # turned gate (see render_boss_heights) — permissive enough not to false-positive a
+        # perturbed z-turned part, so this catches .step(boss) with or without a coincident
+        # .boss() while never firing on a genuine turned body.
         if (
             pm.orientation == "z"
-            and not a.is_rotational
+            and not (a.is_rotational or a.prof is not None)
             and any(isinstance(f, StepFeature) for f in pm.features)
         ):
             raise ValueError(
-                "step() declares a segment of a turned profile, but this part is not "
-                "rotational about z. For a boss (an external cylinder on a prismatic part) "
-                "use .boss() — it renders its own ø and height."
+                "step() declares a segment of a turned profile, but this part is not a "
+                "turned (rotational) body. For a boss (an external cylinder on a prismatic "
+                "part) use .boss() — it renders its own ø and height."
             )
         # PMI (STEP AP242) is likewise detection-sourced, so a declared / emitted-script model
         # carries none. When PMI annotation is on, synthesise the same imported drafting
