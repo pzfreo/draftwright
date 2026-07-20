@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **`detail_view=True` no longer a silent no-op when the detail can't be placed**
+  (#630): a part whose lint recommends a detail view (`step_dim_dropped`) but whose
+  crowded band is full-width (e.g. a shelled cover's stacked face levels) can't be
+  enlarged legibly *and* still fit alongside the main views — so `detail_view=True`
+  produced a drawing byte-identical to `False`, silently ignoring the opt-in. It
+  now records a `detail_unplaceable` warning naming the reason and an actionable
+  remedy (dimension manually / move onto its own sheet), so the opt-in is
+  observable. Parts whose detail *does* fit are unchanged.
 - **Imperative `--script` round-trips the title-block fields + sheet furniture**
   (#775): the imperative flavour reproduced only title/number/tolerance/drawn_by/
   scale/page, dropping the `material`/`date`/`revision`/`company` fields (#766) and

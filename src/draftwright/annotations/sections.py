@@ -597,6 +597,19 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
                     dwg.pin(hname)
         if placed:
             n_placed += 1
+        else:
+            # (#630) A detail is only ever requested under build_drawing(detail_view=True),
+            # so a placement bail-out here means the opt-in produced nothing. Say so — with
+            # an actionable remedy — rather than returning a drawing byte-identical to
+            # detail_view=False (a full-width crowded band, e.g. a shelled cover's stacked
+            # face levels, can't be enlarged legibly and still fit alongside the main views).
+            ctx.record_issue(
+                "warning",
+                "detail_unplaceable",
+                f"{req.kind} detail view requested but could not be placed legibly on this "
+                "sheet (the crowded band is too wide to enlarge and still fit); dimension the "
+                "feature manually or move it onto its own sheet",
+            )
 
 
 def _overall_height_name(dwg, a: Analysis) -> str | None:
