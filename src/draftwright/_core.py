@@ -50,6 +50,18 @@ _log = logging.getLogger(__name__)
 
 _MARGIN = 10.0
 
+# When a sheet frame is drawn (#767), content reserves this extra band inside the border so
+# it clears the drawn line rather than sitting on it. The frame draws AT _MARGIN (the old
+# drawable boundary); content insets to _content_margin(frame).
+_FRAME_BAND = 6.0
+
+
+def _content_margin(frame: bool) -> float:
+    """The effective content margin: ``_MARGIN``, plus the frame clearance band when a sheet
+    frame is drawn (#767). Threaded into the layout authority so the reservation flows through
+    scale/page selection (ADR 0004), not just the render."""
+    return _MARGIN + (_FRAME_BAND if frame else 0.0)
+
 
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
 
@@ -711,6 +723,9 @@ class Analysis:
     date: str = ""
     revision: str = "A"
     company: str = ""
+    # Draw a sheet border/frame (#767). When True, `margin` is already the reserved content
+    # margin (`_content_margin(True)`), so content clears the frame drawn at `_MARGIN`.
+    frame: bool = False
     # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so
     # the render path reuses it instead of re-running the detectors (ADR 0008 Amdt 5:
     # one inventory, detected once; #602). Typed `object` to keep _core free of a
@@ -797,6 +812,31 @@ def _add_title_block(dwg, a: Analysis):
         _TB_CLEAR + cell["max_y"],
     )
     dwg.add(tb, "title_block")
+
+
+def _make_sheet_frame(a: Analysis) -> Compound:
+    """The sheet border rectangle (#767) — a closed outline at the ``_MARGIN`` inset (the old
+    drawable boundary). Content clears it because ``a.margin`` is the reserved content margin.
+    Carries an ``is_sheet_frame`` rider (like ``is_centerline``) so lint skips its page-spanning
+    box, and so ``get_annotation`` / a removed frame drop it cleanly."""
+    x0, y0 = _MARGIN, _MARGIN
+    x1, y1 = a.PAGE_W - _MARGIN, a.PAGE_H - _MARGIN
+    frame = Compound(
+        children=[
+            Edge.make_line(Vector(x0, y0, 0), Vector(x1, y0, 0)),
+            Edge.make_line(Vector(x1, y0, 0), Vector(x1, y1, 0)),
+            Edge.make_line(Vector(x1, y1, 0), Vector(x0, y1, 0)),
+            Edge.make_line(Vector(x0, y1, 0), Vector(x0, y0, 0)),
+        ]
+    )
+    frame.is_sheet_frame = True  # furniture, not a dimension/view — exempt from overlap lint
+    return frame
+
+
+def _add_sheet_frame(dwg, a: Analysis):
+    """Add the sheet border (#767), drawn last like the title block. No-op is the caller's
+    (gated on ``a.frame``)."""
+    dwg.add(_make_sheet_frame(a), "sheet_frame")
 
 
 def _iso_bbox(dwg):

@@ -374,6 +374,7 @@ class Sheet:
         date=None,
         revision=None,
         company=None,
+        frame=None,
     ):
         self._part = part
         self._features: list = []
@@ -404,6 +405,7 @@ class Sheet:
             ("date", date),
             ("revision", revision),
             ("company", company),
+            ("frame", frame),
         ):
             if _v is not None:
                 self._opts[_k] = _v

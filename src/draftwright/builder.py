@@ -29,6 +29,7 @@ from draftwright._core import (
     _PAGE_SIZES,
     _SCALES,
     Analysis,
+    _add_sheet_frame,
     _add_title_block,
     _iso_bbox,
     _log,
@@ -336,6 +337,8 @@ def _assemble(
     else:
         _fit_iso_view(dwg, a, annotate=False)
         _add_title_block(dwg, a)
+        if a.frame:  # sheet border, drawn last (#767) — auto path adds it via the orchestrator
+            _add_sheet_frame(dwg, a)
     return dwg
 
 
@@ -409,6 +412,7 @@ def _repack(
             section=a.layout_section,
             table_sizes=a.layout_table_sizes,
             warn_no_iso=False,
+            margin=a.margin,
         )
 
     candidates = _repack_candidates(a, scale, page)
@@ -603,6 +607,7 @@ def build_drawing(
     date: str = "",
     revision: str = "A",
     company: str = "",
+    frame: bool = False,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -690,6 +695,7 @@ def build_drawing(
         date=date,
         revision=revision,
         company=company,
+        frame=frame,
     )
 
     # Pass 1: place + annotate from the estimated layout, then measure the real
@@ -754,6 +760,7 @@ def make_drawing(
     date: str = "",
     revision: str = "A",
     company: str = "",
+    frame: bool = False,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -799,6 +806,7 @@ def make_drawing(
         date=date,
         revision=revision,
         company=company,
+        frame=frame,
     ).export()
     assert svg_path is not None and dxf_path is not None  # export() writes both by default
     return svg_path, dxf_path

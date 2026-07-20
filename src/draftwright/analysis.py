@@ -29,6 +29,7 @@ from draftwright._core import (
     _MIN_RENDER_MM,
     _MIN_VIEW_MM,
     Analysis,
+    _content_margin,
     _legible_steps,
     _Projector,
 )
@@ -409,6 +410,7 @@ def _validate_explicit_scale(
     strips_i,
     layout_section,
     layout_table_sizes,
+    margin=_MARGIN,
 ) -> None:
     """Enforce the two scale floors when the caller pinned an explicit *scale* (#489, #590 split
     of :func:`_analyse`). An explicit scale is the user's call — honour it, subject to:
@@ -441,6 +443,7 @@ def _validate_explicit_scale(
         strips=strips_i,
         section=layout_section,
         table_sizes=layout_table_sizes,
+        margin=margin,
     )
     # Warn only when omitting the scale would truly give a legible fit (auto scale itself is
     # legible) but the requested scale is below the floor. A part illegible at every
@@ -474,11 +477,16 @@ def _analyse(
     date="",
     revision="A",
     company="",
+    frame: bool = False,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
     Returns an :class:`Analysis`.
     """
+    # The content margin — raised by the sheet-frame band (#767) so scale/page selection and
+    # placement both reserve room for the border. Computed up front so the choose_scale inside
+    # step-count convergence sees it too.
+    margin = _content_margin(frame)
     if isinstance(step_file, Shape):
         part = step_file
         src = "build123d object"
@@ -609,6 +617,7 @@ def _analyse(
             strips=strips_i,
             section=layout_section,
             table_sizes=layout_table_sizes,
+            margin=margin,
         )
 
     (SCALE, PAGE_W, PAGE_H, TB_W), strips_i, n_for_sizing = _converge_step_sizing(
@@ -628,9 +637,10 @@ def _analyse(
         strips_i,
         layout_section,
         layout_table_sizes,
+        margin=margin,
     )
     DIM_PAD = _DIM_PAD
-    margin = _MARGIN
+    # margin was computed up front (_content_margin(frame)) so scale selection already saw it.
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
     n_steps = len(_legible_steps(step_zs, bb.min.Z, SCALE)[0])
     strips = _measure_strips(
@@ -656,6 +666,7 @@ def _analyse(
         n_steps,
         section=layout_section,
         table_sizes=layout_table_sizes,
+        margin=margin,
     )
     fv_hw = _g.fv_hw
     fv_hh = _g.fv_hh
@@ -778,6 +789,7 @@ def _analyse(
         date=date,
         revision=revision,
         company=company,
+        frame=frame,
         out=out,
         pmi=pmi_records,
         pmi_mode=pmi,
