@@ -63,6 +63,32 @@ def _content_margin(frame: bool) -> float:
     return _MARGIN + (_FRAME_BAND if frame else 0.0)
 
 
+# ISO 5457 zone-grid letters (vertical edges): A.. skipping I and O (confusable with 1 / 0).
+_ZONE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+# ISO 5457 reference-grid division counts (columns=numbers × rows=letters) per A-series page,
+# keyed by the full (width, height) so a same-width custom page doesn't borrow the count.
+_ZONE_DIVISIONS = {
+    (297, 210): (6, 4),
+    (420, 297): (8, 6),
+    (594, 420): (12, 8),
+    (841, 594): (16, 12),
+    (1189, 841): (24, 16),
+}
+
+
+def _zone_divisions(page_w: float, page_h: float) -> tuple[int, int]:
+    """``(columns, rows)`` for the ISO 5457 zone grid (#768) — the standard count for an
+    A-series page (matched on BOTH dimensions), else ~50 mm zones for a custom page. Rows are
+    clamped to the available letters (I/O skipped) so a very tall custom page can't over-index."""
+    std = _ZONE_DIVISIONS.get((int(round(page_w)), int(round(page_h))))
+    if std is not None:
+        return std
+    cols = max(2, round(page_w / 49.5))
+    rows = min(len(_ZONE_LETTERS), max(2, round(page_h / 49.5)))
+    return (cols, rows)
+
+
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
 
 _FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
@@ -728,6 +754,8 @@ class Analysis:
     frame: bool = False
     # Projection-method symbol (#769): "third" / "first" (ISO 5456-2) or None (omit).
     projection: str | None = None
+    # Draw the ISO 5457 zone-grid border ruler (#768). Implies a frame (the ticks sit on it).
+    zones: bool = False
     # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so
     # the render path reuses it instead of re-running the detectors (ADR 0008 Amdt 5:
     # one inventory, detected once; #602). Typed `object` to keep _core free of a
@@ -866,6 +894,53 @@ def _add_projection_symbol(dwg, a: Analysis):
     sym = sym.locate(Location((cx - bx, cy - by, 0)))
     sym.is_projection_symbol = True
     dwg.add(sym, "projection_symbol")
+
+
+def _add_zone_grid(dwg, a: Analysis):
+    """Draw the ISO 5457 zone-grid border ruler (#768) — numbers 1.. along the top/bottom
+    edges, letters A.. (skipping I/O) down the left/right — in the band between the frame
+    (at ``_MARGIN``) and the page edge. Requires ``a.frame`` (the ticks sit on the border);
+    the caller gates on ``a.zones`` and ensures the frame. Tick lines register as ``zone_grid``
+    (``is_zone_grid``); each label carries an ``is_zone_label`` rider so it is exempt from the
+    page-bounds lint (it legitimately sits outside the drawable) — but NOT from overlap lint."""
+    from build123d_drafting import Note
+
+    cols, rows = _zone_divisions(a.PAGE_W, a.PAGE_H)
+    x0, y0, x1, y1 = _MARGIN, _MARGIN, a.PAGE_W - _MARGIN, a.PAGE_H - _MARGIN
+    cw, rh = (x1 - x0) / cols, (y1 - y0) / rows
+    band = _MARGIN
+    tick = min(3.0, band * 0.6)
+    draft = draft_preset(
+        font_size=dwg.draft.font_size * 0.8,
+        decimal_precision=dwg.draft.decimal_precision,
+        font_path=PLEX_SANS_CONDENSED,
+    )
+    ticks = []
+    for i in range(1, cols):  # interior column boundaries → ticks on top + bottom edges
+        xb = x0 + i * cw
+        ticks.append(Edge.make_line(Vector(xb, y0, 0), Vector(xb, y0 - tick, 0)))
+        ticks.append(Edge.make_line(Vector(xb, y1, 0), Vector(xb, y1 + tick, 0)))
+    for j in range(1, rows):  # interior row boundaries → ticks on left + right edges
+        yb = y0 + j * rh
+        ticks.append(Edge.make_line(Vector(x0, yb, 0), Vector(x0 - tick, yb, 0)))
+        ticks.append(Edge.make_line(Vector(x1, yb, 0), Vector(x1 + tick, yb, 0)))
+    grid = Compound(children=ticks)
+    grid.is_zone_grid = True
+    dwg.add(grid, "zone_grid")
+
+    def _label(text, cx, cy, name):
+        note = Note(text, (cx, cy), draft, align=(Align.CENTER, Align.CENTER))
+        note.is_zone_label = True
+        dwg.add(note, name)
+
+    for i in range(cols):  # numbers 1.. left→right, in the bottom + top bands
+        cx = x0 + (i + 0.5) * cw
+        _label(str(i + 1), cx, y0 - band / 2, f"zone_num_b_{i}")
+        _label(str(i + 1), cx, y1 + band / 2, f"zone_num_t_{i}")
+    for j in range(rows):  # letters A.. top→bottom, in the left + right bands
+        cy = y1 - (j + 0.5) * rh
+        _label(_ZONE_LETTERS[j], x0 - band / 2, cy, f"zone_ltr_l_{j}")
+        _label(_ZONE_LETTERS[j], x1 + band / 2, cy, f"zone_ltr_r_{j}")
 
 
 def _iso_bbox(dwg):

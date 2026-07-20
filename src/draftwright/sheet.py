@@ -376,6 +376,7 @@ class Sheet:
         company=None,
         frame=None,
         projection=None,
+        zones=None,
     ):
         self._part = part
         self._features: list = []
@@ -408,6 +409,7 @@ class Sheet:
             ("company", company),
             ("frame", frame),
             ("projection", projection),
+            ("zones", zones),
         ):
             if _v is not None:
                 self._opts[_k] = _v

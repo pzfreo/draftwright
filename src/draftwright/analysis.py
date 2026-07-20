@@ -479,11 +479,14 @@ def _analyse(
     company="",
     frame: bool = False,
     projection: str | None = None,
+    zones: bool = False,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
     Returns an :class:`Analysis`.
     """
+    # The zone-grid ruler (#768) draws its ticks on the frame, so it implies one.
+    frame = frame or zones
     # The content margin — raised by the sheet-frame band (#767) so scale/page selection and
     # placement both reserve room for the border. Computed up front so the choose_scale inside
     # step-count convergence sees it too.
@@ -792,6 +795,7 @@ def _analyse(
         company=company,
         frame=frame,
         projection=projection,
+        zones=zones,
         out=out,
         pmi=pmi_records,
         pmi_mode=pmi,
