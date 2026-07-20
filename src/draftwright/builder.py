@@ -599,6 +599,10 @@ def build_drawing(
     model: Sequence[Feature] | PartModel | None = None,
     decorations: dict | None = None,
     trace: str | Path | bool | None = None,
+    material: str = "",
+    date: str = "",
+    revision: str = "A",
+    company: str = "",
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -682,6 +686,10 @@ def build_drawing(
         pmi=pmi,
         model=model,
         decorations=decorations,
+        material=material,
+        date=date,
+        revision=revision,
+        company=company,
     )
 
     # Pass 1: place + annotate from the estimated layout, then measure the real
@@ -742,6 +750,10 @@ def make_drawing(
     detail_view: bool = False,
     pmi: Literal["off", "report", "annotate"] = "off",
     assembly: bool | None = None,
+    material: str = "",
+    date: str = "",
+    revision: str = "A",
+    company: str = "",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -783,6 +795,10 @@ def make_drawing(
         detail_view=detail_view,
         pmi=pmi,
         assembly=assembly,
+        material=material,
+        date=date,
+        revision=revision,
+        company=company,
     ).export()
     assert svg_path is not None and dxf_path is not None  # export() writes both by default
     return svg_path, dxf_path

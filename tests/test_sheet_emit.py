@@ -1089,6 +1089,46 @@ class TestRoundTripParity:
 
         assert aspects(scripted) == aspects(direct)
 
+    def test_standing_title_block_fields_round_trip(self, tmp_path, monkeypatch):
+        # #766: material/date/revision/company thread through build_drawing and the emitted
+        # Sheet script reproduces them (like #474's drawn_by/tolerance). Defaults preserve
+        # the prior output: revision "A", the rest blank.
+        from draftwright import Sheet
+
+        flags = dict(material="STEEL", date="2026-07-20", revision="B", company="ACME")
+        step = tmp_path / "part.step"
+        export_step(_plate(), str(step))
+        direct = build_drawing(step_file=str(step), title="PART", **flags)
+        assert (direct._analysis.material, direct._analysis.revision) == ("STEEL", "B")
+        # defaults unchanged on a plain build (revision "A", the rest blank)
+        plain = build_drawing(step_file=str(step), title="PART")
+        assert (plain._analysis.material, plain._analysis.revision, plain._analysis.company) == (
+            "",
+            "A",
+            "",
+        )
+
+        captured = {}
+        monkeypatch.setattr(
+            Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+        )
+        py = generate_sheet_script(str(step), out=str(tmp_path / "gen"), title="PART", **flags)
+        # the emitted ctor carries the non-default fields
+        ctor = next(
+            line
+            for line in open(py, encoding="utf-8").read().splitlines()
+            if line.startswith("sheet = Sheet(")
+        )
+        assert "material='STEEL'" in ctor and "revision='B'" in ctor and "company='ACME'" in ctor
+        exec(compile(open(py, encoding="utf-8").read(), py, "exec"), {})
+        scripted = captured["dwg"]
+
+        def fields(dwg):
+            a = dwg._analysis
+            return (a.material, a.date, a.revision, a.company)
+
+        assert fields(scripted) == fields(direct) == ("STEEL", "2026-07-20", "B", "ACME")
+
     def test_grm03_vendored_fixture_full_parity(self, tmp_path, monkeypatch):
         # #707: GRM-03 (the Maquetto thumbwheel drive screw) is the real STEP that
         # surfaced "emitted Sheet != direct CLI drawing" against 0.3.3. #709 (format

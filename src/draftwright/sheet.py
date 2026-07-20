@@ -358,6 +358,10 @@ class Sheet:
         scale=None,
         page=None,
         out=None,
+        material=None,
+        date=None,
+        revision=None,
+        company=None,
     ):
         self._part = part
         self._features: list = []
@@ -381,6 +385,16 @@ class Sheet:
             self._opts["drawn_by"] = drawn_by
         if tolerance is not None:
             self._opts["tolerance"] = tolerance
+        # Standing ISO 7200 title-block fields (#766) — forward only when set, so an unset
+        # value keeps build_drawing's defaults ("" / revision "A").
+        for _k, _v in (
+            ("material", material),
+            ("date", date),
+            ("revision", revision),
+            ("company", company),
+        ):
+            if _v is not None:
+                self._opts[_k] = _v
 
     @classmethod
     def from_part(cls, part, **opts) -> Sheet:
