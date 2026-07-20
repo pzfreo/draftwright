@@ -8527,20 +8527,24 @@ class TestPrismaticBossDiameter:
         dwg.remove(height_name)
         assert dwg.lint_summary()["by_code"]["boss_height_missing"] == 1
 
-    def test_issue_631_boss_plus_coincident_step_raises(self):
-        # #631: reaching for .step(boss) alongside .boss(boss) declared a turned segment
-        # at the boss cylinder, which flipped the height ladder into turned-suppression
-        # and silently dropped the overall height (net −1 annotation). The wrong-verb
-        # collision must fail loudly instead — .boss() is the verb for a boss.
+    def test_issue_631_step_on_boss_raises(self):
+        # #631: reaching for .step(boss) declared a z-turned segment at the boss cylinder,
+        # which flipped the height ladder into turned-suppression and silently dropped the
+        # overall height (net −1 annotation, no height dim). The wrong-verb misuse must fail
+        # loudly instead — .boss() is the verb for a boss. Covers both the lone .step(boss)
+        # and the .boss(boss)+.step(boss) collision (both z-oriented on a prismatic body).
         from draftwright import Sheet
 
         boss = Pos(0, 0, 24) * Cylinder(14, 10)
-        sheet = Sheet(Box(90, 64, 38) + boss, title="C")
-        sheet.envelope()
-        sheet.boss(boss)
-        sheet.step(boss)
-        with pytest.raises(ValueError, match="same cylinder"):
-            sheet.build()
+        part = Box(90, 64, 38) + boss
+        for extra_boss in (False, True):
+            sheet = Sheet(part, title="C")
+            sheet.envelope()
+            if extra_boss:
+                sheet.boss(boss)
+            sheet.step(boss)
+            with pytest.raises(ValueError, match="not.*rotational about z"):
+                sheet.build()
 
     def test_shelled_cover_boss_diameter_not_dropped(self):
         # The regression: even forced onto A4 (scale 0.5, front view against the left
