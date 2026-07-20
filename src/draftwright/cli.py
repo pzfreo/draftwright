@@ -112,6 +112,9 @@ def main(
     projection: str = typer.Option(
         "", "--projection", help="Projection-method symbol: 'third' or 'first' (default: none)"
     ),
+    zones: bool = typer.Option(
+        False, "--zones", help="Draw the ISO 5457 zone-grid border ruler (implies --frame)"
+    ),
     scale: float | None = typer.Option(
         None, help="Drawing-scale override, e.g. 5 for 5:1 or 0.5 for 1:2 (default: auto)"
     ),
@@ -250,6 +253,7 @@ def main(
         company=company,
         frame=frame,
         projection=projection or None,
+        zones=zones,
     )
     for path in _emit(dwg, formats):
         print(path)

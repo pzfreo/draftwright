@@ -24,6 +24,7 @@ from draftwright._core import (
     _add_projection_symbol,
     _add_sheet_frame,
     _add_title_block,
+    _add_zone_grid,
     _concentric_with_axis,
     _fmt,
     _iso_bbox,
@@ -128,6 +129,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "title_block",
     "tabulate",
     "sheet_frame",
+    "zone_grid",
     "projection_symbol",
 )
 
@@ -518,6 +520,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         if a.frame:
             _add_sheet_frame(dwg, a)
 
+    def _s_zone_grid():
+        # ISO 5457 zone-grid border ruler (#768), on the frame (a.zones implies a.frame).
+        if a.zones:
+            _add_zone_grid(dwg, a)
+
     def _s_projection_symbol():
         # ISO 5456-2 projection-method glyph (#769) in the reserved title-block band.
         if a.projection:
@@ -561,6 +568,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "title_block": _s_title_block,
             "tabulate": _s_tabulate,
             "sheet_frame": _s_sheet_frame,
+            "zone_grid": _s_zone_grid,
             "projection_symbol": _s_projection_symbol,
         }
     )

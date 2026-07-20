@@ -9343,6 +9343,55 @@ class TestProjectionSymbol:
         assert by_code.get("view_annotation_overlap", 0) == 0
 
 
+class TestZoneGrid:
+    """#768: the ISO 5457 zone-grid border ruler — numbers along top/bottom, letters (skip
+    I/O) down the sides, in the band between the frame and the page edge. Implies a frame."""
+
+    def test_off_by_default(self):
+        dwg = build_drawing(Box(80, 60, 20))
+        assert "zone_grid" not in dwg.annotations()
+        assert not any(n.startswith("zone_") for n in dwg.annotations())
+        assert dwg._analysis.zones is False
+
+    def test_zones_imply_frame_and_have_iso_counts(self):
+        from draftwright._core import _zone_divisions
+
+        dwg = build_drawing(Box(80, 60, 20), zones=True)
+        a = dwg._analysis
+        assert a.zones and a.frame  # zones imply the frame the ticks sit on
+        assert "zone_grid" in dwg.annotations()
+        cols, rows = _zone_divisions(a.PAGE_W, a.PAGE_H)
+        nums = [n for n in dwg.annotations() if n.startswith("zone_num_")]
+        ltrs = [n for n in dwg.annotations() if n.startswith("zone_ltr_")]
+        assert len(nums) == cols * 2 and len(ltrs) == rows * 2  # both edges
+
+    def test_labels_sit_in_the_border_band(self):
+        dwg = build_drawing(Box(80, 60, 20), zones=True)
+        a = dwg._analysis
+        # a bottom number is below the frame (in the [0, _MARGIN] band); a right letter is
+        # right of the frame (in the [PAGE_W - _MARGIN, PAGE_W] band).
+        nb = dwg.get_annotation("zone_num_b_0").bounding_box()
+        assert 0 <= (nb.min.Y + nb.max.Y) / 2 <= _MARGIN
+        lr = dwg.get_annotation("zone_ltr_r_0").bounding_box()
+        assert a.PAGE_W - _MARGIN <= (lr.min.X + lr.max.X) / 2 <= a.PAGE_W
+
+    def test_letters_skip_i_and_o(self):
+        # A1 has 12 rows → A..H then J,K,L,M (I skipped). Force the page so the count is stable.
+        dwg = build_drawing(Box(700, 500, 40), page="A1", zones=True)
+        letters = {
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("zone_ltr_l_")
+        }
+        assert "I" not in letters and "O" not in letters
+        assert {"H", "J"} <= letters  # J follows H (I skipped)
+
+    def test_zone_build_is_lint_clean(self):
+        dwg = build_drawing(Box(80, 60, 20), zones=True)
+        by_code = dwg.lint_summary()["by_code"]
+        assert by_code.get("annotation_overlap", 0) == 0
+        assert by_code.get("annotation_out_of_bounds", 0) == 0
+        assert by_code.get("view_annotation_overlap", 0) == 0
+
+
 class TestEscalation:
     """#93: a too-dense plan view auto-escalates to a hole chart + balloons."""
 

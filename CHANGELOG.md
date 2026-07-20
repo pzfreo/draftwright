@@ -4,6 +4,14 @@
 
 ### Added
 
+- **ISO 5457 zone-grid border ruler** (#768): `build_drawing(zones=True)` /
+  `Sheet(zones=True)` / `--zones` draws the grid reference system — numbers 1..
+  along the top/bottom edges, letters A.. (skipping I/O) down the sides — in the
+  band between the frame and the page edge, with the standard division count per
+  A-series page (~50 mm zones). Implies a frame (the ticks sit on it). Off by
+  default → byte-identical. The border ticks are lint-exempt like the frame; the
+  labels are exempt only from the page-bounds check (they legitimately sit outside
+  the drawable), still covered by overlap lint.
 - **Projection-method symbol** (#769): `build_drawing(projection="third"|"first")` /
   `Sheet(projection=…)` / `--projection` draws the ISO 5456-2 third-/first-angle
   glyph in the reserved title-block band (above the title block). Uses the new
