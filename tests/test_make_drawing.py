@@ -3671,6 +3671,47 @@ def test_generate_script_preserves_pmi_scale_page(tmp_path):
     assert "pmi=PMI," in content and "scale=SCALE," in content and "page=PAGE," in content
 
 
+def test_generate_script_preserves_title_block_and_furniture(tmp_path):
+    # #775: the imperative script must round-trip the standing title-block fields (#766) and
+    # the sheet furniture (frame #767 / zones #768 / projection #769) — as config fields AND
+    # threaded into the emitted build_drawing() call — so running it reproduces the CLI's
+    # drawing (the sheet flavour already round-trips these; this closes the imperative gap).
+    step = tmp_path / "p.step"
+    export_step(Box(30, 20, 10), str(step))
+    py = generate_script(
+        str(step),
+        out=str(tmp_path / "p"),
+        material="STEEL",
+        date="2026-07-20",
+        revision="B",
+        company="ACME",
+        frame=True,
+        zones=True,
+        projection="third",
+    )
+    content = Path(py).read_text(encoding="utf-8")
+    for cfg in (
+        "MATERIAL = 'STEEL'",
+        "DATE = '2026-07-20'",
+        "REVISION = 'B'",
+        "COMPANY = 'ACME'",
+        "FRAME = True",
+        "ZONES = True",
+        "PROJECTION = 'third'",
+    ):
+        assert cfg in content, cfg
+    for threaded in (
+        "material=MATERIAL,",
+        "date=DATE,",
+        "revision=REVISION,",
+        "company=COMPANY,",
+        "frame=FRAME,",
+        "zones=ZONES,",
+        "projection=PROJECTION,",
+    ):
+        assert threaded in content, threaded
+
+
 def test_generate_script_uses_modern_dict_export(tmp_path):
     # #709: the emitted export is the modern {format: path} dict form (default pdf,
     # matching the CLI / sheet flavour) — never the deprecated legacy tuple path.
