@@ -67,17 +67,26 @@ def _content_margin(frame: bool) -> float:
 _ZONE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
 
 # ISO 5457 reference-grid division counts (columns=numbers × rows=letters) per A-series page,
-# keyed by page width (draftwright pages are landscape). ~50 mm zones.
-_ZONE_DIVISIONS = {297: (6, 4), 420: (8, 6), 594: (12, 8), 841: (16, 12), 1189: (24, 16)}
+# keyed by the full (width, height) so a same-width custom page doesn't borrow the count.
+_ZONE_DIVISIONS = {
+    (297, 210): (6, 4),
+    (420, 297): (8, 6),
+    (594, 420): (12, 8),
+    (841, 594): (16, 12),
+    (1189, 841): (24, 16),
+}
 
 
 def _zone_divisions(page_w: float, page_h: float) -> tuple[int, int]:
     """``(columns, rows)`` for the ISO 5457 zone grid (#768) — the standard count for an
-    A-series page, else ~50 mm zones for a custom page (min 2 each)."""
-    std = _ZONE_DIVISIONS.get(int(round(page_w)))
+    A-series page (matched on BOTH dimensions), else ~50 mm zones for a custom page. Rows are
+    clamped to the available letters (I/O skipped) so a very tall custom page can't over-index."""
+    std = _ZONE_DIVISIONS.get((int(round(page_w)), int(round(page_h))))
     if std is not None:
         return std
-    return (max(2, round(page_w / 49.5)), max(2, round(page_h / 49.5)))
+    cols = max(2, round(page_w / 49.5))
+    rows = min(len(_ZONE_LETTERS), max(2, round(page_h / 49.5)))
+    return (cols, rows)
 
 
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance

@@ -9391,6 +9391,17 @@ class TestZoneGrid:
         assert by_code.get("annotation_out_of_bounds", 0) == 0
         assert by_code.get("view_annotation_overlap", 0) == 0
 
+    def test_custom_page_divisions_are_safe(self):
+        # Codex review: match a standard on BOTH dims (a same-width custom page must not borrow
+        # the A-series count), and clamp rows to the available letters so a tall page can't
+        # index past _ZONE_LETTERS.
+        from draftwright._core import _ZONE_DIVISIONS, _ZONE_LETTERS, _zone_divisions
+
+        assert _zone_divisions(420, 297) == _ZONE_DIVISIONS[(420, 297)]  # A3 unchanged
+        assert _zone_divisions(297, 100) != _ZONE_DIVISIONS[(297, 210)]  # not the A4 count
+        _cols, rows = _zone_divisions(500, 3000)  # absurdly tall
+        assert rows <= len(_ZONE_LETTERS)
+
 
 class TestEscalation:
     """#93: a too-dense plan view auto-escalates to a hole chart + balloons."""
