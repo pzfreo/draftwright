@@ -58,6 +58,11 @@
 
 ### Added
 
+- **Knurl callout verb** (#765): `sheet.diameter(shaft).knurl("0.8")` →
+  `KNURL 0.8 STRAIGHT` (or `.knurl("0.8", "DIAMOND")`). Named sugar over
+  `.note()` with canonical formatting — a knurl is a text callout on a leader,
+  not modelled geometry, so it flows through the existing note path (no new
+  IR/render).
 - **Standing ISO 7200 title-block fields** (#766): `material`, `date`, `revision`,
   and `company` (legal owner) are now first-class — settable on `build_drawing` /
   `make_drawing`, the `Sheet(...)` constructor, and the CLI (`--material` /

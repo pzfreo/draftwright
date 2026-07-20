@@ -254,6 +254,18 @@ class _Dim:
         self._sheet._gdt_note(text, self._i, view=view, side=side)
         return self
 
+    def knurl(
+        self, pitch, pattern: str = "STRAIGHT", *, view: str | None = None, side: str | None = None
+    ) -> _Dim:
+        """A knurl callout on this diameter (#765) — ``diameter(shaft).knurl("0.8")`` →
+        ``KNURL 0.8 STRAIGHT``, or ``.knurl("0.8", "DIAMOND")``. Named sugar over :meth:`note`
+        (canonical formatting + discoverability): knurl is a text callout on a leader, not
+        modelled geometry, so no IR/render — it flows through the same note path. ``view``/
+        ``side`` override the derived strip."""
+        text = f"KNURL {pitch} {pattern}".strip()
+        self._sheet._gdt_note(text, self._i, view=view, side=side)
+        return self
+
 
 class _Control:
     """A fluent GD&T feature-control-frame builder (ADR 0011 P2c.2). One method per ISO 1101
