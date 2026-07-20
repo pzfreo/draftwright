@@ -435,6 +435,7 @@ def _fits(
     pack_iso_2d: bool = False,
     section: bool = False,
     table_sizes=(),
+    margin: float = _MARGIN,
 ) -> bool:
     """True if the composed 4-view footprint fits the page at this scale.
 
@@ -456,12 +457,24 @@ def _fits(
         section=section,
         table_sizes=table_sizes,
         warn_no_iso=False,
+        margin=margin,
     )
     return bool(g.fits if pack_iso_2d else g.auto_fits)
 
 
 def _bisect_fit_scale(
-    x_size, y_size, z_size, pw, ph, tb, n_steps, strips, pack_iso_2d, section=False, table_sizes=()
+    x_size,
+    y_size,
+    z_size,
+    pw,
+    ph,
+    tb,
+    n_steps,
+    strips,
+    pack_iso_2d,
+    section=False,
+    table_sizes=(),
+    margin=_MARGIN,
 ):
     """Largest scale at which the 4-view layout fits ``(pw, ph)``, found by bisection —
     the layout is monotone in scale (a smaller scale never fits worse). Used only as the
@@ -485,6 +498,7 @@ def _bisect_fit_scale(
             pack_iso_2d=pack_iso_2d,
             section=section,
             table_sizes=table_sizes,
+            margin=margin,
         ):
             lo = mid
         else:
@@ -502,6 +516,7 @@ def choose_scale(
     strips: StripDepths | None = None,
     section: bool = False,
     table_sizes=(),
+    margin: float = _MARGIN,
 ) -> tuple:
     """Return (SCALE, PAGE_W, PAGE_H, TB_W) for a 4-view layout.
 
@@ -539,6 +554,7 @@ def choose_scale(
             pack_iso_2d=True,
             section=section,
             table_sizes=table_sizes,
+            margin=margin,
         ):
             _log.warning(
                 "Requested scale %s on %s page may not fit the 4-view layout", scale, page
@@ -565,6 +581,7 @@ def choose_scale(
             pack_iso_2d=pack_iso_2d,
             section=section,
             table_sizes=table_sizes,
+            margin=margin,
         ):
             return cand
     # The ISO 5455 ladder exhausted with no standard fit (a part too large even for
@@ -586,6 +603,7 @@ def choose_scale(
             pack_iso_2d,
             section,
             table_sizes,
+            margin,
         )
         if s is not None:
             _log.warning(
@@ -758,6 +776,7 @@ def _layout_geometry(
     section: bool = False,
     table_sizes=(),
     warn_no_iso=True,
+    margin: float = _MARGIN,
 ):
     """Compute the 4-view layout geometry for a part at a given scale/page.
 
@@ -770,7 +789,9 @@ def _layout_geometry(
     step-count estimate (used during scale selection before strips are
     measured); otherwise the measured strip depths are used.
     """
-    margin = _MARGIN
+    # margin is a parameter (default _MARGIN) so a reserved content margin — e.g. the
+    # #767 sheet-frame band — flows through BOTH scale selection and placement, which
+    # share this one authority. Default keeps every existing caller byte-identical.
     DIM_PAD = _DIM_PAD
     bbox_max = max(x_size, y_size, z_size)
     fv_hw = x_size * scale / 2
