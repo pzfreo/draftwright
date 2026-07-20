@@ -1,80 +1,92 @@
 """Fast-tier dense-sheet canary for the #733 strip-pressure regression class (#737).
 
-#733 (the "height ladder joins the corridor solve" regression, #636/PR #689) dropped
-the step-height and overall-height *principal* dimensions on the NIST CTC-02/04 fixtures
-— ``placement_unsatisfiable`` **error** lint, "front-view right strip full" — and sat on
-``main`` for 12 hours because only the **slow** CTC fixtures exercise real strip pressure
+#733 (the #636 regression, PR #689 "height ladder joins the corridor solve") dropped the
+step-height and overall-height **principal** dimensions on the NIST CTC-02/04 fixtures —
+``placement_unsatisfiable`` **error** lint, *"front-view right strip full"* — and sat on
+``main`` for 12 hours because only the **slow** CTC fixtures exercise real strip pressure,
 and the slow tier runs post-merge only (#153). The PR gate never saw it.
 
-This is the fast-tier tripwire that closes that gap: one synthetic part that builds in a
-couple of seconds yet crowds the same two strips the CTC cases do —
+PR #734 fixed it *by construction*: **decoration places after the drain, so principal
+dims win** — on an over-full front-view right strip the height/step chain is placed first
+and the decoration (pocket/fillet dims) is what gets shed, never a principal.
 
-  * the **front-view right strip**, with a stacked step-height chain + overall-height dim
-    (``dim_height`` + ``dim_step_*``), the exact occupants #733 dropped; and
-  * the **below strip**, with a row of vertical holes → location dimensions under the plan
-    view (``m_locx*``).
+This is the fast-tier tripwire for that guarantee. The synthetic part below double-loads
+the same strip the CTC cases do: a four-step tower stacks a step-height chain + overall
+height on the front-view right strip, and eight blind pockets milled into the **front
+face** put competing pocket dimensions on the same strip — enough that the strip overflows
+and *something must drop*. Post-#734 the something is decoration (pockets), never a
+principal, so the sheet stays free of error-severity lint. Build time is a couple of
+seconds, so it runs on every PR.
 
-It builds *clean* today (no error-severity lint), so a #636-class regression that tightens
-the strip-capacity accounting and drops a principal dim trips it here, on the PR gate,
-instead of post-merge.
+It is a genuine regression test, empirically calibrated against the fix, not a smoke test:
+run against the pre-#734 commit ``190e9ba`` (#636/PR #689) this exact part drops a
+step-height dimension — ``placement_unsatisfiable`` "front-view right strip full", the #733
+error — while on ``main`` (post-#734) every principal survives and only pocket decoration
+is shed. So a revert of #734's drain-ordering (or any change that lets decoration outrank a
+principal on a full strip) trips this test on the PR gate instead of post-merge.
 
-Honesty note (ADR 0014; #735 scope — test-only, no solve rewrite): this is a *density*
-canary, not a byte-for-byte reproduction of the CTC-02/04 capacity edge. It raises the
-odds of catching the regression class in the fast tier; the slow CTC pair + golden corpus
-remain the authoritative oracle (#735). The build is a pure function of its input (guarded
-by ``test_layout_cleanliness``) and fonts are path-pinned (ADR 0006), so the placed set is
-deterministic across the CI matrix.
+Scope (ADR 0014; #735 — test-only, no solve rewrite): the slow CTC pair + golden corpus
+remain the authoritative oracle; this narrows the *fast-tier* gap #733 fell through. The
+build is a pure function of its input (guarded by ``test_layout_cleanliness``) and fonts
+are path-pinned (ADR 0006), so the placed set is deterministic across the CI matrix.
 """
 
 from __future__ import annotations
 
 import pytest
-from build123d import Box, Cylinder, Pos
+from build123d import Box, Pos
 
 from draftwright import build_drawing
 
+_N_POCKETS = 8
 
-def _dense_stepped_block():
-    """A stepped prismatic block that double-loads the front-right and below strips.
 
-    Six full-depth Z-steps (each 7 mm tall, well above the step-legibility floor at the
-    auto scale so none collapse) stack a six-dimension height chain on the front view's
-    right strip; a row of five through-holes drops five location dimensions under the plan
-    view. Narrow in X/Y so the whole sheet stays at scale 1.0 — the pressure can't escape
-    by rescaling, it has to be *placed*."""
-    part = Box(70, 44, 6)  # base plate
-    z, w = 6, 60
-    for _ in range(6):  # 6 legible full-depth steps → the front-right step-height chain
-        part += Pos(0, 0, z + 3.5) * Box(w, 44, 7)
-        z += 7
-        w -= 8
-    for x in (-26, -13, 0, 13, 26):  # hole row → location dims below the plan view
-        part -= Pos(x, 0, 0) * Cylinder(2.5, 200)
+def _contended_front_strip_part():
+    """A part whose front-view right strip is over-full: a step-height chain + overall
+    height (the principals) competing with eight front-face pocket dimensions (decoration).
+
+    The four-step tower stacks the height chain on the front-right strip; the eight blind
+    pockets milled into the front face (``-Y``) add pocket dimensions to the same strip.
+    The combined demand exceeds the strip at the auto scale, so the layout must drop
+    something — and #734 guarantees it is decoration, not a principal."""
+    part = Box(60, 40, 60)
+    z, w = 60, 50
+    for _ in range(4):  # step tower → the front-right step-height chain
+        part += Pos(0, 0, z + 3) * Box(w, 40, 6)
+        z += 6
+        w -= 9
+    zs = [6 + i * (48 / (_N_POCKETS - 1)) for i in range(_N_POCKETS)]
+    for i, zz in enumerate(zs):  # blind pockets in the front face → competing decoration
+        x = -18 if i % 2 == 0 else 18
+        part -= Pos(x, -20, zz) * Box(9, 10, 4)
     return part
 
 
 @pytest.mark.timeout(120)
-def test_dense_sheet_places_every_principal_dim_no_error_lint():
-    # The #733 canary. Two guards over the same build:
-    #   1. NO error-severity lint — directly catches the `placement_unsatisfiable`
-    #      "front-view right strip full" drop #733 produced.
-    #   2. The principal chain is intact — `dim_height` (overall height) plus the full
-    #      `dim_step_*` ladder on the front view, and every hole-row location dim under
-    #      the plan. A regression that drops one of these fails here even if a future
-    #      refactor were to record the drop at a non-error severity.
-    dwg = build_drawing(_dense_stepped_block())
+def test_full_front_strip_sheds_decoration_not_principal_dims():
+    # The #733 canary — the #734 "principals win by construction" guarantee, in the fast
+    # tier. Empirically calibrated: this exact part drops a step-height dim
+    # (placement_unsatisfiable, "front-view right strip full") on the pre-#734 commit
+    # 190e9ba, and is clean here on main.
+    dwg = build_drawing(_contended_front_strip_part())
     anns = set(dwg.annotations())
 
+    # 1. No error-severity lint — directly catches the #733 `placement_unsatisfiable`
+    #    "front-view right strip full" drop.
     errors = [(i.code, i.message) for i in dwg.lint() if i.severity == "error"]
-    assert not errors, f"dense sheet produced error lint (the #733 class): {errors}"
+    assert not errors, f"a principal dim was dropped from the full strip (#733 class): {errors}"
 
-    # Front-right strip: overall height + the stacked step-height chain, all on the front.
+    # 2. The principal chain is intact: overall height + the full step-height ladder, all
+    #    on the front view. (The pre-#734 commit drops one of these — see the docstring.)
     assert "dim_height" in anns, "overall-height dim dropped (front-right strip regression)"
     steps = sorted(n for n in anns if n.startswith("dim_step_"))
     assert len(steps) >= 5, f"step-height chain thinned out — expected >=5, got {steps}"
     assert all(dwg.view_of(n) == "front" for n in ["dim_height", *steps])
 
-    # Below strip: the hole-row location dimensions under the plan view.
-    locs = sorted(n for n in anns if n.startswith("m_locx"))
-    assert len(locs) == 5, f"below-strip location dims dropped — expected 5, got {locs}"
-    assert all(dwg.view_of(n) == "plan" for n in locs)
+    # 3. Non-vacuous: the strip really is over-full, so guards 1–2 aren't trivially met.
+    #    Some pockets are dimensioned (recognition works) but not all — decoration is the
+    #    thing being shed under the pressure, exactly as #734 intends.
+    pockets = [n for n in anns if n.startswith("m_pocket")]
+    assert 0 < len(pockets) < _N_POCKETS, (
+        f"expected the full strip to shed some (not all) pocket decoration, got {pockets}"
+    )
