@@ -29,6 +29,7 @@ from draftwright._core import (
     _PAGE_SIZES,
     _SCALES,
     Analysis,
+    _add_projection_symbol,
     _add_sheet_frame,
     _add_title_block,
     _iso_bbox,
@@ -339,6 +340,8 @@ def _assemble(
         _add_title_block(dwg, a)
         if a.frame:  # sheet border, drawn last (#767) — auto path adds it via the orchestrator
             _add_sheet_frame(dwg, a)
+        if a.projection:  # projection-method glyph (#769) — auto path adds it via the orchestrator
+            _add_projection_symbol(dwg, a)
     return dwg
 
 
@@ -608,6 +611,7 @@ def build_drawing(
     revision: str = "A",
     company: str = "",
     frame: bool = False,
+    projection: str | None = None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -696,6 +700,7 @@ def build_drawing(
         revision=revision,
         company=company,
         frame=frame,
+        projection=projection,
     )
 
     # Pass 1: place + annotate from the estimated layout, then measure the real
@@ -761,6 +766,7 @@ def make_drawing(
     revision: str = "A",
     company: str = "",
     frame: bool = False,
+    projection: str | None = None,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -807,6 +813,7 @@ def make_drawing(
         revision=revision,
         company=company,
         frame=frame,
+        projection=projection,
     ).export()
     assert svg_path is not None and dxf_path is not None  # export() writes both by default
     return svg_path, dxf_path

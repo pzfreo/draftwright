@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Projection-method symbol** (#769): `build_drawing(projection="third"|"first")` /
+  `Sheet(projection=…)` / `--projection` draws the ISO 5456-2 third-/first-angle
+  glyph in the reserved title-block band (above the title block). Uses the new
+  `ProjectionSymbol` primitive from build123d-drafting-helpers **0.14.1** (the pin
+  is bumped). Off by default → byte-identical; the small corner glyph carries an
+  `is_projection_symbol` rider so lint skips it.
 - **Opt-in drawn sheet frame / border** (#767): `build_drawing(frame=True)` /
   `Sheet(frame=True)` / `--frame` draws a border rectangle at the page margin. It's
   the *content boundary* (Option B), not a rectangle over the drawing: turning it on

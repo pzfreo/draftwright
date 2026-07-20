@@ -280,7 +280,11 @@ def lint_drawing(
     for item in items:
         # The sheet frame (#767) spans the page by design; a None box excludes it from every
         # pairwise overlap (like a centerline), so it doesn't "overlap" every annotation.
-        if getattr(item, "is_centerline", False) or getattr(item, "is_sheet_frame", False):
+        if (
+            getattr(item, "is_centerline", False)
+            or getattr(item, "is_sheet_frame", False)
+            or getattr(item, "is_projection_symbol", False)
+        ):
             boxes.append(None)
             continue
         boxes.append(_label_box(item))
@@ -335,8 +339,10 @@ def lint_drawing(
     # (#701: unguarded — _ann_box absorbs the fragile measure; the rest is arithmetic.)
     if page_bbox is not None:
         for item in items:
-            if getattr(item, "is_sheet_frame", False):
-                continue  # the frame sits ON the page-bounds boundary by design (#767)
+            if getattr(item, "is_sheet_frame", False) or getattr(
+                item, "is_projection_symbol", False
+            ):
+                continue  # frame/projection glyph are corner furniture, not content (#767/#769)
             bb = _ann_box(item, box_cache)
             if bb is None:
                 continue
@@ -502,8 +508,10 @@ def _lint_view_shapes(
                 continue  # a datum target sits on the part face by definition
             if getattr(ann, "is_section_hatch", False):
                 continue  # hatching is intentionally inside the section view
-            if getattr(ann, "is_sheet_frame", False):
-                continue  # the sheet border spans the page, enclosing every view (#767)
+            if getattr(ann, "is_sheet_frame", False) or getattr(
+                ann, "is_projection_symbol", False
+            ):
+                continue  # sheet border / projection glyph are corner furniture (#767/#769)
             # #701: unguarded — _label_bbox/_ann_box/_view_edge_entries absorb the
             # fragile reads; a bug in the check itself must fail loudly.
             label_box = _label_bbox(ann, warned)

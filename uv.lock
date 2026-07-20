@@ -142,15 +142,15 @@ wheels = [
 
 [[package]]
 name = "build123d-drafting-helpers"
-version = "0.14.0"
+version = "0.14.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fc/fe/efbb01fb8ef95e98d9a5c06c70de41dcba9b9b8b8e660a29a0e159830e98/build123d_drafting_helpers-0.14.0.tar.gz", hash = "sha256:1fef21679dcbdc47255d649ceb7c15208a609673bcc4964b48ba4f79aea33880", size = 344407, upload-time = "2026-07-17T20:04:24.596Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/0d/237678f424f78729954d4de118dcfc3535d5ca0119dbdab65beb673333bf/build123d_drafting_helpers-0.14.1.tar.gz", hash = "sha256:d59484d3552be73b4f8a858d8b65cd9576db2ad088d4422f75622e6ed1267109", size = 347169, upload-time = "2026-07-20T16:19:23.618Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/6d/349222330dced3fb1fe6fbec02f4c66fa52789d7f830fb1b36969b8385f5/build123d_drafting_helpers-0.14.0-py3-none-any.whl", hash = "sha256:2d129eb46fdb1cf0dace2c2368a404ce90bbe7e4e1cce35cdb72538dcffcf095", size = 286197, upload-time = "2026-07-17T20:04:23.035Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/95/454e430eae0ee20ee523297aaf1cd2ca61746e2ceb761316665b3c24610b/build123d_drafting_helpers-0.14.1-py3-none-any.whl", hash = "sha256:1669eb8a4576cf2633ca2982726f5069f15b47a1564e237e21f7b58e2ca62b0d", size = 287345, upload-time = "2026-07-20T16:19:21.762Z" },
 ]
 
 [[package]]
@@ -706,7 +706,7 @@ dev = [
 requires-dist = [
     { name = "build123d", marker = "python_full_version < '3.13'", specifier = ">=0.9.0,<0.11" },
     { name = "build123d", marker = "python_full_version >= '3.13'", specifier = ">=0.11,<0.12" },
-    { name = "build123d-drafting-helpers", specifier = ">=0.14.0" },
+    { name = "build123d-drafting-helpers", specifier = ">=0.14.1" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "pillow", specifier = ">=10" },
     { name = "pypdfium2", specifier = ">=4" },

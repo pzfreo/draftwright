@@ -478,6 +478,7 @@ def _analyse(
     revision="A",
     company="",
     frame: bool = False,
+    projection: str | None = None,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -790,6 +791,7 @@ def _analyse(
         revision=revision,
         company=company,
         frame=frame,
+        projection=projection,
         out=out,
         pmi=pmi_records,
         pmi_mode=pmi,
