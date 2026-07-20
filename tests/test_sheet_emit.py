@@ -588,6 +588,17 @@ class TestObjectSpec:
         assert "spec_from_file_location(" in seam and repr(str(p.resolve())) in seam
         assert "part = _mod.bracket" in seam
 
+    def test_object_input_emits_object_reference_tip(self, tmp_path):
+        # #771: a live-source (Shape) input gets a discoverability tip pointing at the
+        # object-reference idiom; a STEP-sourced script does NOT — the numbers ARE the honest
+        # source and there are no objects to reference (keeps STEP scripts byte-stable).
+        py = generate_sheet_script(Box(60, 40, 12), out=str(tmp_path / "shape"))
+        assert "Object-reference tip" in Path(py).read_text(encoding="utf-8")
+        step = tmp_path / "p.step"
+        export_step(Box(60, 40, 12), str(step))
+        py2 = generate_sheet_script(str(step), out=str(tmp_path / "step"))
+        assert "Object-reference tip" not in Path(py2).read_text(encoding="utf-8")
+
     def test_zero_arg_factory_is_called(self, tmp_path):
         p = self._mod(tmp_path)
         obj, seam = resolve_object_spec(f"{p}:make_bracket")
