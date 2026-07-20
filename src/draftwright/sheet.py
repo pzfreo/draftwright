@@ -27,11 +27,11 @@ slots, patterns, the overall envelope, and the auto section — plus the P2a
 #479 — which derive their target view/strip from the referenced feature or planar face), and
 **``sheet.table()``** / **``sheet.notes()``** corner-block tables (notes / revision / BOM /
 schedule, over the engine's auto-placed ``Drawing.add_table``, #488), and **``sheet.note()``** /
-**``.note()``** anchored free-text manufacturing-note leaders (thread specs, ``DEBURR``,
-chip-relief, knurl — the shop callouts detection can't infer, placed via the GD&T corridor
-machinery, #488). The remaining #445 aspect verb that still needs wiring — a structured
-``.thread`` — is deliberately **not** stubbed here yet, so the surface only exposes what
-actually draws.
+**``.note()``** anchored free-text manufacturing-note leaders (``DEBURR``, chip-relief,
+knurl — the shop callouts detection can't infer, placed via the GD&T corridor machinery,
+#488), and the structured **``.thread``** aspect (#764/#445 — a tap/thread spec folded onto
+the hole's own compound callout, so it round-trips and ``.thread(...).finish(...)`` gives
+Ra-on-thread; a declaration-only aspect, no recogniser).
 
 **Hybrid.** :meth:`Sheet.from_part` seeds the declared set from *detection*, so you
 can start from the detected model and override specific features (declaration is for
@@ -188,6 +188,15 @@ class _Hole:
         # same positivity guard declare.hole() applies to cbore/spotface (#452/#462 review)
         _require_positive(**{f"{kind} diameter": diameter, f"{kind} depth": depth})
         return (diameter, depth)
+
+    def thread(self, spec: str) -> _Hole:
+        """A thread/tap spec folded onto this hole's callout (#764). ``.thread("M3x0.5")``
+        renders the tap/thread on the bore leader (e.g. ``ø2.5 THRU M3x0.5``) — a structured
+        aspect that round-trips, so ``.thread(...).finish(...)`` gives Ra-on-thread. A
+        declaration-only aspect (threads are cosmetic, not modelled geometry — no recogniser)."""
+        if not (isinstance(spec, str) and spec.strip()):
+            raise ValueError('thread() needs a non-empty spec string, e.g. "M3x0.5"')
+        return self._set(thread=spec.strip())
 
     def finish(self, ra, *, view: str | None = None, side: str | None = None) -> _Hole:
         """A surface-finish symbol (Ra) on this hole's bore (ADR 0011 P2c). ``.finish("1.6")``

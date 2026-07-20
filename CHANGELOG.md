@@ -56,6 +56,16 @@
   `Sheet.dimension()`, extracted so `build_drawing(model=…)` callers can author
   a pre-measured drafting dimension without the `Sheet` façade.
 
+### Added
+
+- **First-class thread/tap callout on a hole** (#764): ``sheet.hole(...).thread("M3x0.5")``
+  (and ``declare.hole(..., thread=)``) folds a tap/thread spec onto the hole's existing
+  compound leader (e.g. ``ø2.5 THRU M3x0.5``) — a structured aspect that round-trips, so
+  ``.thread(...).finish(...)`` yields Ra-on-thread. A declaration-only aspect (ADR 0011
+  side-layer: threads are cosmetic, not modelled geometry — no recogniser). The layout
+  width estimator (``_est_planned_bore_callout_width``) now accounts for the thread text so
+  the wider callout is reserved room and not dropped (the #261 estimator/render agreement).
+
 ### Fixed
 
 - **Generated imperative script reconstructs side-drilled hole locations**
