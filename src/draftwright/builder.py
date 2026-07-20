@@ -287,24 +287,24 @@ def _assemble(
             rot = build_rotational_feature(a)
             if rot is not None:
                 pm = replace(pm, features=[*pm.features, rot])
-        # A z-oriented step declares a segment of a z-turned profile; on a part that is not
-        # turned it renders nothing yet still flips the height ladder into turned-suppression
-        # (orientation is set from any StepFeature), silently dropping the overall height
-        # (#631). Fail loudly — the caller reached for .step() on a boss. Only the z case
-        # suppresses height, and `is_rotational or prof is not None` is the engine's own
-        # turned gate (see render_boss_heights) — permissive enough not to false-positive a
-        # perturbed z-turned part, so this catches .step(boss) with or without a coincident
-        # .boss() while never firing on a genuine turned body.
-        if (
-            pm.orientation == "z"
-            and not (a.is_rotational or a.prof is not None)
-            and any(isinstance(f, StepFeature) for f in pm.features)
-        ):
-            raise ValueError(
-                "step() declares a segment of a turned profile, but this part is not a "
-                "turned (rotational) body. For a boss (an external cylinder on a prismatic "
-                "part) use .boss() — it renders its own ø and height."
-            )
+        # A z step declares a segment of a z-turned profile; the height ladder then suppresses
+        # the overall height on the premise the step-length chain conveys it (from_model
+        # render_height_ladder). That premise holds only if the declared steps span the part's
+        # FULL z-extent — a boss, or even a stepped boss on a plate, declared via .step()
+        # leaves the bulk unspanned, so suppression silently drops the overall height (#631).
+        # Guard on that exact condition rather than a classifier proxy (is_rotational / prof
+        # both have blind spots): raise when the z-steps don't reach both ends of the part.
+        z_steps = [f for f in pm.features if isinstance(f, StepFeature) and f.frame.axis == "z"]
+        if pm.orientation == "z" and z_steps:
+            zs = [z for f in z_steps for (_, _, z) in f.span]
+            tol = 1e-3 * max(a.z_size, 1.0)
+            if min(zs) > a.bb.min.Z + tol or max(zs) < a.bb.max.Z - tol:
+                raise ValueError(
+                    "step() declares a segment of a turned profile, but the declared steps "
+                    "don't span this part's full height — it is not a turned (rotational) "
+                    "body. For a boss (an external cylinder on a prismatic part) use .boss() "
+                    "— it renders its own ø and height."
+                )
         # PMI (STEP AP242) is likewise detection-sourced, so a declared / emitted-script model
         # carries none. When PMI annotation is on, synthesise the same imported drafting
         # annotations detection would (render_pmi reads them off the model, gated on a.pmi_mode)

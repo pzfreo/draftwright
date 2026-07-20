@@ -8543,8 +8543,25 @@ class TestPrismaticBossDiameter:
             if extra_boss:
                 sheet.boss(boss)
             sheet.step(boss)
-            with pytest.raises(ValueError, match="not a turned"):
+            with pytest.raises(ValueError, match="don't span this part's full height"):
                 sheet.build()
+
+    def test_issue_631_stepped_boss_on_plate_raises(self):
+        # The guard keys on the exact suppression premise (do the steps span the full
+        # height?), not a rotational classifier — so even a stepped boss whose two stacked
+        # cylinders read as a turned PROFILE, sat on a square plate, is caught: the steps
+        # cover only the boss, not the plate below, so the overall height would be dropped.
+        from draftwright import Sheet
+
+        lower = Pos(0, 0, 25) * Cylinder(35, 10)
+        upper = Pos(0, 0, 35) * Cylinder(25, 10)
+        part = Box(100, 100, 20) + lower + upper
+        sheet = Sheet(part, title="C")
+        sheet.envelope()
+        sheet.step(lower)
+        sheet.step(upper)
+        with pytest.raises(ValueError, match="don't span this part's full height"):
+            sheet.build()
 
     def test_shelled_cover_boss_diameter_not_dropped(self):
         # The regression: even forced onto A4 (scale 0.5, front view against the left
