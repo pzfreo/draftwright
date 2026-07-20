@@ -844,8 +844,9 @@ def _add_sheet_frame(dwg, a: Analysis):
 def _add_projection_symbol(dwg, a: Analysis):
     """Place the ISO 5456-2 projection-method glyph (#769) in the reserved title-block band,
     just above the drawn title block (deterministic empty space — the block reserves _TB_H but
-    draws shorter). Registered ``projection_symbol`` with an ``is_projection_symbol`` rider so
-    lint skips the small corner glyph. Gated on ``a.projection`` by the caller."""
+    draws shorter). Registered ``projection_symbol`` with an ``is_projection_symbol`` identity
+    rider. Unlike the page-spanning frame it is NOT lint-exempt: it's a small, well-placed glyph,
+    so lint covers it and a future mispositioning is caught. Gated on ``a.projection``."""
     from build123d_drafting import ProjectionSymbol
 
     sym = ProjectionSymbol(
