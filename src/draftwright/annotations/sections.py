@@ -597,6 +597,23 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
                     dwg.pin(hname)
         if placed:
             n_placed += 1
+        elif req.kind == "prismatic-steps":
+            # (#630) The prismatic-steps request is the one queued only under the
+            # build_drawing(detail_view=True) opt-in (_request_prismatic_detail's gate),
+            # so a bail-out here means that opt-in produced nothing. Say so — with an
+            # actionable remedy — rather than returning a drawing byte-identical to
+            # detail_view=False (a full-width crowded band, e.g. a shelled cover's stacked
+            # face levels, can't be enlarged legibly and still fit alongside the main views).
+            # The automatic turned-head requests (queued unconditionally by
+            # render_step_lengths) are NOT opt-in — their bail-out is the normal path (the
+            # main view locates the head/block inline), so they stay silent.
+            ctx.record_issue(
+                "warning",
+                "detail_unplaceable",
+                f"{req.kind} detail view requested but could not be placed legibly on this "
+                "sheet (the crowded band is too wide to enlarge and still fit); dimension the "
+                "feature manually or move it onto its own sheet",
+            )
 
 
 def _overall_height_name(dwg, a: Analysis) -> str | None:

@@ -5676,6 +5676,23 @@ class TestDetailView:
         _request_prismatic_detail(None, a, ctx=with_escalation)
         assert len(with_escalation.detail_requests) == 1
 
+    def test_unplaceable_detail_is_reported_not_silently_dropped(self):
+        # #630: on a shelled cover the crowded step band is full-width (stacked face
+        # levels), so a detail can't be enlarged legibly AND still fit — detail_view=True
+        # used to be a silent no-op (output byte-identical to False). It must now SAY SO:
+        # a `detail_unplaceable` warning that False does not carry.
+        cover = (
+            Box(90, 64, 38)
+            - Pos(0, 0, -3) * Box(84, 58, 38)
+            + Pos(0, 0, 24) * Cylinder(14, 10)
+            - Pos(0, 0, 15) * Cylinder(6, 40)
+        )
+        off = build_drawing(cover, title="Cover", detail_view=False)
+        on = build_drawing(cover, title="Cover", detail_view=True)
+        assert off.lint_summary()["by_code"].get("detail_unplaceable", 0) == 0
+        assert on.lint_summary()["by_code"].get("detail_unplaceable", 0) == 1
+        assert "detail_a" not in on.views  # genuinely couldn't place, so no empty box
+
     def test_plain_part_gets_no_detail_view(self):
         dwg = build_drawing(Box(60, 40, 20))
         assert "detail_a" not in dwg.views
