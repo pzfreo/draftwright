@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.3.4 — 2026-07-20
+
 ### Changed
 
 - **Imperative `--script` output defaults to PDF and the modern export form**
