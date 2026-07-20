@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Imperative `--script` round-trips the title-block fields + sheet furniture**
+  (#775): the imperative flavour reproduced only title/number/tolerance/drawn_by/
+  scale/page, dropping the `material`/`date`/`revision`/`company` fields (#766) and
+  the `frame`/`zones`/`projection` furniture (#767/#768/#769) — so a regenerated
+  imperative script didn't match the direct CLI. They now ride the emitted script's
+  cog config block and its `build_drawing(...)` call (the Sheet flavour already
+  round-tripped them), and the CLI forwards them to `generate_script`.
+
 ## v0.3.5 — 2026-07-20
 
 ### Fixed

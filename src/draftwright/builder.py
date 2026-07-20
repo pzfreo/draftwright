@@ -975,6 +975,13 @@ def _write_script(
             f"NUMBER = {a.number!r}",
             f"TOLERANCE = {a.tolerance!r}",
             f"DRAWN_BY = {a.drawn_by!r}",
+            f"MATERIAL = {a.material!r}",
+            f"DATE = {a.date!r}",
+            f"REVISION = {a.revision!r}",
+            f"COMPANY = {a.company!r}",
+            f"FRAME = {a.frame!r}",
+            f"ZONES = {a.zones!r}",
+            f"PROJECTION = {a.projection!r}",
             f"PMI = {a.pmi_mode!r}",
             f"SCALE = {scale!r}",
             f"PAGE = {page!r}",
@@ -989,6 +996,13 @@ def _write_script(
         f"_NUMBER    = {a.number!r}\n"
         f"_TOLERANCE = {a.tolerance!r}\n"
         f"_DRAWN_BY  = {a.drawn_by!r}\n"
+        f"_MATERIAL  = {a.material!r}\n"
+        f"_DATE      = {a.date!r}\n"
+        f"_REVISION  = {a.revision!r}\n"
+        f"_COMPANY   = {a.company!r}\n"
+        f"_FRAME     = {a.frame!r}   # draw a sheet border (#767)\n"
+        f"_ZONES     = {a.zones!r}   # ISO 5457 zone ruler (implies frame, #768)\n"
+        f"_PROJECTION = {a.projection!r}   # 'third' | 'first' | None (#769)\n"
         f"_PMI       = {a.pmi_mode!r}   # 'off' | 'report' | 'annotate'\n"
         f"_SCALE     = {scale!r}   # None = auto; e.g. 5 for 5:1, 0.5 for 1:2\n"
         f"_PAGE      = {page!r}   # None = auto; e.g. 'A3' or (297, 210)\n"
@@ -997,7 +1011,11 @@ def _write_script(
         "    for _k, _v in [\n"
         "        ('STEP_FILE', repr(_STEP_FILE)), ('TITLE', repr(_TITLE)),\n"
         "        ('NUMBER', repr(_NUMBER)), ('TOLERANCE', repr(_TOLERANCE)),\n"
-        "        ('DRAWN_BY', repr(_DRAWN_BY)), ('PMI', repr(_PMI)),\n"
+        "        ('DRAWN_BY', repr(_DRAWN_BY)), ('MATERIAL', repr(_MATERIAL)),\n"
+        "        ('DATE', repr(_DATE)), ('REVISION', repr(_REVISION)),\n"
+        "        ('COMPANY', repr(_COMPANY)), ('FRAME', repr(_FRAME)),\n"
+        "        ('ZONES', repr(_ZONES)), ('PROJECTION', repr(_PROJECTION)),\n"
+        "        ('PMI', repr(_PMI)),\n"
         "        ('SCALE', repr(_SCALE)), ('PAGE', repr(_PAGE)),\n"
         "    ]:\n"
         "        cog.outl(f'{_k} = {_v}')\n"
@@ -1042,6 +1060,13 @@ def _write_script(
         "    number=NUMBER,\n"
         "    tolerance=TOLERANCE,\n"
         "    drawn_by=DRAWN_BY,\n"
+        "    material=MATERIAL,\n"
+        "    date=DATE,\n"
+        "    revision=REVISION,\n"
+        "    company=COMPANY,\n"
+        "    frame=FRAME,\n"
+        "    zones=ZONES,\n"
+        "    projection=PROJECTION,\n"
         "    pmi=PMI,\n"
         "    scale=SCALE,\n"
         "    page=PAGE,\n"
@@ -1103,6 +1128,13 @@ def generate_script(
     pmi: Literal["off", "report", "annotate"] = "off",
     scale: float | None = None,
     page: str | None = None,
+    material: str = "",
+    date: str = "",
+    revision: str = "A",
+    company: str = "",
+    frame: bool = False,
+    zones: bool = False,
+    projection: str | None = None,
     formats: Sequence[str] = ("pdf",),
 ) -> str:
     """Generate an editable Cog-enabled drawing script from a STEP file.
@@ -1131,7 +1163,22 @@ def generate_script(
     # here too would crash generation on an out-of-range value (e.g. --script --scale
     # 0.001 / --page A9) instead of writing the script and deferring — inconsistent with
     # a large unfittable scale, which already defers (review #401).
-    a = _analyse(step_file, title, number, tolerance, drawn_by, out, pmi=pmi)
+    a = _analyse(
+        step_file,
+        title,
+        number,
+        tolerance,
+        drawn_by,
+        out,
+        pmi=pmi,
+        material=material,
+        date=date,
+        revision=revision,
+        company=company,
+        frame=frame,
+        zones=zones,
+        projection=projection,
+    )
     return _write_script(a, scale=scale, page=page, formats=formats)
 
 
