@@ -8866,17 +8866,115 @@ class TestLeaderCrossesSilhouette:
 
         return Pos(0, 0, z) * Cylinder(r, h, align=(Align.CENTER, Align.CENTER, Align.MIN))
 
-    def test_nested_boss_leader_is_flagged(self):
-        # A ø6 boss stub protruding from a ø30 flange: its leader must cross the
-        # flange body to reach the row below — an unavoidable cut, reported as an
-        # info notice (a candidate for a detail view).
+    def test_crossing_groove_leader_is_flagged(self):
+        # A thin-neck groove leader must cross a flange body to reach its label — an
+        # unavoidable cut. Grooves aren't ⌀-rerouted (#798 routes step/boss diameters),
+        # so it surfaces as an info notice.
+        part = Rotation(0, 90, 0) * (
+            self._cyl(15, 10, 0.0) + self._cyl(3, 2, 10) + self._cyl(15, 10, 12)
+        )
+        dwg = build_drawing(part, number="X")
+        issues = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
+        assert issues, "expected a leader_crosses_silhouette notice"
+        assert all(i.severity == "info" for i in issues)
+
+    def test_nested_boss_diameter_routes_to_the_clear_side(self):
+        # #798: the ø6 boss stub whose row-solved leader would cut through the ø30
+        # flange is re-routed to the clear margin instead — no crossing survives, and
+        # the ø6 is still called out on the main view as a normal m_dia leader whose
+        # elbow now sits past the part's left edge (the clear side), not in the body.
         part = Rotation(0, 90, 0) * (
             self._cyl(3, 0.5, 0.0) + self._cyl(15, 20, 0.5) + self._cyl(10, 15, 20.5)
         )
         dwg = build_drawing(part)
-        issues = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
-        assert issues, "expected a leader_crosses_silhouette notice on the nested boss"
-        assert all(i.severity == "info" for i in issues)
+        assert dwg.lint_summary()["by_code"].get("leader_crosses_silhouette", 0) == 0
+        ldr = next(
+            o
+            for n, o in dwg.iter_annotations()
+            if n.startswith("m_dia") and str(getattr(o, "label", "")) == "ø6"
+        )
+        fb = dwg.view_bounds("front")
+        assert ldr.elbow[0] <= fb[0], "ø6 leader should route to the clear left margin"
+
+    def test_grm03_end_boss_routes_off_the_body(self):
+        # The GRM-03 ø6 end boss: its row-solved leader diagonals back INTO the disc
+        # (the near-miss clip). #798 pulls an end-boss leader out to its clear margin,
+        # so its elbow ends up LEFT of the tip, not diagonally right into the body.
+        fixture = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw.step"
+        dwg = build_drawing(step_file=str(fixture))
+        ldr = next(
+            o
+            for n, o in dwg.iter_annotations()
+            if n.startswith("m_dia") and str(getattr(o, "label", "")) == "ø6"
+        )
+        assert ldr.elbow[0] < ldr.tip[0], "ø6 end-boss leader should route left, off the body"
+
+    def test_z_turned_end_boss_routes_to_the_axial_margin(self):
+        # #801 review: an m_dia_z (Z-turned) leader's axial run is page-Y, so a
+        # Z-turned end boss must route to the TOP/BOTTOM margin, not left/right. A ø6
+        # boss stub on top of a ø30 disc routes straight up to the top margin (same X
+        # as the tip) — the X-only trigger would move it sideways instead.
+        from build123d import Align
+
+        b = Align.MIN
+        part = Cylinder(15, 20, align=(Align.CENTER, Align.CENTER, b)) + Pos(0, 0, 20) * Cylinder(
+            3, 0.5, align=(Align.CENTER, Align.CENTER, b)
+        )
+        dwg = build_drawing(part)
+        assert dwg.lint_summary()["by_code"].get("leader_crosses_silhouette", 0) == 0
+        ldr = next(
+            o
+            for n, o in dwg.iter_annotations()
+            if n.startswith("m_dia_z") and str(getattr(o, "label", "")) == "ø6"
+        )
+        fb = dwg.view_bounds("front")
+        assert ldr.elbow[1] >= fb[3], "ø6 Z-turned boss should route to the top margin"
+        assert abs(ldr.elbow[0] - ldr.tip[0]) < 1e-6, "routed along the wrong (radial) axis"
+
+    def _crossing_boss_drawing(self):
+        # A built nested-boss drawing whose ø6 leader has been forced back to a
+        # crossing diagonal (build_drawing already re-routes it, so put it back).
+        from build123d_drafting import Leader
+
+        part = Rotation(0, 90, 0) * (
+            self._cyl(3, 0.5, 0.0) + self._cyl(15, 20, 0.5) + self._cyl(10, 15, 20.5)
+        )
+        dwg = build_drawing(part)
+        tip = dwg.get_annotation("m_dia_x0").tip
+        dwg.remove("m_dia_x0")
+        crossing = (tip[0] + 3.0, tip[1] - 15.0, 0.0)  # diagonal down into the flange body
+        dwg.add(
+            Leader(tip=(tip[0], tip[1], 0), elbow=crossing, label="ø6", draft=dwg.draft),
+            "m_dia_x0",
+            view="front",
+        )
+        return dwg, crossing
+
+    def test_reroute_skips_a_pinned_leader(self):
+        # A pin is the user's "this stays put" (ADR 0012) — the re-router must never
+        # move a pinned ø leader, even one that crosses.
+        from draftwright.annotations.from_model import _reroute_crossing_diameters
+
+        dwg, crossing = self._crossing_boss_drawing()
+        dwg.pin("m_dia_x0")
+        _reroute_crossing_diameters(dwg)
+        moved = dwg.get_annotation("m_dia_x0").elbow
+        assert (moved[0], moved[1]) == crossing[:2], "pinned leader moved"
+
+    def test_reroute_restores_the_leader_when_no_candidate_is_clear(self, monkeypatch):
+        # If no candidate is clear+safe, the original leader is RESTORED (Phase-1 then
+        # flags it) — a re-route must never lose the dimension.
+        from draftwright.annotations.from_model import _reroute_crossing_diameters
+
+        dwg, crossing = self._crossing_boss_drawing()
+        # force every silhouette check to "crosses", so no candidate is ever accepted
+        monkeypatch.setattr(
+            "draftwright.linting.structural._leader_shaft_hits_edges", lambda *a, **k: True
+        )
+        _reroute_crossing_diameters(dwg)
+        restored = dwg.get_annotation("m_dia_x0")
+        assert restored is not None, "leader lost by the re-route"
+        assert (restored.elbow[0], restored.elbow[1]) == crossing[:2], "leader not restored"
 
     def test_plain_stepped_shaft_is_not_flagged(self):
         # A clean turned shaft: every ⌀ leader runs outward to the row, none cut

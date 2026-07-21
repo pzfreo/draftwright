@@ -58,6 +58,10 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         ("holes", "_legible_locations"),
         # Pass-level helpers exercised directly (candidates to retarget onto the ctx seam later).
         ("from_model", "_draw_step_chain"),
+        # _reroute_crossing_diameters (#798): its pin-skip and restore-on-failure guards
+        # have no public seam (the re-route runs mid-build, before pins exist), so they
+        # are white-box unit-tested (pin a crossing leader / force no clear candidate).
+        ("from_model", "_reroute_crossing_diameters"),
         ("from_model", "_record_slot_drop"),
         ("from_model", "_record_pmi_drop"),
         ("holes", "_record_callout_drop"),

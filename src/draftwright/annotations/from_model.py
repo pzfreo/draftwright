@@ -52,6 +52,7 @@ from draftwright._core import (
     _legible_locations,
     _legible_steps,
     _log,
+    _shape_box2d,
     _solve_strip_ys,
     _text_size,
     _title_block_box,
@@ -1038,9 +1039,128 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
     start_x = _next_start("m_dia_x") if only is not None else 0
     start_z = _next_start("m_dia_z") if only is not None else 0
     trace = getattr(ctx, "trace", None)  # the immediate placers report to the trace too (#736)
-    return _diameter_row_below(
+    placed = _diameter_row_below(
         dwg, _items(row_buckets), start=start_x, trace=trace
     ) + _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace)
+    # #798: a ⌀ leader the row/column solve sent DIAGONALLY into the body — cutting
+    # the silhouette, or an end feature whose diagonal merely grazes it — is re-routed
+    # to the clear side (the margin the feature sits at). Auto-pass only: the finalize
+    # (only=) path replays recorded verbs and must not disturb pinned user dims.
+    if only is None:
+        _reroute_crossing_diameters(dwg)
+    return placed
+
+
+_REROUTE_EDGE_TOL = 2.0  # page mm: a tip this close to an axial end sits AT that end
+_REROUTE_SLACK = 1.0  # page mm: an elbow displaced this far toward the interior is "into the body"
+
+
+def _reroute_crossing_diameters(dwg) -> int:
+    """Route a turned ⌀ leader that heads INTO the part body (#798) out to the
+    nearest CLEAR margin, rather than diagonally into the body.
+
+    Two triggers, both re-routed to the clear side:
+
+    * The shaft CUTS THROUGH the body (the Phase-1 ``_leader_shaft_hits_edges``
+      discriminator) — a nested feature clipping a neighbour.
+    * An END feature (tip at the part's axial extreme, e.g. a ⌀6 boss stub) whose
+      row/column-solved elbow diagonals back INTO the body — a near-miss that reads
+      as clipping the outline even where it does not strictly cross.
+
+    Axis-aware: an ``m_dia_x`` (X-turned) leader's axial run is page-X and its clear
+    margins are left/right; an ``m_dia_z`` (Z-turned) leader's axial run is page-Y
+    and its margins are bottom/top. Candidates (near margin → straight out either way
+    along the radial axis) are kept only when the new shaft clears the outline AND the
+    rebuilt leader's LABEL stays inside the page and off every other view/annotation
+    box — so a re-route never trades an info crossing for an out-of-bounds or overlap
+    error (the shaft itself, like the row/column placers, is gated only on the
+    silhouette). If nothing is both clear and safe the leader is restored unchanged
+    (Phase-1 then flags it). A PINNED leader (ADR 0012) is never moved. Returns the
+    number re-routed."""
+    from draftwright.linting.structural import _leader_shaft_hits_edges
+
+    vs = dwg.views.get("front")
+    if not vs or vs[0] is None:
+        return 0
+    try:
+        edges = [(e, _shape_box2d(e)) for e in vs[0].edges()]
+    except Exception:  # noqa: BLE001 — an unanalysable projected shape just skips re-routing
+        return 0
+    fb = dwg.view_bounds("front")
+    if not fb:
+        return 0
+    draft = dwg.draft
+    gap = draft.font_size + 2 * draft.pad_around_text
+    page = (_MARGIN, _MARGIN, dwg.page_w - _MARGIN, dwg.page_h - _MARGIN)
+
+    def _within_page(box):
+        return box[0] >= page[0] and box[1] >= page[1] and box[2] <= page[2] and box[3] <= page[3]
+
+    rerouted = 0
+    for name in [n for n in dwg.annotations() if n.startswith(("m_dia_x", "m_dia_z"))]:
+        ldr = dwg.get_annotation(name)
+        if ldr is None or getattr(ldr, "elbow", None) is None:
+            continue
+        if dwg.registry.is_pinned(name):  # a pin is the user's "stays put" (ADR 0012)
+            continue
+        tip, elbow = ldr.tip, ldr.elbow
+        crosses = _leader_shaft_hits_edges(tip, elbow, edges)
+        ax = 0 if name.startswith("m_dia_x") else 1  # axial page axis (X row / Y column)
+        rad = 1 - ax
+        lo_b, hi_b = fb[ax], fb[ax + 2]
+        at_lo = tip[ax] - lo_b <= _REROUTE_EDGE_TOL
+        at_hi = hi_b - tip[ax] <= _REROUTE_EDGE_TOL
+        into_body = (at_lo and elbow[ax] > tip[ax] + _REROUTE_SLACK) or (
+            at_hi and elbow[ax] < tip[ax] - _REROUTE_SLACK
+        )
+        if not (crosses or into_body):
+            continue
+        # Clear-side elbows toward the CLEAR end only: the near axial margin (the end
+        # the feature sits at) first, then straight out either way along the radial
+        # axis. The far axial margin is deliberately NOT a candidate — a leader run
+        # the whole length of the part to the opposite end reads worse than the
+        # near-miss it replaces; restore-and-flag is the honest fallback instead.
+        near_a = lo_b - gap if tip[ax] - lo_b <= hi_b - tip[ax] else hi_b + gap
+
+        def _pt(a_val, r_val, _ax=ax):
+            p = [0.0, 0.0]
+            p[_ax], p[1 - _ax] = a_val, r_val
+            return (p[0], p[1])
+
+        candidates = (
+            _pt(near_a, tip[rad]),
+            _pt(tip[ax], fb[rad] - gap),
+            _pt(tip[ax], fb[rad + 2] + gap),
+        )
+        feat = dwg.registry.feature_of(name)
+        old = dwg.remove(name)  # remove first so obstacles exclude the leader being replaced
+        placed_it = False
+        try:
+            obstacles = strip_obstacles(dwg, crossable=CROSSABLE_TYPES)
+            for vis, hid in dwg.views.values():
+                for shp in (vis, hid):
+                    if shp is None:
+                        continue
+                    b = shp.bounding_box()
+                    obstacles.append((b.min.X, b.min.Y, b.max.X, b.max.Y))
+            for ex, ey in candidates:
+                if _leader_shaft_hits_edges(tip, (ex, ey), edges):
+                    continue
+                cand = Leader(
+                    tip=(tip[0], tip[1], 0), elbow=(ex, ey, 0), label=ldr.label, draft=draft
+                )
+                box = _anno_box(cand)
+                if box is None or not _within_page(box) or _box_hits(box, obstacles):
+                    continue
+                dwg.add(cand, name, view="front", feature=feat)
+                rerouted += 1
+                placed_it = True
+                break
+        except Exception:  # noqa: BLE001 — a re-route error must never lose the leader
+            placed_it = False
+        if not placed_it and dwg.get_annotation(name) is None:
+            dwg.add(old, name, view="front", feature=feat)  # restore (Phase-1 flags it)
+    return rerouted
 
 
 def _env_pd(group, role):
