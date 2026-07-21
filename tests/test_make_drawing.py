@@ -8723,6 +8723,137 @@ class TestTurnedDiameters:
         undim = {i.message.split()[2] for i in dwg.lint() if i.code == "feature_not_dimensioned"}
         assert "ø6" in undim  # only the finest band falls to honest lint
 
+    def test_leader_tip_on_the_edge_centred_on_the_feature_length(self):
+        # The ø leader lands on the step's silhouette EDGE — a full radius off the
+        # turning axis, not on it (an arrow floating on the centre line reads
+        # wrong) — and is CENTRED along the feature's length, not at a step
+        # corner (a boss/free-end anchor would otherwise put it on an end face).
+        dwg = build_drawing(_x_stepped_shaft())
+        fb = dwg.view_bounds("front")
+        axis_y = (fb[1] + fb[3]) / 2
+        by_dia = {
+            f.diameter: f
+            for f in dwg.model().features
+            if getattr(f, "diameter", None) and getattr(f, "frame", None) and f.frame.axis == "x"
+        }
+        tips = [
+            (o, float(str(o.label)[1:]))
+            for n, o in dwg.iter_annotations()
+            if n.startswith("m_dia")
+        ]
+        assert len(tips) >= 2
+        for ldr, dia in tips:
+            # radial: on the bottom edge (one radius below the axis), NOT on it
+            assert abs((axis_y - ldr.tip[1]) - dwg.scale * dia / 2) < 1e-6, (
+                f"{ldr.label} off the edge"
+            )
+            # axial: at the mid-length of the feature(s) sharing this diameter
+            ends = [e[0] for e in by_dia[dia].span]
+            exp_x = dwg.at("front", (min(ends) + max(ends)) / 2, 0, 0)[0]
+            assert abs(ldr.tip[0] - exp_x) < 1e-6, f"{ldr.label} not centred on its length"
+
+    def test_boss_leader_keeps_its_frame_origin_for_script_parity(self):
+        # Only STEP diameters are centred on their span. A boss is re-synthesised
+        # WITHOUT a declared span in the emitted-Sheet path, so — unlike a step —
+        # its ø leader must anchor at the frame origin (which round-trips) rather
+        # than a span mid, or the direct and scripted builds diverge (#707).
+        # (nested ø6 boss under the ø30 silhouette.)
+        from build123d import Align
+
+        def cyl(r, h, z):
+            return Pos(0, 0, z) * Cylinder(r, h, align=(Align.CENTER, Align.CENTER, Align.MIN))
+
+        dwg = build_drawing(
+            Rotation(0, 90, 0) * (cyl(3, 0.5, 0.0) + cyl(15, 20, 0.5) + cyl(10, 15, 20.5))
+        )
+        boss = next(
+            f
+            for f in dwg.model().features
+            if getattr(f, "diameter", None) == 6.0 and f.frame.axis == "x"
+        )
+        origin_x = dwg.at("front", boss.frame.origin[0], 0, 0)[0]
+        tip_x = next(
+            o.tip[0] for n, o in dwg.iter_annotations() if str(getattr(o, "label", "")) == "ø6"
+        )
+        assert abs(tip_x - origin_x) < 1e-6, "ø6 boss leader should anchor at its frame origin"
+
+    def test_shared_diameter_leader_centres_on_the_longest_disjoint_run(self):
+        # A ⌀ shared by DISJOINT, UNEQUAL steps (⌀20 len-5 · ⌀30 · ⌀20 len-20):
+        # the callout must centre on the LONGEST ⌀20 run (the prominent feature),
+        # not the first step in feature order — the short left run the pre-#794
+        # frame-origin anchor picked — nor the convex-hull midpoint, which falls
+        # in the ⌀30 gap, off any silhouette. This is the ONE case #794 changes:
+        # a single detected step's origin is already its own midpoint, so only a
+        # shared, unequal, disjoint ⌀ exercises the fix (fails on origin/main).
+        part = (
+            Cylinder(10, 5)
+            + Pos(0, 0, 7.5) * Cylinder(15, 10)
+            + Pos(0, 0, 22.5) * Cylinder(10, 20)
+        )
+        dwg = build_drawing(part, number="X")
+        o = next(o for n, o in dwg.iter_annotations() if str(getattr(o, "label", "")) == "ø20")
+        on_long = dwg.at("front", 0, 0, 22.5)[1]  # longest ⌀20 run (z 12.5..32.5) midpoint
+        on_short = dwg.at("front", 0, 0, 0)[1]  # short ⌀20 run (z -2.5..2.5) midpoint
+        in_gap = dwg.at("front", 0, 0, 7.5)[1]  # ⌀30 gap midpoint
+        assert abs(o.tip[1] - on_long) < 1e-6, "ø20 not centred on the longest run"
+        assert abs(o.tip[1] - on_short) > 1e-6 and abs(o.tip[1] - in_gap) > 1e-6
+
+    def test_z_column_leader_lands_on_the_left_edge(self):
+        # Cover the Z-turned column placer too (mirror of the X row): its tips sit
+        # a radius to the LEFT of the axis, on the silhouette, not on the axis.
+        dwg = build_drawing(Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(10, 30))
+        fb = dwg.view_bounds("front")
+        axis_x = (fb[0] + fb[2]) / 2
+        tips = [
+            (o, float(str(o.label)[1:]))
+            for n, o in dwg.iter_annotations()
+            if n.startswith("m_dia")
+        ]
+        assert tips, "expected a Z-column ø callout"
+        for ldr, dia in tips:
+            assert abs((axis_x - ldr.tip[0]) - dwg.scale * dia / 2) < 1e-6, (
+                f"{ldr.label} off the left edge"
+            )
+
+
+class TestDiameterStepAnchor:
+    """Unit tests for the shared-diameter leader anchor (#794 review)."""
+
+    @staticmethod
+    def _step(axis, origin, lo, hi):
+        from draftwright.model.ir import Frame, StepFeature
+
+        idx = {"x": 0, "y": 1, "z": 2}[axis]
+        p_lo, p_hi = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
+        p_lo[idx], p_hi[idx] = lo, hi
+        return StepFeature(
+            frame=Frame(tuple(origin), axis),
+            length=hi - lo,
+            diameter=10.0,
+            span=(tuple(p_lo), tuple(p_hi)),
+        )
+
+    def test_uses_the_longest_runs_own_origin_for_non_coaxial_steps(self):
+        # Two X-axis ø10 steps on DIFFERENT axes: a short run centred at y=0 and a
+        # longer run centred at y=20. The anchor must be the LONG step's own point
+        # (axial mid 30, radial y=20), not a hybrid that takes the axial from the
+        # long step and the radial from the bucket's first (short) step — which
+        # would land the arrow off the selected step's silhouette.
+        from draftwright.annotations.from_model import _diameter_step_anchor
+
+        short = self._step("x", (0.0, 0.0, 0.0), -2.5, 2.5)  # len 5, centre x=0
+        long = self._step("x", (30.0, 20.0, 0.0), 20.0, 40.0)  # len 20, centre x=30, y=20
+        # `anchor` is the FIRST-bucketed feature's origin (the short step, y=0).
+        got = _diameter_step_anchor(short.frame.origin, {short, long})
+        assert got == (30.0, 20.0, 0.0), f"hybrid/wrong anchor: {got}"
+
+    def test_no_step_in_the_group_falls_back_to_the_given_anchor(self):
+        # A boss-only ⌀ (no step span to centre on) keeps the frame origin, which
+        # round-trips through the emitted script (#707).
+        from draftwright.annotations.from_model import _diameter_step_anchor
+
+        assert _diameter_step_anchor((1.0, 2.0, 3.0), set()) == (1.0, 2.0, 3.0)
+
 
 class TestTurnedLengths:
     """Axial step-length chain for X-axis turned parts (the drive-screw gap:
