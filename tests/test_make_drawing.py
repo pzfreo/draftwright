@@ -8931,6 +8931,51 @@ class TestLeaderCrossesSilhouette:
         assert ldr.elbow[1] >= fb[3], "ø6 Z-turned boss should route to the top margin"
         assert abs(ldr.elbow[0] - ldr.tip[0]) < 1e-6, "routed along the wrong (radial) axis"
 
+    def _crossing_boss_drawing(self):
+        # A built nested-boss drawing whose ø6 leader has been forced back to a
+        # crossing diagonal (build_drawing already re-routes it, so put it back).
+        from build123d_drafting import Leader
+
+        part = Rotation(0, 90, 0) * (
+            self._cyl(3, 0.5, 0.0) + self._cyl(15, 20, 0.5) + self._cyl(10, 15, 20.5)
+        )
+        dwg = build_drawing(part)
+        tip = dwg.get_annotation("m_dia_x0").tip
+        dwg.remove("m_dia_x0")
+        crossing = (tip[0] + 3.0, tip[1] - 15.0, 0.0)  # diagonal down into the flange body
+        dwg.add(
+            Leader(tip=(tip[0], tip[1], 0), elbow=crossing, label="ø6", draft=dwg.draft),
+            "m_dia_x0",
+            view="front",
+        )
+        return dwg, crossing
+
+    def test_reroute_skips_a_pinned_leader(self):
+        # A pin is the user's "this stays put" (ADR 0012) — the re-router must never
+        # move a pinned ø leader, even one that crosses.
+        from draftwright.annotations.from_model import _reroute_crossing_diameters
+
+        dwg, crossing = self._crossing_boss_drawing()
+        dwg.pin("m_dia_x0")
+        _reroute_crossing_diameters(dwg)
+        moved = dwg.get_annotation("m_dia_x0").elbow
+        assert (moved[0], moved[1]) == crossing[:2], "pinned leader moved"
+
+    def test_reroute_restores_the_leader_when_no_candidate_is_clear(self, monkeypatch):
+        # If no candidate is clear+safe, the original leader is RESTORED (Phase-1 then
+        # flags it) — a re-route must never lose the dimension.
+        from draftwright.annotations.from_model import _reroute_crossing_diameters
+
+        dwg, crossing = self._crossing_boss_drawing()
+        # force every silhouette check to "crosses", so no candidate is ever accepted
+        monkeypatch.setattr(
+            "draftwright.linting.structural._leader_shaft_hits_edges", lambda *a, **k: True
+        )
+        _reroute_crossing_diameters(dwg)
+        restored = dwg.get_annotation("m_dia_x0")
+        assert restored is not None, "leader lost by the re-route"
+        assert (restored.elbow[0], restored.elbow[1]) == crossing[:2], "leader not restored"
+
     def test_plain_stepped_shaft_is_not_flagged(self):
         # A clean turned shaft: every ⌀ leader runs outward to the row, none cut
         # through the body.
