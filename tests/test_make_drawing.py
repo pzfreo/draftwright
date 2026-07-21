@@ -8701,9 +8701,16 @@ class TestTurnedDiameters:
 
         part = Rotation(0, 90, 0) * (cyl(3, 0.5, 0.0) + cyl(15, 20, 0.5) + cyl(10, 15, 20.5))
         dwg = build_drawing(part)
-        labels = {o.label for n, o in dwg.iter_annotations() if n.startswith("m_dia")}
-        assert {"ø6", "ø30", "ø20"} <= labels  # the nested ø6 is now called out
+        # ø30/ø20 are the clean main-view step callouts; the nested ø6 boss can't be
+        # leadered without crossing the flange body, so it is routed into a detail view
+        # (#798) — its ø6 still appears (as the detail callout), so coverage holds.
+        labels = {str(o.label) for _, o in dwg.iter_annotations()}
+        assert {"ø6", "ø30", "ø20"} <= labels
+        assert {"ø30", "ø20"} <= {
+            o.label for n, o in dwg.iter_annotations() if n.startswith("m_dia")
+        }
         assert dwg.lint_summary()["by_code"].get("feature_not_dimensioned", 0) == 0
+        assert dwg.lint_summary()["by_code"].get("leader_crosses_silhouette", 0) == 0
 
     def test_diameter_row_places_what_fits_not_all_or_nothing(self):
         # #298 hardening: on a part too small to fit every ø callout in the row, the
@@ -8756,24 +8763,21 @@ class TestTurnedDiameters:
         # Only STEP diameters are centred on their span. A boss is re-synthesised
         # WITHOUT a declared span in the emitted-Sheet path, so — unlike a step —
         # its ø leader must anchor at the frame origin (which round-trips) rather
-        # than a span mid, or the direct and scripted builds diverge (#707).
-        # (nested ø6 boss under the ø30 silhouette.)
-        from build123d import Align
-
-        def cyl(r, h, z):
-            return Pos(0, 0, z) * Cylinder(r, h, align=(Align.CENTER, Align.CENTER, Align.MIN))
-
-        dwg = build_drawing(
-            Rotation(0, 90, 0) * (cyl(3, 0.5, 0.0) + cyl(15, 20, 0.5) + cyl(10, 15, 20.5))
-        )
+        # than a span mid, or the direct and scripted builds diverge (#707). GRM-03's
+        # ø6 boss leads cleanly in the front row (it does not cross, so #798 leaves it
+        # in the main view — unlike the enclosed nested boss).
+        fixture = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw.step"
+        dwg = build_drawing(step_file=str(fixture))
         boss = next(
             f
             for f in dwg.model().features
-            if getattr(f, "diameter", None) == 6.0 and f.frame.axis == "x"
+            if getattr(f, "diameter", None) == 6.0 and getattr(f, "kind", None) == "boss"
         )
-        origin_x = dwg.at("front", boss.frame.origin[0], 0, 0)[0]
+        origin_x = dwg.at("front", *boss.frame.origin)[0]
         tip_x = next(
-            o.tip[0] for n, o in dwg.iter_annotations() if str(getattr(o, "label", "")) == "ø6"
+            o.tip[0]
+            for n, o in dwg.iter_annotations()
+            if n.startswith("m_dia") and str(getattr(o, "label", "")) == "ø6"
         )
         assert abs(tip_x - origin_x) < 1e-6, "ø6 boss leader should anchor at its frame origin"
 
@@ -8866,17 +8870,31 @@ class TestLeaderCrossesSilhouette:
 
         return Pos(0, 0, z) * Cylinder(r, h, align=(Align.CENTER, Align.CENTER, Align.MIN))
 
-    def test_nested_boss_leader_is_flagged(self):
-        # A ø6 boss stub protruding from a ø30 flange: its leader must cross the
-        # flange body to reach the row below — an unavoidable cut, reported as an
-        # info notice (a candidate for a detail view).
+    def test_crossing_leader_is_flagged(self):
+        # A thin-neck groove leader must cross a flange body to reach its label — an
+        # unavoidable cut. Grooves aren't ⌀-detail-routed (#798 handles step/boss
+        # diameters), so it surfaces as an info notice.
+        part = Rotation(0, 90, 0) * (
+            self._cyl(15, 10, 0.0) + self._cyl(3, 2, 10) + self._cyl(15, 10, 12)
+        )
+        dwg = build_drawing(part, number="X")
+        issues = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
+        assert issues, "expected a leader_crosses_silhouette notice"
+        assert all(i.severity == "info" for i in issues)
+
+    def test_nested_boss_diameter_routes_to_a_detail_not_a_crossing(self):
+        # #798: the ø6 boss stub whose leader would cross the ø30 flange is re-routed
+        # into an enlarged detail view instead — so no crossing survives, the ø6 is
+        # still called out (in the detail), and coverage holds.
         part = Rotation(0, 90, 0) * (
             self._cyl(3, 0.5, 0.0) + self._cyl(15, 20, 0.5) + self._cyl(10, 15, 20.5)
         )
         dwg = build_drawing(part)
-        issues = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
-        assert issues, "expected a leader_crosses_silhouette notice on the nested boss"
-        assert all(i.severity == "info" for i in issues)
+        assert any(v.startswith("detail_") for v in dwg.views), "expected a detail view"
+        assert "ø6" in {str(o.label) for _, o in dwg.iter_annotations()}
+        by_code = dwg.lint_summary()["by_code"]
+        assert by_code.get("leader_crosses_silhouette", 0) == 0
+        assert by_code.get("feature_not_dimensioned", 0) == 0
 
     def test_plain_stepped_shaft_is_not_flagged(self):
         # A clean turned shaft: every ⌀ leader runs outward to the row, none cut

@@ -935,6 +935,80 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None) -> int:
     return placed
 
 
+def _escalate_crossing_diameters(dwg, ctx) -> int:
+    """Route a turned ⌀ leader that cuts THROUGH the part body — a nested feature
+    with no clear route in the row/column (#798) — into an enlarged DETAIL view,
+    rather than leaving a shaft crossing the silhouette.
+
+    The crossing is detected against the front silhouette with the shared lint
+    discriminator (``_leader_shaft_hits_edges``); the crossing leader is removed
+    and a :class:`DetailRequest` queued, resolved in the ``details`` stage with a
+    ⌀ callout redrawn at the enlarged scale. The main-view outline still carries
+    the feature, and if the detail cannot be placed the drop falls to honest
+    ``feature_not_dimensioned`` lint. Returns the number escalated."""
+    from draftwright.linting.structural import _leader_shaft_hits_edges, _shape_box2d
+
+    vs = dwg.views.get("front")
+    if not vs or vs[0] is None:
+        return 0
+    try:
+        edges = [(e, _shape_box2d(e)) for e in vs[0].edges()]
+    except Exception:  # noqa: BLE001 — an unanalysable projected shape just skips escalation
+        return 0
+    draft = dwg.draft
+    names = [n for n in dwg.annotations() if n.startswith(("m_dia_x", "m_dia_z"))]
+    escalated = 0
+    for name in names:
+        ldr = dwg.get_annotation(name)
+        if ldr is None or getattr(ldr, "elbow", None) is None:
+            continue
+        if not _leader_shaft_hits_edges(ldr.tip, ldr.elbow, edges):
+            continue
+        feat = dwg.registry.feature_of(name)
+        dia = getattr(feat, "diameter", None)
+        span = getattr(feat, "span", None)
+        if feat is None or not dia or not span:
+            continue
+        axis = feat.frame.axis
+        idx = {"x": 0, "y": 1, "z": 2}[axis]
+        ends = sorted(p[idx] for p in span)
+        lo, hi = ends[0], ends[1]
+        pad = 0.3 * (hi - lo) + 1.0
+        dwg.remove(name)  # the detail carries the ø now
+        escalated += 1
+
+        def _redraw(dwg, view, detail_scale, _feat=feat, _dia=dia, _axis=axis, _mid=(lo + hi) / 2):
+            o = list(_feat.frame.origin)
+            o[{"x": 0, "y": 1, "z": 2}[_axis]] = _mid
+            gap = draft.font_size + 4 * draft.pad_around_text
+            vb = dwg.view_bounds(view)  # the placed detail's page bounds — route the label clear
+            if _axis in ("x", "y"):
+                t = dwg.at(view, o[0], o[1], o[2] - _dia / 2)  # bottom silhouette
+                elbow = (t[0], (vb[1] - gap) if vb else (t[1] - gap), 0)
+            else:
+                t = dwg.at(view, o[0] - _dia / 2, o[1], o[2])  # left silhouette
+                elbow = ((vb[0] - gap) if vb else (t[0] - gap), t[1], 0)
+            dwg.add(
+                Leader(tip=(t[0], t[1], 0), elbow=elbow, label=f"ø{_fmt(_dia)}", draft=draft),
+                f"dim_{view}_dia",
+                view=view,
+            )
+            return 1
+
+        ctx.detail_requests.append(
+            DetailRequest(
+                axis=axis,
+                lo=lo - pad,
+                hi=hi + pad,
+                scale_needed=12.0 / dia,  # absolute world→page scale that reads the ⌀ legibly
+                redraw=_redraw,
+                pad_top=2 * (draft.font_size + 2 * draft.pad_around_text) + draft.arrow_length,
+                kind="turned-diameter",
+            )
+        )
+    return escalated
+
+
 def _diameter_step_anchor(anchor, features):
     """Anchor point for a turned ⌀ leader tip.
 
@@ -1038,9 +1112,15 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
     start_x = _next_start("m_dia_x") if only is not None else 0
     start_z = _next_start("m_dia_z") if only is not None else 0
     trace = getattr(ctx, "trace", None)  # the immediate placers report to the trace too (#736)
-    return _diameter_row_below(
+    placed = _diameter_row_below(
         dwg, _items(row_buckets), start=start_x, trace=trace
     ) + _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace)
+    # #798: a ⌀ leader that cuts through the body (a nested feature) has no clear
+    # route in the row/column — re-route it into an enlarged detail view. Auto-pass
+    # only; the finalize (only=) path replays recorded verbs verbatim.
+    if only is None:
+        _escalate_crossing_diameters(dwg, ctx)
+    return placed
 
 
 def _env_pd(group, role):
