@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.3.7 — 2026-07-21
+
+### Fixed
+
+- **Turned ⌀ leaders point at the feature, not a corner or across the body**
+  (#794/#798): the diameter callouts on a turned part now centre on the step's
+  mid-length (a boss keeps its frame origin; a ⌀ shared by disjoint steps centres
+  on the longest run), so the arrow lands on the middle of the feature's edge
+  rather than a step corner. A leader that would otherwise cut diagonally through
+  the body — a nested or end feature such as a ⌀6 boss stub — is re-routed out to
+  the nearest clear margin (axis-aware: X-turned → left/right, Z-turned → top/
+  bottom), pointing straight at the feature instead of clipping the silhouette. A
+  re-route that can't be placed clear-and-safe is restored and flagged, and a
+  pinned leader is never moved.
+
+### Added
+
+- **`leader_crosses_silhouette` lint notice** (#796): an info-level structural
+  notice when a leader shaft passes *through* the projected part body (as opposed
+  to a hole callout legitimately exiting an internal hole), so the gap is
+  observable even where routing cannot clear it.
+
 ## v0.3.6 — 2026-07-21
 
 ### Fixed
