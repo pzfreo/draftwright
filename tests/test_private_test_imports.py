@@ -50,6 +50,10 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         # Pure geometry/selection helpers with unit-level coverage.
         ("from_model", "_bore_half_span"),
         ("from_model", "_diameter_column_left"),
+        # _diameter_step_anchor: the shared-⌀ leader anchor (#794). The non-coaxial
+        # same-⌀ case can't be reached through the public build seam, so its unit
+        # test reads the pure helper directly (like _bore_half_span above).
+        ("from_model", "_diameter_step_anchor"),
         ("from_model", "_renderable_pmi_records"),
         ("holes", "_legible_locations"),
         # Pass-level helpers exercised directly (candidates to retarget onto the ctx seam later).

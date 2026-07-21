@@ -776,8 +776,8 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None) -> int:
                 for _, d, _, _ in items
             )
         return 0
-    specs = []  # (tip_page, dia, label, feature), tip on the step's bottom silhouette
-    for anchor, dia, feat, dtol in items:
+    specs = []  # (tip_page, dia, label, feature), tip on the step's bottom silhouette,
+    for anchor, dia, feat, dtol in items:  # centred along the feature's length (not a corner)
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
         specs.append((tip, dia, f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}", feat))
@@ -890,8 +890,8 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None) -> int:
                 for _, d, _, _ in items
             )
         return 0
-    specs = []  # (tip_page, dia, label, feature), tip on the step's left silhouette
-    for anchor, dia, feat, dtol in items:
+    specs = []  # (tip_page, dia, label, feature), tip on the step's left silhouette,
+    for anchor, dia, feat, dtol in items:  # centred along the feature's length (not a corner)
         ax, ay, az = anchor
         tip = dwg.at("front", ax - dia / 2, ay, az)
         specs.append((tip, dia, f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}", feat))
@@ -933,6 +933,45 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None) -> int:
         occupied.append(_anno_box(ldr))
         placed += 1
     return placed
+
+
+def _diameter_step_anchor(anchor, features):
+    """Anchor point for a turned ⌀ leader tip.
+
+    Centre the leader at the MID-LENGTH of the STEP carrying this diameter, rather
+    than the frame origin passed in (which for a boss or a shared ⌀'s first-bucketed
+    step can be an end corner). Only STEP spans are used: a step round-trips its
+    length + centre through the emitted Sheet script (declared ``length=``/``at=``),
+    so direct and scripted builds agree (#707 parity); a boss is re-synthesised
+    without a declared span and keeps its frame origin in both paths (``anchor``).
+
+    When a ⌀ is shared by several steps, select ONE — the longest run, leftmost on
+    ties — and use THAT step's OWN origin (radial + axial). Never the convex-hull
+    midpoint (which for disjoint ⌀A–⌀B–⌀A steps falls in the ⌀B gap, off any
+    silhouette) and never the bucket ``anchor``'s radial (which for non-coaxial
+    same-⌀ steps belongs to a different feature). The selection quantises both the
+    length and the lower end to the emitter's 3-dp values, so direct and scripted
+    pick the same run. In the #426 finalize/``only=`` path this centres over the
+    recorded subset, as the pre-#794 first-recorded-origin anchor also did.
+    """
+    steps = [
+        f for f in features if getattr(f, "kind", None) == "step" and getattr(f, "span", None)
+    ]
+    if not steps:
+        return anchor
+    idx = {"x": 0, "y": 1, "z": 2}[steps[0].frame.axis]
+
+    def _key(f):
+        ends = sorted(end[idx] for end in f.span)
+        length = round(ends[1] - ends[0], 3)  # emitter rounds step length and centre (`at`) to
+        at = round((ends[0] + ends[1]) / 2, 3)  # 3dp — quantise both so the selection round-trips
+        return (length, -(at - length / 2))
+
+    step = max(steps, key=_key)
+    ends = sorted(end[idx] for end in step.span)
+    centred = list(step.frame.origin)  # the SELECTED step's own origin (radial + axial)
+    centred[idx] = (ends[0] + ends[1]) / 2
+    return tuple(centred)
 
 
 def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
@@ -978,7 +1017,8 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
 
     def _items(buckets):
         return [
-            (a, d, next(iter(fs)) if len(fs) == 1 else None, t) for a, d, fs, t in buckets.values()
+            (_diameter_step_anchor(a, fs), d, next(iter(fs)) if len(fs) == 1 else None, t)
+            for a, d, fs, t in buckets.values()
         ]
 
     # The placers name leaders m_dia_{x,z}{start+i} CONTIGUOUSLY from one start. The auto-pass
