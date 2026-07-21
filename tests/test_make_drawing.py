@@ -8866,17 +8866,48 @@ class TestLeaderCrossesSilhouette:
 
         return Pos(0, 0, z) * Cylinder(r, h, align=(Align.CENTER, Align.CENTER, Align.MIN))
 
-    def test_nested_boss_leader_is_flagged(self):
-        # A ø6 boss stub protruding from a ø30 flange: its leader must cross the
-        # flange body to reach the row below — an unavoidable cut, reported as an
-        # info notice (a candidate for a detail view).
+    def test_crossing_groove_leader_is_flagged(self):
+        # A thin-neck groove leader must cross a flange body to reach its label — an
+        # unavoidable cut. Grooves aren't ⌀-rerouted (#798 routes step/boss diameters),
+        # so it surfaces as an info notice.
+        part = Rotation(0, 90, 0) * (
+            self._cyl(15, 10, 0.0) + self._cyl(3, 2, 10) + self._cyl(15, 10, 12)
+        )
+        dwg = build_drawing(part, number="X")
+        issues = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
+        assert issues, "expected a leader_crosses_silhouette notice"
+        assert all(i.severity == "info" for i in issues)
+
+    def test_nested_boss_diameter_routes_to_the_clear_side(self):
+        # #798: the ø6 boss stub whose row-solved leader would cut through the ø30
+        # flange is re-routed to the clear margin instead — no crossing survives, and
+        # the ø6 is still called out on the main view as a normal m_dia leader whose
+        # elbow now sits past the part's left edge (the clear side), not in the body.
         part = Rotation(0, 90, 0) * (
             self._cyl(3, 0.5, 0.0) + self._cyl(15, 20, 0.5) + self._cyl(10, 15, 20.5)
         )
         dwg = build_drawing(part)
-        issues = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
-        assert issues, "expected a leader_crosses_silhouette notice on the nested boss"
-        assert all(i.severity == "info" for i in issues)
+        assert dwg.lint_summary()["by_code"].get("leader_crosses_silhouette", 0) == 0
+        ldr = next(
+            o
+            for n, o in dwg.iter_annotations()
+            if n.startswith("m_dia") and str(getattr(o, "label", "")) == "ø6"
+        )
+        fb = dwg.view_bounds("front")
+        assert ldr.elbow[0] <= fb[0], "ø6 leader should route to the clear left margin"
+
+    def test_grm03_end_boss_routes_off_the_body(self):
+        # The GRM-03 ø6 end boss: its row-solved leader diagonals back INTO the disc
+        # (the near-miss clip). #798 pulls an end-boss leader out to its clear margin,
+        # so its elbow ends up LEFT of the tip, not diagonally right into the body.
+        fixture = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw.step"
+        dwg = build_drawing(step_file=str(fixture))
+        ldr = next(
+            o
+            for n, o in dwg.iter_annotations()
+            if n.startswith("m_dia") and str(getattr(o, "label", "")) == "ø6"
+        )
+        assert ldr.elbow[0] < ldr.tip[0], "ø6 end-boss leader should route left, off the body"
 
     def test_plain_stepped_shaft_is_not_flagged(self):
         # A clean turned shaft: every ⌀ leader runs outward to the row, none cut

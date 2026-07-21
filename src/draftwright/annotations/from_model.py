@@ -1038,9 +1038,89 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
     start_x = _next_start("m_dia_x") if only is not None else 0
     start_z = _next_start("m_dia_z") if only is not None else 0
     trace = getattr(ctx, "trace", None)  # the immediate placers report to the trace too (#736)
-    return _diameter_row_below(
+    placed = _diameter_row_below(
         dwg, _items(row_buckets), start=start_x, trace=trace
     ) + _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace)
+    # #798: a ⌀ leader the row/column solve sent DIAGONALLY into the body — cutting
+    # the silhouette, or an end feature whose diagonal merely grazes it — is re-routed
+    # to the clear side (the margin the feature sits at).
+    _reroute_crossing_diameters(dwg)
+    return placed
+
+
+_REROUTE_EDGE_TOL = 2.0  # page mm: a tip this close to an axial end sits AT that end
+_REROUTE_SLACK = 1.0  # page mm: an elbow displaced this far toward the interior is "into the body"
+
+
+def _reroute_crossing_diameters(dwg) -> int:
+    """Route a turned ⌀ leader that heads INTO the part body (#798) out to the
+    nearest CLEAR margin, rather than diagonally into the body.
+
+    Two triggers, both re-routed to the clear side:
+
+    * The shaft CUTS THROUGH the body (the Phase-1 ``_leader_shaft_hits_edges``
+      discriminator) — a nested feature clipping a neighbour.
+    * An END feature (tip at the part's axial extreme, e.g. a ⌀6 boss stub) whose
+      row/column-solved elbow diagonals back INTO the body — a near-miss that reads
+      as clipping the outline even where it does not strictly cross.
+
+    The feature has clear space toward the end it sits at; re-place the elbow there
+    (near margin first, then straight out, then the far margin) and keep the first
+    candidate whose shaft clears the outline. If none clears — a feature with no
+    clear side — the leader is left as placed and the ``leader_crosses_silhouette``
+    notice (Phase 1) flags it. Returns the number re-routed."""
+    from draftwright.linting.structural import _leader_shaft_hits_edges, _shape_box2d
+
+    vs = dwg.views.get("front")
+    if not vs or vs[0] is None:
+        return 0
+    try:
+        edges = [(e, _shape_box2d(e)) for e in vs[0].edges()]
+    except Exception:  # noqa: BLE001 — an unanalysable projected shape just skips re-routing
+        return 0
+    fb = dwg.view_bounds("front")
+    if not fb:
+        return 0
+    draft = dwg.draft
+    gap = draft.font_size + 2 * draft.pad_around_text
+    cx = (fb[0] + fb[2]) / 2
+    rerouted = 0
+    for name in [n for n in dwg.annotations() if n.startswith(("m_dia_x", "m_dia_z"))]:
+        ldr = dwg.get_annotation(name)
+        if ldr is None or getattr(ldr, "elbow", None) is None:
+            continue
+        tip, elbow = ldr.tip, ldr.elbow
+        crosses = _leader_shaft_hits_edges(tip, elbow, edges)
+        at_left = tip[0] - fb[0] <= _REROUTE_EDGE_TOL
+        at_right = fb[2] - tip[0] <= _REROUTE_EDGE_TOL
+        into_body = (at_left and elbow[0] > tip[0] + _REROUTE_SLACK) or (
+            at_right and elbow[0] < tip[0] - _REROUTE_SLACK
+        )
+        if not (crosses or into_body):
+            continue
+        # Clear-side candidates in order: the NEAR margin (the end the feature sits
+        # at) first, then straight out below/above, then the far margin.
+        near_x, far_x = (fb[0] - gap, fb[2] + gap) if tip[0] <= cx else (fb[2] + gap, fb[0] - gap)
+        candidates = (
+            (near_x, tip[1]),
+            (tip[0], fb[1] - gap),
+            (tip[0], fb[3] + gap),
+            (far_x, tip[1]),
+        )
+        for ex, ey in candidates:
+            if _leader_shaft_hits_edges(tip, (ex, ey), edges):
+                continue
+            feat = dwg.registry.feature_of(name)
+            dwg.remove(name)
+            dwg.add(
+                Leader(tip=(tip[0], tip[1], 0), elbow=(ex, ey, 0), label=ldr.label, draft=draft),
+                name,
+                view="front",
+                feature=feat,
+            )
+            rerouted += 1
+            break
+    return rerouted
 
 
 def _env_pd(group, role):
