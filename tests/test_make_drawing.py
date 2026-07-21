@@ -9213,6 +9213,30 @@ class TestTurnedLengths:
         assert not any("×" in v for v in main)  # no false uniform-staircase collapse
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
+    def test_non_contiguous_turned_profile_lints_without_crashing(self):
+        # #797: a non-contiguous turned profile — two coaxial discs (ø30, then ø20)
+        # with an axial GAP between them — carries a step whose interior end face
+        # (10) `TurnedProfile.shoulders` used to drop, so the axial-coverage lookup
+        # KeyError'd and crashed the whole lint pass. shoulders now includes every
+        # endpoint, so both discs are locatable: no crash AND — since both lengths
+        # are dimensioned — no false `axial_length_missing` from a dropped face.
+        from build123d import Align
+
+        b = Align.MIN
+        part = Rotation(0, 90, 0) * (
+            Cylinder(15, 10, align=(Align.CENTER, Align.CENTER, b))
+            + Pos(0, 0, 20) * Cylinder(10, 10, align=(Align.CENTER, Align.CENTER, b))
+        )
+        dwg = build_drawing(part, number="X")
+        codes = dwg.lint_summary()["by_code"]  # must not raise KeyError
+        assert sorted(
+            str(o.label) for n, o in dwg.iter_annotations() if n.startswith("m_steplen")
+        ) == [
+            "10",
+            "10",
+        ]
+        assert codes.get("axial_length_missing", 0) == 0
+
 
 class TestStepLadderRecognition:
     """ADR 0008 step 1: the Z step-height ladder draws its step levels from the

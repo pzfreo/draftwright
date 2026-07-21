@@ -414,7 +414,13 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
             if isinstance(ann, Dimension)
         ]
         for i, step in enumerate(prof.steps):
-            clo, chi = shoulder_c[step.lo], shoulder_c[step.hi]
+            clo, chi = shoulder_c.get(step.lo), shoulder_c.get(step.hi)
+            if clo is None or chi is None:
+                # Defence-in-depth (#797): `TurnedProfile.shoulders` now includes every
+                # step endpoint (so a non-contiguous profile's interior end face is a
+                # shoulder), and this branch should be unreachable — but a lint pass must
+                # never crash on an unguarded lookup, so skip rather than KeyError.
+                continue
             for name, label, cs in dims:
                 if not cs:
                     continue
