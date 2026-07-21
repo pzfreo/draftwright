@@ -481,3 +481,82 @@ class TestLintSelfSilencing:
         b = SimpleNamespace(label_bbox=(0.0, 0.0, 4.0, 4.0), label="B")
         with pytest.raises(IndexError):
             lint_drawing([a, b])
+
+
+class TestLeaderCrossesSilhouette:
+    """#796: leader_crosses_silhouette — a leader shaft that cuts THROUGH the part
+    body. Discriminator unit-tested here on controlled real edges (no projection);
+    the real projected-view behaviour is integration-tested in test_make_drawing."""
+
+    @staticmethod
+    def _edges(*segs):
+        from build123d import Edge
+
+        from draftwright.linting.structural import _shape_box2d
+
+        out = []
+        for (x0, y0), (x1, y1) in segs:
+            e = Edge.make_line((x0, y0, 0), (x1, y1, 0))
+            out.append((e, _shape_box2d(e)))
+        return out
+
+    def test_two_crossings_is_a_cut(self):
+        from draftwright.linting.structural import _leader_shaft_hits_edges
+
+        # shaft x=5, y 0→20; two horizontal edges at y=8 and y=12 → enters+exits.
+        edges = self._edges(((0, 8), (10, 8)), ((0, 12), (10, 12)))
+        assert _leader_shaft_hits_edges((5.0, 0.0), (5.0, 20.0), edges)
+
+    def test_single_crossing_is_a_legitimate_exit(self):
+        from draftwright.linting.structural import _leader_shaft_hits_edges
+
+        # only one edge on the way out (a hole callout exiting the outline once).
+        edges = self._edges(((0, 12), (10, 12)))
+        assert not _leader_shaft_hits_edges((5.0, 0.0), (5.0, 20.0), edges)
+
+    def test_tip_edge_is_skipped(self):
+        from draftwright.linting.structural import _leader_shaft_hits_edges
+
+        # the tip sits ON an edge (y=0) and the shaft runs away: the tip's own edge
+        # crosses at t<0 of the skipped shaft, so a lone outward ⌀ leader is not a cut.
+        edges = self._edges(((0, 0), (10, 0)))
+        assert not _leader_shaft_hits_edges((5.0, 0.0), (5.0, 20.0), edges)
+
+    def test_shared_vertex_counts_once(self):
+        from draftwright.linting.structural import _leader_shaft_hits_edges
+
+        # Two edges meet at (5, 5) forming a V; a shaft grazing that vertex crosses
+        # BOTH edges at the same point — deduped to one, so it is not a cut (the
+        # bbox-count version over-counted this to two — #799 review).
+        edges = self._edges(((0, 0), (5, 5)), ((5, 5), (10, 0)))
+        assert not _leader_shaft_hits_edges((5.0, -5.0), (5.0, 10.0), edges)
+
+    def test_doubled_edge_counts_once(self):
+        from draftwright.linting.structural import _leader_shaft_hits_edges
+
+        # A coincident/doubled projected edge (front+back face project alike) is one
+        # crossing, not two.
+        edges = self._edges(((0, 10), (10, 10)), ((0, 10), (10, 10)))
+        assert not _leader_shaft_hits_edges((5.0, 0.0), (5.0, 20.0), edges)
+
+    def test_tip_skip_prevents_near_edge_false_positive(self):
+        from draftwright.linting.structural import _leader_shaft_hits_edges
+
+        # Tip ON a near edge (y=0), with a far edge (y=12); the shaft exits through
+        # the far edge only. The tip's own edge must be stepped over — WITHOUT the
+        # skip this counts 2 (near tip-touch + far exit) and false-fires. This is the
+        # case that actually pins the load-bearing tip-skip (#799 review).
+        edges = self._edges(((0, 0), (10, 0)), ((0, 12), (10, 12)))
+        assert not _leader_shaft_hits_edges((5.0, 0.0), (5.0, 20.0), edges)
+
+    def test_shaft_through_a_curved_edge_twice_is_a_cut(self):
+        from build123d import Edge
+
+        from draftwright.linting.structural import _leader_shaft_hits_edges, _shape_box2d
+
+        # A single CURVED edge crossed twice (enter+exit) is a cut — exercises the
+        # curve-sampling + cross-subsegment dedup path. Circle r5 at origin; the
+        # shaft along y=0 passes through it at x=-5 and x=+5.
+        arc = Edge.make_circle(5)
+        edges = [(arc, _shape_box2d(arc))]
+        assert _leader_shaft_hits_edges((-10.0, 0.0), (10.0, 0.0), edges)
