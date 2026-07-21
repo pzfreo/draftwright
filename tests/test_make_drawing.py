@@ -8855,6 +8855,45 @@ class TestDiameterStepAnchor:
         assert _diameter_step_anchor((1.0, 2.0, 3.0), set()) == (1.0, 2.0, 3.0)
 
 
+class TestLeaderCrossesSilhouette:
+    """#796 Phase 1: an info-level lint notice when a ⌀ leader shaft cuts through
+    the part body. Integration-level (real projected views); the discriminator
+    itself is unit-tested in test_lint_structural."""
+
+    @staticmethod
+    def _cyl(r, h, z):
+        from build123d import Align
+
+        return Pos(0, 0, z) * Cylinder(r, h, align=(Align.CENTER, Align.CENTER, Align.MIN))
+
+    def test_nested_boss_leader_is_flagged(self):
+        # A ø6 boss stub protruding from a ø30 flange: its leader must cross the
+        # flange body to reach the row below — an unavoidable cut, reported as an
+        # info notice (a candidate for a detail view).
+        part = Rotation(0, 90, 0) * (
+            self._cyl(3, 0.5, 0.0) + self._cyl(15, 20, 0.5) + self._cyl(10, 15, 20.5)
+        )
+        dwg = build_drawing(part)
+        issues = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
+        assert issues, "expected a leader_crosses_silhouette notice on the nested boss"
+        assert all(i.severity == "info" for i in issues)
+
+    def test_plain_stepped_shaft_is_not_flagged(self):
+        # A clean turned shaft: every ⌀ leader runs outward to the row, none cut
+        # through the body.
+        dwg = build_drawing(
+            Rotation(0, 90, 0) * (Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(8, 30))
+        )
+        assert not any(i.code == "leader_crosses_silhouette" for i in dwg.lint())
+
+    def test_hole_callout_exiting_the_part_is_not_flagged(self):
+        # GRM-03: the side-view hole callout legitimately exits the disc from an
+        # internal hole (covers_diameters), and the ⌀ leaders don't cut the body.
+        fixture = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw.step"
+        dwg = build_drawing(step_file=str(fixture))
+        assert not any(i.code == "leader_crosses_silhouette" for i in dwg.lint())
+
+
 class TestTurnedLengths:
     """Axial step-length chain for X-axis turned parts (the drive-screw gap:
     every diameter dimensioned, no shoulder locatable)."""
