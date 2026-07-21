@@ -1,9 +1,19 @@
 # Changelog
 
-## Unreleased
+## v0.3.6 — 2026-07-21
 
 ### Fixed
 
+- **`Sheet.step(boss)` on a prismatic part fails loudly instead of silently
+  dropping the height** (#631): declaring a turned `.step()` at a cylinder that is
+  really an external boss set `orientation="z"`, which made `render_height_ladder`
+  suppress the overall-height dim on the assumption the OD/step chain conveyed it —
+  but on a prismatic box that chain never renders, so the height vanished and
+  nothing replaced it (11 → 10 annotations). The build now detects a `StepFeature`
+  coincident with a `BossFeature` (same axis, origin, diameter) — a combination
+  that can never be legitimate — and raises a clear `ValueError` pointing to
+  `.boss()` (which renders its own ø and height per #632). Legitimate turned shafts
+  have steps but no coincident boss, so they are unaffected.
 - **`detail_view=True` no longer a silent no-op when the detail can't be placed**
   (#630): a part whose lint recommends a detail view (`step_dim_dropped`) but whose
   crowded band is full-width (e.g. a shelled cover's stacked face levels) can't be
@@ -19,6 +29,21 @@
   imperative script didn't match the direct CLI. They now ride the emitted script's
   cog config block and its `build_drawing(...)` call (the Sheet flavour already
   round-tripped them), and the CLI forwards them to `generate_script`.
+
+### Internal
+
+- **Fast-tier dense-sheet canary for the #733/#734 strip-pressure regression**
+  (#737): a synthetic contended-front-strip fixture that drops a step-height
+  principal dim on the pre-#734 commit and stays clean on `main` — closing the
+  fast-tier gap the #733 regression fell through (only the CI-only slow CTC
+  fixtures exercised real strip pressure before).
+- **Layout-hypothesis fuzz tier is now a reproducible PR gate** (#692):
+  `derandomize=True` makes every run generate the same fixed example set (with
+  `print_blob` for paste-able reproduction), so a failure recurs deterministically
+  instead of surfacing on a seed-dependent minority of runs; exploratory fuzzing
+  moves behind `DRAFTWRIGHT_FUZZ_EXPLORE=1`. The two `test_make_drawing.py` xdist
+  observations (#669) were investigated and found non-reproducible — both tests are
+  non-flaky by construction/measurement on current `main`.
 
 ## v0.3.5 — 2026-07-20
 
