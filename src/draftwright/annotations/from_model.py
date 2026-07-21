@@ -1043,8 +1043,10 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
     ) + _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace)
     # #798: a ⌀ leader the row/column solve sent DIAGONALLY into the body — cutting
     # the silhouette, or an end feature whose diagonal merely grazes it — is re-routed
-    # to the clear side (the margin the feature sits at).
-    _reroute_crossing_diameters(dwg)
+    # to the clear side (the margin the feature sits at). Auto-pass only: the finalize
+    # (only=) path replays recorded verbs and must not disturb pinned user dims.
+    if only is None:
+        _reroute_crossing_diameters(dwg)
     return placed
 
 
@@ -1064,11 +1066,14 @@ def _reroute_crossing_diameters(dwg) -> int:
       row/column-solved elbow diagonals back INTO the body — a near-miss that reads
       as clipping the outline even where it does not strictly cross.
 
-    The feature has clear space toward the end it sits at; re-place the elbow there
-    (near margin first, then straight out, then the far margin) and keep the first
-    candidate whose shaft clears the outline. If none clears — a feature with no
-    clear side — the leader is left as placed and the ``leader_crosses_silhouette``
-    notice (Phase 1) flags it. Returns the number re-routed."""
+    Axis-aware: an ``m_dia_x`` (X-turned) leader's axial run is page-X and its clear
+    margins are left/right; an ``m_dia_z`` (Z-turned) leader's axial run is page-Y
+    and its margins are bottom/top. Candidates (near margin → straight out → far
+    margin) are kept only when the new shaft clears the outline AND the rebuilt
+    leader stays inside the page and off every other view/annotation — so a re-route
+    never trades an info crossing for an out-of-bounds or overlap error. If nothing
+    is both clear and safe the leader is restored unchanged (Phase-1 then flags it).
+    A PINNED leader (ADR 0012) is never moved. Returns the number re-routed."""
     from draftwright.linting.structural import _leader_shaft_hits_edges, _shape_box2d
 
     vs = dwg.views.get("front")
@@ -1083,43 +1088,72 @@ def _reroute_crossing_diameters(dwg) -> int:
         return 0
     draft = dwg.draft
     gap = draft.font_size + 2 * draft.pad_around_text
-    cx = (fb[0] + fb[2]) / 2
+    page = (_MARGIN, _MARGIN, dwg.page_w - _MARGIN, dwg.page_h - _MARGIN)
+
+    def _within_page(box):
+        return box[0] >= page[0] and box[1] >= page[1] and box[2] <= page[2] and box[3] <= page[3]
+
     rerouted = 0
     for name in [n for n in dwg.annotations() if n.startswith(("m_dia_x", "m_dia_z"))]:
         ldr = dwg.get_annotation(name)
         if ldr is None or getattr(ldr, "elbow", None) is None:
             continue
+        if dwg.registry.is_pinned(name):  # a pin is the user's "stays put" (ADR 0012)
+            continue
         tip, elbow = ldr.tip, ldr.elbow
         crosses = _leader_shaft_hits_edges(tip, elbow, edges)
-        at_left = tip[0] - fb[0] <= _REROUTE_EDGE_TOL
-        at_right = fb[2] - tip[0] <= _REROUTE_EDGE_TOL
-        into_body = (at_left and elbow[0] > tip[0] + _REROUTE_SLACK) or (
-            at_right and elbow[0] < tip[0] - _REROUTE_SLACK
+        ax = 0 if name.startswith("m_dia_x") else 1  # axial page axis (X row / Y column)
+        rad = 1 - ax
+        lo_b, hi_b = fb[ax], fb[ax + 2]
+        at_lo = tip[ax] - lo_b <= _REROUTE_EDGE_TOL
+        at_hi = hi_b - tip[ax] <= _REROUTE_EDGE_TOL
+        into_body = (at_lo and elbow[ax] > tip[ax] + _REROUTE_SLACK) or (
+            at_hi and elbow[ax] < tip[ax] - _REROUTE_SLACK
         )
         if not (crosses or into_body):
             continue
-        # Clear-side candidates in order: the NEAR margin (the end the feature sits
-        # at) first, then straight out below/above, then the far margin.
-        near_x, far_x = (fb[0] - gap, fb[2] + gap) if tip[0] <= cx else (fb[2] + gap, fb[0] - gap)
-        candidates = (
-            (near_x, tip[1]),
-            (tip[0], fb[1] - gap),
-            (tip[0], fb[3] + gap),
-            (far_x, tip[1]),
+        # Clear-side elbows: the near axial margin (the end the feature sits at)
+        # first, then straight out along the radial axis, then the far axial margin.
+        near_a, far_a = (
+            (lo_b - gap, hi_b + gap)
+            if tip[ax] - lo_b <= hi_b - tip[ax]
+            else (hi_b + gap, lo_b - gap)
         )
+
+        def _pt(a_val, r_val, _ax=ax):
+            p = [0.0, 0.0]
+            p[_ax], p[1 - _ax] = a_val, r_val
+            return (p[0], p[1])
+
+        candidates = (
+            _pt(near_a, tip[rad]),
+            _pt(tip[ax], fb[rad] - gap),
+            _pt(tip[ax], fb[rad + 2] + gap),
+            _pt(far_a, tip[rad]),
+        )
+        feat = dwg.registry.feature_of(name)
+        old = dwg.remove(name)  # remove first so obstacles exclude the leader being replaced
+        obstacles = strip_obstacles(dwg, crossable=CROSSABLE_TYPES)
+        for vis, hid in dwg.views.values():
+            for shp in (vis, hid):
+                if shp is None:
+                    continue
+                b = shp.bounding_box()
+                obstacles.append((b.min.X, b.min.Y, b.max.X, b.max.Y))
+        placed_it = False
         for ex, ey in candidates:
             if _leader_shaft_hits_edges(tip, (ex, ey), edges):
                 continue
-            feat = dwg.registry.feature_of(name)
-            dwg.remove(name)
-            dwg.add(
-                Leader(tip=(tip[0], tip[1], 0), elbow=(ex, ey, 0), label=ldr.label, draft=draft),
-                name,
-                view="front",
-                feature=feat,
-            )
+            cand = Leader(tip=(tip[0], tip[1], 0), elbow=(ex, ey, 0), label=ldr.label, draft=draft)
+            box = _anno_box(cand)
+            if box is None or not _within_page(box) or _box_hits(box, obstacles):
+                continue
+            dwg.add(cand, name, view="front", feature=feat)
             rerouted += 1
+            placed_it = True
             break
+        if not placed_it:  # nothing clear AND safe — restore the original (Phase-1 flags it)
+            dwg.add(old, name, view="front", feature=feat)
     return rerouted
 
 

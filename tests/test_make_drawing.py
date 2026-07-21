@@ -8909,6 +8909,28 @@ class TestLeaderCrossesSilhouette:
         )
         assert ldr.elbow[0] < ldr.tip[0], "ø6 end-boss leader should route left, off the body"
 
+    def test_z_turned_end_boss_routes_to_the_axial_margin(self):
+        # #801 review: an m_dia_z (Z-turned) leader's axial run is page-Y, so a
+        # Z-turned end boss must route to the TOP/BOTTOM margin, not left/right. A ø6
+        # boss stub on top of a ø30 disc routes straight up to the top margin (same X
+        # as the tip) — the X-only trigger would move it sideways instead.
+        from build123d import Align
+
+        b = Align.MIN
+        part = Cylinder(15, 20, align=(Align.CENTER, Align.CENTER, b)) + Pos(0, 0, 20) * Cylinder(
+            3, 0.5, align=(Align.CENTER, Align.CENTER, b)
+        )
+        dwg = build_drawing(part)
+        assert dwg.lint_summary()["by_code"].get("leader_crosses_silhouette", 0) == 0
+        ldr = next(
+            o
+            for n, o in dwg.iter_annotations()
+            if n.startswith("m_dia_z") and str(getattr(o, "label", "")) == "ø6"
+        )
+        fb = dwg.view_bounds("front")
+        assert ldr.elbow[1] >= fb[3], "ø6 Z-turned boss should route to the top margin"
+        assert abs(ldr.elbow[0] - ldr.tip[0]) < 1e-6, "routed along the wrong (radial) axis"
+
     def test_plain_stepped_shaft_is_not_flagged(self):
         # A clean turned shaft: every ⌀ leader runs outward to the row, none cut
         # through the body.
