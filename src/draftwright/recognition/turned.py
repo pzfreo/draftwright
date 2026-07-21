@@ -102,10 +102,16 @@ class TurnedProfile(Record):
 
     @property
     def shoulders(self) -> tuple[float, ...]:
-        """Sorted axial positions of the shoulders and the two end faces."""
+        """Sorted axial positions of every step's faces (shoulders + the two ends).
+
+        The union of every step's ``lo`` AND ``hi`` — identical to ``lo``s + the
+        last ``hi`` for a contiguous chain (each ``hi`` is the next ``lo``), but
+        also correct for a NON-contiguous profile (e.g. two coaxial discs with an
+        axial gap), where an interior ``hi`` is a real end face, not a shared
+        shoulder — so it is not silently dropped (#797)."""
         if not self.steps:
             return ()
-        return (*(s.lo for s in self.steps), self.steps[-1].hi)
+        return tuple(sorted({p for s in self.steps for p in (s.lo, s.hi)}))
 
 
 def recognise_turned_steps(part, *, cyls=None) -> list[TurnedStep]:
