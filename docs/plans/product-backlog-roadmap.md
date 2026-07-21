@@ -1,7 +1,7 @@
 # Product backlog roadmap
 
 - **Status:** Active delivery plan
-- **Last reviewed:** 2026-07-19
+- **Last reviewed:** 2026-07-21
 - **Live tracker:** [#758 — trustworthy drawing pipeline and backlog
   burn-down](https://github.com/pzfreo/draftwright/issues/758)
 
@@ -54,6 +54,11 @@ observations are non-reproducible on current `main` (byte-identity is tautologic
 since the strip-sizing routed through the annotation boxes; the pitch test clears
 its boundaries by millimetres, not ULPs; 15 stress runs clean), so it was closed as
 not-reproducible. Focus moves to Milestone 2.
+
+Off-milestone quality polish shipped afterwards in **v0.3.7** (turned ⌀ leader
+placement — centre-on-feature, the `leader_crosses_silhouette` lint, and
+clear-side re-routing of body-crossing leaders); it did not change milestone scope
+or exit criteria. See the live tracker (#758) for the delivered ledger.
 
 ### Outcome
 
