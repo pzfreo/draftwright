@@ -47,6 +47,14 @@ blockers, and session-to-session movement.
 
 ## Milestone 1 — Trustworthy 0.3.x
 
+**Status: EXITED (2026-07-21, v0.3.6).** All initial scope delivered (#632, #707,
+#630, #661, #631, #692, #737) and all four exit criteria met. The last gate — the
+fast-tier flake — resolved on investigation: #669's two `test_make_drawing.py`
+observations are non-reproducible on current `main` (byte-identity is tautological
+since the strip-sizing routed through the annotation boxes; the pitch test clears
+its boundaries by millimetres, not ULPs; 15 stress runs clean), so it was closed as
+not-reproducible. Focus moves to Milestone 2.
+
 ### Outcome
 
 Direct and generated paths agree semantically, lint cannot pass the known
