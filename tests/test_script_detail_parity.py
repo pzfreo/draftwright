@@ -173,6 +173,38 @@ def test_generated_script_matches_direct_rotational_furniture(tmp_path):
 
 
 @pytest.mark.timeout(240)
+def test_generated_script_reproduces_nts_iso_note(tmp_path):
+    """Furniture parity: the "ISO VIEW (NTS)" note the direct CLI adds whenever it
+    rescales the iso view off sheet scale must also appear on the emitted-script drawing.
+
+    The script builds with ``auto_dims=False``, which used to fit the iso with
+    ``annotate=False`` and silently drop the note — so the editable script's drawing
+    disagreed with the direct CLI on every part whose iso is not to scale. The note is
+    sheet furniture (like the title block, always added on both paths), not a dimension.
+    """
+    part = Box(60, 40, 20) - Pos(0, 0, 10) * Cylinder(4, 20)
+    step, scripted = _scripted_drawing(part, tmp_path, "nts_note")
+    direct = build_drawing(str(step))
+
+    def note(dwg):
+        """(label, rounded bbox centre) of the NTS note, or None if absent."""
+        obj = dwg.get_annotation("note_iso_nts")
+        if obj is None:
+            return None
+        bb = obj.bounding_box()
+        return obj.label, (
+            round((bb.min.X + bb.max.X) / 2, 1),
+            round((bb.min.Y + bb.max.Y) / 2, 1),
+        )
+
+    assert note(direct) is not None  # guard the fixture: the iso is rescaled off sheet scale
+    # Genuine parity, not mere presence (Codex #810): a stale/mislabelled/misplaced scripted
+    # note must fail. This part has no machined-callout features, so the two layouts do not
+    # diverge — the note's label AND page position match exactly between the paths.
+    assert note(scripted) == note(direct)
+
+
+@pytest.mark.timeout(240)
 def test_generated_script_matches_direct_y_axis_turned_diameter_policy(tmp_path):
     """Y-axis turned output runs and follows the direct no-diameter policy."""
     part = Rotation(90, 0, 0) * _turned_shaft([(20, 20), (14, 15)])
