@@ -14,6 +14,10 @@ for any part.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
 from draftwright._geometry import _axis_letter, _xyz
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
@@ -40,10 +44,23 @@ from draftwright.model.ir import (
 )
 from draftwright.recognition import (
     BoltCircle,
+    BossRecord,
+    Chamfer,
+    CounterSink,
+    FaceLevel,
+    Fillet,
+    Flat,
+    Groove,
+    HoleRecord,
     HoleSpec,
     LinearArray,
+    Plate,
+    Pocket,
     RectGrid,
+    Slot,
+    StepShoulder,
     TurnedProfile,
+    TurnedStep,
     recognise_bosses,
     recognise_chamfers,
     recognise_countersinks,
@@ -198,6 +215,209 @@ def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# ADR 0013 Phase 1c — the typed record→Feature converter registry (#752).
+#
+# `build_part_model` below owns the *assembly* — which records become features
+# (pattern/hole grouping, groove/plate suppression, the classification-fed
+# rotational/envelope/step-ladder furniture). *How* a single recognition record
+# becomes an IR `Feature` lives here, one typed converter per record type,
+# dispatched through the registry. The completeness/uniqueness of this table is
+# machine-enforced by tests/test_detect_registry.py: every recognition record
+# type has exactly one home across the three tiers below, so a new recogniser
+# cannot silently produce features with no converter.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ConvContext:
+    """Shared build context threaded to every uniform record→Feature converter.
+
+    A converter is a pure function of ``(record, ctx)``; ``bbox`` supplies the
+    part's centre/extents for the off-axis frame coords and ``orientation`` the
+    turning axis a :class:`StepFeature` span is laid along (``None`` off the
+    turned branch, where no converter reads it)."""
+
+    bbox: Any  # build123d BoundBox (kept untyped so detect stays build123d-import-light)
+    orientation: str | None
+
+
+# A uniform converter: a pure function of one recognition record + the shared context.
+Converter = Callable[[Any, "ConvContext"], Feature]
+
+
+def _convert_slot(sl, ctx: ConvContext) -> SlotFeature:
+    idx = "xyz".index(sl.long_axis)
+    c = ctx.bbox.center()
+    origin = [c.X, c.Y, c.Z]
+    origin[idx] = (sl.lo + sl.hi) / 2
+    return SlotFeature(
+        frame=Frame(origin=(origin[0], origin[1], origin[2]), axis=sl.long_axis),
+        width_axis=sl.width_axis,
+        long_axis=sl.long_axis,
+        width=sl.width,
+        length=sl.length,
+        w_center=sl.w_center,
+        lo=sl.lo,
+        hi=sl.hi,
+    )
+
+
+def _convert_pocket(pk, ctx: ConvContext) -> PocketFeature:
+    # Frame at the recess centroid — in-plane centre + mid-depth. The render leader
+    # projects into the view normal to the depth axis, so the depth coord is inert,
+    # but a true centroid keeps the frame honest.
+    c = {
+        pk.long_axis: (pk.lo + pk.hi) / 2,
+        pk.width_axis: pk.w_center,
+        pk.depth_axis: (pk.d_lo + pk.d_hi) / 2,
+    }
+    return PocketFeature(
+        frame=Frame(origin=(c["x"], c["y"], c["z"]), axis=pk.long_axis),
+        width_axis=pk.width_axis,
+        long_axis=pk.long_axis,
+        width=pk.width,
+        length=pk.length,
+        depth=pk.depth,
+        w_center=pk.w_center,
+        lo=pk.lo,
+        hi=pk.hi,
+    )
+
+
+def _convert_step(s, ctx: ConvContext) -> StepFeature:
+    assert ctx.orientation is not None  # only reached on the turned branch
+    idx = "xyz".index(ctx.orientation)
+    c = ctx.bbox.center()
+    base = [c.X, c.Y, c.Z]
+    s_mid = (s.lo + s.hi) / 2
+    lo = list(base)
+    hi = list(base)
+    lo[idx] = s.lo
+    hi[idx] = s.hi
+    mid = list(base)
+    mid[idx] = s_mid
+    return StepFeature(
+        frame=Frame(origin=(mid[0], mid[1], mid[2]), axis=ctx.orientation),
+        length=s.length,
+        diameter=s.diameter,
+        span=((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2])),
+    )
+
+
+def _convert_boss(b, ctx: ConvContext) -> BossFeature:
+    return BossFeature(
+        frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
+        diameter=b.diameter,
+        height=b.height,
+        span=(
+            (
+                float(b.location[0] - b.axis[0] * b.height),
+                float(b.location[1] - b.axis[1] * b.height),
+                float(b.location[2] - b.axis[2] * b.height),
+            ),
+            _xyz(b.location),
+        ),
+    )
+
+
+def _convert_plate(pl, ctx: ConvContext) -> PlateFeature:
+    c = ctx.bbox.center()
+    return PlateFeature(
+        frame=Frame((c.X, c.Y, c.Z), pl.axis),
+        axis=pl.axis,
+        lo=pl.lo,
+        hi=pl.hi,
+        u=pl.u,
+        v=pl.v,
+    )
+
+
+def _convert_chamfer(ch, ctx: ConvContext) -> ChamferFeature:
+    at = ch.at
+    return ChamferFeature(
+        frame=Frame((at[0], at[1], at[2]), ch.axis),
+        axis=ch.axis,
+        leg1=ch.leg1,
+        leg2=ch.leg2,
+        angle=ch.angle,
+    )
+
+
+def _convert_fillet(fl, ctx: ConvContext) -> FilletFeature:
+    at = fl.at
+    return FilletFeature(
+        frame=Frame((at[0], at[1], at[2]), fl.axis), axis=fl.axis, radius=fl.radius
+    )
+
+
+def _convert_flat(flat, ctx: ConvContext) -> FlatFeature:
+    at = flat.at
+    return FlatFeature(
+        frame=Frame((at[0], at[1], at[2]), flat.axis), axis=flat.axis, across=flat.across
+    )
+
+
+def _convert_groove(groove, ctx: ConvContext) -> GrooveFeature:
+    at = groove.at
+    return GrooveFeature(
+        frame=Frame((at[0], at[1], at[2]), groove.axis),
+        axis=groove.axis,
+        width=groove.width,
+        diameter=groove.diameter,
+    )
+
+
+# Tier 1 — uniform converters: a pure (record, ctx) -> Feature mapping.
+_CONVERTERS: dict[type, Converter] = {
+    Slot: _convert_slot,
+    Pocket: _convert_pocket,
+    TurnedStep: _convert_step,
+    BossRecord: _convert_boss,
+    Plate: _convert_plate,
+    Chamfer: _convert_chamfer,
+    Fillet: _convert_fillet,
+    Flat: _convert_flat,
+    Groove: _convert_groove,
+}
+
+# Tier 2 — derived converters: not a 1:1 record map. A hole callout groups identical
+# holes (members + count) and a pattern composes a representative member hole, so their
+# converters take per-group extras the orchestration computes — they cannot go through
+# the uniform `convert()` dispatcher, but they are still the record type's one converter.
+_DERIVED_CONVERTERS: dict[type, Callable[..., Feature]] = {
+    HoleRecord: _member_hole,
+    BoltCircle: _pattern_feature,
+    LinearArray: _pattern_feature,
+    RectGrid: _pattern_feature,
+}
+
+# Tier 3 — orchestrated records: no per-record converter, by design. Each is either a
+# nested sub-record or aggregated into a single furniture feature; the reason is the
+# residual scope ADR 0013 Phase 1 explicitly accepts.
+_ORCHESTRATED_RECORDS: dict[type, str] = {
+    CounterSink: "a nested sub-record of HoleRecord — rides on the hole callout, never a top-level feature",
+    FaceLevel: "aggregated into a single StepLevelFeature step ladder (one feature per part, not per level)",
+    StepShoulder: "aggregated into StepLevelFeature.shoulders (in-plane step positions, not a standalone feature)",
+}
+
+
+def convert(record, ctx: ConvContext) -> Feature:
+    """Dispatch a recognition record to its IR :class:`Feature` via the typed registry.
+
+    Fail-closed: a record type with no uniform converter raises, so a new
+    recogniser cannot silently emit features the registry never learned to
+    convert (the derived/orchestrated tiers are handled inline by
+    :func:`build_part_model`, not here)."""
+    try:
+        conv = _CONVERTERS[type(record)]
+    except KeyError:
+        raise TypeError(
+            f"no IR converter registered for recognition record {type(record).__name__} (#752)"
+        ) from None
+    return conv(record, ctx)
+
+
 def build_part_model(
     part,
     *,
@@ -232,6 +452,14 @@ def build_part_model(
     bbox = part.bounding_box()
     features: list[Feature] = []
 
+    # Turned-profile classification up front so the shared convert-context carries the
+    # part's turning axis (the StepFeature span axis). Pure detection — no feature is
+    # emitted here; the turned/boss branch below reads the same `prof`.
+    if prof is _UNSET:
+        prof = TurnedProfile.from_steps(recognise_turned_steps(part, cyls=cyls))
+    orientation = prof.axis if prof is not None else None
+    ctx = ConvContext(bbox=bbox, orientation=orientation)
+
     # Holes and hole patterns. A recognised pattern becomes one PatternFeature
     # (count× member-diameter + pattern dims); its member holes are NOT also
     # emitted individually — the grouped-callout rule the engine uses.
@@ -263,47 +491,13 @@ def build_part_model(
     if slots is None:
         slots = recognise_slots(part)
     for sl in slots:
-        idx = "xyz".index(sl.long_axis)
-        origin = [bbox.center().X, bbox.center().Y, bbox.center().Z]
-        origin[idx] = (sl.lo + sl.hi) / 2
-        features.append(
-            SlotFeature(
-                frame=Frame(origin=(origin[0], origin[1], origin[2]), axis=sl.long_axis),
-                width_axis=sl.width_axis,
-                long_axis=sl.long_axis,
-                width=sl.width,
-                length=sl.length,
-                w_center=sl.w_center,
-                lo=sl.lo,
-                hi=sl.hi,
-            )
-        )
+        features.append(convert(sl, ctx))
 
     # Blind rectangular recesses — floored slots/pockets (#148a).
     if pockets is None:
         pockets = recognise_pockets(part)
     for pk in pockets:
-        # Frame at the recess centroid — in-plane centre + mid-depth. The render
-        # leader projects into the view normal to the depth axis, so the depth coord
-        # is inert, but a true centroid keeps the frame honest.
-        c = {
-            pk.long_axis: (pk.lo + pk.hi) / 2,
-            pk.width_axis: pk.w_center,
-            pk.depth_axis: (pk.d_lo + pk.d_hi) / 2,
-        }
-        features.append(
-            PocketFeature(
-                frame=Frame(origin=(c["x"], c["y"], c["z"]), axis=pk.long_axis),
-                width_axis=pk.width_axis,
-                long_axis=pk.long_axis,
-                width=pk.width,
-                length=pk.length,
-                depth=pk.depth,
-                w_center=pk.w_center,
-                lo=pk.lo,
-                hi=pk.hi,
-            )
-        )
+        features.append(convert(pk, ctx))
 
     # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
     # exclude any band a groove already dimensions: a groove floor is an annular band, and
@@ -312,17 +506,12 @@ def build_part_model(
     # double-dimension the floor ø (ISO 129) and break ADR 0008's one-band-one-owner waist.
     grooves = recognise_grooves(part, cyls=cyls)
 
-    # Turned profile → step segments; else external bosses → diameters.
-    if prof is _UNSET:
-        prof = TurnedProfile.from_steps(recognise_turned_steps(part, cyls=cyls))
-    orientation = prof.axis if prof is not None else None
+    # Turned profile → step segments; else external bosses → diameters. (`prof` and the
+    # convert-context were classified up front.)
     if prof is not None:
         idx = "xyz".index(prof.axis)
-        c = bbox.center()
-        base = [c.X, c.Y, c.Z]
         groove_bands = [(g.at[idx], g.width) for g in grooves if g.axis == prof.axis]
         for s in prof.steps:
-            s_mid = (s.lo + s.hi) / 2
             # Skip the band a groove owns (its callout dimensions width + floor ø). Match on
             # axial POSITION, not diameter: a narrow groove's step is reported at the WALL OD
             # (local_od's pad engulfs both walls when the groove is < ~1.4 mm), so a floor-ø
@@ -334,20 +523,7 @@ def build_part_model(
                 for gc, gw in groove_bands
             ):
                 continue
-            lo = list(base)
-            hi = list(base)
-            lo[idx] = s.lo
-            hi[idx] = s.hi
-            mid = list(base)
-            mid[idx] = s_mid
-            features.append(
-                StepFeature(
-                    frame=Frame(origin=(mid[0], mid[1], mid[2]), axis=prof.axis),
-                    length=s.length,
-                    diameter=s.diameter,
-                    span=((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2])),
-                )
-            )
+            features.append(convert(s, ctx))
         # A narrow external band nested under / beside a larger OD reads as that OD in
         # local_od's max(), so it never becomes a step diameter and goes silently
         # undimensioned (#298). Emit each band the silhouette steps miss as a boss, so
@@ -361,21 +537,7 @@ def build_part_model(
             if all(
                 abs(b.diameter - d) > _DIA_TOL for d in step_dias
             ) and not _boss_is_groove_floor(b, grooves):
-                features.append(
-                    BossFeature(
-                        frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
-                        diameter=b.diameter,
-                        height=b.height,
-                        span=(
-                            (
-                                float(b.location[0] - b.axis[0] * b.height),
-                                float(b.location[1] - b.axis[1] * b.height),
-                                float(b.location[2] - b.axis[2] * b.height),
-                            ),
-                            _xyz(b.location),
-                        ),
-                    )
-                )
+                features.append(convert(b, ctx))
     else:
         raw_bosses = recognise_bosses(part, cyls=cyls) if bosses is None else bosses
         bosses_d = _distinct_by_diameter(raw_bosses)
@@ -386,21 +548,7 @@ def build_part_model(
             # (#148c 3rd-pass review).
             if _boss_is_groove_floor(b, grooves):
                 continue
-            features.append(
-                BossFeature(
-                    frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
-                    diameter=b.diameter,
-                    height=b.height,
-                    span=(
-                        (
-                            float(b.location[0] - b.axis[0] * b.height),
-                            float(b.location[1] - b.axis[1] * b.height),
-                            float(b.location[2] - b.axis[2] * b.height),
-                        ),
-                        _xyz(b.location),
-                    ),
-                )
-            )
+            features.append(convert(b, ctx))
         # Overall envelope dims for a *prismatic* part — not a round single-OD body
         # (a boss whose diameter fills the footprint is the body, dimensioned by its
         # OD, not a box).
@@ -431,18 +579,8 @@ def build_part_model(
     if prof is None and rotational is None:
         plates = recognise_plates(part)
         if len({pl.axis for pl in plates}) >= 2:
-            c = bbox.center()
             for pl in plates:
-                features.append(
-                    PlateFeature(
-                        frame=Frame((c.X, c.Y, c.Z), pl.axis),
-                        axis=pl.axis,
-                        lo=pl.lo,
-                        hi=pl.hi,
-                        u=pl.u,
-                        v=pl.v,
-                    )
-                )
+                features.append(convert(pl, ctx))
                 # A Z base plate (bottom == part base) IS the first step level; suppress
                 # it from the step ladder so the two don't both dimension base→hi.
                 if pl.axis == "z" and abs(pl.lo - bbox.min.Z) < 0.5:
@@ -481,28 +619,12 @@ def build_part_model(
     # {leg}×{angle}°. A turned part's chamfers are conical (recognise_chamfers finds none).
     if rotational is None:
         for ch in recognise_chamfers(part):
-            at = ch.at
-            features.append(
-                ChamferFeature(
-                    frame=Frame((at[0], at[1], at[2]), ch.axis),
-                    axis=ch.axis,
-                    leg1=ch.leg1,
-                    leg2=ch.leg2,
-                    angle=ch.angle,
-                )
-            )
+            features.append(convert(ch, ctx))
 
         # Fillets (#561) — external edge rounds on a non-turned part, called out R{radius}
         # (grouped n× at render). Same non-rotational guard as chamfers.
         for fl in recognise_fillets(part):
-            at = fl.at
-            features.append(
-                FilletFeature(
-                    frame=Frame((at[0], at[1], at[2]), fl.axis),
-                    axis=fl.axis,
-                    radius=fl.radius,
-                )
-            )
+            features.append(convert(fl, ctx))
 
     # Machined flats on round stock (#148b) — a planar face truncating a cylinder,
     # called out by its across-flats size. Detected UNCONDITIONALLY (not gated by the
@@ -510,14 +632,7 @@ def build_part_model(
     # yet its flat still needs a callout. The recogniser self-gates on OD adjacency, so a
     # part with no round stock yields none.
     for flat in recognise_flats(part, cyls=cyls):
-        at = flat.at
-        features.append(
-            FlatFeature(
-                frame=Frame((at[0], at[1], at[2]), flat.axis),
-                axis=flat.axis,
-                across=flat.across,
-            )
-        )
+        features.append(convert(flat, ctx))
 
     # Turned / circlip grooves on round stock (#148c) — an annular channel (a strict
     # local-minimum OD band) dimensioned by width + floor diameter, recognised above so the
@@ -525,15 +640,7 @@ def build_part_model(
     # is round stock and classifies rotational, yet the groove still needs its own callout.
     # The recogniser self-gates on external OD bands, so a prismatic part yields none.
     for groove in grooves:
-        at = groove.at
-        features.append(
-            GrooveFeature(
-                frame=Frame((at[0], at[1], at[2]), groove.axis),
-                axis=groove.axis,
-                width=groove.width,
-                diameter=groove.diameter,
-            )
-        )
+        features.append(convert(groove, ctx))
 
     # Rotational furniture — OD + centrelines + concentric bore leaders (#237). Its
     # presence marks the part rotational; emitted from the classification (od, bores).

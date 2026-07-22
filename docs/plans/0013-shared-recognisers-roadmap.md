@@ -21,11 +21,14 @@ Delivers #568's value standalone. No new repo, no external dependency, no mcp co
 - **1b — geometry-only records + `.to_dict()`.** Give each recogniser a plain-geometry
   record (points/axes/radii/angles, no build123d types in the output) carrying
   `.to_dict()`. These sit *below* the IR — they are the future shared-package surface.
-- **1c — a uniform `detect.py` adapter protocol.** Replace the ad-hoc per-feature
-  translators with a typed registry of per-record converters (geometry-record →
-  IR `Feature`) dispatched one way — the per-type mapping stays (hole→`HoleFeature`
-  ≠ chamfer→`ChamferFeature`), its inconsistency goes. Remove the recognition-dataclass
-  ↔ IR mirroring duplication (the `equal_leg`-on-both class).
+- **1c — a uniform `detect.py` adapter protocol. ✅ DONE (#752).** The ad-hoc
+  per-feature translators are replaced by a typed registry of per-record converters
+  (geometry-record → IR `Feature`) dispatched one way through `convert(record, ctx)`;
+  the per-type mapping stays (hole→`HoleFeature` ≠ chamfer→`ChamferFeature`), its
+  inconsistency is gone. Completeness/uniqueness is fail-closed
+  (`tests/test_detect_registry.py`): every record type has exactly one home across the
+  uniform / derived / orchestrated tiers. (The `equal_leg`-on-both mirroring was already
+  removed during #560 review.)
 - **1d — the `callout()` crack.** Move callout formatting off `ChamferFeature` into the
   dimensioning layer (planner/IR) uniformly; geometric records carry no callout.
 - **Keep `recognition/` dependency-self-contained** — build123d/OCP only, no upward
