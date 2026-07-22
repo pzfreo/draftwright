@@ -20,6 +20,17 @@ vary (``dwg``/``d``/``direct``/``scripted``/…), unlike the src guard's ``dwg``
 same-named private on a non-Drawing object would be pinned too (harmless, fail-closed). Mirrors
 ``test_private_test_imports`` / ``test_drawing_encapsulation``; stdlib ``ast`` + ``pathlib`` only
 (:func:`test_drawing_privates_set_is_current` alone imports ``Drawing``, to keep the name-set honest).
+
+**A ratchet, not a sandbox** (the sibling guards' stance). Two limits are accepted by design:
+
+- *Static reflection is unresolvable.* ``getattr(dwg, name)`` with a non-literal ``name``,
+  ``dwg.__dict__["_analysis"]``, ``vars(dwg)[…]``, ``object.__getattribute__`` — the scanner sees
+  only the *common, honest* forms (attribute access, ``getattr`` with a constant, ``+=`` targets).
+  Reflective escapes can't be caught statically; they are rare and would surface in review.
+- *This is a CARDINALITY ratchet.* The guarantee is that the **net per-name read count never
+  grows** — you cannot add reach-through without the total rising. It does not pin individual
+  sites, so migrating one read while adding another of the same name (net zero) is permitted; that
+  is deliberate (net non-increasing coupling), and it keeps the allowlist line-number-churn-free.
 """
 
 from __future__ import annotations
@@ -29,7 +40,6 @@ from collections import Counter
 from pathlib import Path
 
 _TESTS = Path(__file__).resolve().parent
-_SELF = Path(__file__).name
 
 # ``Drawing``'s private attributes — ``__init__`` instance attrs ∪ class-level privates
 # (properties/methods). Hardcoded so the scanner stays import-light;
@@ -95,7 +105,9 @@ _ALLOW: dict[str, int] = {
 
 def _read_counts(tree: ast.Module) -> Counter[str]:
     """Count ``<recv>._<name>`` reads (``Load`` context) + ``getattr(<recv>, "_name", …)`` probes
-    for every ``_name`` in :data:`_DRAWING_PRIVATES`. Store/Del targets (writes) are excluded."""
+    for every ``_name`` in :data:`_DRAWING_PRIVATES`. A plain assignment/``del`` target (``Store``/
+    ``Del``) is excluded, but an ``AugAssign`` target (``dwg._intents += …``) IS counted — ``+=``
+    reads the old value before writing, so it couples like a read (Codex #814)."""
     counts: Counter[str] = Counter()
     for node in ast.walk(tree):
         if (
@@ -104,6 +116,14 @@ def _read_counts(tree: ast.Module) -> Counter[str]:
             and isinstance(node.ctx, ast.Load)
         ):
             counts[node.attr] += 1
+        elif (
+            isinstance(node, ast.AugAssign)
+            and isinstance(node.target, ast.Attribute)
+            and node.target.attr in _DRAWING_PRIVATES
+        ):
+            # The target carries Store context (missed by the Load branch), but ``x._p += y``
+            # reads ``x._p`` first — a read-modify-write reach-through.
+            counts[node.target.attr] += 1
         elif (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
@@ -118,8 +138,11 @@ def _read_counts(tree: ast.Module) -> Counter[str]:
 
 def _scan_all() -> Counter[str]:
     total: Counter[str] = Counter()
+    # This guard file is NOT exempted (Codex #814 L5): it only references the private names as
+    # string constants (in _DRAWING_PRIVATES / _ALLOW), which are not attribute reads, so it scans
+    # to zero — and a future real reach-through added here is then policed like anywhere else.
     for path in sorted(_TESTS.rglob("*.py")):
-        if "__pycache__" in path.parts or path.name == _SELF:
+        if "__pycache__" in path.parts:
             continue
         total.update(_read_counts(ast.parse(path.read_text(encoding="utf-8"))))
     return total
@@ -153,18 +176,34 @@ def test_allowlist_is_tight_no_stale_or_slack_entries() -> None:
 
 def test_drawing_privates_set_is_current() -> None:
     """Guard the name-set: every real ``Drawing`` private must be in :data:`_DRAWING_PRIVATES`, so a
-    newly added private is covered by the scanner rather than silently escaping it."""
+    newly added private is covered by the scanner rather than silently escaping it.
+
+    Discovers ``self._x = …`` Store attributes across the WHOLE class body — not only ``__init__``
+    (Codex #814 H1: ``Drawing`` sets ``_build_issues`` in ``finalize``, ``_coords``/``_intents``
+    there too) — plus every class-level private in ``vars(Drawing)``. Names reachable only through
+    ``setattr``/``__dict__``/inheritance still can't be discovered statically (documented limit)."""
     import inspect
-    import re
 
     from draftwright.drawing import Drawing
 
-    init_attrs = set(
-        re.findall(r"self\.(_[a-z][a-z_]*)\s*[:=]", inspect.getsource(Drawing.__init__))
+    cls = next(
+        n
+        for n in ast.walk(ast.parse(inspect.getsource(Drawing)))
+        if isinstance(n, ast.ClassDef) and n.name == "Drawing"
     )
+    self_attrs = {
+        node.attr
+        for node in ast.walk(cls)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+        and node.attr.startswith("_")
+        and not node.attr.startswith("__")
+        and isinstance(node.ctx, (ast.Store, ast.Del))
+    }
     class_privates = {n for n in vars(Drawing) if n.startswith("_") and not n.startswith("__")}
     actual = {
-        n for n in (init_attrs | class_privates) if not n.isupper()
+        n for n in (self_attrs | class_privates) if not n.isupper()
     }  # drop constants (_EXPORT_FORMATS)
     missing = actual - _DRAWING_PRIVATES
     assert not missing, (
