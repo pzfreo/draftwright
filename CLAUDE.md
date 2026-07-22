@@ -33,8 +33,11 @@ This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): th
 import that points up a layer fails CI, as does an import cycle. The precise
 placement refines the coarse grouping above (e.g. `linting`/`pmi`/`export`/`repair`/
 `projection`/`compose` sit *above* `_core` since they depend on it; `model/` is the
-IR-waist leaf it is guarded as). Lazy in-function imports are the sanctioned
-cycle-breakers (`builder`↔`cli`); the one type-only upward reference
+IR-waist leaf it is guarded as). The `_LAZY_UPWARD_EXEMPT` sanctioned-cycle-breaker
+mechanism is now empty (#523 removed its last occupant, the `builder→cli` edge — see
+below); a new upward lazy import must earn an entry with a rationale. The remaining
+lazy in-function imports (`cli`→`builder`/`sheet_emit`, for the #313 build123d
+lazy-load) are *downward*, not cycle-breakers. The one type-only upward reference
 (`_core`→`compose.StripDepths`, under `TYPE_CHECKING`) is an explicit allowlist
 entry. Keep `_LAYERS` and this section in step.
 
