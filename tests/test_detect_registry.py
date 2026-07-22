@@ -35,13 +35,21 @@ from draftwright.recognition._record import Record
 
 def _record_types_in(annot) -> set[type]:
     """Every `Record` subclass reachable in a return annotation — unwrapping
-    ``list[...]``, unions/``| None`` and nesting."""
+    ``list[...]``, unions/``| None`` and nesting.
+
+    Decompose parameterised generics (``get_args``) BEFORE the bare-class check: on
+    Python 3.10 ``isinstance(list[X], type)`` is ``True`` (a GenericAlias quirk fixed in
+    3.11), so an ``isinstance``-first order would treat ``list[BossRecord]`` as a plain
+    class and never reach its args — silently dropping the record type on 3.10."""
+    args = typing.get_args(annot)
+    if args:
+        out: set[type] = set()
+        for arg in args:
+            out |= _record_types_in(arg)
+        return out
     if isinstance(annot, type):
         return {annot} if issubclass(annot, Record) else set()
-    out: set[type] = set()
-    for arg in typing.get_args(annot):
-        out |= _record_types_in(arg)
-    return out
+    return set()
 
 
 def _recogniser_record_universe() -> set[type]:
