@@ -158,13 +158,15 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
     return groups
 
 
-# Machined-feature leader callouts (#148) whose auto-pass renderers are whole-kind
-# batches (like render_rotational): a chamfer/fillet/flat/pocket/groove/plate exposes no
+# Machined-feature LEADER callouts (#148): a chamfer/fillet/flat/pocket/groove exposes no
 # linear-dim param (its params carry no span — it is a Leader callout, not a Dimension), so
-# the reconstruction can't route it through dimension(). callout(f) records it and the
-# per-kind finalize stage rebuilds that kind's whole callout set through its renderer at the
-# canonical _PASS_SEQUENCE slot. Each name is BOTH the feature.kind and the stage/sequence key.
-_MACHINED_CALLOUT_KINDS = ("chamfer", "fillet", "flat", "pocket", "groove", "plate")
+# the reconstruction can't route it through dimension(). callout(f) records a per-feature
+# intent that the matching per-kind finalize stage renders through the kind's auto-pass
+# renderer, restricted to that feature (only=), at the canonical _PASS_SEQUENCE slot. Each
+# name is BOTH the feature.kind and the stage/sequence key. Plate is deliberately EXCLUDED —
+# it IS a spanned dimension (corridor-registered + drained, not a direct leader), so it
+# reconstructs through dimension(f, "length", role="thickness"), not callout() (#811 review).
+_MACHINED_CALLOUT_KINDS = ("chamfer", "fillet", "flat", "pocket", "groove")
 
 
 @dataclass(frozen=True)
@@ -1021,8 +1023,8 @@ class Drawing:
         so :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
         Raises ``ValueError`` if *feature* exposes no callout (use :meth:`dimension` for a
-        linear param). A machined-feature callout (pocket/fillet/flat/chamfer/groove/plate)
-        is auto-named and placed in its characteristic view by the whole-kind renderer, so
+        linear param). A machined-feature callout (pocket/fillet/flat/chamfer/groove) is
+        auto-named and placed in its characteristic view by the kind's renderer, so
         ``view=``/``name=`` are unsupported for those kinds and raise ``ValueError`` rather
         than being silently ignored (Codex #811). Placed reasonably, not via the auto-pass's
         whole-set solve (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the
@@ -1045,10 +1047,10 @@ class Drawing:
         if kind in ("step", "boss"):
             return add_feature_diameter(self, feature, self._part_model, ctx=ctx)
         if kind in _MACHINED_CALLOUT_KINDS:
-            # Machined callouts render through their auto-pass whole-kind renderer, restricted
-            # to THIS feature (only={feature}) so a live call draws exactly one callout — the
-            # per-feature `only=` subset the finalize stages also use. The deferred path above
-            # routes the recorded intent to the matching per-kind finalize stage instead.
+            # Machined callouts render through their auto-pass renderer, restricted to THIS
+            # feature (only={feature}) so a live call draws exactly one callout — the per-feature
+            # `only=` subset the finalize stages also use. The deferred path above routes the
+            # recorded intent to the matching per-kind finalize stage instead.
             if self._part_model is None or self._analysis is None:
                 raise ValueError(
                     f"callout(): a {kind} callout needs the part model and analysis; "
@@ -1059,7 +1061,6 @@ class Drawing:
                 render_fillets,
                 render_flats,
                 render_grooves,
-                render_plates,
                 render_pockets,
             )
             from draftwright.model import plan_dimensions
@@ -1070,12 +1071,17 @@ class Drawing:
                 "flat": render_flats,
                 "pocket": render_pockets,
                 "groove": render_grooves,
-                "plate": render_plates,
             }
+            # Return the placed annotation's name (Codex #811) so pin()/drop() can address it:
+            # only={feature} attempts exactly one callout, so at most one name is new. A drop
+            # (no clear room) adds none and returns "" — the same empty-string drop signal the
+            # step/boss diameter branch already gives.
+            before = set(self.annotations())
             renderers[kind](
                 self, plan_dimensions(self._part_model), self._analysis, ctx=ctx, only={feature}
             )
-            return ""
+            new = set(self.annotations()) - before
+            return next(iter(new)) if len(new) == 1 else ""
         return add_feature_callout(
             self, feature, self._part_model, self._analysis, view=view, name=name, ctx=ctx
         )
@@ -1353,10 +1359,11 @@ class Drawing:
         # Rotational furniture intent (#424/#426): the whole-model render_rotational —
         # no per-feature subset, so just the id set; it drains at the "rotational" slot.
         rotational_ids = {id(it) for it in self._intents if routable and it.kind == "rotational"}
-        # Machined-feature callout intents (#148): pocket/fillet/flat/chamfer/groove/plate
-        # callout()s. Bucketed per kind so each drains at its own _PASS_SEQUENCE stage,
-        # restricted to the recorded features via only= (per-feature, #811). The id union
-        # also joins `routed` so live_replay skips these (they route through finalize).
+        # Machined-feature leader callout intents (#148): pocket/fillet/flat/chamfer/groove
+        # callout()s (plate is a spanned dimension, routed via dimension(), not here). Bucketed
+        # per kind so each drains at its own _PASS_SEQUENCE stage, restricted to the recorded
+        # features via only= (per-feature, #811). The id union also joins `routed` so
+        # live_replay skips these (they route through finalize).
         machined_ids_by_kind: dict = {}
         for it in self._intents:
             if routable and it.kind == "callout":
@@ -1570,7 +1577,6 @@ class Drawing:
             render_grooves,
             render_height_ladder,
             render_locations,
-            render_plates,
             render_pockets,
             render_rotational,
             render_slots,
@@ -1748,8 +1754,8 @@ class Drawing:
         # its own feature — the renderer is restricted to the surviving intents' features via
         # only= (the render_slots #426 Ph2b subset idiom), so commenting one dwg.callout line
         # drops that one feature (Codex #811) while the full script reproduces the auto pass.
-        # Each kind places at its own _PASS_SEQUENCE slot (chamfers/fillets/flats/pockets after
-        # the drain; plates earlier, before step_positions), matching the auto pass's order.
+        # Each kind places directly at its own _PASS_SEQUENCE slot (after the drain). Plate is
+        # NOT here — it is a spanned corridor dimension, not a direct leader (#811 review).
         def _s_machined(kind, render):
             ids = r.machined_ids_by_kind.get(kind, set())
             feats = {it.feature for it in self._intents if id(it) in ids}
@@ -1772,9 +1778,6 @@ class Drawing:
 
         def _s_grooves():
             _s_machined("groove", render_grooves)
-
-        def _s_plates():
-            _s_machined("plate", render_plates)
 
         def _s_user_dims():
             # User-authored pin/priority dimensions queue into the shared corridor as
@@ -1878,7 +1881,6 @@ class Drawing:
                 "diameters": _s_diameters,
                 "step_lengths": _s_step_lengths,
                 "slots": _s_slots,
-                "plates": _s_plates,
                 "user_dims": _s_user_dims,
                 "drain": _s_drain,
                 "chamfers": _s_chamfers,

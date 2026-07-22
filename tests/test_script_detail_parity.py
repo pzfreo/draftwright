@@ -10,7 +10,7 @@ import runpy
 from pathlib import Path
 
 import pytest
-from build123d import Align, Box, Cylinder, Pos, Rot, Rotation, export_step
+from build123d import Align, Axis, Box, Cylinder, Pos, Rot, Rotation, chamfer, export_step
 
 from draftwright import build_drawing, generate_script
 
@@ -205,8 +205,10 @@ def test_generated_script_reproduces_nts_iso_note(tmp_path):
 
 
 def _machined_callouts(dwg):
-    """(kind, label) of every machined-feature leader callout on the drawing."""
-    prefixes = ("m_pocket", "m_fillet", "m_flat", "m_chamfer", "m_groove", "m_plate")
+    """(kind, label) of every machined-feature LEADER callout on the drawing. Plate is a
+    spanned dimension (``dim_plate_*``), reconstructed via ``dimension()`` not ``callout()``,
+    so it is deliberately not a machined-callout prefix here (#811 review)."""
+    prefixes = ("m_pocket", "m_fillet", "m_flat", "m_chamfer", "m_groove")
     return sorted(
         (name.split("_")[1], getattr(dwg.get_annotation(name), "label", None))
         for name in dwg.annotations()
@@ -216,21 +218,24 @@ def _machined_callouts(dwg):
 
 @pytest.mark.timeout(240)
 def test_generated_script_reproduces_machined_callouts(tmp_path):
-    """Machined-feature callout parity (#148): a pocket/fillet/flat/chamfer/groove/plate is a
-    Leader callout, not a linear Dimension (its IR params carry no span), so the emitted script
-    could not route it through ``dimension()``. The reconstruction had NO callout verb for these
+    """Machined-feature callout parity (#148): a pocket/fillet/flat/chamfer/groove is a Leader
+    callout, not a linear Dimension (its IR params carry no span), so the emitted script could
+    not route it through ``dimension()``. The reconstruction had NO callout verb for these
     kinds, so ``_feature_listing`` emitted nothing and every machined callout was silently
     dropped from the script's drawing — contradicting its own "never silently dropped" contract.
 
-    A single floored pocket on a roomy block places identically on both paths (no crowding, so
-    no layout-driven drop divergence), giving an exact-parity check.
+    A chamfered block with a floored pocket exercises TWO kinds (four ``C6`` chamfer leaders +
+    one pocket) that place identically on both paths (roomy, so no layout-driven drop
+    divergence), giving an exact-parity check across more than one machined kind.
     """
-    part = Box(120, 80, 30) - Pos(0, 0, 12) * Box(40, 25, 8)
+    box = chamfer(Box(120, 80, 30).edges().filter_by(Axis.Z), 6)
+    part = box - Pos(0, 0, 12) * Box(40, 25, 8)
     step, scripted = _scripted_drawing(part, tmp_path, "machined")
     direct = build_drawing(str(step))
 
-    assert _machined_callouts(direct)  # guard the fixture: the direct build draws the pocket
-    assert _machined_callouts(scripted) == _machined_callouts(direct)
+    got = _machined_callouts(direct)
+    assert {kind for kind, _ in got} == {"chamfer", "pocket"}  # guard: both kinds drawn direct
+    assert _machined_callouts(scripted) == got
 
 
 @pytest.mark.timeout(240)
@@ -269,6 +274,34 @@ def test_generated_script_machined_callout_is_per_feature(tmp_path):
 
 
 @pytest.mark.timeout(240)
+def test_finalize_fillet_keeps_stable_index_when_sibling_dropped(tmp_path):
+    """Index stability under filtering (Codex #811, F2): fillets/flats collapse by (axis, value)
+    and name by the collapse-key index, so dropping one group must NOT renumber a survivor.
+    Two vertical edges filleted R4 (``m_fillet_z0``) and R8 (``m_fillet_z1``); recording only
+    the R8 callout must keep ``m_fillet_z1`` — a pre-#811-style filter-before-collapse would
+    renumber it to ``m_fillet_z0`` and break name-based drop()/pin().
+    """
+    from build123d import fillet
+
+    box = Box(120, 80, 30)
+    box = fillet(box.edges().filter_by(Axis.Z).sort_by(Axis.X)[0], 4)
+    box = fillet(box.edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 8)
+    step = tmp_path / "two_fillets.step"
+    export_step(box, str(step))
+
+    direct = build_drawing(str(step))
+    names = sorted(n for n in direct.annotations() if n.startswith("m_fillet"))
+    assert names == ["m_fillet_z0", "m_fillet_z1"]  # guard: R4→z0, R8→z1
+
+    dwg = build_drawing(str(step), auto_dims=False)
+    r8 = next(f for f in dwg.model().features if f.kind == "fillet" and f.radius == 8)
+    with dwg.deferred():
+        dwg.callout(r8)
+    survivors = sorted(n for n in dwg.annotations() if n.startswith("m_fillet"))
+    assert survivors == ["m_fillet_z1"]  # survivor keeps its full-drawing index, not renamed
+
+
+@pytest.mark.timeout(240)
 def test_callout_rejects_name_view_for_machined_feature(tmp_path):
     """A machined callout is auto-named/placed by its whole-kind renderer, so ``name=``/``view=``
     are unsupported and raise rather than being silently discarded (Codex #811, F2)."""
@@ -282,6 +315,23 @@ def test_callout_rejects_name_view_for_machined_feature(tmp_path):
         dwg.callout(pocket, name="critical_depth")
     with pytest.raises(ValueError, match="machined"):
         dwg.callout(pocket, view="plan")
+
+
+@pytest.mark.timeout(240)
+def test_live_machined_callout_returns_placed_name(tmp_path):
+    """A live (non-deferred) machined callout returns the placed annotation's name so pin()/drop()
+    can address it, honouring callout()'s "Returns the annotation name" contract (Codex #811, F3)
+    — the pre-fix branch unconditionally returned "" even on a successful placement.
+    """
+    part = Box(120, 80, 30) - Pos(0, 0, 12) * Box(40, 25, 8)
+    step = tmp_path / "pocket.step"
+    export_step(part, str(step))
+    dwg = build_drawing(str(step), auto_dims=False)
+    pocket = next(f for f in dwg.model().features if f.kind == "pocket")
+
+    name = dwg.callout(pocket)
+    assert name.startswith("m_pocket")
+    assert dwg.get_annotation(name) is not None
 
 
 @pytest.mark.timeout(240)

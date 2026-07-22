@@ -1390,8 +1390,6 @@ def render_fillets(dwg, groups, a, *, ctx, only=None) -> int:
     reach = _leader_callout_reach(draft)
     collapse: dict = {}
     for g in (g for g in groups if g.feature_kind == "fillet"):
-        if only is not None and g.feature not in only:
-            continue  # #426 Ph2b subset (finalize): drop filtered members before the n× collapse
         pd = next(
             (d for d in g.dims if (d.param.role, d.param.kind) == ("fillet", "radius")),
             None,
@@ -1401,6 +1399,13 @@ def render_fillets(dwg, groups, a, *, ctx, only=None) -> int:
         collapse.setdefault((g.feature.axis, round(pd.param.value, 3)), []).append((g, pd))
     jobs = []
     for gi, ((axis, _radius), members) in enumerate(sorted(collapse.items())):
+        if only is not None:
+            # #426 Ph2b subset (finalize): filter members AFTER the collapse is enumerated so
+            # gi stays the full-drawing group index — a survivor keeps its m_fillet name even
+            # when a sibling group is dropped (Codex #811). The n× count reflects survivors.
+            members = [gp for gp in members if gp[0].feature in only]
+            if not members:
+                continue
         # One grouped ``n× R`` callout, but its leader may anchor at ANY of the equal fillets
         # — _corner_candidates tries each corner (nearest-clear first) so the group is not
         # dropped just because its first corner leads into an occupied region.
@@ -1455,8 +1460,6 @@ def render_flats(dwg, groups, a, *, ctx, only=None) -> int:
     reach = _leader_callout_reach(draft)
     collapse: dict = {}
     for g in (g for g in groups if g.feature_kind == "flat"):
-        if only is not None and g.feature not in only:
-            continue  # #426 Ph2b subset (finalize): drop filtered members before the shared collapse
         pd = next(
             (d for d in g.dims if (d.param.role, d.param.kind) == ("flat", "length")),
             None,
@@ -1466,6 +1469,12 @@ def render_flats(dwg, groups, a, *, ctx, only=None) -> int:
         collapse.setdefault((g.feature.axis, round(pd.param.value, 3)), []).append((g, pd))
     jobs = []
     for gi, ((axis, _across), members) in enumerate(sorted(collapse.items())):
+        if only is not None:
+            # #426 Ph2b subset (finalize): filter members AFTER enumerating the collapse so gi
+            # stays the full-drawing group index (Codex #811) — see render_fillets.
+            members = [gp for gp in members if gp[0].feature in only]
+            if not members:
+                continue
         ordered = sorted(members, key=lambda gp: gp[0].feature.frame.origin)
         view = ordered[0][0].view
         vb = dwg.view_bounds(view)
@@ -1802,7 +1811,7 @@ def render_boss_heights(dwg, groups, a, *, ctx) -> int:
     return n
 
 
-def render_plates(dwg, groups, a, *, ctx, only=None) -> int:
+def render_plates(dwg, groups, a, *, ctx) -> int:
     """Plate/wall thicknesses (#559): the thin extent of each recognised slab
     (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z
     plate (horizontal slab) as a vertical dim left of the front elevation, a Y plate
@@ -1837,8 +1846,6 @@ def render_plates(dwg, groups, a, *, ctx, only=None) -> int:
         lbl = _fmt(val) + _tol_suffix(pd.param.tolerance, draft)
         i = counts[pl.axis]
         counts[pl.axis] += 1
-        if only is not None and pl not in only:
-            continue  # #426 Ph2b subset (finalize): skip AFTER consuming i so names stay stable
         if pl.axis == "z":
             # Horizontal slab (base plate): vertical dim on the front-elevation left strip.
             # For a Z plate the in-plane centroids are (u=X, v=Y); the front view discards
