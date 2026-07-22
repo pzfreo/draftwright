@@ -14,15 +14,12 @@ typed registry seam. These tests are the fail-closed guard on that seam:
 
 from __future__ import annotations
 
+import typing
+
 import pytest
 from build123d import Box, Cylinder, Pos
 
-# The authoritative universe of recogniser record types is maintained by the
-# recogniser-contract suite; reusing it ties the two guards together — a new
-# recogniser must be added there (which forces it to be exercised) *and* placed in
-# exactly one registry tier here, or one of the two suites fails.
-from test_recogniser_contract import _EXPECTED_RECORD_TYPES
-
+import draftwright.recognition as recognition
 from draftwright.model.detect import (
     _CONVERTERS,
     _DERIVED_CONVERTERS,
@@ -35,17 +32,51 @@ from draftwright.model.ir import Feature
 from draftwright.recognition._record import Record
 
 
+def _record_types_in(annot) -> set[type]:
+    """Every `Record` subclass reachable in a return annotation — unwrapping
+    ``list[...]``, unions/``| None`` and nesting."""
+    if isinstance(annot, type):
+        return {annot} if issubclass(annot, Record) else set()
+    out: set[type] = set()
+    for arg in typing.get_args(annot):
+        out |= _record_types_in(arg)
+    return out
+
+
+def _recogniser_record_universe() -> set[type]:
+    """The authoritative set of record types, derived MECHANICALLY from the public
+    ``recognise_*`` return annotations (not a hand-maintained list). This is what makes
+    the completeness guard genuinely fail-closed: add ``recognise_threads() ->
+    list[ThreadRecord]`` and ``ThreadRecord`` enters this universe automatically, so the
+    partition test below fails until it is given a home — matching the ADR 0013 claim
+    that a new recogniser cannot silently emit features with no converter."""
+    universe: set[type] = set()
+    for name in dir(recognition):
+        if not name.startswith("recognise_"):
+            continue
+        fn = getattr(recognition, name)
+        try:
+            hints = typing.get_type_hints(fn)
+        except Exception:  # pragma: no cover — a recogniser with unresolved hints
+            continue
+        universe |= _record_types_in(hints.get("return"))
+    return universe
+
+
 def test_registry_tiers_partition_every_record_type():
     """Every recognition record type has exactly one home (completeness + uniqueness)."""
+    expected = _recogniser_record_universe()
+    assert expected, "mechanical record-type derivation found nothing — check recognition surface"
+
     tiers = [set(_CONVERTERS), set(_DERIVED_CONVERTERS), set(_ORCHESTRATED_RECORDS)]
     homed = tiers[0] | tiers[1] | tiers[2]
 
-    missing = _EXPECTED_RECORD_TYPES - homed
+    missing = expected - homed
     assert not missing, (
         f"record types with no converter/home: {sorted(t.__name__ for t in missing)}"
     )
 
-    extra = homed - _EXPECTED_RECORD_TYPES
+    extra = homed - expected
     assert not extra, f"registry names non-recogniser types: {sorted(t.__name__ for t in extra)}"
 
     # Pairwise disjoint — no record type lives in two tiers.

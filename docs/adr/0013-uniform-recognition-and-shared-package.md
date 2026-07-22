@@ -31,8 +31,11 @@ an ad-hoc inline branch; the record→IR-`Feature` mapping is one typed registry
 the *assembly* it always owned (pattern/hole grouping, groove/plate suppression, the
 classification-fed rotational/envelope/step-ladder furniture). Completeness and
 uniqueness are machine-enforced by `tests/test_detect_registry.py`: every recognition
-record type has **exactly one** home across three tiers, so a new recogniser cannot
-silently emit features with no converter. The **explicitly accepted residual scope**:
+record type has **exactly one** home across three tiers. The authoritative record-type
+universe is derived **mechanically** from the public `recognise_*` return annotations
+(not a hand-maintained list), so a new recogniser genuinely cannot silently emit
+features with no converter — its record type enters the universe automatically and the
+partition test fails until it is homed. The **explicitly accepted residual scope**:
 two tiers are not uniform `(record, ctx)` converters, by design — (a) *derived*
 converters (`HoleRecord`→`_member_hole`, the three pattern kinds→`_pattern_feature`)
 take per-group members/count the grouping computes; (b) *orchestrated* records
