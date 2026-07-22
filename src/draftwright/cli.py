@@ -270,3 +270,12 @@ def main(
     )
     for path in _emit(dwg, formats):
         print(path)
+
+
+def _cli() -> None:
+    """Compat shim (#289 / #523): the CLI is the Typer ``app`` defined in this module.
+    ``_cli`` keeps ``from draftwright.make_drawing import _cli`` (and running the
+    facade as ``__main__``) working; the console-script entry point
+    (``[project.scripts]``) points straight at ``draftwright.cli:app``. Living beside
+    ``app`` (not in ``builder``) is what removes the builder→cli import edge (#523)."""
+    app()

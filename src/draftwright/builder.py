@@ -1209,23 +1209,6 @@ def generate_script(
     return _write_script(a, scale=scale, page=page, formats=formats)
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-
-def _cli():
-    """Compat shim: the CLI moved to the Typer app in ``draftwright.cli`` (#289).
-
-    Kept so ``python -m draftwright.make_drawing`` and existing
-    ``from draftwright... import _cli`` imports keep working; the engine entry
-    point (``[project.scripts]``) points straight at ``draftwright.cli:app``.
-    Imported lazily so a bare ``import draftwright.builder`` does not pull Typer.
-    """
-    from draftwright.cli import app
-
-    app()
-
-
-if __name__ == "__main__":
-    _cli()
+# The CLI moved out to draftwright.cli (#289); the `_cli` compat shim now lives there
+# too (#523), so `builder` no longer imports `cli` — the builder→cli→sheet_emit cycle
+# is gone. `from draftwright.make_drawing import _cli` still works (re-exported from cli).
