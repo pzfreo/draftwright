@@ -174,14 +174,42 @@ def test_allowlist_is_tight_no_stale_or_slack_entries() -> None:
     )
 
 
+class _ReceiverStores(ast.NodeVisitor):
+    """Collect ``<recv>._x = …`` / ``del`` private-attribute stores in a method body, where
+    *recv* is that method's first parameter (its ``self``). SCOPE-AWARE (Codex #814 r2): does
+    NOT descend into a nested ``class`` — a helper class defined inside a method has its own
+    ``self``, and its stores are not ``Drawing`` privates. Nested *functions* (closures) still
+    close over the method's ``self``, so their stores are kept."""
+
+    def __init__(self, recv: str) -> None:
+        self.recv = recv
+        self.names: set[str] = set()
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        pass  # a nested class rebinds `self`; its stores aren't Drawing's — don't recurse
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if (
+            isinstance(node.value, ast.Name)
+            and node.value.id == self.recv
+            and node.attr.startswith("_")
+            and not node.attr.startswith("__")
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        ):
+            self.names.add(node.attr)
+        self.generic_visit(node)
+
+
 def test_drawing_privates_set_is_current() -> None:
     """Guard the name-set: every real ``Drawing`` private must be in :data:`_DRAWING_PRIVATES`, so a
     newly added private is covered by the scanner rather than silently escaping it.
 
-    Discovers ``self._x = …`` Store attributes across the WHOLE class body — not only ``__init__``
-    (Codex #814 H1: ``Drawing`` sets ``_build_issues`` in ``finalize``, ``_coords``/``_intents``
-    there too) — plus every class-level private in ``vars(Drawing)``. Names reachable only through
-    ``setattr``/``__dict__``/inheritance still can't be discovered statically (documented limit)."""
+    Discovers ``self._x = …`` Store attributes across ``Drawing``'s own methods — the WHOLE class,
+    not only ``__init__`` (Codex #814 H1: ``Drawing`` sets ``_build_issues`` in ``finalize`` etc.),
+    but scope-aware so a nested helper class's ``self`` is not miscredited (r2) — plus every
+    class-level private in ``vars(Drawing)``. Still a best-effort SYNTACTIC scan: a private reached
+    only via a ``self`` alias (``d = self; d._x = …``), ``setattr``/``__dict__``, or inheritance
+    can't be discovered statically — the same accepted static-analysis limit as the read scanner."""
     import inspect
 
     from draftwright.drawing import Drawing
@@ -191,16 +219,13 @@ def test_drawing_privates_set_is_current() -> None:
         for n in ast.walk(ast.parse(inspect.getsource(Drawing)))
         if isinstance(n, ast.ClassDef) and n.name == "Drawing"
     )
-    self_attrs = {
-        node.attr
-        for node in ast.walk(cls)
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "self"
-        and node.attr.startswith("_")
-        and not node.attr.startswith("__")
-        and isinstance(node.ctx, (ast.Store, ast.Del))
-    }
+    self_attrs: set[str] = set()
+    for fn in cls.body:
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and fn.args.args:
+            visitor = _ReceiverStores(fn.args.args[0].arg)  # the method's receiver (its `self`)
+            for stmt in fn.body:
+                visitor.visit(stmt)
+            self_attrs |= visitor.names
     class_privates = {n for n in vars(Drawing) if n.startswith("_") and not n.startswith("__")}
     actual = {
         n for n in (self_attrs | class_privates) if not n.isupper()
