@@ -659,8 +659,9 @@ def build_drawing(
         auto_dims: pass ``False`` to skip the automatic dimensions,
             centrelines, and leaders (#74) — the automatic set assumes a
             turned part and is wrong for prismatic geometry. Views, scale,
-            page, and title block are still produced; add your own
-            annotations before export. (Annotations added by the default can
+            page, and sheet furniture (title block, and the "ISO VIEW (NTS)"
+            note when the iso is rescaled off sheet scale) are still produced;
+            add your own annotations before export. (Annotations added by the default can
             also be removed wholesale with :meth:`Drawing.clear_annotations`.)
         repair: run the bounded lint→repair loop (:meth:`Drawing.repair`) after
             placement to fix mechanically-clear violations (a dim on the wrong

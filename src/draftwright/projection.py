@@ -230,7 +230,9 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
 def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
     """Scale the iso view to fill its page zone, captioning it NTS when the
     scale differs from sheet scale.  Pass ``annotate=False`` to suppress the
-    NTS note (used when ``auto_dims=False``).
+    NTS note — used on the finalize detail-refit, which re-fits an iso whose
+    note the build already placed (both the auto and ``auto_dims=False`` build
+    paths label it, so a second add would be redundant).
 
     The iso is always centred at (ISO_X, ISO_Y) which sits at the centre of
     the available zone.  The projection is linear, so the factor needed to

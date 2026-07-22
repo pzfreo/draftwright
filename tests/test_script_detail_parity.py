@@ -186,8 +186,22 @@ def test_generated_script_reproduces_nts_iso_note(tmp_path):
     step, scripted = _scripted_drawing(part, tmp_path, "nts_note")
     direct = build_drawing(str(step))
 
-    assert "note_iso_nts" in direct.annotations()  # guard the fixture: iso is rescaled
-    assert "note_iso_nts" in scripted.annotations()
+    def note(dwg):
+        """(label, rounded bbox centre) of the NTS note, or None if absent."""
+        obj = dwg.get_annotation("note_iso_nts")
+        if obj is None:
+            return None
+        bb = obj.bounding_box()
+        return obj.label, (
+            round((bb.min.X + bb.max.X) / 2, 1),
+            round((bb.min.Y + bb.max.Y) / 2, 1),
+        )
+
+    assert note(direct) is not None  # guard the fixture: the iso is rescaled off sheet scale
+    # Genuine parity, not mere presence (Codex #810): a stale/mislabelled/misplaced scripted
+    # note must fail. This part has no machined-callout features, so the two layouts do not
+    # diverge — the note's label AND page position match exactly between the paths.
+    assert note(scripted) == note(direct)
 
 
 @pytest.mark.timeout(240)
