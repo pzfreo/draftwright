@@ -1811,7 +1811,7 @@ def render_boss_heights(dwg, groups, a, *, ctx) -> int:
     return n
 
 
-def render_plates(dwg, groups, a, *, ctx) -> int:
+def render_plates(dwg, groups, a, *, ctx, only=None) -> int:
     """Plate/wall thicknesses (#559): the thin extent of each recognised slab
     (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z
     plate (horizontal slab) as a vertical dim left of the front elevation, a Y plate
@@ -1846,6 +1846,8 @@ def render_plates(dwg, groups, a, *, ctx) -> int:
         lbl = _fmt(val) + _tol_suffix(pd.param.tolerance, draft)
         i = counts[pl.axis]
         counts[pl.axis] += 1
+        if only is not None and pl not in only:
+            continue  # #812 finalize subset: skip AFTER consuming i so dim_plate names stay stable
         if pl.axis == "z":
             # Horizontal slab (base plate): vertical dim on the front-elevation left strip.
             # For a Z plate the in-plane centroids are (u=X, v=Y); the front view discards

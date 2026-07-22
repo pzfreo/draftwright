@@ -239,6 +239,25 @@ def test_generated_script_reproduces_machined_callouts(tmp_path):
 
 
 @pytest.mark.timeout(240)
+def test_generated_script_reproduces_plate_thickness_dims(tmp_path):
+    """Plate thickness parity (#812): a PlateFeature is a SPANNED dimension, so the emitter emits
+    ``dwg.dimension(f, "length", role="thickness")``. That intent matched no finalize route and
+    was silently dropped — the script's drawing had NO ``dim_plate_*`` even though the direct CLI
+    draws them. An L-bracket (base plate + upright wall) has two plate thicknesses on a roomy
+    sheet, giving an exact-parity check that the new plate route reconstructs both.
+    """
+    part = Box(80, 60, 8) + Pos(0, 26, 24) * Box(80, 8, 40)
+    step, scripted = _scripted_drawing(part, tmp_path, "lbracket")
+    direct = build_drawing(str(step))
+
+    def plate_dims(dwg):
+        return sorted(n for n in dwg.annotations() if n.startswith("dim_plate"))
+
+    assert plate_dims(direct) == ["dim_plate_y0", "dim_plate_z0"]  # guard: two plate thicknesses
+    assert plate_dims(scripted) == plate_dims(direct)
+
+
+@pytest.mark.timeout(240)
 def test_generated_script_reproduces_grouped_fillet_callout(tmp_path):
     """Grouped-fillet parity (Codex #811, P3): two equal-radius fillets collapse to ONE ``n× R``
     callout. The emitted script must reproduce the same grouped count — exercising the collapse +

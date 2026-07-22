@@ -198,6 +198,8 @@ class _IntentRouting:
     only_len: set
     slot_feats: set
     machined_ids_by_kind: dict
+    plate_ids: set
+    plate_feats: set
 
 
 @dataclass
@@ -1313,6 +1315,22 @@ class Drawing:
             and it.kwargs.get("param") == "length"
             and it.kwargs.get("role") in ("slot_width", "slot_length")
         }
+        # PLATE thickness dimension intents (#812) → render_plates' corridor placement, like
+        # slots. A PlateFeature exposes ONE spanned ("length", "thickness") param, so the
+        # emitter emits dimension(f, "length", role="thickness"); route it to render_plates
+        # (which registers a corridor candidate drained by the shared solve) restricted to the
+        # recorded plates via only=. Match on param/role like slot_ids so a malformed plate dim
+        # falls through to live replay. (Before #812 this intent matched NO route and was
+        # silently dropped — dim_plate_* never reconstructed in the emitted script.)
+        plate_ids = {
+            id(it)
+            for it in self._intents
+            if routable
+            and it.kind == "dimension"
+            and getattr(it.feature, "kind", None) == "plate"
+            and it.kwargs.get("param") == "length"
+            and it.kwargs.get("role") == "thickness"
+        }
         # Prismatic height-ladder intent. StepLevelFeature exposes one value per interior
         # level, but those rungs are a correlated chain whose witness bases leapfrog from
         # the previous placed tier. Treat one semantic dimension intent as "rebuild the
@@ -1380,6 +1398,7 @@ class Drawing:
         only_dia = {it.feature for it in self._intents if id(it) in dia_ids}
         only_len = {it.feature for it in self._intents if id(it) in len_ids}
         slot_feats = {it.feature for it in self._intents if id(it) in slot_ids}
+        plate_feats = {it.feature for it in self._intents if id(it) in plate_ids}
         return _IntentRouting(
             section=_section,
             corridor_ids=corridor_ids,
@@ -1400,6 +1419,8 @@ class Drawing:
             only_len=only_len,
             slot_feats=slot_feats,
             machined_ids_by_kind=machined_ids_by_kind,
+            plate_ids=plate_ids,
+            plate_feats=plate_feats,
         )
 
     def _user_dim_uses_corridor(self, it, routable, already_routed) -> bool:
@@ -1579,6 +1600,7 @@ class Drawing:
             render_grooves,
             render_height_ladder,
             render_locations,
+            render_plates,
             render_pockets,
             render_rotational,
             render_slots,
@@ -1636,6 +1658,7 @@ class Drawing:
                 | r.dia_ids
                 | r.len_ids
                 | r.slot_ids
+                | r.plate_ids  # drained by _s_plates + the shared drain (#812)
                 | r.height_ladder_ids
                 | r.step_position_ids
                 | r.user_dim_ids
@@ -1752,6 +1775,15 @@ class Drawing:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
                 render_slots(self, plan_dimensions(model), a, ctx=ctx, only=r.slot_feats)
 
+        def _s_plates():
+            # Plate thicknesses (#812) register corridor candidates (like slots), placed by the
+            # shared drain below — restricted to the recorded plates via only=. Runs at the
+            # "plates" _PASS_SEQUENCE slot (before the drain), matching the auto-pass order; the
+            # intents are dropped in _s_drain after the solve succeeds (clean-retry on a raise).
+            if r.plate_feats:
+                assert a is not None and isinstance(model, PartModel)  # ⟹ routable
+                render_plates(self, plan_dimensions(model), a, ctx=ctx, only=r.plate_feats)
+
         # Machined-feature leader callouts (#148): each recorded callout intent draws exactly
         # its own feature — the renderer is restricted to the surviving intents' features via
         # only= (the render_slots #426 Ph2b subset idiom), so commenting one dwg.callout line
@@ -1799,6 +1831,7 @@ class Drawing:
                 r.only_loc
                 or r.off_axis_loc_ids
                 or r.slot_feats
+                or r.plate_feats
                 or r.user_dim_ids
                 or r.step_position_ids
                 or r.height_ladder_ids
@@ -1813,6 +1846,7 @@ class Drawing:
                     r.corridor_ids
                     | r.off_axis_loc_ids
                     | r.slot_ids
+                    | r.plate_ids
                     | queued_dim_ids
                     | r.step_position_ids
                     | r.height_ladder_ids
@@ -1883,6 +1917,7 @@ class Drawing:
                 "diameters": _s_diameters,
                 "step_lengths": _s_step_lengths,
                 "slots": _s_slots,
+                "plates": _s_plates,
                 "user_dims": _s_user_dims,
                 "drain": _s_drain,
                 "chamfers": _s_chamfers,
