@@ -291,3 +291,28 @@ The earlier phrase “only P2d remains” referred only to the aspect-renderer
 sequence and did not account for the still-open authoring-completeness work.
 This amendment is authoritative for delivery status; the original phases above
 remain the historical execution record.
+
+## Amendment 3 — role-keyed decorations (2026-07-22, #746)
+
+The P2a tolerance/fit decoration side-layer (Decision item 4) originally keyed on
+`(feature, kind)`. That could not target one parameter of a **multi-parameter
+kind**: a pocket's width/length/depth are all `kind="length"`, and a rotational's
+OD + bores are all `kind="diameter"`, so a single decoration folded onto every one
+of them.
+
+The key is now **`(feature, kind, role)`** with kind-only **back-compat**: the
+planner (`plan_dimensions`) tries the role-specific key first and falls back to
+`(feature, kind)`, which still folds onto *every* parameter of that kind. `kind`
+stays in the key — a step's length and diameter share `role="step"`, so role alone
+cannot disambiguate them.
+
+On the `Sheet` façade, the *authored* multi-parameter verbs (`pocket`/`slot`/
+`envelope`) now return a `_Params` handle whose `.tolerance(..., on=<role>)` writes the
+role-keyed decoration (a bare `.tolerance()` keeps the kind-only fold), closing the
+authoring-surface gap noted for pockets (#728). The rotational OD/bore case surfaced
+by #754 is served at the **engine** level only: the planner fold now honours a
+role-keyed `(rot, "diameter", "od")` vs `(rot, "diameter", "bore")` decoration, but
+`RotationalFeature` is detection-only (no `sheet.rotational()` verb), so a caller
+authors it against the detected feature via the raw `decorations=` map, not a fluent
+handle. (All bores share `role="bore"`, so a bore decoration folds onto every bore —
+distinguishing individual bores is out of scope.)

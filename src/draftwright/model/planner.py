@@ -244,10 +244,16 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
             if p.kind == "location":
                 continue
             # An authored ± tolerance (ADR 0011 §4 / P2a) rides on the decorations side-
-            # layer keyed by (feature, kind); fold it onto the param so every renderer
-            # sees one carrier. `kind` (not `role`) is the key — a step's length and
-            # diameter share role="step", so role alone can't tell them apart.
-            tol = model.decorations.get((feature, p.kind))
+            # layer; fold it onto the param so every renderer sees one carrier. A
+            # ROLE-keyed (feature, kind, role) decoration wins — it tolerances ONE param
+            # of a multi-param kind (#746, e.g. a pocket's depth, or a rotational OD vs
+            # its bores). A KIND-keyed (feature, kind) decoration is the back-compat
+            # fallback that folds onto EVERY param of that kind. `kind` stays in the key —
+            # a step's length and diameter share role="step", so role alone can't tell
+            # them apart.
+            tol = model.decorations.get((feature, p.kind, p.role))
+            if tol is None:
+                tol = model.decorations.get((feature, p.kind))
             if tol is not None:
                 p = replace(p, tolerance=tol)
             suppressed, reason = _suppression(model, feature, p)
