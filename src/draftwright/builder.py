@@ -364,7 +364,11 @@ def _assemble(
         else:
             a.sv_zones.right.outer_limit = _sv_ol
     else:
-        _fit_iso_view(dwg, a, annotate=False)
+        # Fit + label the iso as the auto path does (annotate defaults True): the NTS
+        # note is sheet furniture — like the title block below — that states the iso is
+        # not to scale. Suppressing it here silently diverged the emitted-script drawing
+        # (auto_dims=False) from the direct CLI, which always labels it (script↔CLI parity).
+        _fit_iso_view(dwg, a)
         _add_title_block(dwg, a)
         if a.frame:  # sheet border, drawn last (#767) — auto path adds it via the orchestrator
             _add_sheet_frame(dwg, a)

@@ -173,6 +173,24 @@ def test_generated_script_matches_direct_rotational_furniture(tmp_path):
 
 
 @pytest.mark.timeout(240)
+def test_generated_script_reproduces_nts_iso_note(tmp_path):
+    """Furniture parity: the "ISO VIEW (NTS)" note the direct CLI adds whenever it
+    rescales the iso view off sheet scale must also appear on the emitted-script drawing.
+
+    The script builds with ``auto_dims=False``, which used to fit the iso with
+    ``annotate=False`` and silently drop the note — so the editable script's drawing
+    disagreed with the direct CLI on every part whose iso is not to scale. The note is
+    sheet furniture (like the title block, always added on both paths), not a dimension.
+    """
+    part = Box(60, 40, 20) - Pos(0, 0, 10) * Cylinder(4, 20)
+    step, scripted = _scripted_drawing(part, tmp_path, "nts_note")
+    direct = build_drawing(str(step))
+
+    assert "note_iso_nts" in direct.annotations()  # guard the fixture: iso is rescaled
+    assert "note_iso_nts" in scripted.annotations()
+
+
+@pytest.mark.timeout(240)
 def test_generated_script_matches_direct_y_axis_turned_diameter_policy(tmp_path):
     """Y-axis turned output runs and follows the direct no-diameter policy."""
     part = Rotation(90, 0, 0) * _turned_shaft([(20, 20), (14, 15)])

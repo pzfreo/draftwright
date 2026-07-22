@@ -3438,10 +3438,14 @@ def test_build_drawing_scale_and_page_override(tmp_path):
 
 @pytest.mark.timeout(60)
 def test_build_drawing_auto_dims_false():
-    # #74 — views, scale, page, and title block only; no turned-part dims.
+    # #74 — views, scale, page, and sheet furniture only; no turned-part dims.
     dwg = build_drawing(Cylinder(15, 40), auto_dims=False)
     assert set(dwg.views) == {"front", "plan", "side", "iso"}
-    assert [a for a in dwg.items] == [dwg.get_annotation("title_block")]
+    # Furniture the manual path shares with the auto path: the title block and — since the
+    # cylinder's iso is rescaled off sheet scale — the truthful "ISO VIEW (NTS)" note. The
+    # note is furniture, not a dimension, so it belongs here (script↔CLI parity); auto_dims
+    # still suppresses every *dimension*.
+    assert set(dwg.annotations()) == {"title_block", "note_iso_nts"}
 
 
 @pytest.mark.timeout(60)
