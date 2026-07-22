@@ -9,6 +9,7 @@ into the label string, matching what ``Dimension(tolerance=…)`` formats (helpe
 precision (1 dp today), so tests use tolerances that survive 1 dp.
 """
 
+import pytest
 from build123d import Axis, Box, Cylinder, Pos, Rot
 from build123d import chamfer as b3d_chamfer
 from build123d import fillet as b3d_fillet
@@ -186,6 +187,58 @@ class TestPlannerDecorations:
             assert pd.param.tolerance == 0.2
             assert not pd.suppressed
 
+    def test_pocket_role_keyed_tolerance_targets_one_param(self):
+        # #746: a ROLE-keyed (feature, kind, role) decoration tolerances ONE param of a
+        # multi-param kind — here only the pocket's depth — leaving width/length
+        # untoleranced. (The kind-only form still folds onto all three; see the test
+        # above.) This is the seam that unlocks per-param tolerancing.
+        pk = pocket(width=18, length=30, depth=5, long_axis="x", width_axis="y", lo=-15, hi=15)
+        model = PartModel(
+            bbox=Box(90, 60, 20).bounding_box(),
+            orientation=None,
+            features=[pk],
+            decorations={(pk, "length", "pocket_depth"): 0.2},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "pocket")
+        tol = {pd.param.role: pd.param.tolerance for pd in g.dims}
+        assert tol == {"pocket_width": None, "pocket_length": None, "pocket_depth": 0.2}
+
+    def test_role_keyed_decoration_wins_over_kind_keyed(self):
+        # #746: when both are present, the role-specific decoration wins for its param
+        # and the kind-only one folds onto the rest.
+        pk = pocket(width=18, length=30, depth=5, long_axis="x", width_axis="y", lo=-15, hi=15)
+        model = PartModel(
+            bbox=Box(90, 60, 20).bounding_box(),
+            orientation=None,
+            features=[pk],
+            decorations={(pk, "length"): 0.2, (pk, "length", "pocket_depth"): 0.05},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "pocket")
+        tol = {pd.param.role: pd.param.tolerance for pd in g.dims}
+        assert tol == {"pocket_width": 0.2, "pocket_length": 0.2, "pocket_depth": 0.05}
+
+    def test_rotational_role_keyed_od_vs_bore_tolerance(self):
+        # #746/#754: a rotational's OD and bores all share kind "diameter"; a role-keyed
+        # decoration tolerances the OD (role "od") independently of the bores (role
+        # "bore"). RotationalFeature is detection-only, so this is authored via the raw
+        # decorations map (no Sheet handle) — the engine-level unlock behind #754.
+        from draftwright.model.ir import Frame, RotationalFeature
+
+        rot = RotationalFeature(frame=Frame((0.0, 0.0, 0.0), "z"), od=30.0, bores=(8.0, 5.0))
+        model = PartModel(
+            bbox=Box(60, 60, 20).bounding_box(),
+            orientation=None,
+            features=[rot],
+            decorations={(rot, "diameter", "od"): 0.1, (rot, "diameter", "bore"): 0.05},
+        )
+        g = next(g for g in plan_dimensions(model) if g.feature_kind == "rotational")
+        # OD gets 0.1; both bores share role "bore" so each gets 0.05.
+        assert [(pd.param.role, pd.param.tolerance) for pd in g.dims] == [
+            ("od", 0.1),
+            ("bore", 0.05),
+            ("bore", 0.05),
+        ]
+
     def test_plate_dim_is_linear_with_folded_tolerance(self):
         # #729: the plate thickness routes through the planner — convention "linear"
         # (the _CONVENTION default; the first non-leader kind migration, so no table
@@ -292,6 +345,64 @@ class TestSheetTolerance:
         dwg = s.build()
         tols = {self._steplen_tol(dwg, n) for n in dwg.annotations() if n.startswith("m_steplen")}
         assert (0.0, 0.2) in tols
+
+    @staticmethod
+    def _pocket_part():
+        return Box(90, 60, 20) - Pos(0, 0, 6) * Box(30, 18, 8)
+
+    def _pocket_handle(self, s):
+        return s.pocket(width=18, length=30, depth=5, long_axis="x", width_axis="y", lo=-15, hi=15)
+
+    def _deep_label(self, dwg):
+        return next(
+            str(dwg.get_annotation(n).label)
+            for n in dwg.annotations()
+            if "DEEP" in str(dwg.get_annotation(n).label)
+        )
+
+    def test_pocket_role_keyed_depth_tolerance_via_sheet(self):
+        # #746 Sheet surface: pocket() returns a role-aware handle; .tolerance(on="depth")
+        # tolerances ONLY the depth (5), leaving width×length (18×30) plain.
+        s = Sheet(self._pocket_part(), title="P")
+        self._pocket_handle(s).tolerance(0.2, on="depth")
+        assert self._deep_label(s.build()) == "18 × 30 × 5 ±0.2 DEEP"
+
+    def test_pocket_whole_feature_tolerance_folds_onto_all(self):
+        # A bare .tolerance() (no on=) on the handle folds onto every parameter — the
+        # kind-keyed back-compat form.
+        s = Sheet(self._pocket_part(), title="P")
+        self._pocket_handle(s).tolerance(0.2)
+        assert self._deep_label(s.build()) == "18 ±0.2 × 30 ±0.2 × 5 ±0.2 DEEP"
+
+    def test_pocket_role_selector_rejects_unknown_name(self):
+        # on= must name exactly one parameter role of the feature.
+        s = Sheet(self._pocket_part(), title="P")
+        with pytest.raises(ValueError):
+            self._pocket_handle(s).tolerance(0.2, on="nope")
+
+    def test_params_handle_still_chains_to_further_declarations(self):
+        # #807 review: the _Params handle forwards unknown attributes to the sheet, so a
+        # verb returning it stays chainable (the declare-then-chain contract holds).
+        s = Sheet(self._pocket_part(), title="P")
+        dwg = self._pocket_handle(s).envelope().build()  # .envelope()/.build() forward
+        assert "front" in dwg.views
+
+    def test_bare_tolerance_supersedes_an_earlier_role_tolerance(self):
+        # #807 review: a whole-feature .tolerance() means "all alike" and overrides an
+        # earlier per-role one regardless of call order (drops the role-keyed entry).
+        s = Sheet(self._pocket_part(), title="P")
+        self._pocket_handle(s).tolerance(0.1, on="depth").tolerance(0.2)
+        assert self._deep_label(s.build()) == "18 ±0.2 × 30 ±0.2 × 5 ±0.2 DEEP"
+
+    def test_params_handle_is_a_valid_gdt_target(self):
+        # #807 re-review: a _Params handle names a real feature, so it must be accepted
+        # everywhere a feature handle is — datum/finish/control targets, like _Hole/_Dim.
+        s = Sheet(self._pocket_part(), title="P")
+        h = self._pocket_handle(s)
+        s.datum("A", h)
+        s.finish("1.6", h)
+        s.control(h).position(0.1)
+        s.build()  # must not raise "GD&T target must be an IR feature..."
 
     def test_step_tolerance_defaults_to_length_not_diameter(self):
         shaft = self._stepped_shaft()

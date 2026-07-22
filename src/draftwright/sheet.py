@@ -267,6 +267,67 @@ class _Dim:
         return self
 
 
+class _Params:
+    """A fluent handle for a declared MULTI-parameter feature — a pocket
+    (width/length/depth), slot (width/length) or envelope (width/height/depth) — whose
+    parameters share a KIND but have distinct ROLES. ``.tolerance(..., on=role)``
+    tolerances ONE parameter by role (#746: e.g. a pocket's depth without touching its
+    width/length); a bare ``.tolerance(...)`` (no ``on``) folds onto every parameter of
+    the feature (the back-compat kind-keyed form). ``on`` accepts the full role
+    (``"pocket_depth"``) or its short tail (``"depth"``).
+
+    Every other attribute forwards to the owning :class:`Sheet`, so these verbs stay
+    chainable (``sheet.pocket(...).hole(...).build()``) despite returning a handle —
+    the module's declare-then-chain contract holds (#807 review)."""
+
+    def __init__(self, sheet: Sheet, index: int) -> None:
+        self._sheet = sheet
+        self._i = index
+
+    def __getattr__(self, name: str):
+        # Only reached for attributes _Params doesn't define (every Sheet verb): forward
+        # to the owning sheet so the fluent chain is unbroken. Guard the two real fields:
+        # if they aren't set yet (an instance built WITHOUT __init__ — copy/pickle), raise
+        # rather than recurse forever resolving self._sheet (#807 review).
+        if name in ("_sheet", "_i"):
+            raise AttributeError(name)
+        return getattr(self._sheet, name)
+
+    def _roles(self) -> dict:
+        # {role: kind} for the feature's dimensioned params (skip the locations).
+        return {
+            p.role: p.kind
+            for p in self._sheet._features[self._i].parameters()
+            if p.kind != "location"
+        }
+
+    def tolerance(self, lo: float, hi: float | None = None, *, on: str | None = None) -> _Params:
+        """A ± tolerance: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a limit pair
+        ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` targets ONE parameter by role
+        (``on="depth"`` on a pocket → a role-keyed decoration); omit ``on`` to tolerance
+        every parameter of the feature alike (the kind-keyed form)."""
+        val = _tol_value(lo, hi)
+        roles = self._roles()
+        if on is None:
+            # A whole-feature tolerance supersedes any earlier per-role override on this
+            # feature — bare means "all alike", so it is order-independent (#807 review):
+            # drop this feature's role-keyed (3-tuple) entries, then set the kind keys.
+            for key in [k for k in self._sheet._tolerances if len(k) == 3 and k[0] == self._i]:
+                del self._sheet._tolerances[key]
+            for kind in set(roles.values()):
+                self._sheet._tolerances[(self._i, kind)] = val
+            return self
+        cands = [r for r in roles if r == on or r.rsplit("_", 1)[-1] == on]
+        if len(cands) != 1:
+            raise ValueError(
+                f"on={on!r} must name one parameter role of this feature; "
+                f"choose from {sorted(roles)}"
+            )
+        role = cands[0]
+        self._sheet._tolerances[(self._i, roles[role], role)] = val
+        return self
+
+
 class _Control:
     """A fluent GD&T feature-control-frame builder (ADR 0011 P2c.2). One method per ISO 1101
     characteristic — each appends a control frame on the same target, so chained calls stack::
@@ -354,9 +415,12 @@ class Sheet:
 
     Each declaration method mirrors a :mod:`draftwright.model` constructor: pass the
     build123d object to read its geometry, or explicit values. :meth:`hole` returns a
-    chainable :class:`_Hole` (``.through()`` / ``.depth()``); the others return the
-    ``Sheet`` so declarations can chain. :meth:`build` / :meth:`export` hand the declared
-    features to the engine with detection skipped.
+    chainable :class:`_Hole` (``.through()`` / ``.depth()``), :meth:`diameter` / :meth:`step`
+    a :class:`_Dim`, for their own aspects; :meth:`pocket` / :meth:`slot` / :meth:`envelope`
+    a :class:`_Params` (``.tolerance(on=…)``) which forwards unknown attributes to the
+    ``Sheet`` so those verbs still chain to any further declaration (preserving their prior
+    return-``Sheet`` behaviour); the remaining verbs return the ``Sheet``. :meth:`build` /
+    :meth:`export` hand the declared features to the engine with detection skipped.
     """
 
     def __init__(
@@ -548,17 +612,17 @@ class Sheet:
         self._features.append(_step(obj, **kw))
         return _Dim(self, len(self._features) - 1, "length")
 
-    def slot(self, obj=None, **kw) -> Sheet:
+    def slot(self, obj=None, **kw) -> _Params:
         """Declare a milled slot / reduced across-flats section (width + length)."""
         self._features.append(_slot(obj, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
-    def pocket(self, obj=None, **kw) -> Sheet:
+    def pocket(self, obj=None, **kw) -> _Params:
         """Declare a blind rectangular recess — a floored slot/pocket (width × length ×
         depth). From an object the depth axis defaults to the shortest bbox span; pass
         ``depth_axis=`` for a recess deeper than it is wide."""
         self._features.append(_pocket(obj, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
     def chamfer(self, obj=None, **kw) -> Sheet:
         """Declare a chamfer (bevelled edge) — ``sheet.chamfer(bevel_face)`` reads axis, legs
@@ -616,10 +680,10 @@ class Sheet:
         self._features.append(_pattern(member, **kw))
         return self
 
-    def envelope(self, obj=None) -> Sheet:
+    def envelope(self, obj=None) -> _Params:
         """Declare the overall bounding dimensions. Defaults to the whole part."""
         self._features.append(_envelope(obj if obj is not None else self._part))
-        return self
+        return _Params(self, len(self._features) - 1)
 
     # -- GD&T / finish aspects (ADR 0011 P2c, #479) ---------------------------
 
@@ -681,7 +745,7 @@ class Sheet:
         """Resolve a GD&T target to ``(target, source_index)``: a fluent handle / index / a
         :class:`Feature` already in :attr:`features` → its feature + index (the index re-binds
         provenance at build); a build123d face or an external Feature → ``(ref, None)``."""
-        if isinstance(ref, (_Hole, _Dim)):
+        if isinstance(ref, (_Hole, _Dim, _Params)):
             return self._features[ref._i], ref._i
         if isinstance(ref, int) and not isinstance(ref, bool):
             i = self._index_of(ref)
@@ -784,8 +848,10 @@ class Sheet:
     def _decorations(self) -> dict:
         """Materialize the index-keyed ± tolerances against the FINAL features (a handle may
         have been recorded before a later .depth()/… replaced the feature) → the
-        ``(feature, kind)`` decoration map the planner reads (P2a)."""
-        return {(self._features[i], kind): tol for (i, kind), tol in self._tolerances.items()}
+        ``(feature, kind)`` (or role-keyed ``(feature, kind, role)``, #746) decoration map
+        the planner reads (P2a). The tail of the key (``kind`` or ``kind, role``) passes
+        through unchanged; only the leading index becomes the feature."""
+        return {(self._features[i], *rest): tol for (i, *rest), tol in self._tolerances.items()}
 
     def model(self):
         """The IR the engine will draw (detection skipped) — for inspection. Wraps the
