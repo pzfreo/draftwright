@@ -4892,6 +4892,27 @@ class TestIsRotational:
         dwg = build_drawing(part)
         assert dwg.get_annotation("dim_od").label == "ø85"
 
+    def test_rotational_od_bore_labels_are_planner_fed(self):
+        # #754: render_rotational consumes the feature's planned DimensionGroup, so an
+        # authored tolerance folded by plan_dimensions reaches the OD AND bore labels.
+        # Pre-#754 it read the raw RotationalFeature fields and the decoration was lost.
+        from draftwright.model.ir import Frame, RotationalFeature
+
+        part = Cylinder(15, 10) - Cylinder(4, 20)  # ø30 OD, ø8 bore, Z axis
+        rot = RotationalFeature(frame=Frame((0.0, 0.0, 0.0), "z"), od=30.0, bores=(8.0,))
+        dwg = build_drawing(part, model=[rot], decorations={(rot, "diameter"): 0.2})
+        assert str(dwg.get_annotation("dim_od").label) == "ø30 ±0.2"
+        assert [str(o.label) for n, o in dwg.iter_annotations() if n.startswith("ldr_z")] == [
+            "ø8 ±0.2"
+        ]
+
+    def test_rotational_plain_labels_unchanged(self):
+        # No authored decoration → labels are the plain planned value, identical to the
+        # pre-#754 raw-field output (placement/centrelines are furniture, unchanged).
+        dwg = build_drawing(Cylinder(15, 10) - Cylinder(4, 20))
+        assert str(dwg.get_annotation("dim_od").label) == "ø30"
+        assert [str(o.label) for n, o in dwg.iter_annotations() if n.startswith("ldr_z")] == ["ø8"]
+
     @pytest.mark.timeout(60)
     def test_unrounded_od_does_not_duplicate_a_bore_leader(self, monkeypatch):
         # analyse_cylinders rounds diameters at source today, which masks the

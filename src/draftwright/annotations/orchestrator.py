@@ -332,7 +332,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_rotational():
         # Rotational furniture — OD dim + axis centrelines + concentric bore leaders — IR
         # renderer (#237), placed early like the engine's inline block it replaces.
-        render_rotational(dwg, _model, a, ctx=ctx)
+        render_rotational(dwg, _groups, a, ctx=ctx)
 
     def _s_centermarks():
         # Centre marks for every hole (all part classes) — IR renderer.
