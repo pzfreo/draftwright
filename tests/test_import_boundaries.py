@@ -105,11 +105,10 @@ _TC_UPWARD_ALLOW: dict[tuple[str, str], str] = {
 # Lazy (in-function) imports that point UP the DAG — the sanctioned cycle-breakers. Recorded so
 # a NEW upward lazy import (a would-be hidden cycle) forces a documented decision, not silence.
 _LAZY_UPWARD_EXEMPT: dict[tuple[str, str], str] = {
-    ("builder", "cli"): (
-        "builder._cli (a compat shim) launches the Typer app lazily so a bare "
-        "`import draftwright.builder` doesn't pull Typer; cli imports builder lazily too, so "
-        "there is no module-level cycle (#313/#523)."
-    ),
+    # Empty (#523): the last exempt edge, builder→cli, is gone — the `_cli` compat shim
+    # moved to `cli.py` (beside the Typer `app`), so `builder` no longer imports `cli`
+    # and the builder→cli→sheet_emit cycle is broken. Keep this closed; a new upward
+    # lazy import must earn its entry with a rationale, not inherit one.
 }
 
 _RUN, _TC, _LAZY = 0, 1, 2

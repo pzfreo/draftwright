@@ -33,8 +33,11 @@ This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): th
 import that points up a layer fails CI, as does an import cycle. The precise
 placement refines the coarse grouping above (e.g. `linting`/`pmi`/`export`/`repair`/
 `projection`/`compose` sit *above* `_core` since they depend on it; `model/` is the
-IR-waist leaf it is guarded as). Lazy in-function imports are the sanctioned
-cycle-breakers (`builder`↔`cli`); the one type-only upward reference
+IR-waist leaf it is guarded as). The `_LAZY_UPWARD_EXEMPT` sanctioned-cycle-breaker
+mechanism is now empty (#523 removed its last occupant, the `builder→cli` edge — see
+below); a new upward lazy import must earn an entry with a rationale. The remaining
+lazy in-function imports (`cli`→`builder`/`sheet_emit`, for the #313 build123d
+lazy-load) are *downward*, not cycle-breakers. The one type-only upward reference
 (`_core`→`compose.StripDepths`, under `TYPE_CHECKING`) is an explicit allowlist
 entry. Keep `_LAYERS` and this section in step.
 
@@ -46,7 +49,8 @@ entry. Keep `_LAYERS` and this section in step.
     measure-and-repack → `Drawing`), `make_drawing` (+ export), and the
     editable-script generator (`generate_script`). Imports `drawing`/`analysis`/
     the annotation orchestrator/the stage modules — never `make_drawing` (a DAG).
-    *(The CLI moved out to `cli.py`; `_cli` is now a thin shim.)*
+    *(The CLI moved out to `cli.py`; the `_cli` compat shim lives there too (#523),
+    so `builder` no longer imports `cli`.)*
   - **`cli.py`** — the Typer command-line interface (#289): argument parsing,
     `--version`, shell completion, `--format`, rich help. The engine (build123d)
     is imported **lazily inside the command body** so completion/`--help`/
@@ -154,10 +158,11 @@ entry. Keep `_LAYERS` and this section in step.
   `sheet_dsl` alias shim remains until 0.4.0).
 - **`sheet_emit.py`** — the Sheet-script emitter behind `--script --style sheet`:
   generates an editable `Sheet` script from a detected model. Facade tier;
-  imports `builder` downward at module level, but `builder`'s lazy `_cli` shim
-  still closes a builder→cli→sheet_emit lazy-import cycle (the `builder→cli`
-  edge is the one `_LAZY_UPWARD_EXEMPT` entry) — breaking it is tracked by
-  #523 (open).
+  imports `builder` downward at module level. The old builder→cli→sheet_emit
+  lazy cycle is **gone** (#523): the `_cli` compat shim moved from `builder` to
+  `cli.py` (beside the Typer `app`), so `builder` no longer imports `cli` and
+  `_LAZY_UPWARD_EXEMPT` is now empty. The graph is a plain DAG —
+  `cli → {builder, sheet_emit}`, `sheet_emit → builder`, `builder → ∅`.
 - **`score.py`** — `feature_census` (#148f/#608): a standalone
   recognition-completeness measurement tool; depends only on `recognition/` +
   build123d, and nothing in the engine imports it. Ranked 0 in `_LAYERS` (#704),
