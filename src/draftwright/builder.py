@@ -54,7 +54,7 @@ from draftwright.compose import (
     _layout_geometry,
     _view_geom,
 )
-from draftwright.drawing import Drawing
+from draftwright.drawing import _MACHINED_CALLOUT_KINDS, Drawing
 from draftwright.fonts import PLEX_MONO
 from draftwright.model import (
     Datum,
@@ -954,6 +954,15 @@ def _feature_listing(a: Analysis) -> str:
                 body.append(
                     'dwg.dimension(f, "length", role="step_position")   # shoulder position(s)'
                 )
+            continue
+        elif kind in _MACHINED_CALLOUT_KINDS:
+            # Machined-feature leader callouts (#148): a chamfer/fillet/flat/pocket/groove
+            # carries no linear-dim param (span=None — it is a Leader callout, not a Dimension),
+            # so dimension() can't reconstruct it. callout(f) records a per-feature intent that
+            # finalize renders through the kind's auto-pass renderer restricted to this feature
+            # (only={f}, #811) — commenting one line drops exactly that one callout. (A plate is
+            # a spanned dimension, so it falls through to the dimension() emit below, not here.)
+            body.append("dwg.callout(f)")
             continue
         for p in feat.parameters():
             if p.span is not None or kind == "slot":  # a linear dim dimension() accepts

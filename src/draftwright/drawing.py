@@ -158,6 +158,17 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
     return groups
 
 
+# Machined-feature LEADER callouts (#148): a chamfer/fillet/flat/pocket/groove exposes no
+# linear-dim param (its params carry no span — it is a Leader callout, not a Dimension), so
+# the reconstruction can't route it through dimension(). callout(f) records a per-feature
+# intent that the matching per-kind finalize stage renders through the kind's auto-pass
+# renderer, restricted to that feature (only=), at the canonical _PASS_SEQUENCE slot. Each
+# name is BOTH the feature.kind and the stage/sequence key. Plate is deliberately EXCLUDED —
+# it IS a spanned dimension (corridor-registered + drained, not a direct leader), so it
+# reconstructs through dimension(f, "length", role="thickness"), not callout() (#811 review).
+_MACHINED_CALLOUT_KINDS = ("chamfer", "fillet", "flat", "pocket", "groove")
+
+
 @dataclass(frozen=True)
 class _IntentRouting:
     """How :meth:`Drawing.finalize` routes each recorded intent to an auto-pass solver (#426).
@@ -186,6 +197,7 @@ class _IntentRouting:
     only_dia: set
     only_len: set
     slot_feats: set
+    machined_ids_by_kind: dict
 
 
 @dataclass
@@ -1011,11 +1023,20 @@ class Drawing:
         so :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
         Raises ``ValueError`` if *feature* exposes no callout (use :meth:`dimension` for a
-        linear param). Placed reasonably, not via the auto-pass's whole-set solve
-        (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the rest. A
-        step/boss diameter that finds no room returns ``""`` (a warning-level drop, like
-        the auto-pass), rather than raising, so a reconstruction script never aborts.
+        linear param). A machined-feature callout (pocket/fillet/flat/chamfer/groove) is
+        auto-named and placed in its characteristic view by the kind's renderer, so
+        ``view=``/``name=`` are unsupported for those kinds and raise ``ValueError`` rather
+        than being silently ignored (Codex #811). Placed reasonably, not via the auto-pass's
+        whole-set solve (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the
+        rest. A step/boss diameter that finds no room returns ``""`` (a warning-level drop,
+        like the auto-pass), rather than raising, so a reconstruction script never aborts.
         """
+        kind = getattr(feature, "kind", None)
+        if kind in _MACHINED_CALLOUT_KINDS and (view is not None or name is not None):
+            raise ValueError(
+                f"callout(): a {kind} is auto-named and placed in its characteristic view; "
+                "view=/name= are unsupported for machined-feature callouts"
+            )
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("callout", feature, {"view": view, "name": name}))
             return ""
@@ -1023,8 +1044,46 @@ class Drawing:
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
         ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
-        if getattr(feature, "kind", None) in ("step", "boss"):
+        if kind in ("step", "boss"):
             return add_feature_diameter(self, feature, self._part_model, ctx=ctx)
+        if kind in _MACHINED_CALLOUT_KINDS:
+            # Machined callouts render through their auto-pass renderer, restricted to THIS
+            # feature (only={feature}) so a live call draws exactly one callout — the per-feature
+            # `only=` subset the finalize stages also use. The deferred path above routes the
+            # recorded intent to the matching per-kind finalize stage instead.
+            if self._part_model is None or self._analysis is None:
+                raise ValueError(
+                    f"callout(): a {kind} callout needs the part model and analysis; "
+                    "add it to a drawing built by build_drawing(), not a bare Drawing"
+                )
+            from draftwright.annotations.from_model import (
+                render_chamfers,
+                render_fillets,
+                render_flats,
+                render_grooves,
+                render_pockets,
+            )
+            from draftwright.model import plan_dimensions
+
+            renderers = {
+                "chamfer": render_chamfers,
+                "fillet": render_fillets,
+                "flat": render_flats,
+                "pocket": render_pockets,
+                "groove": render_grooves,
+            }
+            # Return the placed annotation's name (Codex #811) so pin()/drop() can address it.
+            # only={feature} places exactly one callout, so at most one name changes. Diff by
+            # object IDENTITY, not just the name set, so re-placing over an existing canonical
+            # name (or a grouped callout collapsing to an already-present name) is still detected
+            # as the placed name (Codex #811 r3). A drop (no clear room) changes nothing and
+            # returns "" — the same empty-string drop signal the step/boss diameter branch gives.
+            before = {n: id(o) for n, o in self.iter_annotations()}
+            renderers[kind](
+                self, plan_dimensions(self._part_model), self._analysis, ctx=ctx, only={feature}
+            )
+            changed = [n for n, o in self.iter_annotations() if before.get(n) != id(o)]
+            return changed[0] if len(changed) == 1 else ""
         return add_feature_callout(
             self, feature, self._part_model, self._analysis, view=view, name=name, ctx=ctx
         )
@@ -1302,6 +1361,17 @@ class Drawing:
         # Rotational furniture intent (#424/#426): the whole-model render_rotational —
         # no per-feature subset, so just the id set; it drains at the "rotational" slot.
         rotational_ids = {id(it) for it in self._intents if routable and it.kind == "rotational"}
+        # Machined-feature leader callout intents (#148): pocket/fillet/flat/chamfer/groove
+        # callout()s (plate is a spanned dimension, routed via dimension(), not here). Bucketed
+        # per kind so each drains at its own _PASS_SEQUENCE stage, restricted to the recorded
+        # features via only= (per-feature, #811). The id union also joins `routed` so
+        # live_replay skips these (they route through finalize).
+        machined_ids_by_kind: dict = {}
+        for it in self._intents:
+            if routable and it.kind == "callout":
+                k = getattr(it.feature, "kind", None)
+                if k in _MACHINED_CALLOUT_KINDS:
+                    machined_ids_by_kind.setdefault(k, set()).add(id(it))
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
         pinned_loc = {
             it.feature for it in self._intents if id(it) in corridor_ids and it.kwargs.get("pin")
@@ -1329,6 +1399,7 @@ class Drawing:
             only_dia=only_dia,
             only_len=only_len,
             slot_feats=slot_feats,
+            machined_ids_by_kind=machined_ids_by_kind,
         )
 
     def _user_dim_uses_corridor(self, it, routable, already_routed) -> bool:
@@ -1501,9 +1572,14 @@ class Drawing:
         :meth:`_classify_intents`; finalize wraps this call in the snapshot/rollback/finally,
         so a raise here still rolls the drawing back as before."""
         from draftwright.annotations.from_model import (
+            render_chamfers,
             render_diameters,
+            render_fillets,
+            render_flats,
+            render_grooves,
             render_height_ladder,
             render_locations,
+            render_pockets,
             render_rotational,
             render_slots,
             render_step_lengths,
@@ -1565,6 +1641,7 @@ class Drawing:
                 | r.user_dim_ids
                 | r.rotational_ids  # drained by _s_rotational; no _replay_intent branch
                 | r.off_axis_loc_ids  # drained by the off-axis stages; locate() raises on non-Z
+                | {i for ids in r.machined_ids_by_kind.values() for i in ids}  # _s_<machined kind>
             )
             i = 0
             while i < len(self._intents):
@@ -1675,6 +1752,35 @@ class Drawing:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
                 render_slots(self, plan_dimensions(model), a, ctx=ctx, only=r.slot_feats)
 
+        # Machined-feature leader callouts (#148): each recorded callout intent draws exactly
+        # its own feature — the renderer is restricted to the surviving intents' features via
+        # only= (the render_slots #426 Ph2b subset idiom), so commenting one dwg.callout line
+        # drops that one feature (Codex #811) while the full script reproduces the auto pass.
+        # Each kind places directly at its own _PASS_SEQUENCE slot (after the drain). Plate is
+        # NOT here — it is a spanned corridor dimension, not a direct leader (#811 review).
+        def _s_machined(kind, render):
+            ids = r.machined_ids_by_kind.get(kind, set())
+            feats = {it.feature for it in self._intents if id(it) in ids}
+            if feats:
+                assert a is not None and isinstance(model, PartModel)  # ⟹ routable
+                render(self, plan_dimensions(model), a, ctx=ctx, only=feats)
+            self._intents = [it for it in self._intents if id(it) not in ids]
+
+        def _s_chamfers():
+            _s_machined("chamfer", render_chamfers)
+
+        def _s_fillets():
+            _s_machined("fillet", render_fillets)
+
+        def _s_flats():
+            _s_machined("flat", render_flats)
+
+        def _s_pockets():
+            _s_machined("pocket", render_pockets)
+
+        def _s_grooves():
+            _s_machined("groove", render_grooves)
+
         def _s_user_dims():
             # User-authored pin/priority dimensions queue into the shared corridor as
             # first-class candidates (ADR 0012).
@@ -1779,6 +1885,11 @@ class Drawing:
                 "slots": _s_slots,
                 "user_dims": _s_user_dims,
                 "drain": _s_drain,
+                "chamfers": _s_chamfers,
+                "fillets": _s_fillets,
+                "flats": _s_flats,
+                "pockets": _s_pockets,
+                "grooves": _s_grooves,
                 "section": _s_section,
                 "details": _s_details,
                 "tabulate": _s_tabulate,
