@@ -307,13 +307,14 @@ Current ADRs:
   deferred intents through `_PASS_SEQUENCE`; it does not reconstruct auto candidates or
   perform a global auto-plus-user recompose. `place_dim()` remains the deprecated raw-
   coordinate escape hatch. Full recomposition/parity remains #426/#661/#707.
-- **0013** — **Accepted** (#568; Phase 1 in progress): the **uniform recogniser
+- **0013** — **Accepted** (#568; **Phase 1 complete**): the **uniform recogniser
   contract** — `recognise_<feature>(part, *, <injected deps>) -> list[<frozen
   record>]` (plus the part-less *derived* shape, e.g.
   `recognise_hole_patterns(holes)`), mechanically enforced by
-  `tests/test_recogniser_contract.py`. The shared `b123d-recognisers` package is
-  the deferred Phase-2 deployment (gated on a second committed consumer).
-  Remaining Phase 1: the typed `detect.py` adapter registry (roadmap item 1c).
+  `tests/test_recogniser_contract.py`; and the typed record→`Feature` converter
+  registry in `model/detect.py` (roadmap 1c / #752), whose completeness+uniqueness
+  is fail-closed by `tests/test_detect_registry.py`. The shared `b123d-recognisers`
+  package is the deferred Phase-2 deployment (gated on a second committed consumer).
   Roadmap: `docs/plans/0013-shared-recognisers-roadmap.md`.
 - **0014** — **Accepted** (supersedes 0009, #697): **collect-then-solve
   annotation placement as built** — collect every strip occupant as a

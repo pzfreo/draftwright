@@ -1,6 +1,7 @@
 # ADR 0013 — A uniform recogniser/feature contract (with `b123d-recognisers` as its deferred shared deployment)
 
-- **Status:** Accepted; Phase 1 is in progress (the core contract is enforced, typed adapter registry pending), and Phase 2 package extraction is deferred.
+- **Status:** Accepted; **Phase 1 complete** (the core contract is enforced and the
+  typed record→Feature converter registry landed, #752), Phase 2 package extraction deferred.
 - **Date:** 2026-07-12
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -22,6 +23,27 @@ solid, so `part` would be a dead argument. The sanctioned derived shape is
 `recognise_hole_patterns(holes)` — the inventory positional, no `part` — exactly as
 `recognition/__init__.py` documents and `tests/test_recogniser_contract.py` enforces.
 The base-feature shape (`part` first, keyword-only tuning/deps) is unchanged.
+
+**Amendment 3 (2026-07-22, #752) — Phase 1c landed: the typed converter registry.**
+Roadmap item 1c is done. `model/detect.py` no longer hand-translates each record with
+an ad-hoc inline branch; the record→IR-`Feature` mapping is one typed registry seam
+(`_CONVERTERS`, dispatched by `convert(record, ctx)`), and `build_part_model` keeps only
+the *assembly* it always owned (pattern/hole grouping, groove/plate suppression, the
+classification-fed rotational/envelope/step-ladder furniture). Completeness and
+uniqueness are machine-enforced by `tests/test_detect_registry.py`: every recognition
+record type has **exactly one** home across three tiers. The authoritative record-type
+universe is derived **mechanically** from the public `recognise_*` return annotations
+(not a hand-maintained list), so a new recogniser genuinely cannot silently emit
+features with no converter — its record type enters the universe automatically and the
+partition test fails until it is homed. The **explicitly accepted residual scope**:
+two tiers are not uniform `(record, ctx)` converters, by design — (a) *derived*
+converters (`HoleRecord`→`_member_hole`, the three pattern kinds→`_pattern_feature`)
+take per-group members/count the grouping computes; (b) *orchestrated* records
+(`CounterSink` nested in a hole callout; `FaceLevel`/`StepShoulder` aggregated into one
+`StepLevelFeature`) have no per-record feature at all. Both tiers are named and reason-
+carried in the registry, so "supported record type has a home" stays fail-closed
+without forcing a 1:1 shape onto genuinely N:1 assembly. 1d (the `callout()` crack)
+remains open.
 
 ## Context
 
