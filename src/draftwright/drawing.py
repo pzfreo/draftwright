@@ -1072,16 +1072,18 @@ class Drawing:
                 "pocket": render_pockets,
                 "groove": render_grooves,
             }
-            # Return the placed annotation's name (Codex #811) so pin()/drop() can address it:
-            # only={feature} attempts exactly one callout, so at most one name is new. A drop
-            # (no clear room) adds none and returns "" — the same empty-string drop signal the
-            # step/boss diameter branch already gives.
-            before = set(self.annotations())
+            # Return the placed annotation's name (Codex #811) so pin()/drop() can address it.
+            # only={feature} places exactly one callout, so at most one name changes. Diff by
+            # object IDENTITY, not just the name set, so re-placing over an existing canonical
+            # name (or a grouped callout collapsing to an already-present name) is still detected
+            # as the placed name (Codex #811 r3). A drop (no clear room) changes nothing and
+            # returns "" — the same empty-string drop signal the step/boss diameter branch gives.
+            before = {n: id(o) for n, o in self.iter_annotations()}
             renderers[kind](
                 self, plan_dimensions(self._part_model), self._analysis, ctx=ctx, only={feature}
             )
-            new = set(self.annotations()) - before
-            return next(iter(new)) if len(new) == 1 else ""
+            changed = [n for n, o in self.iter_annotations() if before.get(n) != id(o)]
+            return changed[0] if len(changed) == 1 else ""
         return add_feature_callout(
             self, feature, self._part_model, self._analysis, view=view, name=name, ctx=ctx
         )

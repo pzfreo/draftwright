@@ -10,7 +10,7 @@ import runpy
 from pathlib import Path
 
 import pytest
-from build123d import Align, Axis, Box, Cylinder, Pos, Rot, Rotation, chamfer, export_step
+from build123d import Align, Axis, Box, Cylinder, Pos, Rot, Rotation, chamfer, export_step, fillet
 
 from draftwright import build_drawing, generate_script
 
@@ -239,6 +239,39 @@ def test_generated_script_reproduces_machined_callouts(tmp_path):
 
 
 @pytest.mark.timeout(240)
+def test_generated_script_reproduces_grouped_fillet_callout(tmp_path):
+    """Grouped-fillet parity (Codex #811, P3): two equal-radius fillets collapse to ONE ``n× R``
+    callout. The emitted script must reproduce the same grouped count — exercising the collapse +
+    ``only=`` member-filter path (F2) that the single-callout pocket/chamfer fixtures do not.
+    """
+    box = Box(120, 80, 30)
+    box = fillet(box.edges().filter_by(Axis.Z).sort_by(Axis.X)[0], 5)
+    box = fillet(box.edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 5)
+    step, scripted = _scripted_drawing(box, tmp_path, "grpfillet")
+    direct = build_drawing(str(step))
+
+    assert _machined_callouts(direct) == [("fillet", "2× R5")]  # guard: one grouped 2× callout
+    assert _machined_callouts(scripted) == _machined_callouts(direct)
+
+
+@pytest.mark.timeout(240)
+def test_generated_script_reproduces_groove_callout(tmp_path):
+    """Groove leader parity (Codex #811, P3): an annular groove on round stock reconstructs
+    through the ``_s_grooves`` finalize stage — a leader kind beyond pocket/chamfer.
+    """
+    shaft = Cylinder(12, 60, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    shaft -= Pos(0, 0, 30) * (
+        Cylinder(12, 4, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        - Cylinder(9, 4, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    )
+    step, scripted = _scripted_drawing(shaft, tmp_path, "groove")
+    direct = build_drawing(str(step))
+
+    assert [k for k, _ in _machined_callouts(direct)] == ["groove"]  # guard: the groove is drawn
+    assert _machined_callouts(scripted) == _machined_callouts(direct)
+
+
+@pytest.mark.timeout(240)
 def test_generated_script_machined_callout_is_per_feature(tmp_path):
     """Editable-script contract (Codex #811): commenting ONE machined callout line drops
     exactly that feature, not the whole kind. Two separated pockets on a roomy block emit two
@@ -281,8 +314,6 @@ def test_finalize_fillet_keeps_stable_index_when_sibling_dropped(tmp_path):
     the R8 callout must keep ``m_fillet_z1`` — a pre-#811-style filter-before-collapse would
     renumber it to ``m_fillet_z0`` and break name-based drop()/pin().
     """
-    from build123d import fillet
-
     box = Box(120, 80, 30)
     box = fillet(box.edges().filter_by(Axis.Z).sort_by(Axis.X)[0], 4)
     box = fillet(box.edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 8)
@@ -332,6 +363,28 @@ def test_live_machined_callout_returns_placed_name(tmp_path):
     name = dwg.callout(pocket)
     assert name.startswith("m_pocket")
     assert dwg.get_annotation(name) is not None
+
+
+@pytest.mark.timeout(240)
+def test_live_machined_callout_returns_name_on_replacement(tmp_path):
+    """A live callout that REPLACES an existing annotation (same collapsed name) still returns
+    that name, not "" (Codex #811, P3/P2): two equal-radius fillets each render a 1× callout at
+    the same ``m_fillet_z0`` name, so the second call overwrites the first. A name-set diff would
+    see no new name and wrongly return ""; the object-identity diff returns the placed name.
+    """
+    box = Box(120, 80, 30)
+    box = fillet(box.edges().filter_by(Axis.Z).sort_by(Axis.X)[0], 5)
+    box = fillet(box.edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 5)
+    step = tmp_path / "two_equal_fillets.step"
+    export_step(box, str(step))
+    dwg = build_drawing(str(step), auto_dims=False)
+    fillets = [f for f in dwg.model().features if f.kind == "fillet"]
+    assert len(fillets) == 2
+
+    first = dwg.callout(fillets[0])
+    second = dwg.callout(fillets[1])  # same collapsed name → a replacement, not a new name
+    assert first.startswith("m_fillet")
+    assert second.startswith("m_fillet")  # NOT "" despite the name already existing
 
 
 @pytest.mark.timeout(240)
