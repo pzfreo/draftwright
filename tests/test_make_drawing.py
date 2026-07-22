@@ -6059,7 +6059,7 @@ def _assert_drop_is_complete(dwg):
     (2) CONSISTENCY: for every feature, drop() removes exactly annotations_of() and leaves
     nothing behind. Distinct features never share an owned annotation, so dropping each in
     turn is independent."""
-    reg = dwg._registry
+    reg = dwg.registry
     for name in dwg.annotations():
         if name.startswith(_ALWAYS_OWNED):
             assert reg.feature_of(name) is not None, f"{name}: feature annotation left unowned"
@@ -7308,8 +7308,8 @@ class TestFeatureEdits:
         mdia = [n for n in dwg.annotations() if n.startswith("m_dia")]
         assert mdia, "expected turned-diameter callouts"
         for n in mdia:
-            assert dwg._registry.feature_of(n) is not None, f"{n} unowned (#412 regression)"
-        owner = dwg._registry.feature_of(mdia[0])
+            assert dwg.registry.feature_of(n) is not None, f"{n} unowned (#412 regression)"
+        owner = dwg.registry.feature_of(mdia[0])
         assert mdia[0] in dwg.drop(owner)
 
     def test_drop_step_clears_its_diameter_callout_x_turned(self):
@@ -7322,7 +7322,7 @@ class TestFeatureEdits:
         mdia_x = [n for n in dwg.annotations() if n.startswith("m_dia_x")]
         assert mdia_x, "expected X-turned diameter callouts (row path)"
         for n in mdia_x:
-            assert dwg._registry.feature_of(n) is not None, f"{n} unowned (#412 row path)"
+            assert dwg.registry.feature_of(n) is not None, f"{n} unowned (#412 row path)"
 
     def test_drop_is_complete_for_side_drilled_holes(self):
         # #410 review F1: a side-drilled (X/Y-axis) hole's location dims (dim_loc_side/
@@ -7341,7 +7341,7 @@ class TestFeatureEdits:
         # Directly: each (distinct-offset) side-drilled dim is owned by its hole — the F1
         # fix. Without it these were feature=None and drop(hole) left them behind.
         for n in side_loc:
-            assert dwg._registry.feature_of(n) is not None, f"{n} unowned (F1 regression)"
+            assert dwg.registry.feature_of(n) is not None, f"{n} unowned (F1 regression)"
         _assert_drop_is_complete(dwg)
 
     def test_dimension_rejects_non_orthographic_view(self):
