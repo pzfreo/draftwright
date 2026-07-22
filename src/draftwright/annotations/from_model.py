@@ -2544,14 +2544,21 @@ def render_step_positions(dwg, model, a, *, ctx) -> int:
     return n
 
 
-def render_rotational(dwg, model, a, *, ctx) -> int:
+def render_rotational(dwg, groups, a, *, ctx) -> int:
     """Rotational furniture from the IR `RotationalFeature` (#237): the OD dim (above
     the front view), the rotation-axis centrelines (front + side), and the concentric
-    bore leaders stacked to the left of the front view. Replaces the engine's inline
-    OD / centreline / `ldr_z` blocks. Returns the count placed."""
-    rot = next((f for f in model.features if f.kind == "rotational"), None)
-    if rot is None:
+    bore leaders stacked to the left of the front view. Returns the count placed.
+
+    The OD/bore dimension LABELS consume the feature's planned `DimensionGroup`
+    (#754): the value and any authored tolerance/fit folded on by `plan_dimensions`
+    now reach the label via `_tol_suffix`, closing the raw-field bypass ADR 0015
+    tracked. The centrelines and the bore-stack layout/drop bookkeeping stay
+    model-routed furniture, and geometry keeps using the raw `rot.od`/`rot.bores`
+    (equal to the planned value), so X/Y/Z placement is unchanged."""
+    g = next((g for g in groups if g.feature_kind == "rotational"), None)
+    if g is None:
         return 0
+    rot = g.feature
     draft = dwg.draft
     FX, FZ = a.proj.front_x, a.proj.front_z
     SX, SZ = a.proj.side_x, a.proj.side_z
@@ -2559,6 +2566,23 @@ def render_rotational(dwg, model, a, *, ctx) -> int:
     n = 0
     od = rot.od
     axis = rot.frame.axis
+    od_pd = next((pd for pd in g.dims if pd.param.role == "od"), None)
+    bore_pds = [pd for pd in g.dims if pd.param.role == "bore"]
+    # Contract: RotationalFeature.parameters() emits exactly one OD dim and one per
+    # bore in bores order, and plan_dimensions preserves that. Fail LOUD on a mismatch
+    # (#806 review) rather than silently rendering a raw, untoleranced label — or, for a
+    # missing MIDDLE bore, shifting every later bore_pds[i] onto the wrong physical bore.
+    if od_pd is None or len(bore_pds) != len(rot.bores):
+        raise AssertionError(
+            f"rotational plan mismatch: od_present={od_pd is not None}, "
+            f"planned bores={len(bore_pds)} vs {len(rot.bores)}"
+        )
+
+    def _dia_label(pd):
+        # Planner-fed value + authored tolerance/fit suffix (#754).
+        return f"ø{_fmt(pd.param.value)}{_tol_suffix(pd.param.tolerance, draft)}"
+
+    od_label = _dia_label(od_pd)
 
     if axis == "z":
         # Vertical turning axis (the common case): OD across the top of the front
@@ -2570,7 +2594,7 @@ def render_rotational(dwg, model, a, *, ctx) -> int:
                 "above",
                 8,
                 draft,
-                label=f"ø{_fmt(od)}",
+                label=od_label,
             ),
             "dim_od",
             view="front",
@@ -2619,7 +2643,7 @@ def render_rotational(dwg, model, a, *, ctx) -> int:
                         Leader(
                             tip=(FX(a.cx - d / 2), tip_z, 0),
                             elbow=(elbow_x, tip_z, 0),
-                            label=f"ø{_fmt(d)}",
+                            label=_dia_label(bore_pds[i]),
                             draft=draft,
                         ),
                         f"ldr_z{i}",
@@ -2654,7 +2678,7 @@ def render_rotational(dwg, model, a, *, ctx) -> int:
                 "left",
                 8,
                 draft,
-                label=f"ø{_fmt(od)}",
+                label=od_label,
             ),
             "dim_od",
             view="front",
@@ -2681,7 +2705,7 @@ def render_rotational(dwg, model, a, *, ctx) -> int:
                 "left",
                 8,
                 draft,
-                label=f"ø{_fmt(od)}",
+                label=od_label,
             ),
             "dim_od",
             view="side",

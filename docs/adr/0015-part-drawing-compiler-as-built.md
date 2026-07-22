@@ -5,6 +5,10 @@
   epic #698 are complete. The remaining model-routed passes are classified
   honestly below, including rotational dimension debt now tracked by #754.
   The open/closed consequence is narrowed accordingly.
+- **Amendment 2** (2026-07-22): #754 closed — `render_rotational`'s OD and bore
+  dimension *labels* are now planner-fed (they read the folded value/tolerance off
+  the feature's `DimensionGroup`), moving out of the model-routed list. Only its
+  axis centrelines and bore-stack layout remain model-routed furniture.
 - **Date:** 2026-07-18
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -94,8 +98,8 @@ audit found that many dimension-bearing feature passes still bypassed it and
 opened **#698**. The migrations owned by that epic are now complete:
 `orchestrator._auto_annotate` calls `plan_dimensions` exactly once and threads
 its `DimensionGroup`s to the migrated renderers. The audit of this amendment
-found one residual dimension-bearing bypass, rotational OD/bores, now tracked
-separately by #754.
+found one residual dimension-bearing bypass, rotational OD/bores — since closed
+by #754 (Amendment 2): those labels are now planner-fed.
 
 **Planner-fed today** (the renderer consumes `DimensionGroup`s from
 `plan_dimensions`, or another planner entry point):
@@ -106,6 +110,7 @@ separately by #754.
 | hole / pattern locations | `from_model.render_locations` | `plan_locations` (refs + datum) |
 | turned diameters (ø leaders, row/column) | `from_model.render_diameters` | `plan_dimensions` |
 | boss diameters | `from_model.render_boss_diameters` | `plan_dimensions` |
+| rotational OD + concentric bore diameters (labels; #754) | `from_model.render_rotational` | `plan_dimensions` |
 | envelope (overall W/D/L, with model-level suppression) | `from_model.render_envelope` | `plan_dimensions` |
 | turned step lengths (the chain) | `from_model.render_step_lengths` | `plan_dimensions` |
 | chamfers (C{leg} / {leg}×{angle}° leader, #724) | `from_model.render_chamfers` | `plan_dimensions` |
@@ -120,10 +125,12 @@ separately by #754.
 **Model-routed today** (where a feature exposes parameters, `plan_dimensions`
 still computes a group that these passes do not consume):
 
-- `render_rotational` formats OD and bore parameters from raw
-  `RotationalFeature` fields, discarding their computed group and any authored
-  decoration folded into it. That is debt tracked by #754. Its axis centrelines
-  are furniture and remain model-routed.
+- `render_rotational`'s axis centrelines and the concentric-bore leader-stack
+  layout/drop bookkeeping are furniture and remain model-routed. Its OD and bore
+  dimension **labels** are now planner-fed (#754): they read the value and any
+  authored tolerance/fit off the feature's `DimensionGroup`, not the raw
+  `RotationalFeature` fields. (A single `(feature, "diameter")` decoration still
+  folds onto OD *and* every bore alike — per-role targeting is #746, not #754.)
 - `render_height_ladder` and `render_step_positions` are also model-routed,
   **by design**: `StepLevelFeature` carries correlated sets that must never be
   flattened into independent dims, so group-per-feature is the wrong shape for
@@ -142,7 +149,7 @@ belong. #698 migrated chamfer, fillet, flat, groove, pocket, plate, and slot
 dimensions (#724–#730), closing the latent authored-tolerance failure class for
 those features. Model-routing is legitimate where there is no independent
 `DimParameter` to plan or where flattening a correlated set would destroy its
-semantics; otherwise it remains explicit debt such as #754.
+semantics; otherwise it is explicit debt to be closed (as #754 since was).
 
 ## The lint/coverage carve-out
 
@@ -203,7 +210,7 @@ boundary decisions), not for current state. Step 1 of the original 0008
 - #698 — completed planner-bypass migration epic tracked by this ADR's coverage
   table and Amendment 1.
 - #754 — residual rotational OD/bore planner bypass found during Amendment 1's
-  accuracy review.
+  accuracy review; closed by Amendment 2 (labels now planner-fed).
 - #699 — the one canonical `_PASS_SEQUENCE` shared by the auto-pass and
   `finalize()` (orchestrator `run_stages`), which orders the passes named
   above.

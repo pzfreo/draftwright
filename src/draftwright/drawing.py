@@ -1072,9 +1072,10 @@ class Drawing:
             return []
         from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.from_model import render_rotational
+        from draftwright.model import plan_dimensions
 
         ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
-        render_rotational(self, self._part_model, self._analysis, ctx=ctx)
+        render_rotational(self, plan_dimensions(self._part_model), self._analysis, ctx=ctx)
         return []
 
     def section(self) -> list[str]:
@@ -1539,7 +1540,7 @@ class Drawing:
             # pass, so the reconstruction matches (== not ⊇, unlike the #424 diameter case).
             if r.rotational_ids:
                 assert a is not None and isinstance(model, PartModel)
-                render_rotational(self, model, a, ctx=ctx)
+                render_rotational(self, plan_dimensions(model), a, ctx=ctx)
             self._intents = [it for it in self._intents if id(it) not in r.rotational_ids]
 
         def _s_reserve_section():
