@@ -1311,7 +1311,7 @@ def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx, geom_clear=False
     return n
 
 
-def render_chamfers(dwg, groups, a, *, ctx) -> int:
+def render_chamfers(dwg, groups, a, *, ctx, only=None) -> int:
     """Chamfer callouts (#560): a leader from each recognised chamfer face to its
     ``C{leg}`` / ``{leg}×{angle}°`` label, in the view normal to the chamfered edge (a Z
     edge reads in the plan, an X edge in the side, a Y edge in the front). The leader runs
@@ -1334,6 +1334,8 @@ def render_chamfers(dwg, groups, a, *, ctx) -> int:
         sorted(chamfer_groups, key=lambda g: (g.feature.axis, g.feature.frame.origin))
     ):
         ch = g.feature
+        if only is not None and ch not in only:
+            continue  # #426 Ph2b subset (finalize): skip in place — i stays the model index
         # Bind the intended planned dim EXPLICITLY by (role, kind), never dims[0]
         # (#724 review): the pattern the remaining #698 migrations copy must not
         # silently grab the wrong dimension on a multi-parameter kind.
@@ -1366,7 +1368,7 @@ def _fillet_label(radius, count) -> str:
     return f"{count}× {r}" if count > 1 else r
 
 
-def render_fillets(dwg, groups, a, *, ctx) -> int:
+def render_fillets(dwg, groups, a, *, ctx, only=None) -> int:
     """Fillet radius callouts (#561): a leader from an external edge fillet to its
     ``R{radius}`` label — the arc analog of :func:`render_chamfers`. Equal-radius fillets on
     the same edge axis share ONE ``n× R`` callout (#561 acceptance), placed in the view
@@ -1388,6 +1390,8 @@ def render_fillets(dwg, groups, a, *, ctx) -> int:
     reach = _leader_callout_reach(draft)
     collapse: dict = {}
     for g in (g for g in groups if g.feature_kind == "fillet"):
+        if only is not None and g.feature not in only:
+            continue  # #426 Ph2b subset (finalize): drop filtered members before the n× collapse
         pd = next(
             (d for d in g.dims if (d.param.role, d.param.kind) == ("fillet", "radius")),
             None,
@@ -1432,7 +1436,7 @@ def _flat_label(across, sfx="") -> str:
     return f"{_fmt(across)}{sfx} A/F"
 
 
-def render_flats(dwg, groups, a, *, ctx) -> int:
+def render_flats(dwg, groups, a, *, ctx, only=None) -> int:
     """Machined-flat callouts (#148b): a leader from a flat truncating round stock to its
     ``{across} A/F`` label, in the view down the stock axis (a Z-axis bar reads in the plan).
     Flats sharing an axis and across-flats size — the faces of a double-D or hex — share ONE
@@ -1451,6 +1455,8 @@ def render_flats(dwg, groups, a, *, ctx) -> int:
     reach = _leader_callout_reach(draft)
     collapse: dict = {}
     for g in (g for g in groups if g.feature_kind == "flat"):
+        if only is not None and g.feature not in only:
+            continue  # #426 Ph2b subset (finalize): drop filtered members before the shared collapse
         pd = next(
             (d for d in g.dims if (d.param.role, d.param.kind) == ("flat", "length")),
             None,
@@ -1555,7 +1561,7 @@ def _radial_candidates(dwg, view, vb, feature, reach, *, rim=0.0):
         yield (tip, elbow, feature)
 
 
-def render_pockets(dwg, groups, a, *, ctx) -> int:
+def render_pockets(dwg, groups, a, *, ctx, only=None) -> int:
     """Blind-recess callouts (#148a): a leader from each floored slot/pocket to its
     ``W × L × D DEEP`` label, in the view normal to the recess opening (a Z-depth pocket
     reads in the plan, an X-depth in the side, a Y-depth in the front). A pocket sits
@@ -1579,6 +1585,8 @@ def render_pockets(dwg, groups, a, *, ctx) -> int:
         sorted(pocket_groups, key=lambda g: (g.feature.width_axis, g.feature.frame.origin))
     ):
         pk = g.feature
+        if only is not None and pk not in only:
+            continue  # #426 Ph2b subset (finalize): skip in place — i stays the model index
         by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
         wpd = by_key.get(("pocket_width", "length"))
         lpd = by_key.get(("pocket_length", "length"))
@@ -1612,7 +1620,7 @@ def render_pockets(dwg, groups, a, *, ctx) -> int:
     return _leader_callout_pass(dwg, a, jobs, noun="pocket", drop_code="pocket_dropped", ctx=ctx)
 
 
-def render_grooves(dwg, groups, a, *, ctx) -> int:
+def render_grooves(dwg, groups, a, *, ctx, only=None) -> int:
     """Turned/circlip-groove callouts (#148c): a leader from each annular groove in round
     stock to its ``{width} WIDE × ø{diameter}`` label. The groove's width is *axial*, so the
     callout lands in the **profile** view (the one showing the stock axis in-plane, where the
@@ -1639,6 +1647,8 @@ def render_grooves(dwg, groups, a, *, ctx) -> int:
         sorted(groove_groups, key=lambda g: (g.feature.axis, g.feature.frame.origin))
     ):
         gr = g.feature
+        if only is not None and gr not in only:
+            continue  # #426 Ph2b subset (finalize): skip in place — gi stays the model index
         wpd = next(
             (d for d in g.dims if (d.param.role, d.param.kind) == ("groove", "length")), None
         )
@@ -1792,7 +1802,7 @@ def render_boss_heights(dwg, groups, a, *, ctx) -> int:
     return n
 
 
-def render_plates(dwg, groups, a, *, ctx) -> int:
+def render_plates(dwg, groups, a, *, ctx, only=None) -> int:
     """Plate/wall thicknesses (#559): the thin extent of each recognised slab
     (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z
     plate (horizontal slab) as a vertical dim left of the front elevation, a Y plate
@@ -1827,6 +1837,8 @@ def render_plates(dwg, groups, a, *, ctx) -> int:
         lbl = _fmt(val) + _tol_suffix(pd.param.tolerance, draft)
         i = counts[pl.axis]
         counts[pl.axis] += 1
+        if only is not None and pl not in only:
+            continue  # #426 Ph2b subset (finalize): skip AFTER consuming i so names stay stable
         if pl.axis == "z":
             # Horizontal slab (base plate): vertical dim on the front-elevation left strip.
             # For a Z plate the in-plane centroids are (u=X, v=Y); the front view discards

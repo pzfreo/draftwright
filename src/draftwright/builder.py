@@ -958,8 +958,9 @@ def _feature_listing(a: Analysis) -> str:
         elif kind in _MACHINED_CALLOUT_KINDS:
             # Machined-feature leader callouts (#148): a chamfer/fillet/flat/pocket/groove/plate
             # carries no linear-dim param (span=None — it is a Leader callout, not a Dimension),
-            # so dimension() can't reconstruct it. callout(f) rebuilds the feature's whole-kind
-            # callout set on finalize (whole-set, like rotational — see Drawing._s_machined).
+            # so dimension() can't reconstruct it. callout(f) records a per-feature intent that
+            # finalize renders through the kind's auto-pass renderer restricted to this feature
+            # (only={f}, #811) — commenting one line drops exactly that one callout.
             body.append("dwg.callout(f)")
             continue
         for p in feat.parameters():

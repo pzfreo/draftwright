@@ -234,6 +234,57 @@ def test_generated_script_reproduces_machined_callouts(tmp_path):
 
 
 @pytest.mark.timeout(240)
+def test_generated_script_machined_callout_is_per_feature(tmp_path):
+    """Editable-script contract (Codex #811): commenting ONE machined callout line drops
+    exactly that feature, not the whole kind. Two separated pockets on a roomy block emit two
+    ``dwg.callout(f)`` lines; removing the first must leave exactly the second pocket's callout.
+    The pre-#811 whole-kind renderer redrew BOTH pockets from the single surviving intent, so
+    this fails on that approach — the ``only=`` per-feature subset is what makes it pass.
+    """
+    part = Box(160, 90, 30) - Pos(-40, 0, 12) * Box(24, 20, 8) - Pos(40, 0, 12) * Box(24, 20, 8)
+    step = tmp_path / "two_pockets.step"
+    export_step(part, str(step))
+
+    direct = build_drawing(str(step))
+    assert len(_machined_callouts(direct)) == 2  # guard: both pockets drawn on the direct path
+
+    script = Path(generate_script(str(step), out=str(tmp_path / "two_pockets")))
+    baseline = runpy.run_path(str(script))["dwg"]
+    assert len(_machined_callouts(baseline)) == 2  # the unedited script reproduces both
+
+    # Comment out the FIRST pocket callout line only, then re-run the edited script.
+    lines = script.read_text(encoding="utf-8").splitlines()
+    for idx, ln in enumerate(lines):
+        if ln.strip() == "dwg.callout(f)":
+            indent = ln[: len(ln) - len(ln.lstrip())]
+            lines[idx] = f"{indent}# {ln.strip()}"
+            break
+    else:
+        raise AssertionError("generated script has no dwg.callout(f) line to comment out")
+    script.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    edited = runpy.run_path(str(script))["dwg"]
+
+    # Exactly one pocket survives — per-feature only=, not a whole-kind redraw.
+    assert len(_machined_callouts(edited)) == 1
+
+
+@pytest.mark.timeout(240)
+def test_callout_rejects_name_view_for_machined_feature(tmp_path):
+    """A machined callout is auto-named/placed by its whole-kind renderer, so ``name=``/``view=``
+    are unsupported and raise rather than being silently discarded (Codex #811, F2)."""
+    part = Box(120, 80, 30) - Pos(0, 0, 12) * Box(40, 25, 8)
+    step = tmp_path / "pocket.step"
+    export_step(part, str(step))
+    dwg = build_drawing(str(step))
+    pocket = next(f for f in dwg.model().features if f.kind == "pocket")
+
+    with pytest.raises(ValueError, match="machined"):
+        dwg.callout(pocket, name="critical_depth")
+    with pytest.raises(ValueError, match="machined"):
+        dwg.callout(pocket, view="plan")
+
+
+@pytest.mark.timeout(240)
 def test_generated_script_matches_direct_y_axis_turned_diameter_policy(tmp_path):
     """Y-axis turned output runs and follows the direct no-diameter policy."""
     part = Rotation(90, 0, 0) * _turned_shaft([(20, 20), (14, 15)])

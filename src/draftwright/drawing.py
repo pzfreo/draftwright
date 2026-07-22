@@ -1021,11 +1021,20 @@ class Drawing:
         so :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
         Raises ``ValueError`` if *feature* exposes no callout (use :meth:`dimension` for a
-        linear param). Placed reasonably, not via the auto-pass's whole-set solve
-        (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the rest. A
-        step/boss diameter that finds no room returns ``""`` (a warning-level drop, like
-        the auto-pass), rather than raising, so a reconstruction script never aborts.
+        linear param). A machined-feature callout (pocket/fillet/flat/chamfer/groove/plate)
+        is auto-named and placed in its characteristic view by the whole-kind renderer, so
+        ``view=``/``name=`` are unsupported for those kinds and raise ``ValueError`` rather
+        than being silently ignored (Codex #811). Placed reasonably, not via the auto-pass's
+        whole-set solve (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the
+        rest. A step/boss diameter that finds no room returns ``""`` (a warning-level drop,
+        like the auto-pass), rather than raising, so a reconstruction script never aborts.
         """
+        kind = getattr(feature, "kind", None)
+        if kind in _MACHINED_CALLOUT_KINDS and (view is not None or name is not None):
+            raise ValueError(
+                f"callout(): a {kind} is auto-named and placed in its characteristic view; "
+                "view=/name= are unsupported for machined-feature callouts"
+            )
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("callout", feature, {"view": view, "name": name}))
             return ""
@@ -1033,13 +1042,18 @@ class Drawing:
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
         ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
-        kind = getattr(feature, "kind", None)
         if kind in ("step", "boss"):
             return add_feature_diameter(self, feature, self._part_model, ctx=ctx)
         if kind in _MACHINED_CALLOUT_KINDS:
-            # Machined callouts render whole-kind (like rotational); a live call rebuilds the
-            # feature's whole kind set through its auto-pass renderer. The deferred path above
+            # Machined callouts render through their auto-pass whole-kind renderer, restricted
+            # to THIS feature (only={feature}) so a live call draws exactly one callout — the
+            # per-feature `only=` subset the finalize stages also use. The deferred path above
             # routes the recorded intent to the matching per-kind finalize stage instead.
+            if self._part_model is None or self._analysis is None:
+                raise ValueError(
+                    f"callout(): a {kind} callout needs the part model and analysis; "
+                    "add it to a drawing built by build_drawing(), not a bare Drawing"
+                )
             from draftwright.annotations.from_model import (
                 render_chamfers,
                 render_fillets,
@@ -1058,7 +1072,9 @@ class Drawing:
                 "groove": render_grooves,
                 "plate": render_plates,
             }
-            renderers[kind](self, plan_dimensions(self._part_model), self._analysis, ctx=ctx)
+            renderers[kind](
+                self, plan_dimensions(self._part_model), self._analysis, ctx=ctx, only={feature}
+            )
             return ""
         return add_feature_callout(
             self, feature, self._part_model, self._analysis, view=view, name=name, ctx=ctx
@@ -1338,10 +1354,9 @@ class Drawing:
         # no per-feature subset, so just the id set; it drains at the "rotational" slot.
         rotational_ids = {id(it) for it in self._intents if routable and it.kind == "rotational"}
         # Machined-feature callout intents (#148): pocket/fillet/flat/chamfer/groove/plate
-        # callout()s. Their renderers are whole-kind batches (no only= subset), so — like
-        # rotational — one recorded intent of a kind means "rebuild that kind's whole callout
-        # set". Bucketed per kind so each drains at its own _PASS_SEQUENCE stage; the union
-        # also joins `routed` so live_replay skips them (callout() raises on these live).
+        # callout()s. Bucketed per kind so each drains at its own _PASS_SEQUENCE stage,
+        # restricted to the recorded features via only= (per-feature, #811). The id union
+        # also joins `routed` so live_replay skips these (they route through finalize).
         machined_ids_by_kind: dict = {}
         for it in self._intents:
             if routable and it.kind == "callout":
@@ -1729,19 +1744,19 @@ class Drawing:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
                 render_slots(self, plan_dimensions(model), a, ctx=ctx, only=r.slot_feats)
 
-        # Machined-feature leader callouts (#148): whole-kind renderers like _s_rotational —
-        # one recorded callout intent of a kind rebuilds that kind's WHOLE callout set (so
-        # commenting some dwg.callout lines still redraws the kind; commenting all drops it,
-        # matching the rotational/locate/height-ladder whole-set precedent). Each places at
-        # its own _PASS_SEQUENCE slot (chamfers/fillets/flats/pockets after the drain; plates
-        # earlier, before step_positions), so the reconstruction matches the auto pass's order.
+        # Machined-feature leader callouts (#148): each recorded callout intent draws exactly
+        # its own feature — the renderer is restricted to the surviving intents' features via
+        # only= (the render_slots #426 Ph2b subset idiom), so commenting one dwg.callout line
+        # drops that one feature (Codex #811) while the full script reproduces the auto pass.
+        # Each kind places at its own _PASS_SEQUENCE slot (chamfers/fillets/flats/pockets after
+        # the drain; plates earlier, before step_positions), matching the auto pass's order.
         def _s_machined(kind, render):
-            if kind in r.machined_ids_by_kind:
+            ids = r.machined_ids_by_kind.get(kind, set())
+            feats = {it.feature for it in self._intents if id(it) in ids}
+            if feats:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
-                render(self, plan_dimensions(model), a, ctx=ctx)
-            self._intents = [
-                it for it in self._intents if id(it) not in r.machined_ids_by_kind.get(kind, set())
-            ]
+                render(self, plan_dimensions(model), a, ctx=ctx, only=feats)
+            self._intents = [it for it in self._intents if id(it) not in ids]
 
         def _s_chamfers():
             _s_machined("chamfer", render_chamfers)
