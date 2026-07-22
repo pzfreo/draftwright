@@ -14,6 +14,7 @@ typed registry seam. These tests are the fail-closed guard on that seam:
 
 from __future__ import annotations
 
+import inspect
 import typing
 
 import pytest
@@ -55,10 +56,15 @@ def _recogniser_record_universe() -> set[type]:
         if not name.startswith("recognise_"):
             continue
         fn = getattr(recognition, name)
+        # Fail loud, not open: an unresolvable return annotation must surface as a test
+        # failure naming the recogniser, never be silently skipped (which would let a new
+        # record type escape the universe and defeat the completeness guard below).
         try:
             hints = typing.get_type_hints(fn)
-        except Exception:  # pragma: no cover — a recogniser with unresolved hints
-            continue
+        except Exception as exc:
+            raise AssertionError(
+                f"could not resolve return hints for recognition.{name}: {exc!r}"
+            ) from exc
         universe |= _record_types_in(hints.get("return"))
     return universe
 
@@ -95,6 +101,19 @@ def test_orchestrated_records_document_their_residual_reason():
 def test_uniform_converters_are_callable():
     assert all(callable(c) for c in _CONVERTERS.values())
     assert all(callable(c) for c in _DERIVED_CONVERTERS.values())
+
+
+def test_uniform_converter_is_registered_under_the_type_it_consumes():
+    """Each uniform converter is keyed under the record type its first parameter is
+    annotated for — a mechanical guard against a mis-registration (e.g. ``Slot ->
+    _convert_pocket``) that the ``Any``-typed registry value cannot catch statically."""
+    for key, conv in _CONVERTERS.items():
+        first = next(iter(inspect.signature(conv).parameters))
+        consumed = typing.get_type_hints(conv).get(first)
+        assert consumed is key, (
+            f"{conv.__name__} is registered under {key.__name__} but consumes "
+            f"{getattr(consumed, '__name__', consumed)}"
+        )
 
 
 def test_convert_fails_closed_on_unregistered_record():

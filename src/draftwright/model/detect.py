@@ -246,7 +246,7 @@ class ConvContext:
 Converter = Callable[[Any, "ConvContext"], Feature]
 
 
-def _convert_slot(sl, ctx: ConvContext) -> SlotFeature:
+def _convert_slot(sl: Slot, ctx: ConvContext) -> SlotFeature:
     idx = "xyz".index(sl.long_axis)
     c = ctx.bbox.center()
     origin = [c.X, c.Y, c.Z]
@@ -263,7 +263,7 @@ def _convert_slot(sl, ctx: ConvContext) -> SlotFeature:
     )
 
 
-def _convert_pocket(pk, ctx: ConvContext) -> PocketFeature:
+def _convert_pocket(pk: Pocket, ctx: ConvContext) -> PocketFeature:
     # Frame at the recess centroid — in-plane centre + mid-depth. The render leader
     # projects into the view normal to the depth axis, so the depth coord is inert,
     # but a true centroid keeps the frame honest.
@@ -285,7 +285,7 @@ def _convert_pocket(pk, ctx: ConvContext) -> PocketFeature:
     )
 
 
-def _convert_step(s, ctx: ConvContext) -> StepFeature:
+def _convert_step(s: TurnedStep, ctx: ConvContext) -> StepFeature:
     assert ctx.orientation is not None  # only reached on the turned branch
     idx = "xyz".index(ctx.orientation)
     c = ctx.bbox.center()
@@ -305,7 +305,7 @@ def _convert_step(s, ctx: ConvContext) -> StepFeature:
     )
 
 
-def _convert_boss(b, ctx: ConvContext) -> BossFeature:
+def _convert_boss(b: BossRecord, ctx: ConvContext) -> BossFeature:
     return BossFeature(
         frame=Frame(origin=_xyz(b.location), axis=_axis_letter(b)),
         diameter=b.diameter,
@@ -321,7 +321,7 @@ def _convert_boss(b, ctx: ConvContext) -> BossFeature:
     )
 
 
-def _convert_plate(pl, ctx: ConvContext) -> PlateFeature:
+def _convert_plate(pl: Plate, ctx: ConvContext) -> PlateFeature:
     c = ctx.bbox.center()
     return PlateFeature(
         frame=Frame((c.X, c.Y, c.Z), pl.axis),
@@ -333,7 +333,7 @@ def _convert_plate(pl, ctx: ConvContext) -> PlateFeature:
     )
 
 
-def _convert_chamfer(ch, ctx: ConvContext) -> ChamferFeature:
+def _convert_chamfer(ch: Chamfer, ctx: ConvContext) -> ChamferFeature:
     at = ch.at
     return ChamferFeature(
         frame=Frame((at[0], at[1], at[2]), ch.axis),
@@ -344,21 +344,21 @@ def _convert_chamfer(ch, ctx: ConvContext) -> ChamferFeature:
     )
 
 
-def _convert_fillet(fl, ctx: ConvContext) -> FilletFeature:
+def _convert_fillet(fl: Fillet, ctx: ConvContext) -> FilletFeature:
     at = fl.at
     return FilletFeature(
         frame=Frame((at[0], at[1], at[2]), fl.axis), axis=fl.axis, radius=fl.radius
     )
 
 
-def _convert_flat(flat, ctx: ConvContext) -> FlatFeature:
+def _convert_flat(flat: Flat, ctx: ConvContext) -> FlatFeature:
     at = flat.at
     return FlatFeature(
         frame=Frame((at[0], at[1], at[2]), flat.axis), axis=flat.axis, across=flat.across
     )
 
 
-def _convert_groove(groove, ctx: ConvContext) -> GrooveFeature:
+def _convert_groove(groove: Groove, ctx: ConvContext) -> GrooveFeature:
     at = groove.at
     return GrooveFeature(
         frame=Frame((at[0], at[1], at[2]), groove.axis),
