@@ -65,7 +65,17 @@ def _recogniser_record_universe() -> set[type]:
             raise AssertionError(
                 f"could not resolve return hints for recognition.{name}: {exc!r}"
             ) from exc
-        universe |= _record_types_in(hints.get("return"))
+        # Every recogniser must *declare* a Record-typed return (all 14 today do:
+        # `list[<Record...>]`). A missing annotation (`get_type_hints` → no "return")
+        # or a non-Record return contributes nothing to the universe — which would let a
+        # new recogniser's record type escape the completeness guard. Reject it here so
+        # the fail-closed property survives a recogniser added with a bad/absent annotation.
+        found = _record_types_in(hints.get("return"))
+        assert found, (
+            f"recognition.{name} has no Record-typed return annotation "
+            f"(got {hints.get('return')!r}) — the record→Feature completeness guard needs one"
+        )
+        universe |= found
     return universe
 
 
