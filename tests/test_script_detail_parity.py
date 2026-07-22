@@ -204,6 +204,35 @@ def test_generated_script_reproduces_nts_iso_note(tmp_path):
     assert note(scripted) == note(direct)
 
 
+def _machined_callouts(dwg):
+    """(kind, label) of every machined-feature leader callout on the drawing."""
+    prefixes = ("m_pocket", "m_fillet", "m_flat", "m_chamfer", "m_groove", "m_plate")
+    return sorted(
+        (name.split("_")[1], getattr(dwg.get_annotation(name), "label", None))
+        for name in dwg.annotations()
+        if name.startswith(prefixes)
+    )
+
+
+@pytest.mark.timeout(240)
+def test_generated_script_reproduces_machined_callouts(tmp_path):
+    """Machined-feature callout parity (#148): a pocket/fillet/flat/chamfer/groove/plate is a
+    Leader callout, not a linear Dimension (its IR params carry no span), so the emitted script
+    could not route it through ``dimension()``. The reconstruction had NO callout verb for these
+    kinds, so ``_feature_listing`` emitted nothing and every machined callout was silently
+    dropped from the script's drawing — contradicting its own "never silently dropped" contract.
+
+    A single floored pocket on a roomy block places identically on both paths (no crowding, so
+    no layout-driven drop divergence), giving an exact-parity check.
+    """
+    part = Box(120, 80, 30) - Pos(0, 0, 12) * Box(40, 25, 8)
+    step, scripted = _scripted_drawing(part, tmp_path, "machined")
+    direct = build_drawing(str(step))
+
+    assert _machined_callouts(direct)  # guard the fixture: the direct build draws the pocket
+    assert _machined_callouts(scripted) == _machined_callouts(direct)
+
+
 @pytest.mark.timeout(240)
 def test_generated_script_matches_direct_y_axis_turned_diameter_policy(tmp_path):
     """Y-axis turned output runs and follows the direct no-diameter policy."""

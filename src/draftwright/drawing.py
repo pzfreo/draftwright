@@ -158,6 +158,15 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
     return groups
 
 
+# Machined-feature leader callouts (#148) whose auto-pass renderers are whole-kind
+# batches (like render_rotational): a chamfer/fillet/flat/pocket/groove/plate exposes no
+# linear-dim param (its params carry no span — it is a Leader callout, not a Dimension), so
+# the reconstruction can't route it through dimension(). callout(f) records it and the
+# per-kind finalize stage rebuilds that kind's whole callout set through its renderer at the
+# canonical _PASS_SEQUENCE slot. Each name is BOTH the feature.kind and the stage/sequence key.
+_MACHINED_CALLOUT_KINDS = ("chamfer", "fillet", "flat", "pocket", "groove", "plate")
+
+
 @dataclass(frozen=True)
 class _IntentRouting:
     """How :meth:`Drawing.finalize` routes each recorded intent to an auto-pass solver (#426).
@@ -186,6 +195,7 @@ class _IntentRouting:
     only_dia: set
     only_len: set
     slot_feats: set
+    machined_ids_by_kind: dict
 
 
 @dataclass
@@ -1023,8 +1033,33 @@ class Drawing:
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
         ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
-        if getattr(feature, "kind", None) in ("step", "boss"):
+        kind = getattr(feature, "kind", None)
+        if kind in ("step", "boss"):
             return add_feature_diameter(self, feature, self._part_model, ctx=ctx)
+        if kind in _MACHINED_CALLOUT_KINDS:
+            # Machined callouts render whole-kind (like rotational); a live call rebuilds the
+            # feature's whole kind set through its auto-pass renderer. The deferred path above
+            # routes the recorded intent to the matching per-kind finalize stage instead.
+            from draftwright.annotations.from_model import (
+                render_chamfers,
+                render_fillets,
+                render_flats,
+                render_grooves,
+                render_plates,
+                render_pockets,
+            )
+            from draftwright.model import plan_dimensions
+
+            renderers = {
+                "chamfer": render_chamfers,
+                "fillet": render_fillets,
+                "flat": render_flats,
+                "pocket": render_pockets,
+                "groove": render_grooves,
+                "plate": render_plates,
+            }
+            renderers[kind](self, plan_dimensions(self._part_model), self._analysis, ctx=ctx)
+            return ""
         return add_feature_callout(
             self, feature, self._part_model, self._analysis, view=view, name=name, ctx=ctx
         )
@@ -1302,6 +1337,17 @@ class Drawing:
         # Rotational furniture intent (#424/#426): the whole-model render_rotational —
         # no per-feature subset, so just the id set; it drains at the "rotational" slot.
         rotational_ids = {id(it) for it in self._intents if routable and it.kind == "rotational"}
+        # Machined-feature callout intents (#148): pocket/fillet/flat/chamfer/groove/plate
+        # callout()s. Their renderers are whole-kind batches (no only= subset), so — like
+        # rotational — one recorded intent of a kind means "rebuild that kind's whole callout
+        # set". Bucketed per kind so each drains at its own _PASS_SEQUENCE stage; the union
+        # also joins `routed` so live_replay skips them (callout() raises on these live).
+        machined_ids_by_kind: dict = {}
+        for it in self._intents:
+            if routable and it.kind == "callout":
+                k = getattr(it.feature, "kind", None)
+                if k in _MACHINED_CALLOUT_KINDS:
+                    machined_ids_by_kind.setdefault(k, set()).add(id(it))
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
         pinned_loc = {
             it.feature for it in self._intents if id(it) in corridor_ids and it.kwargs.get("pin")
@@ -1329,6 +1375,7 @@ class Drawing:
             only_dia=only_dia,
             only_len=only_len,
             slot_feats=slot_feats,
+            machined_ids_by_kind=machined_ids_by_kind,
         )
 
     def _user_dim_uses_corridor(self, it, routable, already_routed) -> bool:
@@ -1501,9 +1548,15 @@ class Drawing:
         :meth:`_classify_intents`; finalize wraps this call in the snapshot/rollback/finally,
         so a raise here still rolls the drawing back as before."""
         from draftwright.annotations.from_model import (
+            render_chamfers,
             render_diameters,
+            render_fillets,
+            render_flats,
+            render_grooves,
             render_height_ladder,
             render_locations,
+            render_plates,
+            render_pockets,
             render_rotational,
             render_slots,
             render_step_lengths,
@@ -1565,6 +1618,7 @@ class Drawing:
                 | r.user_dim_ids
                 | r.rotational_ids  # drained by _s_rotational; no _replay_intent branch
                 | r.off_axis_loc_ids  # drained by the off-axis stages; locate() raises on non-Z
+                | {i for ids in r.machined_ids_by_kind.values() for i in ids}  # _s_<machined kind>
             )
             i = 0
             while i < len(self._intents):
@@ -1675,6 +1729,38 @@ class Drawing:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
                 render_slots(self, plan_dimensions(model), a, ctx=ctx, only=r.slot_feats)
 
+        # Machined-feature leader callouts (#148): whole-kind renderers like _s_rotational —
+        # one recorded callout intent of a kind rebuilds that kind's WHOLE callout set (so
+        # commenting some dwg.callout lines still redraws the kind; commenting all drops it,
+        # matching the rotational/locate/height-ladder whole-set precedent). Each places at
+        # its own _PASS_SEQUENCE slot (chamfers/fillets/flats/pockets after the drain; plates
+        # earlier, before step_positions), so the reconstruction matches the auto pass's order.
+        def _s_machined(kind, render):
+            if kind in r.machined_ids_by_kind:
+                assert a is not None and isinstance(model, PartModel)  # ⟹ routable
+                render(self, plan_dimensions(model), a, ctx=ctx)
+            self._intents = [
+                it for it in self._intents if id(it) not in r.machined_ids_by_kind.get(kind, set())
+            ]
+
+        def _s_chamfers():
+            _s_machined("chamfer", render_chamfers)
+
+        def _s_fillets():
+            _s_machined("fillet", render_fillets)
+
+        def _s_flats():
+            _s_machined("flat", render_flats)
+
+        def _s_pockets():
+            _s_machined("pocket", render_pockets)
+
+        def _s_grooves():
+            _s_machined("groove", render_grooves)
+
+        def _s_plates():
+            _s_machined("plate", render_plates)
+
         def _s_user_dims():
             # User-authored pin/priority dimensions queue into the shared corridor as
             # first-class candidates (ADR 0012).
@@ -1777,8 +1863,14 @@ class Drawing:
                 "diameters": _s_diameters,
                 "step_lengths": _s_step_lengths,
                 "slots": _s_slots,
+                "plates": _s_plates,
                 "user_dims": _s_user_dims,
                 "drain": _s_drain,
+                "chamfers": _s_chamfers,
+                "fillets": _s_fillets,
+                "flats": _s_flats,
+                "pockets": _s_pockets,
+                "grooves": _s_grooves,
                 "section": _s_section,
                 "details": _s_details,
                 "tabulate": _s_tabulate,
