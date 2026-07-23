@@ -34,7 +34,6 @@ jobs:
   test:
     permissions:
       contents: read
-      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +42,11 @@ jobs:
         # 0.11 (cadquery-ocp-novtk — VTK dropped, and the only kernel with 3.13/3.14 wheels).
         # A few exact-position snapshots are skipped on 0.11 (see tests/_kernel.py).
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        # Ubuntu/Python 3.12 is the canonical coverage job below. Excluding it
+        # here keeps the OS/Python matrix complete without running it twice.
+        exclude:
+          - os: ubuntu-latest
+            python-version: "3.12"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -72,21 +76,45 @@ jobs:
           uv run pytest tests/ -n auto --dist loadscope
           --cov=src/draftwright
           --cov-report=term-missing
+
+  coverage:
+    # The fifteenth OS/Python matrix entry, split out so only the one job that
+    # uploads to Codecov receives an OIDC token and renders retained reports.
+    name: test (ubuntu-latest, 3.12)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run tests with canonical coverage reports
+        run: >-
+          uv run pytest tests/ -n auto --dist loadscope
+          --cov=src/draftwright
+          --cov-report=term-missing
           --cov-report=xml
           --cov-report=html:htmlcov
 
-      - name: Upload canonical coverage to Codecov
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' }}
+      - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
           files: coverage.xml
-          fail_ci_if_error: true
+          # The repository's fail_under gate is authoritative; a third-party
+          # service outage must not block an otherwise valid change.
+          fail_ci_if_error: false
           use_oidc: true
 
       - name: Upload coverage report
-        # Every matrix entry enforces the coverage floor; retain one canonical
-        # report rather than 15 near-identical artifacts (#825).
-        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: coverage-linux-py3.12

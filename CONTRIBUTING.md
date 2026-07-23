@@ -33,10 +33,10 @@ before changing those areas.
 
 ### Coverage
 
-CI measures line and branch coverage on the full fast tier, enforces the
-`[tool.coverage.report] fail_under` floor in `pyproject.toml`, uploads the canonical
-Linux/Python 3.12 result to Codecov, and retains the XML plus browsable HTML reports
-for 14 days. To reproduce that run locally:
+CI measures line and branch coverage on the full fast tier and enforces the
+`[tool.coverage.report] fail_under` floor in `pyproject.toml` on every supported
+OS/Python combination. The canonical Linux/Python 3.12 job uploads to Codecov and
+retains the XML plus browsable HTML reports for 14 days. To reproduce that run locally:
 
 ```
 uv run pytest tests/ -n auto --dist loadscope \
