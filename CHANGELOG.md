@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.3.8 — 2026-07-23
+
+### Added
+
+- **`Drawing.note()` — a public free-text note verb** (#817/#820): place a free-form
+  `Note` at a page point without reaching for the low-level placement primitive —
+  `dwg.note("SEE NOTE 1", at=(x, y))`. This is the safe door for free text that the
+  privatisation below needs.
+- **Obround (racetrack) through-slot recognition** (#816): a part whose only features
+  are obround through-slots is now recognised, dimensioned, and referenceable for GD&T.
+  Previously such slots were silently undetected — and lint falsely reported the drawing
+  complete. Stubby obrounds, whose straight side walls are too short to pair, are recovered
+  from their two semicircular end caps (a round hole is never mistaken for a slot end).
+
+### Changed
+
+- **The generated Sheet script is now self-describing** (#833): `--script --style sheet`
+  emits a feature-census header, section sub-headers with repeat tallies (`8× R50`), and a
+  plain-language comment on each verb line (`# ⌀8 THRU ×4`, `# slot 40 × 120`, `# R50`).
+  All additions are comment-only, so re-run fidelity is unchanged.
+
+### Deprecated
+
+- **The low-level `Drawing` placement API is now private — the public surface is
+  safe-by-default** (#817): `add`, `place_dim`, and the view-coordinate / build-state
+  plumbing (`set_view_coordinates`, `drop_view_coordinates`, `attach_part_model`,
+  `attach_solve_trace`, `add_view`, `clear_annotations`) are deprecated in favour of the
+  feature-backed verbs (`callout` / `dimension` / `locate` / `note` / …), which route
+  through the layout solve. Each keeps a `@deprecated` (PEP 702) shim for one release —
+  so type-checkers and IDEs flag call sites, not just a runtime warning — and is slated
+  for removal in ~0.5.0.
+
+### Internal
+
+- **`AGENTS.md` — an AI-agent usage guide** (#818) with an executable check, steering
+  agents toward the safe declarative surface rather than the low-level primitives.
+- **Coverage reporting is governed and a Codecov badge added** (#825/#832).
+
 ## v0.3.7 — 2026-07-21
 
 ### Fixed
