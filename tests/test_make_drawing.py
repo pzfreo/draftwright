@@ -310,7 +310,7 @@ class TestStepPosition:
         dwg.dimension(step, "length", role="step_position")  # drained in B2
         names_before, items_before = set(dwg.annotations()), len(dwg.items)
         intents_before = len(dwg._intents)
-        coverage_before = dwg._coverage.snapshot()
+        coverage_before = dwg.coverage.snapshot()
 
         calls = {"n": 0}
         real = _common.drain_corridors
@@ -328,7 +328,7 @@ class TestStepPosition:
         assert set(dwg.annotations()) == names_before
         assert len(dwg.items) == items_before
         assert len(dwg._intents) == intents_before
-        assert dwg._coverage.snapshot() == coverage_before  # coverage restored (#647 review)
+        assert dwg.coverage.snapshot() == coverage_before  # coverage restored (#647 review)
 
         monkeypatch.undo()
         dwg.finalize()  # clean retry — the shoulder position places exactly once (no duplicate)
@@ -2892,7 +2892,7 @@ class TestHolePatternCallouts:
                 x, y = (c - 2) * 45, (r - 0.5) * 10
                 part -= Pos(x * ca - y * sa, x * sa + y * ca, 0) * Cylinder(4, 12)
         dwg = build_drawing(part)
-        scale = dwg._analysis.SCALE
+        scale = dwg.scale
         pitch = [n for n in dwg.annotations() if n.startswith("dim_pitch_")]
         assert len(pitch) == 2, f"expected two grid pitch dims, got {pitch}"
         for n in pitch:
@@ -3508,7 +3508,7 @@ def test_ctc01_iso_world_to_page_mapping(ctc01_a3_drawing):
     vis, _hid = dwg.views["iso"]
     bb = vis.bounding_box()
     assert bb.min.X < centre[0] < bb.max.X and bb.min.Y < centre[1] < bb.max.Y
-    iso_scale = dwg._coords["iso"]._scale
+    iso_scale = dwg.coords("iso")._scale
     raised = dwg.at("iso", cx, cy, cz + 100)
     # Raising world Z lifts the iso page point by the foreshortened amount: the
     # vertical axis of a (1,1,1)-camera isometric projects at sqrt(2/3) (helpers
@@ -3524,8 +3524,8 @@ def test_iso_view_grow_capped_at_max():
 
     # Small part forced onto a big sheet → large empty rectangle → would over-grow.
     dwg = build_drawing(Box(40, 30, 20), scale=1, page="A1")
-    iso_scale = dwg._coords["iso"]._scale
-    sheet_scale = dwg._analysis.SCALE
+    iso_scale = dwg.coords("iso")._scale
+    sheet_scale = dwg.scale
     assert iso_scale <= _ISO_MAX_GROW * sheet_scale + 1e-6
     assert iso_scale == pytest.approx(_ISO_MAX_GROW * sheet_scale, abs=1e-6)
 
@@ -5669,7 +5669,7 @@ class TestDetailView:
         assert "detail_caption_A" in dwg.annotations()
         assert any(n.startswith("dim_detail_a_step") for n in dwg.annotations())
         # Drawn at a larger scale than the sheet.
-        assert dwg._coords["detail_a"]._scale > a.SCALE
+        assert dwg.coords("detail_a")._scale > a.SCALE
         # No error-severity lint introduced.
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
@@ -7007,7 +7007,7 @@ class TestFeatureEdits:
         part = _multi_hole_plate()
 
         def docs(d):
-            return {n for n in d.annotations() if d._is_scattered_hole_doc(n)}
+            return {n for n in d.annotations() if d.coverage.is_scattered_hole_doc(n)}
 
         auto = build_drawing(part)
         assert docs(auto), "auto-pass must register scattered-hole-doc coverage"
@@ -8527,7 +8527,7 @@ class TestPrismaticBossDiameter:
                 "fv_zones": SimpleNamespace(**{**vars(analysis.fv_zones), "right": None}),
             }
         )
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg._coverage)
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
         render_boss_heights(dwg, plan_dimensions(dwg.model()), constrained, ctx=ctx)
         drain_corridors(ctx, dwg)
 

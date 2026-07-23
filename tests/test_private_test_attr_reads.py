@@ -95,42 +95,43 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
 # Per-name READ-site ceiling — shrink-only (#741). Migrate a read onto the public surface, lower
 # the number; delete the entry at zero. A new/grown read fails :func:`test_no_new_or_grown_...`.
 #
-# The #741 triage (2026-07): most of these reads are NOT latent public surface waiting to be
-# threaded — they are *intentional white-box*, the same category the sibling import-guard keeps
-# rather than forcing onto a public seam. Migratable reads with a real public equivalent were
-# already threaded (``_registry`` → ``registry`` in PR 1); the reads that remain either drive
-# internal machinery a public API can't express (the transaction cluster) or read internal values
-# no caller wants (layout geometry, the chosen scale, classification). They are pinned WITH the
-# rationale below so the count is a documented policy, not a TODO. The ratchet's job is to stop the
-# surface *growing*; it does not oblige exposing engine internals.
+# The #741 triage (2026-07): reads with a real public equivalent were threaded to it —
+# ``_registry`` → :pyattr:`Drawing.registry` (PR 1); and ``_coverage`` → :pyattr:`Drawing.coverage`,
+# the ``_coords`` scale reads → :pymeth:`Drawing.coords`, ``_write_dxf`` →
+# :pymeth:`Drawing.export` ``(formats="dxf")``, ``_is_scattered_hole_doc`` →
+# ``dwg.coverage.is_scattered_hole_doc()``, and the two standalone ``_analysis.SCALE`` reads →
+# :pyattr:`Drawing.scale` (this PR). What remains is *intentional white-box* — internal machinery a
+# public API can't express, or internal values no caller wants — pinned WITH the rationale below
+# (like ``test_private_test_imports`` keeps its helper tests), so the count is a documented policy,
+# not a TODO. Adding an accessor to zero a remaining count would just rename the coupling (the
+# anti-pattern #741 warns of). The ratchet stops the surface *growing*.
 _ALLOW: dict[str, int] = {
-    # The #647 transaction/rollback test cluster: set defer, record intents, monkeypatch a
-    # mid-drain pass to raise, then inspect the half-drained _intents/_coverage to assert rollback.
-    # `with deferred():` auto-finalizes cleanly and CANNOT express "fail mid-drain + inspect" —
-    # so these legitimately drive the low-level machinery. White-box by nature.
+    # Deferred/finalize intent inspection (#426) + transaction-rollback (#647). Some SET defer,
+    # record intents, monkeypatch a mid-drain pass to raise, then inspect the half-drained
+    # `_intents` to assert rollback (#647); others assert ordinary recording order / context-manager
+    # draining / exception preservation (#426). No public pending-intent inspector exists, and
+    # `with deferred():` auto-finalizes (can't express "fail mid-drain + inspect"), so these drive
+    # the recorded list directly.
     "_intents": 25,
-    "_coverage": 4,
+    # Deferred-mode flag: mode-restoration + no-op-after-drain assertions (some INSIDE
+    # `with deferred()`), not mid-drain tests. No public deferred-state read.
     "_defer_intents": 3,
-    # Analysis (build context, ADR 0005): tests that unit-test an internal render/layout helper by
-    # passing it the whole `Analysis`, or that read layout internals (PV_X/cx/margin/zones/proj) or
-    # assert classification/metadata/chosen-scale state. Not user-facing surface — even the
-    # seemingly-public reads are internal: the *chosen* scale (`_analysis.SCALE`) differs from the
-    # already-public *requested* `dwg.scale`, and part classification/title-block metadata have no
-    # user-facing read. Accessors are deferred until a real caller needs them, not added
-    # speculatively to zero this number (#741 triage — the anti-pattern the issue itself warns of).
-    "_analysis": 82,
-    # View-coordinate internals (set_view_coordinates writes; these reads inspect the mapping).
-    "_coords": 5,
-    # Private build-issue recorder driven directly by lint/repair tests.
+    # Analysis (build context, ADR 0005): the whole `Analysis` passed to an internal render/layout
+    # helper under test, or reads of layout geometry (PV_X/cx/margin/zones/proj), classification,
+    # title-block metadata, and mutable zone-rollback state. Internal, not user-facing (the two
+    # standalone scale reads that DID map to a public value went to `dwg.scale`).
+    "_analysis": 80,
+    # Direct calls to the private build-issue hook, injecting synthetic internal failures to verify
+    # lint integration — `registry.record_issue()` exists but would bypass the Drawing hook tested.
     "_record_build_issue": 5,
     # Annotation bounding-box cache internals.
     "_ann_box_cache": 3,
-    # Private DXF export path exercised directly.
-    "_write_dxf": 2,
-    # Stragglers — a declared-model flag, the balloon add path, a doc-classification flag.
+    # The two view-coordinate *membership-absence* checks (`"detail_a" not in dwg._coords`) — no
+    # public membership probe (`dwg.coords(view)` raises on a missing view; the scale reads migrated).
+    "_coords": 2,
+    # Stragglers — a declared-model flag and the balloon add path (internal-state / helper tests).
     "_model_declared": 1,
     "_add_balloon": 1,
-    "_is_scattered_hole_doc": 1,
 }
 
 

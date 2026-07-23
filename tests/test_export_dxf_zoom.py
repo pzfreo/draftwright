@@ -34,13 +34,13 @@ def test_dxf_export_skips_entity_walk_zoom(dwg, tmp_path, monkeypatch):
         raise AssertionError("zoom.extents (O(entities) walk) called on the DXF export path")
 
     monkeypatch.setattr(ezdxf.zoom, "extents", _no_walk)
-    path = dwg._write_dxf(str(tmp_path / "plate"))
+    path = dwg.export(str(tmp_path / "plate"), formats="dxf")["dxf"]
     doc = ezdxf.readfile(path)
     assert len(list(doc.modelspace())) > 0
 
 
 def test_dxf_viewport_centred_on_page(dwg, tmp_path):
-    path = dwg._write_dxf(str(tmp_path / "plate"))
+    path = dwg.export(str(tmp_path / "plate"), formats="dxf")["dxf"]
     doc = ezdxf.readfile(path)
     # write_dxf zooms to the page window → the active vport centre is the page centre.
     (vport,) = doc.viewports.get("*Active")
