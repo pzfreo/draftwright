@@ -88,6 +88,10 @@ def test_editing_verbs_each_produce_their_annotation():
 
     assert dwg.features("plan") is not None  # dwg.features(view) — the per-view read cited
 
+    x0, y0, x1, y1 = dwg.view_bounds("front")  # note(): free text, positioned by the caller
+    note_name = dwg.note("SEE NOTE 1", (x1 + 5, (y0 + y1) / 2), view="front")
+    assert type(dwg.get_annotation(note_name)).__name__ == "Note"
+
 
 def test_section_verb_generates_section_aa():
     """The `dwg.section()` verb: on section-triggering geometry (a blind underside counterbore),

@@ -60,6 +60,14 @@ dwg.pin("dim_width"); dwg.unpin("dim_width")   # freeze / unfreeze an already-pl
 
 `drop()` takes a **feature** (`dwg.model().features[i]`), not a name; `remove()` takes a name.
 
+Free-form text (a general note, "SEE NOTE 1") is user-positioned — it has no feature and no
+strip, so you give the page position (mm from the sheet origin, the space `view_bounds`/`at` use):
+
+```python
+x0, y0, x1, y1 = dwg.view_bounds("front")
+dwg.note("SEE NOTE 1", (x1 + 5, (y0 + y1) / 2), view="front")   # free text, positioned by you
+```
+
 ## GD&T — always declared, never raw
 
 GD&T frames / datums / surface finishes are placed as first-class candidates by the solve.
@@ -100,9 +108,9 @@ paths = dwg.export("out", formats=("svg", "dxf", "pdf", "png"))   # -> {format: 
 
 - ❌ Raw page coordinates for feature annotations; `Drawing.place_dim(...)` (deprecated raw
   hatch). To influence placement use `pin=`/`priority=`, not coordinates.
-- ❌ `dwg.add(Dimension/Leader/FeatureControlFrame(...))` to place a *feature* callout — `add`
-  is the engine's low-level primitive (fine for free `Note`s / tables that have no strip, not
-  for solve-able annotations).
+- ❌ `dwg.add(Dimension/Leader/FeatureControlFrame(...))` / raw `Note` objects — `add` is the
+  engine's low-level placement primitive (being made private, #817). Use the verbs: `note()` for
+  free text, `add_table()`/`add_hole_table()` for tables, the feature verbs for callouts/dims.
 - ❌ Bypassing recognition / assuming byte-identical output (it is not a goal — ADR 0004/0012).
 
 ## Source of truth
