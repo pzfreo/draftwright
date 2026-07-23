@@ -8016,6 +8016,9 @@ class TestLintSuggestions:
         assert sug is not None
         assert "dwg.model()" in sug
         assert "dwg.callout(" in sug
+        assert (
+            ".member" in sug
+        )  # covers a pattern's bore (on .member.diameter), not just plain holes
 
     def test_feature_not_dimensioned_suggestion_is_runnable(self):
         # The headline #29 promise: paste the snippet and the lint resolves. Post-#817 the snippet
@@ -8026,7 +8029,30 @@ class TestLintSuggestions:
         assert any(i.code == "feature_not_dimensioned" for i in dwg.lint())
 
         for f in dwg.model().features:
-            if getattr(f, "diameter", None) and abs(f.diameter - 10.0) < 0.16:
+            if f.kind not in ("hole", "pattern"):
+                continue
+            fd = f.diameter if f.kind == "hole" else f.member.diameter
+            if abs(fd - 10.0) < 0.16:
+                dwg.callout(f)
+
+        assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
+
+    def test_feature_not_dimensioned_suggestion_is_runnable_for_a_pattern(self):
+        # A pattern feature carries its bore on `.member.diameter`, not `.diameter` — the snippet
+        # must read it there (and restrict to hole/pattern kinds so a same-ø step/boss is not
+        # called out instead), else the declarative recipe silently skips a patterned hole and
+        # never resolves the lint (Codex #821).
+        part = Box(120, 40, 20)
+        for x in (-40, -20, 0, 20, 40):
+            part = part - Pos(x, 0, 0) * Cylinder(4, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        assert any(i.code == "feature_not_dimensioned" for i in dwg.lint())
+
+        for f in dwg.model().features:
+            if f.kind not in ("hole", "pattern"):
+                continue
+            fd = f.diameter if f.kind == "hole" else f.member.diameter
+            if abs(fd - 8.0) < 0.16:
                 dwg.callout(f)
 
         assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())

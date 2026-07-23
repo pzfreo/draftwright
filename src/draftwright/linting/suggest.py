@@ -39,10 +39,14 @@ def _suggest_fix(issue, dwg) -> str | None:
         for view in ("plan", "front", "side"):
             if any(abs(f.diameter - d) < _DIAM_MATCH_TOL for f in dwg.features(view)):
                 return (
-                    f"# ø{_fmt(d)} has no callout. Find the feature in the model IR and let the\n"
+                    f"# ø{_fmt(d)} has no callout. Find the bore in the model IR and let the\n"
                     f"# engine place its callout (say WHAT, not WHERE):\n"
                     f"for f in dwg.model().features:\n"
-                    f"    if getattr(f, 'diameter', None) and abs(f.diameter - {_fmt(d)}) < {_DIAM_MATCH_TOL}:\n"
+                    f"    if f.kind not in ('hole', 'pattern'):\n"
+                    f"        continue  # a step/boss can share a diameter; the lint is about bores\n"
+                    f"    # a plain hole carries its bore on .diameter; a pattern on .member.diameter\n"
+                    f"    fd = f.diameter if f.kind == 'hole' else f.member.diameter\n"
+                    f"    if abs(fd - {_fmt(d)}) < {_DIAM_MATCH_TOL}:\n"
                     f"        dwg.callout(f)  # feature-backed ø callout, auto-placed"
                 )
         return None
