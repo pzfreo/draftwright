@@ -335,12 +335,14 @@ def _assemble(
     dwg._build.detail_view = detail_view
     dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
     if trace is not None:  # opt-in solve trace (#736), threaded via a named method
-        dwg.attach_solve_trace(trace)
+        dwg._attach_solve_trace(trace)
 
     part_s = a.part.scale(a.SCALE)
-    dwg.add_view("front", part_s, (cxs, cys - dist, czs), (0, 0, 1), (a.FV_X, a.FV_Y), scaled=True)
-    dwg.add_view("plan", part_s, (cxs, cys, czs + dist), (0, 1, 0), (a.PV_X, a.PV_Y), scaled=True)
-    dwg.add_view("side", part_s, (cxs + dist, cys, czs), (0, 0, 1), (a.SV_X, a.SV_Y), scaled=True)
+    dwg._add_view(
+        "front", part_s, (cxs, cys - dist, czs), (0, 0, 1), (a.FV_X, a.FV_Y), scaled=True
+    )
+    dwg._add_view("plan", part_s, (cxs, cys, czs + dist), (0, 1, 0), (a.PV_X, a.PV_Y), scaled=True)
+    dwg._add_view("side", part_s, (cxs + dist, cys, czs), (0, 0, 1), (a.SV_X, a.SV_Y), scaled=True)
     _project_iso(dwg, a, a.SCALE, shape_s=part_s)
 
     if auto_dims:
@@ -1127,7 +1129,7 @@ def _write_script(
         "# dwg.pin(name) / dwg.unpin(name)  → fix a placement so repair never moves it\n"
         "# dwg.lint_summary()       → {passed, score, by_code, issues:[…suggestion]}\n"
         "# dwg.repair()             → auto-fix mechanically-fixable lint (never worsens)\n"
-        "# dwg.add_view(name, shape, camera, up, position)  → section / auxiliary view\n"
+        "# dwg.section()            → add the section A–A view (add_view is now engine-internal)\n"
         "# dwg.items / dwg.views / dwg.at(view,x,y,z) / dwg.view_bounds(view)  → low-level escape\n"
         "# dwg.place_dim(...)       → deprecated raw page-coordinate dimension escape hatch\n"
         "# Example — add a pinned feature-backed linear dimension:\n"

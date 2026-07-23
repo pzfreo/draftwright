@@ -204,7 +204,7 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
     # front (-Y), plan (+Z), right (+X). A +Y camera would show the *rear* Y face against a
     # front view, mirroring asymmetric features (#620).
     camera = (la[0] + off, la[1] - off, la[2] + off)
-    dwg.add_view(
+    dwg._add_view(
         "iso",
         shape_s if shape_s is not None else a.part.scale(scale),
         camera,
@@ -219,7 +219,7 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
     # maps world points correctly — also covers an iso re-projected at a
     # different scale than the sheet. Through the public override verb, not a
     # direct _coords poke (#699 slice d).
-    dwg.set_view_coordinates(
+    dwg._set_view_coordinates(
         "iso",
         ViewCoordinates.from_viewport(
             camera, (0, 0, 1), la, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale

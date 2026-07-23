@@ -290,7 +290,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # (dwg.model()) and feature edits work even in manual mode (#398); fall back to
     # building it here for any direct caller that skipped _assemble.
     _model = dwg.model() if dwg.model() is not None else build_model(a)
-    dwg.attach_part_model(_model)
+    dwg._attach_part_model(_model)
     # Thread the ensured model + declared flag onto the run's ctx so every pass reads them from
     # ctx, not the drawing's privates (#639). Set AFTER attach so ctx sees the ensured model.
     ctx.part_model = _model
