@@ -140,7 +140,7 @@ _ALLOW: dict[str, int] = {
     # Its public form (`Drawing.add`) is DEPRECATED (#817); no other public verb places an arbitrary
     # annotation object by name (`dimension`/`callout`/`note` compute their own), so these unit tests
     # legitimately hold the primitive. A count, not a TODO — like the `_analysis` white-box entry.
-    "_add": 27,
+    "_add": 26,
 }
 
 
