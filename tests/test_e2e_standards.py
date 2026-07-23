@@ -143,9 +143,9 @@ def test_ctc02_top_balloon_ring_hugs_dimensions():
     above-strip cursor. Pre-fix the top ring floated ~150 mm above the highest
     dimension; it should now clear it by only a small standoff."""
     dwg = build_drawing(str(FIXTURES / "nist_ctc_02_asme1_ap203.stp"))
-    a = dwg._analysis
-    pt = a.PV_Y + a.pv_hh
-    pl, pr = a.PV_X - a.fv_hw, a.PV_X + a.fv_hw
+    pb = dwg.view_bounds("plan")
+    pt = pb[3]
+    pl, pr = pb[0], pb[2]
 
     # Highest plan-view dimension spanning the plan width above it — the real
     # obstruction the top ring must clear.

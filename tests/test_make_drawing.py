@@ -23,6 +23,7 @@ from draftwright.analysis import (
 from draftwright.compose import StripDepths, _fits, choose_scale
 from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
+from draftwright.linting import LintIssue
 from draftwright.make_drawing import generate_script, lint_feature_coverage
 from draftwright.recognition import (
     Slot,
@@ -310,7 +311,7 @@ class TestStepPosition:
         dwg.dimension(step, "length", role="step_position")  # drained in B2
         names_before, items_before = set(dwg.annotations()), len(dwg.items)
         intents_before = len(dwg._intents)
-        coverage_before = dwg._coverage.snapshot()
+        coverage_before = dwg.coverage.snapshot()
 
         calls = {"n": 0}
         real = _common.drain_corridors
@@ -328,7 +329,7 @@ class TestStepPosition:
         assert set(dwg.annotations()) == names_before
         assert len(dwg.items) == items_before
         assert len(dwg._intents) == intents_before
-        assert dwg._coverage.snapshot() == coverage_before  # coverage restored (#647 review)
+        assert dwg.coverage.snapshot() == coverage_before  # coverage restored (#647 review)
 
         monkeypatch.undo()
         dwg.finalize()  # clean retry — the shoulder position places exactly once (no duplicate)
@@ -2273,9 +2274,8 @@ class TestTwoPassLayout:
             - Pos(-30, -25, 0) * Cylinder(16, 20)
         )
         dwg = build_drawing(part)
-        a = dwg._analysis
-        sv_left = a.SV_X - a.sv_hw
-        fv_right = a.FV_X + a.fv_hw
+        sv_left = dwg.view_bounds("side")[0]
+        fv_right = dwg.view_bounds("front")[2]
         actual_gap = sv_left - fv_right
 
         _, bore_depth = _sizing_model(part)
@@ -2294,9 +2294,9 @@ class TestTwoPassLayout:
         from draftwright import build_drawing
         from draftwright._core import _DIM_PAD
 
-        a = build_drawing(Box(60, 40, 20))._analysis
-        sv_left = a.SV_X - a.sv_hw
-        fv_right = a.FV_X + a.fv_hw
+        d = build_drawing(Box(60, 40, 20))
+        sv_left = d.view_bounds("side")[0]
+        fv_right = d.view_bounds("front")[2]
         assert sv_left - fv_right == pytest.approx(_DIM_PAD, abs=0.1)
 
     def test_bore_callout_fits_within_gap(self):
@@ -2314,8 +2314,7 @@ class TestTwoPassLayout:
             - Pos(-30, -25, 0) * Cylinder(16, 20)
         )
         dwg = build_drawing(part)
-        a = dwg._analysis
-        sv_left = a.SV_X - a.sv_hw
+        sv_left = dwg.view_bounds("side")[0]
         for name, ann in dwg.iter_annotations():
             if name.startswith("hc_plan") and getattr(ann, "label_bbox", None):
                 lx1 = ann.label_bbox[2]  # right edge of callout label
@@ -2892,7 +2891,7 @@ class TestHolePatternCallouts:
                 x, y = (c - 2) * 45, (r - 0.5) * 10
                 part -= Pos(x * ca - y * sa, x * sa + y * ca, 0) * Cylinder(4, 12)
         dwg = build_drawing(part)
-        scale = dwg._analysis.SCALE
+        scale = dwg.scale
         pitch = [n for n in dwg.annotations() if n.startswith("dim_pitch_")]
         assert len(pitch) == 2, f"expected two grid pitch dims, got {pitch}"
         for n in pitch:
@@ -3508,7 +3507,7 @@ def test_ctc01_iso_world_to_page_mapping(ctc01_a3_drawing):
     vis, _hid = dwg.views["iso"]
     bb = vis.bounding_box()
     assert bb.min.X < centre[0] < bb.max.X and bb.min.Y < centre[1] < bb.max.Y
-    iso_scale = dwg._coords["iso"]._scale
+    iso_scale = dwg.coords("iso")._scale
     raised = dwg.at("iso", cx, cy, cz + 100)
     # Raising world Z lifts the iso page point by the foreshortened amount: the
     # vertical axis of a (1,1,1)-camera isometric projects at sqrt(2/3) (helpers
@@ -3524,8 +3523,8 @@ def test_iso_view_grow_capped_at_max():
 
     # Small part forced onto a big sheet → large empty rectangle → would over-grow.
     dwg = build_drawing(Box(40, 30, 20), scale=1, page="A1")
-    iso_scale = dwg._coords["iso"]._scale
-    sheet_scale = dwg._analysis.SCALE
+    iso_scale = dwg.coords("iso")._scale
+    sheet_scale = dwg.scale
     assert iso_scale <= _ISO_MAX_GROW * sheet_scale + 1e-6
     assert iso_scale == pytest.approx(_ISO_MAX_GROW * sheet_scale, abs=1e-6)
 
@@ -4381,9 +4380,7 @@ class TestAutoHoleAnnotations:
         assert "section_line" not in dwg.annotations()
         hc = dwg.get_annotation("hc_plan0")
         assert hc is not None
-        plan_right = (
-            dwg._analysis.PV_X + (dwg._analysis.bb.max.X - dwg._analysis.cx) * dwg._analysis.SCALE
-        )
+        plan_right = dwg.view_bounds("plan")[2]  # plan view's right page boundary
         elbow_x = hc.elbow[0]
         assert abs(elbow_x - plan_right) < 0.5  # elbow at boundary, not past it
 
@@ -5228,7 +5225,9 @@ class TestLintSummaryAndDrops:
 
         dwg = build_drawing(Box(60, 40, 30))
         before = dwg.lint_summary()
-        dwg._record_build_issue("warning", "callout_dropped", "synthetic drop")
+        dwg.registry.record_issue(
+            LintIssue(severity="warning", code="callout_dropped", message="synthetic drop")
+        )
 
         codes = {i.code for i in dwg.lint()}
         assert "callout_dropped" in codes
@@ -5399,7 +5398,9 @@ class TestLintSummaryAndDrops:
         from draftwright.annotate import _auto_annotate
 
         dwg = build_drawing(Box(60, 40, 30))
-        dwg._record_build_issue("warning", "callout_dropped", "stale")
+        dwg.registry.record_issue(
+            LintIssue(severity="warning", code="callout_dropped", message="stale")
+        )
         assert any(i.message == "stale" for i in dwg.registry.issues)
         _auto_annotate(dwg, dwg._analysis)
         assert not any(i.message == "stale" for i in dwg.registry.issues)
@@ -5429,7 +5430,9 @@ class TestLintSummaryAndDrops:
 
         dwg = build_drawing(Box(60, 40, 30))
         assert dwg.lint_summary()["passed"] is True
-        dwg._record_build_issue("error", "placement_unsatisfiable", "synthetic")
+        dwg.registry.record_issue(
+            LintIssue(severity="error", code="placement_unsatisfiable", message="synthetic")
+        )
         s = dwg.lint_summary()
         assert s["passed"] is False
         assert s["errors"] >= 1
@@ -5587,7 +5590,9 @@ class TestLayoutGeneralisation:
             if n.startswith("hc_plan") and getattr(o, "label_bbox", None)
         ]
         assert plan_mids, "expected plan-view hole callouts"
-        assert min(abs(m - dwg._analysis.PV_Y) for m in plan_mids) < dwg.draft.font_size
+        assert (
+            min(abs(m - dwg.at("plan", *dwg.centroid)[1]) for m in plan_mids) < dwg.draft.font_size
+        )
 
     @pytest.mark.timeout(120)
     def test_step_height_legibility_threshold(self):
@@ -5615,10 +5620,9 @@ class TestLayoutGeneralisation:
 
         for length, expect in ((12.0, False), (13.0, True)):
             dwg = build_drawing(block_with_shoulder_at(length))
-            a = dwg._analysis
-            legible = length * a.SCALE >= _MIN_STEP_DIM_MM
+            legible = length * dwg.scale >= _MIN_STEP_DIM_MM
             assert legible is expect, (
-                f"length={length} scale={a.SCALE}: legibility expectation wrong"
+                f"length={length} scale={dwg.scale}: legibility expectation wrong"
             )
             has_step = "dim_step_0" in dwg.annotations()
             assert has_step is expect, (
@@ -5669,7 +5673,7 @@ class TestDetailView:
         assert "detail_caption_A" in dwg.annotations()
         assert any(n.startswith("dim_detail_a_step") for n in dwg.annotations())
         # Drawn at a larger scale than the sheet.
-        assert dwg._coords["detail_a"]._scale > a.SCALE
+        assert dwg.coords("detail_a")._scale > a.SCALE
         # No error-severity lint introduced.
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
@@ -5751,7 +5755,8 @@ class TestDetailView:
             dwg.finalize()  # the details stage placed detail_a; tabulate then raises
         # Rolled back: no detail view, view coordinates, or detail annotations survive.
         assert "detail_a" not in dwg.views
-        assert "detail_a" not in dwg._coords
+        with pytest.raises(KeyError):
+            dwg.coords("detail_a")
         assert not any(n.startswith(("detail_", "dim_detail_")) for n in dwg.annotations())
         assert any(it.kwargs.get("role") == "step_height" for it in dwg._intents)
 
@@ -5823,7 +5828,8 @@ class TestDetailView:
         # the detail view/coords/annotations are gone, and the intents survive.
         assert dwg.views["iso"] is iso_before
         assert "detail_a" not in dwg.views
-        assert "detail_a" not in dwg._coords
+        with pytest.raises(KeyError):
+            dwg.coords("detail_a")
         assert set(dwg.annotations()) == names_before
         assert len(dwg._intents) == intents_before
 
@@ -7007,7 +7013,7 @@ class TestFeatureEdits:
         part = _multi_hole_plate()
 
         def docs(d):
-            return {n for n in d.annotations() if d._is_scattered_hole_doc(n)}
+            return {n for n in d.annotations() if d.coverage.is_scattered_hole_doc(n)}
 
         auto = build_drawing(part)
         assert docs(auto), "auto-pass must register scattered-hole-doc coverage"
@@ -7276,7 +7282,7 @@ class TestFeatureEdits:
         # the attribution index lives on the run ctx (#639/#699); build one to query it
         feat = PlacementContext(part_model=dwg.model()).feature_of_hole_at(hole_obj.location)
         assert feat is not None
-        dwg._add_balloon("plan", "A", 0, hole_obj)
+        dwg.add_balloons("plan", [("A", 0, hole_obj)])
         bln = next(n for n in dwg.annotations() if n.startswith("balloon_"))
         assert bln in dwg.annotations_of(feat)
 
@@ -8527,7 +8533,7 @@ class TestPrismaticBossDiameter:
                 "fv_zones": SimpleNamespace(**{**vars(analysis.fv_zones), "right": None}),
             }
         )
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg._coverage)
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
         render_boss_heights(dwg, plan_dimensions(dwg.model()), constrained, ctx=ctx)
         drain_corridors(ctx, dwg)
 
@@ -9723,10 +9729,10 @@ class TestSheetFrame:
         # The border consumes layout budget BEFORE choose_scale, so the framed scale is never
         # larger than the unframed one (monotone reservation), and the margin proves it is active.
         part = Box(180, 130, 40)
-        a0 = build_drawing(part)._analysis
+        a0_scale = build_drawing(part).scale
         a1 = build_drawing(part, frame=True)._analysis
         assert a1.margin == _MARGIN + 6.0  # _FRAME_BAND reserved
-        assert a1.SCALE <= a0.SCALE + 1e-9
+        assert a1.SCALE <= a0_scale + 1e-9
 
     def test_frame_build_is_lint_clean(self):
         dwg = build_drawing(Box(80, 60, 20), frame=True)
@@ -9792,13 +9798,12 @@ class TestZoneGrid:
 
     def test_labels_sit_in_the_border_band(self):
         dwg = build_drawing(Box(80, 60, 20), zones=True)
-        a = dwg._analysis
         # a bottom number is below the frame (in the [0, _MARGIN] band); a right letter is
         # right of the frame (in the [PAGE_W - _MARGIN, PAGE_W] band).
         nb = dwg.get_annotation("zone_num_b_0").bounding_box()
         assert 0 <= (nb.min.Y + nb.max.Y) / 2 <= _MARGIN
         lr = dwg.get_annotation("zone_ltr_r_0").bounding_box()
-        assert a.PAGE_W - _MARGIN <= (lr.min.X + lr.max.X) / 2 <= a.PAGE_W
+        assert dwg.page_w - _MARGIN <= (lr.min.X + lr.max.X) / 2 <= dwg.page_w
 
     def test_letters_skip_i_and_o(self):
         # A1 has 12 rows → A..H then J,K,L,M (I skipped). Force the page so the count is stable.
@@ -9919,7 +9924,11 @@ class TestPatternGroupBalloon:
         )
         # Mirror what _record_callout_drop does in production, so clearing it below
         # actually exercises the resolve path rather than trivially passing.
-        dwg._record_build_issue("warning", "callout_dropped", "synthetic plan-view drop")
+        dwg.registry.record_issue(
+            LintIssue(
+                severity="warning", code="callout_dropped", message="synthetic plan-view drop"
+            )
+        )
         _maybe_tabulate_holes(dwg, dwg._analysis, ctx=ctx)
 
         assert "hole_table_plan" not in dwg.annotations()  # density gate untouched
@@ -9976,7 +9985,11 @@ class TestPatternGroupBalloon:
                 Escalation(kind="callout", view="front", feature=feat, reason="front strip full")
             ],
         )
-        dwg._record_build_issue("warning", "callout_dropped", "synthetic front-view drop")
+        dwg.registry.record_issue(
+            LintIssue(
+                severity="warning", code="callout_dropped", message="synthetic front-view drop"
+            )
+        )
         _maybe_tabulate_holes(dwg, dwg._analysis, ctx=ctx)
 
         assert not any(n.startswith("balloon_") for n in dwg.annotations())

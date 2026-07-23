@@ -1251,7 +1251,7 @@ class TestModelSeam:
         h1 = Pos(20, 10, 4) * Cylinder(3, 8)
         part = plate - h1
         dwg = build_drawing(part)  # no model= → detection path
-        assert dwg._model_declared is False
+        assert dwg.model_declared is False
         assert not [i for i in dwg.lint() if i.severity == "error"]
 
     def test_pattern_requires_arrangement_dim(self):

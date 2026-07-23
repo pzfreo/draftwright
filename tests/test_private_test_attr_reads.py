@@ -6,14 +6,20 @@ last unpoliced quadrant (#741) is test-side **attribute reads** of ``Drawing`` i
 no public read yet — ``_analysis``/``_intents``/… They coupled the tests to build-state internals
 with no ratchet, so they could silently multiply.
 
-This pins today's read-sites as a per-name ceiling that may only **SHRINK**: thread a read through
-a new/existing public surface, lower its count; when it reaches zero, delete the entry. A NEW
-private name, or a GROWN count on an existing one, fails here — nudging the author onto the public
-seam (as ``_registry`` → :pyattr:`Drawing.registry`, ``_part_model`` → :pymeth:`Drawing.model`).
+This pins today's read-sites as a per-name ceiling that may only **SHRINK**: thread a read through a
+public surface (``_registry`` → :pyattr:`Drawing.registry`), lower its count; at zero, delete the
+entry. A NEW private name, or a GROWN count on an existing one, fails here. The remaining entries are
+NOT all latent public surface: the #741 triage found most are *intentional white-box* (the #647
+transaction/rollback tests, and unit tests of internal render/layout helpers that take the raw
+``Analysis``) — pinned with the rationale in :data:`_ALLOW`, exactly as ``test_private_test_imports``
+keeps its legitimate helper tests. The ceiling stops the surface *growing*; it does not oblige
+exposing engine internals (adding an accessor for an internal value no caller wants would just
+rename the coupling — the anti-pattern #741 explicitly warns against).
 
-Scope is **reads** (attribute access in ``Load`` context + ``getattr(_, "_name")`` probes), the
-#741 title; private *writes* (chiefly ``dwg._defer_intents = …``, which should become
-``with dwg.deferred():``) are the separate follow-on and are eliminated, not allowlisted.
+Scope is **reads** (``Load``-context attribute access, ``getattr(_, "_name")`` probes, and
+``AugAssign`` targets). Private *writes* (chiefly ``dwg._defer_intents = …``) are NOT counted here:
+they are the transaction-test cluster above and legitimately drive the flag directly (``deferred()``
+auto-finalizes, so it can't express "fail mid-drain, inspect state"), so there is nothing to migrate.
 
 Keyed on the attribute *name* (∈ :data:`_DRAWING_PRIVATES`), not the receiver — test receivers
 vary (``dwg``/``d``/``direct``/``scripted``/…), unlike the src guard's ``dwg``/``drawing``. A stray
@@ -88,18 +94,45 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
 
 # Per-name READ-site ceiling — shrink-only (#741). Migrate a read onto the public surface, lower
 # the number; delete the entry at zero. A new/grown read fails :func:`test_no_new_or_grown_...`.
+#
+# The #741 triage (2026-07, hardened across three adversarial-review rounds): reads that map to a
+# public accessor were threaded to it — ``_registry`` → :pyattr:`Drawing.registry` (PR 1); then
+# ``_coverage`` → :pyattr:`Drawing.coverage`, ``_coords`` scale/absence reads →
+# :pymeth:`Drawing.coords`, ``_write_dxf`` → :pymeth:`Drawing.export` ``(formats="dxf")``,
+# ``_is_scattered_hole_doc`` → ``dwg.coverage.is_scattered_hole_doc()``, ``_analysis`` GEOMETRIC
+# reads → :pyattr:`Drawing.scale` / :pymeth:`Drawing.view_bounds` / :pyattr:`Drawing.page_w`/`page_h`
+# / ``dwg.at("plan", *dwg.centroid)`` (the projection origin), ``_model_declared`` →
+# :pyattr:`Drawing.model_declared`,
+# ``_add_balloon`` → :pymeth:`Drawing.add_balloons`, ``_record_build_issue`` →
+# ``dwg.registry.record_issue(...)``. The four groups that REMAIN are *intentional white-box* —
+# internal machinery a public API can't express, or internal values with no public accessor — pinned
+# WITH the rationale below (like ``test_private_test_imports`` keeps its helper tests), so the count
+# is a documented policy, not a TODO. Adding an accessor to zero a remaining count would just rename
+# the coupling (the anti-pattern #741 warns of). The ratchet stops the surface *growing*.
 _ALLOW: dict[str, int] = {
-    "_analysis": 82,
+    # Deferred/finalize intent inspection (#426) + transaction-rollback (#647). Some SET defer,
+    # record intents, monkeypatch a mid-drain pass to raise, then inspect the half-drained
+    # `_intents` to assert rollback (#647); others assert ordinary recording order / context-manager
+    # draining / exception preservation (#426). No public pending-intent inspector exists, and
+    # `with deferred():` auto-finalizes (can't express "fail mid-drain + inspect"), so these drive
+    # the recorded list directly.
     "_intents": 25,
-    "_coords": 5,
-    "_record_build_issue": 5,
-    "_coverage": 4,
-    "_ann_box_cache": 3,
+    # Deferred-mode flag: mode-restoration + no-op-after-drain assertions (some INSIDE
+    # `with deferred()`), not mid-drain tests. No public deferred-state read.
     "_defer_intents": 3,
-    "_write_dxf": 2,
-    "_model_declared": 1,
-    "_add_balloon": 1,
-    "_is_scattered_hole_doc": 1,
+    # Analysis (build context, ADR 0005): the whole `Analysis` passed to an internal render/layout
+    # helper under test, plus non-geometric internal STATE with no public accessor — classification
+    # flags (`is_rotational`; `Drawing.rotational` is a furniture method, not a classifier), the
+    # turned-profile/section objects (`prof`/`layout_section`/`od_axis`/`pmi`/`projection`), mutable
+    # zone-rollback state (`sv_zones.outer_limit`), title-block metadata (`revision`/`material`/
+    # `company`), part-size/feature data (`x/y/z_size`/`step_zs`/`holes`), and internal constants
+    # (`zones`/`margin`/`ISO_*`/`DIM_PAD`). A `dwg._analysis` alias used for even one such field
+    # stays. Every GEOMETRIC read that maps to the public page surface WAS threaded: `SCALE` →
+    # `dwg.scale`, the view corners (`PV/FV/SV ± hw/hh`) → `dwg.view_bounds(view)`, projection
+    # origins → `dwg.at(view, *dwg.centroid)`, page size → `dwg.page_w`/`page_h`.
+    "_analysis": 64,
+    # Annotation bounding-box cache internals.
+    "_ann_box_cache": 3,
 }
 
 

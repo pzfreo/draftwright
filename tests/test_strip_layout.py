@@ -111,8 +111,8 @@ def test_rotational_bore_leaders_bounded_to_front_view():
         - Pos(0, 0, -14) * Cylinder(6.5, 12)
     )
     dwg = build_drawing(part)
-    a = dwg._analysis
-    lo, hi = a.FV_Y - a.fv_hh, a.FV_Y + a.fv_hh
+    fb = dwg.view_bounds("front")
+    lo, hi = fb[1], fb[3]
     ldrs = [o for n, o in dwg.iter_annotations() if n.startswith("ldr_z")]
     assert len(ldrs) >= 2, "fixture should place several concentric-bore leaders"
     for o in ldrs:
@@ -129,12 +129,12 @@ def test_rotational_bore_leaders_symmetric_when_room():
 
     part = Cylinder(25, 40) - Cylinder(6, 40) - Pos(0, 0, 14) * Cylinder(10, 12)  # 2 bores (even)
     dwg = build_drawing(part)
-    a = dwg._analysis
     ys = sorted(
         o.bounding_box().center().Y for n, o in dwg.iter_annotations() if n.startswith("ldr_z")
     )
     assert len(ys) == 2
-    assert abs((ys[0] + ys[-1]) / 2 - a.FV_Y) < 1e-6, "even bore stack not centred on the axis"
+    fv_y = dwg.at("front", *dwg.centroid)[1]
+    assert abs((ys[0] + ys[-1]) / 2 - fv_y) < 1e-6, "even bore stack not centred on the axis"
 
 
 def test_rotational_bore_leader_overflow_excluded_from_coverage():
@@ -148,7 +148,7 @@ def test_rotational_bore_leader_overflow_excluded_from_coverage():
     ):  # many nested bores → front view overflows
         part -= Pos(0, 0, 3 - i * 0.7) * Cylinder(r, 6)
     dwg = build_drawing(part)
-    dropped = dwg._coverage.dropped_diams
+    dropped = dwg.coverage.dropped_diams
     assert dropped, "overflowed bore leaders should register as dropped diams"
     assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
     # priority = diameter: the larger bores are retained, only the smaller ones drop
@@ -169,8 +169,9 @@ def test_linear_array_pitch_dim_placed_via_side_strip_clean():
     pitch = [o for n, o in dwg.iter_annotations() if n.startswith("dim_pitch")]
     assert len(pitch) == 1, "the linear array should get exactly one pitch dim"
     b = pitch[0].bounding_box()
-    a = dwg._analysis
-    assert -1 <= b.min.X and b.max.X <= a.PAGE_W + 1 and -1 <= b.min.Y and b.max.Y <= a.PAGE_H + 1
+    assert (
+        -1 <= b.min.X and b.max.X <= dwg.page_w + 1 and -1 <= b.min.Y and b.max.Y <= dwg.page_h + 1
+    )
     assert not any(i.code == "annotation_overlap" for i in dwg.lint())
 
 
