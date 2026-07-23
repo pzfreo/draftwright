@@ -63,6 +63,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_model_declared",
         "_registry",
         # class-level privates (properties / methods)
+        "_add",
         "_add_balloon",
         "_add_shapes",
         "_analysis",
@@ -133,6 +134,13 @@ _ALLOW: dict[str, int] = {
     "_analysis": 64,
     # Annotation bounding-box cache internals.
     "_ann_box_cache": 3,
+    # The low-level placement primitive (#817): `_add(obj, name, view, feature)` places a raw
+    # `Dimension`/`Leader`/`CenterMark` by name — the only way to seed a specific annotation for a
+    # white-box test of overlap detection, repair/replacement, tag displacement, or a render helper.
+    # Its public form (`Drawing.add`) is DEPRECATED (#817); no other public verb places an arbitrary
+    # annotation object by name (`dimension`/`callout`/`note` compute their own), so these unit tests
+    # legitimately hold the primitive. A count, not a TODO — like the `_analysis` white-box entry.
+    "_add": 26,
 }
 
 

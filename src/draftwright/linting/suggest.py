@@ -38,16 +38,16 @@ def _suggest_fix(issue, dwg) -> str | None:
         # 1e-6 match would silently miss every non-integer bore.
         for view in ("plan", "front", "side"):
             if any(abs(f.diameter - d) < _DIAM_MATCH_TOL for f in dwg.features(view)):
-                tag = _fmt(d).replace(".", "_")
                 return (
-                    f"# ø{_fmt(d)} has no callout. Locate it via features() and add a leader:\n"
-                    f'for f in dwg.features("{view}"):\n'
-                    f"    if abs(f.diameter - {_fmt(d)}) < {_DIAM_MATCH_TOL}:\n"
-                    f"        callout = HoleCallout(f.diameter, count=f.count,\n"
-                    f"                              through=f.through, depth=f.depth, draft=dwg.draft)\n"
-                    f"        elbow = (f.page_pos[0] + 15, f.page_pos[1] + 10, 0)\n"
-                    f'        leader = Leader((*f.page_pos, 0), elbow, "", dwg.draft, callout=callout)\n'
-                    f'        dwg.add(leader, name="hole_{tag}")'
+                    f"# ø{_fmt(d)} has no callout. Find the bore in the model IR and let the\n"
+                    f"# engine place its callout (say WHAT, not WHERE):\n"
+                    f"for f in dwg.model().features:\n"
+                    f"    if f.kind not in ('hole', 'pattern'):\n"
+                    f"        continue  # a step/boss can share a diameter; the lint is about bores\n"
+                    f"    # a plain hole carries its bore on .diameter; a pattern on .member.diameter\n"
+                    f"    fd = f.diameter if f.kind == 'hole' else f.member.diameter\n"
+                    f"    if abs(fd - {_fmt(d)}) < {_DIAM_MATCH_TOL}:\n"
+                    f"        dwg.callout(f)  # feature-backed ø callout, auto-placed"
                 )
         return None
 

@@ -5,7 +5,9 @@ feature and is not solve-placed), so it takes a page position. It replaces the r
 `dwg.add(Note(...))` pattern as the low-level placement API is privatised.
 """
 
+import pytest
 from build123d import Box, Cylinder, Pos
+from build123d_drafting import Note
 
 from draftwright import build_drawing
 
@@ -46,3 +48,12 @@ def test_note_exports(tmp_path):
     dwg.note("SEE NOTE 1", (150, 100))
     out = dwg.export(str(tmp_path / "out"), formats=("svg",))
     assert set(out) == {"svg"}
+
+
+def test_add_is_deprecated_but_still_places():
+    # #817: the raw low-level placement primitive is now `_add`; the public `add` remains as a
+    # deprecated back-compat shim (warns, then delegates) so existing scripts keep working.
+    dwg = _dwg()
+    with pytest.warns(DeprecationWarning, match="Drawing.add"):
+        dwg.add(Note("LEGACY", (150, 100), dwg.draft), "legacy")
+    assert dwg.get_annotation("legacy") is not None

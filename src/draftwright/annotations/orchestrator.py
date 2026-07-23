@@ -244,6 +244,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     ctx = PlacementContext(
         registry=dwg.registry,
         coverage=dwg.coverage,
+        items=dwg.items,  # #817: passes place via ctx.place, not dwg.add
         # The opt-in solve-trace recorder (#736), attached to the drawing's build state
         # by the builder; getattr because dwg is duck-typed in tests. None = off.
         trace=getattr(dwg, "solve_trace", None),
@@ -336,7 +337,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     def _s_centermarks():
         # Centre marks for every hole (all part classes) — IR renderer.
-        render_centermarks(dwg, _groups)
+        render_centermarks(dwg, _groups, ctx=ctx)
 
     def _s_reserve_section():
         # Reserve the cutting-plane arrows' row BEFORE the plan-view hole callouts
@@ -349,7 +350,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # than pay that cost or drop it (holes.py); the `bracket` fixture's known
         # hc_plan0/section_arrow_right overlap (tests/test_layout_cleanliness.py)
         # is exactly this accepted case.
-        _reserve_section_row(dwg, a, _section)
+        _reserve_section_row(dwg, a, _section, ctx=ctx)
 
     def _s_hole_callouts():
         # Any hole/pattern member (declared holes render even where detection missed them).
@@ -503,7 +504,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # slots, GD&T/PMI, and drained ladder outputs as one occupancy set. Details
         # still render after it and avoid the section view.
         if _section is not None:
-            _add_section_view(dwg, a, _section)
+            _add_section_view(dwg, a, _section, ctx=ctx)
 
     def _s_details():
         # Resolve every queued enlarged-detail request (#307) — prismatic step bands and
@@ -699,7 +700,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
             # drop lint, so the sheet is never left with neither. The pattern
             # balloons below are unaffected — nothing of theirs was removed.
             for n, obj in replaced.items():
-                dwg.add(obj, n, view=replaced_view.get(n))
+                ctx.place(obj, n, view=replaced_view.get(n))
             ctx.record_issue("warning", "table_dropped", "hole table did not fit the sheet")
         else:
             # One entry per hole (with repeats) so the coverage *count* check sees

@@ -35,6 +35,14 @@ from draftwright.recognition import (
 _skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)
 
 
+def _ctx_for(dwg):
+    """A `PlacementContext` wired to a real `Drawing`'s public seams (#817) — for white-box unit
+    tests that call an internal render helper (`ctx.place` routes to `dwg`'s registry + item list)."""
+    from draftwright.annotations._common import PlacementContext
+
+    return PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
+
+
 def _state_snapshot(dwg):
     """The mutable state a read-only test must not touch — annotation count,
     names, pins, and the per-view (visible, hidden) tuples (by identity)."""
@@ -1020,7 +1028,6 @@ class TestCountersinkCallout:
         # #558 review (BLOCKER): the angle must cross as a _fmt string so it renders
         # "× 90°" (not "× 90.0°") AND matches the width estimators — a raw float renders
         # wider and would re-drop the callout.
-        from build123d_drafting import HoleCallout
 
         from draftwright.annotations.from_model import callout_from_spec, hole_callout_spec
         from draftwright.model.planner import plan_dimensions
@@ -2721,17 +2728,17 @@ class TestComposeThenPackRepack:
                 tip=dwg.at("front", 0, 0, 0), elbow=(5, 5, 0), label=label, draft=dwg.draft
             )
 
-        dwg.add(_leader("A"), "tag", view="front")
+        dwg._add(_leader("A"), "tag", view="front")
         assert dwg.view_of("tag") == "front"
 
-        dwg.add(_leader("B"), "tag")  # replacement, view-less → clears stale tag
+        dwg._add(_leader("B"), "tag")  # replacement, view-less → clears stale tag
         assert dwg.view_of("tag") is None
 
-        dwg.add(_leader("C"), "tag2", view="plan")
+        dwg._add(_leader("C"), "tag2", view="plan")
         dwg.remove("tag2")
         assert dwg.view_of("tag2") is None
 
-        dwg.add(_leader("D"), "tag3", view="side")
+        dwg._add(_leader("D"), "tag3", view="side")
         dwg.clear_annotations()  # keeps title_block only
         assert dwg.view_of("tag3") is None
 
@@ -3462,10 +3469,10 @@ def test_clear_annotations_keeps_title_block():
 @pytest.mark.timeout(60)
 def test_clear_annotations_keep_custom_and_unnamed_removed():
     dwg = build_drawing(Box(30, 20, 10))
-    keep_me = dwg.add(
+    keep_me = dwg._add(
         Leader(tip=dwg.at("front", 0, 0, 0), elbow=(5, 5, 0), label="K", draft=dwg.draft), "ldr_k"
     )
-    dwg.add(Leader(tip=dwg.at("front", 0, 0, 0), elbow=(6, 6, 0), label="U", draft=dwg.draft))
+    dwg._add(Leader(tip=dwg.at("front", 0, 0, 0), elbow=(6, 6, 0), label="U", draft=dwg.draft))
     dwg.clear_annotations(keep=("title_block", "ldr_k"))
     assert set(dwg.annotations()) == {"title_block", "ldr_k"}
     assert keep_me in dwg.items
@@ -3601,7 +3608,7 @@ def test_drawing_add_and_remove():
     dwg = build_drawing(Box(30, 20, 10))
     n0 = len(dwg.items)
     ldr = Leader(tip=dwg.at("front", 0, 0, 0), elbow=(5, 5, 0), label="X", draft=dwg.draft)
-    dwg.add(ldr, "ldr_test")
+    dwg._add(ldr, "ldr_test")
     assert len(dwg.items) == n0 + 1
     removed = dwg.remove("ldr_test")
     assert removed is ldr
@@ -3616,8 +3623,8 @@ def test_drawing_add_replaces_reused_name():
     n0 = len(dwg.items)
     first = Leader(tip=dwg.at("front", 0, 0, 0), elbow=(5, 5, 0), label="A", draft=dwg.draft)
     second = Leader(tip=dwg.at("front", 0, 0, 0), elbow=(6, 6, 0), label="B", draft=dwg.draft)
-    dwg.add(first, "ldr")
-    dwg.add(second, "ldr")  # same name → replaces, no orphan left behind
+    dwg._add(first, "ldr")
+    dwg._add(second, "ldr")  # same name → replaces, no orphan left behind
     assert len(dwg.items) == n0 + 1
     assert first not in dwg.items
     assert dwg.remove("ldr") is second
@@ -4215,7 +4222,6 @@ class TestLintFeatureCoverage:
 
     @pytest.mark.timeout(60)
     def test_hole_callout_accepts_string_diameter(self):
-        from build123d_drafting import HoleCallout
 
         callout = HoleCallout("8.5 H7", through=True)
         assert callout.covers_diameters == (8.5,)
@@ -4261,7 +4267,6 @@ class TestLintFeatureCoverage:
     def test_hole_callout_covers_via_structured_metadata(self):
         # HoleCallout draws its ø glyphs geometrically (label is "") — it must
         # still count as coverage.
-        from build123d_drafting import HoleCallout
 
         part = Box(100, 60, 20) - Pos(20, 10, 0) * Cylinder(4.25, 30)
         callout = HoleCallout(8.5, count=4, through=True)
@@ -4566,7 +4571,6 @@ class TestHolePatternAnnotations:
     @pytest.mark.timeout(60)
     def test_count_mismatch_surfaces_in_lint(self):
         from build123d import Draft
-        from build123d_drafting import HoleCallout
 
         part = Box(100, 100, 10)
         for x in (-30, -10, 10, 30):
@@ -5864,7 +5868,7 @@ class TestDetailView:
             if n != "dim_height"
             and getattr(dwg.registry.named(n), "label", None) not in (None, _fmt(a.z_size))
         )
-        dwg.add(replacement, "dim_height", view="front")
+        dwg._add(replacement, "dim_height", view="front")
         assert _overall_height_name(dwg, a) is None
 
     def test_failed_demotion_retry_restores_height_dim_provenance(self, monkeypatch):
@@ -7416,7 +7420,7 @@ class TestFeatureEdits:
 
         dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
-        dwg.add(CenterMark((0, 0, 0), 3.0, dwg.draft), "my_mark", view="plan", feature=hole)
+        dwg._add(CenterMark((0, 0, 0), 3.0, dwg.draft), "my_mark", view="plan", feature=hole)
         assert "my_mark" in dwg.annotations_of(hole)
 
     def test_provenance_survives_repair(self):
@@ -8010,24 +8014,46 @@ class TestLintSuggestions:
         assert issues, "expected a feature_not_dimensioned issue"
         sug = issues[0].suggestion
         assert sug is not None
-        assert "dwg.features(" in sug
-        assert "HoleCallout(" in sug
-        assert "Leader(" in sug
+        assert "dwg.model()" in sug
+        assert "dwg.callout(" in sug
+        assert (
+            ".member" in sug
+        )  # covers a pattern's bore (on .member.diameter), not just plain holes
 
     def test_feature_not_dimensioned_suggestion_is_runnable(self):
-        # The headline #29 promise: paste the snippet and the lint resolves.
+        # The headline #29 promise: paste the snippet and the lint resolves. Post-#817 the snippet
+        # is the DECLARATIVE door (find the IR feature, `dwg.callout(f)` — say WHAT, not WHERE),
+        # not a hand-built Leader through the now-private placement primitive.
         part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(5, 20)
         dwg = build_drawing(part, auto_dims=False)
         assert any(i.code == "feature_not_dimensioned" for i in dwg.lint())
 
-        for f in dwg.features("plan"):
-            if abs(f.diameter - 10.0) < 1e-6:
-                callout = HoleCallout(
-                    f.diameter, count=f.count, through=f.through, depth=f.depth, draft=dwg.draft
-                )
-                elbow = (f.page_pos[0] + 15, f.page_pos[1] + 10, 0)
-                leader = Leader((*f.page_pos, 0), elbow, "", dwg.draft, callout=callout)
-                dwg.add(leader, name="hole_10")
+        for f in dwg.model().features:
+            if f.kind not in ("hole", "pattern"):
+                continue
+            fd = f.diameter if f.kind == "hole" else f.member.diameter
+            if abs(fd - 10.0) < 0.16:
+                dwg.callout(f)
+
+        assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
+
+    def test_feature_not_dimensioned_suggestion_is_runnable_for_a_pattern(self):
+        # A pattern feature carries its bore on `.member.diameter`, not `.diameter` — the snippet
+        # must read it there (and restrict to hole/pattern kinds so a same-ø step/boss is not
+        # called out instead), else the declarative recipe silently skips a patterned hole and
+        # never resolves the lint (Codex #821).
+        part = Box(120, 40, 20)
+        for x in (-40, -20, 0, 20, 40):
+            part = part - Pos(x, 0, 0) * Cylinder(4, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        assert any(i.code == "feature_not_dimensioned" for i in dwg.lint())
+
+        for f in dwg.model().features:
+            if f.kind not in ("hole", "pattern"):
+                continue
+            fd = f.diameter if f.kind == "hole" else f.member.diameter
+            if abs(fd - 8.0) < 0.16:
+                dwg.callout(f)
 
         assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
 
@@ -8148,7 +8174,7 @@ class TestLintSuggestions:
         assert issues
         assert "ø8.2" in issues[0].message  # rounded, differs from raw 8.22
         assert issues[0].suggestion is not None
-        assert 'dwg.features("plan")' in issues[0].suggestion
+        assert "dwg.callout(" in issues[0].suggestion
 
     def test_feature_count_mismatch_suggestion_sets_count(self):
         # The leading number is `need`; diameter digits (even fractional) must
@@ -8177,8 +8203,8 @@ class TestRepair:
         dwg = build_drawing(Box(60, 40, 20))
         d = dwg.draft
         p1, p2 = (40.0, 20.0, 0.0), (80.0, 20.0, 0.0)
-        dwg.add(_dim(p1, p2, "above", 8, d, label="AA"), "ov1")
-        dwg.add(_dim(p1, p2, "above", 8, d, label="BB"), "ov2")
+        dwg._add(_dim(p1, p2, "above", 8, d, label="AA"), "ov1")
+        dwg._add(_dim(p1, p2, "above", 8, d, label="BB"), "ov2")
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
         dwg.repair()
@@ -8195,7 +8221,7 @@ class TestRepair:
         from draftwright.repair import _repair_dim_inside_part
 
         dwg = build_drawing(Box(60, 40, 20))
-        dim = dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="INSIDE"), "x")
+        dim = dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="INSIDE"), "x")
         assert dim._dw_spec.side == "above"
 
         issue = LintIssue(
@@ -8216,7 +8242,7 @@ class TestRepair:
         from draftwright.linting import LintIssue
 
         dwg = build_drawing(Box(60, 40, 20))
-        dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="OSC"), "x")
+        dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="OSC"), "x")
 
         # Monkeypatch lint to always report the same dim_inside_part.
         issue = LintIssue(
@@ -8255,7 +8281,7 @@ class TestRepair:
         from draftwright.linting import LintIssue
 
         dwg = build_drawing(Box(60, 40, 20))
-        orig = dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="RB"), "x")
+        orig = dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="RB"), "x")
         overlap = LintIssue(
             severity="warning",
             message="labels 'RB' and 'QQ' overlap",
@@ -8296,8 +8322,8 @@ class TestPin:
 
         dwg = build_drawing(Box(60, 40, 20))
         p1, p2 = (40.0, 20.0, 0.0), (80.0, 20.0, 0.0)
-        dwg.add(_dim(p1, p2, "above", 8, dwg.draft, label="AA"), "a")
-        dwg.add(_dim(p1, p2, "above", 8, dwg.draft, label="BB"), "b")
+        dwg._add(_dim(p1, p2, "above", 8, dwg.draft, label="AA"), "a")
+        dwg._add(_dim(p1, p2, "above", 8, dwg.draft, label="BB"), "b")
         return dwg
 
     def test_repair_does_not_move_a_pinned_dim(self):
@@ -8339,7 +8365,7 @@ class TestPin:
         # _find_dim builds an id-set over pinned objects of any type; pinning a
         # Leader (not a re-placeable dim) must not break repair.
         dwg = self._two_overlapping()
-        dwg.add(Leader((0, 0, 0), (10, 10, 0), "L", dwg.draft), "ldr")
+        dwg._add(Leader((0, 0, 0), (10, 10, 0), "L", dwg.draft), "ldr")
         dwg.pin("ldr")
         dwg.repair()  # must not raise
         assert "ldr" in dwg.annotations()
@@ -8352,7 +8378,9 @@ class TestPin:
         dwg.remove("a")
         # Re-add a fresh "a" at the same overlapping spot; it must NOT inherit
         # the old pin, so repair is free to move it.
-        dwg.add(_dim((40.0, 20.0, 0.0), (80.0, 20.0, 0.0), "above", 8, dwg.draft, label="AA"), "a")
+        dwg._add(
+            _dim((40.0, 20.0, 0.0), (80.0, 20.0, 0.0), "above", 8, dwg.draft, label="AA"), "a"
+        )
         assert not dwg.registry.is_pinned("a")
         dwg.repair()
         assert dwg.get_annotation("a")._dw_spec.distance == 8
@@ -8377,7 +8405,7 @@ class TestAnnotationsQuery:
 
         dwg = build_drawing(Box(60, 40, 20))
         before = dict(dwg.annotations())
-        dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="U"))  # no name
+        dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="U"))  # no name
         # Unnamed annotation lands in items but not in the name→type map.
         assert dwg.annotations() == before
         assert len(dwg.items) == len(before) + 1
@@ -8387,14 +8415,14 @@ class TestAnnotationsQuery:
 
         dwg = build_drawing(Box(60, 40, 20))
         assert "q_dim" not in dwg.annotations()
-        dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="Q"), "q_dim")
+        dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="Q"), "q_dim")
         assert dwg.annotations()["q_dim"] == "Dimension"
 
     def test_get_annotation_returns_object_or_none(self):
         from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
-        obj = dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="G"), "g")
+        obj = dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="G"), "g")
         assert dwg.get_annotation("g") is obj
         assert dwg.get_annotation("does_not_exist") is None
 
@@ -8402,7 +8430,7 @@ class TestAnnotationsQuery:
         from draftwright._core import _dim
 
         dwg = build_drawing(Box(60, 40, 20))
-        dwg.add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="R"), "r")
+        dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="R"), "r")
         assert dwg.get_annotation("r") is not None
         dwg.remove("r")
         assert dwg.get_annotation("r") is None
@@ -8533,7 +8561,7 @@ class TestPrismaticBossDiameter:
                 "fv_zones": SimpleNamespace(**{**vars(analysis.fv_zones), "right": None}),
             }
         )
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         render_boss_heights(dwg, plan_dimensions(dwg.model()), constrained, ctx=ctx)
         drain_corridors(ctx, dwg)
 
@@ -8974,7 +9002,7 @@ class TestLeaderCrossesSilhouette:
         tip = dwg.get_annotation("m_dia_x0").tip
         dwg.remove("m_dia_x0")
         crossing = (tip[0] + 3.0, tip[1] - 15.0, 0.0)  # diagonal down into the flange body
-        dwg.add(
+        dwg._add(
             Leader(tip=(tip[0], tip[1], 0), elbow=crossing, label="ø6", draft=dwg.draft),
             "m_dia_x0",
             view="front",
@@ -8988,7 +9016,7 @@ class TestLeaderCrossesSilhouette:
 
         dwg, crossing = self._crossing_boss_drawing()
         dwg.pin("m_dia_x0")
-        _reroute_crossing_diameters(dwg)
+        _reroute_crossing_diameters(dwg, ctx=_ctx_for(dwg))
         moved = dwg.get_annotation("m_dia_x0").elbow
         assert (moved[0], moved[1]) == crossing[:2], "pinned leader moved"
 
@@ -9002,7 +9030,7 @@ class TestLeaderCrossesSilhouette:
         monkeypatch.setattr(
             "draftwright.linting.structural._leader_shaft_hits_edges", lambda *a, **k: True
         )
-        _reroute_crossing_diameters(dwg)
+        _reroute_crossing_diameters(dwg, ctx=_ctx_for(dwg))
         restored = dwg.get_annotation("m_dia_x0")
         assert restored is not None, "leader lost by the re-route"
         assert (restored.elbow[0], restored.elbow[1]) == crossing[:2], "leader not restored"
@@ -9917,6 +9945,7 @@ class TestPatternGroupBalloon:
         ctx = PlacementContext(
             registry=dwg.registry,
             coverage=dwg.coverage,
+            items=dwg.items,
             part_model=dwg.model(),  # (#639) the tabulation resolver reads the model off ctx now
             escalations=[
                 Escalation(kind="callout", view="plan", feature=feat, reason="strip_full")
@@ -9949,7 +9978,7 @@ class TestPatternGroupBalloon:
             self._fake_pattern(count=6, diameter=5.0, origin=(15.0, 8.0, 0.0)),
         ]
         ctx = PlacementContext(
-            registry=dwg.registry, coverage=dwg.coverage, part_model=dwg.model()
+            registry=dwg.registry, coverage=dwg.coverage, part_model=dwg.model(), items=dwg.items
         )
         for feat in feats:
             ctx.escalations.append(
@@ -9980,6 +10009,7 @@ class TestPatternGroupBalloon:
         ctx = PlacementContext(
             registry=dwg.registry,
             coverage=dwg.coverage,
+            items=dwg.items,
             part_model=dwg.model(),
             escalations=[
                 Escalation(kind="callout", view="front", feature=feat, reason="front strip full")

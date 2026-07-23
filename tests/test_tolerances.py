@@ -511,7 +511,7 @@ class TestChamferTolerance:
         decoy = replace(pd, param=replace(pd.param, role="decoy", value=99.0))
         planned = replace(pd, param=replace(pd.param, value=7.0))  # ≠ ch.leg1 == 12
         g2 = replace(g, dims=(decoy, planned))
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_chamfers(dwg, [g2], dwg._analysis, ctx=ctx) == 1
         labels = [
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_chamfer")
@@ -660,7 +660,7 @@ class TestGrooveTolerance:
         decoy = replace(wpd, param=replace(wpd.param, role="decoy", value=99.0))
         planned_w = replace(wpd, param=replace(wpd.param, value=7.0))  # ≠ gr.width == 4
         g2 = replace(g, dims=(decoy, planned_w, by_key[("groove", "diameter")]))
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_grooves(dwg, [g2], dwg._analysis, ctx=ctx) == 1
         labels = [
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_groove")
@@ -733,7 +733,7 @@ class TestPocketTolerance:
                 by_key[("pocket_depth", "length")],
             ),
         )
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_pockets(dwg, [g2], dwg._analysis, ctx=ctx) == 1
         labels = [
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_pocket")
@@ -791,7 +791,7 @@ class TestPlateTolerance:
             auto_dims=False,
         )
         (g,) = [g for g in plan_dimensions(dwg.model()) if g.feature_kind == "plate"]
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_plates(dwg, [g], dwg._analysis, ctx=ctx) == 1
         (cand,) = [
             c
@@ -836,7 +836,7 @@ class TestPlateTolerance:
         decoy = replace(pd, param=replace(pd.param, role="decoy", value=99.0))
         planned = replace(pd, param=replace(pd.param, value=7.0))  # ≠ pl.hi - pl.lo == 8
         g2 = replace(g, dims=(decoy, planned))
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_plates(dwg, [g2], dwg._analysis, ctx=ctx) == 1
         drain_corridors(ctx, dwg)
         labels = [
@@ -916,7 +916,7 @@ class TestSlotTolerance:
             number="X",
             auto_dims=False,
         )
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_slots(dwg, plan_dimensions(dwg.model()), dwg._analysis, ctx=ctx) == 3
         (cand,) = [
             c
@@ -949,7 +949,7 @@ class TestSlotTolerance:
         planned_w = replace(wpd, param=replace(wpd.param, value=7.0))  # ≠ sl.width == 8
         planned_l = replace(lpd, param=replace(lpd.param, value=19.0))  # ≠ sl.length == 20
         g2 = replace(g, dims=(decoy, planned_w, planned_l))
-        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
+        ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_slots(dwg, [g2], dwg._analysis, ctx=ctx) == 3
         drain_corridors(ctx, dwg)
         assert dwg.get_annotation("m_slot0_width").label == "7"

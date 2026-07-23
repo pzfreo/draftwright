@@ -234,7 +234,7 @@ def _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx):
     # Furniture that legitimately sits on the view geometry — exempt from the
     # annotation-overlap / centreline lint, as the section arrows do.
     balloon.is_centerline = True
-    dwg.add(
+    ctx.place(
         balloon,
         f"balloon_{view}_{tag}_{j}",
         view=view,
