@@ -426,7 +426,16 @@ class Drawing:
         return self._coverage.is_scattered_hole_doc(name)
 
     # -- views ----------------------------------------------------------------
+    @deprecated(
+        "Drawing.add_view() is deprecated (#817): view projection is engine plumbing. Custom "
+        "section/auxiliary views come from the section verb; the raw projector is now private "
+        "(_add_view)."
+    )
     def add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
+        """DEPRECATED (#817): the raw view projector is now private (:meth:`_add_view`)."""
+        return self._add_view(name, shape, camera, up, position, look_at=look_at, scaled=scaled)
+
+    def _add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
         """Project ``shape`` from ``camera`` and place it at ``position``.
 
         Args:
@@ -479,11 +488,27 @@ class Drawing:
         """Return the :class:`ViewCoordinates` for a named view."""
         return self._coords[view]
 
+    @deprecated(
+        "Drawing.set_view_coordinates() is deprecated (#817): view-coordinate plumbing is "
+        "engine-internal; the mutator is now private (_set_view_coordinates)."
+    )
     def set_view_coordinates(self, view, coords) -> None:
+        """DEPRECATED (#817): now private (:meth:`_set_view_coordinates`)."""
+        self._set_view_coordinates(view, coords)
+
+    def _set_view_coordinates(self, view, coords) -> None:
         """Override a view's projected coordinates (a repositioned detail/section band, #307)."""
         self._coords[view] = coords
 
+    @deprecated(
+        "Drawing.drop_view_coordinates() is deprecated (#817): view-coordinate plumbing is "
+        "engine-internal; the mutator is now private (_drop_view_coordinates)."
+    )
     def drop_view_coordinates(self, view) -> None:
+        """DEPRECATED (#817): now private (:meth:`_drop_view_coordinates`)."""
+        self._drop_view_coordinates(view)
+
+    def _drop_view_coordinates(self, view) -> None:
         """Remove a view's projected coordinates (a bailed detail/section, #307)."""
         self._coords.pop(view, None)
 
@@ -613,7 +638,15 @@ class Drawing:
     def _ann_box_cache(self) -> dict:
         return self._build.ann_box_cache
 
+    @deprecated(
+        "Drawing.attach_part_model() is deprecated (#817): build-state attach is engine "
+        "plumbing; the mutator is now private (_attach_part_model)."
+    )
     def attach_part_model(self, model) -> None:
+        """DEPRECATED (#817): now private (:meth:`_attach_part_model`)."""
+        self._attach_part_model(model)
+
+    def _attach_part_model(self, model) -> None:
         """Attach the built PartModel so ``model()`` and feature edits see it. Lets the
         orchestrator hand the model back without an ``annotations/`` attribute write (#639)."""
         self._build.part_model = model
@@ -624,7 +657,15 @@ class Drawing:
         ``None`` (the default — tracing off). See ``build_drawing(trace=...)``."""
         return self._build.trace
 
+    @deprecated(
+        "Drawing.attach_solve_trace() is deprecated (#817): build-state attach is engine "
+        "plumbing; the mutator is now private (_attach_solve_trace)."
+    )
     def attach_solve_trace(self, trace) -> None:
+        """DEPRECATED (#817): now private (:meth:`_attach_solve_trace`)."""
+        self._attach_solve_trace(trace)
+
+    def _attach_solve_trace(self, trace) -> None:
         """Attach the #736 :class:`~draftwright.annotations._common.SolveTrace` recorder
         so the annotate and finalize paths thread it onto their per-run
         ``PlacementContext`` (build state flows through a named method, #639)."""
@@ -2151,11 +2192,20 @@ class Drawing:
         self._registry.unpin(name)
         return self
 
+    @deprecated(
+        "Drawing.clear_annotations() is deprecated (#817): wholesale annotation removal is a "
+        "footgun for user scripts — use the feature-scoped verbs (drop/remove). The primitive "
+        "is now private (_clear_annotations)."
+    )
     def clear_annotations(self, keep=("title_block",)):
+        """DEPRECATED (#817): now private (:meth:`_clear_annotations`)."""
+        return self._clear_annotations(keep)
+
+    def _clear_annotations(self, keep=("title_block",)):
         """Remove all annotations except those named in *keep* (#74).
 
         Wholesale removal that does not depend on the automatic naming
-        scheme — ``dwg.clear_annotations()`` strips every automatic dimension,
+        scheme — ``_clear_annotations()`` strips every automatic dimension,
         leader, and centreline but keeps the title block.
 
         Returns:

@@ -112,10 +112,26 @@ def _dwg_getattr_probes(tree: ast.Module) -> list[str]:
     return out
 
 
+def _method_call_attrs(tree: ast.Module) -> set[int]:
+    """``id()``s of Attribute nodes that are the DIRECT callee of a Call — i.e. the
+    ``dwg._m`` in a ``dwg._m(...)`` METHOD INVOCATION. #722 targets state-bus *data*
+    back-channels; calling a (now-private) engine-API method is explicit API, not a poke at
+    a shared field, so it is exempt (#817 PR4 / decision D). Data reads stay caught: in
+    ``dwg._registry.add(…)`` the private ``_registry`` is the call func's *value* (not the
+    func itself), and ``dwg._coords[k]`` is a subscript — neither is a callee here."""
+    out: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            out.add(id(node.func))
+    return out
+
+
 def _dwg_private_reads(tree: ast.Module) -> set[str]:
     """Distinct ``dwg._<name>`` private READS: attribute accesses in ``Load`` context (so a
     write/delete target — ``Store``/``Del`` — is never miscounted as a read), plus
-    ``getattr(dwg, "_name", …)`` probes."""
+    ``getattr(dwg, "_name", …)`` probes. A private that is the direct callee of a Call
+    (``dwg._m(...)``) is a method invocation, not a data read, so it is exempt (#817 PR4)."""
+    call_funcs = _method_call_attrs(tree)
     reads: set[str] = set()
     for node in ast.walk(tree):
         if (
@@ -123,6 +139,7 @@ def _dwg_private_reads(tree: ast.Module) -> set[str]:
             and _is_dwg(node.value)
             and node.attr.startswith("_")
             and isinstance(node.ctx, ast.Load)
+            and id(node) not in call_funcs
         ):
             reads.add(node.attr)
     reads |= set(_dwg_getattr_probes(tree))
@@ -166,6 +183,14 @@ def test_write_guard_catches_every_mutation_form():
         assert writes, f"guard missed a mutation form: {snippet!r}"
     # A pure read must NOT register as a write (else every read is a false positive).
     assert not _dwg_private_writes(ast.parse("use(dwg._named)"))
+    # #817 PR4 (decision D): a private METHOD CALL is explicit API, exempt from the read
+    # scan; every DATA read stays caught (the state-bus back-channel #722 targets).
+    assert _dwg_private_reads(ast.parse("dwg._set_view_coordinates(v)")) == set()
+    assert _dwg_private_reads(ast.parse("drawing._clear_annotations()")) == set()
+    assert _dwg_private_reads(ast.parse("use(dwg._coords)")) == {"_coords"}
+    assert _dwg_private_reads(ast.parse("dwg._registry.add(x)")) == {"_registry"}  # func.value
+    assert _dwg_private_reads(ast.parse("dwg._coords[k]")) == {"_coords"}  # subscript
+    assert _dwg_private_reads(ast.parse('getattr(dwg, "_analysis")')) == {"_analysis"}
     # The aliasing evasion is caught as the alias itself (#699 slice d, Codex review):
     assert _drawing_aliases(ast.parse("d = dwg"))
     assert _drawing_aliases(ast.parse("if (d := drawing): pass"))

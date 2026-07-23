@@ -66,13 +66,18 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_add",
         "_add_balloon",
         "_add_shapes",
+        "_add_view",
         "_analysis",
         "_ann_box_cache",
         "_anno_view",
+        "_attach_part_model",
+        "_attach_solve_trace",
         "_build_issues",
         "_classify_intents",
+        "_clear_annotations",
         "_derive_span",
         "_drain_intents",
+        "_drop_view_coordinates",
         "_dropped_callout_diams",
         "_hole_spec_groups",
         "_is_scattered_hole_doc",
@@ -87,6 +92,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_record_build_issue",
         "_replay_intent",
         "_resolve_dimension_span",
+        "_set_view_coordinates",
         "_user_dim_uses_corridor",
         "_view_edge_cache",
         "_write_dxf",
@@ -148,6 +154,14 @@ _ALLOW: dict[str, int] = {
     # DEPRECATED (#817); the deprecated shim's warning is asserted separately via the public name, so
     # this one read is genuinely internal.
     "_place_dim": 1,
+    # View/annotation plumbing privatized in #817 PR4 (public forms deprecated). The functional
+    # behaviour tests drive the primitives directly (wholesale clear keeps the title block;
+    # add_view projects + refits silhouettes); the deprecated shims' warnings are asserted
+    # separately via the public names. The other four plumbing privates
+    # (_set_view_coordinates/_drop_view_coordinates/_attach_part_model/_attach_solve_trace) have no
+    # direct test read — the engine build path exercises them.
+    "_clear_annotations": 3,
+    "_add_view": 1,
 }
 
 

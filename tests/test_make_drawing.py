@@ -2739,7 +2739,7 @@ class TestComposeThenPackRepack:
         assert dwg.view_of("tag2") is None
 
         dwg._add(_leader("D"), "tag3", view="side")
-        dwg.clear_annotations()  # keeps title_block only
+        dwg._clear_annotations()  # keeps title_block only
         assert dwg.view_of("tag3") is None
 
 
@@ -3459,7 +3459,7 @@ def test_clear_annotations_keeps_title_block():
     # #74 — wholesale removal without knowing the auto-name scheme.
     dwg = build_drawing(Cylinder(15, 40))  # cylinder → od dim, centerlines, …
     assert len(dwg.items) > 1
-    removed = dwg.clear_annotations()
+    removed = dwg._clear_annotations()
     assert removed
     assert all(a not in dwg.items for a in removed)
     assert len(dwg.items) == 1
@@ -3473,10 +3473,28 @@ def test_clear_annotations_keep_custom_and_unnamed_removed():
         Leader(tip=dwg.at("front", 0, 0, 0), elbow=(5, 5, 0), label="K", draft=dwg.draft), "ldr_k"
     )
     dwg._add(Leader(tip=dwg.at("front", 0, 0, 0), elbow=(6, 6, 0), label="U", draft=dwg.draft))
-    dwg.clear_annotations(keep=("title_block", "ldr_k"))
+    dwg._clear_annotations(keep=("title_block", "ldr_k"))
     assert set(dwg.annotations()) == {"title_block", "ldr_k"}
     assert keep_me in dwg.items
     assert len(dwg.items) == 2  # unnamed leader removed too
+
+
+def test_plumbing_shims_are_deprecated():
+    # #817 PR4: the 6 view/annotation plumbing methods are now engine-internal; the public
+    # shims warn (and route to the private impl) for one release. Engine calls use the private
+    # names directly (no warning) — covered by the ordinary build path.
+    dwg = build_drawing(Box(60, 40, 20))
+    coords = dwg.coords("front")
+    for call in (
+        lambda: dwg.clear_annotations(),
+        lambda: dwg.drop_view_coordinates("nope"),
+        lambda: dwg.attach_part_model(dwg.model()),
+        lambda: dwg.attach_solve_trace(None),
+        lambda: dwg.set_view_coordinates("front", coords),
+        lambda: dwg.add_view("bottom", Box(10, 10, 10), (0, 0, -80), (0, 1, 0), (250.0, 60.0)),
+    ):
+        with pytest.warns(DeprecationWarning):
+            call()
 
 
 @pytest.fixture(scope="module")
@@ -3647,7 +3665,7 @@ def test_drawing_add_view(tmp_path):
     dwg = build_drawing(Box(30, 20, 10))
     look = dwg.look_at
     bottom_cam = (look[0], look[1], look[2] - dwg.dist)
-    vc = dwg.add_view("bottom", Box(30, 20, 10), bottom_cam, (0, 1, 0), (260.0, 60.0))
+    vc = dwg._add_view("bottom", Box(30, 20, 10), bottom_cam, (0, 1, 0), (260.0, 60.0))
     assert "bottom" in dwg.views
     assert isinstance(vc, ViewCoordinates)
     # The custom view exports alongside the standard ones.

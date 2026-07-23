@@ -262,7 +262,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         _clear_section_reservation(dwg)
         return
     camera = (dwg.look_at[0], dwg.look_at[1] - dwg.dist, dwg.look_at[2])
-    dwg.add_view("section_aa", keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
+    dwg._add_view("section_aa", keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
     ctx.place(
         Note("SECTION A–A", (pos_x, a.FV_Y - half_h - 7), dwg.draft),
         "section_caption",
@@ -503,11 +503,11 @@ def _render_detail(
     camera = (la[0], la[1] - dist_d, la[2])
     try:
         band_s = cropped.scale(detail_scale)
-        dwg.add_view(view_name, band_s, camera, (0, 0, 1), (DX, DY), look_at=la, scaled=True)
+        dwg._add_view(view_name, band_s, camera, (0, 0, 1), (DX, DY), look_at=la, scaled=True)
     except Exception as exc:  # noqa: BLE001 — projection raises broadly on cast geometry
         _log.warning("Detail %s skipped (projection failed: %s)", letter, exc)
         return False
-    dwg.set_view_coordinates(
+    dwg._set_view_coordinates(
         view_name,
         ViewCoordinates(view_axes(camera, (0, 0, 1), la), DX, DY, dcx, dcy, dcz, detail_scale),
     )
@@ -518,7 +518,7 @@ def _render_detail(
     # head/block inline, so lint reports any un-located interior) (#307 review).
     if not req.redraw(dwg, view_name, detail_scale):
         dwg.views.pop(view_name, None)
-        dwg.drop_view_coordinates(view_name)
+        dwg._drop_view_coordinates(view_name)
         _log.info("Detail %s skipped (no legible dims at the detail scale)", letter)
         return False
 
