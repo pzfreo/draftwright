@@ -56,32 +56,44 @@ def test_automatic_and_declared_ir_front_doors(tmp_path):
     assert set(out) == {"svg", "dxf", "pdf", "png"}  # -> {format: path}
 
 
-def test_editing_verbs_exist_and_route_correctly():
-    """Every edit verb the guide shows: deferred callout/dimension(pin=)/locate/furniture/section,
-    then pin/unpin (freeze a placed annotation) and the drop(feature) vs remove(name) distinction."""
+def test_editing_verbs_each_produce_their_annotation():
+    """Every edit verb the guide shows, asserted INDIVIDUALLY. Build detect-only (auto_dims=False)
+    so the verbs genuinely create the annotations rather than duplicate the auto pass's."""
     part, _, _ = _holed_block()
-    dwg = build_drawing(part)
+    dwg = build_drawing(part, auto_dims=False)
     hole = next(f for f in dwg.model().features if f.kind in ("hole", "pattern"))
     envelope = next(f for f in dwg.model().features if f.kind == "envelope")
 
     with dwg.deferred():
-        dwg.callout(hole)
-        dwg.dimension(envelope, "length", role="width", pin=True, priority=2)  # anchored, ranked
-        dwg.locate(hole)
-        dwg.furniture(hole)  # centre marks
-        dwg.section()  # no-op when nothing triggers a section, but must not error
-    names = list(dwg.annotations_of(hole))
-    assert names  # placed via the solve, not hand-coordinated
+        dwg.callout(hole)  # -> a Leader
+        dwg.locate(hole)  # -> location Dimensions
+        dwg.furniture(hole)  # -> a CenterMark
+        dwg.dimension(envelope, "length", role="width", pin=True, priority=2)  # anchored + ranked
 
-    dwg.pin(names[0])  # freeze an already-placed annotation, then release
-    dwg.unpin(names[0])
-    dwg.remove(names[0])  # remove() takes a NAME
-    assert names[0] not in dwg.annotations()
+    hole_types = {type(o).__name__ for o in dwg.annotations_of(hole).values()}
+    assert {"Leader", "Dimension", "CenterMark"} <= hole_types, hole_types
+    assert dwg.annotations_of(envelope), "the pinned envelope dimension must be placed"
+
+    name = next(iter(dwg.annotations_of(hole)))
+    dwg.pin(name)  # freeze an already-placed annotation, then release
+    dwg.unpin(name)
+    dwg.remove(name)  # remove() takes a NAME
+    assert name not in dwg.annotations()
 
     removed = dwg.drop(hole)  # drop() takes a FEATURE, returns removed names
     assert isinstance(removed, list) and not dwg.annotations_of(hole)
 
     assert dwg.features("plan") is not None  # dwg.features(view) — the per-view read cited
+
+
+def test_section_verb_generates_section_aa():
+    """The `dwg.section()` verb: on section-triggering geometry (a blind underside counterbore),
+    the deferred section() produces the section A–A view."""
+    part = Box(80, 60, 20) - Cylinder(4, 20) - Pos(10, 5, -7) * Cylinder(6, 6)
+    dwg = build_drawing(part, auto_dims=False)
+    with dwg.deferred():
+        dwg.section()
+    assert "section_aa" in dwg.views
 
 
 def test_sheet_slot_declaration_builds():
