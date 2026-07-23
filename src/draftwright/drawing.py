@@ -1944,6 +1944,34 @@ class Drawing:
         """Return the named annotation object, or ``None`` if no such name (#27)."""
         return self._registry.named(name)
 
+    def note(self, text, at, *, view=None, rotation=0.0, name=None, align=None):
+        """Add a free-form text **note** at page position *at* — ``(x, y)`` in mm from the sheet
+        origin, the space :meth:`at` / :meth:`view_bounds` return (#817).
+
+        A note is user-positioned free text ("SEE NOTE 1", a general-tolerance line): it carries
+        no feature and is not part of the placement solve, so — unlike :meth:`callout` /
+        :meth:`dimension`, which the solve places — you give the position. Pass *view* to fold it
+        into that view's block for the cross-view repack; ``rotation`` (degrees) and ``align``
+        (a build123d ``Align`` pair, default centred on *at*) are forwarded to the note. Returns
+        the annotation name. This is the public door for free text — the raw ``Note`` object +
+        low-level placement primitive are internal."""
+        from build123d import Align
+        from build123d_drafting import Note
+
+        n = Note(
+            text,
+            at,
+            self.draft,
+            rotation=rotation,
+            align=align if align is not None else (Align.CENTER, Align.CENTER),
+        )
+        if name is None:
+            i = 0
+            while (name := f"note{i}") in self._named:
+                i += 1
+        self.add(n, name, view=view)
+        return name
+
     def add_table(self, rows, *, prefer="tr", name="table", block_cols=None):
         """Add a generic data table, placed in a free corner (#93).
 
