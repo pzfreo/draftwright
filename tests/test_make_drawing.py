@@ -23,6 +23,7 @@ from draftwright.analysis import (
 from draftwright.compose import StripDepths, _fits, choose_scale
 from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
+from draftwright.linting import LintIssue
 from draftwright.make_drawing import generate_script, lint_feature_coverage
 from draftwright.recognition import (
     Slot,
@@ -4381,9 +4382,7 @@ class TestAutoHoleAnnotations:
         assert "section_line" not in dwg.annotations()
         hc = dwg.get_annotation("hc_plan0")
         assert hc is not None
-        plan_right = (
-            dwg._analysis.PV_X + (dwg._analysis.bb.max.X - dwg._analysis.cx) * dwg._analysis.SCALE
-        )
+        plan_right = dwg._analysis.PV_X + (dwg._analysis.bb.max.X - dwg._analysis.cx) * dwg.scale
         elbow_x = hc.elbow[0]
         assert abs(elbow_x - plan_right) < 0.5  # elbow at boundary, not past it
 
@@ -5228,7 +5227,9 @@ class TestLintSummaryAndDrops:
 
         dwg = build_drawing(Box(60, 40, 30))
         before = dwg.lint_summary()
-        dwg._record_build_issue("warning", "callout_dropped", "synthetic drop")
+        dwg.registry.record_issue(
+            LintIssue(severity="warning", code="callout_dropped", message="synthetic drop")
+        )
 
         codes = {i.code for i in dwg.lint()}
         assert "callout_dropped" in codes
@@ -5399,7 +5400,9 @@ class TestLintSummaryAndDrops:
         from draftwright.annotate import _auto_annotate
 
         dwg = build_drawing(Box(60, 40, 30))
-        dwg._record_build_issue("warning", "callout_dropped", "stale")
+        dwg.registry.record_issue(
+            LintIssue(severity="warning", code="callout_dropped", message="stale")
+        )
         assert any(i.message == "stale" for i in dwg.registry.issues)
         _auto_annotate(dwg, dwg._analysis)
         assert not any(i.message == "stale" for i in dwg.registry.issues)
@@ -5429,7 +5432,9 @@ class TestLintSummaryAndDrops:
 
         dwg = build_drawing(Box(60, 40, 30))
         assert dwg.lint_summary()["passed"] is True
-        dwg._record_build_issue("error", "placement_unsatisfiable", "synthetic")
+        dwg.registry.record_issue(
+            LintIssue(severity="error", code="placement_unsatisfiable", message="synthetic")
+        )
         s = dwg.lint_summary()
         assert s["passed"] is False
         assert s["errors"] >= 1
@@ -5751,7 +5756,8 @@ class TestDetailView:
             dwg.finalize()  # the details stage placed detail_a; tabulate then raises
         # Rolled back: no detail view, view coordinates, or detail annotations survive.
         assert "detail_a" not in dwg.views
-        assert "detail_a" not in dwg._coords
+        with pytest.raises(KeyError):
+            dwg.coords("detail_a")
         assert not any(n.startswith(("detail_", "dim_detail_")) for n in dwg.annotations())
         assert any(it.kwargs.get("role") == "step_height" for it in dwg._intents)
 
@@ -5823,7 +5829,8 @@ class TestDetailView:
         # the detail view/coords/annotations are gone, and the intents survive.
         assert dwg.views["iso"] is iso_before
         assert "detail_a" not in dwg.views
-        assert "detail_a" not in dwg._coords
+        with pytest.raises(KeyError):
+            dwg.coords("detail_a")
         assert set(dwg.annotations()) == names_before
         assert len(dwg._intents) == intents_before
 
@@ -7276,7 +7283,7 @@ class TestFeatureEdits:
         # the attribution index lives on the run ctx (#639/#699); build one to query it
         feat = PlacementContext(part_model=dwg.model()).feature_of_hole_at(hole_obj.location)
         assert feat is not None
-        dwg._add_balloon("plan", "A", 0, hole_obj)
+        dwg.add_balloons("plan", [("A", 0, hole_obj)])
         bln = next(n for n in dwg.annotations() if n.startswith("balloon_"))
         assert bln in dwg.annotations_of(feat)
 
@@ -9919,7 +9926,11 @@ class TestPatternGroupBalloon:
         )
         # Mirror what _record_callout_drop does in production, so clearing it below
         # actually exercises the resolve path rather than trivially passing.
-        dwg._record_build_issue("warning", "callout_dropped", "synthetic plan-view drop")
+        dwg.registry.record_issue(
+            LintIssue(
+                severity="warning", code="callout_dropped", message="synthetic plan-view drop"
+            )
+        )
         _maybe_tabulate_holes(dwg, dwg._analysis, ctx=ctx)
 
         assert "hole_table_plan" not in dwg.annotations()  # density gate untouched
@@ -9976,7 +9987,11 @@ class TestPatternGroupBalloon:
                 Escalation(kind="callout", view="front", feature=feat, reason="front strip full")
             ],
         )
-        dwg._record_build_issue("warning", "callout_dropped", "synthetic front-view drop")
+        dwg.registry.record_issue(
+            LintIssue(
+                severity="warning", code="callout_dropped", message="synthetic front-view drop"
+            )
+        )
         _maybe_tabulate_holes(dwg, dwg._analysis, ctx=ctx)
 
         assert not any(n.startswith("balloon_") for n in dwg.annotations())
