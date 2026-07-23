@@ -72,11 +72,14 @@ def test_editing_verbs_each_produce_their_annotation():
 
     hole_types = {type(o).__name__ for o in dwg.annotations_of(hole).values()}
     assert {"Leader", "Dimension", "CenterMark"} <= hole_types, hole_types
-    assert dwg.annotations_of(envelope), "the pinned envelope dimension must be placed"
+    env_types = {type(o).__name__ for o in dwg.annotations_of(envelope).values()}
+    assert "Dimension" in env_types, "the pinned envelope dimension must place as a Dimension"
 
     name = next(iter(dwg.annotations_of(hole)))
-    dwg.pin(name)  # freeze an already-placed annotation, then release
+    dwg.pin(name)  # freeze an already-placed annotation
+    assert dwg.registry.is_pinned(name), "pin() must mark the annotation pinned"
     dwg.unpin(name)
+    assert not dwg.registry.is_pinned(name), "unpin() must release it"
     dwg.remove(name)  # remove() takes a NAME
     assert name not in dwg.annotations()
 
