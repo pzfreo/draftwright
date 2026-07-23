@@ -7747,9 +7747,11 @@ class TestFindSlots:
         # #816 review: two independent D-shaped (half-cylinder) through-cutouts bulging APART with
         # solid stock between their flats have end caps in the same -1,+1 order a real obround does,
         # but no side walls join them — they must not be paired into a phantom slot across solid.
+        # The stock is exactly as wide as the caps (8 = 2r), so its OUTWARD-facing exterior side
+        # faces sit at w_center ± width/2; only the inward-normal test in _has_side_walls rejects them.
         d1 = Pos(0, -10, 0) * Cylinder(4, 30) & Pos(0, -12, 0) * Box(20, 4, 40)
         d2 = Pos(0, 10, 0) * Cylinder(4, 30) & Pos(0, 12, 0) * Box(20, 4, 40)
-        assert recognise_slots(Box(26, 40, 21) - d1 - d2) == []
+        assert recognise_slots(Box(8, 40, 21) - d1 - d2) == []
 
     def test_pivot_boss_at_slot_end_does_not_extend_length(self):
         # A slotted lever with a cylindrical pivot boss (radius = width/2) protruding at one

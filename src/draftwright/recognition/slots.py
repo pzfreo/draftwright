@@ -421,16 +421,17 @@ _OBROUND_RATIO_TOL = 0.1  # a half-cylinder's in-plane extents are 2r (across) /
 # by RATIO to the radius (2.0 / 1.0), so the discriminator holds at every scale, not just large r.
 
 
-def _obround_end(cap: tuple, part_ext: dict):
+def _obround_end(cap: tuple):
     """Classify a concave cylinder *cap* (from :func:`_cylinder_faces`) as a half-cylinder obround
-    THROUGH end, or None. A half-cylinder end's in-plane bounding box is ≈ 2r across (its width
-    axis) by ≈ r along the bulge (its long axis) — a full cylinder (round hole) is 2r × 2r and is
-    rejected. The 2r/r test is by RATIO to the radius so it holds at any scale (a sub-mm obround is
-    not a false negative, review). Returns ``(width_axis, long_axis, depth_axis, radius, w_center,
-    flat, direction, d_lo, d_hi)`` — ``flat`` is the cylinder-axis position on the long axis (the
-    straight-wall junction), ``direction`` (±1) the side the cap bulges toward. Requires the cap to
-    span the full thickness along its axis (a cheap through pre-filter; the authoritative through/
-    blind split is the caller's :func:`_has_floor`)."""
+    end, or None. A half-cylinder end's in-plane bounding box is ≈ 2r across (its width axis) by
+    ≈ r along the bulge (its long axis) — a full cylinder (round hole) is 2r × 2r and is rejected.
+    The 2r/r test is by RATIO to the radius so the classifier holds at any scale (fixing the
+    absolute-tolerance collapse for small r, review). Returns ``(width_axis, long_axis, depth_axis,
+    radius, w_center, flat, direction, d_lo, d_hi)`` — ``flat`` is the cylinder-axis position on the
+    long axis (the straight-wall junction), ``direction`` (±1) the side the cap bulges toward. The
+    through/blind split is left to the caller's :func:`_has_floor` (authoritative and local, so a
+    through-slot in a thin step of stepped stock is not rejected by a global-thickness assumption,
+    review)."""
     rad, ax, loc, bb, concave = cap
     if not concave or rad <= 0:
         return None
@@ -443,8 +444,6 @@ def _obround_end(cap: tuple, part_ext: dict):
     width_axis, long_axis = across[0], bulge[0]
     dc = "XYZ"[_AXES[ax]]
     d_lo, d_hi = getattr(bb.min, dc), getattr(bb.max, dc)
-    if (d_hi - d_lo) < _SLOT_MAX_SPAN_FRAC * part_ext[ax]:
-        return None  # not through — a through-slot spans the full thickness
     lc = "XYZ"[_AXES[long_axis]]
     flat = loc[_AXES[long_axis]]
     direction = -1 if (flat - getattr(bb.min, lc)) > (getattr(bb.max, lc) - flat) else 1
@@ -452,13 +451,15 @@ def _obround_end(cap: tuple, part_ext: dict):
 
 
 def _has_side_walls(faces, s: Slot) -> bool:
-    """True when the two flat side walls of obround slot *s* are present: anti-parallel wall faces
-    on the width axis at ``w_center ± width/2``, each overlapping the straight run ``[s.lo, s.hi]``.
+    """True when the two flat side walls of obround slot *s* are present: **inward-facing** wall
+    faces on the width axis at ``w_center - width/2`` (material-outward normal toward +width) and
+    ``w_center + width/2`` (normal toward -width), each overlapping the straight run ``[s.lo, s.hi]``.
     Confirms a genuine channel connects the two end caps — rejects two independent D-cutouts whose
-    caps merely alternate ``-1, +1`` across solid stock with no wall between them (#816 review)."""
+    caps merely alternate ``-1, +1`` across solid. The normal-direction test is essential: the
+    stock's own OUTWARD-facing side faces sit at the same ``w_center ± width/2`` when the stock is
+    exactly as wide as the slot, and would otherwise be mistaken for the channel walls (#816 review)."""
     wk, lk = _AXES[s.width_axis], _AXES[s.long_axis]
-    targets = (s.w_center - s.width / 2, s.w_center + s.width / 2)
-    hit = [False, False]
+    lo_wall, hi_wall = False, False
     for f in faces:
         if not f.wall or f.axis != s.width_axis:
             continue
@@ -466,13 +467,16 @@ def _has_side_walls(faces, s: Slot) -> bool:
         if min(hi, s.hi) - max(lo, s.lo) <= 0:  # wall does not span the straight run
             continue
         c = _center(f.bb, wk)
-        for idx, t in enumerate(targets):
-            if abs(c - t) <= _MERGE_TOL:
-                hit[idx] = True
-    return all(hit)
+        # inward-facing: the low-side wall's outward normal points toward the centreline (+width),
+        # the high-side wall's toward -width. The stock's exterior faces point the other way.
+        if abs(c - (s.w_center - s.width / 2)) <= _MERGE_TOL and f.normal[wk] > 0:
+            lo_wall = True
+        if abs(c - (s.w_center + s.width / 2)) <= _MERGE_TOL and f.normal[wk] < 0:
+            hi_wall = True
+    return lo_wall and hi_wall
 
 
-def _recognise_obround_from_ends(part, faces, part_ext: dict) -> list[Slot]:
+def _recognise_obround_from_ends(part, faces) -> list[Slot]:
     """Recognise obround through-slots from their semicircular end caps (#816) — the path for slots
     whose flat walls are too short for :func:`_candidate` to pair. Half-cylinder ends are grouped by
     centreline/radius/depth extent, then within a group (all slots on one centreline share it)
@@ -482,8 +486,12 @@ def _recognise_obround_from_ends(part, faces, part_ext: dict) -> list[Slot]:
     (a real channel connects the ends — not two D-cutouts across solid) and :func:`_has_floor` (it is
     through, not a blind pocket). ``lo``/``hi`` are emitted at the straight-wall junctions so
     :func:`_extend_obround_ends` adds the two radii (uniform with the flat-wall path, and `_merge`
-    folds any duplicate an elongated obround's flat walls also produced)."""
-    ends = [e for cap in _cylinder_faces(part) if (e := _obround_end(cap, part_ext)) is not None]
+    folds any duplicate an elongated obround's flat walls also produced).
+
+    The two flats must be more than ``_MERGE_TOL`` apart to count as distinct ends — so a genuinely
+    sub-millimetre obround (straight run < 0.5 mm) is not recovered; supporting that would need the
+    module-wide absolute ``_MERGE_TOL`` to go relative, out of scope here."""
+    ends = [e for cap in _cylinder_faces(part) if (e := _obround_end(cap)) is not None]
     groups: dict[tuple, list[tuple]] = {}
     for e in ends:
         wa, la, da, rad, wc, flat, direction, dlo, dhi = e
@@ -552,7 +560,7 @@ def recognise_slots(part) -> list[Slot]:
     # Stubby obround through-slots (straight section < width) have no pairable flat walls, so
     # recover them from their end caps (#816). Emitted at the straight-wall junctions like the
     # flat-wall path, so `_merge` folds any duplicate an elongated obround also produced.
-    candidates.extend(_recognise_obround_from_ends(part, faces, part_ext))
+    candidates.extend(_recognise_obround_from_ends(part, faces))
     # Recombine arms of a crossing channel split by the intersection (#604), then extend any
     # radiused-end (obround) slot to its overall length (#613).
     return _extend_obround_ends(_collapse_collinear(_merge(candidates), part), part)
