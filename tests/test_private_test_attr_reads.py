@@ -125,11 +125,12 @@ _ALLOW: dict[str, int] = {
     # flags (`is_rotational`; `Drawing.rotational` is a furniture method, not a classifier), the
     # turned-profile/section objects (`prof`/`layout_section`/`od_axis`/`pmi`/`projection`), mutable
     # zone-rollback state (`sv_zones.outer_limit`), title-block metadata (`revision`/`material`/
-    # `company`), and internal flags (`zones`/`margin`). Every GEOMETRIC read WAS threaded through
-    # the public page-mapping surface: scale → `dwg.scale`, plan-view right boundary →
-    # `dwg.view_bounds("plan")[2]`, page size → `dwg.page_w`/`page_h`, the plan projection origin →
-    # `dwg.at("plan", *dwg.centroid)[1]`.
-    "_analysis": 73,
+    # `company`), part-size/feature data (`x/y/z_size`/`step_zs`/`holes`), and internal constants
+    # (`zones`/`margin`/`ISO_*`/`DIM_PAD`). A `dwg._analysis` alias used for even one such field
+    # stays. Every GEOMETRIC read that maps to the public page surface WAS threaded: `SCALE` →
+    # `dwg.scale`, the view corners (`PV/FV/SV ± hw/hh`) → `dwg.view_bounds(view)`, projection
+    # origins → `dwg.at(view, *dwg.centroid)`, page size → `dwg.page_w`/`page_h`.
+    "_analysis": 64,
     # Annotation bounding-box cache internals.
     "_ann_box_cache": 3,
 }

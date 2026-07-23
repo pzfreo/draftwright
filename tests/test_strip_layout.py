@@ -111,8 +111,8 @@ def test_rotational_bore_leaders_bounded_to_front_view():
         - Pos(0, 0, -14) * Cylinder(6.5, 12)
     )
     dwg = build_drawing(part)
-    a = dwg._analysis
-    lo, hi = a.FV_Y - a.fv_hh, a.FV_Y + a.fv_hh
+    fb = dwg.view_bounds("front")
+    lo, hi = fb[1], fb[3]
     ldrs = [o for n, o in dwg.iter_annotations() if n.startswith("ldr_z")]
     assert len(ldrs) >= 2, "fixture should place several concentric-bore leaders"
     for o in ldrs:
@@ -129,12 +129,12 @@ def test_rotational_bore_leaders_symmetric_when_room():
 
     part = Cylinder(25, 40) - Cylinder(6, 40) - Pos(0, 0, 14) * Cylinder(10, 12)  # 2 bores (even)
     dwg = build_drawing(part)
-    a = dwg._analysis
     ys = sorted(
         o.bounding_box().center().Y for n, o in dwg.iter_annotations() if n.startswith("ldr_z")
     )
     assert len(ys) == 2
-    assert abs((ys[0] + ys[-1]) / 2 - a.FV_Y) < 1e-6, "even bore stack not centred on the axis"
+    fv_y = dwg.at("front", *dwg.centroid)[1]
+    assert abs((ys[0] + ys[-1]) / 2 - fv_y) < 1e-6, "even bore stack not centred on the axis"
 
 
 def test_rotational_bore_leader_overflow_excluded_from_coverage():

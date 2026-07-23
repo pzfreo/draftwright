@@ -2274,9 +2274,8 @@ class TestTwoPassLayout:
             - Pos(-30, -25, 0) * Cylinder(16, 20)
         )
         dwg = build_drawing(part)
-        a = dwg._analysis
-        sv_left = a.SV_X - a.sv_hw
-        fv_right = a.FV_X + a.fv_hw
+        sv_left = dwg.view_bounds("side")[0]
+        fv_right = dwg.view_bounds("front")[2]
         actual_gap = sv_left - fv_right
 
         _, bore_depth = _sizing_model(part)
@@ -2295,9 +2294,9 @@ class TestTwoPassLayout:
         from draftwright import build_drawing
         from draftwright._core import _DIM_PAD
 
-        a = build_drawing(Box(60, 40, 20))._analysis
-        sv_left = a.SV_X - a.sv_hw
-        fv_right = a.FV_X + a.fv_hw
+        d = build_drawing(Box(60, 40, 20))
+        sv_left = d.view_bounds("side")[0]
+        fv_right = d.view_bounds("front")[2]
         assert sv_left - fv_right == pytest.approx(_DIM_PAD, abs=0.1)
 
     def test_bore_callout_fits_within_gap(self):
@@ -2315,8 +2314,7 @@ class TestTwoPassLayout:
             - Pos(-30, -25, 0) * Cylinder(16, 20)
         )
         dwg = build_drawing(part)
-        a = dwg._analysis
-        sv_left = a.SV_X - a.sv_hw
+        sv_left = dwg.view_bounds("side")[0]
         for name, ann in dwg.iter_annotations():
             if name.startswith("hc_plan") and getattr(ann, "label_bbox", None):
                 lx1 = ann.label_bbox[2]  # right edge of callout label
@@ -5622,10 +5620,9 @@ class TestLayoutGeneralisation:
 
         for length, expect in ((12.0, False), (13.0, True)):
             dwg = build_drawing(block_with_shoulder_at(length))
-            a = dwg._analysis
-            legible = length * a.SCALE >= _MIN_STEP_DIM_MM
+            legible = length * dwg.scale >= _MIN_STEP_DIM_MM
             assert legible is expect, (
-                f"length={length} scale={a.SCALE}: legibility expectation wrong"
+                f"length={length} scale={dwg.scale}: legibility expectation wrong"
             )
             has_step = "dim_step_0" in dwg.annotations()
             assert has_step is expect, (
@@ -9732,10 +9729,10 @@ class TestSheetFrame:
         # The border consumes layout budget BEFORE choose_scale, so the framed scale is never
         # larger than the unframed one (monotone reservation), and the margin proves it is active.
         part = Box(180, 130, 40)
-        a0 = build_drawing(part)._analysis
+        a0_scale = build_drawing(part).scale
         a1 = build_drawing(part, frame=True)._analysis
         assert a1.margin == _MARGIN + 6.0  # _FRAME_BAND reserved
-        assert a1.SCALE <= a0.SCALE + 1e-9
+        assert a1.SCALE <= a0_scale + 1e-9
 
     def test_frame_build_is_lint_clean(self):
         dwg = build_drawing(Box(80, 60, 20), frame=True)
@@ -9801,13 +9798,12 @@ class TestZoneGrid:
 
     def test_labels_sit_in_the_border_band(self):
         dwg = build_drawing(Box(80, 60, 20), zones=True)
-        a = dwg._analysis
         # a bottom number is below the frame (in the [0, _MARGIN] band); a right letter is
         # right of the frame (in the [PAGE_W - _MARGIN, PAGE_W] band).
         nb = dwg.get_annotation("zone_num_b_0").bounding_box()
         assert 0 <= (nb.min.Y + nb.max.Y) / 2 <= _MARGIN
         lr = dwg.get_annotation("zone_ltr_r_0").bounding_box()
-        assert a.PAGE_W - _MARGIN <= (lr.min.X + lr.max.X) / 2 <= a.PAGE_W
+        assert dwg.page_w - _MARGIN <= (lr.min.X + lr.max.X) / 2 <= dwg.page_w
 
     def test_letters_skip_i_and_o(self):
         # A1 has 12 rows → A..H then J,K,L,M (I skipped). Force the page so the count is stable.
