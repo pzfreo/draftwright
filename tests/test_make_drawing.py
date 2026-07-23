@@ -7893,19 +7893,21 @@ class TestSlotDimensioning:
             assert not any(overlaps(full, e) for e in external), f"{n} overprints a callout"
 
 
-def _deprecated_place_dim(dwg, *args, **kwargs):
-    with pytest.warns(DeprecationWarning, match="Drawing.place_dim"):
-        return dwg.place_dim(*args, **kwargs)
+def _place_dim(dwg, *args, **kwargs):
+    # White-box: these exercise the private placement primitive directly (#817).
+    # The deprecated public shim's warning is covered by
+    # test_dimension_does_not_warn_when_using_place_dim_internally.
+    return dwg._place_dim(*args, **kwargs)
 
 
 class TestPlaceDim:
-    """#25: dwg.place_dim() stacks with the auto-dimension strip."""
+    """#25: the raw page-coordinate dim primitive stacks with the auto-dimension strip."""
 
     def test_place_dim_adds_named_annotation(self):
         dwg = build_drawing(Box(80, 60, 20))
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
-        _deprecated_place_dim(dwg, p1, p2, "below", "plan", dwg.draft, name="my_dim", label="80")
+        _place_dim(dwg, p1, p2, "below", "plan", dwg.draft, name="my_dim", label="80")
         assert "my_dim" in dwg.annotations()
         assert dwg.get_annotation("my_dim").label == "80"
 
@@ -7915,7 +7917,7 @@ class TestPlaceDim:
         dwg = build_drawing(Box(60, 40, 20))
         p1 = dwg.at("front", -30, 0, -10)
         p2 = dwg.at("front", 30, 0, -10)
-        result = _deprecated_place_dim(dwg, p1, p2, "below", "front", dwg.draft)
+        result = _place_dim(dwg, p1, p2, "below", "front", dwg.draft)
         assert isinstance(result, Dimension)
 
     def test_two_place_dim_calls_stack_without_overlap(self):
@@ -7925,8 +7927,8 @@ class TestPlaceDim:
         dwg = build_drawing(Box(80, 60, 20), auto_dims=False)
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
-        d1 = _deprecated_place_dim(dwg, p1, p2, "above", "plan", dwg.draft, name="d1")
-        d2 = _deprecated_place_dim(dwg, p1, p2, "above", "plan", dwg.draft, name="d2")
+        d1 = _place_dim(dwg, p1, p2, "above", "plan", dwg.draft, name="d1")
+        d2 = _place_dim(dwg, p1, p2, "above", "plan", dwg.draft, name="d2")
         # dim_level_y is the y-coordinate of the dim line on the page;
         # two stacked dims must land at different y values.
         assert d1.dim_level_y != d2.dim_level_y
@@ -7949,7 +7951,7 @@ class TestPlaceDim:
             centroid=(0, 0, 0),
             out="",
         )
-        result = _deprecated_place_dim(dwg, (0, 0, 0), (80, 0, 0), "below", "plan", d, slot=8.0)
+        result = _place_dim(dwg, (0, 0, 0), (80, 0, 0), "below", "plan", d, slot=8.0)
         assert isinstance(result, Dimension)
 
     def test_place_dim_labels_real_world_length_at_non_unity_scale(self):
@@ -7962,7 +7964,7 @@ class TestPlaceDim:
         assert dwg.scale == 2.0
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
-        d = _deprecated_place_dim(dwg, p1, p2, "below", "plan", dwg.draft, name="w")
+        d = _place_dim(dwg, p1, p2, "below", "plan", dwg.draft, name="w")
         assert d.label == "80"
         assert [
             i for i in lint_drawing([d], drawing_scale=dwg.scale) if i.code == "label_vs_measured"
@@ -7972,7 +7974,7 @@ class TestPlaceDim:
         dwg = build_drawing(Box(80, 60, 20), scale=2.0)
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
-        d = _deprecated_place_dim(dwg, p1, p2, "below", "plan", dwg.draft, label="CUSTOM")
+        d = _place_dim(dwg, p1, p2, "below", "plan", dwg.draft, label="CUSTOM")
         assert d.label == "CUSTOM"
 
     def test_dimension_does_not_warn_when_using_place_dim_internally(self):
