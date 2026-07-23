@@ -169,8 +169,9 @@ def test_linear_array_pitch_dim_placed_via_side_strip_clean():
     pitch = [o for n, o in dwg.iter_annotations() if n.startswith("dim_pitch")]
     assert len(pitch) == 1, "the linear array should get exactly one pitch dim"
     b = pitch[0].bounding_box()
-    a = dwg._analysis
-    assert -1 <= b.min.X and b.max.X <= a.PAGE_W + 1 and -1 <= b.min.Y and b.max.Y <= a.PAGE_H + 1
+    assert (
+        -1 <= b.min.X and b.max.X <= dwg.page_w + 1 and -1 <= b.min.Y and b.max.Y <= dwg.page_h + 1
+    )
     assert not any(i.code == "annotation_overlap" for i in dwg.lint())
 
 

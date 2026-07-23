@@ -4382,7 +4382,7 @@ class TestAutoHoleAnnotations:
         assert "section_line" not in dwg.annotations()
         hc = dwg.get_annotation("hc_plan0")
         assert hc is not None
-        plan_right = dwg._analysis.PV_X + (dwg._analysis.bb.max.X - dwg._analysis.cx) * dwg.scale
+        plan_right = dwg.view_bounds("plan")[2]  # plan view's right page boundary
         elbow_x = hc.elbow[0]
         assert abs(elbow_x - plan_right) < 0.5  # elbow at boundary, not past it
 

@@ -95,18 +95,19 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
 # Per-name READ-site ceiling — shrink-only (#741). Migrate a read onto the public surface, lower
 # the number; delete the entry at zero. A new/grown read fails :func:`test_no_new_or_grown_...`.
 #
-# The #741 triage (2026-07): EVERY read with a real public equivalent was threaded to it —
-# ``_registry`` → :pyattr:`Drawing.registry` (PR 1); then (this PR, incl. two adversarial-review
-# rounds) ``_coverage`` → :pyattr:`Drawing.coverage`, ``_coords`` scale/absence reads →
+# The #741 triage (2026-07, hardened across three adversarial-review rounds): reads that map to a
+# public accessor were threaded to it — ``_registry`` → :pyattr:`Drawing.registry` (PR 1); then
+# ``_coverage`` → :pyattr:`Drawing.coverage`, ``_coords`` scale/absence reads →
 # :pymeth:`Drawing.coords`, ``_write_dxf`` → :pymeth:`Drawing.export` ``(formats="dxf")``,
-# ``_is_scattered_hole_doc`` → ``dwg.coverage.is_scattered_hole_doc()``, ``_analysis.SCALE`` →
-# :pyattr:`Drawing.scale`, ``_model_declared`` → :pyattr:`Drawing.model_declared`, ``_add_balloon``
-# → :pymeth:`Drawing.add_balloons`, and ``_record_build_issue`` → ``dwg.registry.record_issue(...)``.
-# The four groups that REMAIN are *intentional white-box* — internal machinery a public API can't
-# express, or internal values with no public accessor — pinned WITH the rationale below (like
-# ``test_private_test_imports`` keeps its helper tests), so the count is a documented policy, not a
-# TODO. Adding an accessor to zero a remaining count would just rename the coupling (the anti-pattern
-# #741 warns of). The ratchet stops the surface *growing*.
+# ``_is_scattered_hole_doc`` → ``dwg.coverage.is_scattered_hole_doc()``, ``_analysis`` scale/plan-
+# boundary/page-size reads → :pyattr:`Drawing.scale` / :pymeth:`Drawing.view_bounds` /
+# :pyattr:`Drawing.page_w`/`page_h`, ``_model_declared`` → :pyattr:`Drawing.model_declared`,
+# ``_add_balloon`` → :pymeth:`Drawing.add_balloons`, ``_record_build_issue`` →
+# ``dwg.registry.record_issue(...)``. The four groups that REMAIN are *intentional white-box* —
+# internal machinery a public API can't express, or internal values with no public accessor — pinned
+# WITH the rationale below (like ``test_private_test_imports`` keeps its helper tests), so the count
+# is a documented policy, not a TODO. Adding an accessor to zero a remaining count would just rename
+# the coupling (the anti-pattern #741 warns of). The ratchet stops the surface *growing*.
 _ALLOW: dict[str, int] = {
     # Deferred/finalize intent inspection (#426) + transaction-rollback (#647). Some SET defer,
     # record intents, monkeypatch a mid-drain pass to raise, then inspect the half-drained
@@ -119,10 +120,13 @@ _ALLOW: dict[str, int] = {
     # `with deferred()`), not mid-drain tests. No public deferred-state read.
     "_defer_intents": 3,
     # Analysis (build context, ADR 0005): the whole `Analysis` passed to an internal render/layout
-    # helper under test, or reads of layout geometry (PV_X/cx/margin/zones/proj), classification,
-    # title-block metadata, and mutable zone-rollback state. No public accessor — the one migratable
-    # value (scale) went to `dwg.scale`; the layout centroid `cx` etc. have no public read.
-    "_analysis": 79,
+    # helper under test, plus reads with no public accessor — projection ORIGINS (`PV_Y`, distinct
+    # from `view_bounds`'s silhouette bbox), mutable zone-rollback state (`sv_zones.outer_limit`),
+    # classification (`is_rotational`), title-block metadata (`revision`/`material`/`company`), and
+    # internal flags (`zones`/`margin`). The reads that DID map to a public value were threaded:
+    # scale → `dwg.scale`, the plan-view right boundary → `dwg.view_bounds("plan")[2]`, page size →
+    # `dwg.page_w`/`page_h`.
+    "_analysis": 75,
     # Annotation bounding-box cache internals.
     "_ann_box_cache": 3,
 }
