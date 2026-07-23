@@ -87,8 +87,17 @@ addopts = "--tb=short -m 'not slow'"
 [tool.coverage.run]
 source = ["src/draftwright"]
 omit = ["src/draftwright/__init__.py"]
+# Branch coverage makes the regression gate sensitive to untested decision paths,
+# which matter more than raw statement execution in the recognition/layout code.
+branch = true
 
 [tool.coverage.report]
+# Baseline measured on the full fast tier on Linux/Python 3.13 (#825):
+# 92.05% combined line+branch coverage (93.90% statements, 86.89% branches).
+# Keep two points of cross-platform/kernel headroom; ratchet upward only after the
+# lowest CI matrix result has stayed above the proposed floor.
+fail_under = 90
+precision = 1
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

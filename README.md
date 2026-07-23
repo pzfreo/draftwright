@@ -1,6 +1,7 @@
 # draftwright
 
 [![CI](https://github.com/pzfreo/draftwright/actions/workflows/ci.yml/badge.svg)](https://github.com/pzfreo/draftwright/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/pzfreo/draftwright/branch/main/graph/badge.svg)](https://codecov.io/gh/pzfreo/draftwright)
 [![PyPI](https://img.shields.io/pypi/v/draftwright.svg)](https://pypi.org/project/draftwright/)
 [![Python](https://img.shields.io/pypi/pyversions/draftwright.svg)](https://pypi.org/project/draftwright/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)

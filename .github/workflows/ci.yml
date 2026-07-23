@@ -32,6 +32,9 @@ jobs:
         run: uv run codespell src/ tests/ docs/
 
   test:
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -65,7 +68,33 @@ jobs:
         # export) can exceed 120 s on the slower macOS runners.
         # Coverage runs in CI; it is kept out of the default addopts so local
         # runs stay lean (see pyproject [tool.pytest.ini_options]).
-        run: uv run pytest tests/ -n auto --dist loadscope --cov=src/draftwright --cov-report=term-missing --cov-report=xml
+        run: >-
+          uv run pytest tests/ -n auto --dist loadscope
+          --cov=src/draftwright
+          --cov-report=term-missing
+          --cov-report=xml
+          --cov-report=html:htmlcov
+
+      - name: Upload canonical coverage to Codecov
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' }}
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage.xml
+          fail_ci_if_error: true
+          use_oidc: true
+
+      - name: Upload coverage report
+        # Every matrix entry enforces the coverage floor; retain one canonical
+        # report rather than 15 near-identical artifacts (#825).
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-linux-py3.12
+          path: |
+            coverage.xml
+            htmlcov/
+          if-no-files-found: warn
+          retention-days: 14
 
   test-slow:
     # Heavy end-to-end CTC fixture builds (minutes each); run once, not across
