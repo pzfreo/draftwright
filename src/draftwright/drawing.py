@@ -12,11 +12,20 @@ from __future__ import annotations
 import contextlib
 import math
 import os
+import sys
 import tempfile
 import warnings
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
 from typing import Any, NamedTuple
+
+# PEP 702 @deprecated. A `sys.version_info` guard (not try/except) so the type checker,
+# which targets the 3.10 floor, resolves the backport branch instead of `warnings.deprecated`
+# (only in 3.13+ typeshed).
+if sys.version_info >= (3, 13):
+    from warnings import deprecated
+else:
+    from typing_extensions import deprecated
 
 from build123d import (
     Color,
@@ -627,6 +636,12 @@ class Drawing:
         detected — the public read the annotation pass threads onto its PlacementContext (#639)."""
         return self._model_declared
 
+    @deprecated(
+        "Drawing.place_dim() is deprecated for normal editable scripts; use "
+        "Drawing.dimension(feature, param, ..., pin=True) or "
+        "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
+        "place_dim() remains only as a raw page-coordinate escape hatch."
+    )
     def place_dim(
         self,
         p1,
@@ -671,15 +686,10 @@ class Drawing:
         Falls back to a fixed ``slot`` offset when the strip is full or when no
         layout analysis is available (e.g. when ``auto_dims=False`` was not used
         with :func:`build_drawing`).
+
+        The ``@deprecated`` (PEP 702) decorator both emits the runtime
+        ``DeprecationWarning`` and lets type checkers/IDEs flag call sites statically (#817).
         """
-        warnings.warn(
-            "Drawing.place_dim() is deprecated for normal editable scripts; use "
-            "Drawing.dimension(feature, param, ..., pin=True) or "
-            "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
-            "place_dim() remains only as a raw page-coordinate escape hatch.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         return self._place_dim(
             p1, p2, side, view, draft, name=name, slot=slot, feature=feature, **kwargs
         )
@@ -754,17 +764,18 @@ class Drawing:
         """
         return place_annotation(self._registry, self.items, obj, name, view, feature)
 
+    @deprecated(
+        "Drawing.add() is deprecated (#817): use the placement verbs (callout/dimension/note/"
+        "add_table/…); free text is note(). The raw add primitive is now private (_add)."
+    )
     def add(self, obj, name=None, view=None, feature=None):
         """DEPRECATED (#817): the raw placement primitive is now private (:meth:`_add`). Use the
         placement **verbs** — :meth:`callout`/:meth:`dimension`/:meth:`note`/:meth:`add_table`/
         :meth:`add_balloons` — which route through the solve; :meth:`note` is the door for free
-        text. The public wrapper remains one release for compatibility."""
-        warnings.warn(
-            "Drawing.add() is deprecated (#817): use the placement verbs (callout/dimension/note/"
-            "add_table/…); free text is note(). The raw add primitive is now private (_add).",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        text. The public wrapper remains one release for compatibility.
+
+        The ``@deprecated`` (PEP 702) decorator both emits the runtime ``DeprecationWarning`` and
+        lets type checkers/IDEs flag call sites statically (#817)."""
         return self._add(obj, name, view, feature)
 
     def remove(self, name):

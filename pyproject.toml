@@ -27,6 +27,8 @@ dependencies = [
     "reportlab>=4.0",
     "svglib>=1.5",
     "typer>=0.12",
+    # PEP 702 @deprecated: stdlib `warnings.deprecated` lands in 3.13; backport for 3.10–3.12.
+    "typing_extensions>=4.5 ; python_full_version < '3.13'",
 ]
 keywords = ["build123d", "cad", "drafting", "engineering-drawing", "technical-drawing", "automation"]
 classifiers = [

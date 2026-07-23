@@ -688,6 +688,7 @@ dependencies = [
     { name = "reportlab" },
     { name = "svglib" },
     { name = "typer" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 
 [package.dev-dependencies]
@@ -713,6 +714,7 @@ requires-dist = [
     { name = "reportlab", specifier = ">=4.0" },
     { name = "svglib", specifier = ">=1.5" },
     { name = "typer", specifier = ">=0.12" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'", specifier = ">=4.5" },
 ]
 
 [package.metadata.requires-dev]
