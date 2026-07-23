@@ -524,7 +524,9 @@ def _off_axis_drop(dwg, axis, view, *, ctx):
     )
 
 
-def _off_axis_emit(dwg, tier, strip, view, axis, cands, force=False, features=None, trace=None, *, ctx):
+def _off_axis_emit(
+    dwg, tier, strip, view, axis, cands, force=False, features=None, trace=None, *, ctx
+):
     # The collect-then-solve strip placer lives in _common as the shared
     # place_strip_candidates (P3, retiring the Strip cursor #150); this thin wrapper
     # binds the pass's dwg + tier. *features* (name -> IR feature) attributes each dim
@@ -882,7 +884,9 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
         _add_grid_pitch_dims(dwg, a, view, j, members, feat.grid, to_page, feature=feat, ctx=ctx)
 
 
-def _add_grid_pitch_dims(dwg, a: Analysis, view, j, members, nominals, to_page, feature=None, *, ctx):
+def _add_grid_pitch_dims(
+    dwg, a: Analysis, view, j, members, nominals, to_page, feature=None, *, ctx
+):
     """Both pitch dimensions of a rectangular grid — one along each lattice axis,
     each labelled ``(n-1)× pitch`` (#92).  The two axes are recovered as the two
     shortest near-orthogonal inter-hole page vectors (the recogniser's own
@@ -962,7 +966,9 @@ def _add_grid_pitch_dims(dwg, a: Analysis, view, j, members, nominals, to_page, 
     _axis_dim(u2, l2, 1)
 
 
-def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name, feature=None, *, ctx):
+def _place_pitch_dim(
+    dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name, feature=None, *, ctx
+):
     """Pitch dimension between two hole-centre *locations* ``loc1``→``loc2``, labelled
     ``(n-1)× pitch``, placed just outside the view on the side of the row's
     outward perpendicular (#92). *feature* attributes it to the source pattern (#408)."""

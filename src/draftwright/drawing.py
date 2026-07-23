@@ -711,7 +711,9 @@ class Drawing:
         if "label" not in kwargs:
             page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
             kwargs["label"] = _fmt(page_len / self.scale)
-        return self._add(_dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name, feature=feature)
+        return self._add(
+            _dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name, feature=feature
+        )
 
     # -- annotations ----------------------------------------------------------
     def _add(self, obj, name=None, view=None, feature=None):

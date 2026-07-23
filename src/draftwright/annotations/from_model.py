@@ -710,7 +710,9 @@ def render_centermarks(dwg, groups, *, ctx) -> int:
         members = feat.members or (g.anchor,)
         for loc in members:
             px, py, *_ = dwg.at(view, *loc)
-            ctx.place(CenterMark((px, py, 0), size, dwg.draft), f"m_cm{n}", view=view, feature=feat)
+            ctx.place(
+                CenterMark((px, py, 0), size, dwg.draft), f"m_cm{n}", view=view, feature=feat
+            )
             n += 1
     return n
 

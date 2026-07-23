@@ -103,7 +103,9 @@ def add_section(dwg, model, a, *, ctx) -> list[str]:
     if plan is None:
         return []  # no counterbore/spotface/blind Z-hole — no section warranted
     before = set(dwg.annotations())
-    _add_section_view(dwg, a, plan, ctx=ctx)  # calls _clear_section_reservation itself; no reserve needed
+    _add_section_view(
+        dwg, a, plan, ctx=ctx
+    )  # calls _clear_section_reservation itself; no reserve needed
     return sorted(set(dwg.annotations()) - before)
 
 
@@ -400,7 +402,9 @@ def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
     _add_section_letters(dwg, y_page, x0, x1, ctx=ctx)
 
 
-def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx) -> bool:
+def _render_detail(
+    dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx
+) -> bool:
     """Generic detail renderer (#307) — the single crop → project → place → caption
     → mark machinery both the prismatic step detail (#42) and the turned-head detail
     (#304) flow through. Crops the part to ``req``'s band along ``req.axis``, projects
