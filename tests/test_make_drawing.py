@@ -7688,6 +7688,71 @@ class TestFindSlots:
         declared = declare_slot(cutter, depth_axis="z")
         assert s.length == declared.length == 30.0
 
+    def test_obround_through_slot_shorter_than_wide_is_recognised(self):
+        # #816: a stubby obround (overall length < ... no, straight section < width) has flat side
+        # walls too short to pair — 8 wide, 13.5 overall → the 5.5 straight walls are narrower than
+        # the width, so _candidate rejects them (and the through-thickness is mistaken for length).
+        # The end-cap path recovers it. This is the reported failure: recognise_slots returned [].
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(26, 40, 21) - extrude(Plane.XY * SlotOverall(13.5, 8), 21, both=True)
+        (s,) = recognise_slots(part)
+        assert s.width == 8.0
+        assert s.length == 13.5
+
+    def test_stubby_obround_recognise_matches_declare_length(self):
+        # The end-cap path must agree with declare.slot(obj) on the overall length (#816), as the
+        # flat-wall obround path does (test_recognise_matches_declare_on_obround_length).
+        from build123d import Plane, SlotOverall, extrude
+
+        from draftwright.model import slot as declare_slot
+
+        cutter = extrude(Plane.XY * SlotOverall(13.5, 8), 10)
+        part = Box(26, 40, 21) - extrude(Plane.XY * SlotOverall(13.5, 8), 21, both=True)
+        (s,) = recognise_slots(part)
+        assert s.length == declare_slot(cutter, depth_axis="z").length == 13.5
+
+    def test_row_of_stubby_obround_slots_on_one_centreline_stays_separate(self):
+        # #816 "tuner jig": five stubby obround through-slots down one centreline (spaced along the
+        # long axis) share a radius/centreline/depth, so all ten end caps land in one group. Pairing
+        # by bulge direction (a low end followed by a high end is one slot; the reverse is the solid
+        # gap between slots) must keep them five, not merge into one giant slot.
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(26, 161, 21)
+        for cy in (-54, -27, 0, 27, 54):
+            part = part - Pos(0, cy, 0) * extrude(
+                Plane.XY * SlotOverall(13.5, 8, rotation=90), 21, both=True
+            )
+        slots = recognise_slots(part)
+        assert len(slots) == 5
+        assert all(s.width == 8.0 and s.length == 13.5 for s in slots)
+
+    def test_two_through_holes_are_not_an_obround_slot(self):
+        # #816 guard: a round through-hole is a FULL cylinder (bbox 2r × 2r), never a half-cylinder
+        # obround end — two coaxial holes must not be paired into a slot.
+        part = Box(26, 40, 21) - Pos(0, -8, 0) * Cylinder(4, 30) - Pos(0, 8, 0) * Cylinder(4, 30)
+        assert recognise_slots(part) == []
+
+    def test_deep_blind_obround_pocket_is_not_a_through_slot(self):
+        # #816 review: a blind obround pocket cut 9.5 mm into 10 mm stock has end caps spanning
+        # ≥90% of the thickness, so it passes the cheap through pre-filter — only the floor test
+        # (a through-slot has no floor) may reject it. It must not be read as a through-slot.
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(60, 30, 10) - Pos(0, 0, -4.5) * extrude(Plane.XY * SlotOverall(13.5, 8), 9.5)
+        assert recognise_slots(part) == []
+
+    def test_two_d_cutouts_across_solid_are_not_a_slot(self):
+        # #816 review: two independent D-shaped (half-cylinder) through-cutouts bulging APART with
+        # solid stock between their flats have end caps in the same -1,+1 order a real obround does,
+        # but no side walls join them — they must not be paired into a phantom slot across solid.
+        # The stock is exactly as wide as the caps (8 = 2r), so its OUTWARD-facing exterior side
+        # faces sit at w_center ± width/2; only the inward-normal test in _has_side_walls rejects them.
+        d1 = Pos(0, -10, 0) * Cylinder(4, 30) & Pos(0, -12, 0) * Box(20, 4, 40)
+        d2 = Pos(0, 10, 0) * Cylinder(4, 30) & Pos(0, 12, 0) * Box(20, 4, 40)
+        assert recognise_slots(Box(8, 40, 21) - d1 - d2) == []
+
     def test_pivot_boss_at_slot_end_does_not_extend_length(self):
         # A slotted lever with a cylindrical pivot boss (radius = width/2) protruding at one
         # end must NOT be read as a radiused end: the boss sits at a different depth than the
@@ -7874,6 +7939,21 @@ class TestSlotDimensioning:
         part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20, 8, 20)
         dwg = build_drawing(part)
         assert [i for i in dwg.lint() if i.severity != "info"] == []
+
+    @pytest.mark.timeout(60)
+    def test_stubby_obround_through_slot_is_dimensioned_end_to_end(self):
+        # #816: a recognised stubby obround slot flows through IR → planner → render_slots and
+        # carries width + length dims (the reported failure drew it with no slot callouts at all).
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(60, 30, 12) - extrude(Plane.XY * SlotOverall(13.5, 8), 12, both=True)
+        dwg = build_drawing(part)
+        assert any(f.kind == "slot" for f in dwg.model().features)
+        labels = {
+            n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_slot")
+        }
+        assert labels.get("m_slot0_width") == "8"
+        assert labels.get("m_slot0_length") == "13.5"
 
     @pytest.mark.timeout(60)
     def test_non_round_width_label_matches_geometry(self):
