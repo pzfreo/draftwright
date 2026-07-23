@@ -232,6 +232,170 @@ def _needs_section(model) -> bool:
     return False
 
 
+# The section a feature line is grouped under, and the singular noun the header manifest tallies
+# it by. Kinds sharing a section (hole+pattern, chamfer+fillet) are emitted under one header —
+# grouping is on CONSECUTIVE runs of the existing feature order (never a reorder: ADR 0014 makes
+# the corridor solve order-sensitive), so a kind that recurs in two runs earns two headers.
+_SECTION = {
+    "hole": "Holes",
+    "pattern": "Holes",
+    "boss": "Diameters",
+    "step": "Turned steps",
+    "groove": "Grooves",
+    "slot": "Slots",
+    "pocket": "Pockets",
+    "chamfer": "Edges",
+    "fillet": "Edges",
+    "flat": "Flats",
+    "plate": "Plates",
+    "envelope": "Envelope",
+    "step_level": "Prismatic steps",
+    "authored_dimension": "Dimensions",
+    "pmi": "Dimensions",
+}
+_NOUN = {
+    "hole": "hole",
+    "pattern": "pattern",
+    "boss": "diameter",
+    "step": "step",
+    "groove": "groove",
+    "slot": "slot",
+    "pocket": "pocket",
+    "chamfer": "chamfer",
+    "fillet": "fillet",
+    "flat": "flat",
+    "plate": "plate",
+    "envelope": "envelope",
+    "step_level": "step-ladder",
+    "authored_dimension": "dimension",
+    "pmi": "PMI record",
+}
+# Kinds whose _feature_line carries NO inline comment of its own — the emit loop appends a
+# describing comment for these. envelope/step_level/pmi and the no-verb fallback already end in a
+# `# …`, so they stay out (double-commenting, and _feature_line is called bare in a test).
+_DESCRIBED = frozenset(
+    (
+        "hole",
+        "boss",
+        "step",
+        "slot",
+        "pocket",
+        "pattern",
+        "chamfer",
+        "fillet",
+        "flat",
+        "plate",
+        "groove",
+    )
+)
+
+
+def _short_label(f) -> str:
+    """A compact human descriptor of *f* for the trailing per-line comment and the section-header
+    tally — ``⌀8 THRU ×4`` / ``slot 40 × 120`` / ``6× ⌀3 bolt circle`` / ``R50``. Empty for the
+    kinds that already describe themselves inline (envelope/step_level/pmi) or have no verb yet."""
+    k = f.kind
+    if k == "hole":
+        s = f"⌀{_n(f.diameter)}"
+        if f.cbore:
+            s += " c'bore"
+        if f.spotface:
+            s += " spotface"
+        if f.csink:
+            s += " csink"
+        s += (
+            " THRU"
+            if f.through
+            else (f" blind {_n(f.depth)}" if f.depth is not None else " blind")
+        )
+        if f.count and f.count > 1:
+            s += f" ×{f.count}"
+        return s
+    if k == "boss":
+        return f"⌀{_n(f.diameter)}"
+    if k == "step":
+        return f"⌀{_n(f.diameter)} × {_n(f.length)} step"
+    if k in ("slot", "pocket"):
+        s = f"{k} {_n(f.width)} × {_n(f.length)}"
+        return s + (f" × {_n(f.depth)} deep" if k == "pocket" else "")
+    if k == "pattern":
+        return f"{f.count}× ⌀{_n(f.member.diameter)} {f.pattern.replace('_', ' ')}"
+    if k == "chamfer":
+        equal = f.leg1 == f.leg2 and f.angle == 45
+        return f"C{_n(f.leg1)}" if equal else f"chamfer {_n(f.leg1)} × {_n(f.leg2)}"
+    if k == "fillet":
+        return f"R{_n(f.radius)}"
+    if k == "flat":
+        return f"{_n(f.across)} A/F flat"
+    if k == "groove":
+        return f"groove {_n(f.width)} × ⌀{_n(f.diameter)}"
+    if k == "plate":
+        return f"plate t{_n(round(float(f.hi) - float(f.lo), 3))}"
+    if k == "authored_dimension":
+        return str(f.label)
+    return ""
+
+
+def _run_summary(run) -> str:
+    """The header tally for a consecutive run of one section: ``8× R50`` when uniform, a short
+    ``3× ⌀14 linear, ⌀6 blind`` list otherwise, or just the count when it would run long. Empty
+    for a singleton (its own line already reads clearly)."""
+    if len(run) <= 1:
+        return ""
+    counts: dict[str, int] = {}
+    for f in run:
+        lbl = _short_label(f)
+        counts[lbl] = counts.get(lbl, 0) + 1
+    counts.pop("", None)
+    if not counts:
+        return f"{len(run)}×"
+    if len(counts) == 1:
+        ((lbl, n),) = counts.items()
+        return f"{n}× {lbl}"
+    if len(counts) > 3:
+        return f"{len(run)} total"
+    return ", ".join(f"{n}× {lbl}" if n > 1 else lbl for lbl, n in counts.items())
+
+
+def _manifest(features) -> str:
+    """A one-line feature census for the Features banner — ``3 holes · 2 slots · 1 envelope``,
+    kinds in first-appearance order, so the editor has a map before scrolling."""
+    tally: dict[str, int] = {}
+    for f in features:
+        tally[f.kind] = tally.get(f.kind, 0) + 1
+    parts = []
+    for kind, n in tally.items():
+        noun = _NOUN.get(kind, kind)
+        parts.append(f"{n} {noun}" + ("s" if n != 1 else ""))
+    return " · ".join(parts)
+
+
+def _feature_block(features) -> list[str]:
+    """The emitted feature lines, grouped under section sub-headers (with a repeat tally) and each
+    carrying a trailing describing comment. Runs are CONSECUTIVE in the given order — no reorder."""
+    if not features:
+        return ["# ── Features: none detected ──"]
+    out = [f"# ── Features ({len(features)}): {_manifest(features)} ──"]
+    i = 0
+    while i < len(features):
+        section = _SECTION.get(features[i].kind, "Other")
+        j = i
+        while j < len(features) and _SECTION.get(features[j].kind, "Other") == section:
+            j += 1
+        run = features[i:j]
+        summary = _run_summary(run)
+        out.append(f"#   {section}" + (f" · {summary}" if summary else "") + " ─────")
+        for f in run:
+            line = _feature_line(f)
+            if f.kind in _DESCRIBED:
+                lbl = _short_label(f)
+                if lbl:
+                    line += f"   # {lbl}"
+            out.append(line)
+        i = j
+    return out
+
+
 _HEADER = '''"""Editable drawing — generated by draftwright (declarative Sheet script).
 
 Each line below declares one feature. Comment a line out to drop that feature; edit a
@@ -322,7 +486,6 @@ def emit_sheet_script(
         "",
         f"sheet = Sheet(part, {', '.join(ctor)})",
         "",
-        "# ── Features (each line is one declared feature) ──────────────────────────────",
         # For a live-source part (#771), the values below were read off YOUR objects — point
         # each line back at the object to keep it a single source of truth (a STEP-sourced
         # script has no such objects, so this note is emitted only for object inputs).
@@ -331,11 +494,15 @@ def emit_sheet_script(
                 "# Object-reference tip: you built these objects, so swap a numbered arg for the",
                 "# object itself to read the size off it — e.g.  sheet.step(journal)  /",
                 "#  sheet.hole(m3_bore).thread('M3x0.5')  — no numbers restated (ADR 0011 declare).",
+                "",
             ]
             if object_ref
             else []
         ),
-        *(_feature_line(f) for f in model.features),
+        # One commentable line per feature, grouped under section sub-headers with a describing
+        # comment on each (ADR 0011 Amdt 1: still one declared feature per line — comment out, edit
+        # a value, re-run). Runs are consecutive in feature order; never reordered (ADR 0014).
+        *_feature_block(model.features),
         "",
         "# ── Views ─────────────────────────────────────────────────────────────────────",
         "# front / plan / side / iso are always produced.",

@@ -312,6 +312,51 @@ class TestEmit:
         assert redeclared.axis == det.axis and redeclared.radius == det.radius
         assert redeclared.frame.origin == pytest.approx(det.frame.origin)
 
+    def _four_fillets(self):
+        from build123d import Axis
+        from build123d import fillet as bd_fillet
+
+        return bd_fillet(Box(80, 50, 8).edges().filter_by(Axis.Z), 3)  # 4 equal R3 corners
+
+    def test_feature_lines_carry_a_describing_comment(self):
+        # Each verb line ends in a plain-language comment so the body is readable without
+        # decoding the coordinates — a hole reads "⌀8 THRU ×N", a fillet "R3".
+        src = _script_for(_plate())
+        hole = next(ln for ln in src.splitlines() if ln.startswith("sheet.hole("))
+        assert "   # ⌀8 THRU" in hole
+
+    def test_body_is_grouped_under_section_sub_headers(self):
+        # Consecutive same-section features sit under a "#   Edges …" sub-header, so a long
+        # script is navigable. (Holes/Edges are distinct sections.)
+        src = _script_for(self._four_fillets())
+        assert "#   Edges" in src
+        assert "#   Holes" not in src  # this part has no holes
+
+    def test_repeat_run_shows_a_tally_in_its_header(self):
+        # A run of near-identical features tallies in the header (4 equal R3 fillets → "4× R3"),
+        # signalling the repetition below is expected, not noise.
+        edges = next(
+            ln
+            for ln in _script_for(self._four_fillets()).splitlines()
+            if ln.startswith("#   Edges")
+        )
+        assert "4× R3" in edges
+
+    def test_header_lists_a_feature_manifest(self):
+        # The Features banner is a one-line census so the editor has a map before scrolling.
+        banner = next(
+            ln for ln in _script_for(_plate()).splitlines() if ln.startswith("# ── Features (")
+        )
+        assert "hole" in banner and "envelope" in banner
+
+    def test_section_headers_never_name_step_level_internally(self):
+        # The step_level section header is human-worded ("Prismatic steps"); the internal kind
+        # string must not leak (guards the same contract as the existing "# step_level" check).
+        part = Box(100, 70, 24) - Pos(0, 0, 0) * Cylinder(9, 40) - Pos(0, 0, 8) * Cylinder(15, 20)
+        src = _script_for(part)
+        assert "Prismatic steps" in src
+        assert "# step_level" not in src
+
     def test_flat_emits_the_flat_verb(self):
         # #148b: a detected machined flat emits `sheet.flat(...)` — the emit surface for the
         # across-flats callout.
