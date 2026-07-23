@@ -638,7 +638,6 @@ class Drawing:
         name=None,
         slot=8.0,
         feature=None,
-        _warn_deprecated=True,
         **kwargs,
     ):
         """Deprecated low-level page-coordinate dimension escape hatch.
@@ -673,15 +672,39 @@ class Drawing:
         layout analysis is available (e.g. when ``auto_dims=False`` was not used
         with :func:`build_drawing`).
         """
-        if _warn_deprecated:
-            warnings.warn(
-                "Drawing.place_dim() is deprecated for normal editable scripts; use "
-                "Drawing.dimension(feature, param, ..., pin=True) or "
-                "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
-                "place_dim() remains only as a raw page-coordinate escape hatch.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+        warnings.warn(
+            "Drawing.place_dim() is deprecated for normal editable scripts; use "
+            "Drawing.dimension(feature, param, ..., pin=True) or "
+            "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
+            "place_dim() remains only as a raw page-coordinate escape hatch.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._place_dim(
+            p1, p2, side, view, draft, name=name, slot=slot, feature=feature, **kwargs
+        )
+
+    def _place_dim(
+        self,
+        p1,
+        p2,
+        side,
+        view,
+        draft,
+        *,
+        name=None,
+        slot=8.0,
+        feature=None,
+        **kwargs,
+    ):
+        """Raw page-coordinate dimension placement **primitive** (#817).
+
+        Private: the public door for dimensions is :meth:`dimension`/:meth:`locate`
+        (feature-backed, solve-aware). This single-position strip carve is the escape
+        hatch behind the deprecated public :meth:`place_dim` shim and the internal
+        :meth:`dimension` raw-span fallback. See :meth:`place_dim` for the argument and
+        behaviour notes.
+        """
         a = self._analysis
         _view_zones = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
         strip = None
@@ -999,7 +1022,7 @@ class Drawing:
             i = 0
             while (name := f"dim_{param}{i}") in self._named:
                 i += 1
-        self.place_dim(
+        self._place_dim(
             p1,
             p2,
             side,
@@ -1007,7 +1030,6 @@ class Drawing:
             self.draft,
             name=name,
             feature=feature,
-            _warn_deprecated=False,
             **kwargs,
         )
         if pin:

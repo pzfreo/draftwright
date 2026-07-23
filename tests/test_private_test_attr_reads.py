@@ -82,6 +82,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_pattern_callouts",
         "_patterned_holes",
         "_pinned",
+        "_place_dim",
         "_queue_dimension_intent",
         "_record_build_issue",
         "_replay_intent",
@@ -141,6 +142,12 @@ _ALLOW: dict[str, int] = {
     # annotation object by name (`dimension`/`callout`/`note` compute their own), so these unit tests
     # legitimately hold the primitive. A count, not a TODO — like the `_analysis` white-box entry.
     "_add": 26,
+    # The raw page-coordinate dimension primitive (#817): a single white-box helper wraps
+    # `dwg._place_dim(*args)` so the TestPlaceDim behaviour tests (strip stacking, slot fallback,
+    # real-world autolabel) drive the primitive directly. Its public form (`Drawing.place_dim`) is
+    # DEPRECATED (#817); the deprecated shim's warning is asserted separately via the public name, so
+    # this one read is genuinely internal.
+    "_place_dim": 1,
 }
 
 
