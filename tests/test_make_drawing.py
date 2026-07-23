@@ -7734,6 +7734,23 @@ class TestFindSlots:
         part = Box(26, 40, 21) - Pos(0, -8, 0) * Cylinder(4, 30) - Pos(0, 8, 0) * Cylinder(4, 30)
         assert recognise_slots(part) == []
 
+    def test_deep_blind_obround_pocket_is_not_a_through_slot(self):
+        # #816 review: a blind obround pocket cut 9.5 mm into 10 mm stock has end caps spanning
+        # ≥90% of the thickness, so it passes the cheap through pre-filter — only the floor test
+        # (a through-slot has no floor) may reject it. It must not be read as a through-slot.
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(60, 30, 10) - Pos(0, 0, -4.5) * extrude(Plane.XY * SlotOverall(13.5, 8), 9.5)
+        assert recognise_slots(part) == []
+
+    def test_two_d_cutouts_across_solid_are_not_a_slot(self):
+        # #816 review: two independent D-shaped (half-cylinder) through-cutouts bulging APART with
+        # solid stock between their flats have end caps in the same -1,+1 order a real obround does,
+        # but no side walls join them — they must not be paired into a phantom slot across solid.
+        d1 = Pos(0, -10, 0) * Cylinder(4, 30) & Pos(0, -12, 0) * Box(20, 4, 40)
+        d2 = Pos(0, 10, 0) * Cylinder(4, 30) & Pos(0, 12, 0) * Box(20, 4, 40)
+        assert recognise_slots(Box(26, 40, 21) - d1 - d2) == []
+
     def test_pivot_boss_at_slot_end_does_not_extend_length(self):
         # A slotted lever with a cylindrical pivot boss (radius = width/2) protruding at one
         # end must NOT be read as a radiused end: the boss sits at a different depth than the
