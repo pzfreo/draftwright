@@ -6,14 +6,20 @@ last unpoliced quadrant (#741) is test-side **attribute reads** of ``Drawing`` i
 no public read yet — ``_analysis``/``_intents``/… They coupled the tests to build-state internals
 with no ratchet, so they could silently multiply.
 
-This pins today's read-sites as a per-name ceiling that may only **SHRINK**: thread a read through
-a new/existing public surface, lower its count; when it reaches zero, delete the entry. A NEW
-private name, or a GROWN count on an existing one, fails here — nudging the author onto the public
-seam (as ``_registry`` → :pyattr:`Drawing.registry`, ``_part_model`` → :pymeth:`Drawing.model`).
+This pins today's read-sites as a per-name ceiling that may only **SHRINK**: thread a read through a
+public surface (``_registry`` → :pyattr:`Drawing.registry`), lower its count; at zero, delete the
+entry. A NEW private name, or a GROWN count on an existing one, fails here. The remaining entries are
+NOT all latent public surface: the #741 triage found most are *intentional white-box* (the #647
+transaction/rollback tests, and unit tests of internal render/layout helpers that take the raw
+``Analysis``) — pinned with the rationale in :data:`_ALLOW`, exactly as ``test_private_test_imports``
+keeps its legitimate helper tests. The ceiling stops the surface *growing*; it does not oblige
+exposing engine internals (adding an accessor for an internal value no caller wants would just
+rename the coupling — the anti-pattern #741 explicitly warns against).
 
-Scope is **reads** (attribute access in ``Load`` context + ``getattr(_, "_name")`` probes), the
-#741 title; private *writes* (chiefly ``dwg._defer_intents = …``, which should become
-``with dwg.deferred():``) are the separate follow-on and are eliminated, not allowlisted.
+Scope is **reads** (``Load``-context attribute access, ``getattr(_, "_name")`` probes, and
+``AugAssign`` targets). Private *writes* (chiefly ``dwg._defer_intents = …``) are NOT counted here:
+they are the transaction-test cluster above and legitimately drive the flag directly (``deferred()``
+auto-finalizes, so it can't express "fail mid-drain, inspect state"), so there is nothing to migrate.
 
 Keyed on the attribute *name* (∈ :data:`_DRAWING_PRIVATES`), not the receiver — test receivers
 vary (``dwg``/``d``/``direct``/``scripted``/…), unlike the src guard's ``dwg``/``drawing``. A stray
@@ -88,15 +94,40 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
 
 # Per-name READ-site ceiling — shrink-only (#741). Migrate a read onto the public surface, lower
 # the number; delete the entry at zero. A new/grown read fails :func:`test_no_new_or_grown_...`.
+#
+# The #741 triage (2026-07): most of these reads are NOT latent public surface waiting to be
+# threaded — they are *intentional white-box*, the same category the sibling import-guard keeps
+# rather than forcing onto a public seam. Migratable reads with a real public equivalent were
+# already threaded (``_registry`` → ``registry`` in PR 1); the reads that remain either drive
+# internal machinery a public API can't express (the transaction cluster) or read internal values
+# no caller wants (layout geometry, the chosen scale, classification). They are pinned WITH the
+# rationale below so the count is a documented policy, not a TODO. The ratchet's job is to stop the
+# surface *growing*; it does not oblige exposing engine internals.
 _ALLOW: dict[str, int] = {
-    "_analysis": 82,
+    # The #647 transaction/rollback test cluster: set defer, record intents, monkeypatch a
+    # mid-drain pass to raise, then inspect the half-drained _intents/_coverage to assert rollback.
+    # `with deferred():` auto-finalizes cleanly and CANNOT express "fail mid-drain + inspect" —
+    # so these legitimately drive the low-level machinery. White-box by nature.
     "_intents": 25,
-    "_coords": 5,
-    "_record_build_issue": 5,
     "_coverage": 4,
-    "_ann_box_cache": 3,
     "_defer_intents": 3,
+    # Analysis (build context, ADR 0005): tests that unit-test an internal render/layout helper by
+    # passing it the whole `Analysis`, or that read layout internals (PV_X/cx/margin/zones/proj) or
+    # assert classification/metadata/chosen-scale state. Not user-facing surface — even the
+    # seemingly-public reads are internal: the *chosen* scale (`_analysis.SCALE`) differs from the
+    # already-public *requested* `dwg.scale`, and part classification/title-block metadata have no
+    # user-facing read. Accessors are deferred until a real caller needs them, not added
+    # speculatively to zero this number (#741 triage — the anti-pattern the issue itself warns of).
+    "_analysis": 82,
+    # View-coordinate internals (set_view_coordinates writes; these reads inspect the mapping).
+    "_coords": 5,
+    # Private build-issue recorder driven directly by lint/repair tests.
+    "_record_build_issue": 5,
+    # Annotation bounding-box cache internals.
+    "_ann_box_cache": 3,
+    # Private DXF export path exercised directly.
     "_write_dxf": 2,
+    # Stragglers — a declared-model flag, the balloon add path, a doc-classification flag.
     "_model_declared": 1,
     "_add_balloon": 1,
     "_is_scattered_hole_doc": 1,
