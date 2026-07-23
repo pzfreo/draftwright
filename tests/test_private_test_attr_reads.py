@@ -99,9 +99,10 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
 # public accessor were threaded to it — ``_registry`` → :pyattr:`Drawing.registry` (PR 1); then
 # ``_coverage`` → :pyattr:`Drawing.coverage`, ``_coords`` scale/absence reads →
 # :pymeth:`Drawing.coords`, ``_write_dxf`` → :pymeth:`Drawing.export` ``(formats="dxf")``,
-# ``_is_scattered_hole_doc`` → ``dwg.coverage.is_scattered_hole_doc()``, ``_analysis`` scale/plan-
-# boundary/page-size reads → :pyattr:`Drawing.scale` / :pymeth:`Drawing.view_bounds` /
-# :pyattr:`Drawing.page_w`/`page_h`, ``_model_declared`` → :pyattr:`Drawing.model_declared`,
+# ``_is_scattered_hole_doc`` → ``dwg.coverage.is_scattered_hole_doc()``, ``_analysis`` GEOMETRIC
+# reads → :pyattr:`Drawing.scale` / :pymeth:`Drawing.view_bounds` / :pyattr:`Drawing.page_w`/`page_h`
+# / ``dwg.at("plan", *dwg.centroid)`` (the projection origin), ``_model_declared`` →
+# :pyattr:`Drawing.model_declared`,
 # ``_add_balloon`` → :pymeth:`Drawing.add_balloons`, ``_record_build_issue`` →
 # ``dwg.registry.record_issue(...)``. The four groups that REMAIN are *intentional white-box* —
 # internal machinery a public API can't express, or internal values with no public accessor — pinned
@@ -120,13 +121,15 @@ _ALLOW: dict[str, int] = {
     # `with deferred()`), not mid-drain tests. No public deferred-state read.
     "_defer_intents": 3,
     # Analysis (build context, ADR 0005): the whole `Analysis` passed to an internal render/layout
-    # helper under test, plus reads with no public accessor — projection ORIGINS (`PV_Y`, distinct
-    # from `view_bounds`'s silhouette bbox), mutable zone-rollback state (`sv_zones.outer_limit`),
-    # classification (`is_rotational`), title-block metadata (`revision`/`material`/`company`), and
-    # internal flags (`zones`/`margin`). The reads that DID map to a public value were threaded:
-    # scale → `dwg.scale`, the plan-view right boundary → `dwg.view_bounds("plan")[2]`, page size →
-    # `dwg.page_w`/`page_h`.
-    "_analysis": 75,
+    # helper under test, plus non-geometric internal STATE with no public accessor — classification
+    # flags (`is_rotational`; `Drawing.rotational` is a furniture method, not a classifier), the
+    # turned-profile/section objects (`prof`/`layout_section`/`od_axis`/`pmi`/`projection`), mutable
+    # zone-rollback state (`sv_zones.outer_limit`), title-block metadata (`revision`/`material`/
+    # `company`), and internal flags (`zones`/`margin`). Every GEOMETRIC read WAS threaded through
+    # the public page-mapping surface: scale → `dwg.scale`, plan-view right boundary →
+    # `dwg.view_bounds("plan")[2]`, page size → `dwg.page_w`/`page_h`, the plan projection origin →
+    # `dwg.at("plan", *dwg.centroid)[1]`.
+    "_analysis": 73,
     # Annotation bounding-box cache internals.
     "_ann_box_cache": 3,
 }

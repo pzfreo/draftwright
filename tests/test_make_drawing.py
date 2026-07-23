@@ -5592,7 +5592,9 @@ class TestLayoutGeneralisation:
             if n.startswith("hc_plan") and getattr(o, "label_bbox", None)
         ]
         assert plan_mids, "expected plan-view hole callouts"
-        assert min(abs(m - dwg._analysis.PV_Y) for m in plan_mids) < dwg.draft.font_size
+        assert (
+            min(abs(m - dwg.at("plan", *dwg.centroid)[1]) for m in plan_mids) < dwg.draft.font_size
+        )
 
     @pytest.mark.timeout(120)
     def test_step_height_legibility_threshold(self):

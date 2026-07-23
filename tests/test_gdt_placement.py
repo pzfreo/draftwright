@@ -105,7 +105,9 @@ def test_congested_side_falls_through_to_opposite():
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
     # It landed ABOVE the plan view (the fallthrough side): the frame (leader's far end) sits
     # above the view centre, whereas a below placement would keep the whole box at/under it.
-    assert dwg.get_annotation("m_gdt0").bounding_box().max.Y > dwg._analysis.PV_Y + 10
+    assert (
+        dwg.get_annotation("m_gdt0").bounding_box().max.Y > dwg.at("plan", *dwg.centroid)[1] + 10
+    )
 
 
 @pytest.mark.parametrize("side", ["above", "below"])
