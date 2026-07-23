@@ -31,6 +31,25 @@ tiers and the architecture overview, and `docs/adr/` for the design decisions
 behind layout, scaling, and annotation placement — please read the relevant ADRs
 before changing those areas.
 
+### Coverage
+
+CI measures line and branch coverage on the full fast tier and enforces the
+`[tool.coverage.report] fail_under` floor in `pyproject.toml` on every supported
+OS/Python combination. The canonical Linux/Python 3.12 job uploads to Codecov and
+retains the XML plus browsable HTML reports for 14 days. To reproduce that run locally:
+
+```
+uv run pytest tests/ -n auto --dist loadscope \
+  --cov=src/draftwright --cov-report=term-missing \
+  --cov-report=xml --cov-report=html:htmlcov
+```
+
+The baseline recorded for #825 on Linux/Python 3.13 was **92.05% combined
+line-and-branch coverage** (93.90% statements and 86.89% branches); the initial
+floor is 90%. Coverage thresholds are a ratchet: raise the floor after the lowest
+result across the supported CI matrix remains above the proposed value, and do not
+lower it to accommodate an untested change.
+
 ## Pull requests
 
 - Branch off `main` and open a PR with a clear description of **why**.
