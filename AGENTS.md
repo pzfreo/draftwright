@@ -7,10 +7,12 @@ one-page "drive it correctly" guide. The **why** lives in `docs/adr/`; this is t
 The single most important rule:
 
 > **Never hand-place a feature callout, dimension, or GD&T frame at raw coordinates.**
-> Use the declared/verb surfaces below — they route every annotation through the placement
-> solve (ADR 0014), which spaces them crossing-free and packs the sheet. Hand-placed
-> annotations are invisible to the solve and produce overlapping, badly-laid-out drawings.
-> To force a position, **pin** a candidate — do not give it coordinates.
+> You declare *what* to annotate; the engine's placement solve decides *where* (crossing-free,
+> packed — ADR 0004/0014). There is deliberately **no** arbitrary-coordinate placement in the
+> sanctioned surface — you cannot choose positions, and you should not want to. Hand-placed
+> annotations bypass the solve and lay out badly (overlaps, off in a corner). To make one
+> annotation win a contested spot, raise its `priority=` or `pin=` it — that **ranks/anchors**
+> it at its natural position, it does not set coordinates (and an infeasible pin can still drop).
 
 ## Front doors (pick one, in order of preference)
 
@@ -23,10 +25,11 @@ dwg.export("out", formats=("pdf", "png"))
 
 # 2. Declared — the Sheet façade (ADR 0011). Statement-style: declare features + aspects on `s`.
 s = Sheet(solid)                            # declare against the build123d part
-s.hole(hole_solid).fit("H7")               # a hole + ISO fit  (aspects: .fit/.tolerance/.note/.thread/.finish/…)
+h = s.hole(hole_solid)                      # returns a handle you can keep
+h.fit("H7")                                 # aspects: .fit/.tolerance/.note/.thread/.finish/…
 s.slot(slot_solid)
 s.datum("A", top_face)                      # a datum on a face
-s.control(0).position(0.1, to="A")          # GD&T position on declared feature #0, wrt datum A
+s.control(h).position(0.1, to="A")          # GD&T on the hole handle, wrt datum A
 dwg = s.build()                             # -> a Drawing
 
 # 3. Declared IR — pass a PartModel/features to build_drawing and skip detection.
@@ -35,42 +38,44 @@ dwg = build_drawing(solid, model=my_part_model)
 
 All three converge on the one engine; there is no second engine.
 
-## Adding / editing annotations the right way
+## Adding / editing annotations
 
-On a built `Drawing`, use the **verbs** — they place through the solve:
-
-```python
-dwg.callout(feature)                 # ø / n× / feature callout (leader), solve-placed
-dwg.dimension(feature, "length", role="...", pin=True, priority=2)  # pin = force position
-dwg.locate(feature)                  # position dims from the datum
-dwg.furniture(feature)               # centre marks / pattern furniture
-dwg.section()                        # section A–A
-dwg.drop("dim_width"); dwg.pin(name); dwg.unpin(name)
-```
-
-Batch edits go through record-then-finalize:
+On a built `Drawing`, use the **verbs** (never raw coordinates). Batch edits through
+`deferred()` reach auto-pass placement quality; a single live verb places one annotation
+reasonably (not the full solve), so prefer `deferred()` when adding more than one:
 
 ```python
-with dwg.deferred():                 # verbs RECORD intents; the block exit finalize()s
-    dwg.callout(f); dwg.dimension(g, "length", role="height", pin=True)
-# on normal exit, one solve places everything at auto-pass quality
+with dwg.deferred():                 # verbs RECORD intents; block exit finalize()s them
+    dwg.callout(feature)             # ø / n× / feature callout (leader)
+    dwg.dimension(feature, "length", role="height", pin=True, priority=2)  # anchored, ranked
+    dwg.locate(feature)              # position dims from the datum
+    dwg.furniture(feature)           # centre marks / pattern furniture
+    dwg.section()                    # section A–A
+# finalize() drains the recorded intents through the auto-pass's shared placement stages.
+
+dwg.drop(feature)                    # remove every annotation for an IR feature (from model())
+dwg.remove("dim_width")              # remove one annotation BY NAME (KeyError if absent)
+dwg.pin("dim_width"); dwg.unpin("dim_width")   # freeze / unfreeze an already-placed annotation
 ```
+
+`drop()` takes a **feature** (`dwg.model().features[i]`), not a name; `remove()` takes a name.
 
 ## GD&T — always declared, never raw
 
-GD&T frames / datums / surface finishes are first-class corridor candidates placed by the
-solve. Use the declared surface — there is deliberately **no** public "add a raw frame" verb:
+GD&T frames / datums / surface finishes are placed as first-class candidates by the solve.
+Use the declared surface — there is deliberately **no** public "add a raw frame" verb. Declare
+the controlled **feature first**, then target it (a handle, `Feature`, index, or a face):
 
 ```python
 s = Sheet(solid)
+hole = s.hole(hole_solid)                   # the feature the tolerance controls
 s.datum("A", top_face)
-s.control(0).position(0.1, to="A").perpendicularity(0.05, to="A")   # chain characteristics
+s.control(hole).position(0.1, to="A").perpendicularity(0.05, to="A")  # chain characteristics
 dwg = s.build()
 ```
 
-Target features/faces; let the solve place the frame. A frame added via `dwg.add(...)` at
-computed coordinates bypasses the solve and lays out badly — this is the most common
-GD&T-layout mistake.
+A frame added via `dwg.add(...)` at computed coordinates bypasses the solve and lays out
+badly — this is the most common GD&T-layout mistake.
 
 ## Diagnostics — always check lint
 
@@ -79,7 +84,8 @@ for issue in dwg.lint():
     print(issue.severity, issue.code, issue.message)
 ```
 
-- `gdt_dropped`, `*_dropped`, `annotation_overlap` → something did not place (and why).
+- `gdt_dropped`, `*_dropped` → an annotation could not be placed (and why). `annotation_overlap`
+  → annotations placed but conflict. Both mean the layout needs attention.
 - **A clean lint on a sparse drawing usually means features were not recognised**, not that
   the drawing is complete — check `dwg.model().features` / `dwg.features(view)`. If a feature
   you expect is missing, that is a recognition gap, not a "done" drawing.
@@ -93,7 +99,7 @@ paths = dwg.export("out", formats=("svg", "dxf", "pdf", "png"))   # -> {format: 
 ## What NOT to do
 
 - ❌ Raw page coordinates for feature annotations; `Drawing.place_dim(...)` (deprecated raw
-  hatch). To control placement, **pin** — don't hand coordinates.
+  hatch). To influence placement use `pin=`/`priority=`, not coordinates.
 - ❌ `dwg.add(Dimension/Leader/FeatureControlFrame(...))` to place a *feature* callout — `add`
   is the engine's low-level primitive (fine for free `Note`s / tables that have no strip, not
   for solve-able annotations).
