@@ -29,7 +29,6 @@ from build123d import (
 )
 from build123d_drafting.helpers import (
     ViewCoordinates,
-    annotate,
     view_axes,
 )
 
@@ -41,6 +40,7 @@ from draftwright._core import (
     _fmt,
     _log,
     _tag_sequence,
+    place_annotation,
 )
 from draftwright.annotations._common import (
     PlacementContext,
@@ -493,7 +493,7 @@ class Drawing:
         elbows and the like just outside a view without guessing offsets::
 
             x0, y0, x1, y1 = dwg.view_bounds("front")
-            dwg.add(Note("SEE NOTE 1", (x1 + 5, (y0 + y1) / 2), dwg.draft))
+            dwg.note("SEE NOTE 1", (x1 + 5, (y0 + y1) / 2))
         """
         placed = self.views.get(view)
         if placed is None:
@@ -711,35 +711,36 @@ class Drawing:
         if "label" not in kwargs:
             page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
             kwargs["label"] = _fmt(page_len / self.scale)
-        return self.add(_dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name, feature=feature)
+        return self._add(_dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name, feature=feature)
 
     # -- annotations ----------------------------------------------------------
-    def add(self, obj, name=None, view=None, feature=None):
-        """Register an annotation so lint and export include it; returns ``obj``.
+    def _add(self, obj, name=None, view=None, feature=None):
+        """Register an annotation so lint and export include it; returns ``obj``. The
+        annotation-placement **primitive** (#817) — private, because the public door is the
+        placement verbs (:meth:`callout`/:meth:`dimension`/:meth:`note`/:meth:`add_table`/…) and
+        the render passes place through the ``PlacementContext`` seam (``ctx.place``, #639), never
+        by reaching into the drawing.
 
-        Re-using an existing ``name`` replaces the previously added object (it is
-        dropped from :attr:`items`), so a name always maps to one object.
-
-        ``view`` records which orthographic view ("front"/"plan"/"side") owns
-        this annotation, so the layout can compose each view with its own
-        annotations as a single footprint block (#121).  Pass ``None`` for
-        drawing-level marks (title block, iso/section notes) that belong to no
-        single view.
-
-        ``feature`` records the source IR feature this annotation was rendered for
-        (#398), so :meth:`drop` / :meth:`annotations_of` can operate by feature. The
-        render layer passes it (it knows the feature); ``None`` for part-level marks.
+        Re-using an existing ``name`` replaces the previously added object (dropped from
+        :attr:`items`), so a name always maps to one object. ``view`` records the owning
+        orthographic view so the layout composes each view + its annotations as one footprint
+        block (#121); ``None`` for drawing-level marks. ``feature`` records the source IR feature
+        (#398) so :meth:`drop` / :meth:`annotations_of` work by feature.
         """
-        displaced = self._registry.named(name) if name is not None else None
-        if displaced is not None:
-            self.items.remove(displaced)
-        annotate(obj, name)
-        self.items.append(obj)
-        # The registry records name -> obj, the owning view, and the source feature,
-        # and drops any pin the replaced name carried — a replacement is a fresh object
-        # (#89) — and clears stale view/feature tags when re-added without them (#121/#398).
-        self._registry.add(obj, name, view, feature)
-        return obj
+        return place_annotation(self._registry, self.items, obj, name, view, feature)
+
+    def add(self, obj, name=None, view=None, feature=None):
+        """DEPRECATED (#817): the raw placement primitive is now private (:meth:`_add`). Use the
+        placement **verbs** — :meth:`callout`/:meth:`dimension`/:meth:`note`/:meth:`add_table`/
+        :meth:`add_balloons` — which route through the solve; :meth:`note` is the door for free
+        text. The public wrapper remains one release for compatibility."""
+        warnings.warn(
+            "Drawing.add() is deprecated (#817): use the placement verbs (callout/dimension/note/"
+            "add_table/…); free text is note(). The raw add primitive is now private (_add).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._add(obj, name, view, feature)
 
     def remove(self, name):
         """Remove a previously named annotation. Raises ``KeyError`` if absent."""
@@ -1043,7 +1044,7 @@ class Drawing:
         from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
+        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
         if kind in ("step", "boss"):
             return add_feature_diameter(self, feature, self._part_model, ctx=ctx)
         if kind in _MACHINED_CALLOUT_KINDS:
@@ -1108,7 +1109,7 @@ class Drawing:
         from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_furniture
 
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
+        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
         return add_feature_furniture(
             self, feature, self._part_model, self._analysis, view=view, ctx=ctx
         )
@@ -1133,7 +1134,7 @@ class Drawing:
         from draftwright.annotations.from_model import render_rotational
         from draftwright.model import plan_dimensions
 
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
+        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
         render_rotational(self, plan_dimensions(self._part_model), self._analysis, ctx=ctx)
         return []
 
@@ -1155,7 +1156,8 @@ class Drawing:
             return []
         from draftwright.annotations.sections import add_section
 
-        return add_section(self, self._part_model, self._analysis)
+        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
+        return add_section(self, self._part_model, self._analysis, ctx=ctx)
 
     def locate(self, feature, *, axes=None, pin=False) -> list[str]:
         """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern
@@ -1183,7 +1185,7 @@ class Drawing:
         from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_location
 
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage)
+        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
         return add_feature_location(
             self, feature, self._part_model, self._analysis, axes=axes, pin=pin, ctx=ctx
         )
@@ -1498,6 +1500,7 @@ class Drawing:
         ctx = PlacementContext(
             registry=self._registry,
             coverage=self._coverage,
+            items=self.items,
             part_model=self.model(),
             model_declared=self.model_declared,
             trace=self._build.trace,  # the finalize drain traces too (#736)
@@ -1625,7 +1628,7 @@ class Drawing:
             # last (the "section" stage).
             if r.section is not None:
                 assert a is not None
-                _reserve_section_row(self, a, r.section)
+                _reserve_section_row(self, a, r.section, ctx=ctx)
 
         def _s_live_replay():
             # Live-replay every intent EXCEPT the routed callouts/locates and section
@@ -1827,7 +1830,7 @@ class Drawing:
             self._intents = [it for it in self._intents if it.kind != "section"]
             if r.section is not None:
                 assert a is not None
-                _add_section_view(self, a, r.section)
+                _add_section_view(self, a, r.section, ctx=ctx)
 
         def _s_details():
             # Resolve every queued enlarged-detail request (#661): the prismatic
@@ -1969,7 +1972,7 @@ class Drawing:
             i = 0
             while (name := f"note{i}") in self._named:
                 i += 1
-        self.add(n, name, view=view)
+        self._add(n, name, view=view)
         return name
 
     def add_table(self, rows, *, prefer="tr", name="table", block_cols=None):
@@ -2006,7 +2009,7 @@ class Drawing:
                 "warning", "table_dropped", f"table {name!r} did not fit the sheet"
             )
             return None
-        return self.add(table.locate(Location((pos[0], pos[1], 0))), name)
+        return self._add(table.locate(Location((pos[0], pos[1], 0))), name)
 
     def _hole_spec_groups(self, view):
         """Ordered ``(tag, [holes], count)`` spec-groups of *view*'s holes (tags A, B,
@@ -2049,7 +2052,10 @@ class Drawing:
         if view not in self._coords or self._analysis is None:
             return
         ctx = PlacementContext(
-            registry=self._registry, coverage=self._coverage, part_model=self._part_model
+            registry=self._registry,
+            coverage=self._coverage,
+            items=self.items,
+            part_model=self._part_model,
         )
         render_balloons(self, self._analysis, view, specs, ctx)
 

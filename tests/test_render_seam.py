@@ -216,12 +216,18 @@ class TestDiameterColumnOccupancy:
         ((10.0, 0.0, 24.0), 8.0, None, None),
     ]  # two Z-turned ø steps
 
+    def _ctx(self):
+        from draftwright.annotations._common import PlacementContext
+        from draftwright.registry import AnnotationRegistry
+
+        return PlacementContext(registry=AnnotationRegistry(), items=[])
+
     def test_control_no_occupant_places_both(self):
         from draftwright.annotations.from_model import _diameter_column_left
 
         # No occupant → both labels placed (proves the column has room; the drop below
         # is due to occupancy, not the room guard).
-        assert _diameter_column_left(self._dwg([]), self._ITEMS) == 2
+        assert _diameter_column_left(self._dwg([]), self._ITEMS, ctx=self._ctx()) == 2
 
     def test_bore_shaft_footprint_drops_the_overprinting_labels(self):
         from draftwright.annotations.from_model import _diameter_column_left
@@ -230,4 +236,9 @@ class TestDiameterColumnOccupancy:
         # label-box-only `_occupied_boxes` never recorded this shaft (the occupant has
         # no label_bbox), so both ø labels would have been placed straight over it;
         # strip_obstacles sees the full box, so both are dropped.
-        assert _diameter_column_left(self._dwg([(-100.0, -100.0, 100.0, 100.0)]), self._ITEMS) == 0
+        assert (
+            _diameter_column_left(
+                self._dwg([(-100.0, -100.0, 100.0, 100.0)]), self._ITEMS, ctx=self._ctx()
+            )
+            == 0
+        )

@@ -18,7 +18,11 @@ from typing import Any
 
 from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, SafeDimension
 
-from draftwright._core import _anno_box, _text_size  # noqa: F401 — _anno_box re-exported (#700)
+from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
+    _anno_box,
+    _text_size,
+    place_annotation,
+)
 from draftwright._geometry import _boxes_overlap, _segment_crosses_box  # noqa: F401
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.linting.issues import LintIssue
@@ -908,6 +912,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             axis,
             pairs,
             tier,
+            ctx=ctx,
             features=feats,
             sizes=sizes,
             forbid=forbid,
@@ -930,6 +935,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 axis,
                 force_pairs,
                 tier,
+                ctx=ctx,
                 force=True,
                 footprints=foots,
                 corner_reserves=corner_reserves,
@@ -996,6 +1002,9 @@ class PlacementContext:
     # so mypy does not reject the delegating calls below.
     registry: Any = None  # the drawing's AnnotationRegistry: build-issue sink + names
     coverage: Any = None  # the drawing's CoverageState
+    # The drawing's render list (#817): :meth:`place` appends here, so a render pass places an
+    # annotation through the ctx seam (``ctx.place(...)``) instead of reaching into the drawing.
+    items: Any = None
     # The ensured PartModel (ADR 0008 IR) the run's passes read, threaded off the drawing so
     # they no longer reach into ``dwg._part_model`` (#639). Both entry paths set it from the
     # PUBLIC ``dwg.model()`` after the model is ensured/attached.
@@ -1006,6 +1015,19 @@ class PlacementContext:
     # Per-run cache for :meth:`feature_of_hole_at` — the model is fixed after build, so a
     # per-ctx (per-run) index is correct (mirrors the old ``Drawing._hole_feature_index``).
     _hole_feature_index: Any = field(default=None, repr=False)
+
+    def place(self, obj, name=None, view=None, feature=None):
+        """Place an annotation onto the drawing through this context (#817) — the render passes'
+        door to the placement primitive, so a pass never reaches into the ``Drawing`` (ADR 0005
+        §2). Registers *obj* under *name* (owning *view* + source *feature*) and appends it to the
+        render list. Returns *obj*."""
+        if self.items is None:
+            raise ValueError(
+                "PlacementContext.place() needs the drawing's render list — construct the context "
+                "with items=dwg.items (the orchestrator and Drawing verbs already do; a unit test "
+                "calling a render helper must pass it too)."
+            )
+        return place_annotation(self.registry, self.items, obj, name, view, feature)
 
     def feature_of_hole_at(self, location):
         """The IR hole/pattern feature whose member sits at model-space *location*, or ``None``
@@ -1107,6 +1129,7 @@ def place_strip_candidates(
     cands,
     tier,
     *,
+    ctx,
     force=False,
     features=None,
     sizes=None,
@@ -1416,7 +1439,7 @@ def place_strip_candidates(
         for name, dim in placed:
             # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed
             # dims — `features` maps this batch's names to their source IR feature.
-            dwg.add(dim, name, view=view, feature=(features or {}).get(name))
+            ctx.place(dim, name, view=view, feature=(features or {}).get(name))
     if tp is not None:
         tp["unplaced"] = [n for n, _ in todo]
         trace.end_pass(tp)  # folds a standalone pass's items; no-op when corridor-nested

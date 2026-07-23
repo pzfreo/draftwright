@@ -605,13 +605,13 @@ def test_place_strip_candidates_reserves_outermost_label_within_bounds():
         def view_of(s, n):
             return "plan"
 
-        def add(s, obj, name, view=None, feature=None):
+        def place(s, obj, name, view=None, feature=None):
             s.added.append((name, obj))
 
     strip = Strip(anchor=0.0, outer_limit=20.0, direction=1.0, gap=8.0, spacing=4.0)  # near=8
     dwg = _Dwg()
     cands = [("a", lambda pos: ("dim", pos)), ("b", lambda pos: ("dim", pos))]
-    left = place_strip_candidates(dwg, strip, "plan", "y", cands, tier=5.0, force=True)
+    left = place_strip_candidates(dwg, strip, "plan", "y", cands, tier=5.0, force=True, ctx=dwg)
     assert len(dwg.added) == 1, "outermost label would overshoot outer_limit — must not place it"
     assert len(left) == 1, "the unplaceable candidate must be returned, not dropped silently"
 
@@ -635,7 +635,7 @@ def test_place_strip_candidates_priority_survives_key_order():
         def view_of(s, n):
             return "plan"
 
-        def add(s, obj, name, view=None, feature=None):
+        def place(s, obj, name, view=None, feature=None):
             s.added.append((name, obj))
 
     def _run(priorities):
@@ -653,6 +653,7 @@ def test_place_strip_candidates_priority_survives_key_order():
             force=True,
             sizes=sizes,
             priorities=priorities,
+            ctx=dwg,
         )
         placed = {nm for nm, _ in dwg.added}
         return placed, {nm for nm, _ in left}
@@ -723,7 +724,7 @@ def test_place_strip_candidates_refills_after_late_forbid_rejection():
         def view_of(s, n):
             return "plan"
 
-        def add(s, obj, name, view=None, feature=None):
+        def place(s, obj, name, view=None, feature=None):
             s.added.append((name, obj))
 
     strip = Strip(anchor=0.0, outer_limit=13.0, direction=1.0, gap=0.0, spacing=4.0)
@@ -742,6 +743,7 @@ def test_place_strip_candidates_refills_after_late_forbid_rejection():
         force=True,
         priorities={"hi": 10.0, "lo": 1.0},
         forbid={"hi": (-2.0, -1.0, 2.0, 2.0)},
+        ctx=dwg,
     )
 
     assert {name for name, _ in dwg.added} == {"lo"}
@@ -764,7 +766,7 @@ def test_place_strip_candidates_honors_per_candidate_natural_anchor():
         def view_of(s, n):
             return "plan"
 
-        def add(s, obj, name, view=None, feature=None):
+        def place(s, obj, name, view=None, feature=None):
             s.added.append((name, obj))
 
     strip = Strip(anchor=0.0, outer_limit=60.0, direction=1.0, gap=0.0, spacing=4.0)
@@ -779,6 +781,7 @@ def test_place_strip_candidates_honors_per_candidate_natural_anchor():
         force=True,
         anchored={"b": True},
         naturals={"b": 30.0},
+        ctx=dwg,
     )
 
     placed = {name: obj[1] for name, obj in dwg.added}
@@ -815,14 +818,14 @@ def test_place_strip_candidates_ignores_perpendicular_disjoint_obstacle():
         def view_of(s, n):
             return "plan"
 
-        def add(s, o, n, view=None, feature=None):
+        def place(s, o, n, view=None, feature=None):
             s.added.append((n, o))
 
     # obstacle spans the whole strip in X but sits at y=[0,5]; the candidate dim is y=[30,40]
     dwg = _Dwg([("m_env", _obj(0.0, 0.0, 100.0, 5.0))])
     strip = Strip(anchor=6.0, outer_limit=60.0, direction=1.0, gap=2.0, spacing=4.0)  # near=8
     cand = ("m_slot", lambda pos: _obj(pos - 1, 30.0, pos + 1, 40.0))
-    left = place_strip_candidates(dwg, strip, "plan", "x", [cand], tier=5.0)
+    left = place_strip_candidates(dwg, strip, "plan", "x", [cand], tier=5.0, ctx=dwg)
     assert not left and len(dwg.added) == 1, "perpendicular-disjoint obstacle must not block"
 
 
@@ -1092,6 +1095,7 @@ def _pitch_dim_over_centerline(centerline_factory, centerline_name):
     # issues against that one centerline.
     from build123d import Box, Cylinder, Pos
 
+    from draftwright.annotations._common import PlacementContext
     from draftwright.annotations.holes import _place_pitch_dim, build_view_of_axis
     from draftwright.linting.structural import _lint_centerline_dim_overlap
 
@@ -1102,8 +1106,11 @@ def _pitch_dim_over_centerline(centerline_factory, centerline_name):
     a = dwg._analysis
     view, to_page = build_view_of_axis(a)["z"]
     part_cx = a.proj.plan_x(0)
-    dwg.add(centerline_factory(part_cx), centerline_name, view="plan")
-    _place_pitch_dim(dwg, a, "plan", (-30, 0, 0), (30, 0, 0), 2, 60, to_page, "test_pitch")
+    ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
+    dwg._add(centerline_factory(part_cx), centerline_name, view="plan")
+    _place_pitch_dim(
+        dwg, a, "plan", (-30, 0, 0), (30, 0, 0), 2, 60, to_page, "test_pitch", ctx=ctx
+    )
     dim = dwg.get_annotation("test_pitch")
     cl = dwg.get_annotation(centerline_name)
     issues = []

@@ -25,7 +25,7 @@ from OCP.GeomAbs import (
     GeomAbs_Torus,
 )
 
-from draftwright._core import Analysis, _iso_bbox
+from draftwright._core import Analysis, _iso_bbox, place_annotation
 
 _log = logging.getLogger(__name__)
 
@@ -289,7 +289,9 @@ def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
         _log.warning("Iso view still overflows its page region at %g× sheet scale", factor)
     if annotate:
         font = dwg.draft.font_size
-        dwg.add(
+        place_annotation(
+            dwg.registry,
+            dwg.items,
             Note(
                 "ISO VIEW (NTS)",
                 (a.ISO_X, max(bb[1] - 2 * font, a.margin + font)),

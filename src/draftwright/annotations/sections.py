@@ -80,7 +80,7 @@ def feature_hole_keys(model, a: Analysis) -> set[HoleRef]:
     return keys
 
 
-def add_section(dwg, model, a) -> list[str]:
+def add_section(dwg, model, a, *, ctx) -> list[str]:
     """Add the automatic full **section A–A** (ISO 128-44 arrows + ISO 128-50 hatch)
     — the #420 ``section()`` add verb.
 
@@ -103,7 +103,7 @@ def add_section(dwg, model, a) -> list[str]:
     if plan is None:
         return []  # no counterbore/spotface/blind Z-hole — no section warranted
     before = set(dwg.annotations())
-    _add_section_view(dwg, a, plan)  # calls _clear_section_reservation itself; no reserve needed
+    _add_section_view(dwg, a, plan, ctx=ctx)  # calls _clear_section_reservation itself; no reserve needed
     return sorted(set(dwg.annotations()) - before)
 
 
@@ -190,7 +190,7 @@ def _fuzzy_cut(body, cutter, fuzzy: float = 1e-3):
     return solids[0] if len(solids) == 1 else Compound(children=list(solids))
 
 
-def _add_section_view(dwg, a: Analysis, section):
+def _add_section_view(dwg, a: Analysis, section, *, ctx):
     """Render the planned full section A–A (#94, #207).
 
     The *trigger* + cut-plane row are decided by the planner (`plan_sections` →
@@ -261,7 +261,7 @@ def _add_section_view(dwg, a: Analysis, section):
         return
     camera = (dwg.look_at[0], dwg.look_at[1] - dwg.dist, dwg.look_at[2])
     dwg.add_view("section_aa", keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
-    dwg.add(
+    ctx.place(
         Note("SECTION A–A", (pos_x, a.FV_Y - half_h - 7), dwg.draft),
         "section_caption",
     )
@@ -281,15 +281,15 @@ def _add_section_view(dwg, a: Analysis, section):
                 ext_x0 = min(ext_x0, cb.min.X)
                 ext_x1 = max(ext_x1, cb.max.X)
     x0, x1 = ext_x0 - 4, ext_x1 + 4
-    dwg.add(Centerline((x0, y_page, 0), (x1, y_page, 0)), "section_line")
+    ctx.place(Centerline((x0, y_page, 0), (x1, y_page, 0)), "section_line")
 
     # The row was reserved early (ADR 0009 P5 strand 3) with a conservative
     # (unwidened) x-extent so the plan-view hole-callout carve could avoid it
     # before this function runs — replace it with the final, possibly-wider
     # geometry now that the bolt-circle extent is known.
     _clear_section_reservation(dwg)
-    _add_cutting_plane_arrows(dwg, y_page, x0, x1)
-    _add_section_letters(dwg, y_page, x0, x1)
+    _add_cutting_plane_arrows(dwg, y_page, x0, x1, ctx=ctx)
+    _add_section_letters(dwg, y_page, x0, x1, ctx=ctx)
 
     # ISO 128-50: 45° hatching on the cut face, in page coordinates. The section
     # is drawn in its own frame: X is offset to the section's page slot (pos_x),
@@ -307,10 +307,10 @@ def _add_section_view(dwg, a: Analysis, section):
     if hatch_edges:
         hatch = Compound(children=hatch_edges)
         hatch.is_section_hatch = True  # exempt from view_annotation_overlap lint
-        dwg.add(hatch, "section_hatch")
+        ctx.place(hatch, "section_hatch")
 
 
-def _add_cutting_plane_arrows(dwg, y_page, x0, x1):
+def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, ctx):
     """ISO 128-44 cutting-plane end indicators at ``(x0, y_page)``/``(x1, y_page)`` —
     thick wing stubs with solid filled arrowheads pointing in the viewing direction
     (−Y). Named ``section_arrow_{left,right}``/``section_wing_{left,right}``, shared
@@ -329,14 +329,14 @@ def _add_cutting_plane_arrows(dwg, y_page, x0, x1):
             head_type=HeadType.STRAIGHT,
             mode=Mode.PRIVATE,
         )
-        dwg.add(Compound(children=list(filled.faces())), f"section_arrow_{side}")
-        dwg.add(
+        ctx.place(Compound(children=list(filled.faces())), f"section_arrow_{side}")
+        ctx.place(
             Compound(children=[Edge.make_line(Vector(x_end, y_page, 0), Vector(x_end, tip_y, 0))]),
             f"section_wing_{side}",
         )
 
 
-def _add_section_letters(dwg, y_page, x0, x1):
+def _add_section_letters(dwg, y_page, x0, x1, *, ctx):
     """The 'A' identification letters above the cutting-plane line ends, clear of
     any callout leaders. Named ``section_a_{left,right}`` — shared between the
     early row reservation and the final section render, same as
@@ -344,8 +344,8 @@ def _add_section_letters(dwg, y_page, x0, x1):
     footprint can land on the letters just as easily as on the arrows, so both
     need to be visible to the plan-view callout carve before it places."""
     lift = dwg.draft.font_size * 1.4
-    dwg.add(Note("A", (x0 - 3, y_page + lift), dwg.draft), "section_a_left")
-    dwg.add(Note("A", (x1 + 3, y_page + lift), dwg.draft), "section_a_right")
+    ctx.place(Note("A", (x0 - 3, y_page + lift), dwg.draft), "section_a_left")
+    ctx.place(Note("A", (x1 + 3, y_page + lift), dwg.draft), "section_a_right")
 
 
 def _clear_section_reservation(dwg) -> None:
@@ -365,7 +365,7 @@ def _clear_section_reservation(dwg) -> None:
             dwg.remove(name)
 
 
-def _reserve_section_row(dwg, a: Analysis, section) -> None:
+def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
     """Reserve the section A–A cutting-plane arrows' row BEFORE the plan-view hole
     callouts place (ADR 0009 P5 strand 3, burns down the ``bracket`` fixture's
     ``hc_plan0``/``section_arrow_right`` overlap in ``tests/test_layout_cleanliness.py``).
@@ -396,11 +396,11 @@ def _reserve_section_row(dwg, a: Analysis, section) -> None:
     PX, PY = a.proj.plan_x, a.proj.plan_y
     y_page = PY(section.cut_y)
     x0, x1 = PX(a.bb.min.X) - 4, PX(a.bb.max.X) + 4
-    _add_cutting_plane_arrows(dwg, y_page, x0, x1)
-    _add_section_letters(dwg, y_page, x0, x1)
+    _add_cutting_plane_arrows(dwg, y_page, x0, x1, ctx=ctx)
+    _add_section_letters(dwg, y_page, x0, x1, ctx=ctx)
 
 
-def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str) -> bool:
+def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx) -> bool:
     """Generic detail renderer (#307) — the single crop → project → place → caption
     → mark machinery both the prismatic step detail (#42) and the turned-head detail
     (#304) flow through. Crops the part to ``req``'s band along ``req.axis``, projects
@@ -533,12 +533,12 @@ def _render_detail(dwg, a: Analysis, req: DetailRequest, view_name: str, letter:
         ]
     )
     marker.is_centerline = True  # furniture, not a dimension — exempt from overlap lint
-    dwg.add(marker, f"detail_marker_{letter}")
-    dwg.add(Note(letter, (mx1 + 3, my1 + 2), dwg.draft), f"detail_marker_label_{letter}")
+    ctx.place(marker, f"detail_marker_{letter}")
+    ctx.place(Note(letter, (mx1 + 3, my1 + 2), dwg.draft), f"detail_marker_label_{letter}")
 
     # Caption below the placed view (anchored to its real footprint).
     dvb = dwg.views[view_name][0].bounding_box()
-    dwg.add(
+    ctx.place(
         Note(
             f"DETAIL {letter} — SCALE {format_drawing_scale(detail_scale)}",
             ((dvb.min.X + dvb.max.X) / 2, dvb.min.Y - cap_h),
@@ -563,7 +563,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             _log.info("detail request '%s' dropped: detail letters A–H exhausted", req.kind)
             continue
         letter = _DETAIL_LETTERS[n_placed]
-        placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
+        placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter, ctx=ctx)
         hname = (
             _overall_height_name(dwg, a) if not placed and req.kind == "prismatic-steps" else None
         )
@@ -578,7 +578,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             hfeat = dwg.registry.feature_of(hname)
             hpinned = dwg.registry.is_pinned(hname)
             hobj = dwg.remove(hname)
-            placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter)
+            placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter, ctx=ctx)
             if placed:
                 _log.warning(
                     "%s demoted: the requested crowded-step detail view takes its room", hname
@@ -592,7 +592,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
                 # _overall_height_name can no longer rediscover it. (hpinned is
                 # defensive — _overall_height_name never returns a pinned name — but
                 # keeps this remove/re-add correct in isolation.)
-                dwg.add(hobj, hname, view=hview, feature=hfeat)
+                ctx.place(hobj, hname, view=hview, feature=hfeat)
                 if hpinned:
                     dwg.pin(hname)
         if placed:
@@ -725,7 +725,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx) -> None:
                     label=label,
                 )
                 det_dim._dw_scale = detail_scale  # detail scale, for label-vs-measured lint (#42)
-                dwg.add(
+                ctx.place(
                     det_dim, f"dim_{view}_step{i}", view=view
                 )  # view-scoped name (#307 review)
                 ladder += step_pad

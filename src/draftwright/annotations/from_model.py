@@ -324,6 +324,7 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
                         "y",
                         [_cand_for("below", _bh)],
                         tier,
+                        ctx=ctx,
                         features={cname: _feat},
                         trace=ctx.trace,
                         trace_label="slot_below_fallthrough",
@@ -375,6 +376,7 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
                     axis,
                     [_cand_for(side, hi)],
                     tier,
+                    ctx=ctx,
                     features={cname: s},
                     trace=ctx.trace,
                     trace_label=f"slot_{side}",
@@ -693,7 +695,7 @@ def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
     return n
 
 
-def render_centermarks(dwg, groups) -> int:
+def render_centermarks(dwg, groups, *, ctx) -> int:
     """A centre mark on every hole (plain holes + each pattern member), in the view
     normal to the hole's axis (`_END_ON`), sized by its diameter — the IR migration
     of the engine's inline centre-mark loop. Returns the count placed."""
@@ -708,7 +710,7 @@ def render_centermarks(dwg, groups) -> int:
         members = feat.members or (g.anchor,)
         for loc in members:
             px, py, *_ = dwg.at(view, *loc)
-            dwg.add(CenterMark((px, py, 0), size, dwg.draft), f"m_cm{n}", view=view, feature=feat)
+            ctx.place(CenterMark((px, py, 0), size, dwg.draft), f"m_cm{n}", view=view, feature=feat)
             n += 1
     return n
 
@@ -749,7 +751,7 @@ def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
     return [], []
 
 
-def _diameter_row_below(dwg, items, start: int = 0, trace=None) -> int:
+def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
     """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
     *items* is ``[(anchor, diameter), ...]``. The row is dropped clear of anything
     already below the profile; labels spread along page-x by the ADR-0003 strip
@@ -849,7 +851,7 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None) -> int:
             if id(s) not in kept
         )
     for i, ((tip, dia, label, feat), lx) in enumerate(zip(survivors, xs, strict=True)):
-        dwg.add(
+        ctx.place(
             Leader(tip=(tip[0], tip[1], 0), elbow=(lx, label_y, 0), label=label, draft=draft),
             f"m_dia_x{start + i}",
             view="front",
@@ -867,7 +869,7 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None) -> int:
     return len(survivors)
 
 
-def _diameter_column_left(dwg, items, start: int = 0, trace=None) -> int:
+def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
     """ø-callout column to the LEFT of the front view for Z-turned step/boss
     diameters (#131) — the page-Y mirror of the row-below. A per-label occupancy
     gate drops only a label that would overprint a bore leader / existing callout
@@ -921,7 +923,7 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None) -> int:
                     {"label": label, "outcome": "dropped", "reason": "label_occupied"}
                 )
             continue  # would overprint a bore leader / existing callout — drop just this one
-        dwg.add(ldr, f"m_dia_z{start + i}", view="front", feature=feat)
+        ctx.place(ldr, f"m_dia_z{start + i}", view="front", feature=feat)
         if ev is not None:
             ev["items"].append(
                 {
@@ -1040,14 +1042,14 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
     start_z = _next_start("m_dia_z") if only is not None else 0
     trace = getattr(ctx, "trace", None)  # the immediate placers report to the trace too (#736)
     placed = _diameter_row_below(
-        dwg, _items(row_buckets), start=start_x, trace=trace
-    ) + _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace)
+        dwg, _items(row_buckets), start=start_x, trace=trace, ctx=ctx
+    ) + _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace, ctx=ctx)
     # #798: a ⌀ leader the row/column solve sent DIAGONALLY into the body — cutting
     # the silhouette, or an end feature whose diagonal merely grazes it — is re-routed
     # to the clear side (the margin the feature sits at). Auto-pass only: the finalize
     # (only=) path replays recorded verbs and must not disturb pinned user dims.
     if only is None:
-        _reroute_crossing_diameters(dwg)
+        _reroute_crossing_diameters(dwg, ctx=ctx)
     return placed
 
 
@@ -1055,7 +1057,7 @@ _REROUTE_EDGE_TOL = 2.0  # page mm: a tip this close to an axial end sits AT tha
 _REROUTE_SLACK = 1.0  # page mm: an elbow displaced this far toward the interior is "into the body"
 
 
-def _reroute_crossing_diameters(dwg) -> int:
+def _reroute_crossing_diameters(dwg, *, ctx) -> int:
     """Route a turned ⌀ leader that heads INTO the part body (#798) out to the
     nearest CLEAR margin, rather than diagonally into the body.
 
@@ -1152,14 +1154,14 @@ def _reroute_crossing_diameters(dwg) -> int:
                 box = _anno_box(cand)
                 if box is None or not _within_page(box) or _box_hits(box, obstacles):
                     continue
-                dwg.add(cand, name, view="front", feature=feat)
+                ctx.place(cand, name, view="front", feature=feat)
                 rerouted += 1
                 placed_it = True
                 break
         except Exception:  # noqa: BLE001 — a re-route error must never lose the leader
             placed_it = False
         if not placed_it and dwg.get_annotation(name) is None:
-            dwg.add(old, name, view="front", feature=feat)  # restore (Phase-1 flags it)
+            ctx.place(old, name, view="front", feature=feat)  # restore (Phase-1 flags it)
     return rerouted
 
 
@@ -1276,7 +1278,7 @@ def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx, geom_clear=False
             tried += 1
             ldr = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label, draft=dwg.draft)
             if _label_lands_clear(ldr, obstacles, vb, page, geom_clear=geom_clear):
-                dwg.add(ldr, name, view=view, feature=feature)
+                ctx.place(ldr, name, view=view, feature=feature)
                 if ev is not None:
                     ev["items"].append(
                         {
@@ -1939,7 +1941,7 @@ def render_plates(dwg, groups, a, *, ctx) -> int:
                             or real[3] > page[3]
                         ):
                             continue
-                        dwg.add(dim, nm, view=view2, feature=feat)
+                        ctx.place(dim, nm, view=view2, feature=feat)
                         return
                 ctx.record_issue(
                     "warning",
@@ -2196,7 +2198,7 @@ def _draw_step_chain(
     for name, dim in candidates:
         if detail_scale is not None:
             dim._dw_scale = detail_scale
-        dwg.add(dim, name, view=view)
+        ctx.place(dim, name, view=view)
         if ev is not None:
             b = _anno_box(dim)
             ev["items"].append(
@@ -2606,7 +2608,7 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
     if axis == "z":
         # Vertical turning axis (the common case): OD across the top of the front
         # (profile) view; axis centrelines vertical on front + side.
-        dwg.add(
+        ctx.place(
             _dim(
                 (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
                 (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
@@ -2619,12 +2621,12 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
             view="front",
         )
         n += 1
-        dwg.add(
+        ctx.place(
             Centerline((FX(a.cx), FZ(a.bb.min.Z) - 5, 0), (FX(a.cx), FZ(a.bb.max.Z) + 5, 0)),
             "centerline_front",
             view="front",
         )
-        dwg.add(
+        ctx.place(
             Centerline((SX(a.cy), SZ(a.bb.min.Z) - 5, 0), (SX(a.cy), SZ(a.bb.max.Z) + 5, 0)),
             "centerline_side",
             view="side",
@@ -2658,7 +2660,7 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
                     tip_z = placed.get(f"{i:03d}")
                     if tip_z is None:
                         continue  # over the front-view capacity — dropped (ranked), logged below
-                    dwg.add(
+                    ctx.place(
                         Leader(
                             tip=(FX(a.cx - d / 2), tip_z, 0),
                             elbow=(elbow_x, tip_z, 0),
@@ -2690,7 +2692,7 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
         # Horizontal turning axis along X (#222): the OD is the Z extent — a vertical
         # ø dim left of the front (profile) view; axis centrelines run horizontally
         # through z=cz on front and y=cy on plan.
-        dwg.add(
+        ctx.place(
             _dim(
                 (FX(a.bb.min.X) - 2, FZ(a.cz - od / 2), 0),
                 (FX(a.bb.min.X) - 2, FZ(a.cz + od / 2), 0),
@@ -2703,12 +2705,12 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
             view="front",
         )
         n += 1
-        dwg.add(
+        ctx.place(
             Centerline((FX(a.bb.min.X) - 5, FZ(a.cz), 0), (FX(a.bb.max.X) + 5, FZ(a.cz), 0)),
             "centerline_front",
             view="front",
         )
-        dwg.add(
+        ctx.place(
             Centerline((PX(a.bb.min.X) - 5, PY(a.cy), 0), (PX(a.bb.max.X) + 5, PY(a.cy), 0)),
             "centerline_plan",
             view="plan",
@@ -2717,7 +2719,7 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
         # Horizontal turning axis along Y (#222): the OD is the Z extent — a vertical
         # ø dim left of the side (profile) view; axis centrelines run horizontally
         # through z=cz on side and vertically through x=cx on plan.
-        dwg.add(
+        ctx.place(
             _dim(
                 (SX(a.bb.min.Y) - 2, SZ(a.cz - od / 2), 0),
                 (SX(a.bb.min.Y) - 2, SZ(a.cz + od / 2), 0),
@@ -2730,12 +2732,12 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
             view="side",
         )
         n += 1
-        dwg.add(
+        ctx.place(
             Centerline((SX(a.bb.min.Y) - 5, SZ(a.cz), 0), (SX(a.bb.max.Y) + 5, SZ(a.cz), 0)),
             "centerline_side",
             view="side",
         )
-        dwg.add(
+        ctx.place(
             Centerline((PX(a.cx), PY(a.bb.min.Y) - 5, 0), (PX(a.cx), PY(a.bb.max.Y) + 5, 0)),
             "centerline_plan",
             view="plan",
@@ -2957,7 +2959,7 @@ def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
     }
 
 
-def _pmi_place_one(dwg, spec, rec, trace=None):
+def _pmi_place_one(dwg, spec, rec, *, ctx, trace=None):
     # *trace* (#736): a PMI dim's post-drop fallback is a standalone strip pass —
     # traced as a pass_event like the other standalone placers.
     left = place_strip_candidates(
@@ -2967,6 +2969,7 @@ def _pmi_place_one(dwg, spec, rec, trace=None):
         spec["axis"],
         [(spec["name"], spec["build"])],
         _PMI_SLOT,
+        ctx=ctx,
         force=True,
         features={spec["name"]: rec},
         priorities={spec["name"]: _PMI_CORRIDOR_PRIORITY},
@@ -2984,7 +2987,7 @@ def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
 
     def _drop(nm, _alts=alternates, _ax=ax, _label=label, _rec=rec):
         for alt in _alts:
-            if _pmi_place_one(dwg, alt, _rec, trace=ctx.trace):
+            if _pmi_place_one(dwg, alt, _rec, ctx=ctx, trace=ctx.trace):
                 _log.info(
                     "PMI dim %s placed on fallback %s/%s",
                     nm,
@@ -3446,7 +3449,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     if pos is not None:
                         dim = _bld(pos)
                         if not _box_hits(_anno_box(dim), (_tb,)):  # clear of the title block
-                            dwg.add(dim, nm, view=_v, feature=_feat)  # alternate side
+                            ctx.place(dim, nm, view=_v, feature=_feat)  # alternate side
                             return
                 ctx.record_issue(
                     "warning",

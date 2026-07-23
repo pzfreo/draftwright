@@ -158,7 +158,7 @@ def add_feature_callout(
             i += 1
             name = f"hc_{view}{i}"
     tip = _rim_tip(centre, elbow)
-    dwg.add(
+    ctx.place(
         Leader(
             tip=(tip[0], tip[1], 0),
             elbow=(elbow[0], elbow[1], 0),
@@ -250,7 +250,7 @@ def add_feature_location(
             vb = dwg.view_bounds(view) or (0.0, 0.0, 0.0, baseline)
             pos = vb[3] + tier
         nm = _uniq("m_locx" if view == "plan" else "m_locy")
-        dwg.add(
+        ctx.place(
             _dim(
                 (p1, baseline, 0), (p2, baseline, 0), "above", pos - baseline, draft, label=label
             ),
@@ -350,7 +350,7 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
         j = 0
         while (nm := f"m_cm{j}") in ctx.registry:
             j += 1
-        dwg.add(CenterMark((px, py, 0), size, dwg.draft), nm, view=view, feature=feature)
+        ctx.place(CenterMark((px, py, 0), size, dwg.draft), nm, view=view, feature=feature)
 
     # Pattern furniture — bolt-circle centre-cross / linear-or-grid pitch dims.
     if isinstance(feature, PatternFeature):
@@ -418,9 +418,9 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
         start += 1
     before = set(dwg.annotations())
     if axis == "x":
-        _diameter_row_below(dwg, items, start=start)
+        _diameter_row_below(dwg, items, start=start, ctx=ctx)
     else:
-        _diameter_column_left(dwg, items, start=start)
+        _diameter_column_left(dwg, items, start=start, ctx=ctx)
     new = sorted(set(dwg.annotations()) - before)
     if not new:
         # No room — degrade like the auto-pass (render_diameters places what fits and drops
@@ -524,7 +524,7 @@ def _off_axis_drop(dwg, axis, view, *, ctx):
     )
 
 
-def _off_axis_emit(dwg, tier, strip, view, axis, cands, force=False, features=None, trace=None):
+def _off_axis_emit(dwg, tier, strip, view, axis, cands, force=False, features=None, trace=None, *, ctx):
     # The collect-then-solve strip placer lives in _common as the shared
     # place_strip_candidates (P3, retiring the Strip cursor #150); this thin wrapper
     # binds the pass's dwg + tier. *features* (name -> IR feature) attributes each dim
@@ -537,6 +537,7 @@ def _off_axis_emit(dwg, tier, strip, view, axis, cands, force=False, features=No
         axis,
         cands,
         tier,
+        ctx=ctx,
         force=force,
         features=features,
         trace=trace,
@@ -753,6 +754,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
                     "x",
                     [alt],
                     features=_feature_map(alt_view),
+                    ctx=ctx,
                     trace=ctx.trace,
                 ):
                     return
@@ -766,6 +768,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
                 [_cand],
                 force=True,
                 features=_feature_map(p_view),
+                ctx=ctx,
                 trace=ctx.trace,
             ):
                 _off_axis_drop(dwg, "Z", p_view, ctx=ctx)
@@ -853,7 +856,7 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
         cx = sum(to_page(m)[0] for m in members) / len(members)
         cy = sum(to_page(m)[1] for m in members) / len(members)
         # Furniture provenance (#408): the pattern owns its centre line + pitch dims.
-        dwg.add(
+        ctx.place(
             CenterlineCircle((cx, cy), feat.bcd * a.SCALE),
             f"bc_{view}{j}",
             view=view,
@@ -872,13 +875,14 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
             to_page,
             f"dim_pitch_{view}{j}",
             feature=feat,
+            ctx=ctx,
         )
     elif feat.pattern == "grid":
         assert feat.grid is not None  # a grid always carries its (row, col) pitch
-        _add_grid_pitch_dims(dwg, a, view, j, members, feat.grid, to_page, feature=feat)
+        _add_grid_pitch_dims(dwg, a, view, j, members, feat.grid, to_page, feature=feat, ctx=ctx)
 
 
-def _add_grid_pitch_dims(dwg, a: Analysis, view, j, members, nominals, to_page, feature=None):
+def _add_grid_pitch_dims(dwg, a: Analysis, view, j, members, nominals, to_page, feature=None, *, ctx):
     """Both pitch dimensions of a rectangular grid — one along each lattice axis,
     each labelled ``(n-1)× pitch`` (#92).  The two axes are recovered as the two
     shortest near-orthogonal inter-hole page vectors (the recogniser's own
@@ -951,13 +955,14 @@ def _add_grid_pitch_dims(dwg, a: Analysis, view, j, members, nominals, to_page, 
             to_page,
             f"dim_pitch_{view}{j}_{sub}",
             feature=feature,
+            ctx=ctx,
         )
 
     _axis_dim(u1, l1, 0)
     _axis_dim(u2, l2, 1)
 
 
-def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name, feature=None):
+def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name, feature=None, *, ctx):
     """Pitch dimension between two hole-centre *locations* ``loc1``→``loc2``, labelled
     ``(n-1)× pitch``, placed just outside the view on the side of the row's
     outward perpendicular (#92). *feature* attributes it to the source pattern (#408)."""
@@ -1062,7 +1067,7 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
     def _place(off, side_vec=side):
         page_box = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
         obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        dwg.add(
+        ctx.place(
             _clear_and_validate(off, side_vec, page_box, obstacles),
             name,
             view=view,
@@ -1169,7 +1174,7 @@ def _place_pitch_dim(dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name
                 or _box_hits(real, obstacles)
             ):
                 continue
-            dwg.add(
+            ctx.place(
                 _clear_and_validate(offset, side_vec, page_box, obstacles, probe),
                 name,
                 view=view,
@@ -1558,6 +1563,7 @@ def _place_front_callouts(
         "y",
         cands,
         min_gap,
+        ctx=ctx,
         features=features,
         priorities=priorities,
         forbid=forbid,
@@ -1702,7 +1708,7 @@ def _place_queue(
     for s, _elbow_y, leader in sorted(placed, key=lambda p: p[0][4]):
         _locs, dia, callout, feat, _ny, rep = s
         name = _hc_name(only, view, i, hc_used)
-        dwg.add(leader, name, view=view, feature=feat_of_callout.get(id(callout)))
+        ctx.place(leader, name, view=view, feature=feat_of_callout.get(id(callout)))
         # A plain (unpatterned) plan callout is a scattered-hole-table candidate
         # (#351): record its coverage against the ACTUAL placed name, regardless of
         # place_furniture, so finalize (place_furniture=False) still lets

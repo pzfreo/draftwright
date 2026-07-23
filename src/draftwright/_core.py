@@ -32,6 +32,7 @@ from build123d import Align, BoundBox, Compound, Edge, Location, Mode, Shape, Te
 from build123d_drafting.helpers import (
     Dimension,
     TitleBlock,
+    annotate,
     draft_preset,
     format_drawing_scale,
 )
@@ -46,6 +47,21 @@ from draftwright.fonts import PLEX_MONO, PLEX_SANS_CONDENSED
 from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
 
 _log = logging.getLogger(__name__)
+
+
+def place_annotation(registry, items, obj, name=None, view=None, feature=None):
+    """The annotation-placement primitive (#817): register *obj* under *name* — replacing any
+    prior object of that name (dropped from the render list *items*) so a name maps to one
+    object — append it to *items*, and record its owning *view* + source *feature* in *registry*.
+    Shared by :meth:`Drawing._add` and :meth:`PlacementContext.place` so the render passes place
+    annotations without reaching into the ``Drawing``. Returns *obj*."""
+    displaced = registry.named(name) if name is not None else None
+    if displaced is not None:
+        items.remove(displaced)
+    annotate(obj, name)
+    items.append(obj)
+    registry.add(obj, name, view, feature)
+    return obj
 
 
 _MARGIN = 10.0
@@ -841,7 +857,7 @@ def _add_title_block(dwg, a: Analysis):
         bx + cell["max_x"],
         _TB_CLEAR + cell["max_y"],
     )
-    dwg.add(tb, "title_block")
+    place_annotation(dwg.registry, dwg.items, tb, "title_block")
 
 
 def _make_sheet_frame(a: Analysis) -> Compound:
@@ -866,7 +882,7 @@ def _make_sheet_frame(a: Analysis) -> Compound:
 def _add_sheet_frame(dwg, a: Analysis):
     """Add the sheet border (#767), drawn last like the title block. No-op is the caller's
     (gated on ``a.frame``)."""
-    dwg.add(_make_sheet_frame(a), "sheet_frame")
+    place_annotation(dwg.registry, dwg.items, _make_sheet_frame(a), "sheet_frame")
 
 
 def _add_projection_symbol(dwg, a: Analysis):
@@ -893,7 +909,7 @@ def _add_projection_symbol(dwg, a: Analysis):
     cy = _TB_CLEAR + _TB_H - h / 2 - 2
     sym = sym.locate(Location((cx - bx, cy - by, 0)))
     sym.is_projection_symbol = True
-    dwg.add(sym, "projection_symbol")
+    place_annotation(dwg.registry, dwg.items, sym, "projection_symbol")
 
 
 def _add_zone_grid(dwg, a: Analysis):
@@ -926,12 +942,12 @@ def _add_zone_grid(dwg, a: Analysis):
         ticks.append(Edge.make_line(Vector(x1, yb, 0), Vector(x1 + tick, yb, 0)))
     grid = Compound(children=ticks)
     grid.is_zone_grid = True
-    dwg.add(grid, "zone_grid")
+    place_annotation(dwg.registry, dwg.items, grid, "zone_grid")
 
     def _label(text, cx, cy, name):
         note = Note(text, (cx, cy), draft, align=(Align.CENTER, Align.CENTER))
         note.is_zone_label = True
-        dwg.add(note, name)
+        place_annotation(dwg.registry, dwg.items, note, name)
 
     for i in range(cols):  # numbers 1.. left→right, in the bottom + top bands
         cx = x0 + (i + 0.5) * cw
