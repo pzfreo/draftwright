@@ -128,6 +128,11 @@ class Pocket(Record):
     hi: float
     d_lo: float
     d_hi: float
+    # Which depth end is the OPENING: +1 opens toward +depth (floor at d_lo), -1 toward -depth
+    # (floor at d_hi). d_lo/d_hi alone are the unordered extent, so without this two pockets on
+    # opposite faces sharing an absolute depth range are indistinguishable — and would merge into
+    # one impossible array (Codex #849). Defaults to +1 for hand-built records.
+    open_sign: int = 1
 
     @property
     def depth_axis(self) -> str:
@@ -368,6 +373,18 @@ def _floor_ends(faces, s: Slot) -> int:
     return int(_end_capped(faces, foot, foot_area, s.depth_axis, s.d_lo, 1.0)) + int(
         _end_capped(faces, foot, foot_area, s.depth_axis, s.d_hi, -1.0)
     )
+
+
+def _open_sign(faces, s) -> int:
+    """Which depth end *s* opens toward: ``+1`` (floor at ``d_lo``, opens +depth) or ``-1``
+    (floor at ``d_hi``, opens -depth). The capped end is the floor; the pocket opens the other
+    way. Assumes *s* is a blind recess (exactly one floor); the caller has already checked."""
+    foot = {
+        s.width_axis: (s.w_center - s.width / 2, s.w_center + s.width / 2),
+        s.long_axis: (s.lo, s.hi),
+    }
+    foot_area = math.prod(hi - lo for lo, hi in foot.values())
+    return 1 if _end_capped(faces, foot, foot_area, s.depth_axis, s.d_lo, 1.0) else -1
 
 
 def _has_floor(faces, s: Slot) -> bool:
@@ -658,6 +675,7 @@ def _recognise_obround_from_ends(part, faces, *, blind: bool = False):
                         hi=hi_f,
                         d_lo=round(dlo, 2),
                         d_hi=round(dhi, 2),
+                        open_sign=_open_sign(faces, s),  # which face this obround pocket opens
                     )
                 )
                 i += 2
@@ -888,10 +906,9 @@ def _pocket_candidate(fa, fb, faces, part_ext) -> Pocket | None:
         l_lo, l_hi = ranges[long_axis]
         foot = {axis: w_range, long_axis: (l_lo, l_hi)}
         foot_area = width * (l_hi - l_lo)
-        capped = _end_capped(faces, foot, foot_area, depth_axis, d_lo, 1.0) + _end_capped(
-            faces, foot, foot_area, depth_axis, d_hi, -1.0
-        )
-        if capped != 1:
+        cap_lo = _end_capped(faces, foot, foot_area, depth_axis, d_lo, 1.0)
+        cap_hi = _end_capped(faces, foot, foot_area, depth_axis, d_hi, -1.0)
+        if int(cap_lo) + int(cap_hi) != 1:
             continue  # 0 = through on this axis; 2 = an enclosed end-cap pair, not a floor
         length = l_hi - l_lo
         if width > length:
@@ -909,6 +926,7 @@ def _pocket_candidate(fa, fb, faces, part_ext) -> Pocket | None:
             hi=round(l_hi, 2),
             d_lo=round(d_lo, 2),
             d_hi=round(d_hi, 2),
+            open_sign=1 if cap_lo else -1,  # floor is the capped end; open the other way
         )
     return None
 
@@ -959,6 +977,7 @@ def _pocket_spec_key(pk: Pocket) -> tuple:
         round(pk.depth, 3),
         round(pk.d_lo, 3),
         round(pk.d_hi, 3),
+        pk.open_sign,  # opposite-facing pockets sharing a depth range are on different faces
     )
 
 

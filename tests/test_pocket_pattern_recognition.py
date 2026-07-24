@@ -101,6 +101,32 @@ def test_non_coplanar_aligned_pockets_do_not_merge():
     assert len(recognise_pocket_patterns(coplanar)) == 1
 
 
+def test_opposite_facing_pockets_do_not_merge():
+    # identical pockets sharing the SAME absolute depth range but opening OPPOSITE faces sit on
+    # different faces — d_lo/d_hi alone can't tell them apart, so open_sign keys them (Codex #849).
+    from draftwright.recognition.slots import Pocket
+
+    def pk(cy, sign):
+        return Pocket(
+            width_axis="x",
+            long_axis="y",
+            width=10.0,
+            length=12.0,
+            depth=6.0,
+            w_center=0.0,
+            lo=cy - 6,
+            hi=cy + 6,
+            d_lo=5.0,
+            d_hi=11.0,
+            open_sign=sign,
+        )
+
+    mixed = [pk(-30, 1), pk(0, -1), pk(30, 1)]  # same depth range, alternating opening face
+    assert recognise_pocket_patterns(mixed) == []
+    same = [pk(-30, 1), pk(0, 1), pk(30, 1)]  # all open the same face → one array
+    assert len(recognise_pocket_patterns(same)) == 1
+
+
 def test_injected_value_equal_pattern_still_excludes_members():
     # member exclusion is by VALUE, so an INJECTED pattern inventory built from value-equal
     # (deserialized/copied) pockets whose ids differ still suppresses the individual pockets —
@@ -135,7 +161,7 @@ def test_sheet_emit_round_trips_the_pattern(tmp_path):
     from draftwright.sheet_emit import generate_sheet_script
 
     py = generate_sheet_script(_pocket_row(n=4, pitch=30.0), out=str(tmp_path / "pp_emit_rt"))
-    src = Path(py).read_text()
+    src = Path(py).read_text(encoding="utf-8")  # the script carries non-ASCII (ø/×); Windows
     line = next(ln for ln in src.splitlines() if "sheet.pocket_pattern(" in ln)
     # declare rejects members= — the emit must use at=/pitch=/direction= instead
     assert "members=" not in line
