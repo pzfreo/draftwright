@@ -134,6 +134,23 @@ def test_grid_needs_two_by_two():
         pocket_pattern(m, kind="grid", count=3, grid=(10.0, 10.0), rows=3, cols=1)
 
 
+def test_linear_needs_count_two():
+    # count=1 is a single pocket, not an array — the callout would read `1× …` with no pitch
+    # dim (coincident endpoints). Reject count<2 (Codex #848 r4).
+    m = _member()
+    with pytest.raises(ValueError, match="count>=2"):
+        pocket_pattern(m, kind="linear", count=1, pitch=10.0)
+
+
+def test_direction_near_depth_rejected():
+    # the opening-plane check must test the NORMALIZED depth component: a raw absolute tolerance
+    # lets a tiny in-plane + tiny depth direction pass, yet it normalizes to mostly depth
+    # (Codex #848 r4). (0, 1e-12, 1e-10) normalizes to ~all-Z for a z-depth pocket.
+    m = _member()  # depth_axis z
+    with pytest.raises(ValueError, match="opening plane.*z-depth|no z-depth"):
+        pocket_pattern(m, kind="linear", count=3, pitch=10.0, direction=(0, 1e-12, 1e-10))
+
+
 def test_pitch_dim_names_do_not_collide_with_hole_pattern():
     # a plan-view hole pattern and pocket pattern both index from 0, so both once produced
     # `dim_pitch_plan0` — the second silently overwrote the first. Distinct prefixes now let

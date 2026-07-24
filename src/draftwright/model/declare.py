@@ -1143,11 +1143,23 @@ def pocket_pattern(
 
     if kind == "linear":
         _positive("pocket_pattern(kind='linear') pitch=", pitch)  # the pitch dim reads it
+        if count < 2:
+            # A single pocket is not an array — the callout would read `1× …` and the pitch
+            # dim would have coincident endpoints (silently dropped). Grids already need
+            # rows>=2 and cols>=2 (count>=4); the linear path needs count>=2 (Codex #848 r4).
+            raise ValueError(
+                "pocket_pattern(kind='linear') needs count>=2 — a single pocket is not an "
+                "array; declare it with pocket()"
+            )
         if direction is not None:
             _require_point("direction", direction)
             if not any(direction):
                 raise ValueError("pocket_pattern(kind='linear') direction= must be nonzero")
-            if abs(direction[axis_idx]) > 1e-9:  # opening-plane constraint (Codex #848)
+            # Test the NORMALIZED depth component: _pattern_members normalizes direction, so a
+            # raw absolute tolerance lets e.g. (1e-12, 0, 1e-10) pass yet normalize to mostly
+            # depth. A relative (scale-independent) test rejects any real depth tilt (Codex #848 r4).
+            norm = math.sqrt(sum(c * c for c in direction))
+            if abs(direction[axis_idx]) / norm > 1e-6:  # opening-plane constraint
                 raise ValueError(
                     "pocket_pattern(kind='linear') direction= must lie in the opening plane "
                     f"(no {axis}-depth component)"
