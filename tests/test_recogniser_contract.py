@@ -37,6 +37,8 @@ from draftwright.recognition import (
     PocketGrid,
     RectGrid,
     Slot,
+    SlotArray,
+    SlotGrid,
     StepShoulder,
     TurnedStep,
     analyse_cylinders,
@@ -52,6 +54,7 @@ from draftwright.recognition import (
     recognise_plates,
     recognise_pocket_patterns,
     recognise_pockets,
+    recognise_slot_patterns,
     recognise_slots,
     recognise_step_shoulders,
     recognise_turned_steps,
@@ -75,6 +78,8 @@ _EXPECTED_RECORD_TYPES = {
     Flat,
     Groove,
     Slot,
+    SlotArray,
+    SlotGrid,
     Pocket,
     PocketArray,
     PocketGrid,
@@ -130,6 +135,21 @@ def _pocket_grid_plate():
     for i in range(2):  # 2×3 lattice of identical blind pockets (rect_grid needs n>=6)
         for j in range(3):
             part -= Pos((i - 0.5) * 40, (j - 1) * 30, 7) * Box(8, 10, 6)
+    return part
+
+
+def _slot_array_plate():
+    part = Box(60, 200, 20)
+    for cy in (-45, -15, 15, 45):  # four identical THROUGH slots on one Y centreline, pitch 30
+        part -= Pos(0, cy, 0) * Box(30, 8, 20)  # cutter spans the full Z → a Slot, not a Pocket
+    return part
+
+
+def _slot_grid_plate():
+    part = Box(180, 130, 20)
+    for i in range(2):  # 2×3 lattice of identical through slots (rect_grid needs n>=6)
+        for j in range(3):
+            part -= Pos((i - 0.5) * 44, (j - 1) * 34, 0) * Box(24, 8, 20)
     return part
 
 
@@ -189,6 +209,14 @@ def _records_from_recognisers():
         (
             "pocket_patterns:grid",
             recognise_pocket_patterns(recognise_pockets(_pocket_grid_plate())),
+        ),
+        (
+            "slot_patterns:linear",
+            recognise_slot_patterns(recognise_slots(_slot_array_plate())),
+        ),
+        (
+            "slot_patterns:grid",
+            recognise_slot_patterns(recognise_slots(_slot_grid_plate())),
         ),
         ("recognise_flats", recognise_flats(dshaft)),
         ("recognise_grooves", recognise_grooves(grooved)),

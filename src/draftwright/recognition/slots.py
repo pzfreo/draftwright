@@ -96,6 +96,46 @@ class Slot(Record):
     def depth_axis(self) -> str:
         return next(a for a in "xyz" if a not in (self.width_axis, self.long_axis))
 
+    @property
+    def location(self) -> tuple[float, float, float]:
+        """The slot centroid in world XYZ — mid-span along ``long_axis``, the centreline on
+        ``width_axis``, mid-through on ``depth_axis``. The `.location` the shared pattern geometry
+        (#635) clusters on, as pockets/holes carry."""
+        coord = {
+            self.long_axis: (self.lo + self.hi) / 2,
+            self.width_axis: self.w_center,
+            self.depth_axis: (self.d_lo + self.d_hi) / 2,
+        }
+        return (coord["x"], coord["y"], coord["z"])
+
+
+@dataclass(frozen=True)
+class SlotArray(Record):
+    """N identical milled slots in a straight, constant-pitch line (#841) — the through-slot
+    analog of :class:`PocketArray`. ``slots`` are the member :class:`Slot` records (ordered along
+    the array); ``pitch`` is the centre-to-centre spacing and ``direction`` the (unit) array
+    axis, both read by ``detect._slot_pattern_feature``."""
+
+    slots: tuple
+    pitch: float
+    direction: tuple
+
+
+@dataclass(frozen=True)
+class SlotGrid(Record):
+    """N×M identical milled slots on a rectangular lattice (#841) — the through-slot analog of
+    :class:`PocketGrid`. ``slots`` are the member :class:`Slot` records; the lattice is
+    ``rows``×``cols`` at ``row_pitch``/``col_pitch``, rotated ``angle`` degrees about
+    ``center``."""
+
+    slots: tuple
+    rows: int
+    cols: int
+    row_pitch: float
+    col_pitch: float
+    angle: float
+    center: tuple
+
 
 @dataclass(frozen=True)
 class Pocket(Record):
@@ -1037,6 +1077,89 @@ def recognise_pocket_patterns(pockets) -> list[PocketArray | PocketGrid]:
         if grid is not None:
             candidates.append((grid, frozenset(range(len(members)))))
         candidates += _linear_array_candidates(members, pts, _mk_pocket_linear)
+        candidates.sort(key=lambda c: -len(c[1]))
+        used: set = set()
+        for pattern, idx in candidates:
+            if idx & used:
+                continue
+            patterns.append(pattern)
+            used |= idx
+    return patterns
+
+
+def _slot_spec_key(sl: Slot) -> tuple:
+    """The grouping key shared by slots of the *same milled feature* — same orientation, size,
+    AND through plane. Only identical, same-orientation, coplanar slots form one array. The
+    through-axis extent (d_lo, d_hi) is part of the key so slots on different-height stepped
+    faces whose in-plane centres line up don't merge into a planar array that does not exist
+    (mirrors ``_pocket_spec_key``). A slot is THROUGH — no floor, no opening direction — so
+    unlike the pocket key there is no ``depth`` and no ``open_sign``. Coordinates snap to 3 dp so
+    boolean-op float noise does not split an array."""
+    return (
+        sl.width_axis,
+        sl.long_axis,
+        round(sl.width, 3),
+        round(sl.length, 3),
+        round(sl.d_lo, 3),
+        round(sl.d_hi, 3),
+    )
+
+
+def _mk_slot_linear(members, pitch, direction) -> SlotArray:
+    return SlotArray(slots=tuple(members), pitch=pitch, direction=direction)
+
+
+def _mk_slot_grid(members, rows, cols, row_pitch, col_pitch, angle, center) -> SlotGrid:
+    return SlotGrid(
+        slots=tuple(members),
+        rows=rows,
+        cols=cols,
+        row_pitch=row_pitch,
+        col_pitch=col_pitch,
+        angle=angle,
+        center=center,
+    )
+
+
+def recognise_slot_patterns(slots) -> list[SlotArray | SlotGrid]:
+    """Recognise :class:`SlotArray` (linear) and :class:`SlotGrid` (rectangular) arrays among
+    *slots* (``Slot`` records, e.g. from :func:`recognise_slots`) — the through-slot analog of
+    :func:`recognise_pocket_patterns`.
+
+    A DERIVED recogniser (single positional inventory, ADR 0013): slots are grouped by
+    orientation + size + through plane (:func:`_slot_spec_key`), each group's centres are
+    projected into the face plane (perpendicular to the shared through axis), and the same
+    collinear / lattice geometry the hole/pocket patterns use (shared via *make* factories,
+    #635) is enumerated and allocated greedily largest-first. Slots have no bolt-circle form, so
+    only grid + linear candidates are considered. Un-arrayed slots are absent from the result."""
+    from draftwright.recognition._features import (
+        _linear_array_candidates,
+        _plane_uv,
+        _rect_grid,
+    )
+
+    axis_unit = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+    groups: dict = {}
+    for sl in slots:
+        groups.setdefault(_slot_spec_key(sl), []).append(sl)
+
+    patterns: list[SlotArray | SlotGrid] = []
+    for members in groups.values():
+        if len(members) < 3:
+            continue
+        u, v = _plane_uv(axis_unit[members[0].depth_axis])
+        pts = [
+            (
+                sum(a * b for a, b in zip(sl.location, u, strict=True)),
+                sum(a * b for a, b in zip(sl.location, v, strict=True)),
+            )
+            for sl in members
+        ]
+        candidates: list = []
+        grid = _rect_grid(members, pts, _mk_slot_grid)
+        if grid is not None:
+            candidates.append((grid, frozenset(range(len(members)))))
+        candidates += _linear_array_candidates(members, pts, _mk_slot_linear)
         candidates.sort(key=lambda c: -len(c[1]))
         used: set = set()
         for pattern, idx in candidates:

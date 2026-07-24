@@ -108,6 +108,20 @@ def _member_pocket_str(m) -> str:
     )
 
 
+def _member_slot_str(m) -> str:
+    """The ``slot(...)`` template for a slot-pattern member — carries its width × length and
+    orientation (a slot has no depth). Its own position is irrelevant (the pattern's ``at=``
+    fixes the array centre); length is derived from the emitted lo/hi so ``hi - lo == length``
+    exactly (declare.slot rejects a 1e-6 mismatch)."""
+    lo, hi = _n(m.lo), _n(m.hi)
+    length = _n(round(float(hi) - float(lo), 3))
+    return (
+        f"slot(width={_n(m.width)}, length={length}, "
+        f'long_axis="{m.long_axis}", width_axis="{m.width_axis}", '
+        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)})"
+    )
+
+
 def _authored_dimension_line(f) -> str:
     kw = [
         f"kind={f.dimension_kind!r}",
@@ -224,6 +238,19 @@ def _feature_line(f) -> str:
             if f.angle:
                 parts.append(f"angle={_n(f.angle)}")
         return f"sheet.pocket_pattern({_member_pocket_str(f.member)}, " + ", ".join(parts) + ")"
+    if k == "slot_pattern":
+        # Like pocket_pattern: declare rejects members=, so emit the array centre + arrangement
+        # params and let the computed layout land where detected. direction= carries orientation.
+        parts = [f'kind="{f.pattern}"', f"count={f.count}", f"at={_pt(f.frame.origin)}"]
+        if f.pattern == "linear":
+            parts.append(f"pitch={_n(f.pitch)}")
+            if f.direction:
+                parts.append(f"direction={_pt(f.direction)}")
+        elif f.pattern == "grid" and f.grid:
+            parts.append(f"grid=({_n(f.grid[0])}, {_n(f.grid[1])}), rows={f.rows}, cols={f.cols}")
+            if f.angle:
+                parts.append(f"angle={_n(f.angle)}")
+        return f"sheet.slot_pattern({_member_slot_str(f.member)}, " + ", ".join(parts) + ")"
     if k == "chamfer":
         return (
             f'sheet.chamfer(axis="{f.axis}", leg1={_n(f.leg1)}, leg2={_n(f.leg2)}, '

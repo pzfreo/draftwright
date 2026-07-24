@@ -95,8 +95,11 @@ from draftwright.recognition.slots import (
     PocketArray,
     PocketGrid,
     Slot,
+    SlotArray,
+    SlotGrid,
     recognise_pocket_patterns,
     recognise_pockets,
+    recognise_slot_patterns,
     recognise_slots,
 )
 from draftwright.recognition.turned import TurnedProfile, TurnedStep, recognise_turned_steps
@@ -120,6 +123,8 @@ __all__ = [
     "PocketGrid",
     "RectGrid",
     "Slot",
+    "SlotArray",
+    "SlotGrid",
     "StepShoulder",
     "TurnedProfile",
     "TurnedStep",
@@ -144,6 +149,7 @@ __all__ = [
     "recognise_plates",
     "recognise_pocket_patterns",
     "recognise_pockets",
+    "recognise_slot_patterns",
     "recognise_slots",
     "recognise_turned_steps",
     "full_cylinders",
