@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" font-family="'IBM Plex Mono','SFMono-Regular',Menlo,monospace">
+  <rect x="6" y="6" width="228" height="228" rx="44" fill="#ffffff" stroke="#17324a" stroke-width="4"/>
+  <!-- iso cube -->
+  <g fill="none" stroke="#17324a" stroke-width="7" stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="120,38 172,68 172,128 120,158 68,128 68,68"/>
+    <path d="M120,38 L120,98 M120,98 L172,128 M120,98 L68,128"/>
+  </g>
+  <!-- dimension -->
+  <g stroke-width="2">
+    <line x1="68"  y1="134" x2="68"  y2="200" stroke="#17324a"/>
+    <line x1="172" y1="134" x2="172" y2="200" stroke="#17324a"/>
+    <line x1="68"  y1="193" x2="172" y2="193" stroke="#2b8fd6"/>
+  </g>
+  <g fill="#2b8fd6">
+    <polygon points="68,193 81,188 81,198"/>
+    <polygon points="172,193 159,188 159,198"/>
+  </g>
+  
+
+<path transform="translate(108.80,187) scale(0.01700,-0.01700)" d="M95 698H290Q418 698 481.0 610.0Q544 522 544 349Q544 176 481.0 88.0Q418 0 290 0H95ZM286 73Q370 73 412.5 131.0Q455 189 455 295V403Q455 509 412.5 567.0Q370 625 286 625H179V73Z" fill="#2b8fd6"/>
+<path transform="translate(120.00,187) scale(0.01700,-0.01700)" d="M90 0 35 698H110L139 298L154 87H162L254 516H348L440 87H448L463 298L492 698H565L510 0H389L304 417H296L211 0Z" fill="#2b8fd6"/>
+</svg>
