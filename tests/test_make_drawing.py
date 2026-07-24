@@ -6483,8 +6483,8 @@ class TestFeatureEdits:
             elif f.kind in ("step", "boss"):
                 if f.frame.axis in ("x", "z"):  # callout() places X/Z-turned diameters only
                     dwg.callout(f)
-            elif f.kind == "pocket_pattern":
-                dwg.callout(f)  # grouped callout + pitch (no locate/furniture); #841 outcome 3
+            elif f.kind in ("pocket_pattern", "slot_pattern"):
+                dwg.callout(f)  # grouped callout + pitch (no locate/furniture); #841
                 continue
             elif f.kind == "step_level":
                 dwg.dimension(f, "length", role="step_height")

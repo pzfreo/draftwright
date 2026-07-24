@@ -975,6 +975,12 @@ def _feature_listing(a: Analysis) -> str:
             # has no location dims and render_pocket_patterns emits the pitch itself.
             body.append("dwg.callout(f)")
             continue
+        elif kind == "slot_pattern":
+            # A slot pattern reconstructs through callout(f), exactly like a pocket pattern:
+            # finalize drains it at the pre-drain "slot_patterns" stage, drawing the grouped
+            # SLOT W × L callout + its pitch dim(s). No locate()/furniture() (#841).
+            body.append("dwg.callout(f)")
+            continue
         for p in feat.parameters():
             if p.span is not None or kind == "slot":  # a linear dim dimension() accepts
                 body.append(f'dwg.dimension(f, "{p.kind}", role="{p.role}")   # {display(p)}')
