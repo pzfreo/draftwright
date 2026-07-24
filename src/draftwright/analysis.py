@@ -93,6 +93,10 @@ def _will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
 
     if model is None:
         return False
+    # An explicit Sheet.section() request (ADR 0011, #841) reserves the row even when no
+    # hole gate qualifies — a blind pocket's floor/depth section has no driving Z hole.
+    if getattr(model, "decorations", {}).get("section") is not None:
+        return True
     features = getattr(model, "features", model)
 
     def feature_member(pt) -> bool:

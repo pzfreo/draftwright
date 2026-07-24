@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from typing import TypeVar
 
 from build123d import Box, GeomType, Pos
@@ -95,6 +96,46 @@ class Slot(Record):
     def depth_axis(self) -> str:
         return next(a for a in "xyz" if a not in (self.width_axis, self.long_axis))
 
+    @property
+    def location(self) -> tuple[float, float, float]:
+        """The slot centroid in world XYZ — mid-span along ``long_axis``, the centreline on
+        ``width_axis``, mid-through on ``depth_axis``. The `.location` the shared pattern geometry
+        (#635) clusters on, as pockets/holes carry."""
+        coord = {
+            self.long_axis: (self.lo + self.hi) / 2,
+            self.width_axis: self.w_center,
+            self.depth_axis: (self.d_lo + self.d_hi) / 2,
+        }
+        return (coord["x"], coord["y"], coord["z"])
+
+
+@dataclass(frozen=True)
+class SlotArray(Record):
+    """N identical milled slots in a straight, constant-pitch line (#841) — the through-slot
+    analog of :class:`PocketArray`. ``slots`` are the member :class:`Slot` records (ordered along
+    the array); ``pitch`` is the centre-to-centre spacing and ``direction`` the (unit) array
+    axis, both read by ``detect._slot_pattern_feature``."""
+
+    slots: tuple
+    pitch: float
+    direction: tuple
+
+
+@dataclass(frozen=True)
+class SlotGrid(Record):
+    """N×M identical milled slots on a rectangular lattice (#841) — the through-slot analog of
+    :class:`PocketGrid`. ``slots`` are the member :class:`Slot` records; the lattice is
+    ``rows``×``cols`` at ``row_pitch``/``col_pitch``, rotated ``angle`` degrees about
+    ``center``."""
+
+    slots: tuple
+    rows: int
+    cols: int
+    row_pitch: float
+    col_pitch: float
+    angle: float
+    center: tuple
+
 
 @dataclass(frozen=True)
 class Pocket(Record):
@@ -127,10 +168,55 @@ class Pocket(Record):
     hi: float
     d_lo: float
     d_hi: float
+    # Which depth end is the OPENING: +1 opens toward +depth (floor at d_lo), -1 toward -depth
+    # (floor at d_hi). d_lo/d_hi alone are the unordered extent, so without this two pockets on
+    # opposite faces sharing an absolute depth range are indistinguishable — and would merge into
+    # one impossible array (Codex #849). Defaults to +1 for hand-built records.
+    open_sign: int = 1
 
     @property
     def depth_axis(self) -> str:
         return next(a for a in "xyz" if a not in (self.width_axis, self.long_axis))
+
+    @property
+    def location(self) -> tuple[float, float, float]:
+        """The recess centroid in world XYZ — mid-span along ``long_axis``, the centreline on
+        ``width_axis``, mid-depth on ``depth_axis`` (matches ``detect._convert_pocket``). The
+        `.location` the shared pattern geometry (#635) clusters on, as holes carry."""
+        coord = {
+            self.long_axis: (self.lo + self.hi) / 2,
+            self.width_axis: self.w_center,
+            self.depth_axis: (self.d_lo + self.d_hi) / 2,
+        }
+        return (coord["x"], coord["y"], coord["z"])
+
+
+@dataclass(frozen=True)
+class PocketArray(Record):
+    """N identical blind pockets in a straight, constant-pitch line (#841) — the recess analog
+    of :class:`~draftwright.recognition._features.LinearArray`. ``pockets`` are the member
+    :class:`Pocket` records (ordered along the array); ``pitch`` is the centre-to-centre spacing
+    and ``direction`` the (unit) array axis, both read by ``detect._pocket_pattern_feature``."""
+
+    pockets: tuple
+    pitch: float
+    direction: tuple
+
+
+@dataclass(frozen=True)
+class PocketGrid(Record):
+    """N×M identical blind pockets on a rectangular lattice (#841) — the recess analog of
+    :class:`~draftwright.recognition._features.RectGrid`. ``pockets`` are the member
+    :class:`Pocket` records; the lattice is ``rows``×``cols`` at ``row_pitch``/``col_pitch``,
+    rotated ``angle`` degrees about ``center``."""
+
+    pockets: tuple
+    rows: int
+    cols: int
+    row_pitch: float
+    col_pitch: float
+    angle: float
+    center: tuple
 
 
 # When the two non-width slot extents are within this fraction of each other the
@@ -313,18 +399,39 @@ def _end_capped(faces, foot, foot_area, depth_axis, end, want) -> bool:
     return bool(covered >= _FLOOR_COVER_FRAC * foot_area)
 
 
-def _has_floor(faces, s: Slot) -> bool:
-    """True when a planar floor caps the slot at *either* depth end — i.e. it is blind,
-    not through. The through/blind split for :func:`recognise_slots`; :func:`recognise_pockets`
-    uses the finer *which end* count (:func:`_end_capped`) to recover the depth axis."""
+def _floor_ends(faces, s: Slot) -> int:
+    """How many of *s*'s two depth ends a planar floor caps: ``0`` = through (open both ends),
+    ``1`` = a blind recess (one floor + one opening — a real pocket), ``2`` = a sealed internal
+    void (capped both ends, no opening — NOT a machinable recess). The obround end-cap recovery
+    routes on this exact count, so a sealed void is not misread as a full-thickness-deep pocket
+    (#837 review)."""
     foot = {
         s.width_axis: (s.w_center - s.width / 2, s.w_center + s.width / 2),
         s.long_axis: (s.lo, s.hi),
     }
     foot_area = math.prod(hi - lo for lo, hi in foot.values())
-    return _end_capped(faces, foot, foot_area, s.depth_axis, s.d_lo, 1.0) or _end_capped(
-        faces, foot, foot_area, s.depth_axis, s.d_hi, -1.0
+    return int(_end_capped(faces, foot, foot_area, s.depth_axis, s.d_lo, 1.0)) + int(
+        _end_capped(faces, foot, foot_area, s.depth_axis, s.d_hi, -1.0)
     )
+
+
+def _open_sign(faces, s) -> int:
+    """Which depth end *s* opens toward: ``+1`` (floor at ``d_lo``, opens +depth) or ``-1``
+    (floor at ``d_hi``, opens -depth). The capped end is the floor; the pocket opens the other
+    way. Assumes *s* is a blind recess (exactly one floor); the caller has already checked."""
+    foot = {
+        s.width_axis: (s.w_center - s.width / 2, s.w_center + s.width / 2),
+        s.long_axis: (s.lo, s.hi),
+    }
+    foot_area = math.prod(hi - lo for lo, hi in foot.values())
+    return 1 if _end_capped(faces, foot, foot_area, s.depth_axis, s.d_lo, 1.0) else -1
+
+
+def _has_floor(faces, s: Slot) -> bool:
+    """True when a planar floor caps the slot at *either* depth end — i.e. it is not a through
+    slot. The through/blind split for :func:`recognise_slots`'s flat-wall path; the obround end-cap
+    path uses the finer :func:`_floor_ends` count (a pocket is capped on exactly one end)."""
+    return _floor_ends(faces, s) >= 1
 
 
 # A radiused-end (obround) slot has semicircular end caps whose radius is the slot's
@@ -419,6 +526,10 @@ def _extend_obround_ends(records: list[_R], part) -> list[_R]:
 # (bbox 2r × 2r) so it is never read as an end; a lone unpaired end is a fillet/round.
 _OBROUND_RATIO_TOL = 0.1  # a half-cylinder's in-plane extents are 2r (across) / r (bulge) — match
 # by RATIO to the radius (2.0 / 1.0), so the discriminator holds at every scale, not just large r.
+# Coaxial cap faces (a semicircle a STEP importer split into two quarter-cylinders) are clustered
+# when their axis lines sit within this (mm); the ~0.02 mm split noise is well inside it, and a
+# real slot's two ends are separated by its straight run (≥ _MERGE_TOL), well outside (#837).
+_CAP_CLUSTER_TOL = 0.3
 
 
 def _obround_end(cap: tuple):
@@ -447,7 +558,20 @@ def _obround_end(cap: tuple):
     lc = "XYZ"[_AXES[long_axis]]
     flat = loc[_AXES[long_axis]]
     direction = -1 if (flat - getattr(bb.min, lc)) > (getattr(bb.max, lc) - flat) else 1
-    return (width_axis, long_axis, ax, rad, loc[_AXES[width_axis]], flat, direction, d_lo, d_hi)
+    # w_center from the (merged) bbox centre, not loc — an imported STEP splits an end into two
+    # quarter faces whose axis Location differs by ~0.02 mm across the diameter, so loc[width] is
+    # unreliable while the union bbox centre is exact (#837). flat (loc[long]) stays consistent.
+    return (
+        width_axis,
+        long_axis,
+        ax,
+        rad,
+        _center(bb, _AXES[width_axis]),
+        flat,
+        direction,
+        d_lo,
+        d_hi,
+    )
 
 
 def _has_side_walls(faces, s: Slot) -> bool:
@@ -476,58 +600,131 @@ def _has_side_walls(faces, s: Slot) -> bool:
     return lo_wall and hi_wall
 
 
-def _recognise_obround_from_ends(part, faces) -> list[Slot]:
-    """Recognise obround through-slots from their semicircular end caps (#816) — the path for slots
-    whose flat walls are too short for :func:`_candidate` to pair. Half-cylinder ends are grouped by
-    centreline/radius/depth extent, then within a group (all slots on one centreline share it)
-    sorted along the run and paired: a cap bulging toward -long immediately followed by one bulging
-    toward +long is one slot's two ends (the void lies between their flats); the reverse adjacency
-    is the solid gap between two slots and is skipped. Each pair is confirmed by :func:`_has_side_walls`
-    (a real channel connects the ends — not two D-cutouts across solid) and :func:`_has_floor` (it is
-    through, not a blind pocket). ``lo``/``hi`` are emitted at the straight-wall junctions so
+def _union_bb(a, b):
+    """Axis-aligned union of two bounding boxes, as a ``min``/``max`` namespace matching the
+    build123d ``BoundBox`` interface (``.min.X`` …) the cap helpers read."""
+    mn = SimpleNamespace(X=min(a.min.X, b.min.X), Y=min(a.min.Y, b.min.Y), Z=min(a.min.Z, b.min.Z))
+    mx = SimpleNamespace(X=max(a.max.X, b.max.X), Y=max(a.max.Y, b.max.Y), Z=max(a.max.Z, b.max.Z))
+    return SimpleNamespace(min=mn, max=mx)
+
+
+def _obround_ends(part) -> list[tuple]:
+    """The obround end caps of *part*, robust to the imported-STEP topology that splits a
+    semicircular end into two quarter-cylinder faces (#837).
+
+    A physical end is one or more **coaxial** concave cylinder faces sharing an axis line and depth:
+    build123d emits it as a single half-cylinder face (in-plane bbox ``2r × r``), while a STEP
+    importer commonly splits it into two quarter-cylinders (``r × r`` each) whose axis Locations
+    differ by ~0.02 mm across the diameter. Faces are therefore **clustered by proximity** of their
+    axis line (same axis + radius + depth, in-plane position within ``_CAP_CLUSTER_TOL``) rather
+    than exact-key grouping, and the UNION in-plane bbox is classified via :func:`_obround_end` — the
+    union of the two quarters is the same ``2r × r`` a single half-cylinder gives. (A round hole is a
+    full cylinder, ``2r × 2r``, so its union still fails the ratio test.)"""
+    clusters: list[dict] = []
+    for rad, ax, loc, bb, concave in _cylinder_faces(part):
+        if not concave or rad <= 0:
+            continue
+        o0, o1 = [a for a in "xyz" if a != ax]
+        dc = "XYZ"[_AXES[ax]]
+        ip = (loc[_AXES[o0]], loc[_AXES[o1]])
+        dz = (round(getattr(bb.min, dc), 1), round(getattr(bb.max, dc), 1))
+        for cl in clusters:
+            if (
+                cl["ax"] == ax
+                and abs(cl["rad"] - rad) <= _END_RADIUS_TOL
+                and cl["dz"] == dz
+                and abs(cl["ip"][0] - ip[0]) <= _CAP_CLUSTER_TOL
+                and abs(cl["ip"][1] - ip[1]) <= _CAP_CLUSTER_TOL
+            ):
+                cl["bb"] = _union_bb(cl["bb"], bb)
+                break
+        else:
+            clusters.append({"ax": ax, "rad": rad, "loc": loc, "ip": ip, "dz": dz, "bb": bb})
+    ends = []
+    for cl in clusters:
+        e = _obround_end((cl["rad"], cl["ax"], cl["loc"], cl["bb"], True))
+        if e is not None:
+            ends.append(e)
+    return ends
+
+
+def _recognise_obround_from_ends(part, faces, *, blind: bool = False):
+    """Recognise obround recesses from their semicircular end caps — the path for recesses whose
+    flat walls are too short for :func:`_candidate`/:func:`_pocket_candidate` to pair (#816/#837).
+    Merged ends (:func:`_obround_ends`, quarter/half-cylinder agnostic) are grouped by centreline/
+    radius/depth, then within a group sorted along the run and paired: a cap bulging toward -long
+    immediately followed by one bulging toward +long is one recess's two ends (the void lies between
+    their flats); the reverse adjacency is the solid gap between two recesses and is skipped. Each
+    pair is confirmed by :func:`_has_side_walls` (a real channel connects the ends — not two
+    D-cutouts across solid), then :func:`_has_floor` routes it: ``blind=False`` keeps only through
+    recesses (:class:`Slot`), ``blind=True`` keeps only floored ones (:class:`Pocket`, depth =
+    ``d_hi - d_lo``). ``lo``/``hi`` are emitted at the straight-wall junctions so
     :func:`_extend_obround_ends` adds the two radii (uniform with the flat-wall path, and `_merge`
     folds any duplicate an elongated obround's flat walls also produced).
 
     The two flats must be more than ``_MERGE_TOL`` apart to count as distinct ends — so a genuinely
     sub-millimetre obround (straight run < 0.5 mm) is not recovered; supporting that would need the
     module-wide absolute ``_MERGE_TOL`` to go relative, out of scope here."""
-    ends = [e for cap in _cylinder_faces(part) if (e := _obround_end(cap)) is not None]
     groups: dict[tuple, list[tuple]] = {}
-    for e in ends:
+    for e in _obround_ends(part):
         wa, la, da, rad, wc, flat, direction, dlo, dhi = e
         key = (wa, la, da, round(rad, 2), round(wc, 2), round(dlo, 2), round(dhi, 2))
         groups.setdefault(key, []).append(e)
-    slots: list[Slot] = []
+    out: list = []
     for (wa, la, _da, rad, wc, dlo, dhi), grp in groups.items():
         run = sorted(grp, key=lambda e: e[5])  # by flat along the long axis
         i = 0
         while i < len(run) - 1:
             lo_end, hi_end = run[i], run[i + 1]
-            # A slot's two ends bulge APART (low end toward -long, high end toward +long), so the
-            # void is between their flats. The reverse pair is solid stock between slots — skip it.
+            # A recess's two ends bulge APART (low end toward -long, high end toward +long), so the
+            # void is between their flats. The reverse pair is solid stock between recesses — skip.
             if not (lo_end[6] == -1 and hi_end[6] == 1 and hi_end[5] - lo_end[5] > _MERGE_TOL):
                 i += 1
                 continue
+            lo_f, hi_f = round(lo_end[5], 2), round(hi_end[5], 2)
             s = Slot(
                 width_axis=wa,
                 long_axis=la,
                 width=round(2 * rad, 2),
-                length=round(hi_end[5] - lo_end[5], 2),
+                length=round(hi_f - lo_f, 2),
                 w_center=round(wc, 2),
-                lo=round(lo_end[5], 2),
-                hi=round(hi_end[5], 2),
+                lo=lo_f,
+                hi=hi_f,
                 d_lo=round(dlo, 2),
                 d_hi=round(dhi, 2),
             )
-            # Confirm a real channel (side walls) joins the ends and it is through, not a blind
-            # obround pocket or two D-cutouts bridging solid (#816 review). On failure the caps may
-            # belong to a later valid pair, so advance by one, not two.
-            if _has_side_walls(faces, s) and not _has_floor(faces, s):
-                slots.append(s)
+            # Confirm a real channel (side walls) joins the ends — not two D-cutouts bridging solid
+            # (#816 review). On failure the caps may belong to a later valid pair, so advance by one.
+            if not _has_side_walls(faces, s):
+                i += 1
+                continue
+            # Route on the EXACT floor count: a pocket is capped on ONE end (floor + opening); a
+            # through-slot on neither; a sealed internal void (both ends capped) is neither — do not
+            # emit it as a full-thickness-deep pocket (#837 review).
+            n_floor = _floor_ends(faces, s)
+            if blind and n_floor == 1:
+                out.append(
+                    Pocket(
+                        width_axis=wa,
+                        long_axis=la,
+                        width=round(2 * rad, 2),
+                        length=round(hi_f - lo_f, 2),
+                        depth=round(dhi - dlo, 2),
+                        w_center=round(wc, 2),
+                        lo=lo_f,
+                        hi=hi_f,
+                        d_lo=round(dlo, 2),
+                        d_hi=round(dhi, 2),
+                        open_sign=_open_sign(faces, s),  # which face this obround pocket opens
+                    )
+                )
+                i += 2
+            elif not blind and n_floor == 0:
+                out.append(s)
                 i += 2
             else:
-                i += 1
-    return slots
+                i += 1  # not ours: a pocket in a slot scan, a slot in a pocket scan, or a void
+    return out
 
 
 def recognise_slots(part) -> list[Slot]:
@@ -749,10 +946,9 @@ def _pocket_candidate(fa, fb, faces, part_ext) -> Pocket | None:
         l_lo, l_hi = ranges[long_axis]
         foot = {axis: w_range, long_axis: (l_lo, l_hi)}
         foot_area = width * (l_hi - l_lo)
-        capped = _end_capped(faces, foot, foot_area, depth_axis, d_lo, 1.0) + _end_capped(
-            faces, foot, foot_area, depth_axis, d_hi, -1.0
-        )
-        if capped != 1:
+        cap_lo = _end_capped(faces, foot, foot_area, depth_axis, d_lo, 1.0)
+        cap_hi = _end_capped(faces, foot, foot_area, depth_axis, d_hi, -1.0)
+        if int(cap_lo) + int(cap_hi) != 1:
             continue  # 0 = through on this axis; 2 = an enclosed end-cap pair, not a floor
         length = l_hi - l_lo
         if width > length:
@@ -770,6 +966,7 @@ def _pocket_candidate(fa, fb, faces, part_ext) -> Pocket | None:
             hi=round(l_hi, 2),
             d_lo=round(d_lo, 2),
             d_hi=round(d_hi, 2),
+            open_sign=1 if cap_lo else -1,  # floor is the capped end; open the other way
         )
     return None
 
@@ -797,4 +994,177 @@ def recognise_pockets(part) -> list[Pocket]:
                 p = _pocket_candidate(walls[i], walls[j], faces, part_ext)
                 if p is not None:
                     candidates.append(p)
+    # Stubby blind obround pockets (straight section < width) have no pairable flat walls, so
+    # recover them from their end caps (#837) — the blind counterpart of the through-slot path.
+    candidates.extend(_recognise_obround_from_ends(part, faces, blind=True))
     return _extend_obround_ends(_merge(candidates), part)
+
+
+def _pocket_spec_key(pk: Pocket) -> tuple:
+    """The grouping key shared by pockets of the *same milled recess* — same orientation, size,
+    AND opening plane. Only identical, same-orientation, COPLANAR pockets can form one array (a
+    90°-rotated pocket swaps width_axis/long_axis and reads as a different feature). The
+    depth-axis extent (d_lo, d_hi) is part of the key: pattern detection projects the depth
+    coordinate away, so without it pockets on different-height stepped faces — or opening
+    opposite directions — whose in-plane centres happen to line up would merge into one planar
+    array that does not exist (Codex #849). Coordinates snap to 3 dp so boolean-op float noise
+    does not split an array (mirrors ``HoleSpec``'s axis snap)."""
+    return (
+        pk.width_axis,
+        pk.long_axis,
+        round(pk.width, 3),
+        round(pk.length, 3),
+        round(pk.depth, 3),
+        round(pk.d_lo, 3),
+        round(pk.d_hi, 3),
+        pk.open_sign,  # opposite-facing pockets sharing a depth range are on different faces
+    )
+
+
+def _mk_pocket_linear(members, pitch, direction) -> PocketArray:
+    return PocketArray(pockets=tuple(members), pitch=pitch, direction=direction)
+
+
+def _mk_pocket_grid(members, rows, cols, row_pitch, col_pitch, angle, center) -> PocketGrid:
+    return PocketGrid(
+        pockets=tuple(members),
+        rows=rows,
+        cols=cols,
+        row_pitch=row_pitch,
+        col_pitch=col_pitch,
+        angle=angle,
+        center=center,
+    )
+
+
+def recognise_pocket_patterns(pockets) -> list[PocketArray | PocketGrid]:
+    """Recognise :class:`PocketArray` (linear) and :class:`PocketGrid` (rectangular) arrays
+    among *pockets* (``Pocket`` records, e.g. from :func:`recognise_pockets`) — the recess
+    analog of :func:`~draftwright.recognition._features.recognise_hole_patterns`.
+
+    A DERIVED recogniser (single positional inventory, ADR 0013): pockets are grouped by
+    orientation + size (:func:`_pocket_spec_key`), each group's centres are projected into the
+    opening plane (perpendicular to the shared depth axis), and the same collinear / lattice
+    geometry the hole patterns use (shared via *make* factories, #635) is enumerated and
+    allocated greedily largest-first so each pocket belongs to at most one array. Pockets have
+    no bolt-circle form, so only grid + linear candidates are considered. Un-arrayed pockets
+    are simply absent from the result."""
+    from draftwright.recognition._features import (
+        _linear_array_candidates,
+        _plane_uv,
+        _rect_grid,
+    )
+
+    axis_unit = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+    groups: dict = {}
+    for pk in pockets:
+        groups.setdefault(_pocket_spec_key(pk), []).append(pk)
+
+    patterns: list[PocketArray | PocketGrid] = []
+    for members in groups.values():
+        if len(members) < 3:
+            continue
+        u, v = _plane_uv(axis_unit[members[0].depth_axis])
+        pts = [
+            (
+                sum(a * b for a, b in zip(pk.location, u, strict=True)),
+                sum(a * b for a, b in zip(pk.location, v, strict=True)),
+            )
+            for pk in members
+        ]
+        candidates: list = []
+        grid = _rect_grid(members, pts, _mk_pocket_grid)
+        if grid is not None:
+            candidates.append((grid, frozenset(range(len(members)))))
+        candidates += _linear_array_candidates(members, pts, _mk_pocket_linear)
+        candidates.sort(key=lambda c: -len(c[1]))
+        used: set = set()
+        for pattern, idx in candidates:
+            if idx & used:
+                continue
+            patterns.append(pattern)
+            used |= idx
+    return patterns
+
+
+def _slot_spec_key(sl: Slot) -> tuple:
+    """The grouping key shared by slots of the *same milled feature* — same orientation, size,
+    AND through plane. Only identical, same-orientation, coplanar slots form one array. The
+    through-axis extent (d_lo, d_hi) is part of the key so slots on different-height stepped
+    faces whose in-plane centres line up don't merge into a planar array that does not exist
+    (mirrors ``_pocket_spec_key``). A slot is THROUGH — no floor, no opening direction — so
+    unlike the pocket key there is no ``depth`` and no ``open_sign``. Coordinates snap to 3 dp so
+    boolean-op float noise does not split an array."""
+    return (
+        sl.width_axis,
+        sl.long_axis,
+        round(sl.width, 3),
+        round(sl.length, 3),
+        round(sl.d_lo, 3),
+        round(sl.d_hi, 3),
+    )
+
+
+def _mk_slot_linear(members, pitch, direction) -> SlotArray:
+    return SlotArray(slots=tuple(members), pitch=pitch, direction=direction)
+
+
+def _mk_slot_grid(members, rows, cols, row_pitch, col_pitch, angle, center) -> SlotGrid:
+    return SlotGrid(
+        slots=tuple(members),
+        rows=rows,
+        cols=cols,
+        row_pitch=row_pitch,
+        col_pitch=col_pitch,
+        angle=angle,
+        center=center,
+    )
+
+
+def recognise_slot_patterns(slots) -> list[SlotArray | SlotGrid]:
+    """Recognise :class:`SlotArray` (linear) and :class:`SlotGrid` (rectangular) arrays among
+    *slots* (``Slot`` records, e.g. from :func:`recognise_slots`) — the through-slot analog of
+    :func:`recognise_pocket_patterns`.
+
+    A DERIVED recogniser (single positional inventory, ADR 0013): slots are grouped by
+    orientation + size + through plane (:func:`_slot_spec_key`), each group's centres are
+    projected into the face plane (perpendicular to the shared through axis), and the same
+    collinear / lattice geometry the hole/pocket patterns use (shared via *make* factories,
+    #635) is enumerated and allocated greedily largest-first. Slots have no bolt-circle form, so
+    only grid + linear candidates are considered. Un-arrayed slots are absent from the result."""
+    from draftwright.recognition._features import (
+        _linear_array_candidates,
+        _plane_uv,
+        _rect_grid,
+    )
+
+    axis_unit = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+    groups: dict = {}
+    for sl in slots:
+        groups.setdefault(_slot_spec_key(sl), []).append(sl)
+
+    patterns: list[SlotArray | SlotGrid] = []
+    for members in groups.values():
+        if len(members) < 3:
+            continue
+        u, v = _plane_uv(axis_unit[members[0].depth_axis])
+        pts = [
+            (
+                sum(a * b for a, b in zip(sl.location, u, strict=True)),
+                sum(a * b for a, b in zip(sl.location, v, strict=True)),
+            )
+            for sl in members
+        ]
+        candidates: list = []
+        grid = _rect_grid(members, pts, _mk_slot_grid)
+        if grid is not None:
+            candidates.append((grid, frozenset(range(len(members)))))
+        candidates += _linear_array_candidates(members, pts, _mk_slot_linear)
+        candidates.sort(key=lambda c: -len(c[1]))
+        used: set = set()
+        for pattern, idx in candidates:
+            if idx & used:
+                continue
+            patterns.append(pattern)
+            used |= idx
+    return patterns

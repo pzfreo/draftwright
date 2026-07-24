@@ -200,6 +200,8 @@ class _IntentRouting:
     only_len: set
     slot_feats: set
     machined_ids_by_kind: dict
+    pocket_pattern_ids: set
+    slot_pattern_ids: set
 
 
 @dataclass
@@ -1079,7 +1081,9 @@ class Drawing:
         like the auto-pass), rather than raising, so a reconstruction script never aborts.
         """
         kind = getattr(feature, "kind", None)
-        if kind in _MACHINED_CALLOUT_KINDS and (view is not None or name is not None):
+        if (kind in _MACHINED_CALLOUT_KINDS or kind in ("pocket_pattern", "slot_pattern")) and (
+            view is not None or name is not None
+        ):
             raise ValueError(
                 f"callout(): a {kind} is auto-named and placed in its characteristic view; "
                 "view=/name= are unsupported for machined-feature callouts"
@@ -1131,6 +1135,44 @@ class Drawing:
             )
             changed = [n for n, o in self.iter_annotations() if before.get(n) != id(o)]
             return changed[0] if len(changed) == 1 else ""
+        if kind == "pocket_pattern":
+            # A pocket pattern renders through its own auto-pass renderer (grouped size/depth
+            # callout + pitch dim(s)), restricted to THIS feature (#841 outcome 3). Unlike the
+            # lone machined callouts it places furniture too, so several names change — return
+            # the grouped-callout name (m_pocketpat*), the handle pin()/drop() address.
+            if self._part_model is None or self._analysis is None:
+                raise ValueError(
+                    "callout(): a pocket-pattern callout needs the part model and analysis; "
+                    "add it to a drawing built by build_drawing(), not a bare Drawing"
+                )
+            from draftwright.annotations.holes import render_pocket_patterns
+            from draftwright.model import plan_dimensions
+
+            before = {n: id(o) for n, o in self.iter_annotations()}
+            render_pocket_patterns(
+                self, plan_dimensions(self._part_model), self._analysis, ctx=ctx, only={feature}
+            )
+            placed = [n for n, o in self.iter_annotations() if before.get(n) != id(o)]
+            return next((n for n in placed if n.startswith("m_pocketpat")), "")
+        if kind == "slot_pattern":
+            # A slot pattern renders through its own auto-pass renderer (grouped SLOT W × L
+            # callout + pitch dim(s)), restricted to THIS feature (#841). Like the pocket pattern
+            # it places furniture too, so several names change — return the grouped-callout name
+            # (m_slotpat*), the handle pin()/drop() address.
+            if self._part_model is None or self._analysis is None:
+                raise ValueError(
+                    "callout(): a slot-pattern callout needs the part model and analysis; "
+                    "add it to a drawing built by build_drawing(), not a bare Drawing"
+                )
+            from draftwright.annotations.holes import render_slot_patterns
+            from draftwright.model import plan_dimensions
+
+            before = {n: id(o) for n, o in self.iter_annotations()}
+            render_slot_patterns(
+                self, plan_dimensions(self._part_model), self._analysis, ctx=ctx, only={feature}
+            )
+            placed = [n for n, o in self.iter_annotations() if before.get(n) != id(o)]
+            return next((n for n in placed if n.startswith("m_slotpat")), "")
         return add_feature_callout(
             self, feature, self._part_model, self._analysis, view=view, name=name, ctx=ctx
         )
@@ -1420,6 +1462,26 @@ class Drawing:
                 k = getattr(it.feature, "kind", None)
                 if k in _MACHINED_CALLOUT_KINDS:
                     machined_ids_by_kind.setdefault(k, set()).add(id(it))
+        # Pocket-pattern callout()s (#841 outcome 3): one grouped callout + pitch furniture per
+        # pattern. Drained at the pre-drain "pocket_patterns" _PASS_SEQUENCE slot (render places
+        # the pitch dim directly and needs the strip room the post-drain machined callouts lack),
+        # restricted to the recorded feature(s) via only=.
+        pocket_pattern_ids = {
+            id(it)
+            for it in self._intents
+            if routable
+            and it.kind == "callout"
+            and getattr(it.feature, "kind", None) == "pocket_pattern"
+        }
+        # Slot-pattern callout()s (#841): same as pocket patterns — one grouped callout + pitch
+        # furniture, drained at the pre-drain "slot_patterns" _PASS_SEQUENCE slot, only=-restricted.
+        slot_pattern_ids = {
+            id(it)
+            for it in self._intents
+            if routable
+            and it.kind == "callout"
+            and getattr(it.feature, "kind", None) == "slot_pattern"
+        }
         only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
         pinned_loc = {
             it.feature for it in self._intents if id(it) in corridor_ids and it.kwargs.get("pin")
@@ -1448,6 +1510,8 @@ class Drawing:
             only_len=only_len,
             slot_feats=slot_feats,
             machined_ids_by_kind=machined_ids_by_kind,
+            pocket_pattern_ids=pocket_pattern_ids,
+            slot_pattern_ids=slot_pattern_ids,
         )
 
     def _user_dim_uses_corridor(self, it, routable, already_routed) -> bool:
@@ -1638,6 +1702,8 @@ class Drawing:
             _annotate_holes,
             _locate_off_axis_holes,
             build_view_of_axis,
+            render_pocket_patterns,
+            render_slot_patterns,
         )
         from draftwright.annotations.orchestrator import (
             _maybe_tabulate_holes,
@@ -1691,6 +1757,8 @@ class Drawing:
                 | r.rotational_ids  # drained by _s_rotational; no _replay_intent branch
                 | r.off_axis_loc_ids  # drained by the off-axis stages; locate() raises on non-Z
                 | {i for ids in r.machined_ids_by_kind.values() for i in ids}  # _s_<machined kind>
+                | r.pocket_pattern_ids  # _s_pocket_patterns (pre-drain)
+                | r.slot_pattern_ids  # _s_slot_patterns (pre-drain)
             )
             i = 0
             while i < len(self._intents):
@@ -1830,6 +1898,27 @@ class Drawing:
         def _s_grooves():
             _s_machined("groove", render_grooves)
 
+        def _s_pocket_patterns():
+            # Pocket-pattern callouts + their pitch furniture (#841 outcome 3), restricted to the
+            # recorded feature(s). Keyed "pocket_patterns" so run_stages fires it at that PRE-drain
+            # _PASS_SEQUENCE slot — render_pocket_patterns places the pitch dim directly and needs
+            # the strip room the post-drain machined callouts lack.
+            feats = {it.feature for it in self._intents if id(it) in r.pocket_pattern_ids}
+            if feats:
+                assert a is not None and isinstance(model, PartModel)  # ⟹ routable
+                render_pocket_patterns(self, plan_dimensions(model), a, ctx=ctx, only=feats)
+            self._intents = [it for it in self._intents if id(it) not in r.pocket_pattern_ids]
+
+        def _s_slot_patterns():
+            # Slot-pattern callouts + their pitch furniture (#841), restricted to the recorded
+            # feature(s). Keyed "slot_patterns" so run_stages fires it at that PRE-drain
+            # _PASS_SEQUENCE slot (same reason as pocket patterns).
+            feats = {it.feature for it in self._intents if id(it) in r.slot_pattern_ids}
+            if feats:
+                assert a is not None and isinstance(model, PartModel)  # ⟹ routable
+                render_slot_patterns(self, plan_dimensions(model), a, ctx=ctx, only=feats)
+            self._intents = [it for it in self._intents if id(it) not in r.slot_pattern_ids]
+
         def _s_user_dims():
             # User-authored pin/priority dimensions queue into the shared corridor as
             # first-class candidates (ADR 0012).
@@ -1932,6 +2021,8 @@ class Drawing:
                 "diameters": _s_diameters,
                 "step_lengths": _s_step_lengths,
                 "slots": _s_slots,
+                "pocket_patterns": _s_pocket_patterns,
+                "slot_patterns": _s_slot_patterns,
                 "user_dims": _s_user_dims,
                 "drain": _s_drain,
                 "chamfers": _s_chamfers,

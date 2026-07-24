@@ -838,8 +838,12 @@ def _as_bolt_circle(holes, pts):
     return BoltCircle(holes=tuple(holes), center=center, diameter=round(2 * r, 2))
 
 
-def _as_linear_array(holes, pts):
-    """LinearArray when *pts* (2D) are collinear at constant pitch."""
+def _as_linear_array(members, pts, make):
+    """A linear-array record when *pts* (2D) are collinear at constant pitch.
+
+    Record-generic (#635): *make* ``(ordered_members, pitch, direction) -> Record`` builds the
+    concrete record (a :class:`LinearArray` for holes, a ``PocketArray`` for pockets) so the
+    collinearity/pitch geometry is shared. *members* need a ``.location`` (world centre)."""
     n = len(pts)
     # endpoints are the farthest-apart pair: robust for any orientation. A
     # lexicographic (x, y) sort would pick the wrong ends for a near-axis row
@@ -871,15 +875,15 @@ def _as_linear_array(holes, pts):
     if max(abs(p - pitch) for p in pitches) > _pattern_tol(pitch):
         return None
     # order members along the array, in world coordinates
-    ordered = sorted(zip(proj, holes, strict=True), key=lambda t: t[0])
+    ordered = sorted(zip(proj, members, strict=True), key=lambda t: t[0])
     w0 = ordered[0][1].location
     w1 = ordered[-1][1].location
     d = tuple(b - a for a, b in zip(w0, w1, strict=True))
     norm = math.hypot(d[0], d[1], d[2])
-    return LinearArray(
-        holes=tuple(h for _, h in ordered),
-        pitch=round(pitch, 2),
-        direction=_unit(tuple(c / norm for c in d)),
+    return make(
+        tuple(h for _, h in ordered),
+        round(pitch, 2),
+        _unit(tuple(c / norm for c in d)),
     )
 
 
@@ -933,11 +937,11 @@ def _bolt_circle_candidates(members, pts):
     return out
 
 
-def _linear_array_candidates(members, pts):
+def _linear_array_candidates(members, pts, make):
     """All linear arrays within a spec group: every pair seeds a line, the
     group's collinear points are gathered and sorted, and each maximal
     constant-pitch run of ≥3 becomes a candidate. Returns
-    ``(LinearArray, frozenset(member indices))`` candidates."""
+    ``(record, frozenset(member indices))`` candidates; *make* builds the record (#635)."""
     n = len(pts)
     out, seen = [], set()
     for i in range(n):
@@ -971,19 +975,20 @@ def _linear_array_candidates(members, pts):
                 run_key = frozenset(run)
                 if len(run) >= 3 and run_key not in seen:
                     seen.add(run_key)
-                    pat = _as_linear_array([members[m] for m in run], [pts[m] for m in run])
+                    pat = _as_linear_array([members[m] for m in run], [pts[m] for m in run], make)
                     if pat is not None:
                         out.append((pat, run_key))
                 a = b  # a broken pitch starts the next run at the break point
     return out
 
 
-def _rect_grid(members, pts):
-    """A :class:`RectGrid` when the whole spec group fills a regular N×M
-    rectangular lattice, else ``None``. The two shortest near-orthogonal
-    pairwise vectors define the lattice basis; every point must land on an
-    integer cell and every cell must be occupied (no holes, no extras). 2×2 is
-    excluded — four lattice corners are a rectangle, not a grid."""
+def _rect_grid(members, pts, make):
+    """A rectangular-grid record when the whole spec group fills a regular N×M
+    lattice, else ``None``. The two shortest near-orthogonal pairwise vectors
+    define the lattice basis; every point must land on an integer cell and every
+    cell must be occupied (no holes, no extras). 2×2 is excluded — four lattice
+    corners are a rectangle, not a grid. *make* ``(members, rows, cols, row_pitch,
+    col_pitch, angle, center) -> Record`` builds the concrete record (#635)."""
     n = len(pts)
     if n < 6:
         return None
@@ -1030,13 +1035,29 @@ def _rect_grid(members, pts):
     if rows < 2 or cols < 2 or max(rows, cols) < 3 or rows * cols != n:
         return None
     center = tuple(sum(c) / n for c in zip(*(h.location for h in members), strict=True))
+    return make(
+        tuple(members),
+        rows,
+        cols,
+        round(l1, 2),
+        round(l2, 2),
+        round(math.degrees(math.atan2(u1[1], u1[0])) % 90.0, 2),
+        center,
+    )
+
+
+def _mk_hole_linear(members, pitch, direction):
+    return LinearArray(holes=tuple(members), pitch=pitch, direction=direction)
+
+
+def _mk_hole_grid(members, rows, cols, row_pitch, col_pitch, angle, center):
     return RectGrid(
         holes=tuple(members),
         rows=rows,
         cols=cols,
-        row_pitch=round(l1, 2),
-        col_pitch=round(l2, 2),
-        angle=round(math.degrees(math.atan2(u1[1], u1[0])) % 90.0, 2),
+        row_pitch=row_pitch,
+        col_pitch=col_pitch,
+        angle=angle,
         center=center,
     )
 
@@ -1075,11 +1096,11 @@ def recognise_hole_patterns(holes) -> list[BoltCircle | LinearArray | RectGrid]:
             for h in members
         ]
         candidates: list = []
-        grid = _rect_grid(members, pts)
+        grid = _rect_grid(members, pts, _mk_hole_grid)
         if grid is not None:
             candidates.append((grid, frozenset(range(len(members)))))
         candidates += _bolt_circle_candidates(members, pts)
-        candidates += _linear_array_candidates(members, pts)
+        candidates += _linear_array_candidates(members, pts, _mk_hole_linear)
         # allocate largest-first; a hole used by one pattern is off the table
         # for the rest (stable sort keeps grids ahead of circles ahead of rows
         # at equal size)

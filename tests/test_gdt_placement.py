@@ -13,7 +13,7 @@ from build123d import Box, Cylinder, Draft, Pos
 from build123d_drafting import FeatureControlFrame
 
 from draftwright.builder import build_drawing, detect_part_model
-from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame
+from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note
 
 
 def _part():
@@ -160,12 +160,13 @@ def test_invalid_glyph_spec_drops_not_crashes():
     assert "m_gdt0" not in dwg.annotations()
 
 
-def test_wide_frame_in_narrow_strip_drops_not_overshoots():
-    # Adversarial-review finding (CONFIRMED): a wide GD&T glyph (multi-datum FCF ~33 mm) on
-    # a left/right strip narrower than the glyph must DROP with a gdt_dropped warning — not
-    # render off the drawable area. Pre-fix it placed at min.X=-7.17 (17 mm past outer_limit,
-    # annotation_out_of_bounds error). The boundary reservation now uses the glyph's real
-    # outward extent, so a too-narrow strip has no feasible tier and the frame drops.
+def test_wide_frame_in_narrow_strip_relaxes_not_overshoots():
+    # Adversarial-review finding (CONFIRMED): a wide GD&T glyph (multi-datum FCF ~33 mm) on a
+    # left/right strip narrower than the glyph must never render off the drawable area
+    # (annotation_out_of_bounds — pre-fix it placed at min.X=-7.17, 17 mm past outer_limit).
+    # The requested left/right strips are too narrow, so under the #841 side auto-relax the
+    # frame moves to a wider above/below strip where it fits IN BOUNDS — placed (with a
+    # gdt_side_relaxed info notice), not overshooting and not vanishing.
     frame = ControlFrame(
         frame=Frame((0.0, 0.0, 0.0), "z"),
         characteristic="position",
@@ -175,9 +176,37 @@ def test_wide_frame_in_narrow_strip_drops_not_overshoots():
         datums=("A", "B"),
     )
     dwg = _build(frame)
-    assert [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
-    assert "m_gdt0" not in dwg.annotations()
+    assert "m_gdt0" in dwg.annotations()  # placed on a relaxed side, not dropped
+    assert [i for i in dwg.registry.issues if i.code == "gdt_side_relaxed"]
+    assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
+    assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]  # never overshoots
+
+
+def test_note_relaxes_side_when_requested_strip_full():
+    # #841 confirmed-behaviour #2 / outcome C: an anchored note whose requested view/side strip
+    # has no room must NOT silently drop — it auto-relaxes to a strip that fits (with a
+    # gdt_side_relaxed info notice), so a requested annotation always appears somewhere legible.
+    # A wide note text on the narrow left strip forces the relaxation to above/below.
+    note = Note(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        text="5X OBROUND SLOT 13.60 X 7.88",
+        view="plan",
+        side="left",
+    )
+    dwg = _build(note)
+    assert "m_gdt0" in dwg.annotations()  # placed, not dropped
+    assert [i for i in dwg.registry.issues if i.code == "gdt_side_relaxed"]
+    assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
+
+
+def test_note_honors_requested_side_when_it_fits():
+    # The relax fires ONLY when the requested strip is full: a note that fits its requested side
+    # is placed there with NO gdt_side_relaxed notice (no spurious relaxation).
+    note = Note(frame=Frame((0.0, 0.0, 0.0), "z"), text="DEBURR", view="plan", side="above")
+    dwg = _build(note)
+    assert "m_gdt0" in dwg.annotations()
+    assert not [i for i in dwg.registry.issues if i.code == "gdt_side_relaxed"]
 
 
 def test_degenerate_leader_site_does_not_crash():

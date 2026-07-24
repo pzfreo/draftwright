@@ -292,7 +292,14 @@ def plan_sections(model: PartModel, feature_keys: set[HoleRef]) -> SectionPlan |
     (ISO practice), tie-broken toward the part centre. Only holes whose positions are
     in *feature_keys* count (so a rotational part's concentric bores, dimensioned by
     the centreline leaders, don't drive a section). ``None`` when no section is
-    warranted."""
+    warranted.
+
+    An **explicit** request (``decorations["section"]``, the ADR 0011 ``Sheet.section``
+    verb, #841) forces a cut at that Y regardless of the auto trigger — so a blind
+    pocket, which no hole gate recognises, still gets its floor/depth section."""
+    requested = model.decorations.get("section")
+    if requested is not None:
+        return SectionPlan(cut_y=float(requested))
     qual_ys: list[float] = []
     for f in model.features:
         if not isinstance(f, HoleFeature | PatternFeature) or f.frame.axis != "z":

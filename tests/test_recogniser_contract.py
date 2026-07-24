@@ -33,8 +33,12 @@ from draftwright.recognition import (
     LinearArray,
     Plate,
     Pocket,
+    PocketArray,
+    PocketGrid,
     RectGrid,
     Slot,
+    SlotArray,
+    SlotGrid,
     StepShoulder,
     TurnedStep,
     analyse_cylinders,
@@ -48,7 +52,9 @@ from draftwright.recognition import (
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
+    recognise_pocket_patterns,
     recognise_pockets,
+    recognise_slot_patterns,
     recognise_slots,
     recognise_step_shoulders,
     recognise_turned_steps,
@@ -72,7 +78,11 @@ _EXPECTED_RECORD_TYPES = {
     Flat,
     Groove,
     Slot,
+    SlotArray,
+    SlotGrid,
     Pocket,
+    PocketArray,
+    PocketGrid,
     Plate,
     FaceLevel,
     StepShoulder,
@@ -110,6 +120,36 @@ def _grid_plate(nx=3, ny=3, px=25, py=25):
     for i in range(nx):
         for j in range(ny):
             part -= Pos((i - (nx - 1) / 2) * px, (j - (ny - 1) / 2) * py, 0) * Cylinder(3, 10)
+    return part
+
+
+def _pocket_array_plate():
+    part = Box(30, 150, 20)
+    for cy in (-45, -15, 15, 45):  # four identical blind pockets on one Y centreline, pitch 30
+        part -= Pos(0, cy, 7) * Box(10, 12, 6)  # floored (opening +Z) → a Pocket, not a Slot
+    return part
+
+
+def _pocket_grid_plate():
+    part = Box(140, 110, 20)
+    for i in range(2):  # 2×3 lattice of identical blind pockets (rect_grid needs n>=6)
+        for j in range(3):
+            part -= Pos((i - 0.5) * 40, (j - 1) * 30, 7) * Box(8, 10, 6)
+    return part
+
+
+def _slot_array_plate():
+    part = Box(60, 200, 20)
+    for cy in (-45, -15, 15, 45):  # four identical THROUGH slots on one Y centreline, pitch 30
+        part -= Pos(0, cy, 0) * Box(30, 8, 20)  # cutter spans the full Z → a Slot, not a Pocket
+    return part
+
+
+def _slot_grid_plate():
+    part = Box(180, 130, 20)
+    for i in range(2):  # 2×3 lattice of identical through slots (rect_grid needs n>=6)
+        for j in range(3):
+            part -= Pos((i - 0.5) * 44, (j - 1) * 34, 0) * Box(24, 8, 20)
     return part
 
 
@@ -162,6 +202,22 @@ def _records_from_recognisers():
         ("recognise_fillets", recognise_fillets(_filleted_box())),
         ("recognise_slots", recognise_slots(slotted)),
         ("recognise_pockets", recognise_pockets(pocketed)),
+        (
+            "pocket_patterns:linear",
+            recognise_pocket_patterns(recognise_pockets(_pocket_array_plate())),
+        ),
+        (
+            "pocket_patterns:grid",
+            recognise_pocket_patterns(recognise_pockets(_pocket_grid_plate())),
+        ),
+        (
+            "slot_patterns:linear",
+            recognise_slot_patterns(recognise_slots(_slot_array_plate())),
+        ),
+        (
+            "slot_patterns:grid",
+            recognise_slot_patterns(recognise_slots(_slot_grid_plate())),
+        ),
         ("recognise_flats", recognise_flats(dshaft)),
         ("recognise_grooves", recognise_grooves(grooved)),
         ("recognise_plates", recognise_plates(_l_bracket())),

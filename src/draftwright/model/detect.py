@@ -37,8 +37,10 @@ from draftwright.model.ir import (
     PlateFeature,
     PmiFeature,
     PocketFeature,
+    PocketPatternFeature,
     RotationalFeature,
     SlotFeature,
+    SlotPatternFeature,
     StepFeature,
     StepLevelFeature,
 )
@@ -56,8 +58,12 @@ from draftwright.recognition import (
     LinearArray,
     Plate,
     Pocket,
+    PocketArray,
+    PocketGrid,
     RectGrid,
     Slot,
+    SlotArray,
+    SlotGrid,
     StepShoulder,
     TurnedProfile,
     TurnedStep,
@@ -70,7 +76,9 @@ from draftwright.recognition import (
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
+    recognise_pocket_patterns,
     recognise_pockets,
+    recognise_slot_patterns,
     recognise_slots,
     recognise_step_shoulders,
     recognise_turned_steps,
@@ -263,7 +271,72 @@ def _convert_slot(sl: Slot, ctx: ConvContext) -> SlotFeature:
     )
 
 
-def _convert_pocket(pk: Pocket, ctx: ConvContext) -> PocketFeature:
+def _member_slot(sl: Slot) -> SlotFeature:
+    """The representative member of a `SlotPatternFeature` — its width/length/axes drive the
+    grouped callout. Built at the slot's own centroid (not `_convert_slot`'s bbox-centred frame,
+    which is a lone-slot dim-placement convention): `render_slot_patterns` anchors the leader at
+    the PATTERN centre and reads only the member's size/axes, so the member frame origin is
+    inert (#841)."""
+    c = {
+        sl.long_axis: (sl.lo + sl.hi) / 2,
+        sl.width_axis: sl.w_center,
+        sl.depth_axis: (sl.d_lo + sl.d_hi) / 2,
+    }
+    return SlotFeature(
+        frame=Frame(origin=(c["x"], c["y"], c["z"]), axis=sl.long_axis),
+        width_axis=sl.width_axis,
+        long_axis=sl.long_axis,
+        width=sl.width,
+        length=sl.length,
+        w_center=sl.w_center,
+        lo=sl.lo,
+        hi=sl.hi,
+    )
+
+
+def _slot_pattern_feature(pat, members) -> SlotPatternFeature:
+    """Map a recognised slot array + its member slots to a `SlotPatternFeature` (#841) — the
+    through-slot analog of :func:`_pocket_pattern_feature`. Composes a representative member slot
+    (its width/length drive the grouped ``count× SLOT W × L`` callout) and keeps the member
+    centres as the raw arrangement the pitch furniture indexes. The frame axis is the members'
+    shared THROUGH axis, matching the declared `slot_pattern`."""
+    n = len(members)
+    axis = members[0].depth_axis  # the through axis — the face plane the array lies in
+    locs = tuple(_xyz(m.location) for m in members)  # raw arrangement — never discarded
+    if isinstance(pat, SlotGrid):
+        frame = Frame(_xyz(pat.center), axis)
+        return SlotPatternFeature(
+            frame=frame,
+            pattern="grid",
+            count=n,
+            member=_member_slot(members[0]),
+            members=locs,
+            grid=(pat.row_pitch, pat.col_pitch),
+            rows=pat.rows,
+            cols=pat.cols,
+            angle=pat.angle,
+        )
+    # SlotArray (linear) — the frame sits at the array centroid (no separate centre field).
+    c = (
+        sum(m.location[0] for m in members) / n,
+        sum(m.location[1] for m in members) / n,
+        sum(m.location[2] for m in members) / n,
+    )
+    return SlotPatternFeature(
+        frame=Frame(c, axis),
+        pattern="linear",
+        count=n,
+        member=_member_slot(members[0]),
+        members=locs,
+        pitch=pat.pitch,
+        direction=tuple(pat.direction),
+    )
+
+
+def _member_pocket(pk: Pocket) -> PocketFeature:
+    """A recogniser `Pocket` → an IR `PocketFeature`. The representative member of a
+    `PocketPatternFeature` too (its size/axes drive the grouped callout), so it is factored
+    out of :func:`_convert_pocket` and reused by :func:`_pocket_pattern_feature` (#841)."""
     # Frame at the recess centroid — in-plane centre + mid-depth. The render leader
     # projects into the view normal to the depth axis, so the depth coord is inert,
     # but a true centroid keeps the frame honest.
@@ -282,6 +355,49 @@ def _convert_pocket(pk: Pocket, ctx: ConvContext) -> PocketFeature:
         w_center=pk.w_center,
         lo=pk.lo,
         hi=pk.hi,
+    )
+
+
+def _convert_pocket(pk: Pocket, ctx: ConvContext) -> PocketFeature:
+    return _member_pocket(pk)
+
+
+def _pocket_pattern_feature(pat, members) -> PocketPatternFeature:
+    """Map a recognised pocket array + its member pockets to a `PocketPatternFeature` (#841) —
+    the recess analog of :func:`_pattern_feature`. Composes a representative member pocket (its
+    width/length/depth drive the grouped ``count× W×L×D DEEP`` callout) and keeps the member
+    centres as the raw arrangement the pitch furniture indexes. The frame axis is the members'
+    shared DEPTH axis (the opening normal), matching the declared `pocket_pattern`."""
+    n = len(members)
+    axis = members[0].depth_axis  # the opening normal — the plane the array lies in
+    locs = tuple(_xyz(m.location) for m in members)  # raw arrangement — never discarded
+    if isinstance(pat, PocketGrid):
+        frame = Frame(_xyz(pat.center), axis)
+        return PocketPatternFeature(
+            frame=frame,
+            pattern="grid",
+            count=n,
+            member=_member_pocket(members[0]),
+            members=locs,
+            grid=(pat.row_pitch, pat.col_pitch),
+            rows=pat.rows,
+            cols=pat.cols,
+            angle=pat.angle,
+        )
+    # PocketArray (linear) — the frame sits at the array centroid (no separate centre field).
+    c = (
+        sum(m.location[0] for m in members) / n,
+        sum(m.location[1] for m in members) / n,
+        sum(m.location[2] for m in members) / n,
+    )
+    return PocketPatternFeature(
+        frame=Frame(c, axis),
+        pattern="linear",
+        count=n,
+        member=_member_pocket(members[0]),
+        members=locs,
+        pitch=pat.pitch,
+        direction=tuple(pat.direction),
     )
 
 
@@ -390,6 +506,10 @@ _DERIVED_CONVERTERS: dict[type, Callable[..., Feature]] = {
     BoltCircle: _pattern_feature,
     LinearArray: _pattern_feature,
     RectGrid: _pattern_feature,
+    PocketArray: _pocket_pattern_feature,
+    PocketGrid: _pocket_pattern_feature,
+    SlotArray: _slot_pattern_feature,
+    SlotGrid: _slot_pattern_feature,
 }
 
 # Tier 3 — orchestrated records: no per-record converter, by design. Each is either a
@@ -425,7 +545,9 @@ def build_part_model(
     patterns=None,
     bosses=None,
     slots=None,
+    slot_patterns=None,
     pockets=None,
+    pocket_patterns=None,
     prof=_UNSET,
     step_zs=None,
     rotational=None,
@@ -487,16 +609,43 @@ def build_part_model(
         mem_locs = tuple(_xyz(h.location) for h in grp)
         features.append(_member_hole(rep, frame, members=mem_locs, count=len(grp)))
 
-    # Milled slots / reduced across-flats sections (detected for any part).
+    # Milled slots / reduced across-flats sections (detected for any part). A recognised array
+    # of identical slots becomes ONE SlotPatternFeature (count× SLOT W×L + pitch, #841); its
+    # member slots are NOT also emitted individually — the same grouped-callout rule as pockets
+    # below (member exclusion by VALUE-set, robust to injected value-copy inventories).
     if slots is None:
         slots = recognise_slots(part)
+    if slot_patterns is None:
+        slot_patterns = recognise_slot_patterns(slots)
+    patterned_sl: set = set()
+    for pat in slot_patterns:
+        patterned_sl.update(pat.slots)
+        features.append(_slot_pattern_feature(pat, list(pat.slots)))
     for sl in slots:
+        if sl in patterned_sl:
+            continue
         features.append(convert(sl, ctx))
 
-    # Blind rectangular recesses — floored slots/pockets (#148a).
+    # Blind rectangular recesses — floored slots/pockets (#148a). A recognised array of
+    # identical pockets becomes ONE PocketPatternFeature (count× W×L×D + pitch, #841); its
+    # member pockets are NOT also emitted individually — the same grouped-callout rule as
+    # hole patterns above (member exclusion by id()).
     if pockets is None:
         pockets = recognise_pockets(part)
+    if pocket_patterns is None:
+        pocket_patterns = recognise_pocket_patterns(pockets)
+    # Exclude members by VALUE, not id(): `Pocket` is a frozen (hashable) value record and two
+    # distinct pockets can never be value-equal (their positions differ), so a value-set
+    # excludes members even when `pocket_patterns=` is INJECTED from value-equal copies whose
+    # ids differ from `pockets` (Codex #849) — where an id-set would emit both the pattern and
+    # the individual pockets, restoring the competing dims this grouping removes.
+    patterned_pk: set = set()
+    for pat in pocket_patterns:
+        patterned_pk.update(pat.pockets)
+        features.append(_pocket_pattern_feature(pat, list(pat.pockets)))
     for pk in pockets:
+        if pk in patterned_pk:
+            continue
         features.append(convert(pk, ctx))
 
     # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
