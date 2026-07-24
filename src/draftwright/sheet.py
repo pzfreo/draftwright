@@ -327,6 +327,14 @@ class _Params:
         self._sheet._tolerances[(self._i, roles[role], role)] = val
         return self
 
+    def note(self, text, *, view: str | None = None, side: str | None = None) -> _Params:
+        """A free-text manufacturing note on a leader to this feature (#841) —
+        ``sheet.slot(...).note("5X OBROUND SLOT")``. Mirrors :meth:`_Hole.note` /
+        :meth:`_Dim.note`: the handle supplies itself as the target, so (unlike the forwarded
+        ``Sheet.note``) no explicit ``ref`` is needed. ``view``/``side`` override the derived strip."""
+        self._sheet._gdt_note(text, self._i, view=view, side=side)
+        return self
+
 
 class _Control:
     """A fluent GD&T feature-control-frame builder (ADR 0011 P2c.2). One method per ISO 1101

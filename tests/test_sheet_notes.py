@@ -54,6 +54,35 @@ def test_dim_handle_note():
     assert nt.text == "KNURL 0.8 STRAIGHT" and nt.view == "plan"
 
 
+def test_slot_and_pocket_handle_note():
+    # #841: the multi-param handle (slot/pocket/envelope) grew an explicit .note(), so
+    # `sheet.slot(...).note("...")` works like a hole/dim handle instead of forwarding to the
+    # bare Sheet.note and raising "missing 'ref'".
+    from build123d import Box, Plane, SlotOverall, extrude
+
+    part = Box(60, 30, 12) - extrude(Plane.XY * SlotOverall(20, 8), 12, both=True)
+    s = Sheet(part)
+    h = s.slot(width=8, length=20, long_axis="x", width_axis="y", lo=-10, hi=10, w_center=0)
+    assert h.note("5X OBROUND SLOT") is h  # explicit method, chainable — no TypeError
+    nt = next(f for f in s.features if f.kind == "note")
+    assert nt.text == "5X OBROUND SLOT"
+
+    p = Box(60, 30, 20) - Pos(0, 0, 4) * extrude(Plane.XY * SlotOverall(20, 8), 12)
+    s2 = Sheet(p)
+    s2.pocket(
+        width=8,
+        length=20,
+        depth=12,
+        long_axis="x",
+        width_axis="y",
+        depth_axis="z",
+        w_center=0,
+        lo=-10,
+        hi=10,
+    ).note("POCKET NOTE")
+    assert any(f.kind == "note" and f.text == "POCKET NOTE" for f in s2.features)
+
+
 def test_dim_handle_knurl():
     # #765: knurl() is sugar over note() with canonical KNURL formatting.
     part = _part()
