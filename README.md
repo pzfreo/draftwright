@@ -1,4 +1,6 @@
-# draftwright
+<h1 align="center">
+  <img src="docs/images/draftwright-logo.png" alt="draftwright" width="460">
+</h1>
 
 [![CI](https://github.com/pzfreo/draftwright/actions/workflows/ci.yml/badge.svg)](https://github.com/pzfreo/draftwright/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/pzfreo/draftwright/branch/main/graph/badge.svg)](https://codecov.io/gh/pzfreo/draftwright)
