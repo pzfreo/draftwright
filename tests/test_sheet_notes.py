@@ -66,6 +66,12 @@ def test_slot_and_pocket_handle_note():
     assert h.note("5X OBROUND SLOT") is h  # explicit method, chainable — no TypeError
     nt = next(f for f in s.features if f.kind == "note")
     assert nt.text == "5X OBROUND SLOT"
+    assert nt.origin is s.features[0]  # anchored to THIS slot feature
+
+    # The explicit-ref form still forwards to Sheet.note (the __getattr__ contract is preserved):
+    top = part.faces().sort_by()[-1]
+    h.note("DEBURR", top)
+    assert any(f.kind == "note" and f.text == "DEBURR" and f.origin is None for f in s.features)
 
     p = Box(60, 30, 20) - Pos(0, 0, 4) * extrude(Plane.XY * SlotOverall(20, 8), 12)
     s2 = Sheet(p)
