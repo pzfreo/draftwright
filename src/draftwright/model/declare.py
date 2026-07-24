@@ -1153,12 +1153,17 @@ def pocket_pattern(
             )
         if direction is not None:
             _require_point("direction", direction)
-            if not any(direction):
-                raise ValueError("pocket_pattern(kind='linear') direction= must be nonzero")
             # Test the NORMALIZED depth component: _pattern_members normalizes direction, so a
             # raw absolute tolerance lets e.g. (1e-12, 0, 1e-10) pass yet normalize to mostly
-            # depth. A relative (scale-independent) test rejects any real depth tilt (Codex #848 r4).
-            norm = math.sqrt(sum(c * c for c in direction))
+            # depth. A relative (scale-independent) test rejects any real depth tilt (Codex #848
+            # r4). math.hypot is over/underflow-stable — a hand-rolled sum-of-squares norm
+            # underflows to 0 on denormals (ZeroDivisionError) and overflows to inf on huge
+            # inputs (hiding the depth tilt); require a finite, nonzero norm (Codex #848 r5).
+            norm = math.hypot(*direction)
+            if not (math.isfinite(norm) and norm > 0):
+                raise ValueError(
+                    "pocket_pattern(kind='linear') direction= must be a finite, nonzero vector"
+                )
             if abs(direction[axis_idx]) / norm > 1e-6:  # opening-plane constraint
                 raise ValueError(
                     "pocket_pattern(kind='linear') direction= must lie in the opening plane "

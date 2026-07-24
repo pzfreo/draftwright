@@ -151,6 +151,18 @@ def test_direction_near_depth_rejected():
         pocket_pattern(m, kind="linear", count=3, pitch=10.0, direction=(0, 1e-12, 1e-10))
 
 
+def test_direction_norm_is_overflow_stable():
+    # the norm must be over/underflow-stable (math.hypot): a denormal like (0, 1e-300, 1e-300)
+    # must NOT ZeroDivisionError, and a huge 45° tilt like (0, 1e308, 1e308) must NOT be accepted
+    # via an inf-norm that hides the depth component (Codex #848 r5). Both are out-of-plane.
+    m = _member()  # depth_axis z
+    for bad in [(0.0, 1e-300, 1e-300), (0.0, 1e308, 1e308)]:
+        with pytest.raises(ValueError, match="opening plane.*z-depth|no z-depth|finite, nonzero"):
+            pocket_pattern(m, kind="linear", count=3, pitch=10.0, direction=bad)
+    with pytest.raises(ValueError, match="finite, nonzero"):
+        pocket_pattern(m, kind="linear", count=3, pitch=10.0, direction=(0.0, 0.0, 0.0))
+
+
 def test_pitch_dim_names_do_not_collide_with_hole_pattern():
     # a plan-view hole pattern and pocket pattern both index from 0, so both once produced
     # `dim_pitch_plan0` — the second silently overwrote the first. Distinct prefixes now let
