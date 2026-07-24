@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from typing import TypeVar
 
 from build123d import Box, GeomType, Pos
@@ -313,18 +314,27 @@ def _end_capped(faces, foot, foot_area, depth_axis, end, want) -> bool:
     return bool(covered >= _FLOOR_COVER_FRAC * foot_area)
 
 
-def _has_floor(faces, s: Slot) -> bool:
-    """True when a planar floor caps the slot at *either* depth end — i.e. it is blind,
-    not through. The through/blind split for :func:`recognise_slots`; :func:`recognise_pockets`
-    uses the finer *which end* count (:func:`_end_capped`) to recover the depth axis."""
+def _floor_ends(faces, s: Slot) -> int:
+    """How many of *s*'s two depth ends a planar floor caps: ``0`` = through (open both ends),
+    ``1`` = a blind recess (one floor + one opening — a real pocket), ``2`` = a sealed internal
+    void (capped both ends, no opening — NOT a machinable recess). The obround end-cap recovery
+    routes on this exact count, so a sealed void is not misread as a full-thickness-deep pocket
+    (#837 review)."""
     foot = {
         s.width_axis: (s.w_center - s.width / 2, s.w_center + s.width / 2),
         s.long_axis: (s.lo, s.hi),
     }
     foot_area = math.prod(hi - lo for lo, hi in foot.values())
-    return _end_capped(faces, foot, foot_area, s.depth_axis, s.d_lo, 1.0) or _end_capped(
-        faces, foot, foot_area, s.depth_axis, s.d_hi, -1.0
+    return int(_end_capped(faces, foot, foot_area, s.depth_axis, s.d_lo, 1.0)) + int(
+        _end_capped(faces, foot, foot_area, s.depth_axis, s.d_hi, -1.0)
     )
+
+
+def _has_floor(faces, s: Slot) -> bool:
+    """True when a planar floor caps the slot at *either* depth end — i.e. it is not a through
+    slot. The through/blind split for :func:`recognise_slots`'s flat-wall path; the obround end-cap
+    path uses the finer :func:`_floor_ends` count (a pocket is capped on exactly one end)."""
+    return _floor_ends(faces, s) >= 1
 
 
 # A radiused-end (obround) slot has semicircular end caps whose radius is the slot's
@@ -419,6 +429,10 @@ def _extend_obround_ends(records: list[_R], part) -> list[_R]:
 # (bbox 2r × 2r) so it is never read as an end; a lone unpaired end is a fillet/round.
 _OBROUND_RATIO_TOL = 0.1  # a half-cylinder's in-plane extents are 2r (across) / r (bulge) — match
 # by RATIO to the radius (2.0 / 1.0), so the discriminator holds at every scale, not just large r.
+# Coaxial cap faces (a semicircle a STEP importer split into two quarter-cylinders) are clustered
+# when their axis lines sit within this (mm); the ~0.02 mm split noise is well inside it, and a
+# real slot's two ends are separated by its straight run (≥ _MERGE_TOL), well outside (#837).
+_CAP_CLUSTER_TOL = 0.3
 
 
 def _obround_end(cap: tuple):
@@ -447,7 +461,20 @@ def _obround_end(cap: tuple):
     lc = "XYZ"[_AXES[long_axis]]
     flat = loc[_AXES[long_axis]]
     direction = -1 if (flat - getattr(bb.min, lc)) > (getattr(bb.max, lc) - flat) else 1
-    return (width_axis, long_axis, ax, rad, loc[_AXES[width_axis]], flat, direction, d_lo, d_hi)
+    # w_center from the (merged) bbox centre, not loc — an imported STEP splits an end into two
+    # quarter faces whose axis Location differs by ~0.02 mm across the diameter, so loc[width] is
+    # unreliable while the union bbox centre is exact (#837). flat (loc[long]) stays consistent.
+    return (
+        width_axis,
+        long_axis,
+        ax,
+        rad,
+        _center(bb, _AXES[width_axis]),
+        flat,
+        direction,
+        d_lo,
+        d_hi,
+    )
 
 
 def _has_side_walls(faces, s: Slot) -> bool:
@@ -476,58 +503,130 @@ def _has_side_walls(faces, s: Slot) -> bool:
     return lo_wall and hi_wall
 
 
-def _recognise_obround_from_ends(part, faces) -> list[Slot]:
-    """Recognise obround through-slots from their semicircular end caps (#816) — the path for slots
-    whose flat walls are too short for :func:`_candidate` to pair. Half-cylinder ends are grouped by
-    centreline/radius/depth extent, then within a group (all slots on one centreline share it)
-    sorted along the run and paired: a cap bulging toward -long immediately followed by one bulging
-    toward +long is one slot's two ends (the void lies between their flats); the reverse adjacency
-    is the solid gap between two slots and is skipped. Each pair is confirmed by :func:`_has_side_walls`
-    (a real channel connects the ends — not two D-cutouts across solid) and :func:`_has_floor` (it is
-    through, not a blind pocket). ``lo``/``hi`` are emitted at the straight-wall junctions so
+def _union_bb(a, b):
+    """Axis-aligned union of two bounding boxes, as a ``min``/``max`` namespace matching the
+    build123d ``BoundBox`` interface (``.min.X`` …) the cap helpers read."""
+    mn = SimpleNamespace(X=min(a.min.X, b.min.X), Y=min(a.min.Y, b.min.Y), Z=min(a.min.Z, b.min.Z))
+    mx = SimpleNamespace(X=max(a.max.X, b.max.X), Y=max(a.max.Y, b.max.Y), Z=max(a.max.Z, b.max.Z))
+    return SimpleNamespace(min=mn, max=mx)
+
+
+def _obround_ends(part) -> list[tuple]:
+    """The obround end caps of *part*, robust to the imported-STEP topology that splits a
+    semicircular end into two quarter-cylinder faces (#837).
+
+    A physical end is one or more **coaxial** concave cylinder faces sharing an axis line and depth:
+    build123d emits it as a single half-cylinder face (in-plane bbox ``2r × r``), while a STEP
+    importer commonly splits it into two quarter-cylinders (``r × r`` each) whose axis Locations
+    differ by ~0.02 mm across the diameter. Faces are therefore **clustered by proximity** of their
+    axis line (same axis + radius + depth, in-plane position within ``_CAP_CLUSTER_TOL``) rather
+    than exact-key grouping, and the UNION in-plane bbox is classified via :func:`_obround_end` — the
+    union of the two quarters is the same ``2r × r`` a single half-cylinder gives. (A round hole is a
+    full cylinder, ``2r × 2r``, so its union still fails the ratio test.)"""
+    clusters: list[dict] = []
+    for rad, ax, loc, bb, concave in _cylinder_faces(part):
+        if not concave or rad <= 0:
+            continue
+        o0, o1 = [a for a in "xyz" if a != ax]
+        dc = "XYZ"[_AXES[ax]]
+        ip = (loc[_AXES[o0]], loc[_AXES[o1]])
+        dz = (round(getattr(bb.min, dc), 1), round(getattr(bb.max, dc), 1))
+        for cl in clusters:
+            if (
+                cl["ax"] == ax
+                and abs(cl["rad"] - rad) <= _END_RADIUS_TOL
+                and cl["dz"] == dz
+                and abs(cl["ip"][0] - ip[0]) <= _CAP_CLUSTER_TOL
+                and abs(cl["ip"][1] - ip[1]) <= _CAP_CLUSTER_TOL
+            ):
+                cl["bb"] = _union_bb(cl["bb"], bb)
+                break
+        else:
+            clusters.append({"ax": ax, "rad": rad, "loc": loc, "ip": ip, "dz": dz, "bb": bb})
+    ends = []
+    for cl in clusters:
+        e = _obround_end((cl["rad"], cl["ax"], cl["loc"], cl["bb"], True))
+        if e is not None:
+            ends.append(e)
+    return ends
+
+
+def _recognise_obround_from_ends(part, faces, *, blind: bool = False):
+    """Recognise obround recesses from their semicircular end caps — the path for recesses whose
+    flat walls are too short for :func:`_candidate`/:func:`_pocket_candidate` to pair (#816/#837).
+    Merged ends (:func:`_obround_ends`, quarter/half-cylinder agnostic) are grouped by centreline/
+    radius/depth, then within a group sorted along the run and paired: a cap bulging toward -long
+    immediately followed by one bulging toward +long is one recess's two ends (the void lies between
+    their flats); the reverse adjacency is the solid gap between two recesses and is skipped. Each
+    pair is confirmed by :func:`_has_side_walls` (a real channel connects the ends — not two
+    D-cutouts across solid), then :func:`_has_floor` routes it: ``blind=False`` keeps only through
+    recesses (:class:`Slot`), ``blind=True`` keeps only floored ones (:class:`Pocket`, depth =
+    ``d_hi - d_lo``). ``lo``/``hi`` are emitted at the straight-wall junctions so
     :func:`_extend_obround_ends` adds the two radii (uniform with the flat-wall path, and `_merge`
     folds any duplicate an elongated obround's flat walls also produced).
 
     The two flats must be more than ``_MERGE_TOL`` apart to count as distinct ends — so a genuinely
     sub-millimetre obround (straight run < 0.5 mm) is not recovered; supporting that would need the
     module-wide absolute ``_MERGE_TOL`` to go relative, out of scope here."""
-    ends = [e for cap in _cylinder_faces(part) if (e := _obround_end(cap)) is not None]
     groups: dict[tuple, list[tuple]] = {}
-    for e in ends:
+    for e in _obround_ends(part):
         wa, la, da, rad, wc, flat, direction, dlo, dhi = e
         key = (wa, la, da, round(rad, 2), round(wc, 2), round(dlo, 2), round(dhi, 2))
         groups.setdefault(key, []).append(e)
-    slots: list[Slot] = []
+    out: list = []
     for (wa, la, _da, rad, wc, dlo, dhi), grp in groups.items():
         run = sorted(grp, key=lambda e: e[5])  # by flat along the long axis
         i = 0
         while i < len(run) - 1:
             lo_end, hi_end = run[i], run[i + 1]
-            # A slot's two ends bulge APART (low end toward -long, high end toward +long), so the
-            # void is between their flats. The reverse pair is solid stock between slots — skip it.
+            # A recess's two ends bulge APART (low end toward -long, high end toward +long), so the
+            # void is between their flats. The reverse pair is solid stock between recesses — skip.
             if not (lo_end[6] == -1 and hi_end[6] == 1 and hi_end[5] - lo_end[5] > _MERGE_TOL):
                 i += 1
                 continue
+            lo_f, hi_f = round(lo_end[5], 2), round(hi_end[5], 2)
             s = Slot(
                 width_axis=wa,
                 long_axis=la,
                 width=round(2 * rad, 2),
-                length=round(hi_end[5] - lo_end[5], 2),
+                length=round(hi_f - lo_f, 2),
                 w_center=round(wc, 2),
-                lo=round(lo_end[5], 2),
-                hi=round(hi_end[5], 2),
+                lo=lo_f,
+                hi=hi_f,
                 d_lo=round(dlo, 2),
                 d_hi=round(dhi, 2),
             )
-            # Confirm a real channel (side walls) joins the ends and it is through, not a blind
-            # obround pocket or two D-cutouts bridging solid (#816 review). On failure the caps may
-            # belong to a later valid pair, so advance by one, not two.
-            if _has_side_walls(faces, s) and not _has_floor(faces, s):
-                slots.append(s)
+            # Confirm a real channel (side walls) joins the ends — not two D-cutouts bridging solid
+            # (#816 review). On failure the caps may belong to a later valid pair, so advance by one.
+            if not _has_side_walls(faces, s):
+                i += 1
+                continue
+            # Route on the EXACT floor count: a pocket is capped on ONE end (floor + opening); a
+            # through-slot on neither; a sealed internal void (both ends capped) is neither — do not
+            # emit it as a full-thickness-deep pocket (#837 review).
+            n_floor = _floor_ends(faces, s)
+            if blind and n_floor == 1:
+                out.append(
+                    Pocket(
+                        width_axis=wa,
+                        long_axis=la,
+                        width=round(2 * rad, 2),
+                        length=round(hi_f - lo_f, 2),
+                        depth=round(dhi - dlo, 2),
+                        w_center=round(wc, 2),
+                        lo=lo_f,
+                        hi=hi_f,
+                        d_lo=round(dlo, 2),
+                        d_hi=round(dhi, 2),
+                    )
+                )
+                i += 2
+            elif not blind and n_floor == 0:
+                out.append(s)
                 i += 2
             else:
-                i += 1
-    return slots
+                i += 1  # not ours: a pocket in a slot scan, a slot in a pocket scan, or a void
+    return out
 
 
 def recognise_slots(part) -> list[Slot]:
@@ -797,4 +896,7 @@ def recognise_pockets(part) -> list[Pocket]:
                 p = _pocket_candidate(walls[i], walls[j], faces, part_ext)
                 if p is not None:
                     candidates.append(p)
+    # Stubby blind obround pockets (straight section < width) have no pairable flat walls, so
+    # recover them from their end caps (#837) — the blind counterpart of the through-slot path.
+    candidates.extend(_recognise_obround_from_ends(part, faces, blind=True))
     return _extend_obround_ends(_merge(candidates), part)
