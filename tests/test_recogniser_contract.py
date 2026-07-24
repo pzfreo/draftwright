@@ -33,6 +33,8 @@ from draftwright.recognition import (
     LinearArray,
     Plate,
     Pocket,
+    PocketArray,
+    PocketGrid,
     RectGrid,
     Slot,
     StepShoulder,
@@ -48,6 +50,7 @@ from draftwright.recognition import (
     recognise_hole_patterns,
     recognise_holes,
     recognise_plates,
+    recognise_pocket_patterns,
     recognise_pockets,
     recognise_slots,
     recognise_step_shoulders,
@@ -73,6 +76,8 @@ _EXPECTED_RECORD_TYPES = {
     Groove,
     Slot,
     Pocket,
+    PocketArray,
+    PocketGrid,
     Plate,
     FaceLevel,
     StepShoulder,
@@ -110,6 +115,21 @@ def _grid_plate(nx=3, ny=3, px=25, py=25):
     for i in range(nx):
         for j in range(ny):
             part -= Pos((i - (nx - 1) / 2) * px, (j - (ny - 1) / 2) * py, 0) * Cylinder(3, 10)
+    return part
+
+
+def _pocket_array_plate():
+    part = Box(30, 150, 20)
+    for cy in (-45, -15, 15, 45):  # four identical blind pockets on one Y centreline, pitch 30
+        part -= Pos(0, cy, 7) * Box(10, 12, 6)  # floored (opening +Z) → a Pocket, not a Slot
+    return part
+
+
+def _pocket_grid_plate():
+    part = Box(140, 110, 20)
+    for i in range(2):  # 2×3 lattice of identical blind pockets (rect_grid needs n>=6)
+        for j in range(3):
+            part -= Pos((i - 0.5) * 40, (j - 1) * 30, 7) * Box(8, 10, 6)
     return part
 
 
@@ -162,6 +182,14 @@ def _records_from_recognisers():
         ("recognise_fillets", recognise_fillets(_filleted_box())),
         ("recognise_slots", recognise_slots(slotted)),
         ("recognise_pockets", recognise_pockets(pocketed)),
+        (
+            "pocket_patterns:linear",
+            recognise_pocket_patterns(recognise_pockets(_pocket_array_plate())),
+        ),
+        (
+            "pocket_patterns:grid",
+            recognise_pocket_patterns(recognise_pockets(_pocket_grid_plate())),
+        ),
         ("recognise_flats", recognise_flats(dshaft)),
         ("recognise_grooves", recognise_grooves(grooved)),
         ("recognise_plates", recognise_plates(_l_bracket())),
