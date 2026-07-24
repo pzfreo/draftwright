@@ -42,6 +42,7 @@ feature itself) so you can ``.fit(...)`` / ``.tolerance(...)`` it without re-dec
 
 from __future__ import annotations
 
+import math
 import warnings
 from dataclasses import replace
 
@@ -468,6 +469,10 @@ class Sheet:
         # engine's generic auto-placed Drawing.add_table, AFTER the drawing is built so they sit
         # clear of the views + title block (like the hole table). Each: {rows, prefer, name}.
         self._tables: list = []
+        # A requested section A–A (#841): ``None`` = no request, else a resolver tuple
+        # (``kind``, ``payload``) materialized to a cut-plane Y in ``_decorations`` — ``at``
+        # a literal Y, ``feature`` a declared-feature index, ``auto`` the part-centre Y.
+        self._section: tuple | None = None
         self._opts = dict(
             title=title, number=number, scale=_parse_scale(scale), page=page, out=out
         )
@@ -726,6 +731,42 @@ class Sheet:
         self._append_gdt(_declare_note(text, target, self._part, view=view, side=side), src)
         return self
 
+    def section(self, feature=None, *, at=None) -> Sheet:
+        """Request a full **section A–A** (#841) — the part-level verb behind the auto section.
+
+        A section fires automatically only when a Z-axis hole/pattern has a counterbore,
+        spotface, or blind bottom; a blind pocket has no such driving hole, so its floor
+        and depth stay hidden-line-only. This forces a cut so that internal profile reads.
+
+        The cut plane is normal to Y. *feature* — a fluent handle / :class:`Feature` /
+        index — cuts through that feature's centre (the natural "section through this
+        pocket"); ``at=<y>`` cuts at an explicit Y; bare ``section()`` cuts through the
+        part centre. The section renders last (its room check clears the right-of-side-view
+        band), so declare it after the per-feature verbs. Chainable."""
+        if at is not None:
+            if not math.isfinite(at):
+                raise ValueError(f"section(at=…) needs a finite Y, got {at!r}")
+            self._section = ("at", float(at))
+        elif feature is not None:
+            _target, src = self._gdt_ref(feature)
+            if src is None:
+                raise ValueError(
+                    "section(feature=…) needs a declared feature (a handle/index/Feature "
+                    "on this sheet) — pass at=<y> for a bare cut-plane position"
+                )
+            self._section = ("feature", src)
+        else:
+            self._section = ("auto", None)
+        return self
+
+    def detail(self) -> Sheet:
+        """Request the enlarged **detail view** (#42/#307) — the ``build_drawing(detail_view=True)``
+        opt-in as a Sheet verb (#841). Adds a magnified crop of the step-height region when the
+        geometry warrants one (a no-op otherwise). Chainable. Not feature-targeted — for a blind
+        pocket's floor/depth prefer :meth:`section`."""
+        self._opts["detail_view"] = True
+        return self
+
     def control(self, ref, *, view: str | None = None, side: str | None = None) -> _Control:
         """A GD&T feature-control-frame builder on *ref* — a feature handle / :class:`Feature` /
         index, or a build123d planar face. Chain one method per ISO 1101 characteristic
@@ -759,6 +800,11 @@ class Sheet:
         :class:`Feature` already in :attr:`features` → its feature + index (the index re-binds
         provenance at build); a build123d face or an external Feature → ``(ref, None)``."""
         if isinstance(ref, (_Hole, _Dim, _Params)):
+            if ref._sheet is not self:  # a handle from ANOTHER sheet indexes the wrong features
+                raise ValueError(
+                    "the handle belongs to a different Sheet — use a handle/index/Feature "
+                    "declared on this sheet"
+                )
             return self._features[ref._i], ref._i
         if isinstance(ref, int) and not isinstance(ref, bool):
             i = self._index_of(ref)
@@ -864,7 +910,32 @@ class Sheet:
         ``(feature, kind)`` (or role-keyed ``(feature, kind, role)``, #746) decoration map
         the planner reads (P2a). The tail of the key (``kind`` or ``kind, role``) passes
         through unchanged; only the leading index becomes the feature."""
-        return {(self._features[i], *rest): tol for (i, *rest), tol in self._tolerances.items()}
+        deco: dict = {
+            (self._features[i], *rest): tol for (i, *rest), tol in self._tolerances.items()
+        }
+        if self._section is not None:
+            deco["section"] = self._section_cut_y()  # the #841 cut-plane Y (scalar key)
+        return deco
+
+    def _section_cut_y(self) -> float:
+        """Resolve the requested :meth:`section` to a cut-plane Y (materialized at build so a
+        handle recorded before a later size verb resolves against the FINAL feature)."""
+        kind, payload = self._section  # type: ignore[misc]  # guarded by the caller
+        if kind == "feature":
+            return float(self._features[payload].frame.origin[1])  # in range by construction
+        if kind == "auto":
+            return float(self._part.bounding_box().center().Y)  # bare section() → part centre
+        # An explicit at= is untrusted: a plane outside the part's Y extent leaves the body
+        # uncut (a plain projection mislabelled "SECTION A–A") or clears it (a section dropped
+        # after layout already reserved its row). Reject it here (#841 review).
+        cut_y = float(payload)
+        bb = self._part.bounding_box()
+        if not (bb.min.Y < cut_y < bb.max.Y):  # strictly inside — a grazing plane cuts nothing
+            raise ValueError(
+                f"section(at={cut_y:.3g}) is not strictly inside the part Y extent "
+                f"({bb.min.Y:.3g}, {bb.max.Y:.3g}) — the plane would not cut the solid"
+            )
+        return cut_y
 
     def model(self):
         """The IR the engine will draw (detection skipped) — for inspection. Wraps the
