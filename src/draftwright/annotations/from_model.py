@@ -2298,9 +2298,15 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
                     (dwg.at("front", hlo, 0, 0), dwg.at("front", hhi, 0, 0), hhi - hlo, None)
                 )
 
-                def _redraw(dwg, view, detail_scale, _hw=ra):
+                def _redraw(dwg, view, coords, detail_scale, _hw=ra):
                     # View-scoped name prefix so two detail views never collide (#307 review).
-                    hsegs = [(dwg.at(view, *a), dwg.at(view, *b), v, t) for a, b, v, t in _hw]
+                    # Map world→page against the detail coords (not a live dwg.at) so the view can be
+                    # committed only after these dims land — no place-then-roll-back (#840).
+                    def _at(x, y, z):
+                        px, py = coords.pp(x, y, z)
+                        return (px, py, 0.0)
+
+                    hsegs = [(_at(*a), _at(*b), v, t) for a, b, v, t in _hw]
                     return _draw_step_chain(
                         dwg, view, hsegs, f"dim_{view}_steplen", detail_scale, ctx=ctx
                     )

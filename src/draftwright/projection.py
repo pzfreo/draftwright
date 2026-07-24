@@ -14,8 +14,8 @@ import logging
 import math
 
 import numpy as np
-from build123d import Compound, Edge, GeomType, Plane, ThreePointArc
-from build123d_drafting.helpers import Note, ViewCoordinates
+from build123d import Compound, Edge, GeomType, Location, Plane, ThreePointArc, Vector
+from build123d_drafting.helpers import Note, ViewCoordinates, view_axes
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import (
     GeomAbs_Cone,
@@ -181,6 +181,43 @@ def _exactify_silhouettes(edges, faces, view_dir, proj_fn, tol=_SILHOUETTE_TOL):
 # scale so it still fills modest zones without dominating.  Shrinking to fit a
 # small zone is never capped.
 _ISO_MAX_GROW = 1.3
+
+
+def project_view_geometry(scale, name, shape, camera, up, position, *, look_at, scaled):
+    """Project *shape* into a view's placed geometry + coordinates — the pure core of
+    :meth:`Drawing._add_view`, returning ``(placed, placed_hid, ViewCoordinates)`` WITHOUT mutating
+    a Drawing (#830). ``Drawing._add_view`` wraps it (stores the result under ``name``); the detail
+    renderer projects a band into a scratch with it and commits the view only if the feature draws
+    legible dims — so no view is ever placed-then-rolled-back.
+
+    *scale* is the world→page scale the coordinates encode; *shape* is in world (unscaled) space
+    unless *scaled* is True. *camera*/*up*/*look_at* are in scaled space (the standard-view
+    convention). Raises ``ValueError`` when the projection is empty (bad camera/look_at)."""
+    shape_s = shape if scaled else shape.scale(scale)
+    vis, hid = shape_s.project_to_viewport(camera, up, look_at)
+    vl, hl = list(vis), list(hid)
+    if not vl and not hl:
+        raise ValueError(
+            f"project_to_viewport returned empty geometry for view {name!r} "
+            f"(camera {camera}) — check the camera position and look_at."
+        )
+    axes = view_axes(camera, up, look_at)
+    # Recover exact circles for revolution silhouettes that HLR projected as approximating splines
+    # (#67) — a no-op when no revolution axis is parallel to the view direction (iso/section views).
+    if vl:
+        vd = Vector(look_at[0] - camera[0], look_at[1] - camera[1], look_at[2] - camera[2])
+        vd = vd.normalized()
+        proj = _raw_view_projector(axes, look_at)
+        vl, n_circ = _exactify_silhouettes(vl, shape_s.faces(), (vd.X, vd.Y, vd.Z), proj)
+        if n_circ:
+            _log.info("  %s: %d silhouette spline(s) refit to circles", name, n_circ)
+    loc = Location((position[0], position[1], 0))
+    placed = Compound(children=vl).locate(loc)
+    placed_hid = Compound(children=hl).locate(loc) if hl else None
+    cx, cy, cz = look_at[0] / scale, look_at[1] / scale, look_at[2] / scale
+    coords = ViewCoordinates(axes, position[0], position[1], cx, cy, cz, scale)
+    _log.info("  %s: %d visible / %d hidden", name, len(vl), len(hl))
+    return placed, placed_hid, coords
 
 
 def _bbox_within(bb, region, tol: float = 0.5) -> bool:

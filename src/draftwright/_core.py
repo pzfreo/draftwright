@@ -604,13 +604,14 @@ class DetailRequest:
         axis:         part axis the band spans / is cropped along ("x"/"y"/"z").
         lo, hi:       band bounds along ``axis`` (world mm).
         scale_needed: detail world→page scale that makes the region legible.
-        redraw:       ``redraw(dwg, view_name, detail_scale) -> int`` — draws the
-                      detail's dimensions in the placed detail view's coordinate system
-                      and returns the count placed (0 → the detailer rolls the view
-                      back rather than leave an empty box). Called once the detail is
-                      placed; the main view always carries the located head/block
-                      inline regardless, so a placement failure loses no coverage (lint
-                      reports the un-located interior instead).
+        redraw:       ``redraw(dwg, view_name, coords, detail_scale) -> int`` — draws the
+                      detail's dimensions against *coords* (the detail's
+                      :class:`ViewCoordinates`, mapped via ``coords.pp``) and returns the count
+                      placed (0 → the detailer drops the detail without committing a view, #840).
+                      Called on the SCRATCH-projected coords before the view is committed, so a
+                      zero result needs no rollback; the main view always carries the located
+                      head/block inline regardless, so a placement failure loses no coverage
+                      (lint reports the un-located interior instead).
         pad_top:      page-mm band reserved above the detail view (a horizontal
                       chain); reserved in the fit + placement.
         pads:         optional ``pads(detail_scale) -> (pad_right, pad_top)`` for a
