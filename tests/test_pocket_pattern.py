@@ -10,6 +10,7 @@ pockets are not double-rendered.
 import pytest
 from build123d import Box
 
+from draftwright.make_drawing import build_drawing
 from draftwright.model import hole, pocket, pocket_pattern
 from draftwright.sheet import Sheet
 
@@ -216,16 +217,37 @@ def test_pitch_dim_names_do_not_collide_with_hole_pattern():
     assert set(hole_pitch).isdisjoint(pocket_pitch)
 
 
-def test_manual_callout_verb_raises_clearly():
-    # the manual dwg.callout() edit verb for a pocket pattern is a deferred #841 follow-up;
-    # it must raise a clear error, NOT fall through to the hole-callout path and crash.
-    s = Sheet(Box(26, 161, 21))
+def test_manual_callout_verb_places_grouped_callout_and_pitch():
+    # the manual dwg.callout() edit verb for a pocket pattern (#841 outcome 3) draws the grouped
+    # size/depth callout AND its pitch dim (render_pocket_patterns bundles both), returning the
+    # grouped-callout name. It replaces the old deferred-stub that raised.
+    part = Box(26, 161, 21)
+    s = Sheet(part)
     s.envelope()
     s.pocket_pattern(_member(), kind="linear", count=5, pitch=27.2, direction=(0, 1, 0))
-    dwg = s.build()
+    dwg = build_drawing(part, model=s.model(), auto_dims=False)  # nothing auto-drawn
     feat = next(f for f in dwg.model().features if f.kind == "pocket_pattern")
-    with pytest.raises(ValueError, match="placed automatically at build time.*#841"):
-        dwg.callout(feat)
+    name = dwg.callout(feat)
+    assert name.startswith("m_pocketpat")
+    assert dwg.get_annotation(name).label == "5× 7.9 × 13.6 × 19 DEEP"
+    assert [n for n in dwg.annotations() if n.startswith("dim_pocketpat_pitch_")]
+
+
+def test_deferred_callout_reconstructs_the_pattern():
+    # the reconstruction path (builder._feature_listing emits `dwg.callout(f)`): a callout intent
+    # recorded inside `with dwg.deferred()` drains through finalize's pre-drain "pocket_patterns"
+    # stage, drawing the same grouped callout + pitch (#841 outcome 3).
+    part = Box(26, 161, 21)
+    s = Sheet(part)
+    s.envelope()
+    s.pocket_pattern(_member(), kind="linear", count=5, pitch=27.2, direction=(0, 1, 0))
+    dwg = build_drawing(part, model=s.model(), auto_dims=False)
+    with dwg.deferred():
+        dwg.callout(next(f for f in dwg.model().features if f.kind == "pocket_pattern"))
+    names = dwg.annotations()
+    assert [n for n in names if n.startswith("m_pocketpat")]
+    assert [n for n in names if n.startswith("dim_pocketpat_pitch_")]
+    assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
 
 def test_model_inspection_sees_the_pattern():

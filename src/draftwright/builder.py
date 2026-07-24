@@ -969,14 +969,11 @@ def _feature_listing(a: Analysis) -> str:
             body.append("dwg.callout(f)")
             continue
         elif kind == "pocket_pattern":
-            # A declared pocket pattern is auto-drawn as one grouped callout + pitch dim(s)
-            # (its pre-drain "pocket_patterns" stage). The manual re-emit verb — which needs
-            # the same pre-drain furniture placement — is a #841 outcome-3 follow-up. Flag it
-            # like the Y-turned step gap (#731) so reconstruction never SILENTLY drops it.
-            body.append(
-                "#     pocket pattern — auto-drawn (grouped callout + pitch); the re-emit "
-                "verb is a #841 follow-up, so it is flagged here, not silently dropped."
-            )
+            # A pocket pattern reconstructs through callout(f) (#841 outcome 3): finalize drains
+            # the recorded intent at the pre-drain "pocket_patterns" stage, drawing the grouped
+            # size/depth callout + its pitch dim(s). No locate()/furniture() — a pocket pattern
+            # has no location dims and render_pocket_patterns emits the pitch itself.
+            body.append("dwg.callout(f)")
             continue
         for p in feat.parameters():
             if p.span is not None or kind == "slot":  # a linear dim dimension() accepts
