@@ -46,6 +46,7 @@ from draftwright.model.ir import (
     PatternFeature,
     PlateFeature,
     PocketFeature,
+    PocketPatternFeature,
     Point,
     SlotFeature,
     StepFeature,
@@ -1084,6 +1085,97 @@ def pattern(
         member=member,
         members=members,
         bcd=bcd,
+        pitch=pitch,
+        direction=direction,
+        grid=grid,
+        rows=rows,
+        cols=cols,
+        angle=angle,
+    )
+
+
+def pocket_pattern(
+    member: PocketFeature,
+    *,
+    kind="linear",
+    count,
+    at=None,
+    members=(),
+    pitch=None,
+    direction=None,
+    grid=None,
+    rows=None,
+    cols=None,
+    angle=None,
+) -> PocketPatternFeature:
+    """``count`` × an identical blind pocket in a ``linear`` / ``grid`` array (#841) — the
+    recess analog of :func:`pattern`. *member* is one representative pocket (build it with
+    :func:`pocket`); the array renders as ONE grouped ``N× W × L × D DEEP`` callout plus the
+    ``(n-1)× pitch`` dim(s), instead of N competing size dims.
+
+    The arrangement lies in the pocket's OPENING plane (perpendicular to its depth axis), so
+    the members are laid out about *at* (default the member's own centre) in that plane —
+    pass ``members=`` to override the computed layout. ``pitch`` (linear) / ``grid`` +
+    ``rows``/``cols`` (grid) define the spacing and are read by the pitch-dim furniture."""
+    axis = member.depth_axis  # the opening normal — the plane the array lies in
+    center = at if at is not None else member.frame.origin
+    _require_point("at", center)
+    members = tuple(members)
+    for m in members:
+        _require_point("members", m)
+
+    if kind not in ("linear", "grid"):
+        raise ValueError(
+            f"pocket_pattern(kind={kind!r}) is not a known arrangement (linear / grid)"
+        )
+    _require_count("pocket_pattern()", count)
+    if members and len(members) != count:
+        raise ValueError(f"pocket_pattern() count={count} must equal len(members)={len(members)}")
+
+    if kind == "linear":
+        _positive("pocket_pattern(kind='linear') pitch=", pitch)  # the pitch dim reads it
+        if direction is not None:
+            _require_point("direction", direction)
+            if not any(direction):
+                raise ValueError("pocket_pattern(kind='linear') direction= must be nonzero")
+    else:  # grid
+        if grid is None or rows is None or cols is None:
+            raise ValueError("pocket_pattern(kind='grid') needs grid= pitch and rows= and cols=")
+        if not (isinstance(grid, (tuple, list)) and len(grid) == 2):
+            raise ValueError(
+                f"pocket_pattern() grid= must be a (row_pitch, col_pitch) pair (got {grid!r})"
+            )
+        _positive("pocket_pattern() grid row pitch", grid[0])
+        _positive("pocket_pattern() grid col pitch", grid[1])
+        if not (isinstance(rows, int) and isinstance(cols, int) and rows >= 1 and cols >= 1):
+            raise ValueError(
+                f"pocket_pattern() rows= and cols= must be positive ints (got rows={rows!r}, cols={cols!r})"
+            )
+        if rows * cols != count:
+            raise ValueError(
+                f"pocket_pattern(kind='grid') needs rows*cols == count ({rows}*{cols} != {count})"
+            )
+
+    if not members:
+        members = _pattern_members(
+            kind,
+            center,
+            axis,
+            count,
+            bcd=None,
+            pitch=pitch,
+            direction=direction,
+            grid=grid,
+            rows=rows,
+            cols=cols,
+            angle=angle,
+        )
+    return PocketPatternFeature(
+        frame=Frame(origin=center, axis=axis),
+        pattern=kind,
+        count=count,
+        member=member,
+        members=members,
         pitch=pitch,
         direction=direction,
         grid=grid,

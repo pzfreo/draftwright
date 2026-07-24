@@ -52,6 +52,11 @@ from draftwright.annotations._common import (
 from draftwright.annotations.from_model import (
     _diameter_column_left,
     _diameter_row_below,
+    _leader_callout_pass,
+    _leader_callout_reach,
+    _pocket_label,
+    _radial_candidates,
+    _tol_suffix,
     callout_from_spec,
     hole_callout_spec,
 )
@@ -1188,6 +1193,97 @@ def _place_pitch_dim(
             )
             return
     _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, _fmt(pitch))
+
+
+def render_pocket_patterns(dwg, groups, a, *, ctx, only=None) -> int:
+    """Grouped blind-pocket-array callouts (#841): ONE ``count× W × L × D DEEP`` leader on the
+    array centre + the ``(n-1)× pitch`` dim(s), instead of N competing per-pocket size dims.
+
+    A `PocketPatternFeature` composes its member pockets (they are NOT in ``model.features``),
+    so `render_pockets` never double-renders them. Lives here — beside the pattern pitch
+    furniture (`_place_pitch_dim` / `_add_grid_pitch_dims`) it reuses — and pulls the pocket
+    label + leader helpers from `from_model` (holes → from_model is the allowed direction).
+
+    Planner-fed (#728): the width/length/depth VALUES + tolerances are bound explicitly by
+    ``(role, kind)`` (``pocket_width``/``pocket_length``/``pocket_depth``, all ``length``),
+    never positionally. The callout reads in the view normal to the DEPTH axis (z→plan,
+    x→side, y→front). ``only`` restricts placement for `finalize()` (#426), skipping in place
+    so ``i`` stays the model index."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    view_of = {"z": "plan", "x": "side", "y": "front"}
+    pat_groups = [g for g in groups if g.feature_kind == "pocket_pattern"]
+    jobs = []
+    furniture = []  # (i, feat, view) for the placed patterns' pitch dims
+    for i, g in enumerate(
+        sorted(pat_groups, key=lambda g: (g.feature.member.width_axis, g.feature.frame.origin))
+    ):
+        feat = g.feature
+        if only is not None and feat not in only:
+            continue  # #426 finalize subset — skip in place so i stays the model index
+        pk = feat.member
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key.get(("pocket_width", "length"))
+        lpd = by_key.get(("pocket_length", "length"))
+        dpd = by_key.get(("pocket_depth", "length"))
+        if wpd is None or lpd is None or dpd is None:
+            continue
+        if wpd.suppressed or lpd.suppressed or dpd.suppressed:
+            continue
+        view = view_of.get(pk.depth_axis)
+        if view is None:
+            continue
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        label = f"{feat.count}× " + _pocket_label(
+            wpd.param.value,
+            lpd.param.value,
+            dpd.param.value,
+            wsfx=_tol_suffix(wpd.param.tolerance, draft),
+            lsfx=_tol_suffix(lpd.param.tolerance, draft),
+            dsfx=_tol_suffix(dpd.param.tolerance, draft),
+        )
+        # Anchor the one representative leader at the array CENTRE (feat.frame.origin) and
+        # attribute it to the pattern feature (ADR 0010 provenance).
+        jobs.append(
+            (
+                f"m_pocketpat_{pk.width_axis}{pk.long_axis}{i}",
+                view,
+                vb,
+                label,
+                _radial_candidates(dwg, view, vb, feat, reach),
+            )
+        )
+        furniture.append((i, feat, view))
+    placed = _leader_callout_pass(
+        dwg, a, jobs, noun="pocket pattern", drop_code="pocket_dropped", ctx=ctx
+    )
+    for i, feat, view in furniture:
+        members = feat.members or (feat.frame.origin,)
+
+        def to_page(loc, _view=view):
+            return dwg.at(_view, *loc)
+
+        if feat.pattern == "linear" and feat.pitch is not None:
+            _place_pitch_dim(
+                dwg,
+                a,
+                view,
+                members[0],
+                members[-1],
+                len(members),
+                feat.pitch,
+                to_page,
+                f"dim_pitch_{view}{i}",
+                feature=feat,
+                ctx=ctx,
+            )
+        elif feat.pattern == "grid" and feat.grid is not None:
+            _add_grid_pitch_dims(
+                dwg, a, view, i, members, feat.grid, to_page, feature=feat, ctx=ctx
+            )
+    return placed
 
 
 def build_view_of_axis(a: Analysis):

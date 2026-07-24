@@ -65,6 +65,7 @@ from draftwright.model import note as _declare_note
 from draftwright.model import pattern as _pattern
 from draftwright.model import plate as _plate
 from draftwright.model import pocket as _pocket
+from draftwright.model import pocket_pattern as _pocket_pattern
 from draftwright.model import slot as _slot
 from draftwright.model import step as _step
 from draftwright.model import step_level as _step_level
@@ -696,6 +697,13 @@ class Sheet:
         """Declare a hole pattern (bolt circle / linear array / grid) — build the
         *member* with :func:`draftwright.model.hole`."""
         self._features.append(_pattern(member, **kw))
+        return self
+
+    def pocket_pattern(self, member, **kw) -> Sheet:
+        """Declare a linear/grid array of identical blind pockets (#841) — build the
+        representative *member* with :func:`draftwright.model.pocket`. Renders as one grouped
+        ``N× W × L × D DEEP`` callout + ``(n-1)× pitch`` dim(s), not N competing size dims."""
+        self._features.append(_pocket_pattern(member, **kw))
         return self
 
     def envelope(self, obj=None) -> _Params:
