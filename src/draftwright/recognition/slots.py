@@ -314,18 +314,27 @@ def _end_capped(faces, foot, foot_area, depth_axis, end, want) -> bool:
     return bool(covered >= _FLOOR_COVER_FRAC * foot_area)
 
 
-def _has_floor(faces, s: Slot) -> bool:
-    """True when a planar floor caps the slot at *either* depth end — i.e. it is blind,
-    not through. The through/blind split for :func:`recognise_slots`; :func:`recognise_pockets`
-    uses the finer *which end* count (:func:`_end_capped`) to recover the depth axis."""
+def _floor_ends(faces, s: Slot) -> int:
+    """How many of *s*'s two depth ends a planar floor caps: ``0`` = through (open both ends),
+    ``1`` = a blind recess (one floor + one opening — a real pocket), ``2`` = a sealed internal
+    void (capped both ends, no opening — NOT a machinable recess). The obround end-cap recovery
+    routes on this exact count, so a sealed void is not misread as a full-thickness-deep pocket
+    (#837 review)."""
     foot = {
         s.width_axis: (s.w_center - s.width / 2, s.w_center + s.width / 2),
         s.long_axis: (s.lo, s.hi),
     }
     foot_area = math.prod(hi - lo for lo, hi in foot.values())
-    return _end_capped(faces, foot, foot_area, s.depth_axis, s.d_lo, 1.0) or _end_capped(
-        faces, foot, foot_area, s.depth_axis, s.d_hi, -1.0
+    return int(_end_capped(faces, foot, foot_area, s.depth_axis, s.d_lo, 1.0)) + int(
+        _end_capped(faces, foot, foot_area, s.depth_axis, s.d_hi, -1.0)
     )
+
+
+def _has_floor(faces, s: Slot) -> bool:
+    """True when a planar floor caps the slot at *either* depth end — i.e. it is not a through
+    slot. The through/blind split for :func:`recognise_slots`'s flat-wall path; the obround end-cap
+    path uses the finer :func:`_floor_ends` count (a pocket is capped on exactly one end)."""
+    return _floor_ends(faces, s) >= 1
 
 
 # A radiused-end (obround) slot has semicircular end caps whose radius is the slot's
@@ -592,8 +601,11 @@ def _recognise_obround_from_ends(part, faces, *, blind: bool = False):
             if not _has_side_walls(faces, s):
                 i += 1
                 continue
-            floored = _has_floor(faces, s)
-            if blind and floored:
+            # Route on the EXACT floor count: a pocket is capped on ONE end (floor + opening); a
+            # through-slot on neither; a sealed internal void (both ends capped) is neither — do not
+            # emit it as a full-thickness-deep pocket (#837 review).
+            n_floor = _floor_ends(faces, s)
+            if blind and n_floor == 1:
                 out.append(
                     Pocket(
                         width_axis=wa,
@@ -609,11 +621,11 @@ def _recognise_obround_from_ends(part, faces, *, blind: bool = False):
                     )
                 )
                 i += 2
-            elif not blind and not floored:
+            elif not blind and n_floor == 0:
                 out.append(s)
                 i += 2
             else:
-                i += 1  # floored but through-scan (or through but blind-scan) — not ours
+                i += 1  # not ours: a pocket in a slot scan, a slot in a pocket scan, or a void
     return out
 
 

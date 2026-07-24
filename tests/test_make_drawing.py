@@ -7797,6 +7797,18 @@ class TestFindSlots:
         assert len(pockets) == 5
         assert all(p.width == 7.88 and p.length == 13.6 and p.depth == 19.0 for p in pockets)
 
+    def test_sealed_internal_obround_void_is_not_a_pocket(self):
+        # #837 review: a fully enclosed obround cavity (planar caps at BOTH depth ends, no
+        # opening) is not a machinable recess — the end-cap recovery routes on the exact floor
+        # count (a pocket has ONE floor + one opening), so a both-ends-capped void is neither a
+        # pocket nor a full-thickness-deep phantom.
+        from build123d import Plane, SlotOverall, extrude
+
+        from draftwright.recognition import recognise_pockets
+
+        void = Box(60, 30, 20) - Pos(0, 0, -1.5) * extrude(Plane.XY * SlotOverall(13.5, 8), 3)
+        assert recognise_pockets(void) == []
+
     def test_pivot_boss_at_slot_end_does_not_extend_length(self):
         # A slotted lever with a cylindrical pivot boss (radius = width/2) protruding at one
         # end must NOT be read as a radiused end: the boss sits at a different depth than the
