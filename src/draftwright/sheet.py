@@ -42,6 +42,7 @@ feature itself) so you can ``.fit(...)`` / ``.tolerance(...)`` it without re-dec
 
 from __future__ import annotations
 
+import math
 import warnings
 from dataclasses import replace
 
@@ -743,6 +744,8 @@ class Sheet:
         part centre. The section renders last (its room check clears the right-of-side-view
         band), so declare it after the per-feature verbs. Chainable."""
         if at is not None:
+            if not math.isfinite(at):
+                raise ValueError(f"section(at=…) needs a finite Y, got {at!r}")
             self._section = ("at", float(at))
         elif feature is not None:
             _target, src = self._gdt_ref(feature)
@@ -797,6 +800,11 @@ class Sheet:
         :class:`Feature` already in :attr:`features` → its feature + index (the index re-binds
         provenance at build); a build123d face or an external Feature → ``(ref, None)``."""
         if isinstance(ref, (_Hole, _Dim, _Params)):
+            if ref._sheet is not self:  # a handle from ANOTHER sheet indexes the wrong features
+                raise ValueError(
+                    "the handle belongs to a different Sheet — use a handle/index/Feature "
+                    "declared on this sheet"
+                )
             return self._features[ref._i], ref._i
         if isinstance(ref, int) and not isinstance(ref, bool):
             i = self._index_of(ref)
@@ -913,11 +921,21 @@ class Sheet:
         """Resolve the requested :meth:`section` to a cut-plane Y (materialized at build so a
         handle recorded before a later size verb resolves against the FINAL feature)."""
         kind, payload = self._section  # type: ignore[misc]  # guarded by the caller
-        if kind == "at":
-            return float(payload)
         if kind == "feature":
-            return float(self._features[payload].frame.origin[1])
-        return float(self._part.bounding_box().center().Y)  # bare section() → part centre
+            return float(self._features[payload].frame.origin[1])  # in range by construction
+        if kind == "auto":
+            return float(self._part.bounding_box().center().Y)  # bare section() → part centre
+        # An explicit at= is untrusted: a plane outside the part's Y extent leaves the body
+        # uncut (a plain projection mislabelled "SECTION A–A") or clears it (a section dropped
+        # after layout already reserved its row). Reject it here (#841 review).
+        cut_y = float(payload)
+        bb = self._part.bounding_box()
+        if not (bb.min.Y <= cut_y <= bb.max.Y):
+            raise ValueError(
+                f"section(at={cut_y:.3g}) is outside the part Y extent "
+                f"[{bb.min.Y:.3g}, {bb.max.Y:.3g}] — the plane would not cut the solid"
+            )
+        return cut_y
 
     def model(self):
         """The IR the engine will draw (detection skipped) — for inspection. Wraps the

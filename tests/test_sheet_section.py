@@ -68,6 +68,29 @@ def test_section_needs_a_declared_feature():
         s.section(object())  # a bare build123d-ish object is not on this sheet
 
 
+def test_section_rejects_a_foreign_handle():
+    # A handle from another Sheet indexes the wrong feature list — must raise, not silently
+    # cut the wrong feature (or IndexError). Shared _gdt_ref guard (#841 review).
+    s_a, p_a = _blind_pocket_sheet()
+    s_b, _p_b = _blind_pocket_sheet()
+    with pytest.raises(ValueError, match="different Sheet"):
+        s_b.section(p_a)
+
+
+def test_section_rejects_non_finite_and_out_of_range_at():
+    s, _p = _blind_pocket_sheet()
+    with pytest.raises(ValueError, match="finite"):
+        s.section(at=float("nan"))
+    with pytest.raises(ValueError, match="finite"):
+        s.section(at=float("inf"))
+    # An in-range value is fine; an out-of-range plane (the 50-wide bar spans y∈[-25, 25])
+    # is rejected at build resolution rather than mislabelling an uncut projection "SECTION A–A".
+    s, _p = _blind_pocket_sheet()
+    s.section(at=100.0)
+    with pytest.raises(ValueError, match="outside the part Y extent"):
+        s._decorations()
+
+
 def test_detail_sets_the_opt_and_chains():
     s, _p = _blind_pocket_sheet()
     assert s.detail() is s
