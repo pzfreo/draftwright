@@ -7753,6 +7753,50 @@ class TestFindSlots:
         d2 = Pos(0, 10, 0) * Cylinder(4, 30) & Pos(0, 12, 0) * Box(20, 4, 40)
         assert recognise_slots(Box(8, 40, 21) - d1 - d2) == []
 
+    def test_stubby_blind_obround_pocket_is_recognised_not_a_slot(self):
+        # #837: the blind counterpart of the stubby through-slot — a floored obround pocket whose
+        # straight walls are too short to pair. It must be a Pocket (with depth), not a through Slot.
+        from build123d import Plane, SlotOverall, extrude
+
+        from draftwright.recognition import recognise_pockets
+
+        part = Box(60, 30, 21) - Pos(0, 0, -8.5) * extrude(Plane.XY * SlotOverall(13.5, 8), 19)
+        assert recognise_slots(part) == []
+        (p,) = recognise_pockets(part)
+        assert p.width == 8.0 and p.length == 13.5 and p.depth == 19.0
+
+    def test_row_of_stubby_blind_obround_pockets_stays_separate(self):
+        # #837: five blind obround pockets down one centreline stay five distinct pockets.
+        from build123d import Plane, SlotOverall, extrude
+
+        from draftwright.recognition import recognise_pockets
+
+        part = Box(26, 161, 21)
+        for cy in (-54, -27, 0, 27, 54):
+            part = part - Pos(0, cy, -8.5) * extrude(
+                Plane.XY * SlotOverall(13.5, 8, rotation=90), 19
+            )
+        pockets = recognise_pockets(part)
+        assert len(pockets) == 5
+        assert all(p.width == 8.0 and p.length == 13.5 and p.depth == 19.0 for p in pockets)
+
+    def test_step_imported_blind_obround_pockets_with_quarter_cylinder_ends(self):
+        # #837: the reported failure — an imported STEP whose semicircular ends are each split into
+        # two quarter-cylinder faces (r × r, not the 2r × r half-cylinder build123d emits). The caps
+        # are recombined by axis-line proximity, so the five blind pockets are recognised.
+        from pathlib import Path
+
+        from build123d import import_step
+
+        from draftwright.recognition import recognise_pockets
+
+        step = Path(__file__).parent / "fixtures" / "tuner_jig_blind_obround_pockets.step"
+        part = import_step(str(step))
+        pockets = recognise_pockets(part)
+        assert recognise_slots(part) == []  # blind, not through
+        assert len(pockets) == 5
+        assert all(p.width == 7.88 and p.length == 13.6 and p.depth == 19.0 for p in pockets)
+
     def test_pivot_boss_at_slot_end_does_not_extend_length(self):
         # A slotted lever with a cylindrical pivot boss (radius = width/2) protruding at one
         # end must NOT be read as a radiused end: the boss sits at a different depth than the
