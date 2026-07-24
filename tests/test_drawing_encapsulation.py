@@ -112,13 +112,26 @@ def _dwg_getattr_probes(tree: ast.Module) -> list[str]:
     return out
 
 
+# The sanctioned in-build LAYOUT SEAM: the ONLY Drawing privates an engine module may invoke as
+# methods on the duck-typed drawing. The section/detail layout is inherently interactive — it reads
+# its own live output (placed views + occupancy), provisionally places a view, and can roll it back
+# — so these three cannot become "return data for the builder to assemble" without a parallel
+# canvas. #830 Path A accepts them as the PERMANENT seam, and in doing so narrows decision D's
+# method-call exemption (#817 PR4) from a blanket pass to this NAMED allowlist: every OTHER private
+# method call from an engine module is now flagged as a state-bus poke, so the engine cannot
+# re-grow a private-method back-channel beyond the seam. May only SHRINK (e.g. #830 Path B removing
+# the detail rollback would drop _drop_view_coordinates).
+_LAYOUT_SEAM: frozenset[str] = frozenset(
+    {"_add_view", "_set_view_coordinates", "_drop_view_coordinates"}
+)
+
+
 def _method_call_attrs(tree: ast.Module) -> set[int]:
-    """``id()``s of Attribute nodes that are the DIRECT callee of a Call — i.e. the
-    ``dwg._m`` in a ``dwg._m(...)`` METHOD INVOCATION. #722 targets state-bus *data*
-    back-channels; calling a (now-private) engine-API method is explicit API, not a poke at
-    a shared field, so it is exempt (#817 PR4 / decision D). Data reads stay caught: in
-    ``dwg._registry.add(…)`` the private ``_registry`` is the call func's *value* (not the
-    func itself), and ``dwg._coords[k]`` is a subscript — neither is a callee here."""
+    """``id()``s of Attribute nodes that are the DIRECT callee of a Call — i.e. the ``dwg._m`` in a
+    ``dwg._m(...)`` METHOD INVOCATION. The caller (:func:`_dwg_private_reads`) exempts only the ones
+    whose name is in :data:`_LAYOUT_SEAM`. Data reads are never callees here: in
+    ``dwg._registry.add(…)`` the private ``_registry`` is the call func's *value* (not the func
+    itself), and ``dwg._coords[k]`` is a subscript."""
     out: set[int] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
@@ -129,8 +142,10 @@ def _method_call_attrs(tree: ast.Module) -> set[int]:
 def _dwg_private_reads(tree: ast.Module) -> set[str]:
     """Distinct ``dwg._<name>`` private READS: attribute accesses in ``Load`` context (so a
     write/delete target — ``Store``/``Del`` — is never miscounted as a read), plus
-    ``getattr(dwg, "_name", …)`` probes. A private that is the direct callee of a Call
-    (``dwg._m(...)``) is a method invocation, not a data read, so it is exempt (#817 PR4)."""
+    ``getattr(dwg, "_name", …)`` probes. Exempt: a call to one of the sanctioned
+    :data:`_LAYOUT_SEAM` methods (``dwg._add_view(...)`` etc., #830 Path A). A call to any OTHER
+    private method is NOT exempt — it is flagged like a data read, so the exemption is a named seam,
+    not a blanket pass (#817 PR4 / decision D, narrowed by #830)."""
     call_funcs = _method_call_attrs(tree)
     reads: set[str] = set()
     for node in ast.walk(tree):
@@ -139,7 +154,7 @@ def _dwg_private_reads(tree: ast.Module) -> set[str]:
             and _is_dwg(node.value)
             and node.attr.startswith("_")
             and isinstance(node.ctx, ast.Load)
-            and id(node) not in call_funcs
+            and not (id(node) in call_funcs and node.attr in _LAYOUT_SEAM)
         ):
             reads.add(node.attr)
     reads |= set(_dwg_getattr_probes(tree))
@@ -183,10 +198,16 @@ def test_write_guard_catches_every_mutation_form():
         assert writes, f"guard missed a mutation form: {snippet!r}"
     # A pure read must NOT register as a write (else every read is a false positive).
     assert not _dwg_private_writes(ast.parse("use(dwg._named)"))
-    # #817 PR4 (decision D): a private METHOD CALL is explicit API, exempt from the read
-    # scan; every DATA read stays caught (the state-bus back-channel #722 targets).
+    # #830 Path A: a call to one of the sanctioned LAYOUT-SEAM methods is exempt from the read
+    # scan (the engine's only legitimate private-method calls) — and ONLY those three.
+    assert _dwg_private_reads(ast.parse("dwg._add_view(...)")) == set()
     assert _dwg_private_reads(ast.parse("dwg._set_view_coordinates(v)")) == set()
-    assert _dwg_private_reads(ast.parse("drawing._clear_annotations()")) == set()
+    assert _dwg_private_reads(ast.parse("dwg._drop_view_coordinates(v)")) == set()
+    # A call to any OTHER private method is NOT exempt — flagged like a data read, so decision D's
+    # exemption (#817 PR4) is a named seam, not a blanket pass (#830 Path A).
+    assert _dwg_private_reads(ast.parse("dwg._add(x)")) == {"_add"}
+    assert _dwg_private_reads(ast.parse("drawing._clear_annotations()")) == {"_clear_annotations"}
+    # Every DATA read stays caught (the state-bus back-channel #722 targets).
     assert _dwg_private_reads(ast.parse("use(dwg._coords)")) == {"_coords"}
     assert _dwg_private_reads(ast.parse("dwg._registry.add(x)")) == {"_registry"}  # func.value
     assert _dwg_private_reads(ast.parse("dwg._coords[k]")) == {"_coords"}  # subscript
