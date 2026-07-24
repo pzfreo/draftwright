@@ -131,6 +131,42 @@ def test_sheet_emit_round_trips_the_pattern(tmp_path):
     assert "depth=" not in line  # a slot has no depth
 
 
+def test_rectangular_grid_emit_round_trips_faithfully():
+    # a RECTANGULAR (rows≠cols, row_pitch≠col_pitch) grid must reconstruct its exact member
+    # lattice through the emitted at=/grid=/rows=/cols=/angle= (guards the recognition angle/
+    # basis convention against declare._pattern_members' — Codex #852 flagged a possible
+    # rows↔cols transpose; this pins that it does NOT transpose).
+    from draftwright.model import slot, slot_pattern
+
+    pm = build_part_model(_slot_grid(2, 3))  # 44 mm × 34 mm rectangular lattice
+    feat = next(f for f in pm.features if f.kind == "slot_pattern")
+    assert feat.rows != feat.cols and feat.grid[0] != feat.grid[1]  # genuinely rectangular
+    m = feat.member
+    rebuilt = slot_pattern(
+        slot(
+            width=m.width,
+            length=m.length,
+            long_axis=m.long_axis,
+            width_axis=m.width_axis,
+            depth_axis="z",
+            lo=m.lo,
+            hi=m.hi,
+            w_center=m.w_center,
+            at=m.frame.origin,
+        ),
+        kind="grid",
+        count=feat.count,
+        grid=feat.grid,
+        rows=feat.rows,
+        cols=feat.cols,
+        angle=feat.angle,
+        at=feat.frame.origin,
+    )
+    detected = sorted((round(p[0], 2), round(p[1], 2)) for p in feat.members)
+    reconstructed = sorted((round(p[0], 2), round(p[1], 2)) for p in rebuilt.members)
+    assert detected == reconstructed
+
+
 def test_slot_row_renders_one_grouped_callout_not_four():
     # the payoff: a row of four identical slots renders ONE `4× SLOT 8 × 30` (width × length)
     # callout + a pitch dim, not four competing per-slot size dims (#841 confirmed-behaviour #1).
