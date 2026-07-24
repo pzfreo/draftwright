@@ -49,6 +49,7 @@ from draftwright.model.ir import (
     PocketPatternFeature,
     Point,
     SlotFeature,
+    SlotPatternFeature,
     StepFeature,
     StepLevelFeature,
 )
@@ -1210,6 +1211,115 @@ def pocket_pattern(
             angle=angle,
         )
     return PocketPatternFeature(
+        frame=Frame(origin=center, axis=axis),
+        pattern=kind,
+        count=count,
+        member=member,
+        members=members,
+        pitch=pitch,
+        direction=direction,
+        grid=grid,
+        rows=rows,
+        cols=cols,
+        angle=angle,
+    )
+
+
+def slot_pattern(
+    member: SlotFeature,
+    *,
+    kind="linear",
+    count,
+    at=None,
+    members=(),
+    pitch=None,
+    direction=None,
+    grid=None,
+    rows=None,
+    cols=None,
+    angle=None,
+) -> SlotPatternFeature:
+    """``count`` × an identical milled slot in a ``linear`` / ``grid`` array (#841) — the
+    through-slot analog of :func:`pocket_pattern`. *member* is one representative slot (build it
+    with :func:`slot`); the array renders as ONE grouped ``N× SLOT W × L`` leader plus the
+    ``(n-1)× pitch`` dim(s), instead of N competing size dims (some of which drop for lack of
+    room, #841 behaviour 1).
+
+    A slot has no depth, so the array lies in the face plane perpendicular to the slot's THROUGH
+    axis (the one that is neither width nor long). Members are laid out about *at* (default the
+    member's own centre) in that plane; ``pitch`` (linear) / ``grid`` + ``rows``/``cols`` (grid)
+    define the spacing. Explicit ``members=`` is rejected — the computed layout is the truthful
+    one (see :func:`pocket_pattern`)."""
+    axis = next(a for a in "xyz" if a not in (member.width_axis, member.long_axis))  # through axis
+    axis_idx = {"x": 0, "y": 1, "z": 2}[axis]
+    center = at if at is not None else member.frame.origin
+    _require_point("at", center)
+    if members:
+        raise ValueError(
+            "slot_pattern() does not accept explicit members= — declare the array by "
+            "count + pitch=/direction= (linear) or grid=/rows=/cols= (grid); the computed "
+            "layout guarantees the grouped callout and pitch labels match the geometry"
+        )
+
+    if kind not in ("linear", "grid"):
+        raise ValueError(f"slot_pattern(kind={kind!r}) is not a known arrangement (linear / grid)")
+    _require_count("slot_pattern()", count)
+
+    if kind == "linear":
+        _positive("slot_pattern(kind='linear') pitch=", pitch)  # the pitch dim reads it
+        if count < 2:
+            raise ValueError(
+                "slot_pattern(kind='linear') needs count>=2 — a single slot is not an "
+                "array; declare it with slot()"
+            )
+        if direction is not None:
+            _require_point("direction", direction)
+            # NORMALIZED, over/underflow-stable through-plane test — identical to pocket_pattern
+            # (Codex #848 r4/r5), only the axis source differs (the slot's through axis).
+            norm = math.hypot(*direction)
+            if not (math.isfinite(norm) and norm > 0):
+                raise ValueError(
+                    "slot_pattern(kind='linear') direction= must be a finite, nonzero vector"
+                )
+            if abs(direction[axis_idx]) / norm > 1e-6:  # face-plane constraint
+                raise ValueError(
+                    "slot_pattern(kind='linear') direction= must lie in the slot face plane "
+                    f"(no {axis}-through component)"
+                )
+    else:  # grid
+        if grid is None or rows is None or cols is None:
+            raise ValueError("slot_pattern(kind='grid') needs grid= pitch and rows= and cols=")
+        if not (isinstance(grid, (tuple, list)) and len(grid) == 2):
+            raise ValueError(
+                f"slot_pattern() grid= must be a (row_pitch, col_pitch) pair (got {grid!r})"
+            )
+        _positive("slot_pattern() grid row pitch", grid[0])
+        _positive("slot_pattern() grid col pitch", grid[1])
+        if not (isinstance(rows, int) and isinstance(cols, int) and rows >= 2 and cols >= 2):
+            raise ValueError(
+                "slot_pattern(kind='grid') needs rows>=2 and cols>=2 (a single-row or "
+                f"single-column array is linear — use kind='linear'); got rows={rows!r}, cols={cols!r}"
+            )
+        if rows * cols != count:
+            raise ValueError(
+                f"slot_pattern(kind='grid') needs rows*cols == count ({rows}*{cols} != {count})"
+            )
+
+    if not members:
+        members = _pattern_members(
+            kind,
+            center,
+            axis,
+            count,
+            bcd=None,
+            pitch=pitch,
+            direction=direction,
+            grid=grid,
+            rows=rows,
+            cols=cols,
+            angle=angle,
+        )
+    return SlotPatternFeature(
         frame=Frame(origin=center, axis=axis),
         pattern=kind,
         count=count,

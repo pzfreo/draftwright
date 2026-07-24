@@ -67,6 +67,7 @@ from draftwright.model import plate as _plate
 from draftwright.model import pocket as _pocket
 from draftwright.model import pocket_pattern as _pocket_pattern
 from draftwright.model import slot as _slot
+from draftwright.model import slot_pattern as _slot_pattern
 from draftwright.model import step as _step
 from draftwright.model import step_level as _step_level
 from draftwright.model.declare import (
@@ -704,6 +705,13 @@ class Sheet:
         representative *member* with :func:`draftwright.model.pocket`. Renders as one grouped
         ``N× W × L × D DEEP`` callout + ``(n-1)× pitch`` dim(s), not N competing size dims."""
         self._features.append(_pocket_pattern(member, **kw))
+        return self
+
+    def slot_pattern(self, member, **kw) -> Sheet:
+        """Declare a linear/grid array of identical milled slots (#841) — build the
+        representative *member* with :func:`draftwright.model.slot`. Renders as one grouped
+        ``N× SLOT W × L`` leader + ``(n-1)× pitch`` dim(s), not N competing size dims."""
+        self._features.append(_slot_pattern(member, **kw))
         return self
 
     def envelope(self, obj=None) -> _Params:

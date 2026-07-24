@@ -61,6 +61,7 @@ from draftwright.annotations.holes import (
     _locate_off_axis_holes,
     build_view_of_axis,
     render_pocket_patterns,
+    render_slot_patterns,
 )
 from draftwright.annotations.sections import (
     _add_section_view,
@@ -112,6 +113,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "slots",
     "pocket_patterns",  # a pocket ARRAY: grouped callout + pitch dim, placed pre-drain like a
     # hole pattern (the pitch dim needs strip room the post-drain decoration slots lack)
+    "slot_patterns",  # a through-slot ARRAY: same grouped callout + pitch, same pre-drain reason
     "user_dims",  # finalize-only: pin/priority dims queue into the shared corridor
     "gdt",
     "pmi",
@@ -416,6 +418,13 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # so render_pockets never double-renders them.
         render_pocket_patterns(dwg, _groups, a, ctx=ctx)
 
+    def _s_slot_patterns():
+        # Grouped through-slot-array callouts (#841): ONE count× SLOT W × L leader + the (n-1)×
+        # pitch dim(s), instead of N competing per-slot size dims (some of which drop, #841
+        # behaviour 1). Member slots are composed into the pattern, so render_slots never
+        # double-renders them.
+        render_slot_patterns(dwg, _groups, a, ctx=ctx)
+
     def _s_off_axis_across():
         # Side-drilled holes' in-plane (side-below) locations share the below corridor with
         # the overall envelope depth. They now queue into the same batch; the envelope's
@@ -562,6 +571,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "flats": _s_flats,
             "pockets": _s_pockets,
             "pocket_patterns": _s_pocket_patterns,
+            "slot_patterns": _s_slot_patterns,
             "off_axis_across": _s_off_axis_across,
             "envelope": _s_envelope,
             "detail_request": _s_detail_request,

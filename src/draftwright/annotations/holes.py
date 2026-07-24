@@ -56,6 +56,7 @@ from draftwright.annotations.from_model import (
     _leader_callout_reach,
     _pocket_label,
     _radial_candidates,
+    _slot_label,
     _tol_suffix,
     callout_from_spec,
     hole_callout_spec,
@@ -1304,6 +1305,101 @@ def render_pocket_patterns(dwg, groups, a, *, ctx, only=None) -> int:
                 feature=feat,
                 ctx=ctx,
                 name_prefix="dim_pocketpat_pitch",
+            )
+    return placed
+
+
+def render_slot_patterns(dwg, groups, a, *, ctx, only=None) -> int:
+    """Grouped milled-slot-array callouts (#841): ONE ``count× SLOT W × L`` leader on the array
+    centre + the ``(n-1)× pitch`` dim(s), instead of N competing per-slot size dims (some of
+    which drop for lack of room, #841 behaviour 1). The through-slot analog of
+    :func:`render_pocket_patterns` — a slot has no depth, so the label carries no ``× D DEEP``.
+
+    A `SlotPatternFeature` composes its member slots (they are NOT in ``model.features``), so
+    `render_slots` never double-renders them. The width/length VALUES + tolerances are bound
+    explicitly by ``(role, kind)`` (``slot_width``/``slot_length``, both ``length``), never
+    positionally. The callout reads in the view normal to the slot's THROUGH axis. ``only``
+    restricts placement for `finalize()` (#426), skipping in place so ``i`` stays the model
+    index."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    view_of = {"z": "plan", "x": "side", "y": "front"}
+    pat_groups = [g for g in groups if g.feature_kind == "slot_pattern"]
+    jobs = []
+    furniture = []  # (i, feat, view, name) for the placed patterns' pitch dims
+    for i, g in enumerate(
+        sorted(pat_groups, key=lambda g: (g.feature.member.width_axis, g.feature.frame.origin))
+    ):
+        feat = g.feature
+        if only is not None and feat not in only:
+            continue  # #426 finalize subset — skip in place so i stays the model index
+        sl = feat.member
+        through_axis = next(a for a in "xyz" if a not in (sl.width_axis, sl.long_axis))
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key.get(("slot_width", "length"))
+        lpd = by_key.get(("slot_length", "length"))
+        if wpd is None or lpd is None:
+            continue
+        if wpd.suppressed or lpd.suppressed:
+            continue
+        view = view_of.get(through_axis)
+        if view is None:
+            continue
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        label = f"{feat.count}× " + _slot_label(
+            wpd.param.value,
+            lpd.param.value,
+            wsfx=_tol_suffix(wpd.param.tolerance, draft),
+            lsfx=_tol_suffix(lpd.param.tolerance, draft),
+        )
+        # Anchor the one representative leader at the array CENTRE (feat.frame.origin) and
+        # attribute it to the pattern feature (ADR 0010 provenance).
+        name = f"m_slotpat_{sl.width_axis}{sl.long_axis}{i}"
+        jobs.append((name, view, vb, label, _radial_candidates(dwg, view, vb, feat, reach)))
+        furniture.append((i, feat, view, name))
+    placed = _leader_callout_pass(
+        dwg, a, jobs, noun="slot pattern", drop_code="slot_dropped", ctx=ctx
+    )
+    placed_names = dwg.annotations()
+    for i, feat, view, name in furniture:
+        # Skip the pitch furniture whose grouped size callout dropped (orphan pitch dims are a
+        # misleading spec, Codex #848 r3). Distinct name prefix (dim_slotpat_pitch) so a plan-view
+        # slot pattern and hole/pocket pattern do not collide.
+        if name not in placed_names:
+            continue
+        members = feat.members or (feat.frame.origin,)
+
+        def to_page(loc, _view=view):
+            return dwg.at(_view, *loc)
+
+        if feat.pattern == "linear" and feat.pitch is not None:
+            _place_pitch_dim(
+                dwg,
+                a,
+                view,
+                members[0],
+                members[-1],
+                len(members),
+                feat.pitch,
+                to_page,
+                f"dim_slotpat_pitch_{view}{i}",
+                feature=feat,
+                ctx=ctx,
+            )
+        elif feat.pattern == "grid" and feat.grid is not None:
+            _add_grid_pitch_dims(
+                dwg,
+                a,
+                view,
+                i,
+                members,
+                feat.grid,
+                to_page,
+                feature=feat,
+                ctx=ctx,
+                name_prefix="dim_slotpat_pitch",
             )
     return placed
 

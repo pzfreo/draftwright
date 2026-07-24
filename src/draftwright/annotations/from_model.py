@@ -1541,6 +1541,13 @@ def _pocket_label(width, length, depth, wsfx="", lsfx="", dsfx="") -> str:
     return f"{_fmt(width)}{wsfx} × {_fmt(length)}{lsfx} × {_fmt(depth)}{dsfx} DEEP"
 
 
+def _slot_label(width, length, wsfx="", lsfx="") -> str:
+    """The grouped slot-array callout string: ``SLOT {width} × {length}`` (#841). A slot has no
+    depth, so — unlike :func:`_pocket_label` — there is no ``× depth DEEP``; the ``SLOT`` prefix
+    names the feature the way a lone slot's linear dims otherwise would."""
+    return f"SLOT {_fmt(width)}{wsfx} × {_fmt(length)}{lsfx}"
+
+
 # Unit lead directions tried (nearest-clear wins), diagonals first so a central pocket's
 # leader exits toward a corner (usually the emptiest margin) before an edge.
 _POCKET_LEAD_DIRS = (

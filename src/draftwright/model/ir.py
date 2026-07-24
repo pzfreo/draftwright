@@ -346,6 +346,42 @@ class PocketPatternFeature:
 
 
 @dataclass(frozen=True)
+class SlotPatternFeature:
+    """``count`` × an identical milled slot in a linear/grid array — the through-slot analog of
+    `PocketPatternFeature` (#841). Composes a representative `member` `SlotFeature` (its width ×
+    length come along; a slot has NO depth) and adds the array pitch dims. The member slots are
+    NOT emitted individually: one grouped ``N× SLOT W × L`` leader plus the ``(n-1)× pitch``
+    dim(s). ``frame.axis`` is the slot's THROUGH axis (the one neither width nor long), so the
+    callout reads in the view normal to it (the same view the member slots' dims read in)."""
+
+    frame: Frame
+    pattern: str  # "linear" | "grid"
+    count: int
+    member: SlotFeature
+    members: tuple[Point, ...] = ()  # ordered member-slot centres
+    pitch: float | None = None  # linear pitch
+    direction: tuple[float, float, float] | None = None  # linear array axis
+    grid: tuple[float, float] | None = None  # (row_pitch, col_pitch)
+    rows: int | None = None
+    cols: int | None = None
+    angle: float | None = None  # grid lattice rotation (degrees)
+    kind: ClassVar[str] = "slot_pattern"
+
+    def parameters(self) -> list[DimParameter]:
+        ps = list(self.member.parameters())  # slot width + length (no depth)
+        if self.pitch is not None:
+            ps.append(DimParameter("length", "pitch", self.pitch))
+        if self.grid is not None:
+            rp, cp = self.grid
+            ps.append(DimParameter("length", "grid_pitch", rp))
+            ps.append(DimParameter("length", "grid_pitch", cp))
+        return ps
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class BossFeature:
     """An external cylindrical boss/OD — its diameter and optional axial height."""
 
