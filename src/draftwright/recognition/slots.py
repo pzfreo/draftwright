@@ -943,16 +943,22 @@ def recognise_pockets(part) -> list[Pocket]:
 
 
 def _pocket_spec_key(pk: Pocket) -> tuple:
-    """The grouping key shared by pockets of the *same milled recess* — same orientation and
-    size. Only identical, same-orientation pockets can form one array (a 90°-rotated pocket
-    swaps width_axis/long_axis and reads as a different feature). Sizes snap to 3 dp so
-    boolean-op float noise does not split an array (mirrors ``HoleSpec``'s axis snap)."""
+    """The grouping key shared by pockets of the *same milled recess* — same orientation, size,
+    AND opening plane. Only identical, same-orientation, COPLANAR pockets can form one array (a
+    90°-rotated pocket swaps width_axis/long_axis and reads as a different feature). The
+    depth-axis extent (d_lo, d_hi) is part of the key: pattern detection projects the depth
+    coordinate away, so without it pockets on different-height stepped faces — or opening
+    opposite directions — whose in-plane centres happen to line up would merge into one planar
+    array that does not exist (Codex #849). Coordinates snap to 3 dp so boolean-op float noise
+    does not split an array (mirrors ``HoleSpec``'s axis snap)."""
     return (
         pk.width_axis,
         pk.long_axis,
         round(pk.width, 3),
         round(pk.length, 3),
         round(pk.depth, 3),
+        round(pk.d_lo, 3),
+        round(pk.d_hi, 3),
     )
 
 

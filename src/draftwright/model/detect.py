@@ -554,12 +554,17 @@ def build_part_model(
         pockets = recognise_pockets(part)
     if pocket_patterns is None:
         pocket_patterns = recognise_pocket_patterns(pockets)
-    patterned_pk: set[int] = set()
+    # Exclude members by VALUE, not id(): `Pocket` is a frozen (hashable) value record and two
+    # distinct pockets can never be value-equal (their positions differ), so a value-set
+    # excludes members even when `pocket_patterns=` is INJECTED from value-equal copies whose
+    # ids differ from `pockets` (Codex #849) — where an id-set would emit both the pattern and
+    # the individual pockets, restoring the competing dims this grouping removes.
+    patterned_pk: set = set()
     for pat in pocket_patterns:
-        patterned_pk.update(id(pk) for pk in pat.pockets)
+        patterned_pk.update(pat.pockets)
         features.append(_pocket_pattern_feature(pat, list(pat.pockets)))
     for pk in pockets:
-        if id(pk) in patterned_pk:
+        if pk in patterned_pk:
             continue
         features.append(convert(pk, ctx))
 

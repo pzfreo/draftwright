@@ -75,6 +75,52 @@ def test_different_size_pockets_do_not_group():
     assert recognise_pocket_patterns(recognise_pockets(part)) == []
 
 
+def test_non_coplanar_aligned_pockets_do_not_merge():
+    # three identical pockets whose in-plane (XY) centres form a constant-pitch row but which
+    # sit on DIFFERENT depth planes (staggered d_lo/d_hi) must NOT merge into one planar array
+    # that does not exist — pattern detection projects the depth coord away (Codex #849).
+    from draftwright.recognition.slots import Pocket
+
+    def pk(cy, d_lo):
+        return Pocket(
+            width_axis="x",
+            long_axis="y",
+            width=10.0,
+            length=12.0,
+            depth=6.0,
+            w_center=0.0,
+            lo=cy - 6,
+            hi=cy + 6,
+            d_lo=d_lo,
+            d_hi=d_lo + 6,
+        )
+
+    staggered = [pk(-30, 0.0), pk(0, 5.0), pk(30, 10.0)]  # aligned in XY, different depth planes
+    assert recognise_pocket_patterns(staggered) == []
+    coplanar = [pk(-30, 0.0), pk(0, 0.0), pk(30, 0.0)]  # same depth plane → one array
+    assert len(recognise_pocket_patterns(coplanar)) == 1
+
+
+def test_injected_value_equal_pattern_still_excludes_members():
+    # member exclusion is by VALUE, so an INJECTED pattern inventory built from value-equal
+    # (deserialized/copied) pockets whose ids differ still suppresses the individual pockets —
+    # an id()-based set would emit both the pattern and the members (Codex #849).
+    import dataclasses
+
+    part = _pocket_row(n=4, pitch=30.0)
+    pockets = recognise_pockets(part)
+    pats = recognise_pocket_patterns(pockets)
+    copied_pockets = [dataclasses.replace(pk) for pk in pockets]  # value-equal, new ids
+    copied_pats = [
+        dataclasses.replace(p, pockets=tuple(dataclasses.replace(m) for m in p.pockets))
+        for p in pats
+    ]
+    pm = build_part_model(part, pockets=copied_pockets, pocket_patterns=copied_pats)
+    kinds = [f.kind for f in pm.features]
+    assert kinds.count("pocket_pattern") == 1
+    assert kinds.count("pocket") == 0  # value-equal copies still excluded
+
+
 def test_build_part_model_groups_and_excludes_members():
     pm = build_part_model(_pocket_row(n=4, pitch=30.0))
     kinds = [f.kind for f in pm.features]
@@ -85,10 +131,10 @@ def test_build_part_model_groups_and_excludes_members():
     assert pat.member.width == 10.0 and pat.member.length == 12.0 and pat.member.depth == 6.0
 
 
-def test_sheet_emit_round_trips_the_pattern():
+def test_sheet_emit_round_trips_the_pattern(tmp_path):
     from draftwright.sheet_emit import generate_sheet_script
 
-    py = generate_sheet_script(_pocket_row(n=4, pitch=30.0), out="/tmp/pp_emit_rt")
+    py = generate_sheet_script(_pocket_row(n=4, pitch=30.0), out=str(tmp_path / "pp_emit_rt"))
     src = Path(py).read_text()
     line = next(ln for ln in src.splitlines() if "sheet.pocket_pattern(" in ln)
     # declare rejects members= — the emit must use at=/pitch=/direction= instead
