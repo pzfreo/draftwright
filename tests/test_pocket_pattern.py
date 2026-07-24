@@ -97,44 +97,41 @@ def test_bad_inputs_raise():
         pocket_pattern(m, kind="bolt_circle", count=3, pitch=10.0)
     with pytest.raises(ValueError, match="linear.*pitch"):
         pocket_pattern(m, kind="linear", count=3)  # no pitch
-    with pytest.raises(ValueError, match="must equal len"):
-        pocket_pattern(m, kind="linear", count=3, pitch=10.0, members=[(0, 0, 0), (0, 10, 0)])
     with pytest.raises(ValueError, match="rows.*cols.*count|rows\\*cols"):
-        pocket_pattern(m, kind="grid", count=6, grid=(10.0, 10.0), rows=2, cols=2)
+        pocket_pattern(m, kind="grid", count=6, grid=(10.0, 10.0), rows=3, cols=3)
 
 
-def test_out_of_plane_inputs_raise():
+def test_out_of_plane_direction_rejected():
     # the array lies in the OPENING plane (perpendicular to the depth axis, here z), so a
-    # linear direction with a z-component — or explicit grid members that march into the
-    # material — is physical nonsense and rejected (Codex #848).
+    # linear direction with a z-component would march the members into the material while the
+    # grouped callout still claimed an in-plane array — physical nonsense, rejected (Codex #848).
     m = _member()  # depth_axis z, centred at y=-58
     with pytest.raises(ValueError, match="opening plane.*z-depth|no z-depth"):
         pocket_pattern(m, kind="linear", count=3, pitch=10.0, direction=(0, 0, 1))
-    with pytest.raises(ValueError, match="opening plane.*equal z-depth"):
-        pocket_pattern(
-            m,
-            kind="grid",
-            count=4,
-            grid=(10.0, 10.0),
-            rows=2,
-            cols=2,
-            members=[(0, -58, 1), (0, -48, 1), (10, -58, 1), (10, -48, 9)],  # last is out-of-plane
-        )
 
 
-def test_linear_members_override_rejected():
-    # a linear array is BY DEFINITION collinear + constant-pitch, so explicit members= (which
-    # could be neither, contradicting the `(n-1)× pitch` label) is rejected — the computed
-    # pitch=/direction= layout is the only truthful linear path (Codex #848 r2).
+def test_members_override_rejected_for_both_kinds():
+    # a DECLARED pattern is computed from count + pitch/grid + layout; explicit members= could
+    # contradict the grouped size/pitch labels without full lattice/pitch/centroid validation,
+    # so it is rejected outright for BOTH linear and grid (Codex #848 r2/r3). The detector
+    # builds the IR dataclass directly with real geometry, bypassing this constructor.
     m = _member()
     with pytest.raises(ValueError, match="does not accept explicit members"):
+        pocket_pattern(m, kind="linear", count=3, pitch=27.2, members=[(0, -58, 1), (0, -30, 1)])
+    with pytest.raises(ValueError, match="does not accept explicit members"):
         pocket_pattern(
-            m,
-            kind="linear",
-            count=3,
-            pitch=27.2,
-            members=[(0, -58, 1), (0, -30.8, 1), (0, -3.6, 1)],
+            m, kind="grid", count=4, grid=(10.0, 10.0), rows=2, cols=2, members=[(0, 0, 0)]
         )
+
+
+def test_grid_needs_two_by_two():
+    # a single-row/column grid has only one populated lattice axis, so its pitch dim would be
+    # silently dropped — such an array IS linear (Codex #848 r3). Reject rows<2 or cols<2.
+    m = _member()
+    with pytest.raises(ValueError, match="rows>=2 and cols>=2"):
+        pocket_pattern(m, kind="grid", count=3, grid=(10.0, 10.0), rows=1, cols=3)
+    with pytest.raises(ValueError, match="rows>=2 and cols>=2"):
+        pocket_pattern(m, kind="grid", count=3, grid=(10.0, 10.0), rows=3, cols=1)
 
 
 def test_pitch_dim_names_do_not_collide_with_hole_pattern():

@@ -1121,45 +1121,33 @@ def pocket_pattern(
     axis_idx = {"x": 0, "y": 1, "z": 2}[axis]
     center = at if at is not None else member.frame.origin
     _require_point("at", center)
-    members = tuple(members)
-    for m in members:
-        _require_point("members", m)
+    if members:
+        # A DECLARED pocket pattern is always computed from count + pitch/grid + layout;
+        # explicit members= could contradict the grouped size/pitch labels without a full
+        # lattice / pitch / centroid validation (linear must be collinear + constant-pitch;
+        # a grid must match grid=/rows=/cols=/at), so it is rejected outright (Codex #848
+        # r2/r3). The detector builds the IR dataclass directly with real member geometry,
+        # bypassing this constructor, so the override costs nothing here — and irregular
+        # points are not a pattern.
+        raise ValueError(
+            "pocket_pattern() does not accept explicit members= — declare the array by "
+            "count + pitch=/direction= (linear) or grid=/rows=/cols= (grid); the computed "
+            "layout guarantees the grouped callout and pitch labels match the geometry"
+        )
 
     if kind not in ("linear", "grid"):
         raise ValueError(
             f"pocket_pattern(kind={kind!r}) is not a known arrangement (linear / grid)"
         )
     _require_count("pocket_pattern()", count)
-    if members and len(members) != count:
-        raise ValueError(f"pocket_pattern() count={count} must equal len(members)={len(members)}")
-    # The arrangement lies in the pocket's OPENING plane (perpendicular to its depth axis) —
-    # explicit members must be coplanar in that plane, or the grouped callout would claim an
-    # in-plane array while the members march into the material (Codex #848).
-    if members:
-        depths = [m[axis_idx] for m in members]
-        if max(depths) - min(depths) > 1e-6:
-            raise ValueError(
-                "pocket_pattern() members must lie in the opening plane (equal "
-                f"{axis}-depth); got depths spanning {max(depths) - min(depths):.3g}"
-            )
 
     if kind == "linear":
         _positive("pocket_pattern(kind='linear') pitch=", pitch)  # the pitch dim reads it
-        if members:
-            # A linear array is BY DEFINITION collinear + constant-pitch; explicit members
-            # could be neither, making the `(n-1)× pitch` label contradict the drawn extrema
-            # span (Codex #848 r2). The computed pitch=/direction= layout is always truthful,
-            # so that is the only supported linear path — irregular points are not a pattern.
-            raise ValueError(
-                "pocket_pattern(kind='linear') does not accept explicit members= — a linear "
-                "array is defined by pitch= (and optional direction=); the computed layout "
-                "guarantees the (n-1)× pitch label matches the geometry"
-            )
         if direction is not None:
             _require_point("direction", direction)
             if not any(direction):
                 raise ValueError("pocket_pattern(kind='linear') direction= must be nonzero")
-            if abs(direction[axis_idx]) > 1e-9:  # same opening-plane constraint (Codex #848)
+            if abs(direction[axis_idx]) > 1e-9:  # opening-plane constraint (Codex #848)
                 raise ValueError(
                     "pocket_pattern(kind='linear') direction= must lie in the opening plane "
                     f"(no {axis}-depth component)"
@@ -1173,9 +1161,13 @@ def pocket_pattern(
             )
         _positive("pocket_pattern() grid row pitch", grid[0])
         _positive("pocket_pattern() grid col pitch", grid[1])
-        if not (isinstance(rows, int) and isinstance(cols, int) and rows >= 1 and cols >= 1):
+        # rows>=2 and cols>=2: a single-row/column grid has only one populated lattice axis,
+        # so _add_grid_pitch_dims (which needs two orthogonal bases) would silently drop its
+        # one meaningful pitch dim — such an array IS linear, so route it there (Codex #848 r3).
+        if not (isinstance(rows, int) and isinstance(cols, int) and rows >= 2 and cols >= 2):
             raise ValueError(
-                f"pocket_pattern() rows= and cols= must be positive ints (got rows={rows!r}, cols={cols!r})"
+                "pocket_pattern(kind='grid') needs rows>=2 and cols>=2 (a single-row or "
+                f"single-column array is linear — use kind='linear'); got rows={rows!r}, cols={cols!r}"
             )
         if rows * cols != count:
             raise ValueError(

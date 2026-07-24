@@ -1256,26 +1256,23 @@ def render_pocket_patterns(dwg, groups, a, *, ctx, only=None) -> int:
         )
         # Anchor the one representative leader at the array CENTRE (feat.frame.origin) and
         # attribute it to the pattern feature (ADR 0010 provenance).
-        jobs.append(
-            (
-                f"m_pocketpat_{pk.width_axis}{pk.long_axis}{i}",
-                view,
-                vb,
-                label,
-                _radial_candidates(dwg, view, vb, feat, reach),
-            )
-        )
-        furniture.append((i, feat, view))
+        name = f"m_pocketpat_{pk.width_axis}{pk.long_axis}{i}"
+        jobs.append((name, view, vb, label, _radial_candidates(dwg, view, vb, feat, reach)))
+        furniture.append((i, feat, view, name))
     placed = _leader_callout_pass(
         dwg, a, jobs, noun="pocket pattern", drop_code="pocket_dropped", ctx=ctx
     )
-    for i, feat, view in furniture:
-        # Linear members are computed by _pattern_members (declare rejects explicit
-        # members= for linear, Codex #848 r2), so they are already ordered along the array
-        # direction — members[0]/[-1] are the true extrema and the (n-1)× pitch label is
-        # truthful. Distinct name prefix (dim_pocketpat_pitch, not the hole pattern's
-        # dim_pitch) so a plan-view hole pattern and pocket pattern do not collide on
-        # dim_pitch_plan0 and silently overwrite each other (Codex #848 r2).
+    placed_names = dwg.annotations()
+    for i, feat, view, name in furniture:
+        # Skip the pitch furniture whose grouped size/depth callout dropped for want of room:
+        # orphan pitch dims with no `N× W×L×D` leader are an incomplete, misleading spec
+        # (Codex #848 r3). Members are computed by _pattern_members (declare rejects explicit
+        # members=), so for a linear array they are already ordered along the direction —
+        # members[0]/[-1] are the true extrema and the (n-1)× pitch label is truthful. Distinct
+        # name prefix (dim_pocketpat_pitch, not the hole pattern's dim_pitch) so a plan-view
+        # hole pattern and pocket pattern do not collide on dim_pitch_plan0 (Codex #848 r2).
+        if name not in placed_names:
+            continue
         members = feat.members or (feat.frame.origin,)
 
         def to_page(loc, _view=view):
