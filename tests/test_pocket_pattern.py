@@ -163,6 +163,18 @@ def test_direction_norm_is_overflow_stable():
         pocket_pattern(m, kind="linear", count=3, pitch=10.0, direction=(0.0, 0.0, 0.0))
 
 
+def test_extreme_inplane_direction_still_spaces_members():
+    # a huge/denormal but VALID in-plane direction must normalize stably in _pattern_members
+    # (math.hypot), spacing the members by pitch — not collapsing them to coincident centres
+    # under a nonzero pitch label (Codex #848 r6).
+    m = _member()  # depth_axis z; X is in-plane
+    for d in [(1e308, 0.0, 0.0), (5e-324, 0.0, 0.0)]:
+        pp = pocket_pattern(m, kind="linear", count=5, pitch=27.2, direction=d)
+        xs = sorted(p[0] for p in pp.members)
+        assert xs[-1] - xs[0] == pytest.approx(4 * 27.2)  # (count-1) * pitch along X
+        assert len(set(pp.members)) == 5  # distinct, not coincident
+
+
 def test_pitch_dim_names_do_not_collide_with_hole_pattern():
     # a plan-view hole pattern and pocket pattern both index from 0, so both once produced
     # `dim_pitch_plan0` — the second silently overwrote the first. Distinct prefixes now let

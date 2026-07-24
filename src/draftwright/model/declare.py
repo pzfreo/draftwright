@@ -966,7 +966,11 @@ def _pattern_members(
         )
     if kind == "linear":
         d = direction or u
-        n = math.sqrt(sum(c * c for c in d)) or 1.0
+        # math.hypot is over/underflow-stable: a hand-rolled sqrt(sum(c*c)) overflows to inf
+        # for a huge direction (normalizing it to (0,0,0) → coincident centres under a nonzero
+        # pitch label) and underflows to 0 for a denormal (falling back to 1.0, leaving the tiny
+        # vector unnormalized). Identical to the old norm for normal-magnitude inputs (Codex #848 r6).
+        n = math.hypot(*d) or 1.0
         d = tuple(c / n for c in d)
         p = pitch or 0.0
         return tuple(
