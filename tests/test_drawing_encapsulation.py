@@ -383,13 +383,20 @@ def test_build_state_has_a_single_construction_and_fill_site():
         # _build.detail_view: the caller's build_drawing(detail_view=…) opt-in,
         # persisted at the one fill site so the finalize drain gates the
         # prismatic detail request exactly as the auto pass does (#661).
-        "builder.py": ["_build.analysis", "_build.part_model", "_build.detail_view"],
-        # _build.trace: attach_solve_trace — the #736 solve-trace recorder rides
-        # BuildState like the rest of the build context (filled via the named
-        # method by builder._assemble — its ONLY caller; read by the annotate/
-        # finalize ctx threading). The recorder also participates in finalize()'s
-        # #647 transaction: finalize snapshots it beside the registry/coverage
-        # snapshots and restores it on rollback, so a failed drain leaves no
-        # trace records for placements that no longer exist.
+        # _build.trace: the #736 solve-trace recorder now rides BuildState filled
+        # directly at the one construction site (#830 — the engine constructs the
+        # build state, it does not mutate a live Drawing through attach_solve_trace).
+        "builder.py": [
+            "_build.analysis",
+            "_build.part_model",
+            "_build.detail_view",
+            "_build.trace",
+        ],
+        # drawing.py still writes _build.trace via the deprecated attach_solve_trace
+        # shim/primitive (kept until 0.5.0) — no engine caller reaches it now. The
+        # recorder also participates in finalize()'s #647 transaction: finalize
+        # snapshots it beside the registry/coverage snapshots and restores it on
+        # rollback, so a failed drain leaves no trace records for placements that no
+        # longer exist.
         "drawing.py": ["_build", "_build.analysis", "_build.part_model", "_build.trace"],
     }, writers

@@ -333,9 +333,11 @@ def _assemble(
     # reaches no pass here, but the finalize drain gates the prismatic detail
     # request on it exactly as the auto pass does (#661).
     dwg._build.detail_view = detail_view
+    # The opt-in #736 solve-trace recorder rides BuildState like the rest of the build context
+    # (or None when tracing is off) — filled here at the single construction site, not poked onto
+    # a live Drawing through a named method (#830: the engine constructs, never mutates).
+    dwg._build.trace = trace
     dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
-    if trace is not None:  # opt-in solve trace (#736), threaded via a named method
-        dwg._attach_solve_trace(trace)
 
     part_s = a.part.scale(a.SCALE)
     dwg._add_view(
