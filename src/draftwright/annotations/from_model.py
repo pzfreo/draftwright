@@ -3448,28 +3448,50 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 _zones=_zones,
                 _px=_px,
                 _py=_py,
-                _hz=_hz,
                 _sz=_sz,
                 _bld=_bld,
                 _feat=_feat,
                 _tb=_tb,
             ):
-                alt = {"above": "below", "below": "above", "left": "right", "right": "left"}[_s]
-                alt_strip = getattr(_zones, alt, None)
-                if alt_strip is not None:
-                    axis2 = "y" if alt in ("above", "below") else "x"
+                # Auto-relax the requested side (#841 outcome C): the requested strip is full, so
+                # try the OPPOSITE side, then the two PERPENDICULAR sides, placing on the first
+                # with room. A note the caller asked to see should appear somewhere legible
+                # rather than vanish; when the requested strip has no room, an explicit `side=`
+                # is a preference, not a hard constraint. A perpendicular side flips the leader
+                # orientation (`_bld(pos, _hz=hz)`). If the placement lands on a side other than
+                # requested, record an INFO issue so the relaxation is visible, not silent — the
+                # #841 goal is that a requested annotation is never *silently* lost.
+                relax_order = {
+                    "above": ("below", "right", "left"),
+                    "below": ("above", "right", "left"),
+                    "left": ("right", "above", "below"),
+                    "right": ("left", "above", "below"),
+                }[_s]
+                for alt in relax_order:
+                    alt_strip = getattr(_zones, alt, None)
+                    if alt_strip is None:
+                        continue
+                    hz = alt in ("above", "below")  # perpendicular sides flip the leader axis
+                    axis2 = "y" if hz else "x"
                     extent = _sz[1] if axis2 == "y" else _sz[0]  # the glyph's stacking-axis size
-                    perp = (_px, _px + _sz[0]) if _hz else (_py - _sz[1] / 2, _py + _sz[1] / 2)
+                    perp = (_px, _px + _sz[0]) if hz else (_py - _sz[1] / 2, _py + _sz[1] / 2)
                     pos = carve_free_position(dwg, alt_strip, _v, axis2, max(tier, extent), perp)
-                    if pos is not None:
-                        dim = _bld(pos)
-                        if not _box_hits(_anno_box(dim), (_tb,)):  # clear of the title block
-                            ctx.place(dim, nm, view=_v, feature=_feat)  # alternate side
-                            return
+                    if pos is None:
+                        continue
+                    dim = _bld(pos, _hz=hz)
+                    if _box_hits(_anno_box(dim), (_tb,)):  # would overlap the title block — skip
+                        continue
+                    ctx.place(dim, nm, view=_v, feature=_feat)  # relaxed side
+                    ctx.record_issue(
+                        "info",
+                        "gdt_side_relaxed",
+                        f"{nm}: the {_v} {_s} strip was full — placed on {alt} instead",
+                    )
+                    return
                 ctx.record_issue(
                     "warning",
                     "gdt_dropped",
-                    f"{nm} not placed (no room in the {_v} {_s} strip or its opposite)",
+                    f"{nm} not placed (no room in any {_v} strip)",
                 )
 
             ctx.post_drain.append(_retry)
