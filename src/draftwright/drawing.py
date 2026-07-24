@@ -29,16 +29,10 @@ else:
 
 from build123d import (
     Color,
-    Compound,
     ExportDXF,
     ExportSVG,
     LineType,
     Location,
-    Vector,
-)
-from build123d_drafting.helpers import (
-    ViewCoordinates,
-    view_axes,
 )
 
 from draftwright._core import (
@@ -82,8 +76,7 @@ from draftwright.linting import (
     lint_location_coverage,
 )
 from draftwright.projection import (
-    _exactify_silhouettes,
-    _raw_view_projector,
+    project_view_geometry,
 )
 from draftwright.recognition import analyse_cylinders
 from draftwright.registry import AnnotationRegistry
@@ -454,34 +447,11 @@ class Drawing:
             for mapping world points to page coordinates.
         """
         la = self.look_at if look_at is None else look_at
-        shape_s = shape if scaled else shape.scale(self.scale)
-        vis, hid = shape_s.project_to_viewport(camera, up, la)
-        vl, hl = list(vis), list(hid)
-        if not vl and not hl:
-            raise ValueError(
-                f"project_to_viewport returned empty geometry for view {name!r} "
-                f"(camera {camera}) — check the camera position and look_at."
-            )
-        axes = view_axes(camera, up, la)
-        # Recover exact circles for revolution silhouettes that HLR projected as
-        # approximating splines (#67) — a no-op when no revolution axis is
-        # parallel to the view direction (e.g. iso/section views).
-        if vl:
-            vd = Vector(la[0] - camera[0], la[1] - camera[1], la[2] - camera[2])
-            vd = vd.normalized()
-            proj = _raw_view_projector(axes, la)
-            vl, n_circ = _exactify_silhouettes(vl, shape_s.faces(), (vd.X, vd.Y, vd.Z), proj)
-            if n_circ:
-                _log.info("  %s: %d silhouette spline(s) refit to circles", name, n_circ)
-        loc = Location((position[0], position[1], 0))
-        placed = Compound(children=vl).locate(loc)
-        placed_hid = Compound(children=hl).locate(loc) if hl else None
-        self.views[name] = (placed, placed_hid)
-        cx, cy, cz = la[0] / self.scale, la[1] / self.scale, la[2] / self.scale
-        self._coords[name] = ViewCoordinates(
-            axes, position[0], position[1], cx, cy, cz, self.scale
+        placed, placed_hid, coords = project_view_geometry(
+            self.scale, name, shape, camera, up, position, look_at=la, scaled=scaled
         )
-        _log.info("  %s: %d visible / %d hidden", name, len(vl), len(hl))
+        self.views[name] = (placed, placed_hid)
+        self._coords[name] = coords
         return self._coords[name]
 
     def coords(self, view):

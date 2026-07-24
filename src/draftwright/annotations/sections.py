@@ -23,9 +23,7 @@ from build123d import (
 from build123d_drafting.helpers import (
     Centerline,
     Note,
-    ViewCoordinates,
     format_drawing_scale,
-    view_axes,
 )
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.TopTools import TopTools_ListOfShape
@@ -48,6 +46,7 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import strip_obstacles
 from draftwright.model import plan_sections
+from draftwright.projection import project_view_geometry
 
 _DETAIL_LETTERS = "ABCDEFGH"
 
@@ -492,35 +491,41 @@ def _render_detail(
     DX = (rx0 + rx1) / 2 - pad_right / 2
     DY = (ry0 + ry1) / 2 - (pad_top - cap_h) / 2
 
-    # Project the cropped band front-on (look from −Y, up +Z) at detail_scale around
-    # its own centroid; rebuild ViewCoordinates so dwg.at(view_name, ...) maps
-    # world→page at the detail scale.
+    # Look from −Y, up +Z at detail_scale around the band's own centroid — the camera + coordinates
+    # for the scratch projection below.
     dcx = (cb.min.X + cb.max.X) / 2
     dcy = (cb.min.Y + cb.max.Y) / 2
     dcz = (cb.min.Z + cb.max.Z) / 2
     la = (dcx * detail_scale, dcy * detail_scale, dcz * detail_scale)
     dist_d = a.bbox_max * detail_scale + 100
     camera = (la[0], la[1] - dist_d, la[2])
+    # Project the cropped band front-on into a SCRATCH (no Drawing mutation) at the detail scale —
+    # project_view_geometry takes the scale directly, so its coordinates ARE the detail's (the old
+    # _add_view + override existed only because _add_view hard-codes the sheet scale). Trying the
+    # dims against these coords before committing the view is what lets us drop the place-then-roll-
+    # back (#840).
     try:
         band_s = cropped.scale(detail_scale)
-        dwg._add_view(view_name, band_s, camera, (0, 0, 1), (DX, DY), look_at=la, scaled=True)
+        placed, placed_hid, coords = project_view_geometry(
+            detail_scale, view_name, band_s, camera, (0, 0, 1), (DX, DY), look_at=la, scaled=True
+        )
     except Exception as exc:  # noqa: BLE001 — projection raises broadly on cast geometry
         _log.warning("Detail %s skipped (projection failed: %s)", letter, exc)
         return False
-    dwg._set_view_coordinates(
-        view_name,
-        ViewCoordinates(view_axes(camera, (0, 0, 1), la), DX, DY, dcx, dcy, dcz, detail_scale),
-    )
 
-    # The feature draws its own dims inside the detail. If nothing legible lands even
-    # at the detail scale, roll the view back rather than committing an empty DETAIL
-    # box — the request is then simply dropped (the main view already locates the
-    # head/block inline, so lint reports any un-located interior) (#307 review).
-    if not req.redraw(dwg, view_name, detail_scale):
+    # Commit the view GEOMETRY (public `views` dict) so the feature's dim pass can read its
+    # view_bounds, but keep the COORDINATES in `coords` (passed to redraw) — they reach the drawing
+    # through the layout seam only if the dims land. If nothing legible lands even at the detail
+    # scale, pop the geometry (a public dict removal) and drop the detail: no coordinate rollback is
+    # needed because the coords were never committed (#840, replacing the #307 _drop_view_coordinates
+    # place-then-drop). The main view always locates the head/block inline, so lint reports any
+    # un-located interior.
+    dwg.views[view_name] = (placed, placed_hid)
+    if not req.redraw(dwg, view_name, coords, detail_scale):
         dwg.views.pop(view_name, None)
-        dwg._drop_view_coordinates(view_name)
         _log.info("Detail %s skipped (no legible dims at the detail scale)", letter)
         return False
+    dwg._set_view_coordinates(view_name, coords)
 
     # Marker on the front view around the band (axis-aware) + letter.
     FX, FZ = a.proj.front_x, a.proj.front_z
@@ -711,15 +716,21 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx) -> None:
             0.0,
         )
 
-    def redraw(dwg, view, detail_scale):  # returns the count placed (for rollback, #307)
+    def redraw(
+        dwg, view, coords, detail_scale
+    ):  # returns the count placed (#840: 0 → not committed)
+        def _at(x, y, z):  # map world→page at the detail scale, matching dwg.at's (px, py, 0.0)
+            px, py = coords.pp(x, y, z)
+            return (px, py, 0.0)
+
         det_kept, _ = _legible_steps(a.step_zs, a.bb.min.Z, detail_scale)
-        ladder = dwg.at(view, a.bb.max.X, a.cy, a.bb.min.Z)[0] + 2
+        ladder = _at(a.bb.max.X, a.cy, a.bb.min.Z)[0] + 2
         placed = 0
         for i, z in enumerate([*det_kept, a.bb.max.Z]):
             label = _fmt(a.z_size) if z == a.bb.max.Z else _fmt(z - a.bb.min.Z)
             try:
-                p_lo = dwg.at(view, a.bb.max.X, a.cy, a.bb.min.Z)
-                p_hi = dwg.at(view, a.bb.max.X, a.cy, z)
+                p_lo = _at(a.bb.max.X, a.cy, a.bb.min.Z)
+                p_hi = _at(a.bb.max.X, a.cy, z)
                 det_dim = _dim(
                     (ladder, p_lo[1], 0),
                     (ladder, p_hi[1], 0),

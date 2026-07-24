@@ -114,16 +114,15 @@ def _dwg_getattr_probes(tree: ast.Module) -> list[str]:
 
 # The sanctioned in-build LAYOUT SEAM: the ONLY Drawing privates an engine module may invoke as
 # methods on the duck-typed drawing. The section/detail layout is inherently interactive — it reads
-# its own live output (placed views + occupancy), provisionally places a view, and can roll it back
-# — so these three cannot become "return data for the builder to assemble" without a parallel
-# canvas. #830 Path A accepts them as the PERMANENT seam, and in doing so narrows decision D's
-# method-call exemption (#817 PR4) from a blanket pass to this NAMED allowlist: every OTHER private
-# method call from an engine module is now flagged as a state-bus poke, so the engine cannot
-# re-grow a private-method back-channel beyond the seam. May only SHRINK (e.g. #830 Path B removing
-# the detail rollback would drop _drop_view_coordinates).
-_LAYOUT_SEAM: frozenset[str] = frozenset(
-    {"_add_view", "_set_view_coordinates", "_drop_view_coordinates"}
-)
+# its own live output (placed views + occupancy) to decide where a view goes — so committing a view
+# is a genuine mutation, not "return data for the builder to assemble". #830 Path A accepts these as
+# the PERMANENT seam, and in doing so narrows decision D's method-call exemption (#817 PR4) from a
+# blanket pass to this NAMED allowlist: every OTHER private method call from an engine module is
+# flagged as a state-bus poke, so the engine cannot re-grow a private-method back-channel beyond the
+# seam. May only SHRINK — #840 (Path B) already dropped _drop_view_coordinates by making the detail
+# view transactional (project into a scratch, commit only if the dims land, so no place-then-roll-
+# back). The two survivors are the view-commit primitives.
+_LAYOUT_SEAM: frozenset[str] = frozenset({"_add_view", "_set_view_coordinates"})
 
 
 def _method_call_attrs(tree: ast.Module) -> set[int]:
@@ -198,13 +197,17 @@ def test_write_guard_catches_every_mutation_form():
         assert writes, f"guard missed a mutation form: {snippet!r}"
     # A pure read must NOT register as a write (else every read is a false positive).
     assert not _dwg_private_writes(ast.parse("use(dwg._named)"))
-    # #830 Path A: a call to one of the sanctioned LAYOUT-SEAM methods is exempt from the read
-    # scan (the engine's only legitimate private-method calls) — and ONLY those three.
+    # #830 Path A: a call to one of the sanctioned LAYOUT-SEAM methods is exempt from the read scan
+    # (the engine's only legitimate private-method calls) — and ONLY those two (#840 dropped
+    # _drop_view_coordinates by making the detail view transactional).
     assert _dwg_private_reads(ast.parse("dwg._add_view(...)")) == set()
     assert _dwg_private_reads(ast.parse("dwg._set_view_coordinates(v)")) == set()
-    assert _dwg_private_reads(ast.parse("dwg._drop_view_coordinates(v)")) == set()
     # A call to any OTHER private method is NOT exempt — flagged like a data read, so decision D's
-    # exemption (#817 PR4) is a named seam, not a blanket pass (#830 Path A).
+    # exemption (#817 PR4) is a named seam, not a blanket pass (#830 Path A). _drop_view_coordinates
+    # left the seam (#840), so a call to it is now flagged too.
+    assert _dwg_private_reads(ast.parse("dwg._drop_view_coordinates(v)")) == {
+        "_drop_view_coordinates"
+    }
     assert _dwg_private_reads(ast.parse("dwg._add(x)")) == {"_add"}
     assert _dwg_private_reads(ast.parse("drawing._clear_annotations()")) == {"_clear_annotations"}
     # Every DATA read stays caught (the state-bus back-channel #722 targets).
