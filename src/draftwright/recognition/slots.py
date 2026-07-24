@@ -133,6 +133,46 @@ class Pocket(Record):
     def depth_axis(self) -> str:
         return next(a for a in "xyz" if a not in (self.width_axis, self.long_axis))
 
+    @property
+    def location(self) -> tuple[float, float, float]:
+        """The recess centroid in world XYZ — mid-span along ``long_axis``, the centreline on
+        ``width_axis``, mid-depth on ``depth_axis`` (matches ``detect._convert_pocket``). The
+        `.location` the shared pattern geometry (#635) clusters on, as holes carry."""
+        coord = {
+            self.long_axis: (self.lo + self.hi) / 2,
+            self.width_axis: self.w_center,
+            self.depth_axis: (self.d_lo + self.d_hi) / 2,
+        }
+        return (coord["x"], coord["y"], coord["z"])
+
+
+@dataclass(frozen=True)
+class PocketArray(Record):
+    """N identical blind pockets in a straight, constant-pitch line (#841) — the recess analog
+    of :class:`~draftwright.recognition._features.LinearArray`. ``pockets`` are the member
+    :class:`Pocket` records (ordered along the array); ``pitch`` is the centre-to-centre spacing
+    and ``direction`` the (unit) array axis, both read by ``detect._pocket_pattern_feature``."""
+
+    pockets: tuple
+    pitch: float
+    direction: tuple
+
+
+@dataclass(frozen=True)
+class PocketGrid(Record):
+    """N×M identical blind pockets on a rectangular lattice (#841) — the recess analog of
+    :class:`~draftwright.recognition._features.RectGrid`. ``pockets`` are the member
+    :class:`Pocket` records; the lattice is ``rows``×``cols`` at ``row_pitch``/``col_pitch``,
+    rotated ``angle`` degrees about ``center``."""
+
+    pockets: tuple
+    rows: int
+    cols: int
+    row_pitch: float
+    col_pitch: float
+    angle: float
+    center: tuple
+
 
 # When the two non-width slot extents are within this fraction of each other the
 # slot is near-square in that plane and "which is the length" is ambiguous; the
@@ -900,3 +940,89 @@ def recognise_pockets(part) -> list[Pocket]:
     # recover them from their end caps (#837) — the blind counterpart of the through-slot path.
     candidates.extend(_recognise_obround_from_ends(part, faces, blind=True))
     return _extend_obround_ends(_merge(candidates), part)
+
+
+def _pocket_spec_key(pk: Pocket) -> tuple:
+    """The grouping key shared by pockets of the *same milled recess* — same orientation, size,
+    AND opening plane. Only identical, same-orientation, COPLANAR pockets can form one array (a
+    90°-rotated pocket swaps width_axis/long_axis and reads as a different feature). The
+    depth-axis extent (d_lo, d_hi) is part of the key: pattern detection projects the depth
+    coordinate away, so without it pockets on different-height stepped faces — or opening
+    opposite directions — whose in-plane centres happen to line up would merge into one planar
+    array that does not exist (Codex #849). Coordinates snap to 3 dp so boolean-op float noise
+    does not split an array (mirrors ``HoleSpec``'s axis snap)."""
+    return (
+        pk.width_axis,
+        pk.long_axis,
+        round(pk.width, 3),
+        round(pk.length, 3),
+        round(pk.depth, 3),
+        round(pk.d_lo, 3),
+        round(pk.d_hi, 3),
+    )
+
+
+def _mk_pocket_linear(members, pitch, direction) -> PocketArray:
+    return PocketArray(pockets=tuple(members), pitch=pitch, direction=direction)
+
+
+def _mk_pocket_grid(members, rows, cols, row_pitch, col_pitch, angle, center) -> PocketGrid:
+    return PocketGrid(
+        pockets=tuple(members),
+        rows=rows,
+        cols=cols,
+        row_pitch=row_pitch,
+        col_pitch=col_pitch,
+        angle=angle,
+        center=center,
+    )
+
+
+def recognise_pocket_patterns(pockets) -> list[PocketArray | PocketGrid]:
+    """Recognise :class:`PocketArray` (linear) and :class:`PocketGrid` (rectangular) arrays
+    among *pockets* (``Pocket`` records, e.g. from :func:`recognise_pockets`) — the recess
+    analog of :func:`~draftwright.recognition._features.recognise_hole_patterns`.
+
+    A DERIVED recogniser (single positional inventory, ADR 0013): pockets are grouped by
+    orientation + size (:func:`_pocket_spec_key`), each group's centres are projected into the
+    opening plane (perpendicular to the shared depth axis), and the same collinear / lattice
+    geometry the hole patterns use (shared via *make* factories, #635) is enumerated and
+    allocated greedily largest-first so each pocket belongs to at most one array. Pockets have
+    no bolt-circle form, so only grid + linear candidates are considered. Un-arrayed pockets
+    are simply absent from the result."""
+    from draftwright.recognition._features import (
+        _linear_array_candidates,
+        _plane_uv,
+        _rect_grid,
+    )
+
+    axis_unit = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+    groups: dict = {}
+    for pk in pockets:
+        groups.setdefault(_pocket_spec_key(pk), []).append(pk)
+
+    patterns: list[PocketArray | PocketGrid] = []
+    for members in groups.values():
+        if len(members) < 3:
+            continue
+        u, v = _plane_uv(axis_unit[members[0].depth_axis])
+        pts = [
+            (
+                sum(a * b for a, b in zip(pk.location, u, strict=True)),
+                sum(a * b for a, b in zip(pk.location, v, strict=True)),
+            )
+            for pk in members
+        ]
+        candidates: list = []
+        grid = _rect_grid(members, pts, _mk_pocket_grid)
+        if grid is not None:
+            candidates.append((grid, frozenset(range(len(members)))))
+        candidates += _linear_array_candidates(members, pts, _mk_pocket_linear)
+        candidates.sort(key=lambda c: -len(c[1]))
+        used: set = set()
+        for pattern, idx in candidates:
+            if idx & used:
+                continue
+            patterns.append(pattern)
+            used |= idx
+    return patterns

@@ -90,7 +90,15 @@ from draftwright.recognition.levels import (
     step_level_zs,
 )
 from draftwright.recognition.plates import Plate, recognise_plates
-from draftwright.recognition.slots import Pocket, Slot, recognise_pockets, recognise_slots
+from draftwright.recognition.slots import (
+    Pocket,
+    PocketArray,
+    PocketGrid,
+    Slot,
+    recognise_pocket_patterns,
+    recognise_pockets,
+    recognise_slots,
+)
 from draftwright.recognition.turned import TurnedProfile, TurnedStep, recognise_turned_steps
 
 __all__ = [
@@ -108,6 +116,8 @@ __all__ = [
     "LinearArray",
     "Plate",
     "Pocket",
+    "PocketArray",
+    "PocketGrid",
     "RectGrid",
     "Slot",
     "StepShoulder",
@@ -132,6 +142,7 @@ __all__ = [
     "recognise_hole_patterns",
     "recognise_holes",
     "recognise_plates",
+    "recognise_pocket_patterns",
     "recognise_pockets",
     "recognise_slots",
     "recognise_turned_steps",

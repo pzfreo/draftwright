@@ -94,6 +94,20 @@ def _member_hole_str(m) -> str:
     return f"hole({', '.join(kw)})"
 
 
+def _member_pocket_str(m) -> str:
+    """The ``pocket(...)`` template for a pocket-pattern member — carries its width × length ×
+    depth and orientation. Its own position is irrelevant (the pattern's ``at=`` fixes the
+    array centre), so only the size/axes need round-trip. Length is derived from the emitted
+    lo/hi so ``hi - lo == length`` exactly (declare.pocket rejects a 1e-6 mismatch)."""
+    lo, hi = _n(m.lo), _n(m.hi)
+    length = _n(round(float(hi) - float(lo), 3))
+    return (
+        f"pocket(width={_n(m.width)}, length={length}, depth={_n(m.depth)}, "
+        f'long_axis="{m.long_axis}", width_axis="{m.width_axis}", '
+        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)})"
+    )
+
+
 def _authored_dimension_line(f) -> str:
     kw = [
         f"kind={f.dimension_kind!r}",
@@ -195,6 +209,21 @@ def _feature_line(f) -> str:
         if f.members:
             parts.append("members=[" + ", ".join(_pt(p) for p in f.members) + "]")
         return f"sheet.pattern({_member_hole_str(f.member)}, " + ", ".join(parts) + ")"
+    if k == "pocket_pattern":
+        # declare.pocket_pattern() REJECTS members= (it recomputes the layout from
+        # count + pitch/grid), so emit the array CENTRE as at= and the arrangement params —
+        # the computed layout then lands where detected. direction= is required for a linear
+        # array (else declare defaults to the first in-plane axis, mis-orienting the row).
+        parts = [f'kind="{f.pattern}"', f"count={f.count}", f"at={_pt(f.frame.origin)}"]
+        if f.pattern == "linear":
+            parts.append(f"pitch={_n(f.pitch)}")
+            if f.direction:
+                parts.append(f"direction={_pt(f.direction)}")
+        elif f.pattern == "grid" and f.grid:
+            parts.append(f"grid=({_n(f.grid[0])}, {_n(f.grid[1])}), rows={f.rows}, cols={f.cols}")
+            if f.angle:
+                parts.append(f"angle={_n(f.angle)}")
+        return f"sheet.pocket_pattern({_member_pocket_str(f.member)}, " + ", ".join(parts) + ")"
     if k == "chamfer":
         return (
             f'sheet.chamfer(axis="{f.axis}", leg1={_n(f.leg1)}, leg2={_n(f.leg2)}, '
