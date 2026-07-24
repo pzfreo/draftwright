@@ -1145,6 +1145,16 @@ def pocket_pattern(
 
     if kind == "linear":
         _positive("pocket_pattern(kind='linear') pitch=", pitch)  # the pitch dim reads it
+        if members:
+            # A linear array is BY DEFINITION collinear + constant-pitch; explicit members
+            # could be neither, making the `(n-1)× pitch` label contradict the drawn extrema
+            # span (Codex #848 r2). The computed pitch=/direction= layout is always truthful,
+            # so that is the only supported linear path — irregular points are not a pattern.
+            raise ValueError(
+                "pocket_pattern(kind='linear') does not accept explicit members= — a linear "
+                "array is defined by pitch= (and optional direction=); the computed layout "
+                "guarantees the (n-1)× pitch label matches the geometry"
+            )
         if direction is not None:
             _require_point("direction", direction)
             if not any(direction):

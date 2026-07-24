@@ -890,7 +890,17 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
 
 
 def _add_grid_pitch_dims(
-    dwg, a: Analysis, view, j, members, nominals, to_page, feature=None, *, ctx
+    dwg,
+    a: Analysis,
+    view,
+    j,
+    members,
+    nominals,
+    to_page,
+    feature=None,
+    *,
+    ctx,
+    name_prefix="dim_pitch",
 ):
     """Both pitch dimensions of a rectangular grid — one along each lattice axis,
     each labelled ``(n-1)× pitch`` (#92).  The two axes are recovered as the two
@@ -962,7 +972,7 @@ def _add_grid_pitch_dims(
             n,
             pitch,
             to_page,
-            f"dim_pitch_{view}{j}_{sub}",
+            f"{name_prefix}_{view}{j}_{sub}",
             feature=feature,
             ctx=ctx,
         )
@@ -1260,13 +1270,13 @@ def render_pocket_patterns(dwg, groups, a, *, ctx, only=None) -> int:
         dwg, a, jobs, noun="pocket pattern", drop_code="pocket_dropped", ctx=ctx
     )
     for i, feat, view in furniture:
+        # Linear members are computed by _pattern_members (declare rejects explicit
+        # members= for linear, Codex #848 r2), so they are already ordered along the array
+        # direction — members[0]/[-1] are the true extrema and the (n-1)× pitch label is
+        # truthful. Distinct name prefix (dim_pocketpat_pitch, not the hole pattern's
+        # dim_pitch) so a plan-view hole pattern and pocket pattern do not collide on
+        # dim_pitch_plan0 and silently overwrite each other (Codex #848 r2).
         members = feat.members or (feat.frame.origin,)
-        # Dimension the true extrema ALONG the array direction, not members[0]/[-1] — an
-        # explicit (unordered) members= override would otherwise span the wrong pair and
-        # contradict the `(n-1)× pitch` label (Codex #848).
-        if feat.pattern == "linear" and feat.direction is not None and len(members) > 1:
-            d = feat.direction
-            members = tuple(sorted(members, key=lambda p: sum(p[k] * d[k] for k in range(3))))
 
         def to_page(loc, _view=view):
             return dwg.at(_view, *loc)
@@ -1281,13 +1291,22 @@ def render_pocket_patterns(dwg, groups, a, *, ctx, only=None) -> int:
                 len(members),
                 feat.pitch,
                 to_page,
-                f"dim_pitch_{view}{i}",
+                f"dim_pocketpat_pitch_{view}{i}",
                 feature=feat,
                 ctx=ctx,
             )
         elif feat.pattern == "grid" and feat.grid is not None:
             _add_grid_pitch_dims(
-                dwg, a, view, i, members, feat.grid, to_page, feature=feat, ctx=ctx
+                dwg,
+                a,
+                view,
+                i,
+                members,
+                feat.grid,
+                to_page,
+                feature=feat,
+                ctx=ctx,
+                name_prefix="dim_pocketpat_pitch",
             )
     return placed
 

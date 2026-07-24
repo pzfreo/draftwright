@@ -10,7 +10,7 @@ pockets are not double-rendered.
 import pytest
 from build123d import Box
 
-from draftwright.model import pocket, pocket_pattern
+from draftwright.model import hole, pocket, pocket_pattern
 from draftwright.sheet import Sheet
 
 
@@ -53,7 +53,7 @@ def test_linear_pattern_renders_one_grouped_callout_plus_pitch():
     s.pocket_pattern(_member(), kind="linear", count=5, pitch=27.2, direction=(0, 1, 0))
     dwg = s.build()
     names = dwg.annotations()
-    callouts = [n for n in names if "pocketpat" in n]
+    callouts = [n for n in names if n.startswith("m_pocketpat")]
     pitch = [n for n in names if "pitch" in n]
     assert len(callouts) == 1
     assert dwg.get_annotation(callouts[0]).label == "5× 7.9 × 13.6 × 19 DEEP"
@@ -83,7 +83,7 @@ def test_grid_pattern_renders_both_pitch_dims():
     s.pocket_pattern(member, kind="grid", count=6, grid=(30.0, 40.0), rows=2, cols=3)
     dwg = s.build()
     names = dwg.annotations()
-    assert [dwg.get_annotation(n).label for n in names if "pocketpat" in n] == [
+    assert [dwg.get_annotation(n).label for n in names if n.startswith("m_pocketpat")] == [
         "6× 8 × 8 × 4 DEEP"
     ]
     pitch_labels = sorted(dwg.get_annotation(n).label for n in names if "pitch" in n)
@@ -105,37 +105,77 @@ def test_bad_inputs_raise():
 
 def test_out_of_plane_inputs_raise():
     # the array lies in the OPENING plane (perpendicular to the depth axis, here z), so a
-    # direction with a z-component — or explicit members that march into the material — is
-    # physical nonsense and rejected (Codex #848).
+    # linear direction with a z-component — or explicit grid members that march into the
+    # material — is physical nonsense and rejected (Codex #848).
     m = _member()  # depth_axis z, centred at y=-58
     with pytest.raises(ValueError, match="opening plane.*z-depth|no z-depth"):
         pocket_pattern(m, kind="linear", count=3, pitch=10.0, direction=(0, 0, 1))
     with pytest.raises(ValueError, match="opening plane.*equal z-depth"):
         pocket_pattern(
-            m, kind="linear", count=3, pitch=10.0, members=[(0, -58, 1), (0, -48, 1), (0, -38, 9)]
+            m,
+            kind="grid",
+            count=4,
+            grid=(10.0, 10.0),
+            rows=2,
+            cols=2,
+            members=[(0, -58, 1), (0, -48, 1), (10, -58, 1), (10, -48, 9)],  # last is out-of-plane
         )
 
 
-def test_unordered_members_dimension_the_true_extrema():
-    # an explicit, UNORDERED members= list must still yield a pitch dim spanning the extrema
-    # along the array direction with the right count — not members[0]→members[-1] (Codex #848).
-    part = Box(26, 161, 21)
+def test_linear_members_override_rejected():
+    # a linear array is BY DEFINITION collinear + constant-pitch, so explicit members= (which
+    # could be neither, contradicting the `(n-1)× pitch` label) is rejected — the computed
+    # pitch=/direction= layout is the only truthful linear path (Codex #848 r2).
+    m = _member()
+    with pytest.raises(ValueError, match="does not accept explicit members"):
+        pocket_pattern(
+            m,
+            kind="linear",
+            count=3,
+            pitch=27.2,
+            members=[(0, -58, 1), (0, -30.8, 1), (0, -3.6, 1)],
+        )
+
+
+def test_pitch_dim_names_do_not_collide_with_hole_pattern():
+    # a plan-view hole pattern and pocket pattern both index from 0, so both once produced
+    # `dim_pitch_plan0` — the second silently overwrote the first. Distinct prefixes now let
+    # both pitch dims survive on one sheet (Codex #848 r2).
+    part = Box(140, 120, 14)
     s = Sheet(part)
     s.envelope()
-    s.pocket_pattern(
-        _member(),
+    s.pattern(  # hole pattern, +Y half, plan view (z holes)
+        hole(diameter=6.0, at=(0.0, 35.0, 0.0), axis="z"),
         kind="linear",
-        count=4,
-        pitch=27.2,
-        direction=(0, 1, 0),
-        members=[(0, -58, 1), (0, 13.6, 1), (0, -30.8, 1), (0, -3.6, 1)],  # shuffled
+        count=3,
+        pitch=25.0,
+        direction=(1, 0, 0),
+    )
+    s.pocket_pattern(  # pocket pattern, -Y half, plan view (z-depth pockets)
+        pocket(
+            width=8.0,
+            length=8.0,
+            depth=4.0,
+            long_axis="x",
+            width_axis="y",
+            depth_axis="z",
+            lo=-4.0,
+            hi=4.0,
+            w_center=-35.0,
+            at=(0.0, -35.0, 7.0),
+        ),
+        kind="linear",
+        count=3,
+        pitch=25.0,
+        direction=(1, 0, 0),
     )
     dwg = s.build()
     names = dwg.annotations()
-    pitch = [n for n in names if "pitch" in n]
-    assert len(pitch) == 1
-    assert dwg.get_annotation(pitch[0]).label == "3× 27.2"  # (4-1)× pitch over the full span
-    assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
+    hole_pitch = [n for n in names if n.startswith("dim_pitch_")]
+    pocket_pitch = [n for n in names if n.startswith("dim_pocketpat_pitch_")]
+    assert hole_pitch, "hole-pattern pitch dim was overwritten"
+    assert pocket_pitch, "pocket-pattern pitch dim was overwritten"
+    assert set(hole_pitch).isdisjoint(pocket_pitch)
 
 
 def test_manual_callout_verb_raises_clearly():
