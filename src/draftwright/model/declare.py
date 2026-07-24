@@ -1118,6 +1118,7 @@ def pocket_pattern(
     pass ``members=`` to override the computed layout. ``pitch`` (linear) / ``grid`` +
     ``rows``/``cols`` (grid) define the spacing and are read by the pitch-dim furniture."""
     axis = member.depth_axis  # the opening normal — the plane the array lies in
+    axis_idx = {"x": 0, "y": 1, "z": 2}[axis]
     center = at if at is not None else member.frame.origin
     _require_point("at", center)
     members = tuple(members)
@@ -1131,6 +1132,16 @@ def pocket_pattern(
     _require_count("pocket_pattern()", count)
     if members and len(members) != count:
         raise ValueError(f"pocket_pattern() count={count} must equal len(members)={len(members)}")
+    # The arrangement lies in the pocket's OPENING plane (perpendicular to its depth axis) —
+    # explicit members must be coplanar in that plane, or the grouped callout would claim an
+    # in-plane array while the members march into the material (Codex #848).
+    if members:
+        depths = [m[axis_idx] for m in members]
+        if max(depths) - min(depths) > 1e-6:
+            raise ValueError(
+                "pocket_pattern() members must lie in the opening plane (equal "
+                f"{axis}-depth); got depths spanning {max(depths) - min(depths):.3g}"
+            )
 
     if kind == "linear":
         _positive("pocket_pattern(kind='linear') pitch=", pitch)  # the pitch dim reads it
@@ -1138,6 +1149,11 @@ def pocket_pattern(
             _require_point("direction", direction)
             if not any(direction):
                 raise ValueError("pocket_pattern(kind='linear') direction= must be nonzero")
+            if abs(direction[axis_idx]) > 1e-9:  # same opening-plane constraint (Codex #848)
+                raise ValueError(
+                    "pocket_pattern(kind='linear') direction= must lie in the opening plane "
+                    f"(no {axis}-depth component)"
+                )
     else:  # grid
         if grid is None or rows is None or cols is None:
             raise ValueError("pocket_pattern(kind='grid') needs grid= pitch and rows= and cols=")

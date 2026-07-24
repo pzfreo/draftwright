@@ -1079,6 +1079,17 @@ class Drawing:
         like the auto-pass), rather than raising, so a reconstruction script never aborts.
         """
         kind = getattr(feature, "kind", None)
+        if kind == "pocket_pattern":
+            # A pocket pattern is auto-drawn at build time as one grouped callout + pitch
+            # dim(s) (its "pocket_patterns" _PASS_SEQUENCE stage). The manual callout()/
+            # finalize() edit verb for it — which must place the pitch furniture PRE-drain,
+            # unlike the post-drain lone machined callouts — is a #841 outcome-3 follow-up.
+            # Raise clearly here rather than fall through to the hole-callout path (which has
+            # no pocket-pattern spec and would crash confusingly).
+            raise ValueError(
+                "callout(): a pocket pattern is placed automatically at build time; the "
+                "manual pocket-pattern callout edit verb is not yet supported (#841)"
+            )
         if kind in _MACHINED_CALLOUT_KINDS and (view is not None or name is not None):
             raise ValueError(
                 f"callout(): a {kind} is auto-named and placed in its characteristic view; "

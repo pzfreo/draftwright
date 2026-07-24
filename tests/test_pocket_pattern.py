@@ -67,15 +67,25 @@ def test_linear_pattern_renders_one_grouped_callout_plus_pitch():
 def test_grid_pattern_renders_both_pitch_dims():
     part = Box(120, 90, 12)
     member = pocket(
-        width=8.0, length=8.0, depth=4.0, long_axis="x", width_axis="y",
-        depth_axis="z", lo=-4.0, hi=4.0, w_center=0.0, at=(0.0, 0.0, 4.0),
+        width=8.0,
+        length=8.0,
+        depth=4.0,
+        long_axis="x",
+        width_axis="y",
+        depth_axis="z",
+        lo=-4.0,
+        hi=4.0,
+        w_center=0.0,
+        at=(0.0, 0.0, 4.0),
     )
     s = Sheet(part)
     s.envelope()
     s.pocket_pattern(member, kind="grid", count=6, grid=(30.0, 40.0), rows=2, cols=3)
     dwg = s.build()
     names = dwg.annotations()
-    assert [dwg.get_annotation(n).label for n in names if "pocketpat" in n] == ["6× 8 × 8 × 4 DEEP"]
+    assert [dwg.get_annotation(n).label for n in names if "pocketpat" in n] == [
+        "6× 8 × 8 × 4 DEEP"
+    ]
     pitch_labels = sorted(dwg.get_annotation(n).label for n in names if "pitch" in n)
     assert pitch_labels == ["1× 30", "2× 40"]  # (rows-1)× row_pitch, (cols-1)× col_pitch
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
@@ -91,6 +101,53 @@ def test_bad_inputs_raise():
         pocket_pattern(m, kind="linear", count=3, pitch=10.0, members=[(0, 0, 0), (0, 10, 0)])
     with pytest.raises(ValueError, match="rows.*cols.*count|rows\\*cols"):
         pocket_pattern(m, kind="grid", count=6, grid=(10.0, 10.0), rows=2, cols=2)
+
+
+def test_out_of_plane_inputs_raise():
+    # the array lies in the OPENING plane (perpendicular to the depth axis, here z), so a
+    # direction with a z-component — or explicit members that march into the material — is
+    # physical nonsense and rejected (Codex #848).
+    m = _member()  # depth_axis z, centred at y=-58
+    with pytest.raises(ValueError, match="opening plane.*z-depth|no z-depth"):
+        pocket_pattern(m, kind="linear", count=3, pitch=10.0, direction=(0, 0, 1))
+    with pytest.raises(ValueError, match="opening plane.*equal z-depth"):
+        pocket_pattern(
+            m, kind="linear", count=3, pitch=10.0, members=[(0, -58, 1), (0, -48, 1), (0, -38, 9)]
+        )
+
+
+def test_unordered_members_dimension_the_true_extrema():
+    # an explicit, UNORDERED members= list must still yield a pitch dim spanning the extrema
+    # along the array direction with the right count — not members[0]→members[-1] (Codex #848).
+    part = Box(26, 161, 21)
+    s = Sheet(part)
+    s.envelope()
+    s.pocket_pattern(
+        _member(),
+        kind="linear",
+        count=4,
+        pitch=27.2,
+        direction=(0, 1, 0),
+        members=[(0, -58, 1), (0, 13.6, 1), (0, -30.8, 1), (0, -3.6, 1)],  # shuffled
+    )
+    dwg = s.build()
+    names = dwg.annotations()
+    pitch = [n for n in names if "pitch" in n]
+    assert len(pitch) == 1
+    assert dwg.get_annotation(pitch[0]).label == "3× 27.2"  # (4-1)× pitch over the full span
+    assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
+
+
+def test_manual_callout_verb_raises_clearly():
+    # the manual dwg.callout() edit verb for a pocket pattern is a deferred #841 follow-up;
+    # it must raise a clear error, NOT fall through to the hole-callout path and crash.
+    s = Sheet(Box(26, 161, 21))
+    s.envelope()
+    s.pocket_pattern(_member(), kind="linear", count=5, pitch=27.2, direction=(0, 1, 0))
+    dwg = s.build()
+    feat = next(f for f in dwg.model().features if f.kind == "pocket_pattern")
+    with pytest.raises(ValueError, match="placed automatically at build time.*#841"):
+        dwg.callout(feat)
 
 
 def test_model_inspection_sees_the_pattern():

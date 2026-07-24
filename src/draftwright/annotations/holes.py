@@ -1261,6 +1261,12 @@ def render_pocket_patterns(dwg, groups, a, *, ctx, only=None) -> int:
     )
     for i, feat, view in furniture:
         members = feat.members or (feat.frame.origin,)
+        # Dimension the true extrema ALONG the array direction, not members[0]/[-1] — an
+        # explicit (unordered) members= override would otherwise span the wrong pair and
+        # contradict the `(n-1)× pitch` label (Codex #848).
+        if feat.pattern == "linear" and feat.direction is not None and len(members) > 1:
+            d = feat.direction
+            members = tuple(sorted(members, key=lambda p: sum(p[k] * d[k] for k in range(3))))
 
         def to_page(loc, _view=view):
             return dwg.at(_view, *loc)
