@@ -286,13 +286,13 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     # The part model — the IR-migrated passes (centre marks, turned diameters/lengths)
     # render from it (ADR 0008 convergence / #229). Built once by the pipeline
-    # (:func:`build_model`, attached to the drawing before this pass) so the read surface
-    # (dwg.model()) and feature edits work even in manual mode (#398); fall back to
-    # building it here for any direct caller that skipped _assemble.
+    # (:func:`build_model`) and filled into BuildState at builder._assemble's single
+    # construction site, so the read surface (dwg.model()) works on every real path; the
+    # `build_model(a)` fallback covers a direct caller that reached _auto_annotate without a
+    # model. #830: this pass no longer RE-attaches the model onto the drawing (the redundant
+    # dwg._attach_part_model was the only engine caller) — it threads the ensured model onto
+    # the run's ctx so every pass reads it from ctx, not the drawing's privates (#639).
     _model = dwg.model() if dwg.model() is not None else build_model(a)
-    dwg._attach_part_model(_model)
-    # Thread the ensured model + declared flag onto the run's ctx so every pass reads them from
-    # ctx, not the drawing's privates (#639). Set AFTER attach so ctx sees the ensured model.
     ctx.part_model = _model
     ctx.model_declared = dwg.model_declared
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
