@@ -46,6 +46,7 @@ from draftwright.model.ir import (
     PatternFeature,
     PlateFeature,
     PocketFeature,
+    PocketPatternFeature,
     Point,
     SlotFeature,
     StepFeature,
@@ -965,7 +966,11 @@ def _pattern_members(
         )
     if kind == "linear":
         d = direction or u
-        n = math.sqrt(sum(c * c for c in d)) or 1.0
+        # math.hypot is over/underflow-stable: a hand-rolled sqrt(sum(c*c)) overflows to inf
+        # for a huge direction (normalizing it to (0,0,0) → coincident centres under a nonzero
+        # pitch label) and underflows to 0 for a denormal (falling back to 1.0, leaving the tiny
+        # vector unnormalized). Identical to the old norm for normal-magnitude inputs (Codex #848 r6).
+        n = math.hypot(*d) or 1.0
         d = tuple(c / n for c in d)
         p = pitch or 0.0
         return tuple(
@@ -1084,6 +1089,132 @@ def pattern(
         member=member,
         members=members,
         bcd=bcd,
+        pitch=pitch,
+        direction=direction,
+        grid=grid,
+        rows=rows,
+        cols=cols,
+        angle=angle,
+    )
+
+
+def pocket_pattern(
+    member: PocketFeature,
+    *,
+    kind="linear",
+    count,
+    at=None,
+    members=(),
+    pitch=None,
+    direction=None,
+    grid=None,
+    rows=None,
+    cols=None,
+    angle=None,
+) -> PocketPatternFeature:
+    """``count`` × an identical blind pocket in a ``linear`` / ``grid`` array (#841) — the
+    recess analog of :func:`pattern`. *member* is one representative pocket (build it with
+    :func:`pocket`); the array renders as ONE grouped ``N× W × L × D DEEP`` callout plus the
+    ``(n-1)× pitch`` dim(s), instead of N competing size dims.
+
+    The arrangement lies in the pocket's OPENING plane (perpendicular to its depth axis), so
+    the members are laid out about *at* (default the member's own centre) in that plane —
+    pass ``members=`` to override the computed layout. ``pitch`` (linear) / ``grid`` +
+    ``rows``/``cols`` (grid) define the spacing and are read by the pitch-dim furniture."""
+    axis = member.depth_axis  # the opening normal — the plane the array lies in
+    axis_idx = {"x": 0, "y": 1, "z": 2}[axis]
+    center = at if at is not None else member.frame.origin
+    _require_point("at", center)
+    if members:
+        # A DECLARED pocket pattern is always computed from count + pitch/grid + layout;
+        # explicit members= could contradict the grouped size/pitch labels without a full
+        # lattice / pitch / centroid validation (linear must be collinear + constant-pitch;
+        # a grid must match grid=/rows=/cols=/at), so it is rejected outright (Codex #848
+        # r2/r3). The detector builds the IR dataclass directly with real member geometry,
+        # bypassing this constructor, so the override costs nothing here — and irregular
+        # points are not a pattern.
+        raise ValueError(
+            "pocket_pattern() does not accept explicit members= — declare the array by "
+            "count + pitch=/direction= (linear) or grid=/rows=/cols= (grid); the computed "
+            "layout guarantees the grouped callout and pitch labels match the geometry"
+        )
+
+    if kind not in ("linear", "grid"):
+        raise ValueError(
+            f"pocket_pattern(kind={kind!r}) is not a known arrangement (linear / grid)"
+        )
+    _require_count("pocket_pattern()", count)
+
+    if kind == "linear":
+        _positive("pocket_pattern(kind='linear') pitch=", pitch)  # the pitch dim reads it
+        if count < 2:
+            # A single pocket is not an array — the callout would read `1× …` and the pitch
+            # dim would have coincident endpoints (silently dropped). Grids already need
+            # rows>=2 and cols>=2 (count>=4); the linear path needs count>=2 (Codex #848 r4).
+            raise ValueError(
+                "pocket_pattern(kind='linear') needs count>=2 — a single pocket is not an "
+                "array; declare it with pocket()"
+            )
+        if direction is not None:
+            _require_point("direction", direction)
+            # Test the NORMALIZED depth component: _pattern_members normalizes direction, so a
+            # raw absolute tolerance lets e.g. (1e-12, 0, 1e-10) pass yet normalize to mostly
+            # depth. A relative (scale-independent) test rejects any real depth tilt (Codex #848
+            # r4). math.hypot is over/underflow-stable — a hand-rolled sum-of-squares norm
+            # underflows to 0 on denormals (ZeroDivisionError) and overflows to inf on huge
+            # inputs (hiding the depth tilt); require a finite, nonzero norm (Codex #848 r5).
+            norm = math.hypot(*direction)
+            if not (math.isfinite(norm) and norm > 0):
+                raise ValueError(
+                    "pocket_pattern(kind='linear') direction= must be a finite, nonzero vector"
+                )
+            if abs(direction[axis_idx]) / norm > 1e-6:  # opening-plane constraint
+                raise ValueError(
+                    "pocket_pattern(kind='linear') direction= must lie in the opening plane "
+                    f"(no {axis}-depth component)"
+                )
+    else:  # grid
+        if grid is None or rows is None or cols is None:
+            raise ValueError("pocket_pattern(kind='grid') needs grid= pitch and rows= and cols=")
+        if not (isinstance(grid, (tuple, list)) and len(grid) == 2):
+            raise ValueError(
+                f"pocket_pattern() grid= must be a (row_pitch, col_pitch) pair (got {grid!r})"
+            )
+        _positive("pocket_pattern() grid row pitch", grid[0])
+        _positive("pocket_pattern() grid col pitch", grid[1])
+        # rows>=2 and cols>=2: a single-row/column grid has only one populated lattice axis,
+        # so _add_grid_pitch_dims (which needs two orthogonal bases) would silently drop its
+        # one meaningful pitch dim — such an array IS linear, so route it there (Codex #848 r3).
+        if not (isinstance(rows, int) and isinstance(cols, int) and rows >= 2 and cols >= 2):
+            raise ValueError(
+                "pocket_pattern(kind='grid') needs rows>=2 and cols>=2 (a single-row or "
+                f"single-column array is linear — use kind='linear'); got rows={rows!r}, cols={cols!r}"
+            )
+        if rows * cols != count:
+            raise ValueError(
+                f"pocket_pattern(kind='grid') needs rows*cols == count ({rows}*{cols} != {count})"
+            )
+
+    if not members:
+        members = _pattern_members(
+            kind,
+            center,
+            axis,
+            count,
+            bcd=None,
+            pitch=pitch,
+            direction=direction,
+            grid=grid,
+            rows=rows,
+            cols=cols,
+            angle=angle,
+        )
+    return PocketPatternFeature(
+        frame=Frame(origin=center, axis=axis),
+        pattern=kind,
+        count=count,
+        member=member,
+        members=members,
         pitch=pitch,
         direction=direction,
         grid=grid,

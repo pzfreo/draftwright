@@ -309,6 +309,43 @@ class PocketFeature:
 
 
 @dataclass(frozen=True)
+class PocketPatternFeature:
+    """``count`` × an identical blind pocket in a linear/grid array — the recess analog
+    of `PatternFeature` (#841). Composes a representative `member` `PocketFeature` (its
+    width × length × depth come along) and adds the array-defining pitch dims. The member
+    pockets are NOT emitted individually: one grouped ``N× W × L × D DEEP`` callout plus
+    the ``(n-1)× pitch`` dim(s). ``frame.axis`` is the opening-normal (depth) axis, so the
+    callout reads in the view normal to it (``_END_ON`` z→plan / x→side / y→front — the
+    same map `render_pockets` uses)."""
+
+    frame: Frame
+    pattern: str  # "linear" | "grid"
+    count: int
+    member: PocketFeature
+    members: tuple[Point, ...] = ()  # ordered member-pocket centres
+    pitch: float | None = None  # linear pitch
+    direction: tuple[float, float, float] | None = None  # linear array axis
+    grid: tuple[float, float] | None = None  # (row_pitch, col_pitch)
+    rows: int | None = None
+    cols: int | None = None
+    angle: float | None = None  # grid lattice rotation (degrees)
+    kind: ClassVar[str] = "pocket_pattern"
+
+    def parameters(self) -> list[DimParameter]:
+        ps = list(self.member.parameters())  # pocket width + length + depth
+        if self.pitch is not None:
+            ps.append(DimParameter("length", "pitch", self.pitch))
+        if self.grid is not None:
+            rp, cp = self.grid
+            ps.append(DimParameter("length", "grid_pitch", rp))
+            ps.append(DimParameter("length", "grid_pitch", cp))
+        return ps
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class BossFeature:
     """An external cylindrical boss/OD — its diameter and optional axial height."""
 

@@ -52,6 +52,11 @@ from draftwright.annotations._common import (
 from draftwright.annotations.from_model import (
     _diameter_column_left,
     _diameter_row_below,
+    _leader_callout_pass,
+    _leader_callout_reach,
+    _pocket_label,
+    _radial_candidates,
+    _tol_suffix,
     callout_from_spec,
     hole_callout_spec,
 )
@@ -885,7 +890,17 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
 
 
 def _add_grid_pitch_dims(
-    dwg, a: Analysis, view, j, members, nominals, to_page, feature=None, *, ctx
+    dwg,
+    a: Analysis,
+    view,
+    j,
+    members,
+    nominals,
+    to_page,
+    feature=None,
+    *,
+    ctx,
+    name_prefix="dim_pitch",
 ):
     """Both pitch dimensions of a rectangular grid — one along each lattice axis,
     each labelled ``(n-1)× pitch`` (#92).  The two axes are recovered as the two
@@ -957,7 +972,7 @@ def _add_grid_pitch_dims(
             n,
             pitch,
             to_page,
-            f"dim_pitch_{view}{j}_{sub}",
+            f"{name_prefix}_{view}{j}_{sub}",
             feature=feature,
             ctx=ctx,
         )
@@ -1188,6 +1203,109 @@ def _place_pitch_dim(
             )
             return
     _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, _fmt(pitch))
+
+
+def render_pocket_patterns(dwg, groups, a, *, ctx, only=None) -> int:
+    """Grouped blind-pocket-array callouts (#841): ONE ``count× W × L × D DEEP`` leader on the
+    array centre + the ``(n-1)× pitch`` dim(s), instead of N competing per-pocket size dims.
+
+    A `PocketPatternFeature` composes its member pockets (they are NOT in ``model.features``),
+    so `render_pockets` never double-renders them. Lives here — beside the pattern pitch
+    furniture (`_place_pitch_dim` / `_add_grid_pitch_dims`) it reuses — and pulls the pocket
+    label + leader helpers from `from_model` (holes → from_model is the allowed direction).
+
+    Planner-fed (#728): the width/length/depth VALUES + tolerances are bound explicitly by
+    ``(role, kind)`` (``pocket_width``/``pocket_length``/``pocket_depth``, all ``length``),
+    never positionally. The callout reads in the view normal to the DEPTH axis (z→plan,
+    x→side, y→front). ``only`` restricts placement for `finalize()` (#426), skipping in place
+    so ``i`` stays the model index."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    view_of = {"z": "plan", "x": "side", "y": "front"}
+    pat_groups = [g for g in groups if g.feature_kind == "pocket_pattern"]
+    jobs = []
+    furniture = []  # (i, feat, view) for the placed patterns' pitch dims
+    for i, g in enumerate(
+        sorted(pat_groups, key=lambda g: (g.feature.member.width_axis, g.feature.frame.origin))
+    ):
+        feat = g.feature
+        if only is not None and feat not in only:
+            continue  # #426 finalize subset — skip in place so i stays the model index
+        pk = feat.member
+        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        wpd = by_key.get(("pocket_width", "length"))
+        lpd = by_key.get(("pocket_length", "length"))
+        dpd = by_key.get(("pocket_depth", "length"))
+        if wpd is None or lpd is None or dpd is None:
+            continue
+        if wpd.suppressed or lpd.suppressed or dpd.suppressed:
+            continue
+        view = view_of.get(pk.depth_axis)
+        if view is None:
+            continue
+        vb = dwg.view_bounds(view)
+        if vb is None:
+            continue
+        label = f"{feat.count}× " + _pocket_label(
+            wpd.param.value,
+            lpd.param.value,
+            dpd.param.value,
+            wsfx=_tol_suffix(wpd.param.tolerance, draft),
+            lsfx=_tol_suffix(lpd.param.tolerance, draft),
+            dsfx=_tol_suffix(dpd.param.tolerance, draft),
+        )
+        # Anchor the one representative leader at the array CENTRE (feat.frame.origin) and
+        # attribute it to the pattern feature (ADR 0010 provenance).
+        name = f"m_pocketpat_{pk.width_axis}{pk.long_axis}{i}"
+        jobs.append((name, view, vb, label, _radial_candidates(dwg, view, vb, feat, reach)))
+        furniture.append((i, feat, view, name))
+    placed = _leader_callout_pass(
+        dwg, a, jobs, noun="pocket pattern", drop_code="pocket_dropped", ctx=ctx
+    )
+    placed_names = dwg.annotations()
+    for i, feat, view, name in furniture:
+        # Skip the pitch furniture whose grouped size/depth callout dropped for want of room:
+        # orphan pitch dims with no `N× W×L×D` leader are an incomplete, misleading spec
+        # (Codex #848 r3). Members are computed by _pattern_members (declare rejects explicit
+        # members=), so for a linear array they are already ordered along the direction —
+        # members[0]/[-1] are the true extrema and the (n-1)× pitch label is truthful. Distinct
+        # name prefix (dim_pocketpat_pitch, not the hole pattern's dim_pitch) so a plan-view
+        # hole pattern and pocket pattern do not collide on dim_pitch_plan0 (Codex #848 r2).
+        if name not in placed_names:
+            continue
+        members = feat.members or (feat.frame.origin,)
+
+        def to_page(loc, _view=view):
+            return dwg.at(_view, *loc)
+
+        if feat.pattern == "linear" and feat.pitch is not None:
+            _place_pitch_dim(
+                dwg,
+                a,
+                view,
+                members[0],
+                members[-1],
+                len(members),
+                feat.pitch,
+                to_page,
+                f"dim_pocketpat_pitch_{view}{i}",
+                feature=feat,
+                ctx=ctx,
+            )
+        elif feat.pattern == "grid" and feat.grid is not None:
+            _add_grid_pitch_dims(
+                dwg,
+                a,
+                view,
+                i,
+                members,
+                feat.grid,
+                to_page,
+                feature=feat,
+                ctx=ctx,
+                name_prefix="dim_pocketpat_pitch",
+            )
+    return placed
 
 
 def build_view_of_axis(a: Analysis):
