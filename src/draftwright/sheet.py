@@ -930,10 +930,10 @@ class Sheet:
         # after layout already reserved its row). Reject it here (#841 review).
         cut_y = float(payload)
         bb = self._part.bounding_box()
-        if not (bb.min.Y <= cut_y <= bb.max.Y):
+        if not (bb.min.Y < cut_y < bb.max.Y):  # strictly inside — a grazing plane cuts nothing
             raise ValueError(
-                f"section(at={cut_y:.3g}) is outside the part Y extent "
-                f"[{bb.min.Y:.3g}, {bb.max.Y:.3g}] — the plane would not cut the solid"
+                f"section(at={cut_y:.3g}) is not strictly inside the part Y extent "
+                f"({bb.min.Y:.3g}, {bb.max.Y:.3g}) — the plane would not cut the solid"
             )
         return cut_y
 

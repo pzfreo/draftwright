@@ -87,7 +87,12 @@ def test_section_rejects_non_finite_and_out_of_range_at():
     # is rejected at build resolution rather than mislabelling an uncut projection "SECTION A–A".
     s, _p = _blind_pocket_sheet()
     s.section(at=100.0)
-    with pytest.raises(ValueError, match="outside the part Y extent"):
+    with pytest.raises(ValueError, match="not strictly inside"):
+        s._decorations()
+    # A grazing plane on the bounding face cuts nothing — rejected too (strict, not inclusive).
+    s, _p = _blind_pocket_sheet()
+    s.section(at=25.0)  # exactly the +Y face of the 50-wide bar
+    with pytest.raises(ValueError, match="not strictly inside"):
         s._decorations()
 
 
