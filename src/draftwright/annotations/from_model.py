@@ -753,11 +753,6 @@ def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
     return [], []
 
 
-# The helpers `Leader` hangs its label one shelf-length off the elbow, so a placed diameter
-# label occupies `shelf + label_w` beyond the elbow — both diameter placers reserve for it.
-_LEADER_SHELF = 2.0
-
-
 def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
     """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
     *items* is ``[(anchor, diameter), ...]``. The row is dropped clear of anything
@@ -817,7 +812,7 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
     # when direction-aware label intervals actually collide, enforce elbow ≥ tip with
     # a left-to-right min_gap cascade; overflow drops the smallest ø (#298) and
     # re-solves. No-op for ordinary rows.
-    _SHELF = _LEADER_SHELF  # helpers Leader: the label hangs one shelf-length off the elbow
+    _SHELF = draft.pad_around_text  # helpers Leader shelf_len = gap = draft.pad_around_text
 
     def _label_ivals(svs, positions):
         out = []
@@ -903,8 +898,9 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
     elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
     # A left-directed leader hangs its label a shelf-length PAST the elbow, so the label's left
     # edge sits at elbow_x - shelf - label_w; the guard must reserve the shelf or a near-boundary
-    # label overshoots the margin (#859, Codex #862 r4).
-    if elbow_x - _LEADER_SHELF - label_w < _MARGIN:
+    # label overshoots the margin. The shelf is the helpers Leader's gap = draft.pad_around_text,
+    # not a fixed 2.0 (#859, Codex #862 r4/r5).
+    if elbow_x - draft.pad_around_text - label_w < _MARGIN:
         if ev is not None:
             ev["items"].extend(
                 {"label": f"ø{_fmt(d)}", "outcome": "dropped", "reason": "no_room_left"}
