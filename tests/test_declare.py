@@ -977,6 +977,21 @@ class TestExternalThread:
         assert "ø8" in labels  # the plain shoulder stays a bare ⌀
         assert "ø8 M8x1.25" in labels  # the threaded shoulder is its own callout — not smeared
 
+    def test_threaded_diameter_survives_coincident_plain_mention(self):
+        # A coincident plain ⌀ already drawn (here an ø8 bore) must NOT dedup a THREADED ø8 away
+        # — a threaded ⌀ is a distinct callout, so the diameter-dedup skip only applies to an
+        # unthreaded ⌀ (#859, Codex #862 r2).
+        part = Box(90, 50, 8) - Pos(-25, 0, 0) * Cylinder(4, 20)
+        part = part + Pos(25, 0, 4) * Cylinder(4, 8)  # an ø8 threaded boss beside an ø8 bore
+        s = Sheet(part)
+        s.hole(diameter=8, at=(-25, 0, 0), axis="z")
+        s.boss(diameter=8, at=(25, 0, 8), axis="z").thread("M8x1.25")
+        dwg = s.build()
+        bosslabels = [
+            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_bossdia")
+        ]
+        assert "ø8 M8x1.25" in bosslabels  # not dropped by the coincident ø8 bore mention
+
 
 class TestPlate:
     """#577: declare a thin slab's thickness — the third ADR-0011 surface for #559."""

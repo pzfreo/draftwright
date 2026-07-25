@@ -1011,18 +1011,20 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
         if dpd is None:
             continue
         dia = dpd.param.value
-        if any(abs(dia - m) <= tol for m in mentioned):
-            continue
-        bucket = {"x": row_buckets, "z": col_buckets}.get(g.feature.frame.axis)
-        if bucket is None:
-            continue
-        dtol = dpd.param.tolerance
         # An EXTERNAL thread (#859) makes a distinct callout: a threaded ⌀6 ("ø6 M6x1") and a
         # plain ⌀6 are NOT the same label, so the bucket keys on (⌀, thread) — this never drops a
         # thread on a shared ⌀, and a threadless model keys every entry on (⌀, None) exactly as
         # before (byte-identical). entry = [anchor, dia, {features}, ± tolerance, thread]. A
         # callout is per (axis, ⌀, thread); the first authored tolerance on a shared ⌀ wins.
         thr = getattr(g.feature, "thread", None)
+        # A coincident plain ⌀ already drawn (a bore, another step) dedups only an UNTHREADED ⌀;
+        # a threaded ⌀ is a distinct callout, so a bare ⌀8 mention must not suppress ø8 M8x1.25.
+        if thr is None and any(abs(dia - m) <= tol for m in mentioned):
+            continue
+        bucket = {"x": row_buckets, "z": col_buckets}.get(g.feature.frame.axis)
+        if bucket is None:
+            continue
+        dtol = dpd.param.tolerance
         dkey = (round(dia, 2), thr)
         entry = bucket.setdefault(dkey, [g.anchor, dia, set(), dtol, thr])
         entry[2].add(g.feature)
@@ -1746,15 +1748,17 @@ def render_boss_diameters(dwg, groups, a, *, ctx) -> int:
             continue
         dia = dpd.param.value
         dtol = dpd.param.tolerance
-        if any(abs(dia - m) <= 0.15 for m in mentioned):
-            continue  # a coincident bore / step already carries this ø
+        thr = getattr(b, "thread", None)  # external thread appends to the OD callout (#859)
+        # A coincident plain ⌀ dedups only an UNTHREADED boss; a threaded ⌀ is a distinct callout,
+        # so a bare ⌀8 mention (a bore, a step) must not suppress ø8 M8x1.25 (#859).
+        if thr is None and any(abs(dia - m) <= 0.15 for m in mentioned):
+            continue
         view = view_of.get(b.frame.axis)
         if view is None:
             continue
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        thr = getattr(b, "thread", None)  # external thread appends to the OD callout (#859)
         jobs.append(
             (
                 f"m_bossdia_{b.frame.axis}{bi}",
