@@ -1754,12 +1754,13 @@ def render_boss_diameters(dwg, groups, a, *, ctx) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
+        thr = getattr(b, "thread", None)  # external thread appends to the OD callout (#859)
         jobs.append(
             (
                 f"m_bossdia_{b.frame.axis}{bi}",
                 view,
                 vb,
-                f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}",
+                f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else ""),
                 # arrowhead on the boss circle's rim, not its centre
                 _radial_candidates(dwg, view, vb, b, reach, rim=dia / 2 * a.SCALE),
             )

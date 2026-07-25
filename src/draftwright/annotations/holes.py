@@ -412,9 +412,9 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
             f"callout(): a {axis!r}-turned step/boss diameter is not placeable "
             "(only X- and Z-turned parts)"
         )
-    # 4-tuple (anchor, dia, feature, tolerance): a manual callout honours a declared ±
-    # tolerance too, like the auto-pass (P2a, #28).
-    items = [(group.anchor, dia, feature, dpd.param.tolerance)]
+    # 5-tuple (anchor, dia, feature, tolerance, thread): a manual callout honours a declared ±
+    # tolerance (P2a, #28) and an external thread aspect (#859) too, like the auto-pass.
+    items = [(group.anchor, dia, feature, dpd.param.tolerance, getattr(feature, "thread", None))]
     # The row/column placers name leaders m_dia_{x,z}{start+i} — pass the first FREE
     # index so a second callout() (or a call on an already-annotated turned part) never
     # collides on m_dia_x0/z0 and clobbers an existing leader (#419 review F1).

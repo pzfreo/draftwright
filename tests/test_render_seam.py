@@ -209,11 +209,11 @@ class TestDiameterColumnOccupancy:
 
         return _Dwg()
 
-    # (anchor, dia, feature, tolerance) — feature=None (unit test of placement; #412 added the
-    # tag); tolerance=None (untoleranced — the item grew a P2a ± field, #28)
+    # (anchor, dia, feature, tolerance, thread) — feature=None (unit test of placement; #412
+    # added the tag); tolerance=None (untoleranced — a P2a ± field, #28); thread=None (#859)
     _ITEMS = [
-        ((10.0, 0.0, 8.0), 12.0, None, None),
-        ((10.0, 0.0, 24.0), 8.0, None, None),
+        ((10.0, 0.0, 8.0), 12.0, None, None, None),
+        ((10.0, 0.0, 24.0), 8.0, None, None, None),
     ]  # two Z-turned ø steps
 
     def _ctx(self):
