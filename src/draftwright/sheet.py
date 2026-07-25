@@ -269,6 +269,19 @@ class _Dim:
         self._sheet._gdt_note(text, self._i, view=view, side=side)
         return self
 
+    def thread(self, spec: str) -> _Dim:
+        """An EXTERNAL thread spec appended to this OD's ⌀ callout (#859) — the turned analog of
+        :meth:`_Hole.thread`. ``step(shaft).thread("M3x0.5")`` renders ``ø3 M3x0.5``; a structured
+        aspect on the feature, so ``.thread(...).finish(...)`` gives Ra-on-thread. Declaration-only
+        (threads are cosmetic, rarely modelled as geometry — no recogniser)."""
+        if not (isinstance(spec, str) and spec.strip()):
+            raise ValueError('thread() needs a non-empty spec string, e.g. "M3x0.5"')
+        return self._set(thread=spec.strip())
+
+    def _set(self, **kw) -> _Dim:
+        self._sheet._features[self._i] = replace(self._sheet._features[self._i], **kw)
+        return self
+
 
 class _Params:
     """A fluent handle for a declared MULTI-parameter feature — a pocket

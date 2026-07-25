@@ -912,6 +912,72 @@ class TestThread:
         assert estimated >= rendered  # estimator reserves at least the rendered width
 
 
+class TestExternalThread:
+    """#859: a first-class EXTERNAL thread callout on a turned step/boss — the turned analog of
+    #764's internal hole thread. An ADR-0011 declaration-only aspect (threads are cosmetic, not
+    modelled geometry, so declare + render, no recogniser) that appends the spec to the OD (⌀)
+    leader. Ra-on-thread comes for free — .thread() (a field) and .finish() (the GD&T layer) are
+    independent aspects on the same feature."""
+
+    def _shaft(self):
+        # a two-diameter turned shaft along X: a ø8 body + a ø3 threaded end
+        return Rot(0, 90, 0) * Cylinder(radius=4, height=20) + Pos(15, 0, 0) * Rot(0, 90, 0) * (
+            Cylinder(radius=1.5, height=10)
+        )
+
+    def test_declare_and_fluent_carry_the_thread(self):
+        assert (
+            step(diameter=3, length=10, at=(15, 0, 0), axis="x", thread="M3x0.5").thread
+            == "M3x0.5"
+        )
+        assert boss(diameter=6, at=(0, 0, 0), axis="x", thread="M6x1").thread == "M6x1"
+        s = Sheet(self._shaft())
+        s.step(diameter=8, length=20, at=(0, 0, 0), axis="x").thread("M8x1.25")
+        assert s._features[0].thread == "M8x1.25"
+
+    def test_empty_spec_rejected(self):
+        s = Sheet(Rot(0, 90, 0) * Cylinder(radius=4, height=20))
+        with pytest.raises(ValueError):
+            s.step(diameter=8, length=20, at=(0, 0, 0), axis="x").thread("  ")
+
+    def test_thread_appends_to_the_od_callout(self):
+        s = Sheet(self._shaft())
+        s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
+        s.step(diameter=3, length=10, at=(15, 0, 0), axis="x").thread("M3x0.5")
+        dwg = s.build()
+        labels = {dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")}
+        assert "ø3 M3x0.5" in labels  # the threaded step gets the suffix
+        assert "ø8" in labels  # the plain step does not
+        assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
+
+    def test_thread_and_finish_coexist_on_one_step(self):
+        s = Sheet(self._shaft())
+        s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
+        s.step(diameter=3, length=10, at=(15, 0, 0), axis="x").thread("M3x0.5").finish("1.6")
+        dwg = s.build()
+        labels = {dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")}
+        assert "ø3 M3x0.5" in labels  # thread on the ⌀ leader
+        assert [n for n in dwg.annotations() if n.startswith("m_gdt")]  # Ra symbol also placed
+
+    def test_shared_diameter_keeps_threaded_and_plain_distinct(self):
+        # A ø12 body with two ø8 shoulders, only one threaded. The two ø8 steps share a diameter
+        # but the thread keys them into DISTINCT callouts (⌀, thread), so it is never dropped onto
+        # or smeared off the shared ⌀ (#859).
+        part = (
+            Rot(0, 90, 0) * Cylinder(radius=6, height=10)  # ø12 middle (the overall OD)
+            + Pos(-11, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=4, height=12)  # ø8 left shoulder
+            + Pos(11, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=4, height=12)  # ø8 right shoulder
+        )
+        s = Sheet(part)
+        s.step(diameter=12, length=10, at=(0, 0, 0), axis="x")
+        s.step(diameter=8, length=12, at=(-11, 0, 0), axis="x")
+        s.step(diameter=8, length=12, at=(11, 0, 0), axis="x").thread("M8x1.25")
+        dwg = s.build()
+        labels = [dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")]
+        assert "ø8" in labels  # the plain shoulder stays a bare ⌀
+        assert "ø8 M8x1.25" in labels  # the threaded shoulder is its own callout — not smeared
+
+
 class TestPlate:
     """#577: declare a thin slab's thickness — the third ADR-0011 surface for #559."""
 

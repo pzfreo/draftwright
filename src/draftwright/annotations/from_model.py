@@ -778,14 +778,15 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
         if ev is not None:
             ev["items"].extend(
                 {"label": f"ø{_fmt(d)}", "outcome": "dropped", "reason": "no_room_below"}
-                for _, d, _, _ in items
+                for _, d, _, _, _ in items
             )
         return 0
     specs = []  # (tip_page, dia, label, feature), tip on the step's bottom silhouette,
-    for anchor, dia, feat, dtol in items:  # centred along the feature's length (not a corner)
+    for anchor, dia, feat, dtol, thr in items:  # centred along the feature's length (not a corner)
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
-        specs.append((tip, dia, f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}", feat))
+        label = f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else "")  # #859
+        specs.append((tip, dia, label, feat))
     # Real measured width, not the per-char estimate: helpers >=0.14 label boxes are
     # honest about the rendered string, so an underestimated min_gap here surfaces as a
     # visible annotation_overlap between adjacent labels (hypothesis tier).
@@ -883,7 +884,10 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
     draft = dwg.draft
     fx0, fy0, _, fy1 = dwg.view_bounds("front")
     label_w = (
-        max(len(f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}") for _, dia, _, dtol in items)
+        max(
+            len(f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else ""))
+            for _, dia, _, dtol, thr in items  # the thread widens the label (#859)
+        )
         * draft.font_size
         * _EST_CHAR_WIDTH_EM
     )
@@ -892,14 +896,15 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
         if ev is not None:
             ev["items"].extend(
                 {"label": f"ø{_fmt(d)}", "outcome": "dropped", "reason": "no_room_left"}
-                for _, d, _, _ in items
+                for _, d, _, _, _ in items
             )
         return 0
     specs = []  # (tip_page, dia, label, feature), tip on the step's left silhouette,
-    for anchor, dia, feat, dtol in items:  # centred along the feature's length (not a corner)
+    for anchor, dia, feat, dtol, thr in items:  # centred along the feature's length (not a corner)
         ax, ay, az = anchor
         tip = dwg.at("front", ax - dia / 2, ay, az)
-        specs.append((tip, dia, f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}", feat))
+        label = f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else "")  # #859
+        specs.append((tip, dia, label, feat))
     half_h = draft.font_size / 2 + draft.pad_around_text
     min_gap = 2 * half_h
     # Place what fits; drop the smallest ø first, never the whole column (#298).
@@ -1011,19 +1016,23 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
         bucket = {"x": row_buckets, "z": col_buckets}.get(g.feature.frame.axis)
         if bucket is None:
             continue
-        dkey = round(dia, 2)
         dtol = dpd.param.tolerance
-        # entry = [anchor, dia, {features}, ± tolerance]. A callout is per (axis, ⌀); the
-        # first authored tolerance on a shared ⌀ wins (P2a — a single callout, one label).
-        entry = bucket.setdefault(dkey, [g.anchor, dia, set(), dtol])
+        # An EXTERNAL thread (#859) makes a distinct callout: a threaded ⌀6 ("ø6 M6x1") and a
+        # plain ⌀6 are NOT the same label, so the bucket keys on (⌀, thread) — this never drops a
+        # thread on a shared ⌀, and a threadless model keys every entry on (⌀, None) exactly as
+        # before (byte-identical). entry = [anchor, dia, {features}, ± tolerance, thread]. A
+        # callout is per (axis, ⌀, thread); the first authored tolerance on a shared ⌀ wins.
+        thr = getattr(g.feature, "thread", None)
+        dkey = (round(dia, 2), thr)
+        entry = bucket.setdefault(dkey, [g.anchor, dia, set(), dtol, thr])
         entry[2].add(g.feature)
         if entry[3] is None:
             entry[3] = dtol
 
     def _items(buckets):
         return [
-            (_diameter_step_anchor(a, fs), d, next(iter(fs)) if len(fs) == 1 else None, t)
-            for a, d, fs, t in buckets.values()
+            (_diameter_step_anchor(a, fs), d, next(iter(fs)) if len(fs) == 1 else None, t, thr)
+            for a, d, fs, t, thr in buckets.values()
         ]
 
     # The placers name leaders m_dia_{x,z}{start+i} CONTIGUOUSLY from one start. The auto-pass

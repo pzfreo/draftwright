@@ -285,7 +285,9 @@ def read_countersink(cone) -> tuple[float, float]:
     return round(2 * major_e.radius, 4), included
 
 
-def boss(obj=None, *, diameter=None, height=None, at=None, axis=None, span=None) -> BossFeature:
+def boss(
+    obj=None, *, diameter=None, height=None, at=None, axis=None, span=None, thread=None
+) -> BossFeature:
     """An external cylindrical boss / OD. Either ``boss(cylinder)`` or
     ``boss(diameter=6, at=(0, 0, 0), axis="x")`` (parametric). An object supplies
     *defaults*; any explicit keyword overrides that field (#451)."""
@@ -307,11 +309,17 @@ def boss(obj=None, *, diameter=None, height=None, at=None, axis=None, span=None)
     if height is not None and span is None:
         span = _span(at, axis, height)
     return BossFeature(
-        frame=Frame(origin=at, axis=axis), diameter=diameter, height=height, span=span
+        frame=Frame(origin=at, axis=axis),
+        diameter=diameter,
+        height=height,
+        span=span,
+        thread=thread,
     )
 
 
-def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None) -> StepFeature:
+def step(
+    obj=None, *, diameter=None, length=None, at=None, axis=None, span=None, thread=None
+) -> StepFeature:
     """One axial segment of a turned profile — its OD + length. Either ``step(segment)``
     (⌀ from the cylindrical face, length + centre from the bbox along its axis) or
     explicit ``step(diameter=4, length=10, at=(0, 0, 0), axis="x")``. ``span`` (the two
@@ -333,7 +341,11 @@ def step(obj=None, *, diameter=None, length=None, at=None, axis=None, span=None)
     if span is None:
         span = _span(at, axis, length)
     return StepFeature(
-        frame=Frame(origin=at, axis=axis), length=length, diameter=diameter, span=span
+        frame=Frame(origin=at, axis=axis),
+        length=length,
+        diameter=diameter,
+        span=span,
+        thread=thread,
     )
 
 

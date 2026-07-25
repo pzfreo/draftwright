@@ -167,6 +167,10 @@ class StepFeature:
     length: float
     diameter: float
     span: tuple[Point, Point]
+    # An EXTERNAL thread spec, e.g. ``"M3x0.5"`` — free text appended to the OD (⌀) callout
+    # (#859). The turned analog of ``HoleFeature.thread``: a declaration-only aspect, threads
+    # are cosmetic and rarely modelled as geometry, so there is no recogniser — declare + render.
+    thread: str | None = None
     kind: ClassVar[str] = "step"
 
     def parameters(self) -> list[DimParameter]:
@@ -389,6 +393,8 @@ class BossFeature:
     diameter: float
     height: float | None = None
     span: tuple[Point, Point] | None = None
+    # An external thread spec appended to the OD callout (#859) — see ``StepFeature.thread``.
+    thread: str | None = None
     kind: ClassVar[str] = "boss"
 
     def parameters(self) -> list[DimParameter]:
