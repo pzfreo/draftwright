@@ -1003,6 +1003,18 @@ class TestExternalThread:
         dwg = s.build()
         assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
+    def test_emit_round_trips_the_thread(self):
+        # The editable Sheet script must carry the external thread so a re-run keeps ø.. M.. —
+        # #859 emits thread= on the step()/diameter() call (Codex #862 r6).
+        from draftwright.sheet_emit import _feature_line
+
+        assert "thread='M3x0.5'" in _feature_line(
+            step(diameter=3, length=10, at=(15, 0, 0), axis="x", thread="M3x0.5")
+        )
+        assert "thread='M6x1'" in _feature_line(
+            boss(diameter=6, at=(0, 0, 0), axis="x", thread="M6x1")
+        )
+
 
 class TestPlate:
     """#577: declare a thin slab's thickness — the third ADR-0011 surface for #559."""

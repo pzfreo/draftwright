@@ -70,6 +70,8 @@ def _hole_line(f) -> str:
         kw.append(f"spotface=({_n(f.spotface[0])}, {_n(f.spotface[1])})")
     if f.csink:
         kw.append(f"csink=({_n(f.csink[0])}, {_n(f.csink[1])})")
+    if getattr(f, "thread", None):  # internal thread round-trips too (#859, symmetric with steps)
+        kw.append(f"thread={f.thread!r}")
     line = f"sheet.hole({', '.join(kw)})"
     if not f.through and f.depth is not None:
         line += f".depth({_n(f.depth)})"
@@ -182,11 +184,20 @@ def _feature_line(f) -> str:
     if k == "hole":
         return _hole_line(f)
     if k == "boss":
-        return f'sheet.diameter(diameter={_n(f.diameter)}, at={_pt(f.frame.origin)}, axis="{f.frame.axis}")'
+        thr = (
+            f", thread={f.thread!r}" if getattr(f, "thread", None) else ""
+        )  # external thread (#859)
+        return (
+            f"sheet.diameter(diameter={_n(f.diameter)}, at={_pt(f.frame.origin)}, "
+            f'axis="{f.frame.axis}"{thr})'
+        )
     if k == "step":
+        thr = (
+            f", thread={f.thread!r}" if getattr(f, "thread", None) else ""
+        )  # external thread (#859)
         return (
             f"sheet.step(diameter={_n(f.diameter)}, length={_n(f.length)}, "
-            f'at={_pt(f.frame.origin)}, axis="{f.frame.axis}")'
+            f'at={_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr})'
         )
     if k == "slot":
         lo, hi = _n(f.lo), _n(f.hi)
