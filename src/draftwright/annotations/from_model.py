@@ -883,13 +883,17 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
     ev = trace.pass_event("diameter_column_left", view="front") if trace is not None else None
     draft = dwg.draft
     fx0, fy0, _, fy1 = dwg.view_bounds("front")
-    label_w = (
-        max(
-            len(f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else ""))
-            for _, dia, _, dtol, thr in items  # the thread widens the label (#859)
-        )
-        * draft.font_size
-        * _EST_CHAR_WIDTH_EM
+    # Real measured width, not the per-char estimate (#859): a thread spec is arbitrary text,
+    # so `len * 0.62 em` can underestimate a wide label and let it cross the margin
+    # (annotation_out_of_bounds). Measure the completed label like the row-below path does.
+    label_w = max(
+        _text_size(
+            f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else ""),
+            draft.font_size,
+            getattr(draft, "font_path", DEFAULT_FONT_PATH),
+            getattr(draft, "font", "Arial"),
+        )[0]
+        for _, dia, _, dtol, thr in items
     )
     elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
     if elbow_x - label_w < _MARGIN:

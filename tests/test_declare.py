@@ -992,6 +992,17 @@ class TestExternalThread:
         ]
         assert "ø8 M8x1.25" in bosslabels  # not dropped by the coincident ø8 bore mention
 
+    def test_wide_thread_spec_does_not_overshoot_z_turned(self):
+        # A thread spec is arbitrary text; the Z-turned column-left room guard must MEASURE the
+        # completed label (not a per-char estimate), so a wide spec drops cleanly rather than
+        # crossing the sheet margin (annotation_out_of_bounds) — #859, Codex #862 r3.
+        part = Cylinder(radius=4, height=20) + Pos(0, 0, 15) * Cylinder(radius=1.5, height=10)
+        s = Sheet(part)
+        s.step(diameter=8, length=20, at=(0, 0, 0), axis="z")
+        s.step(diameter=3, length=10, at=(0, 0, 15), axis="z").thread("M" + "12" * 8)  # very wide
+        dwg = s.build()
+        assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
+
 
 class TestPlate:
     """#577: declare a thin slab's thickness — the third ADR-0011 surface for #559."""
