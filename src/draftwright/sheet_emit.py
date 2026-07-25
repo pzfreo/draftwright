@@ -90,6 +90,8 @@ def _member_hole_str(m) -> str:
         kw.append(f"spotface=({_n(m.spotface[0])}, {_n(m.spotface[1])})")
     if m.csink:
         kw.append(f"csink=({_n(m.csink[0])}, {_n(m.csink[1])})")
+    if getattr(m, "thread", None):  # a patterned threaded bore keeps its thread on re-run (#859)
+        kw.append(f"thread={m.thread!r}")
     if not m.through and m.depth is not None:
         kw.append(f"depth={_n(m.depth)}")
         kw.append("through=False")

@@ -1004,15 +1004,22 @@ class TestExternalThread:
         assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
     def test_emit_round_trips_the_thread(self):
-        # The editable Sheet script must carry the external thread so a re-run keeps ø.. M.. —
-        # #859 emits thread= on the step()/diameter() call (Codex #862 r6).
-        from draftwright.sheet_emit import _feature_line
+        # The editable Sheet script must carry the thread so a re-run keeps ø.. M.. — #859 emits
+        # thread= on step()/diameter()/hole() and on a pattern MEMBER hole (Codex #862 r6/r7).
+        from draftwright.sheet_emit import _feature_line, _member_hole_str
 
         assert "thread='M3x0.5'" in _feature_line(
             step(diameter=3, length=10, at=(15, 0, 0), axis="x", thread="M3x0.5")
         )
         assert "thread='M6x1'" in _feature_line(
             boss(diameter=6, at=(0, 0, 0), axis="x", thread="M6x1")
+        )
+        assert "thread='M4x0.7'" in _feature_line(
+            hole(diameter=3.3, at=(0, 0, 6), axis="z", through=True, thread="M4x0.7")
+        )
+        # a patterned threaded bore (e.g. a tapped bolt circle) keeps its thread on the member
+        assert "thread='M3x0.5'" in _member_hole_str(
+            hole(diameter=2.5, at=(0, 0, 6), axis="z", through=True, thread="M3x0.5")
         )
 
 
