@@ -32,6 +32,7 @@ architecture** table; open retired or superseded records only for design history
 | [0013](0013-uniform-recognition-and-shared-package.md) | A uniform recogniser/feature contract (with `b123d-recognisers` as its deferred shared deployment) | Enforce a uniform geometry-only recogniser contract internally; defer package extraction until there is a second consumer. | Accepted; Phase 1 in progress; extraction deferred | `test_recogniser_contract.py`, `test_import_boundaries.py` |
 | [0014](0014-collect-then-solve-annotation-placement.md) | Collect-then-solve annotation placement (as built) | Collect, select, assign, and deterministically solve annotations per corridor before rendering. | Accepted; supersedes 0009 | `test_carve_free_position_callers.py`, `test_strip_layout.py`, `test_layout_property.py`, `test_import_boundaries.py` |
 | [0015](0015-part-drawing-compiler-as-built.md) | The part-drawing compiler, as built | Use one detected-or-declared feature IR and planner-fed dimension groups as the compiler waist. | Accepted; supersedes 0008 | `test_part_model.py`, `test_detect_once.py`, `test_import_boundaries.py` |
+| [0016](0016-declared-dimensioning-intent.md) | Declared dimensioning intent: capture what to measure, let the engine place it | Declare which measurements matter as scale-independent intent routed through the planner and corridor solve; never hardcode dimension geometry. | Proposed | Guards deferred until landed (fidelity + scale-independence audits, see the ADR) |
 
 ## Historical records
 
@@ -46,6 +47,7 @@ architecture** table; open retired or superseded records only for design history
 - Compiler and state ownership: 0001 → 0005 → 0015.
 - Recognition and public declaration: 0007 → 0013 → 0011 → 0015.
 - Layout and placement: 0004 → 0014 → 0012.
+- Declared intent and the editable surface: 0001 → 0011 → 0012 → 0016.
 - Quality and correction: 0002, with provenance from 0010.
 
 Tracking issue: #745.
