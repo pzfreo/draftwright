@@ -4,6 +4,12 @@
 - **Date:** 2026-07-26
 - **Deciders:** Paul Fremantle (pzfreo)
 
+> **Scheduling reality.** Only phase 1 (additive intent) is reachable on today's
+> machinery. Phases 3–5 — suppression, honest reconciliation, and the emitter's
+> dimension mirror — sit behind the global recompose (#426/#707), the longest-open
+> item on the roadmap. Accepting this ADR is therefore also a decision to schedule
+> that recompose; it is the prerequisite, not an adjacent nicety.
+
 ## Context
 
 A user reading a generated `Sheet` script today sees the part's **features** — one
@@ -113,6 +119,29 @@ The API is **flat** — `sheet.dim(<feature>, <role>)` on the sheet — never
   emitted `dim` lines under per-view comment headers for readability without the API
   owning that structure.
 
+### The script records intent, not what got placed
+
+A `dim(...)` line states *that this measurement matters*. Whether it lands on the sheet
+is a downstream outcome of the ADR 0014 solve, which may drop a candidate for want of
+room and say so in lint. **The line stays in the source either way** — including when
+the author already knows the sheet is crowded enough that it may not fit. A dropped
+dimension is a `placed = False` outcome on a line that is still there, not a missing
+line.
+
+Two consequences follow, and they are load-bearing:
+
+- **The emitter generates from the planner's intent set, never by walking the drawing's
+  placed annotations.** Walking annotations is the obvious way to build a mirror and it
+  is wrong: a dimension the solver dropped would vanish from the regenerated script, so
+  re-running could never recover it, and an unrelated layout change would silently
+  rewrite the author's source. Emitting from intent makes the script stable under layout
+  churn — which is what makes it safe to keep in version control.
+- **Absence of a line unambiguously means "suppressed".** The mirror is over the
+  planner's intents, whose key space is `(feature, DimParameter role)` — exactly
+  `dim(...)`'s key space. The emit vocabulary is therefore complete over the thing being
+  mirrored *by construction*, so a missing line can never mean "the emitter had no way to
+  say this". (The one exception is materialized imported PMI; see Consequences.)
+
 ### Constraints this forces (the honest edges)
 
 - **Auto dimensions must be semantically nameable.** Suppression and override require a
@@ -139,6 +168,12 @@ The API is **flat** — `sheet.dim(<feature>, <role>)` on the sheet — never
   reproduce (the same fidelity contract `emit_sheet_script` holds for features).
 
 ## Worked example — the mounting plate
+
+> **This example is the END STATE — the script as it reads once phase 5 has landed.**
+> It is not today's API and will not run against the current release: `sheet.dim(...)`
+> does not exist yet, `sheet.view(...)` does not exist at all, and `sheet.section(...)`
+> is shown in a proposed future form (see Consequences). The feature lines
+> (`hole`, `spotface`, `envelope`) are real today.
 
 An 80 × 50 × 8 plate: a central ⌀20 bore with a ⌀32 × 1.5 spotface (which auto-triggers
 section A–A) and four ⌀5 corner holes. Today `emit_sheet_script` writes the four
@@ -187,6 +222,10 @@ Reading it against the rendered sheet:
   separate layers — only editing the part removes a hole.
 - **The commented `pitch` line is the additive case** — a measurement the planner did not
   place, added by reference and still ordered / placed by the corridor solve.
+- **A line the solver cannot fit still stays in the script.** If the sheet is too crowded
+  for, say, the bore's location ladder, that dimension drops with a lint warning and
+  `sheet.dim(bore, "location")` remains exactly where it is — the source records the
+  intent, and a later scale or page change can make it fit again with no edit.
 
 The A/B "features imply dimensions" vs "every dimension is a line" fork explored during
 design collapses here: the referential form gives the completeness of the second with the
@@ -205,9 +244,22 @@ single-source-of-truth of the first.
   `_PASS_SEQUENCE` the drain. Additive intent lands there first; suppression follows the
   #426/#707 recompose.
 - `sheet_emit` gains a dimension-mirroring pass: after the feature basis, emit one
-  referential `dim(...)` line per dimension the drawing carries (plus views / sections,
+  referential `dim(...)` line per **planned** dimension (plus views / sections,
   ADR-0016-adjacent config work) — each commentable and editable, none restating a number,
-  with low-level furniture still produced automatically by the engine on re-run.
+  with low-level furniture still produced automatically by the engine on re-run. The pass
+  reads the planner's `DimensionGroup`s, **not** the drawing's placed annotations, so a
+  solver-dropped dimension keeps its line (see "The script records intent").
+- **Imported AP242 PMI stays materialized.** A PMI-sourced dimension carries `ref_pts` /
+  `ref_bbox` / `at` and has no `(feature, role)` referential form, so it is emitted as
+  today's `sheet.dimension(...)` rather than as a `dim(...)` line. It is still one
+  editable line in the script, so the intent-mirror property holds; the two verbs stay
+  distinct precisely because one references and the other restates.
+- **`sheet.section(...)` would change shape.** The example's named, feature-targeted form
+  (`sheet.section("A-A", through=bore)`) is *not* the verb shipped in v0.3.9 (#847),
+  which is `section(feature=None, *, at=None)` — unnamed, single-section. Multi-section
+  naming is a proposed extension this ADR implies but does not itself decide; it needs
+  its own compatibility call (overload versus rename) before phase 5. `sheet.view(...)`
+  is wholly new.
 - Extends ADR 0011 (declare features) to declare *dimensioning intent*; extends ADR 0012
   (edit one dimension) to declaring the dimension *set*; consumes ADR 0015 (planner) and
   ADR 0014 (solve); fulfils ADR 0001 §2. Does **not** reintroduce the ADR 0001 hardcoded
@@ -217,7 +269,7 @@ single-source-of-truth of the first.
 
 1. **Additive intent, feature-referenced.** A scale-independent additive-measurement
    intent (span-between-features, pitch, thickness, overall) recorded on the model and
-   entered as a `CorridorCandidate`; reachable on today's solve. Re-uses / narrows
+   entered as a `CorridorCandidate`; reachable on today's solve. Reuses / narrows
    `authored_dimension` so intent and materialized-PMI stay distinct.
 2. **Semantic identity for auto dimensions.** Expose a stable `(feature, role)` handle for
    planned dimensions (ADR 0010 provenance + ADR 0015 roles) so intent can *reference* an
@@ -233,6 +285,13 @@ single-source-of-truth of the first.
 
 ## Open questions
 
+- **`dim` versus the existing `dimension`.** The new referential verb would sit one
+  letter from today's public `Sheet.dimension(...)`, with the opposite contract —
+  `dim` references and carries no number; `dimension` materializes and carries
+  `ref_pts` / `at`. Two near-identical names with inverted semantics is a lasting trap.
+  Either the new verb takes a distinctly different name, or `dimension` is renamed to
+  something that reads as the materialized escape hatch it is (and deprecated through a
+  release, per the ADR 0005 §4 alias practice).
 - The `role` vocabulary for `sheet.dim(feature, role)`: which measurements to support
   first (`"diameter"`, `"location"`, `"pitch"`, `"width"`/`"depth"`/`"height"`, `"angle"`,
   `"radius"`), and how a *two-feature* span reads fluently — `sheet.dim(a, b)` /
