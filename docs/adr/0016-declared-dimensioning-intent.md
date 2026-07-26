@@ -59,23 +59,33 @@ do.** The generated script becomes a mirror of the drawing's *intent*, not its g
 every line is a droppable / editable declaration; the engine still owns derivation and
 placement; re-running re-solves.
 
-Three kinds of dimensioning intent, all scale- and placement-independent (anchored in
-feature / world terms, per the ADR 0012 constraint):
+The one surface is a **referential dimension line** — `sheet.dim(<feature>, <role>)` —
+that names a feature (or the envelope) and the measurement to show, and **carries no
+number**. The nominal value is always read from the referenced geometry, so a size lives
+in exactly one place — the feature declaration (for a STEP part, its detected snapshot;
+for a live part, the build123d object it reads from) — and a dimension can never drift
+from it. This is what dissolves the dual-source-of-truth objection to a complete
+per-dimension mirror: the mirror is complete *and* single-source because the lines
+reference rather than restate. The same verb covers three behaviours, all scale- and
+placement-independent (anchored in feature / world terms, per the ADR 0012 constraint):
 
-- **Additive** — declare a measurement the planner would not auto-produce, referencing
-  features or faces, not coordinates: a span between two features, a pattern pitch, a
-  wall thickness, an angle, an overall extent. It becomes a `CorridorCandidate` in the
-  shared solve like any planned dimension.
-- **Suppressive** — declare that an auto dimension should *not* appear, by its **semantic
-  identity** (feature + `DimParameter` role), not by name-string or position. "Drop this
-  hole's location dim" is intent; the solver simply never receives that candidate.
-- **Emphasis** — rank / anchor, already ADR 0012 (`pin`, `priority`). Folded in here as
-  the third face of the same layer so the three read as one vocabulary.
+- **Surface & drop** — the emitter emits one `dim(...)` line per dimension the drawing
+  carries, so the script mirrors the sheet; commenting a line out **suppresses** that
+  dimension, keyed by its semantic `feature + DimParameter role` identity, never a page
+  name or coordinate.
+- **Add** — a `dim(...)` line for a measurement the planner would not auto-produce (a
+  span between two features, a pattern pitch, a wall thickness, an angle) enters the
+  shared solve as a new `CorridorCandidate`.
+- **Emphasise** — `.pin()` / `.priority()` chained onto a `dim(...)` line ranks or
+  anchors it in the solve (already ADR 0012), without fixing a coordinate.
 
-The `.thread` / `.finish` pattern is the template and the invariant: a dimensioning
-intent enriches or edits the dimension *set* the drawing carries, and the corridor solve
-still decides ordering, dedup, priority-drop, and position. **Intent selects; the engine
-places.**
+The `.thread` / `.finish` aspect is the template and the invariant: a `dim` line edits
+the dimension *set* the drawing carries; the corridor solve still decides ordering,
+dedup, priority-drop, and position. **A dimension line references; the engine places.**
+
+Only *dimensions* are surfaced as lines. Low-level furniture the engine derives — centre
+marks, section arrows, hatching, the NTS caption — stays automatic; surfacing each as a
+line would explode the mirror without adding any editable intent.
 
 ### Constraints this forces (the honest edges)
 
@@ -102,22 +112,76 @@ places.**
   intents the engine can faithfully re-solve, never decorative lines that re-run cannot
   reproduce (the same fidelity contract `emit_sheet_script` holds for features).
 
+## Worked example — the mounting plate
+
+An 80 × 50 × 8 plate: a central ⌀20 bore with a ⌀32 × 1.5 spotface (which auto-triggers
+section A–A) and four ⌀5 corner holes. Today `emit_sheet_script` writes the four
+*features* and leaves the dimensions, views, and section as comments. Under this ADR the
+emitter mirrors the drawing as **referential dimension lines** — every callout on the
+sheet is one line, and no line restates a number:
+
+```python
+from draftwright import Sheet
+from build123d import import_step
+
+part = import_step("plate.step")
+sheet = Sheet(part, title="PLATE", number="DWG-001")
+
+# ── Features — geometry; each size lives here, once ────────────────────────────
+corners = sheet.hole(diameter=5,  at=(-32, -18, 4), axis="z", count=4, members=[...])
+bore    = sheet.hole(diameter=20, at=(0, 0, 4), axis="z").spotface(diameter=32, depth=1.5)
+env     = sheet.envelope()                     # the overall bounding geometry
+
+# ── Dimensions — each REFERENCES a feature; no numbers restated ────────────────
+sheet.dim(bore,    "diameter")    # ⌀20 THRU ⌴ ⌀32 ↓ 1.5   (read off `bore`)
+sheet.dim(corners, "diameter")    # 4× ⌀5 THRU              (read off `corners`)
+sheet.dim(corners, "location")    # the hole-location ladder      ← comment out to drop
+sheet.dim(bore,    "location")    # bore on centre
+sheet.dim(env,     "width")       # 80    (read off the bbox)
+sheet.dim(env,     "depth")       # 50
+sheet.dim(env,     "height")      # 8     (thickness)
+# sheet.dim(corners, "pitch")     # ← uncomment to ADD a 64 × 36 grid-pitch dim
+
+# ── Views & section — editable lines; the engine still packs them ──────────────
+sheet.view("front"); sheet.view("plan"); sheet.view("side"); sheet.view("iso")
+sheet.section("A-A", through=bore)    # cut the spotfaced bore (else auto-triggered)
+
+sheet.export("plate")
+```
+
+Reading it against the rendered sheet:
+
+- **`⌀20` appears once.** The number lives on the `bore` feature line; `sheet.dim(bore,
+  "diameter")` only says *show `bore`'s diameter callout*. Change `diameter=20` → `25`
+  (or edit the build123d object, for a live part) and the callout follows — there is no
+  second copy to keep in sync.
+- **Dropping a dimension is not dropping the hole.** Comment out `sheet.dim(corners,
+  "location")` and the location ladder vanishes; the four ⌀5 *circles* stay, because they
+  are geometry projected from the part, not annotations. Geometry and dimensions are
+  separate layers — only editing the part removes a hole.
+- **The commented `pitch` line is the additive case** — a measurement the planner did not
+  place, added by reference and still ordered / placed by the corridor solve.
+
+The A/B "features imply dimensions" vs "every dimension is a line" fork explored during
+design collapses here: the referential form gives the completeness of the second with the
+single-source-of-truth of the first.
+
 ## Consequences
 
-- A new intent vocabulary on `Sheet` / `Drawing` (verb names deferred to the roadmap):
-  additive measurement declarations (feature/face-referenced), and a suppression verb /
-  per-feature `.no_location()`-style aspect. `pin` / `priority` are re-documented as the
-  emphasis face of the same layer.
+- One referential `sheet.dim(<feature>, <role>)` verb on `Sheet` / `Drawing` (exact role
+  names deferred to the roadmap), reading its value from the referenced geometry and
+  carrying none itself; `.pin()` / `.priority()` chain onto it as the emphasis face.
+  Suppression needs no separate verb — a surfaced `dim` line commented out is the drop.
 - `plan_dimensions` (ADR 0015) grows an intent input: declared additive measurements join
   the planned `DimensionGroup`s; declared suppressions filter them. The corridor solve
   (ADR 0014) is unchanged — it still receives one candidate population per strip.
 - `intents.py` (ADR 0012) is the recording home; `Drawing.finalize()` /
   `_PASS_SEQUENCE` the drain. Additive intent lands there first; suppression follows the
   #426/#707 recompose.
-- `sheet_emit` gains an intent-mirroring pass: after the feature basis, emit the
-  dimensioning intents (and views / sections, ADR-0016-adjacent config work) the drawing
-  carries — each a commentable, editable *intent* line, with the auto-derived remainder
-  still produced by the engine on re-run.
+- `sheet_emit` gains a dimension-mirroring pass: after the feature basis, emit one
+  referential `dim(...)` line per dimension the drawing carries (plus views / sections,
+  ADR-0016-adjacent config work) — each commentable and editable, none restating a number,
+  with low-level furniture still produced automatically by the engine on re-run.
 - Extends ADR 0011 (declare features) to declare *dimensioning intent*; extends ADR 0012
   (edit one dimension) to declaring the dimension *set*; consumes ADR 0015 (planner) and
   ADR 0014 (solve); fulfils ADR 0001 §2. Does **not** reintroduce the ADR 0001 hardcoded
@@ -132,21 +196,25 @@ places.**
 2. **Semantic identity for auto dimensions.** Expose a stable `(feature, role)` handle for
    planned dimensions (ADR 0010 provenance + ADR 0015 roles) so intent can *reference* an
    auto dimension.
-3. **Suppressive intent.** `undim` / `.no_location()` filtering `plan_dimensions` output
-   by that handle.
+3. **Suppression by omission.** A surfaced referential `dim` line, when commented out,
+   filters that `(feature, role)` from `plan_dimensions` output — no separate verb.
 4. **Full recompose (#426/#707).** Reconstruct the automatic population at finalize and
-   co-solve with declared intents, making suppression / emphasis honest and script/direct
-   output convergent.
-5. **Emitter intent-mirror.** Emit the round-trippable dimensioning intents (with views /
-   sections) as editable lines; keep the self-describing comment as the floor for the rest.
+   co-solve with declared dimensions, making suppression / emphasis honest and
+   script/direct output convergent.
+5. **Emitter dimension-mirror.** Emit one round-trippable referential `dim(...)` line per
+   placed dimension (with views / sections); keep the self-describing comment as the floor
+   for anything not yet mirrorable.
 
 ## Open questions
 
-- The additive-intent verb surface: which semantic measurements to support first (span,
-  pitch, thickness, angle, radius, overall), and how a two-feature reference reads
-  fluently (`sheet.measure(a, b)` vs a feature-handle method).
-- Whether suppression is a standalone verb (`sheet.undim(hole)`) or a per-feature aspect
-  (`sheet.hole(...).no_location()`), and how it composes with `of(...)` on detected models.
-- Guards to add when this lands: a fidelity test that an emitted intent re-solves to the
-  same dimension (mirroring `test_sheet_emit` parity), and an audit that intent carries no
-  page geometry (the scale-independence invariant).
+- The `role` vocabulary for `sheet.dim(feature, role)`: which measurements to support
+  first (`"diameter"`, `"location"`, `"pitch"`, `"width"`/`"depth"`/`"height"`, `"angle"`,
+  `"radius"`), and how a *two-feature* span reads fluently — `sheet.dim(a, b)` /
+  `sheet.dim((a, b), "span")` vs a feature-handle method.
+- How `sheet.dim(...)` composes with `of(...)` on a detected model (referencing an
+  auto-detected feature by object/index to drop or emphasise its dimension), and whether a
+  bare `sheet.dim(feature)` (no role) means "all of that feature's dimensions".
+- Guards to add when this lands: a fidelity test that an emitted `dim` line re-solves to
+  the same dimension (mirroring `test_sheet_emit` parity), and an audit that a `dim` line
+  carries no number or page geometry (the reference-not-restate / scale-independence
+  invariant).
