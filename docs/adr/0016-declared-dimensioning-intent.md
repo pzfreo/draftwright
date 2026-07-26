@@ -35,6 +35,14 @@ Three ways to express drawing intent already exist, and they bracket the gap:
    dimension in the global solve without hardcoding its position (`intents.py`, drained
    by `Drawing.finalize()`).
 
+The referential form itself is **not new — only its absence from the declarative surface
+is.** The imperative emitter (`--style imperative`, `builder._feature_listing`) already
+writes a referential reconstruction: `dwg.dimension(f, "length", role="step_height")`,
+`dwg.callout(f)`, `dwg.locate(f)`, recorded inside `with dwg.deferred():` over a
+`build_drawing(..., auto_dims=False)` build. Each line names a feature and a role and
+carries no number. So this ADR generalises proven ground to the `Sheet` façade rather than
+inventing a mechanism (see "One generated output").
+
 The missing axis sits between (1) and (3): a way to declare **which measurements the
 drawing should carry, and why** — a *dimensioning-selection intent* — expressed in
 feature/world terms, never in page coordinates or strip assignments, routed through the
@@ -162,7 +170,15 @@ The rules:
 
 - Augmenting the automatic plan, if it is wanted, reads differently — `add_dimension(...)`
   — so the distinction stays visible at the call site. (Reserved here; not specified by
-  this ADR.)
+  this ADR.) This is the sanctioned way to get "the automatic plan **plus** one more":
+  overlap between an augmenting declaration and the plan is handled by the duplicate
+  protection below, not by an error. What raises is reusing the *same* verb for both
+  sources, because that is what makes omission ambiguous.
+
+A third design is rejected outright: **implicit-by-usage** — "if the script declares any
+dimension, the automatic set turns off". It needs no flag and reads cleanly, but a
+hand-author who adds one pitch dimension would silently lose every ⌀ callout on the sheet.
+Action at a distance from a line that looks additive is worse than an explicit source.
 - **A build that has requested neither raises.** `Sheet(part).build()` does not silently
   produce an undimensioned drawing:
 
@@ -186,6 +202,26 @@ unambiguous omission rule with no hidden mode, no parallel surface, and natural 
 the empty set. It is taken deliberately, in the same window as the
 `dimension` → `measured_dimension` rename so callers absorb one migration, not two.
 
+### Preventing duplicate dimensions
+
+The two-source rule stops the ambiguous case at the door, but duplicates can still arise
+within a set — two authored declarations of the same span, or an `add_dimension(...)`
+augmenting something the plan already covers. Three layers handle it, and only the middle
+one exists today:
+
+1. **`(feature, role)` identity** — the handle's key makes a repeated declaration
+   *idempotent* rather than doubled. Load-bearing rather than optional, because
+   `CorridorCandidate.dedup` is documented as `None` for **size dims**, so a ⌀ callout does
+   not participate in coincidence dedup at all.
+2. **Coincident-span dedup** — `CorridorCandidate.dedup`, the coincidence key
+   `(view, meas-origin, meas-endpoint)` on the measured axis, with `precedence` ranking the
+   survivor and displaced candidates tracked so none starves. **Exists today**; catches two
+   different features measuring the same span.
+3. **A redundancy lint** — for over-dimensioning that is neither identical nor coincident,
+   e.g. carrying both a pattern's per-hole locations *and* the pitch that determines them.
+   **This does not exist**: the current codes are `*_dropped` and `feature_not_dimensioned`;
+   nothing reports duplicate or redundant dimensioning. Adding it is part of this work.
+
 ### Dimensions are sheet-level; the view is derived placement
 
 The API is **flat** — `sheet.dimension(<feature>, <role>)` on the sheet — never
@@ -207,7 +243,8 @@ The API is **flat** — `sheet.dimension(<feature>, <role>)` on the sheet — ne
   `sheet.dimension(feature, role, view="front", side="below")` is the escape hatch when the
   caller disagrees with the routing; omit it and the engine derives.
 - **"Across views" holds only at declaration.** A dimension is declared once and rendered
-  in exactly one view — dimensioning a feature in two views is redundant and a lint smell.
+  in exactly one view; dimensioning a feature in two views would be redundant (no lint
+  reports that today — see "Preventing duplicate dimensions").
   So flat-declare + engine-route is the natural split; the emitter may still group the
   emitted `dimension` lines under per-view comment headers for readability without the API
   owning that structure.
@@ -402,6 +439,39 @@ Two consequences follow, and they are load-bearing:
   the honest floor: the generated script gains dimensioning-intent lines only for the
   intents the engine can faithfully re-solve, never decorative lines that re-run cannot
   reproduce (the same fidelity contract `emit_sheet_script` holds for features).
+- **Grouped passes drop set-wise, not per line.** The whole-model passes — `rotational`, the
+  `step_height` / `step_position` ladders, off-axis `locate` — reconstruct as a *set*, a
+  property `builder._feature_listing` already documents for the imperative emit: commenting
+  *some* of their lines still redraws the whole group, and only commenting them *all* drops
+  it. So "comment a line to drop that dimension" is per-dimension for independent dims and
+  per-group for ladders; an emitted line belonging to a group must say so in its comment.
+- **Referential removes dimension-vs-feature drift, not callout-vs-geometry drift.** For a
+  live build123d part the feature reads its size off the object, so the chain is airtight.
+  For a **detected** (STEP) part the feature line is a detected *snapshot* decoupled from
+  the imported solid: editing `diameter=20` → `25` changes the callout while the projected
+  circle still measures 20. One source of truth for the dimension; not for the geometry.
+- **Not every dimension is nameable as `(feature, role)`.** Inter-feature spans,
+  face-to-face distances and angles between unrelated surfaces may not reduce to one
+  feature plus one role. Those are not expressible as referential lines and fall to the
+  comment floor, so a complete mirror is bounded by what the identity model can name.
+
+### One generated output
+
+`--style imperative` exists today only because it carries the referential reconstruction the
+declarative emitter lacks (`builder._feature_listing`, cited in Context). Once
+`sheet.dimension(...)` plus the emitter mirror reach its coverage — rotational bodies, the
+`step_height` / `step_position` ladders, off-axis `locate`, the machined-callout kinds,
+pocket / slot patterns, the gap-kind comments — the two styles are capability-equivalent and
+the imperative emitter is redundant. It is then **retired** (deprecation warning first,
+removal at 0.4.0 with the other compat exits, #720), leaving the declarative `Sheet` script
+as the single generated form.
+
+Parity is a hard gate: retiring it earlier would regress the parts whose dimensions only the
+imperative reconstruction can currently express. Two things follow. The low-level `Drawing`
+verbs (`at`, `place_dim`, `items`, `view_bounds`) stop being a *generated* surface and remain
+a hand-use API — which is what ADR 0001 §3 asks for, and consistent with ADR 0012 already
+deprecating `place_dim`. And the generated file loses that raw-coordinate escape hatch,
+deliberately.
 
 ### Out of scope: the view / section surface
 
@@ -523,6 +593,12 @@ single-source-of-truth of the first.
   `sheet.measured_dimension(...)` (the renamed materialized verb) rather than as a
   referential line. It is still one editable line in the script, so the intent-mirror property holds; the two verbs stay
   distinct precisely because one references and the other restates.
+- **A duplicate/redundancy lint code joins `linting/structural.py`** — the third protection
+  layer (see "Preventing duplicate dimensions"); nothing reports redundant dimensioning today.
+- **`--style imperative` retires once the declarative mirror reaches its coverage**, leaving
+  one generated output. The low-level `Drawing` verbs stay a hand-use API but stop being a
+  generated surface (ADR 0001 §3), and the generated file deliberately loses its
+  raw-coordinate escape hatch.
 - **The view / section surface is explicitly NOT decided here** — see "Out of scope"
   below. Accepting this ADR commits to the dimension layer only.
 - Extends ADR 0011 (declare features) to declare *dimensioning intent*; extends ADR 0012
@@ -555,6 +631,11 @@ single-source-of-truth of the first.
    emitted script leads with `auto_dimensions()` or the authored set, so its dimension
    source is always explicit. Keep the self-describing comment as the floor for anything
    not yet mirrorable.
+6. **Redundancy lint.** The third duplicate-protection layer — report over-dimensioning that
+   is neither identical nor coincident (a pattern's per-hole locations *and* its pitch).
+7. **Retire `--style imperative`** once the mirror reaches its reconstruction coverage
+   (rotational, the ladders, off-axis `locate`, machined callouts, pocket / slot patterns),
+   leaving the declarative script as the single generated output.
 
 ## Open questions
 
@@ -572,6 +653,8 @@ single-source-of-truth of the first.
   auto-detected feature by object/index to drop or emphasise its dimension), and whether a
   bare `sheet.dimension(feature)` (no role) means "all of that feature's dimensions".
 - Guards to add when this lands: a fidelity test that an emitted `dimension` line re-solves to
-  the same dimension (mirroring `test_sheet_emit` parity), and an audit that a `dimension` line
+  the same dimension (mirroring `test_sheet_emit` parity), an audit that a `dimension` line
   carries no number or page geometry (the reference-not-restate / scale-independence
-  invariant).
+  invariant), tests that the two source errors fire (mixing, and no set requested), and an
+  idempotence test that an augmenting declaration overlapping the plan yields exactly one
+  dimension.
