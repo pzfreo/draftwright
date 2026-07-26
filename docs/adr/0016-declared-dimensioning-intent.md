@@ -95,6 +95,97 @@ Only *dimensions* are surfaced as lines. Low-level furniture the engine derives 
 marks, section arrows, hatching, the NTS caption — stays automatic; surfacing each as a
 line would explode the mirror without adding any editable intent.
 
+### What `dimension(...)` returns: the dimension-intent handle
+
+The referential verb returns a **`DimensionIntent` handle**, not `Sheet`. `.pin()` and
+`.priority()` chain from it and return the handle, so emphasis composes:
+
+```python
+sheet.dimension(bore, "location").pin().priority(2.0)
+```
+
+This follows the pattern the façade already uses for anything that carries aspects —
+`sheet.hole(...)` returns `_Hole`, `sheet.diameter(...)` returns `_Dim`,
+`sheet.slot(...)` returns `_Params` — while verbs with nothing to decorate
+(`chamfer`, `fillet`, `plate`) return `Sheet`. A dimension has things to say about it, so
+it gets a handle.
+
+The handle is the one place the dimension's semantic identity lives, and it is what the
+rest of the design keys on:
+
+- it carries `(feature, role)` — the identity used for suppression, for the planner input,
+  and for matching an emitted line back to the intent it came from;
+- it is the ADR 0010 provenance anchor: intent → the annotation names the render seam
+  produced, so `drop` / `annotations_of` resolve through it;
+- it is *not* a placement handle. It exposes no coordinate, no strip, and no view
+  assignment beyond the derived-with-override `view=` / `side=` arguments.
+
+One transitional wart follows: during the migration release the single `dimension` verb
+returns a handle for a referential call and `Sheet` for a legacy materialized one. That
+ends at 0.4.0 when the legacy branch is deleted.
+
+### Two explicit sources of dimension intent
+
+"Absence of a line means suppressed" cannot hold on its own: every existing generated and
+hand-authored `Sheet` script contains no referential dimension lines and relies on
+automatic planning, so the engine would have no way to tell a legacy script asking for
+normal automatic dimensions from a new script deliberately suppressing every one. Omission
+is only meaningful inside a set that was declared to be complete.
+
+**The dimension set therefore has exactly two sources, and the script always says which:**
+
+```python
+# Planner-selected set — the automatic dimensions, requested explicitly.
+dwg = Sheet(part).auto_dimensions().build()
+
+# Authored set — these declarations ARE the complete dimension set.
+sheet = Sheet(part)
+sheet.dimension(bore, "diameter")
+sheet.dimension(bore, "location")
+dwg = sheet.build()
+```
+
+The rules:
+
+- `auto_dimensions()` requests the planner-selected set (ADR 0015 `plan_dimensions`).
+- `dimension(...)` declarations form the **complete** authored set — which is what makes
+  omission mean suppression, without any hidden mode flag.
+- **Mixing the two raises.** A script that has requested the automatic set cannot also
+  hand-declare members of it, because the reader could no longer tell a complete authored
+  set from an automatic plan plus one extra request:
+
+  ```python
+  sheet.auto_dimensions()
+  sheet.dimension(bore, "diameter")
+  # ValueError: cannot mix automatic and authored dimension sets
+  ```
+
+- Augmenting the automatic plan, if it is wanted, reads differently — `add_dimension(...)`
+  — so the distinction stays visible at the call site. (Reserved here; not specified by
+  this ADR.)
+- **A build that has requested neither raises.** `Sheet(part).build()` does not silently
+  produce an undimensioned drawing:
+
+  ```python
+  Sheet(part).build()
+  # ValueError: no dimension set requested — call auto_dimensions() for the
+  # planner-selected set, or declare dimensions with dimension(...)
+  ```
+
+  This is the one point where explicitness alone is not enough. A silently undimensioned
+  sheet is *plausible-looking and unbuildable* — the "clean but incomplete drawing" this
+  project ranks as worse than a visible failure, and the same call the completeness lint
+  (#632) exists to stop passing. Failing at the call is consistent with #631 (a boss and
+  coincident step raise rather than silently dropping a height) and #630 (an unplaceable
+  detail reports rather than no-ops). The emitter always writes one of the two forms, so a
+  generated script is never ambiguous and never hits this error.
+
+This is a **breaking change**: `Sheet(part).build()` is automatic today. The package is
+alpha (`Development Status :: 3 - Alpha`) with few users, and the break buys an
+unambiguous omission rule with no hidden mode, no parallel surface, and natural handling of
+the empty set. It is taken deliberately, in the same window as the
+`dimension` → `measured_dimension` rename so callers absorb one migration, not two.
+
 ### Dimensions are sheet-level; the view is derived placement
 
 The API is **flat** — `sheet.dimension(<feature>, <role>)` on the sheet — never
@@ -109,8 +200,8 @@ The API is **flat** — `sheet.dimension(<feature>, <role>)` on the sheet — ne
   grouping by feature keeps each feature's intent whole and lets each dimension route
   independently.
 - **A view is still first-class — for view-level concerns**, not as an owner of
-  dimensions: presence / scale, and section / detail *definition* (`sheet.view("side")`,
-  `sheet.section("A-A", through=bore)`).
+  dimensions: presence / scale, and section / detail *definition*. What that surface should
+  look like is **out of scope here** — see "Out of scope: the view / section surface".
 - **The view is a derived-with-override target**, mirroring the GD&T aspects
   (`view=` / `side=` on `sheet.control` / `sheet.finish`, ADR 0011 P2c):
   `sheet.dimension(feature, role, view="front", side="below")` is the escape hatch when the
@@ -189,12 +280,12 @@ keyword call would raise `TypeError`, not warn. For one release `Sheet.dimension
 accepts both forms and dispatches on how it was called:
 
 ```python
-def dimension(self, feature=None, role=None, /, **kw) -> Sheet:
+def dimension(self, feature=None, role=None, /, **kw) -> DimensionIntent | Sheet:
     if feature is None and kw:              # legacy materialized call
         warn("Sheet.dimension(kind=…, value=…) is deprecated: use "
              "measured_dimension(). Removed at 0.4.0.", DeprecationWarning)
-        return self.measured_dimension(**kw)
-    ...                                     # referential intent
+        return self.measured_dimension(**kw)     # -> Sheet
+    ...                                     # referential intent -> DimensionIntent
 ```
 
 This is exactly the overload the "considered and rejected" note below describes — adopted
@@ -312,12 +403,27 @@ Two consequences follow, and they are load-bearing:
   intents the engine can faithfully re-solve, never decorative lines that re-run cannot
   reproduce (the same fidelity contract `emit_sheet_script` holds for features).
 
+### Out of scope: the view / section surface
+
+Everything above concerns the **dimension** layer. A declarative surface for views and
+sections — `sheet.view("side")` for presence and scale, and a named, feature-targeted
+`sheet.section("A-A", through=bore)` — is adjacent and shows up in the worked example
+below for realism, but it is **not decided by this ADR** and accepting 0016 does not
+accept it.
+
+It is a separate decision on its own merits, and a live compatibility question rather than
+a blank sheet: `Sheet.section` already shipped in v0.3.9 (#847) as
+`section(feature=None, *, at=None)` — unnamed and single-section — so multi-section naming
+is a *reshape* of an existing verb needing its own overload-versus-rename call.
+`sheet.view(...)` does not exist at all. Both belong in a follow-up ADR, which phase 5
+depends on only for the parts of the emitted script that are not dimensions.
+
 ## Worked example — the mounting plate
 
 > **This example is the END STATE — the script as it reads once phase 5 has landed.**
 > It is not today's API and will not run against the current release: `sheet.dimension(...)`
-> does not exist yet, `sheet.view(...)` does not exist at all, and `sheet.section(...)`
-> is shown in a proposed future form (see Consequences). The feature lines
+> in its referential form does not exist yet, and the view / section lines are
+> **illustrative only — not decided by this ADR** (see "Out of scope"). The feature lines
 > (`hole`, `spotface`, `envelope`) are real today.
 
 An 80 × 50 × 8 plate: a central ⌀20 bore with a ⌀32 × 1.5 spotface (which auto-triggers
@@ -348,7 +454,7 @@ sheet.dimension(env,     "depth")       # 50
 sheet.dimension(env,     "height")      # 8     (thickness)
 # sheet.dimension(corners, "pitch")     # ← uncomment to ADD a 64 × 36 grid-pitch dim
 
-# ── Views & section — editable lines; the engine still packs them ──────────────
+# ── Views & section — ILLUSTRATIVE; surface not decided by this ADR ────────────
 sheet.view("front"); sheet.view("plan"); sheet.view("side"); sheet.view("iso")
 sheet.section("A-A", through=bore)    # cut the spotfaced bore (else auto-triggered)
 
@@ -356,6 +462,12 @@ sheet.export("plate")
 ```
 
 Reading it against the rendered sheet:
+
+- **This is an authored set, so it never calls `auto_dimensions()`.** The seven
+  `dimension(...)` lines *are* the drawing's dimension set — which is exactly what makes
+  the commented-out eighth line mean "suppressed" rather than "not mentioned". A script
+  wanting the planner's choices instead would call `auto_dimensions()` and carry no
+  `dimension(...)` lines at all; it cannot do both.
 
 - **`⌀20` appears once.** The number lives on the `bore` feature line; `sheet.dimension(bore,
   "diameter")` only says *show `bore`'s diameter callout*. Change `diameter=20` → `25`
@@ -380,8 +492,17 @@ single-source-of-truth of the first.
 
 - One referential `sheet.dimension(<feature>, <role>)` verb on `Sheet` / `Drawing` (exact role
   names deferred to the roadmap), reading its value from the referenced geometry and
-  carrying none itself; `.pin()` / `.priority()` chain onto it as the emphasis face.
-  Suppression needs no separate verb — a surfaced `dimension` line commented out is the drop.
+  carrying none itself. It returns a **`DimensionIntent` handle** — not `Sheet` — which
+  carries the `(feature, role)` identity and is the face `.pin()` / `.priority()` chain
+  from. Suppression needs no separate verb: a surfaced `dimension` line commented out is
+  the drop.
+- **The dimension set has two explicit sources, and a build must request one.**
+  `auto_dimensions()` selects the planner's set; `dimension(...)` declarations form a
+  complete authored set; mixing them raises, and so does a `build()` that requested
+  neither. This is a **breaking change** to today's implicit-automatic `Sheet(part).build()`,
+  taken in the same window as the rename below so callers absorb one migration. It is what
+  makes omission mean suppression without a hidden mode flag, and it keeps a forgotten
+  dimension set a loud failure rather than a plausible, unbuildable sheet.
 - **`dimension` means *referential* on both surfaces; the materialized verb is renamed to
   `measured_dimension`.** See "One name, one contract" below — the Sheet-side verb is a
   rename, not a new name, and `Drawing.dimension` already has the target shape.
@@ -392,8 +513,8 @@ single-source-of-truth of the first.
   `_PASS_SEQUENCE` the drain. Additive intent lands there first; suppression follows the
   #426/#707 recompose.
 - `sheet_emit` gains a dimension-mirroring pass: after the feature basis, emit one
-  referential `dimension(...)` line per **planned** dimension (plus views / sections,
-  ADR-0016-adjacent config work) — each commentable and editable, none restating a number,
+  referential `dimension(...)` line per **planned** dimension, led by the explicit
+  dimension-source call — each commentable and editable, none restating a number,
   with low-level furniture still produced automatically by the engine on re-run. The pass
   reads the planner's `DimensionGroup`s, **not** the drawing's placed annotations, so a
   solver-dropped dimension keeps its line (see "The script records intent").
@@ -402,12 +523,8 @@ single-source-of-truth of the first.
   `sheet.measured_dimension(...)` (the renamed materialized verb) rather than as a
   referential line. It is still one editable line in the script, so the intent-mirror property holds; the two verbs stay
   distinct precisely because one references and the other restates.
-- **`sheet.section(...)` would change shape.** The example's named, feature-targeted form
-  (`sheet.section("A-A", through=bore)`) is *not* the verb shipped in v0.3.9 (#847),
-  which is `section(feature=None, *, at=None)` — unnamed, single-section. Multi-section
-  naming is a proposed extension this ADR implies but does not itself decide; it needs
-  its own compatibility call (overload versus rename) before phase 5. `sheet.view(...)`
-  is wholly new.
+- **The view / section surface is explicitly NOT decided here** — see "Out of scope"
+  below. Accepting this ADR commits to the dimension layer only.
 - Extends ADR 0011 (declare features) to declare *dimensioning intent*; extends ADR 0012
   (edit one dimension) to declaring the dimension *set*; consumes ADR 0015 (planner) and
   ADR 0014 (solve); fulfils ADR 0001 §2. Does **not** reintroduce the ADR 0001 hardcoded
@@ -422,14 +539,22 @@ single-source-of-truth of the first.
 2. **Semantic identity for auto dimensions.** Expose a stable `(feature, role)` handle for
    planned dimensions (ADR 0010 provenance + ADR 0015 roles) so intent can *reference* an
    auto dimension.
-3. **Suppression by omission.** A surfaced referential `dimension` line, when commented out,
-   filters that `(feature, role)` from `plan_dimensions` output — no separate verb.
+3. **The dimension-set boundary, then suppression by omission.** Land
+   `auto_dimensions()` / authored-set semantics first — the mixing error, the
+   no-set-requested error, and the emitter always writing one of the two forms — since
+   omission only becomes meaningful once a set is declared complete. Then a surfaced
+   referential `dimension` line, when commented out, filters that `(feature, role)` from
+   `plan_dimensions` output; no separate verb. This step carries the breaking change and
+   should ship with the `measured_dimension` rename so callers migrate once.
 4. **Full recompose (#426/#707).** Reconstruct the automatic population at finalize and
    co-solve with declared dimensions, making suppression / emphasis honest and
    script/direct output convergent.
-5. **Emitter dimension-mirror.** Emit one round-trippable referential `dimension(...)` line per
-   placed dimension (with views / sections); keep the self-describing comment as the floor
-   for anything not yet mirrorable.
+5. **Emitter dimension-mirror.** Emit one round-trippable referential `dimension(...)` line
+   per **planned dimension intent** — never per *placed* dimension, which would let solver
+   pressure rewrite version-controlled source (see "The script records intent"). The
+   emitted script leads with `auto_dimensions()` or the authored set, so its dimension
+   source is always explicit. Keep the self-describing comment as the floor for anything
+   not yet mirrorable.
 
 ## Open questions
 
