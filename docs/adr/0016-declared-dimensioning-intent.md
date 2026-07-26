@@ -87,6 +87,32 @@ Only *dimensions* are surfaced as lines. Low-level furniture the engine derives 
 marks, section arrows, hatching, the NTS caption — stays automatic; surfacing each as a
 line would explode the mirror without adding any editable intent.
 
+### Dimensions are sheet-level; the view is derived placement
+
+The API is **flat** — `sheet.dim(<feature>, <role>)` on the sheet — never
+`sheet.view(v).dim(...)`. A dimension's identity is `(feature, role)`, not
+`(view, feature, role)`; the view it renders in is a placement the engine already owns
+(ADR 0014/0015), not intent the caller supplies.
+
+- **The load-bearing reason: a single feature's dimensions scatter across views.** A
+  hole's ⌀ callout renders in its end-on (plan) view while its axial location joins the
+  front ladder (the #636 Y-hole case — same feature, two views). Grouping the API by view
+  would fragment one feature across two or three `view` blocks and repeat its reference;
+  grouping by feature keeps each feature's intent whole and lets each dimension route
+  independently.
+- **A view is still first-class — for view-level concerns**, not as an owner of
+  dimensions: presence / scale, and section / detail *definition* (`sheet.view("side")`,
+  `sheet.section("A-A", through=bore)`).
+- **The view is a derived-with-override target**, mirroring the GD&T aspects
+  (`view=` / `side=` on `sheet.control` / `sheet.finish`, ADR 0011 P2c):
+  `sheet.dim(feature, role, view="front", side="below")` is the escape hatch when the
+  caller disagrees with the routing; omit it and the engine derives.
+- **"Across views" holds only at declaration.** A dimension is declared once and rendered
+  in exactly one view — dimensioning a feature in two views is redundant and a lint smell.
+  So flat-declare + engine-route is the natural split; the emitter may still group the
+  emitted `dim` lines under per-view comment headers for readability without the API
+  owning that structure.
+
 ### Constraints this forces (the honest edges)
 
 - **Auto dimensions must be semantically nameable.** Suppression and override require a
