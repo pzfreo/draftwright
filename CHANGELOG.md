@@ -1,5 +1,73 @@
 # Changelog
 
+## v0.3.9 — 2026-07-26
+
+### Added
+
+- **Repeated recesses are dimensioned as one pattern, not N competing callouts**
+  (#841): identical blind pockets and identical through-slots now collapse to a single
+  grouped `5× 7.9 × 13.6 × 19 DEEP` / `4× SLOT 8 × 30` leader plus `(n-1)× pitch`
+  dim(s). Previously each member competed for its own size dims and some silently
+  dropped for want of strip room — five declared slots rendered only three length dims.
+  Both new kinds (`PocketPatternFeature`, `SlotPatternFeature`) round-trip every
+  surface: declare (`sheet.pocket_pattern(...)` / `sheet.slot_pattern(...)`),
+  recognition from a real solid (coplanar, same-facing members only), the emitted
+  Sheet script, and the editable surface (`dwg.callout(feature)` + `finalize()`).
+- **`Sheet.section()` and `Sheet.detail()` — ask for the view you need** (#841/#847):
+  a section A–A auto-fires only for a Z-axis hole with a counterbore, spotface, or
+  blind bottom, so a blind pocket's floor and depth stayed hidden-line-only with no
+  supported way to request a cut. `sheet.section(feature)` / `section(at=y)` /
+  bare `section()` force one (the cut plane is validated to lie strictly inside the
+  part), and `sheet.detail()` exposes the existing `detail_view=True` opt-in as a
+  chainable verb.
+- **External threads are a first-class declared aspect** (#859): the turned analog of
+  the #764 internal thread — `sheet.step(shaft).thread("M3x0.5")`,
+  `sheet.diameter(...).thread(...)`, and `sheet.boss(...).thread(...)` append the
+  spec to the ⌀ callout (`ø3 M3x0.5`) instead of needing a free-text `.note()`. It
+  composes with `.finish()` for Ra-on-thread, keys the callout bucket on `(⌀, thread)`
+  so a threaded and a plain ø6 stay distinct, and now round-trips through the Sheet
+  emitter — including pattern-member holes, closing the symmetric latent #764 gap.
+  Declaration-only: a plain cylinder is geometrically indistinguishable from a
+  threaded one, so there is no recogniser. *(Known limitation: the incremental
+  `callout`/`finalize(only=…)` paths still dedup thread-blind — #863.)*
+- **Blind obround pocket recognition, including imported STEP** (#837): the blind
+  counterpart of the #816 through-slot work. A stubby floored obround has side walls
+  too short to pair, so it is recovered from its semicircular end caps — clustering
+  faces by axis proximity so the quarter-cylinder split a STEP importer commonly
+  produces recognises as well as build123d's half-cylinder. A sealed internal void
+  (capped at both ends) is correctly *not* a pocket. A real tuner-jig STEP with five
+  blind pockets ships as a fixture.
+- **`sheet.slot(...).note(...)` / `sheet.pocket(...).note(...)`** (#841/#845): the
+  slot/pocket handle now anchors a note to its own feature, with no `ref=` needed
+  (an explicit `ref` still forwards, as before).
+
+### Changed
+
+- **An anchored note, GD&T frame, or finish relaxes its side instead of silently
+  vanishing** (#841/#855): an annotation declared with an explicit `view=`/`side=`
+  used to drop with only a warning when that strip was full, while the export still
+  reported success. The requested side is now a *preference* — when the strip has no
+  room the placer tries the opposite side, then the two perpendicular sides, taking
+  the first with room (via the same bounds and title-block checks, so it never
+  overshoots). A relaxed placement records an INFO `gdt_side_relaxed` issue naming
+  requested versus actual. Only when no strip fits does it drop.
+
+### Internal
+
+- **The state-bus endgame is closed to its permanent seam** (#830/#840): the
+  solve trace is filled into `BuildState` at the one construction site, the redundant
+  part-model re-attach is gone, and the detail view is now *transactional* — geometry
+  is projected at the detail scale and committed only if dimensions land, so
+  `_drop_view_coordinates` has zero engine callers. With those removed, the #817
+  decision-D method-call exemption narrows from a blanket pass to a named
+  `_LAYOUT_SEAM` allowlist (`_add_view`, `_set_view_coordinates`), accepted as the
+  permanent interactive-layout seam; every other private-method call on the drawing
+  is now flagged.
+- **A draftwright logo set** (#843) — drafting-idiom mark, all text outlined so the
+  SVGs render font-independently; the README now leads with the lockup.
+- **A worked multi-feature object-reference example** (#853) in
+  `docs/multi-feature-object-reference-workflow.md`.
+
 ## v0.3.8 — 2026-07-23
 
 ### Added

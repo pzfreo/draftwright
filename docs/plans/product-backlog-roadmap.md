@@ -1,7 +1,7 @@
 # Product backlog roadmap
 
 - **Status:** Active delivery plan
-- **Last reviewed:** 2026-07-21
+- **Last reviewed:** 2026-07-26
 - **Live tracker:** [#758 — trustworthy drawing pipeline and backlog
   burn-down](https://github.com/pzfreo/draftwright/issues/758)
 
@@ -37,10 +37,10 @@ decision that prevents progress.
 
 | Workstream | Objective | Now | Next |
 | --- | --- | --- | --- |
-| Trust and correctness | Never certify or silently emit an incomplete drawing | [#632](https://github.com/pzfreo/draftwright/issues/632) truthful dimensional coverage | [#707](https://github.com/pzfreo/draftwright/issues/707) direct/generated Sheet parity |
-| Reliability and diagnostics | Make failures fast, reproducible, and representative | [#692](https://github.com/pzfreo/draftwright/issues/692) deterministic Hypothesis generation | [#737](https://github.com/pzfreo/draftwright/issues/737) dense-sheet fast canaries |
-| Architecture | Remove boundaries that make correctness work risky | [#754](https://github.com/pzfreo/draftwright/issues/754) rotational dimensions through planner output | [#752](https://github.com/pzfreo/draftwright/issues/752) typed recognition adapter registry |
-| Manufacturing coverage | Expand independently verified feature coverage | No active implementation until a WIP slot clears | [#676](https://github.com/pzfreo/draftwright/issues/676) polygonal boss recognition |
+| Trust and correctness | Never certify or silently emit an incomplete drawing | [#863](https://github.com/pzfreo/draftwright/issues/863) thread-blind ⌀ dedup on the incremental paths | [#812](https://github.com/pzfreo/draftwright/issues/812)-class emit gaps as found |
+| Reliability and diagnostics | Make failures fast, reproducible, and representative | No active implementation | [#826](https://github.com/pzfreo/draftwright/issues/826) dependency/static-security/secret scanning |
+| Architecture | Remove boundaries that make correctness work risky | No active implementation — Milestone 2 exited | [#830](https://github.com/pzfreo/draftwright/issues/830) residual state-bus seam review |
+| Manufacturing coverage | Expand independently verified feature coverage | [#676](https://github.com/pzfreo/draftwright/issues/676) polygonal boss recognition | [#675](https://github.com/pzfreo/draftwright/issues/675) paired bilateral PMI tolerances |
 
 The table is intentionally small. The live roadmap issue records ownership,
 blockers, and session-to-session movement.
@@ -91,6 +91,18 @@ replay deterministically.
 - The fast CI tier has no known unreproducible or full-suite-only flake.
 
 ## Milestone 2 — Architectural closure
+
+**Status: EXITED (2026-07-23).** All five scope items delivered (#754, #746, #752,
+#523, #741), each through independent adversarial review, and all four exit criteria
+met. The follow-on state-bus endgame (#830) subsequently reached its designed end
+state: the engine no longer mutates build state onto a live `Drawing` outside a named
+two-method layout seam, which the guard now enforces as an allowlist. Focus moves to
+Milestone 3.
+
+Off-milestone work shipped alongside in **v0.3.8** (the #817 placement-API
+privatisation, obround through-slot recognition) and **v0.3.9** (pocket/slot pattern
+kinds, `Sheet.section()`/`.detail()`, external threads, blind obround pockets); none
+of it changed milestone scope or exit criteria.
 
 ### Outcome
 
@@ -146,15 +158,19 @@ drafting concepts, rendered, and checked by independent coverage lint.
 
 ## Parked product expansion
 
-These are valid product ideas, but they do not enter **Now** until Milestone 1's
-trust criteria are met or a named user/experiment changes the priority:
+These are valid product ideas, but they do not enter **Now** until a named
+user, milestone, or experiment changes the priority (Milestones 1 and 2 have
+both exited):
 
 - [#71](https://github.com/pzfreo/draftwright/issues/71) — shaded pictorial.
 - [#276](https://github.com/pzfreo/draftwright/issues/276) — rich CLI/event
   stream.
 - [#492](https://github.com/pzfreo/draftwright/issues/492) — assembly/GA mode.
 - [#486](https://github.com/pzfreo/draftwright/issues/486) — published API
-  reference.
+  reference (umbrella; its concrete deliverable
+  [#846](https://github.com/pzfreo/draftwright/issues/846), a mkdocs/mkdocstrings
+  site, is flagged by the maintainer as a priority and is a scheduling candidate,
+  not parked).
 - [#54](https://github.com/pzfreo/draftwright/issues/54) — advanced detail-view
   capabilities beyond the correctness work in Milestone 1.
 - [#488](https://github.com/pzfreo/draftwright/issues/488) — replica-oriented
