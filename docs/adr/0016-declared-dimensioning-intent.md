@@ -67,7 +67,9 @@ placement; re-running re-solves.
 
 The one surface is a **referential dimension line** — `sheet.dimension(<feature>, <role>)` —
 that names a feature (or the envelope) and the measurement to show, and **carries no
-number**. The nominal value is always read from the referenced geometry, so a size lives
+number**. That verb name is a decision, not a placeholder: `dimension` means *referential*
+on both `Sheet` and `Drawing`, and today's materialized Sheet verb is renamed to
+`measured_dimension` to free it (see "One name, one contract"). The nominal value is always read from the referenced geometry, so a size lives
 in exactly one place — the feature declaration (for a STEP part, its detected snapshot;
 for a live part, the build123d object it reads from) — and a dimension can never drift
 from it. This is what dissolves the dual-source-of-truth objection to a complete
@@ -120,6 +122,12 @@ The API is **flat** — `sheet.dimension(<feature>, <role>)` on the sheet — ne
   owning that structure.
 
 ### One name, one contract: `dimension` is referential everywhere
+
+> **This is the approach. `dimension` means *referential* on both `Sheet` and `Drawing`;
+> the materialized verb is renamed to `measured_dimension`, with
+> `model.declare.authored_dimension` renamed in step so one vocabulary spans the façade
+> and the model layer.** The alternative — keeping one `dimension` verb with two contracts
+> forever — is recorded at the end of this section as rejected, not as a lean.
 
 The referential verb is **not new** — `Drawing.dimension(feature, param, *, role=, side=,
 view=, pin=, priority=)` already exists and already has this shape: it takes an IR feature
@@ -193,13 +201,9 @@ This is exactly the overload the "considered and rejected" note below describes 
 deliberately as a *temporary* migration aid with a removal date, not as the permanent
 shape. At 0.4.0 the legacy branch is deleted and the verb has one contract.
 
-**Decision: `dimension` means referential on both surfaces. The materialized Sheet verb is
-renamed to `measured_dimension`, and `model.declare.authored_dimension` renames in step so
-one vocabulary spans the façade and the model layer.** The name says what distinguishes it:
-a source already measured this, and the script restates the measurement.
-
-Three reasons this is the right end state rather than adding a distinct name such as
-`sheet.dim`:
+The chosen name says what distinguishes the verb: a source already measured this, and the
+script restates the measurement. Three reasons this is the right end state rather than
+adding a distinct name such as `sheet.dim`:
 
 - **The project already took this decision on the other surface.** #817 privatized
   `Drawing.place_dim` → `_place_dim`, and its deprecation message names the replacement
@@ -227,14 +231,38 @@ Three reasons this is the right end state rather than adding a distinct name suc
   at 0.4.0 alongside the ADR 0005 §4 alias removals (#720) — the shim eases the transition
   without changing the end state.
 
+#### Rejected alternative: the permanent overload
+
 `Sheet.dimension` is entirely keyword-only today — `def dimension(self, *, kind: str,
 value: float, …)` accepts no positional arguments at all, so `sheet.dimension(bore,
 "diameter")` is a `TypeError` on the current release. A positional `(feature, role)`
-referential form could therefore be overloaded onto it *permanently*, with no break and no
-rename. That was considered and rejected: it preserves one verb with two contracts
-indefinitely, which is the ambiguity this decision exists to remove. The same mechanism is
-adopted above as a one-release migration path with a removal date — the difference is
-whether it expires. It remains the fallback if the rename proves disruptive in practice.
+referential form could therefore be overloaded onto it **permanently**, with no rename, no
+shim, and no regeneration of existing scripts. Side by side:
+
+```python
+# REJECTED — one verb, two contracts, permanently
+sheet.dimension(bore, "diameter")                     # referential
+sheet.dimension(kind="linear", value=40, label="40",  # materialized
+                dominant_axis="X", ref_pts=[(-20, 0, 0), (20, 0, 0)])
+
+# CHOSEN — one verb, one contract; the name states which kind it is
+sheet.dimension(bore, "diameter")                     # referential
+sheet.measured_dimension(kind="linear", value=40, label="40",
+                         dominant_axis="X", ref_pts=[(-20, 0, 0), (20, 0, 0)])
+```
+
+The overload is cheaper today and was rejected anyway, because the cost lands on *reading*
+a script rather than writing one. Under the overload, a line reading `sheet.dimension(...)`
+tells the reader nothing about which kind it is — whether the number is derived from the
+geometry or hardcoded in the file has to be inferred from the arguments. That is precisely
+the distinction this ADR exists to make legible, and it would stay invisible at the moment
+a reader is scanning a generated script deciding what is safe to edit. Under the chosen
+form the verb names the kind, so `measured_dimension` reads as a flag: *this line carries a
+number that will not follow the geometry.*
+
+The same overload mechanism **is** used above — but as a one-release migration branch with
+a removal date at 0.4.0, not as the shape of the API. The difference between the rejected
+alternative and the adopted shim is only whether it expires.
 
 ### The script records intent, not what got placed
 
@@ -405,11 +433,12 @@ single-source-of-truth of the first.
 
 ## Open questions
 
-- *(Settled — see "One name, one contract": `dimension` is referential on both surfaces;
-  the materialized Sheet verb becomes `measured_dimension`, with `authored_dimension`
-  renamed in step and a one-release `@deprecated` shim.)* What remains open is only the
-  spelling: `measured_dimension` versus a shorter `measured`, and whether the model-layer
-  constructor keeps a `_dimension` suffix the façade drops.
+- *(The naming decision itself is settled — see "One name, one contract": `dimension` is
+  referential on both surfaces, the materialized Sheet verb becomes `measured_dimension`,
+  `authored_dimension` renames in step, and a one-release transitional overload carries the
+  old call form to 0.4.0.)* What remains open is only the spelling: `measured_dimension`
+  versus a shorter `measured`, and whether the model-layer constructor keeps a `_dimension`
+  suffix the façade drops.
 - The `role` vocabulary for `sheet.dimension(feature, role)`: which measurements to support
   first (`"diameter"`, `"location"`, `"pitch"`, `"width"`/`"depth"`/`"height"`, `"angle"`,
   `"radius"`), and how a *two-feature* span reads fluently — `sheet.dimension(a, b)` /
