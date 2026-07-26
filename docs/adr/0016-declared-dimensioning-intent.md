@@ -130,9 +130,68 @@ Drawing surface. What is missing is the *Sheet-side twin*, the planner intent in
 the emitter mirror — not the verb itself.
 
 The obstacle is a collision that already exists today: **`dimension` means opposite things
-on the two user-facing surfaces.** On `Drawing` it is referential (above); on `Sheet` it is
-`dimension(*, kind, value, label, dominant_axis, ref_pts, ref_bbox=, at=, …)` — the
-materialized AP242 form that carries the number and, optionally, a page position.
+on the two user-facing surfaces.** Both of these are real calls from the current test
+suite:
+
+```python
+# Drawing surface — REFERENTIAL. Names a feature and a parameter; the engine
+# derives the value and places it.            (tests/test_make_drawing.py)
+dwg.dimension(step, "length", role="step_position")
+
+# Sheet surface — MATERIALIZED, under the SAME verb name. States the number,
+# the label, and the model points to hang it on.  (tests/test_sheet_emit.py)
+sheet.dimension(
+    kind="linear",
+    value=40,
+    label="40",
+    dominant_axis="X",
+    ref_bbox=(-20, -10, -5, 20, 10, 5),
+    ref_pts=[(-20, 0, 0), (20, 0, 0)],
+    upper_tol=0.1,
+    lower_tol=0.0,
+)
+```
+
+The first says *which measurement matters* and lets the engine work out that it is 40; the
+second says *40, here*. One verb name, two opposite contracts, one on each surface a user
+touches.
+
+After the rename:
+
+```python
+# One contract on both surfaces: name the feature and the measurement.
+dwg.dimension(step, "length", role="step_position")   # unchanged
+sheet.dimension(bore, "diameter")                     # the new Sheet-side twin
+
+# The materialized form keeps its shape and gains a name that says what it is.
+sheet.measured_dimension(
+    kind="linear", value=40, label="40", dominant_axis="X",
+    ref_pts=[(-20, 0, 0), (20, 0, 0)], upper_tol=0.1, lower_tol=0.0,
+)
+```
+
+The emitter change is one string — `sheet_emit` builds the call text as
+`"sheet.dimension(" + ", ".join(kw) + ")"`, which becomes `"sheet.measured_dimension("`.
+Generated AP242 scripts pick the new name up by regeneration.
+
+**The shim is a transitional overload, not a second function.** Because the *name is being
+reused* rather than retired, the usual pattern — a `@deprecated` wrapper beside the new
+verb — cannot apply: after the rename `sheet.dimension` is the referential verb, so an old
+keyword call would raise `TypeError`, not warn. For one release `Sheet.dimension` therefore
+accepts both forms and dispatches on how it was called:
+
+```python
+def dimension(self, feature=None, role=None, /, **kw) -> Sheet:
+    if feature is None and kw:              # legacy materialized call
+        warn("Sheet.dimension(kind=…, value=…) is deprecated: use "
+             "measured_dimension(). Removed at 0.4.0.", DeprecationWarning)
+        return self.measured_dimension(**kw)
+    ...                                     # referential intent
+```
+
+This is exactly the overload the "considered and rejected" note below describes — adopted
+deliberately as a *temporary* migration aid with a removal date, not as the permanent
+shape. At 0.4.0 the legacy branch is deleted and the verb has one contract.
 
 **Decision: `dimension` means referential on both surfaces. The materialized Sheet verb is
 renamed to `measured_dimension`, and `model.declare.authored_dimension` renames in step so
@@ -143,10 +202,22 @@ Three reasons this is the right end state rather than adding a distinct name suc
 `sheet.dim`:
 
 - **The project already took this decision on the other surface.** #817 privatized
-  `Drawing.place_dim` → `_place_dim`: the coordinate-carrying form became the deprecated
-  escape hatch and the referential verb became the public default. `Sheet` simply has not
-  caught up. Renaming applies an existing decision consistently instead of opening a second
-  one.
+  `Drawing.place_dim` → `_place_dim`, and its deprecation message names the replacement
+  outright:
+
+  ```python
+  @deprecated(
+      "Drawing.place_dim() is deprecated for normal editable scripts; use "
+      "Drawing.dimension(feature, param, ..., pin=True) or "
+      "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
+      "place_dim() remains only as a raw page-coordinate escape hatch."
+  )
+  def place_dim(self, p1, p2, side, view, draft, *, name=None, ...):
+  ```
+
+  The coordinate-carrying form is already the deprecated escape hatch and the referential
+  verb is already the public default — on `Drawing`. `Sheet` simply has not caught up.
+  Renaming applies an existing decision consistently instead of opening a second one.
 - **A short alias would entrench the collision.** `sheet.dim` alongside `sheet.dimension`
   would leave three verbs under two names, where `sheet.dim` equals `Drawing.dimension`
   while `sheet.dimension` means something else — the least learnable of the options.
@@ -156,11 +227,14 @@ Three reasons this is the right end state rather than adding a distinct name suc
   at 0.4.0 alongside the ADR 0005 §4 alias removals (#720) — the shim eases the transition
   without changing the end state.
 
-`Sheet.dimension` is entirely keyword-only today (it accepts no positional arguments), so a
-positional `(feature, role)` referential form could also be *overloaded* onto it without any
-break. That was considered and rejected: it preserves one verb with two contracts
-indefinitely, which is the ambiguity this decision exists to remove. It remains the
-fallback if the rename proves disruptive in practice.
+`Sheet.dimension` is entirely keyword-only today — `def dimension(self, *, kind: str,
+value: float, …)` accepts no positional arguments at all, so `sheet.dimension(bore,
+"diameter")` is a `TypeError` on the current release. A positional `(feature, role)`
+referential form could therefore be overloaded onto it *permanently*, with no break and no
+rename. That was considered and rejected: it preserves one verb with two contracts
+indefinitely, which is the ambiguity this decision exists to remove. The same mechanism is
+adopted above as a one-release migration path with a removal date — the difference is
+whether it expires. It remains the fallback if the rename proves disruptive in practice.
 
 ### The script records intent, not what got placed
 
