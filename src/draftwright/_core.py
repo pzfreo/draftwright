@@ -618,6 +618,11 @@ class DetailRequest:
                       footprint that depends on the chosen scale (the prismatic
                       ladder reserves one rung per *legible-at-that-scale* step, so it
                       shrinks with the scale during the fit). Overrides ``pad_top``.
+        source_view:  orthographic direction to preserve in the detail (``"front"``
+                      or ``"side"``). The latter is used for Y-turned axial profiles.
+        cross_axis/cross_lo/cross_hi: optional second crop band, used to isolate a
+                      narrow profile strip when enlarging the full radial extent
+                      would not fit on the sheet.
         kind:         short label for logging.
     """
 
@@ -628,6 +633,10 @@ class DetailRequest:
     redraw: Callable[..., int]
     pad_top: float = 0.0
     pads: Callable[[float], tuple[float, float]] | None = None
+    source_view: str = "front"
+    cross_axis: str | None = None
+    cross_lo: float | None = None
+    cross_hi: float | None = None
     kind: str = "detail"
 
 

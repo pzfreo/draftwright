@@ -8887,6 +8887,14 @@ class TestTurnedDiameters:
         return part.rotate(Axis.X, 90)
 
     @staticmethod
+    def _issue_892_y_chain(*, axis_z=0.0, rotation=90):
+        b = Align.MIN
+        part = Cylinder(22.5, 3, align=(Align.CENTER, Align.CENTER, b))
+        part += Pos(0, 0, 3) * Cylinder(17, 5.5, align=(Align.CENTER, Align.CENTER, b))
+        part += Pos(0, 0, 8.5) * Cylinder(14, 3.5, align=(Align.CENTER, Align.CENTER, b))
+        return Pos(0, 0, axis_z) * part.rotate(Axis.X, rotation)
+
+    @staticmethod
     def _assert_y_diameter_leaders_clear_holes(dwg):
         circles = []
         for feature in dwg.model().features:
@@ -8938,9 +8946,9 @@ class TestTurnedDiameters:
             assert owner is (matches[0] if len(matches) == 1 else None)
 
         self._assert_y_diameter_leaders_clear_holes(dwg)
-        assert {
-            dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_steplen")
-        } >= {"8", "4", "2"}
+        step_labels = {dwg.get_annotation(n).label for n in dwg.annotations() if "steplen" in n}
+        assert step_labels >= {"8", "4"}
+        assert "2" in step_labels or "4× 2" in step_labels
         assert {dwg.view_of(n) for n in dwg.annotations() if n.startswith("m_steplen")} == {"side"}
 
         # The central Y-axis bore shares the detected turned-profile axis. Its
@@ -8957,9 +8965,66 @@ class TestTurnedDiameters:
         assert "axial_length_missing" not in codes
 
         for name in tuple(dwg.annotations()):
-            if name.startswith("m_steplen"):
+            if "steplen" in name:
                 dwg.remove(name)
         assert "axial_length_missing" in {issue.code for issue in dwg.lint()}
+
+    @pytest.mark.parametrize(("axis_z", "rotation"), [(0.0, 90), (17.0, 90), (-11.0, -90)])
+    def test_issue_892_short_y_step_chain_moves_to_enlarged_side_detail(self, axis_z, rotation):
+        # P10-base axial profile: 3 | 5.5 | 3.5 mm along Y.  Centred labels crowd at
+        # 1:1, but lifting the middle 5.5 onto a far tier makes it read like an
+        # overall dimension. Keep only the 12 mm block on the side view and redraw
+        # the three shoulder-to-shoulder links in a genuine enlarged side detail.
+        dwg = build_drawing(self._issue_892_y_chain(axis_z=axis_z, rotation=rotation), scale=1.0)
+
+        main = {n: o for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
+        assert {o.label for o in main.values()} == {"12"}
+        assert {dwg.view_of(n) for n in main} == {"side"}
+        assert "detail_a" in dwg.views
+
+        detail = {n: o for n, o in dwg.iter_annotations() if n.startswith("dim_detail_a_steplen")}
+        assert {o.label for o in detail.values()} == {"3", "5.5", "3.5"}
+        assert {dwg.view_of(n) for n in detail} == {"detail_a"}
+        assert len({round(o._dw_spec.distance, 6) for o in detail.values()}) == 1
+
+        labels = sorted((o.label_bbox for o in detail.values()), key=lambda bb: bb[0])
+        assert all(
+            left[2] + dwg.draft.pad_around_text <= right[0] + 1e-6
+            for left, right in zip(labels, labels[1:])
+        )
+        marker = dwg.get_annotation("detail_marker_A").bounding_box()
+        axis_page_y = dwg.at("side", 0, 0, axis_z)[1]
+        assert marker.min.Y <= axis_page_y <= marker.max.Y
+
+    def test_issue_892_toleranced_labels_drive_detail_scale_from_rendered_text(self):
+        from draftwright import Sheet
+
+        part = self._issue_892_y_chain(axis_z=9.0)
+        sheet = Sheet(part, scale=1.0, page="A2")
+        sheet.step(diameter=45, length=3, at=(0, -1.5, 9), axis="y").tolerance(0.2)
+        sheet.step(diameter=34, length=5.5, at=(0, -5.75, 9), axis="y").tolerance(0.0, 0.3)
+        sheet.step(diameter=28, length=3.5, at=(0, -10.25, 9), axis="y")
+        dwg = sheet.build()
+
+        detail = [o for n, o in dwg.iter_annotations() if n.startswith("dim_detail_a_steplen")]
+        assert len(detail) == 3
+        assert {o._dw_scale for o in detail} == {10.0}
+        labels = sorted((o.label_bbox for o in detail), key=lambda bb: bb[0])
+        assert all(
+            left[2] + dwg.draft.pad_around_text <= right[0] + 1e-6
+            for left, right in zip(labels, labels[1:])
+        )
+
+    def test_issue_892_no_detail_room_keeps_block_and_reports_uncovered_shoulders(self):
+        # Transactional failure: a deliberately undersized sheet has no rectangle
+        # for the enlarged profile. Do not leave half a detail or reinstate the
+        # ambiguous stagger; retain the overall block and let coverage lint expose
+        # that the interior shoulders are not located.
+        dwg = build_drawing(self._issue_892_y_chain(), scale=1.0, page="140x100")
+        assert "detail_a" not in dwg.views
+        main = [o for n, o in dwg.iter_annotations() if n.startswith("m_steplen")]
+        assert [o.label for o in main] == ["12"]
+        assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 1
 
     def test_issue_890_rotated_bolt_pattern_selects_clear_diameter_rays(self):
         self._assert_y_diameter_leaders_clear_holes(
@@ -9496,8 +9561,6 @@ class TestTurnedLengths:
         # scale (#293). Scale pinned so the crowding regime is deterministic.
         from build123d import Align, Cylinder, Pos, Rotation
 
-        from draftwright.annotations._common import _anno_box
-
         b = Align.MIN
         specs = [(8, 3.1), (12, 2.9), (8, 3.2), (12, 2.8), (6, 3.0)]  # ~3 mm, > floor
         shaft = None
@@ -9512,11 +9575,12 @@ class TestTurnedLengths:
         assert len(steps) == 5  # every segment dimensioned, none dropped
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
         # Two tiers: the dims sit at (at least) two distinct offset rows.
-        boxes = [_anno_box(o) for o in steps.values()]
-        rows = {round((bb[1] + bb[3]) / 2, 1) for bb in boxes if bb}
+        rows = {round(o._dw_spec.distance, 6) for o in steps.values()}
         assert len(rows) >= 2, "chain did not stagger into multiple tiers"
 
         # Labels don't overprint each other.
+        boxes = [o.label_bbox for o in steps.values()]
+
         def overlap(a, c):
             return a and c and not (a[2] <= c[0] or a[0] >= c[2] or a[3] <= c[1] or a[1] >= c[3])
 

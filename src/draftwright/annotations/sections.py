@@ -428,17 +428,25 @@ def _render_detail(
         return False
     body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
     big = 4 * a.bbox_max
-    idx = "xyz".index(req.axis)
 
-    def _cut(edge):
+    def _cut(axis, edge):
         c = [a.cx, a.cy, a.cz]
-        c[idx] = edge
+        c["xyz".index(axis)] = edge
         return Pos(*c) * Box(big, big, big)
 
     try:
-        cropped = _fuzzy_cut(body, _cut(req.lo - big / 2))
+        cropped = _fuzzy_cut(body, _cut(req.axis, req.lo - big / 2))
         if cropped is not None:
-            cropped = _fuzzy_cut(cropped, _cut(req.hi + big / 2))
+            cropped = _fuzzy_cut(cropped, _cut(req.axis, req.hi + big / 2))
+        if (
+            cropped is not None
+            and req.cross_axis is not None
+            and req.cross_lo is not None
+            and req.cross_hi is not None
+        ):
+            cropped = _fuzzy_cut(cropped, _cut(req.cross_axis, req.cross_lo - big / 2))
+            if cropped is not None:
+                cropped = _fuzzy_cut(cropped, _cut(req.cross_axis, req.cross_hi + big / 2))
     except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
         _log.warning("Detail %s skipped (crop failed: %s)", letter, exc)
         return False
@@ -469,7 +477,8 @@ def _render_detail(
     # Footprint = the projected cropped band + the request's annotation pads (the
     # dim ladder/chain) + the caption row. Shrink the scale to fit if necessary.
     cb = cropped.bounding_box()
-    view_w, view_h = (cb.max.X - cb.min.X), (cb.max.Z - cb.min.Z)
+    view_w = cb.max.Y - cb.min.Y if req.source_view == "side" else cb.max.X - cb.min.X
+    view_h = cb.max.Z - cb.min.Z
     cap_h = 8.0
 
     def _pads(s):  # annotation bands may depend on the scale (the prismatic ladder)
@@ -491,14 +500,18 @@ def _render_detail(
     DX = (rx0 + rx1) / 2 - pad_right / 2
     DY = (ry0 + ry1) / 2 - (pad_top - cap_h) / 2
 
-    # Look from −Y, up +Z at detail_scale around the band's own centroid — the camera + coordinates
-    # for the scratch projection below.
+    # Preserve the request's orthographic direction at detail scale around the
+    # band's own centroid: front looks from −Y; side looks from +X.
     dcx = (cb.min.X + cb.max.X) / 2
     dcy = (cb.min.Y + cb.max.Y) / 2
     dcz = (cb.min.Z + cb.max.Z) / 2
     la = (dcx * detail_scale, dcy * detail_scale, dcz * detail_scale)
     dist_d = a.bbox_max * detail_scale + 100
-    camera = (la[0], la[1] - dist_d, la[2])
+    camera = (
+        (la[0] + dist_d, la[1], la[2])
+        if req.source_view == "side"
+        else (la[0], la[1] - dist_d, la[2])
+    )
     # Project the cropped band front-on into a SCRATCH (no Drawing mutation) at the detail scale —
     # project_view_geometry takes the scale directly, so its coordinates ARE the detail's (the old
     # _add_view + override existed only because _add_view hard-codes the sheet scale). Trying the
@@ -527,12 +540,19 @@ def _render_detail(
         return False
     dwg._set_view_coordinates(view_name, coords)
 
-    # Marker on the front view around the band (axis-aware) + letter.
-    FX, FZ = a.proj.front_x, a.proj.front_z
-    if req.axis == "z":  # band runs along page-y
-        mx0, mx1, my0, my1 = FX(a.bb.min.X), FX(a.bb.max.X), FZ(req.lo), FZ(req.hi)
-    else:  # x band runs along page-x
-        mx0, mx1, my0, my1 = FX(req.lo), FX(req.hi), FZ(a.bb.min.Z), FZ(a.bb.max.Z)
+    # Marker on the source orthographic view around the band + letter.
+    if req.source_view == "side":
+        zlo = req.cross_lo if req.cross_lo is not None else a.bb.min.Z
+        zhi = req.cross_hi if req.cross_hi is not None else a.bb.max.Z
+        corners = [dwg.at("side", a.bb.max.X, y, z) for y in (req.lo, req.hi) for z in (zlo, zhi)]
+        mx0, mx1 = min(p[0] for p in corners), max(p[0] for p in corners)
+        my0, my1 = min(p[1] for p in corners), max(p[1] for p in corners)
+    else:
+        FX, FZ = a.proj.front_x, a.proj.front_z
+        if req.axis == "z":  # band runs along page-y
+            mx0, mx1, my0, my1 = FX(a.bb.min.X), FX(a.bb.max.X), FZ(req.lo), FZ(req.hi)
+        else:  # x band runs along page-x
+            mx0, mx1, my0, my1 = FX(req.lo), FX(req.hi), FZ(a.bb.min.Z), FZ(a.bb.max.Z)
     marker = Compound(
         children=[
             Edge.make_line(Vector(mx0, my0, 0), Vector(mx1, my0, 0)),

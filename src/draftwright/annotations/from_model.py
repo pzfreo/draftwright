@@ -2318,8 +2318,14 @@ def _draw_step_chain(
     gap = draft.font_size + 4 * draft.pad_around_text
     horizontal = abs(segs[0][1][0] - segs[0][0][0]) >= abs(segs[0][1][1] - segs[0][0][1])
     vals = [s[2] for s in segs]  # value is index 2 (segs are 4-tuples: pa, pb, value, tol)
+    labels = [s[4] if len(s) > 4 and s[4] is not None else _fmt(s[2]) for s in segs]
     mean_v = sum(vals) / len(vals)
-    if allow_collapse and len(segs) >= 3 and (max(vals) - min(vals)) <= 0.10 * mean_v:
+    if (
+        allow_collapse
+        and all(len(s) < 5 or s[4] is None for s in segs)
+        and len(segs) >= 3
+        and (max(vals) - min(vals)) <= 0.10 * mean_v
+    ):
         # A uniform run collapses to one "N× v" dim; a per-step ± would be a false claim on
         # N equal steps, so the collapse carries NO tolerance (#28 / P2a).
         label = f"{len(segs)}× {_fmt(mean_v)}"
@@ -2336,20 +2342,20 @@ def _draw_step_chain(
         tiers = [0] * len(segs)
         if horizontal:
             cw = [
-                ((pa[0] + pb[0]) / 2, len(_fmt(v)) * draft.font_size * _EST_CHAR_WIDTH_EM)
-                for pa, pb, v, *_ in segs
+                ((s[0][0] + s[1][0]) / 2, len(labels[i]) * draft.font_size * _EST_CHAR_WIDTH_EM)
+                for i, s in enumerate(segs)
             ]
 
-            def _clear(items):  # (center, width) pairs in x order — labels don't overlap
+            def _clear(items):
                 return all(
                     c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
                     for (c1, w1), (c2, w2) in zip(items, items[1:])
                 )
 
             if _clear(cw):
-                pass  # one tier suffices — no needless zig-zag for a roomy chain
+                pass
             elif _clear(cw[0::2]) and _clear(cw[1::2]):
-                tiers = [i % 2 for i in range(len(segs))]  # alternate to make room
+                tiers = [i % 2 for i in range(len(segs))]
             else:
                 _log.info("step-length chain skipped: too dense even when staggered")
                 _record_step_chain_drop(
@@ -2378,7 +2384,8 @@ def _draw_step_chain(
                 return 0
 
         candidates = []
-        for i, (pa, pb, value, seg_tol) in enumerate(segs):
+        for i, seg in enumerate(segs):
+            pa, pb, value, seg_tol, *_rest = seg
             if horizontal:
                 p1, p2, side = (pa[0], y1, 0), (pb[0], y1, 0), "above"
                 dist = gap + tiers[i] * tier_step
@@ -2388,7 +2395,7 @@ def _draw_step_chain(
             candidates.append(
                 (
                     f"{name_prefix}{start + i}",
-                    _dim(p1, p2, side, dist, draft, label=_fmt(value), tolerance=seg_tol),
+                    _dim(p1, p2, side, dist, draft, label=labels[i], tolerance=seg_tol),
                 )
             )
 
@@ -2448,6 +2455,8 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
     place, the block still locates the head extent and lint reports the un-located
     interior shoulders — never worse than the prior skip. Returns the count placed."""
     rows = []  # (axis, a_world, b_world, value, tolerance) in axis order
+    step_origins = []
+    step_radii = []
     for g in groups:
         if g.feature_kind != "step":
             continue
@@ -2470,6 +2479,8 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
                 length.tolerance,
             )
         )
+        step_origins.append(g.feature.frame.origin)
+        step_radii.append(g.feature.diameter / 2)
     if not rows:
         return 0
     draft = dwg.draft
@@ -2487,6 +2498,184 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
     bare_rows = [(a, b, v, t) for _axis, a, b, v, t in rows]
     fsegs = [(dwg.at(view, *a), dwg.at(view, *b), v, t) for a, b, v, t in bare_rows]
     horizontal = abs(fsegs[0][1][0] - fsegs[0][0][0]) >= abs(fsegs[0][1][1] - fsegs[0][0][1])
+
+    # A Y-turned chain that would need near/far staggering is ambiguous in the
+    # narrow side view: an interior far-tier segment reads like an overall
+    # dimension (#892). Keep one overall block on the side view and redraw the
+    # complete shoulder chain in a true enlarged side-profile detail instead.
+    if horizontal and turn_axis == "y" and len(fsegs) >= 2:
+        label_widths = [
+            _text_size(
+                _fmt(v) + _tol_suffix(t, draft),
+                draft.font_size,
+                font=getattr(draft, "font", "Arial"),
+            )[0]
+            for *_span, v, t in bare_rows
+        ]
+        cw = sorted(
+            ((pa[0] + pb[0]) / 2, label_widths[i]) for i, (pa, pb, *_rest) in enumerate(fsegs)
+        )
+        labels_clear = all(
+            c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
+            for (c1, w1), (c2, w2) in zip(cw, cw[1:])
+        )
+        if not labels_clear:
+            alo = min(min(a[1], b[1]) for a, b, *_ in bare_rows)
+            ahi = max(max(a[1], b[1]) for a, b, *_ in bare_rows)
+            page_xs = [p[0] for pa, pb, *_ in fsegs for p in (pa, pb)]
+            page_y = fsegs[0][0][1]
+            block = [
+                (
+                    (min(page_xs), page_y, 0.0),
+                    (max(page_xs), page_y, 0.0),
+                    ahi - alo,
+                    None,
+                )
+            ]
+            scale_needed = max(
+                (w + 2 * draft.arrow_length + 2 * draft.pad_around_text) / row[2]
+                for w, row in zip(label_widths, bare_rows)
+                if row[2] > 0
+            )
+
+            # Use the detected turning axis, not the sheet/bounding-box centroid:
+            # an eccentric shaft's profile may be nowhere near the latter. A single
+            # side-profile detail is valid only for a coaxial chain.
+            axis_zs = [origin[2] for origin in step_origins]
+            coaxial = max(axis_zs) - min(axis_zs) <= 0.5
+            if not coaxial:
+                return _draw_step_chain(dwg, view, fsegs, "m_steplen", ctx=ctx, start=start)
+            axis_z = sum(axis_zs) / len(axis_zs)
+
+            # Choose the same standard scale family as the detail renderer, then
+            # crop a geometry-relative strip: at most half the smallest radius and
+            # at most 12 page-mm tall. This stays useful from tiny pins to large
+            # flanges without a magic world-space ±2 mm band.
+            detail_target = dwg.scale * 10
+            for factor in (2, 5, 10):
+                candidate = dwg.scale * factor
+                if candidate >= scale_needed:
+                    detail_target = candidate
+                    break
+            min_radius = min(step_radii)
+            cross_half = max(0.1, min(min_radius / 2, 6.0 / detail_target))
+
+            def _redraw_y(dwg, detail_view, coords, detail_scale, _rows=bare_rows):
+                def _at(x, y, z):
+                    px, py = coords.pp(x, y, z)
+                    return (px, py, 0.0)
+
+                dpairs = [
+                    ((_at(*a), _at(*b), v, t), label_widths[i])
+                    for i, (a, b, v, t) in enumerate(_rows)
+                ]
+                dpairs.sort(key=lambda item: (item[0][0][0] + item[0][1][0]) / 2)
+                dsegs = []
+                detail_widths = []
+                j = 0
+                while j < len(dpairs):
+                    seg0, _width0 = dpairs[j]
+                    run = [dpairs[j]]
+                    k = j + 1
+                    while k < len(dpairs):
+                        prev, _prev_width = run[-1]
+                        cur, _cur_width = dpairs[k]
+                        contiguous = (
+                            abs(max(prev[0][0], prev[1][0]) - min(cur[0][0], cur[1][0])) <= 0.6
+                        )
+                        equal = abs(cur[2] - seg0[2]) <= 0.1 * seg0[2]
+                        untoleranced = prev[3] is None and cur[3] is None
+                        if not (contiguous and equal and untoleranced):
+                            break
+                        run.append(dpairs[k])
+                        k += 1
+                    if len(run) >= 3:
+                        run_segs = [seg for seg, _width in run]
+                        xs = [p[0] for seg in run_segs for p in seg[:2]]
+                        y = run_segs[0][0][1]
+                        pitch = sum(seg[2] for seg in run_segs) / len(run_segs)
+                        label = f"{len(run_segs)}× {_fmt(pitch)}"
+                        dsegs.append(
+                            (
+                                (min(xs), y, 0.0),
+                                (max(xs), y, 0.0),
+                                sum(seg[2] for seg in run_segs),
+                                None,
+                                label,
+                            )
+                        )
+                        detail_widths.append(
+                            _text_size(
+                                label,
+                                draft.font_size,
+                                font=getattr(draft, "font", "Arial"),
+                            )[0]
+                        )
+                    else:
+                        for seg, width in run:
+                            dsegs.append(seg)
+                            detail_widths.append(width)
+                    j = k
+                # Never recreate the ambiguous stagger inside a detail. Validate
+                # both text clearance and full inside-arrow capacity at the actual
+                # fitted scale; returning zero transactionally drops the detail.
+                dcw = sorted(
+                    ((pa[0] + pb[0]) / 2, detail_widths[i])
+                    for i, (pa, pb, *_rest) in enumerate(dsegs)
+                )
+                if not all(
+                    c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
+                    for (c1, w1), (c2, w2) in zip(dcw, dcw[1:])
+                ):
+                    _log.info(
+                        "Y-chain detail rejected at scale %.3g: labels still collide",
+                        detail_scale,
+                    )
+                    return 0
+                if any(
+                    abs(pb[0] - pa[0])
+                    < detail_widths[i] + 2 * draft.arrow_length + 2 * draft.pad_around_text
+                    for i, (pa, pb, *_rest) in enumerate(dsegs)
+                ):
+                    _log.info(
+                        "Y-chain detail rejected at scale %.3g: label + inside arrows "
+                        "do not fit a segment",
+                        detail_scale,
+                    )
+                    return 0
+                return _draw_step_chain(
+                    dwg,
+                    detail_view,
+                    dsegs,
+                    f"dim_{detail_view}_steplen",
+                    detail_scale,
+                    ctx=ctx,
+                )
+
+            ctx.detail_requests.append(
+                DetailRequest(
+                    axis="y",
+                    lo=alo,
+                    hi=ahi,
+                    scale_needed=scale_needed,
+                    redraw=_redraw_y,
+                    pad_top=draft.font_size + 2 * draft.pad_around_text + draft.arrow_length,
+                    source_view="side",
+                    cross_axis="z",
+                    cross_lo=axis_z - cross_half,
+                    cross_hi=axis_z + cross_half,
+                    kind="y-turned-chain",
+                )
+            )
+            return _draw_step_chain(
+                dwg,
+                "side",
+                block,
+                "m_steplen",
+                allow_collapse=False,
+                ctx=ctx,
+                start=start,
+            )
 
     # X-turned crowded-head detour (#307): split off each contiguous *run of ≥2*
     # sub-floor steps (segment narrower than two arrowheads on the page), locate it as

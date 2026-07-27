@@ -576,11 +576,11 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
         px, py, *_ = dwg.at(view, *pt)
         return float(px if use_x else py)
 
-    # A crowded X-turned head is dimensioned in an enlarged detail view (#304/#307),
-    # not the front chain — so a shoulder counts as located when matched in EITHER the
-    # front view or any detail view. Y chains use the side profile view.
+    # A crowded X-turned head or Y-turned side chain can be dimensioned in an
+    # enlarged detail view (#304/#307/#892), not the principal profile — so a
+    # shoulder counts as located when matched in EITHER source or detail view.
     views = ["side"] if prof.axis == "y" else ["front"]
-    if prof.axis == "x":
+    if prof.axis in ("x", "y"):
         views += sorted(v for v in dwg.views if v.startswith("detail_"))
     covered_steps: set[int] = set()
     for view in views:
