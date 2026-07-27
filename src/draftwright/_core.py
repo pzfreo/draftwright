@@ -472,23 +472,23 @@ _MIN_STEP_SEP_MM = _FONT_SIZE + 2 * _PAD
 _MIN_LOC_SEP_MM = draft_preset(font_size=_FONT_SIZE, decimal_precision=1).arrow_length + _PAD
 
 
-def _legible_steps(step_zs, bb_min_z, scale):
+def _legible_steps(step_zs, bb_min_z, scale, *, allow_short=False):
     """Step heights worth dimensioning at *scale*, and how many were too close.
 
-    A step is dimensioned only if it is tall enough from the base to carry a
-    label *and* at least ``_MIN_STEP_SEP_MM`` (page-mm) above the previously
-    kept step — consecutive shoulders closer than that are page-coincident and
-    cannot be told apart (#41). Returns ``(kept_zs, n_too_close)``: the heights
-    to dimension, and the count of tall-enough steps dropped for spacing (the
-    caller surfaces these via lint; the full-fidelity answer is a detail view,
-    #42). Steps too short to carry a label at all are silently omitted — they
-    are simply not dimensionable, not dropped.
+    A step is dimensioned when it can carry a label, unless ``allow_short`` is
+    true, and is at least ``_MIN_STEP_SEP_MM`` (page-mm)
+    above the previously kept step — consecutive shoulders closer than that are
+    page-coincident and cannot be told apart (#41). A short first rise is still
+    dimensionable: ``DimensionLine`` moves its arrows/text outside the witnesses
+    when they do not fit inline (#565). Returns ``(kept_zs, n_too_close)``:
+    the heights to dimension, and the count dropped for spacing (the caller
+    surfaces these via lint; the full-fidelity answer is a detail view, #42).
     """
     kept: list[float] = []
     n_too_close = 0
     last = None
     for z in sorted(step_zs):
-        if (z - bb_min_z) * scale < _MIN_STEP_DIM_MM:
+        if not allow_short and (z - bb_min_z) * scale < _MIN_STEP_DIM_MM:
             continue
         if last is not None and (z - last) * scale < _MIN_STEP_SEP_MM:
             n_too_close += 1

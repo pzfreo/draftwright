@@ -358,6 +358,7 @@ def _member_pocket(pk: Pocket) -> PocketFeature:
         w_center=pk.w_center,
         lo=pk.lo,
         hi=pk.hi,
+        edge_anchored=pk.edge_anchored,
     )
 
 
@@ -771,18 +772,22 @@ def build_part_model(
         c = bbox.center()
         _levels = tuple(sorted(z for z in step_zs if round(z, 3) not in plate_zs_at_base))
         if _levels:
-            # The in-plane step POSITIONS (#555) — where each shoulder sits along its
-            # axis — so the part is fully constrained, not just given two heights. Scoped
-            # to a SINGLE step level (a rebate/shoulder, the issue's domain): a multi-level
-            # staircase is owned by the height ladder's typ-collapse / detail-view path,
-            # and adding position dims to already-crowded shoulders would worsen it.
-            _shoulders = (
-                tuple(
-                    (s.axis, s.position)
-                    for s in recognise_step_shoulders(part, levels=list(_levels))
-                )
-                if len(_levels) == 1
-                else ()
+            # An edge-open blind interruption owns its floor through the pocket
+            # depth callout; it is not a global profile level. Interior pockets
+            # retain the established level IR for compatibility.
+            edge_floor_zs = {
+                pk.d_lo if pk.open_sign > 0 else pk.d_hi
+                for pk in pockets or ()
+                if pk.depth_axis == "z" and pk.edge_anchored
+            }
+            _levels = tuple(
+                z for z in _levels if not any(abs(z - floor) < 0.5 for floor in edge_floor_zs)
+            )
+        if _levels:
+            # Every profile transition needs an in-plane station. Heights alone do
+            # not reconstruct a multi-level staircase or a slanted run (#897).
+            _shoulders = tuple(
+                (s.axis, s.position) for s in recognise_step_shoulders(part, levels=list(_levels))
             )
             features.append(
                 StepLevelFeature(

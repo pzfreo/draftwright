@@ -381,7 +381,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # through fv_zones.right preserving the leapfrog cursor (#237). Replaces the inline
         # dim_step_* + dim_height; the turned step-length chain (render_step_lengths) handles
         # turned parts, and a Z-turned overall height is suppressed there (ISO 129).
-        render_height_ladder(dwg, _model, a, ctx=ctx)
+        render_height_ladder(dwg, _model, a, ctx=ctx, detail_view=detail_view)
 
     def _s_plates():
         # Plate/wall thicknesses on a multi-plate prismatic (#559): the thin extent of each

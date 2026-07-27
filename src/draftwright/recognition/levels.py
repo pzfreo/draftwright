@@ -107,13 +107,10 @@ def recognise_step_shoulders(
 
     ``recognise_face_levels`` recovers the step *heights* (Z); this recovers *where along
     the part* each shoulder sits, so a stepped block is fully constrained (two different
-    shoulder positions no longer draw the same sheet). A shoulder is the **riser**: an
-    interior, large, *planar* vertical face (normal in the XY plane) whose lower Z edge
-    rests on one of the given *levels* (the raised region rises from that level). That
-    ties it to a genuine step and, by requiring a planar face, excludes a cylindrical
-    counterbore/bore wall; requiring the lower edge at a step level excludes a slot's
-    walls (a through slot has no step level). ``axis`` is the riser's normal axis
-    ("x"/"y"); ``position`` is the world coord of the shoulder along it.
+    shoulder positions no longer draw the same sheet). A shoulder is either a
+    vertical riser or an endpoint of a full-span slanted transition. The latter's
+    two stations, together with the adjacent height levels, define the ramp without
+    a redundant angle dimension (#897).
 
     The riser must also span the WHOLE part edge-to-edge on its perpendicular in-plane
     axis (reach both envelope edges within *tol*); this is what separates a step/rebate
@@ -142,18 +139,15 @@ def recognise_step_shoulders(
             nv = f.normal_at()
         except Exception:  # noqa: BLE001 — a degenerate face has no clean normal
             continue
-        if abs(nv.Z) > 0.01:
-            continue  # a riser is vertical (in-plane normal)
-        axis = "x" if abs(nv.X) > 0.99 else ("y" if abs(nv.Y) > 0.99 else None)
+        vertical = abs(nv.Z) <= 0.01
+        axis = (
+            "x"
+            if abs(nv.X) > 0.01 and abs(nv.Y) <= 0.01
+            else ("y" if abs(nv.Y) > 0.01 and abs(nv.X) <= 0.01 else None)
+        )
         if axis is None:
             continue
-        loc = s.Plane().Location()
-        pos = loc.X() if axis == "x" else loc.Y()
-        if not (lo[axis] + tol < pos < hi[axis] - tol):
-            continue  # interior only — an envelope face is not a shoulder
         fb = f.bounding_box()
-        if not any(abs(fb.min.Z - z) < tol for z in levels):
-            continue  # rises from a step level (not a through slot's wall)
         other = "y" if axis == "x" else "x"
         # A step/rebate shoulder crosses the WHOLE part edge-to-edge on the
         # perpendicular in-plane axis — its riser reaches both envelope edges. A raised
@@ -164,12 +158,57 @@ def recognise_step_shoulders(
         # shoulder (#555 review).
         flo = fb.min.X if other == "x" else fb.min.Y
         fhi = fb.max.X if other == "x" else fb.max.Y
-        if flo > lo[other] + tol or fhi < hi[other] - tol:
-            continue  # not full-span → a pad/pocket wall, not a step shoulder
+        full_span = flo <= lo[other] + tol and fhi >= hi[other] - tol
+        positions: tuple[float, ...]
+        other_positions: tuple[float, ...] = ()
+        if vertical:
+            if not full_span:
+                continue  # a bounded vertical wall belongs to a pad/pocket
+            loc = s.Plane().Location()
+            pos = loc.X() if axis == "x" else loc.Y()
+            if not (lo[axis] + tol < pos < hi[axis] - tol):
+                continue  # interior only — an envelope face is not a shoulder
+            if not any(abs(fb.min.Z - z) < tol for z in levels):
+                continue  # rises from a step level (not a through slot's wall)
+            positions = (pos,)
+        else:
+            # A genuine oblique profile face contributes both transition
+            # stations. A bounded slanted interruption also contributes its
+            # extrusion endpoints on the perpendicular in-plane axis, defining
+            # both the ramp and its width (#897).
+            if abs(nv.Z) <= 0.01 or fb.max.Z - fb.min.Z <= tol:
+                continue
+            axis_positions = (
+                fb.min.X if axis == "x" else fb.min.Y,
+                fb.max.X if axis == "x" else fb.max.Y,
+            )
+            if not full_span:
+                other_size = fhi - flo
+                axis_size = axis_positions[1] - axis_positions[0]
+                if (
+                    other_size < 0.1 * ext[other]
+                    or axis_size < 0.1 * ext[axis]
+                    or fb.max.Z - fb.min.Z < 0.1 * ext["z"]
+                ):
+                    continue  # ordinary edge-break chamfer, not a structural ramp
+                other_positions = (flo, fhi)
+            positions = axis_positions
         cross = ext[other] * ext["z"]
         props = GProp_GProps()
         BRepGProp.SurfaceProperties_s(f.wrapped, props)
-        if cross <= 0 or props.Mass() < min_area_frac * cross:
+        area_floor = (
+            min_area_frac * cross if full_span else 0.5 * ((fhi - flo) * (fb.max.Z - fb.min.Z))
+        )
+        if cross <= 0 or props.Mass() < area_floor:
             continue  # a large riser, not an incidental feature face
-        out.append(StepShoulder(axis, round(pos, 3)))
+        out.extend(
+            StepShoulder(axis, round(pos, 3))
+            for pos in positions
+            if lo[axis] + tol < pos < hi[axis] - tol
+        )
+        out.extend(
+            StepShoulder(other, round(pos, 3))
+            for pos in other_positions
+            if lo[other] + tol < pos < hi[other] - tol
+        )
     return sorted(set(out))

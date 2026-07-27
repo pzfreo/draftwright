@@ -325,6 +325,7 @@ class PocketFeature:
     w_center: float
     lo: float
     hi: float
+    edge_anchored: bool = False
     kind: ClassVar[str] = "pocket"
 
     @property

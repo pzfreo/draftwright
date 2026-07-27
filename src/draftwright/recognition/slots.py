@@ -173,6 +173,9 @@ class Pocket(Record):
     # opposite faces sharing an absolute depth range are indistinguishable — and would merge into
     # one impossible array (Codex #849). Defaults to +1 for hand-built records.
     open_sign: int = 1
+    # A corner interruption touches two adjacent envelope edges, so its in-plane
+    # location is implicit and no centre-location dimensions are required (#897).
+    edge_anchored: bool = False
 
     @property
     def depth_axis(self) -> str:
@@ -994,10 +997,102 @@ def recognise_pockets(part) -> list[Pocket]:
                 p = _pocket_candidate(walls[i], walls[j], faces, part_ext)
                 if p is not None:
                     candidates.append(p)
+    candidates.extend(_recognise_corner_notches(faces, pbb))
     # Stubby blind obround pockets (straight section < width) have no pairable flat walls, so
     # recover them from their end caps (#837) — the blind counterpart of the through-slot path.
     candidates.extend(_recognise_obround_from_ends(part, faces, blind=True))
     return _extend_obround_ends(_merge(candidates), part)
+
+
+def _recognise_corner_notches(faces: list[_Face], pbb, tol: float = 0.5) -> list[Pocket]:
+    """Recognise an axis-aligned rectangular blind interruption open at two
+    adjacent envelope edges (#897).
+
+    A conventional pocket has opposed wall pairs.  A corner notch deliberately
+    has only one X wall and one Y wall, so the pair-based pocket recogniser
+    cannot see it.  Its three interior faces still form an unambiguous box:
+    an X wall, a Y wall, and a horizontal floor.  Reuse ``Pocket`` as the
+    rectangular-recess record so the existing W×L×D callout/coverage pipeline
+    owns the dimensions; edge contact makes its X/Y location implicit.
+    """
+
+    def limits(bb, axis):
+        c = "XYZ"[_AXES[axis]]
+        return getattr(bb.min, c), getattr(bb.max, c)
+
+    out: list[Pocket] = []
+    bx = (pbb.min.X, pbb.max.X)
+    by = (pbb.min.Y, pbb.max.Y)
+    bz = (pbb.min.Z, pbb.max.Z)
+    for floor in (f for f in faces if f.axis == "z" and f.wall):
+        x0, x1 = limits(floor.bb, "x")
+        y0, y1 = limits(floor.bb, "y")
+        z0, z1 = limits(floor.bb, "z")
+        if x1 - x0 <= tol or y1 - y0 <= tol or abs(z1 - z0) > tol:
+            continue
+        if (x1 - x0) >= _SLOT_MAX_SPAN_FRAC * (bx[1] - bx[0]) or (
+            y1 - y0
+        ) >= _SLOT_MAX_SPAN_FRAC * (by[1] - by[0]):
+            continue  # a full-span step floor, not a bounded interruption
+        x_edge = abs(x0 - bx[0]) <= tol or abs(x1 - bx[1]) <= tol
+        y_edge = abs(y0 - by[0]) <= tol or abs(y1 - by[1]) <= tol
+        if not (x_edge and y_edge) or min(abs(z0 - z) for z in bz) <= tol:
+            continue
+        x_inner = x1 if abs(x0 - bx[0]) <= tol else x0
+        y_inner = y1 if abs(y0 - by[0]) <= tol else y0
+
+        xwall = next(
+            (
+                f
+                for f in faces
+                if f.axis == "x"
+                and abs(_center(f.bb, _AXES["x"]) - x_inner) <= tol
+                and _overlap_len(f.bb, floor.bb, "y") >= y1 - y0 - tol
+            ),
+            None,
+        )
+        ywall = next(
+            (
+                f
+                for f in faces
+                if f.axis == "y"
+                and abs(_center(f.bb, _AXES["y"]) - y_inner) <= tol
+                and _overlap_len(f.bb, floor.bb, "x") >= x1 - x0 - tol
+            ),
+            None,
+        )
+        if xwall is None or ywall is None:
+            continue
+        wz0, wz1 = limits(xwall.bb, "z")
+        vz0, vz1 = limits(ywall.bb, "z")
+        d_lo, d_hi = max(wz0, vz0), min(wz1, vz1)
+        if d_hi - d_lo <= tol or not (d_lo - tol <= z0 <= d_hi + tol):
+            continue
+
+        sx, sy = x1 - x0, y1 - y0
+        if sx <= sy:
+            width_axis, long_axis = "x", "y"
+            width, length, w_center, lo, hi = sx, sy, (x0 + x1) / 2, y0, y1
+        else:
+            width_axis, long_axis = "y", "x"
+            width, length, w_center, lo, hi = sy, sx, (y0 + y1) / 2, x0, x1
+        out.append(
+            Pocket(
+                width_axis=width_axis,
+                long_axis=long_axis,
+                width=round(width, 2),
+                length=round(length, 2),
+                depth=round(d_hi - d_lo, 2),
+                w_center=round(w_center, 2),
+                lo=round(lo, 2),
+                hi=round(hi, 2),
+                d_lo=round(d_lo, 2),
+                d_hi=round(d_hi, 2),
+                open_sign=1 if floor.normal[2] > 0 else -1,
+                edge_anchored=True,
+            )
+        )
+    return out
 
 
 def _pocket_spec_key(pk: Pocket) -> tuple:

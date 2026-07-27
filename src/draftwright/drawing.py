@@ -94,6 +94,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "feature_no_centermark",
         "pad_footprint_not_defined",
         "pocket_not_located",
+        "unrecognised_defining_geometry",
         "axial_length_missing",
         "missing_principal_dimension",
         "label_vs_measured",
@@ -1830,7 +1831,12 @@ class Drawing:
             if r.height_ladder_ids:
                 assert a is not None and isinstance(model, PartModel)
                 render_height_ladder(
-                    self, model, a, ctx=ctx, include_overall=not r.explicit_envelope_height
+                    self,
+                    model,
+                    a,
+                    ctx=ctx,
+                    include_overall=not r.explicit_envelope_height,
+                    detail_view=self._build.detail_view,
                 )
 
         def _s_step_positions():
@@ -2423,6 +2429,7 @@ class Drawing:
                 pads=a.pads if a is not None else None,
                 pockets=a.pockets if a is not None else None,
                 bbox=a.bb if a is not None else None,
+                features=getattr(model, "features", ()) if model is not None else (),
             )
             # Reverse direction (#487): a DECLARED feature with no matching geometry (a stale
             # phantom callout). Only for a caller-supplied model — detection can't over-declare.

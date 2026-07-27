@@ -858,6 +858,7 @@ def pocket(
     lo=None,
     hi=None,
     at=None,
+    edge_anchored=False,
 ) -> PocketFeature:
     """A blind rectangular recess — a floored slot/pocket, dimensioned width × length ×
     depth (#148a). The blind counterpart of :func:`slot`: unlike a through-slot the depth
@@ -944,6 +945,7 @@ def pocket(
         w_center=w_center,
         lo=lo,
         hi=hi,
+        edge_anchored=bool(edge_anchored),
     )
 
 

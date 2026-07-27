@@ -293,8 +293,14 @@ def _suppression(model: PartModel, feature: Feature, param: DimParameter):
         od_perp = {"x": {"depth"}, "y": {"width"}, "z": {"width", "depth"}}[rot.frame.axis]
         if param.role in od_perp:
             return True, f"rotational OD ({rot.frame.axis}-axis) conveys this extent"
+    # Keep width as the single representative planar extent. Suppressing both
+    # width and depth made square parts lose their plan size entirely (#897).
     if param.role in ("width", "depth") and _square_footprint(model):
-        return True, "square footprint (single overall dim suffices)"
+        has_profile = any(
+            f.kind == "step_level" and getattr(f, "shoulders", ()) for f in model.features
+        )
+        if not has_profile or param.role == "depth":
+            return True, "square footprint (single overall dim suffices)"
     if param.role == "width" and model.orientation == "x":
         return True, "X-turned (step-length chain conveys the length)"
     if param.role == "height" and model.orientation == "z":
@@ -346,6 +352,8 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
                 near = min(f.members, key=lambda m: (m[0] - dx) ** 2 + (m[1] - dy) ** 2)
                 refs.append((near, "location_pattern", f))
         elif isinstance(f, PocketFeature):
+            if f.edge_anchored:
+                continue
             # A recognised pocket frame may be anchored at an opening corner;
             # location furniture defines the in-plane centre, which is expressed
             # explicitly by lo/hi and w_center for every principal orientation.

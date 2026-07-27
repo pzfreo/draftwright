@@ -5294,10 +5294,8 @@ class TestLintSummaryAndDrops:
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 
     def test_legible_steps_gate_drops_closely_spaced(self):
-        # #41: a step is dimensioned only if tall enough from the base AND at
-        # least _MIN_STEP_SEP_MM (page-mm) above the previously kept step;
-        # closely-spaced shoulders are dropped (surfaced via lint), too-short
-        # ones are silently omitted.
+        # #41/#565: closely-spaced shoulders are dropped (surfaced via lint),
+        # but a short first rise remains dimensionable with external arrows.
         from draftwright._core import (
             _MIN_STEP_DIM_MM,
             _MIN_STEP_SEP_MM,
@@ -5309,9 +5307,9 @@ class TestLintSummaryAndDrops:
         kept, n_too_close = _legible_steps(zs, 0.0, scale=1.0)
         assert kept == [base, base + _MIN_STEP_SEP_MM + 1.0]
         assert n_too_close == 2
-        # A sub-legible step (too short to carry a label) is omitted, not dropped.
-        kept2, n2 = _legible_steps([1.0, base], 0.0, scale=1.0)
-        assert kept2 == [base]
+        # A short first step survives; DimensionLine moves text/arrows outside.
+        kept2, n2 = _legible_steps([1.0, base], 0.0, scale=1.0, allow_short=True)
+        assert kept2 == [1.0, base]
         assert n2 == 0
 
     @pytest.mark.timeout(120)

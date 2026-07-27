@@ -219,7 +219,9 @@ def _feature_line(f) -> str:
         return (
             f"sheet.pocket(width={_n(f.width)}, length={length}, depth={_n(f.depth)}, "
             f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
-            f"lo={lo}, hi={hi}, w_center={_n(f.w_center)})"
+            f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}"
+            + (", edge_anchored=True" if f.edge_anchored else "")
+            + ")"
         )
     if k == "pad":
         half = f.width / 2

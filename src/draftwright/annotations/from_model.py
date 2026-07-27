@@ -36,6 +36,7 @@ from draftwright._core import (
     _END_ON,
     _EST_CHAR_WIDTH_EM,
     _MARGIN,
+    _MIN_STEP_DIM_MM,
     _MIN_STEP_SEP_MM,
     _SLOT_DIM_DEPTH,
     _SLOT_DIM_HEIGHT,
@@ -2773,7 +2774,9 @@ def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
     return n, mean_rise
 
 
-def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) -> int:
+def render_height_ladder(
+    dwg, model, a, *, ctx, include_overall: bool = True, detail_view: bool = False
+) -> int:
     """Front-view right ladder: prismatic step heights (from `StepLevelFeature`)
     stacked inner→outer, then the overall height outermost — registered as
     :class:`CorridorCandidate`s in the shared ``(front, right)`` corridor (#636;
@@ -2793,6 +2796,8 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
     tier = draft.font_size + 2 * draft.pad_around_text
     step = next((f for f in model.features if f.kind == "step_level"), None)
     levels = list(step.levels) if step is not None else []
+    step_shoulders = tuple(step.shoulders) if step is not None else ()
+    short_levels: list[float] = []
     rep = _detect_step_repeat(levels, a.bb.min.Z, a.bb.max.Z) if levels else None
 
     # The chain, inner→outer: (name, page-z top, label, tier size, drop message).
@@ -2810,14 +2815,23 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
             )
         )
     elif levels:
-        kept, n_close = _legible_steps(levels, a.bb.min.Z, a.SCALE)
+        # Recover a short *structural* rise with external arrows (#565).
+        # A tiny level with no recognised transition is incidental geometry
+        # (plate/pocket floor) and remains outside the height ladder.
+        kept, n_close = _legible_steps(
+            levels, a.bb.min.Z, a.SCALE, allow_short=bool(step_shoulders)
+        )
         if n_close:
-            ctx.record_issue(
-                "warning",
-                "step_dim_dropped",
-                f"{n_close} step height(s) too closely spaced to dimension at this scale "
-                "(use a detail view)",
-            )
+            # With the explicit detail opt-in the enlarged view owns the omitted
+            # rungs. Report the source-view drop only when no recovery was
+            # requested; a failed detail records ``detail_unplaceable`` instead.
+            if not detail_view:
+                ctx.record_issue(
+                    "warning",
+                    "step_dim_dropped",
+                    f"{n_close} step height(s) too closely spaced to dimension at this scale "
+                    "(use a detail view)",
+                )
             # First-class escalation alongside the lint code (ADR 0009 Amdt 1, #351
             # PR-4b) — `_request_prismatic_detail` (sections.py) consumes this instead
             # of recomputing the legibility gate.
@@ -2825,6 +2839,9 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
                 Escalation(kind="step", view="front", feature=step, reason="illegible")
             )
         for col, z in enumerate(kept):
+            if step_shoulders and (z - a.bb.min.Z) * a.SCALE < _MIN_STEP_DIM_MM:
+                short_levels.append(z)
+                continue
             chain.append(
                 (
                     f"dim_step_{col}",
@@ -2911,22 +2928,85 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
                 footprint=_foot,
             ),
         )
-    return len(chain)
+    # A short rise needs external arrows, whose ink occupies most of the usual
+    # right-hand height ladder. Solve these exceptional rungs in the equivalent
+    # left strip so they do not make the mandatory overall height infeasible.
+    left_edge = FX(a.bb.min.X) - 2
+    for i, z in enumerate(short_levels):
+        name = f"dim_step_{i}"
+        ztop = FZ(z)
+        label = _fmt(z - a.bb.min.Z)
+
+        def _build_left(pos, ztop=ztop, label=label):
+            return _dim(
+                (left_edge, zmin, 0),
+                (left_edge, ztop, 0),
+                "left",
+                left_edge - pos,
+                draft,
+                label=label,
+            )
+
+        def _drop_left(nm):
+            msg = full_strip_message(
+                "short step-height dimension dropped (front-view left strip full)",
+                dwg,
+                a.fv_zones.left,
+                "front",
+                "x",
+            )
+            ctx.record_issue("error", "placement_unsatisfiable", msg)
+
+        register_corridor(
+            ctx,
+            ("front", "left"),
+            a.fv_zones.left,
+            "front",
+            "x",
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=_build_left,
+                order=(_SIZE_SUBCHAIN, i, name),
+                on_place=lambda nm: None,
+                on_drop=_drop_left,
+                force=True,
+                feature=step,
+                footprint=lambda pos, ztop=ztop, label=label: dim_footprint(
+                    (left_edge, zmin, 0),
+                    (left_edge, ztop, 0),
+                    "left",
+                    left_edge - pos,
+                    draft,
+                    label,
+                ),
+            ),
+        )
+    return len(chain) + len(short_levels)
 
 
 def render_step_positions(dwg, model, a, *, ctx) -> int:
     """Prismatic step POSITIONS (#555): where each shoulder sits along its axis,
     dimensioned from the part datum so a stepped block is fully constrained (the step
     heights alone leave the shoulder location implicit — two geometries draw the same
-    sheet). A Y shoulder is a horizontal dim above the side (end) view (which maps Y
-    horizontally, where the step profile reads); an X shoulder above the plan view —
-    the same axis→view mapping the hole-location ladder uses. A shoulder whose strip is
-    full drops with a lint code, not silently. Returns the count placed."""
+    sheet). A Y shoulder is a horizontal dim on the side (end) view (which maps Y
+    horizontally, where the step profile reads); an X shoulder is above the plan view —
+    the same axis→view mapping the hole-location ladder uses. Mixed-axis transitions use
+    the side-below strip so they do not collide with the isometric furniture above.
+    A shoulder whose strip is full drops with a lint code, not silently. Returns the
+    count placed."""
     step = next((f for f in model.features if f.kind == "step_level"), None)
     if step is None or not step.shoulders:
         return 0
     draft = dwg.draft
-    tier = draft.font_size + 2 * draft.pad_around_text
+    axes = {axis for axis, _ in step.shoulders}
+    mixed_axes = len(axes) > 1
+    # Dense transition ladders need only one text tier: arrowhead clearance is
+    # along the measured axis, not between outward ladder tiers (#897). Retain
+    # the established spacing for ordinary single-axis stepped profiles.
+    tier = draft.font_size + (
+        draft.pad_around_text if len(step.shoulders) > 2 else 2 * draft.pad_around_text
+    )
     n = 0
     counts: dict = {"x": 0, "y": 0}
     for axis, pos in sorted(step.shoulders):
@@ -2935,27 +3015,39 @@ def render_step_positions(dwg, model, a, *, ctx) -> int:
         val = abs(pos - datum)
         i = counts[axis]
         counts[axis] += 1
-        if axis == "y":
-            view, strip = "side", a.sv_zones.above
+        if axis == "y" and mixed_axes:
+            # Keep mixed-axis Y-profile stations below the side view. The iso
+            # caption lives above it and is emitted after the corridor drain,
+            # so an above ladder could not see/avoid that furniture (#897).
+            view, strip, direction = "side", a.sv_zones.below, "below"
+            p1 = dwg.at(view, a.bb.min.X, datum, a.bb.min.Z)
+            p2 = dwg.at(view, a.bb.min.X, pos, a.bb.min.Z)
+        elif axis == "y":
+            view, strip, direction = "side", a.sv_zones.above, "above"
             p1 = dwg.at(view, a.bb.min.X, datum, a.bb.max.Z)
             p2 = dwg.at(view, a.bb.min.X, pos, a.bb.max.Z)
         else:  # x — shoulder along X → above the plan view
-            view, strip = "plan", a.pv_zones.above
+            view, strip, direction = "plan", a.pv_zones.above, "above"
             p1 = dwg.at(view, datum, a.bb.max.Y, a.bb.min.Z)
             p2 = dwg.at(view, pos, a.bb.max.Y, a.bb.min.Z)
         edge = p1[1]
         name = f"dim_shoulder_{axis}{i}"
 
-        def _build(pos, p1=p1, p2=p2, edge=edge, val=val):
+        def _build(pos, p1=p1, p2=p2, edge=edge, val=val, direction=direction):
             return _dim(
-                (p1[0], edge, 0), (p2[0], edge, 0), "above", pos - edge, draft, label=_fmt(val)
+                (p1[0], edge, 0),
+                (p2[0], edge, 0),
+                direction,
+                pos - edge if direction == "above" else edge - pos,
+                draft,
+                label=_fmt(val),
             )
 
-        def _drop(nm, val=val, view=view):
+        def _drop(nm, val=val, view=view, direction=direction):
             ctx.record_issue(
                 "warning",
                 "step_position_dropped",
-                f"step position {_fmt(val)} not dimensioned ({view} above-strip full)",
+                f"step position {_fmt(val)} not dimensioned ({view} {direction}-strip full)",
             )
 
         # ADR 0009 corridor candidate (#636): a shoulder position is a datum-referenced
@@ -2968,7 +3060,7 @@ def render_step_positions(dwg, model, a, *, ctx) -> int:
         # lifecycle for no benefit.
         register_corridor(
             ctx,
-            (view, "above"),
+            (view, direction),
             strip,
             view,
             "y",

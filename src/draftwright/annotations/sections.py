@@ -488,9 +488,16 @@ def _render_detail(
         pr, pt = _pads(s)
         return view_w * s + pr <= rect_w and view_h * s + pt + a.DIM_PAD + cap_h <= rect_h
 
-    while detail_scale > a.SCALE * 1.2 and not _fits(detail_scale):
-        detail_scale -= a.SCALE
-    if detail_scale <= a.SCALE * 1.2 or not _fits(detail_scale):
+    # Fit continuously enough not to jump over a viable scale.  Subtracting a
+    # whole sheet scale skipped 3:1 on a 2:1 sheet (4→2), even when 3:1 both fit
+    # and exceeded the requested legibility scale (#897).
+    min_detail_scale = max(req.scale_needed, a.SCALE * 1.2 + 1e-6)
+    fit_step = a.SCALE * 0.5
+    while detail_scale - fit_step >= min_detail_scale and not _fits(detail_scale):
+        detail_scale -= fit_step
+    if not _fits(detail_scale) and detail_scale > min_detail_scale:
+        detail_scale = min_detail_scale
+    if detail_scale < min_detail_scale or not _fits(detail_scale):
         _log.info("Detail %s skipped (no room)", letter)
         return False
     pad_right, pad_top = _pads(detail_scale)
@@ -550,7 +557,13 @@ def _render_detail(
     else:
         FX, FZ = a.proj.front_x, a.proj.front_z
         if req.axis == "z":  # band runs along page-y
-            mx0, mx1, my0, my1 = FX(a.bb.min.X), FX(a.bb.max.X), FZ(req.lo), FZ(req.hi)
+            xlo = (
+                req.cross_lo if req.cross_axis == "x" and req.cross_lo is not None else a.bb.min.X
+            )
+            xhi = (
+                req.cross_hi if req.cross_axis == "x" and req.cross_hi is not None else a.bb.max.X
+            )
+            mx0, mx1, my0, my1 = FX(xlo), FX(xhi), FZ(req.lo), FZ(req.hi)
         else:  # x band runs along page-x
             mx0, mx1, my0, my1 = FX(req.lo), FX(req.hi), FZ(a.bb.min.Z), FZ(a.bb.max.Z)
     marker = Compound(
@@ -716,23 +729,49 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx) -> None:
 
     The redraw re-draws the step-height ladder in the detail view at the
     enlarged scale."""
-    if len(a.step_zs) < 2:
+    step = (
+        next(
+            (f for f in dwg.model().features if getattr(f, "kind", None) == "step_level"),
+            None,
+        )
+        if dwg is not None
+        else None
+    )
+    levels = list(getattr(step, "levels", ())) or list(a.step_zs)
+    if len(levels) < 2:
         return
     if not any(e.kind == "step" and e.reason == "illegible" for e in ctx.escalations):
         return
-    z0, z1 = min(a.step_zs), max(a.step_zs)
+    z0, z1 = min(levels), max(levels)
     pad = 0.08 * (z1 - z0) + 1.0
     band_lo, band_hi = max(a.bb.min.Z, z0 - pad), min(a.bb.max.Z, z1 + pad)
-    s_zs = sorted(a.step_zs)
+    s_zs = sorted(levels)
     min_gap = min(b - aa for aa, b in zip(s_zs, s_zs[1:]))
     # World→page scale that renders the closest gap at the legibility floor — no sheet
     # factor (detail_scale is itself an absolute world→page scale). (#307 review)
     scale_needed = _MIN_STEP_SEP_MM / min_gap if min_gap > 0 else float("inf")
-    step_pad = _MIN_STEP_SEP_MM
+    # Ladder columns only need one text tier horizontally; the vertical
+    # shoulder-separation threshold is larger because it also protects the two
+    # arrowheads. Keeping those concepts separate lets a recovered detail fit
+    # beside mandatory envelope dimensions (#897).
+    step_pad = (
+        dwg.draft.font_size + dwg.draft.pad_around_text if dwg is not None else _MIN_STEP_SEP_MM
+    )
+    x_stations = sorted(pos for axis, pos in getattr(step, "shoulders", ()) if axis == "x")
+    xpad = 0.08 * (x_stations[-1] - x_stations[0]) + 1.0 if len(x_stations) >= 2 else 0.0
 
     def pads(detail_scale):  # one ladder rung per step legible at this scale, + overall
         return (
-            (len(_legible_steps(a.step_zs, a.bb.min.Z, detail_scale)[0]) + 1) * step_pad + 6,
+            len(
+                _legible_steps(
+                    levels,
+                    a.bb.min.Z,
+                    detail_scale,
+                    allow_short=bool(getattr(step, "shoulders", ())),
+                )[0]
+            )
+            * step_pad
+            + 12,
             0.0,
         )
 
@@ -743,14 +782,34 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx) -> None:
             px, py = coords.pp(x, y, z)
             return (px, py, 0.0)
 
-        det_kept, _ = _legible_steps(a.step_zs, a.bb.min.Z, detail_scale)
-        ladder = _at(a.bb.max.X, a.cy, a.bb.min.Z)[0] + 2
+        det_kept, _ = _legible_steps(
+            levels,
+            a.bb.min.Z,
+            detail_scale,
+            allow_short=bool(getattr(step, "shoulders", ())),
+        )
+        # Projection handedness can put world max-X on the page-left. Anchor
+        # the ladder to the actual page-right silhouette, not an assumed world
+        # edge, so labels remain outside the detail line-work (#897).
+        detail_xs = (
+            (
+                max(a.bb.min.X, x_stations[0] - xpad),
+                min(a.bb.max.X, x_stations[-1] + xpad),
+            )
+            if len(x_stations) >= 2
+            else (a.bb.min.X, a.bb.max.X)
+        )
+        anchor_x = max(
+            detail_xs,
+            key=lambda x: _at(x, a.cy, a.bb.min.Z)[0],
+        )
+        ladder = _at(anchor_x, a.cy, a.bb.min.Z)[0] + 2
         placed = 0
-        for i, z in enumerate([*det_kept, a.bb.max.Z]):
-            label = _fmt(a.z_size) if z == a.bb.max.Z else _fmt(z - a.bb.min.Z)
+        for i, z in enumerate(det_kept):
+            label = _fmt(z - a.bb.min.Z)
             try:
-                p_lo = _at(a.bb.max.X, a.cy, a.bb.min.Z)
-                p_hi = _at(a.bb.max.X, a.cy, z)
+                p_lo = _at(anchor_x, a.cy, a.bb.min.Z)
+                p_hi = _at(anchor_x, a.cy, z)
                 det_dim = _dim(
                     (ladder, p_lo[1], 0),
                     (ladder, p_hi[1], 0),
@@ -777,6 +836,9 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx) -> None:
             scale_needed=scale_needed,
             redraw=redraw,
             pads=pads,
+            cross_axis="x" if len(x_stations) >= 2 else None,
+            cross_lo=max(a.bb.min.X, x_stations[0] - xpad) if len(x_stations) >= 2 else None,
+            cross_hi=min(a.bb.max.X, x_stations[-1] + xpad) if len(x_stations) >= 2 else None,
             kind="prismatic-steps",
         )
     )
