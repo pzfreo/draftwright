@@ -37,25 +37,24 @@ Three ways to express drawing intent already exist, and they bracket the gap:
 
 The referential form itself is **not new — only its absence from the declarative surface
 is.** The imperative emitter (`--style imperative`, `builder._feature_listing`) already
-writes a referential reconstruction: `dwg.dimension(f, "length", role="step_height")`,
-`dwg.callout(f)`, `dwg.locate(f)`, recorded inside `with dwg.deferred():` over a
+writes a referential reconstruction — `dwg.dimension(f, "length", role="step_height")`,
+`dwg.callout(f)`, `dwg.locate(f)` inside `with dwg.deferred():` over a
 `build_drawing(..., auto_dims=False)` build. Each line names a feature and a role and
 carries no number. So this ADR generalises proven ground to the `Sheet` façade rather than
 inventing a mechanism (see "One generated output").
 
 The missing axis sits between (1) and (3): a way to declare **which measurements the
-drawing should carry, and why** — a *dimensioning-selection intent* — expressed in
-feature/world terms, never in page coordinates or strip assignments, routed through the
-same planner and corridor solve as the automatic dimensions. Concretely, today you
-cannot declare "dimension the pitch between these two bosses", "give this wall an
-overall-thickness dimension", or "do **not** auto-dimension this hole's location" as
-*intent* and let the engine place the result.
+drawing should carry** — expressed in feature/world terms, never in page coordinates or
+strip assignments, and routed through the same planner and corridor solve as the automatic
+dimensions. Today you cannot declare "dimension the pitch between these two bosses", "give
+this wall an overall-thickness dimension", or "do **not** auto-dimension this hole's
+location" as *intent* and let the engine place the result.
 
 The near-miss primitive is today's `sheet.dimension(...)` (`model.declare.authored_dimension`),
-used for imported AP242 PMI. But it is a *materialized* dimension — it carries
-`ref_pts` / `ref_bbox` / `at` — so it leans toward the hardcoded-geometry form ADR 0001
-deliberately rejected, not toward scale-independent intent. It is the escape hatch for
-"a source already measured this", not the intent layer for "this measurement matters".
+used for imported AP242 PMI. But it is *materialized* — it carries `ref_pts` / `ref_bbox` /
+`at` — so it leans toward the hardcoded-geometry form ADR 0001 rejected. It is the escape
+hatch for "a source already measured this", not the intent layer for "this measurement
+matters".
 
 **This is not in tension with ADR 0001 — it is its unfinished half.** ADR 0001 §2 says
 editing should be exposed as "the domain vocabulary a model already knows (features
@@ -74,60 +73,51 @@ every line is a droppable / editable declaration; the engine still owns derivati
 placement; re-running re-solves.
 
 The one surface is a **referential dimension line** — `sheet.dimension(<feature>, <role>)` —
-that names a feature (or the envelope) and the measurement to show, and **carries no
-number**. That verb name is a decision, not a placeholder: `dimension` means *referential*
-on both `Sheet` and `Drawing`, and today's materialized Sheet verb is renamed to
-`measured_dimension` to free it (see "One name, one contract"). The nominal value is always read from the referenced geometry, so a size lives
-in exactly one place — the feature declaration (for a STEP part, its detected snapshot;
-for a live part, the build123d object it reads from) — and a dimension can never drift
-from it. This is what dissolves the dual-source-of-truth objection to a per-dimension
-mirror: the mirror is single-source because the lines reference rather than restate (how
-*complete* it is, is bounded — see "What the mirror does and does not cover"). One
-referential contract covers three behaviours, all scale- and placement-independent
-(anchored in feature / world terms, per the ADR 0012 constraint):
+naming a feature (or the envelope) and the measurement to show, and **carrying no number**.
+That verb name is a decision, not a placeholder: `dimension` means *referential* on both
+`Sheet` and `Drawing`, and today's materialized Sheet verb is renamed to
+`measured_dimension` to free it (see "One name, one contract"). The nominal value is always
+read from the referenced geometry, so a size lives in exactly one place — the feature
+declaration (a detected snapshot for a STEP part, the build123d object for a live one) — and
+a dimension can never drift from it. That is what dissolves the dual-source-of-truth
+objection to a per-dimension mirror: the mirror is single-source because the lines reference
+rather than restate (how *complete* it is, is bounded — see "What the mirror does and does
+not cover"). One referential contract covers three behaviours, all scale- and
+placement-independent (anchored in feature / world terms, per the ADR 0012 constraint):
 
 - **Surface & drop** — the emitter emits one `dimension(...)` line per dimension the drawing
   carries, so the script mirrors the sheet; commenting a line out **suppresses** that
   dimension, keyed by its semantic dimension identity (see "Dimension identity"), never a
   page name or coordinate.
-- **Add** — a measurement the planner would not auto-produce (a span between two features,
-  a pattern pitch, a wall thickness, an angle) enters the shared solve as a new
+- **Add** — a measurement the planner would not auto-produce (a span between two features, a
+  pattern pitch, a wall thickness, an angle) enters the shared solve as a new
   `CorridorCandidate`. This is a **second verb, `add_dimension(...)`**, sharing the
   referential contract and the handle but not the meaning: it *augments* the planner's set,
-  where `dimension(...)` *is* the set. See "Two explicit sources of dimension intent" —
-  splitting the two is what keeps omission unambiguous.
-- **Emphasise** — `.pin()` / `.priority()` chained onto either line ranks or
-  anchors it in the solve (already ADR 0012), without fixing a coordinate.
+  where `dimension(...)` *is* the set. Splitting the two is what keeps omission unambiguous.
+- **Emphasise** — `.pin()` / `.priority()` chained onto either line ranks or anchors it in
+  the solve (already ADR 0012), without fixing a coordinate.
 
 The `.thread` / `.finish` aspect is the template and the invariant: a `dimension` line edits
-the dimension *set* the drawing carries; the corridor solve still decides ordering,
-dedup, priority-drop, and position. **A dimension line references; the engine places.**
+the dimension *set* the drawing carries; the corridor solve still decides ordering, dedup,
+priority-drop, and position. **A dimension line references; the engine places.**
 
 Only *dimensions* are surfaced as lines. Low-level furniture the engine derives — centre
-marks, section arrows, hatching, the NTS caption — stays automatic; surfacing each as a
-line would explode the mirror without adding any editable intent.
+marks, section arrows, hatching, the NTS caption — stays automatic; surfacing each would
+explode the mirror without adding any editable intent.
 
 ### What `dimension(...)` returns: the dimension-intent handle
 
-The referential verb returns a **`DimensionIntent` handle**, not `Sheet`. `.pin()` and
-`.priority()` chain from it and return the handle, so emphasis composes:
+The referential verb returns a **`DimensionIntent` handle**, not `Sheet`, so `.pin()` and
+`.priority()` chain — `sheet.dimension(bore, "location").pin().priority(2.0)`. This follows
+the pattern the façade already uses for anything carrying aspects (`hole` → `_Hole`,
+`diameter` → `_Dim`, `slot` → `_Params`) while verbs with nothing to decorate (`chamfer`,
+`fillet`, `plate`) return `Sheet`.
 
-```python
-sheet.dimension(bore, "location").pin().priority(2.0)
-```
-
-This follows the pattern the façade already uses for anything that carries aspects —
-`sheet.hole(...)` returns `_Hole`, `sheet.diameter(...)` returns `_Dim`,
-`sheet.slot(...)` returns `_Params` — while verbs with nothing to decorate
-(`chamfer`, `fillet`, `plate`) return `Sheet`. A dimension has things to say about it, so
-it gets a handle.
-
-The handle is the one place the dimension's semantic identity lives, and it is what the
-rest of the design keys on:
+The handle is the one place the dimension's semantic identity lives, and what the rest of
+the design keys on:
 
 - it carries the `DimensionId` defined in the next section — the identity used for
-  suppression, for the planner input, and for matching an emitted line back to the intent it
-  came from;
+  suppression, for the planner input, and for matching an emitted line back to its intent;
 - it is the ADR 0010 provenance anchor: intent → the annotation names the render seam
   produced, so `drop` / `annotations_of` resolve through it;
 - it is *not* a placement handle. It exposes no coordinate, no strip, and no view
@@ -141,8 +131,8 @@ ends at 0.4.0 when the legacy branch is deleted.
 
 Suppression, dedup, provenance and the emitter mirror all key on a dimension's identity, so
 the identity model has to be exact — and **`(feature, role)` is not it**. It is how a caller
-*addresses* a dimension at the call site; the key underneath needs more. Today's IR
-(`model/ir.py`) shows three tiers of same-role collision, and they are not the same problem:
+*addresses* a dimension; the key underneath needs more. `model/ir.py` shows three tiers of
+same-role collision, and they are not the same problem:
 
 1. **Same role, different kind — `kind` resolves it.** A blind hole carries
    `DimParameter("diameter", "bore", …)` *and* `DimParameter("depth", "bore", …)`;
@@ -176,24 +166,22 @@ class DimensionId:
     parameter: ParameterId       # "bore.diameter", "grid.pitch.x", "step_height", …
 ```
 
-`ParameterId` is a readable semantic string, not an opaque token: it appears in
-diagnostics, lint messages and snapshots, and it is stable across re-detection and planner
-changes. Two candidates are **rejected outright**: the parameter's *list position* (any
-re-detection or planner reorder silently repoints every intent) and a random UUID
-(unreadable in a diff, unstable across runs — the property that makes a script safe to keep
-in version control is exactly that its keys do not churn).
+`ParameterId` is a readable semantic string, not an opaque token: it appears in diagnostics,
+lint messages and snapshots, and is stable across re-detection and planner changes. Two
+candidates are **rejected**: the parameter's *list position* (any reorder silently repoints
+every intent) and a random UUID (unreadable in a diff, unstable across runs — what makes a
+script safe to version-control is exactly that its keys do not churn).
 
-**`ParameterId` is derived, not hand-authored.** It composes as `role` + `kind` + an optional
-semantic discriminator, so the roughly forty `DimParameter(...)` construction sites do not
-each grow a literal that must be kept in sync with the `role` sitting beside it. Only the
-discriminator is genuinely new data, and only tier-2 parameters need one — `axis="x"` /
-`"y"` on the grid pitches, today's sole instance. The alternative considered was an explicit
-`id=` field on every `DimParameter`; it is more direct, but it restates `(kind, role)` at
-every site where it adds nothing, and a site whose `id=` disagrees with its `role=` is a new
-class of silent bug. Derived keeps one source of truth, which is the same argument this ADR
+**It is derived, not hand-authored** — composed as `role` + `kind` + an optional semantic
+discriminator, so the forty `DimParameter(...)` construction sites do not each grow a
+literal that can drift from the `role` beside it. Only the discriminator is new data, and
+only tier 2 needs one (`axis="x"` / `"y"` on the grid pitches, today's sole instance). An
+explicit `id=` field on every parameter was the alternative; it is more direct, but restates
+`(kind, role)` wherever it adds nothing, and a site whose `id=` disagrees with its `role=`
+is a new class of silent bug. Derived keeps one source of truth — the same argument this ADR
 makes about numbers.
 
-**The selectors stay clean.** The discriminator surfaces as a keyword, and only where it is
+**The selectors stay clean**, with the discriminator surfacing as a keyword only where it is
 needed:
 
 ```python
@@ -208,9 +196,8 @@ Omitting a needed discriminator is an error, not a guess: `dimension(pattern, "p
 grid raises and names the two choices, rather than silently picking one.
 
 **Inter-feature measurements get their own identity, not a borrowed one.** A distance, angle
-or offset between two features does not belong to either of them, and forcing it into one
-feature's parameter space would make the key depend on which subject the caller happened to
-name first:
+or offset between two features belongs to neither; forcing it into one feature's parameter
+space would make the key depend on which subject the caller named first:
 
 ```python
 @dataclass(frozen=True)
@@ -220,18 +207,16 @@ class RelationDimensionId:
     axis: Literal["x", "y", "z"] | None = None
 ```
 
-This is what makes the "not every dimension is nameable" edge below a *bounded* gap rather
-than an open one: inter-feature spans are nameable, just not as `(feature, role)`.
+This makes the "not every dimension is nameable" edge below a *bounded* gap rather than an
+open one: inter-feature spans are nameable, just not as `(feature, role)`.
 
-**Feature identity is a separate sub-problem, and this ADR does not solve it.** There is no
-`FeatureId` in the IR today — features are frozen dataclasses the plan carries by object
-(`DimensionGroup.feature`). Within one script run that is sufficient and correct: the script
-holds the variable (`bore`), so `sheet.dimension(bore, "diameter")` resolves by object
-identity with no key at all. A *durable* `FeatureId` is only needed where an intent must
-survive re-detection of the part — which is precisely the `of(...)` question left open
-below. **This ADR requires object identity and defers durable feature identity to that
-question**, so `FeatureId` above reads as "whatever identifies a feature", not as a new type
-this decision mints.
+**Feature identity is a separate sub-problem this ADR does not solve.** There is no
+`FeatureId` in the IR today — the plan carries features by object (`DimensionGroup.feature`)
+— and within one script run that is sufficient: the script holds the variable, so
+`sheet.dimension(bore, "diameter")` resolves by object identity with no key at all. A
+*durable* `FeatureId` is only needed where an intent must survive re-detection, which is the
+`of(...)` question left open below. So `FeatureId` above reads as "whatever identifies a
+feature", not as a new type this decision mints.
 
 **The governing principle**, which is what keeps this stable as the planner evolves:
 *identity describes the engineering measurement, not the annotation or the planning pass
@@ -240,88 +225,63 @@ renderer routing — but the identity is the measurement.
 
 ### Two explicit sources of dimension intent
 
-"Absence of a line means suppressed" cannot hold on its own: every existing generated and
-hand-authored `Sheet` script contains no referential dimension lines and relies on
-automatic planning, so the engine would have no way to tell a legacy script asking for
-normal automatic dimensions from a new script deliberately suppressing every one. Omission
-is only meaningful inside a set that was declared to be complete.
-
-**The dimension set therefore has exactly two sources, and the script always says which:**
+"Absence of a line means suppressed" cannot hold on its own: every existing script contains
+no referential dimension lines and relies on automatic planning, so the engine could not
+tell a legacy script asking for normal dimensions from a new one deliberately suppressing
+every dimension. **Omission is only meaningful inside a set declared complete.** So the
+dimension set has exactly two sources, and the script always says which:
 
 ```python
-# Planner-selected set — the automatic dimensions, requested explicitly.
-dwg = Sheet(part).auto_dimensions().build()
+dwg = Sheet(part).auto_dimensions().build()   # the planner-selected set, requested
 
-# Authored set — these declarations ARE the complete dimension set.
-sheet = Sheet(part)
+sheet = Sheet(part)                           # or: these declarations ARE the set
 sheet.dimension(bore, "diameter")
 sheet.dimension(bore, "location")
 dwg = sheet.build()
 ```
 
-The rules:
-
-- `auto_dimensions()` requests the planner-selected set (ADR 0015 `plan_dimensions`).
-- `dimension(...)` declarations form the **complete** authored set — which is what makes
-  omission mean suppression, without any hidden mode flag.
-- **Mixing the two raises.** A script that has requested the automatic set cannot also
-  hand-declare members of it, because the reader could no longer tell a complete authored
-  set from an automatic plan plus one extra request:
-
-  ```python
-  sheet.auto_dimensions()
-  sheet.dimension(bore, "diameter")
-  # ValueError: cannot mix automatic and authored dimension sets
-  ```
-
+- `auto_dimensions()` requests the planner-selected set (ADR 0015 `plan_dimensions`);
+  `dimension(...)` declarations form the **complete** authored set — which is what makes
+  omission mean suppression, with no hidden mode flag.
+- **Mixing the two raises** (`ValueError: cannot mix automatic and authored dimension
+  sets`), because a reader could no longer tell a complete authored set from an automatic
+  plan plus one extra request.
 - **Augmenting the automatic plan is `add_dimension(...)`** — a distinct verb, so the
   distinction stays visible at the call site. It shares the referential contract exactly
   (names a feature and a role, carries no number, returns a `DimensionIntent`, chains
-  `.pin()` / `.priority()`) and differs only in what its presence claims: `add_dimension`
-  adds one member to a set the planner still owns, while `dimension` declares the set. It is
-  the sanctioned way to get "the automatic plan **plus** one more":
+  `.pin()` / `.priority()`) and differs only in what its presence claims: it adds one member
+  to a set the planner still owns, where `dimension` declares the set.
 
   ```python
   sheet.auto_dimensions()
   sheet.add_dimension(pattern, "pitch")     # planner's set + the pitch dim
   ```
 
-  It **requires** `auto_dimensions()` — there is nothing to augment in an authored set,
-  where every line is already just `dimension(...)` — so `add_dimension` without it raises
-  the same way mixing does. Overlap between an augmenting declaration and something the plan
-  already covers is *not* an error; it is handled by the duplicate protection below, so
-  adding a dimension the planner already chose is idempotent rather than doubled. What raises
-  is reusing the *same* verb for both sources, because that is what makes omission ambiguous.
-
-  This split is also why the phasing below leads with `add_dimension`, not `dimension`: a
-  verb must not mean "augment the plan" in one release and "be the plan" in the next.
+  It **requires** `auto_dimensions()` — there is nothing to augment in an authored set — so
+  `add_dimension` without it raises the same way mixing does. Overlap with something the
+  plan already covers is *not* an error: the identity key makes it idempotent (see
+  "Preventing duplicate dimensions"). What raises is reusing the *same* verb for both
+  sources. This split is also why the phasing leads with `add_dimension`: a verb must not
+  mean "augment the plan" in one release and "be the plan" in the next.
+- **A build that requested neither raises** — `Sheet(part).build()` does not silently
+  produce an undimensioned drawing (`ValueError: no dimension set requested — call
+  auto_dimensions() …`). This is the one point where explicitness alone is not enough: a
+  silently undimensioned sheet is *plausible-looking and unbuildable*, the "clean but
+  incomplete drawing" this project ranks as worse than a visible failure and the same case
+  the completeness lint (#632) exists to stop passing. It is consistent with #631 (a boss
+  and coincident step raise rather than silently dropping a height) and #630 (an unplaceable
+  detail reports rather than no-ops), and costs nothing in practice — the emitter always
+  writes one of the two forms.
 
 A third design is rejected outright: **implicit-by-usage** — "if the script declares any
 dimension, the automatic set turns off". It needs no flag and reads cleanly, but a
 hand-author who adds one pitch dimension would silently lose every ⌀ callout on the sheet.
 Action at a distance from a line that looks additive is worse than an explicit source.
-- **A build that has requested neither raises.** `Sheet(part).build()` does not silently
-  produce an undimensioned drawing:
-
-  ```python
-  Sheet(part).build()
-  # ValueError: no dimension set requested — call auto_dimensions() for the
-  # planner-selected set, or declare dimensions with dimension(...)
-  ```
-
-  This is the one point where explicitness alone is not enough. A silently undimensioned
-  sheet is *plausible-looking and unbuildable* — the "clean but incomplete drawing" this
-  project ranks as worse than a visible failure, and the same call the completeness lint
-  (#632) exists to stop passing. Failing at the call is consistent with #631 (a boss and
-  coincident step raise rather than silently dropping a height) and #630 (an unplaceable
-  detail reports rather than no-ops). The emitter always writes one of the two forms, so a
-  generated script is never ambiguous and never hits this error.
 
 This is a **breaking change**: `Sheet(part).build()` is automatic today. The package is
-alpha (`Development Status :: 3 - Alpha`) with few users, and the break buys an
-unambiguous omission rule with no hidden mode, no parallel surface, and natural handling of
-the empty set. It is taken deliberately, in the same window as the
-`dimension` → `measured_dimension` rename so callers absorb one migration, not two.
+alpha with few users, and the break buys an unambiguous omission rule with no hidden mode,
+no parallel surface, and natural handling of the empty set. It ships in the same window as
+the `dimension` → `measured_dimension` rename so callers absorb one migration, not two.
 
 ### Preventing duplicate dimensions
 
@@ -356,86 +316,47 @@ already owns (ADR 0014/0015), not intent the caller supplies.
   would fragment one feature across two or three `view` blocks and repeat its reference;
   grouping by feature keeps each feature's intent whole and lets each dimension route
   independently.
-- **A view is still first-class — for view-level concerns**, not as an owner of
-  dimensions: presence / scale, and section / detail *definition*. What that surface should
-  look like is **out of scope here** — see "Out of scope: the view / section surface".
+- **A view is still first-class — for view-level concerns** (presence / scale, section and
+  detail *definition*), just not as an owner of dimensions. That surface is out of scope
+  here.
 - **The view is a derived-with-override target**, mirroring the GD&T aspects
   (`view=` / `side=` on `sheet.control` / `sheet.finish`, ADR 0011 P2c):
   `sheet.dimension(feature, role, view="front", side="below")` is the escape hatch when the
   caller disagrees with the routing; omit it and the engine derives.
-- **"Across views" holds only at declaration.** A dimension is declared once and rendered
-  in exactly one view; dimensioning a feature in two views would be redundant (no lint
-  reports that today — see "Preventing duplicate dimensions").
-  So flat-declare + engine-route is the natural split; the emitter may still group the
-  emitted `dimension` lines under per-view comment headers for readability without the API
-  owning that structure.
+- **"Across views" holds only at declaration.** A dimension is declared once and rendered in
+  exactly one view; dimensioning a feature in two views would be redundant. So flat-declare
+  + engine-route is the natural split — and the emitter may still group emitted lines under
+  per-view comment headers for readability without the API owning that structure.
 
 ### One name, one contract: `dimension` is referential everywhere
 
-> **This is the approach. `dimension` means *referential* on both `Sheet` and `Drawing`;
-> the materialized verb is renamed to `measured_dimension`, with
-> `model.declare.authored_dimension` renamed in step so one vocabulary spans the façade
-> and the model layer.** The alternative — keeping one `dimension` verb with two contracts
-> forever — is recorded at the end of this section as rejected, not as a lean.
+**`dimension` means *referential* on both `Sheet` and `Drawing`; the materialized verb is
+renamed to `measured_dimension`, with `model.declare.authored_dimension` renamed in step so
+one vocabulary spans the façade and the model layer.**
 
-The referential verb is **not new** — `Drawing.dimension(feature, param, *, role=, side=,
-view=, pin=, priority=)` already exists and already has this shape: it takes an IR feature
-plus a parameter kind, derives the value from the feature (`_derive_span`), carries no
-number, places into free strip space, tags the annotation by feature, and pairs with
-`Drawing.drop(feature)` / `annotations_of(feature)`. That is this ADR's verb, built, on the
-Drawing surface. What is missing is the *Sheet-side twin*, the planner intent input, and
-the emitter mirror — not the verb itself.
+The referential verb is **not new**: `Drawing.dimension(feature, param, *, role=, side=,
+view=, pin=, priority=)` already has exactly this shape — takes an IR feature plus a
+parameter kind, derives the value (`_derive_span`), carries no number, places into free
+strip space, and pairs with `Drawing.drop(feature)` / `annotations_of(feature)`. What is
+missing is the *Sheet-side twin*, the planner intent input, and the emitter mirror.
 
-The obstacle is a collision that already exists today: **`dimension` means opposite things
-on the two user-facing surfaces.** Both of these are real calls from the current test
-suite:
+The obstacle is a collision that exists today: **`dimension` means opposite things on the
+two user-facing surfaces.** Both of these are real calls from the current test suite —
 
 ```python
-# Drawing surface — REFERENTIAL. Names a feature and a parameter; the engine
-# derives the value and places it.            (tests/test_make_drawing.py)
-dwg.dimension(step, "length", role="step_position")
-
-# Sheet surface — MATERIALIZED, under the SAME verb name. States the number,
-# the label, and the model points to hang it on.  (tests/test_sheet_emit.py)
-sheet.dimension(
-    kind="linear",
-    value=40,
-    label="40",
-    dominant_axis="X",
-    ref_bbox=(-20, -10, -5, 20, 10, 5),
-    ref_pts=[(-20, 0, 0), (20, 0, 0)],
-    upper_tol=0.1,
-    lower_tol=0.0,
-)
+dwg.dimension(step, "length", role="step_position")     # REFERENTIAL: which measurement
+sheet.dimension(kind="linear", value=40, label="40",    # MATERIALIZED: 40, here
+                dominant_axis="X", ref_pts=[(-20, 0, 0), (20, 0, 0)], upper_tol=0.1)
 ```
 
-The first says *which measurement matters* and lets the engine work out that it is 40; the
-second says *40, here*. One verb name, two opposite contracts, one on each surface a user
-touches.
+— and after the rename the second becomes `sheet.measured_dimension(...)`, unchanged in
+shape, while `sheet.dimension(bore, "diameter")` becomes the Sheet-side twin of the first.
+The emitter change is one string (`"sheet.dimension("` → `"sheet.measured_dimension("`);
+generated AP242 scripts pick it up by regeneration.
 
-After the rename:
-
-```python
-# One contract on both surfaces: name the feature and the measurement.
-dwg.dimension(step, "length", role="step_position")   # unchanged
-sheet.dimension(bore, "diameter")                     # the new Sheet-side twin
-
-# The materialized form keeps its shape and gains a name that says what it is.
-sheet.measured_dimension(
-    kind="linear", value=40, label="40", dominant_axis="X",
-    ref_pts=[(-20, 0, 0), (20, 0, 0)], upper_tol=0.1, lower_tol=0.0,
-)
-```
-
-The emitter change is one string — `sheet_emit` builds the call text as
-`"sheet.dimension(" + ", ".join(kw) + ")"`, which becomes `"sheet.measured_dimension("`.
-Generated AP242 scripts pick the new name up by regeneration.
-
-**The shim is a transitional overload, not a second function.** Because the *name is being
-reused* rather than retired, the usual pattern — a `@deprecated` wrapper beside the new
-verb — cannot apply: after the rename `sheet.dimension` is the referential verb, so an old
-keyword call would raise `TypeError`, not warn. For one release `Sheet.dimension` therefore
-accepts both forms and dispatches on how it was called:
+**The shim must be a transitional overload, not a `@deprecated` wrapper.** Because the name
+is *reused* rather than retired, an old keyword call after the rename would raise
+`TypeError`, not warn. So for one release `Sheet.dimension` dispatches on how it was called:
 
 ```python
 def dimension(self, feature=None, role=None, /, **kw) -> DimensionIntent | Sheet:
@@ -446,102 +367,56 @@ def dimension(self, feature=None, role=None, /, **kw) -> DimensionIntent | Sheet
     ...                                     # referential intent -> DimensionIntent
 ```
 
-This is exactly the overload the "considered and rejected" note below describes — adopted
-deliberately as a *temporary* migration aid with a removal date, not as the permanent
-shape. At 0.4.0 the legacy branch is deleted and the verb has one contract.
-
-The chosen name says what distinguishes the verb: a source already measured this, and the
-script restates the measurement. Three reasons this is the right end state rather than
-adding a distinct name such as `sheet.dim`:
+Why rename rather than add a distinct name such as `sheet.dim`:
 
 - **The project already took this decision on the other surface.** #817 privatized
-  `Drawing.place_dim` → `_place_dim`, and its deprecation message names the replacement
-  outright:
+  `Drawing.place_dim` → `_place_dim` with a deprecation message naming
+  `Drawing.dimension(feature, param, …)` as the replacement and `place_dim` as "only a raw
+  page-coordinate escape hatch". The referential verb is already the public default on
+  `Drawing`; `Sheet` has not caught up. This applies an existing decision rather than
+  opening a second one.
+- **A short alias would entrench the collision** — three verbs under two names, with
+  `sheet.dim` equal to `Drawing.dimension` while `sheet.dimension` means something else.
+- **The cost is at its minimum now**: alpha package, and the affected callers are
+  *generated* AP242 scripts that regeneration fixes. The shim retires at 0.4.0 alongside the
+  ADR 0005 §4 alias removals (#720).
 
-  ```python
-  @deprecated(
-      "Drawing.place_dim() is deprecated for normal editable scripts; use "
-      "Drawing.dimension(feature, param, ..., pin=True) or "
-      "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
-      "place_dim() remains only as a raw page-coordinate escape hatch."
-  )
-  def place_dim(self, p1, p2, side, view, draft, *, name=None, ...):
-  ```
-
-  The coordinate-carrying form is already the deprecated escape hatch and the referential
-  verb is already the public default — on `Drawing`. `Sheet` simply has not caught up.
-  Renaming applies an existing decision consistently instead of opening a second one.
-- **A short alias would entrench the collision.** `sheet.dim` alongside `sheet.dimension`
-  would leave three verbs under two names, where `sheet.dim` equals `Drawing.dimension`
-  while `sheet.dimension` means something else — the least learnable of the options.
-- **The cost is at its minimum now.** The package is alpha (`Development Status :: 3 -
-  Alpha`), and the affected callers are *generated* AP242 scripts, which regeneration
-  fixes. A `@deprecated` (PEP 702) shim carries the old name for one release and is removed
-  at 0.4.0 alongside the ADR 0005 §4 alias removals (#720) — the shim eases the transition
-  without changing the end state.
-
-#### Rejected alternative: the permanent overload
-
-`Sheet.dimension` is entirely keyword-only today — `def dimension(self, *, kind: str,
-value: float, …)` accepts no positional arguments at all, so `sheet.dimension(bore,
-"diameter")` is a `TypeError` on the current release. A positional `(feature, role)`
-referential form could therefore be overloaded onto it **permanently**, with no rename, no
-shim, and no regeneration of existing scripts. Side by side:
-
-```python
-# REJECTED — one verb, two contracts, permanently
-sheet.dimension(bore, "diameter")                     # referential
-sheet.dimension(kind="linear", value=40, label="40",  # materialized
-                dominant_axis="X", ref_pts=[(-20, 0, 0), (20, 0, 0)])
-
-# CHOSEN — one verb, one contract; the name states which kind it is
-sheet.dimension(bore, "diameter")                     # referential
-sheet.measured_dimension(kind="linear", value=40, label="40",
-                         dominant_axis="X", ref_pts=[(-20, 0, 0), (20, 0, 0)])
-```
-
-The overload is cheaper today and was rejected anyway, because the cost lands on *reading*
-a script rather than writing one. Under the overload, a line reading `sheet.dimension(...)`
-tells the reader nothing about which kind it is — whether the number is derived from the
-geometry or hardcoded in the file has to be inferred from the arguments. That is precisely
-the distinction this ADR exists to make legible, and it would stay invisible at the moment
-a reader is scanning a generated script deciding what is safe to edit. Under the chosen
-form the verb names the kind, so `measured_dimension` reads as a flag: *this line carries a
-number that will not follow the geometry.*
-
-The same overload mechanism **is** used above — but as a one-release migration branch with
-a removal date at 0.4.0, not as the shape of the API. The difference between the rejected
-alternative and the adopted shim is only whether it expires.
+**Rejected: making that overload permanent.** `Sheet.dimension` is entirely keyword-only
+today, so a positional `(feature, role)` form could be overloaded onto it forever — no
+rename, no shim, no regeneration. It is cheaper, and rejected anyway, because the cost lands
+on *reading* a script rather than writing one: a line reading `sheet.dimension(...)` would
+tell the reader nothing about whether its number is derived from the geometry or hardcoded
+in the file. That is precisely the distinction this ADR exists to make legible, and it would
+stay invisible exactly when a reader is scanning a generated script deciding what is safe to
+edit. `measured_dimension` reads as a flag: *this line carries a number that will not follow
+the geometry.* The adopted shim is the same mechanism — the difference is only that it
+expires.
 
 ### The script records intent, not what got placed
 
 A `dimension(...)` line states *that this measurement matters*. Whether it lands on the sheet
-is a downstream outcome of the ADR 0014 solve, which may drop a candidate for want of
-room and say so in lint. **The line stays in the source either way** — including when
-the author already knows the sheet is crowded enough that it may not fit. A dropped
-dimension is a `placed = False` outcome on a line that is still there, not a missing
-line.
-
-Two consequences follow, and they are load-bearing:
+is a downstream outcome of the ADR 0014 solve, which may drop a candidate for want of room
+and say so in lint. **The line stays in the source either way** — a dropped dimension is a
+`placed = False` outcome on a line that is still there, not a missing line. Two load-bearing
+consequences follow:
 
 - **The emitter generates from the planner's intent set, never by walking the drawing's
-  placed annotations.** Walking annotations is the obvious way to build a mirror and it
-  is wrong: a dimension the solver dropped would vanish from the regenerated script, so
-  re-running could never recover it, and an unrelated layout change would silently
-  rewrite the author's source. Emitting from intent makes the script stable under layout
-  churn — which is what makes it safe to keep in version control.
+  placed annotations.** Walking annotations is the obvious way to build a mirror and it is
+  wrong: a dimension the solver dropped would vanish from the regenerated script, so
+  re-running could never recover it, and an unrelated layout change would silently rewrite
+  the author's source. Emitting from intent makes the script stable under layout churn —
+  which is what makes it safe to keep in version control.
 - **Inside the mirrored set, absence of a line means "suppressed".** The mirror is over the
   planner's intents, whose key space is `DimensionId` — exactly `dimension(...)`'s key
-  space. Over *that* space the emit vocabulary is complete by construction, so a missing line
-  cannot mean "the emitter had no way to say this". What the mirrored set excludes is
-  enumerated next, and it is that boundary — not the emitter's vocabulary — that bounds the
-  claim.
+  space, so over *that* space the emit vocabulary is complete by construction and a missing
+  line cannot mean "the emitter had no way to say this". What bounds the claim is the
+  boundary of the mirrored set, not the emitter's vocabulary.
 
 ### What the mirror does and does not cover
 
 The mirror is **over round-trippable, semantically identified planner intent** — not over
-every mark on the sheet. Stating it that way is not a hedge; it is what keeps the contract
-from constraining planner internals that are still moving. The gaps are known and finite:
+every mark on the sheet. Stating it that way is not a hedge; it keeps the contract from
+constraining planner internals that are still moving. The gaps are known and finite:
 
 | Not mirrored as a `dimension(...)` line | Why | Where it goes instead |
 | --- | --- | --- |
@@ -577,64 +452,50 @@ absence both mean something exact** — which is all suppression-by-omission nee
   dedup like coincident auto candidates; ties break by deterministic key (ADR 0001). An
   infeasible intent (off page) drops with lint like any candidate — declaring a dimension
   is a strong request, not a bounds override.
-- **The emitter only mirrors intent it can round-trip.** The self-describing comment stays
-  the honest floor: the generated script gains dimensioning-intent lines only for the
-  intents the engine can faithfully re-solve, never decorative lines that re-run cannot
-  reproduce (the same fidelity contract `emit_sheet_script` holds for features).
-- **Grouped passes drop set-wise — so they get one line, not several.** The whole-model
-  passes — `rotational`, the `step_height` / `step_position` ladders, off-axis `locate` —
-  reconstruct as a *set*, a property `builder._feature_listing` already documents for the
-  imperative emit: commenting *some* of its lines still redraws the whole group. The
-  identity model turns that wart into a rule rather than a caveat: because a correlated set
-  is **one** addressable dimension (tier 3 above), the declarative mirror emits **one** line
-  for it, and commenting that line drops the set. This is a deliberate divergence from the
-  imperative reconstruction's per-member lines, and one of the things the `--style
-  imperative` parity gate has to be judged against — it is not line-for-line parity, it is
-  coverage parity.
+- **Grouped passes drop set-wise, so they get one line.** `builder._feature_listing` already
+  documents this for the imperative emit: commenting *some* of a ladder's lines still
+  redraws the whole group. The identity model turns that wart into a rule — a correlated set
+  is **one** addressable dimension (tier 3 above), so the declarative mirror emits one line
+  and commenting it drops the set. That is a deliberate divergence from the imperative
+  reconstruction's per-member lines, so the `--style imperative` parity gate is **coverage**
+  parity, not line-for-line.
 - **Referential removes dimension-vs-feature drift, not callout-vs-geometry drift.** For a
   live build123d part the feature reads its size off the object, so the chain is airtight.
-  For a **detected** (STEP) part the feature line is a detected *snapshot* decoupled from
-  the imported solid: editing `diameter=20` → `25` changes the callout while the projected
-  circle still measures 20. One source of truth for the dimension; not for the geometry.
-- **Not every dimension is nameable as one feature plus one parameter.** Inter-feature
-  spans, face-to-face distances and angles between unrelated surfaces do not reduce to a
-  `DimensionId`; they need the `RelationDimensionId` shape above, whose *selector spelling*
-  is still an open question. Until that lands they fall to the comment floor — so the mirror
-  is bounded by what the identity model can name, which is the boundary tabulated in "What
-  the mirror does and does not cover".
+  For a **detected** (STEP) part the feature line is a *snapshot* decoupled from the imported
+  solid: editing `diameter=20` → `25` changes the callout while the projected circle still
+  measures 20. One source of truth for the dimension; not for the geometry.
+- **Not every dimension is nameable as one feature plus one parameter** — inter-feature
+  spans, face-to-face distances, angles between unrelated surfaces. They need the
+  `RelationDimensionId` shape above, whose *selector spelling* is still open, so until that
+  lands the mirror is bounded by what the identity model can name.
 
 ### One generated output
 
 `--style imperative` exists today only because it carries the referential reconstruction the
-declarative emitter lacks (`builder._feature_listing`, cited in Context). Once
-`sheet.dimension(...)` plus the emitter mirror reach its coverage — rotational bodies, the
-`step_height` / `step_position` ladders, off-axis `locate`, the machined-callout kinds,
-pocket / slot patterns, the gap-kind comments — the two styles are capability-equivalent and
-the imperative emitter is redundant. It is then **retired** (deprecation warning first,
-removal at 0.4.0 with the other compat exits, #720), leaving the declarative `Sheet` script
-as the single generated form.
+declarative emitter lacks (`builder._feature_listing`). Once `sheet.dimension(...)` plus the
+emitter mirror reach its coverage — rotational bodies, the `step_height` / `step_position`
+ladders, off-axis `locate`, the machined-callout kinds, pocket / slot patterns, the gap-kind
+comments — the two styles are capability-equivalent and it is **retired** (deprecation
+warning first, removal at 0.4.0 with the other compat exits, #720).
 
-Parity is a hard gate: retiring it earlier would regress the parts whose dimensions only the
-imperative reconstruction can currently express. Two things follow. The low-level `Drawing`
-verbs (`at`, `place_dim`, `items`, `view_bounds`) stop being a *generated* surface and remain
-a hand-use API — which is what ADR 0001 §3 asks for, and consistent with ADR 0012 already
-deprecating `place_dim`. And the generated file loses that raw-coordinate escape hatch,
-deliberately.
+Parity is a hard gate — retiring it earlier would regress the parts whose dimensions only
+the imperative reconstruction can express. Two things follow: the low-level `Drawing` verbs
+(`at`, `place_dim`, `items`, `view_bounds`) stop being a *generated* surface and remain a
+hand-use API (ADR 0001 §3, and consistent with ADR 0012 already deprecating `place_dim`),
+and the generated file deliberately loses that raw-coordinate escape hatch.
 
 ### Out of scope: the view / section surface
 
 Everything above concerns the **dimension** layer. A declarative surface for views and
 sections — `sheet.view("side")` for presence and scale, and a named, feature-targeted
-`sheet.section("A-A", through=bore)` — is adjacent and shows up in the worked example
-below for realism, but it is **not decided by this ADR** and accepting 0016 does not
-accept it.
+`sheet.section("A-A", through=bore)` — is adjacent and appears in the worked example below
+for realism, but it is **not decided by this ADR** and accepting 0016 does not accept it.
 
-It is a separate decision on its own merits, and a live compatibility question rather than
-a blank sheet: `Sheet.section` already shipped in v0.3.9 (#847) as
-`section(feature=None, *, at=None)` — unnamed and single-section — so multi-section naming
-is a *reshape* of an existing verb needing its own overload-versus-rename call.
-`sheet.view(...)` does not exist at all. Both belong in a follow-up ADR, which phase 5
-depends on only for the parts of the emitted script that are not dimensions.
+It is also a live compatibility question rather than a blank sheet: `Sheet.section` already
+shipped in v0.3.9 (#847) as `section(feature=None, *, at=None)` — unnamed and
+single-section — so multi-section naming is a *reshape* of an existing verb needing its own
+overload-versus-rename call, while `sheet.view(...)` does not exist at all. Both belong in a
+follow-up ADR, which phase 5 depends on only for the non-dimension parts of the script.
 
 ## Worked example — the mounting plate
 
@@ -683,34 +544,27 @@ sheet.export("plate")
 Reading it against the rendered sheet:
 
 - **This is an authored set, so it never calls `auto_dimensions()`.** The seven
-  `dimension(...)` lines *are* the drawing's dimension set — which is exactly what makes
-  the commented-out pitch lines mean "suppressed" rather than "not mentioned". A script
-  wanting the planner's choices instead would call `auto_dimensions()` and carry no
-  `dimension(...)` lines at all — augmenting that plan with the pitch would read
-  `sheet.add_dimension(corners, "pitch", axis="x")`. A script cannot do both.
-
-- **`⌀20` appears once.** The number lives on the `bore` feature line; `sheet.dimension(bore,
-  "diameter")` only says *show `bore`'s diameter callout*. Change `diameter=20` → `25`
-  (or edit the build123d object, for a live part) and the callout follows — there is no
-  second copy to keep in sync.
+  `dimension(...)` lines *are* the drawing's dimension set — which is what makes the
+  commented-out pitch lines mean "suppressed" rather than "not mentioned". A script wanting
+  the planner's choices instead would call `auto_dimensions()` and carry no `dimension(...)`
+  lines at all, augmenting it with `sheet.add_dimension(corners, "pitch", axis="x")`. It
+  cannot do both.
+- **`⌀20` appears once.** The number lives on the `bore` feature line; the dimension line
+  only says *show `bore`'s diameter callout*. Change `diameter=20` → `25` (or edit the
+  build123d object, for a live part) and the callout follows — no second copy to sync.
 - **Dropping a dimension is not dropping the hole.** Comment out `sheet.dimension(corners,
   "location")` and the location ladder vanishes; the four ⌀5 *circles* stay, because they
-  are geometry projected from the part, not annotations. Geometry and dimensions are
-  separate layers — only editing the part removes a hole.
+  are geometry projected from the part, not annotations. Only editing the part removes a hole.
 - **The commented `pitch` lines show the discriminator carrying its weight.** A grid emits
   two `grid_pitch` parameters of the same kind and role, so they are two identities and two
   lines — `sheet.dimension(corners, "pitch")` with no `axis=` raises rather than guessing.
-  Each is a measurement the planner did not place, requested by reference and still ordered
-  / placed by the corridor solve.
-- **A line the solver cannot fit still stays in the script.** If the sheet is too crowded
-  for, say, the bore's location ladder, that dimension drops with a lint warning and
-  `sheet.dimension(bore, "location")` remains exactly where it is — the source records the
-  intent, and a later scale or page change can make it fit again with no edit.
+- **A line the solver cannot fit still stays in the script.** If the sheet is too crowded for
+  the bore's location ladder, that dimension drops with a lint warning and its line remains
+  exactly where it is — a later scale or page change can make it fit again with no edit.
 
 The A/B "features imply dimensions" vs "every dimension is a line" fork explored during
 design collapses here: the referential form gives the per-dimension addressability of the
-second with the single-source-of-truth of the first — over the identified set, and bounded
-by it.
+second with the single-source-of-truth of the first — over the identified set, bounded by it.
 
 ## Consequences
 
@@ -721,27 +575,26 @@ by it.
   **`DimensionIntent` handle** — not `Sheet` — which carries the dimension's `DimensionId`
   and is the face `.pin()` / `.priority()` chain from. Suppression needs no verb at all: a
   surfaced `dimension` line commented out is the drop.
-- **A dimension's identity is a `DimensionId(feature, parameter)`, not `(feature, role)`.**
-  `(feature, role)` is the *address* at the call site; the key underneath needs `kind` and,
-  for genuinely distinct same-role parameters (grid row vs column pitch), a semantic
-  discriminator surfaced as a keyword (`axis="x"`). Correlated sets — the `step_height` /
-  `step_position` ladders, rotational bores — are **one** addressable dimension keyed by
-  role, not N. `ParameterId` is derived from `(role, kind, discriminator)` rather than
-  hand-written on every `DimParameter`; list position and UUIDs are rejected as keys.
-  Inter-feature measurements get a separate `RelationDimensionId`. Durable feature identity
-  is *not* minted here — object identity suffices within a script run. See "Dimension
-  identity"; this key drives suppression, dedup, provenance and the emitter alike.
+- **A dimension's identity is a `DimensionId(feature, parameter)`, not `(feature, role)`** —
+  the latter is the *address* at the call site; the key needs `kind` and, for genuinely
+  distinct same-role parameters (grid row vs column pitch), a semantic discriminator
+  surfaced as a keyword (`axis="x"`). Correlated sets (the ladders, rotational bores) are
+  **one** addressable dimension keyed by role, not N. `ParameterId` is derived from
+  `(role, kind, discriminator)`, not hand-written on every `DimParameter`; list position and
+  UUIDs are rejected. Inter-feature measurements get a separate `RelationDimensionId`, and
+  durable *feature* identity is not minted here. This key drives suppression, dedup,
+  provenance and the emitter alike.
 - **The dimension set has two explicit sources, and a build must request one.**
   `auto_dimensions()` selects the planner's set; `dimension(...)` declarations form a
   complete authored set; `add_dimension(...)` augments the planner's set and requires it.
   Mixing `auto_dimensions()` with `dimension(...)` raises, as does a `build()` that requested
   neither. This is a **breaking change** to today's implicit-automatic `Sheet(part).build()`,
-  taken in the same window as the rename below so callers absorb one migration. It is what
-  makes omission mean suppression without a hidden mode flag, and it keeps a forgotten
-  dimension set a loud failure rather than a plausible, unbuildable sheet.
+  taken in the same window as the rename below. It is what makes omission mean suppression
+  without a hidden mode flag, and it keeps a forgotten dimension set a loud failure rather
+  than a plausible, unbuildable sheet.
 - **`dimension` means *referential* on both surfaces; the materialized verb is renamed to
-  `measured_dimension`.** See "One name, one contract" below — the Sheet-side verb is a
-  rename, not a new name, and `Drawing.dimension` already has the target shape.
+  `measured_dimension`** — a rename, not a new name; `Drawing.dimension` already has the
+  target shape.
 - `plan_dimensions` (ADR 0015) grows an intent input: declared augmenting measurements join
   the planned `DimensionGroup`s; declared suppressions filter them; an authored set replaces
   them. The corridor solve (ADR 0014) is unchanged — it still receives one candidate
@@ -749,27 +602,25 @@ by it.
 - `intents.py` (ADR 0012) is the recording home; `Drawing.finalize()` /
   `_PASS_SEQUENCE` the drain. Augmenting intent lands there first; suppression follows the
   #426/#707 recompose.
-- `sheet_emit` gains a dimension-mirroring pass: after the feature basis, emit one
-  referential `dimension(...)` line per **planned** dimension, led by the explicit
-  dimension-source call — each commentable and editable, none restating a number,
-  with low-level furniture still produced automatically by the engine on re-run. The pass
-  reads the planner's `DimensionGroup`s, **not** the drawing's placed annotations, so a
-  solver-dropped dimension keeps its line (see "The script records intent"). What that pass
-  does *not* cover is enumerated in "What the mirror does and does not cover" — the promise
-  is a mirror of round-trippable, semantically identified planner intent, not of every mark.
-- **Imported AP242 PMI stays materialized.** A PMI-sourced dimension carries `ref_pts` /
-  `ref_bbox` / `at` and has no referential form, so it is emitted as
-  `sheet.measured_dimension(...)` (the renamed materialized verb) rather than as a
-  referential line. It is still one editable line in the script, so the intent-mirror property holds; the two verbs stay
-  distinct precisely because one references and the other restates.
+- `sheet_emit` gains a dimension-mirroring pass: after the feature basis, one referential
+  `dimension(...)` line per **planned** dimension, led by the explicit dimension-source call
+  — each commentable and editable, none restating a number, with low-level furniture still
+  produced automatically on re-run. The pass reads the planner's `DimensionGroup`s, **not**
+  the drawing's placed annotations, so a solver-dropped dimension keeps its line. What it
+  promises is a mirror of round-trippable, semantically identified planner intent, not of
+  every mark — the gaps are tabulated in "What the mirror does and does not cover".
+- **Imported AP242 PMI stays materialized.** It carries `ref_pts` / `ref_bbox` / `at` and
+  has no referential form, so it emits as `sheet.measured_dimension(...)` — still one
+  editable line, so the intent-mirror property holds; the two verbs stay distinct precisely
+  because one references and the other restates.
 - **A duplicate/redundancy lint code joins `linting/structural.py`** — the third protection
-  layer (see "Preventing duplicate dimensions"); nothing reports redundant dimensioning today.
+  layer; nothing reports redundant dimensioning today.
 - **`--style imperative` retires once the declarative mirror reaches its coverage**, leaving
   one generated output. The low-level `Drawing` verbs stay a hand-use API but stop being a
   generated surface (ADR 0001 §3), and the generated file deliberately loses its
   raw-coordinate escape hatch.
-- **The view / section surface is explicitly NOT decided here** — see "Out of scope"
-  below. Accepting this ADR commits to the dimension layer only.
+- **The view / section surface is explicitly NOT decided here.** Accepting this ADR commits
+  to the dimension layer only.
 - Extends ADR 0011 (declare features) to declare *dimensioning intent*; extends ADR 0012
   (edit one dimension) to declaring the dimension *set*; consumes ADR 0015 (planner) and
   ADR 0014 (solve); fulfils ADR 0001 §2. Does **not** reintroduce the ADR 0001 hardcoded
