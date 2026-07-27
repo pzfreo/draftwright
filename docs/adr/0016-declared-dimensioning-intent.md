@@ -130,7 +130,10 @@ the design keys on:
 - it carries the `DimensionId` defined in the next section — the identity used for
   suppression, for the planner input, and for matching an emitted line back to its intent;
 - it is the ADR 0010 provenance anchor: intent → the annotation names the render seam
-  produced, so `drop` / `annotations_of` resolve through it;
+  produced, so `drop` / `annotations_of` resolve through it. **Not yet wired (#886):**
+  the seam records `name → one feature`, while a compound callout is one annotation
+  rendering N addressable dimensions — so the channel has to become
+  `name → tuple[DimensionId, ...]` before per-dimension resolution is possible at all;
 - it is *not* a placement handle. It exposes no coordinate, no strip, and no view
   assignment beyond the derived-with-override `view=` / `side=` arguments.
 
@@ -573,10 +576,11 @@ absence both mean something exact** — which is all suppression-by-omission nee
 ### Constraints this forces (the honest edges)
 
 - **Auto dimensions must be semantically nameable.** Suppression and override require a
-  stable identity for "the location dimension of hole H" that survives a re-solve at a
+  stable identity for "the bore diameter of hole H" that survives a re-solve at a
   different scale. That identity is the `DimensionId` above, not a page-keyed annotation
-  name — this leans on ADR 0010 provenance and on the ADR 0015 planner keeping parameter
-  roles stable. Both intents need the key — `add_dimension` for its handle and for
+  name — it leans on the ADR 0015 planner keeping parameter roles stable, and on ADR 0010
+  provenance growing an N-ids channel (#886) before an id can resolve to the annotations
+  it produced. (*Location* dims are not nameable at all yet — #883.) Both intents need the key — `add_dimension` for its handle and for
   idempotence against the plan — but **suppressive intent additionally needs that identity
   to be stable across re-detection and recomposition**, which is why identity lands *with*
   the augmenting verb while suppression waits for the set boundary.
@@ -823,9 +827,10 @@ second with the single-source-of-truth of the first — over the identified set,
 
 1. **Semantic identity, then augmenting intent — one phase.** Land the addressable-dimension
    model first: `AddressableDimension` / `DimensionId` / `ParameterId` (derived keys, the
-   `axis=` discriminator, correlated sets as one identity with N members), exposed as a
-   handle on planned dimensions (ADR 0010 provenance + ADR 0015 roles) so intent can
-   *reference* an auto dimension. Then `add_dimension(...)` on top of it: a
+   `axis=` discriminator, correlated sets as one identity with N members), derivable from
+   the plan (ADR 0015 roles) so intent can *reference* an auto dimension. Per-dimension
+   ADR 0010 provenance is **split out to #886** — it needs an N-ids channel, since one
+   compound callout renders several addressable dimensions. Then `add_dimension(...)` on top of it: a
    scale-independent augmenting measurement recorded on the model and entered as a
    `CorridorCandidate` alongside the planner's set; reachable on today's solve. Reuses /
    narrows `authored_dimension` so intent and materialized-PMI stay distinct.

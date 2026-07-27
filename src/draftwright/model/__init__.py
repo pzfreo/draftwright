@@ -78,6 +78,7 @@ from draftwright.model.ir import (
 from draftwright.model.planner import (
     AddressableDimension,
     DimensionGroup,
+    DimensionId,
     PlannedDimension,
     SectionPlan,
     plan_dimensions,
@@ -97,6 +98,7 @@ __all__ = [
     "EnvelopeFeature",
     "AddressableDimension",
     "DimensionGroup",
+    "DimensionId",
     "Feature",
     "Frame",
     "HoleFeature",

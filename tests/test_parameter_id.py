@@ -28,7 +28,7 @@ import pytest
 from build123d import Box, Cylinder, Pos
 
 import draftwright.model.ir as ir
-from draftwright.model import DimParameter, PartModel, build_part_model
+from draftwright.model import DimensionId, DimParameter, PartModel, build_part_model
 from draftwright.model.planner import (
     CORRELATED_SETS,
     PlannedDimension,
@@ -328,6 +328,52 @@ class TestUniquenessAudit:
         heights = [p for p in ladder if p.role == "step_height"]
         assert len(heights) == 3
         assert len({p.parameter_id for p in heights}) == 1
+
+
+class TestDimensionId:
+    """`DimensionId(feature, parameter)` — the key suppression, dedup and the emitter
+    mirror address (#871). A `ParameterId` alone is not enough: two holes on one part
+    both carry `bore.diameter`, so identity is *which feature* plus *which measurement*."""
+
+    def test_one_id_per_addressable_unit(self):
+        (group,) = _plan(_SAMPLES["HoleFeature"])
+        assert [d.parameter for d in group.dimension_ids] == [u.id for u in group.units]
+
+    def test_a_correlated_set_yields_one_id_not_n(self):
+        """The ladder is one addressable dimension, so it has one identity — the whole
+        reason `units` exists rather than keying raw parameters."""
+        (group,) = _plan(_SAMPLES["StepLevelFeature"])
+        ladder = [d for d in group.dimension_ids if d.parameter == "step_height.length"]
+        assert len(ladder) == 1
+        assert len(group.unit_for(ladder[0]).members) == 3
+
+    def test_unit_for_round_trips_every_id(self):
+        for name in ("HoleFeature", "PatternFeature", "RotationalFeature"):
+            for group in _plan(_SAMPLES[name]):
+                for dim_id in group.dimension_ids:
+                    assert group.unit_for(dim_id).id == dim_id.parameter
+
+    def test_the_same_parameter_id_on_two_features_is_two_identities(self):
+        """Why the feature is in the key at all. Both holes measure `bore.diameter`;
+        an intent aimed at one must not resolve against the other."""
+        a = ir.HoleFeature(ir.Frame((-20.0, 0.0, 0.0), "z"), 5.0, depth=None, through=True)
+        b = ir.HoleFeature(ir.Frame((20.0, 0.0, 0.0), "z"), 9.0, depth=None, through=True)
+        ga, gb = plan_dimensions(PartModel(bbox=_BBOX, orientation="prismatic", features=[a, b]))
+        (ida,), (idb,) = ga.dimension_ids, gb.dimension_ids
+        assert ida.parameter == idb.parameter == "bore.diameter"
+        assert ida != idb
+        assert ga.unit_for(idb) is None and gb.unit_for(ida) is None
+
+    def test_an_unknown_measurement_resolves_to_none(self):
+        (group,) = _plan(_SAMPLES["HoleFeature"])
+        assert group.unit_for(DimensionId(group.feature, "nope.length")) is None
+
+    def test_ids_are_stable_across_replanning(self):
+        """An id written into a script must still name the same thing next run."""
+        feat = _SAMPLES["HoleFeature"]
+        first = [(d.feature, d.parameter) for g in _plan(feat) for d in g.dimension_ids]
+        second = [(d.feature, d.parameter) for g in _plan(feat) for d in g.dimension_ids]
+        assert first == second
 
 
 class TestStability:
