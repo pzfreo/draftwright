@@ -130,7 +130,16 @@ class AddressableDimension:
     Members are `PlannedDimension`s rather than raw `DimParameter`s so the planner's
     decisions — convention, model-level suppression and its reason, the datum,
     provenance — survive the grouping instead of needing a second parallel structure
-    alongside it."""
+    alongside it.
+
+    **Scope: the feature parameters that flow through `plan_dimensions`.** Location
+    dimensions do *not* have addressable identity yet — `plan_dimensions` skips every
+    `location`-kind parameter and `plan_locations` returns a flat cross-feature list of
+    bare `PlannedDimension`s, deduped by ref point, that never enters a
+    `DimensionGroup`. Giving them identity is a design question rather than a wiring
+    gap (is a grouped hole's location one unit or one per member? does a deduped
+    coincident ref belong to which feature?), so it is tracked separately as **#883**
+    and blocks the `"location"` role in the selector."""
 
     id: ParameterId
     members: tuple[PlannedDimension, ...]

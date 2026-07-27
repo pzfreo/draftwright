@@ -205,15 +205,27 @@ planner-side unit was the alternative; it has nothing to hold, because grouping 
 *planner* decision (below) — `Feature.parameters()` returns a flat list and should keep
 doing so.
 
-***Amended 2026-07-27 (#870, as built).*** *The names came out the other way round, and
-the migration cost this section predicted went to zero.* *The plan was to retype `dims`
-to hold units and add a flattening accessor beside it, at a cost of ~25 mechanical read
-sites. Building it, the same semantics fall out of adding `units` as the field and making
-`dims` the flattening **property** — so all 22 source readers and ~30 test readers of
-`g.dims` are untouched, and only the construction sites (the planner, plus five tests that
-build ad-hoc plans) changed. The stated goal — "readers that do not care about grouping
-never learn about it" — is better served by the inversion than by the retype, and on the
-riskiest child of the epic a zero-churn diff is worth more than matching the sketch.*
+***Amended 2026-07-27 (#870, as built).*** *The names came out the other way round.* *The
+plan was to retype `dims` to hold units and add a flattening accessor beside it, at a cost
+of ~25 mechanical read sites. Building it, the same semantics fall out of adding `units` as
+the field and making `dims` the flattening **property** — so all 22 source readers and ~30
+test readers of `g.dims` are untouched. The stated goal — "readers that do not care about
+grouping never learn about it" — is better served by the inversion than by the retype.*
+
+*Two honest corrections to that, from review:*
+
+- ***The cost did not go to zero; it moved from readers to constructors.*** `DimensionGroup`
+  *is publicly exported, and its constructor changed from `dims=` to `units=` — so
+  `DimensionGroup(..., dims=…)` and `dataclasses.replace(g, dims=…)` now raise `TypeError`.
+  Taken as an **intentional API break** rather than shimmed: there is exactly one
+  construction site in the repo (the planner), the type is planner **output** that callers
+  consume rather than build, and an alpha package already carrying the phase-2 breaking
+  change should not grow a compatibility initializer for a call form nobody uses.*
+- ***The identity layer does not yet cover location dimensions.*** *`plan_dimensions` skips
+  `location`-kind parameters and `plan_locations` returns a flat cross-feature list that
+  never enters a `DimensionGroup`, so `sheet.dimension(bore, "location")` — an example in
+  this ADR's own selector table — has no key. Tracked as **#883**; it blocks the `"location"`
+  role in the selector.*
 
 Most addressable dimensions hold exactly one member. A correlated set holds N, and those
 members are **not** separately addressable — that is the whole content of tier 3, now stated
@@ -730,7 +742,9 @@ second with the single-source-of-truth of the first — over the identified set,
   *declared* by the planner rather than inferred from key collisions. Members are
   `PlannedDimension`s, not raw `DimParameter`s, so `convention` / `suppressed` / `reason` /
   `datum` / provenance survive the grouping; `DimensionGroup` gains a `units` field, with
-  `dims` becoming the flattening property, so no reader changes (#870). One type at one
+  `dims` becoming the flattening property, so no *reader* changes — at the cost of an
+  intentional break to its constructor, and with location dimensions still outside the
+  identity layer (#870, #883). One type at one
   boundary — an IR-side parameter group would
   have nothing to hold, since grouping is a planner decision. Its identity is
   `DimensionId(feature, parameter)`, where `(feature, role)` is only the call-site *address*:
