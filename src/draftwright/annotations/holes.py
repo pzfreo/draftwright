@@ -825,13 +825,21 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which):
         # dims; coverage already credits the bore via its centre mark, so lint stays
         # clean. Non-rotational parts and genuine off-centre side-drilled holes keep
         # their dims (the a.od_axis + perpendicular-centre gates).
-        if not a.is_rotational or h.axis != a.od_axis:
+        # A globally non-rotational flange can still carry a detected coaxial
+        # turned stack (for example a round stepped centre with mounting lugs).
+        # In that case ``a.prof`` is the stronger local relationship: the bore
+        # lies on the profile axis even though the outer silhouette correctly
+        # prevents ``a.is_rotational``. Treat either classification as a valid
+        # turning axis so the centreline, not redundant half-envelope offsets,
+        # locates the bore (#881).
+        turning_axis = a.od_axis if a.is_rotational else getattr(a.prof, "axis", None)
+        if turning_axis is None or h.axis != turning_axis:
             return False
         centre = (a.cx, a.cy, a.cz)
         return all(
             abs(h.location[i] - centre[i]) <= _CONCENTRIC_TOL_MM
             for i, ax in enumerate("xyz")
-            if ax != a.od_axis
+            if ax != turning_axis
         )
 
     # Off-axis holes sourced from the IR (ADR 0008 Am6; #584 WP1 B3) — the turning-axis

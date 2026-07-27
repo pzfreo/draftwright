@@ -1000,17 +1000,19 @@ def _diameter_step_anchor(anchor, features):
     return tuple(centred)
 
 
-def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
+def render_diameters(dwg, groups, a, tol: float = 0.15, *, ctx, only=None) -> int:
     """ø leaders for a turned part's external step/boss diameters, from the IR —
     one distinct callout per diameter, in a tidy row below the front view
-    (X-turning) or a column to its left (Z-turning). Orientation is the feature
-    frame's axis, not two passes. Replaces the engine's ``_annotate_turned_diameters``
-    (ADR 0008 convergence). Diameters another annotation already covers are skipped.
+    (X-turning), a column to its left (Z-turning), or as radial leaders in the
+    end-on front view (Y-turning). Orientation is the feature frame's axis, not
+    separate detection paths. Replaces the engine's
+    ``_annotate_turned_diameters`` (ADR 0008 convergence). Diameters another
+    annotation already covers are skipped.
 
     *only*, when given, restricts placement to step/boss features in the set — the #426
-    finalize() path passes the recorded step/boss ``callout`` intents' features. ``None``
-    (the auto-pass) places every diameter with the historical 0-based ``m_dia_{x,z}``
-    naming, byte-identically."""
+    finalize() path passes the recorded step/boss ``callout`` intents' features.
+    ``None`` (the auto-pass) places every diameter with the historical 0-based
+    ``m_dia_{x,z}`` naming; Y-axis leaders use ``m_dia_y``."""
     mentioned = _mentioned_diameters(dwg)
     # One distinct callout per (axis, diameter). Accumulate EVERY feature that shares a
     # diameter (insertion-ordered), so provenance (#412) can tag the callout with its
@@ -1018,6 +1020,7 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
     # (the #398c/#406 shared-value rule, so drop can't over-strip a sibling).
     row_buckets: dict = {}  # round(dia,2) -> [anchor, dia, {features}, tolerance]  (X-turned)
     col_buckets: dict = {}  # Z-turned
+    end_buckets: dict = {}  # Y-turned: radial leaders in the end-on front view
     for g in groups:
         if g.feature_kind not in ("step", "boss"):
             continue
@@ -1037,7 +1040,7 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
         # a threaded ⌀ is a distinct callout, so a bare ⌀8 mention must not suppress ø8 M8x1.25.
         if thr is None and any(abs(dia - m) <= tol for m in mentioned):
             continue
-        bucket = {"x": row_buckets, "z": col_buckets}.get(g.feature.frame.axis)
+        bucket = {"x": row_buckets, "y": end_buckets, "z": col_buckets}.get(g.feature.frame.axis)
         if bucket is None:
             continue
         dtol = dpd.param.tolerance
@@ -1068,11 +1071,60 @@ def render_diameters(dwg, groups, tol: float = 0.15, *, ctx, only=None) -> int:
         return max(idxs) + 1 if idxs else 0
 
     start_x = _next_start("m_dia_x") if only is not None else 0
+    start_y = _next_start("m_dia_y") if only is not None else 0
     start_z = _next_start("m_dia_z") if only is not None else 0
     trace = getattr(ctx, "trace", None)  # the immediate placers report to the trace too (#736)
     placed = _diameter_row_below(
         dwg, _items(row_buckets), start=start_x, trace=trace, ctx=ctx
     ) + _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace, ctx=ctx)
+
+    # A Y-axis step is end-on in the front view, so the X/Z profile-strip
+    # leaders are geometrically inapplicable. Place one radial leader per
+    # distinct diameter around the concentric circles instead. Keep shared-value
+    # provenance honest: a diameter owned by several steps has no single feature.
+    if end_buckets:
+        vb = dwg.view_bounds("front")
+        if vb is not None:
+            reach = dwg.draft.font_size + 6 * dwg.draft.pad_around_text
+            jobs = []
+            covered_by_name = {}
+            for i, (_anchor, dia, features, dtol, thr) in enumerate(end_buckets.values()):
+                representative = next(iter(features))
+                owner = representative if len(features) == 1 else None
+                candidates = (
+                    (tip, elbow, owner)
+                    for tip, elbow, _feature in _radial_candidates(
+                        dwg,
+                        "front",
+                        vb,
+                        representative,
+                        reach,
+                        rim=dia / 2 * a.SCALE,
+                    )
+                )
+                label = f"ø{_fmt(dia)}{_tol_suffix(dtol, dwg.draft)}"
+                if thr:
+                    label += f" {thr}"
+                name = f"m_dia_y{start_y + i}"
+                jobs.append((name, "front", vb, label, candidates))
+                covered_by_name[name] = dia
+            placed += _leader_callout_pass(
+                dwg,
+                a,
+                jobs,
+                noun="Y-axis step diameter",
+                drop_code="diameter_dropped",
+                ctx=ctx,
+                geom_clear=True,
+            )
+            # These leaders intentionally start on an internal concentric circle
+            # and exit the outer silhouette, just like a bore callout. Structured
+            # diameter coverage both credits completeness lint and exempts that
+            # legitimate shaft crossing from leader_crosses_silhouette.
+            for name, dia in covered_by_name.items():
+                ann = ctx.registry.named(name)
+                if ann is not None:
+                    ann.covers_diameters = (dia,)
     # #798: a ⌀ leader the row/column solve sent DIAGONALLY into the body — cutting
     # the silhouette, or an end feature whose diagonal merely grazes it — is re-routed
     # to the clear side (the margin the feature sits at). Auto-pass only: the finalize
@@ -2265,30 +2317,22 @@ def _next_steplen_start(ctx, prefix: str = "m_steplen") -> int:
 
 def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
     """Unified turned step-length chain (ADR 0008 #223): each `StepFeature`'s length
-    span projects into the front view and joins the chain that tiles the turning axis
-    so every shoulder is located. X-turned → horizontal chain above the view;
-    Z-turned → vertical chain to the right.
+    span projects into the profile view and joins the chain that tiles the turning
+    axis so every shoulder is located. X-turned → horizontal chain above the front
+    view; Z-turned → vertical chain to its right; Y-turned → horizontal chain above
+    the side view.
 
     A crowded **X-turned head** — a contiguous run of steps too short to dimension
     legibly even staggered (shoulders below the page arrowhead floor) — is not crammed
     in line: the main view locates that run as one *block* dim and an enlarged
     `DetailRequest` (#304/#307) is queued to break it down. If the detail later can't
     place, the block still locates the head extent and lint reports the un-located
-    interior shoulders — never worse than the prior skip. Returns the count placed on
-    the front view."""
-    rows = []  # (a_world, b_world, value) in axis order
+    interior shoulders — never worse than the prior skip. Returns the count placed."""
+    rows = []  # (axis, a_world, b_world, value, tolerance) in axis order
     for g in groups:
         if g.feature_kind != "step":
             continue
-        if g.feature.frame.axis not in ("x", "z"):
-            # A Y-turned step's length span is end-on in the front view — it projects
-            # to a point, and a degenerate segment raises inside _dim ("start and end
-            # points must be different", #661). No step render pipeline consumes Y
-            # today (#731, mirroring render_diameters' x/z bucketing), so skip it
-            # rather than crash the build.
-            _log.info(
-                "step-length chain skipped: %s-turned steps are unsupported", g.feature.frame.axis
-            )
+        if g.feature.frame.axis not in ("x", "y", "z"):
             continue
         if only is not None and g.feature not in only:  # #426 finalize: recorded subset
             continue
@@ -2298,14 +2342,31 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
         )
         if length is None or length.span is None:
             continue
-        rows.append((length.span[0], length.span[1], length.value, length.tolerance))
+        rows.append(
+            (
+                g.feature.frame.axis,
+                length.span[0],
+                length.span[1],
+                length.value,
+                length.tolerance,
+            )
+        )
     if not rows:
         return 0
     draft = dwg.draft
     # only=None (auto-pass) → start=0, historical m_steplen naming, byte-identical. The
     # finalize path (only set) starts past existing m_steplen names (#426 naming seam).
     start = _next_steplen_start(ctx) if only is not None else 0
-    fsegs = [(dwg.at("front", *a), dwg.at("front", *b), v, t) for a, b, v, t in rows]
+    axes = {axis for axis, *_ in rows}
+    if len(axes) != 1:
+        _log.warning(
+            "step-length chain has mixed axes; rendering each axis requires separate groups"
+        )
+        return 0
+    turn_axis = next(iter(axes))
+    view = "side" if turn_axis == "y" else "front"
+    bare_rows = [(a, b, v, t) for _axis, a, b, v, t in rows]
+    fsegs = [(dwg.at(view, *a), dwg.at(view, *b), v, t) for a, b, v, t in bare_rows]
     horizontal = abs(fsegs[0][1][0] - fsegs[0][0][0]) >= abs(fsegs[0][1][1] - fsegs[0][0][1])
 
     # X-turned crowded-head detour (#307): split off each contiguous *run of ≥2*
@@ -2313,7 +2374,7 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
     # a block, and queue an enlarged detail. A single isolated thin step is left in the
     # main chain — a one-step block would just be that step at its sub-floor width
     # (#307 review). The legible steps + blocks stay as the main chain.
-    if horizontal:
+    if horizontal and turn_axis == "x":
         floor_pg = 2 * draft.arrow_length
         sub = [i for i, (pa, pb, *_) in enumerate(fsegs) if abs(pb[0] - pa[0]) < floor_pg]
         runs: list[list[int]] = []
@@ -2323,7 +2384,7 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
         if heads:
             blocks = []
             for run in heads:
-                ra = [rows[i] for i in run]
+                ra = [bare_rows[i] for i in run]
                 hlo = min(min(a[0], b[0]) for a, b, *_ in ra)
                 hhi = max(max(a[0], b[0]) for a, b, *_ in ra)
                 minlen = min(r[2] for r in ra)  # value is index 2 (rows are 4-tuples: a,b,v,tol)
@@ -2369,7 +2430,7 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
                 dwg, "front", main, "m_steplen", allow_collapse=False, ctx=ctx, start=start
             )
 
-    return _draw_step_chain(dwg, "front", fsegs, "m_steplen", ctx=ctx, start=start)
+    return _draw_step_chain(dwg, view, fsegs, "m_steplen", ctx=ctx, start=start)
 
 
 def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
@@ -2788,6 +2849,58 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
             view="plan",
         )
     return n
+
+
+def render_local_turned_centerlines(dwg, a, *, ctx) -> int:
+    """Show the axis of a local turned stack on a non-rotational part.
+
+    Mounting lugs can prevent the complete part from classifying as rotational
+    while ``a.prof`` still identifies a coaxial stepped stack. Its centered bore
+    may be located by that axis only when the axis is actually present on the
+    drawing. Mirror the two centerlines from :func:`render_rotational` without
+    adding an overall-OD dimension for the non-rotational envelope (#881).
+    """
+    prof = a.prof
+    if a.is_rotational or prof is None:
+        return 0
+    axis = prof.axis
+    FX, FZ = a.proj.front_x, a.proj.front_z
+    SX, SZ = a.proj.side_x, a.proj.side_z
+    PX, PY = a.proj.plan_x, a.proj.plan_y
+    placed = 0
+
+    def _place(item, name, view):
+        nonlocal placed
+        if ctx.registry.named(name) is not None:
+            return
+        ctx.place(item, name, view=view)
+        placed += 1
+
+    if axis == "x":
+        _place(
+            Centerline((FX(a.bb.min.X) - 5, FZ(a.cz), 0), (FX(a.bb.max.X) + 5, FZ(a.cz), 0)),
+            "centerline_front",
+            "front",
+        )
+        _place(
+            Centerline((PX(a.bb.min.X) - 5, PY(a.cy), 0), (PX(a.bb.max.X) + 5, PY(a.cy), 0)),
+            "centerline_plan",
+            "plan",
+        )
+    elif axis == "y":
+        _place(
+            Centerline((SX(a.bb.min.Y) - 5, SZ(a.cz), 0), (SX(a.bb.max.Y) + 5, SZ(a.cz), 0)),
+            "centerline_side",
+            "side",
+        )
+        _place(
+            Centerline((PX(a.cx), PY(a.bb.min.Y) - 5, 0), (PX(a.cx), PY(a.bb.max.Y) + 5, 0)),
+            "centerline_plan",
+            "plan",
+        )
+    else:
+        return 0
+    return placed
 
 
 def _record_pmi_drop(ctx, dwg, ax, label, rec):

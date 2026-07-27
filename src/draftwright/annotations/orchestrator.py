@@ -47,6 +47,7 @@ from draftwright.annotations.from_model import (
     render_gdt,
     render_grooves,
     render_height_ladder,
+    render_local_turned_centerlines,
     render_locations,
     render_plates,
     render_pmi,
@@ -339,6 +340,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Rotational furniture — OD dim + axis centrelines + concentric bore leaders — IR
         # renderer (#237), placed early like the engine's inline block it replaces.
         render_rotational(dwg, _groups, a, ctx=ctx)
+        # A stepped round stack on an otherwise non-rotational flange still needs
+        # its local axis shown before centered-bore offsets can be suppressed (#881).
+        render_local_turned_centerlines(dwg, a, ctx=ctx)
 
     def _s_centermarks():
         # Centre marks for every hole (all part classes) — IR renderer.
@@ -458,12 +462,13 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_diameters():
         # Turned-part dimensions via the IR (ADR 0008 convergence). The model is built
         # once and fed to both renderers (#229 — no per-pass rebuild): ø leaders, row
-        # below (X) / column left (Z), one path by frame axis. Replaces
+        # below (X) / end-on radial leaders (Y) / column left (Z), one path by
+        # frame axis. Replaces
         # _annotate_turned_diameters.
-        render_diameters(dwg, _groups, ctx=ctx)
+        render_diameters(dwg, _groups, a, ctx=ctx)
 
     def _s_step_lengths():
-        # The chain that locates every shoulder, X and Z from one path (#223). A crowded
+        # The chain that locates every shoulder, X/Y/Z from one path (#223). A crowded
         # X-turned head queues an enlarged detail request (#304/#307) instead of
         # cramming; the envelope dim along the turning axis was suppressed so the chain
         # does not double-dimension the length.

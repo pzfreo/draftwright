@@ -1363,9 +1363,7 @@ class Drawing:
             if routable
             and it.kind == "callout"
             and getattr(it.feature, "kind", None) in ("step", "boss")
-            # X/Z-turned only — render_diameters can't place a Y-turned diameter, so leave
-            # it on live replay where callout() raises the same clear error (#432 review).
-            and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "z")
+            and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y", "z")
         }
         # step LENGTH dimension intents (role="step") → render_step_lengths' chain (Phase 4b),
         # but only on a TURNED part (a.prof is not None, mirroring the auto-pass guard) — else
@@ -1378,10 +1376,7 @@ class Drawing:
             and a.prof is not None
             and it.kind == "dimension"
             and getattr(it.feature, "kind", None) == "step"
-            # X/Z-turned only, like dia_ids above — render_step_lengths skips Y-turned
-            # steps (#661/#731), so routing one would silently drop the user's explicit
-            # verb; live replay surfaces dimension()'s own behaviour instead.
-            and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "z")
+            and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y", "z")
             and it.kwargs.get("param") == "length"
             and it.kwargs.get("role") == "step"
         }
@@ -1691,6 +1686,7 @@ class Drawing:
             render_flats,
             render_grooves,
             render_height_ladder,
+            render_local_turned_centerlines,
             render_locations,
             render_pockets,
             render_rotational,
@@ -1732,6 +1728,12 @@ class Drawing:
             if r.rotational_ids:
                 assert a is not None and isinstance(model, PartModel)
                 render_rotational(self, plan_dimensions(model), a, ctx=ctx)
+            # Generated/deferred reconstruction starts with auto_dims=False, so
+            # add a non-rotational stepped stack's local axis here before the
+            # location stages suppress a centered bore as axis-located (#881).
+            if routable and (r.dia_ids or r.len_ids or r.off_axis_loc_ids):
+                assert a is not None
+                render_local_turned_centerlines(self, a, ctx=ctx)
             self._intents = [it for it in self._intents if id(it) not in r.rotational_ids]
 
         def _s_reserve_section():
@@ -1849,7 +1851,7 @@ class Drawing:
             # deferred path different obstacle visibility).
             if r.only_dia:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
-                render_diameters(self, plan_dimensions(model), ctx=ctx, only=r.only_dia)
+                render_diameters(self, plan_dimensions(model), a, ctx=ctx, only=r.only_dia)
             self._intents = [it for it in self._intents if id(it) not in r.dia_ids]
 
         def _s_step_lengths():
