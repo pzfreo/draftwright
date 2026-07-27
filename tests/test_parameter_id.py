@@ -94,7 +94,7 @@ _SAMPLES: dict[str, ir.Feature] = {
         grid=(30.0, 40.0),
         rows=2,
         cols=2,
-        pitch=30.0,
+        pitch=25.0,  # != row pitch: equal values would mask a swap
         bcd=50.0,
     ),
     "EnvelopeFeature": ir.EnvelopeFeature(_F, 80.0, 8.0, 50.0, (-40, -25, 0), (40, 25, 8)),
@@ -108,7 +108,7 @@ _SAMPLES: dict[str, ir.Feature] = {
         grid=(30.0, 40.0),
         rows=2,
         cols=2,
-        pitch=30.0,
+        pitch=25.0,  # != row pitch: equal values would mask a swap
     ),
     "SlotPatternFeature": ir.SlotPatternFeature(
         _F,
@@ -118,7 +118,7 @@ _SAMPLES: dict[str, ir.Feature] = {
         grid=(30.0, 40.0),
         rows=2,
         cols=2,
-        pitch=30.0,
+        pitch=25.0,  # != row pitch: equal values would mask a swap
     ),
     "BossFeature": ir.BossFeature(_F, 25.0, height=12.0, thread="M25x1.5"),
     "ChamferFeature": ir.ChamferFeature(_F, "z", 2.0, 2.0, 45.0),
@@ -134,6 +134,80 @@ _SAMPLES: dict[str, ir.Feature] = {
     "DatumRef": ir.DatumRef(_F, "A", "front", "below"),
     "Finish": ir.Finish(_F, 1.6, "front", "below"),
     "Note": ir.Note(_F, "NOTE", "front", "below"),
+}
+
+
+# The committed id → measurement binding for every feature type, over the maximal
+# `_SAMPLES` above. This is what makes the stability claim general rather than
+# five-ids-deep: swap the values behind `slot_width.length` and `slot_length.length`
+# in `ir.py` and this fails, where determinism and uniqueness checks both still pass.
+#
+# Ordered tuples, not a dict, because a correlated set legitimately repeats one id
+# (a `step_height` ladder, the rotational bores) — a dict would silently drop members.
+# The empty tuples are correct: aspect features (GD&T, finish, notes, imported PMI)
+# are placed as corridor candidates and carry no dimension parameters at all.
+#
+# Re-blessing is a deliberate act — an id moving to a different quantity breaks every
+# intent aimed at it, silently.
+_SAMPLE_BINDINGS = {
+    "HoleFeature": (
+        ("bore.diameter", 8.0),
+        ("bore.depth", 10.0),
+        ("counterbore.diameter", 16.0),
+        ("counterbore.depth", 4.0),
+        ("spotface.diameter", 20.0),
+        ("spotface.depth", 1.0),
+        ("countersink.diameter", 12.0),
+        ("countersink.angle", 90.0),
+    ),
+    "StepFeature": (("step.length", 20.0), ("step.diameter", 30.0)),
+    "PatternFeature": (
+        ("bore.diameter", 5.0),
+        ("bolt_circle.diameter", 50.0),
+        ("pitch.length", 25.0),
+        ("grid_pitch.length.row", 30.0),
+        ("grid_pitch.length.col", 40.0),
+    ),
+    "EnvelopeFeature": (("width.length", 80.0), ("height.length", 8.0), ("depth.length", 50.0)),
+    "SlotFeature": (("slot_width.length", 8.0), ("slot_length.length", 30.0)),
+    "PocketFeature": (
+        ("pocket_width.length", 8.0),
+        ("pocket_length.length", 30.0),
+        ("pocket_depth.length", 5.0),
+    ),
+    "PocketPatternFeature": (
+        ("pocket_width.length", 8.0),
+        ("pocket_length.length", 30.0),
+        ("pocket_depth.length", 5.0),
+        ("pitch.length", 25.0),
+        ("grid_pitch.length.row", 30.0),
+        ("grid_pitch.length.col", 40.0),
+    ),
+    "SlotPatternFeature": (
+        ("slot_width.length", 8.0),
+        ("slot_length.length", 30.0),
+        ("pitch.length", 25.0),
+        ("grid_pitch.length.row", 30.0),
+        ("grid_pitch.length.col", 40.0),
+    ),
+    "BossFeature": (("boss.diameter", 25.0), ("boss_height.length", 12.0)),
+    "ChamferFeature": (("chamfer.length", 2.0),),
+    "FilletFeature": (("fillet.radius", 3.0),),
+    "FlatFeature": (("flat.length", 18.0),),
+    "GrooveFeature": (("groove.length", 3.0), ("groove.diameter", 20.0)),
+    "StepLevelFeature": (
+        ("step_height.length", 5.0),
+        ("step_height.length", 10.0),
+        ("step_height.length", 15.0),
+    ),
+    "PlateFeature": (("thickness.length", 8.0),),
+    "RotationalFeature": (("od.diameter", 40.0), ("bore.diameter", 10.0), ("bore.diameter", 16.0)),
+    "AuthoredDimension": (),
+    "PmiFeature": (),
+    "ControlFrame": (),
+    "DatumRef": (),
+    "Finish": (),
+    "Note": (),
 }
 
 
@@ -306,10 +380,22 @@ class TestStability:
         """Determinism: the same solid detected twice agrees."""
         assert self._measurements(self._part()) == self._measurements(self._part())
 
+    @pytest.mark.parametrize("name", sorted(_SAMPLES))
+    def test_every_feature_type_holds_its_ids_to_the_same_measurements(self, name):
+        """The general form: every feature type's full id → value binding is pinned,
+        so repointing anywhere on the identity surface fails here. Determinism and
+        uniqueness both survive such a swap, which is why neither is sufficient."""
+        got = tuple((p.parameter_id, p.value) for p in _SAMPLES[name].parameters())
+        assert got == _SAMPLE_BINDINGS[name]
+
+    def test_every_sample_has_a_committed_binding(self):
+        """Fail-closed with the universe check: a new feature type must be sampled
+        *and* pinned, so it cannot enter with its identity unguarded."""
+        assert set(_SAMPLE_BINDINGS) == set(_SAMPLES)
+
     def test_every_id_still_measures_what_it_measured(self):
-        """Semantics: each id is still bound to the same physical quantity. This is
-        the check a pair of live detections cannot make — both sides would run the
-        repointed code and agree with each other."""
+        """The same property end-to-end, through real detection rather than
+        hand-built features — so a change in the *detectors* is caught too."""
         got = {
             (kind, origin, pid): value
             for kind, origin, pid, value in self._measurements(self._part())
