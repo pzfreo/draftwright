@@ -127,6 +127,31 @@ def test_opposite_facing_pockets_do_not_merge():
     assert len(recognise_pocket_patterns(same)) == 1
 
 
+def test_edge_anchored_and_interior_pockets_do_not_form_one_pattern():
+    from dataclasses import replace
+
+    from draftwright.recognition.slots import Pocket
+
+    base = Pocket(
+        width_axis="x",
+        long_axis="y",
+        width=10.0,
+        length=12.0,
+        depth=6.0,
+        w_center=0.0,
+        lo=-36.0,
+        hi=-24.0,
+        d_lo=5.0,
+        d_hi=11.0,
+    )
+    mixed = (
+        base,
+        replace(base, lo=-6.0, hi=6.0, edge_anchored=True),
+        replace(base, lo=24.0, hi=36.0),
+    )
+    assert recognise_pocket_patterns(mixed) == []
+
+
 def test_injected_value_equal_pattern_still_excludes_members():
     # member exclusion is by VALUE, so an INJECTED pattern inventory built from value-equal
     # (deserialized/copied) pockets whose ids differ still suppresses the individual pockets —

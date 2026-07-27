@@ -1113,6 +1113,7 @@ def _pocket_spec_key(pk: Pocket) -> tuple:
         round(pk.d_lo, 3),
         round(pk.d_hi, 3),
         pk.open_sign,  # opposite-facing pockets sharing a depth range are on different faces
+        pk.edge_anchored,  # implicit-location corner recesses are a distinct feature class
     )
 
 
