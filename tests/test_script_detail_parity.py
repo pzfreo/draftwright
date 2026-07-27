@@ -389,12 +389,20 @@ def test_live_machined_callout_returns_name_on_replacement(tmp_path):
 
 @pytest.mark.timeout(240)
 def test_generated_script_matches_direct_y_axis_turned_diameter_policy(tmp_path):
-    """Y-axis turned output runs and follows the direct no-diameter policy."""
+    """Y-axis turned diameters reconstruct as the same end-on radial leaders."""
     part = Rotation(90, 0, 0) * _turned_shaft([(20, 20), (14, 15)])
     step, scripted = _scripted_drawing(part, tmp_path, "y_turned")
     direct = build_drawing(str(step))
 
     def diameter_callouts(dwg):
-        return tuple(sorted(n for n in dwg.annotations() if n.startswith("m_dia")))
+        return tuple(
+            sorted(
+                (n, dwg.view_of(n), dwg.get_annotation(n).label)
+                for n in dwg.annotations()
+                if n.startswith("m_dia_y")
+            )
+        )
 
-    assert diameter_callouts(scripted) == diameter_callouts(direct) == ()
+    expected = diameter_callouts(direct)
+    assert {label for _name, view, label in expected if view == "front"} == {"ø14", "ø20"}
+    assert diameter_callouts(scripted) == expected
