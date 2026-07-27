@@ -182,7 +182,7 @@ holds `PlannedDimension`s, and `DimensionGroup.dims` is where it goes:
 ```python
 @dataclass(frozen=True)
 class AddressableDimension:
-    id: ParameterId                        # "bore.diameter", "grid.pitch.x", "step_height"
+    id: ParameterId                        # "bore.diameter", "grid_pitch.length.row"
     members: tuple[PlannedDimension, ...]  # usually one; N for a correlated set
 
 
@@ -219,10 +219,10 @@ candidates are **rejected**: the parameter's *list position* (any reorder silent
 every intent) and a random UUID (unreadable in a diff, unstable across runs — what makes a
 script safe to version-control is exactly that its keys do not churn).
 
-**It is derived, not hand-authored** — composed as `role` + `kind` + an optional semantic
-discriminator, so the forty `DimParameter(...)` construction sites do not each grow a
+**It is derived, not hand-authored** — `role` + `kind`, plus a semantic discriminator where
+one is needed, so the forty `DimParameter(...)` construction sites do not each grow a
 literal that can drift from the `role` beside it. Only the discriminator is new data, and
-only tier 2 needs one (`axis="x"` / `"y"` on the grid pitches, today's sole instance). An
+only tier 2 needs one (the grid pitches, today's sole instance). An
 explicit `id=` field on every parameter was the alternative; it is more direct, but restates
 `(kind, role)` wherever it adds nothing, and a site whose `id=` disagrees with its `role=`
 is a new class of silent bug. Derived keeps one source of truth — the same argument this ADR
@@ -230,15 +230,29 @@ makes about numbers. Deriving the key is safe *because* grouping is declared sep
 parameters landing on the same derived id is an error the audit catches, never a silent
 merge into a set.
 
+***Amended 2026-07-27 (#869, as built).*** *Two details this section originally got wrong:*
+
+- ***`kind` is included always, not only where it disambiguates.*** *A rule that dropped it
+  when a role happened to be unique — giving the prettier `step_height` — would make an id
+  depend on its **sibling** parameters, so adding a field to a feature would silently
+  repoint every intent aimed at an existing one. That destroys the stability the id exists
+  for, and stability outranks prettiness. Ids are therefore uniform:
+  `bore.diameter`, `bore.depth`, `step_height.length`, `grid_pitch.length.row`.*
+- ***The discriminator is `row` / `col`, not `x` / `y`.*** *`PatternFeature.angle` may rotate
+  the lattice, so a row pitch is not an X pitch in general and the IR must key on what it
+  actually knows. The user-facing `axis=` selector maps onto row/col **at the façade**, which
+  is where the lattice angle can be consulted — so how `axis=` reads on a rotated grid joins
+  the open questions below.*
+
 **The selectors stay clean**, with the discriminator surfacing as a keyword only where it is
-needed:
+needed (the call-site spelling; the derived key is beneath it):
 
 ```python
-sheet.dimension(hole,    "diameter")            # -> DimensionId(hole,    "bore.diameter")
-sheet.dimension(hole,    "depth")               # -> DimensionId(hole,    "bore.depth")
-sheet.dimension(pattern, "pitch", axis="x")     # -> DimensionId(pattern, "grid.pitch.x")
-sheet.dimension(pattern, "pitch", axis="y")     # -> DimensionId(pattern, "grid.pitch.y")
-sheet.dimension(steps,   "step_height")         # -> the whole ladder, one identity
+sheet.dimension(hole,    "diameter")         # -> DimensionId(hole,    "bore.diameter")
+sheet.dimension(hole,    "depth")            # -> DimensionId(hole,    "bore.depth")
+sheet.dimension(pattern, "pitch", axis="x")  # -> DimensionId(pattern, "grid_pitch.length.row")
+sheet.dimension(pattern, "pitch", axis="y")  # -> DimensionId(pattern, "grid_pitch.length.col")
+sheet.dimension(steps,   "step_height")      # -> the whole ladder, one identity
 ```
 
 Omitting a needed discriminator is an error, not a guess: `dimension(pattern, "pitch")` on a
@@ -824,6 +838,11 @@ second with the single-source-of-truth of the first — over the identified set,
   old call form to 0.4.0.)* What remains open is only the spelling: `measured_dimension`
   versus a shorter `measured`, and whether the model-layer constructor keeps a `_dimension`
   suffix the façade drops.
+- **How `axis=` reads on a *rotated* grid** (#869). The IR keys a grid pattern's two pitches
+  by `row` / `col`, because `PatternFeature.angle` may rotate the lattice and a row pitch is
+  then not an X pitch. The façade must therefore map `axis="x"` onto row/col using the angle
+  — and decide what an axis-named selector means at 30°: resolve to the nearer axis, raise,
+  or offer a `row=`/`col=` spelling alongside. Settled with the selector (#872).
 - The `role` vocabulary for `sheet.dimension(feature, role)`: which measurements to support
   first (`"diameter"`, `"location"`, `"pitch"`, `"width"`/`"depth"`/`"height"`, `"angle"`,
   `"radius"`), and how the call-site role maps onto the `ParameterId` space (`"depth"` →

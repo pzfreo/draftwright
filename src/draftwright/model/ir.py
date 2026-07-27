@@ -46,6 +46,11 @@ AUTHORED_DIMENSION_KINDS = frozenset(
 # roles): "bore", "counterbore", "spotface", "od", "step", "boss", "thread",
 # "pattern", "slot", "envelope", "location", …
 Role = str
+# The semantic identity of one addressable measurement (ADR 0016). A readable string,
+# not an opaque token: it surfaces in diagnostics, lint messages and (later) emitted
+# `dimension(...)` lines, and must stay stable across re-detection and planner changes.
+# See :attr:`DimParameter.parameter_id` for how it is derived.
+ParameterId = str
 
 
 @dataclass(frozen=True)
@@ -81,6 +86,29 @@ class DimParameter:
     # renders its own class-code / deviation suffix; ``None`` when untoleranced. Set by the
     # planner from the caller's ``decorations`` — geometry never supplies it.
     tolerance: float | tuple[float, float] | FitClass | None = None
+    # A semantic discriminator for measurements ``(role, kind)`` cannot tell apart
+    # (ADR 0016 identity, tier 2). Today's sole instance is a grid pattern's two pitches
+    # (``"row"`` / ``"col"``). ``None`` wherever role + kind already identify the thing.
+    discriminator: str | None = None
+
+    @property
+    def parameter_id(self) -> ParameterId:
+        """This parameter's semantic identity (ADR 0016) — ``role.kind``, plus the
+        discriminator where one is needed: ``bore.diameter``, ``bore.depth``,
+        ``grid_pitch.length.row``.
+
+        **Derived, never hand-authored**, so the ~40 `DimParameter(...)` construction
+        sites cannot drift a literal away from the ``role=`` beside it.
+
+        ``kind`` is included *always*, not only where it disambiguates. Dropping it when
+        a role happens to be unique within its feature would make an id depend on its
+        **sibling** parameters — so adding a new parameter to a feature would silently
+        repoint every intent aimed at an existing one, destroying the stability the id
+        exists for. Uniform costs some prettiness (``step_height.length``) and buys the
+        one property that is load-bearing.
+        """
+        base = f"{self.role}.{self.kind}"
+        return f"{base}.{self.discriminator}" if self.discriminator else base
 
 
 def display(p: DimParameter) -> str:
@@ -214,8 +242,12 @@ class PatternFeature:
             ps.append(DimParameter("length", "pitch", self.pitch))
         if self.grid is not None:
             rp, cp = self.grid
-            ps.append(DimParameter("length", "grid_pitch", rp))
-            ps.append(DimParameter("length", "grid_pitch", cp))
+            # Same role AND kind, semantically distinct — the ADR 0016 tier-2 case that
+            # forces a discriminator. "row"/"col" (not "x"/"y"): `angle` may rotate the
+            # lattice, so a row pitch is not an X pitch in general. Mapping a user-facing
+            # `axis=` selector onto these is the facade's job, not the IR's.
+            ps.append(DimParameter("length", "grid_pitch", rp, discriminator="row"))
+            ps.append(DimParameter("length", "grid_pitch", cp, discriminator="col"))
         return ps
 
     def references(self) -> list[Datum]:
@@ -341,8 +373,12 @@ class PocketPatternFeature:
             ps.append(DimParameter("length", "pitch", self.pitch))
         if self.grid is not None:
             rp, cp = self.grid
-            ps.append(DimParameter("length", "grid_pitch", rp))
-            ps.append(DimParameter("length", "grid_pitch", cp))
+            # Same role AND kind, semantically distinct — the ADR 0016 tier-2 case that
+            # forces a discriminator. "row"/"col" (not "x"/"y"): `angle` may rotate the
+            # lattice, so a row pitch is not an X pitch in general. Mapping a user-facing
+            # `axis=` selector onto these is the facade's job, not the IR's.
+            ps.append(DimParameter("length", "grid_pitch", rp, discriminator="row"))
+            ps.append(DimParameter("length", "grid_pitch", cp, discriminator="col"))
         return ps
 
     def references(self) -> list[Datum]:
@@ -377,8 +413,12 @@ class SlotPatternFeature:
             ps.append(DimParameter("length", "pitch", self.pitch))
         if self.grid is not None:
             rp, cp = self.grid
-            ps.append(DimParameter("length", "grid_pitch", rp))
-            ps.append(DimParameter("length", "grid_pitch", cp))
+            # Same role AND kind, semantically distinct — the ADR 0016 tier-2 case that
+            # forces a discriminator. "row"/"col" (not "x"/"y"): `angle` may rotate the
+            # lattice, so a row pitch is not an X pitch in general. Mapping a user-facing
+            # `axis=` selector onto these is the facade's job, not the IR's.
+            ps.append(DimParameter("length", "grid_pitch", rp, discriminator="row"))
+            ps.append(DimParameter("length", "grid_pitch", cp, discriminator="col"))
         return ps
 
     def references(self) -> list[Datum]:
