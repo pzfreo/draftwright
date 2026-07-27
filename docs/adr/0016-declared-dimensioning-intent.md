@@ -1,14 +1,25 @@
 # ADR 0016 — Declared dimensioning intent: capture what to measure, let the engine place it
 
-- **Status:** Proposed
-- **Date:** 2026-07-26
+- **Status:** Accepted
+- **Date:** 2026-07-26 (accepted 2026-07-27; implementation epic **#867**)
 - **Deciders:** Paul Fremantle (pzfreo)
 
-> **Scheduling reality.** Only phase 1 (identity + `add_dimension`) is reachable on
-> today's machinery. Phases 2–4 — suppression, honest reconciliation, and the emitter's
-> dimension mirror — sit behind the global recompose (#426/#707), the longest-open
-> item on the roadmap. Accepting this ADR is therefore also a decision to schedule
-> that recompose; it is the prerequisite, not an adjacent nicety.
+> **Scheduling reality (corrected 2026-07-27).** Phase 1 (identity + `add_dimension`)
+> is reachable on today's machinery. Phases 2–4 were written as sitting behind "the
+> global recompose (#426/#707), the longest-open item on the roadmap" — **that premise
+> was stale when this ADR merged.** #426 and #661 closed 2026-07-19, #707 on 07-21, all
+> as completed; there is no open recompose issue.
+>
+> Closed-as-umbrella is not the same as capability-landed, so the blocker is now an
+> open question rather than a stated fact (#867): #426's closing comment says the parity
+> work "remains observably incomplete", the #743 parity suite is skipped with strict
+> xfails underneath, and `drain_and_reconcile` solves registered corridors and reconciles
+> witness labels without reconstructing the automatic candidate population. There is also
+> a cheaper question inside it — **suppression by omission in a `Sheet` script happens
+> before `build()`**, when the set is known at plan time, so it may need no recompose at
+> all; only `Drawing.finalize()` dropping an *automatic* dimension does. Phase 2 may
+> therefore be substantially less blocked than this ADR assumed. The constraint below is
+> flagged in step.
 
 ## Context
 
@@ -149,10 +160,11 @@ same-role collision, and they are not the same problem:
    a whole … a single `role=` intent rebuilds the whole ladder."* Here the addressable unit
    **is** the set, so the role already is the whole identity — and minting per-member keys
    would be actively wrong, because the grouped-drop edge below says commenting one member
-   still redraws the group. *Provisional for one case:* `Rotational`'s OD/bore group is the
-   residual planner-coverage debt ADR 0015 tracks as **#754**, so whether its bores stay one
-   identity or split into addressable members is settled by that migration, not here. The
-   ladders are definite.
+   still redraws the group. *Provisional for one case:* `Rotational`'s OD/bore group was
+   the residual planner-coverage debt ADR 0015 tracked as **#754** — now closed
+   (2026-07-22), so rotational diameters route through planner output and whether its
+   bores stay one identity or split into addressable members is settled when the
+   addressable units are built (#870), not here. The ladders are definite.
 
 So identity is per **addressable dimension**, which is a planner-level notion, not a raw
 `DimParameter` count. That unit has to be **first-class in the model, not inferred from key
@@ -531,10 +543,13 @@ absence both mean something exact** — which is all suppression-by-omission nee
   idempotence against the plan — but **suppressive intent additionally needs that identity
   to be stable across re-detection and recomposition**, which is why identity lands *with*
   the augmenting verb while suppression waits for the set boundary.
-- **Honest reconciliation needs the full recompose (#426/#707).** Suppressing or
-  re-emphasizing an *automatic* dimension means the finalize path must reconstruct the
-  automatic candidate population and co-solve it with the declared intents — the global
-  recompose ADR 0012 Amendment 1 records as still open. Until it lands, `Drawing.finalize()`
+- **Honest reconciliation needs the full recompose** *(status open — see the corrected
+  scheduling note above; #426/#707 are closed but the capability is unverified)*.
+  Suppressing or re-emphasizing an *automatic* dimension means the finalize path must
+  reconstruct the automatic candidate population and co-solve it with the declared
+  intents — the global recompose ADR 0012 Amendment 1 records as still open. Note this
+  applies to the **post-build** `Drawing.finalize()` path; a `Sheet` script's authored
+  set is known before the solve. Until it lands, `Drawing.finalize()`
   drains *recorded* intents against already-committed annotations as obstacles; it does not
   reconcile against the auto-plan. So **augmenting intent (`add_dimension`) is reachable on
   today's machinery — it is simply a new candidate; suppressive / full-mirror intent

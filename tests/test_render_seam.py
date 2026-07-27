@@ -51,6 +51,44 @@ class TestCalloutSpec:
         assert s["diameter"] == 6.0 and s["count"] == 6  # 6× ø6, not six callouts
         assert s["suffix"] is not None and "BC" in s["suffix"]  # BCD in the suffix
 
+    def test_blind_hole_stays_blind_when_its_depth_dim_is_dropped(self):
+        """#868 canary — ``through`` is the feature's fact, not a shape of the param list.
+
+        `HoleFeature.parameters()` emits a bore depth only for a blind hole, so a
+        renderer deriving ``through = depth is None`` reads a *manufacturing fact* off
+        the presence of a *dimension*. ADR 0016 suppression drops planned dimensions,
+        so that derivation would silently print a blind hole as ``THRU``. Fails at the
+        pre-fix commit.
+        """
+        from dataclasses import replace
+
+        from draftwright.model import Frame, HoleFeature, PartModel
+
+        hole = HoleFeature(Frame((0, 0, 0), "z"), 8.0, depth=10.0, through=False)
+        g = plan_dimensions(PartModel(bbox=None, orientation=None, features=[hole]))[0]
+        dropped = replace(
+            g,
+            dims=tuple(d for d in g.dims if (d.param.kind, d.param.role) != ("depth", "bore")),
+        )
+        s = hole_callout_spec(dropped)
+        assert s["through"] is False  # the fact survives …
+        assert s["depth"] is None  # … while the dimension does not
+
+    def test_pattern_reads_through_from_its_member_hole(self):
+        """#868 — the pattern branch resolves the fact through `PatternFeature.member`."""
+        from dataclasses import replace
+
+        from draftwright.model import Frame, HoleFeature, PartModel, PatternFeature
+
+        member = HoleFeature(Frame((0, 0, 0), "z"), 6.0, depth=5.0, through=False)
+        pat = PatternFeature(Frame((0, 0, 0), "z"), "bolt_circle", 6, member, bcd=50.0)
+        g = plan_dimensions(PartModel(bbox=None, orientation=None, features=[pat]))[0]
+        dropped = replace(
+            g,
+            dims=tuple(d for d in g.dims if (d.param.kind, d.param.role) != ("depth", "bore")),
+        )
+        assert hole_callout_spec(dropped)["through"] is False
+
     def test_spotface_maps_to_the_step(self):
         # The renderer must not drop a spotface (review): step = cbore or spotface.
         from draftwright.model import Frame, HoleFeature, PartModel

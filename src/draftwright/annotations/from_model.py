@@ -93,8 +93,16 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
 
     From the plan: bore from `DimParameter` roles; the cbore/spotface *step* with
     counterbore precedence (``step = cbore or spotface``, as the engine does);
-    ``through`` inferred from the absence of a bore-depth param; ``count`` and the
-    pattern *suffix* (``EQ SP ON ø50 BC`` / ``(3×3)``) from the source feature."""
+    ``count`` and the pattern *suffix* (``EQ SP ON ø50 BC`` / ``(3×3)``) from the
+    source feature.
+
+    ``through`` is read off the FEATURE, never inferred from a missing bore-depth
+    param (#868). `HoleFeature.parameters()` only emits the depth for a blind hole,
+    so absence-as-signal would make any consumer that filters the parameter list —
+    ADR 0016 suppression above all — silently render a blind hole as ``THRU``. The
+    rule that follows (ADR 0016): a renderer may not infer an engineering *fact*
+    from the presence or absence of a dimension parameter — parameters carry values
+    for display, facts live on the feature."""
     feat = group.feature
     if not isinstance(feat, HoleFeature | PatternFeature):
         return None
@@ -126,7 +134,7 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     return {
         "diameter": bore,
         "count": count if count and count > 1 else None,
-        "through": depth is None,
+        "through": hole.through,  # the feature's fact, not the param list's shape (#868)
         "depth": depth,
         # counterbore precedence, spotface fallback — the engine's mapping
         "cbore_dia": _first(group, "diameter", "counterbore", "spotface"),
