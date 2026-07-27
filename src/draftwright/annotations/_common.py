@@ -994,20 +994,24 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             deferred = pending is not None and len(pending) > n_deferred
             if trace is not None:  # did on_drop queue a post-drain fallthrough?
                 trace.record_outcome(c.name, "dropped", deferred_post_drain=deferred)
-            if c.dedup is not None:  # a deduped winner failed → promote its top loser
+            if c.dedup is not None:
+                # A deduped winner that did not place hands its measurement to the best
+                # surviving loser — but ONLY if the measurement is genuinely absent.
+                # `on_drop` may have rescued it onto the opposite strip, and promoting
+                # then draws the same span twice (#894 review: observed on CTC-03, where
+                # m_pocket0_pos_long fell through cleanly and its coincident twin was
+                # promoted anyway).
+                #
+                # The predicate is "winner still absent", not "did on_drop defer" — a
+                # SYNCHRONOUS retry has resolved by now, and if it succeeded the loser
+                # must stay suppressed just the same. Only the *moment* of the check
+                # differs: immediately when the retry already ran, or queued behind it
+                # when it was deferred (appended after, and post_drain runs in order).
                 if deferred and pending is not None:
-                    # …but not yet. `on_drop` queued an opposite-strip retry, so this
-                    # measurement may still land. Promoting now double-dimensions the
-                    # span whenever that retry succeeds (#894 review: observed on CTC-03,
-                    # where m_pocket0_pos_long fell through cleanly and the solver
-                    # promoted its coincident twin anyway). Queue the decision BEHIND the
-                    # retry — appended after it, and post_drain runs in order — so a
-                    # successful fallthrough keeps the loser suppressed and only a
-                    # genuine miss promotes.
                     pending.append(
                         lambda _c=c: None if _c.name in dwg.annotations() else _promote_losers(_c)
                     )
-                else:
+                elif c.name not in dwg.annotations():
                     _promote_losers(c)
     if trace is not None:
         trace.end_solve()
