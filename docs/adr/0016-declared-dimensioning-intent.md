@@ -4,8 +4,8 @@
 - **Date:** 2026-07-26
 - **Deciders:** Paul Fremantle (pzfreo)
 
-> **Scheduling reality.** Only phase 1 (augmenting intent, `add_dimension`) is reachable on
-> today's machinery. Phases 3–5 — suppression, honest reconciliation, and the emitter's
+> **Scheduling reality.** Only phase 1 (identity + `add_dimension`) is reachable on
+> today's machinery. Phases 2–4 — suppression, honest reconciliation, and the emitter's
 > dimension mirror — sit behind the global recompose (#426/#707), the longest-open
 > item on the roadmap. Accepting this ADR is therefore also a decision to schedule
 > that recompose; it is the prerequisite, not an adjacent nicety.
@@ -154,17 +154,50 @@ same-role collision, and they are not the same problem:
    identity or split into addressable members is settled by that migration, not here. The
    ladders are definite.
 
-So identity is per **addressable dimension** — the set for a correlated pass, the parameter
-for an independent one — and that is a planner-level notion, not a raw `DimParameter` count.
-
-**The key.** A dimension's identity is a stable semantic pair:
+So identity is per **addressable dimension**, which is a planner-level notion, not a raw
+`DimParameter` count. That unit has to be **first-class in the model, not inferred from key
+collisions** — otherwise nothing can distinguish an intentional correlated set from an
+accidental duplicate, and every consumer (dicts, provenance, suppression, the uniqueness
+audit) has to guess:
 
 ```python
 @dataclass(frozen=True)
+class AddressableDimension:
+    id: ParameterId                       # "bore.diameter", "grid.pitch.x", "step_height"
+    parameters: tuple[DimParameter, ...]  # usually one; N for a correlated set
+
+
+@dataclass(frozen=True)
 class DimensionId:
     feature: FeatureId
-    parameter: ParameterId       # "bore.diameter", "grid.pitch.x", "step_height", …
+    parameter: ParameterId                # the AddressableDimension's id
 ```
+
+Most addressable dimensions hold exactly one parameter. A correlated set holds N and its
+members are **not** separately addressable — that is the whole content of tier 3, now stated
+in the model rather than as a caveat about the key. The planner declares the grouping when
+it builds the addressable set; it is never deduced from two parameters happening to share a
+derived key.
+
+**Grouping at the identity layer is not grouping at the render layer**, and conflating them
+is what made an earlier draft of this section wrong. A hole's bore ⌀, depth, counterbore,
+spotface and countersink parameters all collapse into **one** `HoleCallout` — `⌀20 THRU ⌴
+⌀32 ↓ 1.5` is a single annotation (`from_model.hole_callout_spec`). That is a *rendering*
+aggregation of several addressable dimensions sharing one leader, **not** one addressable
+dimension:
+
+```python
+sheet.dimension(bore, "diameter")           # ⌀20
+sheet.dimension(bore, "spotface_diameter")  # ⌴ ⌀32     — three lines,
+sheet.dimension(bore, "spotface_depth")     # ↓ 1.5       one rendered callout
+```
+
+Dropping the spotface lines leaves `⌀20 THRU`; the callout builder already takes `None` for
+every segment. So the two grouping notions are genuinely different and the model needs both:
+a correlated set is **one** identity with N parameters, a compound callout is **N**
+identities sharing one annotation. One asymmetry is real and worth stating: the bore ⌀ is
+the callout's *head* (`hole_callout_spec` returns nothing without it), so suppressing it
+suppresses the whole callout rather than leaving a headless one.
 
 `ParameterId` is a readable semantic string, not an opaque token: it appears in diagnostics,
 lint messages and snapshots, and is stable across re-detection and planner changes. Two
@@ -179,7 +212,9 @@ only tier 2 needs one (`axis="x"` / `"y"` on the grid pitches, today's sole inst
 explicit `id=` field on every parameter was the alternative; it is more direct, but restates
 `(kind, role)` wherever it adds nothing, and a site whose `id=` disagrees with its `role=`
 is a new class of silent bug. Derived keeps one source of truth — the same argument this ADR
-makes about numbers.
+makes about numbers. Deriving the key is safe *because* grouping is declared separately: two
+parameters landing on the same derived id is an error the audit catches, never a silent
+merge into a set.
 
 **The selectors stay clean**, with the discriminator surfacing as a keyword only where it is
 needed:
@@ -203,9 +238,16 @@ space would make the key depend on which subject the caller named first:
 @dataclass(frozen=True)
 class RelationDimensionId:
     relation: Literal["distance", "angle", "offset"]
-    subjects: tuple[FeatureId, ...]        # canonically ordered, so a↔b keys once
+    subjects: tuple[FeatureId, ...]        # normalized per relation — see below
     axis: Literal["x", "y", "z"] | None = None
 ```
+
+**Subject normalization is relation-specific, not a blanket sort.** A distance is symmetric,
+so `(a, b)` and `(b, a)` must key once and sorting is right. A *signed* offset and an
+oriented angle are not: reordering their subjects negates the measurement, so sorting them
+would silently key two different dimensions as one. Each relation therefore declares its own
+normalization — symmetric relations canonicalize by sort, oriented ones preserve subject
+order as part of the identity.
 
 This makes the "not every dimension is nameable" edge below a *bounded* gap rather than an
 open one: inter-feature spans are nameable, just not as `(feature, role)`.
@@ -254,15 +296,15 @@ dwg = sheet.build()
 
   ```python
   sheet.auto_dimensions()
-  sheet.add_dimension(pattern, "pitch")     # planner's set + the pitch dim
+  sheet.add_dimension(pattern, "pitch", axis="x")   # planner's set + the row-pitch dim
   ```
 
   It **requires** `auto_dimensions()` — there is nothing to augment in an authored set — so
   `add_dimension` without it raises the same way mixing does. Overlap with something the
   plan already covers is *not* an error: the identity key makes it idempotent (see
   "Preventing duplicate dimensions"). What raises is reusing the *same* verb for both
-  sources. This split is also why the phasing leads with `add_dimension`: a verb must not
-  mean "augment the plan" in one release and "be the plan" in the next.
+  sources. This split is also why `add_dimension` is the verb the phasing ships first: a
+  verb must not mean "augment the plan" in one release and "be the plan" in the next.
 - **A build that requested neither raises** — `Sheet(part).build()` does not silently
   produce an undimensioned drawing (`ValueError: no dimension set requested — call
   auto_dimensions() …`). This is the one point where explicitness alone is not enough: a
@@ -420,7 +462,7 @@ constraining planner internals that are still moving. The gaps are known and fin
 
 | Not mirrored as a `dimension(...)` line | Why | Where it goes instead |
 | --- | --- | --- |
-| Correlated sets, per member | `step_height` / `step_position` ladders, rotational bores and off-axis `locate` are one addressable dimension, not N | **One** line per set; suppress the set, not a member |
+| Correlated sets, per member | `step_height` / `step_position` ladders, rotational bores and off-axis `locate` are one `AddressableDimension` holding N parameters | **One** line per set; suppress the set, not a member |
 | Inter-feature spans and angles | No `(feature, role)` form — needs `RelationDimensionId`, whose selector spelling is still open | Comment floor until the relation selector lands |
 | Imported AP242 PMI | Materialized: carries `ref_pts` / `ref_bbox` / `at`, so there is nothing to reference | `sheet.measured_dimension(...)` — still one editable line |
 | Low-level furniture | Centre marks, section arrows, hatching, the NTS caption carry no editable intent | Engine-automatic, by decision |
@@ -495,11 +537,13 @@ It is also a live compatibility question rather than a blank sheet: `Sheet.secti
 shipped in v0.3.9 (#847) as `section(feature=None, *, at=None)` — unnamed and
 single-section — so multi-section naming is a *reshape* of an existing verb needing its own
 overload-versus-rename call, while `sheet.view(...)` does not exist at all. Both belong in a
-follow-up ADR, which phase 5 depends on only for the non-dimension parts of the script.
+follow-up ADR, which the emitter phase depends on only for the non-dimension parts of
+the script.
 
 ## Worked example — the mounting plate
 
-> **This example is the END STATE — the script as it reads once phase 5 has landed.**
+> **This example is the END STATE — the script as it reads once the emitter mirror
+> (phase 4) has landed.**
 > It is not today's API and will not run against the current release: `sheet.dimension(...)`
 > in its referential form does not exist yet, and the view / section lines are
 > **illustrative only — not decided by this ADR** (see "Out of scope"). The feature lines
@@ -508,8 +552,8 @@ follow-up ADR, which phase 5 depends on only for the non-dimension parts of the 
 An 80 × 50 × 8 plate: a central ⌀20 bore with a ⌀32 × 1.5 spotface (which auto-triggers
 section A–A) and four ⌀5 corner holes. Today `emit_sheet_script` writes the four
 *features* and leaves the dimensions, views, and section as comments. Under this ADR the
-emitter mirrors the drawing as **referential dimension lines** — every callout on the
-sheet is one line, and no line restates a number:
+emitter mirrors the drawing as **referential dimension lines** — one line per addressable
+dimension, and no line restates a number:
 
 ```python
 from draftwright import Sheet
@@ -524,15 +568,20 @@ bore    = sheet.hole(diameter=20, at=(0, 0, 4), axis="z").spotface(diameter=32, 
 env     = sheet.envelope()                     # the overall bounding geometry
 
 # ── Dimensions — each REFERENCES a feature; no numbers restated ────────────────
-sheet.dimension(bore,    "diameter")    # ⌀20 THRU ⌴ ⌀32 ↓ 1.5   (read off `bore`)
-sheet.dimension(corners, "diameter")    # 4× ⌀5 THRU              (read off `corners`)
-sheet.dimension(corners, "location")    # the hole-location ladder      ← comment out to drop
-sheet.dimension(bore,    "location")    # bore on centre
-sheet.dimension(env,     "width")       # 80    (read off the bbox)
-sheet.dimension(env,     "depth")       # 50
-sheet.dimension(env,     "height")      # 8     (thickness)
-# sheet.dimension(corners, "pitch", axis="x")   # ← uncomment for the 64 grid pitch
-# sheet.dimension(corners, "pitch", axis="y")   # ← and the 36 — two identities, two lines
+# These three render as ONE callout — ⌀20 THRU ⌴ ⌀32 ↓ 1.5 — but are three
+# addressable dimensions: drop the two spotface lines and it reads ⌀20 THRU.
+sheet.dimension(bore,    "diameter")           # ⌀20   (read off `bore`)
+sheet.dimension(bore,    "spotface_diameter")  # ⌴ ⌀32
+sheet.dimension(bore,    "spotface_depth")     # ↓ 1.5
+
+sheet.dimension(corners, "diameter")           # 4× ⌀5 THRU  (read off `corners`)
+sheet.dimension(corners, "location")           # location ladder  ← comment out to drop
+sheet.dimension(bore,    "location")           # bore on centre
+sheet.dimension(env,     "width")              # 80    (read off the bbox)
+sheet.dimension(env,     "depth")              # 50
+sheet.dimension(env,     "height")             # 8     (thickness)
+# sheet.dimension(corners, "pitch", axis="x")  # ← uncomment for the 64 grid pitch
+# sheet.dimension(corners, "pitch", axis="y")  # ← and the 36 — two identities, two lines
 
 # ── Views & section — ILLUSTRATIVE; surface not decided by this ADR ────────────
 sheet.view("front"); sheet.view("plan"); sheet.view("side"); sheet.view("iso")
@@ -543,15 +592,19 @@ sheet.export("plate")
 
 Reading it against the rendered sheet:
 
-- **This is an authored set, so it never calls `auto_dimensions()`.** The seven
+- **This is an authored set, so it never calls `auto_dimensions()`.** The nine
   `dimension(...)` lines *are* the drawing's dimension set — which is what makes the
   commented-out pitch lines mean "suppressed" rather than "not mentioned". A script wanting
   the planner's choices instead would call `auto_dimensions()` and carry no `dimension(...)`
   lines at all, augmenting it with `sheet.add_dimension(corners, "pitch", axis="x")`. It
   cannot do both.
+- **One rendered callout, three addressable dimensions.** The bore's three lines collapse
+  into a single `HoleCallout` on one leader, but each is separately suppressible — that is
+  the identity-layer / render-layer split, and it is why the mirror has three lines here
+  rather than one. (The bore ⌀ is the callout's head: dropping *it* drops the callout.)
 - **`⌀20` appears once.** The number lives on the `bore` feature line; the dimension line
-  only says *show `bore`'s diameter callout*. Change `diameter=20` → `25` (or edit the
-  build123d object, for a live part) and the callout follows — no second copy to sync.
+  only says *show `bore`'s diameter*. Change `diameter=20` → `25` (or edit the build123d
+  object, for a live part) and the callout follows — no second copy to sync.
 - **Dropping a dimension is not dropping the hole.** Comment out `sheet.dimension(corners,
   "location")` and the location ladder vanishes; the four ⌀5 *circles* stay, because they
   are geometry projected from the part, not annotations. Only editing the part removes a hole.
@@ -575,15 +628,22 @@ second with the single-source-of-truth of the first — over the identified set,
   **`DimensionIntent` handle** — not `Sheet` — which carries the dimension's `DimensionId`
   and is the face `.pin()` / `.priority()` chain from. Suppression needs no verb at all: a
   surfaced `dimension` line commented out is the drop.
-- **A dimension's identity is a `DimensionId(feature, parameter)`, not `(feature, role)`** —
-  the latter is the *address* at the call site; the key needs `kind` and, for genuinely
-  distinct same-role parameters (grid row vs column pitch), a semantic discriminator
-  surfaced as a keyword (`axis="x"`). Correlated sets (the ladders, rotational bores) are
-  **one** addressable dimension keyed by role, not N. `ParameterId` is derived from
+- **The addressable dimension becomes a first-class model type.** `AddressableDimension(id,
+  parameters)` is what one `dimension(...)` line addresses — usually one parameter, N for a
+  correlated set (the ladders, rotational bores), with the grouping *declared* by the
+  planner rather than inferred from key collisions. Its identity is
+  `DimensionId(feature, parameter)`, where `(feature, role)` is only the call-site *address*:
+  the key needs `kind` and, for genuinely distinct same-role parameters (grid row vs column
+  pitch), a discriminator surfaced as a keyword (`axis="x"`). `ParameterId` is derived from
   `(role, kind, discriminator)`, not hand-written on every `DimParameter`; list position and
-  UUIDs are rejected. Inter-feature measurements get a separate `RelationDimensionId`, and
-  durable *feature* identity is not minted here. This key drives suppression, dedup,
-  provenance and the emitter alike.
+  UUIDs are rejected. Inter-feature measurements get a separate `RelationDimensionId` whose
+  subject normalization is relation-specific (symmetric relations sort; oriented ones keep
+  order). Durable *feature* identity is not minted here.
+- **Identity-layer grouping is not render-layer grouping.** A compound `HoleCallout`
+  (`⌀20 THRU ⌴ ⌀32 ↓ 1.5`) is **N** addressable dimensions sharing one leader, each
+  separately suppressible — not one addressable dimension. A correlated set is the converse:
+  one identity, N parameters, no member addressable. The model carries both notions because
+  the two cases are genuinely different.
 - **The dimension set has two explicit sources, and a build must request one.**
   `auto_dimensions()` selects the planner's set; `dimension(...)` declarations form a
   complete authored set; `add_dimension(...)` augments the planner's set and requires it.
@@ -628,44 +688,44 @@ second with the single-source-of-truth of the first — over the identified set,
 
 ## Proposed phased work
 
-> **A verb never changes meaning between phases.** The phase order below is chosen so that
-> `add_dimension` ships first with its final meaning (augment the plan) and `dimension`
-> does not exist until the set boundary that gives it its meaning (be the plan) exists too.
-> The earlier draft had one `dimension` verb turning from additive into set-defining at
-> phase 3 — a silent semantic change to a shipped public verb, which is not an acceptable
-> migration.
+> **A verb never changes meaning between phases**, and **no phase ships a verb whose stated
+> contract it cannot yet honour.** The order below follows from those two rules:
+> `add_dimension` returns a handle carrying a `DimensionId` and is idempotent against the
+> plan, so it cannot precede identity — hence identity and the augmenting verb land
+> **together** as phase 1. And `dimension(...)` does not exist until phase 2 gives it its
+> meaning, rather than turning from additive into set-defining under a shipped name.
 
-1. **Augmenting intent: `add_dimension(...)`.** A scale-independent augmenting-measurement
-   intent (span-between-features, pitch, thickness, overall) recorded on the model and
-   entered as a `CorridorCandidate` alongside the planner's set; reachable on today's solve.
-   Reuses / narrows `authored_dimension` so intent and materialized-PMI stay distinct.
-   `dimension(...)` is deliberately **not** introduced here — it has no meaning before
-   phase 3.
-2. **Semantic identity for planned dimensions.** Land `DimensionId` / `ParameterId` (derived
-   keys, the `axis=` discriminator, correlated sets as one identity) and expose it as a
+1. **Semantic identity, then augmenting intent — one phase.** Land the addressable-dimension
+   model first: `AddressableDimension` / `DimensionId` / `ParameterId` (derived keys, the
+   `axis=` discriminator, correlated sets as one identity with N parameters), exposed as a
    handle on planned dimensions (ADR 0010 provenance + ADR 0015 roles) so intent can
-   *reference* an auto dimension. This is the phase the whole back half rests on — it is
-   what makes an emitted line addressable, a suppression durable, and an augmenting
-   declaration idempotent against the plan.
-3. **The dimension-set boundary, then suppression by omission.** Land
+   *reference* an auto dimension. Then `add_dimension(...)` on top of it: a
+   scale-independent augmenting measurement recorded on the model and entered as a
+   `CorridorCandidate` alongside the planner's set; reachable on today's solve. Reuses /
+   narrows `authored_dimension` so intent and materialized-PMI stay distinct.
+   **Feature-addressable measurements only** — pitch, thickness, overall, a feature's own
+   parameters. Inter-feature spans wait for the relation selector (open below); shipping
+   them here would mean guessing that syntax. `dimension(...)` is deliberately not
+   introduced: it has no meaning before phase 2.
+2. **The dimension-set boundary, then suppression by omission.** Land
    `auto_dimensions()` / authored-set semantics first — `dimension(...)` itself, the two
    mixing errors, the no-set-requested error, and the emitter always writing one of the two
    forms — since omission only becomes meaningful once a set is declared complete. Then a
    surfaced referential `dimension` line, when commented out, filters that `DimensionId`
    from `plan_dimensions` output; no separate verb. This step carries the breaking change
    and should ship with the `measured_dimension` rename so callers migrate once.
-4. **Full recompose (#426/#707).** Reconstruct the automatic population at finalize and
+3. **Full recompose (#426/#707).** Reconstruct the automatic population at finalize and
    co-solve with declared dimensions, making suppression / emphasis honest and
    script/direct output convergent.
-5. **Emitter dimension-mirror.** Emit one round-trippable referential `dimension(...)` line
+4. **Emitter dimension-mirror.** Emit one round-trippable referential `dimension(...)` line
    per **planned dimension intent** — never per *placed* dimension, which would let solver
    pressure rewrite version-controlled source (see "The script records intent"). The
    emitted script leads with `auto_dimensions()` or the authored set, so its dimension
    source is always explicit. Keep the self-describing comment as the floor for anything
    not yet mirrorable.
-6. **Redundancy lint.** The third duplicate-protection layer — report over-dimensioning that
+5. **Redundancy lint.** The third duplicate-protection layer — report over-dimensioning that
    is neither identical nor coincident (a pattern's per-hole locations *and* its pitch).
-7. **Retire `--style imperative`** once the mirror reaches its reconstruction coverage
+6. **Retire `--style imperative`** once the mirror reaches its reconstruction coverage
    (rotational, the ladders, off-axis `locate`, machined callouts, pocket / slot patterns),
    leaving the declarative script as the single generated output.
 
@@ -697,7 +757,10 @@ second with the single-source-of-truth of the first — over the identified set,
   invariant), tests that the three source errors fire (mixing, no set requested, and
   `add_dimension` without `auto_dimensions()`), and an idempotence test that an augmenting
   declaration overlapping the plan yields exactly one dimension. Identity gets its own
-  guards: a uniqueness audit that no feature in the IR yields two parameters with the same
-  `ParameterId` (the check that would have caught the grid-pitch collision), a test that an
-  ambiguous selector raises rather than picking, and a stability test that re-detecting a
-  part yields the same `ParameterId`s.
+  guards: a uniqueness audit that no feature yields two **`AddressableDimension`s** with the
+  same `ParameterId` — over addressable units, *not* raw `DimParameter`s, since a correlated
+  set deliberately holds N parameters under one id, and an audit phrased over parameters
+  would reject exactly the grouping the design permits (it is still the check that would have
+  caught the grid-pitch collision, because two ungrouped pitches are two addressable units);
+  a test that an ambiguous selector raises rather than picking; and a stability test that
+  re-detecting a part yields the same `ParameterId`s.
