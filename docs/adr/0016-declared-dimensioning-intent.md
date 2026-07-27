@@ -119,7 +119,7 @@ explode the mirror without adding any editable intent.
 ### What `dimension(...)` returns: the dimension-intent handle
 
 The referential verb returns a **`DimensionIntent` handle**, not `Sheet`, so `.pin()` and
-`.priority()` chain — `sheet.dimension(bore, "location").pin().priority(2.0)`. This follows
+`.priority()` chain — `sheet.dimension(bore, "diameter").pin().priority(2.0)`. This follows
 the pattern the façade already uses for anything carrying aspects (`hole` → `_Hole`,
 `diameter` → `_Dim`, `slot` → `_Params`) while verbs with nothing to decorate (`chamfer`,
 `fillet`, `plate`) return `Sheet`.
@@ -374,7 +374,7 @@ dwg = Sheet(part).auto_dimensions().build()   # the planner-selected set, reques
 
 sheet = Sheet(part)                           # or: these declarations ARE the set
 sheet.dimension(bore, "diameter")
-sheet.dimension(bore, "location")
+sheet.dimension(bore, "depth")
 dwg = sheet.build()
 ```
 
@@ -558,7 +558,8 @@ constraining planner internals that are still moving. The gaps are known and fin
 
 | Not mirrored as a `dimension(...)` line | Why | Where it goes instead |
 | --- | --- | --- |
-| Correlated sets, per member | `step_height` / `step_position` ladders, rotational bores and off-axis `locate` are one `AddressableDimension` holding N members | **One** line per set; suppress the set, not a member |
+| Correlated sets, per member | `step_height` / `step_position` ladders and rotational bores are one `AddressableDimension` holding N members | **One** line per set; suppress the set, not a member |
+| Location dimensions | Planned by `plan_locations` outside `DimensionGroup`, so they have no addressable identity yet — **#883** | Comment floor until #883 lands |
 | Inter-feature spans and angles | No `(feature, role)` form — needs `RelationDimensionId`, whose selector spelling is still open | Comment floor until the relation selector lands |
 | Imported AP242 PMI | Materialized: carries `ref_pts` / `ref_bbox` / `at`, so there is nothing to reference | `sheet.measured_dimension(...)` — still one editable line |
 | Low-level furniture | Centre marks, section arrows, hatching, the NTS caption carry no editable intent | Engine-automatic, by decision |
@@ -682,8 +683,10 @@ sheet.dimension(bore,    "spotface_diameter")  # ⌴ ⌀32
 sheet.dimension(bore,    "spotface_depth")     # ↓ 1.5
 
 sheet.dimension(corners, "diameter")           # 4× ⌀5 THRU  (read off `corners`)
-sheet.dimension(corners, "location")           # location ladder  ← comment out to drop
-sheet.dimension(bore,    "location")           # bore on centre
+# Locations are NOT addressable yet (#883) — the engine still places them
+# automatically; these two lines are what the surface will read once it lands.
+# sheet.dimension(corners, "location")         # location ladder  ← comment out to drop
+# sheet.dimension(bore,    "location")         # bore on centre
 sheet.dimension(env,     "width")              # 80    (read off the bbox)
 sheet.dimension(env,     "depth")              # 50
 sheet.dimension(env,     "height")             # 8     (thickness)
@@ -699,7 +702,7 @@ sheet.export("plate")
 
 Reading it against the rendered sheet:
 
-- **This is an authored set, so it never calls `auto_dimensions()`.** The nine
+- **This is an authored set, so it never calls `auto_dimensions()`.** The seven active
   `dimension(...)` lines *are* the drawing's dimension set — which is what makes the
   commented-out pitch lines mean "suppressed" rather than "not mentioned". A script wanting
   the planner's choices instead would call `auto_dimensions()` and carry no `dimension(...)`
@@ -714,13 +717,13 @@ Reading it against the rendered sheet:
   only says *show `bore`'s diameter*. Change `diameter=20` → `25` (or edit the build123d
   object, for a live part) and the callout follows — no second copy to sync.
 - **Dropping a dimension is not dropping the hole.** Comment out `sheet.dimension(corners,
-  "location")` and the location ladder vanishes; the four ⌀5 *circles* stay, because they
+  "diameter")` and the `4× ⌀5 THRU` callout vanishes; the four *circles* stay, because they
   are geometry projected from the part, not annotations. Only editing the part removes a hole.
 - **The commented `pitch` lines show the discriminator carrying its weight.** A grid emits
   two `grid_pitch` parameters of the same kind and role, so they are two identities and two
   lines — `sheet.dimension(corners, "pitch")` with no `axis=` raises rather than guessing.
 - **A line the solver cannot fit still stays in the script.** If the sheet is too crowded for
-  the bore's location ladder, that dimension drops with a lint warning and its line remains
+  the envelope's width dim, that dimension drops with a lint warning and its line remains
   exactly where it is — a later scale or page change can make it fit again with no edit.
 
 The A/B "features imply dimensions" vs "every dimension is a line" fork explored during
@@ -869,9 +872,10 @@ second with the single-source-of-truth of the first — over the identified set,
   — and decide what an axis-named selector means at 30°: resolve to the nearer axis, raise,
   or offer a `row=`/`col=` spelling alongside. Settled with the selector (#872).
 - The `role` vocabulary for `sheet.dimension(feature, role)`: which measurements to support
-  first (`"diameter"`, `"location"`, `"pitch"`, `"width"`/`"depth"`/`"height"`, `"angle"`,
-  `"radius"`), and how the call-site role maps onto the `ParameterId` space (`"depth"` →
-  `"bore.depth"`) when a feature has counterbore and spotface depths as well.
+  first (`"diameter"`, `"pitch"`, `"width"`/`"depth"`/`"height"`, `"angle"`, `"radius"`), and
+  how the call-site role maps onto the `ParameterId` space (`"depth"` → `"bore.depth"`) when a
+  feature has counterbore and spotface depths as well. **`"location"` is blocked on #883** —
+  location dims are planned outside `DimensionGroup` and have no addressable identity yet.
 - **The relation selector.** `RelationDimensionId` settles the *identity* of an
   inter-feature measurement; how it reads at the call site does not —
   `sheet.dimension(a, b)` / `sheet.dimension((a, b), "span")` / a feature-handle method.
