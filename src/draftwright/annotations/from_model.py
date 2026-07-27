@@ -1157,7 +1157,10 @@ def render_diameters(dwg, groups, a, tol: float = 0.15, *, ctx, only=None) -> in
             for i, (_anchor, dia, features, dtol, thr) in enumerate(end_buckets.values()):
                 representative = next(iter(features))
                 owner = representative if len(features) == 1 else None
-                candidates = (
+                # Materialise now: a generator expression would close over ``owner``
+                # and all jobs would read the final loop iteration's feature when
+                # _leader_callout_pass consumes them (#890).
+                candidates = [
                     (tip, elbow, owner)
                     for tip, elbow, _feature in _radial_candidates(
                         dwg,
@@ -1166,8 +1169,9 @@ def render_diameters(dwg, groups, a, tol: float = 0.15, *, ctx, only=None) -> in
                         representative,
                         reach,
                         rim=dia / 2 * a.SCALE,
+                        directions=_DIAMETER_LEAD_DIRS,
                     )
-                )
+                ]
                 label = f"ø{_fmt(dia)}{_tol_suffix(dtol, dwg.draft)}"
                 if thr:
                     label += f" {thr}"
@@ -1706,18 +1710,33 @@ _POCKET_LEAD_DIRS = (
     (0, -1),
 )
 
+_DIAMETER_LEAD_DIRS = (
+    # A concentric diameter should touch a clear cardinal point before trying
+    # diagonals. Diagonal-first leaders visually target bolt holes on common
+    # four-hole flanges even when their tip is mathematically on the step rim.
+    (1, 0),
+    (0, 1),
+    (-1, 0),
+    (0, -1),
+    (1, 1),
+    (-1, 1),
+    (-1, -1),
+    (1, -1),
+)
 
-def _radial_candidates(dwg, view, vb, feature, reach, *, rim=0.0):
+
+def _radial_candidates(dwg, view, vb, feature, reach, *, rim=0.0, directions=_POCKET_LEAD_DIRS):
     """Lead candidates for a mid-face feature (pocket/groove/boss ø): from the feature's
-    projected origin, one candidate per :data:`_POCKET_LEAD_DIRS` direction — exit the
-    silhouette along it (:func:`_ray_exit_dist`) then *reach* on into the margin, so even
-    a centre-of-view feature clears the part. A non-zero *rim* (page units) advances the
-    arrow tip that far along the lead direction, so a boss ø leader's arrowhead lands on
-    the boss circle rather than its centre (#629/#700). Yields ``(tip, elbow, feature)``
-    (same feature each time; nearest-clear wins in the pass)."""
+    projected origin, one candidate per *directions* entry (pocket-style diagonals
+    first by default) — exit the silhouette along it (:func:`_ray_exit_dist`) then
+    *reach* on into the margin, so even a centre-of-view feature clears the part. A
+    non-zero *rim* (page units) advances the arrow tip that far along the lead
+    direction, so a boss ø leader's arrowhead lands on the boss circle rather than
+    its centre (#629/#700). Yields ``(tip, elbow, feature)`` (same feature each
+    time; nearest-clear wins in the pass)."""
     x0, y0, x1, y1 = vb
     origin = dwg.at(view, *feature.frame.origin)
-    for dx, dy in _POCKET_LEAD_DIRS:
+    for dx, dy in directions:
         d = math.hypot(dx, dy)
         ux, uy = dx / d, dy / d
         tip = (origin[0] + ux * rim, origin[1] + uy * rim)

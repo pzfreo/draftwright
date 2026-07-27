@@ -8877,6 +8877,24 @@ class TestTurnedDiameters:
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia_y")
         }
         assert y_diameters == {"ø25", "ø31", "ø42"}
+        # #890: each queued radial leader retains its own StepFeature provenance;
+        # a lazy generator previously captured the final loop iteration's owner.
+        steps_by_diameter = {}
+        for step in steps:
+            steps_by_diameter.setdefault(step.diameter, []).append(step)
+        for name in (n for n in dwg.annotations() if n.startswith("m_dia_y")):
+            ann = dwg.get_annotation(name)
+            owner = dwg.registry.feature_of(name)
+            diameter = float(ann.label.removeprefix("ø"))
+            matches = steps_by_diameter[diameter]
+            assert owner is (matches[0] if len(matches) == 1 else None)
+
+            # Diameter leaders prefer cardinal points on the circular rim. A
+            # diagonal tip appears to identify one of this flange's four bolt
+            # holes even though its radius is technically correct.
+            cx, cy, *_ = dwg.at("front", *matches[0].frame.origin)
+            dx, dy = ann.tip[0] - cx, ann.tip[1] - cy
+            assert min(abs(dx), abs(dy)) < 1e-6
         assert {
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_steplen")
         } >= {"8", "4", "2"}
