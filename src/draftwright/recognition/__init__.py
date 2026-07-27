@@ -51,7 +51,7 @@ under this contract — they are cylinder-analysis *substrate* (a tuple of dicts
 query), and deliberately keep their names. Likewise the **shared single-face reads**
 (``classify_bevel``/``BevelReject``, ``fillet_anchor``, ``cone_rims``,
 ``floor_face_anchor``, ``step_level_zs``, #704): helpers shared with the declared
-front-end (``model/declare``), not recognisers — they traffic in build123d/OCP objects,
+front-end, not recognisers — they traffic in build123d/OCP objects,
 so a future ADR 0013 Phase-2 package extraction would keep them internal, not surface.
 """
 
@@ -89,6 +89,7 @@ from draftwright.recognition.levels import (
     recognise_step_shoulders,
     step_level_zs,
 )
+from draftwright.recognition.pads import RaisedPad, recognise_rectangular_pads
 from draftwright.recognition.plates import Plate, recognise_plates
 from draftwright.recognition.slots import (
     Pocket,
@@ -121,6 +122,7 @@ __all__ = [
     "Pocket",
     "PocketArray",
     "PocketGrid",
+    "RaisedPad",
     "RectGrid",
     "Slot",
     "SlotArray",
@@ -149,6 +151,7 @@ __all__ = [
     "recognise_plates",
     "recognise_pocket_patterns",
     "recognise_pockets",
+    "recognise_rectangular_pads",
     "recognise_slot_patterns",
     "recognise_slots",
     "recognise_turned_steps",

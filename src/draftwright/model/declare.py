@@ -43,6 +43,7 @@ from draftwright.model.ir import (
     GrooveFeature,
     HoleFeature,
     Note,
+    PadFeature,
     PatternFeature,
     PlateFeature,
     PocketFeature,
@@ -934,7 +935,7 @@ def pocket(
         origin["xyz".index(width_axis)] = w_center
         at = (origin[0], origin[1], origin[2])
     return PocketFeature(
-        frame=Frame(origin=at, axis=long_axis),
+        frame=Frame(origin=at, axis=next(a for a in "xyz" if a not in (long_axis, width_axis))),
         width_axis=width_axis,
         long_axis=long_axis,
         width=width,
@@ -943,6 +944,51 @@ def pocket(
         w_center=w_center,
         lo=lo,
         hi=hi,
+    )
+
+
+def pad(
+    obj=None,
+    *,
+    x0=None,
+    x1=None,
+    y0=None,
+    y1=None,
+    z0=None,
+    z1=None,
+    at=None,
+) -> PadFeature:
+    """A bounded rectangular raised pad, dimensioned by footprint and location.
+
+    ``pad(pad_solid)`` reads its axis-aligned bounding box; the explicit flavour
+    accepts the six bounds used by generated Sheet scripts.
+    """
+    if obj is not None:
+        bb = obj.bounding_box()
+        x0 = bb.min.X if x0 is None else x0
+        x1 = bb.max.X if x1 is None else x1
+        y0 = bb.min.Y if y0 is None else y0
+        y1 = bb.max.Y if y1 is None else y1
+        z0 = bb.min.Z if z0 is None else z0
+        z1 = bb.max.Z if z1 is None else z1
+    if None in (x0, x1, y0, y1, z0, z1):
+        raise ValueError("pad() needs an object, or explicit x0=/x1=/y0=/y1=/z0=/z1=")
+    if not (x0 < x1 and y0 < y1 and z0 < z1):
+        raise ValueError("pad() bounds must increase on every axis")
+    if at is None:
+        at = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+    _require_point("at", at)
+    return PadFeature(
+        frame=Frame(at, "z"),
+        width_axis="y",
+        long_axis="x",
+        width=y1 - y0,
+        length=x1 - x0,
+        w_center=(y0 + y1) / 2,
+        lo=x0,
+        hi=x1,
+        z0=z0,
+        z1=z1,
     )
 
 

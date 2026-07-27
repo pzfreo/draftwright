@@ -221,6 +221,13 @@ def _feature_line(f) -> str:
             f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
             f"lo={lo}, hi={hi}, w_center={_n(f.w_center)})"
         )
+    if k == "pad":
+        half = f.width / 2
+        return (
+            f"sheet.pad(x0={_n(f.lo)}, x1={_n(f.hi)}, "
+            f"y0={_n(f.w_center - half)}, y1={_n(f.w_center + half)}, "
+            f"z0={_n(f.z0)}, z1={_n(f.z1)})"
+        )
     if k == "pattern":
         # Defining dims for the furniture (BCD centreline / pitch / grid dims) PLUS the exact
         # member positions. The arrangement alone can't be recomputed faithfully — the

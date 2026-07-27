@@ -32,6 +32,8 @@ from draftwright.recognition import (
     feature_diameters,
     recognise_hole_patterns,
     recognise_holes,
+    recognise_pockets,
+    recognise_rectangular_pads,
     recognise_turned_steps,
 )
 
@@ -370,6 +372,163 @@ def lint_location_coverage(
                 severity=severity,
                 code="feature_not_located",
                 message=f"{no_loc} hole(s) have no locating dimension",
+            )
+        )
+    return issues
+
+
+def _dimension_endpoint_pairs(dwg, view: str) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """Placed dimension witness pairs in *view*, excluding label-outline vertices."""
+    pairs = []
+    for _name, ann in dwg.annotations_in_view(view):
+        if not isinstance(ann, Dimension):
+            continue
+        pts = _dim_vertices(ann)
+        if len(pts) >= 2:
+            pairs.append((pts[0], pts[1]))
+    return pairs
+
+
+def _pair_covers(
+    pairs: list[tuple[tuple[float, float], tuple[float, float]]],
+    axis: int,
+    a: float,
+    b: float,
+    tol: float,
+) -> bool:
+    """Whether a dimension's two witnesses span coordinates *a* and *b*."""
+    return any(
+        (abs(p[axis] - a) <= tol and abs(q[axis] - b) <= tol)
+        or (abs(p[axis] - b) <= tol and abs(q[axis] - a) <= tol)
+        for p, q in pairs
+    )
+
+
+def lint_prismatic_coverage(
+    part,
+    dwg,
+    *,
+    pads=None,
+    pockets=None,
+    bbox=None,
+    assembly=None,
+    tol: float = 0.6,
+) -> list:
+    """Report undefined raised-pad footprints and blind-pocket locations.
+
+    Ground truth comes directly from geometry, while coverage comes from placed
+    dimension witnesses (ADR 0015).  This intentionally does not trust the part
+    model: the defect being detected is geometry that recognition/planning omitted.
+    """
+    if assembly is None:
+        assembly = len(part.solids()) > 1
+    severity: Literal["info", "warning"] = "info" if assembly else "warning"
+    pairs_by_view: dict[str, list] = {}
+
+    def pairs(view: str):
+        return pairs_by_view.setdefault(view, _dimension_endpoint_pairs(dwg, view))
+
+    issues = []
+    pad_inventory = (
+        recognise_rectangular_pads(part) if pads is None else pads
+    )
+    if pad_inventory:
+        bb = bbox if bbox is not None else part.bounding_box()
+        undefined = 0
+        for pad in pad_inventory:
+            yc = (pad.y0 + pad.y1) / 2
+            xc = (pad.x0 + pad.x1) / 2
+            x0, _, *_ = dwg.at("plan", pad.x0, yc, pad.z1)
+            x1, _, *_ = dwg.at("plan", pad.x1, yc, pad.z1)
+            xc_page, _, *_ = dwg.at("plan", xc, yc, pad.z1)
+            _, y0, *_ = dwg.at("plan", xc, pad.y0, pad.z1)
+            _, y1, *_ = dwg.at("plan", xc, pad.y1, pad.z1)
+            bx0, _, *_ = dwg.at("plan", bb.min.X, yc, pad.z1)
+            bx1, _, *_ = dwg.at("plan", bb.max.X, yc, pad.z1)
+            sy0, _, *_ = dwg.at("side", xc, pad.y0, pad.z1)
+            sy1, _, *_ = dwg.at("side", xc, pad.y1, pad.z1)
+            syc, _, *_ = dwg.at("side", xc, yc, pad.z1)
+            sby0, _, *_ = dwg.at("side", xc, bb.min.Y, pad.z1)
+            sby1, _, *_ = dwg.at("side", xc, bb.max.Y, pad.z1)
+            ps = pairs("plan")
+            size_x = _pair_covers(ps, 0, x0, x1, tol)
+            size_y = _pair_covers(ps, 1, y0, y1, tol)
+            located_x = (
+                abs(pad.x0 - bb.min.X) <= tol
+                or abs(pad.x1 - bb.max.X) <= tol
+                or any(
+                    _pair_covers(ps, 0, edge, bound, tol)
+                    for edge in (bx0, bx1)
+                    for bound in (x0, x1, xc_page)
+                )
+            )
+            located_y = (
+                abs(pad.y0 - bb.min.Y) <= tol
+                or abs(pad.y1 - bb.max.Y) <= tol
+                or any(
+                    _pair_covers(pairs("side"), 0, edge, bound, tol)
+                    for edge in (sby0, sby1)
+                    for bound in (sy0, sy1, syc)
+                )
+            )
+            if not (size_x and size_y and located_x and located_y):
+                undefined += 1
+        if undefined:
+            issues.append(
+                LintIssue(
+                    severity=severity,
+                    code="pad_footprint_not_defined",
+                    message=(
+                        f"{undefined} rectangular raised pad(s) lack footprint size "
+                        "or X/Y location dimensions"
+                    ),
+                )
+            )
+
+    pocket_inventory = recognise_pockets(part) if pockets is None else pockets
+    unlocated = 0
+    bb = bbox if bbox is not None else part.bounding_box()
+    centre = bb.center()
+    for pocket in pocket_inventory:
+        view = _END_ON.get(pocket.depth_axis, "plan")
+        x, y, z = pocket.location
+        if pocket.depth_axis == "z":
+            px, _py, *_ = dwg.at("plan", x, y, z)
+            sy, _sz, *_ = dwg.at("side", x, y, z)
+            covered_x = abs(x - centre.X) <= 1.0 or any(
+                abs(p[0] - px) <= tol or abs(q[0] - px) <= tol for p, q in pairs("plan")
+            )
+            covered_y = abs(y - centre.Y) <= 1.0 or any(
+                abs(p[0] - sy) <= tol or abs(q[0] - sy) <= tol for p, q in pairs("side")
+            )
+            if not (covered_x and covered_y):
+                unlocated += 1
+            continue
+        px, py, *_ = dwg.at(view, x, y, z)
+        ps = pairs(view)
+        # Projection axes by principal view: plan=(x,y), front=(x,z), side=(y,z).
+        model_coords = {
+            "plan": ((x, centre.X), (y, centre.Y)),
+            "front": ((x, centre.X), (z, centre.Z)),
+            "side": ((y, centre.Y), (z, centre.Z)),
+        }[view]
+        page_coords = (px, py)
+        covered = []
+        for axis, ((coord, mid), page_coord) in enumerate(zip(model_coords, page_coords)):
+            symmetric = abs(coord - mid) <= 1.0
+            witnessed = any(
+                abs(p[axis] - page_coord) <= tol or abs(q[axis] - page_coord) <= tol
+                for p, q in ps
+            )
+            covered.append(symmetric or witnessed)
+        if not all(covered):
+            unlocated += 1
+    if unlocated:
+        issues.append(
+            LintIssue(
+                severity=severity,
+                code="pocket_not_located",
+                message=f"{unlocated} blind pocket(s) have no complete X/Y location scheme",
             )
         )
     return issues

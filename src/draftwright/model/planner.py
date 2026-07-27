@@ -28,9 +28,12 @@ from draftwright.model.ir import (
     DimParameter,
     Feature,
     HoleFeature,
+    PadFeature,
     ParameterId,
     PartModel,
     PatternFeature,
+    PocketFeature,
+    PocketPatternFeature,
     Point,
 )
 
@@ -68,6 +71,8 @@ _CONVENTION = {
     # again the table default, entered explicitly per the #744 review rule above.
     ("slot_width", "length"): "linear",
     ("slot_length", "length"): "linear",
+    ("pad_width", "length"): "linear",
+    ("pad_length", "length"): "linear",
 }
 
 
@@ -295,6 +300,12 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
             elif f.members:
                 near = min(f.members, key=lambda m: (m[0] - dx) ** 2 + (m[1] - dy) ** 2)
                 refs.append((near, "location_pattern", f))
+        elif isinstance(f, PocketFeature):
+            refs.append((f.frame.origin, "location_pocket", f))
+        elif isinstance(f, PocketPatternFeature):
+            refs.append((f.frame.origin, "location_pocket_pattern", f))
+        elif isinstance(f, PadFeature):
+            refs.append((f.frame.origin, "location_pad", f))
     unique: list[tuple[Point, str, Feature]] = []
     for r, role, feat in refs:
         if not any(abs(r[0] - u[0]) < 0.5 and abs(r[1] - u[1]) < 0.5 for u, _, _ in unique):

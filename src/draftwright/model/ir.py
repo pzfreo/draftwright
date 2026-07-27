@@ -345,6 +345,37 @@ class PocketFeature:
 
 
 @dataclass(frozen=True)
+class PadFeature:
+    """A bounded rectangular raised island.
+
+    The footprint mirrors the slot vocabulary so the shared in-plane dimension
+    renderer can place its two sizes. Height remains owned by the correlated
+    prismatic level ladder, avoiding double-dimensioning the same Z rise.
+    """
+
+    frame: Frame
+    width_axis: str
+    long_axis: str
+    width: float
+    length: float
+    w_center: float
+    lo: float
+    hi: float
+    z0: float
+    z1: float
+    kind: ClassVar[str] = "pad"
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("length", "pad_width", self.width),
+            DimParameter("length", "pad_length", self.length),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class PocketPatternFeature:
     """``count`` × an identical blind pocket in a linear/grid array — the recess analog
     of `PatternFeature` (#841). Composes a representative `member` `PocketFeature` (its

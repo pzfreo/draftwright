@@ -74,6 +74,7 @@ from draftwright.linting import (
     lint_drawing,
     lint_feature_coverage,
     lint_location_coverage,
+    lint_prismatic_coverage,
 )
 from draftwright.projection import (
     project_view_geometry,
@@ -91,6 +92,8 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "feature_count_mismatch",
         "feature_not_located",
         "feature_no_centermark",
+        "pad_footprint_not_defined",
+        "pocket_not_located",
         "axial_length_missing",
         "missing_principal_dimension",
         "label_vs_measured",
@@ -2409,6 +2412,14 @@ class Drawing:
                 assembly=self.assembly,
                 holes=holes,
                 patterns=patterns,
+            )
+            issues += lint_prismatic_coverage(
+                self.part,
+                self,
+                assembly=self.assembly,
+                pads=a.pads if a is not None else None,
+                pockets=a.pockets if a is not None else None,
+                bbox=a.bb if a is not None else None,
             )
             # Reverse direction (#487): a DECLARED feature with no matching geometry (a stale
             # phantom callout). Only for a caller-supplied model — detection can't over-declare.

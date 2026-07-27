@@ -62,6 +62,7 @@ from draftwright.model import flat as _flat
 from draftwright.model import groove as _groove
 from draftwright.model import hole as _hole
 from draftwright.model import note as _declare_note
+from draftwright.model import pad as _pad
 from draftwright.model import pattern as _pattern
 from draftwright.model import plate as _plate
 from draftwright.model import pocket as _pocket
@@ -655,6 +656,15 @@ class Sheet:
         depth). From an object the depth axis defaults to the shortest bbox span; pass
         ``depth_axis=`` for a recess deeper than it is wide."""
         self._features.append(_pocket(obj, **kw))
+        return _Params(self, len(self._features) - 1)
+
+    def pad(self, obj=None, **kw) -> _Params:
+        """Declare a bounded rectangular raised pad (footprint + X/Y location).
+
+        Its Z height is shared with the prismatic level ladder, so it is not
+        independently double-dimensioned.
+        """
+        self._features.append(_pad(obj, **kw))
         return _Params(self, len(self._features) - 1)
 
     def chamfer(self, obj=None, **kw) -> Sheet:

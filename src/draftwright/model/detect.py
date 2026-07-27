@@ -32,6 +32,7 @@ from draftwright.model.ir import (
     Frame,
     GrooveFeature,
     HoleFeature,
+    PadFeature,
     PartModel,
     PatternFeature,
     PlateFeature,
@@ -60,6 +61,7 @@ from draftwright.recognition import (
     Pocket,
     PocketArray,
     PocketGrid,
+    RaisedPad,
     RectGrid,
     Slot,
     SlotArray,
@@ -78,6 +80,7 @@ from draftwright.recognition import (
     recognise_plates,
     recognise_pocket_patterns,
     recognise_pockets,
+    recognise_rectangular_pads,
     recognise_slot_patterns,
     recognise_slots,
     recognise_step_shoulders,
@@ -346,7 +349,7 @@ def _member_pocket(pk: Pocket) -> PocketFeature:
         pk.depth_axis: (pk.d_lo + pk.d_hi) / 2,
     }
     return PocketFeature(
-        frame=Frame(origin=(c["x"], c["y"], c["z"]), axis=pk.long_axis),
+        frame=Frame(origin=(c["x"], c["y"], c["z"]), axis=pk.depth_axis),
         width_axis=pk.width_axis,
         long_axis=pk.long_axis,
         width=pk.width,
@@ -360,6 +363,25 @@ def _member_pocket(pk: Pocket) -> PocketFeature:
 
 def _convert_pocket(pk: Pocket, ctx: ConvContext) -> PocketFeature:
     return _member_pocket(pk)
+
+
+def _convert_pad(pad: RaisedPad, ctx: ConvContext) -> PadFeature:
+    """A recognised bounded island → the dimensioning IR."""
+    return PadFeature(
+        frame=Frame(
+            ((pad.x0 + pad.x1) / 2, (pad.y0 + pad.y1) / 2, (pad.z0 + pad.z1) / 2),
+            "z",
+        ),
+        width_axis="y",
+        long_axis="x",
+        width=pad.y1 - pad.y0,
+        length=pad.x1 - pad.x0,
+        w_center=(pad.y0 + pad.y1) / 2,
+        lo=pad.x0,
+        hi=pad.x1,
+        z0=pad.z0,
+        z1=pad.z1,
+    )
 
 
 def _pocket_pattern_feature(pat, members) -> PocketPatternFeature:
@@ -488,6 +510,7 @@ def _convert_groove(groove: Groove, ctx: ConvContext) -> GrooveFeature:
 _CONVERTERS: dict[type, Converter] = {
     Slot: _convert_slot,
     Pocket: _convert_pocket,
+    RaisedPad: _convert_pad,
     TurnedStep: _convert_step,
     BossRecord: _convert_boss,
     Plate: _convert_plate,
@@ -548,6 +571,7 @@ def build_part_model(
     slot_patterns=None,
     pockets=None,
     pocket_patterns=None,
+    pads=None,
     prof=_UNSET,
     step_zs=None,
     rotational=None,
@@ -647,6 +671,12 @@ def build_part_model(
         if pk in patterned_pk:
             continue
         features.append(convert(pk, ctx))
+
+    # Bounded rectangular raised pads: footprint sizing + X/Y location; their
+    # height remains in the correlated StepLevelFeature ladder.
+    if pads is None:
+        pads = recognise_rectangular_pads(part)
+    features.extend(convert(pad, ctx) for pad in pads)
 
     # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
     # exclude any band a groove already dimensions: a groove floor is an annular band, and

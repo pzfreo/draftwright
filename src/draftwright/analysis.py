@@ -53,6 +53,9 @@ from draftwright.recognition import (
     recognise_countersinks,
     recognise_hole_patterns,
     recognise_holes,
+    recognise_pocket_patterns,
+    recognise_pockets,
+    recognise_rectangular_pads,
     recognise_slots,
     recognise_turned_steps,
     step_level_zs,
@@ -559,6 +562,9 @@ def _analyse(
         part, cyls=(z_cyls, cross_cyls)
     )  # detect once — the one inventory (#264)
     slots = recognise_slots(part)
+    pockets = recognise_pockets(part)
+    pocket_patterns = recognise_pocket_patterns(pockets)
+    pads = recognise_rectangular_pads(part)
     # Build the IR once, up front, so page/scale selection sizes from the SAME feature
     # model the renderers use — detected and declared parts share one sizing path and no
     # recogniser record reaches the sheet estimators (ADR 0008; #584 WP1 A). A declared
@@ -582,6 +588,9 @@ def _analyse(
             patterns=patterns,
             bosses=bosses,
             slots=slots,
+            pockets=pockets,
+            pocket_patterns=pocket_patterns,
+            pads=pads,
             prof=_turned,
             step_zs=step_zs,
             rotational=(od_diam, _bores, od_axis) if is_rotational else None,
@@ -735,6 +744,9 @@ def _analyse(
         patterns=patterns,
         bosses=bosses,
         slots=slots,
+        pockets=pockets,
+        pocket_patterns=pocket_patterns,
+        pads=pads,
         z_diams=z_diams,
         cross_diams=cross_diams,
         cyls=(z_cyls, cross_cyls),

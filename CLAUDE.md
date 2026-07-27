@@ -185,6 +185,7 @@ entry. Keep `_LAYERS` and this section in step.
   `levels.py` (`recognise_face_levels` prismatic horizontal face levels +
   `recognise_step_shoulders` → `StepShoulder`, #191/#555), the #148-epic
   recognisers `chamfers.py`/`fillets.py`/`flats.py`/`grooves.py`/`plates.py`/
+  `pads.py` (bounded rectangular raised islands, #885)/
   `countersinks.py`, and `_record.py` (the shared frozen-`Record` mixin,
   `.to_dict()`). Bottom of the DAG: depends only on build123d/OCP. Import
   via the package surface.

@@ -23,6 +23,7 @@ from draftwright.linting.coverage import (
     lint_declaration_reconciliation,
     lint_feature_coverage,
     lint_location_coverage,
+    lint_prismatic_coverage,
 )
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import lint_drawing
@@ -38,4 +39,5 @@ __all__ = [
     "lint_drawing",
     "lint_feature_coverage",
     "lint_location_coverage",
+    "lint_prismatic_coverage",
 ]

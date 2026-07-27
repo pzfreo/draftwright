@@ -196,13 +196,14 @@ def _record_slot_drop(ctx, dwg, kind, idx, view, feat):
     no natural grouping remedy like a recognised hole pattern, so no resolver
     consumes this yet — purely additive.
     """
+    noun = "pad" if feat.kind == "pad" else "slot"
     ctx.record_issue(
         "info",
-        "slot_dim_dropped",
-        f"slot{idx} {kind} dim not placed (no room beside the {view})",
+        f"{noun}_dim_dropped",
+        f"{noun}{idx} {kind} dim not placed (no room beside the {view})",
     )
     ctx.escalations.append(
-        Escalation(kind="slot", view=view, feature=feat, reason=f"no room beside the {view}")
+        Escalation(kind=noun, view=view, feature=feat, reason=f"no room beside the {view}")
     )
 
 
@@ -233,7 +234,7 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
     (the ``m_slot{i}_*`` names must match the auto-pass — never re-enumerate a compacted
     list; `plan_dimensions` emits one group per slot in model order, so enumerating the
     slot groups preserves that index)."""
-    slot_groups = [g for g in groups if g.feature_kind == "slot"]
+    slot_groups = [g for g in groups if g.feature_kind in ("slot", "pad")]
     if not slot_groups:
         return 0
     draft = dwg.draft
@@ -248,6 +249,8 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
         return getattr(a.bb.max if hi else a.bb.min, axis.upper())
 
     count = 0
+    seen_pad_widths: set[tuple[float, float]] = set()
+    seen_pad_lengths: set[tuple[float, float]] = set()
     for i, g in enumerate(slot_groups):
         s = g.feature
         if only is not None and s not in only:
@@ -295,7 +298,8 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
             else:
                 meas_proj, perp_proj = vp, hp
                 sides = (("right", zn.right, True), ("left", zn.left, False))
-            cname = f"m_slot{idx}_{kind}"
+            prefix = "pad" if s.kind == "pad" else "slot"
+            cname = f"m_{prefix}{idx}_{kind}"
 
             def _cand_for(side, hi):
                 # (name, build) for one side; witness is off the slot's own edge (the near
@@ -394,10 +398,18 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
 
         # Bind each planned dim explicitly by (role, kind) — never positionally (#730).
         by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
-        wpd = by_key.get(("slot_width", "length"))
-        lpd = by_key.get(("slot_length", "length"))
+        role_prefix = "pad" if s.kind == "pad" else "slot"
+        wpd = by_key.get((f"{role_prefix}_width", "length"))
+        lpd = by_key.get((f"{role_prefix}_length", "length"))
         half = s.width / 2
-        if wpd is not None and not wpd.suppressed:
+        width_span = (round(s.w_center - half, 3), round(s.w_center + half, 3))
+        length_span = (round(s.lo, 3), round(s.hi, 3))
+        emit_width = s.kind != "pad" or width_span not in seen_pad_widths
+        emit_length = s.kind != "pad" or length_span not in seen_pad_lengths
+        if s.kind == "pad":
+            seen_pad_widths.add(width_span)
+            seen_pad_lengths.add(length_span)
+        if emit_width and wpd is not None and not wpd.suppressed:
             if _place(
                 s.width_axis,
                 s.w_center - half,
@@ -411,7 +423,7 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
                 count += 1
             else:
                 _record_slot_drop(ctx, dwg, "width", i, name, s)
-        if lpd is not None and not lpd.suppressed:
+        if emit_length and lpd is not None and not lpd.suppressed:
             if _place(
                 s.long_axis,
                 s.lo,
@@ -426,7 +438,9 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
             else:
                 _record_slot_drop(ctx, dwg, "length", i, name, s)
         datum = _bb(s.long_axis, False)
-        if (s.lo - datum) * a.SCALE >= 1.0:
+        # Pads are located by plan_locations on both axes; slots retain their
+        # historical single-axis position dimension here.
+        if s.kind == "slot" and (s.lo - datum) * a.SCALE >= 1.0:
             if _place(
                 s.long_axis,
                 datum,
@@ -477,7 +491,8 @@ def _location_candidate(
     it; only a physically full strip drops (``location_ref_dropped`` → hole-table escalate)."""
 
     def _placed(nm):
-        ctx.coverage.cover_scattered_hole_doc(nm)
+        if getattr(feature, "kind", None) in ("hole", "pattern"):
+            ctx.coverage.cover_scattered_hole_doc(nm)
         if pinned:
             dwg.pin(nm)
 

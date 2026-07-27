@@ -711,6 +711,9 @@ class Analysis:
     patterns: list
     bosses: list  # external bosses (recognise_bosses), detected once — the one inventory (#244)
     slots: list
+    pockets: list
+    pocket_patterns: list
+    pads: list  # geometry-derived rectangular-pad coverage inventory (#885)
     z_diams: list[float]
     cross_diams: list[float]
     cyls: tuple[list, list]
