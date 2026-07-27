@@ -195,53 +195,11 @@ sites across `from_model.py` / `holes.py` / `compose.py`, nearly all of the shap
 `next(pd for pd in g.dims if …)`. A flattening accessor keeps that mechanical — readers
 that do not care about grouping never learn about it.
 
-Most addressable dimensions hold exactly one parameter. A correlated set holds N and its
+Most addressable dimensions hold exactly one member. A correlated set holds N, and those
 members are **not** separately addressable — that is the whole content of tier 3, now stated
 in the model rather than as a caveat about the key. The planner declares the grouping when
 it builds the addressable set; it is never deduced from two parameters happening to share a
 derived key.
-
-**Grouping at the identity layer is not grouping at the render layer**, and conflating them
-is what made an earlier draft of this section wrong. A hole's bore ⌀, depth, counterbore,
-spotface and countersink parameters all collapse into **one** `HoleCallout` — `⌀20 THRU ⌴
-⌀32 ↓ 1.5` is a single annotation (`from_model.hole_callout_spec`). That is a *rendering*
-aggregation of several addressable dimensions sharing one leader, **not** one addressable
-dimension:
-
-```python
-sheet.dimension(bore, "diameter")           # ⌀20
-sheet.dimension(bore, "spotface_diameter")  # ⌴ ⌀32     — three lines,
-sheet.dimension(bore, "spotface_depth")     # ↓ 1.5       one rendered callout
-```
-
-Dropping the spotface lines leaves `⌀20 THRU`; the callout builder already takes `None` for
-every segment. So the two grouping notions are genuinely different and the model needs both:
-a correlated set is **one** identity with N parameters, a compound callout is **N**
-identities sharing one annotation.
-
-**Suppression changes what is shown, never what the drawing asserts.** `hole_callout_spec`
-today derives `through = depth is None` — a blind hole's depth parameter is the *only*
-signal that it is blind. Filter that parameter out to honour an authored set and the callout
-reads `THRU`: a display choice has silently changed a manufacturing fact. This is a live
-defect independent of this ADR (`HoleFeature.through` is a first-class IR field and the
-group carries the feature, so the renderer is re-deriving what it can simply read), and it
-generalizes into a rule this decision depends on:
-
-> **No renderer may infer an engineering fact from the presence or absence of a dimension
-> parameter.** Parameters carry values *for display*; facts live on the feature.
-
-Two mechanics follow. **Suppression marks, it does not filter:** `PlannedDimension` already
-carries `suppressed` / `reason` and thirteen render sites already honour it, so a dimension
-omitted from an authored set is marked, and the group keeps its full engineering data. The
-compound-callout path (`_first` / `hole_callout_spec`) is the one reader that ignores the
-flag today; closing that gap belongs to the suppression phase, not to implementation
-discretion. **And the head of a compound callout is a declared dependency:** the bore ⌀ is
-the callout's head — `hole_callout_spec` returns nothing without it — so suppressing it
-while spotface or counterbore intents remain is an authoring error and **raises**, naming
-the dependency. Not lint-and-drop (silently discards authored intent), not implicit restore
-(makes the script say something it does not say). So "every segment separately suppressible"
-holds *except for the head* — an asymmetry the addressable unit declares, rather than one
-scattered through the renderer.
 
 `ParameterId` is a readable semantic string, not an opaque token: it appears in diagnostics,
 lint messages and snapshots, and is stable across re-detection and planner changes. Two
@@ -308,6 +266,52 @@ feature", not as a new type this decision mints.
 *identity describes the engineering measurement, not the annotation or the planning pass
 that produced it.* `role` and `kind` remain useful metadata — grouping, presentation,
 renderer routing — but the identity is the measurement.
+
+### Identity-layer grouping is not render-layer grouping
+
+These are easy to conflate, and an earlier draft did. A hole's bore ⌀, depth, counterbore,
+spotface and countersink parameters all collapse into **one** `HoleCallout` — `⌀20 THRU ⌴
+⌀32 ↓ 1.5` is a single annotation (`from_model.hole_callout_spec`). By the governing
+principle above that is a *rendering* aggregation of several addressable dimensions sharing
+one leader, **not** one addressable dimension:
+
+```python
+sheet.dimension(bore, "diameter")           # ⌀20
+sheet.dimension(bore, "spotface_diameter")  # ⌴ ⌀32     — three lines,
+sheet.dimension(bore, "spotface_depth")     # ↓ 1.5       one rendered callout
+```
+
+Dropping the spotface lines leaves `⌀20 THRU`; the callout builder already takes `None` for
+every segment. So the model needs both notions: a correlated set is **one** identity with N
+members, a compound callout is **N** identities sharing one annotation.
+
+### Suppression changes what is shown, never what the drawing asserts
+
+`hole_callout_spec` today derives `through = depth is None` — a blind hole's depth parameter
+is the *only* signal that it is blind. Filter that parameter out to honour an authored set
+and the callout reads `THRU`: a display choice has silently changed a manufacturing fact.
+This is a live defect independent of this ADR (`HoleFeature.through` is a first-class IR
+field and the group carries the feature, so the renderer is re-deriving what it can simply
+read), and it generalizes into a rule this decision depends on:
+
+> **No renderer may infer an engineering fact from the presence or absence of a dimension
+> parameter.** Parameters carry values *for display*; facts live on the feature.
+
+Two mechanics follow.
+
+**Suppression marks, it does not filter.** `PlannedDimension` already carries `suppressed` /
+`reason` and thirteen render sites already honour it, so a dimension omitted from an authored
+set is *marked* and the group keeps its full engineering data. The compound-callout path
+(`_first` / `hole_callout_spec`) is the one reader that ignores the flag today; closing that
+gap belongs to the suppression phase rather than to implementation discretion.
+
+**The head of a compound callout is a declared dependency.** The bore ⌀ is the callout's head
+— `hole_callout_spec` returns nothing without it — so suppressing it while spotface or
+counterbore intents remain is an authoring error and **raises**, naming the dependency. Not
+lint-and-drop (silently discards authored intent), not implicit restore (makes the script say
+something it does not say). So "every segment separately suppressible" holds *except for the
+head* — an asymmetry the addressable unit declares, rather than one scattered through the
+renderer.
 
 ### Two explicit sources of dimension intent
 
@@ -506,7 +510,7 @@ constraining planner internals that are still moving. The gaps are known and fin
 
 | Not mirrored as a `dimension(...)` line | Why | Where it goes instead |
 | --- | --- | --- |
-| Correlated sets, per member | `step_height` / `step_position` ladders, rotational bores and off-axis `locate` are one `AddressableDimension` holding N parameters | **One** line per set; suppress the set, not a member |
+| Correlated sets, per member | `step_height` / `step_position` ladders, rotational bores and off-axis `locate` are one `AddressableDimension` holding N members | **One** line per set; suppress the set, not a member |
 | Inter-feature spans and angles | No `(feature, role)` form — needs `RelationDimensionId`, whose selector spelling is still open | Comment floor until the relation selector lands |
 | Imported AP242 PMI | Materialized: carries `ref_pts` / `ref_bbox` / `at`, so there is nothing to reference | `sheet.measured_dimension(...)` — still one editable line |
 | Low-level furniture | Centre marks, section arrows, hatching, the NTS caption carry no editable intent | Engine-automatic, by decision |
@@ -647,7 +651,8 @@ Reading it against the rendered sheet:
 - **One rendered callout, three addressable dimensions.** The bore's three lines collapse
   into a single `HoleCallout` on one leader, but each is separately suppressible — that is
   the identity-layer / render-layer split, and it is why the mirror has three lines here
-  rather than one. (The bore ⌀ is the callout's head: dropping *it* drops the callout.)
+  rather than one. (The bore ⌀ is the callout's head: dropping it while the spotface lines
+  remain raises — drop all three to drop the callout.)
 - **`⌀20` appears once.** The number lives on the `bore` feature line; the dimension line
   only says *show `bore`'s diameter*. Change `diameter=20` → `25` (or edit the build123d
   object, for a live part) and the callout follows — no second copy to sync.
@@ -674,10 +679,14 @@ second with the single-source-of-truth of the first — over the identified set,
   **`DimensionIntent` handle** — not `Sheet` — which carries the dimension's `DimensionId`
   and is the face `.pin()` / `.priority()` chain from. Suppression needs no verb at all: a
   surfaced `dimension` line commented out is the drop.
-- **The addressable dimension becomes a first-class model type.** `AddressableDimension(id,
-  parameters)` is what one `dimension(...)` line addresses — usually one parameter, N for a
-  correlated set (the ladders, rotational bores), with the grouping *declared* by the
-  planner rather than inferred from key collisions. Its identity is
+- **The addressable dimension becomes a first-class model type, on the planner's output.**
+  `AddressableDimension(id, members)` is what one `dimension(...)` line addresses — usually
+  one member, N for a correlated set (the ladders, rotational bores), with the grouping
+  *declared* by the planner rather than inferred from key collisions. Members are
+  `PlannedDimension`s, not raw `DimParameter`s, so `convention` / `suppressed` / `reason` /
+  `datum` / provenance survive the grouping; `DimensionGroup.dims` is retyped accordingly
+  (~25 mechanical read sites). One type at one boundary — an IR-side parameter group would
+  have nothing to hold, since grouping is a planner decision. Its identity is
   `DimensionId(feature, parameter)`, where `(feature, role)` is only the call-site *address*:
   the key needs `kind` and, for genuinely distinct same-role parameters (grid row vs column
   pitch), a discriminator surfaced as a keyword (`axis="x"`). `ParameterId` is derived from
@@ -688,8 +697,14 @@ second with the single-source-of-truth of the first — over the identified set,
 - **Identity-layer grouping is not render-layer grouping.** A compound `HoleCallout`
   (`⌀20 THRU ⌴ ⌀32 ↓ 1.5`) is **N** addressable dimensions sharing one leader, each
   separately suppressible — not one addressable dimension. A correlated set is the converse:
-  one identity, N parameters, no member addressable. The model carries both notions because
-  the two cases are genuinely different.
+  one identity, N members, none separately addressable. The model carries both notions
+  because the two cases are genuinely different.
+- **Suppression may change what is shown, never what the drawing asserts.** No renderer may
+  infer an engineering fact from a parameter's presence or absence — `hole_callout_spec`'s
+  `through = depth is None` is a live defect by that rule, since filtering a blind hole's
+  depth would print `THRU`. So suppression **marks** (`PlannedDimension.suppressed`, already
+  honoured at thirteen sites) rather than filtering, the compound-callout reader learns to
+  honour the flag, and suppressing a callout's head while its dependents remain raises.
 - **The dimension set has two explicit sources, and a build must request one.**
   `auto_dimensions()` selects the planner's set; `dimension(...)` declarations form a
   complete authored set; `add_dimension(...)` augments the planner's set and requires it.
@@ -702,8 +717,8 @@ second with the single-source-of-truth of the first — over the identified set,
   `measured_dimension`** — a rename, not a new name; `Drawing.dimension` already has the
   target shape.
 - `plan_dimensions` (ADR 0015) grows an intent input: declared augmenting measurements join
-  the planned `DimensionGroup`s; declared suppressions filter them; an authored set replaces
-  them. The corridor solve (ADR 0014) is unchanged — it still receives one candidate
+  the planned `DimensionGroup`s; declared suppressions mark members suppressed rather than
+  removing them; an authored set replaces them. The corridor solve (ADR 0014) is unchanged — it still receives one candidate
   population per strip.
 - `intents.py` (ADR 0012) is the recording home; `Drawing.finalize()` /
   `_PASS_SEQUENCE` the drain. Augmenting intent lands there first; suppression follows the
@@ -808,7 +823,7 @@ second with the single-source-of-truth of the first — over the identified set,
   declaration overlapping the plan yields exactly one dimension. Identity gets its own
   guards: a uniqueness audit that no feature yields two **`AddressableDimension`s** with the
   same `ParameterId` — over addressable units, *not* raw `DimParameter`s, since a correlated
-  set deliberately holds N parameters under one id, and an audit phrased over parameters
+  set deliberately holds N members under one id, and an audit phrased over parameters
   would reject exactly the grouping the design permits (it is still the check that would have
   caught the grid-pitch collision, because two ungrouped pitches are two addressable units);
   a test that an ambiguous selector raises rather than picking; and a stability test that
