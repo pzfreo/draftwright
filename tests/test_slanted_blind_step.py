@@ -41,9 +41,7 @@ def slanted_blind_step():
     solid = part.part
     bb = solid.bounding_box()
     low = Pos(bb.min.X, bb.min.Y, bb.min.Z) * Box(8, 12, 5, align=align_min)
-    high = Pos(bb.min.X, bb.max.Y - 12, bb.max.Z - 5) * Box(
-        8, 12, 5, align=align_min
-    )
+    high = Pos(bb.min.X, bb.max.Y - 12, bb.max.Z - 5) * Box(8, 12, 5, align=align_min)
     return solid - low - high
 
 
