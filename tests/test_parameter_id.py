@@ -87,6 +87,7 @@ _SAMPLES: dict[str, ir.Feature] = {
     ),
     "EnvelopeFeature": ir.EnvelopeFeature(_F, 80.0, 8.0, 50.0, (-40, -25, 0), (40, 25, 8)),
     "SlotFeature": ir.SlotFeature(_F, "y", "x", 8.0, 30.0, 0.0, -15.0, 15.0),
+    "PadFeature": ir.PadFeature(_F, "y", "x", 8.0, 30.0, 0.0, -15.0, 15.0, 12.0, 20.0),
     "PocketFeature": ir.PocketFeature(_F, "y", "x", 8.0, 30.0, 5.0, 0.0, -15.0, 15.0),
     "PocketPatternFeature": ir.PocketPatternFeature(
         _F,
@@ -158,6 +159,7 @@ _SAMPLE_BINDINGS = {
     ),
     "EnvelopeFeature": (("width.length", 80.0), ("height.length", 8.0), ("depth.length", 50.0)),
     "SlotFeature": (("slot_width.length", 8.0), ("slot_length.length", 30.0)),
+    "PadFeature": (("pad_width.length", 8.0), ("pad_length.length", 30.0)),
     "PocketFeature": (
         ("pocket_width.length", 8.0),
         ("pocket_length.length", 30.0),

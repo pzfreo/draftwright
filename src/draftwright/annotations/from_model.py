@@ -196,7 +196,8 @@ def _record_slot_drop(ctx, dwg, kind, idx, view, feat):
     no natural grouping remedy like a recognised hole pattern, so no resolver
     consumes this yet — purely additive.
     """
-    noun = feat.kind if feat.kind in ("pad", "pocket") else "slot"
+    feature_kind = getattr(feat, "kind", None)
+    noun = feature_kind if feature_kind in ("pad", "pocket") else "slot"
     ctx.record_issue(
         "info",
         f"{noun}_dim_dropped",

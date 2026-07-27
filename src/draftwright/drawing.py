@@ -828,18 +828,20 @@ class Drawing:
         """Model-space ``(lo, hi)`` endpoints for a value-only *linear* param whose geometry
         the feature carries (#411), or ``None`` for a callout param with no linear span.
 
-        Slots: the width dim spans ``width_axis`` across ``w_center ± width/2`` (at the
-        length midpoint); the length dim spans ``long_axis`` ``lo → hi`` (at the centre
-        line) — the same endpoints ``render_slots`` measures."""
-        if getattr(feature, "kind", None) == "slot":
+        Slots and pads: the width dim spans ``width_axis`` across
+        ``w_center ± width/2`` (at the length midpoint); the length dim spans
+        ``long_axis`` ``lo → hi`` (at the centre line) — the same endpoints
+        ``render_slots`` measures."""
+        feature_kind = getattr(feature, "kind", None)
+        if feature_kind in ("slot", "pad"):
             ax = {"x": 0, "y": 1, "z": 2}
             li, wi = ax[feature.long_axis], ax[feature.width_axis]
             a = list(feature.frame.origin)
             b = list(feature.frame.origin)
-            if param.role == "slot_length":
+            if param.role == f"{feature_kind}_length":
                 a[li], b[li] = feature.lo, feature.hi
                 a[wi] = b[wi] = feature.w_center
-            elif param.role == "slot_width":
+            elif param.role == f"{feature_kind}_width":
                 mid = (feature.lo + feature.hi) / 2
                 half = feature.width / 2
                 a[wi], b[wi] = feature.w_center - half, feature.w_center + half
@@ -1383,10 +1385,11 @@ class Drawing:
             and it.kwargs.get("param") == "length"
             and it.kwargs.get("role") == "step"
         }
-        # SLOT dimension intents (#426 Phase 2b) → render_slots' corridor placement. A slot
-        # records TWO dims (slot_width + slot_length) on ONE SlotFeature; both route the
-        # feature, which regenerates width + length + the datum position (a superset — the
-        # position dim is model-derived, not recorded). Slots share the location corridor,
+        # SLOT/PAD dimension intents (#426 Phase 2b / #885) → render_slots' corridor
+        # placement. Both record two size dims on one feature; routing either feature
+        # regenerates its width + length. Slots also regenerate their historical datum
+        # position; pads use a separate locate() intent for their two-axis location.
+        # Both share the location corridor,
         # so they register alongside B2's locations and drain in the SAME solve (the #345
         # dedup of a slot position coincident with a hole location needs one combined pass).
         # Match on param/role like len_ids above (#439): a slot exposes only the two length
@@ -1397,9 +1400,9 @@ class Drawing:
             for it in self._intents
             if routable
             and it.kind == "dimension"
-            and getattr(it.feature, "kind", None) == "slot"
+            and getattr(it.feature, "kind", None) in ("slot", "pad")
             and it.kwargs.get("param") == "length"
-            and it.kwargs.get("role") in ("slot_width", "slot_length")
+            and it.kwargs.get("role") in ("slot_width", "slot_length", "pad_width", "pad_length")
         }
         # Prismatic height-ladder intent. StepLevelFeature exposes one value per interior
         # level, but those rungs are a correlated chain whose witness bases leapfrog from

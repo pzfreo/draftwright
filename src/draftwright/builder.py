@@ -973,8 +973,14 @@ def _feature_listing(a: Analysis) -> str:
             # SLOT W × L callout + its pitch dim(s). No locate()/furniture() (#841).
             body.append("dwg.callout(f)")
             continue
+        elif kind == "pad":
+            # Pads have two defining footprint sizes plus a two-axis datum
+            # location.  Reconstruct both sets on the detect-only drawing; merely
+            # replaying the size parameters leaves an apparently complete pad
+            # floating without X/Y definition (#885).
+            body.append("dwg.locate(f)")
         for p in feat.parameters():
-            if p.span is not None or kind == "slot":  # a linear dim dimension() accepts
+            if p.span is not None or kind in ("slot", "pad"):
                 body.append(f'dwg.dimension(f, "{p.kind}", role="{p.role}")   # {display(p)}')
     if plan_sections(model, feature_hole_keys(model, a)) is not None:
         body += [
