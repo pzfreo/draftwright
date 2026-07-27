@@ -187,10 +187,11 @@ class AddressableDimension:
 
 
 @dataclass(frozen=True)
-class DimensionGroup:                      # existing type, one field retyped
+class DimensionGroup:                      # existing type, one field added
     feature: Feature
     view: str
-    dims: tuple[AddressableDimension, ...]  # was: tuple[PlannedDimension, ...]
+    units: tuple[AddressableDimension, ...]     # the identity layer
+    # dims -> tuple[PlannedDimension, ...]      # property: the flattened view
 
 
 @dataclass(frozen=True)
@@ -202,10 +203,17 @@ class DimensionId:
 **One type at one boundary, not two.** An IR-side `ParameterGroup` paired with a
 planner-side unit was the alternative; it has nothing to hold, because grouping is a
 *planner* decision (below) — `Feature.parameters()` returns a flat list and should keep
-doing so. The migration cost is real and worth naming: retyping `dims` touches ~25 read
-sites across `from_model.py` / `holes.py` / `compose.py`, nearly all of the shape
-`next(pd for pd in g.dims if …)`. A flattening accessor keeps that mechanical — readers
-that do not care about grouping never learn about it.
+doing so.
+
+***Amended 2026-07-27 (#870, as built).*** *The names came out the other way round, and
+the migration cost this section predicted went to zero.* *The plan was to retype `dims`
+to hold units and add a flattening accessor beside it, at a cost of ~25 mechanical read
+sites. Building it, the same semantics fall out of adding `units` as the field and making
+`dims` the flattening **property** — so all 22 source readers and ~30 test readers of
+`g.dims` are untouched, and only the construction sites (the planner, plus five tests that
+build ad-hoc plans) changed. The stated goal — "readers that do not care about grouping
+never learn about it" — is better served by the inversion than by the retype, and on the
+riskiest child of the epic a zero-churn diff is worth more than matching the sketch.*
 
 Most addressable dimensions hold exactly one member. A correlated set holds N, and those
 members are **not** separately addressable — that is the whole content of tier 3, now stated
@@ -721,8 +729,9 @@ second with the single-source-of-truth of the first — over the identified set,
   one member, N for a correlated set (the ladders, rotational bores), with the grouping
   *declared* by the planner rather than inferred from key collisions. Members are
   `PlannedDimension`s, not raw `DimParameter`s, so `convention` / `suppressed` / `reason` /
-  `datum` / provenance survive the grouping; `DimensionGroup.dims` is retyped accordingly
-  (~25 mechanical read sites). One type at one boundary — an IR-side parameter group would
+  `datum` / provenance survive the grouping; `DimensionGroup` gains a `units` field, with
+  `dims` becoming the flattening property, so no reader changes (#870). One type at one
+  boundary — an IR-side parameter group would
   have nothing to hold, since grouping is a planner decision. Its identity is
   `DimensionId(feature, parameter)`, where `(feature, role)` is only the call-site *address*:
   the key needs `kind` and, for genuinely distinct same-role parameters (grid row vs column

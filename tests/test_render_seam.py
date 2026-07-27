@@ -66,10 +66,9 @@ class TestCalloutSpec:
 
         hole = HoleFeature(Frame((0, 0, 0), "z"), 8.0, depth=10.0, through=False)
         g = plan_dimensions(PartModel(bbox=None, orientation=None, features=[hole]))[0]
-        dropped = replace(
-            g,
-            dims=tuple(d for d in g.dims if (d.param.kind, d.param.role) != ("depth", "bore")),
-        )
+        # Suppress the addressable dimension by identity — the ADR 0016 operation
+        # itself, now that `units` exists, rather than a hand-rolled param filter.
+        dropped = replace(g, units=tuple(u for u in g.units if u.id != "bore.depth"))
         s = hole_callout_spec(dropped)
         assert s["through"] is False  # the fact survives …
         assert s["depth"] is None  # … while the dimension does not
@@ -83,10 +82,9 @@ class TestCalloutSpec:
         member = HoleFeature(Frame((0, 0, 0), "z"), 6.0, depth=5.0, through=False)
         pat = PatternFeature(Frame((0, 0, 0), "z"), "bolt_circle", 6, member, bcd=50.0)
         g = plan_dimensions(PartModel(bbox=None, orientation=None, features=[pat]))[0]
-        dropped = replace(
-            g,
-            dims=tuple(d for d in g.dims if (d.param.kind, d.param.role) != ("depth", "bore")),
-        )
+        # Suppress the addressable dimension by identity — the ADR 0016 operation
+        # itself, now that `units` exists, rather than a hand-rolled param filter.
+        dropped = replace(g, units=tuple(u for u in g.units if u.id != "bore.depth"))
         assert hole_callout_spec(dropped)["through"] is False
 
     def test_spotface_maps_to_the_step(self):
