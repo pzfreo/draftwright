@@ -2576,8 +2576,8 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
                     for i, (a, b, v, t) in enumerate(_rows)
                 ]
                 dpairs.sort(key=lambda item: (item[0][0][0] + item[0][1][0]) / 2)
-                dsegs = []
-                detail_widths = []
+                dsegs: list[tuple] = []
+                detail_widths: list[float] = []
                 j = 0
                 while j < len(dpairs):
                     seg0, _width0 = dpairs[j]
