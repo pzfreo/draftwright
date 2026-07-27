@@ -158,20 +158,42 @@ So identity is per **addressable dimension**, which is a planner-level notion, n
 `DimParameter` count. That unit has to be **first-class in the model, not inferred from key
 collisions** — otherwise nothing can distinguish an intentional correlated set from an
 accidental duplicate, and every consumer (dicts, provenance, suppression, the uniqueness
-audit) has to guess:
+audit) has to guess.
+
+**It lives on the planner's output, not on the IR.** `DimParameter` is what a feature knows
+about itself; by the time anything can be suppressed, deduped or emitted, the planner has
+enriched each parameter into a `PlannedDimension` carrying `convention`, `suppressed`,
+`reason`, `datum` and the provenance feature. Grouping raw `DimParameter`s would either lose
+that metadata or force a second, parallel grouping after planning — so the addressable unit
+holds `PlannedDimension`s, and `DimensionGroup.dims` is where it goes:
 
 ```python
 @dataclass(frozen=True)
 class AddressableDimension:
-    id: ParameterId                       # "bore.diameter", "grid.pitch.x", "step_height"
-    parameters: tuple[DimParameter, ...]  # usually one; N for a correlated set
+    id: ParameterId                        # "bore.diameter", "grid.pitch.x", "step_height"
+    members: tuple[PlannedDimension, ...]  # usually one; N for a correlated set
+
+
+@dataclass(frozen=True)
+class DimensionGroup:                      # existing type, one field retyped
+    feature: Feature
+    view: str
+    dims: tuple[AddressableDimension, ...]  # was: tuple[PlannedDimension, ...]
 
 
 @dataclass(frozen=True)
 class DimensionId:
     feature: FeatureId
-    parameter: ParameterId                # the AddressableDimension's id
+    parameter: ParameterId                 # the AddressableDimension's id
 ```
+
+**One type at one boundary, not two.** An IR-side `ParameterGroup` paired with a
+planner-side unit was the alternative; it has nothing to hold, because grouping is a
+*planner* decision (below) — `Feature.parameters()` returns a flat list and should keep
+doing so. The migration cost is real and worth naming: retyping `dims` touches ~25 read
+sites across `from_model.py` / `holes.py` / `compose.py`, nearly all of the shape
+`next(pd for pd in g.dims if …)`. A flattening accessor keeps that mechanical — readers
+that do not care about grouping never learn about it.
 
 Most addressable dimensions hold exactly one parameter. A correlated set holds N and its
 members are **not** separately addressable — that is the whole content of tier 3, now stated
@@ -195,9 +217,31 @@ sheet.dimension(bore, "spotface_depth")     # ↓ 1.5       one rendered callout
 Dropping the spotface lines leaves `⌀20 THRU`; the callout builder already takes `None` for
 every segment. So the two grouping notions are genuinely different and the model needs both:
 a correlated set is **one** identity with N parameters, a compound callout is **N**
-identities sharing one annotation. One asymmetry is real and worth stating: the bore ⌀ is
-the callout's *head* (`hole_callout_spec` returns nothing without it), so suppressing it
-suppresses the whole callout rather than leaving a headless one.
+identities sharing one annotation.
+
+**Suppression changes what is shown, never what the drawing asserts.** `hole_callout_spec`
+today derives `through = depth is None` — a blind hole's depth parameter is the *only*
+signal that it is blind. Filter that parameter out to honour an authored set and the callout
+reads `THRU`: a display choice has silently changed a manufacturing fact. This is a live
+defect independent of this ADR (`HoleFeature.through` is a first-class IR field and the
+group carries the feature, so the renderer is re-deriving what it can simply read), and it
+generalizes into a rule this decision depends on:
+
+> **No renderer may infer an engineering fact from the presence or absence of a dimension
+> parameter.** Parameters carry values *for display*; facts live on the feature.
+
+Two mechanics follow. **Suppression marks, it does not filter:** `PlannedDimension` already
+carries `suppressed` / `reason` and thirteen render sites already honour it, so a dimension
+omitted from an authored set is marked, and the group keeps its full engineering data. The
+compound-callout path (`_first` / `hole_callout_spec`) is the one reader that ignores the
+flag today; closing that gap belongs to the suppression phase, not to implementation
+discretion. **And the head of a compound callout is a declared dependency:** the bore ⌀ is
+the callout's head — `hole_callout_spec` returns nothing without it — so suppressing it
+while spotface or counterbore intents remain is an authoring error and **raises**, naming
+the dependency. Not lint-and-drop (silently discards authored intent), not implicit restore
+(makes the script say something it does not say). So "every segment separately suppressible"
+holds *except for the head* — an asymmetry the addressable unit declares, rather than one
+scattered through the renderer.
 
 `ParameterId` is a readable semantic string, not an opaque token: it appears in diagnostics,
 lint messages and snapshots, and is stable across re-detection and planner changes. Two
@@ -479,8 +523,10 @@ absence both mean something exact** — which is all suppression-by-omission nee
   stable identity for "the location dimension of hole H" that survives a re-solve at a
   different scale. That identity is the `DimensionId` above, not a page-keyed annotation
   name — this leans on ADR 0010 provenance and on the ADR 0015 planner keeping parameter
-  roles stable. Augmenting intent needs no such key; **suppressive intent is gated on it**,
-  which is why identity is its own phase between the two.
+  roles stable. Both intents need the key — `add_dimension` for its handle and for
+  idempotence against the plan — but **suppressive intent additionally needs that identity
+  to be stable across re-detection and recomposition**, which is why identity lands *with*
+  the augmenting verb while suppression waits for the set boundary.
 - **Honest reconciliation needs the full recompose (#426/#707).** Suppressing or
   re-emphasizing an *automatic* dimension means the finalize path must reconstruct the
   automatic candidate population and co-solve it with the declared intents — the global
@@ -697,7 +743,7 @@ second with the single-source-of-truth of the first — over the identified set,
 
 1. **Semantic identity, then augmenting intent — one phase.** Land the addressable-dimension
    model first: `AddressableDimension` / `DimensionId` / `ParameterId` (derived keys, the
-   `axis=` discriminator, correlated sets as one identity with N parameters), exposed as a
+   `axis=` discriminator, correlated sets as one identity with N members), exposed as a
    handle on planned dimensions (ADR 0010 provenance + ADR 0015 roles) so intent can
    *reference* an auto dimension. Then `add_dimension(...)` on top of it: a
    scale-independent augmenting measurement recorded on the model and entered as a
@@ -711,9 +757,12 @@ second with the single-source-of-truth of the first — over the identified set,
    `auto_dimensions()` / authored-set semantics first — `dimension(...)` itself, the two
    mixing errors, the no-set-requested error, and the emitter always writing one of the two
    forms — since omission only becomes meaningful once a set is declared complete. Then a
-   surfaced referential `dimension` line, when commented out, filters that `DimensionId`
-   from `plan_dimensions` output; no separate verb. This step carries the breaking change
-   and should ship with the `measured_dimension` rename so callers migrate once.
+   surfaced referential `dimension` line, when commented out, marks that `DimensionId`
+   suppressed in `plan_dimensions` output — **marked, not filtered**, so no engineering fact
+   is inferred from the parameter's absence; the compound-callout reader learns to honour
+   `suppressed`, and head-without-dependents raises. No separate verb. This step carries the
+   breaking change and should ship with the `measured_dimension` rename so callers migrate
+   once.
 3. **Full recompose (#426/#707).** Reconstruct the automatic population at finalize and
    co-solve with declared dimensions, making suppression / emphasis honest and
    script/direct output convergent.
