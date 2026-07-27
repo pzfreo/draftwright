@@ -199,7 +199,9 @@ class DimensionGroup:                      # existing type, one field added
 
 @dataclass(frozen=True)
 class DimensionId:
-    feature: FeatureId
+    feature: Feature       # the IR feature, compared STRUCTURALLY (#871) — not a
+                           # minted FeatureId, and not `is`: a re-plan builds new
+                           # objects, so identity must survive reconstruction
     parameter: ParameterId                 # the AddressableDimension's id
 ```
 
@@ -306,11 +308,13 @@ This makes the "not every dimension is nameable" edge below a *bounded* gap rath
 open one: inter-feature spans are nameable, just not as `(feature, role)`.
 
 **Feature identity is a separate sub-problem this ADR does not solve.** There is no
-`FeatureId` in the IR today — the plan carries features by object (`DimensionGroup.feature`)
-— and within one script run that is sufficient: the script holds the variable, so
-`sheet.dimension(bore, "diameter")` resolves by object identity with no key at all. A
-*durable* `FeatureId` is only needed where an intent must survive re-detection, which is the
-`of(...)` question left open below. So `FeatureId` above reads as "whatever identifies a
+`FeatureId` in the IR today — the plan carries the feature itself (`DimensionGroup.feature`),
+and the **structural** equality every frozen-dataclass `Feature` already has is sufficient:
+`sheet.dimension(bore, "diameter")` resolves with no minted key at all, and — because it is
+structural rather than `is` — an id still resolves after a re-plan rebuilds the feature
+objects (#871). A *durable* `FeatureId` is only needed where an intent must survive
+re-**detection**, where the feature's own values may shift; that is the `of(...)` question
+left open below. So `FeatureId` elsewhere in this ADR reads as "whatever identifies a
 feature", not as a new type this decision mints.
 
 **The governing principle**, which is what keeps this stable as the planner evolves:
