@@ -501,22 +501,40 @@ def lint_prismatic_coverage(
             )
 
     pocket_inventory = recognise_pockets(part) if pockets is None else pockets
-    model_pockets = [f for f in features if getattr(f, "kind", None) == "pocket"]
+    model_pockets = []
+    for feature in features:
+        if getattr(feature, "kind", None) == "pocket":
+            model_pockets.append((feature, (feature.frame.origin,), False))
+        elif getattr(feature, "kind", None) == "pocket_pattern":
+            model_pockets.append((feature.member, tuple(feature.members), True))
     missing_ir = 0
 
     def pocket_owner(pocket):
+        source_location = pocket.location
         return next(
             (
                 f
-                for f in model_pockets
+                for f, locations, is_pattern in model_pockets
                 if f.width_axis == pocket.width_axis
                 and f.long_axis == pocket.long_axis
                 and abs(f.width - pocket.width) <= tol
                 and abs(f.length - pocket.length) <= tol
                 and abs(f.depth - pocket.depth) <= tol
-                and abs(f.w_center - pocket.w_center) <= tol
-                and abs(f.lo - pocket.lo) <= tol
-                and abs(f.hi - pocket.hi) <= tol
+                and (
+                    is_pattern
+                    or (
+                        abs(f.w_center - pocket.w_center) <= tol
+                        and abs(f.lo - pocket.lo) <= tol
+                        and abs(f.hi - pocket.hi) <= tol
+                    )
+                )
+                and any(
+                    all(
+                        abs(actual - expected) <= tol
+                        for actual, expected in zip(at, source_location)
+                    )
+                    for at in locations
+                )
             ),
             None,
         )

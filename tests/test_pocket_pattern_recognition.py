@@ -148,13 +148,16 @@ def test_injected_value_equal_pattern_still_excludes_members():
 
 
 def test_build_part_model_groups_and_excludes_members():
-    pm = build_part_model(_pocket_row(n=4, pitch=30.0))
+    part = _pocket_row(n=4, pitch=30.0)
+    pm = build_part_model(part)
     kinds = [f.kind for f in pm.features]
     assert kinds.count("pocket_pattern") == 1
     assert kinds.count("pocket") == 0  # members folded into the pattern, not emitted individually
     pat = next(f for f in pm.features if f.kind == "pocket_pattern")
     assert pat.count == 4
     assert pat.member.width == 10.0 and pat.member.length == 12.0 and pat.member.depth == 6.0
+    dwg = build_drawing(part)
+    assert not [i for i in dwg.lint() if i.code == "unrecognised_defining_geometry"]
 
 
 def test_sheet_emit_round_trips_the_pattern(tmp_path):

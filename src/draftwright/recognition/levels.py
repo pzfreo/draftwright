@@ -178,6 +178,12 @@ def recognise_step_shoulders(
             # both the ramp and its width (#897).
             if abs(nv.Z) <= 0.01 or fb.max.Z - fb.min.Z <= tol:
                 continue
+            structural_zs = (*levels, bb.min.Z, bb.max.Z)
+            if not all(
+                any(abs(z - structural_z) < tol for structural_z in structural_zs)
+                for z in (fb.min.Z, fb.max.Z)
+            ):
+                continue  # drafted/incidental face not tied to recognised profile levels
             axis_positions = (
                 fb.min.X if axis == "x" else fb.min.Y,
                 fb.max.X if axis == "x" else fb.max.Y,
