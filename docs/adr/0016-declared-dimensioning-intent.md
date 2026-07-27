@@ -552,9 +552,15 @@ absence both mean something exact** — which is all suppression-by-omission nee
   set is known before the solve. Until it lands, `Drawing.finalize()`
   drains *recorded* intents against already-committed annotations as obstacles; it does not
   reconcile against the auto-plan. So **augmenting intent (`add_dimension`) is reachable on
-  today's machinery — it is simply a new candidate; suppressive / full-mirror intent
-  depends on #426/#707.** This ADR therefore *motivates* completing that recompose rather
-  than routing around it.
+  today's machinery — it is simply a new candidate. Suppression splits into two paths that
+  this ADR previously conflated:**
+  - **pre-build**, a `Sheet` script's authored set — known before the solve, so it plausibly
+    needs no reconstruction at all, and phase 2 can carry it;
+  - **post-build**, `Drawing.finalize()` dropping an *automatic* dimension — this is what
+    needs the candidate-population reconstruction.
+
+  The second is the open question on **#867**, not a dependency on the closed #426/#707.
+  This ADR therefore *motivates* settling that question rather than routing around it.
 - **Intent stays declarative and order-independent.** Two intents competing for one span
   dedup like coincident auto candidates; ties break by deterministic key (ADR 0001). An
   infeasible intent (off page) drops with lint like any candidate — declaring a dimension
@@ -733,11 +739,12 @@ second with the single-source-of-truth of the first — over the identified set,
   target shape.
 - `plan_dimensions` (ADR 0015) grows an intent input: declared augmenting measurements join
   the planned `DimensionGroup`s; declared suppressions mark members suppressed rather than
-  removing them; an authored set replaces them. The corridor solve (ADR 0014) is unchanged — it still receives one candidate
-  population per strip.
+  removing them; an authored set replaces them. The corridor solve (ADR 0014) is unchanged —
+  it still receives one candidate population per strip.
 - `intents.py` (ADR 0012) is the recording home; `Drawing.finalize()` /
-  `_PASS_SEQUENCE` the drain. Augmenting intent lands there first; suppression follows the
-  #426/#707 recompose.
+  `_PASS_SEQUENCE` the drain. Augmenting intent lands there first; **pre-build** authored-set
+  suppression lands with the set boundary, while **post-build** suppression of an automatic
+  dimension waits on the reconstruction question (#867) — not on the closed #426/#707.
 - `sheet_emit` gains a dimension-mirroring pass: after the feature basis, one referential
   `dimension(...)` line per **planned** dimension, led by the explicit dimension-source call
   — each commentable and editable, none restating a number, with low-level furniture still
@@ -793,9 +800,10 @@ second with the single-source-of-truth of the first — over the identified set,
    `suppressed`, and head-without-dependents raises. No separate verb. This step carries the
    breaking change and should ship with the `measured_dimension` rename so callers migrate
    once.
-3. **Full recompose (#426/#707).** Reconstruct the automatic population at finalize and
-   co-solve with declared dimensions, making suppression / emphasis honest and
-   script/direct output convergent.
+3. **Full recompose** *(scope open — #867; the old #426/#707 references are closed)*.
+   Reconstruct the automatic population at finalize and co-solve with declared dimensions,
+   making **post-build** suppression / emphasis honest and script/direct output convergent.
+   How much of this remains to do is the question #867 settles.
 4. **Emitter dimension-mirror.** Emit one round-trippable referential `dimension(...)` line
    per **planned dimension intent** — never per *placed* dimension, which would let solver
    pressure rewrite version-controlled source (see "The script records intent"). The
