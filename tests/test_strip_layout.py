@@ -1329,3 +1329,67 @@ def test_leader_decoration_stages_follow_the_drain():
             "never starves a principal dim, and later views must see it (#733)"
         )
     assert section < _PASS_SEQUENCE.index("details") < _PASS_SEQUENCE.index("title_block")
+
+
+def test_a_rescued_dedup_winner_does_not_promote_its_loser():
+    """#894: promotion is gated on "the measurement is genuinely absent".
+
+    Two candidates that dedup to the same span: the winner is kept, the loser parked.
+    If the winner then fails its strip, `on_drop` may still rescue it onto the opposite
+    strip — and promoting the loser at that point draws the same dimension twice.
+
+    The bug was live on BOTH paths and predates the corridor migration: the plan/side
+    fallthrough has run synchronously since #345/#346, so `on_drop` returning was never
+    evidence of failure. Found by adversarial probe (sync success -> loser promoted),
+    which is why it is pinned here rather than left to the trace.
+    """
+    from types import SimpleNamespace
+
+    from draftwright.annotations._common import (
+        CorridorCandidate,
+        PlacementContext,
+        solve_corridor,
+    )
+
+    def _run(*, rescue: bool):
+        placed: set[str] = set()
+        promoted: list[str] = []
+
+        def _cand(name, *, is_winner):
+            def _on_drop(nm, _n=name, _w=is_winner):
+                if _w and rescue:
+                    placed.add(_n)  # the opposite-strip fallthrough took it
+                elif not _w:
+                    promoted.append(_n)  # a loser's on_drop IS its promotion
+
+            return CorridorCandidate(
+                name=name,
+                build=lambda _pos: None,
+                order=(0, name),
+                on_place=lambda _nm: None,
+                on_drop=_on_drop,
+                dedup=("plan", 0.0, 10.0),  # identical span → same dedup group
+                precedence=1 if is_winner else 0,
+            )
+
+        dwg = SimpleNamespace(annotations=lambda: set(placed))
+        # strip=None drops every candidate, which is the cheapest way to reach the
+        # promotion decision without standing up real page geometry.
+        solve_corridor(
+            dwg,
+            None,
+            "plan",
+            "y",
+            [_cand("winner", is_winner=True), _cand("loser", is_winner=False)],
+            4.0,
+            ctx=PlacementContext(),
+        )
+        return placed, promoted
+
+    placed, promoted = _run(rescue=True)
+    assert "winner" in placed
+    assert promoted == [], "a rescued winner must leave its coincident loser suppressed"
+
+    placed, promoted = _run(rescue=False)
+    assert placed == set()
+    assert promoted == ["loser"], "a genuinely absent winner must still hand over"

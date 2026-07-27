@@ -906,6 +906,12 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             for loser in group:
                 trace.record_outcome(loser.name, "deduped", winner=winners[dk].name)
 
+    def _winner_placed(c) -> bool:
+        """Did this candidate's measurement reach the sheet after all? `on_drop` may
+        have rescued it onto the opposite strip, in which case a coincident loser must
+        stay suppressed rather than draw the same span twice (#894)."""
+        return c.name in dwg.annotations()
+
     def _promote_losers(dropped_winner):
         # The winner did not place → hand its measurement to the best surviving loser
         # (e.g. the slot position's below-strip fallthrough), then stop.
@@ -920,7 +926,10 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             c.on_drop(c.name)
             if trace is not None:
                 trace.record_outcome(c.name, "dropped", reason="no_strip")
-            if c.dedup is not None:
+            # Same rule as the solved path below: `on_drop` may have rescued this
+            # measurement onto the OPPOSITE strip, which can exist even when this one
+            # does not. Promoting a coincident loser then draws the span twice (#894).
+            if c.dedup is not None and not _winner_placed(c):
                 _promote_losers(c)
         if trace is not None:
             trace.end_solve()
@@ -1009,9 +1018,9 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 # when it was deferred (appended after, and post_drain runs in order).
                 if deferred and pending is not None:
                     pending.append(
-                        lambda _c=c: None if _c.name in dwg.annotations() else _promote_losers(_c)
+                        lambda _c=c: None if _winner_placed(_c) else _promote_losers(_c)
                     )
-                elif c.name not in dwg.annotations():
+                elif not _winner_placed(c):
                     _promote_losers(c)
     if trace is not None:
         trace.end_solve()
