@@ -12,10 +12,9 @@ from build123d import (
     Box,
     BuildPart,
     BuildSketch,
-    Locations,
-    Mode,
     Plane,
     Polygon,
+    Pos,
     extrude,
 )
 
@@ -39,11 +38,13 @@ def slanted_blind_step():
                 (0, 25),
             )
         extrude(amount=50)
-        with Locations((0, -12, 0)):
-            Box(8, 12, 8, align=align_min, mode=Mode.SUBTRACT)
-        with Locations((42, -50, 6)):
-            Box(8, 12, 8, align=align_min, mode=Mode.SUBTRACT)
-    return part.part
+    solid = part.part
+    bb = solid.bounding_box()
+    low = Pos(bb.min.X, bb.min.Y, bb.min.Z) * Box(8, 12, 5, align=align_min)
+    high = Pos(bb.min.X, bb.max.Y - 12, bb.max.Z - 5) * Box(
+        8, 12, 5, align=align_min
+    )
+    return solid - low - high
 
 
 @pytest.mark.timeout(120)
@@ -54,7 +55,7 @@ def test_slanted_profile_and_blind_interruptions_are_recognised(slanted_blind_st
 
     assert len(pockets) == 2
     assert all(p.edge_anchored for p in pockets)
-    assert {(p.width, p.length, p.depth) for p in pockets} == {(8.0, 12.0, 8.0)}
+    assert {(p.width, p.length, p.depth) for p in pockets} == {(8.0, 12.0, 5.0)}
     assert step.levels == (14.0, 19.0)
     assert step.shoulders == (("x", 24.0), ("x", 32.0), ("x", 40.0))
 
