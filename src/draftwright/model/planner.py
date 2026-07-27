@@ -159,11 +159,17 @@ class DimensionId:
     it — `parameter` is an `AddressableDimension`'s `ParameterId`, which already carries
     the `kind` and any discriminator the role alone cannot supply.
 
-    `feature` is the IR feature **by object**, which is sufficient within one script run:
-    the script holds the variable, so `sheet.dimension(bore, "diameter")` resolves without
-    any key at all. A *durable* `FeatureId` is only needed where an intent must survive
-    re-detection, and ADR 0016 deliberately leaves that open — so this type reads
-    "whatever identifies a feature" rather than minting one."""
+    `feature` is the IR feature itself, compared **structurally** — the frozen-dataclass
+    equality every `Feature` already has. Not `is`: re-running a script builds new feature
+    objects, so an identity that resolved only against the original instance would break on
+    every re-plan, destroying the stability the whole identity model exists for. Structural
+    equality also keeps the law dedup depends on — *equal ids are interchangeable in
+    lookup* — which `is`-based lookup silently violated, since two structurally identical
+    features yield `==` (and hash-colliding) ids.
+
+    A *durable* `FeatureId` is only needed where an intent must survive re-**detection**
+    (where the feature values themselves may shift), and ADR 0016 deliberately leaves that
+    open — so this type reads "whatever identifies a feature" rather than minting one."""
 
     feature: Feature
     parameter: ParameterId
@@ -220,8 +226,11 @@ class DimensionGroup:
 
     def unit_for(self, dim_id: DimensionId) -> AddressableDimension | None:
         """The addressable dimension *dim_id* names, or `None` if it names another
-        feature or a measurement this group does not carry."""
-        if dim_id.feature is not self.feature:
+        feature or a measurement this group does not carry.
+
+        Structural comparison, deliberately — see `DimensionId`. Using `is` here made
+        equal ids non-interchangeable in lookup, and broke resolution across re-planning."""
+        if dim_id.feature != self.feature:
             return None
         return next((u for u in self.units if u.id == dim_id.parameter), None)
 

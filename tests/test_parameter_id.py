@@ -375,6 +375,35 @@ class TestDimensionId:
         second = [(d.feature, d.parameter) for g in _plan(feat) for d in g.dimension_ids]
         assert first == second
 
+    def test_equal_ids_are_interchangeable_in_lookup(self):
+        """The identity law dedup rests on. `DimensionId` is a frozen dataclass, so two
+        *structurally identical* features give `==`, hash-colliding ids — while an
+        `is`-based lookup rejected each other's id. Equal ids that do not resolve alike
+        are a broken key: a dict would treat them as one entry and the lookup as two.
+
+        The earlier two-hole test could not catch this — its holes differ in position
+        and diameter, so their ids were never equal in the first place.
+        """
+        a = ir.HoleFeature(_F, 8.0, depth=None, through=True)
+        b = ir.HoleFeature(_F, 8.0, depth=None, through=True)
+        assert a is not b and a == b
+
+        (ga,) = _plan(a)
+        id_a, id_b = DimensionId(a, "bore.diameter"), DimensionId(b, "bore.diameter")
+        assert id_a == id_b and len({id_a, id_b}) == 1
+        assert ga.unit_for(id_a) is not None
+        assert ga.unit_for(id_b) is not None  # the law: equal id, same result
+
+    def test_an_id_resolves_against_a_rebuilt_feature(self):
+        """Why lookup is structural rather than `is`: re-running a script constructs new
+        feature objects. An identity that only resolved against the original instance
+        would break on every re-plan — the opposite of the stability ids exist for."""
+        original = ir.HoleFeature(_F, 8.0, depth=None, through=True)
+        dim_id = DimensionId(original, "bore.diameter")
+        rebuilt = ir.HoleFeature(_F, 8.0, depth=None, through=True)  # a fresh run
+        (group,) = _plan(rebuilt)
+        assert group.unit_for(dim_id) is not None
+
 
 class TestStability:
     """What makes an id safe to write into a version-controlled script.
