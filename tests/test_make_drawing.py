@@ -5800,21 +5800,16 @@ class TestDetailView:
         return dwg
 
     def test_detail_demotion_never_touches_a_pinned_height_dim(self):
-        # Codex review of #661: _overall_height_name identifies the finalize path's
-        # envelope-height dim by attribution + label + portrait footprint — heuristics,
-        # since the registry stores features, not roles. A PIN is the user's "this
-        # stays put" (ADR 0012) and outranks the demotion heuristic, so a pinned
-        # height dim must never be demoted; with no other room the detail then drops
-        # gracefully (the inline ladder + step_dim_dropped lint still cover the part).
+        # The detail owns only the crowded intermediate heights; the main view
+        # retains the overall height. Therefore the detail no longer needs to
+        # demote that height to make room, pinned or otherwise (#897).
         pinned = self._deferred_height_build(pin=True)
-        assert "dim_length0" in pinned.annotations()  # the pinned height dim survives
+        assert "dim_length0" in pinned.annotations()
         assert pinned.registry.is_pinned("dim_length0")
-        assert "detail_a" not in pinned.views  # detail dropped rather than demoting a pin
+        assert "detail_a" in pinned.views
 
-        # Control — identical build without the pin: the demotion retry fires and the
-        # detail takes the height dim's room, proving the pin was the deciding factor.
         unpinned = self._deferred_height_build(pin=False)
-        assert "dim_length0" not in unpinned.annotations()  # demoted
+        assert "dim_length0" in unpinned.annotations()
         assert "detail_a" in unpinned.views
 
     def test_finalize_rolls_back_a_raise_between_iso_reproject_and_refit(self, monkeypatch):
@@ -5888,12 +5883,9 @@ class TestDetailView:
         dwg._add(replacement, "dim_height", view="front")
         assert _overall_height_name(dwg, a) is None
 
-    def test_failed_demotion_retry_restores_height_dim_provenance(self, monkeypatch):
-        # user review of #661: when the demotion retry ALSO fails, the height dim is
-        # restored — including the feature provenance + pin that remove() dropped —
-        # so annotations_of(envelope) / drop(envelope) / a later finalize's
-        # _overall_height_name can still rediscover it. Pre-fix the re-add restored
-        # only object/name/view, silently orphaning the dim from its envelope.
+    def test_detail_does_not_demote_height_dim_or_lose_provenance(self, monkeypatch):
+        # #897: the detail no longer redraws the overall height, so it must place
+        # in one pass without removing/re-adding the main height dimension.
         from draftwright.annotations import sections as _sec
 
         dwg = build_drawing(_crowded_shoulder_part(), auto_dims=False, detail_view=True)
@@ -5906,18 +5898,15 @@ class TestDetailView:
         real = _sec._render_detail
         calls = {"n": 0}
 
-        def _fail_retry(*args, **kwargs):
+        def _count(*args, **kwargs):
             calls["n"] += 1
-            if calls["n"] >= 2:
-                return False  # the demotion retry fails -> the restore path must run
-            return real(*args, **kwargs)  # call 1: no room -> triggers the demotion
+            return real(*args, **kwargs)
 
-        monkeypatch.setattr(_sec, "_render_detail", _fail_retry)
+        monkeypatch.setattr(_sec, "_render_detail", _count)
         dwg.finalize()
 
-        assert calls["n"] >= 2  # the retry ran (demotion was attempted and failed)
-        assert "detail_a" not in dwg.views  # both attempts failed -> no detail placed
-        # The height dim is restored WITH provenance, not just object/name/view:
+        assert calls["n"] == 1
+        assert "detail_a" in dwg.views
         assert "dim_length0" in dwg.annotations()
         assert dwg.registry.feature_of("dim_length0") == env
         assert "dim_length0" in dwg.annotations_of(env)

@@ -418,6 +418,7 @@ def lint_prismatic_coverage(
     assembly=None,
     tol: float = 0.6,
     features=(),
+    step_zs=None,
 ) -> list:
     """Report undefined raised-pad footprints and blind-pocket locations.
 
@@ -598,7 +599,9 @@ def lint_prismatic_coverage(
                 message=f"{unlocated} blind pocket(s) have no complete X/Y location scheme",
             )
         )
-    source_shoulders = recognise_step_shoulders(part, levels=step_level_zs(part))
+    source_shoulders = recognise_step_shoulders(
+        part, levels=step_level_zs(part) if step_zs is None else step_zs
+    )
     model_shoulders = {
         (axis, round(pos, 3))
         for f in features

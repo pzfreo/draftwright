@@ -2430,6 +2430,7 @@ class Drawing:
                 pockets=a.pockets if a is not None else None,
                 bbox=a.bb if a is not None else None,
                 features=getattr(model, "features", ()) if model is not None else (),
+                step_zs=a.step_zs if a is not None else None,
             )
             # Reverse direction (#487): a DECLARED feature with no matching geometry (a stale
             # phantom callout). Only for a caller-supplied model — detection can't over-declare.

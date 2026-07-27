@@ -2525,6 +2525,55 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
             >= label_widths[i] + 2 * draft.arrow_length + 2 * draft.pad_around_text
             for i, (pa, pb, *_rest) in enumerate(fsegs)
         )
+        # A long repeated-pitch tail can be stated once on the main view. This
+        # removes several competing short labels and may make the remaining
+        # isolated links readable without an enlarged detail (#881/#896).
+        ordered = sorted(fsegs, key=lambda seg: (seg[0][0] + seg[1][0]) / 2)
+        compact: list[tuple] = []
+        collapsed = False
+        j = 0
+        while j < len(ordered):
+            repeat_run = [ordered[j]]
+            k = j + 1
+            while k < len(ordered):
+                prev, cur = repeat_run[-1], ordered[k]
+                contiguous = abs(max(prev[0][0], prev[1][0]) - min(cur[0][0], cur[1][0])) <= 1e-4
+                if not (
+                    contiguous
+                    and _fmt(cur[2]) == _fmt(repeat_run[0][2])
+                    and prev[3] is None
+                    and cur[3] is None
+                ):
+                    break
+                repeat_run.append(cur)
+                k += 1
+            if len(repeat_run) >= 3:
+                xs = [p[0] for seg in repeat_run for p in seg[:2]]
+                y = repeat_run[0][0][1]
+                pitch = sum(seg[2] for seg in repeat_run) / len(repeat_run)
+                compact.append(
+                    (
+                        (min(xs), y, 0.0),
+                        (max(xs), y, 0.0),
+                        sum(seg[2] for seg in repeat_run),
+                        None,
+                        f"{len(repeat_run)}× {_fmt(pitch)}",
+                    )
+                )
+                collapsed = True
+            else:
+                compact.extend(repeat_run)
+            j = k
+        if collapsed:
+            return _draw_step_chain(
+                dwg,
+                view,
+                compact,
+                "m_steplen",
+                allow_collapse=False,
+                ctx=ctx,
+                start=start,
+            )
         if not (labels_clear and inside_arrows_fit):
             axis_lo = min(min(a[1], b[1]) for a, b, *_ in bare_rows)
             axis_hi = max(max(a[1], b[1]) for a, b, *_ in bare_rows)
