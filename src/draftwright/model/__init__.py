@@ -74,6 +74,7 @@ from draftwright.model.ir import (
     display,
 )
 from draftwright.model.planner import (
+    AddressableDimension,
     DimensionGroup,
     PlannedDimension,
     SectionPlan,
@@ -92,6 +93,7 @@ __all__ = [
     "Datum",
     "DimParameter",
     "EnvelopeFeature",
+    "AddressableDimension",
     "DimensionGroup",
     "Feature",
     "Frame",

@@ -30,7 +30,7 @@ from draftwright.model import (
     slot,
     step,
 )
-from draftwright.model.planner import plan_dimensions
+from draftwright.model.planner import _addressable, plan_dimensions
 
 
 def _spec(diameter, **over):
@@ -510,7 +510,7 @@ class TestChamferTolerance:
         (pd,) = g.dims
         decoy = replace(pd, param=replace(pd.param, role="decoy", value=99.0))
         planned = replace(pd, param=replace(pd.param, value=7.0))  # ≠ ch.leg1 == 12
-        g2 = replace(g, dims=(decoy, planned))
+        g2 = replace(g, units=_addressable(g.feature, [decoy, planned]))
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_chamfers(dwg, [g2], dwg._analysis, ctx=ctx) == 1
         labels = [
@@ -659,7 +659,9 @@ class TestGrooveTolerance:
         wpd = by_key[("groove", "length")]
         decoy = replace(wpd, param=replace(wpd.param, role="decoy", value=99.0))
         planned_w = replace(wpd, param=replace(wpd.param, value=7.0))  # ≠ gr.width == 4
-        g2 = replace(g, dims=(decoy, planned_w, by_key[("groove", "diameter")]))
+        g2 = replace(
+            g, units=_addressable(g.feature, [decoy, planned_w, by_key[("groove", "diameter")]])
+        )
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_grooves(dwg, [g2], dwg._analysis, ctx=ctx) == 1
         labels = [
@@ -726,11 +728,14 @@ class TestPocketTolerance:
         planned_w = replace(wpd, param=replace(wpd.param, value=7.0))  # ≠ pk.width == 18
         g2 = replace(
             g,
-            dims=(
-                decoy,
-                planned_w,
-                by_key[("pocket_length", "length")],
-                by_key[("pocket_depth", "length")],
+            units=_addressable(
+                g.feature,
+                [
+                    decoy,
+                    planned_w,
+                    by_key[("pocket_length", "length")],
+                    by_key[("pocket_depth", "length")],
+                ],
             ),
         )
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
@@ -835,7 +840,7 @@ class TestPlateTolerance:
         (pd,) = g.dims
         decoy = replace(pd, param=replace(pd.param, role="decoy", value=99.0))
         planned = replace(pd, param=replace(pd.param, value=7.0))  # ≠ pl.hi - pl.lo == 8
-        g2 = replace(g, dims=(decoy, planned))
+        g2 = replace(g, units=_addressable(g.feature, [decoy, planned]))
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_plates(dwg, [g2], dwg._analysis, ctx=ctx) == 1
         drain_corridors(ctx, dwg)
@@ -948,7 +953,7 @@ class TestSlotTolerance:
         decoy = replace(wpd, param=replace(wpd.param, role="decoy", value=99.0))
         planned_w = replace(wpd, param=replace(wpd.param, value=7.0))  # ≠ sl.width == 8
         planned_l = replace(lpd, param=replace(lpd.param, value=19.0))  # ≠ sl.length == 20
-        g2 = replace(g, dims=(decoy, planned_w, planned_l))
+        g2 = replace(g, units=_addressable(g.feature, [decoy, planned_w, planned_l]))
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
         assert render_slots(dwg, [g2], dwg._analysis, ctx=ctx) == 3
         drain_corridors(ctx, dwg)

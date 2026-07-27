@@ -28,6 +28,7 @@ from draftwright.model.ir import (
     DimParameter,
     Feature,
     HoleFeature,
+    ParameterId,
     PartModel,
     PatternFeature,
     Point,
@@ -91,6 +92,77 @@ class PlannedDimension:
     feature: Feature | None = None
 
 
+# Correlated sets (ADR 0016 identity, tier 3): exact ``(feature kind, role)`` pairs
+# whose parameters are ONE addressable dimension holding N members — a `step_height`
+# ladder, a rotational body's concentric bores. `ir.py` states the rule at the source:
+# they are "correlated SETS routed as a whole … a single `role=` intent rebuilds the
+# whole ladder", so their members are deliberately NOT separately addressable.
+#
+# **Declared, never inferred.** Grouping must not fall out of two parameters happening
+# to share a derived id: without this table there is no way to tell an intentional set
+# from an accidental collision, and a grid pitch that forgot its discriminator would
+# silently become a "correlated set" instead of failing the uniqueness audit.
+#
+# Scoped to the pair, never a bare role or a whole feature — a future feature reusing
+# `step_height` must not inherit the exemption, and `rotational`'s `od` is a plain
+# singleton that stays individually addressable.
+CORRELATED_SETS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("step_level", "step_height"),
+        ("step_level", "step_position"),
+        # Provisional (ADR 0016 tier 3): whether a rotational body's concentric bores
+        # stay one identity or split into addressable members follows the #754
+        # planner-routing migration; one identity until something says otherwise.
+        ("rotational", "bore"),
+    }
+)
+
+
+@dataclass(frozen=True)
+class AddressableDimension:
+    """One **addressable** measurement (ADR 0016) — the unit a `dimension(...)` line
+    names, and the thing suppression, provenance and de-duplication key on.
+
+    Usually one member. A correlated set holds N, and those members are *not*
+    separately addressable: commenting out the line drops the whole ladder, which is
+    what the grouped auto-passes already do.
+
+    Members are `PlannedDimension`s rather than raw `DimParameter`s so the planner's
+    decisions — convention, model-level suppression and its reason, the datum,
+    provenance — survive the grouping instead of needing a second parallel structure
+    alongside it.
+
+    **Scope: the feature parameters that flow through `plan_dimensions`.** Location
+    dimensions do *not* have addressable identity yet — `plan_dimensions` skips every
+    `location`-kind parameter and `plan_locations` returns a flat cross-feature list of
+    bare `PlannedDimension`s, deduped by ref point, that never enters a
+    `DimensionGroup`. Giving them identity is a design question rather than a wiring
+    gap (is a grouped hole's location one unit or one per member? does a deduped
+    coincident ref belong to which feature?), so it is tracked separately as **#883**
+    and blocks the `"location"` role in the selector."""
+
+    id: ParameterId
+    members: tuple[PlannedDimension, ...]
+
+
+def _addressable(feature: Feature, planned: list[PlannedDimension]):
+    """Group planned dimensions into addressable units — by **declaration**
+    (`CORRELATED_SETS`), never by two ids happening to collide."""
+    units: list[AddressableDimension] = []
+    open_sets: dict[ParameterId, int] = {}
+    for pd in planned:
+        pid = pd.param.parameter_id
+        if (feature.kind, pd.param.role) in CORRELATED_SETS:
+            at = open_sets.get(pid)
+            if at is not None:
+                unit = units[at]
+                units[at] = replace(unit, members=(*unit.members, pd))
+                continue
+            open_sets[pid] = len(units)
+        units.append(AddressableDimension(id=pid, members=(pd,)))
+    return tuple(units)
+
+
 @dataclass(frozen=True)
 class DimensionGroup:
     """A feature's planned dimensions, kept together with the source feature and a
@@ -99,11 +171,22 @@ class DimensionGroup:
     Carrying the source `feature` (rather than copying selected fields) keeps the
     plan Open/Closed: a grouped renderer reads whatever metadata it needs —
     `count`/`pattern` for a pattern, a thread spec later — without the plan
-    contract growing a field per feature type."""
+    contract growing a field per feature type.
+
+    ``units`` is the ADR 0016 identity layer; ``dims`` flattens it back to the plain
+    sequence of planned dimensions. Most renderers want the flat view — a compound
+    hole callout reads bore ⌀, depth and counterbore without caring how they group —
+    so `dims` stays the reading surface and only code that addresses a *dimension by
+    identity* touches `units`."""
 
     feature: Feature
     view: str  # one view for the whole group
-    dims: tuple[PlannedDimension, ...]
+    units: tuple[AddressableDimension, ...]
+
+    @property
+    def dims(self) -> tuple[PlannedDimension, ...]:
+        """Every planned dimension in the group, ignoring identity grouping."""
+        return tuple(m for u in self.units for m in u.members)
 
     @property
     def feature_kind(self) -> str:
@@ -268,7 +351,11 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
             )
         if dims:
             groups.append(
-                DimensionGroup(feature=feature, view=_group_view(feature), dims=tuple(dims))
+                DimensionGroup(
+                    feature=feature,
+                    view=_group_view(feature),
+                    units=_addressable(feature, dims),
+                )
             )
     return groups
 

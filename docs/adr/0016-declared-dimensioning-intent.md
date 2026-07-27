@@ -119,7 +119,7 @@ explode the mirror without adding any editable intent.
 ### What `dimension(...)` returns: the dimension-intent handle
 
 The referential verb returns a **`DimensionIntent` handle**, not `Sheet`, so `.pin()` and
-`.priority()` chain — `sheet.dimension(bore, "location").pin().priority(2.0)`. This follows
+`.priority()` chain — `sheet.dimension(bore, "diameter").pin().priority(2.0)`. This follows
 the pattern the façade already uses for anything carrying aspects (`hole` → `_Hole`,
 `diameter` → `_Dim`, `slot` → `_Params`) while verbs with nothing to decorate (`chamfer`,
 `fillet`, `plate`) return `Sheet`.
@@ -187,10 +187,11 @@ class AddressableDimension:
 
 
 @dataclass(frozen=True)
-class DimensionGroup:                      # existing type, one field retyped
+class DimensionGroup:                      # existing type, one field added
     feature: Feature
     view: str
-    dims: tuple[AddressableDimension, ...]  # was: tuple[PlannedDimension, ...]
+    units: tuple[AddressableDimension, ...]     # the identity layer
+    # dims -> tuple[PlannedDimension, ...]      # property: the flattened view
 
 
 @dataclass(frozen=True)
@@ -202,10 +203,29 @@ class DimensionId:
 **One type at one boundary, not two.** An IR-side `ParameterGroup` paired with a
 planner-side unit was the alternative; it has nothing to hold, because grouping is a
 *planner* decision (below) — `Feature.parameters()` returns a flat list and should keep
-doing so. The migration cost is real and worth naming: retyping `dims` touches ~25 read
-sites across `from_model.py` / `holes.py` / `compose.py`, nearly all of the shape
-`next(pd for pd in g.dims if …)`. A flattening accessor keeps that mechanical — readers
-that do not care about grouping never learn about it.
+doing so.
+
+***Amended 2026-07-27 (#870, as built).*** *The names came out the other way round.* *The
+plan was to retype `dims` to hold units and add a flattening accessor beside it, at a cost
+of ~25 mechanical read sites. Building it, the same semantics fall out of adding `units` as
+the field and making `dims` the flattening **property** — so all 22 source readers and ~30
+test readers of `g.dims` are untouched. The stated goal — "readers that do not care about
+grouping never learn about it" — is better served by the inversion than by the retype.*
+
+*Two honest corrections to that, from review:*
+
+- ***The cost did not go to zero; it moved from readers to constructors.*** `DimensionGroup`
+  *is publicly exported, and its constructor changed from `dims=` to `units=` — so
+  `DimensionGroup(..., dims=…)` and `dataclasses.replace(g, dims=…)` now raise `TypeError`.
+  Taken as an **intentional API break** rather than shimmed: there is exactly one
+  construction site in the repo (the planner), the type is planner **output** that callers
+  consume rather than build, and an alpha package already carrying the phase-2 breaking
+  change should not grow a compatibility initializer for a call form nobody uses.*
+- ***The identity layer does not yet cover location dimensions.*** *`plan_dimensions` skips
+  `location`-kind parameters and `plan_locations` returns a flat cross-feature list that
+  never enters a `DimensionGroup`, so `sheet.dimension(bore, "location")` — an example in
+  this ADR's own selector table — has no key. Tracked as **#883**; it blocks the `"location"`
+  role in the selector.*
 
 Most addressable dimensions hold exactly one member. A correlated set holds N, and those
 members are **not** separately addressable — that is the whole content of tier 3, now stated
@@ -354,7 +374,7 @@ dwg = Sheet(part).auto_dimensions().build()   # the planner-selected set, reques
 
 sheet = Sheet(part)                           # or: these declarations ARE the set
 sheet.dimension(bore, "diameter")
-sheet.dimension(bore, "location")
+sheet.dimension(bore, "depth")
 dwg = sheet.build()
 ```
 
@@ -538,14 +558,15 @@ constraining planner internals that are still moving. The gaps are known and fin
 
 | Not mirrored as a `dimension(...)` line | Why | Where it goes instead |
 | --- | --- | --- |
-| Correlated sets, per member | `step_height` / `step_position` ladders, rotational bores and off-axis `locate` are one `AddressableDimension` holding N members | **One** line per set; suppress the set, not a member |
+| Correlated sets, per member | `step_height` / `step_position` ladders and rotational bores are one `AddressableDimension` holding N members | **One** line per set; suppress the set, not a member |
+| Location dimensions | Planned by `plan_locations` outside `DimensionGroup`, so they have no addressable identity yet — **#883** | Comment floor until #883 lands |
 | Inter-feature spans and angles | No `(feature, role)` form — needs `RelationDimensionId`, whose selector spelling is still open | Comment floor until the relation selector lands |
 | Imported AP242 PMI | Materialized: carries `ref_pts` / `ref_bbox` / `at`, so there is nothing to reference | `sheet.measured_dimension(...)` — still one editable line |
 | Low-level furniture | Centre marks, section arrows, hatching, the NTS caption carry no editable intent | Engine-automatic, by decision |
 | Anything the emitter cannot re-solve | The fidelity floor `emit_sheet_script` already holds for features | Self-describing comment |
 
-Two of those five are the identity model's boundary and shrink as it grows (relations,
-future correlated-set splits); the other three are decisions, and stay. **The property the
+Three of those six are the identity model's boundary and shrink as it grows (relations,
+locations, future correlated-set splits); the other three are decisions, and stay. **The property the
 mirror actually promises is that within the identified set, a line's presence and its
 absence both mean something exact** — which is all suppression-by-omission needs.
 
@@ -662,8 +683,10 @@ sheet.dimension(bore,    "spotface_diameter")  # ⌴ ⌀32
 sheet.dimension(bore,    "spotface_depth")     # ↓ 1.5
 
 sheet.dimension(corners, "diameter")           # 4× ⌀5 THRU  (read off `corners`)
-sheet.dimension(corners, "location")           # location ladder  ← comment out to drop
-sheet.dimension(bore,    "location")           # bore on centre
+# Locations are NOT addressable yet (#883) — the engine still places them
+# automatically; these two lines are what the surface will read once it lands.
+# sheet.dimension(corners, "location")         # location ladder  ← comment out to drop
+# sheet.dimension(bore,    "location")         # bore on centre
 sheet.dimension(env,     "width")              # 80    (read off the bbox)
 sheet.dimension(env,     "depth")              # 50
 sheet.dimension(env,     "height")             # 8     (thickness)
@@ -679,7 +702,7 @@ sheet.export("plate")
 
 Reading it against the rendered sheet:
 
-- **This is an authored set, so it never calls `auto_dimensions()`.** The nine
+- **This is an authored set, so it never calls `auto_dimensions()`.** The seven active
   `dimension(...)` lines *are* the drawing's dimension set — which is what makes the
   commented-out pitch lines mean "suppressed" rather than "not mentioned". A script wanting
   the planner's choices instead would call `auto_dimensions()` and carry no `dimension(...)`
@@ -694,13 +717,13 @@ Reading it against the rendered sheet:
   only says *show `bore`'s diameter*. Change `diameter=20` → `25` (or edit the build123d
   object, for a live part) and the callout follows — no second copy to sync.
 - **Dropping a dimension is not dropping the hole.** Comment out `sheet.dimension(corners,
-  "location")` and the location ladder vanishes; the four ⌀5 *circles* stay, because they
+  "diameter")` and the `4× ⌀5 THRU` callout vanishes; the four *circles* stay, because they
   are geometry projected from the part, not annotations. Only editing the part removes a hole.
 - **The commented `pitch` lines show the discriminator carrying its weight.** A grid emits
   two `grid_pitch` parameters of the same kind and role, so they are two identities and two
   lines — `sheet.dimension(corners, "pitch")` with no `axis=` raises rather than guessing.
 - **A line the solver cannot fit still stays in the script.** If the sheet is too crowded for
-  the bore's location ladder, that dimension drops with a lint warning and its line remains
+  the envelope's width dim, that dimension drops with a lint warning and its line remains
   exactly where it is — a later scale or page change can make it fit again with no edit.
 
 The A/B "features imply dimensions" vs "every dimension is a line" fork explored during
@@ -721,8 +744,11 @@ second with the single-source-of-truth of the first — over the identified set,
   one member, N for a correlated set (the ladders, rotational bores), with the grouping
   *declared* by the planner rather than inferred from key collisions. Members are
   `PlannedDimension`s, not raw `DimParameter`s, so `convention` / `suppressed` / `reason` /
-  `datum` / provenance survive the grouping; `DimensionGroup.dims` is retyped accordingly
-  (~25 mechanical read sites). One type at one boundary — an IR-side parameter group would
+  `datum` / provenance survive the grouping; `DimensionGroup` gains a `units` field, with
+  `dims` becoming the flattening property, so no *reader* changes — at the cost of an
+  intentional break to its constructor, and with location dimensions still outside the
+  identity layer (#870, #883). One type at one
+  boundary — an IR-side parameter group would
   have nothing to hold, since grouping is a planner decision. Its identity is
   `DimensionId(feature, parameter)`, where `(feature, role)` is only the call-site *address*:
   the key needs `kind` and, for genuinely distinct same-role parameters (grid row vs column
@@ -762,7 +788,8 @@ second with the single-source-of-truth of the first — over the identified set,
   suppression lands with the set boundary, while **post-build** suppression of an automatic
   dimension waits on the reconstruction question (#867) — not on the closed #426/#707.
 - `sheet_emit` gains a dimension-mirroring pass: after the feature basis, one referential
-  `dimension(...)` line per **planned** dimension, led by the explicit dimension-source call
+  `dimension(...)` line per **addressable dimension** — the unit, not the member, so a
+  correlated set gets one line — led by the explicit dimension-source call
   — each commentable and editable, none restating a number, with low-level furniture still
   produced automatically on re-run. The pass reads the planner's `DimensionGroup`s, **not**
   the drawing's placed annotations, so a solver-dropped dimension keeps its line. What it
@@ -821,8 +848,9 @@ second with the single-source-of-truth of the first — over the identified set,
    making **post-build** suppression / emphasis honest and script/direct output convergent.
    How much of this remains to do is the question #867 settles.
 4. **Emitter dimension-mirror.** Emit one round-trippable referential `dimension(...)` line
-   per **planned dimension intent** — never per *placed* dimension, which would let solver
-   pressure rewrite version-controlled source (see "The script records intent"). The
+   per **planned `AddressableDimension`** — the unit, so an N-member correlated set still
+   emits one line — and never per *placed* dimension, which would let solver pressure
+   rewrite version-controlled source (see "The script records intent"). The
    emitted script leads with `auto_dimensions()` or the authored set, so its dimension
    source is always explicit. Keep the self-describing comment as the floor for anything
    not yet mirrorable.
@@ -846,9 +874,10 @@ second with the single-source-of-truth of the first — over the identified set,
   — and decide what an axis-named selector means at 30°: resolve to the nearer axis, raise,
   or offer a `row=`/`col=` spelling alongside. Settled with the selector (#872).
 - The `role` vocabulary for `sheet.dimension(feature, role)`: which measurements to support
-  first (`"diameter"`, `"location"`, `"pitch"`, `"width"`/`"depth"`/`"height"`, `"angle"`,
-  `"radius"`), and how the call-site role maps onto the `ParameterId` space (`"depth"` →
-  `"bore.depth"`) when a feature has counterbore and spotface depths as well.
+  first (`"diameter"`, `"pitch"`, `"width"`/`"depth"`/`"height"`, `"angle"`, `"radius"`), and
+  how the call-site role maps onto the `ParameterId` space (`"depth"` → `"bore.depth"`) when a
+  feature has counterbore and spotface depths as well. **`"location"` is blocked on #883** —
+  location dims are planned outside `DimensionGroup` and have no addressable identity yet.
 - **The relation selector.** `RelationDimensionId` settles the *identity* of an
   inter-feature measurement; how it reads at the call site does not —
   `sheet.dimension(a, b)` / `sheet.dimension((a, b), "span")` / a feature-handle method.

@@ -11,15 +11,12 @@ Three guards, matching the three tiers the ADR's identity section names:
 - **stability** — re-detecting the same solid yields the same ids, which is what
   makes an id safe to write into a version-controlled script.
 
-The uniqueness guard carries an explicit exemption for the ADR's tier 3
-*correlated sets* (a `step_height` ladder, a rotational body's concentric bores),
-where sharing one id is the design rather than a collision. It is keyed on exact
-``(feature kind, role)`` pairs — a bare role or a whole-feature skip would widen
-the hole far enough to swallow real collisions, which would make "fail-closed" a
-claim rather than a property. That exemption is temporary scaffolding: once
-`AddressableDimension` lands (#870) the guard is rephrased over addressable units
-and it disappears — a correlated set becomes one unit holding N members, so it
-cannot collide with anything.
+The uniqueness guard needs **no exemption list** (#870). Phrased over
+`AddressableDimension`s rather than raw parameters, the ADR's tier-3 *correlated
+sets* stop being a special case: a `step_height` ladder is one unit holding three
+members, so it cannot collide with itself, while two *ungrouped* parameters sharing
+an id are still two units and still fail. Structure replaced the table it needed in
+its first form — an exemption can hide a real collision, arity cannot.
 """
 
 from __future__ import annotations
@@ -31,29 +28,13 @@ import pytest
 from build123d import Box, Cylinder, Pos
 
 import draftwright.model.ir as ir
-from draftwright.model import DimParameter, build_part_model
-
-# ── The tier-3 exemption ──────────────────────────────────────────────────────
-# Exact ``(feature kind, role)`` pairs whose parameters are a correlated SET routed
-# as a whole (ir.py says so at the source: "a single `role=` intent rebuilds the
-# whole ladder"). Their members are deliberately NOT separately addressable, so they
-# share one id by design.
-#
-# Scoped to the pair, never to a bare role or a whole feature: exempting the role
-# alone would let a *future* feature reusing "step_height" hide a real collision,
-# and skipping `rotational` wholesale would stop auditing its `od` — and any
-# parameter added to it later. Everything outside these three pairs is audited.
-#
-# Scaffolding: #870 deletes this when `AddressableDimension` makes a correlated set
-# one unit holding N members, which cannot collide with anything.
-_CORRELATED_SETS = {
-    ("step_level", "step_height"),
-    ("step_level", "step_position"),
-    # Provisional, per ADR 0016 identity tier 3: whether `RotationalFeature`'s
-    # concentric bores stay one identity or split into addressable members is
-    # settled when the units are built (#870).
-    ("rotational", "bore"),
-}
+from draftwright.model import DimParameter, PartModel, build_part_model
+from draftwright.model.planner import (
+    CORRELATED_SETS,
+    PlannedDimension,
+    _addressable,
+    plan_dimensions,
+)
 
 
 def _feature_classes() -> dict[str, type]:
@@ -71,6 +52,13 @@ def _feature_classes() -> dict[str, type]:
 
 
 _F = ir.Frame((0.0, 0.0, 0.0), "z")
+_BBOX = Box(80, 50, 12).bounding_box()  # some planner rules consult the footprint
+
+
+def _plan(feature):
+    """The feature's planned groups — the layer where addressable units exist."""
+    return plan_dimensions(PartModel(bbox=_BBOX, orientation="prismatic", features=[feature]))
+
 
 # One MAXIMAL instance per feature type — every optional parameter populated, since
 # uniqueness is only stressed by a feature emitting its full parameter set.
@@ -276,33 +264,50 @@ class TestUniquenessAudit:
         )
 
     @pytest.mark.parametrize("name", sorted(_SAMPLES))
-    def test_no_feature_yields_two_parameters_under_one_id(self, name):
-        feat = _SAMPLES[name]
-        ids = [
-            p.parameter_id
-            for p in feat.parameters()
-            if (feat.kind, p.role) not in _CORRELATED_SETS
-        ]
-        dupes = {i for i in ids if ids.count(i) > 1}
-        assert not dupes, f"{name} emits colliding parameter ids: {sorted(dupes)}"
+    def test_no_feature_yields_two_addressable_dimensions_under_one_id(self, name):
+        """**No exemptions.** Phrased over addressable units rather than raw
+        parameters, the tier-3 problem dissolves: a correlated set is *one* unit
+        holding N members, so it cannot collide with itself, while two *ungrouped*
+        parameters sharing an id are two units and still fail."""
+        for group in _plan(_SAMPLES[name]):
+            ids = [u.id for u in group.units]
+            dupes = {i for i in ids if ids.count(i) > 1}
+            assert not dupes, f"{name} emits colliding addressable ids: {sorted(dupes)}"
 
-    def test_an_exempted_feature_is_still_audited_outside_its_set(self):
-        """The exemption is a *pair*, not a blanket. `RotationalFeature` carries an
-        `od` alongside its correlated bores, and that `od` — plus anything added to
-        the feature later — stays under the audit. Skipping the feature wholesale
-        would have stopped auditing it entirely."""
-        rot = _SAMPLES["RotationalFeature"]
-        audited = [
-            p.parameter_id for p in rot.parameters() if (rot.kind, p.role) not in _CORRELATED_SETS
-        ]
-        assert audited == ["od.diameter"]
+    def test_the_guard_has_no_exemption_list_left(self):
+        """PR 1 audited raw parameters and needed a `(feature, role)` exemption table
+        to tolerate the correlated sets. The unit layer replaces that table with
+        structure, which is the point of making the addressable dimension
+        first-class — an exemption can hide a real collision; arity cannot."""
+        assert "_CORRELATED_SETS" not in globals()
 
-    def test_a_correlated_role_reused_by_another_feature_is_not_exempt(self):
-        """Exempting a bare *role* would let a future feature that reuses
-        `step_height` smuggle a real collision past the audit. Keyed on the pair,
-        only `step_level`'s own ladder is exempt."""
-        assert ("step_level", "step_height") in _CORRELATED_SETS
-        assert ("hole", "step_height") not in _CORRELATED_SETS
+    def test_a_correlated_set_is_one_unit_with_n_members(self):
+        """The tier-3 sets, as grouped by the planner rather than tolerated by a
+        filter: a three-level ladder is one addressable dimension holding three."""
+        (group,) = _plan(_SAMPLES["StepLevelFeature"])
+        (unit,) = [u for u in group.units if u.id == "step_height.length"]
+        assert len(unit.members) == 3
+        assert [m.param.value for m in unit.members] == [5.0, 10.0, 15.0]
+
+    def test_a_singleton_beside_a_correlated_set_stays_addressable(self):
+        """`RotationalFeature`'s `od` sits beside its correlated bores and remains a
+        unit of its own — the reason grouping is declared per `(feature, role)` pair
+        and not per feature."""
+        (group,) = _plan(_SAMPLES["RotationalFeature"])
+        by_id = {u.id: len(u.members) for u in group.units}
+        assert by_id == {"od.diameter": 1, "bore.diameter": 2}
+
+    def test_grouping_is_declared_not_inferred_from_a_collision(self):
+        """The load-bearing rule. Two `step_height` params on a feature that has NOT
+        declared the set stay two units — so a grid pitch that lost its discriminator
+        fails the audit instead of silently becoming a 'correlated set'."""
+        assert ("hole", "step_height") not in CORRELATED_SETS
+        pds = [
+            PlannedDimension(param=DimParameter("length", "step_height", v), convention="linear")
+            for v in (5.0, 10.0)
+        ]
+        units = _addressable(_SAMPLES["HoleFeature"], pds)
+        assert len(units) == 2  # not merged — the pair was never declared
 
     def test_the_guard_would_catch_the_grid_pitch_collision(self):
         """The audit earns its keep: strip the discriminator and the tier-2 case
