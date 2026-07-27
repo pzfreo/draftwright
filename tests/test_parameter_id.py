@@ -262,9 +262,29 @@ class TestStability:
       location, never the id alone.
     """
 
+    # The committed expectation. Two live detections can only prove determinism —
+    # they cannot catch a *code change* that repoints an id, because both sides run
+    # the changed code and agree. Only a snapshot fails when `width.length` starts
+    # measuring the depth. Re-blessing this is a deliberate act: an id moving to a
+    # different quantity breaks every intent aimed at it, silently.
+    #
+    # Keyed on (feature kind, feature origin, id) → value. `span`/`refs` are
+    # deliberately excluded — they carry model coordinates that shift with unrelated
+    # recognition work, so pinning them would make this churn without adding
+    # semantic protection. Note the two holes sharing `bore.diameter`: that is why
+    # the key includes the feature, not the parameter id alone.
+    _EXPECTED = {
+        ("hole", (-30.0, -18.0, 6.0), "bore.diameter"): 5.0,
+        ("hole", (0.0, 0.0, 6.0), "bore.diameter"): 10.0,
+        ("envelope", (0.0, 0.0, 0.0), "width.length"): 80.0,
+        ("envelope", (0.0, 0.0, 0.0), "height.length"): 12.0,
+        ("envelope", (0.0, 0.0, 0.0), "depth.length"): 50.0,
+    }
+
     def _part(self):
-        # Unequal grid pitches (60 × 36) on purpose: with equal pitches a row/col
-        # swap would be invisible to any value-based check.
+        # The four ⌀5 corner holes are grouped into ONE count-group feature rather
+        # than a grid pattern, so this fixture carries no grid pitches — the row/col
+        # discriminator is pinned at unit level above instead.
         return (
             Box(80, 50, 12)
             - Pos(0, 0, 0) * Cylinder(5, 40)
@@ -283,7 +303,18 @@ class TestStability:
         )
 
     def test_redetection_reproduces_the_same_ids_on_the_same_measurements(self):
+        """Determinism: the same solid detected twice agrees."""
         assert self._measurements(self._part()) == self._measurements(self._part())
+
+    def test_every_id_still_measures_what_it_measured(self):
+        """Semantics: each id is still bound to the same physical quantity. This is
+        the check a pair of live detections cannot make — both sides would run the
+        repointed code and agree with each other."""
+        got = {
+            (kind, origin, pid): value
+            for kind, origin, pid, value in self._measurements(self._part())
+        }
+        assert got == self._EXPECTED
 
     def test_row_and_col_ids_track_the_grid_tuple_order(self):
         """The contract a value-carrying stability check cannot enforce on its own:
