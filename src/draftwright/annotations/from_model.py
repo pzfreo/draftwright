@@ -60,6 +60,7 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
+    PRIORITY,
     CorridorCandidate,
     Escalation,
     _anno_box,
@@ -326,85 +327,136 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
                     ),
                 )
 
-            # Unified above corridor (ADR 0009 end state, #345/#346): a plan/side slot dim
-            # measured along the horizontal axis shares the SAME strip as the hole-location
-            # ladder, so it registers into the corridor batch instead of committing here.
-            # One solve then dedups a slot POSITION line coincident with a hole location
-            # (#345) and orders size + location as segregated, monotonic runs (#346). The
-            # on_drop falls through to the below strip (place-what-fits) before recording a
-            # genuine drop; a *deduped* position fires no drop (it was never starved).
-            if meas_axis == ha and vw[0] in ("plan", "side"):
-                is_pos = kind.startswith("pos")
-                drop_word = "position" if is_pos else kind
-                _, below_strip, below_hi = sides[1]
-
-                def _below_or_drop(nm, _bs=below_strip, _bh=below_hi, _feat=s, _dw=drop_word):
-                    if _bs is not None and not place_strip_candidates(
+            # Register into the corridor batch (ADR 0014 collect-then-solve). One solve
+            # per strip dedups a POSITION line coincident with a hole location (#345),
+            # orders size + location as segregated monotonic runs (#346), and — the part
+            # that matters here — arbitrates against every other occupant by `priority`
+            # when the strip is over capacity.
+            #
+            # #894: the FRONT view used to *commit* instead, via a direct
+            # `place_strip_candidates` loop — a local solve that spaces only its own
+            # call's candidates and then takes the space. Whichever pass ran first won,
+            # so #888's pocket location dims filled the front-right strip and the height
+            # ladder, registered later, found it gone: both `dim_step_0` and `dim_height`
+            # dropped on CTC-03/04. Registering is most of the fix; the ladder also needed
+            # a priority, since once co-solved it merely TIED with the pocket dims and lost
+            # on the generated key. (`_MANDATORY_OVERALL_PRIORITY` is the envelope dims'
+            # rank, not this ladder's — the base trace records both height candidates at 0.)
+            #
+            # SCOPED TO THE FRONT VIEW deliberately. The plan/side right-left case keeps
+            # the immediate path, because the corridor carve is strictly more conservative:
+            # it marks a region obstructed from FULL annotation geometry, where a label can
+            # legitimately sit between two extension lines. Routing those dims through it
+            # cost #885's part two pad size dims that place cleanly today — verified by
+            # label-box measurement, not inferred. Closing that gap needs the carve to
+            # reason about label boxes, which is its own change; tracked on #894.
+            # The plan/side horizontal case has been corridor-routed since #345/#346 and
+            # stays that way; the front view joins it here. Only plan/side right-left
+            # keeps the immediate path.
+            use_corridor = vw[0] == "front" or (meas_axis == ha and vw[0] in ("plan", "side"))
+            if not use_corridor:
+                for side, strip, hi in sides:
+                    if strip is None:
+                        continue
+                    axis = "y" if side in ("above", "below") else "x"
+                    if not place_strip_candidates(
                         dwg,
-                        _bs,
+                        strip,
                         vw[0],
-                        "y",
-                        [_cand_for("below", _bh)],
+                        axis,
+                        [_cand_for(side, hi)],
+                        tier,
+                        ctx=ctx,
+                        features={cname: s},
+                        trace=ctx.trace,
+                        trace_label=f"slot_{side}",
+                    ):
+                        return True
+                return False
+
+            is_pos = kind.startswith("pos")
+            drop_word = "position" if is_pos else kind
+            near_side, near_strip, near_hi = sides[0]
+            far_side, far_strip, far_hi = sides[1]
+            corridor_axis = "y" if near_side in ("above", "below") else "x"
+
+            def _far_or_drop(
+                nm,
+                _fs=far_strip,
+                _fsd=far_side,
+                _fh=far_hi,
+                _ax=corridor_axis,
+                _feat=s,
+                _dw=drop_word,
+            ):
+                # Opposite-strip fallthrough. On the FRONT view — the path this change
+                # adds — it is DEFERRED to ctx.post_drain so it runs after every corridor
+                # has drained (the #684 rule, and the shape `render_plates` / `render_gdt`
+                # use): placing mid-drain could occupy space a later sibling's force
+                # candidate needs, since that sibling has not solved yet.
+                #
+                # The plan/side path keeps placing synchronously, as it has since
+                # #345/#346. Deferring it too is the architecturally consistent end state
+                # and was tried — it costs #885's part a pad length dim, because by the
+                # time a post-drain retry runs the opposite strip has filled. Changing
+                # behaviour that was not broken, at a measured cost, is not this PR's job;
+                # the migration is tracked on #894.
+                def _retry(_fs=_fs, _fsd=_fsd, _fh=_fh, _ax=_ax, _feat=_feat, _dw=_dw) -> None:
+                    if _fs is not None and not place_strip_candidates(
+                        dwg,
+                        _fs,
+                        vw[0],
+                        _ax,
+                        [_cand_for(_fsd, _fh)],
                         tier,
                         ctx=ctx,
                         features={cname: _feat},
                         trace=ctx.trace,
-                        trace_label="slot_below_fallthrough",
+                        trace_label=f"slot_{_fsd}_fallthrough",
                     ):
-                        return  # placed on the below strip
+                        return  # placed on the opposite strip
                     _record_slot_drop(ctx, dwg, _dw, idx, vw[0], _feat)
 
-                register_corridor(
-                    ctx,
-                    (vw[0], "above"),
-                    zn.above,
-                    vw[0],
-                    "y",
-                    tier,
-                    CorridorCandidate(
-                        name=cname,
-                        build=_cand_for("above", sides[0][2])[1],
-                        # A position nests in the datum-distance location ladder; a size dim
-                        # forms the inner run, ordered left-to-right by its span midpoint.
-                        order=(
-                            (_LOC_SUBCHAIN, disp, cname)
-                            if is_pos
-                            else (_SIZE_SUBCHAIN, (p_lo + p_hi) / 2, cname)
-                        ),
-                        on_place=lambda nm: None,
-                        on_drop=_below_or_drop,
-                        dedup=(
-                            (vw[0], round(meas_proj(raw_lo), 1), round(meas_proj(raw_hi), 1))
-                            if is_pos
-                            else None
-                        ),
-                        precedence=1 if is_pos else 0,
-                        force=False,
-                        feature=s,  # provenance (ADR 0010): this dim belongs to the slot
-                    ),
-                )
-                return True  # deferred — the callback owns the drop; caller's else must not fire
+                if vw[0] == "front":
+                    ctx.post_drain.append(_retry)
+                else:
+                    _retry()
 
-            # Immediate path: right/left dims, and any front-view above/below. Try each side
-            # through the shared carve; the first that takes the dim wins, else the caller drops.
-            for side, strip, hi in sides:
-                if strip is None:
-                    continue
-                axis = "y" if side in ("above", "below") else "x"
-                if not place_strip_candidates(
-                    dwg,
-                    strip,
-                    vw[0],
-                    axis,
-                    [_cand_for(side, hi)],
-                    tier,
-                    ctx=ctx,
-                    features={cname: s},
-                    trace=ctx.trace,
-                    trace_label=f"slot_{side}",
-                ):
-                    return True
-            return False
+            if near_strip is None:
+                # Nothing to register against; the opposite side is the only chance.
+                _far_or_drop(cname)
+                return True
+
+            register_corridor(
+                ctx,
+                (vw[0], near_side),
+                near_strip,
+                vw[0],
+                corridor_axis,
+                tier,
+                CorridorCandidate(
+                    name=cname,
+                    build=_cand_for(near_side, near_hi)[1],
+                    # A position nests in the datum-distance location ladder; a size dim
+                    # forms the inner run, ordered left-to-right by its span midpoint.
+                    order=(
+                        (_LOC_SUBCHAIN, disp, cname)
+                        if is_pos
+                        else (_SIZE_SUBCHAIN, (p_lo + p_hi) / 2, cname)
+                    ),
+                    on_place=lambda nm: None,
+                    on_drop=_far_or_drop,
+                    dedup=(
+                        (vw[0], round(meas_proj(raw_lo), 1), round(meas_proj(raw_hi), 1))
+                        if is_pos
+                        else None
+                    ),
+                    precedence=1 if is_pos else 0,
+                    force=False,
+                    feature=s,  # provenance (ADR 0010): this dim belongs to the slot
+                ),
+            )
+            return True  # deferred — the callback owns the drop; caller's else must not fire
 
         # Bind each planned dim explicitly by (role, kind) — never positionally (#730).
         by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
@@ -509,7 +561,8 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
 _SIZE_SUBCHAIN = 0
 _LOC_SUBCHAIN = 1
 _OVERALL_SUBCHAIN = 2
-_MANDATORY_OVERALL_PRIORITY = 100.0
+_MANDATORY_OVERALL_PRIORITY = PRIORITY.MANDATORY
+_PRINCIPAL_CHAIN_PRIORITY = PRIORITY.PRINCIPAL
 
 # Minimum half of a bore's PAGE-projected diameter (mm) for its ø dim to fit across the circle
 # in-plane; below this the circle is too small to letter inside, so the callout leaders out
@@ -558,7 +611,7 @@ def _location_candidate(
         on_drop=_drop,
         dedup=(view, span_key[0], span_key[1]),
         precedence=3 if pinned else 2,
-        priority=100.0 if pinned else 0.0,
+        priority=PRIORITY.MANDATORY if pinned else PRIORITY.AUTO,
         force=True,
         feature=feature,  # provenance (ADR 0010): the located hole/pattern
         footprint=footprint,  # analytical measure — no probe build (#602)
@@ -2907,6 +2960,9 @@ def render_height_ladder(dwg, model, a, *, ctx, include_overall: bool = True) ->
                 on_place=lambda nm: None,
                 on_drop=_drop,
                 force=True,  # principal dims: only a physically full strip drops them
+                # …and when it IS physically full, they outrank ordinary auto dims rather
+                # than tying with them at 0 and losing on the generated key (#894).
+                priority=_PRINCIPAL_CHAIN_PRIORITY,
                 feature=step if name != "dim_height" else None,
                 footprint=_foot,
             ),
@@ -3274,7 +3330,7 @@ def _bore_half_span(pmi_kind: str, value: float) -> float:
 # capacity it should survive ahead of auto-generated dims (priority 0), like declared
 # GD&T. It still lives in the outer run so it does not land between size/location dims.
 _PMI_SUBCHAIN = 3
-_PMI_CORRIDOR_PRIORITY = 1.0
+_PMI_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 _PMI_SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
 
 
@@ -3775,7 +3831,7 @@ _GDT_SUBCHAIN = 3
 # Over-capacity survival rank for an authored GD&T frame (#357): a declared control frame /
 # datum / finish / note is deliberate intent, so on a strip too full for every candidate it is
 # kept over the auto dims (locations/slots, priority 0) rather than dropped by stacking-key order.
-_GDT_CORRIDOR_PRIORITY = 1.0
+_GDT_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 # Minimum GD&T leader shaft length (page-mm). A zero-length Leader (site == solved tier)
 # makes OCC's edge builder raise; nudging to this keeps `_build` total (#61 review).
 _MIN_LEADER = 0.05
