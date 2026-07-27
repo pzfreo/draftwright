@@ -2525,15 +2525,15 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
             for i, (pa, pb, *_rest) in enumerate(fsegs)
         )
         if not (labels_clear and inside_arrows_fit):
-            alo = min(min(a[1], b[1]) for a, b, *_ in bare_rows)
-            ahi = max(max(a[1], b[1]) for a, b, *_ in bare_rows)
+            axis_lo = min(min(a[1], b[1]) for a, b, *_ in bare_rows)
+            axis_hi = max(max(a[1], b[1]) for a, b, *_ in bare_rows)
             page_xs = [p[0] for pa, pb, *_ in fsegs for p in (pa, pb)]
             page_y = fsegs[0][0][1]
             block = [
                 (
                     (min(page_xs), page_y, 0.0),
                     (max(page_xs), page_y, 0.0),
-                    ahi - alo,
+                    axis_hi - axis_lo,
                     None,
                 )
             ]
@@ -2663,8 +2663,8 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
             ctx.detail_requests.append(
                 DetailRequest(
                     axis="y",
-                    lo=alo,
-                    hi=ahi,
+                    lo=axis_lo,
+                    hi=axis_hi,
                     scale_needed=scale_needed,
                     redraw=_redraw_y,
                     pad_top=draft.font_size + 2 * draft.pad_around_text + draft.arrow_length,
