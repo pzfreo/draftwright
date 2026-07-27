@@ -764,9 +764,11 @@ class TestPocket:
         # #609 review: exercise the x-depth (view_of x→side) render branch, not just z→plan.
         dwg = build_drawing(Box(60, 60, 60) - Pos(24, 0, 0) * Box(12, 20, 30), number="X")
         names = [n for n in dwg.annotations() if n.startswith("m_pocket")]
-        assert len(names) == 1
-        assert dwg.get_annotation(names[0]).label == "20 × 30 × 12 DEEP"
-        assert dwg.view_of(names[0]) == "side"  # x-depth opening → side view
+        callouts = [n for n in names if "_pos_" not in n]
+        assert len(callouts) == 1
+        assert {"m_pocket0_pos_long", "m_pocket0_pos_width"} <= set(names)
+        assert dwg.get_annotation(callouts[0]).label == "20 × 30 × 12 DEEP"
+        assert dwg.view_of(callouts[0]) == "side"  # x-depth opening → side view
         assert not any(i.severity == "error" for i in dwg.lint())
 
     def test_declared_pocket_renders_its_callout(self):

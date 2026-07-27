@@ -377,30 +377,32 @@ def lint_location_coverage(
     return issues
 
 
-def _dimension_endpoint_pairs(dwg, view: str) -> list[tuple[tuple[float, float], tuple[float, float]]]:
-    """Placed dimension witness pairs in *view*, excluding label-outline vertices."""
+def _dimension_endpoint_pairs(dwg, view: str) -> list:
+    """Placed dimension witness pairs + feature owner in *view*."""
     pairs = []
     for _name, ann in dwg.annotations_in_view(view):
         if not isinstance(ann, Dimension):
             continue
         pts = _dim_vertices(ann)
         if len(pts) >= 2:
-            pairs.append((pts[0], pts[1]))
+            pairs.append((pts[0], pts[1], dwg.registry.feature_of(_name)))
     return pairs
 
 
 def _pair_covers(
-    pairs: list[tuple[tuple[float, float], tuple[float, float]]],
+    pairs: list,
     axis: int,
     a: float,
     b: float,
     tol: float,
+    owner=None,
 ) -> bool:
     """Whether a dimension's two witnesses span coordinates *a* and *b*."""
     return any(
         (abs(p[axis] - a) <= tol and abs(q[axis] - b) <= tol)
         or (abs(p[axis] - b) <= tol and abs(q[axis] - a) <= tol)
-        for p, q in pairs
+        for p, q, pair_owner in pairs
+        if owner is None or pair_owner is owner
     )
 
 
@@ -429,9 +431,7 @@ def lint_prismatic_coverage(
         return pairs_by_view.setdefault(view, _dimension_endpoint_pairs(dwg, view))
 
     issues = []
-    pad_inventory = (
-        recognise_rectangular_pads(part) if pads is None else pads
-    )
+    pad_inventory = recognise_rectangular_pads(part) if pads is None else pads
     if pad_inventory:
         bb = bbox if bbox is not None else part.bounding_box()
         undefined = 0
@@ -451,8 +451,20 @@ def lint_prismatic_coverage(
             sby0, _, *_ = dwg.at("side", xc, bb.min.Y, pad.z1)
             sby1, _, *_ = dwg.at("side", xc, bb.max.Y, pad.z1)
             ps = pairs("plan")
-            size_x = _pair_covers(ps, 0, x0, x1, tol)
-            size_y = _pair_covers(ps, 1, y0, y1, tol)
+            owner = next(
+                (
+                    f
+                    for f in getattr(dwg.model(), "features", ())
+                    if getattr(f, "kind", None) == "pad"
+                    and abs(f.lo - pad.x0) <= tol
+                    and abs(f.hi - pad.x1) <= tol
+                    and abs(f.w_center - yc) <= tol
+                    and abs(f.width - (pad.y1 - pad.y0)) <= tol
+                ),
+                None,
+            )
+            size_x = owner is not None and _pair_covers(ps, 0, x0, x1, tol, owner=owner)
+            size_y = owner is not None and _pair_covers(ps, 1, y0, y1, tol, owner=owner)
             located_x = (
                 abs(pad.x0 - bb.min.X) <= tol
                 or abs(pad.x1 - bb.max.X) <= tol
@@ -496,10 +508,10 @@ def lint_prismatic_coverage(
             px, _py, *_ = dwg.at("plan", x, y, z)
             sy, _sz, *_ = dwg.at("side", x, y, z)
             covered_x = abs(x - centre.X) <= 1.0 or any(
-                abs(p[0] - px) <= tol or abs(q[0] - px) <= tol for p, q in pairs("plan")
+                abs(p[0] - px) <= tol or abs(q[0] - px) <= tol for p, q, _owner in pairs("plan")
             )
             covered_y = abs(y - centre.Y) <= 1.0 or any(
-                abs(p[0] - sy) <= tol or abs(q[0] - sy) <= tol for p, q in pairs("side")
+                abs(p[0] - sy) <= tol or abs(q[0] - sy) <= tol for p, q, _owner in pairs("side")
             )
             if not (covered_x and covered_y):
                 unlocated += 1
@@ -518,7 +530,7 @@ def lint_prismatic_coverage(
             symmetric = abs(coord - mid) <= 1.0
             witnessed = any(
                 abs(p[axis] - page_coord) <= tol or abs(q[axis] - page_coord) <= tol
-                for p, q in ps
+                for p, q, _owner in ps
             )
             covered.append(symmetric or witnessed)
         if not all(covered):

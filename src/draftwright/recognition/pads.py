@@ -32,14 +32,7 @@ def recognise_rectangular_pads(part, *, tol: float = 0.2) -> list[RaisedPad]:
     non-rectangular pocket floors and perforated plate faces fail the area test.
     """
     bb = part.bounding_box()
-    horizontal_levels: list[float] = []
-    for face in part.faces():
-        surf = BRepAdaptor_Surface(face.wrapped)
-        if surf.GetType() == GeomAbs_Plane:
-            normal = surf.Plane().Axis().Direction()
-            if abs(normal.Z()) > 0.99:
-                horizontal_levels.append(float(surf.Plane().Location().Z()))
-    out: set[RaisedPad] = set()
+    raw_tops: list[tuple[float, float, float, float, float]] = []
     for face in part.faces():
         surf = BRepAdaptor_Surface(face.wrapped)
         if surf.GetType() != GeomAbs_Plane:
@@ -63,39 +56,82 @@ def recognise_rectangular_pads(part, *, tol: float = 0.2) -> list[RaisedPad]:
         full_y = fb.min.Y <= bb.min.Y + tol and fb.max.Y >= bb.max.Y - tol
         if full_x or full_y:
             continue
-        below = [z for z in horizontal_levels if z < fb.max.Z - tol]
-        if not below:
-            continue
-        out.add(
-            RaisedPad(
+        raw_tops.append(
+            (
                 round(fb.min.X, 3),
                 round(fb.max.X, 3),
                 round(fb.min.Y, 3),
                 round(fb.max.Y, 3),
-                round(max(below), 3),
                 round(fb.max.Z, 3),
             )
         )
-    # A tiered/staircase tower exposes rectangular ledge fragments at several
-    # heights. Those are correlated prismatic steps, not independent pads.
-    # Stay conservative once the candidates form a multi-level staircase.
-    if len({pad.z1 for pad in out}) > 2:
-        return []
 
-    # Keep coplanar repeated pads, but reject every member of a vertically nested stack.
-    def overlaps_plan(a: RaisedPad, b: RaisedPad) -> bool:
+    # Recover each pad's base from its own four downward perimeter walls. A
+    # part-global "highest horizontal level below the top" is wrong when another
+    # feature has an unrelated intervening Z level.
+    vertical_faces = []
+    for face in part.faces():
+        surf = BRepAdaptor_Surface(face.wrapped)
+        if surf.GetType() != GeomAbs_Plane:
+            continue
+        try:
+            normal = face.normal_at()
+        except Exception:  # noqa: BLE001 - degenerate faces cannot bound a pad
+            continue
+        if abs(normal.Z) > 0.01:
+            continue
+        fb = face.bounding_box()
+        vertical_faces.append((fb, normal))
+
+    def wall_base(axis: str, pos: float, lo: float, hi: float, top: float) -> float | None:
+        bases = []
+        for fb, normal in vertical_faces:
+            n_axis = abs(normal.X) if axis == "x" else abs(normal.Y)
+            if n_axis < 0.99:
+                continue
+            plane_pos = (fb.min.X + fb.max.X) / 2 if axis == "x" else (fb.min.Y + fb.max.Y) / 2
+            cross_lo = fb.min.Y if axis == "x" else fb.min.X
+            cross_hi = fb.max.Y if axis == "x" else fb.max.X
+            if (
+                abs(plane_pos - pos) <= tol
+                and abs(fb.max.Z - top) <= tol
+                and fb.min.Z < top - tol
+                and cross_lo <= lo + tol
+                and cross_hi >= hi - tol
+            ):
+                bases.append(float(fb.min.Z))
+        return max(bases) if bases else None
+
+    out: set[RaisedPad] = set()
+    for x0, x1, y0, y1, z1 in raw_tops:
+        bases = (
+            wall_base("x", x0, y0, y1, z1),
+            wall_base("x", x1, y0, y1, z1),
+            wall_base("y", y0, x0, x1, z1),
+            wall_base("y", y1, x0, x1, z1),
+        )
+        if any(base is None for base in bases):
+            continue
+        numeric_bases = [float(base) for base in bases if base is not None]
+        # A pad touching the part envelope may have one exterior wall merged all
+        # the way to the stock base. The highest perimeter-wall base is the local
+        # support plane; the other three walls still prove the bounded island.
+        z0 = max(numeric_bases)
+        out.add(RaisedPad(x0, x1, y0, y1, round(z0, 3), z1))
+
+    # A tiered/staircase tower has nested rectangular top/ledge regions at
+    # different heights. Reject only that overlapping stack; disjoint pads may
+    # legitimately have any number of different heights.
+    def touches_plan(a, b) -> bool:
         return (
-            min(a.x1, b.x1) - max(a.x0, b.x0) > tol
-            and min(a.y1, b.y1) - max(a.y0, b.y0) > tol
+            min(a.x1, b.x1) - max(a.x0, b.x0) >= -tol and min(a.y1, b.y1) - max(a.y0, b.y0) >= -tol
         )
 
+    raw_regions = [RaisedPad(x0, x1, y0, y1, z1, z1) for x0, x1, y0, y1, z1 in raw_tops]
     return sorted(
         pad
         for pad in out
         if not any(
-            other != pad
-            and abs(other.z1 - pad.z1) > tol
-            and overlaps_plan(pad, other)
-            for other in out
+            abs(other.z1 - pad.z1) > tol and touches_plan(pad, other) for other in raw_regions
         )
     )

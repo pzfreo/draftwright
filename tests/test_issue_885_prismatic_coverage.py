@@ -36,6 +36,27 @@ def test_full_span_step_is_not_misclassified_as_bounded_pad():
     assert recognise_rectangular_pads(part) == []
 
 
+def test_disjoint_pads_at_three_heights_keep_their_local_bases():
+    minimum = (Align.MIN, Align.MIN, Align.MIN)
+    part = Box(140, 50, 10, align=minimum)
+    for x, height in ((10, 5), (60, 10), (110, 15)):
+        part += Pos(x, 15, 10) * Box(20, 20, height, align=minimum)
+    pads = recognise_rectangular_pads(part)
+    assert [(p.z0, p.z1) for p in pads] == [(10.0, 15.0), (10.0, 20.0), (10.0, 25.0)]
+
+
+def test_nested_staircase_ledges_are_not_independent_pads():
+    parts = [Pos(0, 0, 3) * Box(20, 16, 6)]
+    z = 6
+    for width in (16, 13, 10, 7, 5):
+        parts.append(Pos(0, 0, z + 1.5) * Box(width, 12, 3))
+        z += 3
+    part = parts[0]
+    for tier in parts[1:]:
+        part += tier
+    assert recognise_rectangular_pads(part) == []
+
+
 def test_pad_declaration_and_sheet_emission_round_trip_surface():
     feature = pad(Box(40, 18, 14))
     assert isinstance(feature, PadFeature)
@@ -51,12 +72,27 @@ def test_auto_drawing_defines_pad_footprints_and_pocket_locations():
     drawing = build_drawing(_case_study())
     assert [f.kind for f in drawing.model().features].count("pad") == 4
     names = set(drawing.annotations())
-    assert {"m_pad0_width", "m_pad1_width", "m_pad0_length", "m_pad2_length"} <= names
+    assert len({name for name in names if name.startswith("m_pad")}) == 8
     assert {"m_locy1", "m_locy3"} <= names  # pocket centres at Y=30 and Y=90
     summary = drawing.lint_summary()
     assert "pad_footprint_not_defined" not in summary["by_code"]
     assert "pocket_not_located" not in summary["by_code"]
     assert summary["score"] == 1.0
+
+
+def test_removing_one_pad_size_is_not_credited_from_an_aligned_sibling():
+    drawing = build_drawing(_case_study())
+    drawing.remove("m_pad3_width")
+    summary = drawing.lint_summary()
+    assert summary["by_code"]["pad_footprint_not_defined"] == 1
+    assert summary["score"] < 1.0
+
+
+def test_side_opening_pocket_gets_two_in_plane_location_dimensions():
+    part = Box(60, 50, 40) - Pos(20, 8, 5) * Box(20, 16, 18)
+    drawing = build_drawing(part)
+    assert {"m_pocket0_pos_long", "m_pocket0_pos_width"} <= set(drawing.annotations())
+    assert "pocket_not_located" not in drawing.lint_summary()["by_code"]
 
 
 def test_omitting_furniture_reports_both_coverage_gaps_and_reduces_score():
