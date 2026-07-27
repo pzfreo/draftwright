@@ -1152,6 +1152,22 @@ def render_diameters(dwg, groups, a, tol: float = 0.15, *, ctx, only=None) -> in
         vb = dwg.view_bounds("front")
         if vb is not None:
             reach = dwg.draft.font_size + 6 * dwg.draft.pad_around_text
+            hole_circles = []
+            for g in groups:
+                feature = g.feature
+                if feature.frame.axis != "y":
+                    continue
+                if feature.kind == "hole":
+                    diameter = feature.diameter
+                    locations = feature.members or (feature.frame.origin,)
+                elif feature.kind == "pattern":
+                    diameter = feature.member.diameter
+                    locations = feature.members or (feature.frame.origin,)
+                else:
+                    continue
+                for location in locations:
+                    px, py, *_ = dwg.at("front", *location)
+                    hole_circles.append((px, py, diameter / 2 * a.SCALE))
             jobs = []
             covered_by_name = {}
             for i, (_anchor, dia, features, dtol, thr) in enumerate(end_buckets.values()):
@@ -1169,9 +1185,12 @@ def render_diameters(dwg, groups, a, tol: float = 0.15, *, ctx, only=None) -> in
                         representative,
                         reach,
                         rim=dia / 2 * a.SCALE,
-                        directions=_DIAMETER_LEAD_DIRS,
                     )
                 ]
+                candidates.sort(
+                    key=lambda candidate: _leader_hole_clearance(candidate, hole_circles),
+                    reverse=True,
+                )
                 label = f"ø{_fmt(dia)}{_tol_suffix(dtol, dwg.draft)}"
                 if thr:
                     label += f" {thr}"
@@ -1710,20 +1729,6 @@ _POCKET_LEAD_DIRS = (
     (0, -1),
 )
 
-_DIAMETER_LEAD_DIRS = (
-    # A concentric diameter should touch a clear cardinal point before trying
-    # diagonals. Diagonal-first leaders visually target bolt holes on common
-    # four-hole flanges even when their tip is mathematically on the step rim.
-    (1, 0),
-    (0, 1),
-    (-1, 0),
-    (0, -1),
-    (1, 1),
-    (-1, 1),
-    (-1, -1),
-    (1, -1),
-)
-
 
 def _radial_candidates(dwg, view, vb, feature, reach, *, rim=0.0, directions=_POCKET_LEAD_DIRS):
     """Lead candidates for a mid-face feature (pocket/groove/boss ø): from the feature's
@@ -1743,6 +1748,35 @@ def _radial_candidates(dwg, view, vb, feature, reach, *, rim=0.0, directions=_PO
         exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
         elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
         yield (tip, elbow, feature)
+
+
+def _leader_hole_clearance(
+    candidate: tuple[tuple[float, float], tuple[float, float, float], Any],
+    circles: list[tuple[float, float, float]],
+) -> float:
+    """Minimum page-space clearance from a leader shaft to projected hole circles.
+
+    Ranking by the complete tip→elbow segment (not just the arrow tip) prevents a
+    mathematically correct diameter-rim target from visually identifying a bolt
+    hole farther along the same ray. With no holes every direction ties and retains
+    the established candidate order.
+    """
+    if not circles:
+        return math.inf
+    tip, elbow, _feature = candidate
+    ax, ay = tip[0], tip[1]
+    bx, by = elbow[0], elbow[1]
+    vx, vy = bx - ax, by - ay
+    length2 = vx * vx + vy * vy
+    clearances = []
+    for cx, cy, radius in circles:
+        if length2:
+            t = max(0.0, min(1.0, ((cx - ax) * vx + (cy - ay) * vy) / length2))
+        else:
+            t = 0.0
+        nearest_x, nearest_y = ax + t * vx, ay + t * vy
+        clearances.append(math.hypot(cx - nearest_x, cy - nearest_y) - radius)
+    return min(clearances)
 
 
 def render_pockets(dwg, groups, a, *, ctx, only=None) -> int:
