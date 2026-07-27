@@ -505,32 +505,41 @@ def lint_prismatic_coverage(
         view = _END_ON.get(pocket.depth_axis, "plan")
         x, y, z = pocket.location
         if pocket.depth_axis == "z":
-            px, _py, *_ = dwg.at("plan", x, y, z)
-            sy, _sz, *_ = dwg.at("side", x, y, z)
-            covered_x = abs(x - centre.X) <= 1.0 or any(
-                abs(p[0] - px) <= tol or abs(q[0] - px) <= tol for p, q, _owner in pairs("plan")
+            datum_plan, target_plan = (
+                dwg.at("plan", bb.min.X, y, z),
+                dwg.at("plan", x, y, z),
             )
-            covered_y = abs(y - centre.Y) <= 1.0 or any(
-                abs(p[0] - sy) <= tol or abs(q[0] - sy) <= tol for p, q, _owner in pairs("side")
+            datum_side, target_side = (
+                dwg.at("side", x, bb.min.Y, z),
+                dwg.at("side", x, y, z),
+            )
+            covered_x = abs(x - centre.X) <= 1.0 or _pair_covers(
+                pairs("plan"), 0, datum_plan[0], target_plan[0], tol
+            )
+            covered_y = abs(y - centre.Y) <= 1.0 or _pair_covers(
+                pairs("side"), 0, datum_side[0], target_side[0], tol
             )
             if not (covered_x and covered_y):
                 unlocated += 1
             continue
-        px, py, *_ = dwg.at(view, x, y, z)
         ps = pairs(view)
         # Projection axes by principal view: plan=(x,y), front=(x,z), side=(y,z).
-        model_coords = {
-            "plan": ((x, centre.X), (y, centre.Y)),
-            "front": ((x, centre.X), (z, centre.Z)),
-            "side": ((y, centre.Y), (z, centre.Z)),
+        coordinates = {
+            "plan": ((x, centre.X, bb.min.X), (y, centre.Y, bb.min.Y)),
+            "front": ((x, centre.X, bb.min.X), (z, centre.Z, bb.min.Z)),
+            "side": ((y, centre.Y, bb.min.Y), (z, centre.Z, bb.min.Z)),
         }[view]
-        page_coords = (px, py)
+        datum_page = dwg.at(view, bb.min.X, bb.min.Y, bb.min.Z)
+        target_page = dwg.at(view, x, y, z)
         covered = []
-        for axis, ((coord, mid), page_coord) in enumerate(zip(model_coords, page_coords)):
+        for axis, (coord, mid, _datum) in enumerate(coordinates):
             symmetric = abs(coord - mid) <= 1.0
-            witnessed = any(
-                abs(p[axis] - page_coord) <= tol or abs(q[axis] - page_coord) <= tol
-                for p, q, _owner in ps
+            witnessed = _pair_covers(
+                ps,
+                axis,
+                datum_page[axis],
+                target_page[axis],
+                tol,
             )
             covered.append(symmetric or witnessed)
         if not all(covered):

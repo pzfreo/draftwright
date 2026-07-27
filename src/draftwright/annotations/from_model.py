@@ -237,6 +237,14 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
     slot_groups = [g for g in groups if g.feature_kind in ("slot", "pad", "pocket")]
     if not slot_groups:
         return 0
+    # Pocket location geometry is rendered in this in-plane pass, but its intent
+    # remains planner-authoritative (ADR 0015): datum and target come from the same
+    # PlannedDimension consumed by render_locations, including non-Z openings.
+    pocket_locations = {
+        pd.feature: pd
+        for pd in plan_locations(dwg.model())
+        if pd.param.role == "location_pocket" and pd.param.span is not None
+    }
     draft = dwg.draft
     tier = draft.font_size + 2 * draft.pad_around_text
     views = {
@@ -448,27 +456,29 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
                 count += 1
             else:
                 _record_slot_drop(ctx, dwg, "position", i, name, s)
-        elif s.kind == "pocket" and s.frame.axis != "z":
+        elif s.kind == "pocket" and s.frame.axis != "z" and s in pocket_locations:
             # Side-/front-opening pockets need two in-plane coordinates in their
-            # end-on view. Z-opening pockets use the shared X(plan)/Y(side)
-            # location ladder below, matching holes and pads.
-            long_c = (s.lo + s.hi) / 2
+            # end-on view.  The planner supplies the datum→centre span; Z-opening
+            # pockets use render_locations' X(plan)/Y(side) ladder.
+            location = pocket_locations[s]
+            span = location.param.span
+            assert span is not None  # pocket_locations only contains planned spans
+            datum_point, target_point = span
+            axis_index = {axis: i for i, axis in enumerate("xyz")}
             width_lo, width_hi = s.w_center - half, s.w_center + half
-            long_datum = _bb(s.long_axis, False)
-            width_datum = _bb(s.width_axis, False)
             for axis, start, end, perp_lo, perp_hi, kind in (
                 (
                     s.long_axis,
-                    long_datum,
-                    long_c,
+                    datum_point[axis_index[s.long_axis]],
+                    target_point[axis_index[s.long_axis]],
                     width_lo,
                     width_hi,
                     "pos_long",
                 ),
                 (
                     s.width_axis,
-                    width_datum,
-                    s.w_center,
+                    datum_point[axis_index[s.width_axis]],
+                    target_point[axis_index[s.width_axis]],
                     s.lo,
                     s.hi,
                     "pos_width",
@@ -580,6 +590,11 @@ def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
     refs = []
     for pd in planned:
         if only is not None and pd.feature not in only:  # #426: recorded subset only
+            continue
+        # This ladder is specifically plan-X / side-Y for Z-normal features.
+        # Non-Z pockets are still planner-backed, but their two in-plane spans
+        # are rendered in their end-on view by render_slots.
+        if pd.feature is None or pd.feature.frame.axis != "z":
             continue
         if pd.param.span is None:
             continue

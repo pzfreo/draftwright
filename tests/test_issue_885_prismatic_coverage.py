@@ -66,6 +66,15 @@ def test_pad_declaration_and_sheet_emission_round_trip_surface():
     source = emit_sheet_script(model, "part", "out", title="T", number="N")
     assert source.count("sheet.pad(") == 4
     compile(source, "<generated-pad-sheet>", "exec")
+    # Execute the generated declarations as well: syntax alone cannot catch a
+    # PadFeature argument/order drift between the emitter and Sheet facade.
+    executable = source.rsplit("\nsheet.export(", 1)[0] + "\nround_tripped = sheet.build()\n"
+    namespace = {"part": _case_study()}
+    exec(executable, namespace)  # noqa: S102 — exercising our generated source
+    rebuilt = namespace["round_tripped"].model()
+    assert [f for f in rebuilt.features if f.kind == "pad"] == [
+        f for f in model.features if f.kind == "pad"
+    ]
 
 
 def test_auto_drawing_defines_pad_footprints_and_pocket_locations():
@@ -93,6 +102,13 @@ def test_side_opening_pocket_gets_two_in_plane_location_dimensions():
     drawing = build_drawing(part)
     assert {"m_pocket0_pos_long", "m_pocket0_pos_width"} <= set(drawing.annotations())
     assert "pocket_not_located" not in drawing.lint_summary()["by_code"]
+
+
+def test_unrelated_dimension_endpoint_does_not_locate_side_pocket():
+    part = Box(60, 50, 40) - Pos(20, 8, 5) * Box(20, 16, 18)
+    drawing = build_drawing(part)
+    drawing.remove("m_pocket0_pos_long")
+    assert drawing.lint_summary()["by_code"]["pocket_not_located"] == 1
 
 
 def test_omitting_furniture_reports_both_coverage_gaps_and_reduces_score():

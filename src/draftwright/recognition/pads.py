@@ -122,7 +122,7 @@ def recognise_rectangular_pads(part, *, tol: float = 0.2) -> list[RaisedPad]:
     # A tiered/staircase tower has nested rectangular top/ledge regions at
     # different heights. Reject only that overlapping stack; disjoint pads may
     # legitimately have any number of different heights.
-    def touches_plan(a, b) -> bool:
+    def touches_plan(a: RaisedPad, b: RaisedPad) -> bool:
         return (
             min(a.x1, b.x1) - max(a.x0, b.x0) >= -tol and min(a.y1, b.y1) - max(a.y0, b.y0) >= -tol
         )
