@@ -245,7 +245,9 @@ merge into a set.
   the open questions below.*
 
 **The selectors stay clean**, with the discriminator surfacing as a keyword only where it is
-needed (the call-site spelling; the derived key is beneath it):
+needed (the call-site spelling; the derived key is beneath it). The `axis=` lines below read
+an **unrotated** grid, where `x`→row and `y`→col; what an axis-named selector means on a
+rotated lattice is open below:
 
 ```python
 sheet.dimension(hole,    "diameter")         # -> DimensionId(hole,    "bore.diameter")
