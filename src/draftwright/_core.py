@@ -22,7 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from draftwright.compose import StripDepths
@@ -633,8 +633,8 @@ class DetailRequest:
     redraw: Callable[..., int]
     pad_top: float = 0.0
     pads: Callable[[float], tuple[float, float]] | None = None
-    source_view: str = "front"
-    cross_axis: str | None = None
+    source_view: Literal["front", "side"] = "front"
+    cross_axis: Literal["x", "y", "z"] | None = None
     cross_lo: float | None = None
     cross_hi: float | None = None
     kind: str = "detail"

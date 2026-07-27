@@ -2519,7 +2519,12 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
             c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
             for (c1, w1), (c2, w2) in zip(cw, cw[1:])
         )
-        if not labels_clear:
+        inside_arrows_fit = all(
+            abs(pb[0] - pa[0])
+            >= label_widths[i] + 2 * draft.arrow_length + 2 * draft.pad_around_text
+            for i, (pa, pb, *_rest) in enumerate(fsegs)
+        )
+        if not (labels_clear and inside_arrows_fit):
             alo = min(min(a[1], b[1]) for a, b, *_ in bare_rows)
             ahi = max(max(a[1], b[1]) for a, b, *_ in bare_rows)
             page_xs = [p[0] for pa, pb, *_ in fsegs for p in (pa, pb)]
@@ -2541,8 +2546,9 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
             # Use the detected turning axis, not the sheet/bounding-box centroid:
             # an eccentric shaft's profile may be nowhere near the latter. A single
             # side-profile detail is valid only for a coaxial chain.
+            axis_xs = [origin[0] for origin in step_origins]
             axis_zs = [origin[2] for origin in step_origins]
-            coaxial = max(axis_zs) - min(axis_zs) <= 0.5
+            coaxial = max(axis_xs) - min(axis_xs) <= 0.5 and max(axis_zs) - min(axis_zs) <= 0.5
             if not coaxial:
                 return _draw_step_chain(dwg, view, fsegs, "m_steplen", ctx=ctx, start=start)
             axis_z = sum(axis_zs) / len(axis_zs)
@@ -2581,9 +2587,11 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
                         prev, _prev_width = run[-1]
                         cur, _cur_width = dpairs[k]
                         contiguous = (
-                            abs(max(prev[0][0], prev[1][0]) - min(cur[0][0], cur[1][0])) <= 0.6
+                            abs(max(prev[0][0], prev[1][0]) - min(cur[0][0], cur[1][0])) <= 1e-4
                         )
-                        equal = abs(cur[2] - seg0[2]) <= 0.1 * seg0[2]
+                        # A repeated-pitch claim must be true at the drawing's
+                        # displayed precision, not merely "within 10%".
+                        equal = _fmt(cur[2]) == _fmt(seg0[2])
                         untoleranced = prev[3] is None and cur[3] is None
                         if not (contiguous and equal and untoleranced):
                             break

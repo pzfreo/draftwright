@@ -9015,6 +9015,22 @@ class TestTurnedDiameters:
             for left, right in zip(labels, labels[1:])
         )
 
+    def test_issue_892_clear_labels_but_tight_arrows_still_request_detail(self):
+        # Single-digit labels clear one another at 1:1, but the 3/5/4 mm spans
+        # cannot contain text plus two inside arrowheads. Outside-arrow tails on
+        # the principal chain would intrude into neighbouring links.
+        b = Align.MIN
+        part = Cylinder(12, 3, align=(Align.CENTER, Align.CENTER, b))
+        part += Pos(0, 0, 3) * Cylinder(10, 5, align=(Align.CENTER, Align.CENTER, b))
+        part += Pos(0, 0, 8) * Cylinder(8, 4, align=(Align.CENTER, Align.CENTER, b))
+        dwg = build_drawing(part.rotate(Axis.X, 90), scale=1.0)
+
+        assert "detail_a" in dwg.views
+        detail = {
+            o.label for n, o in dwg.iter_annotations() if n.startswith("dim_detail_a_steplen")
+        }
+        assert detail == {"3", "5", "4"}
+
     def test_issue_892_no_detail_room_keeps_block_and_reports_uncovered_shoulders(self):
         # Transactional failure: a deliberately undersized sheet has no rectangle
         # for the enlarged profile. Do not leave half a detail or reinstate the
