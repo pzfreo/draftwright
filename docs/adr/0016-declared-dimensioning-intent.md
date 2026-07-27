@@ -565,8 +565,8 @@ constraining planner internals that are still moving. The gaps are known and fin
 | Low-level furniture | Centre marks, section arrows, hatching, the NTS caption carry no editable intent | Engine-automatic, by decision |
 | Anything the emitter cannot re-solve | The fidelity floor `emit_sheet_script` already holds for features | Self-describing comment |
 
-Two of those five are the identity model's boundary and shrink as it grows (relations,
-future correlated-set splits); the other three are decisions, and stay. **The property the
+Three of those six are the identity model's boundary and shrink as it grows (relations,
+locations, future correlated-set splits); the other three are decisions, and stay. **The property the
 mirror actually promises is that within the identified set, a line's presence and its
 absence both mean something exact** — which is all suppression-by-omission needs.
 
@@ -788,7 +788,8 @@ second with the single-source-of-truth of the first — over the identified set,
   suppression lands with the set boundary, while **post-build** suppression of an automatic
   dimension waits on the reconstruction question (#867) — not on the closed #426/#707.
 - `sheet_emit` gains a dimension-mirroring pass: after the feature basis, one referential
-  `dimension(...)` line per **planned** dimension, led by the explicit dimension-source call
+  `dimension(...)` line per **addressable dimension** — the unit, not the member, so a
+  correlated set gets one line — led by the explicit dimension-source call
   — each commentable and editable, none restating a number, with low-level furniture still
   produced automatically on re-run. The pass reads the planner's `DimensionGroup`s, **not**
   the drawing's placed annotations, so a solver-dropped dimension keeps its line. What it
@@ -847,8 +848,9 @@ second with the single-source-of-truth of the first — over the identified set,
    making **post-build** suppression / emphasis honest and script/direct output convergent.
    How much of this remains to do is the question #867 settles.
 4. **Emitter dimension-mirror.** Emit one round-trippable referential `dimension(...)` line
-   per **planned dimension intent** — never per *placed* dimension, which would let solver
-   pressure rewrite version-controlled source (see "The script records intent"). The
+   per **planned `AddressableDimension`** — the unit, so an N-member correlated set still
+   emits one line — and never per *placed* dimension, which would let solver pressure
+   rewrite version-controlled source (see "The script records intent"). The
    emitted script leads with `auto_dimensions()` or the authored set, so its dimension
    source is always explicit. Keep the self-describing comment as the floor for anything
    not yet mirrorable.
