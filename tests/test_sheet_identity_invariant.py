@@ -129,8 +129,11 @@ def _scn_section(s):
     file missed it entirely, exactly as #910's enumeration missed `_Control`. It stores a
     long-lived reference in `_section` all the same, and cutting through the wrong hole is a
     silent, plausible-looking wrong drawing."""
-    a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
-    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    a = s.hole(diameter=10, at=(-25, -18, 20), axis="z").depth(12)
+    # DIFFERENT Y, and that is load-bearing: the section cut materialises as a Y coordinate, so
+    # two holes sharing a Y make the oracle blind — a positional implementation picking the wrong
+    # hole would produce the same cut and the scenario would pass while the bug was live.
+    s.hole(diameter=6, at=(25, 18, 20), axis="z").depth(8)
     return a, lambda a: s.section(feature=a)
 
 
@@ -323,6 +326,39 @@ class TestDeliberateInvalidation:
         assert toleranced == [10.0]
 
 
+class TestIntegerRefs:
+    """A raw integer is the positional addressing mode this epic is moving away from, but it
+    remains a documented `of()` ref kind. #912 made negatives uniform across the three resolvers
+    rather than adding a per-caller knob that would recreate the divergence it removed — so
+    `add_dimension(-1, …)` now resolves where it previously raised. Pinned here as a decision."""
+
+    @staticmethod
+    def _two():
+        s = _sheet()
+        s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+        s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+        return s
+
+    def test_negative_indices_resolve_from_the_end_everywhere(self):
+        s = self._two()
+        assert s.of(-1)._i == 1
+        s.add_dimension(-1, "bore")
+        assert s._added_dimensions[0]["token"] == s._token_at(1)
+
+    def test_an_out_of_range_index_raises_on_every_verb(self):
+        s = self._two()
+        for call in (lambda: s.of(2), lambda: s.of(-3), lambda: s.add_dimension(-3, "bore")):
+            with pytest.raises(IndexError, match="out of range"):
+                call()
+
+    def test_a_bool_is_not_an_index(self):
+        """`True` is an `int` subclass; accepting it as index 1 would make a mistyped flag
+        silently dimension the second feature."""
+        s = self._two()
+        with pytest.raises(TypeError, match="must be a handle"):
+            s.add_dimension(True, "bore")
+
+
 class TestCrossSheetHandles:
     """A handle names a feature on the sheet that issued it. Accepting a foreign one would
     address by position in the worst possible way — a different list entirely."""
@@ -444,16 +480,34 @@ _STATE_WITHOUT_FEATURE_REFS = frozenset(
 )
 
 
-def _init_state_fields() -> set[str]:
+def _sheet_state_fields() -> set[str]:
+    """Every ``self._x`` a `Sheet` method assigns — not just the constructor's.
+
+    The first draft walked ``__init__`` alone, which a lazily created field evades entirely::
+
+        def later(self, ref):
+            self._new_ref = ref     # invisible to a constructor-only walk
+
+    A field that only ever appears in the method that fills it is exactly the shape a new
+    reference store would take, so the walk covers the whole class. Two evasions remain and are
+    deliberate acts rather than oversights: ``setattr``/``__dict__`` writes, and burying a
+    reference inside a field classified here as reference-free (``_opts``).
+    """
     tree = ast.parse(_SRC.read_text())
     (sheet,) = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Sheet"]
-    init = next(f for f in sheet.body if isinstance(f, ast.FunctionDef) and f.name == "__init__")
     fields = set()
-    for node in ast.walk(init):
-        if isinstance(node, ast.Assign):
-            fields |= {t.attr for t in node.targets if isinstance(t, ast.Attribute)}
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Attribute):
-            fields.add(node.target.attr)
+    for fn in [n for n in sheet.body if isinstance(n, ast.FunctionDef)]:
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Assign):
+                fields |= {
+                    t.attr
+                    for t in node.targets
+                    if isinstance(t, ast.Attribute)
+                    and isinstance(t.value, ast.Name)
+                    and t.value.id == "self"
+                }
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Attribute):
+                fields.add(node.target.attr)
     return fields
 
 
@@ -466,7 +520,7 @@ def test_every_sheet_state_field_is_classified():
     that is what the invariant is actually about. A new field forces a classification, and
     classifying it as reference-carrying forces a scenario via the test below.
     """
-    assert _init_state_fields() == _STATE_CARRYING_FEATURE_REFS | _STATE_WITHOUT_FEATURE_REFS, (
+    assert _sheet_state_fields() == _STATE_CARRYING_FEATURE_REFS | _STATE_WITHOUT_FEATURE_REFS, (
         "Sheet grew or lost state — classify each new field as carrying feature references "
         "(and give it a scenario in _SCENARIOS) or not carrying them"
     )
