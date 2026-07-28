@@ -1,0 +1,452 @@
+"""The Sheet identity invariant, enforced across every retained object (#912).
+
+The invariant #908/#910 arrived at, stated once:
+
+> Every long-lived reference to a feature is identity-based, never position-based.
+> Reordering preserves the target; replacing or deleting has deliberate, documented
+> semantics; no retained builder, intent, tolerance, GD&T origin, section request or
+> decoration may silently retarget a neighbour.
+
+**Why this file is behavioural and not another AST guard.** Its siblings
+(`test_drawing_encapsulation.py`, `test_carve_free_position_callers.py`) walk the AST for a
+syntactic marker, because theirs *is* syntactic — an assignment to ``dwg._x``, a call to a named
+function. The marker here would be "an attribute assigned from an index into ``_features``", and
+*is this value an index* is not decidable from the AST. A name-based proxy (``_src``, ``_index``,
+``_i``) is evaded by naming the field something else, which is precisely how #910 happened: the
+leak was a field called ``_src`` on a class that derived from none of the handle types the
+migration swept. So the check is the observable consequence instead, and it catches a stored
+index under any name.
+
+**The oracle.** ``Sheet.model()`` is the whole declared state materialised — features,
+tolerances, GD&T origins, section request, dimension requests. Two runs that differ only by an
+identity-preserving mutation must produce the same model. Retargeting shows up as a difference
+there no matter which layer leaked it.
+
+**The ratchet.** :func:`test_every_handle_returning_verb_is_exercised` fails when a new verb
+starts handing out a retained object, and :func:`test_the_handle_class_roster_is_closed` fails
+when a new *kind* of retained object appears. Either way the author has to come here and say
+what the new thing does across a reorder, which is the question #910 went three rounds without
+being asked.
+
+Acceptance for the guard itself: restoring `_Control`'s pre-#910 shape (an index resolved at
+append time) must fail :class:`TestRetainedBuilders`. A guard that passes on the buggy commit
+proves nothing — see the canary discipline in #737.
+"""
+
+from __future__ import annotations
+
+import ast
+import copy
+import pickle
+from pathlib import Path
+
+import pytest
+from build123d import Box, Cylinder, Pos
+
+from draftwright import Sheet
+from draftwright.model import Frame, HoleFeature
+
+_SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright" / "sheet.py"
+
+#: Every class `Sheet` hands back that outlives the call which made it. A new entry here is a new
+#: opportunity for the #910 bug, so each must appear in a scenario below.
+_HANDLE_CLASSES = frozenset({"_Hole", "_Dim", "_Params", "_Control", "DimensionIntent"})
+
+
+def _part():
+    """Two same-⌀-family holes plus a boss. Same-KIND neighbours are the point: a type or role
+    check in the wrong place can mask retargeting between features of different kinds, and then
+    the guard passes for the wrong reason."""
+    part = Box(90, 60, 20)
+    part -= Pos(-25, 0, 4) * Cylinder(5, 40)
+    part -= Pos(25, 0, 4) * Cylinder(3, 40)
+    return part
+
+
+def _sheet():
+    return Sheet(_part(), title="T", number="N")
+
+
+def _canonical(model) -> tuple:
+    """A model reduced to something order-insensitive and comparable.
+
+    Sorted, because an identity-preserving reorder legitimately changes feature ORDER — what it
+    must not change is which feature carries which aspect. Reprs rather than the objects because
+    decoration keys are features, and a set of frozen dataclasses would compare by value and hide
+    a swap between two features that happen to be equal.
+    """
+    features = sorted(repr(f) for f in model.features)
+    decorations = sorted((repr(k), repr(v)) for k, v in getattr(model, "decorations", {}).items())
+    requested = sorted(repr(r) for r in getattr(model, "requested_dimensions", ()))
+    return (features, decorations, requested)
+
+
+# --------------------------------------------------------------------------------------------
+# Scenarios: (declare prerequisites -> retained object), (drive it), for every handle-returning
+# verb. Each returns the object under test; the driver is invoked AFTER the mutation.
+# --------------------------------------------------------------------------------------------
+
+
+def _scn_hole(s):
+    h = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)  # same-kind neighbour
+    return h, lambda h: h.tolerance(0.05).note("DEBURR")
+
+
+def _scn_of(s):
+    s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    return s.of(0), lambda h: h.fit("H7")
+
+
+def _scn_diameter(s):
+    d = s.diameter(diameter=30.0, height=8.0, at=(0, 0, 20), axis="z")
+    s.diameter(diameter=18.0, height=8.0, at=(20, 0, 20), axis="z")  # same-kind neighbour
+    return d, lambda d: d.tolerance(0.02)
+
+
+def _scn_step(s):
+    d = s.step(diameter=30.0, length=12.0, at=(0, 0, 0), axis="x")
+    s.step(diameter=18.0, length=6.0, at=(20, 0, 0), axis="x")  # same-kind neighbour
+    return d, lambda d: d.tolerance(0.03)
+
+
+def _scn_envelope(s):
+    p = s.envelope()
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    return p, lambda p: p.tolerance(0.1)
+
+
+def _scn_control(s):
+    a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    s.datum("A", 1)
+    return s.control(a), lambda c: c.position(0.1, to="A").flatness(0.02)
+
+
+def _scn_add_dimension(s):
+    a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    return s.add_dimension(a, "bore"), lambda i: i
+
+
+#: verb name -> (prepare, drive). The ratchet below asserts this covers every handle-returning
+#: verb, so a new one cannot ship without an author deciding what it does across a reorder.
+_SCENARIOS = {
+    "hole": _scn_hole,
+    "of": _scn_of,
+    "diameter": _scn_diameter,
+    "step": _scn_step,
+    "envelope": _scn_envelope,
+    "control": _scn_control,
+    "add_dimension": _scn_add_dimension,
+}
+
+#: Verbs that hand back a `_Params` by exactly the same route `envelope` does — declare the
+#: feature, return `_Params(self, len(features) - 1)`, no identity handling of their own. Listed
+#: rather than scenario'd because a scenario each would test the same three lines four times.
+#: `boss` is absent because it delegates to `diameter` and constructs nothing.
+_SAME_PATH_AS_ENVELOPE = {"slot", "pocket", "pad"}
+
+
+def _mutations():
+    """Mutations that MUST preserve identity, each split into the part applied to BOTH runs and
+    the reordering applied only to the mutated one.
+
+    The split matters: a mutation that also ADDS a feature would make the two models differ
+    legitimately, and the test would fail for a reason that has nothing to do with identity. So
+    the addition is a shared precondition and the reorder is the variable under test.
+    """
+
+    def extra(s):
+        s.features.append(HoleFeature(Frame((0, 25, 20), "z"), 3.0, depth=4.0, through=False))
+
+    nothing = lambda s: None  # noqa: E731 — a table of one-liners reads better inline
+    return {
+        "reverse": (nothing, lambda s: s.features.reverse()),
+        "sort_by_repr": (nothing, lambda s: s.features.sort(key=repr)),
+        "sort_reverse": (nothing, lambda s: s.features.sort(key=repr, reverse=True)),
+        "double_reverse": (nothing, lambda s: (s.features.reverse(), s.features.reverse())),
+        "reverse_with_a_neighbour_added": (extra, lambda s: s.features.reverse()),
+        # Moves the added feature in FRONT of the target, shifting every later position by one.
+        "move_a_neighbour_to_the_front": (extra, lambda s: s.features.insert(0, s.features.pop())),
+    }
+
+
+@pytest.mark.parametrize("verb", sorted(_SCENARIOS))
+@pytest.mark.parametrize("mutation", sorted(_mutations()))
+class TestRetainedBuilders:
+    """Retain the object → mutate `features` → drive the object. Must match the un-mutated run.
+
+    This is the matrix `_Control` failed: `control()` resolved its target and `.position(0.1)`
+    consumed the resolution arbitrarily later, so anything that moved the target in between
+    silently rebound the frame to a neighbour.
+    """
+
+    def test_driving_after_a_mutation_matches_driving_without_one(self, verb, mutation):
+        shared, reorder = _mutations()[mutation]
+
+        baseline = _sheet()
+        obj, drive = _SCENARIOS[verb](baseline)
+        shared(baseline)
+        drive(obj)
+
+        mutated = _sheet()
+        obj2, drive2 = _SCENARIOS[verb](mutated)
+        shared(mutated)
+        reorder(mutated)
+        drive2(obj2)
+
+        assert _canonical(mutated.model()) == _canonical(baseline.model()), (
+            f"{verb}() retained an object that did not survive `{mutation}` — the mutation "
+            "moved its target and the object followed the position instead of the feature"
+        )
+
+
+@pytest.mark.parametrize("verb", sorted(_SCENARIOS))
+def test_a_mutation_between_declaration_and_build_is_invisible(verb):
+    """The same invariant for objects driven BEFORE the mutation: a tolerance / GD&T origin /
+    section request / dimension intent already recorded must still resolve to its own feature."""
+    baseline = _sheet()
+    obj, drive = _SCENARIOS[verb](baseline)
+    drive(obj)
+
+    mutated = _sheet()
+    obj2, drive2 = _SCENARIOS[verb](mutated)
+    drive2(obj2)
+    mutated.features.reverse()
+    mutated.features.sort(key=repr)
+
+    assert _canonical(mutated.model()) == _canonical(baseline.model())
+
+
+@pytest.mark.parametrize("verb", sorted(_SCENARIOS))
+def test_materialisation_is_idempotent(verb):
+    """`model()` runs `_prepare()`, which materialises GD&T provenance in place. Calling it twice
+    must not append a second copy or re-resolve against a half-materialised list."""
+    s = _sheet()
+    obj, drive = _SCENARIOS[verb](s)
+    drive(obj)
+    first = _canonical(s.model())
+    assert _canonical(s.model()) == first
+    assert _canonical(s.model()) == first
+
+
+class TestDeliberateInvalidation:
+    """Removing or replacing a referenced feature is not a reorder, and must not be treated as
+    one. The documented semantics: the reference fails loudly rather than sliding onto whatever
+    now occupies the position."""
+
+    @staticmethod
+    def _two_holes():
+        s = _sheet()
+        a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+        s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+        a.tolerance(0.05)
+        return s, a
+
+    def test_deleting_the_referenced_feature_raises(self):
+        s, _a = self._two_holes()
+        del s.features[0]
+        with pytest.raises(ValueError, match="no longer on the sheet"):
+            s.model()
+
+    def test_popping_the_referenced_feature_raises(self):
+        s, _a = self._two_holes()
+        s.features.pop(0)
+        with pytest.raises(ValueError, match="no longer on the sheet"):
+            s.model()
+
+    def test_clearing_raises(self):
+        s, _a = self._two_holes()
+        s.features.clear()
+        with pytest.raises(ValueError, match="no longer on the sheet"):
+            s.model()
+
+    def test_replacing_through_the_public_view_raises(self):
+        """Assignment cannot tell "move this feature here" from "put a different feature here",
+        so it mints — and the old reference must fail rather than transfer to the newcomer."""
+        s, _a = self._two_holes()
+        s.features[0] = HoleFeature(Frame((9, 9, 9), "z"), 1.0, depth=None, through=True)
+        with pytest.raises(ValueError, match="no longer on the sheet"):
+            s.model()
+
+    def test_a_tuple_swap_raises(self):
+        s, _a = self._two_holes()
+        s.features[0], s.features[1] = s.features[1], s.features[0]
+        with pytest.raises(ValueError, match="no longer on the sheet"):
+            s.model()
+
+    def test_a_slice_permutation_raises(self):
+        s, _a = self._two_holes()
+        s.features[:] = s.features[::-1]
+        with pytest.raises(ValueError, match="no longer on the sheet"):
+            s.model()
+
+    def test_a_sanctioned_size_verb_does_not_invalidate(self):
+        """The contrast case: `.depth()` replaces the frozen dataclass with an updated copy of
+        the SAME feature, so it must preserve identity where public assignment mints."""
+        s, a = self._two_holes()
+        a.thread("M10")
+        toleranced = [k[0].diameter for k in s.model().decorations if hasattr(k[0], "diameter")]
+        assert toleranced == [10.0]
+
+
+class TestCrossSheetHandles:
+    """A handle names a feature on the sheet that issued it. Accepting a foreign one would
+    address by position in the worst possible way — a different list entirely."""
+
+    @staticmethod
+    def _pair():
+        s1, s2 = _sheet(), _sheet()
+        h1 = s1.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+        s2.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+        return s1, s2, h1
+
+    def test_add_dimension_rejects_a_foreign_handle(self):
+        _s1, s2, h1 = self._pair()
+        with pytest.raises(ValueError, match="different Sheet"):
+            s2.add_dimension(h1, "bore")
+
+    def test_control_rejects_a_foreign_handle(self):
+        _s1, s2, h1 = self._pair()
+        with pytest.raises(ValueError, match="different Sheet"):
+            s2.control(h1)
+
+    def test_of_rejects_a_foreign_handle(self):
+        _s1, s2, h1 = self._pair()
+        with pytest.raises(ValueError, match="different Sheet"):
+            s2.of(h1)
+
+    def test_datum_rejects_a_foreign_handle(self):
+        _s1, s2, h1 = self._pair()
+        with pytest.raises(ValueError, match="different Sheet"):
+            s2.datum("A", h1)
+
+
+class TestTokenAllocation:
+    """Tokens are per-sheet and monotonic. Determinism matters because a script that emits and
+    re-runs must allocate the same ones, and because a reused token would alias two features."""
+
+    def test_tokens_are_never_reused_after_removal(self):
+        s = _sheet()
+        s.hole(diameter=10, at=(-25, 0, 20), axis="z")
+        first = s._token_at(0)
+        del s.features[0]
+        s.hole(diameter=6, at=(25, 0, 20), axis="z")
+        assert s._token_at(0) != first
+
+    def test_two_sheets_allocate_independently(self):
+        a, b = _sheet(), _sheet()
+        a.hole(diameter=10, at=(-25, 0, 20), axis="z")
+        b.hole(diameter=10, at=(-25, 0, 20), axis="z")
+        assert a._token_at(0) == b._token_at(0), "per-sheet counters, so the same script is stable"
+
+    def test_declaring_the_same_script_twice_allocates_the_same_tokens(self):
+        def tokens():
+            s = _sheet()
+            _scn_hole(s)
+            return [s._token_at(i) for i in range(len(s.features))]
+
+        assert tokens() == tokens()
+
+
+class TestCopySemantics:
+    """`_Params.__getattr__` guards against copy/pickle rebuilding a handle without `__init__`,
+    so both are supported contracts and the token must survive them."""
+
+    def test_deepcopy_preserves_declared_state(self):
+        s = _sheet()
+        h, drive = _scn_hole(s)
+        drive(h)
+        assert _canonical(copy.deepcopy(s).model()) == _canonical(s.model())
+
+    def test_pickle_preserves_declared_state(self):
+        s = _sheet()
+        h, drive = _scn_hole(s)
+        drive(h)
+        assert _canonical(pickle.loads(pickle.dumps(s)).model()) == _canonical(s.model())
+
+    def test_a_deepcopied_sheet_allocates_without_colliding(self):
+        """The counter must come across too — otherwise the copy re-mints a token the original
+        already issued, and two features in the copy alias one reference."""
+        s = _sheet()
+        s.hole(diameter=10, at=(-25, 0, 20), axis="z")
+        clone = copy.deepcopy(s)
+        clone.hole(diameter=6, at=(25, 0, 20), axis="z")
+        assert len({clone._token_at(i) for i in range(len(clone.features))}) == 2
+
+
+# --------------------------------------------------------------------------------------------
+# The ratchet
+# --------------------------------------------------------------------------------------------
+
+
+def _handle_returning_verbs() -> set[str]:
+    """Public `Sheet` methods that construct and return one of `_HANDLE_CLASSES`."""
+    tree = ast.parse(_SRC.read_text())
+    (sheet,) = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Sheet"]
+    found = set()
+    for fn in [n for n in sheet.body if isinstance(n, ast.FunctionDef)]:
+        if fn.name.startswith("_"):
+            continue
+        for node in ast.walk(fn):
+            if (
+                isinstance(node, ast.Return)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id in _HANDLE_CLASSES
+            ):
+                found.add(fn.name)
+    return found
+
+
+def test_every_handle_returning_verb_is_exercised():
+    """Fail-closed. A new verb handing back a retained object must be given a scenario above —
+    which forces its author to answer "what does this do across a reorder?", the question #910
+    went three rounds without being asked."""
+    assert _handle_returning_verbs() == set(_SCENARIOS) | _SAME_PATH_AS_ENVELOPE, (
+        "handle-returning Sheet verbs changed — add a scenario to _SCENARIOS (or, if the new "
+        "verb reaches a handle by an already-covered route, to _SAME_PATH_AS_ENVELOPE)"
+    )
+
+
+def test_the_handle_class_roster_is_closed():
+    """The second level of the ratchet: a new KIND of retained object. `_Control` was missed in
+    #910 precisely because it derives from none of the classes the migration swept, so a roster
+    keyed on the verb alone would not have caught it either."""
+    tree = ast.parse(_SRC.read_text())
+    classes = {
+        n.name
+        for n in tree.body
+        if isinstance(n, ast.ClassDef) and n.name not in ("Sheet", "_FeatureView")
+    }
+    assert classes == _HANDLE_CLASSES, (
+        "a class in sheet.py is neither Sheet, the feature view, nor a known handle — if it is "
+        "retained by a caller it needs a scenario in _SCENARIOS and an entry in _HANDLE_CLASSES"
+    )
+
+
+def test_only_one_resolver_bears_identity():
+    """#912's structural half: the three ref-resolution paths that grew independently are now
+    one. `_gdt_ref`'s was the one that leaked in #910; a fourth would reopen the class.
+
+    Checked by AST rather than by searching the text — the first draft of this test did the
+    latter and was vacuous, because each resolver's own docstring names `_declared_token` and
+    so the substring was present whether or not the call was.
+    """
+    tree = ast.parse(_SRC.read_text())
+    (sheet,) = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Sheet"]
+    fns = {n.name: n for n in sheet.body if isinstance(n, ast.FunctionDef)}
+
+    assert "_declared_token" in fns, "the single identity resolver is gone"
+    for caller in ("_index_of", "_gdt_ref", "_feature_token"):
+        calls = {
+            node.func.attr
+            for node in ast.walk(fns[caller])
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assert "_declared_token" in calls, (
+            f"{caller} no longer calls the single resolver — identity resolution must not fork "
+            "again; that fork is what let #910 through"
+        )

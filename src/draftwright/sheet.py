@@ -634,9 +634,10 @@ class Sheet:
         # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
         # feature replacement (e.g. hole().depth()); materialized to (feature, kind) at build.
         self._tolerances: dict = {}
-        # P2c GD&T provenance: (gdt_feature_index -> source_feature_index). A finish/datum stores
-        # its origin by INDEX, not the object, so a later size verb replacing the source feature
-        # (hole().depth()) doesn't strand the link; materialized to the FINAL object at build.
+        # P2c GD&T provenance: (gdt_feature_token -> source_feature_token). A finish/datum stores
+        # its origin by TOKEN, not the object, so a later size verb replacing the source feature
+        # (hole().depth()) doesn't strand the link, and a reorder cannot retarget it (#910);
+        # materialized to the FINAL object at build.
         self._gdt_src: list = []
         # Corner-block tables (notes / revision / BOM / schedule) — applied at build() via the
         # engine's generic auto-placed Drawing.add_table, AFTER the drawing is built so they sit
@@ -742,11 +743,12 @@ class Sheet:
     def of(self, ref) -> _Hole | _Dim:
         """A decoratable handle onto an **existing** feature — the hybrid seam (#463).
 
-        *ref* is a feature index, a :class:`Feature` already in :attr:`features` (e.g. seeded by
-        :meth:`from_part`), or the build123d **object** you built (matched by ⌀ + in-plane
-        position). Returns the same fluent handle the declaration verbs do, so you can
-        ``.fit(...)`` / ``.tolerance(...)`` — and, for a hole, ``.cbore(...)`` — a feature you
-        did not declare from scratch. Raises if the object matches no feature or is ambiguous."""
+        *ref* is a fluent handle this sheet issued, a feature index, a :class:`Feature` already
+        in :attr:`features` (e.g. seeded by :meth:`from_part`), or the build123d **object** you
+        built (matched by ⌀ + in-plane position). Returns the same fluent handle the declaration
+        verbs do, so you can ``.fit(...)`` / ``.tolerance(...)`` — and, for a hole, ``.cbore(...)``
+        — a feature you did not declare from scratch. Raises if the object matches no feature or
+        is ambiguous."""
         i = self._index_of(ref)
         kind = self._features[i].kind
         if kind == "hole":
@@ -755,18 +757,47 @@ class Sheet:
             return _Dim(self, i, "diameter" if kind == "boss" else "length")
         raise ValueError(f"of(): no aspect handle for a {kind!r} feature (holes / bosses / steps)")
 
-    def _index_of(self, ref) -> int:
-        if isinstance(ref, bool):
-            raise TypeError("of(): ref must be an index, a Feature, or a build123d object")
+    def _declared_token(self, ref, *, verb: str) -> int | None:
+        """The token of the declared feature *ref* names, or ``None`` if it names none.
+
+        The ONE identity-bearing resolution path (#912). Before this, three of them had grown
+        independently — ``of()``'s, the GD&T seam's and ``add_dimension``'s — accepting
+        different subsets of ref kinds, disagreeing on negative indices, and reporting the
+        cross-sheet error in two different wordings. `_gdt_ref`'s was the one that leaked
+        identity in #910, which is the argument for having a single one to audit.
+
+        Returns a **token**, never an index: a caller that stores the result cannot then be
+        invalidated by a reorder. ``None`` means *not a reference to a declared feature* — a
+        build123d face, or a :class:`Feature` from elsewhere. Each caller decides what that
+        means: :meth:`of` falls through to matching the object, the GD&T verbs treat it as a
+        bare geometric target, :meth:`add_dimension` raises.
+        """
+        if isinstance(ref, bool):  # bool is an int subclass; `of(True)` is a mistake, not index 1
+            raise TypeError(f"{verb}: ref must be a handle, an index, a Feature, or an object")
+        if isinstance(ref, (_Hole, _Dim, _Params)):
+            if ref._sheet is not self:
+                raise ValueError(
+                    f"{verb}: {type(ref).__name__} belongs to a different Sheet — a handle "
+                    "names a feature on the sheet that issued it, and this is not that sheet"
+                )
+            return ref._token
         if isinstance(ref, int):
             n = len(self._features)
             if not -n <= ref < n:
-                raise IndexError(f"of(): feature index {ref} out of range (have {n})")
-            return ref % n
+                raise IndexError(f"{verb}: feature index {ref} out of range (have {n})")
+            return self._token_at(ref % n)
         if isinstance(ref, Feature):
             for i, f in enumerate(self._features):
-                if f is ref:
-                    return i
+                if f is ref:  # identity — an EQUAL feature from elsewhere is not this one
+                    return self._token_at(i)
+            return None  # a Feature this sheet does not manage
+        return None  # build123d geometry, or something else entirely
+
+    def _index_of(self, ref) -> int:
+        token = self._declared_token(ref, verb="of()")
+        if token is not None:
+            return self._index_of_token(token)
+        if isinstance(ref, Feature):
             raise ValueError("of(): that Feature is not in this sheet's features")
         return self._match_object(ref)
 
@@ -1012,22 +1043,10 @@ class Sheet:
         A **token**, not an index (#908). :class:`_Control` holds this value across later
         ``.position(...)`` calls, so an index here would name whatever occupied the slot at
         *append* time rather than the feature the caller passed to :meth:`control`."""
-        if isinstance(ref, (_Hole, _Dim, _Params)):
-            if ref._sheet is not self:  # a handle from ANOTHER sheet indexes the wrong features
-                raise ValueError(
-                    "the handle belongs to a different Sheet — use a handle/index/Feature "
-                    "declared on this sheet"
-                )
-            return self._features[ref._i], ref._token
-        if isinstance(ref, int) and not isinstance(ref, bool):
-            i = self._index_of(ref)
-            return self._features[i], self._token_at(i)
-        if isinstance(ref, Feature):
-            for i, f in enumerate(self._features):
-                if f is ref:
-                    return ref, self._token_at(i)
-            return ref, None  # an external feature this sheet does not manage
-        return ref, None  # a build123d face — no source feature
+        token = self._declared_token(ref, verb="the GD&T target")
+        if token is None:
+            return ref, None  # a build123d face / an external Feature — no source feature
+        return self._features[self._index_of_token(token)], token
 
     def _materialize_gdt(self) -> None:
         """Re-bind each handle-sourced GD&T item's ``origin`` to the FINAL source feature (a
@@ -1165,8 +1184,8 @@ class Sheet:
         a silent coin toss between the row and column pitch is the kind of wrong a reader
         cannot see.
         """
-        index = self._feature_index(feature)
-        target = self._features[index]
+        token = self._feature_token(feature)
+        target = self._features[self._index_of_token(token)]
         params = target.parameters()
         roles = {p.role for p in params} | {p.parameter_id for p in params}
         if role not in roles:
@@ -1187,7 +1206,7 @@ class Sheet:
                 f"add_dimension({role!r}, axis={axis!r}): this feature has no such "
                 f"variant ({sorted(d for d in discs if d)})"
             )
-        entry = {"token": self._token_at(index), "role": role, "discriminator": axis}
+        entry = {"token": token, "role": role, "discriminator": axis}
         self._added_dimensions.append(entry)
         return DimensionIntent(self, entry)
 
@@ -1219,26 +1238,16 @@ class Sheet:
             "`features` after the handle was issued"
         )
 
-    def _feature_index(self, feature) -> int:
-        """Resolve a handle / index / IR feature to its index in :attr:`features`."""
-        if isinstance(feature, int):
-            if not 0 <= feature < len(self._features):
-                raise IndexError(f"feature index {feature} out of range")
-            return feature
-        index = getattr(feature, "_i", None)
-        if index is not None:
-            # A handle carries an index into ITS OWN sheet — accepting a foreign one
-            # would silently dimension whatever this sheet happens to hold there.
-            if getattr(feature, "_sheet", None) is not self:
-                raise ValueError(
-                    f"{type(feature).__name__} belongs to a different Sheet — a handle's "
-                    "index is only meaningful on the sheet that issued it"
-                )
-            return int(index)
-        for i, f in enumerate(self._features):  # an IR feature passed directly
-            if f is feature:  # identity — an equal feature from elsewhere is not this one
-                return i
-        raise ValueError(f"{feature!r} is not a feature declared on this sheet")
+    def _feature_token(self, feature) -> int:
+        """Resolve a handle / index / IR feature to its **token**, or raise.
+
+        :meth:`add_dimension`'s flavour of :meth:`_declared_token`: a dimension request must
+        name a feature this sheet plans, so "not a declared reference" is an error here rather
+        than the fallthrough it is for :meth:`of` and the GD&T verbs."""
+        token = self._declared_token(feature, verb="add_dimension")
+        if token is None:
+            raise ValueError(f"add_dimension: {feature!r} is not a feature declared on this sheet")
+        return token
 
     def _requested_dimensions(self) -> tuple:
         """Materialize the token-keyed intents against the CURRENT features.
@@ -1257,11 +1266,11 @@ class Sheet:
         )
 
     def _decorations(self) -> dict:
-        """Materialize the index-keyed ± tolerances against the FINAL features (a handle may
+        """Materialize the token-keyed ± tolerances against the FINAL features (a handle may
         have been recorded before a later .depth()/… replaced the feature) → the
         ``(feature, kind)`` (or role-keyed ``(feature, kind, role)``, #746) decoration map
         the planner reads (P2a). The tail of the key (``kind`` or ``kind, role``) passes
-        through unchanged; only the leading index becomes the feature."""
+        through unchanged; only the leading token becomes the feature."""
         deco: dict = {
             (self._features[self._index_of_token(tok)], *rest): tol
             for (tok, *rest), tol in self._tolerances.items()

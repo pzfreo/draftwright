@@ -12,7 +12,7 @@ The invariants worth pinning, in the order they bite:
   (a script must be able to ask without first knowing the rule set's mind);
 - **order independence** — declaring the augment before the source reads the same as
   after, so the gate lives at `build()` rather than in the verb;
-- **the handle survives a later size verb** — intents are index-keyed and materialised
+- **the handle survives a later size verb** — intents are token-keyed and materialised
   against the FINAL features, like `_tolerances`;
 - **ambiguity raises** rather than guessing between two same-role measurements.
 """
@@ -106,7 +106,7 @@ class TestSheetSurface:
         assert len(sheet.features) == 2
 
     def test_the_intent_survives_a_later_size_verb(self):
-        """Intents are index-keyed and materialised at build, so a handle recorded
+        """Intents are token-keyed and materialised at build, so a handle recorded
         before `.depth()` replaces the feature still resolves against the final one."""
         sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z")
