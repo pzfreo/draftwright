@@ -15,7 +15,12 @@ import math
 from build123d import Align, Circle, Compound, Location, Mode, Text
 from build123d_drafting.helpers import Leader
 
-from draftwright._core import _STRIP_GAP, _STRIP_SPACING, _balloon_halo
+from draftwright._core import (
+    _STRIP_GAP,
+    _STRIP_SPACING,
+    _balloon_halo,
+    _balloon_radius,
+)
 from draftwright.annotations._common import carve_free_segments, strip_obstacles
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import (
@@ -26,6 +31,8 @@ from draftwright.layout import (
     _strip_capacity,
 )
 
+_BALLOON_RING_STROKE = 0.35
+
 
 def _top_lane_target(member_count, other_capacities, usable_band_count):
     """Capacity the top lane needs for both balance and maximum cardinality."""
@@ -33,6 +40,12 @@ def _top_lane_target(member_count, other_capacities, usable_band_count):
     balanced_share = math.ceil(member_count / usable_band_count)
     capacity_deficit = max(0, member_count - sum(other_capacities))
     return max(balanced_share, capacity_deficit)
+
+
+def _band_preference_limit(font_size):
+    """Maximum extra leader length justified by perimeter spreading."""
+
+    return _balloon_halo(font_size)
 
 
 def _select_top_lane(lane_options, target, fallback_line):
@@ -68,7 +81,7 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
     """
     pp = dwg.coords(view).pp
     fs = dwg.draft.font_size
-    r = fs * 1.5  # circle comfortably larger than the glyph
+    r = _balloon_radius(fs)
     standoff = _STRIP_GAP
     perimeter_extent = _balloon_halo(fs) if perimeter else standoff + 2 * r
     centre_offset = perimeter_extent - r
@@ -136,12 +149,14 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         # carry a balanced share of the ring.  This is measured render geometry;
         # ordered placement across the resulting segments remains in layout.py.
         top_lo, top_hi = band_defs["top"][2:]
-        other_capacities = [
-            _strip_capacity(*band_defs[name][2:], gap) for name in ("left", "right")
-        ]
+        other_band_names = ["left", "right"]
         if has_bottom:
-            other_capacities.append(_strip_capacity(*band_defs["bottom"][2:], gap))
-        top_target = _top_lane_target(len(specs), other_capacities, 3 + int(has_bottom))
+            other_band_names.append("bottom")
+        other_capacities = [
+            _strip_capacity(*band_defs[name][2:], gap) for name in other_band_names
+        ]
+        usable_band_count = len(other_band_names) + 1  # plus top
+        top_target = _top_lane_target(len(specs), other_capacities, usable_band_count)
         first_line = pt + centre_offset
         last_line = ph - margin - r
         candidates = {first_line}
@@ -200,7 +215,7 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         choices_by_member,
         capacities,
         prefer_bands=preferred_bands if perimeter else (),
-        preference_limit=perimeter_extent if perimeter else 0.0,
+        preference_limit=_band_preference_limit(fs) if perimeter else 0.0,
     )
     dropped += _place_band(
         dwg,
@@ -295,7 +310,7 @@ def _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx):
     loc = Location((bx, by, 0))
     # The annotation layer fills closed paths, so a circle edge renders as a
     # disc. A thin annular FACE fills as a ring — i.e. a circle outline.
-    ring_faces = [f.moved(loc) for f in (Circle(r) - Circle(r - 0.35)).faces()]
+    ring_faces = [f.moved(loc) for f in (Circle(r) - Circle(r - _BALLOON_RING_STROKE)).faces()]
     text = Text(
         txt=tag,
         font_size=fs,

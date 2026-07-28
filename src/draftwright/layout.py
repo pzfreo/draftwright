@@ -49,6 +49,8 @@ from dataclasses import dataclass
 from typing import Literal, NamedTuple
 
 Axis = Literal["x", "y"]
+_LAYOUT_EPSILON = 1e-9
+_FLOW_COST_SCALE = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +215,7 @@ def _strip_capacity(lo: float, hi: float, gap: float) -> int:
 
     if hi < lo:
         return 0
-    return int(math.floor((hi - lo) / gap + 1e-9)) + 1
+    return int(math.floor((hi - lo) / gap + _LAYOUT_EPSILON)) + 1
 
 
 def _solve_segmented_strip_1d(
@@ -236,7 +238,7 @@ def _solve_segmented_strip_1d(
     if not naturals:
         return []
     ordered = sorted(segments)
-    if any(b[0] - a[1] < gap - 1e-9 for a, b in zip(ordered, ordered[1:])):
+    if any(b[0] - a[1] < gap - _LAYOUT_EPSILON for a, b in zip(ordered, ordered[1:])):
         raise ValueError("segmented strip intervals must be separated by gap")
     # member-count -> (cost, coordinates); ties keep the first (leftmost) split.
     states: dict[int, tuple[float, list[float]]] = {0: (0.0, [])}
@@ -253,7 +255,7 @@ def _solve_segmented_strip_1d(
                     coords + solved,
                 )
                 previous = next_states.get(placed + count)
-                if previous is None or candidate[0] < previous[0] - 1e-9:
+                if previous is None or candidate[0] < previous[0] - _LAYOUT_EPSILON:
                     next_states[placed + count] = candidate
         states = next_states
     result = states.get(len(naturals))
@@ -307,14 +309,14 @@ def _assign_balloon_bands(
                 continue
             # Costs are integerised for deterministic shortest paths; the tiny band
             # ordinal keeps exact ties stable without changing real distance order.
-            cost = int(round(max(0.0, choices[band]) * 1000)) + band_order.index(band)
+            cost = int(round(max(0.0, choices[band]) * _FLOW_COST_SCALE)) + band_order.index(band)
             used_edges[(i, band)] = add_edge(member0 + i, band0 + j, 1, cost)
 
     # Give the first balloon in each preferred band a bounded distance credit.
     # Unlike the old lexicographically dominant activation bonus (#901 review),
     # this cannot justify a leader more than `preference_limit` longer merely to
     # occupy another side. SPFA supports the negative residual edges.
-    preference_bonus = int(round(max(0.0, preference_limit) * 1000))
+    preference_bonus = int(round(max(0.0, preference_limit) * _FLOW_COST_SCALE))
     preferred = set(prefer_bands)
     for j, band in enumerate(bands):
         capacity = capacities[band]

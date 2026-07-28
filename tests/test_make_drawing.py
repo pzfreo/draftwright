@@ -9860,10 +9860,13 @@ class TestHoleTable:
         assert _top_lane_target(18, [41, 41], 3) == 6
 
     def test_balloon_render_extent_and_compose_reservation_share_geometry(self):
-        from draftwright._core import _balloon_halo
+        from draftwright._core import _balloon_halo, _balloon_radius
+        from draftwright.annotations.balloons import _band_preference_limit
         from draftwright.compose import _est_plan_halo
 
         assert _est_plan_halo(3.0) == _balloon_halo(3.0) == 21.5
+        assert _band_preference_limit(3.0) == _balloon_halo(3.0)
+        assert _balloon_radius(3.0) == 4.5
 
     def test_top_lane_target_covers_capacity_deficit_on_other_bands(self):
         from draftwright.annotations.balloons import _top_lane_target
@@ -10002,7 +10005,7 @@ class TestHoleTable:
         obstacle = self._Boxed((47.0, pt + 2.0, 53.0, pt + 80.0))
 
         import draftwright.annotations.balloons as balloons
-        from draftwright._core import _balloon_halo
+        from draftwright._core import _balloon_halo, _balloon_radius
 
         real_assign = balloons._assign_balloon_bands
         assignment_kwargs = []
@@ -10057,7 +10060,7 @@ class TestHoleTable:
             call for call in calls if call[1] == "x" and call[2] > a.PV_Y
         )
         assert top_members
-        assert top_line == pytest.approx(pt + _balloon_halo(3.0) - 4.5)
+        assert top_line == pytest.approx(pt + _balloon_halo(3.0) - _balloon_radius(3.0))
         assert segments and len(segments) == 2
         assert assignment_kwargs == [
             {
@@ -10094,7 +10097,11 @@ class TestHoleTable:
     def test_balloon_assignment_rebalances_across_bands_before_dropping(self, monkeypatch):
         from types import SimpleNamespace
 
-        from draftwright._core import _STRIP_GAP, _STRIP_SPACING
+        from draftwright._core import (
+            _STRIP_GAP,
+            _STRIP_SPACING,
+            _balloon_radius,
+        )
         from draftwright.layout import _strip_capacity
 
         calls = []
@@ -10134,7 +10141,7 @@ class TestHoleTable:
         )
 
         fs = stub.draft.font_size
-        r = fs * 1.5
+        r = _balloon_radius(fs)
         gap = 2 * r + 2 * _STRIP_SPACING
         top_cap = _strip_capacity(a.PV_X - a.fv_hw - _STRIP_GAP, a.SV_X - a.sv_hw - r, gap)
         top_members = next(call[1] for call in calls if call[2] == "x" and call[3] > a.PV_Y)
