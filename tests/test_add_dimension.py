@@ -434,3 +434,26 @@ class TestInvalidCombinations:
         sheet.hole(diameter=4, at=(30, 0, 14), axis="z")
         sheet.hole(diameter=6, at=(-30, 0, 14), axis="z")
         assert sheet.build() is not None
+
+    def test_a_handle_stale_from_a_reorder_is_rejected(self):
+        """Round 5's escape. The reorder happens BEFORE any intent, so it breaks no
+        intent contract — but it leaves the handle's index naming a different feature.
+        Resolving it silently would dimension the neighbour."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        first = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
+        sheet.hole(diameter=10, at=(20, 0, 14), axis="z").depth(7)
+
+        sheet.features.reverse()
+
+        with pytest.raises(ValueError, match="stale"):
+            sheet.add_dimension(first, "bore.depth")
+
+    def test_a_size_verb_keeps_its_handle_fresh(self):
+        """The contrast: rebuilding the frozen feature through the handle is legitimate
+        and must not make it look stale."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z")
+        bore.depth(12)
+        bore.thread("M10")
+        intent = sheet.add_dimension(bore, "bore")
+        assert intent._entry["target"] is sheet.features[0]

@@ -126,6 +126,11 @@ class _Hole:
     def __init__(self, sheet: Sheet, index: int) -> None:
         self._sheet = sheet
         self._i = index
+        # The feature this handle was issued for. A handle addresses by index, so if the
+        # public `features` list is reordered the index goes stale and points at someone
+        # else's feature — recording the object lets that be caught rather than silently
+        # dimensioning the wrong thing (#872 review).
+        self._declared = sheet._features[index]
 
     def through(self) -> _Hole:
         """A through hole (the default) — ⌀ only."""
@@ -216,7 +221,9 @@ class _Hole:
         return self
 
     def _set(self, **kw) -> _Hole:
-        self._sheet._replace_feature(self._i, replace(self._sheet._features[self._i], **kw))
+        updated = replace(self._sheet._features[self._i], **kw)
+        self._sheet._replace_feature(self._i, updated)
+        self._declared = updated
         return self
 
 
@@ -229,6 +236,7 @@ class _Dim:
         self._sheet = sheet
         self._i = index
         self._kind = default_kind
+        self._declared = sheet._features[index]  # see _Hole._declared
 
     def tolerance(self, lo: float, hi: float | None = None, *, on: str | None = None) -> _Dim:
         """A ± tolerance on this dimension: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
@@ -281,7 +289,9 @@ class _Dim:
         return self._set(thread=spec.strip())
 
     def _set(self, **kw) -> _Dim:
-        self._sheet._replace_feature(self._i, replace(self._sheet._features[self._i], **kw))
+        updated = replace(self._sheet._features[self._i], **kw)
+        self._sheet._replace_feature(self._i, updated)
+        self._declared = updated
         return self
 
 
@@ -326,6 +336,11 @@ class _Params:
     def __init__(self, sheet: Sheet, index: int) -> None:
         self._sheet = sheet
         self._i = index
+        # The feature this handle was issued for. A handle addresses by index, so if the
+        # public `features` list is reordered the index goes stale and points at someone
+        # else's feature — recording the object lets that be caught rather than silently
+        # dimensioning the wrong thing (#872 review).
+        self._declared = sheet._features[index]
 
     def __getattr__(self, name: str):
         # Only reached for attributes _Params doesn't define (every Sheet verb): forward
@@ -982,7 +997,15 @@ class Sheet:
 
     @property
     def features(self) -> list:
-        """The declared IR features (mutable — override or drop before :meth:`build`)."""
+        """The declared IR features (mutable — override or drop before :meth:`build`).
+
+        **Not after declaring an `add_dimension` intent.** An intent targets one specific
+        feature, and this list is addressed by index, so an insert, delete or reorder
+        silently repoints it at a neighbour. Both are refused rather than guessed:
+        editing the list after an intent exists raises at :meth:`build`, and a handle
+        whose index no longer names the feature it was issued for raises when used.
+        Declare the features you want, then the dimensions.
+        """
         return self._features
 
     def auto_dimensions(self) -> Sheet:
@@ -1106,6 +1129,17 @@ class Sheet:
                 raise ValueError(
                     f"{type(feature).__name__} belongs to a different Sheet — a handle's "
                     "index is only meaningful on the sheet that issued it"
+                )
+            # …and its index must still name the feature it was issued for. A reorder of
+            # the public list before any intent exists breaks no intent contract, but it
+            # leaves the handle pointing at a neighbour — resolving that silently would
+            # dimension the wrong feature (#872 review, round 5).
+            declared = getattr(feature, "_declared", None)
+            if declared is not None and self._features[int(index)] is not declared:
+                raise ValueError(
+                    f"{type(feature).__name__} is stale — `features` was reordered after "
+                    "this handle was issued, so its index now names a different feature. "
+                    "Declare the features you want, then the dimensions."
                 )
             return int(index)
         for i, f in enumerate(self._features):  # an IR feature passed directly
