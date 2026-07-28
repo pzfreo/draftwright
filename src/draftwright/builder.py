@@ -287,6 +287,15 @@ def _assemble(
     # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
     # detectors run once per build (ADR 0008 Amdt 5, #602). build_model(a) remains the
     # fallback for a manually-constructed Analysis with no stored model.
+    if model is None and requested:
+        # A request names a DECLARED feature object (ADR 0016 / #872), and detection
+        # builds its own. Silently dropping them would leave a caller's add_dimension()
+        # with no effect and no diagnostic — the failure mode this project treats as
+        # worse than a visible error (#630/#631/#632).
+        raise ValueError(
+            "requested= names declared features, so it needs model= too; a detected "
+            "model builds its own feature objects that no request can target"
+        )
     pm = (
         _coerce_model(model, a.part, decorations, requested)
         if model is not None

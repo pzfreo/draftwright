@@ -1045,21 +1045,42 @@ class Sheet:
         if index is not None:
             return int(index)
         for i, f in enumerate(self._features):  # an IR feature passed directly
-            if f is feature or f == feature:
+            if f is feature:  # identity — an equal feature from elsewhere is not this one
                 return i
         raise ValueError(f"{feature!r} is not a feature declared on this sheet")
 
     def _requested_dimensions(self) -> tuple:
         """Materialize the index-keyed intents against the FINAL features, mirroring
         :meth:`_decorations` — a handle may predate a later size verb."""
-        return tuple(
-            RequestedDimension(
-                feature=self._features[e["index"]],
-                role=e["role"],
-                discriminator=e["discriminator"],
+        out = []
+        for e in self._added_dimensions:
+            index = e["index"]
+            if index >= len(self._features):
+                raise ValueError(
+                    f"add_dimension({e['role']!r}) targets feature {index}, which no "
+                    "longer exists — `features` was shortened after the intent was "
+                    "declared"
+                )
+            feature = self._features[index]
+            # `features` is public and mutable, so an insert/delete/reorder between the
+            # declaration and build can leave a DIFFERENT feature at this index. Silently
+            # dimensioning the wrong one is the failure this catches: re-validate that
+            # whatever sits here still carries the measurement that was asked for.
+            params = feature.parameters()
+            if e["role"] not in {p.role for p in params} | {p.parameter_id for p in params}:
+                raise ValueError(
+                    f"add_dimension({e['role']!r}) no longer matches feature {index} "
+                    f"({type(feature).__name__}) — `features` was reordered or replaced "
+                    "after the intent was declared"
+                )
+            out.append(
+                RequestedDimension(
+                    feature=feature,
+                    role=e["role"],
+                    discriminator=e["discriminator"],
+                )
             )
-            for e in self._added_dimensions
-        )
+        return tuple(out)
 
     def _decorations(self) -> dict:
         """Materialize the index-keyed ± tolerances against the FINAL features (a handle may

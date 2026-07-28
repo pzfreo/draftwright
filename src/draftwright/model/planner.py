@@ -395,7 +395,12 @@ def _request_for(model, feature, param):
     neither would be a coin toss, so it must name one (the facade raises before we get
     here; this stays strict so a hand-built `PartModel` cannot slip past)."""
     for req in model.requested_dimensions:
-        if req.feature != feature:
+        # Identity, NOT structural equality. Two equal-valued features are two distinct
+        # targets — a part with two identical envelopes or holes must be able to request
+        # a dimension on one of them. (`DimensionId` deliberately compares structurally,
+        # #871, because an id must survive a re-plan that rebuilds the objects; a request
+        # targets one declared instance within a single build, so the rules differ.)
+        if req.feature is not feature:
             continue
         # A request names either a full `ParameterId` ("bore.depth" — one measurement)
         # or a bare role ("bore" — every measurement under it). Both are useful: the

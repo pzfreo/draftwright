@@ -246,3 +246,115 @@ def test_a_verbatim_partmodel_carries_requests_through_the_builder():
 
     assert coerced.requested_dimensions == (request,)
     assert original.requested_dimensions == (), "the caller's model must not be mutated"
+
+
+class TestItActuallyChangesTheDrawing:
+    """The payoff, not the plumbing.
+
+    Every other test here verifies a request *reaches* the planner. That is necessary
+    and not sufficient: an adversarial review deleted the un-suppression logic outright
+    and all of them still passed. What matters is a dimension appearing on a sheet that
+    otherwise lacks it, so this asserts exactly that, end to end through the public
+    surface.
+
+    A square footprint is the lever: the planner suppresses the envelope depth when
+    width and depth are equal (it would restate the width), which is a real
+    rule-set decision a caller might legitimately want to override.
+    """
+
+    @staticmethod
+    def _square_part():
+        return Box(20, 20, 40)
+
+    def _env_dims(self, *, request: bool):
+        sheet = Sheet(self._square_part(), title="T", number="N").auto_dimensions()
+        env = sheet.envelope()
+        if request:
+            sheet.add_dimension(env, "depth")
+        drawing = sheet.build()
+        return sorted(n for n in drawing.annotations() if n.startswith("m_env"))
+
+    def test_the_planner_suppresses_it_without_a_request(self):
+        assert self._env_dims(request=False) == []
+
+    def test_a_request_puts_the_dimension_on_the_sheet(self):
+        assert self._env_dims(request=True) == ["m_env_depth"]
+
+    def test_the_dotted_identity_works_end_to_end_too(self):
+        sheet = Sheet(self._square_part(), title="T", number="N").auto_dimensions()
+        env = sheet.envelope()
+        sheet.add_dimension(env, "depth.length")
+        drawing = sheet.build()
+        assert "m_env_depth" in set(drawing.annotations())
+
+
+class TestRequestTargeting:
+    """Referential intent must name ONE feature. Structural equality is the wrong
+    relation here: two equal-valued features are two distinct targets."""
+
+    def test_two_equal_features_are_distinct_targets(self):
+        """`DimensionId` compares structurally (#871) so an id survives a re-plan that
+        rebuilds the objects. A *request* is the opposite case — it targets one declared
+        instance within a single build — so it matches on identity."""
+        from draftwright.model.planner import _request_for
+
+        a = HoleFeature(Frame((-20, 0, 6), "z"), 8.0, depth=10.0, through=False)
+        b = HoleFeature(Frame((-20, 0, 6), "z"), 8.0, depth=10.0, through=False)
+        assert a == b and a is not b
+
+        model = PartModel(
+            bbox=_BBOX,
+            orientation="prismatic",
+            features=[a, b],
+            requested_dimensions=(RequestedDimension(a, "bore"),),
+        )
+        param = a.parameters()[0]
+        assert _request_for(model, a, param) is not None
+        assert _request_for(model, b, param) is None, "the request must not leak to its twin"
+
+    def test_an_equal_feature_from_another_sheet_is_rejected(self):
+        """Value-equal but never declared here — accepting it would silently dimension
+        a feature this sheet does not own."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        twin = HoleFeature(**vars(sheet.features[0]))
+        assert twin == sheet.features[0]
+        with pytest.raises(ValueError, match="not a feature declared on this sheet"):
+            sheet.add_dimension(twin, "bore")
+
+
+class TestInvalidCombinations:
+    def test_requests_without_a_declared_model_are_rejected(self):
+        """A request names a declared feature object; detection builds its own. Dropping
+        the request silently would leave `add_dimension` with no effect and no
+        diagnostic — worse than a visible error (#630/#631/#632)."""
+        from draftwright import build_drawing
+
+        hole = HoleFeature(Frame((0, 0, 6), "z"), 8.0, depth=10.0, through=False)
+        with pytest.raises(ValueError, match="needs model="):
+            build_drawing(_part(), requested=(RequestedDimension(hole, "bore"),))
+
+    def test_reordering_features_after_declaring_an_intent_raises(self):
+        """`features` is public and mutable, so an intent's stored index can come to
+        point at a different feature. Dimensioning the wrong one silently is the failure
+        this catches — so the real scenario is reproduced, not simulated."""
+        from draftwright.model import ChamferFeature
+
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        sheet.add_dimension(bore, "bore")  # records index 0
+
+        # A later edit pushes the hole to index 1; index 0 is now a chamfer, which has
+        # no "bore" measurement at all.
+        sheet.features.insert(0, ChamferFeature(Frame((0, 0, 0), "z"), "z", 2.0, 2.0, 45.0))
+
+        with pytest.raises(ValueError, match="no longer matches feature"):
+            sheet._requested_dimensions()
+
+    def test_truncating_the_feature_list_raises(self):
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        sheet.add_dimension(bore, "bore")
+        sheet.features.clear()
+        with pytest.raises(ValueError, match="no longer exists"):
+            sheet._requested_dimensions()
