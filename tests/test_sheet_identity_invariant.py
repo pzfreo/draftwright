@@ -124,7 +124,33 @@ def _scn_control(s):
     return s.control(a), lambda c: c.position(0.1, to="A").flatness(0.02)
 
 
+def _scn_section(s):
+    """`section(feature=…)` returns `Sheet`, not a handle — which is why the first draft of this
+    file missed it entirely, exactly as #910's enumeration missed `_Control`. It stores a
+    long-lived reference in `_section` all the same, and cutting through the wrong hole is a
+    silent, plausible-looking wrong drawing."""
+    a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    return a, lambda a: s.section(feature=a)
+
+
+def _scn_datum(s):
+    a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    return a, lambda a: s.datum("A", a)
+
+
+def _scn_note(s):
+    a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    return a, lambda a: s.note("M10x1.5 TAP", a)
+
+
 def _scn_add_dimension(s):
+    """The driver is a no-op because `DimensionIntent` currently exposes no verb that CONSUMES
+    its stored reference — ADR 0012's `.pin()`/`.priority()` were removed from #905 pending the
+    #906 convergence. Rather than fake a driver, `test_dimension_intent_still_has_no_verbs`
+    below fails the moment one is added, forcing a real one here."""
     a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
     s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
     return s.add_dimension(a, "bore"), lambda i: i
@@ -140,6 +166,11 @@ _SCENARIOS = {
     "envelope": _scn_envelope,
     "control": _scn_control,
     "add_dimension": _scn_add_dimension,
+    # Verbs that return `Sheet` but retain a feature reference. Not handle-returning, so the
+    # verb ratchet cannot see them — the state-field ratchet below is what makes them mandatory.
+    "section": _scn_section,
+    "datum": _scn_datum,
+    "note": _scn_note,
 }
 
 #: Verbs that hand back a `_Params` by exactly the same route `envelope` does — declare the
@@ -401,11 +432,85 @@ def _handle_returning_verbs() -> set[str]:
     return found
 
 
+#: `Sheet` state that stores a reference to a declared feature. Each must be reached by at least
+#: one scenario, proven at runtime below rather than asserted by eye.
+_STATE_CARRYING_FEATURE_REFS = frozenset(
+    {"_tolerances", "_gdt_src", "_section", "_added_dimensions"}
+)
+
+#: `Sheet` state that stores no feature reference, so a reorder cannot affect it.
+_STATE_WITHOUT_FEATURE_REFS = frozenset(
+    {"_part", "_features", "_entries", "_opts", "_tables", "_auto_dimensions"}
+)
+
+
+def _init_state_fields() -> set[str]:
+    tree = ast.parse(_SRC.read_text())
+    (sheet,) = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Sheet"]
+    init = next(f for f in sheet.body if isinstance(f, ast.FunctionDef) and f.name == "__init__")
+    fields = set()
+    for node in ast.walk(init):
+        if isinstance(node, ast.Assign):
+            fields |= {t.attr for t in node.targets if isinstance(t, ast.Attribute)}
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Attribute):
+            fields.add(node.target.attr)
+    return fields
+
+
+def test_every_sheet_state_field_is_classified():
+    """The ratchet the first draft of this file lacked, and the review found the hole in.
+
+    Enumerating handle-returning VERBS is not enough: `section(feature=…)` returns `Sheet` and
+    still retains a feature reference, so restoring its positional bug passed all 76 tests. The
+    generalisation is to enumerate the STATE — every field a reference can live in — because
+    that is what the invariant is actually about. A new field forces a classification, and
+    classifying it as reference-carrying forces a scenario via the test below.
+    """
+    assert _init_state_fields() == _STATE_CARRYING_FEATURE_REFS | _STATE_WITHOUT_FEATURE_REFS, (
+        "Sheet grew or lost state — classify each new field as carrying feature references "
+        "(and give it a scenario in _SCENARIOS) or not carrying them"
+    )
+
+
+def test_every_reference_carrying_state_field_is_exercised():
+    """Runtime proof that the scenarios reach every field a reference can live in — the check
+    that would have caught `_section` being unexercised while the docstring claimed otherwise."""
+    reached = set()
+    for scenario in _SCENARIOS.values():
+        s = _sheet()
+        obj, drive = scenario(s)
+        drive(obj)
+        reached |= {f for f in _STATE_CARRYING_FEATURE_REFS if getattr(s, f)}
+    assert reached == _STATE_CARRYING_FEATURE_REFS, (
+        f"no scenario populates {sorted(_STATE_CARRYING_FEATURE_REFS - reached)} — a reference "
+        "stored there would not be covered by the reorder matrix"
+    )
+
+
+def test_dimension_intent_still_has_no_verbs():
+    """`_scn_add_dimension`'s driver is a no-op, which is honest only while `DimensionIntent`
+    has nothing to drive. #906 will restore `.pin()`/`.priority()`; this fails then, so the
+    scenario gets a real driver rather than staying quietly vacuous."""
+    tree = ast.parse(_SRC.read_text())
+    (intent,) = [
+        n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "DimensionIntent"
+    ]
+    verbs = {
+        f.name
+        for f in intent.body
+        if isinstance(f, ast.FunctionDef) and not f.name.startswith("_")
+    }
+    assert verbs == set(), (
+        f"DimensionIntent gained {sorted(verbs)} — give _scn_add_dimension a driver that calls "
+        "it after the mutation, or the retained-object matrix does not cover this class"
+    )
+
+
 def test_every_handle_returning_verb_is_exercised():
     """Fail-closed. A new verb handing back a retained object must be given a scenario above —
     which forces its author to answer "what does this do across a reorder?", the question #910
     went three rounds without being asked."""
-    assert _handle_returning_verbs() == set(_SCENARIOS) | _SAME_PATH_AS_ENVELOPE, (
+    assert _handle_returning_verbs() <= set(_SCENARIOS) | _SAME_PATH_AS_ENVELOPE, (
         "handle-returning Sheet verbs changed — add a scenario to _SCENARIOS (or, if the new "
         "verb reaches a handle by an already-covered route, to _SAME_PATH_AS_ENVELOPE)"
     )
