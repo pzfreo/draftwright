@@ -6,6 +6,8 @@ vendoring the uploaded customer STEP file.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from build123d import (
     Align,
@@ -20,6 +22,7 @@ from build123d import (
 
 from draftwright import build_drawing
 from draftwright.model.declare import envelope
+from draftwright.recognition.slots import _Face, _recognise_corner_notches
 
 
 @pytest.fixture(scope="module")
@@ -43,6 +46,18 @@ def slanted_blind_step():
     low = Pos(bb.min.X, bb.min.Y, bb.min.Z) * Box(8, 12, 5, align=align_min)
     high = Pos(bb.min.X, bb.max.Y - 12, bb.max.Z - 5) * Box(8, 12, 5, align=align_min)
     return solid - low - high
+
+
+@pytest.fixture(scope="module")
+def bounded_slanted_recess():
+    """A partial-width ramp whose ends are defining profile transitions."""
+    align_min = (Align.MIN, Align.MIN, Align.MIN)
+    base = Box(50, 50, 25, align=align_min)
+    with BuildPart() as cut:
+        with BuildSketch(Plane.XZ):
+            Polygon((0, 15), (5, 15), (15, 25), (0, 25))
+        extrude(amount=12)
+    return base - Pos(0, 12, 0) * cut.part
 
 
 @pytest.mark.timeout(120)
@@ -89,6 +104,86 @@ def test_lint_flags_source_geometry_omitted_from_declared_ir(slanted_blind_step)
     assert len(issues) == 1
     assert "bounded blind recess" in issues[0].message
     assert "profile transition" in issues[0].message
+
+
+def test_bounded_slanted_recess_contributes_both_ramp_ends(bounded_slanted_recess):
+    dwg = build_drawing(bounded_slanted_recess)
+    shoulders = {
+        shoulder
+        for step in dwg.model().features
+        if step.kind == "step_level"
+        for shoulder in step.shoulders
+    }
+
+    assert {("x", 5.0), ("x", 15.0), ("y", 12.0)} <= shoulders
+
+
+def test_small_edge_break_is_not_promoted_to_structural_ramp():
+    align_min = (Align.MIN, Align.MIN, Align.MIN)
+    base = Box(50, 50, 25, align=align_min)
+    with BuildPart() as cut:
+        with BuildSketch(Plane.XZ):
+            Polygon((0, 20), (1, 20), (2, 25), (0, 25))
+        extrude(amount=2)
+    dwg = build_drawing(base - Pos(0, 2, 0) * cut.part)
+    shoulders = {
+        shoulder
+        for step in dwg.model().features
+        if step.kind == "step_level"
+        for shoulder in step.shoulders
+    }
+
+    assert ("x", 2.0) not in shoulders
+
+
+def test_completeness_lint_can_report_transitions_without_blind_recesses(
+    bounded_slanted_recess,
+):
+    dwg = build_drawing(
+        bounded_slanted_recess,
+        model=[envelope(bounded_slanted_recess)],
+    )
+    issues = [i for i in dwg.lint() if i.code == "unrecognised_defining_geometry"]
+
+    assert len(issues) == 1
+    assert "profile transition" in issues[0].message
+    assert "blind recess" not in issues[0].message
+
+
+def test_corner_notch_preserves_long_axis_when_x_span_is_larger():
+    align_min = (Align.MIN, Align.MIN, Align.MIN)
+    solid = Box(50, 50, 25, align=align_min) - Pos(0, 0, 20) * Box(12, 8, 5, align=align_min)
+    dwg = build_drawing(solid)
+    pocket = next(f for f in dwg.model().features if f.kind == "pocket")
+
+    assert pocket.edge_anchored
+    assert (pocket.width_axis, pocket.long_axis) == ("y", "x")
+    assert (pocket.width, pocket.length, pocket.depth) == (8.0, 12.0, 5.0)
+
+
+def _box(x0, x1, y0, y1, z0, z1):
+    def point(x, y, z):
+        return SimpleNamespace(X=x, Y=y, Z=z)
+
+    return SimpleNamespace(min=point(x0, y0, z0), max=point(x1, y1, z1))
+
+
+def test_corner_notch_rejects_degenerate_or_incomplete_face_sets():
+    part_bb = _box(0, 50, 0, 50, 0, 25)
+    degenerate_floor = _Face((0, 0, 1), "z", _box(0, 0, 0, 8, 20, 20), True)
+    floor = _Face((0, 0, 1), "z", _box(0, 12, 0, 8, 20, 20), True)
+    shallow_x_wall = _Face((-1, 0, 0), "x", _box(12, 12, 0, 8, 10, 15), True)
+    shallow_y_wall = _Face((0, -1, 0), "y", _box(0, 12, 8, 8, 10, 15), True)
+
+    assert _recognise_corner_notches([degenerate_floor], part_bb) == []
+    assert _recognise_corner_notches([floor], part_bb) == []
+    assert (
+        _recognise_corner_notches(
+            [floor, shallow_x_wall, shallow_y_wall],
+            part_bb,
+        )
+        == []
+    )
 
 
 @pytest.mark.timeout(120)
