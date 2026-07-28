@@ -157,13 +157,35 @@ class _FeatureView(MutableSequence):
         return self._entries[i][1]
 
     def __setitem__(self, i, value) -> None:
-        if isinstance(i, slice):  # keep each surviving slot's token where one exists
-            old = self._entries[i]
-            self._entries[i] = [
-                (old[k][0] if k < len(old) else next(self._tokens), f) for k, f in enumerate(value)
-            ]
+        # Public assignment always mints a NEW token, scalar or slice.
+        #
+        # This is the distinction an earlier draft got wrong. Keeping the destination
+        # slot's token is right for the INTERNAL rebuild a size verb does — `.depth()`
+        # replaces the frozen dataclass with an updated copy of the same feature — but on
+        # the public view, assignment cannot tell "move this feature here" from "put a
+        # different feature here". Preserving identity across it silently transferred
+        # every reference (handles, tolerances, GD&T origins, sections, intents) onto
+        # whatever was assigned, which is the exact bug this class exists to remove:
+        #
+        #     features[0], features[1] = features[1], features[0]   # a tuple swap
+        #     features[:] = features[::-1]                          # a slice reversal
+        #
+        # both of which move VALUES between slots. Minting fresh tokens makes those
+        # references fail loudly instead. To reorder while keeping identity, use
+        # `reverse()` / `sort()`, which move whole entries. Internal rebuilding goes
+        # through `_rebind`, which is the only path that preserves a token.
+        if isinstance(i, slice):
+            self._entries[i] = [(next(self._tokens), f) for f in value]
             return
-        self._entries[i] = (self._entries[i][0], value)
+        self._entries[i] = (next(self._tokens), value)
+
+    def _rebind(self, index: int, feature) -> None:
+        """Replace the feature at *index* KEEPING its token — the same feature, rebuilt.
+
+        The only identity-preserving write. Used by the size verbs, whose frozen
+        dataclasses are replaced wholesale on every `.depth()` / `.cbore()` / `.thread()`.
+        """
+        self._entries[index] = (self._entries[index][0], feature)
 
     def __delitem__(self, i) -> None:
         del self._entries[i]
@@ -1156,7 +1178,7 @@ class Sheet:
         the replacement without bookkeeping. Before #908 this method had to advance each
         intent by hand, and getting that wrong was two of the seven #872 review findings.
         """
-        self._features[index] = feature
+        self._features._rebind(index, feature)
 
     def _token_at(self, index: int) -> int:
         """The token of the feature currently at *index*."""

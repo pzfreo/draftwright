@@ -402,3 +402,61 @@ def test_a_gdt_aspect_alongside_a_dimension_intent_is_legitimate():
     assert sheet.model() is not None
     assert sheet.build() is not None
     assert sheet.build() is not None, "and again — repeated builds must stay legal"
+
+
+class TestFeatureViewIdentity:
+    """`features` carries identity (#908), and assignment is not a move.
+
+    The distinction an earlier draft got wrong: keeping a slot's token is right for the
+    INTERNAL rebuild a size verb does — `.depth()` replaces the frozen dataclass with an
+    updated copy of the same feature — but on the public view, assignment cannot tell
+    "move this feature here" from "put a different feature here". Preserving identity
+    across it silently transferred every reference onto whatever was assigned.
+
+    So assignment mints fresh tokens and stale references fail loudly; `reverse()` and
+    `sort()` move whole entries and are the identity-preserving way to reorder.
+    """
+
+    @staticmethod
+    def _two_holes():
+        sheet = Sheet(_part(), title="T", number="N")
+        big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
+        sheet.hole(diameter=4, at=(20, 0, 14), axis="z").depth(7)
+        big.tolerance(0.05)
+        return sheet, big
+
+    def test_a_tuple_swap_invalidates_rather_than_retargets(self):
+        sheet, _big = self._two_holes()
+        sheet.features[0], sheet.features[1] = sheet.features[1], sheet.features[0]
+        with pytest.raises(ValueError, match="no longer on the sheet"):
+            sheet._decorations()
+
+    def test_a_slice_permutation_invalidates_rather_than_retargets(self):
+        """`features[:] = features[::-1]` is the idiomatic in-place reversal, and it
+        moves values between slots exactly like a swap."""
+        sheet, _big = self._two_holes()
+        sheet.features[:] = sheet.features[::-1]
+        with pytest.raises(ValueError, match="no longer on the sheet"):
+            sheet._decorations()
+
+    def test_replacing_a_feature_wholesale_invalidates_its_references(self):
+        """A different feature in the slot is a different thing — the old feature's
+        tolerance must not transfer to it."""
+        sheet, _big = self._two_holes()
+        sheet.features[0] = HoleFeature(Frame((9, 9, 9), "z"), 1.0, depth=None, through=True)
+        with pytest.raises(ValueError, match="no longer on the sheet"):
+            sheet._decorations()
+
+    def test_reverse_preserves_identity(self):
+        """The identity-safe way to reorder: entries move, so references follow."""
+        sheet, _big = self._two_holes()
+        sheet.features.reverse()
+        toleranced = [f.diameter for f, *_ in sheet._decorations() if hasattr(f, "diameter")]
+        assert toleranced == [10.0]
+
+    def test_a_size_verb_preserves_identity(self):
+        """The internal rebuild path, which must NOT mint a new token."""
+        sheet, big = self._two_holes()
+        big.thread("M10")
+        toleranced = [f.diameter for f, *_ in sheet._decorations() if hasattr(f, "diameter")]
+        assert toleranced == [10.0]
