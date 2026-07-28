@@ -12,6 +12,15 @@
   emits is a deliberate no-op, so a script can ask without first knowing the rule set's
   mind. `sheet.auto_dimensions()` states the source explicitly (optional in this
   release; #874 makes it mandatory).
+- **Suppressing a dimension marks it; it no longer leaks into the callout** (ADR 0016 /
+  #875). `PlannedDimension.suppressed` was honoured at thirteen render sites but not by
+  the compound hole-callout path, so a suppressed counterbore still printed. The group
+  keeps its engineering data either way — what changes is whether a value reaches the
+  page. Suppressing the bore ⌀ while a counterbore, spotface or countersink segment
+  remains now **raises** and names the orphan: `⌀20 THRU ⌴ ⌀32 ↓ 1.5` has no reading with
+  its leading term removed, and silently dropping the segments would discard authored
+  intent while silently restoring the head would make the drawing say something the
+  script does not.
 - **Addressable dimension identity** (#869/#870/#871): every planned measurement now has
   a stable `DimensionId(feature, parameter)`, and correlated measurements that must be
   named as one — a grid pattern's row and column pitch, a step ladder — group into an
