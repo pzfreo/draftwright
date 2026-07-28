@@ -14,7 +14,9 @@ authoritative. A caller who
 
 Kinds with no declarative verb yet (``rotational``) are flagged inline — never silently dropped —
 and left to the auto-pass that runs over the declared model on re-run. Imported authored
-dimensions, including AP242 dimensional PMI, emit as Sheet ``dimension(...)`` declarations.
+dimensions, including AP242 dimensional PMI, emit as Sheet ``measured_dimension(...)``
+declarations (#873 — never the transitional ``dimension`` overload, so a regenerated script is
+not born deprecated).
 Fidelity: the script reproduces a lint-clean drawing of the same features. The generated script is
 validated against the direct build for prismatic, slot/pattern, section, and turned/rotational
 fixtures (#472).
