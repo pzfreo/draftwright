@@ -80,6 +80,7 @@ from draftwright.model.declare import (
 )
 from draftwright.model.declare import read_bore_step as _read_bore_step
 from draftwright.model.declare import read_countersink as _read_countersink
+from draftwright.model.ir import RequestedDimension
 
 
 def _parse_datums(to) -> tuple[str, ...]:
@@ -284,6 +285,31 @@ class _Dim:
         return self
 
 
+class DimensionIntent:
+    """The handle :meth:`Sheet.add_dimension` returns (ADR 0016).
+
+    It is **not** a placement handle: it exposes no coordinate, no strip and no tier.
+    What it carries is the dimension's semantic identity — *a dimension line references;
+    the engine places*.
+
+    ADR 0012's ``.pin()`` / ``.priority()`` are deliberately absent for now. The engine
+    already has two spellings of "keep this put" at different layers, and adding a third
+    that no renderer consumes would ship a chainable verb doing nothing. This handle is
+    the extension point for them once that concept is converged.
+
+    Every other attribute forwards to the owning :class:`Sheet`, so the declare-then-chain
+    contract holds (``sheet.add_dimension(bore, "depth").hole(...)``) despite this
+    returning a handle rather than the sheet — the same rule :class:`_Params` follows.
+    """
+
+    def __init__(self, sheet: Sheet, entry: dict) -> None:
+        self._sheet = sheet
+        self._entry = entry
+
+    def __getattr__(self, name):  # declare-then-chain: forward to the sheet
+        return getattr(self._sheet, name)
+
+
 class _Params:
     """A fluent handle for a declared MULTI-parameter feature — a pocket
     (width/length/depth), slot (width/length) or envelope (width/height/depth) — whose
@@ -485,6 +511,16 @@ class Sheet:
         # engine's generic auto-placed Drawing.add_table, AFTER the drawing is built so they sit
         # clear of the views + title block (like the hole table). Each: {rows, prefer, name}.
         self._tables: list = []
+        # ADR 0016 augmenting dimension intents (#872), keyed by feature INDEX for the
+        # same reason as `_tolerances`: a handle may be recorded before a later size verb
+        # replaces the feature. Materialized to `RequestedDimension` against the FINAL
+        # features at build. Each entry: {"index", "role", "discriminator", "pin", "priority"}.
+        self._added_dimensions: list[dict] = []
+        # Did the script explicitly ask for the planner's set? Optional here (#872) — a
+        # build without it still auto-dimensions, as it always has. Making it MANDATORY
+        # is the #874 breaking change; shipping that early would change this verb's
+        # meaning between phases, which the epic's own rule forbids.
+        self._auto_dimensions = False
         # A requested section A–A (#841): ``None`` = no request, else a resolver tuple
         # (``kind``, ``payload``) materialized to a cut-plane Y in ``_decorations`` — ``at``
         # a literal Y, ``feature`` a declared-feature index, ``auto`` the part-centre Y.
@@ -943,6 +979,88 @@ class Sheet:
         """The declared IR features (mutable — override or drop before :meth:`build`)."""
         return self._features
 
+    def auto_dimensions(self) -> Sheet:
+        """Ask for the planner's automatic dimension set explicitly (ADR 0016).
+
+        Today this is **optional** — a build without it still auto-dimensions, exactly as
+        before — and it exists so a script can *say* which dimension source it uses, and
+        so :meth:`add_dimension` has something to augment. Making it mandatory is the
+        #874 breaking change; landing that here would change this verb's meaning between
+        releases, which ADR 0016's phasing rule forbids.
+        """
+        self._auto_dimensions = True
+        return self
+
+    def add_dimension(self, feature, role: str, *, axis: str | None = None):
+        """Augment the planner's set with one more measurement (ADR 0016 / #872).
+
+        *feature* is a declared-feature handle (what :meth:`hole`, :meth:`boss`, … return),
+        an index into :attr:`features`, or the IR feature itself. *role* names the
+        measurement — ``"bore"``, ``"grid_pitch"``, … — and carries **no number**: the
+        value is read from the geometry, so the size still lives in exactly one place.
+
+        Returns a :class:`DimensionIntent`.
+
+        Requesting a measurement the planner already emits is a deliberate no-op, not an
+        error: a script should be able to ask without first knowing the rule set's mind.
+
+        ``axis`` disambiguates a role a feature carries more than once — today a grid
+        pattern's two pitches. Omitting it there raises rather than picking one, because
+        a silent coin toss between the row and column pitch is the kind of wrong a reader
+        cannot see.
+        """
+        index = self._feature_index(feature)
+        target = self._features[index]
+        params = target.parameters()
+        roles = {p.role for p in params} | {p.parameter_id for p in params}
+        if role not in roles:
+            raise ValueError(
+                f"add_dimension: {type(target).__name__} has no {role!r} measurement "
+                f"(it carries {sorted(roles)})"
+            )
+        matching = [p for p in params if role in (p.role, p.parameter_id)]
+        discs = {p.discriminator for p in matching}
+        if len(discs) > 1 and axis is None:
+            raise ValueError(
+                f"add_dimension({role!r}) is ambiguous on this feature — it carries "
+                f"{len(discs)} of them ({sorted(d for d in discs if d)}). Name one with "
+                f"axis=."
+            )
+        if axis is not None and axis not in discs:
+            raise ValueError(
+                f"add_dimension({role!r}, axis={axis!r}): this feature has no such "
+                f"variant ({sorted(d for d in discs if d)})"
+            )
+        entry = {"index": index, "role": role, "discriminator": axis}
+        self._added_dimensions.append(entry)
+        return DimensionIntent(self, entry)
+
+    def _feature_index(self, feature) -> int:
+        """Resolve a handle / index / IR feature to its index in :attr:`features`."""
+        if isinstance(feature, int):
+            if not 0 <= feature < len(self._features):
+                raise IndexError(f"feature index {feature} out of range")
+            return feature
+        index = getattr(feature, "_i", None)
+        if index is not None:
+            return int(index)
+        for i, f in enumerate(self._features):  # an IR feature passed directly
+            if f is feature or f == feature:
+                return i
+        raise ValueError(f"{feature!r} is not a feature declared on this sheet")
+
+    def _requested_dimensions(self) -> tuple:
+        """Materialize the index-keyed intents against the FINAL features, mirroring
+        :meth:`_decorations` — a handle may predate a later size verb."""
+        return tuple(
+            RequestedDimension(
+                feature=self._features[e["index"]],
+                role=e["role"],
+                discriminator=e["discriminator"],
+            )
+            for e in self._added_dimensions
+        )
+
     def _decorations(self) -> dict:
         """Materialize the index-keyed ± tolerances against the FINAL features (a handle may
         have been recorded before a later .depth()/… replaced the feature) → the
@@ -985,15 +1103,34 @@ class Sheet:
         does), so the bbox/datum match what ``build()`` draws even when the part carries
         bbox-extending non-solid geometry."""
         self._prepare()
-        return _coerce_model(self._features, _solids_body(self._part), self._decorations())
+        return _coerce_model(
+            self._features,
+            _solids_body(self._part),
+            self._decorations(),
+            self._requested_dimensions(),
+        )
 
     def build(self):
         """Build the :class:`~draftwright.drawing.Drawing` — detection skipped; only the
         declared features are drawn. Declared corner-block tables (:meth:`table`/:meth:`notes`)
         are placed last, clear of everything already on the sheet."""
         self._prepare()
+        # `add_dimension` augments the planner's set, so the sheet must have asked for
+        # one (ADR 0016 / #872). Checked HERE rather than in the verb so intent stays
+        # order-independent: declaring the augment before the source must read the same
+        # as declaring it after.
+        if self._added_dimensions and not self._auto_dimensions:
+            raise ValueError(
+                "add_dimension() augments the planner's automatic dimension set, so the "
+                "sheet must request one — call auto_dimensions(). (Declaring the complete "
+                "authored set with dimension(...) instead is #874.)"
+            )
         dwg = build_drawing(
-            self._part, model=self._features, decorations=self._decorations(), **self._opts
+            self._part,
+            model=self._features,
+            decorations=self._decorations(),
+            requested=self._requested_dimensions(),
+            **self._opts,
         )
         # Add each declared table, uniquifying its name against everything already on the sheet
         # (feature annotations + earlier tables) so a table NEVER silently overwrites another

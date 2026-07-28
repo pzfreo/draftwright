@@ -387,6 +387,31 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     ]
 
 
+def _request_for(model, feature, param):
+    """The caller's `add_dimension(...)` for this parameter, or ``None``.
+
+    Matched on ``(feature, role)`` plus the discriminator where the role alone is
+    ambiguous — a grid pattern carries two ``grid_pitch`` params and a request naming
+    neither would be a coin toss, so it must name one (the facade raises before we get
+    here; this stays strict so a hand-built `PartModel` cannot slip past)."""
+    for req in model.requested_dimensions:
+        if req.feature != feature:
+            continue
+        # A request names either a full `ParameterId` ("bore.depth" — one measurement)
+        # or a bare role ("bore" — every measurement under it). Both are useful: the
+        # dotted form is the exact identity #871 built, the short form is what a caller
+        # reaches for when the role is unambiguous. ADR 0016 leaves this vocabulary open.
+        if "." in req.role:
+            if req.role != param.parameter_id:
+                continue
+        elif req.role != param.role:
+            continue
+        if req.discriminator is not None and req.discriminator != param.discriminator:
+            continue
+        return req
+    return None
+
+
 def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
     view + planned dims, each carrying its render intent — convention, model-level
@@ -411,6 +436,15 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
             if tol is not None:
                 p = replace(p, tolerance=tol)
             suppressed, reason = _suppression(model, feature, p)
+            # A caller's `add_dimension(...)` overrides the rule set's suppression for
+            # exactly the measurement it names (ADR 0016 / #872). It changes SELECTION
+            # only — the value still comes from the geometry, so a request can never
+            # introduce a number the part does not carry. Requesting something the
+            # planner already emits is a deliberate no-op (idempotence gate): a script
+            # must be able to ask without first knowing the rule set's mind.
+            request = _request_for(model, feature, p)
+            if request is not None:
+                suppressed, reason = False, None
             dims.append(
                 PlannedDimension(
                     param=p,

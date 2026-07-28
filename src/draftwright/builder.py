@@ -196,7 +196,7 @@ def _measure_blocks(dwg, a) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _coerce_model(model, part, decorations=None) -> PartModel:
+def _coerce_model(model, part, decorations=None, requested=None) -> PartModel:
     """Wrap a caller-supplied ``model=`` (ADR 0011) into a :class:`PartModel`. A
     ``PartModel`` is used verbatim; a sequence of features is wrapped with the part's
     bbox, a default corner location datum (matching ``detect.py``, so hole location
@@ -213,8 +213,14 @@ def _coerce_model(model, part, decorations=None) -> PartModel:
     ``PartModel`` is never mutated — decorations merge into a copy so the caller's
     reusable public input (ADR 0011) stays clean across builds."""
     if isinstance(model, PartModel):
-        if decorations:
-            return replace(model, decorations={**model.decorations, **decorations})
+        if decorations or requested:
+            return replace(
+                model,
+                decorations={**model.decorations, **decorations}
+                if decorations
+                else model.decorations,
+                requested_dimensions=tuple(requested) if requested else model.requested_dimensions,
+            )
         return model
     features = list(model)
     bbox = part.bounding_box()
@@ -226,6 +232,7 @@ def _coerce_model(model, part, decorations=None) -> PartModel:
         features=features,
         datums=[datum],
         decorations=decorations or {},
+        requested_dimensions=tuple(requested or ()),
     )
 
 
@@ -242,7 +249,15 @@ def detect_part_model(part, *, pmi="off") -> PartModel:
 
 
 def _assemble(
-    a, out, assembly, detail_view, auto_dims, model=None, decorations=None, trace=None
+    a,
+    out,
+    assembly,
+    detail_view,
+    auto_dims,
+    model=None,
+    decorations=None,
+    requested=None,
+    trace=None,
 ) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
     passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
@@ -273,7 +288,7 @@ def _assemble(
     # detectors run once per build (ADR 0008 Amdt 5, #602). build_model(a) remains the
     # fallback for a manually-constructed Analysis with no stored model.
     pm = (
-        _coerce_model(model, a.part, decorations)
+        _coerce_model(model, a.part, decorations, requested)
         if model is not None
         else (a.model if a.model is not None else build_model(a))
     )
@@ -419,6 +434,7 @@ def _repack(
     page=None,
     model=None,
     decorations=None,
+    requested=None,
     trace=None,
 ):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
@@ -557,6 +573,7 @@ def _repack(
         auto_dims=True,
         model=model,
         decorations=decorations,
+        requested=requested,
         trace=trace,
     )
     return a2, dwg2
@@ -572,6 +589,7 @@ def _repack_to_fixed_point(
     page=None,
     model=None,
     decorations=None,
+    requested=None,
     trace=None,
 ):
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
@@ -587,6 +605,7 @@ def _repack_to_fixed_point(
             page=page,
             model=model,
             decorations=decorations,
+            requested=requested,
             trace=trace,
         )
         if repacked is None:
@@ -643,6 +662,7 @@ def build_drawing(
     assembly: bool | None = None,
     model: Sequence[Feature] | PartModel | None = None,
     decorations: dict | None = None,
+    requested: tuple | None = None,
     trace: str | Path | bool | None = None,
     material: str = "",
     date: str = "",
@@ -756,6 +776,7 @@ def build_drawing(
         auto_dims,
         model=model,
         decorations=decorations,
+        requested=requested,
         trace=tracer,
     )
     if auto_dims:
@@ -769,6 +790,7 @@ def build_drawing(
             page=page,
             model=model,
             decorations=decorations,
+            requested=requested,
             trace=tracer,
         )
         if repacked is not None:

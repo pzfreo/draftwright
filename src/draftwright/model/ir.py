@@ -808,6 +808,36 @@ class Note:
         return []
 
 
+@dataclass(frozen=True)
+class RequestedDimension:
+    """A caller's ``add_dimension(...)`` — *augment the planner's set with this
+    measurement* (ADR 0016).
+
+    Referential like every ADR 0016 intent: it names a feature and a role and carries
+    **no number**, so the value still comes from the geometry. What it changes is
+    *selection*, not derivation — if the planner suppressed this parameter the request
+    un-suppresses it; if the planner already emits it the request is a no-op. Overlap
+    is deliberately not an error (the #872 idempotence gate): a script should be able to
+    ask for a measurement without first knowing whether the rule set already volunteers
+    it, or the verb would leak the planner's internals into every caller.
+
+    Emphasis (ADR 0012's ``pin`` / ``priority``) is deliberately NOT here. The engine
+    already carries two spellings of "keep this dimension put" — ``Drawing.pin(name)``
+    on a placed annotation, and the post-build ``intents`` route that reaches the solve
+    through ``render_locations(pinned=…)`` for location dims only. Adding a third,
+    pre-build spelling would scatter one concept across three layers, the same way the
+    corridor priority scale was scattered before #894 consolidated it. The convergence
+    is tracked separately; this type stays pure *selection*.
+    """
+
+    feature: Feature
+    role: Role
+    #: Discriminator for a role a feature carries more than once — today only a grid
+    #: pattern's two pitches (``"row"`` / ``"col"``). ``None`` where the role identifies
+    #: the measurement on its own.
+    discriminator: str | None = None
+
+
 @dataclass
 class PartModel:
     """The whole-part IR: the oriented part plus its features and datums."""
@@ -820,3 +850,8 @@ class PartModel:
     # per-dimension tolerances: ``{(feature, ParamKind) -> float | (lo, hi)}``. The
     # planner consults it to set ``DimParameter.tolerance``; empty on a detected model.
     decorations: dict = field(default_factory=dict)
+    # Caller-requested augmenting measurements (ADR 0016 / #872) — the planner's
+    # *intent input*. Kept distinct from `decorations` on purpose: a decoration enriches
+    # a dimension the planner already chose, a request changes WHICH dimensions it
+    # chooses. Empty on a detected model.
+    requested_dimensions: tuple[RequestedDimension, ...] = ()
