@@ -126,7 +126,7 @@ def _member_slot_str(m) -> str:
     )
 
 
-def _authored_dimension_line(f) -> str:
+def _measured_dimension_line(f) -> str:
     kw = [
         f"kind={f.dimension_kind!r}",
         f"value={_n(f.value)}",
@@ -145,7 +145,9 @@ def _authored_dimension_line(f) -> str:
         kw.append(f"source={f.source!r}")
     if f.source_kind is not None and f.source_kind != f.dimension_kind:
         kw.append(f"source_kind={f.source_kind!r}")
-    return "sheet.dimension(" + ", ".join(kw) + ")"
+    # `measured_dimension` since #873 — a generated script must not emit the transitional
+    # overload, or every regenerated AP242 script would arrive pre-deprecated.
+    return "sheet.measured_dimension(" + ", ".join(kw) + ")"
 
 
 def _raw_pmi_line(f) -> str:
@@ -162,7 +164,7 @@ def _raw_pmi_line(f) -> str:
 def _feature_line(f) -> str:
     k = f.kind
     if k == "authored_dimension":
-        return _authored_dimension_line(f)
+        return _measured_dimension_line(f)
     if k == "pmi":
         return _raw_pmi_line(f)
     if k == "envelope":
@@ -345,7 +347,7 @@ _NOUN = {
     "plate": "plate",
     "envelope": "envelope",
     "step_level": "step-ladder",
-    "authored_dimension": "dimension",
+    "authored_dimension": "measured dimension",
     "pmi": "PMI record",
 }
 # Kinds whose _feature_line carries NO inline comment of its own — the emit loop appends a

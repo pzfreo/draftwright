@@ -1555,7 +1555,7 @@ def _point3(name: str, p) -> Point:
     return (vals[0], vals[1], vals[2])
 
 
-def authored_dimension(
+def measured_dimension(
     *,
     kind: str,
     value: float,
@@ -1571,8 +1571,8 @@ def authored_dimension(
     source_kind: str | None = None,
 ) -> AuthoredDimension:
     """A pre-authored drafting dimension from explicit measured values — the IR constructor
-    behind :meth:`Sheet.dimension` (#704: extracted so ``build_drawing(model=…)`` callers can
-    author one without the façade). Validates the kind against
+    behind :meth:`Sheet.measured_dimension` (#704: extracted so ``build_drawing(model=…)``
+    callers can author one without the façade). Validates the kind against
     :data:`~draftwright.model.ir.AUTHORED_DIMENSION_KINDS`, needs ≥2 ``ref_pts``, and derives
     ``at`` (the ``ref_bbox`` centre, else the ``ref_pts`` centroid) when not given."""
     _require_positive(value=value)

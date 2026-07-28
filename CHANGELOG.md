@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`sheet.add_dimension(feature, role)` — ask the planner to carry one more
+  measurement** (ADR 0016 / #872). Referential: it names a feature and a role and
+  carries **no number**, so the value still comes from the geometry and a size lives in
+  exactly one place. It changes *selection*, not derivation — a request can never
+  introduce a number the part does not have. Requesting something the planner already
+  emits is a deliberate no-op, so a script can ask without first knowing the rule set's
+  mind. `sheet.auto_dimensions()` states the source explicitly (optional in this
+  release; #874 makes it mandatory).
+- **Addressable dimension identity** (#869/#870/#871): every planned measurement now has
+  a stable `DimensionId(feature, parameter)`, and correlated measurements that must be
+  named as one — a grid pattern's row and column pitch, a step ladder — group into an
+  `AddressableDimension`. This is what a `dimension(...)` line will name, and what
+  suppression and provenance key on.
+
+### Changed
+
+- **`Sheet.dimension(kind=…, value=…)` is now `Sheet.measured_dimension(...)`**
+  (ADR 0016 / #873), and `model.declare.authored_dimension` is
+  `model.declare.measured_dimension` to match. `dimension` becomes the *referential*
+  verb on both `Sheet` and `Drawing` — name a feature and a role, read the value off the
+  geometry — so the verb that carries an explicit number needed a name that says so.
+  The old spelling is a **transitional overload**, not a deprecation wrapper: because the
+  name is reused rather than retired, `Sheet.dimension` dispatches on how it was called
+  and warns, for one release. It expires at 0.4.0 with the #720 alias removals.
+  Generated AP242 scripts emit `measured_dimension` and so arrive un-deprecated.
+- **`Sheet` handles address features by identity, not position** (#908/#910/#912). A
+  handle, tolerance, GD&T origin, section request or dimension intent now follows *its*
+  feature through a `features` reorder instead of naming whatever took the slot.
+  Reordering with `reverse()`/`sort()` preserves every reference; deleting or replacing
+  a referenced feature raises rather than silently retargeting a neighbour. `of()` now
+  accepts a handle, and negative indices resolve uniformly across `of()`,
+  `add_dimension()` and the GD&T verbs.
+
+### Fixed
+
+- **Front-view dimensions join the placement solve instead of committing to the strip**
+  (#894): they previously took strip space before the global solve ran, so a
+  higher-ranked dimension could find its space already gone. Priority only ranks
+  candidates that are *in* the solve.
+- **A hole callout reads the feature's own `through` fact** (#868) rather than inferring
+  it from whether a depth parameter happens to be present — so a suppressed depth can no
+  longer make a blind hole print `THRU`.
+- **The balloon ring clears the view it annotates after a hole-table escalation**
+  (#901/#903).
+
 ## v0.3.9 — 2026-07-26
 
 ### Added

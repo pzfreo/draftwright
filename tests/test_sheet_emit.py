@@ -86,7 +86,10 @@ class TestEmit:
         py = generate_sheet_script(str(AP242_CTC01), out=str(tmp_path / "ctc01"), pmi="annotate")
         src = Path(py).read_text(encoding="utf-8")
         ast.parse(src)
-        assert "sheet.dimension(" in src
+        # `measured_dimension` since #873: a generated script must not emit the
+        # transitional overload, or every regenerated AP242 script arrives deprecated.
+        assert "sheet.measured_dimension(" in src
+        assert "sheet.dimension(" not in src
         assert "sheet.pmi(" not in src
         assert "# authored_dimension" not in src
         assert "source='ap242_pmi'" in src
@@ -98,11 +101,11 @@ class TestEmit:
         assert "Frame" in import_line and "PmiFeature" in import_line
         assert "StepLevelFeature" not in import_line
 
-    def test_sheet_dimension_declares_renderable_authored_dimension(self, tmp_path):
+    def test_measured_dimension_declares_renderable_authored_dimension(self, tmp_path):
         from draftwright import Sheet
 
         sheet = Sheet(Box(40, 20, 10), title="P", out=str(tmp_path / "dim"))
-        sheet.dimension(
+        sheet.measured_dimension(
             kind="linear",
             value=40,
             label="40",
@@ -119,12 +122,12 @@ class TestEmit:
         assert feat.source == "sheet"
         assert any(n.startswith("pmi_") for n in sheet.build().annotations())
 
-    def test_sheet_dimension_rejects_unrenderable_kind(self):
+    def test_measured_dimension_rejects_unrenderable_kind(self):
         from draftwright import Sheet
 
         sheet = Sheet(Box(40, 20, 10), title="P")
         with pytest.raises(ValueError, match="kind must be one of"):
-            sheet.dimension(
+            sheet.measured_dimension(
                 kind="liner",
                 value=40,
                 label="40",
@@ -133,12 +136,12 @@ class TestEmit:
                 ref_bbox=(-20, -10, -5, 20, 10, 5),
             )
 
-    def test_sheet_dimension_rejects_unrenderable_axis(self):
+    def test_measured_dimension_rejects_unrenderable_axis(self):
         from draftwright import Sheet
 
         sheet = Sheet(Box(40, 20, 10), title="P")
         with pytest.raises(ValueError, match="dominant_axis must be X, Y, or Z"):
-            sheet.dimension(
+            sheet.measured_dimension(
                 kind="linear",
                 value=40,
                 label="40",
@@ -160,7 +163,7 @@ class TestEmit:
         }
         for axis, ref_pts in cases.items():
             sheet = Sheet(Box(80, 60, 40), title="P")
-            sheet.dimension(
+            sheet.measured_dimension(
                 kind="linear",
                 value=10,
                 label="10",
@@ -180,7 +183,7 @@ class TestEmit:
         from draftwright import Sheet
 
         sheet = Sheet(Box(80, 60, 40), title="P")
-        sheet.dimension(
+        sheet.measured_dimension(
             kind="linear",
             value=10,
             label="10",

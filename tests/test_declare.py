@@ -1614,7 +1614,8 @@ class TestSheetDslShim:
 
 
 class TestAuthoredDimension:
-    """``model.authored_dimension`` — the IR constructor behind ``Sheet.dimension`` (#704),
+    """``model.measured_dimension`` — the IR constructor behind ``Sheet.measured_dimension``
+    (#704/#873),
     so ``build_drawing(model=…)`` callers can author one without the façade."""
 
     _KW = dict(
@@ -1631,18 +1632,42 @@ class TestAuthoredDimension:
     def test_matches_the_sheet_facade_feature(self):
         # The façade must append EXACTLY the feature the constructor builds — the
         # frozen-dataclass equality pins the delegation against re-inlining drift.
-        from draftwright.model import authored_dimension
+        from draftwright.model import measured_dimension
         from draftwright.sheet import Sheet
 
         sheet = Sheet(Box(40, 20, 10), title="P")
-        sheet.dimension(**self._KW)
+        sheet.measured_dimension(**self._KW)
         via_facade = next(f for f in sheet.features if f.kind == "authored_dimension")
-        assert authored_dimension(**self._KW) == via_facade
+        assert measured_dimension(**self._KW) == via_facade
+
+    def test_the_transitional_overload_still_reaches_the_same_feature(self):
+        """#873 REUSES the name `dimension` rather than retiring it, so an old keyword call
+        cannot be left to fail with a `TypeError` from the new signature's argument list. It
+        warns and delegates for one release, and must build the identical feature."""
+        from draftwright.model import measured_dimension
+        from draftwright.sheet import Sheet
+
+        sheet = Sheet(Box(40, 20, 10), title="P")
+        with pytest.warns(DeprecationWarning, match="measured_dimension"):
+            sheet.dimension(**self._KW)
+        assert next(f for f in sheet.features if f.kind == "authored_dimension") == (
+            measured_dimension(**self._KW)
+        )
+
+    def test_the_overload_refuses_a_call_it_cannot_interpret(self):
+        """The referential form is #874. Until then `dimension(feature, role)` must say so
+        rather than raise a `TypeError` about missing keywords, which is what a plain rename
+        would have produced and what the transitional overload exists to avoid."""
+        from draftwright.sheet import Sheet
+
+        sheet = Sheet(Box(40, 20, 10), title="P")
+        with pytest.raises(TypeError, match="referential form"):
+            sheet.dimension(0, "length")
 
     def test_validates_without_the_facade(self):
-        from draftwright.model import authored_dimension
+        from draftwright.model import measured_dimension
 
         with pytest.raises(ValueError, match="kind must be one of"):
-            authored_dimension(**{**self._KW, "kind": "liner"})
+            measured_dimension(**{**self._KW, "kind": "liner"})
         with pytest.raises(ValueError, match="at least two ref_pts"):
-            authored_dimension(**{**self._KW, "ref_pts": [(0, 0, 0)]})
+            measured_dimension(**{**self._KW, "ref_pts": [(0, 0, 0)]})

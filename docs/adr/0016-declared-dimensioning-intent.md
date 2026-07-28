@@ -61,7 +61,9 @@ dimensions. Today you cannot declare "dimension the pitch between these two boss
 this wall an overall-thickness dimension", or "do **not** auto-dimension this hole's
 location" as *intent* and let the engine place the result.
 
-The near-miss primitive is today's `sheet.dimension(...)` (`model.declare.authored_dimension`),
+The near-miss primitive is today's `sheet.measured_dimension(...)` (`model.declare.measured_dimension`
+— both renamed from `dimension`/`authored_dimension` by #873, so the referential verb could take
+the plain name),
 used for imported AP242 PMI. But it is *materialized* — it carries `ref_pts` / `ref_bbox` /
 `at` — so it leans toward the hardcoded-geometry form ADR 0001 rejected. It is the escape
 hatch for "a source already measured this", not the intent layer for "this measurement

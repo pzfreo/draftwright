@@ -51,7 +51,6 @@ from draftwright.analysis import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
 from draftwright.model import Feature
-from draftwright.model import authored_dimension as _authored_dimension
 from draftwright.model import boss as _boss
 from draftwright.model import chamfer as _chamfer
 from draftwright.model import control_frame as _declare_control
@@ -62,6 +61,7 @@ from draftwright.model import finish as _declare_finish
 from draftwright.model import flat as _flat
 from draftwright.model import groove as _groove
 from draftwright.model import hole as _hole
+from draftwright.model import measured_dimension as _measured_dimension
 from draftwright.model import note as _declare_note
 from draftwright.model import pad as _pad
 from draftwright.model import pattern as _pattern
@@ -697,7 +697,40 @@ class Sheet:
         self._features.append(feature)
         return self
 
-    def dimension(
+    #: The keyword set that identifies a call to the pre-rename `dimension(...)`. `kind` alone
+    #: would do today, but the referential form may grow keywords of its own, so the test is the
+    #: intersection of what only a measured call can supply.
+    _MEASURED_KEYWORDS = frozenset({"kind", "value", "label", "dominant_axis", "ref_pts"})
+
+    def dimension(self, *args, **kw):
+        """Transitional overload for the pre-#873 spelling of :meth:`measured_dimension`.
+
+        A **transitional overload, not a deprecation wrapper**, because the name is *reused*
+        rather than retired: ADR 0016 gives ``dimension`` the referential meaning — name a
+        feature and a role, carry no number — on both :class:`Sheet` and ``Drawing``. A plain
+        rename would leave old keyword calls raising ``TypeError`` from the new signature's
+        argument list rather than saying what happened, which is the worst of both.
+
+        So this dispatches on how it was called, for one release. It expires at 0.4.0 with the
+        ADR 0005 §4 alias removals (#720).
+        """
+        if self._MEASURED_KEYWORDS & set(kw):
+            warnings.warn(
+                "Sheet.dimension(kind=…, value=…) is now Sheet.measured_dimension(...) — "
+                "`dimension` is becoming the referential verb that names a feature and a role "
+                "and reads the value off the geometry (ADR 0016). This overload expires at "
+                "0.4.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return self.measured_dimension(*args, **kw)
+        raise TypeError(
+            "Sheet.dimension(): the referential form — dimension(feature, role), which declares "
+            "the complete authored dimension set — is #874. For a dimension carrying an explicit "
+            "measured value, call measured_dimension(kind=…, value=…, …)."
+        )
+
+    def measured_dimension(
         self,
         *,
         kind: str,
@@ -713,17 +746,22 @@ class Sheet:
         source: str = "sheet",
         source_kind: str | None = None,
     ) -> Sheet:
-        """Declare a pre-authored drafting dimension from explicit measured values.
+        """Declare a drafting dimension from explicit **measured** values.
+
+        Named for what it carries (ADR 0016 / #873). ``dimension`` now means *referential* on
+        both :class:`Sheet` and ``Drawing`` — it names a feature and a role and the engine reads
+        the value off the geometry — so the verb that carries a number of its own needed a name
+        that says so. A measured dimension is the one place a value does NOT come from the part.
 
         This is the concept-shaped Sheet API used by generated AP242 scripts: the source file
         may call the record PMI, but the editable script declares a dimension category, value,
         label, referenced model points, and optional structured tolerances. For ordinary
         geometry-backed edits prefer feature handles such as ``sheet.hole(...).tolerance(...)``.
-        Delegates to :func:`draftwright.model.declare.authored_dimension` (#704), so
+        Delegates to :func:`draftwright.model.declare.measured_dimension` (#704), so
         ``build_drawing(model=…)`` callers can author the same feature without the façade.
         """
         self._features.append(
-            _authored_dimension(
+            _measured_dimension(
                 kind=kind,
                 value=value,
                 label=label,
