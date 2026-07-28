@@ -1671,3 +1671,36 @@ class TestAuthoredDimension:
             measured_dimension(**{**self._KW, "kind": "liner"})
         with pytest.raises(ValueError, match="at least two ref_pts"):
             measured_dimension(**{**self._KW, "ref_pts": [(0, 0, 0)]})
+
+    def test_every_validation_branch_names_the_verb_that_was_called(self):
+        """#873 renamed these seven messages from `dimension()`. Left stale they get actively
+        misleading rather than merely dated: once `dimension` is the referential verb,
+        `dimension() kind must be one of…` implicates an API that has no `kind` at all.
+
+        Covering each branch is also what stops the rename being asserted only where a test
+        happened to exist — two of these were unexercised, which is how the stale text survived
+        the first pass."""
+        from draftwright.model import measured_dimension
+
+        cases = [
+            ({"ref_pts": [(0, 0), (1, 1)]}, "ref_pts item must be a 3-tuple"),
+            ({"ref_bbox": (0, 0, 0, 1, 1)}, "ref_bbox must be a 6-tuple"),
+            ({"dominant_axis": "W"}, "dominant_axis must be X, Y, or Z"),
+            ({"kind": "liner"}, "kind must be one of"),
+            ({"ref_pts": [(0, 0, 0)]}, "needs at least two ref_pts"),
+        ]
+        for override, message in cases:
+            with pytest.raises(ValueError, match=f"measured_dimension\\(\\) {message}"):
+                measured_dimension(**{**self._KW, **override})
+
+    def test_a_diameter_may_decline_a_dominant_axis(self):
+        """The one exemption from the axis check, so the branch above is not read as absolute:
+        a diameter or radius WITH a ref_bbox may pass '?' — the axis is derivable."""
+        from draftwright.model import measured_dimension
+
+        assert (
+            measured_dimension(
+                **{**self._KW, "kind": "diameter", "dominant_axis": "?"}
+            ).dominant_axis
+            == "?"
+        )
