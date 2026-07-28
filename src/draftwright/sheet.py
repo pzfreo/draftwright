@@ -220,7 +220,11 @@ class _Hole:
         self._sheet._gdt_note(text, self._i, view=view, side=side)
         return self
 
+    def _check_fresh(self) -> None:
+        self._sheet._assert_handle_fresh(self)
+
     def _set(self, **kw) -> _Hole:
+        self._check_fresh()
         updated = replace(self._sheet._features[self._i], **kw)
         self._sheet._replace_feature(self._i, updated)
         self._declared = updated
@@ -288,7 +292,11 @@ class _Dim:
             raise ValueError('thread() needs a non-empty spec string, e.g. "M3x0.5"')
         return self._set(thread=spec.strip())
 
+    def _check_fresh(self) -> None:
+        self._sheet._assert_handle_fresh(self)
+
     def _set(self, **kw) -> _Dim:
+        self._check_fresh()
         updated = replace(self._sheet._features[self._i], **kw)
         self._sheet._replace_feature(self._i, updated)
         self._declared = updated
@@ -917,7 +925,11 @@ class Sheet:
         size verb may have replaced it since declaration). Idempotent; mirrors P2a's
         :meth:`_decorations`. Called before handing features to the engine."""
         for gi, si in self._gdt_src:
-            self._features[gi] = replace(self._features[gi], origin=self._features[si])
+            # Through `_replace_feature`, not a raw write: this is a legitimate internal
+            # rebind, and a raw write would desync the identity shadow and make an
+            # ordinary `hole.note(...)` + `add_dimension(...)` script look like an
+            # unsupported list edit (#872 review, round 6).
+            self._replace_feature(gi, replace(self._features[gi], origin=self._features[si]))
 
     def _validate_datums(self) -> None:
         """Warn (non-fatal) if a control frame references a datum letter no ``sheet.datum`` on
@@ -1114,6 +1126,22 @@ class Sheet:
                 entry["target"] = feature
         if index < len(self._feature_ids):
             self._feature_ids[index] = id(feature)
+
+    def _assert_handle_fresh(self, handle) -> None:
+        """A handle addresses by index, so a reorder of the public list leaves it naming
+        someone else's feature. Checked before a size verb writes, not only when an
+        intent resolves — otherwise the write itself refreshes the handle and launders
+        the mismatch (#872 review, round 6)."""
+        declared = getattr(handle, "_declared", None)
+        index = getattr(handle, "_i", None)
+        if declared is None or index is None:
+            return
+        if not (0 <= index < len(self._features)) or self._features[index] is not declared:
+            raise ValueError(
+                f"{type(handle).__name__} is stale — `features` was reordered after this "
+                "handle was issued, so its index now names a different feature. Declare "
+                "the features you want, then the dimensions."
+            )
 
     def _feature_index(self, feature) -> int:
         """Resolve a handle / index / IR feature to its index in :attr:`features`."""

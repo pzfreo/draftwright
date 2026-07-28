@@ -397,19 +397,19 @@ class TestInvalidCombinations:
         assert request.feature.depth == 12
 
     def test_a_reorder_followed_by_a_size_verb_still_raises(self):
-        """The laundering path: a stale handle writing through its old index must not
-        quietly move the intent onto whatever now sits there. `_replace_feature` only
-        advances an intent whose target the replacement actually derives from."""
+        """The laundering path. It now fails at the size verb rather than later at
+        materialisation — the earlier the better, since the verb is where the mistake
+        actually is, and letting the write through is what allowed the mismatch to be
+        refreshed away in the first place."""
         sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         first = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
         sheet.hole(diameter=10, at=(20, 0, 14), axis="z").depth(7)
         sheet.add_dimension(first, "bore.depth")
 
         sheet.features[0], sheet.features[1] = sheet.features[1], sheet.features[0]
-        first.thread("M10")  # stale handle, now writing to the OTHER hole's slot
 
-        with pytest.raises(ValueError, match="reordered"):
-            sheet._requested_dimensions()
+        with pytest.raises(ValueError, match="stale"):
+            first.thread("M10")  # stale handle, would write to the OTHER hole's slot
 
     def test_an_intent_declared_after_a_reorder_raises(self):
         """Round 4's escape: the intent is declared *after* the swap, so the target is
@@ -457,3 +457,30 @@ class TestInvalidCombinations:
         bore.thread("M10")
         intent = sheet.add_dimension(bore, "bore")
         assert intent._entry["target"] is sheet.features[0]
+
+    def test_a_size_verb_cannot_launder_a_stale_handle(self):
+        """Round 6's variant. The staleness check has to run BEFORE the write, or the
+        write refreshes `_declared` and the mismatch disappears — the handle then
+        resolves cleanly onto the wrong feature."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        first = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
+        sheet.hole(diameter=10, at=(20, 0, 14), axis="z").depth(7)
+
+        sheet.features.reverse()
+
+        with pytest.raises(ValueError, match="stale"):
+            first.thread("M10")
+
+
+def test_a_gdt_aspect_alongside_a_dimension_intent_is_legitimate():
+    """Round 6's false positive: `_materialize_gdt` rebinds each GD&T item's origin at
+    build, which is an internal replacement — routing it through `_replace_feature`
+    keeps the identity shadow honest, so an ordinary note-plus-dimension script does not
+    look like an unsupported list edit."""
+    sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+    bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+    bore.note("HONE")
+    sheet.add_dimension(bore, "bore")
+    assert sheet.model() is not None
+    assert sheet.build() is not None
+    assert sheet.build() is not None, "and again — repeated builds must stay legal"
