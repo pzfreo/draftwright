@@ -150,13 +150,17 @@ def _scn_note(s):
 
 
 def _scn_add_dimension(s):
-    """The driver is a no-op because `DimensionIntent` currently exposes no verb that CONSUMES
-    its stored reference — ADR 0012's `.pin()`/`.priority()` were removed from #905 pending the
-    #906 convergence. Rather than fake a driver, `test_dimension_intent_still_has_no_verbs`
-    below fails the moment one is added, forcing a real one here."""
+    """The verb runs in the DRIVER, not in setup — so the matrix exercises the resolver on an
+    already-reordered sheet, which is a different claim from "a recorded intent survives a
+    reorder" and the one an earlier draft silently skipped.
+
+    `DimensionIntent` itself exposes no verb that consumes its stored reference (ADR 0012's
+    `.pin()`/`.priority()` were removed from #905 pending #906), so there is nothing further to
+    drive on the returned object. `test_dimension_intent_still_has_no_verbs` fails the moment
+    there is."""
     a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
     s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
-    return s.add_dimension(a, "bore"), lambda i: i
+    return a, lambda a: s.add_dimension(a, "bore")
 
 
 #: verb name -> (prepare, drive). The ratchet below asserts this covers every handle-returning
@@ -361,6 +365,61 @@ class TestDeliberateInvalidation:
         a.thread("M10")
         toleranced = [k[0].diameter for k in s.model().decorations if hasattr(k[0], "diameter")]
         assert toleranced == [10.0]
+
+
+class TestTokensDivergedFromIndices:
+    """Every test above runs on a sheet where token N happens to sit at index N, because nothing
+    was removed. That coincidence hides an entire class of bug: converting a token back to an
+    index, or vice versa, is a no-op on such a sheet and observable on no other.
+
+    Deleting features first forces the two apart — the survivor's token is 2 while its index is
+    0 — so a token/index confusion shows up here without needing a reorder at all.
+    """
+
+    @staticmethod
+    def _offset():
+        s = _sheet()
+        s.hole(diameter=99, at=(-40, 0, 20), axis="z").depth(2)  # tokens 0 and 1, both discarded
+        s.hole(diameter=98, at=(-35, 0, 20), axis="z").depth(2)
+        a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+        b = s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+        del s.features[0:2]
+        assert s._token_at(0) == 2, "the fixture must actually diverge tokens from indices"
+        return s, a, b
+
+    def test_a_handle_resolves_by_token_not_position(self):
+        s, a, _b = self._offset()
+        assert s.features[a._i].diameter == 10
+
+    def test_add_dimension_records_the_named_feature(self):
+        s, a, _b = self._offset()
+        s.add_dimension(a, "bore")
+        assert s._added_dimensions[0]["token"] == s._token_at(0)
+
+    def test_gdt_provenance_binds_to_the_named_feature(self):
+        s, a, _b = self._offset()
+        s.control(a).flatness(0.02)
+        s._prepare()
+        frame = next(f for f in s.features if f.kind == "control_frame")
+        assert frame.origin.diameter == 10
+
+    def test_a_tolerance_binds_to_the_named_feature(self):
+        s, a, _b = self._offset()
+        a.tolerance(0.05)
+        assert [k[0].diameter for k in s.model().decorations] == [10.0]
+
+    def test_a_section_cuts_through_the_named_feature(self):
+        s, _a, b = self._offset()
+        s.section(feature=b)
+        assert s.model().decorations["section"] == 0.0
+
+    def test_an_integer_ref_still_means_a_position(self):
+        """The contrast that makes the rest meaningful: a raw index is POSITIONAL by definition,
+        so `of(0)` names whatever sits at 0 — it is not a stale token."""
+        s, a, _b = self._offset()
+        assert s.of(0)._token == a._token
+        s.features.reverse()
+        assert s.of(0)._token != a._token
 
 
 class TestIntegerRefs:
