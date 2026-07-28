@@ -46,7 +46,6 @@ import math
 import warnings
 from collections.abc import MutableSequence
 from dataclasses import replace
-from itertools import count
 
 from draftwright.analysis import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
@@ -129,8 +128,10 @@ class _FeatureView(MutableSequence):
     the feature it names:
 
     - ``append`` mints a new token — a declaration;
-    - ``features[i] = f`` **keeps** the token, because that is what a size verb does when
-      it rebuilds the frozen dataclass;
+    - ``features[i] = f`` mints a **new** token: assignment cannot express "move this
+      feature here", so inheriting the slot's identity would silently hand every
+      reference to whatever was assigned. Stale references fail loudly instead. The
+      identity-preserving rebuild a size verb needs is :meth:`_rebind`;
     - ``reverse`` / ``sort`` / ``insert`` reorder entries, so a handle simply finds its
       feature at the new position rather than silently naming a neighbour;
     - ``del`` drops the token, so a handle for a removed feature raises when used.
@@ -142,14 +143,22 @@ class _FeatureView(MutableSequence):
     instead of detectable.
     """
 
-    __slots__ = ("_entries", "_tokens")
+    __slots__ = ("_entries", "_next_token")
 
     def __init__(self, entries: list) -> None:
         self._entries = entries
-        # Per-sheet, not global: tokens appear in internal keys, and this project holds
-        # output to be deterministic — a process-wide counter would make those keys
-        # depend on how many other sheets happened to be built first.
-        self._tokens = count()
+        # A plain int, not `itertools.count`: counters lose pickle/copy support in
+        # Python 3.14 and this package supports >=3.11, so a Sheet carrying one would
+        # stop being copyable. Per-sheet rather than global because tokens appear in
+        # internal keys and this project holds output to be deterministic — a
+        # process-wide counter would make those keys depend on how many other sheets
+        # happened to be built first.
+        self._next_token = 0
+
+    def _mint(self) -> int:
+        token = self._next_token
+        self._next_token += 1
+        return token
 
     def __getitem__(self, i):
         if isinstance(i, slice):
@@ -175,9 +184,9 @@ class _FeatureView(MutableSequence):
         # `reverse()` / `sort()`, which move whole entries. Internal rebuilding goes
         # through `_rebind`, which is the only path that preserves a token.
         if isinstance(i, slice):
-            self._entries[i] = [(next(self._tokens), f) for f in value]
+            self._entries[i] = [(self._mint(), f) for f in value]
             return
-        self._entries[i] = (next(self._tokens), value)
+        self._entries[i] = (self._mint(), value)
 
     def _rebind(self, index: int, feature) -> None:
         """Replace the feature at *index* KEEPING its token — the same feature, rebuilt.
@@ -194,7 +203,7 @@ class _FeatureView(MutableSequence):
         return len(self._entries)
 
     def insert(self, i, value) -> None:
-        self._entries.insert(i, (next(self._tokens), value))
+        self._entries.insert(i, (self._mint(), value))
 
     # Reordering must move ENTRIES, not values. `MutableSequence` implements `reverse`
     # in terms of `__setitem__`, which here keeps each slot's token — right for a size
@@ -1103,14 +1112,19 @@ class Sheet:
 
     @property
     def features(self) -> MutableSequence:
-        """The declared IR features (mutable — override or drop before :meth:`build`).
+        """The declared IR features — mutable: override, drop or reorder before
+        :meth:`build`.
 
-        **Not after declaring an `add_dimension` intent.** An intent targets one specific
-        feature, and this list is addressed by index, so an insert, delete or reorder
-        silently repoints it at a neighbour. Both are refused rather than guessed:
-        editing the list after an intent exists raises at :meth:`build`, and a handle
-        whose index no longer names the feature it was issued for raises when used.
-        Declare the features you want, then the dimensions.
+        Each feature carries an identity token (#908), so a **reorder** via
+        :meth:`~_FeatureView.reverse` or :meth:`~_FeatureView.sort` moves every reference
+        with it — a handle, a tolerance, a GD&T origin, a section, an `add_dimension`
+        intent all follow their feature to its new position.
+
+        **Assignment is not a move.** ``features[i] = f`` and slice assignment mint a new
+        identity, because assignment cannot distinguish "move this feature here" from
+        "put a different feature here" — so references to the displaced feature fail
+        loudly rather than silently transferring to whatever replaced it. The same holds
+        for deletion. Use ``reverse``/``sort`` to reorder while keeping references.
         """
         return self._features
 

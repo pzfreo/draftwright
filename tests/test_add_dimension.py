@@ -460,3 +460,108 @@ class TestFeatureViewIdentity:
         big.thread("M10")
         toleranced = [f.diameter for f, *_ in sheet._decorations() if hasattr(f, "diameter")]
         assert toleranced == [10.0]
+
+
+class TestFeatureViewContract:
+    """The complete mutable-sequence surface, as executable specification.
+
+    Three times during #908 a fix for the identity problem reintroduced it through an
+    operation nobody had enumerated — `MutableSequence` derives more methods than one
+    tends to hold in mind. A systematic audit found the current behaviour correct; this
+    pins it so the next change cannot quietly regress a route.
+
+    The rule each case checks: an operation either PRESERVES identity (references follow
+    the feature) or DROPS it (references fail loudly). Never transfers it silently.
+    """
+
+    @staticmethod
+    def _sheet_with(n=3):
+        sheet = Sheet(_part(), title="T", number="N")
+        for i in range(n):
+            sheet.hole(diameter=4 + i, at=(-20 + 20 * i, 0, 14), axis="z").depth(5 + i)
+        return sheet
+
+    def _tokens(self, sheet):
+        return [t for t, _f in sheet._entries]
+
+    @pytest.mark.parametrize(
+        "mutate",
+        [
+            pytest.param(lambda s, f: s.features.append(f), id="append"),
+            pytest.param(lambda s, f: s.features.extend([f]), id="extend"),
+            pytest.param(lambda s, f: s.features.insert(1, f), id="insert"),
+            pytest.param(lambda s, f: s.features.__iadd__([f]), id="iadd"),
+        ],
+    )
+    def test_additions_mint_fresh_tokens(self, mutate):
+        sheet = self._sheet_with()
+        before = self._tokens(sheet)
+        mutate(sheet, HoleFeature(Frame((50, 0, 14), "z"), 2.0, depth=None, through=True))
+        after = self._tokens(sheet)
+        assert len(after) == len(before) + 1
+        assert len(set(after)) == len(after), "tokens must stay unique"
+        assert set(before) <= set(after), "an addition must not disturb existing identity"
+
+    @pytest.mark.parametrize(
+        "mutate",
+        [
+            pytest.param(lambda s: s.features.pop(), id="pop"),
+            pytest.param(lambda s: s.features.remove(s.features[1]), id="remove"),
+            pytest.param(lambda s: s.features.__delitem__(0), id="del"),
+            pytest.param(lambda s: s.features.clear(), id="clear"),
+        ],
+    )
+    def test_removals_drop_tokens(self, mutate):
+        sheet = self._sheet_with()
+        before = set(self._tokens(sheet))
+        mutate(sheet)
+        after = set(self._tokens(sheet))
+        assert after < before, "a removal must drop identity, not renumber"
+
+    def test_sort_preserves_identity(self):
+        """Like `reverse`, `sort` moves whole entries — references follow."""
+        sheet = self._sheet_with()
+        pairs = {t: f.diameter for t, f in sheet._entries}
+        sheet.features.sort(key=lambda f: -f.diameter)
+        assert {t: f.diameter for t, f in sheet._entries} == pairs
+        assert [f.diameter for f in sheet.features] == sorted(pairs.values(), reverse=True)
+
+    def test_extended_slice_assignment_mints_for_the_touched_slots_only(self):
+        """`features[::2] = …` assigns positions 0 and 2, so those drop identity while
+        the untouched position 1 keeps its own — assignment is per-slot, not wholesale."""
+        sheet = self._sheet_with()
+        before = self._tokens(sheet)
+        sheet.features[::2] = [sheet.features[0], sheet.features[2]]
+        after = self._tokens(sheet)
+        assert after[1] == before[1], "an untouched slot keeps its identity"
+        assert after[0] not in before and after[2] not in before, "assigned slots mint"
+        assert len(set(after)) == len(after)
+
+    def test_negative_indices_resolve(self):
+        sheet = self._sheet_with()
+        assert sheet.features[-1] is sheet.features[len(sheet.features) - 1]
+
+    def test_a_sheet_survives_deepcopy(self):
+        """The allocator must be copyable — `itertools.count` loses pickle/copy support
+        in Python 3.14, and this package supports >=3.11."""
+        import copy
+
+        sheet = self._sheet_with()
+        clone = copy.deepcopy(sheet)
+        assert [f.diameter for f in clone.features] == [f.diameter for f in sheet.features]
+        clone.hole(diameter=9, at=(60, 0, 14), axis="z")
+        assert len(set(t for t, _ in clone._entries)) == len(clone._entries)
+
+    def test_detection_seeded_features_carry_identity(self):
+        """`from_part` seeds through `extend`, so detected features are tokenised too and
+        a tolerance on one survives a reorder."""
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(3, 8)
+        sheet = Sheet.from_part(part)
+        holes = [i for i, f in enumerate(sheet.features) if f.kind == "hole"]
+        assert holes, "expected detection to seed a hole"
+        sheet.of(holes[0]).tolerance(0.05)
+        sheet.features.reverse()
+        toleranced = [f for f, *_ in sheet._decorations() if getattr(f, "kind", None) == "hole"]
+        assert len(toleranced) == 1
