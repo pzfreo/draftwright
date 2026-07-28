@@ -175,6 +175,23 @@ def test_ctc02_top_balloon_ring_hugs_dimensions():
     )
 
 
+@pytest.mark.slow
+@pytest.mark.timeout(600)
+def test_ctc04_top_balloon_ring_stays_near_plan():
+    """#901: the other real escalating fixture must use the nearby carved lane,
+    not regress to the old hundreds-of-millimetres top-band depth."""
+    dwg = build_drawing(str(FIXTURES / "nist_ctc_04_asme1_ap203.stp"))
+    plan_top = dwg.view_bounds("plan")[3]
+    balloon_top = max(
+        obj.bounding_box().max.Y
+        for name, obj in dwg.iter_annotations()
+        if name.startswith("balloon_plan")
+    )
+
+    assert balloon_top > plan_top + 20, "expected a balloon ring above the plan view"
+    assert balloon_top - plan_top < 60, "top balloon ring is remote from the plan view"
+
+
 def _dense_scattered_plate():
     """20 unpatterned Z-holes of distinct diameters — dense enough that even the
     auto-grown sheet (#121) can't fit their callouts, so the plan view escalates to a

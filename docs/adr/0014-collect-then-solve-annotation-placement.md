@@ -57,7 +57,10 @@ Per view, per strip: **collect → solve → emit.**
     a geometry-only dynamic-programming solve assigns ordered members across
     those segments at minimum L1 leader cost.  This keeps a local remote
     obstacle from pushing the entire ring beyond its outer edge (#125), while
-    preserving crossing-free member order.
+    preserving crossing-free member order.  The selected lane must hold both
+    its balanced share and any member-count deficit left by the other bands, so
+    lane selection cannot weaken the downstream solver's maximum-cardinality
+    guarantee.
   - **Order** — label order along the strip = site/feature order (candidates
     sort by anchor coordinate), so leaders between **distinct** strip-axis
     coordinates are **crossing-free by construction**; coincident sites

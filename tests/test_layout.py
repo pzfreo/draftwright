@@ -69,6 +69,9 @@ class TestAssignBalloonBands:
 
 
 class TestSolveSegmentedStrip1d:
+    def test_empty_members_need_no_segments(self):
+        assert _solve_segmented_strip_1d([], 10.0, []) == []
+
     def test_uses_disjoint_segments_without_crossing_member_order(self):
         result = _solve_segmented_strip_1d([8.0, 12.0, 88.0], 10.0, [(0.0, 20.0), (80.0, 100.0)])
         assert result is not None

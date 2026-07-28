@@ -9854,6 +9854,39 @@ class TestHoleTable:
         bb = obj.bounding_box()
         return (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
 
+    def test_top_lane_target_keeps_balanced_share_when_sides_have_room(self):
+        from draftwright.annotations.balloons import _top_lane_target
+
+        assert _top_lane_target(18, [41, 41], 3) == 6
+
+    def test_top_lane_target_covers_capacity_deficit_on_other_bands(self):
+        from draftwright.annotations.balloons import _top_lane_target
+
+        # Balanced share alone is 3, but only three members fit elsewhere: the
+        # top lane needs seven or the max-cardinality assignment would drop one.
+        assert _top_lane_target(10, [2, 1], 3) == 7
+
+    def test_top_lane_selection_prefers_nearest_sufficient_lane(self):
+        from draftwright.annotations.balloons import _select_top_lane
+
+        lanes = [(20.0, [(0.0, 10.0)], 2), (40.0, [(0.0, 30.0)], 4)]
+        assert _select_top_lane(lanes, 2, 99.0) == lanes[0]
+
+    def test_top_lane_selection_falls_back_to_nearest_maximum_capacity(self):
+        from draftwright.annotations.balloons import _select_top_lane
+
+        lanes = [
+            (20.0, [(0.0, 10.0)], 2),
+            (40.0, [(0.0, 30.0)], 4),
+            (60.0, [(0.0, 30.0)], 4),
+        ]
+        assert _select_top_lane(lanes, 8, 99.0) == lanes[1]
+
+    def test_top_lane_selection_handles_no_lane_on_a_constrained_page(self):
+        from draftwright.annotations.balloons import _select_top_lane
+
+        assert _select_top_lane([], 1, 99.0) == (99.0, [], 0)
+
     def test_table_has_a_row_per_spec_group(self):
         dwg = build_drawing(_multi_hole_plate())
         n_groups = len([f for f in dwg.features("plan") if f.type == "hole"])
@@ -9956,7 +9989,7 @@ class TestHoleTable:
             margin=0.0,
             PAGE_H=180.0,
             PAGE_W=140.0,
-            FV_Y=20.0,
+            FV_Y=0.0,
             fv_hh=5.0,
         )
         pt = a.PV_Y + a.pv_hh

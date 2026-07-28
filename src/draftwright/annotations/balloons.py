@@ -33,6 +33,25 @@ from draftwright.layout import (
 _MIN_PERIMETER_EXTENT = 20.0 + _STRIP_SPACING
 
 
+def _top_lane_target(member_count, other_capacities, usable_band_count):
+    """Capacity the top lane needs for both balance and maximum cardinality."""
+
+    balanced_share = math.ceil(member_count / usable_band_count)
+    capacity_deficit = max(0, member_count - sum(other_capacities))
+    return max(balanced_share, capacity_deficit)
+
+
+def _select_top_lane(lane_options, target, fallback_line):
+    """Nearest sufficient lane, else nearest maximum-capacity best effort."""
+
+    fitting = [option for option in lane_options if option[2] >= target]
+    if fitting:
+        return fitting[0]
+    if lane_options:
+        return max(lane_options, key=lambda option: (option[2], -option[0]))
+    return fallback_line, [], 0
+
+
 def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
     """Place a leadered balloon for each ``(tag, j, hole)`` in *specs*,
     fitted into the halo the layout reserved around the view (#111).
@@ -125,7 +144,12 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         # carry a balanced share of the ring.  This is measured render geometry;
         # ordered placement across the resulting segments remains in layout.py.
         top_lo, top_hi = band_defs["top"][2:]
-        top_target = math.ceil(len(specs) / (3 + int(has_bottom)))
+        other_capacities = [
+            _strip_capacity(*band_defs[name][2:], gap) for name in ("left", "right")
+        ]
+        if has_bottom:
+            other_capacities.append(_strip_capacity(*band_defs["bottom"][2:], gap))
+        top_target = _top_lane_target(len(specs), other_capacities, 3 + int(has_bottom))
         first_line = pt + centre_offset
         last_line = ph - margin - r
         candidates = {first_line}
@@ -144,17 +168,9 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
             capacity = sum(_strip_capacity(lo, hi, gap) for lo, hi in segments)
             lane_options.append((line, segments, capacity))
 
-        fitting = [option for option in lane_options if option[2] >= top_target]
-        if fitting:
-            top_line, top_segments, _ = fitting[0]
-        elif lane_options:
-            # Best effort on a genuinely constrained sheet: retain the nearest
-            # maximum-capacity lane and let the global assignment use the sides.
-            top_line, top_segments, _ = max(
-                lane_options, key=lambda option: (option[2], -option[0])
-            )
-        else:
-            top_line, top_segments = band_defs["top"][1], []
+        # Best effort on a genuinely constrained sheet retains the nearest
+        # maximum-capacity lane and lets the global assignment use the sides.
+        top_line, top_segments, _ = _select_top_lane(lane_options, top_target, band_defs["top"][1])
         axis, _line, lo, hi = band_defs["top"]
         band_defs["top"] = (axis, top_line, lo, hi)
 

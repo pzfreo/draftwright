@@ -242,8 +242,7 @@ def _solve_segmented_strip_1d(
             for count in range(1, min(capacity, len(naturals) - placed) + 1):
                 chunk = naturals[placed : placed + count]
                 solved = _solve_strip_1d(chunk, gap, lo, hi)
-                if solved is None:
-                    continue
+                assert solved is not None  # count never exceeds _strip_capacity
                 candidate = (
                     cost + sum(abs(x - n) for x, n in zip(solved, chunk)),
                     coords + solved,
