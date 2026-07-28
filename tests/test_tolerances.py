@@ -963,8 +963,8 @@ class TestSlotTolerance:
 
 class TestToleranceHandle:
     def test_hole_tolerance_survives_feature_replacement(self):
-        # .depth() replaces the feature object; the tolerance is keyed by index, so it still
-        # lands on the final (blind) hole's bore.
+        # .depth() replaces the feature object; the tolerance is keyed by the feature's
+        # identity token (#908), so it still lands on the final (blind) hole's bore.
         plate = Box(60, 40, 8)
         h = Pos(0, 0, 4) * Cylinder(4, 6)
         part = plate - h
@@ -972,7 +972,9 @@ class TestToleranceHandle:
         s.hole(diameter=8, at=(0, 0, 4), axis="z").depth(6).tolerance(0.1)
         model = s.build().model()
         hf = next(f for f in model.features if f.kind == "hole")
-        assert s._tolerances == {(0, "diameter"): 0.1}
+        assert list(s._tolerances.values()) == [0.1]
+        ((token, kind),) = s._tolerances
+        assert kind == "diameter" and s.features[s._index_of_token(token)] is hf
         # the decoration resolves to the FINAL feature (through=False after .depth)
         assert hf.through is False
 

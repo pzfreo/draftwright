@@ -1516,8 +1516,14 @@ class TestSheet:
         # detection recovered at least the envelope + the hole
         kinds = {f.kind for f in sheet.features}
         assert "hole" in kinds
-        # ... and the seeded set is editable for a hybrid override
-        assert isinstance(sheet.features, list)
+        # ... and the seeded set is editable for a hybrid override. Behaviour, not type:
+        # since #908 `features` is a view that carries each feature's identity token, so
+        # a reorder moves references with their features instead of stranding them.
+        before = len(sheet.features)
+        sheet.features.append(sheet.features[0])
+        del sheet.features[-1]
+        sheet.features.reverse()
+        assert len(sheet.features) == before
 
     def test_envelope_defaults_to_the_part(self):
         part = Box(30, 20, 5)
