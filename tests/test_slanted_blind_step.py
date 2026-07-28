@@ -22,6 +22,8 @@ from build123d import (
 
 from draftwright import build_drawing
 from draftwright.model.declare import envelope
+from draftwright.recognition import levels as levels_module
+from draftwright.recognition.levels import recognise_step_shoulders
 from draftwright.recognition.slots import _Face, _recognise_corner_notches
 
 
@@ -137,6 +139,52 @@ def test_small_edge_break_is_not_promoted_to_structural_ramp():
     assert ("x", 2.0) not in shoulders
 
 
+def test_oblique_degenerate_and_small_bounded_faces_are_rejected(monkeypatch):
+    class Face:
+        wrapped = object()
+
+        def __init__(self, normal, bb):
+            self._normal = SimpleNamespace(
+                X=normal[0],
+                Y=normal[1],
+                Z=normal[2],
+            )
+            self._bb = bb
+
+        def normal_at(self):
+            return self._normal
+
+        def bounding_box(self):
+            return self._bb
+
+    class Part:
+        def __init__(self, face):
+            self._face = face
+
+        def bounding_box(self):
+            return _box(0, 50, 0, 50, 0, 25)
+
+        def faces(self):
+            return [self._face]
+
+    class PlaneSurface:
+        @staticmethod
+        def GetType():
+            return levels_module.GeomAbs_Plane
+
+    monkeypatch.setattr(
+        levels_module,
+        "BRepAdaptor_Surface",
+        lambda wrapped: PlaneSurface(),
+    )
+
+    shallow = Face((1.0, 0.0, 0.02), _box(2, 3, 0, 10, 24.75, 25))
+    small = Face((1.0, 0.0, 0.5), _box(2, 3, 0, 2, 20, 25))
+
+    assert recognise_step_shoulders(Part(shallow), levels=[24.75]) == []
+    assert recognise_step_shoulders(Part(small), levels=[20]) == []
+
+
 def test_completeness_lint_can_report_transitions_without_blind_recesses(
     bounded_slanted_recess,
 ):
@@ -197,6 +245,29 @@ def test_short_first_step_uses_external_dimension_instead_of_disappearing():
     dwg = build_drawing(part.part)
     assert "dim_step_0" in dwg.annotations()
     assert getattr(dwg.get_annotation("dim_step_0"), "label", None) == "1"
+
+
+def test_unplaceable_short_step_records_left_strip_failure(monkeypatch):
+    from draftwright.annotations import from_model
+
+    original = from_model.register_corridor
+
+    def drop_left(ctx, key, strip, view, axis, tier, candidate):
+        if key == ("front", "left"):
+            candidate.on_drop(candidate.name)
+            return
+        original(ctx, key, strip, view, axis, tier, candidate)
+
+    monkeypatch.setattr(from_model, "register_corridor", drop_left)
+    with BuildPart() as part:
+        with BuildSketch(Plane.XZ):
+            Polygon((0, 0), (50, 0), (50, 1), (25, 1), (25, 20), (0, 20))
+        extrude(amount=30)
+
+    dwg = build_drawing(part.part)
+    issue = next(i for i in dwg.lint() if i.code == "placement_unsatisfiable")
+
+    assert "short step-height dimension dropped" in issue.message
 
 
 @pytest.mark.timeout(120)
