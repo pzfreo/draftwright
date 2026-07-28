@@ -45,8 +45,14 @@ Per view, per strip: **collect → solve → emit.**
     assignment is (a) segment assignment within a carved strip
     (`carve_free_segments` + innermost-first fill in
     `place_strip_candidates`), and (b) the balloon pass's genuinely global
-    band assignment — a deterministic min-cost max-flow solve
-    (`_assign_balloon_bands`, `layout.py`, #516).
+    band assignment — a deterministic max-cardinality flow solve
+    (`_assign_balloon_bands`, `layout.py`, #516).  A dense scattered-hole
+    table escalation requests perimeter coverage (#901): within the maximum
+    flow, the solver lexicographically maximises the number of requested usable
+    bands activated before minimising leader length.  The render pass supplies
+    only band names, capacities, and numeric costs, keeping the solver
+    geometry-only; ordinary and manually requested balloons retain pure
+    minimum-cost assignment.
   - **Order** — label order along the strip = site/feature order (candidates
     sort by anchor coordinate), so leaders between **distinct** strip-axis
     coordinates are **crossing-free by construction**; coincident sites

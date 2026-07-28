@@ -216,8 +216,15 @@ def _strip_capacity(lo: float, hi: float, gap: float) -> int:
     return int(math.floor((hi - lo) / gap + 1e-9)) + 1
 
 
-def _assign_balloon_bands(members, choices_by_member, capacities):
-    """Global max-cardinality/min-cost assignment of balloons to side bands (#516)."""
+def _assign_balloon_bands(members, choices_by_member, capacities, *, activate_bands=()):
+    """Globally assign balloons to side bands (#516/#901).
+
+    The primary objective is maximum cardinality.  Within that maximum flow,
+    as many reachable bands named by *activate_bands* as the member count permits
+    are used before leader length is minimised.  This lets a caller request a
+    perimeter treatment without encoding drawing semantics or page geometry in
+    this leaf solver.
+    """
 
     band_order = ("left", "right", "top", "bottom")
     bands = [b for b in band_order if capacities.get(b, 0) > 0]
@@ -239,17 +246,34 @@ def _assign_balloon_bands(members, choices_by_member, capacities):
         return fwd
 
     used_edges: dict[tuple[int, str], _FlowEdge] = {}
+    integer_costs: list[dict[str, int]] = []
     for i, choices in enumerate(choices_by_member):
         add_edge(source, member0 + i, 1, 0)
+        member_costs = {}
         for j, band in enumerate(bands):
             if band not in choices:
                 continue
             # Costs are integerised for deterministic shortest paths; the tiny band
             # ordinal keeps exact ties stable without changing real distance order.
             cost = int(round(max(0.0, choices[band]) * 1000)) + band_order.index(band)
+            member_costs[band] = cost
             used_edges[(i, band)] = add_edge(member0 + i, band0 + j, 1, cost)
+        integer_costs.append(member_costs)
+
+    # One additional requested band must dominate every possible change in the
+    # real assignment cost.  A one-capacity negative edge therefore gives the
+    # first balloon in each requested band a lexicographic activation bonus;
+    # remaining capacity retains the ordinary zero cost.  SPFA already supports
+    # negative residual edges, and the graph remains deterministic.
+    activation_bonus = 1 + sum(max(costs.values(), default=0) for costs in integer_costs)
+    requested = set(activate_bands)
     for j, band in enumerate(bands):
-        add_edge(band0 + j, sink, capacities[band], 0)
+        capacity = capacities[band]
+        if band in requested:
+            add_edge(band0 + j, sink, 1, -activation_bonus)
+            capacity -= 1
+        if capacity:
+            add_edge(band0 + j, sink, capacity, 0)
 
     def shortest_path():
         dist = [math.inf] * len(graph)

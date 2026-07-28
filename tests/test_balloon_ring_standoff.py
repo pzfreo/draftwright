@@ -18,13 +18,12 @@ to come back and unmark it).
 
 from __future__ import annotations
 
-import pytest
 from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
 
-#: Minimum air between the plan view and the balloon ring that annotates it. Below
-#: this the glyphs crowd the geometry; the CTC-02 e2e check uses the same figure.
+#: Minimum extent from the plan edge to the balloon ring's outer edge. Below this
+#: the glyphs crowd the geometry; the CTC-02 e2e check uses the same figure.
 _MIN_STANDOFF_MM = 20.0
 
 
@@ -45,13 +44,6 @@ def _dense_plate(n: int = 18):
     return part
 
 
-@pytest.mark.xfail(
-    reason="#901: the ring's standoff is unbounded below after escalation — it lands "
-    "at 19.0 mm here, 6.5 mm on CTC-02. The top band is pushed beyond the deepest "
-    "occupant, so the min-cost band assignment (#516) prefers the near left/right "
-    "bands and no ring forms above the view.",
-    strict=True,
-)
 def test_balloon_ring_clears_the_plan_view_after_escalation():
     drawing = build_drawing(_dense_plate())
     plan_top = drawing.view_bounds("plan")[3]
@@ -63,7 +55,7 @@ def test_balloon_ring_clears_the_plan_view_after_escalation():
     assert tops, (
         "the dense plate must escalate to balloons — otherwise this is not the case under test"
     )
-    assert max(tops) > plan_top + _MIN_STANDOFF_MM
+    assert max(tops) >= plan_top + _MIN_STANDOFF_MM - 1e-6
 
 
 def test_the_dense_plate_actually_escalates():

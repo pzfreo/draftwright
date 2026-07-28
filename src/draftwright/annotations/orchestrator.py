@@ -750,7 +750,11 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
         # independent render_balloons calls could stack a pattern balloon on a
         # per-hole one in the same band. Called sideways into the render layer
         # (#699) — no longer an upward duck-typed dwg.add_balloons call.
-        render_balloons(dwg, a, "plan", balloon_specs, ctx)
+        # A scattered-hole table is a visual escalation, not merely another
+        # balloon request: spread its tags around the usable perimeter so a
+        # deep occupied strip cannot collapse the ring onto two near sides
+        # (#901). Pattern-only and public-verb balloons keep nearest-band cost.
+        render_balloons(dwg, a, "plan", balloon_specs, ctx, perimeter=table_placed)
         placed_names = {n for n, _ in dwg.iter_annotations()}
 
     # Clear `callout_dropped` only when EVERY dropped plan-view callout is now

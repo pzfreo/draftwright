@@ -25,8 +25,13 @@ from draftwright.layout import (
     _strip_capacity,
 )
 
+# Minimum view-edge-to-outer-glyph extent for an unobstructed balloon band.
+# Keeping this as render geometry (rather than an assignment cost) makes the
+# visual contract explicit and measurable while the solver stays unitless.
+_MIN_PERIMETER_EXTENT = 20.0
 
-def render_balloons(dwg, a, view, specs, ctx):
+
+def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
     """Place a leadered balloon for each ``(tag, j, hole)`` in *specs*,
     fitted into the halo the layout reserved around the view (#111).
 
@@ -38,7 +43,10 @@ def render_balloons(dwg, a, view, specs, ctx):
     :class:`Leader` then runs from the hole rim to the glyph.  Because the
     layout reserved this band before placing the views (:func:`_est_plan_halo`
     / :func:`_will_balloon`), the balloons sit in clear space off the part and
-    no leader crosses a neighbouring view.
+    no leader crosses a neighbouring view.  When *perimeter* is true, every
+    usable band receives a balloon when the member count permits; this is the
+    dense-hole table escalation's deliberate ring treatment (#901).  Ordinary
+    and manually requested balloons retain nearest-band assignment.
 
     The drawing is duck-typed as *dwg* and touched only through its public
     surface; build state rides *a* and *ctx* (ADR 0005 §2 / #639, #699).
@@ -47,6 +55,10 @@ def render_balloons(dwg, a, view, specs, ctx):
     fs = dwg.draft.font_size
     r = fs * 1.5  # circle comfortably larger than the glyph
     standoff = _STRIP_GAP
+    perimeter_extent = (
+        max(standoff + 2 * r, _MIN_PERIMETER_EXTENT) if perimeter else standoff + 2 * r
+    )
+    centre_offset = perimeter_extent - r
     gap = 2 * r + 2 * _STRIP_SPACING  # min centre-to-centre: balloon + padding both sides
 
     # Plan-view page edges; the reserved bands sit just outside them.
@@ -81,24 +93,24 @@ def render_balloons(dwg, a, view, specs, ctx):
     # ring then sits at the margin and overlaps the far witness lines instead,
     # which is only a tolerated warning (structural.py compares label_bbox, not
     # the full bbox, for overlap), never the out_of_bounds error.
-    left_dim = min(left_dim, max(0.0, pl - standoff - 2 * r - margin))
-    right_dim = min(right_dim, max(0.0, pw - margin - pr - standoff - 2 * r))
-    top_dim = min(top_dim, max(0.0, ph - margin - pt - standoff - 2 * r))
-    bot_dim = min(bot_dim, max(0.0, pb - standoff - 2 * r - margin))
+    left_dim = min(left_dim, max(0.0, pl - perimeter_extent - margin))
+    right_dim = min(right_dim, max(0.0, pw - margin - pr - perimeter_extent))
+    top_dim = min(top_dim, max(0.0, ph - margin - pt - perimeter_extent))
+    bot_dim = min(bot_dim, max(0.0, pb - perimeter_extent - margin))
 
     # A bottom band (below PV, beyond the overall-width dim) is usable only
     # when the FV↔PV gap has room for the width dim *and* a balloon row;
     # otherwise bottom-edge holes fall back to the nearest side/top band.
-    bottom_line = pb - bot_dim - standoff - r
-    has_bottom = pb - (a.FV_Y + a.fv_hh) > bot_dim + standoff + 2 * r
+    bottom_line = pb - bot_dim - centre_offset
+    has_bottom = pb - (a.FV_Y + a.fv_hh) > bot_dim + perimeter_extent
 
     # left/right balloons vary in Y at a fixed X just outside the part; top
     # and bottom balloons vary in X at a fixed Y just beyond it. Each line is
     # offset by its side's dim depth so the ring sits clear of the dims.
     band_defs = {
-        "left": ("y", pl - left_dim - standoff - r, margin + r, ph - margin - r),
-        "right": ("y", pr + right_dim + standoff + r, margin + r, ph - margin - r),
-        "top": ("x", pt + top_dim + standoff + r, pl - standoff, sv_left - r),
+        "left": ("y", pl - left_dim - centre_offset, margin + r, ph - margin - r),
+        "right": ("y", pr + right_dim + centre_offset, margin + r, ph - margin - r),
+        "top": ("x", pt + top_dim + centre_offset, pl - standoff, sv_left - r),
         "bottom": ("x", bottom_line, pl - standoff, sv_left - r),
     }
 
@@ -124,7 +136,13 @@ def render_balloons(dwg, a, view, specs, ctx):
         name: (_strip_capacity(lo, hi, gap) if name != "bottom" or has_bottom else 0)
         for name, (_axis, _line, lo, hi) in band_defs.items()
     }
-    bands, dropped = _assign_balloon_bands(members, choices_by_member, capacities)
+    activate_bands = tuple(name for name, capacity in capacities.items() if capacity > 0)
+    bands, dropped = _assign_balloon_bands(
+        members,
+        choices_by_member,
+        capacities,
+        activate_bands=activate_bands if perimeter else (),
+    )
     dropped += _place_band(
         dwg,
         view,
