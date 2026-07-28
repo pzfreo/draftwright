@@ -184,27 +184,58 @@ _SAME_PATH_AS_ENVELOPE = {"slot", "pocket", "pad"}
 
 
 def _mutations():
-    """Mutations that MUST preserve identity, each split into the part applied to BOTH runs and
-    the reordering applied only to the mutated one.
+    """Mutations, each as (applied to BOTH runs, applied only to the mutated one, does it move?).
 
-    The split matters: a mutation that also ADDS a feature would make the two models differ
-    legitimately, and the test would fail for a reason that has nothing to do with identity. So
-    the addition is a shared precondition and the reorder is the variable under test.
+    Three properties this table has to have, the last two learned the hard way:
+
+    - the additive part is shared, so a mutation that also ADDS a feature does not make the two
+      models differ for a reason that has nothing to do with identity;
+    - the reordering part must ACTUALLY reorder, which `sort(key=repr)` did not for most
+      scenarios — the entries happened to already be in repr order, so nineteen matrix cases
+      asserted nothing while looking like coverage;
+    - whether it reorders is declared here and CHECKED at runtime, so a scenario whose features
+      resist a given mutation fails loudly instead of passing vacuously.
+
+    The sorts therefore key off each feature's CURRENT position, which reverses the list by
+    construction. That still exercises the real `sort(key=…)` and `sort(…, reverse=True)` paths
+    on `_FeatureView` — the point is that `sort` moves whole entries and so preserves identity,
+    not that any particular ordering is interesting.
     """
 
     def extra(s):
         s.features.append(HoleFeature(Frame((0, 25, 20), "z"), 3.0, depth=4.0, through=False))
 
+    def positions(s):
+        return {id(f): i for i, f in enumerate(s.features)}
+
+    def sort_by_key(s):
+        order = positions(s)
+        s.features.sort(key=lambda f: -order[id(f)])
+
+    def sort_by_flag(s):
+        order = positions(s)
+        s.features.sort(key=lambda f: order[id(f)], reverse=True)
+
     nothing = lambda s: None  # noqa: E731 — a table of one-liners reads better inline
     return {
-        "reverse": (nothing, lambda s: s.features.reverse()),
-        "sort_by_repr": (nothing, lambda s: s.features.sort(key=repr)),
-        "sort_reverse": (nothing, lambda s: s.features.sort(key=repr, reverse=True)),
-        "double_reverse": (nothing, lambda s: (s.features.reverse(), s.features.reverse())),
-        "reverse_with_a_neighbour_added": (extra, lambda s: s.features.reverse()),
+        "reverse": (nothing, lambda s: s.features.reverse(), True),
+        "sort_by_key": (nothing, sort_by_key, True),
+        "sort_by_reverse_flag": (nothing, sort_by_flag, True),
+        # A deliberate net no-op: a round trip must be harmless, which is a real claim and a
+        # different one. Declared as NOT moving, so it cannot be mistaken for coverage.
+        "double_reverse": (nothing, lambda s: (s.features.reverse(), s.features.reverse()), False),
+        "reverse_with_a_neighbour_added": (extra, lambda s: s.features.reverse(), True),
         # Moves the added feature in FRONT of the target, shifting every later position by one.
-        "move_a_neighbour_to_the_front": (extra, lambda s: s.features.insert(0, s.features.pop())),
+        "move_a_neighbour_to_the_front": (
+            extra,
+            lambda s: s.features.insert(0, s.features.pop()),
+            True,
+        ),
     }
+
+
+def _order(sheet) -> list[int]:
+    return [id(f) for f in sheet.features]
 
 
 @pytest.mark.parametrize("verb", sorted(_SCENARIOS))
@@ -218,7 +249,7 @@ class TestRetainedBuilders:
     """
 
     def test_driving_after_a_mutation_matches_driving_without_one(self, verb, mutation):
-        shared, reorder = _mutations()[mutation]
+        shared, reorder, moves = _mutations()[mutation]
 
         baseline = _sheet()
         obj, drive = _SCENARIOS[verb](baseline)
@@ -228,7 +259,12 @@ class TestRetainedBuilders:
         mutated = _sheet()
         obj2, drive2 = _SCENARIOS[verb](mutated)
         shared(mutated)
+        before = _order(mutated)
         reorder(mutated)
+        assert (_order(mutated) != before) is moves, (
+            f"`{mutation}` did not reorder {verb}'s features as declared — a case that does not "
+            "move the target asserts nothing, however green it looks"
+        )
         drive2(obj2)
 
         assert _canonical(mutated.model()) == _canonical(baseline.model()), (
@@ -248,8 +284,9 @@ def test_a_mutation_between_declaration_and_build_is_invisible(verb):
     mutated = _sheet()
     obj2, drive2 = _SCENARIOS[verb](mutated)
     drive2(obj2)
+    before = _order(mutated)
     mutated.features.reverse()
-    mutated.features.sort(key=repr)
+    assert _order(mutated) != before, "the mutation must actually reorder, or this asserts nothing"
 
     assert _canonical(mutated.model()) == _canonical(baseline.model())
 
