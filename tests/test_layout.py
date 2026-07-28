@@ -33,7 +33,23 @@ class TestAssignBalloonBands:
         assert bands["top"] == []
         assert dropped == 0
 
-    def test_requested_band_is_activated_before_distance_is_minimised(self):
+    def test_near_band_preference_can_outweigh_small_distance_cost(self):
+        members = ["a", "b", "c"]
+        choices = [{"left": 1.0, "top": 20.0} for _ in members]
+
+        bands, dropped = _assign_balloon_bands(
+            members,
+            choices,
+            {"left": 3, "top": 3},
+            prefer_bands=("left", "top"),
+            preference_limit=25.0,
+        )
+
+        assert len(bands["left"]) == 2
+        assert len(bands["top"]) == 1
+        assert dropped == 0
+
+    def test_preference_does_not_force_a_remote_band(self):
         members = ["a", "b", "c"]
         choices = [{"left": 1.0, "top": 100.0} for _ in members]
 
@@ -41,29 +57,11 @@ class TestAssignBalloonBands:
             members,
             choices,
             {"left": 3, "top": 3},
-            activate_bands=("left", "top"),
+            prefer_bands=("left", "top"),
+            preference_limit=25.0,
         )
 
-        assert len(bands["left"]) == 2
-        assert len(bands["top"]) == 1
-        assert dropped == 0
-
-    def test_activation_is_best_effort_when_members_are_fewer_than_bands(self):
-        members = ["a", "b"]
-        choices = [
-            {"left": 1.0, "right": 20.0, "top": 40.0},
-            {"left": 2.0, "right": 10.0, "top": 30.0},
-        ]
-
-        bands, dropped = _assign_balloon_bands(
-            members,
-            choices,
-            {"left": 2, "right": 2, "top": 2},
-            activate_bands=("left", "right", "top"),
-        )
-
-        assert bands["left"] == ["a"]
-        assert bands["right"] == ["b"]
+        assert bands["left"] == members
         assert bands["top"] == []
         assert dropped == 0
 
@@ -92,6 +90,14 @@ class TestSolveSegmentedStrip1d:
         assert (
             _solve_segmented_strip_1d([0.0, 10.0, 20.0], 10.0, [(0.0, 5.0), (20.0, 25.0)]) is None
         )
+
+    def test_prefix_mode_places_the_largest_leading_subset(self):
+        assert _solve_segmented_strip_1d(
+            [0.0, 10.0, 20.0],
+            10.0,
+            [(0.0, 5.0), (20.0, 25.0)],
+            prefix=True,
+        ) == [0.0, 20.0]
 
 
 class TestSolveStrip1d:

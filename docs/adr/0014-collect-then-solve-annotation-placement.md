@@ -48,11 +48,13 @@ Per view, per strip: **collect → solve → emit.**
     band assignment — a deterministic max-cardinality flow solve
     (`_assign_balloon_bands`, `layout.py`, #516).  A dense scattered-hole
     table escalation requests perimeter coverage (#901): within the maximum
-    flow, the solver lexicographically maximises the number of requested usable
-    bands activated before minimising leader length.  The render pass supplies
-    only band names, capacities, and numeric costs, keeping the solver
-    geometry-only; ordinary and manually requested balloons retain pure
-    minimum-cost assignment.  The perimeter render pass measures candidate
+    flow, the first use of each preferred usable band receives a bounded
+    distance credit before leader length is minimised. This is deliberately a
+    preference rather than a lexicographic override—a remote band stays empty
+    instead of creating a cross-part leader. The render pass supplies only band
+    names, capacities, and numeric costs, keeping the solver geometry-only;
+    ordinary and manually requested balloons retain pure minimum-cost
+    assignment. The perimeter render pass measures candidate
     lanes at obstacle boundaries and carves each into free horizontal segments;
     a geometry-only dynamic-programming solve assigns ordered members across
     those segments at minimum L1 leader cost.  This keeps a local remote
@@ -60,7 +62,9 @@ Per view, per strip: **collect → solve → emit.**
     preserving crossing-free member order.  The selected lane must hold both
     its balanced share and any member-count deficit left by the other bands, so
     lane selection cannot weaken the downstream solver's maximum-cardinality
-    guarantee.
+    guarantee whenever such a lane exists. If no lane meets the target, the
+    nearest lane wins rather than recreating the remote beyond-all-obstacles
+    geometry; any resulting capacity loss is surfaced as `balloon_dropped`.
   - **Order** — label order along the strip = site/feature order (candidates
     sort by anchor coordinate), so leaders between **distinct** strip-axis
     coordinates are **crossing-free by construction**; coincident sites

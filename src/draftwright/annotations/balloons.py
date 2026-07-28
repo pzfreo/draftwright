@@ -15,7 +15,7 @@ import math
 from build123d import Align, Circle, Compound, Location, Mode, Text
 from build123d_drafting.helpers import Leader
 
-from draftwright._core import _STRIP_GAP, _STRIP_SPACING
+from draftwright._core import _STRIP_GAP, _STRIP_SPACING, _balloon_halo
 from draftwright.annotations._common import carve_free_segments, strip_obstacles
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import (
@@ -25,12 +25,6 @@ from draftwright.layout import (
     _solve_strip_1d,
     _strip_capacity,
 )
-
-# The acceptance floor is 20 mm; retain one ordinary strip-spacing unit of real
-# clearance rather than balancing a rendered bbox exactly on a floating-point
-# threshold. Keeping this as render geometry (rather than an assignment cost)
-# makes the visual contract explicit and measurable while the solver stays unitless.
-_MIN_PERIMETER_EXTENT = 20.0 + _STRIP_SPACING
 
 
 def _top_lane_target(member_count, other_capacities, usable_band_count):
@@ -42,13 +36,13 @@ def _top_lane_target(member_count, other_capacities, usable_band_count):
 
 
 def _select_top_lane(lane_options, target, fallback_line):
-    """Nearest sufficient lane, else nearest maximum-capacity best effort."""
+    """Nearest sufficient lane, else the nearest best-effort lane."""
 
     fitting = [option for option in lane_options if option[2] >= target]
     if fitting:
         return fitting[0]
     if lane_options:
-        return max(lane_options, key=lambda option: (option[2], -option[0]))
+        return lane_options[0]
     return fallback_line, [], 0
 
 
@@ -76,9 +70,7 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
     fs = dwg.draft.font_size
     r = fs * 1.5  # circle comfortably larger than the glyph
     standoff = _STRIP_GAP
-    perimeter_extent = (
-        max(standoff + 2 * r, _MIN_PERIMETER_EXTENT) if perimeter else standoff + 2 * r
-    )
+    perimeter_extent = _balloon_halo(fs) if perimeter else standoff + 2 * r
     centre_offset = perimeter_extent - r
     gap = 2 * r + 2 * _STRIP_SPACING  # min centre-to-centre: balloon + padding both sides
 
@@ -168,8 +160,8 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
             capacity = sum(_strip_capacity(lo, hi, gap) for lo, hi in segments)
             lane_options.append((line, segments, capacity))
 
-        # Best effort on a genuinely constrained sheet retains the nearest
-        # maximum-capacity lane and lets the global assignment use the sides.
+        # Best effort on a genuinely constrained sheet retains the nearest lane;
+        # it never recreates the remote "beyond the deepest occupant" geometry.
         top_line, top_segments, _ = _select_top_lane(lane_options, top_target, band_defs["top"][1])
         axis, _line, lo, hi = band_defs["top"]
         band_defs["top"] = (axis, top_line, lo, hi)
@@ -202,12 +194,13 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         )
         for name, (_axis, _line, lo, hi) in band_defs.items()
     }
-    activate_bands = tuple(name for name, capacity in capacities.items() if capacity > 0)
+    preferred_bands = tuple(name for name, capacity in capacities.items() if capacity > 0)
     bands, dropped = _assign_balloon_bands(
         members,
         choices_by_member,
         capacities,
-        activate_bands=activate_bands if perimeter else (),
+        prefer_bands=preferred_bands if perimeter else (),
+        preference_limit=perimeter_extent if perimeter else 0.0,
     )
     dropped += _place_band(
         dwg,
@@ -283,7 +276,7 @@ def _place_band(dwg, view, members, axis, line, lo, hi, gap, fs, r, ctx, *, segm
     members.sort(key=lambda m: m[k])
     naturals = [m[k] for m in members]
     if segments is not None:
-        coords = _solve_segmented_strip_1d(naturals, gap, segments) or []
+        coords = _solve_segmented_strip_1d(naturals, gap, segments, prefix=True) or []
     else:
         coords = (
             _solve_strip_1d(naturals, gap, lo, hi)

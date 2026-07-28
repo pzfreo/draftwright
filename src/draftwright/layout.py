@@ -217,7 +217,11 @@ def _strip_capacity(lo: float, hi: float, gap: float) -> int:
 
 
 def _solve_segmented_strip_1d(
-    naturals: list[float], gap: float, segments: list[tuple[float, float]]
+    naturals: list[float],
+    gap: float,
+    segments: list[tuple[float, float]],
+    *,
+    prefix: bool = False,
 ) -> list[float] | None:
     """Minimum-L1 ordered placement across disjoint free segments (#901).
 
@@ -225,7 +229,8 @@ def _solve_segmented_strip_1d(
     programming chooses how many consecutive members each segment receives; the
     existing continuous-strip solver supplies the optimal positions within each
     segment.  Adjacent segments must be separated by at least *gap* (the balloon
-    carve guarantees this). ``None`` means the combined capacity is insufficient.
+    carve guarantees this). ``None`` means the combined capacity is insufficient;
+    with *prefix*, the largest placeable leading subset is returned instead.
     """
 
     if not naturals:
@@ -252,17 +257,27 @@ def _solve_segmented_strip_1d(
                     next_states[placed + count] = candidate
         states = next_states
     result = states.get(len(naturals))
-    return None if result is None else result[1]
+    if result is not None:
+        return result[1]
+    if prefix:
+        return states[max(states)][1]
+    return None
 
 
-def _assign_balloon_bands(members, choices_by_member, capacities, *, activate_bands=()):
+def _assign_balloon_bands(
+    members,
+    choices_by_member,
+    capacities,
+    *,
+    prefer_bands=(),
+    preference_limit=0.0,
+):
     """Globally assign balloons to side bands (#516/#901).
 
-    The primary objective is maximum cardinality.  Within that maximum flow,
-    as many reachable bands named by *activate_bands* as the member count permits
-    are used before leader length is minimised.  This lets a caller request a
-    perimeter treatment without encoding drawing semantics or page geometry in
-    this leaf solver.
+    The primary objective is maximum cardinality. Within that maximum flow, the
+    first member assigned to a band named by *prefer_bands* receives a bounded
+    *preference_limit* distance credit before leader length is minimised. This is
+    a preference, not a lexicographic override: a remote band stays unused.
     """
 
     band_order = ("left", "right", "top", "bottom")
@@ -285,31 +300,26 @@ def _assign_balloon_bands(members, choices_by_member, capacities, *, activate_ba
         return fwd
 
     used_edges: dict[tuple[int, str], _FlowEdge] = {}
-    integer_costs: list[dict[str, int]] = []
     for i, choices in enumerate(choices_by_member):
         add_edge(source, member0 + i, 1, 0)
-        member_costs = {}
         for j, band in enumerate(bands):
             if band not in choices:
                 continue
             # Costs are integerised for deterministic shortest paths; the tiny band
             # ordinal keeps exact ties stable without changing real distance order.
             cost = int(round(max(0.0, choices[band]) * 1000)) + band_order.index(band)
-            member_costs[band] = cost
             used_edges[(i, band)] = add_edge(member0 + i, band0 + j, 1, cost)
-        integer_costs.append(member_costs)
 
-    # One additional requested band must dominate every possible change in the
-    # real assignment cost.  A one-capacity negative edge therefore gives the
-    # first balloon in each requested band a lexicographic activation bonus;
-    # remaining capacity retains the ordinary zero cost.  SPFA already supports
-    # negative residual edges, and the graph remains deterministic.
-    activation_bonus = 1 + sum(max(costs.values(), default=0) for costs in integer_costs)
-    requested = set(activate_bands)
+    # Give the first balloon in each preferred band a bounded distance credit.
+    # Unlike the old lexicographically dominant activation bonus (#901 review),
+    # this cannot justify a leader more than `preference_limit` longer merely to
+    # occupy another side. SPFA supports the negative residual edges.
+    preference_bonus = int(round(max(0.0, preference_limit) * 1000))
+    preferred = set(prefer_bands)
     for j, band in enumerate(bands):
         capacity = capacities[band]
-        if band in requested:
-            add_edge(band0 + j, sink, 1, -activation_bonus)
+        if band in preferred and preference_bonus:
+            add_edge(band0 + j, sink, 1, -preference_bonus)
             capacity -= 1
         if capacity:
             add_edge(band0 + j, sink, capacity, 0)
