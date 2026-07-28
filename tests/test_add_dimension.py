@@ -395,3 +395,18 @@ class TestInvalidCombinations:
         (request,) = sheet._requested_dimensions()
         assert request.feature is sheet.features[0]
         assert request.feature.depth == 12
+
+    def test_a_reorder_followed_by_a_size_verb_still_raises(self):
+        """The laundering path: a stale handle writing through its old index must not
+        quietly move the intent onto whatever now sits there. `_replace_feature` only
+        advances an intent whose target the replacement actually derives from."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        first = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
+        sheet.hole(diameter=10, at=(20, 0, 14), axis="z").depth(7)
+        sheet.add_dimension(first, "bore.depth")
+
+        sheet.features[0], sheet.features[1] = sheet.features[1], sheet.features[0]
+        first.thread("M10")  # stale handle, now writing to the OTHER hole's slot
+
+        with pytest.raises(ValueError, match="no longer targets the feature"):
+            sheet._requested_dimensions()

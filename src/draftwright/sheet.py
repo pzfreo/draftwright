@@ -1045,9 +1045,15 @@ class Sheet:
         lets :meth:`_requested_dimensions` insist on IDENTITY — which is the only check
         that catches a reorder, since a same-kind neighbour passes any role test.
         """
+        previous = self._features[index]
         self._features[index] = feature
         for entry in self._added_dimensions:
-            if entry["index"] == index:
+            # Advance ONLY when the replacement derives from what the intent currently
+            # targets. Advancing on index alone launders a reorder: swap two holes, then
+            # call a size verb through the now-stale handle, and this would quietly move
+            # the intent onto its neighbour — the exact failure identity targeting exists
+            # to prevent. Leaving the mismatch in place lets materialization raise.
+            if entry["index"] == index and entry["target"] is previous:
                 entry["target"] = feature
 
     def _feature_index(self, feature) -> int:
