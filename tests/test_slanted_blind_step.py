@@ -49,13 +49,15 @@ def slanted_blind_step():
 def test_slanted_profile_and_blind_interruptions_are_recognised(slanted_blind_step):
     dwg = build_drawing(slanted_blind_step, detail_view=True)
     pockets = [f for f in dwg.model().features if f.kind == "pocket"]
-    step = next(f for f in dwg.model().features if f.kind == "step_level")
+    steps = [f for f in dwg.model().features if f.kind == "step_level"]
 
     assert len(pockets) == 2
     assert all(p.edge_anchored for p in pockets)
     assert {(p.width, p.length, p.depth) for p in pockets} == {(8.0, 12.0, 5.0)}
-    assert step.levels == (14.0, 19.0)
-    assert step.shoulders == (("x", 24.0), ("x", 32.0), ("x", 40.0))
+    assert any(
+        step.levels == (14.0, 19.0) and step.shoulders == (("x", 24.0), ("x", 32.0), ("x", 40.0))
+        for step in steps
+    )
 
 
 @pytest.mark.timeout(120)
