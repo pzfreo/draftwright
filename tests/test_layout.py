@@ -11,6 +11,7 @@ from draftwright.layout import (
     _ANCHOR_WEIGHT,
     _assign_balloon_bands,
     _greedy_strip_1d,
+    _solve_segmented_strip_1d,
     _solve_strip_1d,
     _solve_strip_1d_pava,
     fit_box,
@@ -65,6 +66,29 @@ class TestAssignBalloonBands:
         assert bands["right"] == ["b"]
         assert bands["top"] == []
         assert dropped == 0
+
+
+class TestSolveSegmentedStrip1d:
+    def test_uses_disjoint_segments_without_crossing_member_order(self):
+        result = _solve_segmented_strip_1d([8.0, 12.0, 88.0], 10.0, [(0.0, 20.0), (80.0, 100.0)])
+        assert result is not None
+        assert 0.0 <= result[0] < result[1] <= 20.0
+        assert result[1] - result[0] >= 10.0
+        assert result[2] == pytest.approx(88.0)
+
+    def test_chooses_the_minimum_leader_length_partition(self):
+        assert _solve_segmented_strip_1d(
+            [5.0, 45.0, 55.0], 10.0, [(0.0, 20.0), (40.0, 60.0)]
+        ) == pytest.approx([5.0, 45.0, 55.0])
+
+    def test_rejects_segments_too_close_to_preserve_the_global_gap(self):
+        with pytest.raises(ValueError, match="separated by gap"):
+            _solve_segmented_strip_1d([4.0, 6.0], 5.0, [(0.0, 5.0), (6.0, 15.0)])
+
+    def test_returns_none_when_combined_capacity_is_too_small(self):
+        assert (
+            _solve_segmented_strip_1d([0.0, 10.0, 20.0], 10.0, [(0.0, 5.0), (20.0, 25.0)]) is None
+        )
 
 
 class TestSolveStrip1d:

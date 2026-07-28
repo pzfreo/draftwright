@@ -9940,6 +9940,75 @@ class TestHoleTable:
         assert line == pytest.approx(pt + 12.0 + _STRIP_GAP + r)
         assert fs == 3.0
 
+    def test_perimeter_top_lane_carves_around_deep_local_obstacle(self, monkeypatch):
+        """#901/#125: one tall, narrow occupant must carve the near lane, not
+        push the entire top ring beyond the occupant's remote outer edge."""
+        from types import SimpleNamespace
+
+        calls = []
+        a = SimpleNamespace(
+            PV_X=50.0,
+            PV_Y=50.0,
+            fv_hw=20.0,
+            pv_hh=10.0,
+            SV_X=95.0,
+            sv_hw=10.0,
+            margin=0.0,
+            PAGE_H=180.0,
+            PAGE_W=140.0,
+            FV_Y=20.0,
+            fv_hh=5.0,
+        )
+        pt = a.PV_Y + a.pv_hh
+        obstacle = self._Boxed((47.0, pt + 2.0, 53.0, pt + 80.0))
+
+        import draftwright.annotations.balloons as balloons
+
+        def place_band(
+            dwg,
+            view,
+            members,
+            axis,
+            line,
+            lo,
+            hi,
+            gap,
+            fs,
+            r,
+            ctx,
+            *,
+            segments=None,
+        ):
+            calls.append((list(members), axis, line, segments))
+            return 0
+
+        monkeypatch.setattr(balloons, "_place_band", place_band)
+        coords = {"plan": SimpleNamespace(pp=lambda x, y, _z: (50.0 + x, 50.0 + y))}
+        stub = SimpleNamespace(
+            coords=coords.__getitem__,
+            draft=SimpleNamespace(font_size=3.0),
+            iter_annotations=lambda: iter([("local_obstacle", obstacle)]),
+            view_of=lambda _name: "plan",
+        )
+        ctx = SimpleNamespace(record_issue=lambda *_args: None)
+        holes = [SimpleNamespace(location=(float(i), 0.0, 0.0), diameter=4.0) for i in range(6)]
+
+        balloons.render_balloons(
+            stub,
+            a,
+            "plan",
+            [(str(i), 0, hole) for i, hole in enumerate(holes)],
+            ctx,
+            perimeter=True,
+        )
+
+        top_members, _axis, top_line, segments = next(
+            call for call in calls if call[1] == "x" and call[2] > a.PV_Y
+        )
+        assert top_members
+        assert top_line == pytest.approx(pt + balloons._MIN_PERIMETER_EXTENT - 4.5)
+        assert segments and len(segments) == 2
+
     def test_balloon_assignment_rebalances_across_bands_before_dropping(self, monkeypatch):
         from types import SimpleNamespace
 

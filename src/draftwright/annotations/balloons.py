@@ -16,19 +16,21 @@ from build123d import Align, Circle, Compound, Location, Mode, Text
 from build123d_drafting.helpers import Leader
 
 from draftwright._core import _STRIP_GAP, _STRIP_SPACING
-from draftwright.annotations._common import strip_obstacles
+from draftwright.annotations._common import carve_free_segments, strip_obstacles
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import (
     _assign_balloon_bands,
     _greedy_strip_1d,
+    _solve_segmented_strip_1d,
     _solve_strip_1d,
     _strip_capacity,
 )
 
-# Minimum view-edge-to-outer-glyph extent for an unobstructed balloon band.
-# Keeping this as render geometry (rather than an assignment cost) makes the
-# visual contract explicit and measurable while the solver stays unitless.
-_MIN_PERIMETER_EXTENT = 20.0
+# The acceptance floor is 20 mm; retain one ordinary strip-spacing unit of real
+# clearance rather than balancing a rendered bbox exactly on a floating-point
+# threshold. Keeping this as render geometry (rather than an assignment cost)
+# makes the visual contract explicit and measurable while the solver stays unitless.
+_MIN_PERIMETER_EXTENT = 20.0 + _STRIP_SPACING
 
 
 def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
@@ -74,7 +76,8 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
     # This intentionally shares the same full-footprint occupancy source as
     # corridor placement (#518), instead of re-growing a per-furniture allowlist.
     top_dim = bot_dim = left_dim = right_dim = 0.0
-    for x0, y0, x1, y1 in strip_obstacles(dwg, view=view):
+    obstacles = strip_obstacles(dwg, view=view)
+    for x0, y0, x1, y1 in obstacles:
         if x1 > pl and x0 < pr:  # spans the plan's width → top/bottom bands
             if y1 > pt:
                 top_dim = max(top_dim, y1 - pt)
@@ -114,6 +117,47 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         "bottom": ("x", bottom_line, pl - standoff, sv_left - r),
     }
 
+    top_segments = None
+    if perimeter:
+        # A single remote label must not push the whole top row beyond the
+        # deepest occupant (#125/#901).  Probe lanes at obstacle boundaries,
+        # carve their horizontal free spans, and take the nearest lane that can
+        # carry a balanced share of the ring.  This is measured render geometry;
+        # ordered placement across the resulting segments remains in layout.py.
+        top_lo, top_hi = band_defs["top"][2:]
+        top_target = math.ceil(len(specs) / (3 + int(has_bottom)))
+        first_line = pt + centre_offset
+        last_line = ph - margin - r
+        candidates = {first_line}
+        for x0, _y0, x1, y1 in obstacles:
+            if x1 > top_lo and x0 < top_hi and y1 >= pt:
+                candidates.add(y1 + _STRIP_SPACING + r)
+
+        lane_options = []
+        for line in sorted(y for y in candidates if first_line <= y <= last_line):
+            blocked = [
+                (x0, x1)
+                for x0, y0, x1, y1 in obstacles
+                if y0 - _STRIP_SPACING < line + r and y1 + _STRIP_SPACING > line - r
+            ]
+            segments = carve_free_segments(top_lo, top_hi, blocked, r + _STRIP_SPACING)
+            capacity = sum(_strip_capacity(lo, hi, gap) for lo, hi in segments)
+            lane_options.append((line, segments, capacity))
+
+        fitting = [option for option in lane_options if option[2] >= top_target]
+        if fitting:
+            top_line, top_segments, _ = fitting[0]
+        elif lane_options:
+            # Best effort on a genuinely constrained sheet: retain the nearest
+            # maximum-capacity lane and let the global assignment use the sides.
+            top_line, top_segments, _ = max(
+                lane_options, key=lambda option: (option[2], -option[0])
+            )
+        else:
+            top_line, top_segments = band_defs["top"][1], []
+        axis, _line, lo, hi = band_defs["top"]
+        band_defs["top"] = (axis, top_line, lo, hi)
+
     # Globally assign holes across the usable reserved bands.  Nearest-band
     # greedy could crowd one side and drop balloons while another side sat
     # empty; the assignment maximises placed balloons first, then minimises
@@ -133,7 +177,13 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         choices_by_member.append(choices)
 
     capacities = {
-        name: (_strip_capacity(lo, hi, gap) if name != "bottom" or has_bottom else 0)
+        name: (
+            sum(_strip_capacity(seg_lo, seg_hi, gap) for seg_lo, seg_hi in top_segments)
+            if name == "top" and top_segments is not None
+            else _strip_capacity(lo, hi, gap)
+            if name != "bottom" or has_bottom
+            else 0
+        )
         for name, (_axis, _line, lo, hi) in band_defs.items()
     }
     activate_bands = tuple(name for name, capacity in capacities.items() if capacity > 0)
@@ -163,7 +213,7 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         r,
         ctx,
     )
-    dropped += _place_band(
+    top_args = (
         dwg,
         view,
         bands["top"],
@@ -172,6 +222,11 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         fs,
         r,
         ctx,
+    )
+    dropped += (
+        _place_band(*top_args)
+        if top_segments is None
+        else _place_band(*top_args, segments=top_segments)
     )
     dropped += _place_band(
         dwg,
@@ -195,7 +250,7 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         )
 
 
-def _place_band(dwg, view, members, axis, line, lo, hi, gap, fs, r, ctx) -> int:
+def _place_band(dwg, view, members, axis, line, lo, hi, gap, fs, r, ctx, *, segments=None) -> int:
     """Spread *members* (``(tag, j, hole, cx, cy)``) along one reserved band
     with the strip solver, then render a leadered balloon for each (#111).
 
@@ -211,11 +266,14 @@ def _place_band(dwg, view, members, axis, line, lo, hi, gap, fs, r, ctx) -> int:
     k = 4 if axis == "y" else 3  # index of cy / cx in the member tuple
     members.sort(key=lambda m: m[k])
     naturals = [m[k] for m in members]
-    coords = (
-        _solve_strip_1d(naturals, gap, lo, hi)
-        or _greedy_strip_1d(naturals, gap, lo, hi)
-        or _greedy_strip_1d(naturals, gap, lo, hi, prefix=True)
-    )
+    if segments is not None:
+        coords = _solve_segmented_strip_1d(naturals, gap, segments) or []
+    else:
+        coords = (
+            _solve_strip_1d(naturals, gap, lo, hi)
+            or _greedy_strip_1d(naturals, gap, lo, hi)
+            or _greedy_strip_1d(naturals, gap, lo, hi, prefix=True)
+        )
     for (tag, j, hole, cx, cy), c in zip(members, coords):
         bx, by = (line, c) if axis == "y" else (c, line)
         _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx)

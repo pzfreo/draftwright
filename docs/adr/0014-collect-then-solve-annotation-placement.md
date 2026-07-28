@@ -52,7 +52,12 @@ Per view, per strip: **collect → solve → emit.**
     bands activated before minimising leader length.  The render pass supplies
     only band names, capacities, and numeric costs, keeping the solver
     geometry-only; ordinary and manually requested balloons retain pure
-    minimum-cost assignment.
+    minimum-cost assignment.  The perimeter render pass measures candidate
+    lanes at obstacle boundaries and carves each into free horizontal segments;
+    a geometry-only dynamic-programming solve assigns ordered members across
+    those segments at minimum L1 leader cost.  This keeps a local remote
+    obstacle from pushing the entire ring beyond its outer edge (#125), while
+    preserving crossing-free member order.
   - **Order** — label order along the strip = site/feature order (candidates
     sort by anchor coordinate), so leaders between **distinct** strip-axis
     coordinates are **crossing-free by construction**; coincident sites

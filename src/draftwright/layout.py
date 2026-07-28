@@ -216,6 +216,46 @@ def _strip_capacity(lo: float, hi: float, gap: float) -> int:
     return int(math.floor((hi - lo) / gap + 1e-9)) + 1
 
 
+def _solve_segmented_strip_1d(
+    naturals: list[float], gap: float, segments: list[tuple[float, float]]
+) -> list[float] | None:
+    """Minimum-L1 ordered placement across disjoint free segments (#901).
+
+    Members retain their natural order, so leaders remain crossing-free.  Dynamic
+    programming chooses how many consecutive members each segment receives; the
+    existing continuous-strip solver supplies the optimal positions within each
+    segment.  Adjacent segments must be separated by at least *gap* (the balloon
+    carve guarantees this). ``None`` means the combined capacity is insufficient.
+    """
+
+    if not naturals:
+        return []
+    ordered = sorted(segments)
+    if any(b[0] - a[1] < gap - 1e-9 for a, b in zip(ordered, ordered[1:])):
+        raise ValueError("segmented strip intervals must be separated by gap")
+    # member-count -> (cost, coordinates); ties keep the first (leftmost) split.
+    states: dict[int, tuple[float, list[float]]] = {0: (0.0, [])}
+    for lo, hi in ordered:
+        capacity = _strip_capacity(lo, hi, gap)
+        next_states = dict(states)  # this segment may remain unused
+        for placed, (cost, coords) in states.items():
+            for count in range(1, min(capacity, len(naturals) - placed) + 1):
+                chunk = naturals[placed : placed + count]
+                solved = _solve_strip_1d(chunk, gap, lo, hi)
+                if solved is None:
+                    continue
+                candidate = (
+                    cost + sum(abs(x - n) for x, n in zip(solved, chunk)),
+                    coords + solved,
+                )
+                previous = next_states.get(placed + count)
+                if previous is None or candidate[0] < previous[0] - 1e-9:
+                    next_states[placed + count] = candidate
+        states = next_states
+    result = states.get(len(naturals))
+    return None if result is None else result[1]
+
+
 def _assign_balloon_bands(members, choices_by_member, capacities, *, activate_bands=()):
     """Globally assign balloons to side bands (#516/#901).
 

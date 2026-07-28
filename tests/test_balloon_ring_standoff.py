@@ -55,7 +55,7 @@ def test_balloon_ring_clears_the_plan_view_after_escalation():
     assert tops, (
         "the dense plate must escalate to balloons — otherwise this is not the case under test"
     )
-    assert max(tops) >= plan_top + _MIN_STANDOFF_MM - 1e-6
+    assert max(tops) > plan_top + _MIN_STANDOFF_MM
 
 
 def test_the_dense_plate_actually_escalates():
