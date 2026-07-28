@@ -457,7 +457,7 @@ class _Params:
         # to the owning sheet so the fluent chain is unbroken. Guard the two real fields:
         # if they aren't set yet (an instance built WITHOUT __init__ — copy/pickle), raise
         # rather than recurse forever resolving self._sheet (#807 review).
-        if name in ("_sheet", "_i"):
+        if name in ("_sheet", "_token"):
             raise AttributeError(name)
         return getattr(self._sheet, name)
 
@@ -521,10 +521,12 @@ class _Control:
     are derived once (from the feature/face) when :meth:`Sheet.control` runs; ``view=``/``side=``
     there override them."""
 
-    def __init__(self, sheet: Sheet, target, src, view: str, side: str) -> None:
+    def __init__(self, sheet: Sheet, target, src_token, view: str, side: str) -> None:
         self._sheet = sheet
         self._target = target
-        self._src = src
+        # A token, not an index: this builder outlives the `control()` call that made it, so a
+        # reorder between `control(bore)` and `.position(0.1)` must not retarget it (#908).
+        self._src = src_token
         self._view = view
         self._side = side
 
@@ -958,7 +960,7 @@ class Sheet:
                     "section(feature=…) needs a declared feature (a handle/index/Feature "
                     "on this sheet) — pass at=<y> for a bare cut-plane position"
                 )
-            self._section = ("feature", self._token_at(src))
+            self._section = ("feature", src)
         else:
             self._section = ("auto", None)
         return self
@@ -984,41 +986,46 @@ class Sheet:
         """A finish declared through a fluent handle — sources its provenance from the handle's
         feature INDEX (not the object), so a later size verb on the same handle can't strand it."""
         item = _declare_finish(ra, self._features[src_index], self._part, view=view, side=side)
-        self._append_gdt(item, src_index)
+        self._append_gdt(item, self._token_at(src_index))
 
     def _gdt_note(self, text, src_index: int, *, view=None, side=None) -> None:
         """A note declared through a fluent handle — like :meth:`_gdt_finish`, sources provenance
         from the feature INDEX so a later size verb on the same handle can't strand it."""
         item = _declare_note(text, self._features[src_index], self._part, view=view, side=side)
-        self._append_gdt(item, src_index)
+        self._append_gdt(item, self._token_at(src_index))
 
-    def _append_gdt(self, item, src_index) -> None:
-        """Append a GD&T IR item, recording its source-feature index for build-time provenance
-        re-materialization (``None`` for a bare face — no source feature to track)."""
+    def _append_gdt(self, item, src_token) -> None:
+        """Append a GD&T IR item, recording its source feature's **token** for build-time
+        provenance re-materialization (``None`` for a bare face — no source feature to track).
+
+        Takes an already-resolved token rather than an index so that a caller which stores the
+        value between resolve and append — :class:`_Control` — cannot hand over a stale slot."""
         self._features.append(item)
-        if src_index is not None:
-            self._gdt_src.append(
-                (self._token_at(len(self._features) - 1), self._token_at(src_index))
-            )
+        if src_token is not None:
+            self._gdt_src.append((self._token_at(len(self._features) - 1), src_token))
 
     def _gdt_ref(self, ref):
-        """Resolve a GD&T target to ``(target, source_index)``: a fluent handle / index / a
-        :class:`Feature` already in :attr:`features` → its feature + index (the index re-binds
-        provenance at build); a build123d face or an external Feature → ``(ref, None)``."""
+        """Resolve a GD&T target to ``(target, source_token)``: a fluent handle / index / a
+        :class:`Feature` already in :attr:`features` → its feature + token (the token re-binds
+        provenance at build); a build123d face or an external Feature → ``(ref, None)``.
+
+        A **token**, not an index (#908). :class:`_Control` holds this value across later
+        ``.position(...)`` calls, so an index here would name whatever occupied the slot at
+        *append* time rather than the feature the caller passed to :meth:`control`."""
         if isinstance(ref, (_Hole, _Dim, _Params)):
             if ref._sheet is not self:  # a handle from ANOTHER sheet indexes the wrong features
                 raise ValueError(
                     "the handle belongs to a different Sheet — use a handle/index/Feature "
                     "declared on this sheet"
                 )
-            return self._features[ref._i], ref._i
+            return self._features[ref._i], ref._token
         if isinstance(ref, int) and not isinstance(ref, bool):
             i = self._index_of(ref)
-            return self._features[i], i
+            return self._features[i], self._token_at(i)
         if isinstance(ref, Feature):
             for i, f in enumerate(self._features):
                 if f is ref:
-                    return ref, i
+                    return ref, self._token_at(i)
             return ref, None  # an external feature this sheet does not manage
         return ref, None  # a build123d face — no source feature
 

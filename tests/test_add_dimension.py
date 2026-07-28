@@ -461,6 +461,39 @@ class TestFeatureViewIdentity:
         toleranced = [f.diameter for f, *_ in sheet._decorations() if hasattr(f, "diameter")]
         assert toleranced == [10.0]
 
+    def test_a_control_builder_survives_a_reorder(self):
+        """`control()` returns a builder that OUTLIVES the call which resolved its target, so
+        it is the one place a stored index could still retarget: `.position(0.1)` appends the
+        frame later, and an index would name whatever occupied the slot by then (PR #910
+        review). Everything else — `datum`/`finish`/`note` — resolves and appends in a single
+        expression, so only this seam can span a mutation."""
+        sheet = Sheet(_part(), title="T", number="N")
+        big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
+        sheet.hole(diameter=4, at=(20, 0, 14), axis="z").depth(7)
+
+        control = sheet.control(big)
+        sheet.features.reverse()
+        control.position(0.1)
+        sheet._prepare()
+
+        frame = next(f for f in sheet.features if f.kind == "control_frame")
+        assert frame.origin.diameter == 10.0
+
+    def test_a_control_builder_spans_a_mint_too(self):
+        """The same seam against an *appending* mutation, which shifts no slot the builder
+        already holds but does grow the view — a token stays correct either way."""
+        sheet = Sheet(_part(), title="T", number="N")
+        big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
+
+        control = sheet.control(big)
+        sheet.hole(diameter=4, at=(20, 0, 14), axis="z").depth(7)
+        sheet.features.reverse()
+        control.flatness(0.02)
+        sheet._prepare()
+
+        frame = next(f for f in sheet.features if f.kind == "control_frame")
+        assert frame.origin.diameter == 10.0
+
 
 class TestFeatureViewContract:
     """The complete mutable-sequence surface, as executable specification.
