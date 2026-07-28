@@ -10,10 +10,9 @@ Measured standoffs above the plan-view top edge: 19.0 mm here, 14 mm on NIST CTC
 6.5 mm on CTC-02 — the last is visually on top of the view it annotates.
 
 This is the FAST reproduction of the same defect #893 hits through CTC-02: ~15 s and
-no STEP import, against ~4 min for the fixture. It is committed xfail so the repro
-stays runnable while #901 is open, and turns into a real pass the moment it is fixed
-(``strict`` would then fail the suite, which is the point — nobody has to remember
-to come back and unmark it).
+no STEP import, against ~4 min for the fixture. It landed xfail while #901 was open
+and became a real pass when #903 fixed it — so it now guards the fix rather than
+tracking the bug.
 """
 
 from __future__ import annotations
@@ -59,9 +58,9 @@ def test_balloon_ring_clears_the_plan_view_after_escalation():
 
 
 def test_the_dense_plate_actually_escalates():
-    """Guard on the fixture itself, so the xfail above cannot start passing for the
-    wrong reason. If a future change stops this part escalating, the standoff test
-    would 'pass' by having no balloons at all — this fails loudly instead."""
+    """Guard on the fixture itself, so the standoff test above cannot pass for the
+    wrong reason. If a future change stops this part escalating, that test would
+    'pass' by having no balloons at all — this fails loudly instead."""
     drawing = build_drawing(_dense_plate())
     names = set(drawing.annotations())
     assert any(n.startswith("balloon_plan") for n in names), "expected balloons"
