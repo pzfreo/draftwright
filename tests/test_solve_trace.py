@@ -15,7 +15,7 @@ from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
 from draftwright._core import Strip
-from draftwright.annotations._common import full_strip_message, strip_occupants
+from draftwright.annotations._common import PRIORITY, full_strip_message, strip_occupants
 
 
 def _build_box(tmp_path, **kw):
@@ -47,7 +47,10 @@ class TestTraceRecording:
         s = by_corridor[("front", "right")]
         assert [c["name"] for c in s["candidates"]] == ["dim_height"]
         cand = s["candidates"][0]
-        assert cand["force"] is True and cand["priority"] == 0
+        # The principal front-view chain carries PRIORITY.PRINCIPAL (#894): registering
+        # at the default tied it with feature location dims, so an over-capacity strip
+        # dropped a step height on an arbitrary generated key.
+        assert cand["force"] is True and cand["priority"] == PRIORITY.PRINCIPAL
         # The strip bounds are the diagnosis frame …
         assert set(s["strip"]) == {"anchor", "outer_limit", "direction", "gap", "spacing"}
         # … and each pass records the carve + per-candidate events.

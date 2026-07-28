@@ -759,6 +759,36 @@ def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
     )
 
 
+# ── The corridor priority ladder (#894) ───────────────────────────────────────
+# `CorridorCandidate.priority` is an over-capacity survival rank, and a rank only
+# means anything RELATIVE to the other rungs. Defining the whole ladder here — beside
+# the field it ranks, at the bottom of the annotations DAG every pass imports from —
+# is what makes it reviewable: a bare `priority=0.5` at a call site cannot be judged
+# without knowing what else sits at 0.5.
+#
+# This is not hypothetical tidiness. #894 happened one rung down: the principal
+# front-view chain took the implicit default and silently TIED with pocket location
+# dims, so an over-capacity strip dropped a step height on an arbitrary generated key.
+# Nobody could see the collision because nothing showed what else lived at 0.
+#
+# Rungs are ordered, and the gaps are deliberate — insert between rather than
+# renumbering, so existing relative order is never disturbed.
+class PRIORITY:
+    """Corridor survival ranks, lowest to highest."""
+
+    #: Ordinary auto dims — feature sizes, feature locations. The engine's own choices.
+    AUTO = 0.0
+    #: Principal part dims — step heights, the overall height. What a print is least
+    #: usable without, so they outrank ordinary auto dims when a strip is full.
+    PRINCIPAL = 0.5
+    #: Authored intent — GD&T frames, imported PMI. The user asked for these by name,
+    #: so they outrank anything the engine chose for itself (#357).
+    AUTHORED = 1.0
+    #: Never-drop: the mandatory envelope dims, and a user-pinned intent (ADR 0012).
+    #: Two distinct meanings that deliberately share a rung — both are non-negotiable.
+    MANDATORY = 100.0
+
+
 @dataclass
 class CorridorCandidate:
     """One datum-referenced linear dim collected for a shared corridor's single solve
@@ -780,9 +810,9 @@ class CorridorCandidate:
             escalation) outranks a coincident slot *position* line.
         priority:   over-capacity survival rank (#357). When a strip cannot hold every
             candidate, :func:`plan_strip` drops the lowest ``(priority, key)`` — so a higher
-            ``priority`` is kept. An authored GD&T frame sets this above the auto dims so it
-            is not dropped in favour of a lower-value auto dim purely by stacking-key order.
-            Default 0 (every auto dim) → key order, unchanged.
+            ``priority`` is kept. Pick a rung from :data:`PRIORITY` below rather than a bare
+            number: the value only means anything *relative to the others*, so a literal at
+            a call site cannot be reviewed on its own.
         anchored/natural: when ``anchored`` is true, the strip solve keeps this candidate
             near its own natural stacking-axis page coordinate instead of the segment edge.
             This is how user-authored pinned dimension intents join the shared solve
@@ -876,6 +906,12 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             for loser in group:
                 trace.record_outcome(loser.name, "deduped", winner=winners[dk].name)
 
+    def _winner_placed(c) -> bool:
+        """Did this candidate's measurement reach the sheet after all? `on_drop` may
+        have rescued it onto the opposite strip, in which case a coincident loser must
+        stay suppressed rather than draw the same span twice (#894)."""
+        return c.name in dwg.annotations()
+
     def _promote_losers(dropped_winner):
         # The winner did not place → hand its measurement to the best surviving loser
         # (e.g. the slot position's below-strip fallthrough), then stop.
@@ -890,7 +926,10 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             c.on_drop(c.name)
             if trace is not None:
                 trace.record_outcome(c.name, "dropped", reason="no_strip")
-            if c.dedup is not None:
+            # Same rule as the solved path below: `on_drop` may have rescued this
+            # measurement onto the OPPOSITE strip, which can exist even when this one
+            # does not. Promoting a coincident loser then draws the span twice (#894).
+            if c.dedup is not None and not _winner_placed(c):
                 _promote_losers(c)
         if trace is not None:
             trace.end_solve()
@@ -958,14 +997,31 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             if trace is not None:
                 trace.record_outcome(c.name, "placed")
         else:
-            n_deferred = len(ctx.post_drain) if trace is not None else 0
+            pending = ctx.post_drain if ctx is not None else None
+            n_deferred = len(pending) if pending is not None else 0
             c.on_drop(c.name)  # dropped / not force-kept — the pass's drop handler runs
+            deferred = pending is not None and len(pending) > n_deferred
             if trace is not None:  # did on_drop queue a post-drain fallthrough?
-                trace.record_outcome(
-                    c.name, "dropped", deferred_post_drain=len(ctx.post_drain) > n_deferred
-                )
-            if c.dedup is not None:  # a deduped winner failed → promote its top loser
-                _promote_losers(c)
+                trace.record_outcome(c.name, "dropped", deferred_post_drain=deferred)
+            if c.dedup is not None:
+                # A deduped winner that did not place hands its measurement to the best
+                # surviving loser — but ONLY if the measurement is genuinely absent.
+                # `on_drop` may have rescued it onto the opposite strip, and promoting
+                # then draws the same span twice (#894 review: observed on CTC-03, where
+                # m_pocket0_pos_long fell through cleanly and its coincident twin was
+                # promoted anyway).
+                #
+                # The predicate is "winner still absent", not "did on_drop defer" — a
+                # SYNCHRONOUS retry has resolved by now, and if it succeeded the loser
+                # must stay suppressed just the same. Only the *moment* of the check
+                # differs: immediately when the retry already ran, or queued behind it
+                # when it was deferred (appended after, and post_drain runs in order).
+                if deferred and pending is not None:
+                    pending.append(
+                        lambda _c=c: None if _winner_placed(_c) else _promote_losers(_c)
+                    )
+                elif not _winner_placed(c):
+                    _promote_losers(c)
     if trace is not None:
         trace.end_solve()
 
