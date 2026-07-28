@@ -41,6 +41,7 @@ from draftwright._core import (
     Strip,
     ViewZones,
     _anno_box,
+    _balloon_halo,
     _fmt,
     _largest_empty_rect,
     _parse_page,
@@ -116,7 +117,7 @@ def _est_plan_halo(font_size: float = _FONT_SIZE) -> float:
     Scale-independent (font_size is fixed page-mm), like the strip depths: a
     leader standoff + one balloon diameter (``2·r = 3·font_size``) + clearance.
     """
-    return _STRIP_GAP + 3 * font_size + _STRIP_SPACING
+    return _balloon_halo(font_size)
 
 
 def _will_balloon(model) -> bool:

@@ -9854,6 +9854,48 @@ class TestHoleTable:
         bb = obj.bounding_box()
         return (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
 
+    def test_top_lane_target_keeps_balanced_share_when_sides_have_room(self):
+        from draftwright.annotations.balloons import _top_lane_target
+
+        assert _top_lane_target(18, [41, 41], 3) == 6
+
+    def test_balloon_render_extent_and_compose_reservation_share_geometry(self):
+        from draftwright._core import _balloon_halo, _balloon_radius
+        from draftwright.annotations.balloons import _band_preference_limit
+        from draftwright.compose import _est_plan_halo
+
+        assert _est_plan_halo(3.0) == _balloon_halo(3.0) == 21.5
+        assert _band_preference_limit(3.0) == _balloon_halo(3.0)
+        assert _balloon_radius(3.0) == 4.5
+
+    def test_top_lane_target_covers_capacity_deficit_on_other_bands(self):
+        from draftwright.annotations.balloons import _top_lane_target
+
+        # Balanced share alone is 3, but only three members fit elsewhere: the
+        # top lane needs seven or the max-cardinality assignment would drop one.
+        assert _top_lane_target(10, [2, 1], 3) == 7
+
+    def test_top_lane_selection_prefers_nearest_sufficient_lane(self):
+        from draftwright.annotations.balloons import _select_top_lane
+
+        lanes = [(20.0, [(0.0, 10.0)], 2), (40.0, [(0.0, 30.0)], 4)]
+        assert _select_top_lane(lanes, 2, 99.0) == lanes[0]
+
+    def test_top_lane_selection_falls_back_to_nearest_lane(self):
+        from draftwright.annotations.balloons import _select_top_lane
+
+        lanes = [
+            (20.0, [(0.0, 10.0)], 2),
+            (40.0, [(0.0, 30.0)], 4),
+            (60.0, [(0.0, 30.0)], 4),
+        ]
+        assert _select_top_lane(lanes, 8, 99.0) == lanes[0]
+
+    def test_top_lane_selection_handles_no_lane_on_a_constrained_page(self):
+        from draftwright.annotations.balloons import _select_top_lane
+
+        assert _select_top_lane([], 1, 99.0) == (99.0, [], 0)
+
     def test_table_has_a_row_per_spec_group(self):
         dwg = build_drawing(_multi_hole_plate())
         n_groups = len([f for f in dwg.features("plan") if f.type == "hole"])
@@ -9940,10 +9982,126 @@ class TestHoleTable:
         assert line == pytest.approx(pt + 12.0 + _STRIP_GAP + r)
         assert fs == 3.0
 
+    def test_perimeter_top_lane_carves_around_deep_local_obstacle(self, monkeypatch):
+        """#901/#125: one tall, narrow occupant must carve the near lane, not
+        push the entire top ring beyond the occupant's remote outer edge."""
+        from types import SimpleNamespace
+
+        calls = []
+        a = SimpleNamespace(
+            PV_X=50.0,
+            PV_Y=50.0,
+            fv_hw=20.0,
+            pv_hh=10.0,
+            SV_X=95.0,
+            sv_hw=10.0,
+            margin=0.0,
+            PAGE_H=180.0,
+            PAGE_W=140.0,
+            FV_Y=0.0,
+            fv_hh=5.0,
+        )
+        pt = a.PV_Y + a.pv_hh
+        obstacle = self._Boxed((47.0, pt + 2.0, 53.0, pt + 80.0))
+
+        import draftwright.annotations.balloons as balloons
+        from draftwright._core import _balloon_halo, _balloon_radius
+
+        real_assign = balloons._assign_balloon_bands
+        assignment_kwargs = []
+
+        def assign_bands(*args, **kwargs):
+            assignment_kwargs.append(kwargs)
+            return real_assign(*args, **kwargs)
+
+        def place_band(
+            dwg,
+            view,
+            members,
+            axis,
+            line,
+            lo,
+            hi,
+            gap,
+            fs,
+            r,
+            ctx,
+            *,
+            segments=None,
+        ):
+            calls.append((list(members), axis, line, segments))
+            return 0
+
+        monkeypatch.setattr(balloons, "_place_band", place_band)
+        monkeypatch.setattr(balloons, "_assign_balloon_bands", assign_bands)
+        # Left is naturally ~14 mm cheaper than top for these sites. The bounded
+        # perimeter preference must still seed the nearby top band; disabling
+        # production preference wiring makes `top_members` below empty.
+        coords = {"plan": SimpleNamespace(pp=lambda x, y, _z: (30.0 + x, 50.0 + y))}
+        stub = SimpleNamespace(
+            coords=coords.__getitem__,
+            draft=SimpleNamespace(font_size=3.0),
+            iter_annotations=lambda: iter([("local_obstacle", obstacle)]),
+            view_of=lambda _name: "plan",
+        )
+        ctx = SimpleNamespace(record_issue=lambda *_args: None)
+        holes = [SimpleNamespace(location=(float(i), 0.0, 0.0), diameter=4.0) for i in range(6)]
+
+        balloons.render_balloons(
+            stub,
+            a,
+            "plan",
+            [(str(i), 0, hole) for i, hole in enumerate(holes)],
+            ctx,
+            perimeter=True,
+        )
+
+        top_members, _axis, top_line, segments = next(
+            call for call in calls if call[1] == "x" and call[2] > a.PV_Y
+        )
+        assert top_members
+        assert top_line == pytest.approx(pt + _balloon_halo(3.0) - _balloon_radius(3.0))
+        assert segments and len(segments) == 2
+        assert assignment_kwargs == [
+            {
+                "prefer_bands": ("left", "right", "top", "bottom"),
+                "preference_limit": _balloon_halo(3.0),
+            }
+        ]
+
+    def test_segmented_band_overflow_uses_prefix_instead_of_dropping_all(self, monkeypatch):
+        import draftwright.annotations.balloons as balloons
+
+        rendered = []
+        monkeypatch.setattr(balloons, "_render_balloon", lambda *args: rendered.append(args))
+        members = [(str(i), 0, object(), float(i * 10), 0.0) for i in range(3)]
+
+        dropped = balloons._place_band(
+            None,
+            "plan",
+            members,
+            "x",
+            50.0,
+            0.0,
+            25.0,
+            10.0,
+            3.0,
+            4.5,
+            None,
+            segments=[(0.0, 5.0), (20.0, 25.0)],
+        )
+
+        assert dropped == 1
+        assert len(rendered) == 2
+
     def test_balloon_assignment_rebalances_across_bands_before_dropping(self, monkeypatch):
         from types import SimpleNamespace
 
-        from draftwright._core import _STRIP_GAP, _STRIP_SPACING
+        from draftwright._core import (
+            _STRIP_GAP,
+            _STRIP_SPACING,
+            _balloon_radius,
+        )
         from draftwright.layout import _strip_capacity
 
         calls = []
@@ -9983,7 +10141,7 @@ class TestHoleTable:
         )
 
         fs = stub.draft.font_size
-        r = fs * 1.5
+        r = _balloon_radius(fs)
         gap = 2 * r + 2 * _STRIP_SPACING
         top_cap = _strip_capacity(a.PV_X - a.fv_hw - _STRIP_GAP, a.SV_X - a.sv_hw - r, gap)
         top_members = next(call[1] for call in calls if call[2] == "x" and call[3] > a.PV_Y)

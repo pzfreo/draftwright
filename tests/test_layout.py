@@ -9,7 +9,9 @@ import pytest
 import draftwright.layout as L
 from draftwright.layout import (
     _ANCHOR_WEIGHT,
+    _assign_balloon_bands,
     _greedy_strip_1d,
+    _solve_segmented_strip_1d,
     _solve_strip_1d,
     _solve_strip_1d_pava,
     fit_box,
@@ -18,6 +20,84 @@ from draftwright.layout import (
 # Pure solver unit tests — fast, no OCC builds — so the whole module is part of
 # the build-light `smoke` subset (#153).
 pytestmark = pytest.mark.smoke
+
+
+class TestAssignBalloonBands:
+    def test_nearest_band_remains_the_default(self):
+        members = ["a", "b", "c"]
+        choices = [{"left": 1.0, "top": 100.0} for _ in members]
+
+        bands, dropped = _assign_balloon_bands(members, choices, {"left": 3, "top": 3})
+
+        assert bands["left"] == members
+        assert bands["top"] == []
+        assert dropped == 0
+
+    def test_near_band_preference_can_outweigh_small_distance_cost(self):
+        members = ["a", "b", "c"]
+        choices = [{"left": 1.0, "top": 20.0} for _ in members]
+
+        bands, dropped = _assign_balloon_bands(
+            members,
+            choices,
+            {"left": 3, "top": 3},
+            prefer_bands=("left", "top"),
+            preference_limit=25.0,
+        )
+
+        assert len(bands["left"]) == 2
+        assert len(bands["top"]) == 1
+        assert dropped == 0
+
+    def test_preference_does_not_force_a_remote_band(self):
+        members = ["a", "b", "c"]
+        choices = [{"left": 1.0, "top": 100.0} for _ in members]
+
+        bands, dropped = _assign_balloon_bands(
+            members,
+            choices,
+            {"left": 3, "top": 3},
+            prefer_bands=("left", "top"),
+            preference_limit=25.0,
+        )
+
+        assert bands["left"] == members
+        assert bands["top"] == []
+        assert dropped == 0
+
+
+class TestSolveSegmentedStrip1d:
+    def test_empty_members_need_no_segments(self):
+        assert _solve_segmented_strip_1d([], 10.0, []) == []
+
+    def test_uses_disjoint_segments_without_crossing_member_order(self):
+        result = _solve_segmented_strip_1d([8.0, 12.0, 88.0], 10.0, [(0.0, 20.0), (80.0, 100.0)])
+        assert result is not None
+        assert 0.0 <= result[0] < result[1] <= 20.0
+        assert result[1] - result[0] >= 10.0
+        assert result[2] == pytest.approx(88.0)
+
+    def test_chooses_the_minimum_leader_length_partition(self):
+        assert _solve_segmented_strip_1d(
+            [5.0, 45.0, 55.0], 10.0, [(0.0, 20.0), (40.0, 60.0)]
+        ) == pytest.approx([5.0, 45.0, 55.0])
+
+    def test_rejects_segments_too_close_to_preserve_the_global_gap(self):
+        with pytest.raises(ValueError, match="separated by gap"):
+            _solve_segmented_strip_1d([4.0, 6.0], 5.0, [(0.0, 5.0), (6.0, 15.0)])
+
+    def test_returns_none_when_combined_capacity_is_too_small(self):
+        assert (
+            _solve_segmented_strip_1d([0.0, 10.0, 20.0], 10.0, [(0.0, 5.0), (20.0, 25.0)]) is None
+        )
+
+    def test_prefix_mode_places_the_largest_leading_subset(self):
+        assert _solve_segmented_strip_1d(
+            [0.0, 10.0, 20.0],
+            10.0,
+            [(0.0, 5.0), (20.0, 25.0)],
+            prefix=True,
+        ) == [0.0, 20.0]
 
 
 class TestSolveStrip1d:

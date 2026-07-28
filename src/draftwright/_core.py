@@ -374,6 +374,21 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
 # extension-line origins) and subsequent parallel lines stack tighter and uniform (#347).
 _STRIP_GAP = 10.0  # clearance between the view outline and the first dimension line
 _STRIP_SPACING = 2.5  # clear gap between successive parallel dimension lines (beyond the label)
+_BALLOON_RADIUS_FONT_FACTOR = 1.5
+
+
+def _balloon_radius(font_size: float = _FONT_SIZE) -> float:
+    """Balloon glyph radius in page-mm for the active annotation font."""
+
+    return _BALLOON_RADIUS_FONT_FACTOR * font_size
+
+
+def _balloon_halo(font_size: float = _FONT_SIZE) -> float:
+    """Reserved/rendered plan-balloon extent from the view edge, in page-mm."""
+
+    return _STRIP_GAP + 2 * _balloon_radius(font_size) + _STRIP_SPACING
+
+
 # Small lift (page-mm) of an overall/envelope witness line off the projected silhouette edge,
 # so its extension line reads as distinct from the outline rather than sitting on top of it.
 _WITNESS_LIFT_MM = 2.0

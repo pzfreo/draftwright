@@ -101,6 +101,8 @@ def test_e2e_from_step_meets_standards(tmp_path):
 FIXTURES = Path(__file__).parent / "fixtures"
 _CTC_AP203_OK = ["01", "02", "03", "04", "05"]
 _CTC_AP242_OK = ["01", "02", "03", "04", "05"]
+_MIN_BALLOON_RING_EXTENT_MM = 20.0
+_MAX_BALLOON_RING_EXTENT_MM = 60.0
 
 
 @pytest.mark.slow
@@ -169,9 +171,30 @@ def test_ctc02_top_balloon_ring_hugs_dimensions():
     assert balloon_tops, "expected balloons on CTC-02"
     assert max(balloon_tops) > pt + 20, "expected a balloon ring above the plan view"
     gap = max(balloon_tops) - dim_top
-    assert gap < 60, (
+    assert gap < _MAX_BALLOON_RING_EXTENT_MM, (
         f"a plan balloon floats {gap:.0f} mm above the dimension stack — the pre-#125 "
         f"stale-cursor phantom corridor was ~150 mm; expected a small standoff"
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(600)
+def test_ctc04_top_balloon_ring_stays_near_plan():
+    """#901: the other real escalating fixture must use the nearby carved lane,
+    not regress to the old hundreds-of-millimetres top-band depth."""
+    dwg = build_drawing(str(FIXTURES / "nist_ctc_04_asme1_ap203.stp"))
+    plan_top = dwg.view_bounds("plan")[3]
+    balloon_top = max(
+        obj.bounding_box().max.Y
+        for name, obj in dwg.iter_annotations()
+        if name.startswith("balloon_plan")
+    )
+
+    assert balloon_top > plan_top + _MIN_BALLOON_RING_EXTENT_MM, (
+        "expected a balloon ring above the plan view"
+    )
+    assert balloon_top - plan_top < _MAX_BALLOON_RING_EXTENT_MM, (
+        "top balloon ring is remote from the plan view"
     )
 
 

@@ -49,6 +49,8 @@ from dataclasses import dataclass
 from typing import Literal, NamedTuple
 
 Axis = Literal["x", "y"]
+_LAYOUT_EPSILON = 1e-9
+_FLOW_COST_SCALE = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -213,11 +215,72 @@ def _strip_capacity(lo: float, hi: float, gap: float) -> int:
 
     if hi < lo:
         return 0
-    return int(math.floor((hi - lo) / gap + 1e-9)) + 1
+    return int(math.floor((hi - lo) / gap + _LAYOUT_EPSILON)) + 1
 
 
-def _assign_balloon_bands(members, choices_by_member, capacities):
-    """Global max-cardinality/min-cost assignment of balloons to side bands (#516)."""
+def _solve_segmented_strip_1d(
+    naturals: list[float],
+    gap: float,
+    segments: list[tuple[float, float]],
+    *,
+    prefix: bool = False,
+) -> list[float] | None:
+    """Minimum-L1 ordered placement across disjoint free segments (#901).
+
+    Members retain their natural order, so leaders remain crossing-free.  Dynamic
+    programming chooses how many consecutive members each segment receives; the
+    existing continuous-strip solver supplies the optimal positions within each
+    segment.  Adjacent segments must be separated by at least *gap* (the balloon
+    carve guarantees this). ``None`` means the combined capacity is insufficient;
+    with *prefix*, the largest placeable leading subset is returned instead.
+    """
+
+    if not naturals:
+        return []
+    ordered = sorted(segments)
+    if any(b[0] - a[1] < gap - _LAYOUT_EPSILON for a, b in zip(ordered, ordered[1:])):
+        raise ValueError("segmented strip intervals must be separated by gap")
+    # member-count -> (cost, coordinates); ties keep the first (leftmost) split.
+    states: dict[int, tuple[float, list[float]]] = {0: (0.0, [])}
+    for lo, hi in ordered:
+        capacity = _strip_capacity(lo, hi, gap)
+        next_states = dict(states)  # this segment may remain unused
+        for placed, (cost, coords) in states.items():
+            for count in range(1, min(capacity, len(naturals) - placed) + 1):
+                chunk = naturals[placed : placed + count]
+                solved = _solve_strip_1d(chunk, gap, lo, hi)
+                assert solved is not None  # count never exceeds _strip_capacity
+                candidate = (
+                    cost + sum(abs(x - n) for x, n in zip(solved, chunk)),
+                    coords + solved,
+                )
+                previous = next_states.get(placed + count)
+                if previous is None or candidate[0] < previous[0] - _LAYOUT_EPSILON:
+                    next_states[placed + count] = candidate
+        states = next_states
+    result = states.get(len(naturals))
+    if result is not None:
+        return result[1]
+    if prefix:
+        return states[max(states)][1]
+    return None
+
+
+def _assign_balloon_bands(
+    members,
+    choices_by_member,
+    capacities,
+    *,
+    prefer_bands=(),
+    preference_limit=0.0,
+):
+    """Globally assign balloons to side bands (#516/#901).
+
+    The primary objective is maximum cardinality. Within that maximum flow, the
+    first member assigned to a band named by *prefer_bands* receives a bounded
+    *preference_limit* distance credit before leader length is minimised. This is
+    a preference, not a lexicographic override: a remote band stays unused.
+    """
 
     band_order = ("left", "right", "top", "bottom")
     bands = [b for b in band_order if capacities.get(b, 0) > 0]
@@ -246,10 +309,22 @@ def _assign_balloon_bands(members, choices_by_member, capacities):
                 continue
             # Costs are integerised for deterministic shortest paths; the tiny band
             # ordinal keeps exact ties stable without changing real distance order.
-            cost = int(round(max(0.0, choices[band]) * 1000)) + band_order.index(band)
+            cost = int(round(max(0.0, choices[band]) * _FLOW_COST_SCALE)) + band_order.index(band)
             used_edges[(i, band)] = add_edge(member0 + i, band0 + j, 1, cost)
+
+    # Give the first balloon in each preferred band a bounded distance credit.
+    # Unlike the old lexicographically dominant activation bonus (#901 review),
+    # this cannot justify a leader more than `preference_limit` longer merely to
+    # occupy another side. SPFA supports the negative residual edges.
+    preference_bonus = int(round(max(0.0, preference_limit) * _FLOW_COST_SCALE))
+    preferred = set(prefer_bands)
     for j, band in enumerate(bands):
-        add_edge(band0 + j, sink, capacities[band], 0)
+        capacity = capacities[band]
+        if band in preferred and preference_bonus:
+            add_edge(band0 + j, sink, 1, -preference_bonus)
+            capacity -= 1
+        if capacity:
+            add_edge(band0 + j, sink, capacity, 0)
 
     def shortest_path():
         dist = [math.inf] * len(graph)
