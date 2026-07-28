@@ -80,13 +80,59 @@ from draftwright.model.ir import AUTHORED_DIMENSION_KINDS, HoleFeature, PatternF
 from draftwright.model.planner import DimensionGroup, plan_locations
 
 
-def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
-    """First parameter value matching *kind* and any of *roles*, in role order."""
+def _planned(group: DimensionGroup, kind: str, *roles: str):
+    """First PLANNED dimension matching *kind* and any of *roles*, in role order — suppressed
+    or not. The lookup suppression is decided against; :func:`_first` is what honours it."""
     for role in roles:
         for pd in group.dims:
             if pd.param.kind == kind and pd.param.role == role:
-                return pd.param.value
+                return pd
     return None
+
+
+def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
+    """First **unsuppressed** parameter value matching *kind* and any of *roles*, in role order.
+
+    Honouring ``suppressed`` here is ADR 0016 / #875. Thirteen render sites already skipped
+    suppressed dimensions; the compound-callout path did not, so a suppressed segment still
+    printed. Suppression MARKS a dimension rather than removing it (the group keeps its
+    engineering data either way) — what changes is whether it reaches the page."""
+    pd = _planned(group, kind, *roles)
+    return None if pd is None or pd.suppressed else pd.param.value
+
+
+#: Segments of a compound hole callout that cannot be printed without the bore ⌀ that heads it:
+#: `⌀20 THRU ⌴ ⌀32 ↓ 1.5` has no reading with the leading term removed.
+_CALLOUT_HEAD_DEPENDENTS = (
+    ("diameter", "counterbore"),
+    ("depth", "counterbore"),
+    ("diameter", "spotface"),
+    ("depth", "spotface"),
+    ("diameter", "countersink"),
+    ("angle", "countersink"),
+)
+
+
+def _refuse_headless_callout(group: DimensionGroup, bore_pd) -> None:
+    """Raise if the bore ⌀ is suppressed while a segment that depends on it is not (ADR 0016).
+
+    The head of a compound callout is a **declared dependency**. Suppressing it while a
+    counterbore or countersink intent remains is an authoring error, and the alternatives are
+    both worse: lint-and-drop silently discards authored intent, and implicitly restoring the
+    head makes the drawing say something the script does not. So it raises and names the
+    dependency, which is the only option that leaves the author in control."""
+    orphans = [
+        f"{role}.{kind}"
+        for kind, role in _CALLOUT_HEAD_DEPENDENTS
+        if (pd := _planned(group, kind, role)) is not None and not pd.suppressed
+    ]
+    if not orphans:
+        return  # the whole callout is suppressed — coherent, and nothing to print
+    raise ValueError(
+        f"suppressing the bore diameter would leave {', '.join(orphans)} with no callout to "
+        f"head ({bore_pd.reason or 'suppressed'}). A compound callout reads as one string, so "
+        "its leading ⌀ is a dependency: suppress those segments too, or keep the bore ⌀."
+    )
 
 
 def hole_callout_spec(group: DimensionGroup) -> dict | None:
@@ -108,17 +154,13 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     feat = group.feature
     if not isinstance(feat, HoleFeature | PatternFeature):
         return None
+    bore_pd = _planned(group, "diameter", "bore")
+    if bore_pd is not None and bore_pd.suppressed:
+        _refuse_headless_callout(group, bore_pd)
     bore = _first(group, "diameter", "bore")
     if bore is None:
         return None
-    bore_tol = next(
-        (
-            pd.param.tolerance
-            for pd in group.dims
-            if pd.param.kind == "diameter" and pd.param.role == "bore"
-        ),
-        None,
-    )
+    bore_tol = bore_pd.param.tolerance if bore_pd is not None else None
     depth = _first(group, "depth", "bore")
     count = feat.count
     suffix = None
