@@ -195,3 +195,54 @@ def test_an_unknown_axis_variant_raises():
     sheet.features.append(grid)
     with pytest.raises(ValueError, match="no such"):
         sheet.add_dimension(len(sheet.features) - 1, "grid_pitch", axis="x")
+
+
+class TestFeatureResolution:
+    """`add_dimension` accepts a handle, an index, or the IR feature itself — the three
+    ways a caller can name a declared feature. Each resolves to the same intent."""
+
+    def _sheet_with_hole(self):
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        handle = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        return sheet, handle
+
+    def test_a_handle_resolves(self):
+        sheet, handle = self._sheet_with_hole()
+        assert sheet.add_dimension(handle, "bore")._entry["index"] == 0
+
+    def test_an_index_resolves(self):
+        sheet, _ = self._sheet_with_hole()
+        assert sheet.add_dimension(0, "bore")._entry["index"] == 0
+
+    def test_the_ir_feature_itself_resolves(self):
+        sheet, _ = self._sheet_with_hole()
+        assert sheet.add_dimension(sheet.features[0], "bore")._entry["index"] == 0
+
+    def test_an_out_of_range_index_raises(self):
+        sheet, _ = self._sheet_with_hole()
+        with pytest.raises(IndexError, match="out of range"):
+            sheet.add_dimension(7, "bore")
+
+    def test_a_feature_from_another_sheet_raises(self):
+        """A feature that was never declared here cannot be augmented — silently
+        matching nothing would drop the request without a word."""
+        sheet, _ = self._sheet_with_hole()
+        stranger = HoleFeature(Frame((99, 99, 0), "z"), 3.0, depth=None, through=True)
+        with pytest.raises(ValueError, match="not a feature declared on this sheet"):
+            sheet.add_dimension(stranger, "bore")
+
+
+def test_a_verbatim_partmodel_carries_requests_through_the_builder():
+    """ADR 0011's public-input path: a caller-supplied `PartModel` is used verbatim, so
+    requests merged onto it must survive into the plan without mutating the caller's
+    reusable model."""
+    from draftwright.builder import _coerce_model
+
+    hole = HoleFeature(Frame((0, 0, 6), "z"), 8.0, depth=10.0, through=False)
+    original = PartModel(bbox=_BBOX, orientation="prismatic", features=[hole])
+    request = RequestedDimension(hole, "bore")
+
+    coerced = _coerce_model(original, _part(), None, (request,))
+
+    assert coerced.requested_dimensions == (request,)
+    assert original.requested_dimensions == (), "the caller's model must not be mutated"
