@@ -5695,6 +5695,23 @@ class TestDetailView:
         assert any(n.startswith("dim_detail_a_step") for n in dwg.annotations())
         # Drawn at a larger scale than the sheet.
         assert dwg.coords("detail_a")._scale > a.SCALE
+        # Absolute step heights use the part base as their datum. The detail
+        # must include that datum so neither witness endpoint floats outside
+        # the visible crop.
+        _, detail_y0, _, detail_y1 = dwg.view_bounds("detail_a")
+        detail_dims = (
+            dwg.get_annotation(n) for n in dwg.annotations() if n.startswith("dim_detail_a_step")
+        )
+        assert all(
+            detail_y0 - 1e-6 <= point[1] <= detail_y1 + 1e-6
+            for dim in detail_dims
+            for point in (dim._dw_spec.p1, dim._dw_spec.p2)
+        )
+        # Crop context and source marker are separate: including the base datum
+        # must not make the marker claim the whole part as the crowded region.
+        marker = dwg.get_annotation("detail_marker_A").bounding_box()
+        source_base_y = dwg.at("front", a.cx, a.cy, a.bb.min.Z)[1]
+        assert not marker.min.Y <= source_base_y <= marker.max.Y
         # No error-severity lint introduced.
         assert [i for i in dwg.lint() if i.severity == "error"] == []
 

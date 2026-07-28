@@ -620,6 +620,10 @@ class DetailRequest:
                       shrinks with the scale during the fit). Overrides ``pad_top``.
         source_view:  orthographic direction to preserve in the detail (``"front"``
                       or ``"side"``). The latter is used for Y-turned axial profiles.
+        crop_lo/crop_hi: optional crop bounds along ``axis`` when the projected
+                      detail must include context outside the marked feature band.
+                      Prismatic absolute-height details use this to retain their
+                      base datum without enlarging the source-view marker.
         cross_axis/cross_lo/cross_hi: optional second crop band, used to isolate a
                       narrow profile strip when enlarging the full radial extent
                       would not fit on the sheet.
@@ -634,6 +638,8 @@ class DetailRequest:
     pad_top: float = 0.0
     pads: Callable[[float], tuple[float, float]] | None = None
     source_view: Literal["front", "side"] = "front"
+    crop_lo: float | None = None
+    crop_hi: float | None = None
     cross_axis: Literal["x", "y", "z"] | None = None
     cross_lo: float | None = None
     cross_hi: float | None = None

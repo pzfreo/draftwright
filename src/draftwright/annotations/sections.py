@@ -434,10 +434,12 @@ def _render_detail(
         c["xyz".index(axis)] = edge
         return Pos(*c) * Box(big, big, big)
 
+    crop_lo = req.lo if req.crop_lo is None else req.crop_lo
+    crop_hi = req.hi if req.crop_hi is None else req.crop_hi
     try:
-        cropped = _fuzzy_cut(body, _cut(req.axis, req.lo - big / 2))
+        cropped = _fuzzy_cut(body, _cut(req.axis, crop_lo - big / 2))
         if cropped is not None:
-            cropped = _fuzzy_cut(cropped, _cut(req.axis, req.hi + big / 2))
+            cropped = _fuzzy_cut(cropped, _cut(req.axis, crop_hi + big / 2))
         if (
             cropped is not None
             and req.cross_axis is not None
@@ -836,6 +838,11 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx) -> None:
             scale_needed=scale_needed,
             redraw=redraw,
             pads=pads,
+            # These are absolute heights from the part's base datum, not local
+            # rise dimensions. Keep that datum in the projected crop so every
+            # witness point belongs to visible detail geometry, while ``lo``
+            # remains the crowded band marked on the source view.
+            crop_lo=a.bb.min.Z,
             cross_axis="x" if len(x_stations) >= 2 else None,
             cross_lo=max(a.bb.min.X, x_stations[0] - xpad) if len(x_stations) >= 2 else None,
             cross_hi=min(a.bb.max.X, x_stations[-1] + xpad) if len(x_stations) >= 2 else None,
