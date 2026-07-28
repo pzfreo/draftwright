@@ -216,7 +216,7 @@ class _Hole:
         return self
 
     def _set(self, **kw) -> _Hole:
-        self._sheet._features[self._i] = replace(self._sheet._features[self._i], **kw)
+        self._sheet._replace_feature(self._i, replace(self._sheet._features[self._i], **kw))
         return self
 
 
@@ -281,7 +281,7 @@ class _Dim:
         return self._set(thread=spec.strip())
 
     def _set(self, **kw) -> _Dim:
-        self._sheet._features[self._i] = replace(self._sheet._features[self._i], **kw)
+        self._sheet._replace_feature(self._i, replace(self._sheet._features[self._i], **kw))
         return self
 
 
@@ -1031,9 +1031,24 @@ class Sheet:
                 f"add_dimension({role!r}, axis={axis!r}): this feature has no such "
                 f"variant ({sorted(d for d in discs if d)})"
             )
-        entry = {"index": index, "role": role, "discriminator": axis}
+        entry = {"index": index, "role": role, "discriminator": axis, "target": target}
         self._added_dimensions.append(entry)
         return DimensionIntent(self, entry)
+
+    def _replace_feature(self, index: int, feature) -> None:
+        """Swap the frozen feature at *index* for an updated copy, keeping any recorded
+        `add_dimension` intent pointed at it.
+
+        The size verbs (`.depth()`, `.cbore()`, …) rebuild the frozen dataclass rather
+        than mutating it, so an intent recorded against the old object would otherwise
+        be looking at a stale instance. Routing every replacement through here is what
+        lets :meth:`_requested_dimensions` insist on IDENTITY — which is the only check
+        that catches a reorder, since a same-kind neighbour passes any role test.
+        """
+        self._features[index] = feature
+        for entry in self._added_dimensions:
+            if entry["index"] == index:
+                entry["target"] = feature
 
     def _feature_index(self, feature) -> int:
         """Resolve a handle / index / IR feature to its index in :attr:`features`."""
@@ -1043,6 +1058,13 @@ class Sheet:
             return feature
         index = getattr(feature, "_i", None)
         if index is not None:
+            # A handle carries an index into ITS OWN sheet — accepting a foreign one
+            # would silently dimension whatever this sheet happens to hold there.
+            if getattr(feature, "_sheet", None) is not self:
+                raise ValueError(
+                    f"{type(feature).__name__} belongs to a different Sheet — a handle's "
+                    "index is only meaningful on the sheet that issued it"
+                )
             return int(index)
         for i, f in enumerate(self._features):  # an IR feature passed directly
             if f is feature:  # identity — an equal feature from elsewhere is not this one
@@ -1055,27 +1077,21 @@ class Sheet:
         out = []
         for e in self._added_dimensions:
             index = e["index"]
-            if index >= len(self._features):
+            if index >= len(self._features) or self._features[index] is not e["target"]:
+                # The feature list is public and mutable. An insert, delete or reorder
+                # leaves the recorded index pointing at a DIFFERENT feature, and a role
+                # check cannot catch that — a same-kind neighbour passes it, so the
+                # request silently dimensions the wrong hole. Identity does catch it.
+                # Legitimate replacement by a size verb goes through `_replace_feature`,
+                # which keeps this pointer current.
                 raise ValueError(
-                    f"add_dimension({e['role']!r}) targets feature {index}, which no "
-                    "longer exists — `features` was shortened after the intent was "
-                    "declared"
-                )
-            feature = self._features[index]
-            # `features` is public and mutable, so an insert/delete/reorder between the
-            # declaration and build can leave a DIFFERENT feature at this index. Silently
-            # dimensioning the wrong one is the failure this catches: re-validate that
-            # whatever sits here still carries the measurement that was asked for.
-            params = feature.parameters()
-            if e["role"] not in {p.role for p in params} | {p.parameter_id for p in params}:
-                raise ValueError(
-                    f"add_dimension({e['role']!r}) no longer matches feature {index} "
-                    f"({type(feature).__name__}) — `features` was reordered or replaced "
-                    "after the intent was declared"
+                    f"add_dimension({e['role']!r}) no longer targets the feature it was "
+                    "declared against — `features` was reordered, shortened or replaced "
+                    "outside the declaration verbs"
                 )
             out.append(
                 RequestedDimension(
-                    feature=feature,
+                    feature=self._features[index],
                     role=e["role"],
                     discriminator=e["discriminator"],
                 )

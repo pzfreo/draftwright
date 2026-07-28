@@ -348,7 +348,7 @@ class TestInvalidCombinations:
         # no "bore" measurement at all.
         sheet.features.insert(0, ChamferFeature(Frame((0, 0, 0), "z"), "z", 2.0, 2.0, 45.0))
 
-        with pytest.raises(ValueError, match="no longer matches feature"):
+        with pytest.raises(ValueError, match="no longer targets the feature"):
             sheet._requested_dimensions()
 
     def test_truncating_the_feature_list_raises(self):
@@ -356,5 +356,42 @@ class TestInvalidCombinations:
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
         sheet.add_dimension(bore, "bore")
         sheet.features.clear()
-        with pytest.raises(ValueError, match="no longer exists"):
+        with pytest.raises(ValueError, match="no longer targets the feature"):
             sheet._requested_dimensions()
+
+    def test_swapping_two_same_kind_features_raises(self):
+        """The case a role check cannot catch, and the reason targeting is identity-based:
+        two holes both carry `bore`, so swapping them passes any role test while silently
+        moving the request from the 12 mm hole to the 7 mm one."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        deep = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
+        sheet.hole(diameter=10, at=(20, 0, 14), axis="z").depth(7)
+        sheet.add_dimension(deep, "bore.depth")
+
+        sheet.features[0], sheet.features[1] = sheet.features[1], sheet.features[0]
+
+        with pytest.raises(ValueError, match="no longer targets the feature"):
+            sheet._requested_dimensions()
+
+    def test_a_handle_from_another_sheet_is_rejected(self):
+        """A handle's index is only meaningful on the sheet that issued it — accepting a
+        foreign one silently dimensions whatever this sheet holds at that index."""
+        other = Sheet(_part(), title="T", number="N").auto_dimensions()
+        foreign = other.hole(diameter=3, at=(0, 0, 14), axis="z").depth(4)
+
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+
+        with pytest.raises(ValueError, match="different Sheet"):
+            sheet.add_dimension(foreign, "bore")
+
+    def test_a_size_verb_after_the_intent_is_still_legal(self):
+        """The flow identity-targeting must NOT break: `.depth()` rebuilds the frozen
+        feature, and the intent has to follow it rather than reject it."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z")
+        sheet.add_dimension(bore, "bore")
+        bore.depth(12)
+        (request,) = sheet._requested_dimensions()
+        assert request.feature is sheet.features[0]
+        assert request.feature.depth == 12
