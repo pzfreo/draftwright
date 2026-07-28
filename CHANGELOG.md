@@ -22,12 +22,14 @@
 
 - **`Sheet.dimension(kind=…, value=…)` is now `Sheet.measured_dimension(...)`**
   (ADR 0016 / #873), and `model.declare.authored_dimension` is
-  `model.declare.measured_dimension` to match. `dimension` becomes the *referential*
-  verb on both `Sheet` and `Drawing` — name a feature and a role, read the value off the
-  geometry — so the verb that carries an explicit number needed a name that says so.
-  The old spelling is a **transitional overload**, not a deprecation wrapper: because the
-  name is reused rather than retired, `Sheet.dimension` dispatches on how it was called
-  and warns, for one release. It expires at 0.4.0 with the #720 alias removals.
+  `model.declare.measured_dimension` to match. This **reserves** the name `dimension` for
+  the referential verb ADR 0016 defines — name a feature and a role, carry no number, let
+  the engine read the value off the geometry — which `Drawing.dimension` already is and
+  `Sheet.dimension` will become. The verb that carries an explicit number needed a name
+  saying so first. The old spelling is a **transitional overload**, not a deprecation
+  wrapper: because the name is reused rather than retired, `Sheet.dimension` dispatches on
+  how it was called and warns, for one release, expiring at 0.4.0 with the #720 alias
+  removals. Calling it referentially raises today, naming the issue that delivers it.
   Generated AP242 scripts emit `measured_dimension` and so arrive un-deprecated.
 - **`Sheet` handles address features by identity, not position** (#908/#910/#912). A
   handle, tolerance, GD&T origin, section request or dimension intent now follows *its*

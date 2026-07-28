@@ -151,7 +151,7 @@ class TestEmit:
             )
 
     def test_refpts_only_linear_dim_renders_on_each_axis(self):
-        # #562: a linear Sheet.dimension() with two valid ref_pts and NO ref_bbox must
+        # #562: a linear Sheet.measured_dimension() with two valid ref_pts and NO ref_bbox must
         # render (the witness is derived from the ref points) — for X, Y, and Z. Z needs
         # the front left/right strip reserved for authored height dims (the sizing fix).
         from draftwright import Sheet

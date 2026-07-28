@@ -3523,7 +3523,7 @@ def _pmi_witness_from_bbox(rec, view: str, a):
     (e.g. two parallel faces of a slot or step).  Not suitable for bore
     diameters — use _bore_info instead.
 
-    When the record carries no ``ref_bbox`` (an authored ``Sheet.dimension()`` with
+    When the record carries no ``ref_bbox`` (an authored ``Sheet.measured_dimension()`` with
     only ``ref_pts``, #562), the span is derived from the ref points — so a ref_pts-only
     dimension renders instead of silently vanishing.
     """

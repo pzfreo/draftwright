@@ -380,7 +380,7 @@ def _compose_anno_boxes(
         bore_depth += pad_around_text + arrow_length
         boxes.append(AnnoBox("right", bore_depth))  # FV/PV right bore callouts
         boxes.append(AnnoBox("left", bore_depth))  # FV/PV left bore callouts
-    # Authored Z-axis linear dimensions (Sheet.dimension / AP242 PMI) render as height
+    # Authored Z-axis linear dimensions (Sheet.measured_dimension / AP242 PMI) render as height
     # dims to the front LEFT/RIGHT strips (#562). The right strip already holds the
     # envelope height + step ladder, but the left has only its _DIM_PAD floor, so an
     # authored Z dim was queued and then dropped as "no room". Reserve a slot per authored

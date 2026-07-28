@@ -748,10 +748,11 @@ class Sheet:
     ) -> Sheet:
         """Declare a drafting dimension from explicit **measured** values.
 
-        Named for what it carries (ADR 0016 / #873). ``dimension`` now means *referential* on
-        both :class:`Sheet` and ``Drawing`` — it names a feature and a role and the engine reads
-        the value off the geometry — so the verb that carries a number of its own needed a name
-        that says so. A measured dimension is the one place a value does NOT come from the part.
+        Named for what it carries (ADR 0016 / #873). ``dimension`` is *referential* on
+        ``Drawing`` today and becomes so on :class:`Sheet` in #874 — it names a feature and a
+        role, and the engine reads the value off the geometry. The verb that carries a number of
+        its own needed a name saying so before that name could be reused. A measured dimension is
+        the one place a value does NOT come from the part.
 
         This is the concept-shaped Sheet API used by generated AP242 scripts: the source file
         may call the record PMI, but the editable script declares a dimension category, value,
