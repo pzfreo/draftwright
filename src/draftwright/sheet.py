@@ -516,6 +516,12 @@ class Sheet:
         # replaces the feature. Materialized to `RequestedDimension` against the FINAL
         # features at build. Each entry: {"index", "role", "discriminator", "pin", "priority"}.
         self._added_dimensions: list[dict] = []
+        # Identity shadow of `_features`, refreshed by the declaration verbs. Handles are
+        # index-based and `features` is public and mutable, so no per-path check can be
+        # complete — four separate escapes were found by review before this went in.
+        # Comparing the shadow catches the whole family at once: any structural edit made
+        # outside the verbs is visible, whatever it was.
+        self._feature_ids: list[int] = []
         # Did the script explicitly ask for the planner's set? Optional here (#872) — a
         # build without it still auto-dimensions, as it always has. Making it MANDATORY
         # is the #874 breaking change; shipping that early would change this verb's
@@ -1009,6 +1015,7 @@ class Sheet:
         a silent coin toss between the row and column pitch is the kind of wrong a reader
         cannot see.
         """
+        self._assert_features_unshuffled("add_dimension()")
         index = self._feature_index(feature)
         target = self._features[index]
         params = target.parameters()
@@ -1033,7 +1040,34 @@ class Sheet:
             )
         entry = {"index": index, "role": role, "discriminator": axis, "target": target}
         self._added_dimensions.append(entry)
+        self._feature_ids = [id(f) for f in self._features]
         return DimensionIntent(self, entry)
+
+    def _assert_features_unshuffled(self, what: str) -> None:
+        """Refuse to resolve an intent when `features` was edited outside the verbs.
+
+        `add_dimension` targets one declared feature. A structural edit to the public
+        list — insert, delete, reorder — silently repoints an index-based handle at a
+        different feature, and the request then dimensions the wrong one. Four separate
+        escapes of exactly that shape were found by review before this check went in;
+        patching each path individually could not work, because handles are index-based
+        and the list is public.
+
+        Only the PREFIX covered by the shadow is checked, so declaring more features
+        after an intent stays legal — an append cannot disturb an existing index. And it
+        is only enforced while intents exist, so a script that never calls
+        `add_dimension` keeps the full freedom the attribute documents.
+        """
+        if not self._added_dimensions:
+            return
+        prefix = len(self._feature_ids)
+        if [id(f) for f in self._features[:prefix]] != self._feature_ids:
+            raise ValueError(
+                f"{what}: `features` was inserted into, deleted from or reordered after "
+                "an add_dimension() intent was declared. Intents target a specific "
+                "feature, and a raw list edit silently repoints them — declare the "
+                "features you want first, then the dimensions."
+            )
 
     def _replace_feature(self, index: int, feature) -> None:
         """Swap the frozen feature at *index* for an updated copy, keeping any recorded
@@ -1055,6 +1089,8 @@ class Sheet:
             # to prevent. Leaving the mismatch in place lets materialization raise.
             if entry["index"] == index and entry["target"] is previous:
                 entry["target"] = feature
+        if index < len(self._feature_ids):
+            self._feature_ids[index] = id(feature)
 
     def _feature_index(self, feature) -> int:
         """Resolve a handle / index / IR feature to its index in :attr:`features`."""
@@ -1080,6 +1116,7 @@ class Sheet:
     def _requested_dimensions(self) -> tuple:
         """Materialize the index-keyed intents against the FINAL features, mirroring
         :meth:`_decorations` — a handle may predate a later size verb."""
+        self._assert_features_unshuffled("build()")
         out = []
         for e in self._added_dimensions:
             index = e["index"]

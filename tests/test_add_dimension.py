@@ -348,7 +348,7 @@ class TestInvalidCombinations:
         # no "bore" measurement at all.
         sheet.features.insert(0, ChamferFeature(Frame((0, 0, 0), "z"), "z", 2.0, 2.0, 45.0))
 
-        with pytest.raises(ValueError, match="no longer targets the feature"):
+        with pytest.raises(ValueError, match="reordered"):
             sheet._requested_dimensions()
 
     def test_truncating_the_feature_list_raises(self):
@@ -356,7 +356,7 @@ class TestInvalidCombinations:
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
         sheet.add_dimension(bore, "bore")
         sheet.features.clear()
-        with pytest.raises(ValueError, match="no longer targets the feature"):
+        with pytest.raises(ValueError, match="reordered"):
             sheet._requested_dimensions()
 
     def test_swapping_two_same_kind_features_raises(self):
@@ -370,7 +370,7 @@ class TestInvalidCombinations:
 
         sheet.features[0], sheet.features[1] = sheet.features[1], sheet.features[0]
 
-        with pytest.raises(ValueError, match="no longer targets the feature"):
+        with pytest.raises(ValueError, match="reordered"):
             sheet._requested_dimensions()
 
     def test_a_handle_from_another_sheet_is_rejected(self):
@@ -408,5 +408,29 @@ class TestInvalidCombinations:
         sheet.features[0], sheet.features[1] = sheet.features[1], sheet.features[0]
         first.thread("M10")  # stale handle, now writing to the OTHER hole's slot
 
-        with pytest.raises(ValueError, match="no longer targets the feature"):
+        with pytest.raises(ValueError, match="reordered"):
             sheet._requested_dimensions()
+
+    def test_an_intent_declared_after_a_reorder_raises(self):
+        """Round 4's escape: the intent is declared *after* the swap, so the target is
+        captured post-shuffle and no identity comparison at materialisation can see the
+        problem. Only noticing that the list itself moved catches this one."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        first = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
+        sheet.hole(diameter=10, at=(20, 0, 14), axis="z").depth(7)
+        sheet.add_dimension(first, "bore.depth")  # takes the shadow
+
+        sheet.features[0], sheet.features[1] = sheet.features[1], sheet.features[0]
+
+        with pytest.raises(ValueError, match="reordered"):
+            sheet.add_dimension(first, "bore")
+
+    def test_declaring_more_features_after_an_intent_stays_legal(self):
+        """An append cannot disturb an existing index, so the check must not fire on the
+        ordinary flow of declaring more geometry after asking for a dimension."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        sheet.add_dimension(bore, "bore")
+        sheet.hole(diameter=4, at=(30, 0, 14), axis="z")
+        sheet.hole(diameter=6, at=(-30, 0, 14), axis="z")
+        assert sheet.build() is not None
