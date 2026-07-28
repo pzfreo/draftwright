@@ -1127,6 +1127,13 @@ class Sheet:
         if index < len(self._feature_ids):
             self._feature_ids[index] = id(feature)
 
+    # NOTE (#908): the two checks below are SCAFFOLDING, not the fix. `Sheet` addresses
+    # features by index into a public mutable list, so every long-lived reference —
+    # tolerances, GD&T provenance, sections, and these intents — is positional where it
+    # needs to be identity-based. Seven review rounds on #872 found seven variants of the
+    # same failure, each fix opening the next. #908 replaces the addressing model; these
+    # should be REMOVED by it rather than extended to the other thirteen call sites.
+
     def _assert_handle_fresh(self, handle) -> None:
         """A handle addresses by index, so a reorder of the public list leaves it naming
         someone else's feature. Checked before a size verb writes, not only when an
