@@ -143,6 +143,29 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
     )
 
 
+def _recess(group: DimensionGroup) -> tuple[float | None, float | None]:
+    """The counterbore-or-spotface recess as ONE segment: ``(diameter, depth)``.
+
+    ``counterbore`` takes precedence and ``spotface`` is the fallback — but the choice is made
+    once, for the segment, and both terms then come from the role that won. Resolving the two
+    terms through independent fallbacks (as the first version did) let a suppressed
+    ``counterbore.depth`` pair the counterbore's ⌀32 with the spotface's 0.5 depth: a recess
+    present on neither feature, and a wrong drawing rather than a missing one.
+
+    A role wins on its HEAD being unsuppressed, matching the asymmetric segment rule — its
+    depth may legitimately be suppressed, which yields a ⌀ with no stated depth.
+    """
+    for role in ("counterbore", "spotface"):
+        dia = _planned(group, "diameter", role)
+        if dia is not None and not dia.suppressed:
+            depth = _planned(group, "depth", role)
+            return (
+                float(dia.param.value),
+                None if depth is None or depth.suppressed else float(depth.param.value),
+            )
+    return None, None
+
+
 def hole_callout_spec(group: DimensionGroup) -> dict | None:
     """A hole/pattern group's plan → `HoleCallout` kwargs, mirroring the engine's
     convention. ``None`` if not a hole-bearing callout.
@@ -163,6 +186,7 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     if not isinstance(feat, HoleFeature | PatternFeature):
         return None
     _refuse_headless_callout(group)  # every segment, not just the head — see the docstring
+    cbore_dia, cbore_depth = _recess(group)
     bore_pd = _planned(group, "diameter", "bore")
     bore = _first(group, "diameter", "bore")
     if bore is None:
@@ -188,8 +212,11 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         "through": hole.through,  # the feature's fact, not the param list's shape (#868)
         "depth": depth,
         # counterbore precedence, spotface fallback — the engine's mapping
-        "cbore_dia": _first(group, "diameter", "counterbore", "spotface"),
-        "cbore_depth": _first(group, "depth", "counterbore", "spotface"),
+        # ONE role, both terms. Reading ⌀ and depth through independent fallbacks let a
+        # drawing pair the counterbore's ⌀32 with the spotface's 0.5 depth — a recess that
+        # exists on neither feature (#920 review). The chain picks a segment, not a value.
+        "cbore_dia": cbore_dia,
+        "cbore_depth": cbore_depth,
         "csink_dia": _first(group, "diameter", "countersink"),
         "csink_angle": _first(group, "angle", "countersink"),
         "suffix": suffix,

@@ -235,6 +235,64 @@ class TestPrecedenceRespectsSuppression:
         assert spec["cbore_dia"] is None and spec["cbore_depth"] is None
 
 
+class TestTheRecessIsOneSegment:
+    """`counterbore` takes precedence and `spotface` is the fallback — but the choice is made
+    once, for the SEGMENT, not independently for the ⌀ and the depth.
+
+    Reading the two terms through separate fallbacks let a suppressed `counterbore.depth` pair
+    the counterbore's ⌀32 with the spotface's 0.5 depth: a recess present on neither feature.
+    That is a *wrong* drawing rather than a missing one, which is the worse failure — found by
+    a 10,500-outcome review sweep, and 168 accepted combinations produced it.
+    """
+
+    @staticmethod
+    def _both():
+        return HoleFeature(
+            Frame((0, 0, 10), "z"),
+            20.0,
+            depth=None,
+            through=True,
+            cbore=(32.0, 1.5),
+            spotface=(35.0, 0.5),
+        )
+
+    def test_suppressing_the_winners_depth_does_not_borrow_the_fallbacks(self):
+        group = _suppress(_group(self._both()), ("depth", "counterbore"))
+        spec = hole_callout_spec(group)
+        assert spec["cbore_dia"] == 32.0, "the counterbore still wins — its head is unsuppressed"
+        assert spec["cbore_depth"] is None, "and it has no depth, rather than the spotface's"
+
+    def test_terms_always_come_from_one_role(self):
+        """The general property, over the whole suppression power set of both roles: whatever
+        the callout prints must exist together on ONE of the two features."""
+        feature = self._both()
+        group = _group(feature)
+        roles = [
+            ("diameter", "counterbore"),
+            ("depth", "counterbore"),
+            ("diameter", "spotface"),
+            ("depth", "spotface"),
+        ]
+        legitimate = {(32.0, 1.5), (32.0, None), (35.0, 0.5), (35.0, None), (None, None)}
+        seen = set()
+        for r in range(len(roles) + 1):
+            for combo in itertools.combinations(roles, r):
+                marked = _suppress(group, *combo) if combo else group
+                try:
+                    spec = hole_callout_spec(marked)
+                except ValueError:
+                    continue
+                if spec is None:
+                    continue
+                pair = (spec["cbore_dia"], spec["cbore_depth"])
+                assert pair in legitimate, (
+                    f"suppressing {list(combo)} produced recess {pair}, which exists on neither "
+                    "the counterbore (32.0, 1.5) nor the spotface (35.0, 0.5)"
+                )
+                seen.add(pair)
+        assert {(32.0, 1.5), (35.0, 0.5)} <= seen, "the sweep never exercised either role intact"
+
+
 class TestDependentsThatAreNotDimensions:
     """Not everything riding the callout string is a dimension parameter. A thread spec and a
     pattern's `4× … EQ SP ON ⌀50 BC` live on the FEATURE, so they survive any amount of
