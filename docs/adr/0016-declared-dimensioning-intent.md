@@ -41,6 +41,31 @@ planner's set (#872); dimension identity is `DimensionId(feature, parameter)`
 (#869/#870/#871). Location dimensions remain unaddressable (#883), and per-annotation
 provenance for compound callouts remains #886.
 
+### What the authored set governs
+
+An authored set replaces the planner's rule set for every dimension that has
+**addressable identity** — a parameter on an IR feature. Marking is not enough on its
+own: a renderer that rebuilds its marks from the feature or the bounding box never sees
+the mark, so the plan can say "omitted" while the page still carries the dimension.
+Three auto passes did exactly that until #921; they now read the plan
+(`env_dim_placed` / `set_dim_placed`), and the correlated sets — a `step_height` ladder,
+a `step_position` chain — are kept or dropped **whole**, matching the tier-3 identity
+rule that a single `role=` line addresses the set rather than a member.
+
+Two categories sit outside the set, both deliberately and both visible rather than
+silent:
+
+- **Location dimensions** have no addressable identity yet (`plan_locations` returns a
+  flat, cross-feature, ref-deduped list that never enters a `DimensionGroup`), so an
+  authored set neither names nor suppresses them. Giving them identity is a design
+  question — is a patterned hole's location one unit or one per member? — tracked as
+  **#883**, which also blocks the `"location"` role in the selector.
+- **A bounding-box fallback with no feature behind it.** A model that declares no
+  `EnvelopeFeature` still gets an overall height off the bbox, and no parameter anywhere
+  names it. Rather than let an authored drawing carry a dimension its author had no way
+  to ask for, the fallback is refused under an authored set: declaring `.envelope()` is
+  how the overall height becomes nameable. Automatic builds are unaffected.
+
 ## Context
 
 A user reading a generated `Sheet` script today sees the part's **features** — one

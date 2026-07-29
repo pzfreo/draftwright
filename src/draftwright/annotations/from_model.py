@@ -2876,7 +2876,7 @@ def render_height_ladder(
     step = next((f for f in model.features if f.kind == "step_level"), None)
     # The rungs are one addressable set: the planner keeps or drops them together.
     rungs_planned = step is not None and set_dim_placed(groups, "step_level", "step_height")
-    levels = list(step.levels) if rungs_planned else []
+    levels = list(step.levels) if step is not None and rungs_planned else []
     step_shoulders = tuple(step.shoulders) if step is not None else ()
     short_levels: list[float] = []
     rep = _detect_step_repeat(levels, a.bb.min.Z, a.bb.max.Z) if levels else None

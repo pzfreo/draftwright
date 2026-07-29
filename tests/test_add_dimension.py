@@ -166,6 +166,68 @@ class TestSheetSurface:
         with pytest.raises(ValueError, match="ONE dimension source"):
             sheet.build()
 
+    def test_a_detected_build_refuses_an_authored_set(self):
+        """`authored=` names DECLARED feature objects; detection builds its own, which no
+        authored entry can match. Dropping it silently would revert the build to exactly
+        the automatic dimensions the author was replacing (#921 review) — the `requested=`
+        guard beside it has always said so, and this is the worse of the two to lose."""
+        from draftwright import build_drawing
+        from draftwright.model import declare
+        from draftwright.model.ir import RequestedDimension
+
+        part = _part()
+        request = RequestedDimension(
+            feature=declare.envelope(part), role="width", discriminator=None
+        )
+        with pytest.raises(ValueError, match="authored= names declared features"):
+            build_drawing(part, authored=(request,))
+
+    @pytest.mark.parametrize(
+        "on_model,as_kwarg",
+        [("requested_dimensions", "authored"), ("authored_dimensions", "requested")],
+    )
+    def test_both_sources_are_refused_however_they_arrive(self, on_model, as_kwarg):
+        """The exclusion is a property of the EFFECTIVE model, not of one call's arguments.
+        Either source can arrive two ways — as a keyword, or already carried by a supplied
+        `PartModel` — so an argument-level guard sees only half of each combination and
+        both of these mixed forms slipped through it (#921 review)."""
+        from draftwright.builder import _coerce_model
+        from draftwright.model import declare
+        from draftwright.model.ir import PartModel, RequestedDimension
+
+        part = _part()
+        env = declare.envelope(part)
+        request = RequestedDimension(feature=env, role="width", discriminator=None)
+        model = PartModel(
+            bbox=part.bounding_box(),
+            orientation=None,
+            features=[env],
+            datums=[],
+            **{on_model: (request,)},
+        )
+        with pytest.raises(ValueError, match="cannot have both"):
+            _coerce_model(model, part, None, **{as_kwarg: (request,)})
+
+    def test_a_partmodel_already_naming_both_sources_is_refused(self):
+        """The public boundary rejects an invalid model even when no keyword adds to it."""
+        from draftwright.builder import _coerce_model
+        from draftwright.model import declare
+        from draftwright.model.ir import PartModel, RequestedDimension
+
+        part = _part()
+        env = declare.envelope(part)
+        request = RequestedDimension(feature=env, role="width", discriminator=None)
+        model = PartModel(
+            bbox=part.bounding_box(),
+            orientation=None,
+            features=[env],
+            datums=[],
+            requested_dimensions=(request,),
+            authored_dimensions=(request,),
+        )
+        with pytest.raises(ValueError, match="cannot have both"):
+            _coerce_model(model, part)
+
     def test_from_part_states_the_automatic_source(self):
         """Detection IS a request for the engine's reading of the part, so `from_part` says so
         rather than leaving the caller to. Not the implicit default returning by the back
@@ -708,8 +770,10 @@ class TestOmittedDimensionsDoNotRender:
         "the whole set is addressed" from "one member happened to survive"."""
         from build123d import Box, Pos
 
-        return Box(120, 60, 15) + Pos(-20, 0, 15) * Box(80, 60, 15) + Pos(-40, 0, 30) * Box(
-            40, 60, 15
+        return (
+            Box(120, 60, 15)
+            + Pos(-20, 0, 15) * Box(80, 60, 15)
+            + Pos(-40, 0, 30) * Box(40, 60, 15)
         )
 
     @staticmethod
@@ -794,3 +858,44 @@ class TestOmittedDimensionsDoNotRender:
         hole = sheet.hole(Pos(0, 0, 12) * Cylinder(6, 20))
         sheet.dimension(hole, "bore.diameter")
         assert "dim_height" not in _names(sheet.build())
+
+    def test_one_authored_line_leaves_only_that_dimension_on_the_page(self):
+        """The whole contract in one assertion, against a part with several competing
+        feature kinds. Each earlier test names a pass that leaked; this one would catch
+        the NEXT such pass without knowing its name, which is the property that matters
+        — the P0 was a class of defect (a renderer rebuilding its marks from geometry
+        instead of the plan), not a single site.
+
+        What legitimately remains is furniture, not dimensioning: centre marks, the
+        NTS note, the title block, and the location ladder, which stays outside the
+        authored set until it has addressable identity (#883).
+        """
+        from build123d import Box, Cylinder, Pos
+
+        part = (
+            Box(120, 80, 25)
+            - Pos(-30, 0, 17) * Cylinder(5, 20)
+            - Pos(30, 20, 17) * Cylinder(4, 20)
+        )
+        sheet = Sheet(part, title="T", number="N")
+        env = sheet.envelope()
+        sheet.hole(Pos(-30, 0, 17) * Cylinder(5, 20))
+        sheet.hole(Pos(30, 20, 17) * Cylinder(4, 20))
+        sheet.dimension(env, "width")
+
+        drawn = _names(sheet.build())
+        assert "m_env_width" in drawn, "the one authored measurement"
+        furniture = ("m_cm", "m_locx", "m_locy", "note_", "title_block")
+        assert not [n for n in drawn if n != "m_env_width" and not n.startswith(furniture)], (
+            f"an unauthored dimension reached the page: {sorted(drawn)}"
+        )
+
+        auto = Sheet(part, title="T", number="N")
+        auto.envelope()
+        auto.hole(Pos(-30, 0, 17) * Cylinder(5, 20))
+        auto.hole(Pos(30, 20, 17) * Cylinder(4, 20))
+        auto.auto_dimensions()
+        assert len(_names(auto.build())) > len(drawn), (
+            "the automatic build must carry MORE — otherwise the assertion above holds "
+            "for a part that was never richly dimensioned in the first place"
+        )

@@ -10,8 +10,8 @@
   exactly one place. It changes *selection*, not derivation — a request can never
   introduce a number the part does not have. Requesting something the planner already
   emits is a deliberate no-op, so a script can ask without first knowing the rule set's
-  mind. `sheet.auto_dimensions()` states the source explicitly (optional in this
-  release; #874 makes it mandatory).
+  mind. It augments the planner's set, so it requires `sheet.auto_dimensions()` — see
+  the mandatory dimension source below.
 - **A build must say where its dimensions come from — BREAKING** (ADR 0016 /
   #874/#876). The dimension set has exactly two sources and the script always says
   which: `sheet.auto_dimensions()` for the planner's selected set (optionally augmented
@@ -25,7 +25,15 @@
   planned suppressed with a reason and keeps its value — marked, not filtered — so the
   group retains its engineering data and a compound callout still refuses to orphan half
   a term. This is what makes the mandatory source worth having: omission only means
-  something inside a set declared complete.
+  something inside a set declared complete. The overall height, the prismatic step
+  rungs and the step-position shoulders honour it too: those passes rebuilt their marks
+  from the feature and the bounding box, so the plan said "omitted" while the page still
+  carried the dimension. Correlated sets are kept or dropped **whole** — one
+  `dimension(step, "step_height")` line addresses the whole ladder, never a rung.
+  A model that declares no envelope has no parameter naming its overall height, so an
+  authored build no longer draws the bounding-box fallback: declare `.envelope()` to
+  make it nameable. Location dimensions stay outside the authored set until they have
+  addressable identity (#883).
 - **Suppressing a dimension marks it; it no longer leaks into the callout** (ADR 0016 /
   #875). `PlannedDimension.suppressed` was honoured at thirteen render sites but not by
   the compound hole-callout path, so a suppressed counterbore still printed. The group
