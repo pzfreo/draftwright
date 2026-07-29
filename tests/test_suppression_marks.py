@@ -262,6 +262,28 @@ class TestTheRecessIsOneSegment:
         assert spec["cbore_dia"] == 32.0, "the counterbore still wins — its head is unsuppressed"
         assert spec["cbore_depth"] is None, "and it has no depth, rather than the spotface's"
 
+    def test_suppressing_a_shadowed_spotface_is_a_no_op(self):
+        """The counterbore wins, so the spotface is never rendered — suppressing part of it
+        orphans nothing and must not raise. Validating every role regardless produced a
+        spurious error about a term the drawing never carried (#920 review)."""
+        group = _group(self._both())
+        before = hole_callout_spec(group)
+        marked = _suppress(group, ("diameter", "spotface"))
+        assert hole_callout_spec(marked) == before
+
+    def test_but_a_shadowed_spotface_still_matters_once_it_is_uncovered(self):
+        """The contrast that keeps the exemption honest: shadowing is conditional on the
+        counterbore printing, so once its head goes the spotface is live again and its own
+        half-suppression raises."""
+        group = _suppress(
+            _group(self._both()),
+            ("diameter", "counterbore"),
+            ("depth", "counterbore"),
+            ("diameter", "spotface"),
+        )
+        with pytest.raises(ValueError, match="spotface.depth"):
+            hole_callout_spec(group)
+
     def test_terms_always_come_from_one_role(self):
         """The general property, over the whole suppression power set of both roles: whatever
         the callout prints must exist together on ONE of the two features."""

@@ -90,6 +90,21 @@ def _is_suppressed(group: DimensionGroup, kind: str, role: str) -> bool:
     return pd is not None and pd.suppressed
 
 
+def _shadowed(group: DimensionGroup, name: str) -> bool:
+    """Is this segment invisible because another one takes precedence over it?
+
+    Only the spotface can be, and only while the counterbore's ⌀ prints — the two share the one
+    recess slot in the callout string. A shadowed segment is not rendered before OR after a
+    suppression, so suppressing part of it orphans nothing and must not raise: the first version
+    validated every role and refused `spotface.diameter` on a hole whose counterbore was intact,
+    which is a spurious error about a term the drawing never carried (#920 review).
+    """
+    if name != "spotface":
+        return False
+    cbore = _planned(group, "diameter", "counterbore")
+    return cbore is not None and not cbore.suppressed
+
+
 def _refuse_headless_callout(group: DimensionGroup) -> None:
     """Raise if suppression would leave part of a compound callout orphaned (ADR 0016 / #875).
 
@@ -106,6 +121,8 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
     stays silent, because nothing is orphaned.
     """
     for name, head, dependents in _CALLOUT_SEGMENTS:
+        if _shadowed(group, name):
+            continue
         if not _is_suppressed(group, *head):
             continue
         orphans = _printing(group, *dependents)
@@ -120,7 +137,8 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
         return
     across = [
         label
-        for _name, head, dependents in _CALLOUT_SEGMENTS[1:]
+        for name, head, dependents in _CALLOUT_SEGMENTS[1:]
+        if not _shadowed(group, name)
         for label in _printing(group, head, *dependents)
     ]
     # Not every dependent is a dimension. The thread spec and a pattern's count/suffix ride the
