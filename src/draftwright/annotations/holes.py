@@ -245,7 +245,12 @@ def add_feature_location(
     if not mine:
         return []
     draft = dwg.draft
-    dx, dy = mine[0].span[0][0], mine[0].span[0][1]
+
+    def _span(loc):
+        assert loc.span is not None  # a compiled location always carries datum → ref
+        return loc.span
+
+    dx, dy = _span(mine[0])[0][0], _span(mine[0])[0][1]
     tier = draft.font_size + 2 * draft.pad_around_text
     PX, PY = a.proj.plan_x, a.proj.plan_y
     SX, SZ = a.proj.side_x, a.proj.side_z
@@ -276,7 +281,7 @@ def add_feature_location(
     seen_x: list[float] = []
     seen_y: list[float] = []
     for loc in mine:
-        rx, ry = loc.span[1][0], loc.span[1][1]
+        rx, ry = _span(loc)[1][0], _span(loc)[1][1]
         # A rotational part's on-axis *hole* is located by the centreline, not a
         # position dim (matches render_locations); a pattern ref is never filtered.
         if loc.role == "location" and a.is_rotational and _concentric_with_axis(a, rx, ry):
@@ -436,6 +441,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
         raise ValueError(
             f"callout(): {type(feature).__name__} exposes no step/boss diameter callout"
         )
+    assert group is not None  # dpd came off it
     dia = dpd.value
     axis = feature.frame.axis
     if axis not in ("x", "z"):

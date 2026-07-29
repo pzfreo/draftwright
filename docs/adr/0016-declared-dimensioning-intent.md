@@ -367,11 +367,12 @@ grouping never learn about it" — is better served by the inversion than by the
   construction site in the repo (the planner), the type is planner **output** that callers
   consume rather than build, and an alpha package already carrying the phase-2 breaking
   change should not grow a compatibility initializer for a call form nobody uses.*
-- ***The identity layer does not yet cover location dimensions.*** *`plan_dimensions` skips
-  `location`-kind parameters and `plan_locations` returns a flat cross-feature list that
-  never enters a `DimensionGroup`, so `sheet.dimension(bore, "location")` — an example in
-  this ADR's own selector table — has no key. Tracked as **#883**; it blocks the `"location"`
-  role in the selector.*
+- ***The identity layer covers locations at feature granularity (#925).*** *`plan_dimensions`
+  still skips `location`-kind parameters and `plan_locations` still returns a flat
+  cross-feature list, so a location has no `AddressableDimension`. What it does have is a
+  role in `planner._LOCATION_ROLE`, which is enough for `sheet.dimension(bore, "location")`
+  to address it and for an authored set to omit it. **#883 remains open** for the finer
+  question — one unit per feature or one per member — which affects naming, not omission.*
 
 Most addressable dimensions hold exactly one member. A correlated set holds N, and those
 members are **not** separately addressable — that is the whole content of tier 3, now stated
@@ -707,7 +708,7 @@ constraining planner internals that are still moving. The gaps are known and fin
 | Not mirrored as a `dimension(...)` line | Why | Where it goes instead |
 | --- | --- | --- |
 | Correlated sets, per member | `step_height` / `step_position` ladders and rotational bores are one `AddressableDimension` holding N members | **One** line per set; suppress the set, not a member |
-| Location dimensions | Planned by `plan_locations` outside `DimensionGroup`, so they have no addressable identity yet — **#883** | Comment floor until #883 lands |
+| Location dimensions, per member | Addressable per FEATURE since #925 (`dimension(hole, "location")`); whether a patterned hole's position splits per member is **#883** | **One** line per feature |
 | Inter-feature spans and angles | No `(feature, role)` form — needs `RelationDimensionId`, whose selector spelling is still open | Comment floor until the relation selector lands |
 | Imported AP242 PMI | Materialized: carries `ref_pts` / `ref_bbox` / `at`, so there is nothing to reference | `sheet.measured_dimension(...)` — still one editable line |
 | Low-level furniture | Centre marks, section arrows, hatching, the NTS caption carry no editable intent | Engine-automatic, by decision |
@@ -725,7 +726,7 @@ absence both mean something exact** — which is all suppression-by-omission nee
   different scale. That identity is the `DimensionId` above, not a page-keyed annotation
   name — it leans on the ADR 0015 planner keeping parameter roles stable, and on ADR 0010
   provenance growing an N-ids channel (#886) before an id can resolve to the annotations
-  it produced. (*Location* dims are not nameable at all yet — #883.) Both intents need the key — `add_dimension` for its handle and for
+  it produced. (*Location* dims are nameable per feature since #925; per member is #883.) Both intents need the key — `add_dimension` for its handle and for
   idempotence against the plan — but **suppressive intent additionally needs that identity
   to be stable across re-detection and recomposition**, which is why identity lands *with*
   the augmenting verb while suppression waits for the set boundary.
@@ -832,10 +833,8 @@ sheet.dimension(bore,    "spotface_diameter")  # ⌴ ⌀32
 sheet.dimension(bore,    "spotface_depth")     # ↓ 1.5
 
 sheet.dimension(corners, "diameter")           # 4× ⌀5 THRU  (read off `corners`)
-# Locations are NOT addressable yet (#883) — the engine still places them
-# automatically; these two lines are what the surface will read once it lands.
-# sheet.dimension(corners, "location")         # location ladder  ← comment out to drop
-# sheet.dimension(bore,    "location")         # bore on centre
+sheet.dimension(corners, "location")           # location ladder  ← comment out to drop
+sheet.dimension(bore,    "location")           # bore on centre
 sheet.dimension(env,     "width")              # 80    (read off the bbox)
 sheet.dimension(env,     "depth")              # 50
 sheet.dimension(env,     "height")             # 8     (thickness)
@@ -1026,8 +1025,8 @@ second with the single-source-of-truth of the first — over the identified set,
 - The `role` vocabulary for `sheet.dimension(feature, role)`: which measurements to support
   first (`"diameter"`, `"pitch"`, `"width"`/`"depth"`/`"height"`, `"angle"`, `"radius"`), and
   how the call-site role maps onto the `ParameterId` space (`"depth"` → `"bore.depth"`) when a
-  feature has counterbore and spotface depths as well. **`"location"` is blocked on #883** —
-  location dims are planned outside `DimensionGroup` and have no addressable identity yet.
+  feature has counterbore and spotface depths as well. `"location"` is supported at feature
+  granularity (#925); splitting a patterned hole's position per member is **#883**.
 - **The relation selector.** `RelationDimensionId` settles the *identity* of an
   inter-feature measurement; how it reads at the call site does not —
   `sheet.dimension(a, b)` / `sheet.dimension((a, b), "span")` / a feature-handle method.

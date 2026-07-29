@@ -143,14 +143,17 @@ class AddressableDimension:
     provenance — survive the grouping instead of needing a second parallel structure
     alongside it.
 
-    **Scope: the feature parameters that flow through `plan_dimensions`.** Location
-    dimensions do *not* have addressable identity yet — `plan_dimensions` skips every
-    `location`-kind parameter and `plan_locations` returns a flat cross-feature list of
-    bare `PlannedDimension`s, deduped by ref point, that never enters a
-    `DimensionGroup`. Giving them identity is a design question rather than a wiring
-    gap (is a grouped hole's location one unit or one per member? does a deduped
-    coincident ref belong to which feature?), so it is tracked separately as **#883**
-    and blocks the `"location"` role in the selector."""
+    **Scope: the feature parameters that flow through `plan_dimensions`.** A location has
+    no entry here — `plan_dimensions` skips every `location`-kind parameter and
+    `plan_locations` returns a flat cross-feature list of bare `PlannedDimension`s, deduped
+    by ref point, that never enters a `DimensionGroup`.
+
+    That no longer means a location is unaddressable. :data:`_LOCATION_ROLE` gives each
+    locatable kind a role, which is what `sheet.dimension(bore, "location")` names and what
+    an authored set omits (#925) — one unit per feature. The finer question **#883** asks
+    (is a grouped hole's location one unit or one per member? does a deduped coincident ref
+    belong to which feature?) is about NAMING, and omission is well-formed either way, so
+    it no longer blocks the `"location"` role."""
 
     id: ParameterId
     members: tuple[PlannedDimension, ...]
