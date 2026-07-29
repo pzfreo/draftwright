@@ -83,7 +83,7 @@ instead of the parametrised function itself.
 from draftwright import Sheet
 
 features = build_thumbwheel_features()
-sheet = Sheet(features.body, title="THUMBWHEEL", number="DWG-001")
+sheet = Sheet(features.body, title="THUMBWHEEL", number="DWG-001").auto_dimensions()
 
 sheet.step(features.journal)
 sheet.step(features.boss)

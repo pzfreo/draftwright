@@ -124,7 +124,7 @@ class TestSheetSurface:
 
     def test_add_dimension_requires_a_dimension_source(self):
         """`add_dimension` augments the planner's set, so there must be one."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N")  # deliberately no source
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
         sheet.add_dimension(bore, "bore")
         with pytest.raises(ValueError, match="call auto_dimensions"):
@@ -133,7 +133,7 @@ class TestSheetSurface:
     def test_the_source_may_be_declared_after_the_augment(self):
         """Order independence (ADR 0016). The gate is at build, not in the verb, so
         these two scripts must not disagree."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N")  # the source arrives below
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
         sheet.add_dimension(bore, "bore")
         sheet.auto_dimensions()
@@ -142,7 +142,7 @@ class TestSheetSurface:
     def test_a_sheet_without_augments_still_builds_without_the_source_verb(self):
         """`auto_dimensions()` is optional in this phase — making it mandatory is the
         #874 breaking change. A plain declarative script must keep working."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
         assert sheet.build() is not None
 
@@ -379,7 +379,7 @@ class TestInvalidCombinations:
         """The bug that motivated #908, and it predates add_dimension entirely:
         `_tolerances` was index-keyed since P2a, so a reorder moved a tolerance onto a
         neighbouring feature."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
         sheet.hole(diameter=4, at=(20, 0, 14), axis="z").depth(7)
         big.tolerance(0.05)
@@ -419,7 +419,7 @@ class TestFeatureViewIdentity:
 
     @staticmethod
     def _two_holes():
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
         sheet.hole(diameter=4, at=(20, 0, 14), axis="z").depth(7)
         big.tolerance(0.05)
@@ -467,7 +467,7 @@ class TestFeatureViewIdentity:
         frame later, and an index would name whatever occupied the slot by then (PR #910
         review). Everything else — `datum`/`finish`/`note` — resolves and appends in a single
         expression, so only this seam can span a mutation."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
         sheet.hole(diameter=4, at=(20, 0, 14), axis="z").depth(7)
 
@@ -482,7 +482,7 @@ class TestFeatureViewIdentity:
     def test_a_control_builder_spans_a_mint_too(self):
         """The same seam against an *appending* mutation, which shifts no slot the builder
         already holds but does grow the view — a token stays correct either way."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
 
         control = sheet.control(big)
@@ -509,7 +509,7 @@ class TestFeatureViewContract:
 
     @staticmethod
     def _sheet_with(n=3):
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         for i in range(n):
             sheet.hole(diameter=4 + i, at=(-20 + 20 * i, 0, 14), axis="z").depth(5 + i)
         return sheet

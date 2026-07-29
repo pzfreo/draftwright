@@ -568,6 +568,15 @@ def emit_sheet_script(
         "",
         f"sheet = Sheet(part, {', '.join(ctor)})",
         "",
+        # The script must SAY where its dimensions come from (ADR 0016 / #874). A generated
+        # script uses the planner's set, so it emits that source explicitly rather than relying
+        # on a default — which is the whole point of making the source mandatory: an omitted
+        # dimension only means something inside a set that says it is complete. Edit these
+        # lines to `sheet.dimension(...)` declarations to take the set over by hand.
+        "# The planner selects the dimensions. Replace with dimension(feature, role) lines",
+        "# to declare the complete set by hand (ADR 0016).",
+        "sheet.auto_dimensions()",
+        "",
         # For a live-source part (#771), the values below were read off YOUR objects — point
         # each line back at the object to keep it a single source of truth (a STEP-sourced
         # script has no such objects, so this note is emitted only for object inputs).

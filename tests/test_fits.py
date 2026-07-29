@@ -204,14 +204,14 @@ class TestSheetFit:
         return {n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")}
 
     def test_boss_fit_class_renders_on_leader(self):
-        s = Sheet(self._stepped_shaft())
+        s = Sheet(self._stepped_shaft()).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
         s.diameter(diameter=12, at=(15, 0, 0), axis="x").fit("g6")
         dwg = s.build()
         assert any(lbl == "ø12 g6" for lbl in self._dias(dwg).values()), self._dias(dwg)
 
     def test_boss_fit_deviation_renders_on_leader(self):
-        s = Sheet(self._stepped_shaft())
+        s = Sheet(self._stepped_shaft()).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
         # h6 @ ⌀12 (10–18 band, IT6=11) = (-0.011, 0) → "0/-0.011"
         s.diameter(diameter=12, at=(15, 0, 0), axis="x").fit("h6", show="deviation")
@@ -219,7 +219,7 @@ class TestSheetFit:
         assert any(lbl == "ø12 0/-0.011" for lbl in self._dias(dwg).values()), self._dias(dwg)
 
     def test_fit_bad_class_raises_at_declaration(self):
-        s = Sheet(self._stepped_shaft())
+        s = Sheet(self._stepped_shaft()).auto_dimensions()
         d = s.diameter(diameter=12, at=(15, 0, 0), axis="x")
         with pytest.raises(ValueError):
             d.fit("Z9")  # unknown class

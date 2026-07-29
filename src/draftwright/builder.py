@@ -196,7 +196,7 @@ def _measure_blocks(dwg, a) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _coerce_model(model, part, decorations=None, requested=None) -> PartModel:
+def _coerce_model(model, part, decorations=None, requested=None, authored=None) -> PartModel:
     """Wrap a caller-supplied ``model=`` (ADR 0011) into a :class:`PartModel`. A
     ``PartModel`` is used verbatim; a sequence of features is wrapped with the part's
     bbox, a default corner location datum (matching ``detect.py``, so hole location
@@ -213,13 +213,19 @@ def _coerce_model(model, part, decorations=None, requested=None) -> PartModel:
     ``PartModel`` is never mutated — decorations merge into a copy so the caller's
     reusable public input (ADR 0011) stays clean across builds."""
     if isinstance(model, PartModel):
-        if decorations or requested:
+        if decorations or requested or authored is not None:
             return replace(
                 model,
                 decorations={**model.decorations, **decorations}
                 if decorations
                 else model.decorations,
                 requested_dimensions=tuple(requested) if requested else model.requested_dimensions,
+                # `authored is not None` rather than truthiness: an authored set is never
+                # empty (the façade refuses that), but None means "the planner chooses" and
+                # must not be confused with "the author chose nothing" (#874).
+                authored_dimensions=tuple(authored)
+                if authored is not None
+                else model.authored_dimensions,
             )
         return model
     features = list(model)
@@ -233,6 +239,7 @@ def _coerce_model(model, part, decorations=None, requested=None) -> PartModel:
         datums=[datum],
         decorations=decorations or {},
         requested_dimensions=tuple(requested or ()),
+        authored_dimensions=None if authored is None else tuple(authored),
     )
 
 
@@ -257,6 +264,7 @@ def _assemble(
     model=None,
     decorations=None,
     requested=None,
+    authored=None,
     trace=None,
 ) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
@@ -444,6 +452,7 @@ def _repack(
     model=None,
     decorations=None,
     requested=None,
+    authored=None,
     trace=None,
 ):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
@@ -583,6 +592,7 @@ def _repack(
         model=model,
         decorations=decorations,
         requested=requested,
+        authored=authored,
         trace=trace,
     )
     return a2, dwg2
@@ -599,6 +609,7 @@ def _repack_to_fixed_point(
     model=None,
     decorations=None,
     requested=None,
+    authored=None,
     trace=None,
 ):
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
@@ -615,6 +626,7 @@ def _repack_to_fixed_point(
             model=model,
             decorations=decorations,
             requested=requested,
+            authored=authored,
             trace=trace,
         )
         if repacked is None:
@@ -672,6 +684,7 @@ def build_drawing(
     model: Sequence[Feature] | PartModel | None = None,
     decorations: dict | None = None,
     requested: tuple | None = None,
+    authored: tuple | None = None,
     trace: str | Path | bool | None = None,
     material: str = "",
     date: str = "",
@@ -786,6 +799,7 @@ def build_drawing(
         model=model,
         decorations=decorations,
         requested=requested,
+        authored=authored,
         trace=tracer,
     )
     if auto_dims:
@@ -800,6 +814,7 @@ def build_drawing(
             model=model,
             decorations=decorations,
             requested=requested,
+            authored=authored,
             trace=tracer,
         )
         if repacked is not None:

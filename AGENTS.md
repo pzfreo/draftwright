@@ -24,7 +24,7 @@ dwg = build_drawing("part.step")            # or build_drawing(a_build123d_solid
 dwg.export("out", formats=("pdf", "png"))
 
 # 2. Declared — the Sheet façade (ADR 0011). Statement-style: declare features + aspects on `s`.
-s = Sheet(solid)                            # declare against the build123d part
+s = Sheet(solid).auto_dimensions()          # declare against the part; state the dim source
 h = s.hole(hole_solid)                      # returns a handle you can keep
 h.fit("H7")                                 # aspects: .fit/.tolerance/.note/.thread/.finish/…
 s.slot(slot_solid)
@@ -75,7 +75,7 @@ Use the declared surface — there is deliberately **no** public "add a raw fram
 the controlled **feature first**, then target it (a handle, `Feature`, index, or a face):
 
 ```python
-s = Sheet(solid)
+s = Sheet(solid).auto_dimensions()
 hole = s.hole(hole_solid)                   # the feature the tolerance controls
 s.datum("A", top_face)
 s.control(hole).position(0.1, to="A").perpendicularity(0.05, to="A")  # chain characteristics

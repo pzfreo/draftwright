@@ -855,3 +855,12 @@ class PartModel:
     # a dimension the planner already chose, a request changes WHICH dimensions it
     # chooses. Empty on a detected model.
     requested_dimensions: tuple[RequestedDimension, ...] = ()
+    # The COMPLETE authored dimension set (ADR 0016 / #874/#876), or ``None`` for the
+    # planner's automatic set. The two are the model's only dimension sources and are
+    # mutually exclusive — omission is only meaningful inside a set declared complete,
+    # which is exactly why the source has to be stated rather than inferred.
+    #
+    # Suppression by omission MARKS rather than filters (#875): a parameter outside the
+    # authored set is planned with ``suppressed=True`` and keeps its value, so the group
+    # retains its engineering data and a later pass can still see what was left out.
+    authored_dimensions: tuple[RequestedDimension, ...] | None = None

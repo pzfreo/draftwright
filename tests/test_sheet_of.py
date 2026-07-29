@@ -51,21 +51,21 @@ class TestOf:
     def test_of_matches_on_axis_not_just_in_plane(self):
         # #463 review: a same-⌀ feature on a DIFFERENT axis (a cross-hole) sharing the in-plane
         # coords must not match — the axis is part of the identity.
-        s = Sheet(Box(40, 40, 40))
+        s = Sheet(Box(40, 40, 40)).auto_dimensions()
         s.hole(diameter=8, at=(0, 0, 0), axis="z")  # the intended target
         s.diameter(diameter=8, at=(0, 0, 0), axis="x")  # same ⌀ + in-plane, different axis
         h = s.of(Pos(0, 0, 0) * Cylinder(4, 20))  # a z-axis tool → only the z hole
         assert s.features[h._i].frame.axis == "z"
 
     def test_of_ambiguous_object_raises(self):
-        s = Sheet(Box(40, 40, 30))
+        s = Sheet(Box(40, 40, 30)).auto_dimensions()
         s.hole(diameter=8, at=(0, 0, 5), axis="z")
         s.hole(diameter=8, at=(0, 0, 20), axis="z")  # same ⌀ + in-plane (0,0)
         with pytest.raises(ValueError):
             s.of(Pos(0, 0, 10) * Cylinder(4, 10))  # matches both → ambiguous
 
     def test_of_non_diameter_feature_raises(self):
-        s = Sheet(Box(30, 20, 5))
+        s = Sheet(Box(30, 20, 5)).auto_dimensions()
         s.envelope()
         with pytest.raises(ValueError):
             s.of(0)  # an envelope has no ⌀ aspect handle

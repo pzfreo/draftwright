@@ -417,6 +417,27 @@ def _request_for(model, feature, param):
     return None
 
 
+def _authored_for(model, feature, param):
+    """The caller's `dimension(...)` naming this parameter, or ``None`` if it is omitted.
+
+    Same matching as :func:`_request_for` — the two verbs address a measurement identically;
+    what differs is what the answer means. `add_dimension` ADDS to the planner's set, so a
+    miss leaves the rule set's own decision standing. `dimension` DECLARES the set, so a miss
+    is an omission and the measurement is suppressed."""
+    for authored in model.authored_dimensions or ():
+        if authored.feature is not feature:
+            continue
+        if "." in authored.role:
+            if authored.role != param.parameter_id:
+                continue
+        elif authored.role != param.role:
+            continue
+        if authored.discriminator is not None and authored.discriminator != param.discriminator:
+            continue
+        return authored
+    return None
+
+
 def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
     view + planned dims, each carrying its render intent — convention, model-level
@@ -450,6 +471,16 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
             request = _request_for(model, feature, p)
             if request is not None:
                 suppressed, reason = False, None
+            if model.authored_dimensions is not None:
+                # An authored set REPLACES the rule set rather than adding to it: what the
+                # script lists is what the drawing carries, and everything else is omitted.
+                # Marked, not filtered (#875) — the value survives on the group so the
+                # omission stays inspectable, and the compound-callout dependency rules
+                # still refuse to orphan half a term.
+                if _authored_for(model, feature, p) is None:
+                    suppressed, reason = True, "not in the authored dimension set"
+                else:
+                    suppressed, reason = False, None
             dims.append(
                 PlannedDimension(
                     param=p,

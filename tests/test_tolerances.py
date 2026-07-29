@@ -323,7 +323,7 @@ class TestSheetTolerance:
 
     def test_boss_diameter_tolerance_renders_on_leader(self):
         shaft = self._stepped_shaft()
-        s = Sheet(shaft)
+        s = Sheet(shaft).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
         s.diameter(diameter=12, at=(15, 0, 0), axis="x").tolerance(0.1)
         dwg = s.build()
@@ -331,7 +331,7 @@ class TestSheetTolerance:
 
     def test_boss_limit_pair_renders(self):
         shaft = self._stepped_shaft()
-        s = Sheet(shaft)
+        s = Sheet(shaft).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
         s.diameter(diameter=12, at=(15, 0, 0), axis="x").tolerance(0.0, 0.2)
         dwg = s.build()
@@ -339,7 +339,7 @@ class TestSheetTolerance:
 
     def test_step_length_tolerance_reaches_dimension(self):
         shaft = self._stepped_shaft()
-        s = Sheet(shaft)
+        s = Sheet(shaft).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x").tolerance(0.0, 0.2)
         s.step(diameter=12, length=10, at=(15, 0, 0), axis="x")
         dwg = s.build()
@@ -363,41 +363,41 @@ class TestSheetTolerance:
     def test_pocket_role_keyed_depth_tolerance_via_sheet(self):
         # #746 Sheet surface: pocket() returns a role-aware handle; .tolerance(on="depth")
         # tolerances ONLY the depth (5), leaving width×length (18×30) plain.
-        s = Sheet(self._pocket_part(), title="P")
+        s = Sheet(self._pocket_part(), title="P").auto_dimensions()
         self._pocket_handle(s).tolerance(0.2, on="depth")
         assert self._deep_label(s.build()) == "18 × 30 × 5 ±0.2 DEEP"
 
     def test_pocket_whole_feature_tolerance_folds_onto_all(self):
         # A bare .tolerance() (no on=) on the handle folds onto every parameter — the
         # kind-keyed back-compat form.
-        s = Sheet(self._pocket_part(), title="P")
+        s = Sheet(self._pocket_part(), title="P").auto_dimensions()
         self._pocket_handle(s).tolerance(0.2)
         assert self._deep_label(s.build()) == "18 ±0.2 × 30 ±0.2 × 5 ±0.2 DEEP"
 
     def test_pocket_role_selector_rejects_unknown_name(self):
         # on= must name exactly one parameter role of the feature.
-        s = Sheet(self._pocket_part(), title="P")
+        s = Sheet(self._pocket_part(), title="P").auto_dimensions()
         with pytest.raises(ValueError):
             self._pocket_handle(s).tolerance(0.2, on="nope")
 
     def test_params_handle_still_chains_to_further_declarations(self):
         # #807 review: the _Params handle forwards unknown attributes to the sheet, so a
         # verb returning it stays chainable (the declare-then-chain contract holds).
-        s = Sheet(self._pocket_part(), title="P")
+        s = Sheet(self._pocket_part(), title="P").auto_dimensions()
         dwg = self._pocket_handle(s).envelope().build()  # .envelope()/.build() forward
         assert "front" in dwg.views
 
     def test_bare_tolerance_supersedes_an_earlier_role_tolerance(self):
         # #807 review: a whole-feature .tolerance() means "all alike" and overrides an
         # earlier per-role one regardless of call order (drops the role-keyed entry).
-        s = Sheet(self._pocket_part(), title="P")
+        s = Sheet(self._pocket_part(), title="P").auto_dimensions()
         self._pocket_handle(s).tolerance(0.1, on="depth").tolerance(0.2)
         assert self._deep_label(s.build()) == "18 ±0.2 × 30 ±0.2 × 5 ±0.2 DEEP"
 
     def test_params_handle_is_a_valid_gdt_target(self):
         # #807 re-review: a _Params handle names a real feature, so it must be accepted
         # everywhere a feature handle is — datum/finish/control targets, like _Hole/_Dim.
-        s = Sheet(self._pocket_part(), title="P")
+        s = Sheet(self._pocket_part(), title="P").auto_dimensions()
         h = self._pocket_handle(s)
         s.datum("A", h)
         s.finish("1.6", h)
@@ -406,7 +406,7 @@ class TestSheetTolerance:
 
     def test_step_tolerance_defaults_to_length_not_diameter(self):
         shaft = self._stepped_shaft()
-        s = Sheet(shaft)
+        s = Sheet(shaft).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x").tolerance(0.1)
         s.step(diameter=12, length=10, at=(15, 0, 0), axis="x")
         dwg = s.build()
@@ -418,7 +418,7 @@ class TestSheetTolerance:
 
     def test_step_on_diameter_tolerances_the_od(self):
         shaft = self._stepped_shaft()
-        s = Sheet(shaft)
+        s = Sheet(shaft).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x").tolerance(0.1, on="diameter")
         s.step(diameter=12, length=10, at=(15, 0, 0), axis="x")
         dwg = s.build()
@@ -428,7 +428,7 @@ class TestSheetTolerance:
         # The same declared model without any .tolerance() carries no ± anywhere and leaves
         # every step dim untoleranced — the tolerance path is a no-op without decorations.
         shaft = self._stepped_shaft()
-        s = Sheet(shaft)
+        s = Sheet(shaft).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
         s.step(diameter=12, length=10, at=(15, 0, 0), axis="x")
         dwg = s.build()
@@ -447,7 +447,7 @@ class TestSheetTolerance:
         plate = Box(120, 90, 8)
         part = plate - (Pos(0, 0, 4) * Cylinder(4, 8))
 
-        s = Sheet(part)
+        s = Sheet(part).auto_dimensions()
         s.envelope(plate)
         s.hole(diameter=8, at=(0, 0, 4), axis="z").tolerance(0.1)
         dwg = s.build()
@@ -968,7 +968,7 @@ class TestToleranceHandle:
         plate = Box(60, 40, 8)
         h = Pos(0, 0, 4) * Cylinder(4, 6)
         part = plate - h
-        s = Sheet(part)
+        s = Sheet(part).auto_dimensions()
         s.hole(diameter=8, at=(0, 0, 4), axis="z").depth(6).tolerance(0.1)
         model = s.build().model()
         hf = next(f for f in model.features if f.kind == "hole")
