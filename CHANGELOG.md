@@ -12,6 +12,20 @@
   emits is a deliberate no-op, so a script can ask without first knowing the rule set's
   mind. `sheet.auto_dimensions()` states the source explicitly (optional in this
   release; #874 makes it mandatory).
+- **A build must say where its dimensions come from — BREAKING** (ADR 0016 /
+  #874/#876). The dimension set has exactly two sources and the script always says
+  which: `sheet.auto_dimensions()` for the planner's selected set (optionally augmented
+  by `add_dimension`), or `sheet.dimension(feature, role)` declarations for the
+  **complete authored set**. Mixing the two raises, and so does building with neither —
+  `Sheet(part).build()` no longer auto-dimensions by default. `Sheet.from_part()` states
+  the automatic source itself, since asking for detection is asking for the engine's
+  reading of the part. **Migration:** add `.auto_dimensions()` to any `Sheet(...)` you
+  build; generated scripts already emit it.
+- **Suppression by omission** (#876): a measurement left out of an authored set is
+  planned suppressed with a reason and keeps its value — marked, not filtered — so the
+  group retains its engineering data and a compound callout still refuses to orphan half
+  a term. This is what makes the mandatory source worth having: omission only means
+  something inside a set declared complete.
 - **Suppressing a dimension marks it; it no longer leaks into the callout** (ADR 0016 /
   #875). `PlannedDimension.suppressed` was honoured at thirteen render sites but not by
   the compound hole-callout path, so a suppressed counterbore still printed. The group

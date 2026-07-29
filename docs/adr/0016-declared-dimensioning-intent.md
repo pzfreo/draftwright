@@ -21,6 +21,26 @@
 > therefore be substantially less blocked than this ADR assumed. The constraint below is
 > flagged in step.
 
+## Implementation status (2026-07-29)
+
+**Phases 1 and 2 have landed.** The scheduling note below said phases 2–4 sat behind
+"the global recompose (#426/#707), the longest-open item on the roadmap". That premise
+was already stale when written, and the remaining question is now settled *by
+construction* rather than by waiting: suppression by omission in a `Sheet` script happens
+**before** `build()`, when the set is known at plan time, so it needed no recompose at
+all. The planner simply marks every measurement outside the authored set as suppressed
+(#875's marking + #874's mandatory source + #876's omission semantics).
+
+What genuinely still needs the recompose is the narrower case this ADR conflated with it:
+`Drawing.finalize()` dropping an *automatic* dimension **after** the solve has run. That
+is a different problem and does not gate the authoring surface.
+
+Also landed: the referential verb took the plain name (`Sheet.dimension`), and the
+materialized one became `Sheet.measured_dimension` (#873); `add_dimension` augments the
+planner's set (#872); dimension identity is `DimensionId(feature, parameter)`
+(#869/#870/#871). Location dimensions remain unaddressable (#883), and per-annotation
+provenance for compound callouts remains #886.
+
 ## Context
 
 A user reading a generated `Sheet` script today sees the part's **features** — one
