@@ -512,7 +512,7 @@ class TestChamferTolerance:
         planned = replace(pd, param=replace(pd.param, value=7.0))  # ≠ ch.leg1 == 12
         g2 = replace(g, units=_addressable(g.feature, [decoy, planned]))
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
-        assert render_chamfers(dwg, [g2], dwg._analysis, ctx=ctx) == 1
+        assert render_chamfers(dwg, _plan_of(g2), dwg._analysis, ctx=ctx) == 1
         labels = [
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_chamfer")
         ]
@@ -663,7 +663,7 @@ class TestGrooveTolerance:
             g, units=_addressable(g.feature, [decoy, planned_w, by_key[("groove", "diameter")]])
         )
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
-        assert render_grooves(dwg, [g2], dwg._analysis, ctx=ctx) == 1
+        assert render_grooves(dwg, _plan_of(g2), dwg._analysis, ctx=ctx) == 1
         labels = [
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_groove")
         ]
@@ -739,11 +739,23 @@ class TestPocketTolerance:
             ),
         )
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
-        assert render_pockets(dwg, [g2], dwg._analysis, ctx=ctx) == 1
+        assert render_pockets(dwg, _plan_of(g2), dwg._analysis, ctx=ctx) == 1
         labels = [
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_pocket")
         ]
         assert labels == ["7 × 30 × 5 DEEP"], labels
+
+
+def _plan_of(*planned):
+    """Wrap planned `DimensionGroup`s as the compiled plan `render_plates` now takes.
+
+    The renderer moved onto the ADR 0016 boundary (#923): it receives APPROVED entries, so
+    it can no longer be handed raw planned groups. These tests still start from
+    `plan_dimensions` because what they exercise is the planner's decision reaching the
+    page — the compile step in between is exactly the thing under test."""
+    from draftwright.model.compiled import RenderableDimensionPlan, _compile_groups
+
+    return RenderableDimensionPlan(groups=tuple(_compile_groups(planned)))
 
 
 class TestPlateTolerance:
@@ -797,7 +809,7 @@ class TestPlateTolerance:
         )
         (g,) = [g for g in plan_dimensions(dwg.model()) if g.feature_kind == "plate"]
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
-        assert render_plates(dwg, [g], dwg._analysis, ctx=ctx) == 1
+        assert render_plates(dwg, _plan_of(g), dwg._analysis, ctx=ctx) == 1
         (cand,) = [
             c
             for b in ctx.corridor_batch.values()
@@ -842,7 +854,7 @@ class TestPlateTolerance:
         planned = replace(pd, param=replace(pd.param, value=7.0))  # ≠ pl.hi - pl.lo == 8
         g2 = replace(g, units=_addressable(g.feature, [decoy, planned]))
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
-        assert render_plates(dwg, [g2], dwg._analysis, ctx=ctx) == 1
+        assert render_plates(dwg, _plan_of(g2), dwg._analysis, ctx=ctx) == 1
         drain_corridors(ctx, dwg)
         labels = [
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("dim_plate")

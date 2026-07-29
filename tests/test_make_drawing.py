@@ -1402,7 +1402,7 @@ class TestScaleMinimum:
         from draftwright import Sheet
 
         with pytest.warns(UserWarning, match="legibility floor"):
-            sheet = Sheet(Box(680, 860, 80), scale="1:10")
+            sheet = Sheet(Box(680, 860, 80), scale="1:10").auto_dimensions()
             sheet.export(str(tmp_path / "s"))
         assert (tmp_path / "s.pdf").exists()  # #702: Sheet.export defaults to PDF
 
@@ -8825,7 +8825,7 @@ class TestPrismaticBossDiameter:
         bore = Pos(0, 0, 15) * Cylinder(6, 40)
         cover = Box(length, width, height) - pocket + boss - bore
 
-        sheet = Sheet(cover, title="C")
+        sheet = Sheet(cover, title="C").auto_dimensions()
         sheet.envelope()
         sheet.boss(boss)
         sheet.hole(bore).through()
@@ -8850,7 +8850,7 @@ class TestPrismaticBossDiameter:
         boss = Pos(0, 0, 24) * Cylinder(14, 10)
         part = Box(90, 64, 38) + boss
         for extra_boss in (False, True):
-            sheet = Sheet(part, title="C")
+            sheet = Sheet(part, title="C").auto_dimensions()
             sheet.envelope()
             if extra_boss:
                 sheet.boss(boss)
@@ -8868,7 +8868,7 @@ class TestPrismaticBossDiameter:
         lower = Pos(0, 0, 25) * Cylinder(35, 10)
         upper = Pos(0, 0, 35) * Cylinder(25, 10)
         part = Box(100, 100, 20) + lower + upper
-        sheet = Sheet(part, title="C")
+        sheet = Sheet(part, title="C").auto_dimensions()
         sheet.envelope()
         sheet.step(lower)
         sheet.step(upper)
@@ -9076,7 +9076,7 @@ class TestTurnedDiameters:
         from draftwright import Sheet
 
         part = self._issue_892_y_chain(axis_z=9.0)
-        sheet = Sheet(part, scale=1.0, page="A2")
+        sheet = Sheet(part, scale=1.0, page="A2").auto_dimensions()
         sheet.step(diameter=45, length=3, at=(0, -1.5, 9), axis="y").tolerance(0.2)
         sheet.step(diameter=34, length=5.5, at=(0, -5.75, 9), axis="y").tolerance(0.0, 0.3)
         sheet.step(diameter=28, length=3.5, at=(0, -10.25, 9), axis="y")

@@ -1056,6 +1056,26 @@ class TestPlate:
         assert sorted(plate_dims.values()) == ["8", "8"]  # each 8 thick
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
+    def test_same_axis_plate_names_follow_thickness_axis_not_in_plane_position(self):
+        """Stable annotation identity follows the old axis/lo/hi order.
+
+        The compiled renderer briefly sorted whole span points, so X/Y coordinates
+        outranked the Z thickness coordinate and moving a plate sideways could swap
+        ``dim_plate_z0`` with ``dim_plate_z1``. A pin/drop would then target its neighbour.
+        """
+        part = Box(200, 60, 40)
+        model = [
+            plate(axis="z", lo=5, hi=9, u=-60, v=0),  # lower in X, but higher in Z
+            plate(axis="z", lo=1, hi=4, u=60, v=0),
+        ]
+        dwg = build_drawing(part, model=model, number="X")
+        labels = {
+            name: dwg.get_annotation(name).label
+            for name in dwg.annotations()
+            if name.startswith("dim_plate_z")
+        }
+        assert labels == {"dim_plate_z0": "3", "dim_plate_z1": "4"}
+
     def test_needs_object_or_explicit(self):
         with pytest.raises(ValueError):
             plate(axis="z", lo=0)  # missing hi / u / v
@@ -1654,15 +1674,29 @@ class TestAuthoredDimension:
             measured_dimension(**self._KW)
         )
 
-    def test_the_overload_dispatches_the_referential_form(self):
-        """#874 filled in the other half of the overload: a call carrying none of the measured
-        keywords is the ADR 0016 referential verb, and declares a member of the authored set."""
+    def test_the_overload_still_routes_the_measured_form(self):
+        """This replaces a test asserting that `dimension(feature, role)` was NOT yet the
+        referential verb — "the referential form is #874. Until then…". #874 has landed, so
+        that assertion is superseded; what still needs pinning is the transitional overload
+        underneath it, which dispatches on the measured keywords so a pre-rename call says
+        what happened instead of raising a TypeError about missing arguments."""
+        import warnings
+
         from draftwright.sheet import Sheet
 
-        sheet = Sheet(Box(40, 20, 10), title="P")
-        sheet.envelope()
-        sheet.dimension(0, "width")
-        assert sheet._authored == [{"token": 0, "role": "width", "discriminator": None}]
+        sheet = Sheet(Box(40, 20, 10), title="P").auto_dimensions()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            sheet.dimension(
+                kind="linear",
+                value=40,
+                label="40",
+                dominant_axis="X",
+                ref_pts=[(-20, 0, 0), (20, 0, 0)],
+            )
+        assert any("measured_dimension" in str(w.message) for w in caught), (
+            "the measured form must route to measured_dimension with a deprecation notice"
+        )
 
     def test_validates_without_the_facade(self):
         from draftwright.model import measured_dimension
