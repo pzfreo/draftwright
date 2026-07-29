@@ -364,6 +364,29 @@ class TestDependentsThatAreNotDimensions:
         marked = _suppress(plain, ("diameter", "bolt_circle"))
         assert "BC" not in (hole_callout_spec(marked)["suffix"] or "")
 
+    @pytest.mark.parametrize(
+        ("kind", "kwargs", "expected"),
+        [
+            ("bolt_circle", {"pattern": "bolt_circle", "bcd": 50.0}, "EQ SP ON"),
+            ("grid", {"pattern": "grid", "rows": 1, "cols": 1}, r"\(1×1\)"),
+        ],
+    )
+    def test_a_one_member_pattern_suffix_is_a_dependent_too(self, kind, kwargs, expected):
+        """`count=1` is a legal declaration, and with it the multiplier check never fires — so
+        a one-member bolt circle silently lost its `EQ SP ON ø50 BC` when the head went. Every
+        earlier fixture used `count > 1`, where the multiplier masked the missing dependency
+        (#920 review). The SUFFIX is a dependent in its own right."""
+        from draftwright.model import PatternFeature
+
+        member = HoleFeature(Frame((0, 0, 10), "z"), 6.0, depth=None, through=True)
+        pattern = PatternFeature(Frame((0, 0, 10), "z"), member=member, count=1, **kwargs)
+        plain = _group(pattern)
+        assert hole_callout_spec(plain)["suffix"], "the fixture must carry a suffix to lose"
+
+        group = _suppress(plain, ("diameter", "bore"))
+        with pytest.raises(ValueError, match=expected):
+            hole_callout_spec(group)
+
     def test_a_plain_unthreaded_hole_still_suppresses_silently(self):
         """The contrast, so the rule is not read as "the head may never be suppressed"."""
         plain = HoleFeature(Frame((0, 0, 10), "z"), 12.0, depth=None, through=True)

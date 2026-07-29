@@ -90,6 +90,30 @@ def _is_suppressed(group: DimensionGroup, kind: str, role: str) -> bool:
     return pd is not None and pd.suppressed
 
 
+def _pattern_suffix(group: DimensionGroup) -> str | None:
+    """The pattern's trailing term — ``EQ SP ON ø50 BC`` or ``(3×3)`` — or ``None``.
+
+    Shared by the spec and the dependency rule, because the rule has to know exactly what WOULD
+    print. Listing the multiplier and thread as head-dependents but not this was invisible while
+    every fixture used ``count > 1``: with ``count=1`` the multiplier check does not fire, and a
+    one-member bolt circle lost its ``EQ SP ON ø50 BC`` in silence (#920 review).
+
+    The BCD is a planned, addressable dimension (``bolt_circle.diameter``), so suppressing it
+    stops the suffix printing — the value is a fact off the feature, but WHETHER it prints is
+    the parameter's business. The grid's ``(3×3)`` is a count, not a dimension, and has no
+    parameter to suppress.
+    """
+    feat = group.feature
+    if not isinstance(feat, PatternFeature):
+        return None
+    if feat.pattern == "bolt_circle":
+        bcd = _first(group, "diameter", "bolt_circle")
+        return None if bcd is None else f"EQ SP ON ø{_fmt(bcd)} BC"
+    if feat.pattern == "grid" and feat.rows and feat.cols:
+        return f"({feat.rows}×{feat.cols})"
+    return None
+
+
 def _shadowed(group: DimensionGroup, name: str) -> bool:
     """Is this segment invisible because another one takes precedence over it?
 
@@ -155,6 +179,9 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
     multiplier = getattr(feat, "count", 0) or 0
     if multiplier > 1:
         across.append(f"the {multiplier}× multiplier")
+    pattern_suffix = _pattern_suffix(group)
+    if pattern_suffix:
+        across.append(f"the pattern suffix {pattern_suffix!r}")
     if not across:
         return  # the whole callout is suppressed — coherent, and nothing to print
     raise ValueError(
@@ -215,18 +242,7 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     bore_tol = bore_pd.param.tolerance if bore_pd is not None else None
     depth = _first(group, "depth", "bore")
     count = feat.count
-    suffix = None
-    if isinstance(feat, PatternFeature):
-        # The BCD is a planned, addressable dimension (`bolt_circle.diameter`), so suppressing
-        # it must stop `EQ SP ON ø50 BC` printing. Reading `feat.bcd` unconditionally bypassed
-        # the mark entirely (#920 review) — the value is a fact off the feature, but WHETHER it
-        # prints is the parameter's business. The `(3×3)` grid suffix is a count, not a
-        # dimension, and has no parameter to suppress.
-        bcd = _first(group, "diameter", "bolt_circle")
-        if feat.pattern == "bolt_circle" and bcd is not None:
-            suffix = f"EQ SP ON ø{_fmt(bcd)} BC"
-        elif feat.pattern == "grid" and feat.rows and feat.cols:
-            suffix = f"({feat.rows}×{feat.cols})"
+    suffix = _pattern_suffix(group)
     # A thread spec (#764) folds onto the compound callout — it lives on the bore hole
     # (the pattern's member for a threaded array). Lead with it (the tap/thread is the
     # defining call), then any pattern suffix: e.g. "M3x0.5" or "M3x0.5 EQ SP ON ø50 BC".
