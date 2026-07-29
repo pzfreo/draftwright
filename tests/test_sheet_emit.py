@@ -63,6 +63,25 @@ class TestEmit:
         directly: a part with no features must still emit it."""
         assert "sheet.auto_dimensions()" in _script_for(part)
 
+    def test_a_model_with_an_authored_set_is_refused_not_silently_converted(self):
+        """The emitter used to write `sheet.auto_dimensions()` for ANY model, so running a
+        script generated from an authored model restored every dimension that model had
+        omitted — "width only" became the full automatic set (#921 review round 5). A
+        generated script that draws something other than its source model is the #707
+        class of divergence.
+
+        It refuses rather than emitting the declarations, because the only way to name a
+        feature in the generated script is by position, and the documented workflow for
+        these scripts is to comment a feature line out and re-run — which would shift the
+        indices and retarget the dimensions onto their neighbours."""
+        from draftwright import Sheet
+        from draftwright.sheet_emit import emit_sheet_script
+
+        sheet = Sheet(Box(90, 60, 20), title="T", number="N")
+        sheet.dimension(sheet.envelope(), "width")
+        with pytest.raises(ValueError, match="authored dimension set"):
+            emit_sheet_script(sheet.model(), "part = Box(90, 60, 20)", "s", title="T", number="N")
+
     def test_emits_one_declarative_line_per_feature(self):
         src = _script_for(_plate())
         assert "sheet = Sheet(part, title='T', number='N')" in src

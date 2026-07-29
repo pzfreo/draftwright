@@ -33,7 +33,11 @@
   A model that declares no envelope has no parameter naming its overall height, so an
   authored build no longer draws the bounding-box fallback: declare `.envelope()` to
   make it nameable. Location dimensions stay outside the authored set until they have
-  addressable identity (#883).
+  addressable identity (#883). `emit_sheet_script()` refuses a model carrying an authored
+  set rather than emitting `auto_dimensions()` for it, which would have turned "draw
+  exactly these" back into "draw everything" on re-run; emitting those declarations needs
+  nameable feature identity in the generated script (#922). The `--script` path is
+  unaffected — it emits from a detected model.
 - **Suppressing a dimension marks it; it no longer leaks into the callout** (ADR 0016 /
   #875). `PlannedDimension.suppressed` was honoured at thirteen render sites but not by
   the compound hole-callout path, so a suppressed counterbore still printed. The group
