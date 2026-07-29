@@ -132,8 +132,11 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
     thread = getattr(hole, "thread", None)
     if thread:
         across.append(f"the thread spec {thread}")
-    if isinstance(feat, PatternFeature) and (feat.count or 0) > 1:
-        across.append(f"the {feat.count}× pattern")
+    # A plain `HoleFeature` may also carry a count — `4× ⌀6 THRU` — so the multiplier is a
+    # dependent of the head for both feature kinds, not just for patterns (#920 review).
+    multiplier = getattr(feat, "count", 0) or 0
+    if multiplier > 1:
+        across.append(f"the {multiplier}× multiplier")
     if not across:
         return  # the whole callout is suppressed — coherent, and nothing to print
     raise ValueError(
@@ -196,8 +199,14 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     count = feat.count
     suffix = None
     if isinstance(feat, PatternFeature):
-        if feat.pattern == "bolt_circle" and feat.bcd is not None:
-            suffix = f"EQ SP ON ø{_fmt(feat.bcd)} BC"
+        # The BCD is a planned, addressable dimension (`bolt_circle.diameter`), so suppressing
+        # it must stop `EQ SP ON ø50 BC` printing. Reading `feat.bcd` unconditionally bypassed
+        # the mark entirely (#920 review) — the value is a fact off the feature, but WHETHER it
+        # prints is the parameter's business. The `(3×3)` grid suffix is a count, not a
+        # dimension, and has no parameter to suppress.
+        bcd = _first(group, "diameter", "bolt_circle")
+        if feat.pattern == "bolt_circle" and bcd is not None:
+            suffix = f"EQ SP ON ø{_fmt(bcd)} BC"
         elif feat.pattern == "grid" and feat.rows and feat.cols:
             suffix = f"({feat.rows}×{feat.cols})"
     # A thread spec (#764) folds onto the compound callout — it lives on the bore hole

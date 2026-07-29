@@ -315,8 +315,32 @@ class TestDependentsThatAreNotDimensions:
             Frame((0, 0, 10), "z"), member=member, count=4, pattern="bolt_circle", bcd=50.0
         )
         group = _suppress(_group(pattern), ("diameter", "bore"))
-        with pytest.raises(ValueError, match="pattern"):
+        with pytest.raises(ValueError, match="4× multiplier"):
             hole_callout_spec(group)
+
+    def test_a_grouped_plain_hole_counts_too(self):
+        """`4× ⌀6 THRU` is a plain `HoleFeature` with a count, not a `PatternFeature` — the
+        multiplier is a dependent of the head for both kinds. Guarding only patterns silently
+        discarded the `4×` (#920 review)."""
+        grouped = HoleFeature(Frame((0, 0, 10), "z"), 6.0, depth=None, through=True, count=4)
+        group = _suppress(_group(grouped), ("diameter", "bore"))
+        with pytest.raises(ValueError, match="4× multiplier"):
+            hole_callout_spec(group)
+
+    def test_a_suppressed_bolt_circle_diameter_does_not_print(self):
+        """The BCD is an addressable dimension (`bolt_circle.diameter`). Reading `feat.bcd`
+        unconditionally bypassed its mark, so `EQ SP ON ø50 BC` printed on a callout that had
+        asked not to carry it — a 38.4 mm callout where 16.3 mm was intended."""
+        from draftwright.model import PatternFeature
+
+        member = HoleFeature(Frame((0, 0, 10), "z"), 6.0, depth=None, through=True)
+        pattern = PatternFeature(
+            Frame((0, 0, 10), "z"), member=member, count=4, pattern="bolt_circle", bcd=50.0
+        )
+        plain = _group(pattern)
+        assert "BC" in (hole_callout_spec(plain)["suffix"] or "")
+        marked = _suppress(plain, ("diameter", "bolt_circle"))
+        assert "BC" not in (hole_callout_spec(marked)["suffix"] or "")
 
     def test_a_plain_unthreaded_hole_still_suppresses_silently(self):
         """The contrast, so the rule is not read as "the head may never be suppressed"."""
