@@ -45,7 +45,7 @@ def test_declare_composes_member_and_layout():
 
 
 def test_linear_pattern_renders_one_grouped_callout_plus_pitch():
-    s = Sheet(Box(60, 161, 21))
+    s = Sheet(Box(60, 161, 21)).auto_dimensions()
     s.envelope()
     s.slot_pattern(_member(), kind="linear", count=4, pitch=30.0, direction=(0, 1, 0))
     dwg = s.build()
@@ -73,7 +73,7 @@ def test_grid_pattern_renders_both_pitch_dims():
         w_center=0.0,
         at=(0.0, 0.0, 0.0),
     )
-    s = Sheet(Box(160, 120, 14))
+    s = Sheet(Box(160, 120, 14)).auto_dimensions()
     s.envelope()
     s.slot_pattern(member, kind="grid", count=6, grid=(30.0, 40.0), rows=2, cols=3)
     dwg = s.build()
@@ -111,7 +111,7 @@ def test_direction_through_plane_rejected():
 
 
 def test_model_inspection_sees_the_pattern():
-    s = Sheet(Box(60, 161, 21))
+    s = Sheet(Box(60, 161, 21)).auto_dimensions()
     s.slot_pattern(_member(), kind="linear", count=4, pitch=30.0, direction=(0, 1, 0))
     model = s.model()
     pats = [f for f in model.features if f.kind == "slot_pattern"]
@@ -123,7 +123,7 @@ def test_manual_callout_verb_places_grouped_callout_and_pitch():
     # grouped size callout AND its pitch dim (render_slot_patterns bundles both), returning the
     # grouped-callout name — mirroring the pocket-pattern editable surface.
     part = Box(60, 161, 21)
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.slot_pattern(_member(), kind="linear", count=4, pitch=30.0, direction=(0, 1, 0))
     dwg = build_drawing(part, model=s.model(), auto_dims=False)  # nothing auto-drawn
@@ -139,7 +139,7 @@ def test_deferred_callout_reconstructs_the_pattern():
     # recorded inside `with dwg.deferred()` drains through finalize's pre-drain "slot_patterns"
     # stage, drawing the same grouped callout + pitch (#841 editable surface).
     part = Box(60, 161, 21)
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.slot_pattern(_member(), kind="linear", count=4, pitch=30.0, direction=(0, 1, 0))
     dwg = build_drawing(part, model=s.model(), auto_dims=False)

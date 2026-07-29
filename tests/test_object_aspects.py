@@ -50,7 +50,7 @@ class TestCboreVerb:
 
     def test_number_free_counterbore_renders_lint_clean(self):
         part, bore, cbore = self._plate()
-        s = Sheet(part, title="MP")
+        s = Sheet(part, title="MP").auto_dimensions()
         s.envelope()
         s.hole(bore).cbore(cbore)  # ⌀ + depth read off the objects — no numbers
         dwg = s.build()
@@ -59,23 +59,23 @@ class TestCboreVerb:
 
     def test_explicit_kwargs_override_the_object_read(self):
         part, bore, cbore = self._plate()
-        s = Sheet(part)
+        s = Sheet(part).auto_dimensions()
         s.hole(bore).cbore(cbore, depth=6)  # keep the read ⌀, override the depth
         assert s.features[0].cbore == pytest.approx((30.0, 6.0))
 
     def test_explicit_values_without_an_object(self):
-        s = Sheet(Box(40, 40, 10))
+        s = Sheet(Box(40, 40, 10)).auto_dimensions()
         s.hole(diameter=6, at=(0, 0, 0), axis="z").cbore(diameter=12, depth=4)
         assert s.features[0].cbore == (12, 4)
 
     def test_needs_object_or_explicit_values(self):
-        s = Sheet(Box(40, 40, 10))
+        s = Sheet(Box(40, 40, 10)).auto_dimensions()
         with pytest.raises(ValueError):
             s.hole(diameter=6, at=(0, 0, 0), axis="z").cbore()
 
     def test_rejects_nonpositive_cbore(self):
         # #462 review: match declare.hole()'s positivity guard — a bad explicit value fails loud
-        s = Sheet(Box(40, 40, 10))
+        s = Sheet(Box(40, 40, 10)).auto_dimensions()
         with pytest.raises(ValueError):
             s.hole(diameter=6, at=(0, 0, 0), axis="z").cbore(diameter=-5, depth=6)
         with pytest.raises(ValueError):
@@ -84,6 +84,6 @@ class TestCboreVerb:
     def test_spotface_reads_off_the_tool(self):
         part = Box(60, 60, 20)
         sf = Pos(0, 0, 8) * Cylinder(12, 6)  # ⌀24, opens at +z(10), floor at 5 → depth 5
-        s = Sheet(part - Pos(0, 0, 0) * Cylinder(4, 40) - sf)
+        s = Sheet(part - Pos(0, 0, 0) * Cylinder(4, 40) - sf).auto_dimensions()
         s.hole(Pos(0, 0, 0) * Cylinder(4, 40)).spotface(sf)
         assert s.features[0].spotface == pytest.approx((24.0, 5.0))
