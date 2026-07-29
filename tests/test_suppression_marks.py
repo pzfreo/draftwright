@@ -227,6 +227,55 @@ class TestTheEstimatorAgreesWithTheRenderer:
         assert compose.hole_callout_spec is canonical
 
 
+class TestFurnitureIsSizedByTheFeature:
+    """Geometry derived from a hole's physical size must not shrink when its dimension is
+    suppressed — the governing rule applied to geometry rather than to text.
+
+    This was introduced BY the #875 fix and caught in review: making `_first` suppression-aware
+    silently changed `render_centermarks`, which used it to read the bore ⌀. A suppressed ⌀20
+    collapsed from a 42 mm centre mark to the 2.5 mm floor. Suppression expresses "do not print
+    this value", never "this hole is smaller".
+    """
+
+    class _Dwg:
+        scale = 2.0
+        draft = None
+
+        def at(self, view, *loc):
+            return (0.0, 0.0, 0.0)
+
+    @staticmethod
+    def _mark_widths(group):
+        from draftwright.annotations.from_model import render_centermarks
+
+        widths = []
+
+        class _Ctx:
+            def place(self, obj, name, **kw):
+                bbox = obj.bounding_box()
+                widths.append(round(bbox.max.X - bbox.min.X, 2))
+
+        render_centermarks(TestFurnitureIsSizedByTheFeature._Dwg(), [group], ctx=_Ctx())
+        return widths
+
+    def test_a_centre_mark_keeps_its_size_when_the_bore_is_suppressed(self):
+        feature = HoleFeature(Frame((0, 0, 10), "z"), 20.0, depth=None, through=True)
+        plain = _group(feature)
+        marked = _suppress(plain, ("diameter", "bore"))
+        assert self._mark_widths(plain) == self._mark_widths(marked)
+
+    def test_and_the_size_actually_tracks_the_diameter(self):
+        """Otherwise the test above would pass on any constant, including the 2.5 mm floor that
+        was the bug."""
+        small = self._mark_widths(
+            _group(HoleFeature(Frame((0, 0, 10), "z"), 4.0, depth=None, through=True))
+        )
+        large = self._mark_widths(
+            _group(HoleFeature(Frame((0, 0, 10), "z"), 20.0, depth=None, through=True))
+        )
+        assert small < large
+
+
 class TestTheHeadIsADependency:
     def test_suppressing_the_head_alone_raises_and_names_the_orphan(self):
         group = _suppress(_group(_through_with_cbore()), ("diameter", "bore"))

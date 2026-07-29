@@ -768,13 +768,21 @@ def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
 def render_centermarks(dwg, groups, *, ctx) -> int:
     """A centre mark on every hole (plain holes + each pattern member), in the view
     normal to the hole's axis (`_END_ON`), sized by its diameter — the IR migration
-    of the engine's inline centre-mark loop. Returns the count placed."""
+    of the engine's inline centre-mark loop. Returns the count placed.
+
+    The size comes off the FEATURE, not the planned bore parameter (ADR 0016 / #875 review).
+    A centre mark is furniture derived from the hole's physical size; it is not a displayed
+    value, so suppressing the bore dimension must not shrink it. Reading the parameter here
+    made a suppressed ⌀20 collapse from a 42 mm mark to the 2.5 mm floor — the governing rule
+    (facts live on the feature, parameters carry display values) applied to geometry rather
+    than to text."""
     n = 0
     for g in groups:
         feat = g.feature
         if not isinstance(feat, HoleFeature | PatternFeature):
             continue
-        dia = _first(g, "diameter", "bore") or 0.0
+        hole = feat.member if isinstance(feat, PatternFeature) else feat
+        dia = hole.diameter or 0.0
         size = max(2.5, dia * dwg.scale + 2.0)
         view = _END_ON.get(feat.frame.axis, "plan")
         members = feat.members or (g.anchor,)
