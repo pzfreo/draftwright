@@ -22,24 +22,29 @@ they never receive**:
   Omission stays inspectable — ADR 0016's "marked, not filtered" is preserved — but it is
   not on the path a renderer walks.
 
-  **Nothing consumes diagnostics yet, and this is deliberately not claimed otherwise.**
-  The consumer arrives with #921: an authored set is the first source of omissions that
-  coverage must tell apart from a measurement simply missed, which is what
-  ``Omission.authored`` exists for. Until then every omission here is a planner rule the
-  lint layer already understands by other means, so wiring a consumer now would be
-  connecting a channel to nothing. The owner is `linting/coverage.py`, at the #921 rebase.
+  The first consumer is `add_feature_diameter`, which asks WHY a callout has nothing to
+  draw so it can say "the author left this out" rather than "this feature exposes none".
+  Coverage lint is the next owner (`linting/coverage.py`).
 - Correlated sets (a step-height ladder, a shoulder chain) arrive as explicit
   :class:`ApprovedLadder` groups, so a renderer never reconstructs one from a feature.
+- **Positions are dimensions.** A datum-referenced location prints a number, so it is
+  compiled like any other (:attr:`RenderableDimensionPlan.locations`) rather than being a
+  parallel pipeline the authored set could not reach. That was the #925 gap: locations had
+  no `DimParameter`, so `dimension(hole, "location")` raised and every location was drawn
+  regardless of what the script declared.
 
-Where the boundary does NOT yet reach, stated so the exceptions cannot be mistaken for
+Where the boundary does NOT reach, stated so the exceptions cannot be mistaken for
 completeness:
 
-- **Location dimensions** are dimensions and belong inside it; `plan_locations` returns a
-  flat cross-feature list that never enters a `DimensionGroup`, so they are sequenced later
-  in this work rather than carved out (#883).
-- **Raw AP242 PMI** is a documented non-generated exception: `PmiFeature.parameters()` is
-  empty by design and the record is rendered verbatim, so there is no compiled content for
-  it to come from.
+- **Hole callouts** still take legacy `DimensionGroup`s. They honour `suppressed` at every
+  term (`model/callout.py`), so this is a structural gap, not a behavioural one — but
+  "the renderer checks" is precisely the guarantee this boundary replaces, so it is listed
+  rather than assumed safe.
+- **Author-supplied text is not a generated measurement.** Raw AP242 PMI, GD&T control
+  frames and surface finishes carry values the script or the STEP file wrote; their
+  `parameters()` are empty by design and the record is rendered verbatim. There is no
+  compiled content for them to come from, and an authored dimension set does not govern
+  them because they are not the engine's choice to make.
 """
 
 from __future__ import annotations
@@ -54,11 +59,13 @@ from draftwright.model.ir import (
     PartModel,
     Point,
     RotationalFeature,
+    SlotFeature,
     StepLevelFeature,
 )
 from draftwright.model.planner import (
     _AUTHORED_OMISSION,
     DimensionId,
+    authored_location_omitted,
     plan_dimensions,
     plan_locations,
 )
@@ -681,16 +688,76 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
     return approved, omissions
 
 
-def _compile_groups(planned) -> list[ApprovedGroup]:
-    """Every planned group, reduced to what the compiler approved.
+def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], list[Omission]]:
+    """A slot's datum→near-end position, along its long axis.
+
+    Compiled here rather than in `plan_locations` because it measures from the BOUNDING BOX
+    rather than from `datum_xy`, and is drawn in the slot's own view — but it is a position
+    dimension like any other, so it obeys the authored set through the same
+    :func:`~draftwright.model.planner.location_role` table. Before this it obeyed nothing:
+    `render_slots` computed `s.lo - a.bb.min` and printed it, so an authored set naming only
+    a slot's width still produced its position dim.
+
+    `SlotFeature.parameters()` has no position param — the datum is drawing state, not a
+    feature property — which is exactly why the compiler is the right place for it.
+    """
+    approved: list[ApprovedDimension] = []
+    omissions: list[Omission] = []
+    bb: Any = model.bbox
+    for f in model.features:
+        if not isinstance(f, SlotFeature):
+            continue
+        datum = float(getattr(bb.min, f.long_axis.upper()))
+        value = f.lo - datum
+        if authored_location_omitted(model, f):
+            omissions.append(Omission(f, "location_slot.length", value, _AUTHORED_OMISSION))
+            continue
+        start = list(f.frame.origin)
+        end = list(f.frame.origin)
+        start["xyz".index(f.long_axis)] = datum
+        end["xyz".index(f.long_axis)] = f.lo
+        approved.append(
+            ApprovedDimension(
+                id=_dim_id(f, "location_slot.length"),
+                value_text=_fmt(value),
+                value=value,
+                span=((start[0], start[1], start[2]), (end[0], end[1], end[2])),
+                ref=FeatureRef(f),
+                kind="length",
+                role="location_slot",
+                axis=f.long_axis,
+            )
+        )
+    return approved, omissions
+
+
+def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
+    """Every planned group, reduced to what the compiler approved, plus what it withheld.
 
     The general path all remaining renderers migrate onto: same per-feature shape they
     already consume, with the suppressed entries REMOVED rather than marked. A renderer
     receiving one of these cannot draw a withheld measurement, because it was never
     handed it — which is the whole rule, applied to every feature kind rather than the
-    three that had bespoke migrations."""
+    three that had bespoke migrations.
+
+    The withheld entries leave through `diagnostics`. They did not before: only the two
+    bespoke compilers reported, so `plan.diagnostics` was empty for every ordinary feature
+    and a caller asking "was this the author's doing?" got no for an authored omission
+    (#925). An output channel that is right for three kinds and silent for sixteen is worse
+    than no channel, because it reads as an answer."""
     out: list[ApprovedGroup] = []
+    omissions: list[Omission] = []
     for g in planned:
+        omissions.extend(
+            Omission(
+                g.feature,
+                pd.param.parameter_id,
+                float(pd.param.value),
+                pd.reason or "suppressed",
+            )
+            for pd in g.dims
+            if pd.suppressed
+        )
         approved = tuple(
             ApprovedDimension(
                 id=DimensionId(g.feature, pd.param.parameter_id),
@@ -718,7 +785,7 @@ def _compile_groups(planned) -> list[ApprovedGroup]:
                 dims=approved,
             )
         )
-    return out
+    return out, omissions
 
 
 def compile_dimensions(
@@ -750,9 +817,13 @@ def compile_dimensions(
     if overall is not None:
         ladders.append(overall)
     locations, location_omissions = _compile_locations(model)
+    slot_positions, slot_omissions = _compile_slot_positions(model)
+    locations.extend(slot_positions)
+    location_omissions.extend(slot_omissions)
+    groups_out, group_omissions = _compile_groups(planned)
     return RenderableDimensionPlan(
-        groups=tuple(_compile_groups(planned)),
+        groups=tuple(groups_out),
         ladders=tuple(ladders),
         locations=tuple(locations),
-        diagnostics=tuple(omissions + height_omissions + location_omissions),
+        diagnostics=tuple(omissions + height_omissions + location_omissions + group_omissions),
     )

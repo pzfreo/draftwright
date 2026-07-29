@@ -86,7 +86,7 @@ from draftwright.layout import StripCandidate, plan_strip
 # drifts (#875 review). `as` form so the re-export is deliberate, not an unused import.
 from draftwright.model.callout import _first as _first
 from draftwright.model.callout import hole_callout_spec as hole_callout_spec
-from draftwright.model.compiled import FeatureRef, compile_dimensions, resolve_feature
+from draftwright.model.compiled import FeatureRef, resolve_feature
 from draftwright.model.ir import AUTHORED_DIMENSION_KINDS, HoleFeature, PatternFeature
 
 
@@ -152,7 +152,7 @@ def _record_slot_drop(ctx, dwg, kind, idx, view, feat):
     )
 
 
-def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
+def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     """Dimension milled slots from the IR — width (the defining size, across
     ``width_axis``) + length (along ``long_axis``) + a position dim from the part
     datum, in the view the two axes span. Places through the engine's zone strips
@@ -179,17 +179,17 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
     (the ``m_slot{i}_*`` names must match the auto-pass — never re-enumerate a compacted
     list; `plan_dimensions` emits one group per slot in model order, so enumerating the
     slot groups preserves that index)."""
-    slot_groups = [g for g in groups if g.feature_kind in ("slot", "pad", "pocket")]
+    slot_groups = plan.of_kind("slot", "pad", "pocket")
     if not slot_groups:
         return 0
-    # Pocket location geometry is rendered in this in-plane pass, but its intent
-    # remains planner-authoritative (ADR 0015): datum and target come from the same
-    # PlannedDimension consumed by render_locations, including non-Z openings.
-    pocket_locations = {
-        loc.ref: loc
-        for loc in compile_dimensions(dwg.model()).locations
-        if loc.role == "location_pocket"
-    }
+    # Pocket location geometry is rendered in this in-plane pass, but its content
+    # remains compiler-authoritative (ADR 0015/0016): datum and target come from the same
+    # approved location consumed by render_locations, including non-Z openings.
+    pocket_locations = {loc.ref: loc for loc in plan.locations if loc.role == "location_pocket"}
+    # A slot's own position dim — datum→near-end along its long axis. Compiled, not
+    # computed from `a.bb`: it prints a number, so an authored set that does not name the
+    # slot's location must not get one (#925).
+    slot_positions = {loc.ref: loc for loc in plan.locations if loc.role == "location_slot"}
     draft = dwg.draft
     tier = draft.font_size + 2 * draft.pad_around_text
     views = {
@@ -198,16 +198,17 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
         frozenset("yz"): ("side", a.sv_zones, "y", a.proj.side_x, "z", a.proj.side_z),
     }
 
-    def _bb(axis, hi):
-        return getattr(a.bb.max if hi else a.bb.min, axis.upper())
-
     count = 0
     kind_indices: dict[str, int] = {}
+    only_refs = None if only is None else {FeatureRef(f) for f in only}
     for g in slot_groups:
-        s = g.feature
+        # The slot object supplies WITNESS GEOMETRY only — `lo`/`hi`/`w_center`/`width` fix
+        # where the extension lines land, exactly as a centre mark is sized by its hole
+        # (#875). Every PRINTED value below comes from an approved entry.
+        s = resolve_feature(g.ref)
         i = kind_indices.get(s.kind, 0)
         kind_indices[s.kind] = i + 1
-        if only is not None and s not in only:
+        if only_refs is not None and g.ref not in only_refs:
             continue  # #426 Ph2b: skip in place — i must stay the model index
         view = views[frozenset((s.width_axis, s.long_axis))]
         name, zones, h_axis, h_proj, _v_axis, v_proj = view
@@ -401,51 +402,51 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
             )
             return True  # deferred — the callback owns the drop; caller's else must not fire
 
-        # Bind each planned dim explicitly by (role, kind) — never positionally (#730).
-        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        # Bind each approved dim explicitly by (role, kind) — never positionally (#730).
         role_prefix = s.kind if s.kind in ("pad", "slot") else ""
-        wpd = by_key.get((f"{role_prefix}_width", "length"))
-        lpd = by_key.get((f"{role_prefix}_length", "length"))
+        wpd = g.dim(role=f"{role_prefix}_width", kind="length")
+        lpd = g.dim(role=f"{role_prefix}_length", kind="length")
         half = s.width / 2
-        if wpd is not None and not wpd.suppressed:
+        if wpd is not None:
             if _place(
                 s.width_axis,
                 s.w_center - half,
                 s.w_center + half,
                 s.lo,
                 s.hi,
-                wpd.param.value,
+                wpd.value,
                 "width",
-                sfx=_tol_suffix(wpd.param.tolerance, draft),
+                sfx=_tol_suffix(wpd.tolerance, draft),
             ):
                 count += 1
             else:
                 _record_slot_drop(ctx, dwg, "width", i, name, s)
-        if lpd is not None and not lpd.suppressed:
+        if lpd is not None:
             if _place(
                 s.long_axis,
                 s.lo,
                 s.hi,
                 s.w_center - half,
                 s.w_center + half,
-                lpd.param.value,
+                lpd.value,
                 "length",
-                sfx=_tol_suffix(lpd.param.tolerance, draft),
+                sfx=_tol_suffix(lpd.tolerance, draft),
             ):
                 count += 1
             else:
                 _record_slot_drop(ctx, dwg, "length", i, name, s)
-        datum = _bb(s.long_axis, False)
         # Pads are located by the compiled location set on both axes; slots retain their
         # historical single-axis position dimension here.
-        if s.kind == "slot" and (s.lo - datum) * a.SCALE >= 1.0:
+        pos = slot_positions.get(g.ref)
+        if pos is not None and pos.value * a.SCALE >= 1.0:
+            axis_i = "xyz".index(s.long_axis)
             if _place(
                 s.long_axis,
-                datum,
-                s.lo,
+                pos.span[0][axis_i],
+                pos.span[1][axis_i],
                 s.w_center - half,
                 s.w_center + half,
-                s.lo - datum,
+                pos.value,
                 "pos",
                 anchor="lo",
             ):

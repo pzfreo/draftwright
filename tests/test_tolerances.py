@@ -30,6 +30,7 @@ from draftwright.model import (
     slot,
     step,
 )
+from draftwright.model.compiled import compile_dimensions
 from draftwright.model.planner import _addressable, plan_dimensions
 
 
@@ -755,7 +756,8 @@ def _plan_of(*planned):
     page — the compile step in between is exactly the thing under test."""
     from draftwright.model.compiled import RenderableDimensionPlan, _compile_groups
 
-    return RenderableDimensionPlan(groups=tuple(_compile_groups(planned)))
+    approved, _omissions = _compile_groups(planned)
+    return RenderableDimensionPlan(groups=tuple(approved))
 
 
 class TestPlateTolerance:
@@ -934,7 +936,7 @@ class TestSlotTolerance:
             auto_dims=False,
         )
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
-        assert render_slots(dwg, plan_dimensions(dwg.model()), dwg._analysis, ctx=ctx) == 3
+        assert render_slots(dwg, compile_dimensions(dwg.model()), dwg._analysis, ctx=ctx) == 3
         (cand,) = [
             c
             for b in ctx.corridor_batch.values()
@@ -958,16 +960,18 @@ class TestSlotTolerance:
 
         sl = self._slot_feature()
         dwg = build_drawing(self._slotted_block(), model=[sl], number="X", auto_dims=False)
-        (g,) = [g for g in plan_dimensions(dwg.model()) if g.feature_kind == "slot"]
-        by_key = {(pd.param.role, pd.param.kind): pd for pd in g.dims}
+        plan = compile_dimensions(dwg.model())
+        (g,) = plan.of_kind("slot")
+        by_key = {(d.role, d.kind): d for d in g.dims}
         wpd = by_key[("slot_width", "length")]
         lpd = by_key[("slot_length", "length")]
-        decoy = replace(wpd, param=replace(wpd.param, role="decoy", value=99.0))
-        planned_w = replace(wpd, param=replace(wpd.param, value=7.0))  # ≠ sl.width == 8
-        planned_l = replace(lpd, param=replace(lpd.param, value=19.0))  # ≠ sl.length == 20
-        g2 = replace(g, units=_addressable(g.feature, [decoy, planned_w, planned_l]))
+        decoy = replace(wpd, role="decoy", value=99.0, value_text="99")
+        planned_w = replace(wpd, value=7.0, value_text="7")  # ≠ sl.width == 8
+        planned_l = replace(lpd, value=19.0, value_text="19")  # ≠ sl.length == 20
+        g2 = replace(g, dims=(decoy, planned_w, planned_l))
+        plan2 = replace(plan, groups=(g2,))
         ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
-        assert render_slots(dwg, [g2], dwg._analysis, ctx=ctx) == 3
+        assert render_slots(dwg, plan2, dwg._analysis, ctx=ctx) == 3
         drain_corridors(ctx, dwg)
         assert dwg.get_annotation("m_slot0_width").label == "7"
         assert dwg.get_annotation("m_slot0_length").label == "19"

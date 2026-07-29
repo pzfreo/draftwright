@@ -35,6 +35,7 @@ from draftwright.model.ir import (
     PocketFeature,
     PocketPatternFeature,
     Point,
+    SlotFeature,
 )
 
 #: The `reason` marking a measurement the AUTHORED set left out — the author's own
@@ -336,6 +337,13 @@ _LOCATION_ROLE: dict[type, str] = {
     PocketFeature: "location_pocket",
     PocketPatternFeature: "location_pocket_pattern",
     PadFeature: "location_pad",
+    # A slot's position is datum-referenced too, but from the BOUNDING BOX along its long
+    # axis rather than from `datum_xy`, and it is drawn in the slot's own view. So it is
+    # addressable here (an authored set can name or omit it) while `plan_locations` skips
+    # it — the span is compiled in `model/compiled._compile_slot_positions`, which has the
+    # bbox. Listing it in one table with the rest is what keeps "which features have a
+    # position" a single answer.
+    SlotFeature: "location_slot",
 }
 
 #: The role every authored entry uses to name a location, whatever the per-kind role above.
@@ -393,7 +401,9 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
         if f.frame.axis != "z" and not isinstance(f, PocketFeature):
             continue
         role = location_role(f)
-        if role is None:
+        # `location_slot` is addressable but not planned here — it measures from the
+        # bounding box in the slot's own view (see `_LOCATION_ROLE`).
+        if role is None or role == "location_slot":
             continue
         if isinstance(f, HoleFeature):
             # un-patterned holes — a HoleFeature may group identical holes
@@ -500,6 +510,18 @@ def _authored_for(model, feature, param):
             continue
         return authored
     return None
+
+
+def authored_location_omitted(model, feature) -> bool:
+    """Did an AUTHORED set leave *feature*'s position out?
+
+    ``False`` when no set is authored (the rule set draws every position it plans) and when
+    the set names this feature's location. Exported so the compiler can gate the positions
+    it derives itself — a slot's, which measures from the bounding box — against the same
+    authored decision `plan_locations` applies to its own."""
+    if model.authored_dimensions is None:
+        return False
+    return _authored_location_for(model, feature) is None
 
 
 def _authored_location_for(model, feature):

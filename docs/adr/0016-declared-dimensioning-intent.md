@@ -97,31 +97,63 @@ being a thing the height-ladder renderer did while claiming to be doing layout.
 **The rule is the destination. The migration is substantially advanced but not complete;
 the inventory below is the honest state of it.**
 
-Sixteen renderers have crossed: `render_height_ladder`, `render_step_positions`,
-`render_plates`, `render_chamfers`, `render_fillets`, `render_flats`, `render_grooves`,
-`render_boss_diameters`, `render_boss_heights`, `render_envelope`, and `render_pockets`,
-`render_pocket_patterns`, `render_slot_patterns`, `render_diameters`, and
-`render_rotational`, and `render_step_lengths`, plus the prismatic detail redraw.
-Everything else still takes either the legacy `DimensionGroup` surface — where
-`suppressed` remains an advisory boolean a renderer may ignore, which is exactly what eight
-#921 rounds found happening — or the raw model.
+**Every `render_*` renderer of generated dimensions has crossed** (#925). No renderer takes
+the legacy `DimensionGroup` surface any more, so `suppressed` is no longer an advisory
+boolean anyone can ignore — which is exactly what eight #921 rounds found happening.
 
-Two earlier versions of this section understated that, each time because the guard behind
-it measured the wrong thing (#923 reviews). Counting renderers that take `model` reported
-the migration nearly complete while sixteen sat on the advisory surface; not naming a
-parameter `model` is not the same as having crossed the boundary.
-`tests/test_compiled_plan_boundary.py` now classifies by **contract** and pins all three
-lists, so this inventory cannot drift from the code:
+Two earlier versions of this section understated the gap, each time because the guard
+behind it measured the wrong thing (#923 reviews). Counting renderers that take `model`
+reported the migration nearly complete while sixteen sat on the advisory surface; not
+naming a parameter `model` is not the same as having crossed the boundary.
+`tests/test_compiled_plan_boundary.py` classifies by **contract** and pins all three lists,
+so this inventory cannot drift from the code:
 
 | Contract | Meaning | Renderers |
 |---|---|---|
-| `plan` | approved entries only — inside the rule | `render_height_ladder`, `render_step_positions`, `render_plates`, `render_chamfers`, `render_fillets`, `render_flats`, `render_grooves`, `render_boss_diameters`, `render_boss_heights`, `render_envelope`, `render_pockets`, `render_pocket_patterns`, `render_slot_patterns`, `render_diameters`, `render_rotational`, `render_step_lengths` (+ the detail redraw) |
-| `groups` | advisory `suppressed` — **pending** | `render_slots` |
-| `model` | raw inventory — **pending**, except PMI | `render_locations` (#883), `render_gdt`, `render_pmi` (permitted) |
+| `plan` | approved entries only — inside the rule | `render_height_ladder`, `render_step_positions`, `render_plates`, `render_chamfers`, `render_fillets`, `render_flats`, `render_grooves`, `render_boss_diameters`, `render_boss_heights`, `render_envelope`, `render_pockets`, `render_pocket_patterns`, `render_slot_patterns`, `render_diameters`, `render_rotational`, `render_step_lengths`, `render_locations`, `render_slots` (+ the prismatic detail redraw) |
+| `groups` | advisory `suppressed` | *(empty — the guard fails if anything reappears)* |
+| `model` | author-supplied text, not a generated measurement | `render_gdt`, `render_pmi` |
 
-Pattern pitch dimensions (`_add_furniture` → `_place_pitch_dim`) are pending too: they are
-grouped with furniture in the code but print a VALUE, which is what makes something
-dimensional under this rule. The grouping is the bug.
+`render_gdt` and `render_pmi` take the model on purpose and permanently. A control frame's
+tolerance and a PMI record's label are written by the script or by the STEP file and
+rendered verbatim; their `parameters()` are empty by design, so there is nothing to plan,
+suppress or approve. An authored dimension set does not govern them because they were never
+the engine's choice to make.
+
+Two paths outside `render_*` also print values, and both are now compiled:
+
+- **Pattern pitch** (`_add_furniture` → `_place_pitch_dim`) is grouped with furniture in the
+  code but prints a VALUE, which is what makes something dimensional under this rule. Its
+  pitch/grid values come from the approved group; its bolt-circle centreline still reads
+  `feat.bcd`, because a centreline is geometry, like a centre mark. `_furnish_uncalled_
+  patterns` draws the pitch for a pattern with no callout — furniture used to be a side
+  effect of placing one, which an authored set separates.
+- **Slot positions** measure from the bounding box rather than from `datum_xy`, so they are
+  compiled by `_compile_slot_positions` rather than by `plan_locations`, and gated by the
+  same `location_role` table.
+
+**Hole callouts (`hc_`) remain on the legacy surface.** They honour `suppressed` at every
+term (`model/callout.py` checks it for each segment, head and dependent), so this is a
+structural gap rather than a behavioural one — but "the renderer checks" is exactly the
+guarantee this boundary exists to replace, so it stays named rather than assumed safe.
+
+### Locations are addressable (#925, and #883 is not a blocker)
+
+A location prints a number, so it is a dimension and belongs inside the boundary. It had no
+`DimParameter` — it is synthesized from the feature and the datum — so before #925
+`dimension(hole, "location")` raised and an authored set could neither include nor exclude
+one. **A dimension the author cannot address is a dimension the author cannot omit**, and
+every location was drawn regardless of what the script declared.
+
+`planner._LOCATION_ROLE` is now the single statement of which kinds have a position;
+`location_role()` derives both `plan_locations` and the authored vocabulary from it, and
+`compile_dimensions().locations` is the approved set every location renderer reads.
+
+The authored role is the coarse `"location"` — one unit per feature. #883 asks whether a
+patterned hole's position is one addressable thing or one per member, which is a question
+about NAMING. Omission is well-formed at either granularity, and a finer id
+(`location.member.3`) refines this one later without contradicting it, so the completeness
+contract does not wait on #883.
 
 - **Furniture is not dimensional content.** Centrelines, centre marks and section arrows
   print no value; they are sized off the geometry they mark and stay outside this rule.

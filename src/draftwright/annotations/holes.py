@@ -406,17 +406,37 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
             "callout(): feature is not from this drawing's model — "
             "pass one from dwg.model().features"
         )
-    group = next((g for g in plan_dimensions(model) if g.feature is feature), None)
-    dpd = (
-        next((pd for pd in group.dims if pd.param.kind == "diameter"), None)
-        if group is not None
-        else None
-    )
-    dia = dpd.param.value if dpd is not None else None
-    if group is None or dpd is None or dia is None:
+    # From the COMPILED plan, not `plan_dimensions`. Reading the planned parameter meant
+    # reading past its `suppressed` flag, so a live `callout()` drew a diameter the authored
+    # set had omitted while the deferred path (through the migrated `render_diameters`) drew
+    # nothing — the two disagreeing about the same edit (#925 review).
+    plan = compile_dimensions(model)
+    group = plan.group_for(FeatureRef(feature))
+    dpd = group.dim(kind="diameter") if group is not None else None
+    if dpd is None:
+        omission = next(
+            (
+                o
+                for o in plan.diagnostics
+                if o.feature is feature and o.parameter_id.endswith(".diameter")
+            ),
+            None,
+        )
+        if omission is not None:
+            # Nothing to draw, and the author said so. A DROP, not a raise: the deferred
+            # path reaches the same state by drawing nothing, and the two must agree about
+            # one edit. The build issue is what keeps it from being silent on either.
+            ctx.record_issue(
+                "info",
+                "authored_omission",
+                f"callout(): the {feature.kind} diameter is not in the authored dimension "
+                "set, so there is nothing to call out — add a dimension(feature, role) line",
+            )
+            return ""
         raise ValueError(
             f"callout(): {type(feature).__name__} exposes no step/boss diameter callout"
         )
+    dia = dpd.value
     axis = feature.frame.axis
     if axis not in ("x", "z"):
         raise ValueError(
@@ -425,7 +445,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
         )
     # 5-tuple (anchor, dia, feature, tolerance, thread): a manual callout honours a declared ±
     # tolerance (P2a, #28) and an external thread aspect (#859) too, like the auto-pass.
-    items = [(group.anchor, dia, feature, dpd.param.tolerance, getattr(feature, "thread", None))]
+    items = [(group.anchor, dia, feature, dpd.tolerance, getattr(feature, "thread", None))]
     # The row/column placers name leaders m_dia_{x,z}{start+i} — pass the first FREE
     # index so a second callout() (or a call on an already-annotated turned part) never
     # collides on m_dia_x0/z0 and clobbers an existing leader (#419 review F1).

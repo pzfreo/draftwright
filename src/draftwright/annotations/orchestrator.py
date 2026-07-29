@@ -507,7 +507,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # (#135) — IR renderer, placed through the zone strips (shared infra). Runs
         # after every hole/diameter pass so it claims strip space last.
         # Planner-fed (#730): consumes the DimensionGroups so authored tolerances render.
-        render_slots(dwg, _groups, a, ctx=ctx)
+        render_slots(dwg, _compiled, a, ctx=ctx)
 
     def _s_gdt():
         # Declared GD&T frames / datum symbols / surface finishes (ADR 0011 §4, #61)
