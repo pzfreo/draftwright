@@ -25,8 +25,9 @@ from draftwright.model.planner import DimensionGroup
 
 
 def _planned(group: DimensionGroup, kind: str, *roles: str):
-    """First PLANNED dimension matching *kind* and any of *roles*, in role order — suppressed
-    or not. The lookup suppression is decided against; :func:`_first` is what honours it."""
+    """First PLANNED dimension matching *kind* and any of *roles*, in role order — **suppressed
+    or not**. This is the lookup suppression is decided *against*; :func:`_first` is what
+    honours it. Keeping the two separate is what makes each call site's intent legible."""
     for role in roles:
         for pd in group.dims:
             if pd.param.kind == kind and pd.param.role == role:
@@ -40,9 +41,18 @@ def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
     Honouring ``suppressed`` here is ADR 0016 / #875. Thirteen render sites already skipped
     suppressed dimensions; the compound-callout path did not, so a suppressed segment still
     printed. Suppression MARKS a dimension rather than removing it (the group keeps its
-    engineering data either way) — what changes is whether it reaches the page."""
-    pd = _planned(group, kind, *roles)
-    return None if pd is None or pd.suppressed else pd.param.value
+    engineering data either way) — what changes is whether it reaches the page.
+
+    Suppression is applied per role, BEFORE the precedence between them. The roles are ordered
+    as a fallback chain (counterbore, then spotface), so a suppressed counterbore must fall
+    through to an unsuppressed spotface rather than swallowing it — the first draft resolved
+    precedence first and then nulled the winner, which silently dropped the spotface (#920
+    review)."""
+    for role in roles:
+        pd = _planned(group, kind, role)
+        if pd is not None and not pd.suppressed:
+            return None if pd.param.value is None else float(pd.param.value)
+    return None
 
 
 #: The compound callout's segments: ``(name, head, dependents)``.
@@ -113,6 +123,17 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
         for _name, head, dependents in _CALLOUT_SEGMENTS[1:]
         for label in _printing(group, head, *dependents)
     ]
+    # Not every dependent is a dimension. The thread spec and a pattern's count/suffix ride the
+    # same string and live on the FEATURE, so they survive any amount of parameter suppression
+    # and would be discarded in silence — the very outcome the head rule exists to prevent
+    # (#920 review). They are dependents of the head exactly as a counterbore is.
+    feat = group.feature
+    hole = feat.member if isinstance(feat, PatternFeature) else feat
+    thread = getattr(hole, "thread", None)
+    if thread:
+        across.append(f"the thread spec {thread}")
+    if isinstance(feat, PatternFeature) and (feat.count or 0) > 1:
+        across.append(f"the {feat.count}× pattern")
     if not across:
         return  # the whole callout is suppressed — coherent, and nothing to print
     raise ValueError(

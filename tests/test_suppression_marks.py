@@ -197,6 +197,76 @@ class TestSegmentsAreAtomic:
         assert spec["diameter"] == 20.0
 
 
+class TestPrecedenceRespectsSuppression:
+    """The counterbore/spotface roles are a FALLBACK CHAIN, so suppression has to be applied
+    per role before the precedence between them — otherwise a suppressed counterbore swallows
+    the spotface that should have taken its place (#920 review). The first draft resolved
+    precedence first and nulled the winner, which dropped an unsuppressed spotface in silence.
+    """
+
+    @staticmethod
+    def _both():
+        return HoleFeature(
+            Frame((0, 0, 10), "z"),
+            20.0,
+            depth=None,
+            through=True,
+            cbore=(32.0, 1.5),
+            spotface=(35.0, 0.5),
+        )
+
+    def test_a_suppressed_counterbore_falls_through_to_the_spotface(self):
+        group = _group(self._both())
+        assert hole_callout_spec(group)["cbore_dia"] == 32.0, "counterbore wins when both print"
+        marked = _suppress(group, ("diameter", "counterbore"), ("depth", "counterbore"))
+        spec = hole_callout_spec(marked)
+        assert spec["cbore_dia"] == 35.0, "the spotface is the documented fallback"
+        assert spec["cbore_depth"] == 0.5
+
+    def test_suppressing_both_leaves_neither(self):
+        group = _suppress(
+            _group(self._both()),
+            ("diameter", "counterbore"),
+            ("depth", "counterbore"),
+            ("diameter", "spotface"),
+            ("depth", "spotface"),
+        )
+        spec = hole_callout_spec(group)
+        assert spec["cbore_dia"] is None and spec["cbore_depth"] is None
+
+
+class TestDependentsThatAreNotDimensions:
+    """Not everything riding the callout string is a dimension parameter. A thread spec and a
+    pattern's `4× … EQ SP ON ⌀50 BC` live on the FEATURE, so they survive any amount of
+    parameter suppression — and would then be discarded in silence when the head goes, which is
+    the exact outcome the head rule exists to prevent (#920 review)."""
+
+    def test_suppressing_the_head_of_a_threaded_hole_raises(self):
+        threaded = HoleFeature(
+            Frame((0, 0, 10), "z"), 10.0, depth=None, through=True, thread="M10x1.5"
+        )
+        group = _suppress(_group(threaded), ("diameter", "bore"))
+        with pytest.raises(ValueError, match="M10x1.5"):
+            hole_callout_spec(group)
+
+    def test_suppressing_the_head_of_a_pattern_raises(self):
+        from draftwright.model import PatternFeature
+
+        member = HoleFeature(Frame((0, 0, 10), "z"), 6.0, depth=None, through=True)
+        pattern = PatternFeature(
+            Frame((0, 0, 10), "z"), member=member, count=4, pattern="bolt_circle", bcd=50.0
+        )
+        group = _suppress(_group(pattern), ("diameter", "bore"))
+        with pytest.raises(ValueError, match="pattern"):
+            hole_callout_spec(group)
+
+    def test_a_plain_unthreaded_hole_still_suppresses_silently(self):
+        """The contrast, so the rule is not read as "the head may never be suppressed"."""
+        plain = HoleFeature(Frame((0, 0, 10), "z"), 12.0, depth=None, through=True)
+        group = _suppress(_group(plain), ("diameter", "bore"))
+        assert hole_callout_spec(group) is None
+
+
 class TestTheEstimatorAgreesWithTheRenderer:
     """The page/scale estimator reserves strip width for a callout before any geometry exists
     (#261's estimator/render agreement). It used to re-derive the callout itself, and the two
