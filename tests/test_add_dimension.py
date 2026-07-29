@@ -284,6 +284,59 @@ class TestSheetSurface:
         marked = {pd.param.parameter_id: pd.suppressed for pd in plan_dimensions(model)[0].dims}
         assert marked == {"bore.diameter": False, "bore.depth": True}
 
+    def test_from_part_can_be_taken_over_by_an_authored_set(self):
+        """Detect the features, then declare exactly which of their measurements to draw.
+        `from_part` chooses the automatic source on the caller's behalf, so this is the
+        script changing its mind, not contradicting itself — and it is the natural way to
+        take over a detected drawing. Requiring every feature to be redeclared by hand to
+        reach suppression by omission would be a poor trade (#921 review round 6)."""
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(100, 60, 20) - Pos(0, 0, 10) * Cylinder(5, 20)
+        sheet = Sheet.from_part(part)
+        hole = next(f for f in sheet.features if f.kind == "hole")
+        sheet.dimension(hole, "bore.diameter")
+
+        drawn = {n for n, _ in sheet.build().iter_annotations()}
+        assert "hc_plan0" in drawn, "the authored callout"
+        assert not [n for n in drawn if n.startswith(("dim_height", "m_env"))], (
+            f"the automatic envelope survived the takeover: {sorted(drawn)}"
+        )
+        assert "m_env_width" in {n for n, _ in Sheet.from_part(part).build().iter_annotations()}, (
+            "the control: from_part alone still auto-dimensions"
+        )
+
+    def test_an_explicit_auto_dimensions_still_conflicts(self):
+        """The distinction that makes the override safe: a SCRIPT LINE asking for the
+        automatic set and then declaring an authored one has said both things, and one of
+        them must be wrong. Only `from_part`'s implicit choice is overridable."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        sheet.dimension(bore, "bore.diameter")
+        with pytest.raises(ValueError, match="ONE dimension source"):
+            sheet.build()
+
+    def test_a_callout_for_an_omitted_feature_is_refused_in_both_paths(self):
+        """A post-build edit naming something the authored set left out draws nothing. The
+        deferred path used to record the intent, draw nothing at the drain, drop the intent
+        unconditionally, and report success — the edit vanished with no annotation, no
+        pending intent and no warning (#921 review round 6). Both paths now refuse, with
+        the same message, at the point the caller can still act on it."""
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(100, 60, 20) - Pos(0, 0, 10) * Cylinder(5, 20)
+        sheet = Sheet.from_part(part)
+        env = next(f for f in sheet.features if f.kind == "envelope")
+        hole = next(f for f in sheet.features if f.kind == "hole")
+        sheet.dimension(env, "width")
+        dwg = sheet.build()
+
+        with pytest.raises(ValueError, match="omitted from the authored dimension set"):
+            with dwg.deferred():
+                dwg.callout(hole)
+        with pytest.raises(ValueError, match="omitted from the authored dimension set"):
+            dwg.callout(hole)
+
     def test_from_part_states_the_automatic_source(self):
         """Detection IS a request for the engine's reading of the part, so `from_part` says so
         rather than leaving the caller to. Not the implicit default returning by the back

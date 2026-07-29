@@ -653,10 +653,15 @@ class Sheet:
         # dimension sources, mutually exclusive with `_auto_dimensions`. Token-keyed like
         # every other feature reference on this class.
         self._authored: list[dict] = []
-        # Did the script explicitly ask for the planner's set? MANDATORY unless the sheet
-        # authors its own set instead (#874) — `_check_dimension_source` refuses a build
-        # that names neither, so the drawing never falls back to a source nobody chose.
+        # Did the script ask for the planner's set? MANDATORY unless the sheet authors its
+        # own set instead (#874) — `_check_dimension_source` refuses a build that names
+        # neither, so the drawing never falls back to a source nobody chose.
         self._auto_dimensions = False
+        # ...and did a SCRIPT LINE ask, or did `from_part` supply it? Only an explicit
+        # `auto_dimensions()` call conflicts with an authored set. `from_part` chooses the
+        # automatic source on the caller's behalf, so a later `dimension(...)` is the
+        # script changing its mind, not contradicting itself (#921 review round 6).
+        self._auto_dimensions_explicit = False
         # A requested section A–A (#841): ``None`` = no request, else a resolver tuple
         # (``kind``, ``payload``) materialized to a cut-plane Y in ``_decorations`` — ``at``
         # a literal Y, ``feature`` a declared-feature index, ``auto`` the part-centre Y.
@@ -693,8 +698,14 @@ class Sheet:
         This states the **automatic** dimension source (#874), because that is what asking for
         detection means: you have asked for the engine's reading of the part, features and
         dimensions alike. It is not the implicit default the breaking change removed — a
-        `Sheet(part)` still has to say — it is `from_part`'s own meaning. Declaring
-        `dimension(...)` lines on such a sheet raises, as mixing the two sources always does.
+        `Sheet(part)` still has to say — it is `from_part`'s own meaning.
+
+        Because the choice is `from_part`'s rather than a script line's, adding
+        `dimension(...)` declarations **overrides** it rather than conflicting: detect the
+        features, then declare exactly which of their measurements to draw. That is the
+        natural way to take over a detected drawing, and requiring the caller to redeclare
+        every feature by hand to reach it would be a poor trade (#921 review round 6). An
+        explicit `auto_dimensions()` still conflicts — there the script has said both things.
         """
         sheet = cls(part, **opts)
         sheet._features.extend(detect_part_model(part).features)  # detect only, no render (#453)
@@ -1231,6 +1242,7 @@ class Sheet:
         something against a set the planner chose.
         """
         self._auto_dimensions = True
+        self._auto_dimensions_explicit = True
         return self
 
     def add_dimension(self, feature, role: str, *, axis: str | None = None):
@@ -1279,13 +1291,18 @@ class Sheet:
         Rejected: implicit-by-usage — "any `dimension` line turns the automatic set off". A
         hand-author adding one pitch dimension would silently lose every ⌀ callout.
         """
-        if self._authored and self._auto_dimensions:
+        if self._authored and self._auto_dimensions_explicit:
             raise ValueError(
                 "a sheet has ONE dimension source: auto_dimensions() for the planner's set, or "
                 "dimension(...) declarations for the complete authored set. This sheet asks for "
                 "both, which cannot be honoured — omission is only meaningful inside a set "
                 "declared complete, and the automatic set has no omissions to read."
             )
+        if self._authored:
+            # `from_part` chose the automatic source on the caller's behalf; declaring an
+            # authored set is the script overriding that choice, not contradicting itself.
+            # (An explicit `auto_dimensions()` line already raised above.)
+            self._auto_dimensions = False
         if self._added_dimensions and not self._auto_dimensions:
             raise ValueError(
                 "add_dimension() augments the planner's automatic dimension set, so the sheet "

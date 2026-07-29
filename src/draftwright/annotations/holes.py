@@ -63,6 +63,7 @@ from draftwright.annotations.from_model import (
 )
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model import plan_dimensions
+from draftwright.model.callout import omitted_by_the_authored_set
 from draftwright.model.ir import HoleFeature, PatternFeature
 from draftwright.model.planner import plan_locations
 
@@ -99,6 +100,13 @@ def add_feature_callout(
     group = next((g for g in plan_dimensions(model) if g.feature is feature), None)
     spec = hole_callout_spec(group) if group is not None else None
     if spec is None:
+        if omitted_by_the_authored_set(group):
+            raise ValueError(
+                f"callout(): this {type(feature).__name__} was omitted from the authored "
+                "dimension set, so the drawing has no callout to add to. Declare it with a "
+                "dimension(feature, role) line on the Sheet instead of adding it after the "
+                "build — the authored set is the drawing's complete dimensioning."
+            )
         raise ValueError(
             f"callout() draws a hole/pattern ø-depth leader callout; "
             f"{type(feature).__name__} exposes none — use dimension() for a linear param"

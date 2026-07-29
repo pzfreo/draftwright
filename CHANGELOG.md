@@ -38,6 +38,12 @@
   exactly these" back into "draw everything" on re-run; emitting those declarations needs
   nameable feature identity in the generated script (#922). The `--script` path is
   unaffected — it emits from a detected model.
+- **`Sheet.from_part(...)` can be taken over by an authored set**: detect the features,
+  then declare exactly which of their measurements to draw. `from_part` chooses the
+  automatic source on the caller's behalf, so adding `dimension(...)` lines overrides it
+  rather than conflicting; an explicit `auto_dimensions()` still conflicts, because there
+  the script has said both things. A `callout()` naming a feature the authored set omitted
+  is refused in both the live and deferred paths rather than silently drawing nothing.
 - **Suppressing a dimension marks it; it no longer leaks into the callout** (ADR 0016 /
   #875). `PlannedDimension.suppressed` was honoured at thirteen render sites but not by
   the compound hole-callout path, so a suppressed counterbore still printed. The group

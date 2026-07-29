@@ -1095,6 +1095,28 @@ class Drawing:
                 "view=/name= are unsupported for machined-feature callouts"
             )
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
+            # Validate what the drain cannot report. The drain re-plans against the SAME
+            # authored set, so a callout for an omitted measurement draws nothing — and the
+            # intent is dropped there unconditionally, so the edit vanished with no
+            # annotation, no pending intent and no warning (#921 review round 6). The live
+            # path already refuses this; the deferred path must refuse it at the same point
+            # the caller can still act on it, rather than reporting success.
+            from draftwright.model import plan_dimensions
+            from draftwright.model.callout import omitted_by_the_authored_set
+
+            model = self._part_model
+            if model is not None and model.authored_dimensions is not None:
+                group = next(
+                    (g for g in plan_dimensions(model) if g.feature is feature),
+                    None,
+                )
+                if omitted_by_the_authored_set(group):
+                    raise ValueError(
+                        f"callout(): this {type(feature).__name__} was omitted from the "
+                        "authored dimension set, so there is nothing to add to. Declare it "
+                        "with a dimension(feature, role) line on the Sheet — the authored "
+                        "set is the drawing's complete dimensioning."
+                    )
             self._intents.append(Intent("callout", feature, {"view": view, "name": name}))
             return ""
         from draftwright.annotations._common import PlacementContext

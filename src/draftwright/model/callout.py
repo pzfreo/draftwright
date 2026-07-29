@@ -214,6 +214,22 @@ def _recess(group: DimensionGroup) -> tuple[float | None, float | None]:
     return None, None
 
 
+_AUTHORED_OMISSION = "not in the authored dimension set"
+
+
+def omitted_by_the_authored_set(group: DimensionGroup | None) -> bool:
+    """Whether this group draws nothing *because the author left it out* (ADR 0016 / #876).
+
+    Distinguishes the two ways a feature can yield no callout, which otherwise report the
+    same misleading "exposes none": a `FilletFeature` genuinely has no ø-depth callout,
+    while an omitted hole has one and was told not to draw it. The second is recoverable —
+    add a `dimension(...)` line — so the message must say which happened (#921 round 6)."""
+    if group is None:
+        return False
+    dims = group.dims
+    return bool(dims) and all(d.suppressed and d.reason == _AUTHORED_OMISSION for d in dims)
+
+
 def hole_callout_spec(group: DimensionGroup) -> dict | None:
     """A hole/pattern group's plan → `HoleCallout` kwargs, mirroring the engine's
     convention. ``None`` if not a hole-bearing callout.
