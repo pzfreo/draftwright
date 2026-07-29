@@ -1066,6 +1066,29 @@ class Drawing:
             self.pin(name)
         return name
 
+    def _refuse_authored_omission(self, feature) -> None:
+        """Refuse a post-build callout for a measurement the authored set left out (#876).
+
+        An authored set is the drawing's COMPLETE dimensioning, so adding a callout back
+        afterwards contradicts the script rather than extending it. Refusing beats the two
+        things it replaced: the live path's "exposes none" (untrue — the feature exposes
+        one and was told not to draw it) and the deferred path's silent success, where the
+        intent was recorded, drew nothing at the drain, and was dropped with no warning."""
+        model = self._part_model
+        if model is None or model.authored_dimensions is None:
+            return
+        from draftwright.model import plan_dimensions
+        from draftwright.model.callout import omitted_by_the_authored_set
+
+        group = next((g for g in plan_dimensions(model) if g.feature is feature), None)
+        if omitted_by_the_authored_set(group):
+            raise ValueError(
+                f"callout(): this {type(feature).__name__} was omitted from the authored "
+                "dimension set, so there is nothing to add to. Declare it with a "
+                "dimension(feature, role) line on the Sheet — the authored set is the "
+                "drawing's complete dimensioning."
+            )
+
     def callout(self, feature, *, view=None, name=None) -> str:
         """Add a **ø leader callout** for *feature* (#414/#419) — the callout half of the
         feature-referenced **add** surface, symmetric with :meth:`drop`.
@@ -1094,29 +1117,14 @@ class Drawing:
                 f"callout(): a {kind} is auto-named and placed in its characteristic view; "
                 "view=/name= are unsupported for machined-feature callouts"
             )
+        # BEFORE the deferred/live split, so the two cannot disagree. Placing it in the
+        # deferred branch alone left the live step/boss path drawing an explicitly omitted
+        # ø while the identical deferred call refused it — the answer depended on whether
+        # you were inside `deferred()` (#921 review round 7). The drain re-plans against the
+        # same authored set and then drops the intent unconditionally, so a refusal here is
+        # also the last point at which the caller can still act on it.
+        self._refuse_authored_omission(feature)
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
-            # Validate what the drain cannot report. The drain re-plans against the SAME
-            # authored set, so a callout for an omitted measurement draws nothing — and the
-            # intent is dropped there unconditionally, so the edit vanished with no
-            # annotation, no pending intent and no warning (#921 review round 6). The live
-            # path already refuses this; the deferred path must refuse it at the same point
-            # the caller can still act on it, rather than reporting success.
-            from draftwright.model import plan_dimensions
-            from draftwright.model.callout import omitted_by_the_authored_set
-
-            model = self._part_model
-            if model is not None and model.authored_dimensions is not None:
-                group = next(
-                    (g for g in plan_dimensions(model) if g.feature is feature),
-                    None,
-                )
-                if omitted_by_the_authored_set(group):
-                    raise ValueError(
-                        f"callout(): this {type(feature).__name__} was omitted from the "
-                        "authored dimension set, so there is nothing to add to. Declare it "
-                        "with a dimension(feature, role) line on the Sheet — the authored "
-                        "set is the drawing's complete dimensioning."
-                    )
             self._intents.append(Intent("callout", feature, {"view": view, "name": name}))
             return ""
         from draftwright.annotations._common import PlacementContext

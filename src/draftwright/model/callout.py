@@ -216,18 +216,42 @@ def _recess(group: DimensionGroup) -> tuple[float | None, float | None]:
 
 _AUTHORED_OMISSION = "not in the authored dimension set"
 
+# What a `callout()` PRINTS, by feature kind — the parameter kinds whose values make up
+# the callout text. A dimension outside this set belongs to some other mark: a pattern's
+# `pitch` is a linear dim drawn between members, not a term in the callout, so a pattern
+# whose pocket size is omitted has an undrawable callout even though its pitch survives
+# (#921 review round 7). Kinds absent here fall back to "any un-suppressed dim will do".
+_CALLOUT_PARAM_KINDS: dict[str, frozenset[str]] = {
+    "hole": frozenset({"diameter", "depth", "angle"}),
+    "pattern": frozenset({"diameter", "depth", "angle"}),
+    "step": frozenset({"diameter"}),
+    "boss": frozenset({"diameter"}),
+    "pocket": frozenset({"length", "depth"}),
+    "slot": frozenset({"length", "width", "depth"}),
+    "pocket_pattern": frozenset({"length", "depth"}),
+    "slot_pattern": frozenset({"length", "width", "depth"}),
+}
+
 
 def omitted_by_the_authored_set(group: DimensionGroup | None) -> bool:
-    """Whether this group draws nothing *because the author left it out* (ADR 0016 / #876).
+    """Whether `callout()` would draw nothing *because the author left it out* (#876).
 
     Distinguishes the two ways a feature can yield no callout, which otherwise report the
     same misleading "exposes none": a `FilletFeature` genuinely has no ø-depth callout,
     while an omitted hole has one and was told not to draw it. The second is recoverable —
-    add a `dimension(...)` line — so the message must say which happened (#921 round 6)."""
+    add a `dimension(...)` line — so the message must say which happened.
+
+    Asks about the parameters the CALLOUT prints, not the whole group. A group-wide
+    ``all(...)`` answers the wrong question: one surviving dimension of an unrelated kind —
+    a pattern's pitch — made it report "not omitted" for a callout that still could not
+    render, and the edit went on vanishing silently (#921 review round 7)."""
     if group is None:
         return False
-    dims = group.dims
-    return bool(dims) and all(d.suppressed and d.reason == _AUTHORED_OMISSION for d in dims)
+    kinds = _CALLOUT_PARAM_KINDS.get(group.feature_kind)
+    dims = [d for d in group.dims if kinds is None or d.param.kind in kinds]
+    if not dims:
+        return False
+    return all(d.suppressed for d in dims) and any(d.reason == _AUTHORED_OMISSION for d in dims)
 
 
 def hole_callout_spec(group: DimensionGroup) -> dict | None:

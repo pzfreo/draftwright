@@ -337,6 +337,87 @@ class TestSheetSurface:
         with pytest.raises(ValueError, match="omitted from the authored dimension set"):
             dwg.callout(hole)
 
+    def test_a_step_callout_is_refused_identically_live_and_deferred(self):
+        """The check sat in the deferred branch only, so the live step/boss path drew an
+        explicitly omitted ø while the identical deferred call refused it — the answer
+        depended on whether you were inside `deferred()` (#921 review round 7). It now
+        runs before the split, which is the only way the two cannot drift."""
+        from build123d import Cylinder, Pos, Rot
+
+        part = Rot(0, 90, 0) * Cylinder(4, 20) + Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10)
+        sheet = Sheet(part, title="T", number="N")
+        sheet.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
+        sheet.dimension(sheet.envelope(), "width")
+        dwg = sheet.build()
+        step = next(f for f in dwg.model().features if f.kind == "step")
+
+        with pytest.raises(ValueError, match="omitted from the authored dimension set"):
+            dwg.callout(step)
+        with pytest.raises(ValueError, match="omitted from the authored dimension set"):
+            with dwg.deferred():
+                dwg.callout(step)
+
+    @pytest.mark.parametrize("authored", ["bore.diameter", None], ids=["authored", "automatic"])
+    def test_a_drawable_callout_is_never_refused(self, authored):
+        """The false-positive guard. A refusal that fires on a legitimate edit is as much a
+        defect as one that misses an illegitimate one, and this check runs on every
+        `callout()` call now that it sits above the split."""
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(100, 60, 20) - Pos(0, 0, 10) * Cylinder(5, 20)
+        sheet = Sheet.from_part(part)
+        if authored:
+            sheet.dimension(next(f for f in sheet.features if f.kind == "hole"), authored)
+        dwg = sheet.build()
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        with dwg.deferred():
+            dwg.callout(hole)  # must not raise
+
+    def test_a_surviving_pitch_does_not_mask_an_undrawable_callout(self):
+        """`omitted_by_the_authored_set` asked whether the whole GROUP was omitted. One
+        surviving dimension of an unrelated kind — a pattern's pitch, which is a linear dim
+        between members rather than a term in the callout — made it answer "not omitted"
+        for a callout that still could not render, and the edit went on vanishing silently
+        (#921 review round 7). It now asks about the parameters the callout PRINTS."""
+        from draftwright.model.callout import _CALLOUT_PARAM_KINDS, omitted_by_the_authored_set
+
+        class _Param:
+            def __init__(self, kind):
+                self.kind = kind
+
+        class _Dim:
+            def __init__(self, kind, suppressed, reason):
+                self.param, self.suppressed, self.reason = _Param(kind), suppressed, reason
+
+        class _Group:
+            feature_kind = "pocket_pattern"
+
+            def __init__(self, dims):
+                self.dims = dims
+
+        omission = "not in the authored dimension set"
+        assert "pitch" not in _CALLOUT_PARAM_KINDS["pocket_pattern"], "pitch is not a callout term"
+        # Every PRINTED param omitted; only the pitch survives.
+        assert omitted_by_the_authored_set(
+            _Group(
+                [
+                    _Dim("length", True, omission),
+                    _Dim("depth", True, omission),
+                    _Dim("pitch", False, None),
+                ]
+            )
+        )
+        # A printable param survives → the callout draws, so nothing to refuse.
+        assert not omitted_by_the_authored_set(
+            _Group([_Dim("length", False, None), _Dim("depth", True, omission)])
+        )
+        # Wholly suppressed, but for a PLANNER reason rather than the author's omission.
+        assert not omitted_by_the_authored_set(
+            _Group(
+                [_Dim("length", True, "square footprint"), _Dim("depth", True, "square footprint")]
+            )
+        )
+
     def test_from_part_states_the_automatic_source(self):
         """Detection IS a request for the engine's reading of the part, so `from_part` says so
         rather than leaving the caller to. Not the implicit default returning by the back
