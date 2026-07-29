@@ -22,6 +22,14 @@ drawing say something the script does not.
 The gate, from #875: **a blind hole never prints `THRU` under any suppression combination.**
 That is the #868 rule under adversarial pressure — `through` is read off the feature, so no
 amount of removing parameters can turn a blind hole into a through one.
+
+**Why these tests construct suppression by hand.** No user-facing path can suppress a hole
+parameter yet: the planner suppresses only envelope spans, and `add_dimension()` can merely
+CLEAR a suppression. Authored suppression-by-omission is #876. So #875 lands the mechanism
+that makes suppression safe *before* anything can reach it, and these tests exercise it at the
+level where it lives — hand-built planner output. When #876 arrives, this file is where the
+end-to-end cases belong, and `test_suppression_is_still_unreachable_from_a_user_path` below is
+the reminder: it fails the moment a real path can produce one.
 """
 
 from __future__ import annotations
@@ -134,6 +142,91 @@ class TestSuppressionIsHonoured:
         assert all(pd.param.value is not None for pd in marked), "the value is retained"
 
 
+class TestSegmentsAreAtomic:
+    """A segment is one term: `⌴ ⌀32 ↓ 1.5` needs both halves, and half of it is not a shorter
+    callout but a different and wrong one.
+
+    The first version of the dependency rule guarded only the bore head, which left this case
+    doing exactly the silent discard the rule exists to forbid: suppressing `counterbore.diameter`
+    while its depth survived produced `cbore_dia=None, cbore_depth=1.5`, and the renderer quietly
+    dropped the whole counterbore — authored intent gone, no error, no mark on the drawing.
+    """
+
+    @pytest.mark.parametrize(
+        ("suppress", "survivor"),
+        [
+            (("diameter", "counterbore"), "counterbore.depth"),
+            (("depth", "counterbore"), "counterbore.diameter"),
+        ],
+    )
+    def test_suppressing_half_a_segment_raises(self, suppress, survivor):
+        group = _suppress(_group(_through_with_cbore()), suppress)
+        with pytest.raises(ValueError, match="nothing to attach to"):
+            hole_callout_spec(group)
+
+    def test_the_message_names_both_sides(self):
+        group = _suppress(_group(_through_with_cbore()), ("diameter", "counterbore"))
+        with pytest.raises(ValueError, match="counterbore.depth"):
+            hole_callout_spec(group)
+
+    def test_a_countersink_is_atomic_too(self):
+        feature = HoleFeature(
+            Frame((0, 0, 10), "z"), 20.0, depth=None, through=True, csink=(30.0, 90.0)
+        )
+        group = _suppress(_group(feature), ("diameter", "countersink"))
+        with pytest.raises(ValueError, match="nothing to attach to"):
+            hole_callout_spec(group)
+
+    def test_a_whole_segment_may_be_suppressed(self):
+        """The contrast: nothing is orphaned, so nothing raises and the callout simply loses
+        that term. This is what suppression is FOR."""
+        group = _suppress(
+            _group(_through_with_cbore()), ("diameter", "counterbore"), ("depth", "counterbore")
+        )
+        spec = hole_callout_spec(group)
+        assert spec["cbore_dia"] is None and spec["cbore_depth"] is None
+        assert spec["diameter"] == 20.0
+
+
+class TestTheEstimatorAgreesWithTheRenderer:
+    """The page/scale estimator reserves strip width for a callout before any geometry exists
+    (#261's estimator/render agreement). It used to re-derive the callout itself, and the two
+    drifted: the estimator inferred `THRU` from a missing depth — the inference #868 removed
+    from the renderer — and ignored `suppressed` entirely. A blind hole with its depth
+    suppressed was reserved 12.8 mm and rendered at 6.1 mm.
+
+    Both now read one spec, so the classes of drift are structurally gone rather than fixed
+    twice. These tests pin the two that were observed.
+    """
+
+    @staticmethod
+    def _estimate(group):
+        from draftwright.compose import _est_planned_bore_callout_width
+
+        return _est_planned_bore_callout_width(
+            [group], font_size=2.5, pad_around_text=0.5, draft=None
+        )
+
+    def test_a_blind_hole_is_not_reserved_room_for_THRU(self):
+        plain = _group(_blind())
+        marked = _suppress(plain, ("depth", "bore"))
+        assert hole_callout_spec(marked)["through"] is False
+        # THRU is four glyphs; reserving them for a hole that prints none is the drift.
+        assert self._estimate(marked) < self._estimate(plain)
+
+    def test_a_suppressed_counterbore_is_not_reserved(self):
+        plain = _group(_through_with_cbore())
+        marked = _suppress(plain, ("diameter", "counterbore"), ("depth", "counterbore"))
+        assert self._estimate(marked) < self._estimate(plain)
+
+    def test_the_estimator_sees_the_same_spec_the_renderer_does(self):
+        """The structural claim, not just its two symptoms: one reading, two consumers."""
+        import draftwright.compose as compose
+        from draftwright.model.callout import hole_callout_spec as canonical
+
+        assert compose.hole_callout_spec is canonical
+
+
 class TestTheHeadIsADependency:
     def test_suppressing_the_head_alone_raises_and_names_the_orphan(self):
         group = _suppress(_group(_through_with_cbore()), ("diameter", "bore"))
@@ -160,3 +253,30 @@ class TestTheHeadIsADependency:
         does not print. The rule is about orphaning, not about the head being sacred."""
         group = _suppress(_group(_blind()), ("diameter", "bore"))
         assert hole_callout_spec(group) is None
+
+
+def test_suppression_is_still_unreachable_from_a_user_path():
+    """Pins the honest scope of #875 (PR #920 review).
+
+    Nothing a user can write suppresses a hole parameter today — the planner suppresses only
+    envelope spans, and `add_dimension()` only clears suppression. So the raising above is a
+    mechanism waiting for #876, not a live authoring error, and this file's hand-built groups
+    are the right level to test it at.
+
+    This fails when that stops being true, which is exactly when end-to-end cases become
+    possible and should be written.
+    """
+    from build123d import Box, Cylinder, Pos
+
+    from draftwright import Sheet
+
+    part = Box(90, 60, 20) - Pos(0, 0, 12) * Cylinder(6, 20)
+    sheet = Sheet(part, title="T", number="N")
+    sheet.hole(diameter=12, at=(0, 0, 20), axis="z").depth(8)
+    groups = plan_dimensions(sheet.model())
+    assert not [
+        pd for g in groups for pd in g.dims if pd.suppressed and g.feature.kind == "hole"
+    ], (
+        "a hole parameter is now suppressible from a declared Sheet — #876 has landed, so this "
+        "file should grow end-to-end suppression cases and this guard should go"
+    )

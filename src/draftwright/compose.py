@@ -53,6 +53,7 @@ from draftwright._core import (
     _wrap_rows,
 )
 from draftwright.layout import fit_box
+from draftwright.model.callout import hole_callout_spec
 
 _log = logging.getLogger(__name__)
 
@@ -217,58 +218,32 @@ def _est_planned_bore_callout_width(
     estimator layer so page/scale selection does not import renderers to size text (#450).
     """
 
-    def _first(group, kind: str, *roles: str) -> float | None:
-        for role in roles:
-            for pd in group.dims:
-                if pd.param.kind == kind and pd.param.role == role:
-                    return float(pd.param.value)
-        return None
-
-    def _tol(group):
-        return next(
-            (
-                pd.param.tolerance
-                for pd in group.dims
-                if pd.param.kind == "diameter" and pd.param.role == "bore"
-            ),
-            None,
-        )
-
     gap = 0.45 * font_size
     sym_w = font_size
     max_w = 0.0
     for group in groups:
-        feat = group.feature
-        if getattr(feat, "kind", None) not in ("hole", "pattern"):
+        # ONE reading of the plan, shared with the renderer (#875 review). This function used to
+        # re-derive bore/depth/cbore/suffix itself, and the two drifted: the copy here inferred
+        # THRU from a missing depth (the inference #868 removed from the renderer) and ignored
+        # `suppressed` entirely, so a callout could be reserved 33 mm and rendered at 14 mm.
+        spec = hole_callout_spec(group)
+        if spec is None:
             continue
-        bore = _first(group, "diameter", "bore")
-        if bore is None:
-            continue
-        depth = _first(group, "depth", "bore")
-        cbore_dia = _first(group, "diameter", "counterbore", "spotface")
-        cbore_depth = _first(group, "depth", "counterbore", "spotface")
-        suffix = None
-        if getattr(feat, "kind", None) == "pattern":
-            if getattr(feat, "pattern", None) == "bolt_circle" and feat.bcd is not None:
-                suffix = f"EQ SP ON ø{_fmt(feat.bcd)} BC"
-            elif getattr(feat, "pattern", None) == "grid" and feat.rows and feat.cols:
-                suffix = f"({feat.rows}×{feat.cols})"
-        # The thread spec (#764) widens the callout — mirror hole_callout_spec so the strip
-        # reservation matches the rendered width (the #261 estimator/render agreement), else a
-        # threaded callout is reserved too narrow and dropped for "no room beside the view".
-        hole = getattr(feat, "member", feat)
-        thread = getattr(hole, "thread", None)
-        suffix = " ".join(p for p in (thread, suffix) if p) or None
+        bore = spec["diameter"]
+        depth = spec["depth"]
+        cbore_dia, cbore_depth = spec["cbore_dia"], spec["cbore_depth"]
+        suffix = spec["suffix"]
 
         token_w: list[float] = []
-        count = getattr(feat, "count", None)
-        if count and count > 1:
-            token_w.append(_text_width(f"{count}×", font_size))
+        if spec["count"]:
+            token_w.append(_text_width(f"{spec['count']}×", font_size))
         token_w.append(sym_w)  # ⌀ symbol
-        token_w.append(_text_width(f"{_fmt(bore)}{_tol_suffix(_tol(group), draft)}", font_size))
-        if depth is None:
+        token_w.append(
+            _text_width(f"{_fmt(bore)}{_tol_suffix(spec['tolerance'], draft)}", font_size)
+        )
+        if spec["through"]:
             token_w.append(_text_width("THRU", font_size))
-        else:
+        elif depth is not None:
             token_w.append(sym_w)  # depth symbol
             token_w.append(_text_width(_fmt(depth), font_size))
         if cbore_dia is not None:
@@ -278,12 +253,12 @@ def _est_planned_bore_callout_width(
             if cbore_depth is not None:
                 token_w.append(sym_w)  # depth symbol
                 token_w.append(_text_width(_fmt(cbore_depth), font_size))
-        csink_dia = _first(group, "diameter", "countersink")
+        csink_dia = spec["csink_dia"]
         if csink_dia is not None:
             token_w.append(sym_w)  # countersink symbol
             token_w.append(sym_w)  # ⌀
             token_w.append(_text_width(_fmt(csink_dia), font_size))
-            csink_angle = _first(group, "angle", "countersink")
+            csink_angle = spec["csink_angle"]
             if csink_angle is not None:
                 token_w.append(_text_width(f"× {_fmt(csink_angle)}°", font_size))
         if suffix is not None:
