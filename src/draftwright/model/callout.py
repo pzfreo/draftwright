@@ -45,68 +45,78 @@ def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
     return None if pd is None or pd.suppressed else pd.param.value
 
 
-#: The compound callout's segments, each as the (kind, role) parameters that make it readable.
-#: A segment is ATOMIC: `⌴ ⌀32 ↓ 1.5` needs both terms, and half of it is not a shorter callout,
-#: it is a different and wrong one. The bore is listed first because it also heads the string.
-_CALLOUT_SEGMENTS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
-    ("bore", (("diameter", "bore"),)),
-    ("counterbore", (("diameter", "counterbore"), ("depth", "counterbore"))),
-    ("spotface", (("diameter", "spotface"), ("depth", "spotface"))),
-    ("countersink", (("diameter", "countersink"), ("angle", "countersink"))),
+#: The compound callout's segments: ``(name, head, dependents)``.
+#:
+#: Each segment has a HEAD term — always its ⌀ — and terms that only mean something beside it.
+#: The relation is ASYMMETRIC, which two review rounds were needed to pin down:
+#:
+#: - ``⌴ ⌀32`` is a readable counterbore; its depth is optional detail. Suppressing the depth
+#:   while the ⌀ survives is a legitimate authoring choice, not an error.
+#: - ``⌴ ↓ 1.5`` is not a counterbore at all. Suppressing the ⌀ while the depth survives leaves
+#:   a number with nothing to be the depth OF, and the renderer would silently drop both.
+#:
+#: The bore behaves identically — ``⌀12`` is fine, ``↓ 8`` alone is not — so its depth is a
+#: dependent rather than, as the first version had it, no part of the segment.
+_CALLOUT_SEGMENTS: tuple[tuple[str, tuple[str, str], tuple[tuple[str, str], ...]], ...] = (
+    ("bore", ("diameter", "bore"), (("depth", "bore"),)),
+    ("counterbore", ("diameter", "counterbore"), (("depth", "counterbore"),)),
+    ("spotface", ("diameter", "spotface"), (("depth", "spotface"),)),
+    ("countersink", ("diameter", "countersink"), (("angle", "countersink"),)),
 )
 
 
-def _segment_state(group: DimensionGroup, params) -> tuple[list[str], list[str]]:
-    """(present-and-printing, present-but-suppressed) for one segment's parameters."""
-    printing: list[str] = []
-    suppressed: list[str] = []
+def _printing(group: DimensionGroup, *params) -> list[str]:
+    """Labels for the given (kind, role) parameters that are present and not suppressed."""
+    out = []
     for kind, role in params:
         pd = _planned(group, kind, role)
-        if pd is None:
-            continue
-        (suppressed if pd.suppressed else printing).append(f"{role}.{kind}")
-    return printing, suppressed
+        if pd is not None and not pd.suppressed:
+            out.append(f"{role}.{kind}")
+    return out
 
 
-def _refuse_headless_callout(group: DimensionGroup, bore_pd=None) -> None:
+def _is_suppressed(group: DimensionGroup, kind: str, role: str) -> bool:
+    pd = _planned(group, kind, role)
+    return pd is not None and pd.suppressed
+
+
+def _refuse_headless_callout(group: DimensionGroup) -> None:
     """Raise if suppression would leave part of a compound callout orphaned (ADR 0016 / #875).
 
-    Two ways that happens, and they are the same rule at two scales:
+    Two scales of the same rule:
 
-    - **Within a segment.** Suppressing `counterbore.diameter` while its depth survives leaves
-      a depth with nothing to be the depth OF, and the renderer would quietly drop both.
-    - **Across segments.** The bore ⌀ heads the string, so suppressing it while a counterbore or
-      countersink segment prints leaves those with no callout to attach to.
+    - **Within a segment.** Suppressing a segment's ⌀ while its depth or angle survives leaves
+      a number with nothing to qualify.
+    - **Across segments.** The bore ⌀ heads the whole string, so suppressing it while a
+      counterbore or countersink segment prints leaves those with nothing to attach to.
 
     Raising is the only option that keeps the author in control. Lint-and-drop silently discards
     intent they expressed; implicitly restoring the missing term makes the drawing say something
     the script does not. Suppressing a whole segment — or the whole callout — is coherent and
     stays silent, because nothing is orphaned.
-
-    The first version of this check only guarded the bore head, which left the within-segment
-    case doing exactly the silent discard the rule exists to forbid (PR #920 review).
     """
-    for name, params in _CALLOUT_SEGMENTS:
-        printing, suppressed = _segment_state(group, params)
-        if suppressed and printing:
+    for name, head, dependents in _CALLOUT_SEGMENTS:
+        if not _is_suppressed(group, *head):
+            continue
+        orphans = _printing(group, *dependents)
+        if orphans:
             raise ValueError(
-                f"suppressing {', '.join(suppressed)} would leave {', '.join(printing)} with "
-                f"nothing to attach to — a {name} reads as one term. Suppress the whole segment, "
-                "or keep it whole."
+                f"suppressing {head[1]}.{head[0]} would leave {', '.join(orphans)} with nothing "
+                f"to attach to — a {name} reads as one term, led by its ⌀. Suppress the whole "
+                "segment, or keep its diameter."
             )
 
-    bore_printing, bore_suppressed = _segment_state(group, (("diameter", "bore"),))
-    if not bore_suppressed or bore_printing:
+    if not _is_suppressed(group, "diameter", "bore"):
         return
-    orphans = [
+    across = [
         label
-        for _name, params in _CALLOUT_SEGMENTS[1:]
-        for label in _segment_state(group, params)[0]
+        for _name, head, dependents in _CALLOUT_SEGMENTS[1:]
+        for label in _printing(group, head, *dependents)
     ]
-    if not orphans:
+    if not across:
         return  # the whole callout is suppressed — coherent, and nothing to print
     raise ValueError(
-        f"suppressing the bore diameter would leave {', '.join(orphans)} with no callout to "
+        f"suppressing the bore diameter would leave {', '.join(across)} with no callout to "
         "head. A compound callout reads as one string, so its leading ⌀ is a dependency: "
         "suppress those segments too, or keep the bore ⌀."
     )

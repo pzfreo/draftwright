@@ -98,19 +98,26 @@ class TestTheBlindHoleGate:
         suppressible = sorted({(pd.param.kind, pd.param.role) for pd in group.dims})
         assert suppressible, "the fixture must carry parameters, or this proves nothing"
 
-        checked = 0
+        printed = refused = silent = 0
         for r in range(len(suppressible) + 1):
             for combo in itertools.combinations(suppressible, r):
                 marked = _suppress(group, *combo) if combo else group
-                spec = hole_callout_spec(marked)
+                try:
+                    spec = hole_callout_spec(marked)
+                except ValueError:
+                    refused += 1  # an orphaned term — an authoring error, and not a THRU
+                    continue
                 if spec is None:
-                    continue  # the bore ⌀ itself is suppressed — nothing is printed at all
-                checked += 1
+                    silent += 1  # the whole callout is suppressed — nothing is printed
+                    continue
+                printed += 1
                 assert spec["through"] is False, (
                     f"suppressing {list(combo)} made a blind hole read as THRU — a renderer "
                     "inferred an engineering fact from a missing parameter"
                 )
-        assert checked, "every combination suppressed the callout; the gate tested nothing"
+        assert printed, "every combination refused or fell silent; the gate tested nothing"
+        assert refused, "no combination orphaned a term — the segment rule is not being exercised"
+        assert silent, "no combination suppressed the callout entirely"
 
     def test_suppressing_the_depth_does_not_change_the_fact(self):
         """The specific inversion #868 fixed, now under deliberate suppression rather than the
@@ -152,19 +159,21 @@ class TestSegmentsAreAtomic:
     dropped the whole counterbore — authored intent gone, no error, no mark on the drawing.
     """
 
-    @pytest.mark.parametrize(
-        ("suppress", "survivor"),
-        [
-            (("diameter", "counterbore"), "counterbore.depth"),
-            (("depth", "counterbore"), "counterbore.diameter"),
-        ],
-    )
-    def test_suppressing_half_a_segment_raises(self, suppress, survivor):
-        group = _suppress(_group(_through_with_cbore()), suppress)
+    def test_suppressing_a_segments_head_orphans_its_dependents(self):
+        group = _suppress(_group(_through_with_cbore()), ("diameter", "counterbore"))
         with pytest.raises(ValueError, match="nothing to attach to"):
             hole_callout_spec(group)
 
-    def test_the_message_names_both_sides(self):
+    def test_suppressing_a_dependent_is_legitimate(self):
+        """The asymmetry, and the correction to an earlier draft of this file that demanded a
+        raise here too: `⌴ ⌀32` is a readable counterbore with unstated depth, whereas
+        `⌴ ↓ 1.5` is not a counterbore at all. The dependency runs one way."""
+        group = _suppress(_group(_through_with_cbore()), ("depth", "counterbore"))
+        spec = hole_callout_spec(group)
+        assert spec["cbore_dia"] == 32.0
+        assert spec["cbore_depth"] is None
+
+    def test_the_message_names_the_orphan(self):
         group = _suppress(_group(_through_with_cbore()), ("diameter", "counterbore"))
         with pytest.raises(ValueError, match="counterbore.depth"):
             hole_callout_spec(group)
@@ -297,10 +306,27 @@ class TestTheHeadIsADependency:
         )
         assert hole_callout_spec(group) is None
 
-    def test_a_plain_hole_may_suppress_its_head(self):
+    def test_a_plain_through_hole_may_suppress_its_head(self):
         """With no dependent segment there is no dependency to violate, so the callout simply
-        does not print. The rule is about orphaning, not about the head being sacred."""
+        does not print. The rule is about orphaning, not about the head being sacred.
+
+        A THROUGH hole, deliberately: the first version of this test used a blind one and so
+        enshrined a bug — a blind hole carries a `bore.depth`, which suppressing the ⌀ alone
+        left orphaned and silently discarded (PR #920 review). The case below covers that."""
+        plain = HoleFeature(Frame((0, 0, 10), "z"), 12.0, depth=None, through=True)
+        group = _suppress(_group(plain), ("diameter", "bore"))
+        assert hole_callout_spec(group) is None
+
+    def test_suppressing_a_blind_bore_diameter_orphans_its_depth(self):
+        """`⌀12 ↓ 8` is one term. Suppressing the ⌀ while the depth survives is the same
+        half-segment error the counterbore case raises on — the bore is not exempt from its
+        own rule just because it also heads the string."""
         group = _suppress(_group(_blind()), ("diameter", "bore"))
+        with pytest.raises(ValueError, match="nothing to attach to"):
+            hole_callout_spec(group)
+
+    def test_a_blind_hole_may_suppress_its_whole_bore_segment(self):
+        group = _suppress(_group(_blind()), ("diameter", "bore"), ("depth", "bore"))
         assert hole_callout_spec(group) is None
 
 
