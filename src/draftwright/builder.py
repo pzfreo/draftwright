@@ -212,6 +212,16 @@ def _coerce_model(model, part, decorations=None, requested=None, authored=None) 
     given (a bare ``PartModel`` keeps its own decorations otherwise). A verbatim
     ``PartModel`` is never mutated — decorations merge into a copy so the caller's
     reusable public input (ADR 0011) stays clean across builds."""
+    if requested and authored is not None:
+        # The mutual exclusion is a property of the MODEL, not of the façade that usually
+        # builds it — `build_drawing(part, model=…, requested=…, authored=…)` is a public
+        # entry point (ADR 0011) and could otherwise construct the state `Sheet` refuses
+        # (#921 review). An augment only means something against a set the planner chose.
+        raise ValueError(
+            "requested= augments the planner's automatic set and authored= replaces it — a "
+            "model cannot have both. Drop the requested= entries into the authored set, or "
+            "drop authored= to keep the automatic one."
+        )
     if isinstance(model, PartModel):
         if decorations or requested or authored is not None:
             return replace(
@@ -305,7 +315,7 @@ def _assemble(
             "model builds its own feature objects that no request can target"
         )
     pm = (
-        _coerce_model(model, a.part, decorations, requested)
+        _coerce_model(model, a.part, decorations, requested, authored)
         if model is not None
         else (a.model if a.model is not None else build_model(a))
     )

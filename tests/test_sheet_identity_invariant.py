@@ -152,6 +152,10 @@ def _scn_note(s):
 def _scn_dimension(s):
     """The #874 authored set. Like `section`/`datum`/`note` it returns `Sheet`, so only the
     state-field ratchet makes it mandatory here."""
+    # `_sheet()` states the automatic source; the two are mutually exclusive (#874), so this
+    # scenario switches to the authored one. Reaching for the private flag rather than adding
+    # a public "unset the source" verb: nothing outside a test wants to change its mind.
+    s._auto_dimensions = False
     a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
     s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
     return a, lambda a: s.dimension(a, "bore")

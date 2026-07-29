@@ -139,11 +139,40 @@ class TestSheetSurface:
         sheet.auto_dimensions()
         assert sheet.build() is not None
 
-    def test_a_sheet_without_augments_still_builds_without_the_source_verb(self):
-        """`auto_dimensions()` is optional in this phase — making it mandatory is the
-        #874 breaking change. A plain declarative script must keep working."""
-        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+    def test_a_sheet_with_no_source_at_all_raises(self):
+        """#874's third error, and the breaking one. This test previously asserted the
+        OPPOSITE — that `auto_dimensions()` was optional — and the mechanical migration
+        rewrote its setup to call the verb while leaving its name and docstring intact, so it
+        went on passing while proving nothing (#921 review). A gate with no test is worse
+        than no gate, because the suite claims otherwise."""
+        sheet = Sheet(_part(), title="T", number="N")
         sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        with pytest.raises(ValueError, match="does not say where its dimensions come from"):
+            sheet.build()
+
+    def test_the_model_surface_is_gated_too(self):
+        """`Sheet.model()` is the model the engine WOULD draw, so a sheet that cannot be built
+        must not hand one out — otherwise `build_drawing(part, model=sheet.model())` walks
+        straight around the check and the two public surfaces disagree about one sheet."""
+        sheet = Sheet(_part(), title="T", number="N")
+        sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        with pytest.raises(ValueError, match="does not say where its dimensions come from"):
+            sheet.model()
+
+    def test_declaring_both_sources_raises(self):
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        sheet.dimension(bore, "bore")
+        with pytest.raises(ValueError, match="ONE dimension source"):
+            sheet.build()
+
+    def test_from_part_states_the_automatic_source(self):
+        """Detection IS a request for the engine's reading of the part, so `from_part` says so
+        rather than leaving the caller to. Not the implicit default returning by the back
+        door — a plain `Sheet(part)` still has to say."""
+        from build123d import Box, Cylinder, Pos
+
+        sheet = Sheet.from_part(Box(90, 60, 20) - Pos(0, 0, 12) * Cylinder(6, 20))
         assert sheet.build() is not None
 
     def test_the_model_surface_reflects_requests(self):
@@ -598,3 +627,55 @@ class TestFeatureViewContract:
         sheet.features.reverse()
         toleranced = [f for f, *_ in sheet._decorations() if getattr(f, "kind", None) == "hole"]
         assert len(toleranced) == 1
+
+
+class TestOmissionReachesTheDrawing:
+    """#876 end to end, through the façade a caller actually uses.
+
+    Every unit test of the authored set passed while `build()` silently dropped it — one
+    `_coerce_model` call forwarded `requested` and not `authored`, so the planner never took
+    the authored branch (#921 review). Nothing asserted that omission changed a DRAWING, only
+    that the model carried the intent, and the gap between those two is exactly where the bug
+    lived. These assert the observable consequence.
+    """
+
+    @staticmethod
+    def _sheet():
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(90, 60, 20) - Pos(0, 0, 12) * Cylinder(6, 20)
+        sheet = Sheet(part, title="T", number="N")
+        return sheet, sheet.envelope()
+
+    def test_an_authored_set_survives_the_build(self):
+        sheet, env = self._sheet()
+        sheet.dimension(env, "width")
+        assert [d.role for d in sheet.build().model().authored_dimensions] == ["width"]
+
+    def test_an_omitted_measurement_is_marked_suppressed(self):
+        sheet, env = self._sheet()
+        sheet.dimension(env, "width")
+        groups = plan_dimensions(sheet.model())
+        marked = {pd.param.role: pd.suppressed for g in groups for pd in g.dims}
+        assert marked["width"] is False, "the named measurement prints"
+        assert marked["height"] is True and marked["depth"] is True, "the rest are omitted"
+
+    def test_an_omitted_measurement_keeps_its_value(self):
+        """Marked, NOT filtered (#875): the group retains its engineering data, so a later
+        pass can still see what was left out and why."""
+        sheet, env = self._sheet()
+        sheet.dimension(env, "width")
+        groups = plan_dimensions(sheet.model())
+        omitted = [pd for g in groups for pd in g.dims if pd.suppressed]
+        assert omitted and all(pd.param.value is not None for pd in omitted)
+        assert all(pd.reason == "not in the authored dimension set" for pd in omitted)
+
+    def test_the_automatic_set_is_unaffected(self):
+        """The contrast: with no authored set nothing is suppressed by omission, so the
+        assertions above cannot be passing for some unrelated reason."""
+        sheet, _env = self._sheet()
+        sheet.auto_dimensions()
+        groups = plan_dimensions(sheet.model())
+        assert not [
+            pd for g in groups for pd in g.dims if pd.reason == "not in the authored dimension set"
+        ]

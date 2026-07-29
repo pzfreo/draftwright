@@ -1442,8 +1442,14 @@ class Sheet:
         inferred orientation + the P2a decorations), so inspection pays no projection/anno
         cost and can't hit a layout/render failure. Wraps the *solids body* (as :func:`_analyse`
         does), so the bbox/datum match what ``build()`` draws even when the part carries
-        bbox-extending non-solid geometry."""
+        bbox-extending non-solid geometry.
+
+        Gated on the dimension source like :meth:`build` (#874): this is the model the engine
+        WOULD draw, so a sheet that cannot be built must not hand one out — otherwise
+        ``build_drawing(part, model=sheet.model())`` is a way around the check, and the two
+        public surfaces disagree about the same sheet (the #707 class of divergence)."""
         self._prepare()
+        self._check_dimension_source()
         return _coerce_model(
             self._features,
             _solids_body(self._part),

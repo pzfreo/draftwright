@@ -527,16 +527,14 @@ class TestTheHeadIsADependency:
         assert hole_callout_spec(group) is None
 
 
-def test_suppression_is_still_unreachable_from_a_user_path():
-    """Pins the honest scope of #875 (PR #920 review).
+def test_suppression_is_now_reachable_from_a_user_path():
+    """The #875 guard, discharged.
 
-    Nothing a user can write suppresses a hole parameter today — the planner suppresses only
-    envelope spans, and `add_dimension()` only clears suppression. So the raising above is a
-    mechanism waiting for #876, not a live authoring error, and this file's hand-built groups
-    are the right level to test it at.
-
-    This fails when that stops being true, which is exactly when end-to-end cases become
-    possible and should be written.
+    It was written to FAIL the moment a real authoring path could suppress a hole
+    parameter — "which is exactly when end-to-end cases become possible and should be
+    written". #876 landed that path (a measurement outside an authored set is marked
+    suppressed), so the guard fired as designed and is replaced by its own success
+    condition. The end-to-end cases live in `test_add_dimension.py::TestOmissionReachesTheDrawing`.
     """
     from build123d import Box, Cylinder, Pos
 
@@ -544,11 +542,12 @@ def test_suppression_is_still_unreachable_from_a_user_path():
 
     part = Box(90, 60, 20) - Pos(0, 0, 12) * Cylinder(6, 20)
     sheet = Sheet(part, title="T", number="N")
-    sheet.hole(diameter=12, at=(0, 0, 20), axis="z").depth(8)
+    hole = sheet.hole(diameter=12, at=(0, 0, 20), axis="z").depth(8)
+    # `bore.diameter`, not the bare role: naming the ROLE would match the depth too and omit
+    # nothing, which is a real distinction in the selector and an easy way to write a test
+    # that proves nothing.
+    sheet.dimension(hole, "bore.diameter")
     groups = plan_dimensions(sheet.model())
-    assert not [
-        pd for g in groups for pd in g.dims if pd.suppressed and g.feature.kind == "hole"
-    ], (
-        "a hole parameter is now suppressible from a declared Sheet — #876 has landed, so this "
-        "file should grow end-to-end suppression cases and this guard should go"
+    assert [pd for g in groups for pd in g.dims if pd.suppressed], (
+        "an authored set must suppress by omission — if this stops holding, #876 regressed"
     )
