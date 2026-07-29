@@ -653,15 +653,17 @@ class Sheet:
         # dimension sources, mutually exclusive with `_auto_dimensions`. Token-keyed like
         # every other feature reference on this class.
         self._authored: list[dict] = []
-        # Did the script ask for the planner's set? MANDATORY unless the sheet authors its
-        # own set instead (#874) — `_check_dimension_source` refuses a build that names
-        # neither, so the drawing never falls back to a source nobody chose.
-        self._auto_dimensions = False
-        # ...and did a SCRIPT LINE ask, or did `from_part` supply it? Only an explicit
-        # `auto_dimensions()` call conflicts with an authored set. `from_part` chooses the
-        # automatic source on the caller's behalf, so a later `dimension(...)` is the
-        # script changing its mind, not contradicting itself (#921 review round 6).
-        self._auto_dimensions_explicit = False
+        # Where the dimensions come from, and WHO said so — `None` (nobody has yet),
+        # ``"explicit"`` (an `auto_dimensions()` line) or ``"implicit"`` (`from_part`, which
+        # chooses on the caller's behalf). MANDATORY unless the sheet authors its own set
+        # instead (#874): `_check_dimension_source` refuses a build that names neither, so
+        # the drawing never falls back to a source nobody chose.
+        #
+        # One tri-state rather than a flag plus an "was it explicit" flag: the pair could
+        # be set to a combination that means nothing, and clearing the source then took two
+        # assignments — which is how the first cut of this broke the identity suite (#921
+        # review round 7). Only ``"explicit"`` conflicts with an authored set.
+        self._auto_dimensions: str | None = None
         # A requested section A–A (#841): ``None`` = no request, else a resolver tuple
         # (``kind``, ``payload``) materialized to a cut-plane Y in ``_decorations`` — ``at``
         # a literal Y, ``feature`` a declared-feature index, ``auto`` the part-centre Y.
@@ -709,7 +711,7 @@ class Sheet:
         """
         sheet = cls(part, **opts)
         sheet._features.extend(detect_part_model(part).features)  # detect only, no render (#453)
-        sheet._auto_dimensions = True
+        sheet._auto_dimensions = "implicit"
         return sheet
 
     # -- feature declaration --------------------------------------------------
@@ -1241,8 +1243,7 @@ class Sheet:
         This is also what :meth:`add_dimension` augments — an augment only means
         something against a set the planner chose.
         """
-        self._auto_dimensions = True
-        self._auto_dimensions_explicit = True
+        self._auto_dimensions = "explicit"
         return self
 
     def add_dimension(self, feature, role: str, *, axis: str | None = None):
@@ -1291,7 +1292,7 @@ class Sheet:
         Rejected: implicit-by-usage — "any `dimension` line turns the automatic set off". A
         hand-author adding one pitch dimension would silently lose every ⌀ callout.
         """
-        if self._authored and self._auto_dimensions_explicit:
+        if self._authored and self._auto_dimensions == "explicit":
             raise ValueError(
                 "a sheet has ONE dimension source: auto_dimensions() for the planner's set, or "
                 "dimension(...) declarations for the complete authored set. This sheet asks for "
@@ -1302,7 +1303,7 @@ class Sheet:
             # `from_part` chose the automatic source on the caller's behalf; declaring an
             # authored set is the script overriding that choice, not contradicting itself.
             # (An explicit `auto_dimensions()` line already raised above.)
-            self._auto_dimensions = False
+            self._auto_dimensions = None
         if self._added_dimensions and not self._auto_dimensions:
             raise ValueError(
                 "add_dimension() augments the planner's automatic dimension set, so the sheet "
