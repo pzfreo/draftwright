@@ -371,12 +371,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_hole_callouts():
         # Any hole/pattern member (declared holes render even where detection missed them).
         if feature_keys:
-            _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys, ctx=ctx)
+            _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys, ctx=ctx, plan=_compiled)
 
     def _s_locations():
         # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
         # through the existing above-view strips. Replaces the engine's _add_location_dims.
-        render_locations(dwg, _model, a, ctx=ctx)
+        render_locations(dwg, _compiled, a, ctx=ctx)
         if a.cross_diams and a.is_rotational and not feature_keys:
             _log.info(
                 "Cross-hole ø%s detected but not annotated (requires section view)",

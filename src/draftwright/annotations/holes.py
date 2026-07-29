@@ -63,8 +63,8 @@ from draftwright.annotations.from_model import (
 )
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model import plan_dimensions
+from draftwright.model.compiled import FeatureRef, compile_dimensions, resolve_feature
 from draftwright.model.ir import HoleFeature, PatternFeature
-from draftwright.model.planner import plan_locations
 
 # |cos| threshold for treating a view's side vector as axis-aligned (≈ within 1.6° of an
 # axis) when choosing the strip a hole-location row stacks against — above it the side is
@@ -188,8 +188,8 @@ def add_feature_location(
 
     Distinct from :meth:`dimension` (a feature's own *intrinsic* linear params):
     a location dim measures the *datum → feature-centre* offset, which no feature
-    exposes as a ``parameter()``. Reuses the planner's :func:`plan_locations`
-    *intent* (which ref, from which datum) and this renderer's projection, then
+    exposes as a ``parameter()``. Reuses the compiled plan's approved locations
+    (which ref, from which datum) and this renderer's projection, then
     places each dim into free strip space beside the view (corridor-free, like
     :meth:`callout` — the auto-pass's shared corridor batch does not exist on a
     detect-only build). X dims tier above the plan view, Y dims above the side
@@ -235,13 +235,17 @@ def add_feature_location(
     # result (as the docstring promises), not an error, so the verb composes: the emitted
     # #400 Ph2 script calls locate() on every hole and this no-ops the ones the auto-pass
     # would also skip, matching its dedup rather than crashing.
-    mine = [pd for pd in plan_locations(model) if pd.feature is feature]
+    #
+    # Sourced from the COMPILED plan, not the raw planner list: `locate()` is an edit verb,
+    # and an edit verb that drew a position the authored set omitted would put the live path
+    # and the deferred path back in disagreement — the #925 defect, in the one place a user
+    # is most likely to notice. Asking the plan is not a per-kind refusal rule; it is the
+    # same question every migrated renderer asks.
+    mine = [loc for loc in compile_dimensions(model).locations if loc.ref == FeatureRef(feature)]
     if not mine:
         return []
     draft = dwg.draft
-    datum = mine[0].datum
-    assert datum is not None  # plan_locations always sets the datum
-    dx, dy = datum.at[0], datum.at[1]
+    dx, dy = mine[0].span[0][0], mine[0].span[0][1]
     tier = draft.font_size + 2 * draft.pad_around_text
     PX, PY = a.proj.plan_x, a.proj.plan_y
     SX, SZ = a.proj.side_x, a.proj.side_z
@@ -271,13 +275,11 @@ def add_feature_location(
     names: list[str] = []
     seen_x: list[float] = []
     seen_y: list[float] = []
-    for pd in mine:
-        if pd.param.span is None:
-            continue
-        rx, ry = pd.param.span[1][0], pd.param.span[1][1]
+    for loc in mine:
+        rx, ry = loc.span[1][0], loc.span[1][1]
         # A rotational part's on-axis *hole* is located by the centreline, not a
         # position dim (matches render_locations); a pattern ref is never filtered.
-        if pd.param.role == "location" and a.is_rotational and _concentric_with_axis(a, rx, ry):
+        if loc.role == "location" and a.is_rotational and _concentric_with_axis(a, rx, ry):
             continue
         # Coincident X (or Y) across this feature's own members → one dim, not a stack
         # of identical position dims (matches render_locations' x_refs/y_refs dedup).
@@ -371,7 +373,16 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
             for nm in ctx.registry.names()
         ):
             j += 1
-        _add_furniture(dwg, a, view, j, feature, lambda loc: dwg.at(view, *loc), ctx=ctx)
+        _add_furniture(
+            dwg,
+            a,
+            view,
+            j,
+            feature,
+            lambda loc: dwg.at(view, *loc),
+            ctx=ctx,
+            plan=compile_dimensions(model),
+        )
 
     return sorted(set(dwg.annotations()) - before)
 
@@ -854,19 +865,46 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which):
     _locate_along_z(dwg, ctx, a, off)
 
 
-def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_page, *, ctx):
+def _add_furniture(
+    dwg,
+    a: Analysis,
+    view,
+    j,
+    feat: PatternFeature | None,
+    to_page,
+    *,
+    ctx,
+    plan,
+    furnished=None,
+    cover=True,
+):
     """Pattern sheet furniture, added once its callout is placed (#92). Driven by the
     IR `PatternFeature` *feat* (members / bcd / pitch / grid), not a recogniser
     `Pattern` — ADR 0008 Amendment 6. Plain (unpatterned) plan callouts carry no
     furniture; their scattered-hole-table coverage is recorded at the emit site (not
-    here) so it survives finalize's ``place_furniture=False`` (#426 Ph4c)."""
+    here) so it survives finalize's ``place_furniture=False`` (#426 Ph4c).
+
+    The split between what comes off the FEATURE and what comes off *plan* is the ADR 0016
+    rule, not a convenience: the bolt-circle centreline is furniture *geometry* sized by the
+    physical circle, so it reads `feat.bcd` exactly as a centre mark reads its hole's
+    diameter (#875); the pitch and grid dims PRINT a number, so their values are approved
+    entries or they are not drawn. Reading `feat.pitch` for a printed label is what let an
+    authored set naming only a bore still produce ``4× 20`` (#925).
+
+    *furnished* records which patterns have been handled, so :func:`_furnish_uncalled_patterns`
+    can find the ones that got no callout. *cover* is False for that sweep: hole-table coverage
+    is claimed by a *placed* callout, and there is none to claim it."""
     if feat is None:
         return
+    if furnished is not None:
+        furnished.add(id(feat))
+    group = plan.group_for(FeatureRef(feat))
     members = feat.members or (feat.frame.origin,)  # guard a declared pattern's empty members
     # Remember the bore-callout name AND the holes it documents (by position), so a
     # later hole-table escalation leaves the grouped pattern callout standing and
     # tabulates only the holes no *placed* pattern callout covers (#92).
-    ctx.coverage.cover_pattern(f"hc_{view}{j}", [HoleRef.of(m) for m in members])
+    if cover:
+        ctx.coverage.cover_pattern(f"hc_{view}{j}", [HoleRef.of(m) for m in members])
     if feat.pattern == "bolt_circle":
         assert feat.bcd is not None  # a bolt circle always carries its BCD
         cx = sum(to_page(m)[0] for m in members) / len(members)
@@ -879,7 +917,9 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
             feature=feat,
         )
     elif feat.pattern == "linear":
-        assert feat.pitch is not None  # a linear array always carries its pitch
+        pitch = group.dim(kind="length", role="pitch") if group is not None else None
+        if pitch is None:
+            return  # not approved — the compiler withheld the value, so there is none to print
         _place_pitch_dim(
             dwg,
             a,
@@ -887,15 +927,78 @@ def _add_furniture(dwg, a: Analysis, view, j, feat: PatternFeature | None, to_pa
             members[0],
             members[-1],
             len(members),
-            feat.pitch,
+            pitch.value,
             to_page,
             f"dim_pitch_{view}{j}",
             feature=feat,
             ctx=ctx,
         )
     elif feat.pattern == "grid":
-        assert feat.grid is not None  # a grid always carries its (row, col) pitch
-        _add_grid_pitch_dims(dwg, a, view, j, members, feat.grid, to_page, feature=feat, ctx=ctx)
+        # Both pitches or neither: a grid dimensioned along one axis only states half its
+        # lattice, and the renderer has no way to say which half is missing. Partial
+        # approval is therefore a whole-set omission, decided here rather than by drawing
+        # one dim and leaving the drawing to imply the other.
+        pitches = (
+            {}
+            if group is None
+            else {d.discriminator: d for d in group.dims if d.role == "grid_pitch"}
+        )
+        if not {"row", "col"} <= set(pitches):
+            return
+        _add_grid_pitch_dims(
+            dwg,
+            a,
+            view,
+            j,
+            members,
+            (pitches["row"].value, pitches["col"].value),
+            to_page,
+            feature=feat,
+            ctx=ctx,
+        )
+
+
+def _furnish_uncalled_patterns(dwg, a: Analysis, view_of_axis, plan, *, ctx, furnished):
+    """Pattern furniture for patterns that got no callout — the pitch/grid dims only.
+
+    Furniture has always been a side effect of placing a bore callout, which was fine while
+    the two stood or fell together. An authored set separates them: `dimension(pattern,
+    "pitch")` names the pitch and nothing else, so there is no callout to hang the furniture
+    off and the measurement the script explicitly asked for was silently not drawn (#925
+    review) — the blank-drawing failure `_check_authored_targets` exists to prevent, arriving
+    by a different route.
+
+    Additive by construction: it runs only for patterns `_add_furniture` did not already
+    handle, so every drawing with a placed callout is untouched. Bolt-circle centrelines are
+    NOT swept — a centreline with no callout is furniture for a feature the drawing does not
+    otherwise mention, and unlike a pitch dim nobody asked for it.
+    """
+    for group in plan.of_kind("pattern"):
+        feat = resolve_feature(group.ref)
+        if id(feat) in furnished or feat.pattern == "bolt_circle":
+            continue
+        axis = feat.frame.axis
+        if axis not in view_of_axis:
+            continue
+        view = _END_ON[axis]
+        j = 0
+        while any(
+            nm == f"dim_pitch_{view}{j}" or nm.startswith(f"dim_pitch_{view}{j}_")
+            for nm in ctx.registry.names()
+        ):
+            j += 1
+        _add_furniture(
+            dwg,
+            a,
+            view,
+            j,
+            feat,
+            view_of_axis[axis][1],
+            ctx=ctx,
+            plan=plan,
+            furnished=furnished,
+            cover=False,
+        )
 
 
 def _add_grid_pitch_dims(
@@ -1743,6 +1846,8 @@ def _place_front_callouts(
     feat_of_callout,
     only,
     place_furniture,
+    plan,
+    furnished,
     draft,
     gap,
     min_gap,
@@ -1825,7 +1930,9 @@ def _place_front_callouts(
             continue
         if place_furniture:  # #426: finalize's furniture() replay owns furniture
             idx, feat = furniture[name]
-            _add_furniture(dwg, a, view, idx, feat, to_page, ctx=ctx)
+            _add_furniture(
+                dwg, a, view, idx, feat, to_page, ctx=ctx, plan=plan, furnished=furnished
+            )
 
 
 def _place_queue(
@@ -1844,6 +1951,8 @@ def _place_queue(
     hc_used,
     only,
     place_furniture,
+    plan,
+    furnished,
 ):
     """Pass 2 — Y placement + selection via the collect-then-solve seam (#638; #321 P1a).
 
@@ -1963,7 +2072,7 @@ def _place_queue(
         if view == "plan" and feat is None:
             ctx.coverage.cover_scattered_hole_doc(name)
         if place_furniture:  # #426: finalize's furniture() replay owns furniture
-            _add_furniture(dwg, a, view, i, feat, to_page, ctx=ctx)
+            _add_furniture(dwg, a, view, i, feat, to_page, ctx=ctx, plan=plan, furnished=furnished)
         i += 1
     return i
 
@@ -1980,6 +2089,8 @@ def _place_planside_callouts(
     feat_of_callout,
     only,
     place_furniture,
+    plan,
+    furnished,
     draft,
     gap,
     min_gap,
@@ -2093,6 +2204,8 @@ def _place_planside_callouts(
         hc_used=hc_used,
         only=only,
         place_furniture=place_furniture,
+        plan=plan,
+        furnished=furnished,
     )
     if left_queue:
         assert edge_left is not None  # populated only when edge_left is set
@@ -2114,13 +2227,28 @@ def _place_planside_callouts(
             hc_used=hc_used,
             only=only,
             place_furniture=place_furniture,
+            plan=plan,
+            furnished=furnished,
         )
 
 
 def _annotate_holes(
-    dwg, a: Analysis, view_of_axis, groups, feature_keys, *, ctx, only=None, place_furniture=True
+    dwg,
+    a: Analysis,
+    view_of_axis,
+    groups,
+    feature_keys,
+    *,
+    ctx,
+    plan,
+    only=None,
+    place_furniture=True,
 ):
     """Leader-attached HoleCallouts, one per distinct hole spec per view (#91).
+
+    *plan* is the compiled plan the pattern furniture draws its pitch values from — required
+    rather than defaulted, so a caller that forgets fails at the call instead of silently
+    reverting to reading the feature (#925).
 
     Identical holes share one callout with an ``n×`` count prefix (#92's
     grouping half) — through holes group on diameter and steps regardless of
@@ -2168,6 +2296,8 @@ def _annotate_holes(
     # One shared name pool across every view + both branches (#430): built once and
     # mutated by `_hc_name`'s finalize path — never copied.
     hc_used = set(ctx.registry.names())
+    # Which patterns got their furniture, so the sweep below can find the ones that did not.
+    furnished: set[int] = set()
 
     for view, view_groups in by_view.items():
         to_page = view_of_axis[{"plan": "z", "front": "y", "side": "x"}[view]][1]
@@ -2191,6 +2321,8 @@ def _annotate_holes(
                 feat_of_callout=feat_of_callout,
                 only=only,
                 place_furniture=place_furniture,
+                plan=plan,
+                furnished=furnished,
                 draft=draft,
                 gap=gap,
                 min_gap=min_gap,
@@ -2209,6 +2341,8 @@ def _annotate_holes(
                 feat_of_callout=feat_of_callout,
                 only=only,
                 place_furniture=place_furniture,
+                plan=plan,
+                furnished=furnished,
                 draft=draft,
                 gap=gap,
                 min_gap=min_gap,
@@ -2218,3 +2352,6 @@ def _annotate_holes(
                 plan_left=plan_left,
                 side_right=side_right,
             )
+
+    if place_furniture:
+        _furnish_uncalled_patterns(dwg, a, view_of_axis, plan, ctx=ctx, furnished=furnished)

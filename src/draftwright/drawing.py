@@ -1853,6 +1853,7 @@ class Drawing:
                     plan_dimensions(model),
                     feature_hole_keys(model, a),
                     ctx=ctx,
+                    plan=compile_dimensions(model),
                     only=r.only_callout,
                     place_furniture=False,
                 )
@@ -1868,7 +1869,14 @@ class Drawing:
             # dedups (#345).
             if r.only_loc:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
-                render_locations(self, model, a, ctx=ctx, only=r.only_loc, pinned=r.pinned_loc)
+                render_locations(
+                    self,
+                    compile_dimensions(model),
+                    a,
+                    ctx=ctx,
+                    only=r.only_loc,
+                    pinned=r.pinned_loc,
+                )
 
         def _s_off_axis_across():
             # Side-drilled holes' in-plane (side-below) locations — REGISTER-only, whole-model

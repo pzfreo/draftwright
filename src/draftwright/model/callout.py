@@ -165,10 +165,26 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
         if not _shadowed(group, name)
         for label in _printing(group, head, *dependents)
     ]
-    # Not every dependent is a dimension. The thread spec and a pattern's count/suffix ride the
-    # same string and live on the FEATURE, so they survive any amount of parameter suppression
-    # and would be discarded in silence — the very outcome the head rule exists to prevent
-    # (#920 review). They are dependents of the head exactly as a counterbore is.
+    if across:
+        raise ValueError(
+            f"suppressing the bore diameter would leave {', '.join(across)} with no callout to "
+            "head. A compound callout reads as one string, so its leading ⌀ is a dependency: "
+            "suppress those segments too, or keep the bore ⌀."
+        )
+    # Past this point NO dimension is orphaned — the callout is gone entirely. What remains are
+    # the string's non-dimensional riders: the thread spec and a pattern's count/suffix, which
+    # live on the FEATURE and so survive any amount of parameter suppression (#920 review).
+    #
+    # Whether losing them in silence is acceptable turns on WHO decided, which is the
+    # distinction `Omission.authored` exists to carry. A planner rule dropping a thread spec is
+    # the engine quietly discarding manufacturing intent, and #920's refusal stands. An AUTHORED
+    # omission is the script saying, in as many words, that this feature is not dimensioned —
+    # its multiplier is not an orphan, because the string it prefixes was never asked for.
+    # Refusing there made a pattern the one feature whose callout could not be omitted at all,
+    # so `dimension(pattern, "pitch")` raised instead of drawing a pitch dim (#925 review).
+    if authored_omission_in(group):
+        return
+    across = []
     feat = group.feature
     hole = feat.member if isinstance(feat, PatternFeature) else feat
     thread = getattr(hole, "thread", None)

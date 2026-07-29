@@ -56,9 +56,12 @@ from draftwright.model.ir import (
     RotationalFeature,
     StepLevelFeature,
 )
-from draftwright.model.planner import DimensionId, plan_dimensions
-
-_AUTHORED_OMISSION = "not in the authored dimension set"
+from draftwright.model.planner import (
+    _AUTHORED_OMISSION,
+    DimensionId,
+    plan_dimensions,
+    plan_locations,
+)
 
 
 class FeatureRef:
@@ -396,6 +399,13 @@ class RenderableDimensionPlan:
 
     groups: tuple[ApprovedGroup, ...] = ()
     ladders: tuple[ApprovedLadder, ...] = ()
+    #: Approved datum-referenced positions, in planner order. A location is a dimension
+    #: and lives inside the boundary like any other; it arrives as its own collection
+    #: because the planner synthesizes it across features (datum → ref) rather than off a
+    #: single feature's parameters, so it has no `DimensionGroup` to belong to.
+    #: `span` is ``(datum, located point)`` and `axis` is the feature's frame axis — the
+    #: two things the renderer needs and cannot derive.
+    locations: tuple[ApprovedDimension, ...] = ()
     diagnostics: tuple[Omission, ...] = field(default=())
 
     def of_kind(self, *kinds: str) -> tuple[ApprovedGroup, ...]:
@@ -632,6 +642,45 @@ def _compile_overall_height(
     )
 
 
+def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[Omission]]:
+    """The datum-referenced positions, approved or omitted.
+
+    A location is a dimension: it prints a number, so an authored set that does not name it
+    must not get one. That decision is made in `plan_locations` (which owns the datum and
+    the coincident-ref dedup) and read off `suppressed` here, so this stays the single place
+    a renderer's location content comes from.
+
+    The renderer keeps its own filters — the concentric-bore exclusion, the legibility gate,
+    the sub-millimetre offset test. Those only ever REMOVE an approved entry, which is a
+    drop, not a leak; the rule this boundary enforces is that nothing reaches the page that
+    the compiler did not approve, not that everything approved reaches it.
+    """
+    approved: list[ApprovedDimension] = []
+    omissions: list[Omission] = []
+    for pd in plan_locations(model):
+        feature = pd.feature
+        span = pd.param.span
+        assert span is not None  # plan_locations always sets the datum → ref span
+        if pd.suppressed:
+            omissions.append(
+                Omission(feature, pd.param.parameter_id, None, pd.reason or "suppressed")
+            )
+            continue
+        approved.append(
+            ApprovedDimension(
+                id=_dim_id(feature, pd.param.parameter_id),
+                value_text="",  # a location is a 2-D offset; each axis reads its own span
+                value=0.0,
+                span=span,
+                ref=FeatureRef(feature) if feature is not None else None,
+                kind="location",
+                role=pd.param.role,
+                axis=feature.frame.axis if feature is not None else None,
+            )
+        )
+    return approved, omissions
+
+
 def _compile_groups(planned) -> list[ApprovedGroup]:
     """Every planned group, reduced to what the compiler approved.
 
@@ -700,8 +749,10 @@ def compile_dimensions(
     )
     if overall is not None:
         ladders.append(overall)
+    locations, location_omissions = _compile_locations(model)
     return RenderableDimensionPlan(
         groups=tuple(_compile_groups(planned)),
         ladders=tuple(ladders),
-        diagnostics=tuple(omissions + height_omissions),
+        locations=tuple(locations),
+        diagnostics=tuple(omissions + height_omissions + location_omissions),
     )

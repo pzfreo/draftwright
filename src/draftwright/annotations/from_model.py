@@ -86,9 +86,8 @@ from draftwright.layout import StripCandidate, plan_strip
 # drifts (#875 review). `as` form so the re-export is deliberate, not an unused import.
 from draftwright.model.callout import _first as _first
 from draftwright.model.callout import hole_callout_spec as hole_callout_spec
-from draftwright.model.compiled import resolve_feature
+from draftwright.model.compiled import FeatureRef, compile_dimensions, resolve_feature
 from draftwright.model.ir import AUTHORED_DIMENSION_KINDS, HoleFeature, PatternFeature
-from draftwright.model.planner import plan_locations
 
 
 def callout_from_spec(spec, draft, count) -> HoleCallout | None:
@@ -187,9 +186,9 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
     # remains planner-authoritative (ADR 0015): datum and target come from the same
     # PlannedDimension consumed by render_locations, including non-Z openings.
     pocket_locations = {
-        pd.feature: pd
-        for pd in plan_locations(dwg.model())
-        if pd.param.role == "location_pocket" and pd.param.span is not None
+        loc.ref: loc
+        for loc in compile_dimensions(dwg.model()).locations
+        if loc.role == "location_pocket"
     }
     draft = dwg.draft
     tier = draft.font_size + 2 * draft.pad_around_text
@@ -437,7 +436,7 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
             else:
                 _record_slot_drop(ctx, dwg, "length", i, name, s)
         datum = _bb(s.long_axis, False)
-        # Pads are located by plan_locations on both axes; slots retain their
+        # Pads are located by the compiled location set on both axes; slots retain their
         # historical single-axis position dimension here.
         if s.kind == "slot" and (s.lo - datum) * a.SCALE >= 1.0:
             if _place(
@@ -453,14 +452,11 @@ def render_slots(dwg, groups, a, *, ctx, only=None) -> int:
                 count += 1
             else:
                 _record_slot_drop(ctx, dwg, "position", i, name, s)
-        elif s.kind == "pocket" and s.frame.axis != "z" and s in pocket_locations:
+        elif s.kind == "pocket" and s.frame.axis != "z" and FeatureRef(s) in pocket_locations:
             # Side-/front-opening pockets need two in-plane coordinates in their
-            # end-on view.  The planner supplies the datum→centre span; Z-opening
+            # end-on view.  The compiler supplies the datum→centre span; Z-opening
             # pockets use render_locations' X(plan)/Y(side) ladder.
-            location = pocket_locations[s]
-            span = location.param.span
-            assert span is not None  # pocket_locations only contains planned spans
-            datum_point, target_point = span
+            datum_point, target_point = pocket_locations[FeatureRef(s)].span
             axis_index = {axis: i for i, axis in enumerate("xyz")}
             width_lo, width_hi = s.w_center - half, s.w_center + half
             for axis, start, end, perp_lo, perp_hi, kind in (
@@ -562,13 +558,19 @@ def _location_candidate(
     )
 
 
-def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
-    """Baseline X/Y hole-location dims from the IR (#238). The planner decides the
-    intent (`plan_locations`: which refs, from which datum); this renderer owns the
-    layout (Amendment 4) — X dims tier above the plan view, Y dims above the side
+def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
+    """Baseline X/Y hole-location dims from the compiled plan (#238). The compiler decides
+    the content (`plan.locations`: which refs survived, from which datum); this renderer owns
+    the layout (Amendment 4) — X dims tier above the plan view, Y dims above the side
     view, nearest-datum-first, legibility-gated, allocated from the existing strips;
     a ref with no room is dropped as `location_ref_dropped`. Replaces the engine's
     `_add_location_dims`. Returns the count placed.
+
+    Reads `plan.locations`, not `plan_locations(model)`: a location prints a number, so an
+    authored set that does not name one must not get one, and the only way to guarantee
+    that for every renderer at once is for the withheld entries never to arrive (#925).
+    Before this the pass took the raw planner list and drew every ref regardless — an
+    authored set naming a single bore still produced its X/Y position dims.
 
     *only*, when given, restricts placement to refs whose source feature is in the set —
     the #426 finalize() path passes the recorded ``locate`` intents' features so the
@@ -578,32 +580,32 @@ def render_locations(dwg, model, a, *, ctx, only=None, pinned=None) -> int:
     *pinned* carries the #511 first slice: deferred user ``locate(..., pin=True)`` calls
     remain first-class corridor candidates, but get higher survival/dedup priority and
     pin their placed names instead of being hand-added after the solve."""
-    planned = plan_locations(model)
-    if not planned:
+    approved = plan.locations
+    if not approved:
         return 0
     draft = dwg.draft
-    datum = planned[0].datum
-    assert datum is not None  # plan_locations always sets the datum
-    datum_x, datum_y = datum.at[0], datum.at[1]
+    datum_x, datum_y = approved[0].span[0][0], approved[0].span[0][1]
+    only_refs = None if only is None else {FeatureRef(f) for f in only}
     refs = []
-    for pd in planned:
-        if only is not None and pd.feature not in only:  # #426: recorded subset only
+    for loc in approved:
+        if only_refs is not None and loc.ref not in only_refs:  # #426: recorded subset only
             continue
         # This ladder is specifically plan-X / side-Y for Z-normal features.
-        # Non-Z pockets are still planner-backed, but their two in-plane spans
+        # Non-Z pockets are still compiler-backed, but their two in-plane spans
         # are rendered in their end-on view by render_slots.
-        if pd.feature is None or pd.feature.frame.axis != "z":
+        if loc.axis != "z":
             continue
-        if pd.param.span is None:
-            continue
-        rx, ry = pd.param.span[1][0], pd.param.span[1][1]
+        rx, ry = loc.span[1][0], loc.span[1][1]
         # A rotational part's on-axis (concentric) *hole* bore is located by the
         # centreline, not a position dim (matches the engine's feature_holes
         # filter). A pattern ref (role "location_pattern" — e.g. a bolt-circle
-        # centre) is NOT filtered, even on the axis.
-        if pd.param.role == "location" and a.is_rotational and _concentric_with_axis(a, rx, ry):
+        # centre) is NOT filtered, even on the axis. A renderer-side filter only ever
+        # REMOVES an approved entry (a drop), so it does not breach the boundary.
+        if loc.role == "location" and a.is_rotational and _concentric_with_axis(a, rx, ry):
             continue
-        refs.append((rx, ry, pd.feature))  # carry the source feature for provenance (ADR 0010)
+        # Provenance (ADR 0010): the located feature. `resolve_feature` is the sanctioned
+        # seam for exactly this — the corridor's feature map keys drop()/annotations_of().
+        refs.append((rx, ry, resolve_feature(loc.ref)))
     if not refs:
         return 0
     pinned_set = set(pinned or ())

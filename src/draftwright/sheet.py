@@ -82,6 +82,8 @@ from draftwright.model.declare import (
 from draftwright.model.declare import read_bore_step as _read_bore_step
 from draftwright.model.declare import read_countersink as _read_countersink
 from draftwright.model.ir import RequestedDimension
+from draftwright.model.planner import LOCATION_ROLE as _LOCATION_ROLE
+from draftwright.model.planner import location_role as _location_role
 
 
 def _parse_datums(to) -> tuple[str, ...]:
@@ -1329,6 +1331,12 @@ class Sheet:
         target = self._features[self._index_of_token(token)]
         params = target.parameters()
         roles = {p.role for p in params} | {p.parameter_id for p in params}
+        # A datum-referenced position is a dimension, but it is SYNTHESIZED (planner +
+        # datum) rather than carried by the feature, so it has no `DimParameter` to match.
+        # The planner owns which kinds have one; asking it here is what lets an authored
+        # set name a location — and therefore omit one (#925).
+        if _location_role(target) is not None:
+            roles.add(_LOCATION_ROLE)
         if role not in roles:
             raise ValueError(
                 f"{verb}: {type(target).__name__} has no {role!r} measurement "
