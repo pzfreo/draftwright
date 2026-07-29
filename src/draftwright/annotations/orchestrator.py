@@ -381,7 +381,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # through fv_zones.right preserving the leapfrog cursor (#237). Replaces the inline
         # dim_step_* + dim_height; the turned step-length chain (render_step_lengths) handles
         # turned parts, and a Z-turned overall height is suppressed there (ISO 129).
-        render_height_ladder(dwg, _model, a, ctx=ctx, detail_view=detail_view)
+        render_height_ladder(dwg, _model, _groups, a, ctx=ctx, detail_view=detail_view)
 
     def _s_plates():
         # Plate/wall thicknesses on a multi-plate prismatic (#559): the thin extent of each
@@ -393,7 +393,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_step_positions():
         # Prismatic step POSITIONS (#555): where each shoulder sits along its axis, so a
         # stepped block is fully constrained (the heights alone leave the shoulder implicit).
-        render_step_positions(dwg, _model, a, ctx=ctx)
+        render_step_positions(dwg, _model, _groups, a, ctx=ctx)
 
     def _s_chamfers():
         # Chamfer callouts (#560): C{leg} / {leg}×{angle}° via a leader off each chamfer face.

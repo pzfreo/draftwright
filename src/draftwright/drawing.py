@@ -1833,6 +1833,7 @@ class Drawing:
                 render_height_ladder(
                     self,
                     model,
+                    plan_dimensions(model),
                     a,
                     ctx=ctx,
                     include_overall=not r.explicit_envelope_height,
@@ -1844,7 +1845,7 @@ class Drawing:
             # ladder above; placed and dropped at the drain (#639).
             if r.step_position_ids:
                 assert a is not None and isinstance(model, PartModel)
-                render_step_positions(self, model, a, ctx=ctx)
+                render_step_positions(self, model, plan_dimensions(model), a, ctx=ctx)
 
         def _s_detail_request():
             # Prismatic step-height detail (#661): queue it exactly as the auto pass

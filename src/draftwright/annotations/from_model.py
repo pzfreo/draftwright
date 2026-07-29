@@ -1350,12 +1350,31 @@ def envelope_group(groups):
 
 
 def env_dim_placed(pd) -> bool:
-    """Whether :func:`render_envelope` will actually place an envelope dim for the
-    PlannedDimension *pd* — present, not suppressed by the planner (square footprint /
-    X-turned, #250), and carrying a span. The single source of truth for that
-    decision, shared with the orchestrator's side-below tier reservation so the two
-    can never drift (#316 review)."""
+    """Whether an envelope dim will actually be placed for the PlannedDimension *pd* —
+    present, not suppressed by the planner (square footprint / X-turned, #250; an
+    authored set's omission, #876), and carrying a span. The single source of truth
+    for that decision, shared by :func:`render_envelope` (width/depth) and
+    :func:`render_height_ladder` (the overall height, which stacks in the front-view
+    right strip rather than below a view) so the two can never drift."""
     return pd is not None and not pd.suppressed and pd.param.span is not None
+
+
+def set_dim_placed(groups, feature_kind: str, role: str) -> bool:
+    """Whether the planner left a **correlated set** to be drawn (ADR 0016 identity
+    tier 3 — a `step_height` ladder, a `step_position` shoulder chain).
+
+    Those sets are routed whole through their auto-pass renderer, which rebuilds every
+    member from the feature rather than from the plan. So the renderer asks about the
+    *set*, not a member: naming the role keeps the whole ladder, omitting it from an
+    authored set suppresses the whole ladder, exactly as ADR 0016 says a single `role=`
+    intent addresses it. Un-suppressed members are the ones that count, so a partially
+    suppressed set still draws — no auto rule suppresses a member of these sets today,
+    and if one ever does it must say what a half-ladder means rather than have this
+    silently drop it."""
+    group = next((g for g in groups if g.feature_kind == feature_kind), None)
+    if group is None:
+        return False
+    return any(pd.param.role == role and not pd.suppressed for pd in group.dims)
 
 
 def _chamfer_label(leg, ch) -> str:
@@ -2827,7 +2846,7 @@ def _detect_step_repeat(step_zs, bb_min_z, bb_max_z, tol_frac=0.10):
 
 
 def render_height_ladder(
-    dwg, model, a, *, ctx, include_overall: bool = True, detail_view: bool = False
+    dwg, model, groups, a, *, ctx, include_overall: bool = True, detail_view: bool = False
 ) -> int:
     """Front-view right ladder: prismatic step heights (from `StepLevelFeature`)
     stacked inner→outer, then the overall height outermost — registered as
@@ -2840,14 +2859,24 @@ def render_height_ladder(
     footprint with the witness modelled from the view edge (a conservative
     over-cover along the stack axis; the accept-time real-box validation trims any
     drift). A turned part has no `StepLevelFeature`; a Z-turned part suppresses the
-    overall height (the chain tiles it, ISO 129). Returns the count REGISTERED."""
+    overall height (the chain tiles it, ISO 129).
+
+    Both ladders it draws belong to features the **planner** has already ruled on, so
+    this pass reads the plan rather than deciding again: the rungs are the `step_level`
+    feature's `step_height` set, and the overall height is the `envelope` feature's
+    `height` parameter — drawn here rather than in `render_envelope` only because it
+    stacks in the front-view right strip. What stays local is the render-layer part:
+    legibility, the leapfrog chain, and `include_overall`, which is drawing state
+    rather than model state. Returns the count REGISTERED."""
     draft = dwg.draft
     FX, FZ = a.proj.front_x, a.proj.front_z
     edge2 = FX(a.bb.max.X) + 2
     zmin = FZ(a.bb.min.Z)
     tier = draft.font_size + 2 * draft.pad_around_text
     step = next((f for f in model.features if f.kind == "step_level"), None)
-    levels = list(step.levels) if step is not None else []
+    # The rungs are one addressable set: the planner keeps or drops them together.
+    rungs_planned = step is not None and set_dim_placed(groups, "step_level", "step_height")
+    levels = list(step.levels) if rungs_planned else []
     step_shoulders = tuple(step.shoulders) if step is not None else ()
     short_levels: list[float] = []
     rep = _detect_step_repeat(levels, a.bb.min.Z, a.bb.max.Z) if levels else None
@@ -2906,7 +2935,21 @@ def render_height_ladder(
 
     rot = next((f for f in model.features if f.kind == "rotational"), None)
     od_is_height = rot is not None and rot.frame.axis in ("x", "y")
-    suppress_height = (not include_overall) or model.orientation == "z" or od_is_height
+    # The overall height IS the envelope's `height` parameter, so the planner owns
+    # whether it is drawn (square footprint, X/Z-turned, an authored set's omission —
+    # #876). Some models carry no `EnvelopeFeature` at all — a round body, or a Sheet
+    # that never called `.envelope()` — and then the height falls back to the bbox with
+    # no parameter anywhere to address it by. An AUTHORED build must not draw a
+    # dimension its author had no way to ask for, so the fallback is refused there:
+    # declaring `.envelope()` is how you make the overall height nameable.
+    env = envelope_group(groups)
+    if env is not None:
+        height_planned = env_dim_placed(_env_pd(env, "height"))
+    else:
+        height_planned = model.authored_dimensions is None
+    suppress_height = (
+        (not include_overall) or model.orientation == "z" or od_is_height or not height_planned
+    )
     if not suppress_height:
         chain.append(
             (
@@ -3040,7 +3083,7 @@ def render_height_ladder(
     return len(chain) + len(short_levels)
 
 
-def render_step_positions(dwg, model, a, *, ctx) -> int:
+def render_step_positions(dwg, model, groups, a, *, ctx) -> int:
     """Prismatic step POSITIONS (#555): where each shoulder sits along its axis,
     dimensioned from the part datum so a stepped block is fully constrained (the step
     heights alone leave the shoulder location implicit — two geometries draw the same
@@ -3048,10 +3091,16 @@ def render_step_positions(dwg, model, a, *, ctx) -> int:
     horizontally, where the step profile reads); an X shoulder is above the plan view —
     the same axis→view mapping the hole-location ladder uses. Mixed-axis transitions use
     the side-below strip so they do not collide with the isometric furniture above.
-    A shoulder whose strip is full drops with a lint code, not silently. Returns the
-    count placed."""
+    A shoulder whose strip is full drops with a lint code, not silently.
+
+    The shoulders are the `step_level` feature's `step_position` set — one addressable
+    dimension with N members — so, like the height ladder, this pass asks the plan
+    whether the set is drawn at all rather than deciding for itself. Returns the count
+    placed."""
     step = next((f for f in model.features if f.kind == "step_level"), None)
     if step is None or not step.shoulders:
+        return 0
+    if not set_dim_placed(groups, "step_level", "step_position"):
         return 0
     draft = dwg.draft
     axes = {axis for axis, _ in step.shoulders}

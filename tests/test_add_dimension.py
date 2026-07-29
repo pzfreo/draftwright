@@ -679,3 +679,118 @@ class TestOmissionReachesTheDrawing:
         assert not [
             pd for g in groups for pd in g.dims if pd.reason == "not in the authored dimension set"
         ]
+
+
+def _names(dwg) -> set:
+    return {name for name, _obj in dwg.iter_annotations()}
+
+
+class TestOmittedDimensionsDoNotRender:
+    """The class above marks the plan; this one reads the PAGE (#921 review round 2).
+
+    Marking a `PlannedDimension` suppressed only matters if some renderer consults it,
+    and three auto passes did not: `render_height_ladder` rebuilt the overall height
+    and the step rungs from the bbox and the feature, and `render_step_positions` did
+    the same for the shoulders. The plan said "omitted" and the drawing drew it anyway,
+    which is why asserting on `plan_dimensions` could not catch this. Every assertion
+    here inspects annotations that actually reached the drawing.
+    """
+
+    @staticmethod
+    def _plate():
+        from build123d import Box, Cylinder, Pos
+
+        return Box(90, 60, 20) - Pos(0, 0, 12) * Cylinder(6, 20)
+
+    @staticmethod
+    def _staircase():
+        """Three tiers, so the rung set has TWO members. A one-rung part cannot tell
+        "the whole set is addressed" from "one member happened to survive"."""
+        from build123d import Box, Pos
+
+        return Box(120, 60, 15) + Pos(-20, 0, 15) * Box(80, 60, 15) + Pos(-40, 0, 30) * Box(
+            40, 60, 15
+        )
+
+    @staticmethod
+    def _shouldered():
+        """One rebate — a `step_position` shoulder to omit."""
+        from build123d import Box, Pos
+
+        return Box(120, 60, 20) + Pos(-30, 0, 20) * Box(60, 60, 25)
+
+    def test_an_omitted_overall_height_is_not_drawn(self):
+        sheet = Sheet(self._plate(), title="T", number="N")
+        sheet.dimension(sheet.envelope(), "width")
+        assert "dim_height" not in _names(sheet.build())
+
+    def test_the_authored_overall_height_is_drawn(self):
+        """The control for the test above: the same sheet, naming height as well, still
+        gets it. Without this, deleting the height ladder outright would pass."""
+        sheet = Sheet(self._plate(), title="T", number="N")
+        env = sheet.envelope()
+        sheet.dimension(env, "width")
+        sheet.dimension(env, "height")
+        assert "dim_height" in _names(sheet.build())
+
+    def test_the_automatic_set_still_draws_the_overall_height(self):
+        sheet = Sheet(self._plate(), title="T", number="N").auto_dimensions()
+        assert "dim_height" in _names(sheet.build())
+
+    @staticmethod
+    def _rungs(dwg):
+        return sorted(n for n in _names(dwg) if n.startswith("dim_step_"))
+
+    @staticmethod
+    def _shoulders(dwg):
+        return sorted(n for n in _names(dwg) if n.startswith("dim_shoulder_"))
+
+    def test_omitted_step_rungs_are_not_drawn(self):
+        part = self._staircase()
+        sheet = Sheet(part, title="T", number="N")
+        sheet.step_level(part)
+        sheet.dimension(sheet.envelope(), "width")
+        assert self._rungs(sheet.build()) == []
+
+    def test_a_correlated_set_is_addressed_whole(self):
+        """ADR 0016 identity tier 3: one `role=` line keeps the WHOLE ladder. With two
+        rungs in play this distinguishes "the set was addressed" from "one member
+        happened to survive" — a per-member reading of the plan would draw neither, and
+        a half-honoured one would draw a partial staircase."""
+        part = self._staircase()
+        authored = Sheet(part, title="T", number="N")
+        authored.step_level(part)
+        authored.dimension(authored.features[-1], "step_height")
+        auto = Sheet(part, title="T", number="N")
+        auto.step_level(part)
+        auto.auto_dimensions()
+        drawn = self._rungs(authored.build())
+        assert len(drawn) > 1, "the fixture must exercise a MULTI-member set"
+        assert drawn == self._rungs(auto.build())
+
+    def test_omitted_step_positions_are_not_drawn(self):
+        part = self._shouldered()
+        sheet = Sheet(part, title="T", number="N")
+        sheet.step_level(part)
+        sheet.dimension(sheet.features[-1], "step_height")
+        assert self._shoulders(sheet.build()) == [], "step_position was not authored"
+        assert self._rungs(sheet.build()), "but its sibling set on the same feature was"
+
+    def test_authored_step_positions_are_drawn(self):
+        part = self._shouldered()
+        sheet = Sheet(part, title="T", number="N")
+        sheet.step_level(part)
+        sheet.dimension(sheet.features[-1], "step_position")
+        assert self._shoulders(sheet.build())
+
+    def test_an_unaddressable_overall_height_is_refused_not_drawn(self):
+        """A sheet that never declared an envelope has no parameter naming the overall
+        height, so an authored set cannot ask for it — and must not silently get it.
+        The bbox fallback belongs to automatic builds only."""
+        from build123d import Cylinder, Pos
+
+        part = self._plate()
+        sheet = Sheet(part, title="T", number="N")
+        hole = sheet.hole(Pos(0, 0, 12) * Cylinder(6, 20))
+        sheet.dimension(hole, "bore.diameter")
+        assert "dim_height" not in _names(sheet.build())

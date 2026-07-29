@@ -643,19 +643,19 @@ class Sheet:
         # engine's generic auto-placed Drawing.add_table, AFTER the drawing is built so they sit
         # clear of the views + title block (like the hole table). Each: {rows, prefer, name}.
         self._tables: list = []
-        # ADR 0016 augmenting dimension intents (#872), keyed by feature INDEX for the
-        # same reason as `_tolerances`: a handle may be recorded before a later size verb
-        # replaces the feature. Materialized to `RequestedDimension` against the FINAL
-        # features at build. Each entry: {"index", "role", "discriminator", "pin", "priority"}.
+        # ADR 0016 augmenting dimension intents (#872), token-keyed for the same reason as
+        # `_tolerances`: a handle may be recorded before a later size verb replaces the
+        # feature, and a position would then name whatever moved into the slot.
+        # Materialized to `RequestedDimension` against the FINAL features at build.
+        # Each entry: {"token", "role", "discriminator"}.
         self._added_dimensions: list[dict] = []
         # The COMPLETE authored dimension set (#874/#876) — the other of the model's two
         # dimension sources, mutually exclusive with `_auto_dimensions`. Token-keyed like
         # every other feature reference on this class.
         self._authored: list[dict] = []
-        # Did the script explicitly ask for the planner's set? Optional here (#872) — a
-        # build without it still auto-dimensions, as it always has. Making it MANDATORY
-        # is the #874 breaking change; shipping that early would change this verb's
-        # meaning between phases, which the epic's own rule forbids.
+        # Did the script explicitly ask for the planner's set? MANDATORY unless the sheet
+        # authors its own set instead (#874) — `_check_dimension_source` refuses a build
+        # that names neither, so the drawing never falls back to a source nobody chose.
         self._auto_dimensions = False
         # A requested section A–A (#841): ``None`` = no request, else a resolver tuple
         # (``kind``, ``payload``) materialized to a cut-plane Y in ``_decorations`` — ``at``
@@ -1220,13 +1220,15 @@ class Sheet:
         return self._features
 
     def auto_dimensions(self) -> Sheet:
-        """Ask for the planner's automatic dimension set explicitly (ADR 0016).
+        """Ask for the planner's automatic dimension set (ADR 0016).
 
-        Today this is **optional** — a build without it still auto-dimensions, exactly as
-        before — and it exists so a script can *say* which dimension source it uses, and
-        so :meth:`add_dimension` has something to augment. Making it mandatory is the
-        #874 breaking change; landing that here would change this verb's meaning between
-        releases, which ADR 0016's phasing rule forbids.
+        **Required**, unless the sheet authors its own set with :meth:`dimension` (#874):
+        a build must say where its dimensions come from rather than defaulting to one
+        silently, so a script that means "dimension this for me" reads that way, and one
+        that means "draw exactly what I name" cannot be mistaken for it.
+
+        This is also what :meth:`add_dimension` augments — an augment only means
+        something against a set the planner chose.
         """
         self._auto_dimensions = True
         return self
