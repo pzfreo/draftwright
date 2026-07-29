@@ -438,10 +438,50 @@ def _authored_for(model, feature, param):
     return None
 
 
+def _check_authored_targets(model: PartModel) -> None:
+    """Every authored entry must address a measurement this model actually has.
+
+    An authored entry that hits nothing is not a no-op the way a stray `add_dimension`
+    is: `dimension(...)` DECLARES the set, so an entry matching no parameter leaves that
+    feature — potentially the whole drawing — silently blank, and the caller sees a clean
+    build with no dimensions rather than an error (#921 review round 4). This is the
+    failure mode #630/#631/#632 rank as worse than a visible raise.
+
+    The `Sheet` façade cannot reach this: it resolves the role when the verb is called
+    and materialises entries against the FINAL features at build. It is reachable through
+    the ADR 0011 public input — `build_drawing(part, model=…, authored=…)` with a
+    hand-built `PartModel` — where a feature object may be an equal-but-distinct CLONE of
+    the one in `model.features`. Matching stays identity-based on purpose (see
+    `_request_for`: two equal-valued features are two distinct targets, so structural
+    equality would make an authored dimension on one of a pair of identical holes
+    ambiguous). What changes is that a miss now says so."""
+    for authored in model.authored_dimensions or ():
+        if not any(
+            _authored_for(model, feature, p)
+            for feature in model.features
+            if authored.feature is feature
+            for p in feature.parameters()
+        ):
+            in_model = any(f is authored.feature for f in model.features)
+            why = (
+                f"no {authored.role!r} measurement on that {authored.feature.kind}"
+                if in_model
+                else "that feature object is not in model.features (an equal-valued COPY "
+                "is a different target — pass the instance the model holds)"
+            )
+            raise ValueError(
+                f"authored dimension {authored.role!r} matches nothing: {why}. An authored "
+                "set declares the complete dimensioning, so an entry that addresses nothing "
+                "would silently leave the drawing blank."
+            )
+
+
 def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
     view + planned dims, each carrying its render intent — convention, model-level
     suppression, datum). No cross- or within-feature value de-duplication."""
+    if model.authored_dimensions is not None:
+        _check_authored_targets(model)
     groups: list[DimensionGroup] = []
     for feature in model.features:
         dims = []

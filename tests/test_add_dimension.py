@@ -228,6 +228,62 @@ class TestSheetSurface:
         with pytest.raises(ValueError, match="cannot have both"):
             _coerce_model(model, part)
 
+    def test_an_authored_entry_naming_a_feature_copy_raises(self):
+        """Matching is by object identity on purpose — two equal-valued features are two
+        distinct targets, so a part with two identical holes can dimension one of them
+        (see `_request_for`). The cost is that an equal-but-distinct COPY matches nothing,
+        and for an authored set a miss is not a no-op: it declares the complete set, so
+        every measurement on that feature goes silently blank (#921 review round 4).
+
+        Unreachable through `Sheet`, which materialises entries against the final
+        features; reachable through the ADR 0011 public input, which is exactly where a
+        caller assembles a `PartModel` by hand. So the miss says so."""
+        from dataclasses import replace
+
+        from draftwright.model import Frame, HoleFeature, PartModel, plan_dimensions
+        from draftwright.model.ir import RequestedDimension
+
+        hole = HoleFeature(Frame((0, 0, 10), "z"), 12.0, depth=8.0, through=False)
+        clone = replace(hole)
+        assert clone == hole and clone is not hole, "the fixture must be an equal COPY"
+        model = PartModel(
+            bbox=_part().bounding_box(),
+            orientation="prismatic",
+            features=[hole],
+            authored_dimensions=(RequestedDimension(clone, "bore.diameter"),),
+        )
+        with pytest.raises(ValueError, match="not in model.features"):
+            plan_dimensions(model)
+
+    def test_an_authored_entry_naming_a_measurement_that_does_not_exist_raises(self):
+        from draftwright.model import Frame, HoleFeature, PartModel, plan_dimensions
+        from draftwright.model.ir import RequestedDimension
+
+        hole = HoleFeature(Frame((0, 0, 10), "z"), 12.0, depth=8.0, through=False)
+        model = PartModel(
+            bbox=_part().bounding_box(),
+            orientation="prismatic",
+            features=[hole],
+            authored_dimensions=(RequestedDimension(hole, "nonesuch"),),
+        )
+        with pytest.raises(ValueError, match="no 'nonesuch' measurement"):
+            plan_dimensions(model)
+
+    def test_a_valid_authored_entry_still_plans(self):
+        """The control: the guard above must not reject the ordinary case."""
+        from draftwright.model import Frame, HoleFeature, PartModel, plan_dimensions
+        from draftwright.model.ir import RequestedDimension
+
+        hole = HoleFeature(Frame((0, 0, 10), "z"), 12.0, depth=8.0, through=False)
+        model = PartModel(
+            bbox=_part().bounding_box(),
+            orientation="prismatic",
+            features=[hole],
+            authored_dimensions=(RequestedDimension(hole, "bore.diameter"),),
+        )
+        marked = {pd.param.parameter_id: pd.suppressed for pd in plan_dimensions(model)[0].dims}
+        assert marked == {"bore.diameter": False, "bore.depth": True}
+
     def test_from_part_states_the_automatic_source(self):
         """Detection IS a request for the engine's reading of the part, so `from_part` says so
         rather than leaving the caller to. Not the implicit default returning by the back
