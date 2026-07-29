@@ -1066,6 +1066,49 @@ class Drawing:
             self.pin(name)
         return name
 
+    @staticmethod
+    def _feature_ref_of(feature):
+        from draftwright.model.compiled import FeatureRef
+
+        return FeatureRef(feature)
+
+    def _refuse_authored_omission(self, feature) -> None:
+        """Refuse a post-build callout for a measurement the authored set left out (#876).
+
+        An authored set is the drawing's COMPLETE dimensioning, so adding a callout back
+        afterwards contradicts the script rather than extending it. Refusing beats the two
+        things it replaces: a live path claiming the feature "exposes none" (untrue — it
+        exposes one and was told not to draw it), and a deferred path recording an intent
+        that draws nothing at the drain and is dropped with no warning.
+
+        Asks the compiled plan, not a per-kind table. Under the ADR 0016 boundary a
+        renderer receives approved entries only, so "no approved dimensions for this
+        feature" is the whole question — where predicting it from the plan took three
+        wrong hand-written tables before the boundary existed (#921 rounds 6–8).
+        """
+        model = self._part_model
+        if model is None or getattr(model, "authored_dimensions", None) is None:
+            return
+        from draftwright.model import plan_dimensions
+        from draftwright.model.callout import authored_omission_in
+        from draftwright.model.compiled import compile_dimensions
+
+        planned = plan_dimensions(model)
+        group = next((g for g in planned if g.feature is feature), None)
+        if not authored_omission_in(group):
+            return
+        approved = compile_dimensions(model, groups=planned)
+        drawable = next(
+            (g for g in approved.groups if g.ref == self._feature_ref_of(feature) and g.dims), None
+        )
+        if drawable is None:
+            raise ValueError(
+                f"callout(): this {type(feature).__name__} draws nothing because the "
+                "authored dimension set leaves out the measurements its callout needs. "
+                "Declare them with dimension(feature, role) lines on the Sheet — the "
+                "authored set is the drawing's complete dimensioning."
+            )
+
     def callout(self, feature, *, view=None, name=None) -> str:
         """Add a **ø leader callout** for *feature* (#414/#419) — the callout half of the
         feature-referenced **add** surface, symmetric with :meth:`drop`.
@@ -1094,6 +1137,10 @@ class Drawing:
                 f"callout(): a {kind} is auto-named and placed in its characteristic view; "
                 "view=/name= are unsupported for machined-feature callouts"
             )
+        # BEFORE the deferred/live split, so the two cannot disagree — placing it in
+        # the deferred branch alone made the answer depend on whether you were inside
+        # `deferred()` (#921 round 7).
+        self._refuse_authored_omission(feature)
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("callout", feature, {"view": view, "name": name}))
             return ""

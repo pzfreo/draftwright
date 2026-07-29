@@ -15,7 +15,7 @@ from draftwright.sheet import Sheet
 
 def _blind_pocket_sheet():
     """An 80×50×20 bar with ONE declared blind rectangular pocket (no auto-section trigger)."""
-    s = Sheet(Box(80, 50, 20))
+    s = Sheet(Box(80, 50, 20)).auto_dimensions()
     s.envelope()
     p = s.pocket(
         width=8.0,

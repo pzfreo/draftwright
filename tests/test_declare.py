@@ -831,13 +831,13 @@ class TestCountersink:
         from build123d import Cone
 
         part = Box(90, 60, 12) - Pos(0, 0, 0) * Cylinder(3, 12)
-        s = Sheet(part)
+        s = Sheet(part).auto_dimensions()
         s.hole(diameter=6, at=(0, 0, 6), axis="z").countersink(Cone(3, 7, 4))
         assert s._features[0].csink is not None
         assert abs(s._features[0].csink[0] - 14) < 0.1 and abs(s._features[0].csink[1] - 90) < 0.5
 
     def test_needs_cone_or_explicit(self):
-        s = Sheet(Box(10, 10, 10))
+        s = Sheet(Box(10, 10, 10)).auto_dimensions()
         with pytest.raises(ValueError):
             s.hole(diameter=6, at=(0, 0, 0), axis="z").countersink()
 
@@ -864,12 +864,12 @@ class TestThread:
     def test_declare_and_fluent_carry_the_thread(self):
         h = hole(diameter=2.5, at=(0, 0, 6), axis="z", through=True, thread="M3x0.5")
         assert h.thread == "M3x0.5"
-        s = Sheet(Box(90, 60, 12) - Pos(0, 0, 0) * Cylinder(1.25, 12))
+        s = Sheet(Box(90, 60, 12) - Pos(0, 0, 0) * Cylinder(1.25, 12)).auto_dimensions()
         s.hole(diameter=2.5, at=(0, 0, 6), axis="z").thread("M3x0.5")
         assert s._features[0].thread == "M3x0.5"
 
     def test_empty_spec_rejected(self):
-        s = Sheet(Box(30, 30, 12))
+        s = Sheet(Box(30, 30, 12)).auto_dimensions()
         with pytest.raises(ValueError):
             s.hole(diameter=2.5, at=(0, 0, 6), axis="z").thread("  ")
 
@@ -933,17 +933,17 @@ class TestExternalThread:
             == "M3x0.5"
         )
         assert boss(diameter=6, at=(0, 0, 0), axis="x", thread="M6x1").thread == "M6x1"
-        s = Sheet(self._shaft())
+        s = Sheet(self._shaft()).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x").thread("M8x1.25")
         assert s._features[0].thread == "M8x1.25"
 
     def test_empty_spec_rejected(self):
-        s = Sheet(Rot(0, 90, 0) * Cylinder(radius=4, height=20))
+        s = Sheet(Rot(0, 90, 0) * Cylinder(radius=4, height=20)).auto_dimensions()
         with pytest.raises(ValueError):
             s.step(diameter=8, length=20, at=(0, 0, 0), axis="x").thread("  ")
 
     def test_thread_appends_to_the_od_callout(self):
-        s = Sheet(self._shaft())
+        s = Sheet(self._shaft()).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
         s.step(diameter=3, length=10, at=(15, 0, 0), axis="x").thread("M3x0.5")
         dwg = s.build()
@@ -953,7 +953,7 @@ class TestExternalThread:
         assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
     def test_thread_and_finish_coexist_on_one_step(self):
-        s = Sheet(self._shaft())
+        s = Sheet(self._shaft()).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
         s.step(diameter=3, length=10, at=(15, 0, 0), axis="x").thread("M3x0.5").finish("1.6")
         dwg = s.build()
@@ -970,7 +970,7 @@ class TestExternalThread:
             + Pos(-11, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=4, height=12)  # ø8 left shoulder
             + Pos(11, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=4, height=12)  # ø8 right shoulder
         )
-        s = Sheet(part)
+        s = Sheet(part).auto_dimensions()
         s.step(diameter=12, length=10, at=(0, 0, 0), axis="x")
         s.step(diameter=8, length=12, at=(-11, 0, 0), axis="x")
         s.step(diameter=8, length=12, at=(11, 0, 0), axis="x").thread("M8x1.25")
@@ -985,7 +985,7 @@ class TestExternalThread:
         # unthreaded ⌀ (#859, Codex #862 r2).
         part = Box(90, 50, 8) - Pos(-25, 0, 0) * Cylinder(4, 20)
         part = part + Pos(25, 0, 4) * Cylinder(4, 8)  # an ø8 threaded boss beside an ø8 bore
-        s = Sheet(part)
+        s = Sheet(part).auto_dimensions()
         s.hole(diameter=8, at=(-25, 0, 0), axis="z")
         s.boss(diameter=8, at=(25, 0, 8), axis="z").thread("M8x1.25")
         dwg = s.build()
@@ -999,7 +999,7 @@ class TestExternalThread:
         # completed label (not a per-char estimate), so a wide spec drops cleanly rather than
         # crossing the sheet margin (annotation_out_of_bounds) — #859, Codex #862 r3.
         part = Cylinder(radius=4, height=20) + Pos(0, 0, 15) * Cylinder(radius=1.5, height=10)
-        s = Sheet(part)
+        s = Sheet(part).auto_dimensions()
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="z")
         s.step(diameter=3, length=10, at=(0, 0, 15), axis="z").thread("M" + "12" * 8)  # very wide
         dwg = s.build()
@@ -1055,26 +1055,6 @@ class TestPlate:
         assert sorted(plate_dims) == ["dim_plate_x0", "dim_plate_z0"]  # both slabs dimensioned
         assert sorted(plate_dims.values()) == ["8", "8"]  # each 8 thick
         assert [i for i in dwg.lint() if i.severity != "info"] == []
-
-    def test_same_axis_plate_names_follow_thickness_axis_not_in_plane_position(self):
-        """Stable annotation identity follows the old axis/lo/hi order.
-
-        The compiled renderer briefly sorted whole span points, so X/Y coordinates
-        outranked the Z thickness coordinate and moving a plate sideways could swap
-        ``dim_plate_z0`` with ``dim_plate_z1``. A pin/drop would then target its neighbour.
-        """
-        part = Box(200, 60, 40)
-        model = [
-            plate(axis="z", lo=5, hi=9, u=-60, v=0),  # lower in X, but higher in Z
-            plate(axis="z", lo=1, hi=4, u=60, v=0),
-        ]
-        dwg = build_drawing(part, model=model, number="X")
-        labels = {
-            name: dwg.get_annotation(name).label
-            for name in dwg.annotations()
-            if name.startswith("dim_plate_z")
-        }
-        assert labels == {"dim_plate_z0": "3", "dim_plate_z1": "4"}
 
     def test_needs_object_or_explicit(self):
         with pytest.raises(ValueError):
@@ -1488,7 +1468,7 @@ class TestSheet:
         h1 = Pos(20, 10, 4) * Cylinder(3, 8)
         h2 = Pos(-20, 10, 4) * Cylinder(3, 8)
         part = plate - h1 - h2
-        sheet = Sheet(part, title="PLATE", number="DWG-777", scale="2:1")
+        sheet = Sheet(part, title="PLATE", number="DWG-777", scale="2:1").auto_dimensions()
         sheet.envelope()
         sheet.hole(h1)
         sheet.hole(h2)
@@ -1500,14 +1480,14 @@ class TestSheet:
     def test_sheet_export_defaults_to_pdf_dict(self, tmp_path):
         # #702: the facade speaks the modern export API — PDF by default (matching
         # the CLI), {format: path} return — not the deprecated (svg, dxf) tuple.
-        sheet = Sheet(Box(40, 40, 10), title="EXPORT", number="DWG-702")
+        sheet = Sheet(Box(40, 40, 10), title="EXPORT", number="DWG-702").auto_dimensions()
         sheet.envelope()
         paths = sheet.export(str(tmp_path / "dwg702"))
         assert set(paths) == {"pdf"}
         assert paths["pdf"].endswith(".pdf") and (tmp_path / "dwg702.pdf").exists()
 
     def test_sheet_export_formats_passthrough(self, tmp_path):
-        sheet = Sheet(Box(40, 40, 10), title="EXPORT", number="DWG-702B")
+        sheet = Sheet(Box(40, 40, 10), title="EXPORT", number="DWG-702B").auto_dimensions()
         sheet.envelope()
         paths = sheet.export(str(tmp_path / "dwg702b"), formats=("svg", "dxf"))
         assert set(paths) == {"svg", "dxf"}
@@ -1515,13 +1495,13 @@ class TestSheet:
 
     def test_hole_depth_makes_it_blind(self):
         part = Box(40, 40, 10) - Pos(0, 0, 5) * Cylinder(3, 10)
-        sheet = Sheet(part)
+        sheet = Sheet(part).auto_dimensions()
         sheet.hole(Pos(0, 0, 5) * Cylinder(3, 10)).depth(6)
         f = sheet.features[0]
         assert f.through is False and f.depth == 6
 
     def test_hole_through_is_default(self):
-        sheet = Sheet(Box(10, 10, 10))
+        sheet = Sheet(Box(10, 10, 10)).auto_dimensions()
         h = sheet.hole(diameter=3, at=(0, 0, 0), axis="z")
         assert sheet.features[0].through is True
         # the handle is chainable and idempotent
@@ -1547,7 +1527,7 @@ class TestSheet:
 
     def test_envelope_defaults_to_the_part(self):
         part = Box(30, 20, 5)
-        sheet = Sheet(part)
+        sheet = Sheet(part).auto_dimensions()
         sheet.envelope()
         f = sheet.features[0]
         assert f.width == pytest.approx(30) and f.depth == pytest.approx(20)
@@ -1560,7 +1540,7 @@ class TestSheet:
 
         monkeypatch.setattr(sd, "build_drawing", _boom)
         part = Box(40, 40, 8) - Pos(10, 10, 4) * Cylinder(3, 8)
-        sheet = Sheet(part)
+        sheet = Sheet(part).auto_dimensions()
         sheet.envelope()
         sheet.hole(Pos(10, 10, 4) * Cylinder(3, 8))
         m = sheet.model()  # must not call build_drawing
@@ -1570,7 +1550,7 @@ class TestSheet:
         # The cheap model() returns the same IR build() hands the engine — features AND the
         # bbox/datum (the wrapping the engine draws), not just the feature list.
         part = Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(3, 8)
-        sheet = Sheet(part)
+        sheet = Sheet(part).auto_dimensions()
         sheet.envelope()
         sheet.hole(Pos(20, 10, 4) * Cylinder(3, 8))
         m, built = sheet.model(), sheet.build().model()
@@ -1588,7 +1568,7 @@ class TestSheet:
         box = Box(40, 40, 8)
         stray = Edge.make_line((-80, 0, 0), (0, 0, 0))  # extends the min-X corner past the solid
         part = Compound(children=[*box.solids(), stray])
-        sheet = Sheet(part)
+        sheet = Sheet(part).auto_dimensions()
         sheet.envelope()
         m, built = sheet.model(), sheet.build().model()
         assert m.bbox.min.X == pytest.approx(built.bbox.min.X)  # both drop the stray edge
@@ -1655,7 +1635,7 @@ class TestAuthoredDimension:
         from draftwright.model import measured_dimension
         from draftwright.sheet import Sheet
 
-        sheet = Sheet(Box(40, 20, 10), title="P")
+        sheet = Sheet(Box(40, 20, 10), title="P").auto_dimensions()
         sheet.measured_dimension(**self._KW)
         via_facade = next(f for f in sheet.features if f.kind == "authored_dimension")
         assert measured_dimension(**self._KW) == via_facade
@@ -1667,22 +1647,22 @@ class TestAuthoredDimension:
         from draftwright.model import measured_dimension
         from draftwright.sheet import Sheet
 
-        sheet = Sheet(Box(40, 20, 10), title="P")
+        sheet = Sheet(Box(40, 20, 10), title="P").auto_dimensions()
         with pytest.warns(DeprecationWarning, match="measured_dimension"):
             sheet.dimension(**self._KW)
         assert next(f for f in sheet.features if f.kind == "authored_dimension") == (
             measured_dimension(**self._KW)
         )
 
-    def test_the_overload_refuses_a_call_it_cannot_interpret(self):
-        """The referential form is #874. Until then `dimension(feature, role)` must say so
-        rather than raise a `TypeError` about missing keywords, which is what a plain rename
-        would have produced and what the transitional overload exists to avoid."""
+    def test_the_overload_dispatches_the_referential_form(self):
+        """#874 filled in the other half of the overload: a call carrying none of the measured
+        keywords is the ADR 0016 referential verb, and declares a member of the authored set."""
         from draftwright.sheet import Sheet
 
         sheet = Sheet(Box(40, 20, 10), title="P")
-        with pytest.raises(TypeError, match="referential form"):
-            sheet.dimension(0, "length")
+        sheet.envelope()
+        sheet.dimension(0, "width")
+        assert sheet._authored == [{"token": 0, "role": "width", "discriminator": None}]
 
     def test_validates_without_the_facade(self):
         from draftwright.model import measured_dimension

@@ -24,7 +24,7 @@ def _top_face(part):
 
 def test_note_on_feature_derives_face_on_view():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20)).note("M3x0.5 TAP")
     nt = next(f for f in s.features if f.kind == "note")
     assert nt.text == "M3x0.5 TAP"
@@ -36,7 +36,7 @@ def test_note_on_feature_derives_face_on_view():
 
 def test_note_on_planar_face_derives_edge_on_view():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.note("DEBURR", _top_face(part))
     nt = next(f for f in s.features if f.kind == "note")
     assert nt.text == "DEBURR"
@@ -48,7 +48,7 @@ def test_note_on_planar_face_derives_edge_on_view():
 
 def test_dim_handle_note():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.diameter(Pos(30, 0, 0) * Cylinder(8, 20)).note("KNURL 0.8 STRAIGHT")
     nt = next(f for f in s.features if f.kind == "note")
     assert nt.text == "KNURL 0.8 STRAIGHT" and nt.view == "plan"
@@ -61,7 +61,7 @@ def test_slot_and_pocket_handle_note():
     from build123d import Box, Plane, SlotOverall, extrude
 
     part = Box(60, 30, 12) - extrude(Plane.XY * SlotOverall(20, 8), 12, both=True)
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     h = s.slot(width=8, length=20, long_axis="x", width_axis="y", lo=-10, hi=10, w_center=0)
     assert h.note("5X OBROUND SLOT") is h  # explicit method, chainable — no TypeError
     nt = next(f for f in s.features if f.kind == "note")
@@ -74,7 +74,7 @@ def test_slot_and_pocket_handle_note():
     assert any(f.kind == "note" and f.text == "DEBURR" and f.origin is None for f in s.features)
 
     p = Box(60, 30, 20) - Pos(0, 0, 4) * extrude(Plane.XY * SlotOverall(20, 8), 12)
-    s2 = Sheet(p)
+    s2 = Sheet(p).auto_dimensions()
     s2.pocket(
         width=8,
         length=20,
@@ -92,12 +92,12 @@ def test_slot_and_pocket_handle_note():
 def test_dim_handle_knurl():
     # #765: knurl() is sugar over note() with canonical KNURL formatting.
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.diameter(Pos(30, 0, 0) * Cylinder(8, 20)).knurl("0.8")
     nt = next(f for f in s.features if f.kind == "note")
     assert nt.text == "KNURL 0.8 STRAIGHT" and nt.view == "plan"
 
-    s2 = Sheet(part)
+    s2 = Sheet(part).auto_dimensions()
     s2.diameter(Pos(30, 0, 0) * Cylinder(8, 20)).knurl("0.5", "DIAMOND")
     nt2 = next(f for f in s2.features if f.kind == "note")
     assert nt2.text == "KNURL 0.5 DIAMOND"
@@ -105,7 +105,7 @@ def test_dim_handle_knurl():
 
 def test_view_side_overrides_win():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20)).note("TAP", view="front", side="left")
     nt = next(f for f in s.features if f.kind == "note")
     assert nt.view == "front" and nt.side == "left"
@@ -113,7 +113,7 @@ def test_view_side_overrides_win():
 
 def test_bad_inputs_raise():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     with pytest.raises(ValueError, match="note needs text"):
         s.note("   ", _top_face(part))
     with pytest.raises(ValueError, match="note needs text"):
@@ -122,7 +122,7 @@ def test_bad_inputs_raise():
 
 def test_note_places_lint_clean():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20)).note("M3x0.5 TAP")
     dwg = s.build()
@@ -133,7 +133,7 @@ def test_note_places_lint_clean():
 
 def test_face_note_places_lint_clean():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     s.note("BREAK ALL EDGES 0.3", _top_face(part))
@@ -147,7 +147,7 @@ def test_note_before_depth_keeps_provenance():
     # handle replaces the source feature; the note's origin must re-bind to the FINAL feature at
     # build (index-sourced), else annotations_of() misses it and drop() orphans it.
     part = Box(80, 50, 20) - Pos(0, 0, 0) * Cylinder(6, 20)
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     h = s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     h.note("M3x0.5 TAP", view="front", side="above")  # declared BEFORE the size verb
@@ -166,7 +166,7 @@ def test_note_ignored_by_model_inspection_paths():
     # model() is the cheap no-render inspection path; a note is a render-time GD&T-kind aspect,
     # not a dimension-bearing feature — it must not add DimParameters.
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20)).note("TAP")
     nt = next(f for f in s.features if f.kind == "note")
     assert nt.parameters() == [] and nt.references() == []
@@ -174,7 +174,7 @@ def test_note_ignored_by_model_inspection_paths():
 
 def test_chaining_returns_the_handle_and_sheet():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     h = s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     assert h.note("TAP") is h  # handle chains
     assert s.note("DEBURR", _top_face(part)) is s  # sheet chains

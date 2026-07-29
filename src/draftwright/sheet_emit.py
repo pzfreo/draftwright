@@ -522,7 +522,35 @@ def emit_sheet_script(
 
     AP242 PMI cannot be re-extracted from the ``import_step`` seam, so detected dimensional PMI is
     emitted as declared Sheet dimensions; unsupported raw PMI records are kept as explicit
-    ``sheet.add(PmiFeature(...))`` fallbacks (#503 / #422)."""
+    ``sheet.add(PmiFeature(...))`` fallbacks (#503 / #422).
+
+    A model carrying an **authored** dimension set is refused (see below): the emitter has no
+    way to write those declarations without addressing features by position, which this
+    generated script is the worst possible place for."""
+    if getattr(model, "authored_dimensions", None) is not None:
+        # Emitting `sheet.auto_dimensions()` here would silently turn "draw exactly these"
+        # back into "draw everything" — a script that produces a different drawing from the
+        # model it was generated from, which is the #707 class of divergence (#921 review
+        # round 5).
+        #
+        # Writing the declarations instead is NOT the cheap fix it looks like. The only way
+        # to name a feature in this script is its position (`sheet.dimension(3, "width")`) —
+        # the feature verbs bind no variables — and the documented workflow for these scripts
+        # is to comment a feature line out and re-run. That shifts every later index and
+        # silently retargets the dimensions onto their neighbours: exactly the position-
+        # addressing defect ADR 0016's identity work exists to remove, rebuilt inside the
+        # artefact we hand the user. Refusing beats emitting a booby trap.
+        #
+        # Giving emitted features nameable identity is the real fix, and it is the deferred
+        # emitter dimension-mirror the epic scopes out — tracked separately. Nothing in the
+        # product reaches this: `--script` emits from `detect_part_model`, which never carries
+        # an authored set.
+        raise ValueError(
+            "emit_sheet_script() cannot yet emit a model with an authored dimension set: "
+            "naming a feature in the generated script would have to address it by position, "
+            "which breaks as soon as a feature line is commented out. Emit from a detected "
+            "model (the --script path), or write the dimension(...) declarations by hand."
+        )
     model_imports = set()
     if any(f.kind in ("hole", "pattern") for f in model.features):
         model_imports.add("hole")
@@ -567,6 +595,15 @@ def emit_sheet_script(
         part_expr,
         "",
         f"sheet = Sheet(part, {', '.join(ctor)})",
+        "",
+        # The script must SAY where its dimensions come from (ADR 0016 / #874). A generated
+        # script uses the planner's set, so it emits that source explicitly rather than relying
+        # on a default — which is the whole point of making the source mandatory: an omitted
+        # dimension only means something inside a set that says it is complete. Edit these
+        # lines to `sheet.dimension(...)` declarations to take the set over by hand.
+        "# The planner selects the dimensions. Replace with dimension(feature, role) lines",
+        "# to declare the complete set by hand (ADR 0016).",
+        "sheet.auto_dimensions()",
         "",
         # For a live-source part (#771), the values below were read off YOUR objects — point
         # each line back at the object to keep it a single source of truth (a STEP-sourced

@@ -600,6 +600,16 @@ def _compile_overall_height(
         mark = marked.get((id(env), "height.length"))
         if mark is not None:
             return None, [Omission(env, "height.length", mark[0], mark[1])]
+    elif model.authored_dimensions is not None:
+        # No `EnvelopeFeature`, so the height falls back to the bounding box and no
+        # parameter anywhere names it. An AUTHORED set is the drawing's complete
+        # dimensioning, so it must not acquire a measurement its author had no way to ask
+        # for: declaring `.envelope()` is how the overall height becomes nameable (#876).
+        # This is the one place the fallback lives, so refusing it is one branch rather
+        # than a rule every renderer has to remember.
+        return None, [
+            Omission(None, "height.length", float(bb.size.Z), "not in the authored dimension set")
+        ]
     value = float(env.height) if env is not None else float(bb.size.Z)
     env_ref = FeatureRef(env) if env is not None else None
     x, y = float(bb.max.X), float(bb.min.Y)

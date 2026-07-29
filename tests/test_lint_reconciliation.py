@@ -105,7 +105,7 @@ class TestMatcherUnit:
 class TestEndToEnd:
     def test_phantom_hole_warns(self):
         # part is a solid box; the script still declares a hole (its Cylinder is only read for ⌀).
-        s = Sheet(Box(120, 80, 20))
+        s = Sheet(Box(120, 80, 20)).auto_dimensions()
         s.envelope()
         s.hole(Pos(0, 0, 0) * Cylinder(4, 20))
         codes = [i.code for i in s.build().lint()]
@@ -113,7 +113,7 @@ class TestEndToEnd:
 
     def test_real_hole_clean(self):
         part = Box(120, 80, 20) - Pos(0, 0, 0) * Cylinder(4, 20)
-        s = Sheet(part)
+        s = Sheet(part).auto_dimensions()
         s.envelope()
         s.hole(Pos(0, 0, 0) * Cylinder(4, 20))
         codes = [i.code for i in s.build().lint()]
@@ -124,7 +124,7 @@ class TestEndToEnd:
         # still warn — there is no bore, the callout renders over solid material. Exercises the real
         # analyse_cylinders external flag end-to-end.
         part = Cylinder(10, 40)  # solid shaft, OD ⌀20, no bore
-        s = Sheet(part)
+        s = Sheet(part).auto_dimensions()
         s.envelope()
         s.hole(Cylinder(10, 40))  # declares a phantom ⌀20 bore
         assert "declared_feature_absent" in [i.code for i in s.build().lint()]

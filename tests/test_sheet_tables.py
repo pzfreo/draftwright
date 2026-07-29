@@ -12,7 +12,9 @@ from draftwright import Sheet
 
 
 def _sheet():
-    s = Sheet(Box(120, 80, 20) - Pos(0, 0, 0) * Cylinder(4, 20), title="Plate", number="DWG-T")
+    s = Sheet(
+        Box(120, 80, 20) - Pos(0, 0, 0) * Cylinder(4, 20), title="Plate", number="DWG-T"
+    ).auto_dimensions()
     s.envelope()
     s.hole(Pos(0, 0, 0) * Cylinder(4, 20))
     return s

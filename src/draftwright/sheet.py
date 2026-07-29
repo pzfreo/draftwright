@@ -643,16 +643,27 @@ class Sheet:
         # engine's generic auto-placed Drawing.add_table, AFTER the drawing is built so they sit
         # clear of the views + title block (like the hole table). Each: {rows, prefer, name}.
         self._tables: list = []
-        # ADR 0016 augmenting dimension intents (#872), keyed by feature INDEX for the
-        # same reason as `_tolerances`: a handle may be recorded before a later size verb
-        # replaces the feature. Materialized to `RequestedDimension` against the FINAL
-        # features at build. Each entry: {"index", "role", "discriminator", "pin", "priority"}.
+        # ADR 0016 augmenting dimension intents (#872), token-keyed for the same reason as
+        # `_tolerances`: a handle may be recorded before a later size verb replaces the
+        # feature, and a position would then name whatever moved into the slot.
+        # Materialized to `RequestedDimension` against the FINAL features at build.
+        # Each entry: {"token", "role", "discriminator"}.
         self._added_dimensions: list[dict] = []
-        # Did the script explicitly ask for the planner's set? Optional here (#872) — a
-        # build without it still auto-dimensions, as it always has. Making it MANDATORY
-        # is the #874 breaking change; shipping that early would change this verb's
-        # meaning between phases, which the epic's own rule forbids.
-        self._auto_dimensions = False
+        # The COMPLETE authored dimension set (#874/#876) — the other of the model's two
+        # dimension sources, mutually exclusive with `_auto_dimensions`. Token-keyed like
+        # every other feature reference on this class.
+        self._authored: list[dict] = []
+        # Where the dimensions come from, and WHO said so — `None` (nobody has yet),
+        # ``"explicit"`` (an `auto_dimensions()` line) or ``"implicit"`` (`from_part`, which
+        # chooses on the caller's behalf). MANDATORY unless the sheet authors its own set
+        # instead (#874): `_check_dimension_source` refuses a build that names neither, so
+        # the drawing never falls back to a source nobody chose.
+        #
+        # One tri-state rather than a flag plus an "was it explicit" flag: the pair could
+        # be set to a combination that means nothing, and clearing the source then took two
+        # assignments — which is how the first cut of this broke the identity suite (#921
+        # review round 7). Only ``"explicit"`` conflicts with an authored set.
+        self._auto_dimensions: str | None = None
         # A requested section A–A (#841): ``None`` = no request, else a resolver tuple
         # (``kind``, ``payload``) materialized to a cut-plane Y in ``_decorations`` — ``at``
         # a literal Y, ``feature`` a declared-feature index, ``auto`` the part-centre Y.
@@ -684,9 +695,23 @@ class Sheet:
     def from_part(cls, part, **opts) -> Sheet:
         """Seed the declared set from *detection* (the hybrid mode, ADR 0011 §3): start
         from the model the detector recovers, then override specific features (edit the
-        list via :attr:`features`, or re-declare) before :meth:`build`."""
+        list via :attr:`features`, or re-declare) before :meth:`build`.
+
+        This states the **automatic** dimension source (#874), because that is what asking for
+        detection means: you have asked for the engine's reading of the part, features and
+        dimensions alike. It is not the implicit default the breaking change removed — a
+        `Sheet(part)` still has to say — it is `from_part`'s own meaning.
+
+        Because the choice is `from_part`'s rather than a script line's, adding
+        `dimension(...)` declarations **overrides** it rather than conflicting: detect the
+        features, then declare exactly which of their measurements to draw. That is the
+        natural way to take over a detected drawing, and requiring the caller to redeclare
+        every feature by hand to reach it would be a poor trade (#921 review round 6). An
+        explicit `auto_dimensions()` still conflicts — there the script has said both things.
+        """
         sheet = cls(part, **opts)
         sheet._features.extend(detect_part_model(part).features)  # detect only, no render (#453)
+        sheet._auto_dimensions = "implicit"
         return sheet
 
     # -- feature declaration --------------------------------------------------
@@ -724,11 +749,25 @@ class Sheet:
                 stacklevel=2,
             )
             return self.measured_dimension(*args, **kw)
-        raise TypeError(
-            "Sheet.dimension(): the referential form — dimension(feature, role), which declares "
-            "the complete authored dimension set — is #874. For a dimension carrying an explicit "
-            "measured value, call measured_dimension(kind=…, value=…, …)."
-        )
+        return self._authored_dimension(*args, **kw)
+
+    def _authored_dimension(self, feature, role: str, *, axis: str | None = None):
+        """`dimension(feature, role)` — declare one member of the COMPLETE authored set.
+
+        Referential, like every ADR 0016 intent: it names a feature and a role and carries no
+        number, so the value still comes from the geometry. What distinguishes it from
+        :meth:`add_dimension` is not how it addresses a measurement but what naming one MEANS —
+        `add_dimension` augments the planner's set, so a measurement you don't name keeps
+        whatever the rule set decided; `dimension` declares the set, so a measurement you don't
+        name is omitted.
+
+        That is why the source has to be stated (#874): omission is only meaningful inside a set
+        declared complete. A script that mixed the two would be saying "everything the planner
+        chooses, plus these" and "only these" at once.
+        """
+        token, target, discriminator = self._resolve_measurement(feature, role, axis, "dimension")
+        self._authored.append({"token": token, "role": role, "discriminator": discriminator})
+        return DimensionIntent(self, self._authored[-1])
 
     def measured_dimension(
         self,
@@ -1194,15 +1233,17 @@ class Sheet:
         return self._features
 
     def auto_dimensions(self) -> Sheet:
-        """Ask for the planner's automatic dimension set explicitly (ADR 0016).
+        """Ask for the planner's automatic dimension set (ADR 0016).
 
-        Today this is **optional** — a build without it still auto-dimensions, exactly as
-        before — and it exists so a script can *say* which dimension source it uses, and
-        so :meth:`add_dimension` has something to augment. Making it mandatory is the
-        #874 breaking change; landing that here would change this verb's meaning between
-        releases, which ADR 0016's phasing rule forbids.
+        **Required**, unless the sheet authors its own set with :meth:`dimension` (#874):
+        a build must say where its dimensions come from rather than defaulting to one
+        silently, so a script that means "dimension this for me" reads that way, and one
+        that means "draw exactly what I name" cannot be mistaken for it.
+
+        This is also what :meth:`add_dimension` augments — an augment only means
+        something against a set the planner chose.
         """
-        self._auto_dimensions = True
+        self._auto_dimensions = "explicit"
         return self
 
     def add_dimension(self, feature, role: str, *, axis: str | None = None):
@@ -1223,31 +1264,90 @@ class Sheet:
         a silent coin toss between the row and column pitch is the kind of wrong a reader
         cannot see.
         """
+        token, _target, discriminator = self._resolve_measurement(
+            feature, role, axis, "add_dimension"
+        )
+        entry = {"token": token, "role": role, "discriminator": discriminator}
+        self._added_dimensions.append(entry)
+        return DimensionIntent(self, entry)
+
+    def _check_dimension_source(self) -> None:
+        """A build must say where its dimensions come from (ADR 0016 / #874).
+
+        The set has exactly two sources and they are mutually exclusive:
+
+        - :meth:`auto_dimensions` — the planner's selected set, optionally augmented by
+          :meth:`add_dimension`;
+        - :meth:`dimension` declarations — the complete authored set.
+
+        Three errors follow, and all three are checked HERE rather than in the verbs, so intent
+        stays order-independent: declaring an augment before its source must read the same as
+        declaring it after.
+
+        Requiring a source at all is the breaking change. It is the project's standing
+        preference for a loud failure over a plausible-looking wrong drawing (#630/#631, the
+        #632 completeness lint): a sheet that asked for neither would otherwise build silently,
+        and *which* set it got would depend on a default the script never mentions.
+
+        Rejected: implicit-by-usage — "any `dimension` line turns the automatic set off". A
+        hand-author adding one pitch dimension would silently lose every ⌀ callout.
+        """
+        if self._authored and self._auto_dimensions == "explicit":
+            raise ValueError(
+                "a sheet has ONE dimension source: auto_dimensions() for the planner's set, or "
+                "dimension(...) declarations for the complete authored set. This sheet asks for "
+                "both, which cannot be honoured — omission is only meaningful inside a set "
+                "declared complete, and the automatic set has no omissions to read."
+            )
+        if self._authored:
+            # `from_part` chose the automatic source on the caller's behalf; declaring an
+            # authored set is the script overriding that choice, not contradicting itself.
+            # (An explicit `auto_dimensions()` line already raised above.)
+            self._auto_dimensions = None
+        if self._added_dimensions and not self._auto_dimensions:
+            raise ValueError(
+                "add_dimension() augments the planner's automatic dimension set, so the sheet "
+                "must request one — call auto_dimensions(). To declare the complete set "
+                "instead, use dimension(...) lines and drop the add_dimension() calls."
+            )
+        if not self._auto_dimensions and not self._authored:
+            raise ValueError(
+                "this sheet does not say where its dimensions come from. Call "
+                "auto_dimensions() for the planner's set, or declare the complete set with "
+                "dimension(feature, role) lines. (Building without either used to mean the "
+                "automatic set; ADR 0016 makes the source explicit so that omitting a "
+                "dimension can mean something.)"
+            )
+
+    def _resolve_measurement(self, feature, role: str, axis: str | None, verb: str):
+        """Resolve ``(feature, role, axis)`` to ``(token, feature, discriminator)``, or raise.
+
+        Shared by :meth:`add_dimension` and :meth:`dimension` — the two verbs ADDRESS a
+        measurement identically and differ only in what naming one means, so the addressing
+        lives in one place. A second copy is how the callout reading drifted in #875."""
         token = self._feature_token(feature)
         target = self._features[self._index_of_token(token)]
         params = target.parameters()
         roles = {p.role for p in params} | {p.parameter_id for p in params}
         if role not in roles:
             raise ValueError(
-                f"add_dimension: {type(target).__name__} has no {role!r} measurement "
+                f"{verb}: {type(target).__name__} has no {role!r} measurement "
                 f"(it carries {sorted(roles)})"
             )
         matching = [p for p in params if role in (p.role, p.parameter_id)]
         discs = {p.discriminator for p in matching}
         if len(discs) > 1 and axis is None:
             raise ValueError(
-                f"add_dimension({role!r}) is ambiguous on this feature — it carries "
+                f"{verb}({role!r}) is ambiguous on this feature — it carries "
                 f"{len(discs)} of them ({sorted(d for d in discs if d)}). Name one with "
                 f"axis=."
             )
         if axis is not None and axis not in discs:
             raise ValueError(
-                f"add_dimension({role!r}, axis={axis!r}): this feature has no such "
+                f"{verb}({role!r}, axis={axis!r}): this feature has no such "
                 f"variant ({sorted(d for d in discs if d)})"
             )
-        entry = {"token": token, "role": role, "discriminator": axis}
-        self._added_dimensions.append(entry)
-        return DimensionIntent(self, entry)
+        return token, target, axis
 
     def _replace_feature(self, index: int, feature) -> None:
         """Swap the frozen feature at *index* for an updated copy.
@@ -1304,6 +1404,23 @@ class Sheet:
             for e in self._added_dimensions
         )
 
+    def _authored_set(self) -> tuple | None:
+        """The complete authored set, or ``None`` when the planner's automatic set is in use.
+
+        ``None`` and ``()`` mean different things here and the distinction is load-bearing:
+        ``None`` is "the planner chooses", an empty tuple would be "the author chose nothing",
+        which :meth:`_check_dimension_source` rejects before we get here."""
+        if not self._authored:
+            return None
+        return tuple(
+            RequestedDimension(
+                feature=self._features[self._index_of_token(e["token"])],
+                role=e["role"],
+                discriminator=e["discriminator"],
+            )
+            for e in self._authored
+        )
+
     def _decorations(self) -> dict:
         """Materialize the token-keyed ± tolerances against the FINAL features (a handle may
         have been recorded before a later .depth()/… replaced the feature) → the
@@ -1345,13 +1462,20 @@ class Sheet:
         inferred orientation + the P2a decorations), so inspection pays no projection/anno
         cost and can't hit a layout/render failure. Wraps the *solids body* (as :func:`_analyse`
         does), so the bbox/datum match what ``build()`` draws even when the part carries
-        bbox-extending non-solid geometry."""
+        bbox-extending non-solid geometry.
+
+        Gated on the dimension source like :meth:`build` (#874): this is the model the engine
+        WOULD draw, so a sheet that cannot be built must not hand one out — otherwise
+        ``build_drawing(part, model=sheet.model())`` is a way around the check, and the two
+        public surfaces disagree about the same sheet (the #707 class of divergence)."""
         self._prepare()
+        self._check_dimension_source()
         return _coerce_model(
             self._features,
             _solids_body(self._part),
             self._decorations(),
             self._requested_dimensions(),
+            self._authored_set(),
         )
 
     def build(self):
@@ -1363,17 +1487,13 @@ class Sheet:
         # one (ADR 0016 / #872). Checked HERE rather than in the verb so intent stays
         # order-independent: declaring the augment before the source must read the same
         # as declaring it after.
-        if self._added_dimensions and not self._auto_dimensions:
-            raise ValueError(
-                "add_dimension() augments the planner's automatic dimension set, so the "
-                "sheet must request one — call auto_dimensions(). (Declaring the complete "
-                "authored set with dimension(...) instead is #874.)"
-            )
+        self._check_dimension_source()
         dwg = build_drawing(
             self._part,
             model=self._features,
             decorations=self._decorations(),
             requested=self._requested_dimensions(),
+            authored=self._authored_set(),
             **self._opts,
         )
         # Add each declared table, uniquifying its name against everything already on the sheet

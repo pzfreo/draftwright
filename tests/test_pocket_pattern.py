@@ -49,7 +49,7 @@ def test_declare_composes_member_and_layout():
 
 def test_linear_pattern_renders_one_grouped_callout_plus_pitch():
     part = Box(26, 161, 21)  # the tuner-jig bar
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.pocket_pattern(_member(), kind="linear", count=5, pitch=27.2, direction=(0, 1, 0))
     dwg = s.build()
@@ -79,7 +79,7 @@ def test_grid_pattern_renders_both_pitch_dims():
         w_center=0.0,
         at=(0.0, 0.0, 4.0),
     )
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.pocket_pattern(member, kind="grid", count=6, grid=(30.0, 40.0), rows=2, cols=3)
     dwg = s.build()
@@ -181,7 +181,7 @@ def test_pitch_dim_names_do_not_collide_with_hole_pattern():
     # `dim_pitch_plan0` — the second silently overwrote the first. Distinct prefixes now let
     # both pitch dims survive on one sheet (Codex #848 r2).
     part = Box(140, 120, 14)
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.pattern(  # hole pattern, +Y half, plan view (z holes)
         hole(diameter=6.0, at=(0.0, 35.0, 0.0), axis="z"),
@@ -222,7 +222,7 @@ def test_manual_callout_verb_places_grouped_callout_and_pitch():
     # size/depth callout AND its pitch dim (render_pocket_patterns bundles both), returning the
     # grouped-callout name. It replaces the old deferred-stub that raised.
     part = Box(26, 161, 21)
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.pocket_pattern(_member(), kind="linear", count=5, pitch=27.2, direction=(0, 1, 0))
     dwg = build_drawing(part, model=s.model(), auto_dims=False)  # nothing auto-drawn
@@ -238,7 +238,7 @@ def test_deferred_callout_reconstructs_the_pattern():
     # recorded inside `with dwg.deferred()` drains through finalize's pre-drain "pocket_patterns"
     # stage, drawing the same grouped callout + pitch (#841 outcome 3).
     part = Box(26, 161, 21)
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.pocket_pattern(_member(), kind="linear", count=5, pitch=27.2, direction=(0, 1, 0))
     dwg = build_drawing(part, model=s.model(), auto_dims=False)
@@ -252,7 +252,7 @@ def test_deferred_callout_reconstructs_the_pattern():
 
 def test_model_inspection_sees_the_pattern():
     # the cheap no-render model() path exposes the declared pattern feature
-    s = Sheet(Box(26, 161, 21))
+    s = Sheet(Box(26, 161, 21)).auto_dimensions()
     s.pocket_pattern(_member(), kind="linear", count=5, pitch=27.2, direction=(0, 1, 0))
     model = s.model()
     pats = [f for f in model.features if f.kind == "pocket_pattern"]

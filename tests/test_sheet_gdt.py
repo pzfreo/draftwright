@@ -23,7 +23,7 @@ def _top_face(part):
 
 def test_finish_on_feature_derives_face_on_view():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20)).finish("1.6")
     fin = next(f for f in s.features if f.kind == "finish")
     assert fin.ra == "1.6"
@@ -35,7 +35,7 @@ def test_finish_on_feature_derives_face_on_view():
 
 def test_datum_on_planar_face_derives_edge_on_view():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.datum("A", _top_face(part))
     d = next(f for f in s.features if f.kind == "datum_ref")
     assert d.letter == "A"
@@ -47,7 +47,7 @@ def test_datum_on_planar_face_derives_edge_on_view():
 
 def test_dim_handle_finish():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.diameter(Pos(30, 0, 0) * Cylinder(8, 20)).finish("3.2")
     fin = next(f for f in s.features if f.kind == "finish")
     assert fin.ra == "3.2" and fin.view == "plan"
@@ -68,7 +68,7 @@ def test_non_axis_aligned_face_raises():
 
 def test_bad_inputs_raise():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     with pytest.raises(ValueError, match="letter"):
         s.datum("", _top_face(part))
     with pytest.raises(ValueError, match="roughness"):
@@ -77,7 +77,7 @@ def test_bad_inputs_raise():
 
 def test_face_datum_places_lint_clean():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     s.datum("A", _top_face(part))
@@ -91,7 +91,7 @@ def test_finish_before_depth_keeps_provenance():
     # the SAME handle replaces the source feature; the finish's origin must re-bind to the FINAL
     # feature at build (index-sourced), else annotations_of() misses it and drop() orphans it.
     part = Box(80, 50, 20) - Pos(0, 0, 0) * Cylinder(6, 20)
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     h = s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     h.finish("1.6", view="front", side="above")  # declared BEFORE the size verb
@@ -110,7 +110,7 @@ def test_feature_default_side_is_view_aware_and_places():
     # A z-feature defaults to plan/ABOVE (the plan's below strip always carries the width
     # envelope). A bare finish on the default side places, no override needed.
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20)).finish("1.6")
     dwg = s.build()
@@ -131,7 +131,7 @@ def test_parse_datums():
 
 def test_control_frame_chain_builds_stacked_frames():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     s.control(0).position(0.1, to="A B").perpendicularity(0.05, to="A")
     cfs = [f for f in s.features if f.kind == "control_frame"]
@@ -145,7 +145,7 @@ def test_control_frame_chain_builds_stacked_frames():
 
 def test_form_tolerance_has_no_datums():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.diameter(Pos(30, 0, 0) * Cylinder(8, 20))
     s.control(0).cylindricity(0.02)
     cf = next(f for f in s.features if f.kind == "control_frame")
@@ -154,7 +154,7 @@ def test_form_tolerance_has_no_datums():
 
 def test_control_frames_place_lint_clean():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     s.control(0).position(0.1, to="A").perpendicularity(0.05, to="A")  # default plan/above
@@ -166,7 +166,7 @@ def test_control_frames_place_lint_clean():
 
 def test_undeclared_datum_warns():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     s.control(0).position(0.1, to="Z")  # no sheet.datum("Z", …) declared
@@ -176,7 +176,7 @@ def test_undeclared_datum_warns():
 
 def test_declared_datum_does_not_warn():
     part = _part()
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.envelope()
     s.datum("A", _top_face(part))
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))

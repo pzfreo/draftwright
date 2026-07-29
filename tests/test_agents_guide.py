@@ -21,7 +21,7 @@ def test_declared_sheet_gdt_targets_the_declared_feature():
     """Front door 2 + GD&T: control(handle) must target the HOLE, not the datum/face. An
     off-centre hole makes the frame site distinguishable from the centred top face (Codex #819)."""
     part, hole_solid, top_face = _holed_block(hole_x=18.0)
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     h = s.hole(hole_solid)
     h.fit("H7")
     s.datum("A", top_face)
@@ -107,7 +107,7 @@ def test_sheet_slot_declaration_builds():
     """The guide's `s.slot(...)` declaration: a slotted part declares + builds without error."""
     slot_solid = Pos(0, 0, 0) * Box(24, 8, 12)
     part = Box(80, 40, 12) - slot_solid
-    s = Sheet(part)
+    s = Sheet(part).auto_dimensions()
     s.slot(slot_solid)
     dwg = s.build()
     assert dwg.model().features  # the slot is in the declared model

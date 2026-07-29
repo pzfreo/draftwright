@@ -53,6 +53,35 @@ def _script_for(part, part_expr="part = PART", stem="drawing", **kw):
 
 
 class TestEmit:
+    @pytest.mark.parametrize(
+        "part", [Box(40, 20, 10), _plate(), Box(80, 60, 40)], ids=["bare", "plate", "block"]
+    )
+    def test_every_emitted_script_states_its_dimension_source(self, part):
+        """#874's emitter gate. A generated script must SAY where its dimensions come
+        from, not rely on a default — that is what makes omission mean something. Round
+        trips cover this only implicitly (the build would raise), so assert the line
+        directly: a part with no features must still emit it."""
+        assert "sheet.auto_dimensions()" in _script_for(part)
+
+    def test_a_model_with_an_authored_set_is_refused_not_silently_converted(self):
+        """The emitter used to write `sheet.auto_dimensions()` for ANY model, so running a
+        script generated from an authored model restored every dimension that model had
+        omitted — "width only" became the full automatic set (#921 review round 5). A
+        generated script that draws something other than its source model is the #707
+        class of divergence.
+
+        It refuses rather than emitting the declarations, because the only way to name a
+        feature in the generated script is by position, and the documented workflow for
+        these scripts is to comment a feature line out and re-run — which would shift the
+        indices and retarget the dimensions onto their neighbours."""
+        from draftwright import Sheet
+        from draftwright.sheet_emit import emit_sheet_script
+
+        sheet = Sheet(Box(90, 60, 20), title="T", number="N")
+        sheet.dimension(sheet.envelope(), "width")
+        with pytest.raises(ValueError, match="authored dimension set"):
+            emit_sheet_script(sheet.model(), "part = Box(90, 60, 20)", "s", title="T", number="N")
+
     def test_emits_one_declarative_line_per_feature(self):
         src = _script_for(_plate())
         assert "sheet = Sheet(part, title='T', number='N')" in src
@@ -104,7 +133,7 @@ class TestEmit:
     def test_measured_dimension_declares_renderable_authored_dimension(self, tmp_path):
         from draftwright import Sheet
 
-        sheet = Sheet(Box(40, 20, 10), title="P", out=str(tmp_path / "dim"))
+        sheet = Sheet(Box(40, 20, 10), title="P", out=str(tmp_path / "dim")).auto_dimensions()
         sheet.measured_dimension(
             kind="linear",
             value=40,
@@ -125,7 +154,7 @@ class TestEmit:
     def test_measured_dimension_rejects_unrenderable_kind(self):
         from draftwright import Sheet
 
-        sheet = Sheet(Box(40, 20, 10), title="P")
+        sheet = Sheet(Box(40, 20, 10), title="P").auto_dimensions()
         with pytest.raises(ValueError, match="kind must be one of"):
             sheet.measured_dimension(
                 kind="liner",
@@ -139,7 +168,7 @@ class TestEmit:
     def test_measured_dimension_rejects_unrenderable_axis(self):
         from draftwright import Sheet
 
-        sheet = Sheet(Box(40, 20, 10), title="P")
+        sheet = Sheet(Box(40, 20, 10), title="P").auto_dimensions()
         with pytest.raises(ValueError, match="dominant_axis must be X, Y, or Z"):
             sheet.measured_dimension(
                 kind="linear",
@@ -162,7 +191,7 @@ class TestEmit:
             "Z": [(-38, -30, 5), (-38, -30, 15)],
         }
         for axis, ref_pts in cases.items():
-            sheet = Sheet(Box(80, 60, 40), title="P")
+            sheet = Sheet(Box(80, 60, 40), title="P").auto_dimensions()
             sheet.measured_dimension(
                 kind="linear",
                 value=10,
@@ -182,7 +211,7 @@ class TestEmit:
         # for a real candidate that reached the corridor solver and could not fit.
         from draftwright import Sheet
 
-        sheet = Sheet(Box(80, 60, 40), title="P")
+        sheet = Sheet(Box(80, 60, 40), title="P").auto_dimensions()
         sheet.measured_dimension(
             kind="linear",
             value=10,
@@ -505,7 +534,7 @@ class TestEmit:
         model = detect_part_model(part)
         src = _script_for(part)
         line = next(ln for ln in src.splitlines() if "sheet.step_level(" in ln).split("#")[0]
-        sheet = Sheet(part, title="T", number="N")
+        sheet = Sheet(part, title="T", number="N").auto_dimensions()
         exec(compile(line, "<emit>", "exec"), {"sheet": sheet})
         got = sheet._features[-1]
         det = next(f for f in model.features if f.kind == "step_level")
@@ -545,7 +574,7 @@ class TestEmit:
 
         part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20.33, 8, 20)  # off-round → stresses rounding
         line = next(ln for ln in _script_for(part).splitlines() if ln.startswith("sheet.slot("))
-        eval(line, {"sheet": Sheet(part)})  # declare.slot() must not raise
+        eval(line, {"sheet": Sheet(part).auto_dimensions()})  # declare.slot() must not raise
 
     def test_pocket_line_re_runs_without_the_length_invariant_error(self):
         # #148a: declare.pocket() checks hi - lo == length to 1e-6; the emitter must derive
@@ -554,7 +583,7 @@ class TestEmit:
 
         part = Box(80, 60, 20) - Pos(0, 0, 6) * Box(30.33, 20, 8)  # off-round → stresses rounding
         line = next(ln for ln in _script_for(part).splitlines() if ln.startswith("sheet.pocket("))
-        eval(line, {"sheet": Sheet(part)})  # declare.pocket() must not raise
+        eval(line, {"sheet": Sheet(part).auto_dimensions()})  # declare.pocket() must not raise
 
     def test_linear_pattern_spells_out_members(self):
         # #461 review: the arrangement can't be recomputed faithfully (no reliable direction/angle),

@@ -214,6 +214,40 @@ def _recess(group: DimensionGroup) -> tuple[float | None, float | None]:
     return None, None
 
 
+_AUTHORED_OMISSION = "not in the authored dimension set"
+
+# What a `callout()` PRINTS, by feature kind — the parameter kinds whose values make up
+# the callout text. A dimension outside this set belongs to some other mark: a pattern's
+# `pitch` is a linear dim drawn between members, not a term in the callout, so a pattern
+# whose pocket size is omitted has an undrawable callout even though its pitch survives
+# (#921 review round 7). Kinds absent here fall back to "any un-suppressed dim will do".
+_AUTHORED_OMISSION = "not in the authored dimension set"
+
+
+def authored_omission_in(group) -> bool:
+    """Does *group* have any measurement the AUTHOR left out (ADR 0016 / #876)?
+
+    Only that — deliberately NOT "would the callout draw?". Three attempts at predicting
+    the second from a hand-written per-kind table were each wrong for some feature: a
+    hole's callout survives losing an optional segment, a pocket's does not survive losing
+    a required component, and a pattern's pitch is not a callout term at all (#921 rounds
+    6–8). Each renderer owns that rule, and a copy of it here is a parallel representation
+    that drifts.
+
+    Since the compiled-plan boundary landed there is no need to predict at all: a renderer
+    receives approved entries, so "draws nothing" is observable rather than forecast. What
+    the plan still has to say is WHY it drew nothing — an author's omission is recoverable
+    by adding a `dimension(...)` line, a planner rule's suppression is not.
+    """
+    if group is None:
+        return False
+    dims = getattr(group, "dims", ())
+    return any(
+        getattr(d, "suppressed", False) and getattr(d, "reason", None) == _AUTHORED_OMISSION
+        for d in dims
+    )
+
+
 def hole_callout_spec(group: DimensionGroup) -> dict | None:
     """A hole/pattern group's plan → `HoleCallout` kwargs, mirroring the engine's
     convention. ``None`` if not a hole-bearing callout.

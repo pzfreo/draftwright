@@ -124,7 +124,7 @@ class TestSheetSurface:
 
     def test_add_dimension_requires_a_dimension_source(self):
         """`add_dimension` augments the planner's set, so there must be one."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N")  # deliberately no source
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
         sheet.add_dimension(bore, "bore")
         with pytest.raises(ValueError, match="call auto_dimensions"):
@@ -133,17 +133,271 @@ class TestSheetSurface:
     def test_the_source_may_be_declared_after_the_augment(self):
         """Order independence (ADR 0016). The gate is at build, not in the verb, so
         these two scripts must not disagree."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N")  # the source arrives below
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
         sheet.add_dimension(bore, "bore")
         sheet.auto_dimensions()
         assert sheet.build() is not None
 
-    def test_a_sheet_without_augments_still_builds_without_the_source_verb(self):
-        """`auto_dimensions()` is optional in this phase — making it mandatory is the
-        #874 breaking change. A plain declarative script must keep working."""
+    def test_a_sheet_with_no_source_at_all_raises(self):
+        """#874's third error, and the breaking one. This test previously asserted the
+        OPPOSITE — that `auto_dimensions()` was optional — and the mechanical migration
+        rewrote its setup to call the verb while leaving its name and docstring intact, so it
+        went on passing while proving nothing (#921 review). A gate with no test is worse
+        than no gate, because the suite claims otherwise."""
         sheet = Sheet(_part(), title="T", number="N")
         sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        with pytest.raises(ValueError, match="does not say where its dimensions come from"):
+            sheet.build()
+
+    def test_the_model_surface_is_gated_too(self):
+        """`Sheet.model()` is the model the engine WOULD draw, so a sheet that cannot be built
+        must not hand one out — otherwise `build_drawing(part, model=sheet.model())` walks
+        straight around the check and the two public surfaces disagree about one sheet."""
+        sheet = Sheet(_part(), title="T", number="N")
+        sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        with pytest.raises(ValueError, match="does not say where its dimensions come from"):
+            sheet.model()
+
+    def test_declaring_both_sources_raises(self):
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        sheet.dimension(bore, "bore")
+        with pytest.raises(ValueError, match="ONE dimension source"):
+            sheet.build()
+
+    def test_a_detected_build_refuses_an_authored_set(self):
+        """`authored=` names DECLARED feature objects; detection builds its own, which no
+        authored entry can match. Dropping it silently would revert the build to exactly
+        the automatic dimensions the author was replacing (#921 review) — the `requested=`
+        guard beside it has always said so, and this is the worse of the two to lose."""
+        from draftwright import build_drawing
+        from draftwright.model import declare
+        from draftwright.model.ir import RequestedDimension
+
+        part = _part()
+        request = RequestedDimension(
+            feature=declare.envelope(part), role="width", discriminator=None
+        )
+        with pytest.raises(ValueError, match="authored= names declared features"):
+            build_drawing(part, authored=(request,))
+
+    @pytest.mark.parametrize(
+        "on_model,as_kwarg",
+        [("requested_dimensions", "authored"), ("authored_dimensions", "requested")],
+    )
+    def test_both_sources_are_refused_however_they_arrive(self, on_model, as_kwarg):
+        """The exclusion is a property of the EFFECTIVE model, not of one call's arguments.
+        Either source can arrive two ways — as a keyword, or already carried by a supplied
+        `PartModel` — so an argument-level guard sees only half of each combination and
+        both of these mixed forms slipped through it (#921 review)."""
+        from draftwright.builder import _coerce_model
+        from draftwright.model import declare
+        from draftwright.model.ir import PartModel, RequestedDimension
+
+        part = _part()
+        env = declare.envelope(part)
+        request = RequestedDimension(feature=env, role="width", discriminator=None)
+        model = PartModel(
+            bbox=part.bounding_box(),
+            orientation=None,
+            features=[env],
+            datums=[],
+            **{on_model: (request,)},
+        )
+        with pytest.raises(ValueError, match="cannot have both"):
+            _coerce_model(model, part, None, **{as_kwarg: (request,)})
+
+    def test_a_partmodel_already_naming_both_sources_is_refused(self):
+        """The public boundary rejects an invalid model even when no keyword adds to it."""
+        from draftwright.builder import _coerce_model
+        from draftwright.model import declare
+        from draftwright.model.ir import PartModel, RequestedDimension
+
+        part = _part()
+        env = declare.envelope(part)
+        request = RequestedDimension(feature=env, role="width", discriminator=None)
+        model = PartModel(
+            bbox=part.bounding_box(),
+            orientation=None,
+            features=[env],
+            datums=[],
+            requested_dimensions=(request,),
+            authored_dimensions=(request,),
+        )
+        with pytest.raises(ValueError, match="cannot have both"):
+            _coerce_model(model, part)
+
+    def test_an_authored_entry_naming_a_feature_copy_raises(self):
+        """Matching is by object identity on purpose — two equal-valued features are two
+        distinct targets, so a part with two identical holes can dimension one of them
+        (see `_request_for`). The cost is that an equal-but-distinct COPY matches nothing,
+        and for an authored set a miss is not a no-op: it declares the complete set, so
+        every measurement on that feature goes silently blank (#921 review round 4).
+
+        Unreachable through `Sheet`, which materialises entries against the final
+        features; reachable through the ADR 0011 public input, which is exactly where a
+        caller assembles a `PartModel` by hand. So the miss says so."""
+        from dataclasses import replace
+
+        from draftwright.model import Frame, HoleFeature, PartModel, plan_dimensions
+        from draftwright.model.ir import RequestedDimension
+
+        hole = HoleFeature(Frame((0, 0, 10), "z"), 12.0, depth=8.0, through=False)
+        clone = replace(hole)
+        assert clone == hole and clone is not hole, "the fixture must be an equal COPY"
+        model = PartModel(
+            bbox=_part().bounding_box(),
+            orientation="prismatic",
+            features=[hole],
+            authored_dimensions=(RequestedDimension(clone, "bore.diameter"),),
+        )
+        with pytest.raises(ValueError, match="not in model.features"):
+            plan_dimensions(model)
+
+    def test_an_authored_entry_naming_a_measurement_that_does_not_exist_raises(self):
+        from draftwright.model import Frame, HoleFeature, PartModel, plan_dimensions
+        from draftwright.model.ir import RequestedDimension
+
+        hole = HoleFeature(Frame((0, 0, 10), "z"), 12.0, depth=8.0, through=False)
+        model = PartModel(
+            bbox=_part().bounding_box(),
+            orientation="prismatic",
+            features=[hole],
+            authored_dimensions=(RequestedDimension(hole, "nonesuch"),),
+        )
+        with pytest.raises(ValueError, match="no 'nonesuch' measurement"):
+            plan_dimensions(model)
+
+    def test_a_valid_authored_entry_still_plans(self):
+        """The control: the guard above must not reject the ordinary case."""
+        from draftwright.model import Frame, HoleFeature, PartModel, plan_dimensions
+        from draftwright.model.ir import RequestedDimension
+
+        hole = HoleFeature(Frame((0, 0, 10), "z"), 12.0, depth=8.0, through=False)
+        model = PartModel(
+            bbox=_part().bounding_box(),
+            orientation="prismatic",
+            features=[hole],
+            authored_dimensions=(RequestedDimension(hole, "bore.diameter"),),
+        )
+        marked = {pd.param.parameter_id: pd.suppressed for pd in plan_dimensions(model)[0].dims}
+        assert marked == {"bore.diameter": False, "bore.depth": True}
+
+    def test_from_part_can_be_taken_over_by_an_authored_set(self):
+        """Detect the features, then declare exactly which of their measurements to draw.
+        `from_part` chooses the automatic source on the caller's behalf, so this is the
+        script changing its mind, not contradicting itself — and it is the natural way to
+        take over a detected drawing. Requiring every feature to be redeclared by hand to
+        reach suppression by omission would be a poor trade (#921 review round 6)."""
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(100, 60, 20) - Pos(0, 0, 10) * Cylinder(5, 20)
+        sheet = Sheet.from_part(part)
+        hole = next(f for f in sheet.features if f.kind == "hole")
+        sheet.dimension(hole, "bore.diameter")
+
+        drawn = {n for n, _ in sheet.build().iter_annotations()}
+        assert "hc_plan0" in drawn, "the authored callout"
+        assert not [n for n in drawn if n.startswith(("dim_height", "m_env"))], (
+            f"the automatic envelope survived the takeover: {sorted(drawn)}"
+        )
+        assert "m_env_width" in {n for n, _ in Sheet.from_part(part).build().iter_annotations()}, (
+            "the control: from_part alone still auto-dimensions"
+        )
+
+    def test_an_explicit_auto_dimensions_still_conflicts(self):
+        """The distinction that makes the override safe: a SCRIPT LINE asking for the
+        automatic set and then declaring an authored one has said both things, and one of
+        them must be wrong. Only `from_part`'s implicit choice is overridable."""
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+        bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        sheet.dimension(bore, "bore.diameter")
+        with pytest.raises(ValueError, match="ONE dimension source"):
+            sheet.build()
+
+    def test_a_callout_for_an_omitted_feature_is_refused_in_both_paths(self):
+        """A post-build edit naming something the authored set left out draws nothing. The
+        deferred path used to record the intent, draw nothing at the drain, drop the intent
+        unconditionally, and report success — the edit vanished with no annotation, no
+        pending intent and no warning (#921 review round 6). Both paths now refuse, with
+        the same message, at the point the caller can still act on it."""
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(100, 60, 20) - Pos(0, 0, 10) * Cylinder(5, 20)
+        sheet = Sheet.from_part(part)
+        env = next(f for f in sheet.features if f.kind == "envelope")
+        hole = next(f for f in sheet.features if f.kind == "hole")
+        sheet.dimension(env, "width")
+        dwg = sheet.build()
+
+        with pytest.raises(ValueError, match="authored dimension set leaves out"):
+            with dwg.deferred():
+                dwg.callout(hole)
+        with pytest.raises(ValueError, match="authored dimension set leaves out"):
+            dwg.callout(hole)
+
+    def test_a_step_callout_is_refused_identically_live_and_deferred(self):
+        """The check sat in the deferred branch only, so the live step/boss path drew an
+        explicitly omitted ø while the identical deferred call refused it — the answer
+        depended on whether you were inside `deferred()` (#921 review round 7). It now
+        runs before the split, which is the only way the two cannot drift."""
+        from build123d import Cylinder, Pos, Rot
+
+        part = Rot(0, 90, 0) * Cylinder(4, 20) + Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10)
+        sheet = Sheet(part, title="T", number="N")
+        sheet.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
+        sheet.dimension(sheet.envelope(), "width")
+        dwg = sheet.build()
+        step = next(f for f in dwg.model().features if f.kind == "step")
+
+        with pytest.raises(ValueError, match="authored dimension set leaves out"):
+            dwg.callout(step)
+        with pytest.raises(ValueError, match="authored dimension set leaves out"):
+            with dwg.deferred():
+                dwg.callout(step)
+
+    @pytest.mark.parametrize("authored", ["bore.diameter", None], ids=["authored", "automatic"])
+    def test_a_drawable_callout_is_never_refused(self, authored):
+        """The false-positive guard. A refusal that fires on a legitimate edit is as much a
+        defect as one that misses an illegitimate one, and this check runs on every
+        `callout()` call now that it sits above the split."""
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(100, 60, 20) - Pos(0, 0, 10) * Cylinder(5, 20)
+        sheet = Sheet.from_part(part)
+        if authored:
+            sheet.dimension(next(f for f in sheet.features if f.kind == "hole"), authored)
+        dwg = sheet.build()
+        hole = next(f for f in dwg.model().features if f.kind == "hole")
+        with dwg.deferred():
+            dwg.callout(hole)  # must not raise
+
+    def test_the_refusal_asks_the_PLAN_not_a_per_kind_table(self):
+        """This replaces a test of `_CALLOUT_PARAM_KINDS`, a hand-written table of which
+        parameters each kind's callout prints. Three versions of that table were each wrong
+        for some feature (#921 rounds 6-8) — a hole's callout survives losing an optional
+        segment, a pocket's does not survive losing a required one, a pattern's pitch was
+        never a callout term.
+
+        The compiled-plan boundary removed the need to predict: a renderer receives approved
+        entries, so "no approved dimensions for this feature" is the whole question. The
+        table is gone and nothing replaced it."""
+        from draftwright.model import callout as callout_mod
+
+        assert not hasattr(callout_mod, "_CALLOUT_PARAM_KINDS"), (
+            "the per-kind callout table is back — the boundary makes it unnecessary, and "
+            "every hand-written version of it was wrong for some feature kind"
+        )
+        assert hasattr(callout_mod, "authored_omission_in"), "the WHY predicate is still needed"
+
+    def test_from_part_states_the_automatic_source(self):
+        """Detection IS a request for the engine's reading of the part, so `from_part` says so
+        rather than leaving the caller to. Not the implicit default returning by the back
+        door — a plain `Sheet(part)` still has to say."""
+        from build123d import Box, Cylinder, Pos
+
+        sheet = Sheet.from_part(Box(90, 60, 20) - Pos(0, 0, 12) * Cylinder(6, 20))
         assert sheet.build() is not None
 
     def test_the_model_surface_reflects_requests(self):
@@ -379,7 +633,7 @@ class TestInvalidCombinations:
         """The bug that motivated #908, and it predates add_dimension entirely:
         `_tolerances` was index-keyed since P2a, so a reorder moved a tolerance onto a
         neighbouring feature."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
         sheet.hole(diameter=4, at=(20, 0, 14), axis="z").depth(7)
         big.tolerance(0.05)
@@ -419,7 +673,7 @@ class TestFeatureViewIdentity:
 
     @staticmethod
     def _two_holes():
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
         sheet.hole(diameter=4, at=(20, 0, 14), axis="z").depth(7)
         big.tolerance(0.05)
@@ -467,7 +721,7 @@ class TestFeatureViewIdentity:
         frame later, and an index would name whatever occupied the slot by then (PR #910
         review). Everything else — `datum`/`finish`/`note` — resolves and appends in a single
         expression, so only this seam can span a mutation."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
         sheet.hole(diameter=4, at=(20, 0, 14), axis="z").depth(7)
 
@@ -482,7 +736,7 @@ class TestFeatureViewIdentity:
     def test_a_control_builder_spans_a_mint_too(self):
         """The same seam against an *appending* mutation, which shifts no slot the builder
         already holds but does grow the view — a token stays correct either way."""
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         big = sheet.hole(diameter=10, at=(-20, 0, 14), axis="z").depth(12)
 
         control = sheet.control(big)
@@ -509,7 +763,7 @@ class TestFeatureViewContract:
 
     @staticmethod
     def _sheet_with(n=3):
-        sheet = Sheet(_part(), title="T", number="N")
+        sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         for i in range(n):
             sheet.hole(diameter=4 + i, at=(-20 + 20 * i, 0, 14), axis="z").depth(5 + i)
         return sheet
@@ -598,3 +852,260 @@ class TestFeatureViewContract:
         sheet.features.reverse()
         toleranced = [f for f, *_ in sheet._decorations() if getattr(f, "kind", None) == "hole"]
         assert len(toleranced) == 1
+
+
+class TestOmissionReachesTheDrawing:
+    """#876 end to end, through the façade a caller actually uses.
+
+    Every unit test of the authored set passed while `build()` silently dropped it — one
+    `_coerce_model` call forwarded `requested` and not `authored`, so the planner never took
+    the authored branch (#921 review). Nothing asserted that omission changed a DRAWING, only
+    that the model carried the intent, and the gap between those two is exactly where the bug
+    lived. These assert the observable consequence.
+    """
+
+    @staticmethod
+    def _sheet():
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(90, 60, 20) - Pos(0, 0, 12) * Cylinder(6, 20)
+        sheet = Sheet(part, title="T", number="N")
+        return sheet, sheet.envelope()
+
+    def test_an_authored_set_survives_the_build(self):
+        sheet, env = self._sheet()
+        sheet.dimension(env, "width")
+        assert [d.role for d in sheet.build().model().authored_dimensions] == ["width"]
+
+    def test_an_omitted_measurement_is_marked_suppressed(self):
+        sheet, env = self._sheet()
+        sheet.dimension(env, "width")
+        groups = plan_dimensions(sheet.model())
+        marked = {pd.param.role: pd.suppressed for g in groups for pd in g.dims}
+        assert marked["width"] is False, "the named measurement prints"
+        assert marked["height"] is True and marked["depth"] is True, "the rest are omitted"
+
+    def test_an_omitted_measurement_keeps_its_value(self):
+        """Marked, NOT filtered (#875): the group retains its engineering data, so a later
+        pass can still see what was left out and why."""
+        sheet, env = self._sheet()
+        sheet.dimension(env, "width")
+        groups = plan_dimensions(sheet.model())
+        omitted = [pd for g in groups for pd in g.dims if pd.suppressed]
+        assert omitted and all(pd.param.value is not None for pd in omitted)
+        assert all(pd.reason == "not in the authored dimension set" for pd in omitted)
+
+    def test_the_automatic_set_is_unaffected(self):
+        """The contrast: with no authored set nothing is suppressed by omission, so the
+        assertions above cannot be passing for some unrelated reason."""
+        sheet, _env = self._sheet()
+        sheet.auto_dimensions()
+        groups = plan_dimensions(sheet.model())
+        assert not [
+            pd for g in groups for pd in g.dims if pd.reason == "not in the authored dimension set"
+        ]
+
+
+def _names(dwg) -> set:
+    return {name for name, _obj in dwg.iter_annotations()}
+
+
+class TestOmittedDimensionsDoNotRender:
+    """The class above marks the plan; this one reads the PAGE (#921 review round 2).
+
+    Marking a `PlannedDimension` suppressed only matters if some renderer consults it,
+    and three auto passes did not: `render_height_ladder` rebuilt the overall height
+    and the step rungs from the bbox and the feature, and `render_step_positions` did
+    the same for the shoulders. The plan said "omitted" and the drawing drew it anyway,
+    which is why asserting on `plan_dimensions` could not catch this. Every assertion
+    here inspects annotations that actually reached the drawing.
+    """
+
+    @staticmethod
+    def _plate():
+        from build123d import Box, Cylinder, Pos
+
+        return Box(90, 60, 20) - Pos(0, 0, 12) * Cylinder(6, 20)
+
+    @staticmethod
+    def _staircase():
+        """Three tiers, so the rung set has TWO members. A one-rung part cannot tell
+        "the whole set is addressed" from "one member happened to survive"."""
+        from build123d import Box, Pos
+
+        return (
+            Box(120, 60, 15)
+            + Pos(-20, 0, 15) * Box(80, 60, 15)
+            + Pos(-40, 0, 30) * Box(40, 60, 15)
+        )
+
+    @staticmethod
+    def _shouldered():
+        """One rebate — a `step_position` shoulder to omit."""
+        from build123d import Box, Pos
+
+        return Box(120, 60, 20) + Pos(-30, 0, 20) * Box(60, 60, 25)
+
+    def test_an_omitted_overall_height_is_not_drawn(self):
+        sheet = Sheet(self._plate(), title="T", number="N")
+        sheet.dimension(sheet.envelope(), "width")
+        assert "dim_height" not in _names(sheet.build())
+
+    def test_the_authored_overall_height_is_drawn(self):
+        """The control for the test above: the same sheet, naming height as well, still
+        gets it. Without this, deleting the height ladder outright would pass."""
+        sheet = Sheet(self._plate(), title="T", number="N")
+        env = sheet.envelope()
+        sheet.dimension(env, "width")
+        sheet.dimension(env, "height")
+        assert "dim_height" in _names(sheet.build())
+
+    def test_the_automatic_set_still_draws_the_overall_height(self):
+        sheet = Sheet(self._plate(), title="T", number="N").auto_dimensions()
+        assert "dim_height" in _names(sheet.build())
+
+    @staticmethod
+    def _rungs(dwg):
+        return sorted(n for n in _names(dwg) if n.startswith("dim_step_"))
+
+    @staticmethod
+    def _shoulders(dwg):
+        return sorted(n for n in _names(dwg) if n.startswith("dim_shoulder_"))
+
+    def test_omitted_step_rungs_are_not_drawn(self):
+        part = self._staircase()
+        sheet = Sheet(part, title="T", number="N")
+        sheet.step_level(part)
+        sheet.dimension(sheet.envelope(), "width")
+        assert self._rungs(sheet.build()) == []
+
+    def test_a_correlated_set_is_addressed_whole(self):
+        """ADR 0016 identity tier 3: one `role=` line keeps the WHOLE ladder. With two
+        rungs in play this distinguishes "the set was addressed" from "one member
+        happened to survive" — a per-member reading of the plan would draw neither, and
+        a half-honoured one would draw a partial staircase."""
+        part = self._staircase()
+        authored = Sheet(part, title="T", number="N")
+        authored.step_level(part)
+        authored.dimension(authored.features[-1], "step_height")
+        auto = Sheet(part, title="T", number="N")
+        auto.step_level(part)
+        auto.auto_dimensions()
+        drawn = self._rungs(authored.build())
+        assert len(drawn) > 1, "the fixture must exercise a MULTI-member set"
+        assert drawn == self._rungs(auto.build())
+
+    def test_omitted_step_positions_are_not_drawn(self):
+        part = self._shouldered()
+        sheet = Sheet(part, title="T", number="N")
+        sheet.step_level(part)
+        sheet.dimension(sheet.features[-1], "step_height")
+        assert self._shoulders(sheet.build()) == [], "step_position was not authored"
+        assert self._rungs(sheet.build()), "but its sibling set on the same feature was"
+
+    def test_authored_step_positions_are_drawn(self):
+        part = self._shouldered()
+        sheet = Sheet(part, title="T", number="N")
+        sheet.step_level(part)
+        sheet.dimension(sheet.features[-1], "step_position")
+        assert self._shoulders(sheet.build())
+
+    def test_an_unaddressable_overall_height_is_refused_not_drawn(self):
+        """A sheet that never declared an envelope has no parameter naming the overall
+        height, so an authored set cannot ask for it — and must not silently get it.
+        The bbox fallback belongs to automatic builds only."""
+        from build123d import Cylinder, Pos
+
+        part = self._plate()
+        sheet = Sheet(part, title="T", number="N")
+        hole = sheet.hole(Pos(0, 0, 12) * Cylinder(6, 20))
+        sheet.dimension(hole, "bore.diameter")
+        assert "dim_height" not in _names(sheet.build())
+
+    def test_one_authored_line_leaves_only_that_dimension_on_the_page(self):
+        """The whole contract in one assertion, against a part with several competing
+        feature kinds. Each earlier test names a pass that leaked; this one would catch
+        the NEXT such pass without knowing its name, which is the property that matters
+        — the P0 was a class of defect (a renderer rebuilding its marks from geometry
+        instead of the plan), not a single site.
+
+        What legitimately remains is furniture, not dimensioning: centre marks, the
+        NTS note, the title block, and the location ladder, which stays outside the
+        authored set until it has addressable identity (#883).
+        """
+        from build123d import Box, Cylinder, Pos
+
+        part = (
+            Box(120, 80, 25)
+            - Pos(-30, 0, 17) * Cylinder(5, 20)
+            - Pos(30, 20, 17) * Cylinder(4, 20)
+        )
+        sheet = Sheet(part, title="T", number="N")
+        env = sheet.envelope()
+        sheet.hole(Pos(-30, 0, 17) * Cylinder(5, 20))
+        sheet.hole(Pos(30, 20, 17) * Cylinder(4, 20))
+        sheet.dimension(env, "width")
+
+        drawn = _names(sheet.build())
+        assert "m_env_width" in drawn, "the one authored measurement"
+        furniture = ("m_cm", "m_locx", "m_locy", "note_", "title_block")
+        assert not [n for n in drawn if n != "m_env_width" and not n.startswith(furniture)], (
+            f"an unauthored dimension reached the page: {sorted(drawn)}"
+        )
+
+        auto = Sheet(part, title="T", number="N")
+        auto.envelope()
+        auto.hole(Pos(-30, 0, 17) * Cylinder(5, 20))
+        auto.hole(Pos(30, 20, 17) * Cylinder(4, 20))
+        auto.auto_dimensions()
+        assert len(_names(auto.build())) > len(drawn), (
+            "the automatic build must carry MORE — otherwise the assertion above holds "
+            "for a part that was never richly dimensioned in the first place"
+        )
+
+    def test_a_turned_part_authors_one_dimension_too(self):
+        """The prismatic case above passed while the whole TURNED family ignored
+        suppression — `render_diameters`, `render_step_lengths`, `render_rotational` and
+        `render_boss_diameters` all selected parameters with no suppression check, so
+        authoring one step length still drew every diameter on the part (#921 review
+        round 3). One fixture per renderer family, because a fixture only guards the
+        family it exercises.
+
+        Centrelines survive by design: they show where the turning axis is and print no
+        value, so a sheet that authors one length still reads as a turned part."""
+        from build123d import Cylinder, Pos, Rot
+
+        part = Rot(0, 90, 0) * Cylinder(4, 20) + Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10)
+        sheet = Sheet(part, title="T", number="N")
+        first = sheet.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
+        sheet.step(diameter=12, length=10, at=(15, 0, 0), axis="x")  # same-kind neighbour
+        sheet.dimension(first, "step.length")
+
+        drawn = _names(sheet.build())
+        assert "m_steplen0" in drawn, "the one authored measurement"
+        assert not [n for n in drawn if n.startswith(("m_dia", "dim_od", "ldr_"))], (
+            f"an unauthored turned dimension reached the page: {sorted(drawn)}"
+        )
+        assert "m_steplen1" not in drawn, "the neighbouring step's length was not authored"
+        assert {"centerline_front", "centerline_plan"} <= drawn, "furniture is not a dimension"
+
+    def test_an_omitted_rotational_od_and_bore_are_not_drawn(self):
+        """`render_rotational` places the OD and each concentric bore leader directly.
+        A bore omitted from the set must not even become a strip candidate — it was not
+        wanted, which is different from not fitting."""
+        from build123d import Cylinder
+
+        from draftwright.model.ir import Frame, RotationalFeature
+
+        part = Cylinder(radius=20, height=40) - Cylinder(radius=6, height=40)
+
+        def _built(role):
+            sheet = Sheet(part, title="T", number="N")
+            sheet.add(RotationalFeature(frame=Frame((0, 0, 0), "z"), od=40.0, bores=(12.0,)))
+            sheet.dimension(sheet.features[-1], role)
+            return _names(sheet.build())
+
+        od_only = _built("od")
+        assert "dim_od" in od_only and "ldr_z0" not in od_only
+        bore_only = _built("bore")
+        assert "ldr_z0" in bore_only and "dim_od" not in bore_only

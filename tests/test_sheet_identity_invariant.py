@@ -64,7 +64,7 @@ def _part():
 
 
 def _sheet():
-    return Sheet(_part(), title="T", number="N")
+    return Sheet(_part(), title="T", number="N").auto_dimensions()
 
 
 def _canonical(model) -> tuple:
@@ -149,6 +149,18 @@ def _scn_note(s):
     return a, lambda a: s.note("M10x1.5 TAP", a)
 
 
+def _scn_dimension(s):
+    """The #874 authored set. Like `section`/`datum`/`note` it returns `Sheet`, so only the
+    state-field ratchet makes it mandatory here."""
+    # `_sheet()` states the automatic source; the two are mutually exclusive (#874), so this
+    # scenario switches to the authored one. Reaching for the private flag rather than adding
+    # a public "unset the source" verb: nothing outside a test wants to change its mind.
+    s._auto_dimensions = None
+    a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    return a, lambda a: s.dimension(a, "bore")
+
+
 def _scn_add_dimension(s):
     """The verb runs in the DRIVER, not in setup — so the matrix exercises the resolver on an
     already-reordered sheet, which is a different claim from "a recorded intent survives a
@@ -178,6 +190,7 @@ _SCENARIOS = {
     "section": _scn_section,
     "datum": _scn_datum,
     "note": _scn_note,
+    "dimension": _scn_dimension,
 }
 
 #: Verbs that hand back a `_Params` by exactly the same route `envelope` does — declare the
@@ -567,7 +580,7 @@ def _handle_returning_verbs() -> set[str]:
 #: `Sheet` state that stores a reference to a declared feature. Each must be reached by at least
 #: one scenario, proven at runtime below rather than asserted by eye.
 _STATE_CARRYING_FEATURE_REFS = frozenset(
-    {"_tolerances", "_gdt_src", "_section", "_added_dimensions"}
+    {"_tolerances", "_gdt_src", "_section", "_added_dimensions", "_authored"}
 )
 
 #: `Sheet` state that stores no feature reference, so a reorder cannot affect it.
