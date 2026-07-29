@@ -1755,6 +1755,40 @@ class Drawing:
         routable = model is not None and a is not None
         queued_dim_ids: set = set()
 
+        def _report_authored_omissions(features, before) -> None:
+            """Say so when a recorded edit drew nothing because the AUTHOR omitted it.
+
+            The round-6 defect (#921) was silence: the drain recorded the intent, drew
+            nothing, dropped the intent unconditionally and reported success, so the edit
+            vanished with no annotation, no pending intent and no warning. #925 replaced the
+            pre-check that fixed it — a fourth hand-written prediction of what a callout
+            would draw, and wrong for a feature with some measurements authored and some not
+            — so the report has to move here, where "drew nothing" is observed rather than
+            forecast, and matches what the live path records at the same moment.
+            """
+            if not features or model is None or model.authored_dimensions is None:
+                return
+            drawn = set(self.annotations()) - before
+            for feature in features:
+                if drawn & set(self.annotations_of(feature)):
+                    continue
+                omission = next(
+                    (
+                        o
+                        for o in compile_dimensions(model).diagnostics
+                        if o.feature is feature and o.authored
+                    ),
+                    None,
+                )
+                if omission is not None:
+                    self._record_build_issue(
+                        "info",
+                        "authored_omission",
+                        f"the recorded edit for this {feature.kind} drew nothing: "
+                        f"{omission.parameter_id} is not in the authored dimension set — "
+                        "add a dimension(feature, role) line",
+                    )
+
         def _s_rotational():
             # Rotational furniture — OD dim + axis centrelines + concentric-bore leaders —
             # through the shared whole-model render_rotational (#424/#426). Runs FIRST (its
@@ -1811,6 +1845,7 @@ class Drawing:
         def _s_hole_callouts():
             # Hole/pattern callouts through the REAL priority-drop/anchoring solve.
             # Furniture is owned by the replayed furniture() intents → place_furniture=False.
+            before_callouts = set(self.annotations())
             if r.only_callout:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
                 _annotate_holes(
@@ -1824,6 +1859,7 @@ class Drawing:
                     only=r.only_callout,
                     place_furniture=False,
                 )
+            _report_authored_omissions(r.only_callout, before_callouts)
             # Drop the placed callout intents NOW — before the fallible later stages — so
             # a raise there can't re-route (and, via first-free hc_ naming, duplicate)
             # them on a retry.
@@ -1909,6 +1945,7 @@ class Drawing:
             # column-left) — placed immediately, before the corridor drain, exactly as
             # the auto-pass runs it (#699 slice b — the old drain-first order gave the
             # deferred path different obstacle visibility).
+            before_dia = set(self.annotations())
             if r.only_dia:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
                 from typing import cast as _cast_dia
@@ -1925,6 +1962,7 @@ class Drawing:
                     ctx=ctx,
                     only={_DiaRef(_cast_dia(_DiaFeature, f)) for f in r.only_dia},
                 )
+            _report_authored_omissions(r.only_dia, before_dia)
             self._intents = [it for it in self._intents if id(it) not in r.dia_ids]
 
         def _s_step_lengths():

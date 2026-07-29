@@ -99,6 +99,18 @@ def add_feature_callout(
     group = next((g for g in plan_dimensions(model) if g.feature is feature), None)
     spec = hole_callout_spec(group) if group is not None else None
     if spec is None:
+        if any(o.feature is feature and o.authored for o in compile_dimensions(model).diagnostics):
+            # "Exposes none" would be a false claim: the feature exposes a bore ⌀ and was
+            # told not to draw it. A DROP, not a raise, so the live path lands where the
+            # deferred one does — see `add_feature_diameter` for the same reasoning.
+            ctx.record_issue(
+                "info",
+                "authored_omission",
+                f"callout(): this {feature.kind}'s callout terms are not in the authored "
+                "dimension set, so there is nothing to call out — add a "
+                "dimension(feature, role) line",
+            )
+            return ""
         raise ValueError(
             f"callout() draws a hole/pattern ø-depth leader callout; "
             f"{type(feature).__name__} exposes none — use dimension() for a linear param"

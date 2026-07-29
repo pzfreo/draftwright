@@ -316,12 +316,22 @@ class TestSheetSurface:
         with pytest.raises(ValueError, match="ONE dimension source"):
             sheet.build()
 
-    def test_a_callout_for_an_omitted_feature_is_refused_in_both_paths(self):
-        """A post-build edit naming something the authored set left out draws nothing. The
-        deferred path used to record the intent, draw nothing at the drain, drop the intent
-        unconditionally, and report success — the edit vanished with no annotation, no
-        pending intent and no warning (#921 review round 6). Both paths now refuse, with
-        the same message, at the point the caller can still act on it."""
+    def test_a_callout_for_an_omitted_feature_draws_nothing_and_says_so(self):
+        """A post-build edit naming something the authored set left out draws nothing —
+        audibly, on both paths.
+
+        The defect being guarded is SILENCE, not the absence of a raise: the deferred path
+        used to record the intent, draw nothing at the drain, drop the intent
+        unconditionally and report success, so the edit vanished with no annotation, no
+        pending intent and no warning (#921 review round 6).
+
+        It was fixed by refusing, from a pre-check that predicted what a callout would
+        draw. Three versions of that prediction were each wrong for some kind, and the last
+        one drew an explicitly omitted diameter for a feature with SOME measurements
+        authored (#925 review). There is no prediction now — the renderers consume approved
+        content, so drawing nothing is what they do — and the report moved to where it is
+        observed. What the test pins is unchanged: the edit does not disappear quietly.
+        """
         from build123d import Box, Cylinder, Pos
 
         part = Box(100, 60, 20) - Pos(0, 0, 10) * Cylinder(5, 20)
@@ -331,17 +341,22 @@ class TestSheetSurface:
         sheet.dimension(env, "width")
         dwg = sheet.build()
 
-        with pytest.raises(ValueError, match="authored dimension set leaves out"):
-            with dwg.deferred():
-                dwg.callout(hole)
-        with pytest.raises(ValueError, match="authored dimension set leaves out"):
-            dwg.callout(hole)
+        before = set(dwg.annotations())
+        assert dwg.callout(hole) == ""
+        assert set(dwg.annotations()) == before
+        assert [i for i in dwg.lint() if i.code == "authored_omission"], (
+            "the live edit drew nothing and reported nothing"
+        )
 
-    def test_a_step_callout_is_refused_identically_live_and_deferred(self):
-        """The check sat in the deferred branch only, so the live step/boss path drew an
-        explicitly omitted ø while the identical deferred call refused it — the answer
-        depended on whether you were inside `deferred()` (#921 review round 7). It now
-        runs before the split, which is the only way the two cannot drift."""
+    def test_a_step_callout_behaves_identically_live_and_deferred(self):
+        """The answer must not depend on whether you are inside `deferred()`.
+
+        It did once, in both directions: the pre-check sat in the deferred branch only, so
+        the live step/boss path drew an explicitly omitted ø while the identical deferred
+        call refused it (#921 round 7); and after the check moved above the split it still
+        permitted the live draw for a step whose LENGTH was authored, because "has any
+        approved dimension" is not "this callout draws" (#925 review). Both paths now reach
+        the same nothing through the same approved content."""
         from build123d import Cylinder, Pos, Rot
 
         part = Rot(0, 90, 0) * Cylinder(4, 20) + Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10)
@@ -351,11 +366,13 @@ class TestSheetSurface:
         dwg = sheet.build()
         step = next(f for f in dwg.model().features if f.kind == "step")
 
-        with pytest.raises(ValueError, match="authored dimension set leaves out"):
-            dwg.callout(step)
-        with pytest.raises(ValueError, match="authored dimension set leaves out"):
-            with dwg.deferred():
-                dwg.callout(step)
+        before = set(dwg.annotations())
+        assert dwg.callout(step) == ""
+        with dwg.deferred():
+            assert dwg.callout(step) == ""
+        dwg.finalize()
+        assert set(dwg.annotations()) == before, "an omitted ø reached the page on some path"
+        assert [i for i in dwg.lint() if i.code == "authored_omission"]
 
     @pytest.mark.parametrize("authored", ["bore.diameter", None], ids=["authored", "automatic"])
     def test_a_drawable_callout_is_never_refused(self, authored):
