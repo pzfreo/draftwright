@@ -90,6 +90,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_place_dim",
         "_queue_dimension_intent",
         "_record_build_issue",
+        "_refuse_authored_omission",
         "_replay_intent",
         "_resolve_dimension_span",
         "_set_view_coordinates",
