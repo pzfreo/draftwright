@@ -899,3 +899,50 @@ class TestOmittedDimensionsDoNotRender:
             "the automatic build must carry MORE — otherwise the assertion above holds "
             "for a part that was never richly dimensioned in the first place"
         )
+
+    def test_a_turned_part_authors_one_dimension_too(self):
+        """The prismatic case above passed while the whole TURNED family ignored
+        suppression — `render_diameters`, `render_step_lengths`, `render_rotational` and
+        `render_boss_diameters` all selected parameters with no suppression check, so
+        authoring one step length still drew every diameter on the part (#921 review
+        round 3). One fixture per renderer family, because a fixture only guards the
+        family it exercises.
+
+        Centrelines survive by design: they show where the turning axis is and print no
+        value, so a sheet that authors one length still reads as a turned part."""
+        from build123d import Cylinder, Pos, Rot
+
+        part = Rot(0, 90, 0) * Cylinder(4, 20) + Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10)
+        sheet = Sheet(part, title="T", number="N")
+        first = sheet.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
+        sheet.step(diameter=12, length=10, at=(15, 0, 0), axis="x")  # same-kind neighbour
+        sheet.dimension(first, "step.length")
+
+        drawn = _names(sheet.build())
+        assert "m_steplen0" in drawn, "the one authored measurement"
+        assert not [n for n in drawn if n.startswith(("m_dia", "dim_od", "ldr_"))], (
+            f"an unauthored turned dimension reached the page: {sorted(drawn)}"
+        )
+        assert "m_steplen1" not in drawn, "the neighbouring step's length was not authored"
+        assert {"centerline_front", "centerline_plan"} <= drawn, "furniture is not a dimension"
+
+    def test_an_omitted_rotational_od_and_bore_are_not_drawn(self):
+        """`render_rotational` places the OD and each concentric bore leader directly.
+        A bore omitted from the set must not even become a strip candidate — it was not
+        wanted, which is different from not fitting."""
+        from build123d import Cylinder
+
+        from draftwright.model.ir import Frame, RotationalFeature
+
+        part = Cylinder(radius=20, height=40) - Cylinder(radius=6, height=40)
+
+        def _built(role):
+            sheet = Sheet(part, title="T", number="N")
+            sheet.add(RotationalFeature(frame=Frame((0, 0, 0), "z"), od=40.0, bores=(12.0,)))
+            sheet.dimension(sheet.features[-1], role)
+            return _names(sheet.build())
+
+        od_only = _built("od")
+        assert "dim_od" in od_only and "ldr_z0" not in od_only
+        bore_only = _built("bore")
+        assert "ldr_z0" in bore_only and "dim_od" not in bore_only

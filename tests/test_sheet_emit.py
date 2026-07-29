@@ -53,6 +53,16 @@ def _script_for(part, part_expr="part = PART", stem="drawing", **kw):
 
 
 class TestEmit:
+    @pytest.mark.parametrize(
+        "part", [Box(40, 20, 10), _plate(), Box(80, 60, 40)], ids=["bare", "plate", "block"]
+    )
+    def test_every_emitted_script_states_its_dimension_source(self, part):
+        """#874's emitter gate. A generated script must SAY where its dimensions come
+        from, not rely on a default — that is what makes omission mean something. Round
+        trips cover this only implicitly (the build would raise), so assert the line
+        directly: a part with no features must still emit it."""
+        assert "sheet.auto_dimensions()" in _script_for(part)
+
     def test_emits_one_declarative_line_per_feature(self):
         src = _script_for(_plate())
         assert "sheet = Sheet(part, title='T', number='N')" in src

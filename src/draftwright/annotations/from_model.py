@@ -1097,7 +1097,7 @@ def render_diameters(dwg, groups, a, tol: float = 0.15, *, ctx, only=None) -> in
         if only is not None and g.feature not in only:  # #426 finalize: recorded subset
             continue
         dpd = next((pd for pd in g.dims if pd.param.kind == "diameter"), None)
-        if dpd is None:
+        if dpd is None or dpd.suppressed:
             continue
         dia = dpd.param.value
         # An EXTERNAL thread (#859) makes a distinct callout: a threaded ⌀6 ("ø6 M6x1") and a
@@ -1954,7 +1954,7 @@ def render_boss_diameters(dwg, groups, a, *, ctx) -> int:
     ):
         b = g.feature
         dpd = next((pd for pd in g.dims if pd.param.kind == "diameter"), None)
-        if dpd is None:
+        if dpd is None or dpd.suppressed:
             continue
         dia = dpd.param.value
         dtol = dpd.param.tolerance
@@ -2488,7 +2488,11 @@ def render_step_lengths(dwg, groups, *, ctx, only=None) -> int:
         if only is not None and g.feature not in only:  # #426 finalize: recorded subset
             continue
         length = next(
-            (pd.param for pd in g.dims if pd.param.kind == "length" and pd.param.span is not None),
+            (
+                pd.param
+                for pd in g.dims
+                if pd.param.kind == "length" and pd.param.span is not None and not pd.suppressed
+            ),
             None,
         )
         if length is None or length.span is None:
@@ -2865,9 +2869,9 @@ def render_height_ladder(
     this pass reads the plan rather than deciding again: the rungs are the `step_level`
     feature's `step_height` set, and the overall height is the `envelope` feature's
     `height` parameter — drawn here rather than in `render_envelope` only because it
-    stacks in the front-view right strip. What stays local is the render-layer part:
-    legibility, the leapfrog chain, and `include_overall`, which is drawing state
-    rather than model state. Returns the count REGISTERED."""
+    stacks in the front-view right strip. What stays local is legibility, the leapfrog
+    chain, `include_overall` (drawing state, not model state), and the structural rules
+    for a model that has no envelope feature to consult. Returns the count REGISTERED."""
     draft = dwg.draft
     FX, FZ = a.proj.front_x, a.proj.front_z
     edge2 = FX(a.bb.max.X) + 2
@@ -3222,23 +3226,29 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
         return f"ø{_fmt(pd.param.value)}{_tol_suffix(pd.param.tolerance, draft)}"
 
     od_label = _dia_label(od_pd)
+    # The OD and each bore are planned dimensions like any other, so a set that omits
+    # one must not draw it (#876). The CENTRELINES below are furniture, not dimensions:
+    # they show where the turning axis is and stay whichever way the plan falls, or a
+    # sheet that authors no diameter would lose the axis it is turned about.
+    od_planned = not od_pd.suppressed
 
     if axis == "z":
         # Vertical turning axis (the common case): OD across the top of the front
         # (profile) view; axis centrelines vertical on front + side.
-        ctx.place(
-            _dim(
-                (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
-                (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
-                "above",
-                8,
-                draft,
-                label=od_label,
-            ),
-            "dim_od",
-            view="front",
-        )
-        n += 1
+        if od_planned:
+            ctx.place(
+                _dim(
+                    (FX(a.cx - od / 2), FZ(a.bb.max.Z) + 2, 0),
+                    (FX(a.cx + od / 2), FZ(a.bb.max.Z) + 2, 0),
+                    "above",
+                    8,
+                    draft,
+                    label=od_label,
+                ),
+                "dim_od",
+                view="front",
+            )
+            n += 1
         ctx.place(
             Centerline((FX(a.cx), FZ(a.bb.min.Z) - 5, 0), (FX(a.cx), FZ(a.bb.max.Z) + 5, 0)),
             "centerline_front",
@@ -3262,19 +3272,25 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
                 # leader keeps that same symmetric natural, so plan_strip reproduces the old
                 # positions exactly when there is room (zero displacement) and only compresses /
                 # drops (larger bore outranks smaller, priority=d) when the band is over capacity.
-                nb = len(rot.bores)
+                # A bore omitted from an authored set never becomes a candidate, so it
+                # neither competes for the band nor gets reported as a capacity drop —
+                # it was not wanted, which is a different thing from not fitting (#876).
+                # With nothing suppressed this is every bore in order, so the automatic
+                # stack and its positions are unchanged.
+                live = [(i, d) for i, d in enumerate(rot.bores) if not bore_pds[i].suppressed]
+                nb = len(live)
                 z_lo, z_hi = a.FV_Y - a.fv_hh, a.FV_Y + a.fv_hh
                 cands = [
                     StripCandidate(
                         key=f"{i:03d}",
-                        anchor=(elbow_x, FZ(a.cz) + (i - (nb - 1) / 2) * pitch),
+                        anchor=(elbow_x, FZ(a.cz) + (k - (nb - 1) / 2) * pitch),
                         size=(draft.font_size * 3, pitch),
                         priority=d,
                     )
-                    for i, d in enumerate(rot.bores)
+                    for k, (i, d) in enumerate(live)
                 ]
                 placed = plan_strip(cands, z_lo, z_hi, pitch, axis="y").placed
-                for i, d in enumerate(rot.bores):
+                for i, d in live:
                     tip_z = placed.get(f"{i:03d}")
                     if tip_z is None:
                         continue  # over the front-view capacity — dropped (ranked), logged below
@@ -3289,7 +3305,7 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
                         view="front",
                     )
                     n += 1
-                dropped = [d for i, d in enumerate(rot.bores) if placed.get(f"{i:03d}") is None]
+                dropped = [d for i, d in live if placed.get(f"{i:03d}") is None]
                 for d in dropped:
                     ctx.coverage.drop_diam(
                         d
@@ -3310,19 +3326,20 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
         # Horizontal turning axis along X (#222): the OD is the Z extent — a vertical
         # ø dim left of the front (profile) view; axis centrelines run horizontally
         # through z=cz on front and y=cy on plan.
-        ctx.place(
-            _dim(
-                (FX(a.bb.min.X) - 2, FZ(a.cz - od / 2), 0),
-                (FX(a.bb.min.X) - 2, FZ(a.cz + od / 2), 0),
-                "left",
-                8,
-                draft,
-                label=od_label,
-            ),
-            "dim_od",
-            view="front",
-        )
-        n += 1
+        if od_planned:
+            ctx.place(
+                _dim(
+                    (FX(a.bb.min.X) - 2, FZ(a.cz - od / 2), 0),
+                    (FX(a.bb.min.X) - 2, FZ(a.cz + od / 2), 0),
+                    "left",
+                    8,
+                    draft,
+                    label=od_label,
+                ),
+                "dim_od",
+                view="front",
+            )
+            n += 1
         ctx.place(
             Centerline((FX(a.bb.min.X) - 5, FZ(a.cz), 0), (FX(a.bb.max.X) + 5, FZ(a.cz), 0)),
             "centerline_front",
@@ -3337,19 +3354,20 @@ def render_rotational(dwg, groups, a, *, ctx) -> int:
         # Horizontal turning axis along Y (#222): the OD is the Z extent — a vertical
         # ø dim left of the side (profile) view; axis centrelines run horizontally
         # through z=cz on side and vertically through x=cx on plan.
-        ctx.place(
-            _dim(
-                (SX(a.bb.min.Y) - 2, SZ(a.cz - od / 2), 0),
-                (SX(a.bb.min.Y) - 2, SZ(a.cz + od / 2), 0),
-                "left",
-                8,
-                draft,
-                label=od_label,
-            ),
-            "dim_od",
-            view="side",
-        )
-        n += 1
+        if od_planned:
+            ctx.place(
+                _dim(
+                    (SX(a.bb.min.Y) - 2, SZ(a.cz - od / 2), 0),
+                    (SX(a.bb.min.Y) - 2, SZ(a.cz + od / 2), 0),
+                    "left",
+                    8,
+                    draft,
+                    label=od_label,
+                ),
+                "dim_od",
+                view="side",
+            )
+            n += 1
         ctx.place(
             Centerline((SX(a.bb.min.Y) - 5, SZ(a.cz), 0), (SX(a.bb.max.Y) + 5, SZ(a.cz), 0)),
             "centerline_side",

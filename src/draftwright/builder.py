@@ -243,11 +243,11 @@ def _coerce_model(model, part, decorations=None, requested=None, authored=None) 
             requested_dimensions=tuple(requested or ()),
             authored_dimensions=None if authored is None else tuple(authored),
         )
-    check_dimension_sources(out)
+    _check_dimension_sources(out)
     return out
 
 
-def check_dimension_sources(model: PartModel) -> None:
+def _check_dimension_sources(model: PartModel) -> None:
     """Refuse a model that names **both** dimension sources (ADR 0016 / #874).
 
     The mutual exclusion is a property of the MODEL, not of the façade that usually
