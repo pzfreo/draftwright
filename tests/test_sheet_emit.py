@@ -1854,23 +1854,23 @@ class TestTheDimensionMirror:
 #: where the family is closed, and each carrying the argument that it can never be a
 #: dimension line (ADR 0016's permanent-exception category, #937).
 #:
-#: Deliberately NOT subsystem-wide prefixes. `"section_"` would admit every annotation the
-#: section subsystem ever grows, including a future `section_depth` measurement — the exact
-#: blind spot the behavioural test below claims to supersede (#947 review). The entries name
-#: what exists; a new one has to be classified rather than inherited.
+#: Deliberately NOT subsystem-wide prefixes: `"section_"` would admit every annotation that
+#: subsystem ever grows, including a future `section_depth` measurement — the exact blind
+#: spot the behavioural test below claims to supersede (#947 review).
+#:
+#: And deliberately only what the corpus OBSERVES. An earlier version listed a section/detail
+#: family from memory; the names were wrong (`section_label` does not exist — it is
+#: `section_caption`), so the list simultaneously carried dead entries and would have flagged
+#: a real sectioned drawing. A drawing feature this corpus does not reach is absent on
+#: purpose: adding one fails loudly, and whoever adds it names the annotation with the real
+#: name in front of them.
 _SCRIPT_FURNITURE = {
     "m_cm": "centre marks — sized off the hole they mark, not a printed value (#875)",
-    "centerline_front": "shows where the front view's axis is; no measurement",
     "centerline_plan": "shows where the plan view's axis is; no measurement",
     "centerline_side": "shows where the side view's axis is; no measurement",
     "bc_": "a bolt circle's centreline — geometry, like a centre mark",
     "note_iso_nts": "the ISO NTS caption — a sheet-level statement, not a feature's",
     "title_block": "sheet metadata; edited through Sheet(...) kwargs, not a dimension line",
-    "section_label": "the A–A label — names the cut, states no size",
-    "section_line": "the cutting-plane line and its arrows (ISO 128-44)",
-    "section_hatch": "ISO 128-50 section hatching — a fill, carrying no measurement",
-    "detail_marker_": "the detail-view marker and its label; placed by the escalation",
-    "detail_caption": "the detail-view caption — names the view, states no size",
 }
 
 
@@ -1911,25 +1911,77 @@ def test_the_plan_surface_is_ratcheted():
     )
 
 
-def test_every_ir_kind_is_reachable_by_the_mirror_or_named_as_unnameable():
-    """Coverage by CONSTRUCTION, not by whether a solid happens to detect.
+#: Every IR feature kind, mapped to how the dimension mirror is proven to handle it.
+#:
+#: `"corpus"` — a fixture in `TestTheDimensionMirror._corpus()` detects it, so the round trip
+#: is exercised end to end (emit → run → compare annotation signatures).
+#: A string starting with `"unnameable"` — no declarative verb, so the emitter falls back and
+#: says so; the kind cannot be mirrored by design until that verb exists.
+#: `"untested"` — neither. **This is debt**, and naming it is the point: the review found two
+#: fixtures detecting something other than their name, and an unlisted kind is the same hole
+#: with no label on it.
+_KIND_MIRROR_COVERAGE = {
+    "hole": "corpus",
+    "pattern": "corpus",
+    "boss": "corpus",
+    "step": "corpus",
+    "step_level": "corpus",
+    "slot": "corpus",
+    "pocket": "corpus",
+    "pad": "corpus",
+    "envelope": "corpus",
+    "rotational": "unnameable — no declarative verb (#945)",
+    "pmi": "unnameable — raw AP242, emitted as sheet.add(PmiFeature(...)) (ADR 0016)",
+    "chamfer": "untested — no corpus fixture detects one (#948)",
+    "fillet": "untested — no corpus fixture detects one (#948)",
+    "flat": "untested — no corpus fixture detects one (#948)",
+    "groove": "untested — no corpus fixture detects one (#948)",
+    "plate": "untested — no corpus fixture detects one (#948)",
+    "pocket_pattern": "untested — no corpus fixture detects one (#948)",
+    "slot_pattern": "untested — no corpus fixture detects one (#948)",
+    "authored_dimension": "untested — the measured_dimension path (#948)",
+    "control_frame": "aspect — carries no DimParameter, so nothing to mirror",
+    "datum_ref": "aspect — carries no DimParameter, so nothing to mirror",
+    "finish": "aspect — carries no DimParameter, so nothing to mirror",
+    "note": "aspect — carries no DimParameter, so nothing to mirror",
+}
 
-    The corpus is geometry, and geometry is an unreliable way to reach a feature kind — two
-    of its fixtures were detecting something other than their name (#947 review). This builds
-    one synthetic model per declarable kind and asserts the mirror either names its
-    dimensions or is honest that it cannot.
+
+def test_every_ir_kind_is_classified_for_mirror_coverage():
+    """Every feature kind is either exercised, argued unnameable, or NAMED as untested.
+
+    An earlier version of this test was called
+    `test_every_ir_kind_is_reachable_by_the_mirror_or_named_as_unnameable` and compared the
+    IR kinds to `_FACTS` — it constructed nothing and proved nothing about the mirror, while
+    its name and docstring claimed otherwise (#947 review). A test whose name overstates it
+    is worse than no test: it answers the question a reader came to ask.
+
+    This does not prove the untested kinds work. It makes the fact that they are untested a
+    thing you have to look at, and fails the moment a kind is added without a decision.
     """
-    # Kinds with no declarative verb: their line is a comment, so they are unnameable BY
-    # DESIGN and the emitter falls back (#945). Everything else must be nameable.
     from draftwright.model import ir as _ir
-    from draftwright.model.compiled import _FACTS
 
     kinds = {
         value.kind
         for value in vars(_ir).values()
         if isinstance(value, type) and isinstance(getattr(value, "kind", None), str)
     }
-    assert kinds == set(_FACTS), "IR kinds and the facts table disagree — one is stale"
+    assert kinds == set(_KIND_MIRROR_COVERAGE), (
+        "an IR kind was added or removed — classify it: exercised by the corpus, argued "
+        "unnameable, or explicitly untested"
+    )
+
+
+def test_the_corpus_really_covers_the_kinds_it_claims():
+    """`"corpus"` is a claim about fixtures, so check it against them. Two fixtures were
+    detecting something other than their name until the review counted them (#947)."""
+    detected: set[str] = set()
+    for part in TestTheDimensionMirror._corpus().values():
+        detected |= {f.kind for f in detect_part_model(part).features}
+    claimed = {k for k, v in _KIND_MIRROR_COVERAGE.items() if v == "corpus"}
+    assert claimed <= detected, (
+        f"{sorted(claimed - detected)} are marked 'corpus' but no fixture detects them"
+    )
 
 
 class TestTheMirrorCoversTheCompiledSet:
@@ -2031,21 +2083,29 @@ class TestTheScriptAccountsForEveryAnnotation:
         for prefix, why in _SCRIPT_FURNITURE.items():
             assert len(why) > 20, f"{prefix} needs a reason it can never be a dimension line"
 
-    def test_the_furniture_list_earns_its_entries(self):
-        """Every entry must actually be reachable, or the list is a wish rather than a record.
+    def test_every_furniture_entry_is_OBSERVED_not_asserted(self):
+        """Every entry must be produced by this corpus. **No exemptions.**
 
-        A stale prefix is worse than a missing one: it silently widens what the accounting
-        above will forgive, so the next unexpressible dimension slips through under a name
-        nobody produces any more."""
+        The first version listed a `section_` family from memory — `section_label`,
+        `section_line` — and the renderer actually emits `section_caption`,
+        `section_arrow_*`, `section_wing_*`. So the list carried three dead entries AND would
+        have reported a real sectioned drawing's caption as unaccounted (#947 review). It had
+        been "validated" only by the length of its prose.
+
+        An entry nobody observes is a guess, and a guess in an allowlist only ever widens
+        what the accounting forgives. So the list is exactly what this corpus draws, and a
+        drawing feature it does not reach — sections, detail views, balloons, hole tables —
+        is deliberately ABSENT. Adding such a fixture then fails loudly, and whoever adds it
+        classifies the annotation with its real name in front of them rather than from memory.
+        """
         drawn: set[str] = set()
         for part in self._corpus().values():
             dwg = build_drawing(part, model=detect_part_model(part), title="T", number="N")
             drawn |= {n for n, _ in dwg.iter_annotations()}
-        # `section_`/`hatch`/`detail_*` need a sectioned or escalated part, which this corpus
-        # deliberately does not carry — assert the ones it CAN reach, and let the others be
-        # covered where those fixtures live.
-        reachable = {"m_cm", "centerline", "note_", "title_block"}
-        for prefix in reachable:
-            assert any(n.startswith(prefix) for n in drawn), (
-                f"{prefix!r} is listed as furniture but this corpus never draws it"
-            )
+        unobserved = sorted(
+            prefix for prefix in _SCRIPT_FURNITURE if not any(n.startswith(prefix) for n in drawn)
+        )
+        assert not unobserved, (
+            f"{unobserved} are exempted as furniture but this corpus never draws them — "
+            "remove them, or add a fixture that produces them so the name is observed"
+        )

@@ -687,17 +687,33 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
     if model.authored_dimensions is None and not _is_mirrorable(model):
         # A feature with no declarative verb carries planned dimensions, so a mirrored set
         # would silently omit them and claim completeness it does not have (#938).
+        # WHY, specifically. `_is_mirrorable` now fails for any dimension the compiler
+        # approved and no line can name — not only the no-declarative-verb case — so blaming
+        # #945 unconditionally would misdirect a reader whenever the cause is something else,
+        # and could print an empty kind list (#947 review).
+        missing = unmirrored_dimensions(model)
         unnameable = sorted(
             {f.kind for f in model.features if _feature_line(f).lstrip().startswith("#")}
         )
+        why = (
+            [
+                f"# {', '.join(unnameable)} has no declarative verb (flagged in the features",
+                "# above), so it binds no name and its dimensions cannot be declared here.",
+                "# Tracked as draftwright#945; once that lands this part declares its",
+                "# dimensions line by line like every other.",
+            ]
+            if unnameable
+            else [
+                "# the emitter has no line for: " + ", ".join(missing),
+                "# — a dimension the compiler approved that no declaration can name.",
+            ]
+        )
         return [
             "# The planner selects the dimensions for this part.",
-            f"# WHY, and it is a gap rather than a choice: {', '.join(unnameable)} has no",
-            "# declarative verb (flagged in the features above), so it binds no name and its",
-            "# dimensions cannot be declared here. Declaring only the OTHERS would produce a",
-            "# set that claims to be complete and is not — so the whole set stays automatic.",
-            "# Tracked as draftwright#945; once that lands this part declares its dimensions",
-            "# line by line like every other.",
+            "# WHY, and it is a gap rather than a choice:",
+            *why,
+            "# Declaring only the OTHERS would produce a set that claims to be complete and",
+            "# is not, so the whole set stays automatic.",
             "sheet.auto_dimensions()",
         ]
     requests = (
