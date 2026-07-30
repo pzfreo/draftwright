@@ -1005,7 +1005,7 @@ def _add_furniture(
             members[0],
             members[-1],
             len(members),
-            pitch.value,
+            pitch.value_text,
             to_page,
             f"dim_pitch_{view}{j}",
             feature=feat,
@@ -1029,7 +1029,7 @@ def _add_furniture(
             view,
             j,
             members,
-            (pitches["row"].value, pitches["col"].value),
+            (pitches["row"], pitches["col"]),
             to_page,
             feature=feat,
             ctx=ctx,
@@ -1085,7 +1085,7 @@ def _add_grid_pitch_dims(
     view,
     j,
     members,
-    nominals,
+    nominals,  # the approved grid_pitch entries, one per lattice axis
     to_page,
     feature=None,
     *,
@@ -1151,8 +1151,9 @@ def _add_grid_pitch_dims(
         hi = max(line, key=along)
         span = along(hi) - along(lo)
         n = round(span / pitch_page) + 1
-        # Label with the recogniser's nominal pitch nearest this axis' page step.
-        pitch = min(nominals, key=lambda v: abs(v - pitch_page / a.SCALE))
+        # Label with the approved pitch entry nearest this axis' page step. Selection is
+        # numeric, the LABEL is the compiler's own text — the two are different jobs.
+        pitch = min(nominals, key=lambda e: abs(e.value - pitch_page / a.SCALE))
         _place_pitch_dim(
             dwg,
             a,
@@ -1160,7 +1161,7 @@ def _add_grid_pitch_dims(
             members[lo],
             members[hi],
             n,
-            pitch,
+            pitch.value_text,
             to_page,
             f"{name_prefix}_{view}{j}_{sub}",
             feature=feature,
@@ -1172,7 +1173,7 @@ def _add_grid_pitch_dims(
 
 
 def _place_pitch_dim(
-    dwg, a: Analysis, view, loc1, loc2, n, pitch, to_page, name, feature=None, *, ctx
+    dwg, a: Analysis, view, loc1, loc2, n, pitch_text, to_page, name, feature=None, *, ctx
 ):
     """Pitch dimension between two hole-centre *locations* ``loc1``→``loc2``, labelled
     ``(n-1)× pitch``, placed just outside the view on the side of the row's
@@ -1221,7 +1222,7 @@ def _place_pitch_dim(
         side, reach = max(cands, key=lambda c: c[0][0] * pref[0] + c[0][1] * pref[1])
     fallback_sides = [(side, reach)] + [c for c in cands if c[0] != side]
 
-    label = f"{n - 1}× {_fmt(pitch)}"
+    label = f"{n - 1}× {pitch_text}"
 
     def _make(off, side_vec=side, label_offset_x=0.0):
         return _dim(
@@ -1392,7 +1393,7 @@ def _place_pitch_dim(
                 feature=feature,
             )
             return
-    _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, _fmt(pitch))
+    _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, pitch_text)
 
 
 def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
@@ -1434,9 +1435,9 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         if vb is None:
             continue
         label = f"{feat.count}× " + _pocket_label(
-            wpd.value,
-            lpd.value,
-            dpd.value,
+            wpd.value_text,
+            lpd.value_text,
+            dpd.value_text,
             wsfx=_tol_suffix(wpd.tolerance, draft),
             lsfx=_tol_suffix(lpd.tolerance, draft),
             dsfx=_tol_suffix(dpd.tolerance, draft),
@@ -1471,7 +1472,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         feat = g.facts
         members = feat.members or (feat.frame.origin,)
         pitch = g.dim(role="pitch")
-        grid = tuple(d.value for d in g.dims if d.role == "grid_pitch")
+        grid = tuple(d for d in g.dims if d.role == "grid_pitch")
 
         def to_page(loc, _view=view):
             return dwg.at(_view, *loc)
@@ -1484,7 +1485,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 members[0],
                 members[-1],
                 len(members),
-                pitch.value,
+                pitch.value_text,
                 to_page,
                 f"dim_pocketpat_pitch_{view}{i}",
                 feature=g.ref,
@@ -1545,8 +1546,8 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         if vb is None:
             continue
         label = f"{feat.count}× " + _slot_label(
-            wpd.value,
-            lpd.value,
+            wpd.value_text,
+            lpd.value_text,
             wsfx=_tol_suffix(wpd.tolerance, draft),
             lsfx=_tol_suffix(lpd.tolerance, draft),
         )
@@ -1576,7 +1577,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         feat = g.facts
         members = feat.members or (feat.frame.origin,)
         pitch = g.dim(role="pitch")
-        grid = tuple(d.value for d in g.dims if d.role == "grid_pitch")
+        grid = tuple(d for d in g.dims if d.role == "grid_pitch")
 
         def to_page(loc, _view=view):
             return dwg.at(_view, *loc)
@@ -1589,7 +1590,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 members[0],
                 members[-1],
                 len(members),
-                pitch.value,
+                pitch.value_text,
                 to_page,
                 f"dim_slotpat_pitch_{view}{i}",
                 feature=g.ref,

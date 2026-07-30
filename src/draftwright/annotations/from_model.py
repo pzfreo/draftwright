@@ -1339,16 +1339,19 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
     return rerouted
 
 
-def _chamfer_label(leg, ch) -> str:
+def _chamfer_label(pd, ch) -> str:
     """The chamfer callout string: ``C{leg}`` for an equal-leg 45° chamfer, else
     ``{leg} × {angle}°`` (#560). *leg* is the PLANNED value (``pd.param.value`` —
     the planner-authoritative number, #724 review); the feature supplies only the
     geometric *form* discriminators (``leg2``/``angle``). Formatting lives in the
     render layer, not on the IR feature — every other feature's label is formed by
     the planner/renderer too, so a ``ChamferFeature`` stays pure data (ADR 0013 §7)."""
-    if abs(leg - ch.leg2) < 0.05 and abs(ch.angle - 45.0) < 0.5:
-        return f"C{_fmt(leg)}"
-    return f"{_fmt(leg)} × {_fmt(ch.angle)}°"
+    if abs(pd.value - ch.leg2) < 0.05 and abs(ch.angle - 45.0) < 0.5:
+        return f"C{pd.value_text}"
+    # `ch.angle` is a FORM discriminator, not a planned parameter — `ChamferFeature.
+    # parameters()` emits only the leg — so it has no approved text to consume. That is the
+    # IR gap `_FACTS` records, and it is why this line stays in the provenance budget.
+    return f"{pd.value_text} × {_fmt(ch.angle)}°"
 
 
 # ── Shared machined-feature leader-callout pass (#637) ──────────────────────────────────
@@ -1515,17 +1518,17 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
                 f"m_chamfer_{ch.axis}{i}",
                 view,
                 vb,
-                _chamfer_label(pd.value, ch) + _tol_suffix(pd.tolerance, draft),
+                _chamfer_label(pd, ch) + _tol_suffix(pd.tolerance, draft),
                 _corner_candidates(dwg, view, vb, [ch], reach, provenances=[g.ref]),
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="chamfer", drop_code="chamfer_dropped", ctx=ctx)
 
 
-def _fillet_label(radius, count) -> str:
+def _fillet_label(radius_text, count) -> str:
     """The fillet callout string: ``R{radius}``, prefixed ``{count}×`` when a set of equal
     fillets shares one callout (#561). Formatting lives in the render layer (ADR 0013 §7)."""
-    r = f"R{_fmt(radius)}"
+    r = f"R{radius_text}"
     return f"{count}× {r}" if count > 1 else r
 
 
@@ -1584,7 +1587,7 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
                 f"m_fillet_{axis}{gi}",
                 view,
                 vb,
-                _fillet_label(members[0][1].value, len(ordered)) + _tol_suffix(tol, draft),
+                _fillet_label(members[0][1].value_text, len(ordered)) + _tol_suffix(tol, draft),
                 _corner_candidates(
                     dwg,
                     view,
@@ -1598,13 +1601,13 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
     return _leader_callout_pass(dwg, a, jobs, noun="fillet", drop_code="fillet_dropped", ctx=ctx)
 
 
-def _flat_label(across, sfx="") -> str:
+def _flat_label(across_text, sfx="") -> str:
     """The machined-flat callout string: ``{across} A/F`` (across flats) — the standard
     abbreviation for a spanner-flat / D / hex size (#148b). *across* is the PLANNED value
     (``pd.param.value``, #726); *sfx* is the pre-formatted tolerance suffix, interleaved
     after the value (``17 ±0.2 A/F`` — the tolerance rides the number, not the ``A/F``
     qualifier). Formatting lives in the render layer, not on the IR feature (ADR 0013 §7)."""
-    return f"{_fmt(across)}{sfx} A/F"
+    return f"{across_text}{sfx} A/F"
 
 
 def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
@@ -1654,7 +1657,7 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
                 f"m_flat_{axis}{gi}",
                 view,
                 vb,
-                _flat_label(members[0][1].value, _tol_suffix(tol, draft)),
+                _flat_label(members[0][1].value_text, _tol_suffix(tol, draft)),
                 _corner_candidates(
                     dwg,
                     view,
@@ -1668,14 +1671,14 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
     return _leader_callout_pass(dwg, a, jobs, noun="flat", drop_code="flat_dropped", ctx=ctx)
 
 
-def _groove_label(width, diameter, wsfx="", dsfx="") -> str:
+def _groove_label(width_text, diameter_text, wsfx="", dsfx="") -> str:
     """The turned/circlip-groove callout string: ``{width} WIDE × ø{diameter}`` — the groove's
     axial width and its floor diameter (#148c). *width*/*diameter* are the PLANNED values
     (``pd.param.value``, #727); *wsfx*/*dsfx* are each value's pre-formatted tolerance
     suffix, interleaved so a tolerance rides its own number (``4 ±0.1 WIDE × ø16 ±0.05``) —
     the two params carry independent tolerances (kinds "length"/"diameter"). Formatting
     lives in the render layer, not on the IR feature (ADR 0013 §7)."""
-    return f"{_fmt(width)}{wsfx} WIDE × ø{_fmt(diameter)}{dsfx}"
+    return f"{width_text}{wsfx} WIDE × ø{diameter_text}{dsfx}"
 
 
 def _ray_exit_dist(px, py, ux, uy, rect) -> float:
@@ -1695,7 +1698,7 @@ def _ray_exit_dist(px, py, ux, uy, rect) -> float:
     return max(min([t for t in ts if t > 0], default=0.0), 0.0)
 
 
-def _pocket_label(width, length, depth, wsfx="", lsfx="", dsfx="") -> str:
+def _pocket_label(width_text, length_text, depth_text, wsfx="", lsfx="", dsfx="") -> str:
     """The pocket callout string: ``{width} × {length} × {depth} DEEP`` (#148a). The values
     are the PLANNED ones (``pd.param.value``, #728); *wsfx*/*lsfx*/*dsfx* are each value's
     pre-formatted tolerance suffix, interleaved so a tolerance rides its own number. (All
@@ -1705,14 +1708,14 @@ def _pocket_label(width, length, depth, wsfx="", lsfx="", dsfx="") -> str:
     helper's hole callouts, not as font text — a plain :class:`Leader` label has no access
     to it, so this uses the font-safe ``DEEP`` word (the vendored Plex Mono lacks ↧).
     Formatting lives in the render layer (ADR 0013 §7)."""
-    return f"{_fmt(width)}{wsfx} × {_fmt(length)}{lsfx} × {_fmt(depth)}{dsfx} DEEP"
+    return f"{width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} DEEP"
 
 
-def _slot_label(width, length, wsfx="", lsfx="") -> str:
+def _slot_label(width_text, length_text, wsfx="", lsfx="") -> str:
     """The grouped slot-array callout string: ``SLOT {width} × {length}`` (#841). A slot has no
     depth, so — unlike :func:`_pocket_label` — there is no ``× depth DEEP``; the ``SLOT`` prefix
     names the feature the way a lone slot's linear dims otherwise would."""
-    return f"SLOT {_fmt(width)}{wsfx} × {_fmt(length)}{lsfx}"
+    return f"SLOT {width_text}{wsfx} × {length_text}{lsfx}"
 
 
 # Unit lead directions tried (nearest-clear wins), diagonals first so a central pocket's
@@ -1832,9 +1835,9 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
                 view,
                 vb,
                 _pocket_label(
-                    wpd.value,
-                    lpd.value,
-                    dpd.value,
+                    wpd.value_text,
+                    lpd.value_text,
+                    dpd.value_text,
                     wsfx=_tol_suffix(wpd.tolerance, draft),
                     lsfx=_tol_suffix(lpd.tolerance, draft),
                     dsfx=_tol_suffix(dpd.tolerance, draft),
@@ -1890,8 +1893,8 @@ def render_grooves(dwg, plan, a, *, ctx, only=None) -> int:
                 view,
                 vb,
                 _groove_label(
-                    wpd.value,
-                    dpd.value,
+                    wpd.value_text,
+                    dpd.value_text,
                     wsfx=_tol_suffix(wpd.tolerance, draft),
                     dsfx=_tol_suffix(dpd.tolerance, draft),
                 ),
@@ -3195,7 +3198,7 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
 
     def _dia_label(dim):
         # Planner-fed value + authored tolerance/fit suffix (#754).
-        return f"ø{_fmt(dim.value)}{_tol_suffix(dim.tolerance, draft)}"
+        return f"ø{dim.value_text}{_tol_suffix(dim.tolerance, draft)}"
 
     if axis == "z":
         # Vertical turning axis (the common case): OD across the top of the front
