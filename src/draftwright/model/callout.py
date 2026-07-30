@@ -165,6 +165,14 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
         if not _shadowed(group, name)
         for label in _printing(group, head, *dependents)
     ]
+    # A bolt circle's BCD is not a segment — it has no head/dependent structure of its own —
+    # but it IS a planned, addressable dimension (`bolt_circle.diameter`) whose only rendering
+    # is the `EQ SP ON ø50 BC` suffix on the bore callout. That makes it a dimensional
+    # dependent of the head, exactly as a counterbore ⌀ is, and it belongs in this list rather
+    # than among the riders waived below. Classifying it as a rider let an authored set naming
+    # `bolt_circle.diameter` and omitting `bore.diameter` produce neither the 50 mm BCD nor a
+    # diagnostic — the requested dimension vanished (#925 review).
+    across.extend(_printing(group, ("diameter", "bolt_circle")))
     if across:
         raise ValueError(
             f"suppressing the bore diameter would leave {', '.join(across)} with no callout to "
@@ -172,10 +180,12 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
             "suppress those segments too, or keep the bore ⌀."
         )
     # Past this point NO dimension is orphaned — the callout is gone entirely. What remains are
-    # the string's non-dimensional riders: the thread spec and a pattern's count/suffix, which
-    # live on the FEATURE and so survive any amount of parameter suppression (#920 review).
+    # the string's non-dimensional RIDERS: the thread spec, the multiplier and a grid's
+    # `(3×3)`. All three live on the FEATURE with no parameter to suppress, so they survive any
+    # amount of parameter suppression (#920 review) — which is precisely what distinguishes
+    # them from the BCD above.
     #
-    # Whether losing them in silence is acceptable turns on WHO decided, which is the
+    # Whether losing a rider in silence is acceptable turns on WHO decided, which is the
     # distinction `Omission.authored` exists to carry. A planner rule dropping a thread spec is
     # the engine quietly discarding manufacturing intent, and #920's refusal stands. An AUTHORED
     # omission is the script saying, in as many words, that this feature is not dimensioned —

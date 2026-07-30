@@ -464,6 +464,104 @@ class TestAPositionIsADimension:
             "the script named the pitch and the drawing has no pitch dim"
         )
 
+    @staticmethod
+    def _bolt_circle():
+        import math
+
+        from draftwright.model.ir import Frame, HoleFeature, PatternFeature
+
+        hole = HoleFeature(Frame((0, 0, 10), "z"), 4.0, depth=None, through=True)
+        members = tuple(
+            (25 * math.cos(i * math.pi / 2), 25 * math.sin(i * math.pi / 2), 10) for i in range(4)
+        )
+        return PatternFeature(
+            Frame((0, 0, 10), "z"), "bolt_circle", 4, hole, members=members, bcd=50.0
+        )
+
+    def _bolt_circle_drawing(self, roles):
+        from draftwright.model.ir import RequestedDimension
+
+        pattern = self._bolt_circle()
+        return build_drawing(
+            Box(100, 60, 20),
+            model=[pattern],
+            authored=tuple(RequestedDimension(pattern, r) for r in roles),
+        )
+
+    def test_an_authored_BCD_without_its_bore_is_an_orphaned_term_not_a_silent_loss(self):
+        """A bolt circle's BCD is a planned dimension, so the authored escape must not waive it.
+
+        `bolt_circle.diameter` renders ONLY as the `EQ SP ON ø50 BC` suffix on the bore
+        callout, which makes it a dimensional dependent of the head exactly as a counterbore
+        ⌀ is — not a rider like the `4×` multiplier. Classifying it as a rider let the
+        authored-omission escape swallow the dependency error, `hole_callout_spec` return
+        `None`, and the bolt-circle branch of the furniture sweep skip it: the author named a
+        50 mm BCD and the drawing contained neither it nor a diagnostic (#925 review).
+        """
+        with pytest.raises(ValueError, match="bolt_circle.diameter"):
+            self._bolt_circle_drawing(["bolt_circle.diameter"])
+
+    def test_the_BCD_prints_when_its_bore_is_authored_too(self):
+        """The false-positive half. Refusing the pair as well would trade a silent loss for
+        a bolt circle nobody can dimension."""
+        drawn = {
+            n: getattr(o, "label", None)
+            for n, o in self._bolt_circle_drawing(
+                ["bore.diameter", "bolt_circle.diameter"]
+            ).iter_annotations()
+        }
+        assert [n for n in drawn if n.startswith("hc_")]
+
+    def test_an_authored_set_still_governs_the_BCD_suffix(self):
+        """Naming the bore alone drops the suffix rather than raising — the BCD is omitted,
+        which orphans nothing, and asserting on the spec is what makes this about the STRING
+        rather than about which annotations happen to be placed."""
+        from draftwright.model.ir import PartModel, RequestedDimension
+        from draftwright.model.planner import plan_dimensions
+
+        pattern = self._bolt_circle()
+
+        def suffix(roles):
+            model = PartModel(
+                bbox=Box(100, 60, 20).bounding_box(),
+                orientation=None,
+                features=[pattern],
+                authored_dimensions=(
+                    None if roles is None else tuple(RequestedDimension(pattern, r) for r in roles)
+                ),
+            )
+            (group,) = [g for g in plan_dimensions(model) if g.feature_kind == "pattern"]
+            from draftwright.model.callout import hole_callout_spec
+
+            return hole_callout_spec(group)["suffix"]
+
+        assert suffix(None) == "EQ SP ON ø50 BC", "the auto set carries it"
+        assert suffix(["bore.diameter"]) is None, "omitted, so it must not print"
+        assert suffix(["bore.diameter", "bolt_circle.diameter"]) == "EQ SP ON ø50 BC"
+
+    def test_omitting_a_whole_bolt_circle_is_still_coherent(self):
+        """Nothing authored on the pattern at all: no callout, no suffix, and no raise —
+        the orphan rule fires on a dependent that WOULD print, not on an empty set."""
+        from draftwright.model.ir import EnvelopeFeature as _Env
+        from draftwright.model.ir import Frame, RequestedDimension
+
+        pattern = self._bolt_circle()
+        env = _Env(
+            Frame((0, 0, 0), "z"),
+            width=100.0,
+            depth=60.0,
+            height=20.0,
+            bbox_min=(-50.0, -30.0, -10.0),
+            bbox_max=(50.0, 30.0, 10.0),
+        )
+        dwg = build_drawing(
+            Box(100, 60, 20),
+            model=[pattern, env],
+            authored=(RequestedDimension(env, "width"),),
+        )
+        drawn = {n for n, _ in dwg.iter_annotations()}
+        assert not [n for n in drawn if n.startswith("hc_")]
+
     def test_omitting_a_pattern_bore_is_not_an_orphaned_multiplier(self):
         """The `n×` multiplier lives on the FEATURE, so it survives any suppression, and
         #920 refuses to discard it silently. That refusal must not extend to an AUTHORED

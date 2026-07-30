@@ -510,6 +510,29 @@ something it does not say). So "every segment separately suppressible" holds *ex
 head* — an asymmetry the addressable unit declares, rather than one scattered through the
 renderer.
 
+**Dependents and riders are different things, and only riders are waived.** A compound
+callout string carries two kinds of trailing content:
+
+- **Dimensional dependents** — a counterbore ⌀, a countersink angle, and a bolt circle's
+  `bolt_circle.diameter`. Each is a planned, addressable `DimParameter` that the drawing
+  prints. Losing one silently is losing a dimension, so the head rule applies: approved
+  without its head **raises**.
+- **Non-dimensional riders** — the `n×` multiplier, a thread spec, a grid's `(3×3)`. These
+  live on the FEATURE with no parameter to suppress, so they survive any amount of
+  parameter suppression and have no independent existence outside the string.
+
+For a rider, whether silence is acceptable turns on **who decided**, which is what
+`Omission.authored` carries: a planner rule discarding a thread spec is the engine quietly
+dropping manufacturing intent (#920's refusal stands), while an author who omits the bore is
+declining the string, not orphaning its prefix — and refusing there made a pattern the one
+feature whose callout could not be omitted at all.
+
+That escape must not extend to a dependent. The BCD renders *only* as the
+`EQ SP ON ø50 BC` suffix, which made it look like a rider; classifying it as one let an
+authored set naming `bolt_circle.diameter` and omitting `bore.diameter` produce neither the
+BCD nor a diagnostic — the requested dimension vanished (#925 review). **The test is whether
+the term has a `DimParameter`, not where it appears in the string.**
+
 ### Two explicit sources of dimension intent
 
 "Absence of a line means suppressed" cannot hold on its own: every existing script contains
