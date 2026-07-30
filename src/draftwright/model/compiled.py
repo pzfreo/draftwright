@@ -67,6 +67,7 @@ from draftwright.model.planner import (
     _AUTHORED_OMISSION,
     DimensionId,
     authored_location_omitted,
+    location_datum,
     plan_dimensions,
     plan_locations,
 )
@@ -714,7 +715,9 @@ def _compile_off_axis_hole_locations(
     omissions: list[Omission] = []
     bb: Any = model.bbox
     for f in model.features:
-        if not isinstance(f, HoleFeature) or f.frame.axis not in ("x", "y"):
+        # Eligibility comes from `location_datum`, not a second orientation rule here —
+        # that is the duplication this whole class of defect keeps coming from (#925).
+        if not isinstance(f, HoleFeature) or location_datum(f) != "bbox":
             continue
         # An X-drilled hole is located across Y; a Y-drilled one across X. Both carry a
         # height. (Pattern members are their own `PatternFeature`, so patterned holes are

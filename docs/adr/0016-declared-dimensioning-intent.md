@@ -155,6 +155,19 @@ every location was drawn regardless of what the script declared.
 `location_role()` derives both `plan_locations` and the authored vocabulary from it, and
 `compile_dimensions().locations` is the approved set every location renderer reads.
 
+**Eligibility is one answer, read three times.** `planner.location_datum(feature)` returns
+`"datum_xy"`, `"bbox"` or `None` — where a position is measured from, or that the feature
+has none — and `plan_locations`, the bbox compilers and the authored vocabulary all read
+it. Re-deriving that answer is what broke twice: the kind table said a hole is locatable
+while `plan_locations` said only a Z-normal one is (side-drilled positions drawn outside
+the plan), and then it said a *pattern* is locatable while neither compiler emits one
+off-axis, so `dimension(x_pattern, "location")` was accepted and silently drew nothing.
+
+An off-axis pattern is `None` because the engine has never drawn one — the off-axis pass
+excluded patterns by construction. Compiling one would be new output with its own layout
+consequences, not a boundary fix, so the vocabulary tells the truth about today's engine
+and the author gets an error rather than a blank drawing.
+
 **A position is compiled wherever it is measured from.** `plan_locations` owns the Z-normal
 ladder, which measures from `datum_xy`; the compiler owns the two that measure from the
 BOUNDING BOX in a feature's own view — a slot's near-end offset and a side-drilled hole's

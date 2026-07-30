@@ -520,6 +520,121 @@ class TestAPositionIsADimension:
             f"one height — got {sorted(measured)}"
         )
 
+    @pytest.mark.parametrize("axis", ["x", "y"])
+    @pytest.mark.parametrize(
+        "roles", [("location",), ("bore.diameter", "location")], ids=["alone", "with-bore"]
+    )
+    def test_an_off_axis_pattern_location_is_refused_not_accepted_and_lost(self, axis, roles):
+        """Eligibility must match what a compiler will actually produce.
+
+        `_LOCATION_ROLE` said every pattern is locatable; `plan_locations` planned only
+        Z-normal ones and the bbox compiler handled only holes, so an X/Y pattern fell
+        between them — `dimension(pattern, "location")` was ACCEPTED and produced nothing,
+        with no diagnostic. That is precisely the blank-drawing failure
+        `_check_authored_targets` exists to prevent (#925 review).
+
+        The engine has never drawn an off-axis pattern position (the off-axis pass excluded
+        patterns by construction), so the honest fix is for the vocabulary to say so rather
+        than for the compiler to invent output. `location_datum` is now the single answer
+        that `plan_locations`, the bbox compiler and this check all read.
+
+        The `with-bore` case is the one that survived the first fix: the target check asked
+        whether the FEATURE matched anything, so a valid `bore.diameter` entry vouched for
+        the invalid `location` beside it.
+        """
+        from draftwright.model.ir import Frame, HoleFeature, PatternFeature, RequestedDimension
+
+        member = HoleFeature(Frame((10, 5, 2), axis), 4.0, depth=None, through=True)
+        pattern = PatternFeature(
+            Frame((10, 5, 2), axis),
+            "linear",
+            3,
+            member,
+            members=((10, -10, 2), (10, 5, 2), (10, 20, 2)),
+            pitch=15,
+            direction=(0, 1, 0),
+        )
+        with pytest.raises(ValueError, match="draws no position"):
+            build_drawing(
+                Box(100, 60, 20),
+                model=[pattern],
+                authored=tuple(RequestedDimension(pattern, r) for r in roles),
+            )
+
+    def test_a_Z_normal_pattern_location_still_works(self):
+        """The false-positive half: narrowing eligibility must not cost the case that works."""
+        from draftwright.model.ir import Frame, HoleFeature, PatternFeature, RequestedDimension
+
+        member = HoleFeature(Frame((-40, 0, 0), "z"), 3.0, depth=None, through=True)
+        pattern = PatternFeature(
+            Frame((0, 0, 0), "z"),
+            "linear",
+            3,
+            member,
+            members=((-40, 0, 0), (0, 0, 0), (40, 0, 0)),
+            pitch=40,
+            direction=(1, 0, 0),
+        )
+
+        def drawn(roles):
+            return {
+                n
+                for n, _ in build_drawing(
+                    Box(120, 60, 12),
+                    model=[pattern],
+                    authored=tuple(RequestedDimension(pattern, r) for r in roles),
+                ).iter_annotations()
+                if n.startswith("m_loc")
+            }
+
+        assert not drawn(["bore.diameter"])
+        assert drawn(["bore.diameter", "location"])
+
+    def test_eligibility_and_the_compilers_cannot_disagree(self):
+        """The property behind both tests above, checked directly rather than per fixture.
+
+        Every feature `location_role` accepts must be produced by one of the two compilers,
+        and nothing else may be. Stated over a model carrying every locatable kind in every
+        orientation, so a new kind or a new orientation rule cannot land on one side only —
+        which is how this defect arrived twice.
+        """
+        from draftwright.model.ir import (
+            Frame,
+            HoleFeature,
+            PatternFeature,
+            PocketFeature,
+            SlotFeature,
+        )
+        from draftwright.model.planner import location_datum, location_role
+
+        member = HoleFeature(Frame((0, 0, 0), "x"), 4.0, depth=None, through=True)
+        features = [
+            HoleFeature(Frame((0, 0, 0), ax), 4.0, depth=None, through=True) for ax in "xyz"
+        ]
+        features += [
+            PatternFeature(
+                Frame((0, 0, 0), ax),
+                "linear",
+                2,
+                member,
+                members=((0, 0, 0),),
+                pitch=5,
+                direction=(0, 1, 0),
+            )
+            for ax in "xyz"
+        ]
+        features += [
+            PocketFeature(Frame((0, 0, 0), ax), "x", "y", 10.0, 20.0, 5.0, 0.0, 0.0, 10.0)
+            for ax in "xyz"
+        ]
+        features.append(SlotFeature(Frame((0, 0, 0), "z"), "x", "y", 8.0, 20.0, 0.0, 0.0, 20.0))
+
+        for feature in features:
+            assert (location_role(feature) is None) == (location_datum(feature) is None), (
+                f"{feature.kind}/{feature.frame.axis}: a role without a datum is a target "
+                "the vocabulary accepts and no compiler produces"
+            )
+
     def test_a_pattern_pitch_obeys_the_authored_set_both_ways(self):
         """`4× 20` is a value, so it is dimensional however the code groups it.
 

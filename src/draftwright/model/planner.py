@@ -349,6 +349,40 @@ _LOCATION_ROLE: dict[type, str] = {
     SlotFeature: "location_slot",
 }
 
+#: Which DATUM each kind's position is measured from, per orientation — and therefore
+#: whether it has one at all.
+#:
+#: ``"datum_xy"`` is the Z-normal ladder `plan_locations` owns. ``"bbox"`` is a position
+#: measured from the bounding box in the feature's own view, compiled in `model/compiled`
+#: (a slot's near-end offset, a side-drilled hole's offset + height). ``None`` means the
+#: engine draws no position for that feature at all.
+#:
+#: **The eligibility question is answered once, here, and read three times** — by
+#: `plan_locations`, by the bbox compilers, and by the authored vocabulary. Re-deriving it
+#: is what broke twice: `location_role` said a hole is locatable while `plan_locations`
+#: said only a Z-normal one is (side-drilled positions drawn outside the plan), and then
+#: it said a PATTERN is locatable while neither compiler emits one off-axis — so
+#: `dimension(x_pattern, "location")` was ACCEPTED and silently produced nothing, the exact
+#: failure `_check_authored_targets` exists to prevent (#925 review).
+#:
+#: An off-axis pattern is ``None`` because the engine has never drawn one: the off-axis
+#: pass excluded patterns by construction. Compiling one would be new output with its own
+#: layout consequences, not a boundary fix — so the vocabulary tells the truth about
+#: today's engine and the author gets an error instead of a blank drawing.
+def location_datum(feature) -> str | None:
+    """``"datum_xy"``, ``"bbox"``, or ``None`` — where *feature*'s position is measured
+    from, or that it has none. See :data:`_LOCATION_ROLE`."""
+    if type(feature) not in _LOCATION_ROLE:
+        return None
+    if isinstance(feature, SlotFeature):
+        return "bbox"  # near-end offset along its long axis, in its own view
+    if isinstance(feature, PocketFeature):
+        return "datum_xy"  # every orientation: its two in-plane coordinates
+    if isinstance(feature, HoleFeature):
+        return "datum_xy" if feature.frame.axis == "z" else "bbox"
+    # Patterns and pads: the plan-X / side-Y ladder only, so Z-normal only.
+    return "datum_xy" if feature.frame.axis == "z" else None
+
 #: The role every authored entry uses to name a location, whatever the per-kind role above.
 #:
 #: One coarse unit per feature, deliberately: #883 asks whether a patterned hole's location
@@ -360,10 +394,12 @@ LOCATION_ROLE = "location"
 
 
 def location_role(feature) -> str | None:
-    """The role :func:`plan_locations` would give *feature*'s position, or ``None``.
+    """The role *feature*'s position is planned under, or ``None`` if it has none.
 
-    Shared by the planner and the authored-set vocabulary so the two cannot disagree about
-    which features have a position to omit."""
+    Derived from :func:`location_datum` rather than from the kind table alone, so the
+    authored vocabulary cannot accept a target no compiler will produce."""
+    if location_datum(feature) is None:
+        return None
     return _LOCATION_ROLE.get(type(feature))
 
 
@@ -397,16 +433,13 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     # record provenance on the placed location dim (ADR 0010).
     refs: list[tuple[Point, str, Feature]] = []
     for f in model.features:
-        # The established hole/pattern/pad ladder is Z-normal.  A pocket is
-        # different: its two coordinates belong in the view normal to its opening,
-        # so preserve its datum→centre intent for every principal orientation and
-        # let the renderer choose the corresponding end-on axes.
-        if f.frame.axis != "z" and not isinstance(f, PocketFeature):
-            continue
+        # Which features get a `datum_xy` position — including the orientation rule (the
+        # hole/pattern/pad ladder is Z-normal; a pocket's two in-plane coordinates belong
+        # in the view normal to its opening, for every orientation) — is `location_datum`'s
+        # single answer. This loop used to restate the orientation half inline, which is
+        # how it came to disagree with the kind table (#925 review).
         role = location_role(f)
-        # `location_slot` is addressable but not planned here — it measures from the
-        # bounding box in the slot's own view (see `_LOCATION_ROLE`).
-        if role is None or role == "location_slot":
+        if role is None or location_datum(f) != "datum_xy":
             continue
         if isinstance(f, HoleFeature):
             # un-patterned holes — a HoleFeature may group identical holes
@@ -494,6 +527,24 @@ def _request_for(model, feature, param):
     return None
 
 
+def _authored_addresses(authored, feature, param) -> bool:
+    """Does this ONE authored entry name *param* on *feature*?
+
+    Split out from :func:`_authored_for` so `_check_authored_targets` can ask about a single
+    entry. Asking "did this FEATURE match anything" let one valid entry vouch for every
+    invalid one beside it: `dimension(pattern, "bore.diameter")` plus
+    `dimension(pattern, "location")` passed the check because the bore matched, and the
+    unmatched location then silently produced nothing (#925 review)."""
+    if authored.feature is not feature:
+        return False
+    if "." in authored.role:
+        if authored.role != param.parameter_id:
+            return False
+    elif authored.role != param.role:
+        return False
+    return authored.discriminator is None or authored.discriminator == param.discriminator
+
+
 def _authored_for(model, feature, param):
     """The caller's `dimension(...)` naming this parameter, or ``None`` if it is omitted.
 
@@ -502,16 +553,8 @@ def _authored_for(model, feature, param):
     miss leaves the rule set's own decision standing. `dimension` DECLARES the set, so a miss
     is an omission and the measurement is suppressed."""
     for authored in model.authored_dimensions or ():
-        if authored.feature is not feature:
-            continue
-        if "." in authored.role:
-            if authored.role != param.parameter_id:
-                continue
-        elif authored.role != param.role:
-            continue
-        if authored.discriminator is not None and authored.discriminator != param.discriminator:
-            continue
-        return authored
+        if _authored_addresses(authored, feature, param):
+            return authored
     return None
 
 
@@ -562,12 +605,24 @@ def _check_authored_targets(model: PartModel) -> None:
         ):
             continue
         if not any(
-            _authored_for(model, feature, p)
+            _authored_addresses(authored, feature, p)
             for feature in model.features
             if authored.feature is feature
             for p in feature.parameters()
         ):
             in_model = any(f is authored.feature for f in model.features)
+            if in_model and authored.role == LOCATION_ROLE:
+                # Distinguish "this kind has no position" from "this kind has one, but not
+                # in this orientation" — the second reads as an engine limit, which it is,
+                # and a bare "no location measurement" would send the author looking for a
+                # typo instead.
+                raise ValueError(
+                    f"authored dimension 'location' matches nothing: the engine draws no "
+                    f"position for a {authored.feature.frame.axis}-axis "
+                    f"{authored.feature.kind}. An authored set declares the complete "
+                    "dimensioning, so an entry that addresses nothing would silently leave "
+                    "the drawing blank."
+                )
             why = (
                 f"no {authored.role!r} measurement on that {authored.feature.kind}"
                 if in_model
