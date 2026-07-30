@@ -1802,3 +1802,94 @@ class TestTheDimensionMirror:
         assert 'sheet.dimension(envelope1, "height.length")' in src
         assert 'sheet.dimension(envelope1, "width.length")' not in src
         assert 'sheet.dimension(envelope1, "depth.length")' not in src
+
+
+#: Annotations a generated script legitimately does NOT declare, and why.
+#:
+#: ADR 0016 records three reasons a path survives (#937): unresolved debt is inventoried and
+#: SHRINK-ONLY; a permanent exception is inventoried and ARGUED; an intentional shared route
+#: is inventoried and behaviourally VERIFIED. Everything here is the second kind — furniture
+#: carries no editable intent, so there is no line to write and nothing to comment out.
+#:
+#: The argument matters more than the list. If a reader cannot tell a permanent exception
+#: from someone's unfinished work, the list stops meaning anything — which is exactly how
+#: `_PENDING_VALUE_CARRYING` came to be read as "furniture" (#925 review round 4).
+_SCRIPT_FURNITURE = {
+    "m_cm": "centre marks — sized off the hole they mark, not a printed value (#875)",
+    "centerline": "shows where an axis is; no measurement",
+    "bc_": "a bolt circle's centreline — geometry, like a centre mark",
+    "note_": "the ISO NTS caption — a sheet-level statement, not a feature's",
+    "title_block": "sheet metadata; edited through Sheet(...) kwargs, not a dimension line",
+    "section_": "cutting-plane arrows and label — placed by the section request",
+    "hatch": "ISO 128-50 section hatching — a fill, carrying no measurement",
+    "detail_marker": "the detail-view marker; placed by the escalation, not declared",
+    "detail_caption": "the detail-view caption — names the view, states no size",
+}
+
+
+class TestTheScriptAccountsForEveryAnnotation:
+    """Absence of a `dimension(...)` line means SUPPRESSED — a claim that is only safe over
+    the set the emitter can actually express (#939).
+
+    So every annotation the drawing carries must be one of two things: produced by a line the
+    script contains, or named here as furniture. **No third state.** A dimensional mark the
+    script cannot express would otherwise sit in the drawing with nothing to comment out and
+    nothing saying why — the reader would conclude the engine chose it, when in fact the
+    script could not say anything about it.
+
+    Checked BEHAVIOURALLY, by commenting every line out and seeing what survives, rather than
+    by classifying annotation names. A prefix taxonomy is a proxy: it asserts what the author
+    believed about the names, and the same shortcut has twice been the bug (`_VALUE_FREE`
+    absorbing the pitch dim, `_PENDING_VALUE_CARRYING` read as "furniture").
+    """
+
+    def _corpus(self):
+        return TestTheDimensionMirror._corpus()
+
+    @pytest.mark.parametrize("name", sorted(TestTheDimensionMirror._corpus()))
+    def test_commenting_every_dimension_line_leaves_only_named_furniture(self, name):
+        part = self._corpus()[name]
+        src = emit_sheet_script(detect_part_model(part), "part", "s", title="T", number="N")
+        if "sheet.dimension(" not in src:
+            pytest.skip(f"{name} falls back to auto_dimensions() — #945")
+
+        blanked = "\n".join(
+            "# " + line if line.startswith("sheet.dimension(") else line
+            for line in src.splitlines()
+        )
+        ns: dict = {"part": part}
+        body = blanked.replace("\npart\n", "\n", 1)
+        exec(compile(body[: body.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        survivors = {n for n, _ in ns["sheet"].build().iter_annotations()}
+
+        unaccounted = sorted(n for n in survivors if not n.startswith(tuple(_SCRIPT_FURNITURE)))
+        assert not unaccounted, (
+            f"{name}: {unaccounted} survive with every dimension line commented out — the "
+            "script cannot express them, so 'absence of a line means suppressed' is false "
+            "for them. Either emit a line, or add them to _SCRIPT_FURNITURE with a reason."
+        )
+
+    def test_the_furniture_list_is_argued_not_just_listed(self):
+        """A permanent exception carries its argument (ADR 0016, #937). Without one a reader
+        cannot tell it from unfinished work, and the list decays into a suppression."""
+        for prefix, why in _SCRIPT_FURNITURE.items():
+            assert len(why) > 20, f"{prefix} needs a reason it can never be a dimension line"
+
+    def test_the_furniture_list_earns_its_entries(self):
+        """Every entry must actually be reachable, or the list is a wish rather than a record.
+
+        A stale prefix is worse than a missing one: it silently widens what the accounting
+        above will forgive, so the next unexpressible dimension slips through under a name
+        nobody produces any more."""
+        drawn: set[str] = set()
+        for part in self._corpus().values():
+            dwg = build_drawing(part, model=detect_part_model(part), title="T", number="N")
+            drawn |= {n for n, _ in dwg.iter_annotations()}
+        # `section_`/`hatch`/`detail_*` need a sectioned or escalated part, which this corpus
+        # deliberately does not carry — assert the ones it CAN reach, and let the others be
+        # covered where those fixtures live.
+        reachable = {"m_cm", "centerline", "note_", "title_block"}
+        for prefix in reachable:
+            assert any(n.startswith(prefix) for n in drawn), (
+                f"{prefix!r} is listed as furniture but this corpus never draws it"
+            )
