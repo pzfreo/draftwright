@@ -509,6 +509,13 @@ def _dimension_block(model, names: dict[int, str]) -> list[str]:
         "# ── Dimensions ────────────────────────────────────────────────────────────────",
         "# THIS IS THE COMPLETE SET (ADR 0016). A measurement with no line here is omitted",
         "# deliberately — comment a line out to drop that dimension, add one to declare it.",
+        # The VERB, not just the comment above it. `dimension(...)` lines imply this source
+        # on their own, so writing it was optional for a non-empty set — but an EMPTY
+        # authored set has no line to imply it from, and the script then said its source in a
+        # comment only and failed the mandatory-source check at build (#933 review). Emitting
+        # it unconditionally also means an authored script states its source the same way an
+        # automatic one does, rather than in prose a reader has to trust.
+        "sheet.authored_dimensions()",
     ]
     for authored in model.authored_dimensions:
         name = names.get(id(authored.feature))
@@ -681,7 +688,7 @@ def emit_sheet_script(
         *(
             _dimension_block(model, _names) + [""]
             if model.authored_dimensions is None
-            else ["# The dimensions are DECLARED below the features (ADR 0016 authored set).", ""]
+            else ["# The dimension source is DECLARED below the features (ADR 0016).", ""]
         ),
         # For a live-source part (#771), the values below were read off YOUR objects — point
         # each line back at the object to keep it a single source of truth (a STEP-sourced

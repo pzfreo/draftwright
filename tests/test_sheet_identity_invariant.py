@@ -607,7 +607,19 @@ _STATE_CARRYING_FEATURE_REFS = frozenset(
 
 #: `Sheet` state that stores no feature reference, so a reorder cannot affect it.
 _STATE_WITHOUT_FEATURE_REFS = frozenset(
-    {"_part", "_features", "_entries", "_opts", "_tables", "_auto_dimensions"}
+    {
+        "_part",
+        "_features",
+        "_entries",
+        "_opts",
+        "_tables",
+        "_auto_dimensions",
+        # A bool: "the dimension(...) lines ARE the set". It carries no feature reference by
+        # construction — it is the other half of `_auto_dimensions`, and classified beside it
+        # for the same reason (#933). The set's MEMBERS live in `_authored`, which is
+        # classified as reference-carrying and has its own scenario.
+        "_authored_source",
+    }
 )
 
 

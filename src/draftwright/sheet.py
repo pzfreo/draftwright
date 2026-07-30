@@ -673,6 +673,9 @@ class Sheet:
         # dimension sources, mutually exclusive with `_auto_dimensions`. Token-keyed like
         # every other feature reference on this class.
         self._authored: list[dict] = []
+        #: Did the script SAY the authored set is its source? `dimension(...)` implies it;
+        #: this carries the case with no lines to imply it from (an empty complete set).
+        self._authored_source: bool = False
         # Where the dimensions come from, and WHO said so — `None` (nobody has yet),
         # ``"explicit"`` (an `auto_dimensions()` line) or ``"implicit"`` (`from_part`, which
         # chooses on the caller's behalf). MANDATORY unless the sheet authors its own set
@@ -1289,6 +1292,24 @@ class Sheet:
         self._auto_dimensions = "explicit"
         return self
 
+    def authored_dimensions(self) -> Sheet:
+        """Declare that the :meth:`dimension` lines in this script ARE the complete set.
+
+        The other half of :meth:`auto_dimensions`, and until #933 it did not exist: the
+        authored source was entered implicitly, as a side effect of calling `dimension()` at
+        least once. That left one thing unsayable — **the complete set is empty** — because
+        absence of `dimension(...)` lines is also what a script with no source at all looks
+        like, which `_check_dimension_source` must reject. So a valid `PartModel` carrying
+        `authored_dimensions=()` built directly but could not be written as a script.
+
+        Calling `dimension(...)` still selects this source on its own; the verb only makes
+        the choice sayable when there is nothing else to say it. Emitted scripts write it
+        unconditionally, so an authored script states its source with a verb rather than with
+        a comment a reader has to trust (ADR 0016 / #874).
+        """
+        self._authored_source = True
+        return self
+
     def add_dimension(self, feature, role: str, *, axis: str | None = None):
         """Augment the planner's set with one more measurement (ADR 0016 / #872).
 
@@ -1335,14 +1356,15 @@ class Sheet:
         Rejected: implicit-by-usage — "any `dimension` line turns the automatic set off". A
         hand-author adding one pitch dimension would silently lose every ⌀ callout.
         """
-        if self._authored and self._auto_dimensions == "explicit":
+        authored = bool(self._authored) or self._authored_source
+        if authored and self._auto_dimensions == "explicit":
             raise ValueError(
                 "a sheet has ONE dimension source: auto_dimensions() for the planner's set, or "
                 "dimension(...) declarations for the complete authored set. This sheet asks for "
                 "both, which cannot be honoured — omission is only meaningful inside a set "
                 "declared complete, and the automatic set has no omissions to read."
             )
-        if self._authored:
+        if authored:
             # `from_part` chose the automatic source on the caller's behalf; declaring an
             # authored set is the script overriding that choice, not contradicting itself.
             # (An explicit `auto_dimensions()` line already raised above.)
@@ -1353,7 +1375,7 @@ class Sheet:
                 "must request one — call auto_dimensions(). To declare the complete set "
                 "instead, use dimension(...) lines and drop the add_dimension() calls."
             )
-        if not self._auto_dimensions and not self._authored:
+        if not self._auto_dimensions and not authored:
             raise ValueError(
                 "this sheet does not say where its dimensions come from. Call "
                 "auto_dimensions() for the planner's set, or declare the complete set with "
@@ -1460,7 +1482,10 @@ class Sheet:
         ``None`` is "the planner chooses", an empty tuple would be "the author chose nothing",
         which :meth:`_check_dimension_source` rejects before we get here."""
         if not self._authored:
-            return None
+            # `()` when the script SAID the authored set is its source and named nothing —
+            # "the author chose no dimensions", which is a legitimate drawing. `None` only
+            # when no source was declared at all, which `_check_dimension_source` rejects.
+            return () if self._authored_source else None
         return tuple(
             RequestedDimension(
                 feature=self._features[self._index_of_token(e["token"])],

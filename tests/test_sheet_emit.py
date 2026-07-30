@@ -1566,6 +1566,51 @@ class TestAuthoredSetRoundTrips:
         assert "sheet.auto_dimensions()" in src
         assert "sheet.dimension(" not in src
 
+    def test_an_EMPTY_authored_set_round_trips(self):
+        """`authored_dimensions=()` is a valid model: "the author chose no dimensions".
+
+        ADR 0016 distinguishes it from `None` ("the planner chooses"), and `build_drawing`
+        honours both — but the emitted script could not express it. The authored source was
+        entered IMPLICITLY, by calling `dimension(...)` at least once, so a set with no lines
+        stated its source in a comment and then failed the mandatory-source check at build:
+        a generated script that cannot run, from a model that draws fine (#933 review).
+
+        This is the #707 class the rest of this PR closes, at the source boundary rather than
+        the dimension boundary — so it is checked the same way, by running the script.
+        """
+        import dataclasses
+
+        from build123d import Box
+
+        part = Box(40, 20, 10)
+        model = dataclasses.replace(detect_part_model(part), authored_dimensions=())
+        direct = build_drawing(part, model=model, authored=model.authored_dimensions, number="N")
+
+        src = emit_sheet_script(model, "part", "empty", title="T", number="N")
+        assert "sheet.auto_dimensions()" not in src, "an empty authored set is not the planner's"
+        regenerated = self._run(src, part)["sheet"].build()
+
+        def dims(dwg):
+            return {n for n, _ in dwg.iter_annotations() if not n.startswith(("note_", "title"))}
+
+        assert dims(regenerated) == dims(direct) == set(), (
+            "an empty authored set draws no generated dimensions, on both paths"
+        )
+
+    def test_every_authored_script_states_its_source_with_a_verb(self):
+        """Not with a comment. The source is machine-checkable on the automatic path
+        (`auto_dimensions()`), and it should be on this one too — a reader should not have to
+        trust prose to know whether an absent dimension means anything."""
+        import dataclasses
+
+        from build123d import Box
+
+        _part, model = self._authored_model()
+        empty = dataclasses.replace(detect_part_model(Box(40, 20, 10)), authored_dimensions=())
+        for m in (model, empty):
+            src = emit_sheet_script(m, "part", "s", title="T", number="N")
+            assert "sheet.authored_dimensions()" in src
+
     def test_an_authored_dimension_on_an_unnameable_feature_refuses_the_script(self):
         """Narrowed, not removed. A kind with no declarative verb emits a COMMENT, so it
         binds no name and the declaration has nothing to reference. Emitting the rest would
