@@ -1655,7 +1655,7 @@ class TestTheDimensionMirror:
 
     @staticmethod
     def _corpus():
-        from build123d import Align, Axis, Box, Cylinder, Pos
+        from build123d import Align, Axis, Box, Cylinder, Pos, Rot
 
         def flange():
             part = Cylinder(21, 4)
@@ -1680,7 +1680,12 @@ class TestTheDimensionMirror:
             - Pos(20, 10, 0) * Cylinder(3, 20),
             "pad": Box(80, 60, 10) + Pos(0, 0, 10) * Box(30, 20, 4),
             "bare block": Box(60, 40, 20),
-            "side-drilled": Box(80, 60, 20) - Pos(0, 0, 10) * Cylinder(3, 200).rotate(Axis.Y, 90),
+            # A real X-axis bore. The first version used a rotated cylinder through a block
+            # and detected NOTHING but an envelope, so the off-axis location path this corpus
+            # claimed to cover was untested (#947 review). `_the_corpus_detects_what_it_claims`
+            # now makes that failure loud instead of invisible.
+            "side-drilled": Box(12, 40, 30) - Pos(0, 8, 6) * Rot(0, 90, 0) * Cylinder(3, 12),
+            "boss": Box(80, 60, 12) + Pos(0, 0, 12) * Cylinder(10, 8),
         }
 
     @staticmethod
@@ -1689,6 +1694,46 @@ class TestTheDimensionMirror:
         body = src.replace("\npart\n", "\n", 1)
         exec(compile(body[: body.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
         return ns
+
+    #: What each fixture is FOR. A fixture that stops detecting its kind stops testing the
+    #: path it was added for, silently — which is what happened to "side-drilled" (detected
+    #: only an envelope) and "slot" (detected a pocket) until #947's review counted them.
+    _EXPECTED_KINDS = {
+        "plate+hole": {"hole"},
+        "flange (no envelope feature)": {"hole", "pattern", "pad", "step"},
+        "stepped": {"step_level"},
+        "slot": {"pocket"},
+        "pocket": {"pocket"},
+        "two holes": {"hole"},
+        "pad": {"pad", "slot"},
+        "bare block": {"envelope"},
+        "side-drilled": {"hole"},
+        "boss": {"boss"},
+    }
+
+    @pytest.mark.parametrize("name", sorted(_corpus()))
+    def test_the_corpus_detects_what_it_claims(self, name):
+        """A fixture named for a kind it does not produce is coverage theatre."""
+        kinds = {f.kind for f in detect_part_model(self._corpus()[name]).features}
+        expected = self._EXPECTED_KINDS[name]
+        assert expected <= kinds, (
+            f"{name} detects {sorted(kinds)}, missing {sorted(expected - kinds)}"
+        )
+
+    def test_the_corpus_names_every_fixture_it_carries(self):
+        """The two tables cannot drift: a fixture added without an expectation is a fixture
+        nobody has said what it is for."""
+        assert set(self._corpus()) == set(self._EXPECTED_KINDS)
+
+    def test_the_side_drilled_fixture_reaches_the_off_axis_location_path(self):
+        """Named because it is the path that was silently uncovered. An X-axis bore's
+        position is compiled by `_compile_off_axis_hole_locations`, a different code path
+        from the Z-normal ladder (#925)."""
+        model = detect_part_model(self._corpus()["side-drilled"])
+        from draftwright.model.compiled import compile_dimensions
+
+        roles = {loc.role for loc in compile_dimensions(model).locations}
+        assert "location_off_axis" in roles, f"got {sorted(roles)}"
 
     @pytest.mark.parametrize("name", sorted(_corpus()))
     def test_the_mirrored_script_draws_what_the_automatic_drawing_draws(self, name):
@@ -1804,27 +1849,133 @@ class TestTheDimensionMirror:
         assert 'sheet.dimension(envelope1, "depth.length")' not in src
 
 
-#: Annotations a generated script legitimately does NOT declare, and why.
+#: Annotations a generated script legitimately does NOT declare, keyed by EXACT name prefix
+#: where the family is closed, and each carrying the argument that it can never be a
+#: dimension line (ADR 0016's permanent-exception category, #937).
 #:
-#: ADR 0016 records three reasons a path survives (#937): unresolved debt is inventoried and
-#: SHRINK-ONLY; a permanent exception is inventoried and ARGUED; an intentional shared route
-#: is inventoried and behaviourally VERIFIED. Everything here is the second kind — furniture
-#: carries no editable intent, so there is no line to write and nothing to comment out.
-#:
-#: The argument matters more than the list. If a reader cannot tell a permanent exception
-#: from someone's unfinished work, the list stops meaning anything — which is exactly how
-#: `_PENDING_VALUE_CARRYING` came to be read as "furniture" (#925 review round 4).
+#: Deliberately NOT subsystem-wide prefixes. `"section_"` would admit every annotation the
+#: section subsystem ever grows, including a future `section_depth` measurement — the exact
+#: blind spot the behavioural test below claims to supersede (#947 review). The entries name
+#: what exists; a new one has to be classified rather than inherited.
 _SCRIPT_FURNITURE = {
     "m_cm": "centre marks — sized off the hole they mark, not a printed value (#875)",
-    "centerline": "shows where an axis is; no measurement",
+    "centerline_front": "shows where the front view's axis is; no measurement",
+    "centerline_plan": "shows where the plan view's axis is; no measurement",
+    "centerline_side": "shows where the side view's axis is; no measurement",
     "bc_": "a bolt circle's centreline — geometry, like a centre mark",
-    "note_": "the ISO NTS caption — a sheet-level statement, not a feature's",
+    "note_iso_nts": "the ISO NTS caption — a sheet-level statement, not a feature's",
     "title_block": "sheet metadata; edited through Sheet(...) kwargs, not a dimension line",
-    "section_": "cutting-plane arrows and label — placed by the section request",
-    "hatch": "ISO 128-50 section hatching — a fill, carrying no measurement",
+    "section_label": "the A–A label — names the cut, states no size",
+    "section_line": "the cutting-plane line and its arrows (ISO 128-44)",
+    "section_hatch": "ISO 128-50 section hatching — a fill, carrying no measurement",
     "detail_marker": "the detail-view marker; placed by the escalation, not declared",
     "detail_caption": "the detail-view caption — names the view, states no size",
 }
+
+
+def _is_value_bearing(annotation) -> bool:
+    """Does this annotation PRINT a measurement?
+
+    The classification that matters, and the one a name cannot give. An allowlist entry is
+    only defensible if the thing it names carries no number — otherwise "furniture" is just
+    a word for "we decided not to look" (#947 review).
+    """
+    label = getattr(annotation, "label", None)
+    return bool(label) and any(ch.isdigit() for ch in str(label))
+
+
+#: The PARAMETER an approved ladder is named by, where the two spellings differ. An
+#: `overall_height` ladder attached to an `EnvelopeFeature` is that envelope's `height`
+#: parameter — the ladder is a placement grouping, the parameter is what a script names.
+_LADDER_PARAMETER = {"overall_height": "height.length"}
+
+
+def _unmirrored_compiled_dimensions(model) -> list[str]:
+    """Approved compiled dimensions with no emitted `dimension(...)` line — the mirror's gaps.
+
+    Compares the COMPILER's output against the emitter's requests directly, so it does not
+    depend on a fixture drawing the right thing. That is the difference between a guard and a
+    smoke test: the behavioural comment-everything-out check below can only see paths its
+    corpus happens to reach, and a new dimensional kind no fixture builds would pass it
+    untouched (#947 review).
+    """
+    from draftwright.model.compiled import compile_dimensions, resolve_feature
+    from draftwright.sheet_emit import _mirrored_requests, mirror_model
+
+    declared, synthesised = mirror_model(model)
+    requested = {
+        (id(feature), role) for feature, role, _disc in _mirrored_requests(declared, synthesised)
+    }
+
+    def _asked(feature, parameter_id) -> bool:
+        # A line names either the full parameter id ("bore.diameter") or the bare role
+        # ("bore") — both are valid `dimension(...)` spellings, and a correlated set emits one
+        # line covering N members.
+        role = parameter_id.split(".")[0]
+        return (id(feature), parameter_id) in requested or (id(feature), role) in requested
+
+    # The ORIGINAL model, not the declared one. `mirror_model` may append an envelope purely
+    # to make the overall height nameable, and that envelope's own width/depth are not
+    # dimensions the source drawing carries — compiling the declared model counted them as
+    # gaps. The claim under test is "every dimension the automatic drawing carries has a
+    # line", so the automatic drawing's model is what to compile.
+    missing = []
+    plan = compile_dimensions(model)
+    for group in plan.groups:
+        feature = resolve_feature(group.ref)
+        for dim in group.dims:
+            if not _asked(feature, dim.parameter_id):
+                missing.append(f"{feature.kind}.{dim.parameter_id}")
+    for approved in plan.locations:
+        feature = resolve_feature(approved.ref)
+        if feature is not None and (id(feature), "location") not in requested:
+            missing.append(f"{feature.kind}.location")
+    for ladder in plan.ladders:
+        feature = resolve_feature(ladder.ref) if ladder.ref is not None else None
+        if feature is None:
+            # The bounding-box overall height: `mirror_model` declares an envelope for it.
+            if synthesised is None or (id(synthesised), "height.length") not in requested:
+                missing.append("(bbox).overall_height")
+        elif not _asked(feature, _LADDER_PARAMETER.get(ladder.kind, f"{ladder.kind}.length")):
+            missing.append(f"{feature.kind}.{ladder.kind}")
+    return sorted(set(missing))
+
+
+class TestTheMirrorCoversTheCompiledSet:
+    """The structural half, and the durable one: every dimension the COMPILER approved has an
+    emitted line, checked against the compiler rather than against a drawing.
+
+    The behavioural test below can only see what its corpus draws. This one is complete for
+    whatever model it is given, so a new compiled dimension kind fails it the moment any
+    fixture carries the feature — instead of waiting for someone to notice the drawing
+    changed (#947 review).
+    """
+
+    @pytest.mark.parametrize("name", sorted(TestTheDimensionMirror._corpus()))
+    def test_every_approved_dimension_has_a_line(self, name):
+        model = detect_part_model(TestTheDimensionMirror._corpus()[name])
+        from draftwright.sheet_emit import _is_mirrorable
+
+        if not _is_mirrorable(model):
+            pytest.skip(f"{name} falls back to auto_dimensions() — #945")
+        missing = _unmirrored_compiled_dimensions(model)
+        assert not missing, (
+            f"{name}: the compiler approved {missing} and the script declares no line for "
+            "them, so 'THIS IS THE COMPLETE SET' is false"
+        )
+
+    def test_the_fallback_is_the_ONLY_way_a_dimension_escapes(self):
+        """A model the emitter says it can mirror must have no unmirrored dimension. That is
+        what makes `_is_mirrorable` a real capability check rather than a guess: if it returns
+        True while something is unexpressible, this fails."""
+        from draftwright.sheet_emit import _is_mirrorable
+
+        for name, part in TestTheDimensionMirror._corpus().items():
+            model = detect_part_model(part)
+            if _is_mirrorable(model):
+                assert not _unmirrored_compiled_dimensions(model), (
+                    f"{name}: _is_mirrorable said yes but dimensions are unexpressible"
+                )
 
 
 class TestTheScriptAccountsForEveryAnnotation:

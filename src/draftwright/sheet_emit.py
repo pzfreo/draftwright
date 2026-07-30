@@ -209,9 +209,16 @@ def _feature_line(f) -> str:
         # the mirror named it, and as a raise afterwards. ADR 0011's round-trip rule is that
         # recognise, emit and declare agree about a feature's parameters.
         height = f", height={_n(f.height)}" if getattr(f, "height", None) else ""
+        # The SPAN too, not just the height. Detection reports `frame.origin` as the boss TOP
+        # while `declare.boss` reads `at` as its CENTRE, so round-tripping the origin alone
+        # shifted the height dimension by half the boss — same value, wrong witness lines
+        # (#947 review, found by a boss fixture the corpus previously lacked). Emitting the
+        # span states the geometry outright instead of relying on the two ends agreeing about
+        # a coordinate convention.
+        span = f", span=({_pt(f.span[0])}, {_pt(f.span[1])})" if getattr(f, "span", None) else ""
         return (
-            f"sheet.diameter(diameter={_n(f.diameter)}{height}, at={_pt(f.frame.origin)}, "
-            f'axis="{f.frame.axis}"{thr})'
+            f"sheet.diameter(diameter={_n(f.diameter)}{height}{span}, "
+            f'at={_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr})'
         )
     if k == "step":
         thr = (
