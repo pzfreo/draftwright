@@ -86,24 +86,33 @@ class TestEmit:
         directly: a part with no features must still emit it."""
         assert "sheet.auto_dimensions()" in _script_for(part)
 
-    def test_a_model_with_an_authored_set_is_refused_not_silently_converted(self):
-        """The emitter used to write `sheet.auto_dimensions()` for ANY model, so running a
-        script generated from an authored model restored every dimension that model had
-        omitted — "width only" became the full automatic set (#921 review round 5). A
-        generated script that draws something other than its source model is the #707
-        class of divergence.
+    def test_an_authored_set_emits_its_declarations_through_the_facade(self):
+        """The emitter used to write `sheet.auto_dimensions()` for ANY model, so a script
+        generated from an authored model restored every dimension that model had omitted —
+        "width only" became the full automatic set (#921 review round 5). A generated script
+        that draws something other than its source model is the #707 class of divergence.
 
-        It refuses rather than emitting the declarations, because the only way to name a
-        feature in the generated script is by position, and the documented workflow for
-        these scripts is to comment a feature line out and re-run — which would shift the
-        indices and retarget the dimensions onto their neighbours."""
+        It then REFUSED an authored model, because the only way to name a feature in the
+        script was by position and the documented workflow is to comment a feature line out
+        and re-run — which shifts the indices and retargets the declarations onto their
+        neighbours. #931/#932 gave every feature a handle and a bound name, so #922 writes
+        the declarations instead. This test kept its property and changed its expectation:
+        the authored set must never become the planner's, whether by conversion or by
+        refusal-then-workaround.
+
+        Round-tripped end to end in `TestAuthoredSetRoundTrips`; here it is the `Sheet`
+        façade path specifically, which reaches the emitter through `sheet.model()`.
+        """
         from draftwright import Sheet
         from draftwright.sheet_emit import emit_sheet_script
 
         sheet = Sheet(Box(90, 60, 20), title="T", number="N")
         sheet.dimension(sheet.envelope(), "width")
-        with pytest.raises(ValueError, match="authored dimension set"):
-            emit_sheet_script(sheet.model(), "part = Box(90, 60, 20)", "s", title="T", number="N")
+        src = emit_sheet_script(
+            sheet.model(), "part = Box(90, 60, 20)", "s", title="T", number="N"
+        )
+        assert "sheet.auto_dimensions()" not in src
+        assert 'sheet.dimension(envelope1, "width")' in src
 
     def test_emits_one_declarative_line_per_feature(self):
         src = _script_for(_plate())
@@ -1486,3 +1495,91 @@ def test_of_rejects_a_wrong_argument_clearly():
         with pytest.raises(ValueError, match="of\\(\\): expected a handle"):
             sheet.of(wrong)
     assert sheet.of(0) is not None  # the real routes still work
+
+
+class TestAuthoredSetRoundTrips:
+    """A generated script draws what the model it came from draws — including its omissions.
+
+    `emit_sheet_script` refused an authored model until #922, and refusing was right: the
+    alternative at the time was emitting `sheet.auto_dimensions()`, which silently turns
+    "draw exactly these" back into "draw everything" — a script producing a different drawing
+    from its source model (#707 class). Writing the declarations needed features to have
+    names first (#931, #932).
+
+    The assertion is on the DRAWN ANNOTATIONS of both drawings, not on the emitted text. A
+    text check passes on any script that mentions the right roles, including one that names
+    the wrong feature — which is the failure mode positional addressing would have produced.
+    """
+
+    @staticmethod
+    def _authored_model():
+        import dataclasses
+
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright.model.ir import RequestedDimension
+
+        part = Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20)
+        model = detect_part_model(part)
+        hole = next(f for f in model.features if f.kind == "hole")
+        env = next(f for f in model.features if f.kind == "envelope")
+        authored = (RequestedDimension(hole, "bore.diameter"), RequestedDimension(env, "width"))
+        return part, dataclasses.replace(model, authored_dimensions=authored)
+
+    def _run(self, src, part):
+        ns: dict = {"part": part}
+        body = src.replace("\npart\n", "\n", 1)
+        body = body[: body.index("sheet.export(")]
+        exec(compile(body, "<emit>", "exec"), ns)  # noqa: S102 — exercising the generated script
+        return ns
+
+    def test_the_emitted_script_draws_the_same_dimensions_as_its_source_model(self):
+        from draftwright import build_drawing
+
+        part, model = self._authored_model()
+        direct = build_drawing(part, model=model, authored=model.authored_dimensions, number="N")
+        src = emit_sheet_script(model, "part", "bracket", title="T", number="N")
+        regenerated = self._run(src, part)["sheet"].build()
+
+        def dims(dwg):
+            return {n for n, _ in dwg.iter_annotations() if not n.startswith(("note_", "title"))}
+
+        assert dims(regenerated) == dims(direct), (
+            "the regenerated script draws a different set from the model it came from"
+        )
+
+    def test_the_authored_set_is_not_silently_widened_to_the_planner_set(self):
+        """The specific regression the old refusal existed to prevent: emitting
+        `auto_dimensions()` for an authored model restores every omitted dimension."""
+        _part, model = self._authored_model()
+        src = emit_sheet_script(model, "part", "bracket", title="T", number="N")
+        assert "sheet.auto_dimensions()" not in src
+        assert 'sheet.dimension(hole1, "bore.diameter")' in src
+        assert 'sheet.dimension(envelope1, "width")' in src
+
+    def test_a_detected_model_still_states_the_planner_source(self):
+        """The other half of the mandatory-source rule — narrowing the refusal must not cost
+        the auto path its explicit `auto_dimensions()` line."""
+        from build123d import Box
+
+        src = _script_for(Box(40, 20, 10))
+        assert "sheet.auto_dimensions()" in src
+        assert "sheet.dimension(" not in src
+
+    def test_an_authored_dimension_on_an_unnameable_feature_refuses_the_script(self):
+        """Narrowed, not removed. A kind with no declarative verb emits a COMMENT, so it
+        binds no name and the declaration has nothing to reference. Emitting the rest would
+        produce a script that draws a different set — exactly what the blanket refusal
+        prevented, so the refusal survives for that case alone."""
+        import dataclasses
+
+        from build123d import Cylinder
+
+        from draftwright.model.ir import RequestedDimension
+
+        model = detect_part_model(Cylinder(15, 40))
+        rot = next((f for f in model.features if f.kind == "rotational"), None)
+        assert rot is not None, "the fixture must produce a verb-less kind"
+        model = dataclasses.replace(model, authored_dimensions=(RequestedDimension(rot, "od"),))
+        with pytest.raises(ValueError, match="has no declarative verb"):
+            emit_sheet_script(model, "part", "bracket", title="T", number="N")
