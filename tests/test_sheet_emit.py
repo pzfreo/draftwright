@@ -13,8 +13,11 @@ import pytest
 from build123d import Box, Cylinder, Pos, Shape, export_step
 
 from draftwright.builder import build_drawing, detect_part_model
+from draftwright.model.declare import hole as _declare_hole
 from draftwright.pmi import _PMI_AVAILABLE
 from draftwright.sheet_emit import (
+    _hole_line,
+    _member_hole_str,
     emit_sheet_script,
     generate_sheet_script,
     resolve_object_spec,
@@ -445,6 +448,43 @@ class TestEmit:
         part = Box(40, 40, 20) - Pos(0, 0, 6) * Cylinder(4, 16)  # blind ⌀8
         src = _script_for(part)
         assert ".depth(" in src
+
+    def test_a_blind_hole_with_no_measured_depth_stays_blind(self):
+        """Blindness is a FACT on the feature, so it must round-trip whether or not a depth
+        was measured.
+
+        Both emitters guarded `through=False` on `depth is not None`, so a
+        `HoleFeature(through=False, depth=None)` emitted neither — and `declare.hole`
+        defaults `through=True`, so the regenerated script declared a THROUGH hole and the
+        blindness vanished. This is #868's rule (a fact is not inferred from a dimension's
+        presence) applied to the emit side; after #868 fixed the render side, the two
+        disagreed about the same hole (#878).
+
+        The assertion is on the REBUILT feature, not on the emitted text: the point is that
+        the round trip preserves the fact, and an emitted-substring check would pass on any
+        spelling that happened to contain the token.
+        """
+        from draftwright import Sheet
+        from draftwright.model.ir import Frame, HoleFeature
+
+        blind = HoleFeature(Frame((0, 0, 0), "z"), 6.0, depth=None, through=False)
+        part = Box(40, 40, 20)
+        for line, prefix in (
+            (_hole_line(blind), "sheet.hole"),
+            # The pattern member goes through a second, independent emitter with the same
+            # bug — one fix per site, so one assertion per site.
+            (
+                f"sheet.pattern({_member_hole_str(blind)}, kind='linear', count=2, pitch=10)",
+                "sheet.pattern",
+            ),
+        ):
+            assert line.startswith(prefix)
+            sheet = Sheet(part, title="T", number="N").auto_dimensions()
+            exec(compile(line, "<emit>", "exec"), {"sheet": sheet, "hole": _declare_hole})  # noqa: S102
+            feature = sheet._features[-1]
+            rebuilt = getattr(feature, "member", feature)
+            assert rebuilt.through is False, f"{line} rebuilt a THROUGH hole"
+            assert rebuilt.depth is None
 
     def _bolt_circle(self, cbore=False):
         part = Cylinder(40, 8)

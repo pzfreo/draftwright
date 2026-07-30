@@ -4,22 +4,28 @@
 - **Date:** 2026-07-26 (accepted 2026-07-27; implementation epic **#867**)
 - **Deciders:** Paul Fremantle (pzfreo)
 
-> **Scheduling reality (corrected 2026-07-27).** Phase 1 (identity + `add_dimension`)
-> is reachable on today's machinery. Phases 2–4 were written as sitting behind "the
-> global recompose (#426/#707), the longest-open item on the roadmap" — **that premise
-> was stale when this ADR merged.** #426 and #661 closed 2026-07-19, #707 on 07-21, all
-> as completed; there is no open recompose issue.
+> **Scheduling reality — settled by implementation (2026-07-30).** Phases 1–3 have
+> shipped as epic **#867** (PR0–PR8, #868–#876). The question this header carried is
+> answered, and the answer was the cheap one it floated:
 >
-> Closed-as-umbrella is not the same as capability-landed, so the blocker is now an
-> open question rather than a stated fact (#867): #426's closing comment says the parity
-> work "remains observably incomplete", the #743 parity suite is skipped with strict
-> xfails underneath, and `drain_and_reconcile` solves registered corridors and reconciles
-> witness labels without reconstructing the automatic candidate population. There is also
-> a cheaper question inside it — **suppression by omission in a `Sheet` script happens
-> before `build()`**, when the set is known at plan time, so it may need no recompose at
-> all; only `Drawing.finalize()` dropping an *automatic* dimension does. Phase 2 may
-> therefore be substantially less blocked than this ADR assumed. The constraint below is
-> flagged in step.
+> **Suppression by omission needed no recompose at all.** In a `Sheet` script the authored
+> set is known *before* `build()`, so `plan_dimensions` marks the omissions and the
+> compiled plan withholds them — nothing has to be un-drawn afterwards. Only
+> `Drawing.finalize()` dropping an *automatic* dimension would need the global recompose,
+> and that is not what the authored set does. So phases 2–3 were never blocked on it, and
+> the "longest-open item on the roadmap" framing was doubly stale: the issues were closed
+> AND the dependency was not real.
+>
+> What the implementation did need was different and unanticipated: a **compiled-plan
+> boundary** (Amendment 1). Marking a dimension suppressed and trusting sixteen renderers
+> to check the flag failed sixteen times, so the mark became content renderers never
+> receive. That was #923's work, not scheduling.
+>
+> **Phase 4 (the emitter dimension-mirror) has not shipped and is not blocked on the
+> recompose either.** Its blocker is that emitted features have no names, so a
+> `dimension(...)` line in a generated script would address a feature by position and
+> break the moment a feature line is commented out — the documented editing workflow.
+> `emit_sheet_script` refuses an authored model rather than emit that. Tracked as **#922**.
 
 ## Amendment 1 — the compiled-plan boundary (2026-07-29)
 
@@ -790,8 +796,8 @@ absence both mean something exact** — which is all suppression-by-omission nee
   idempotence against the plan — but **suppressive intent additionally needs that identity
   to be stable across re-detection and recomposition**, which is why identity lands *with*
   the augmenting verb while suppression waits for the set boundary.
-- **Honest reconciliation needs the full recompose** *(status open — see the corrected
-  scheduling note above; #426/#707 are closed but the capability is unverified)*.
+- **Honest reconciliation needs the full recompose** *(the pre-build half is settled —
+  it needed no recompose; the post-build half is still open, see the scheduling note)*.
   Suppressing or re-emphasizing an *automatic* dimension means the finalize path must
   reconstruct the automatic candidate population and co-solve it with the declared
   intents — the global recompose ADR 0012 Amendment 1 records as still open. Note this
@@ -801,8 +807,9 @@ absence both mean something exact** — which is all suppression-by-omission nee
   reconcile against the auto-plan. So **augmenting intent (`add_dimension`) is reachable on
   today's machinery — it is simply a new candidate. Suppression splits into two paths that
   this ADR previously conflated:**
-  - **pre-build**, a `Sheet` script's authored set — known before the solve, so it plausibly
-    needs no reconstruction at all, and phase 2 can carry it;
+  - **pre-build**, a `Sheet` script's authored set — known before the solve, so it needs no
+    reconstruction at all. **Confirmed by #876**: the planner marks the omissions and the
+    compiled plan withholds them, so nothing is ever drawn to be un-drawn;
   - **post-build**, `Drawing.finalize()` dropping an *automatic* dimension — this is what
     needs the candidate-population reconstruction.
 

@@ -74,9 +74,17 @@ def _hole_line(f) -> str:
         kw.append(f"csink=({_n(f.csink[0])}, {_n(f.csink[1])})")
     if getattr(f, "thread", None):  # internal thread round-trips too (#859, symmetric with steps)
         kw.append(f"thread={f.thread!r}")
+    # Blindness is a FACT on the feature, so it round-trips whether or not a depth was
+    # measured. Guarding it on `depth is not None` emitted neither `through=False` nor a
+    # depth for a `HoleFeature(through=False, depth=None)`, and `declare.hole` defaults
+    # `through=True` — so the script rebuilt a THROUGH hole and the blindness vanished on
+    # the emit path (#878). Same rule as #868, which fixed the render side: a renderer (or
+    # an emitter) may not infer an engineering fact from a dimension's presence.
+    if not f.through and f.depth is None:
+        kw.append("through=False")
     line = f"sheet.hole({', '.join(kw)})"
     if not f.through and f.depth is not None:
-        line += f".depth({_n(f.depth)})"
+        line += f".depth({_n(f.depth)})"  # sets through=False too
     return line
 
 
@@ -94,8 +102,10 @@ def _member_hole_str(m) -> str:
         kw.append(f"csink=({_n(m.csink[0])}, {_n(m.csink[1])})")
     if getattr(m, "thread", None):  # a patterned threaded bore keeps its thread on re-run (#859)
         kw.append(f"thread={m.thread!r}")
-    if not m.through and m.depth is not None:
-        kw.append(f"depth={_n(m.depth)}")
+    # `through=False` independent of the depth — see `_hole_line` (#878).
+    if not m.through:
+        if m.depth is not None:
+            kw.append(f"depth={_n(m.depth)}")
         kw.append("through=False")
     return f"hole({', '.join(kw)})"
 

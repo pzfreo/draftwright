@@ -332,6 +332,30 @@ Current ADRs:
   groups are residual debt tracked by #754) and the lint/coverage carve-out
   stated properly. New kinds must add every applicable IR, planning, rendering,
   coverage, and test surface while keeping orientation data-driven.
+- **0016** — **Accepted; epic #867 complete** (PR0–PR8, #868–#876): **declared
+  dimensioning intent**. `sheet.dimension(feature, role)` is *referential* — it names
+  a measurement and carries no number; the engine still derives the value from the
+  geometry and owns placement. Three parts landed:
+  - **A build must say where its dimensions come from** (#874, breaking): either
+    `auto_dimensions()` (the planner's set, optionally augmented by `add_dimension`)
+    or an authored set of `dimension(...)` declarations. Mutually exclusive, because
+    "everything the planner chooses, plus these" and "only these" cannot both hold.
+  - **Omission from an authored set means suppression** (#876) — on *every* generated
+    dimensional path, positions included. A dimension the author cannot address is a
+    dimension the author cannot omit, so `location` became addressable per feature
+    (`planner.location_datum` is the single eligibility answer; per-*member* identity
+    remains #883).
+  - **Amendment 1 — the compiled-plan boundary**: renderers may emit dimensional
+    content only from `model/compiled.py`'s `RenderableDimensionPlan`. *Suppression is
+    not a flag renderers check, it is content they never receive* — `ApprovedDimension`
+    has no `suppressed` field. Guarded on both the symptom
+    (`tests/test_compiled_plan_boundary.py`: an empty plan draws nothing) and the cause
+    (`tests/test_label_provenance.py`: a renderer that formats a number got it as a
+    number rather than as the compiler's `value_text`). Hole callouts (`hc_`) are the
+    one renderer still on the legacy surface (#926); the label budget drawdown is #927.
+  **Not** shipped: the emitter dimension-mirror (phase 4). `emit_sheet_script` refuses a
+  model with an authored set rather than silently writing `auto_dimensions()`, because
+  naming a feature in a generated script would have to address it by position — #922.
 
 ## Dependencies
 
