@@ -195,9 +195,31 @@ _SCENARIOS = {
 
 #: Verbs that hand back a `_Params` by exactly the same route `envelope` does — declare the
 #: feature, return `_Params(self, len(features) - 1)`, no identity handling of their own. Listed
-#: rather than scenario'd because a scenario each would test the same three lines four times.
+#: rather than scenario'd because a scenario each would test the same three lines many times.
 #: `boss` is absent because it delegates to `diameter` and constructs nothing.
-_SAME_PATH_AS_ENVELOPE = {"slot", "pocket", "pad"}
+#:
+#: The nine below joined in #922, which made every feature verb nameable — previously they
+#: returned `Sheet`, so their features could not be referenced at all and
+#: `sheet.dimension(chamfer, ...)` was impossible. Their bodies are the same two lines as
+#: `envelope`'s, and `test_the_same_path_verbs_really_share_the_route` checks that claim
+#: against the source rather than taking it on trust: an exemption list nobody verifies is
+#: how a guard stops guarding.
+_SAME_PATH_AS_ENVELOPE = {
+    "add",
+    "measured_dimension",
+    "slot",
+    "pocket",
+    "pad",
+    "chamfer",
+    "fillet",
+    "flat",
+    "groove",
+    "plate",
+    "step_level",
+    "pattern",
+    "pocket_pattern",
+    "slot_pattern",
+}
 
 
 def _mutations():
@@ -717,4 +739,44 @@ def test_only_one_resolver_bears_identity():
         assert "_declared_token" in calls, (
             f"{caller} no longer calls the single resolver — identity resolution must not fork "
             "again; that fork is what let #910 through"
+        )
+
+
+def test_the_same_path_verbs_really_share_the_route():
+    """`_SAME_PATH_AS_ENVELOPE` is a claim about code, so check it against the code.
+
+    The list exists so twelve verbs do not each get a scenario testing the same two lines.
+    That is only sound while the lines ARE the same — a verb that grows identity handling of
+    its own, or appends more than one feature, silently loses its coverage and the ratchet
+    reports success. So the shape is asserted rather than assumed (#922).
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from draftwright.sheet import Sheet
+
+    for name in sorted(_SAME_PATH_AS_ENVELOPE | {"envelope"}):
+        src = textwrap.dedent(inspect.getsource(getattr(Sheet, name)))
+        body = ast.parse(src).body[0].body
+        # Drop the DOCSTRING only. Filtering every `ast.Expr` also drops
+        # `self._features.append(...)`, which is an expression statement — the first draft
+        # did that and then reported "appends 0 features" for every verb.
+        statements = body[1:] if isinstance(body[0], ast.Expr) else body
+        appends = [
+            n
+            for n in ast.walk(ast.Module(body=statements, type_ignores=[]))
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "append"
+        ]
+        assert len(appends) == 1, (
+            f"Sheet.{name} appends {len(appends)} features; the envelope route declares "
+            "exactly one, and a multi-feature verb needs its own scenario"
+        )
+        returned = statements[-1]
+        assert isinstance(returned, ast.Return), f"Sheet.{name} does not end in a return"
+        assert ast.unparse(returned.value) == "_Params(self, len(self._features) - 1)", (
+            f"Sheet.{name} no longer returns the envelope handle verbatim "
+            f"({ast.unparse(returned.value)}) — give it a scenario or restore the route"
         )

@@ -1126,3 +1126,73 @@ class TestOmittedDimensionsDoNotRender:
         assert "dim_od" in od_only and "ldr_z0" not in od_only
         bore_only = _built("bore")
         assert "ldr_z0" in bore_only and "dim_od" not in bore_only
+
+
+class TestEveryFeatureVerbIsNameable:
+    """A `dimension(...)` line names a feature, so every verb has to hand one back (#922).
+
+    Nine verbs returned the `Sheet` instead — `chamfer`, `fillet`, `flat`, `groove`,
+    `plate`, `step_level`, and the three pattern verbs — so those features could not be
+    referenced at all and `sheet.dimension(chamfer, "chamfer")` was unwritable. `add` was
+    the same, and mattered most: the ENVELOPE is emitted through it, so naming would have
+    been uniform across the verbs and silently absent for one feature in the middle of a
+    generated script.
+
+    The gap is stated as a PROPERTY over the verb list rather than as one example per verb,
+    because a hand-listed set is what let nine of them sit outside the rule unnoticed.
+    """
+
+    #: Verbs that declare a feature, and a minimal call for each.
+    _CALLS = {
+        "chamfer": dict(axis="z", leg=2, at=(0, 0, 0)),
+        "fillet": dict(axis="z", radius=2, at=(0, 0, 0)),
+        "flat": dict(axis="z", across=15, at=(0, 0, 0)),
+        "groove": dict(axis="z", width=3, diameter=16, at=(0, 0, 0)),
+        "plate": dict(axis="z", lo=0, hi=4, u=10, v=5),
+        "step_level": dict(base=0, levels=(4.0,), at=(0, 0, 0)),
+    }
+
+    @pytest.mark.parametrize("verb", sorted(_CALLS))
+    def test_the_verb_returns_something_dimension_can_name(self, verb):
+        from build123d import Box
+
+        sheet = Sheet(Box(80, 50, 8))
+        handle = getattr(sheet, verb)(**self._CALLS[verb])
+        assert handle is not sheet, f"Sheet.{verb} hands back no reference to its feature"
+        # The property that matters is not the type but that `dimension` accepts it: a
+        # handle nothing can address is not identity, it is an object.
+        role = next(p.role for p in sheet.features[-1].parameters())
+        sheet.dimension(handle, role)
+
+    def test_a_declaration_verb_still_chains(self):
+        """The false-positive half. These verbs returned `Sheet` so calls could chain, and
+        the handles keep that working by forwarding — otherwise making them nameable would
+        have broken every existing script that chains off one."""
+        from build123d import Box
+
+        chained = (
+            Sheet(Box(80, 50, 8))
+            .chamfer(axis="z", leg=2, at=(0, 0, 0))
+            .hole(diameter=6, at=(0, 0, 0), axis="z")
+        )
+        assert chained is not None
+        assert len(chained._sheet.features) == 2
+
+    def test_no_declaration_verb_is_left_returning_the_sheet(self):
+        """The ratchet. A verb added later that returns `Sheet` is a feature nobody can
+        name, and it fails here rather than at the moment someone tries to dimension it."""
+        import inspect
+
+        from draftwright.sheet import Sheet as _Sheet
+
+        unnameable = [
+            name
+            for name, fn in inspect.getmembers(_Sheet, inspect.isfunction)
+            if not name.startswith("_")
+            and "self._features.append(" in inspect.getsource(fn)
+            and inspect.getsource(fn).rstrip().endswith("return self")
+        ]
+        assert not unnameable, (
+            f"{unnameable} declare a feature and hand back the Sheet, so the feature cannot "
+            "be named by a dimension(...) line"
+        )

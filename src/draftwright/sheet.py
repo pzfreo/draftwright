@@ -718,11 +718,18 @@ class Sheet:
 
     # -- feature declaration --------------------------------------------------
 
-    def add(self, feature) -> Sheet:
+    def add(self, feature) -> _Params:
         """Append a pre-built IR :class:`~draftwright.model.Feature` (escape hatch for
-        the constructors this façade does not surface directly, e.g. PMI)."""
+        the constructors this façade does not surface directly, e.g. PMI).
+
+        Returns a handle, like every declaration verb (#922). It matters here more than it
+        looks: the ENVELOPE is emitted through this escape hatch rather than through
+        :meth:`envelope`, so while `add` returned the sheet, `sheet.dimension(env, "width")`
+        — ADR 0016's own worked example — could not be written against a generated script.
+        Naming would have been uniform across the verbs and silently absent for one feature
+        in the middle of the file, which is worse than being absent everywhere."""
         self._features.append(feature)
-        return self
+        return _Params(self, len(self._features) - 1)
 
     #: The keyword set that identifies a call to the pre-rename `dimension(...)`. `kind` alone
     #: would do today, but the referential form may grow keywords of its own, so the test is the
@@ -786,7 +793,7 @@ class Sheet:
         lower_tol: float | None = None,
         source: str = "sheet",
         source_kind: str | None = None,
-    ) -> Sheet:
+    ) -> _Params:
         """Declare a drafting dimension from explicit **measured** values.
 
         Named for what it carries (ADR 0016 / #873). ``dimension`` is *referential* on
@@ -818,7 +825,11 @@ class Sheet:
                 source_kind=source_kind,
             )
         )
-        return self
+        # A handle like every other declaration verb (#922). A measured dimension carries its
+        # own number, so a referential `dimension(handle, role)` on it will correctly raise —
+        # but it is still a declared feature in the emitted script, and exempting it would put
+        # one unnameable line back in the middle of a file where naming is otherwise uniform.
+        return _Params(self, len(self._features) - 1)
 
     def of(self, ref) -> _Hole | _Dim:
         """A decoratable handle onto an **existing** feature — the hybrid seam (#463).
@@ -945,75 +956,75 @@ class Sheet:
         self._features.append(_pad(obj, **kw))
         return _Params(self, len(self._features) - 1)
 
-    def chamfer(self, obj=None, **kw) -> Sheet:
+    def chamfer(self, obj=None, **kw) -> _Params:
         """Declare a chamfer (bevelled edge) — ``sheet.chamfer(bevel_face)`` reads axis, legs
         and a point on the bevel off the oblique chamfer face, or explicit
         ``sheet.chamfer(axis="z", leg=6, at=(x, y, z))``. ``leg`` = equal-leg 45° (``C{leg}``);
         ``leg1``/``leg2`` = asymmetric."""
         self._features.append(_chamfer(obj, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
-    def fillet(self, obj=None, **kw) -> Sheet:
+    def fillet(self, obj=None, **kw) -> _Params:
         """Declare a fillet (rounded edge) — ``sheet.fillet(round_face)`` reads axis, radius
         and a point on the round off the cylindrical blend face, or explicit
         ``sheet.fillet(axis="z", radius=3, at=(x, y, z))``. Called out ``R{radius}`` (grouped
         ``n× R`` for equal radii)."""
         self._features.append(_fillet(obj, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
-    def flat(self, obj=None, **kw) -> Sheet:
+    def flat(self, obj=None, **kw) -> _Params:
         """Declare a machined flat on round stock (#148b) — ``sheet.flat(flat_face)`` reads the
         leader point off the planar flat face (``axis=`` and ``across=`` still required), or
         fully explicit ``sheet.flat(axis="z", across=15, at=(x, y, z))``. Called out
         ``{across} A/F`` (across flats — flat-to-flat for a double-D / hex, the D height for a
         lone flat)."""
         self._features.append(_flat(obj, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
-    def groove(self, obj=None, **kw) -> Sheet:
+    def groove(self, obj=None, **kw) -> _Params:
         """Declare a turned / circlip groove on round stock (#148c) — ``sheet.groove(floor_face)``
         reads axis, width, diameter and the leader point off the reduced-OD floor face, or fully
         explicit ``sheet.groove(axis="z", width=3, diameter=16, at=(x, y, z))``. Called out
         ``{width} WIDE × ø{diameter}`` (groove width + floor diameter)."""
         self._features.append(_groove(obj, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
-    def plate(self, obj=None, **kw) -> Sheet:
+    def plate(self, obj=None, **kw) -> _Params:
         """Declare a thin slab's thickness (a base plate / wall / rib) — ``sheet.plate(slab_box)``
         reads the thin axis + extent + centre off the slab, or explicit ``sheet.plate(axis="z",
         lo=0, hi=4, u=10, v=5)``. Only a *multi-plate* part dimensions plates (a single slab is
         the envelope)."""
         self._features.append(_plate(obj, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
-    def step_level(self, obj=None, **kw) -> Sheet:
+    def step_level(self, obj=None, **kw) -> _Params:
         """Declare a prismatic height ladder + step-position shoulders (a rebated / stepped
         block) — ``sheet.step_level(part)`` reads ``base`` / interior ``levels`` / the ``(axis,
         position)`` ``shoulders`` / ``datum`` off the part, or explicit ``sheet.step_level(base=0,
         levels=(10,), shoulders=(("x", 30),))``. A shoulder locates *where* a step changes
         height along a horizontal axis, so a stepped block is fully constrained (#555/#578)."""
         self._features.append(_step_level(obj, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
-    def pattern(self, member, **kw) -> Sheet:
+    def pattern(self, member, **kw) -> _Params:
         """Declare a hole pattern (bolt circle / linear array / grid) — build the
         *member* with :func:`draftwright.model.hole`."""
         self._features.append(_pattern(member, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
-    def pocket_pattern(self, member, **kw) -> Sheet:
+    def pocket_pattern(self, member, **kw) -> _Params:
         """Declare a linear/grid array of identical blind pockets (#841) — build the
         representative *member* with :func:`draftwright.model.pocket`. Renders as one grouped
         ``N× W × L × D DEEP`` callout + ``(n-1)× pitch`` dim(s), not N competing size dims."""
         self._features.append(_pocket_pattern(member, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
-    def slot_pattern(self, member, **kw) -> Sheet:
+    def slot_pattern(self, member, **kw) -> _Params:
         """Declare a linear/grid array of identical milled slots (#841) — build the
         representative *member* with :func:`draftwright.model.slot`. Renders as one grouped
         ``N× SLOT W × L`` leader + ``(n-1)× pitch`` dim(s), not N competing size dims."""
         self._features.append(_slot_pattern(member, **kw))
-        return self
+        return _Params(self, len(self._features) - 1)
 
     def envelope(self, obj=None) -> _Params:
         """Declare the overall bounding dimensions. Defaults to the whole part."""
