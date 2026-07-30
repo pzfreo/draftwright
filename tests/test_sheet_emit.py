@@ -1701,16 +1701,21 @@ class TestTheDimensionMirror:
         """
         part = self._corpus()[name]
         model = detect_part_model(part)
-        automatic = build_drawing(part, model=model, number="N")
+        # Same title/number on both sides — the signature includes the title block, and a
+        # mismatch there would read as a dimension difference.
+        automatic = build_drawing(part, model=model, title="T", number="N")
         src = emit_sheet_script(model, "part", "s", title="T", number="N")
         regenerated = self._run(src, part)["sheet"].build()
 
-        def marks(dwg):
-            return {n for n, _ in dwg.iter_annotations()}
-
-        assert marks(regenerated) == marks(automatic), (
-            f"{name}: missing {sorted(marks(automatic) - marks(regenerated))}, "
-            f"extra {sorted(marks(regenerated) - marks(automatic))}"
+        names = {n for n, _ in automatic.iter_annotations()}
+        got = {n for n, _ in regenerated.iter_annotations()}
+        assert got == names, f"{name}: missing {sorted(names - got)}, extra {sorted(got - names)}"
+        # Names alone are too weak: a request aimed at the right feature kind but rebuilt
+        # with the wrong VALUE or span keeps exactly the same registry name (#944 review).
+        # `_annotation_signature` compares labels, dimension specs, leader coverage and boxes.
+        assert _annotation_signature(regenerated) == _annotation_signature(automatic), (
+            f"{name}: same annotation names but different content — a mirrored dimension "
+            "reproduced the wrong value, span, side or view"
         )
 
     def test_every_planner_dimension_gets_a_line(self):
@@ -1749,9 +1754,17 @@ class TestTheDimensionMirror:
         assert src.count("step_height") == 1
 
     def test_a_model_with_an_unnameable_feature_keeps_the_planner_source(self):
-        """A feature with no declarative verb emits a COMMENT, so it binds no name and its
-        dimensions cannot be mirrored. Falling back to `auto_dimensions()` and saying why
-        beats emitting a set that claims a completeness it does not have."""
+        """A feature with no declarative verb binds no name, so its dimensions cannot be
+        mirrored — and declaring only the OTHERS would emit a set claiming a completeness it
+        does not have.
+
+        **This pins UNFINISHED work, not a settled limitation.** `RotationalFeature` is
+        recognised and rendered but cannot be declared or emitted — the missing ADR 0011
+        round-trip leg, tracked as #945. Until it lands, a turned part gets none of #938's
+        benefit: one unsupported dimension turns every other declaration in that script from
+        explicit back to implicit (#944 review). The test asserts the fallback SAYS so, and
+        names the issue, so a reader meets the gap rather than inferring a decision.
+        """
         from build123d import Cylinder
 
         part = Cylinder(40, 8) - Cylinder(8, 20)
@@ -1759,7 +1772,23 @@ class TestTheDimensionMirror:
         assert any(f.kind == "rotational" for f in model.features), "fixture must hit the gap"
         src = emit_sheet_script(model, "part", "s", title="T", number="N")
         assert "sheet.auto_dimensions()" in src
-        assert "no\n# declarative verb" in src or "declarative verb" in src
+        assert "rotational has no" in src, "the fallback must NAME the unnameable kind"
+        assert "draftwright#945" in src, "and point at the work that removes it"
+
+    def test_the_fallback_names_the_gap_the_tracker_still_carries(self):
+        """A pointer to a closed issue reads as a settled decision. If #945 lands, the
+        fallback and this test go with it — this fails first if the reference goes stale
+        without the code changing."""
+        from build123d import Cylinder
+
+        src = emit_sheet_script(
+            detect_part_model(Cylinder(40, 8) - Cylinder(8, 20)),
+            "part",
+            "s",
+            title="T",
+            number="N",
+        )
+        assert "sheet.auto_dimensions()" in src and "draftwright#945" in src
 
     def test_the_synthesised_envelope_names_only_its_height(self):
         """A part with no `EnvelopeFeature` gets one declared, because an authored set must

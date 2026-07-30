@@ -494,24 +494,6 @@ def _binding(f, line: str, counts: dict[str, int]) -> str | None:
     return f"{f.kind}{counts[f.kind]}"
 
 
-def _declared_envelope(model):
-    """The envelope this emitter SYNTHESISED for *model*, or ``None``.
-
-    Recognised by identity against `mirror_model`'s own construction: the appended feature is
-    the last one and carries the bounding box exactly. Kept separate from the planner walk so
-    its width and depth are never named — see `_mirrored_requests`."""
-    tail = model.features[-1] if model.features else None
-    if tail is None or tail.kind != "envelope":
-        return None
-    bb = model.bbox
-    same = (
-        abs(tail.width - float(bb.size.X)) < 1e-9
-        and abs(tail.depth - float(bb.size.Y)) < 1e-9
-        and abs(tail.height - float(bb.size.Z)) < 1e-9
-    )
-    return tail if same and getattr(tail, "_dw_synthesised", False) else None
-
-
 def mirror_model(model):
     """The model the emitted script DECLARES — *model*, plus an envelope when the part's
     overall height would otherwise be unnameable.
@@ -531,11 +513,11 @@ def mirror_model(model):
     identical — the width and depth stay omitted exactly as the planner left them.
     """
     if any(f.kind == "envelope" for f in model.features):
-        return model
+        return model, None
     from draftwright.model.compiled import compile_dimensions
 
     if compile_dimensions(model).ladder("overall_height") is None:
-        return model  # the compiler withholds it (Z-turned, rotational OD) — nothing to name
+        return model, None  # the compiler withholds it (Z-turned, rotational OD)
     from dataclasses import replace
 
     from draftwright.model.ir import EnvelopeFeature, Frame
@@ -551,8 +533,11 @@ def mirror_model(model):
         bbox_min=lo,
         bbox_max=hi,
     )
-    object.__setattr__(env, "_dw_synthesised", True)
-    return replace(model, features=[*model.features, env])
+    # Returned ALONGSIDE the model rather than stamped onto it. The first cut set a private
+    # marker on the frozen `EnvelopeFeature` and rediscovered it later by position and size —
+    # emitter bookkeeping masquerading as model state, on a public IR type (#944 review).
+    # Which feature the emitter synthesised is the emitter's own fact; it travels out-of-band.
+    return replace(model, features=[*model.features, env]), env
 
 
 def _is_mirrorable(model) -> bool:
@@ -626,7 +611,7 @@ def _mirrored_requests(model, declared_envelope=None):
     return out
 
 
-def _dimension_block(model, names: dict[int, str]) -> list[str]:
+def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) -> list[str]:
     """The authored set as `sheet.dimension(...)` declarations, or the `auto_dimensions()` line.
 
     Emitted AFTER the features, because each line names a feature by the variable that
@@ -640,10 +625,17 @@ def _dimension_block(model, names: dict[int, str]) -> list[str]:
     if model.authored_dimensions is None and not _is_mirrorable(model):
         # A feature with no declarative verb carries planned dimensions, so a mirrored set
         # would silently omit them and claim completeness it does not have (#938).
+        unnameable = sorted(
+            {f.kind for f in model.features if _feature_line(f).lstrip().startswith("#")}
+        )
         return [
-            "# The planner selects the dimensions: this part has a feature with no",
-            "# declarative verb (flagged above), so its dimensions cannot be named here.",
-            "# Replace with dimension(feature, role) lines to declare the set by hand.",
+            "# The planner selects the dimensions for this part.",
+            f"# WHY, and it is a gap rather than a choice: {', '.join(unnameable)} has no",
+            "# declarative verb (flagged in the features above), so it binds no name and its",
+            "# dimensions cannot be declared here. Declaring only the OTHERS would produce a",
+            "# set that claims to be complete and is not — so the whole set stays automatic.",
+            "# Tracked as draftwright#945; once that lands this part declares its dimensions",
+            "# line by line like every other.",
             "sheet.auto_dimensions()",
         ]
     requests = (
@@ -655,7 +647,7 @@ def _dimension_block(model, names: dict[int, str]) -> list[str]:
         # drop it" held for features and not for dimensions, so the only way to drop one
         # dimension was to drop its whole feature — losing the callout, the centre marks and
         # the location with it.
-        else _mirrored_requests(model, _declared_envelope(model))
+        else _mirrored_requests(model, synthesised_envelope)
     )
     out = [
         "# ── Dimensions ────────────────────────────────────────────────────────────────",
@@ -790,7 +782,7 @@ def emit_sheet_script(
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
-    model = mirror_model(model)
+    model, _synth_env = mirror_model(model)
     model_imports = set()
     if any(f.kind in ("hole", "pattern") for f in model.features):
         model_imports.add("hole")
@@ -864,7 +856,7 @@ def emit_sheet_script(
         # a value, re-run). Runs are consecutive in feature order; never reordered (ADR 0014).
         *feature_lines,
         "",
-        *_dimension_block(model, _names),
+        *_dimension_block(model, _names, _synth_env),
         "",
         "# ── Views ─────────────────────────────────────────────────────────────────────",
         "# front / plan / side / iso are always produced.",
