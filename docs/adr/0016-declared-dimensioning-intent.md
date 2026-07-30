@@ -175,13 +175,20 @@ off-axis pass each independently concluding whether a hole has a position. A for
 computes nothing, so it cannot disagree; a second inference path exists precisely to
 conclude, and will.
 
-When a parallel path cannot yet be deleted, it is named — and the two ways of naming one are
-different mechanisms that should not be confused:
+A path that is not deleted is named, and there are **three** reasons a path survives. They
+are different mechanisms, trustworthy for different reasons, and conflating them is how a
+list stops meaning anything:
 
-- **Unresolved debt** is inventoried AND **shrink-only**, so it can only ever get smaller:
-  `_PENDING_VALUE_CARRYING`, `_FMT_BUDGET`.
-- **An intentional shared route** is inventoried AND **behaviourally verified**, so the
-  listing stays a checked claim rather than an assertion: `_SAME_PATH_AS_ENVELOPE`, whose
+- **Unresolved debt** — inventoried AND **shrink-only**, so it can only ever get smaller.
+  `_FMT_BUDGET`, and the `hc_` member of `_PENDING_VALUE_CARRYING` (#926).
+- **A permanent exception** — inventoried AND **argued**, because it will never shrink and a
+  reader must be able to tell that from a pending item. The `pmi_` member of
+  `_PENDING_VALUE_CARRYING`, and `render_pmi` / `render_gdt` in the contract table above:
+  they render author-supplied text rather than inferring a generated measurement, so there
+  is no inference path to delete. *(That those two live in one tuple named "pending" is
+  itself the conflation this paragraph warns about — folded into #926.)*
+- **An intentional shared route** — inventoried AND **behaviourally verified**, so the
+  listing stays a checked claim rather than an assertion. `_SAME_PATH_AS_ENVELOPE`, whose
   members are proven by `test_the_same_path_verbs_really_share_the_route` to reach their
   handle by the same two lines `envelope` does.
 
