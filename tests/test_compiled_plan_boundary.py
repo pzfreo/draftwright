@@ -483,6 +483,43 @@ class TestAPositionIsADimension:
         # `location` role approves both.
         assert len(drawn(["bore.diameter", "location"])) == 2
 
+    @pytest.mark.parametrize("order", [("x", "y"), ("y", "x")], ids=["x-first", "y-first"])
+    def test_cross_drilled_holes_at_one_point_keep_both_planar_positions(self, order):
+        """Two features can share a centre, so the coordinate does not identify a feature.
+
+        A cross-drilled pair — an X bore and a Y bore through the same point — produces four
+        approved entries. Grouping them by the member coordinate alone merged all four into
+        one occurrence whose axis was whichever feature came first, so the other's planar
+        dimension was silently dropped and the output flipped with the model's feature order
+        (#925 review). Grouping is by identity AND occurrence; the intentional GEOMETRIC
+        dedup happens downstream, per axis.
+
+        Parametrised over both orders because that is what pins this as a property rather
+        than as list-order luck.
+        """
+        from draftwright.model.ir import Frame, HoleFeature, RequestedDimension
+
+        holes = {
+            axis: HoleFeature(Frame((10, 5, 2), axis), 4.0, depth=None, through=True)
+            for axis in ("x", "y")
+        }
+        features = [holes[axis] for axis in order]
+        dwg = build_drawing(
+            Box(100, 60, 20),
+            model=features,
+            authored=tuple(RequestedDimension(h, "location") for h in features),
+        )
+        # `dim_loc_{view}_{axis}{value×100}` — compare the MEASUREMENT (axis + value), not
+        # the view. Which view carries the shared height is legitimately order-dependent:
+        # one Z dim is drawn on whichever bore's natural strip took it, and both read `12`.
+        measured = {
+            n.rsplit("_", 1)[1] for n, _ in dwg.iter_annotations() if n.startswith("dim_loc_")
+        }
+        assert measured == {"y3500", "x6000", "z1200"}, (
+            "both bores were authored; each keeps its own planar position and the two share "
+            f"one height — got {sorted(measured)}"
+        )
+
     def test_a_pattern_pitch_obeys_the_authored_set_both_ways(self):
         """`4× 20` is a value, so it is dimensional however the code groups it.
 

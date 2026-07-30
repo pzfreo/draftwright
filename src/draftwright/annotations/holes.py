@@ -560,18 +560,30 @@ def _approved_off_axis_holes(plan) -> list[_OffHole]:
 
     A filter over approved entries, deliberately, rather than an authored check added here:
     a renderer-side check is the suppression convention this work exists to replace.
+
+    Keyed by ``(ref, member)`` — feature identity AND occurrence, not the coordinate alone.
+    A cross-drilled pair (one X-axis bore and one Y-axis bore through the same centre) is
+    two features at one point, so keying on the point merged their four entries into a
+    single `_OffHole` whose `axis` was whichever feature came first: the other's planar
+    dimension sat unused in the merged dict, and the result flipped when the model's feature
+    order did (#925 review). The coordinate is geometry; it does not identify a feature.
+
+    The intentional GEOMETRIC dedup still happens, downstream and per axis, in the
+    `seen_x`/`seen_y`/`seen_z` sets — which is why the pair keeps both planar dims and
+    still shares one height dim. Merging here conflated the two jobs.
     """
-    by_member: dict[tuple, _OffHole] = {}
+    holes: dict[tuple, _OffHole] = {}
     for entry in plan.locations:
         if entry.role != "location_off_axis":
             continue
         assert entry.span is not None  # off-axis entries always carry datum → member
         member = entry.span[1]
-        hole = by_member.get(member)
+        key = (entry.ref, member)
+        hole = holes.get(key)
         if hole is None:
-            hole = by_member[member] = _OffHole(entry.axis, member, {})
+            hole = holes[key] = _OffHole(entry.axis, member, {})
         hole.approved[entry.discriminator] = entry
-    return list(by_member.values())
+    return list(holes.values())
 
 
 def _off_axis_drop(dwg, axis, view, *, ctx):
