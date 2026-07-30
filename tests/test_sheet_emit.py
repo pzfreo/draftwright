@@ -1841,7 +1841,7 @@ class TestTheDimensionMirror:
         be able to name every measurement in it and `_compile_overall_height` refuses the
         bounding-box fallback under one (#925). Naming only `height` keeps the drawing
         identical — width and depth stay omitted exactly as the planner left them."""
-        part = self._corpus()["flange (no envelope feature)"]
+        part = TestTheDimensionMirror._corpus()["flange (no envelope feature)"]
         model = detect_part_model(part)
         assert not any(f.kind == "envelope" for f in model.features)
         src = emit_sheet_script(model, "part", "s", title="T", number="N")
@@ -2006,6 +2006,42 @@ class TestTheMirrorCoversTheCompiledSet:
             f"{name}: the compiler approved {missing} and the script declares no line for "
             "them, so 'THIS IS THE COMPLETE SET' is false"
         )
+
+    def test_the_guard_reports_each_kind_of_gap_it_can_find(self, monkeypatch):
+        """The guard's FAILURE branches, which nothing else reaches.
+
+        Every other test drives `unmirrored_dimensions` on models where it correctly finds
+        nothing, so the code that reports a gap — one branch per compiled collection — was
+        never executed. A guard whose reporting path is untested is a guard that might not
+        fire, which is the whole thing it exists to prevent.
+
+        Starves the emitter of requests and asserts each collection is accounted for
+        separately, so a branch that silently stopped reporting shows up as a missing
+        category rather than as a slightly shorter list.
+        """
+        from draftwright import sheet_emit
+
+        # A part carrying all three: group dims (hole/envelope), a location, and the
+        # bounding-box overall-height ladder via the synthesised envelope.
+        part = TestTheDimensionMirror._corpus()["flange (no envelope feature)"]
+        model = detect_part_model(part)
+        monkeypatch.setattr(sheet_emit, "_mirrored_requests", lambda *_a, **_kw: [])
+
+        missing = unmirrored_dimensions(model)
+        assert missing, "starved of every request, the guard must report gaps"
+        assert any("." in m and "location" not in m for m in missing), "no group dim reported"
+        assert any(m.endswith(".location") for m in missing), "no location reported"
+        assert "(bounding box).overall_height" in missing, "no bbox overall height reported"
+
+    def test_the_guard_reports_a_ladder_attached_to_a_feature(self, monkeypatch):
+        """The fourth branch: an `overall_height` ladder whose ref IS a feature, which the
+        bounding-box case above cannot reach."""
+        from draftwright import sheet_emit
+
+        model = detect_part_model(TestTheDimensionMirror._corpus()["stepped"])  # has envelope
+        monkeypatch.setattr(sheet_emit, "_mirrored_requests", lambda *_a, **_kw: [])
+        missing = unmirrored_dimensions(model)
+        assert any(m.startswith("envelope.") for m in missing), f"got {missing}"
 
     def test_the_fallback_is_the_ONLY_way_a_dimension_escapes(self):
         """A model the emitter says it can mirror must have no unmirrored dimension. That is
