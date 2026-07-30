@@ -1129,45 +1129,153 @@ class TestOmittedDimensionsDoNotRender:
 
 
 class TestEveryFeatureVerbIsNameable:
-    """A `dimension(...)` line names a feature, so every verb has to hand one back (#922).
+    """A `dimension(...)` line names a feature, so every declaration verb has to hand one back.
 
-    Nine verbs returned the `Sheet` instead — `chamfer`, `fillet`, `flat`, `groove`,
-    `plate`, `step_level`, and the three pattern verbs — so those features could not be
-    referenced at all and `sheet.dimension(chamfer, "chamfer")` was unwritable. `add` was
-    the same, and mattered most: the ENVELOPE is emitted through it, so naming would have
-    been uniform across the verbs and silently absent for one feature in the middle of a
-    generated script.
+    Eleven did not before #922: nine returned the `Sheet` (`chamfer`, `fillet`, `flat`,
+    `groove`, `plate`, `step_level`, and the three pattern verbs), plus `add` and
+    `measured_dimension`. Those features could not be referenced at all. `add` mattered most:
+    the ENVELOPE is emitted through it, so naming would have been uniform across the verbs and
+    silently absent for one feature in the middle of a generated script.
 
-    The gap is stated as a PROPERTY over the verb list rather than as one example per verb,
-    because a hand-listed set is what let nine of them sit outside the rule unnoticed.
+    The contract is checked BEHAVIOURALLY, per verb, over a set discovered from the source.
+    The first version asserted that no verb's source ends in `return self` — which a verb
+    ending in `return None`, or falling off the end, or returning anything unrelated would
+    pass while leaving its feature unnameable (Codex review of #931). Matching source text is
+    a proxy for the property; resolving the handle is the property.
     """
 
-    #: Verbs that declare a feature, and a minimal call for each.
-    _CALLS = {
+    #: A minimal call for each declaration verb. Every discovered verb must appear — a verb
+    #: with no entry FAILS rather than being skipped, so the table cannot silently fall behind
+    #: the API the way the first version's six-verb parametrization did.
+    _CALLS: dict = {
+        "hole": dict(diameter=6, at=(0, 0, 0), axis="z"),
+        "diameter": dict(diameter=20, at=(0, 0, 0), axis="z"),
+        "boss": dict(diameter=20, height=5, at=(0, 0, 0), axis="z"),
+        "step": dict(diameter=20, length=10, at=(0, 0, 0), axis="z"),
+        "slot": dict(width=8, length=20, long_axis="x", width_axis="y", w_center=0, lo=-10, hi=10),
+        "pocket": dict(
+            width=8, length=20, depth=4, long_axis="x", width_axis="y", w_center=0, lo=-10, hi=10
+        ),
+        "pad": dict(x0=-10, x1=10, y0=-4, y1=4, z0=0, z1=3),
+        "envelope": {},
         "chamfer": dict(axis="z", leg=2, at=(0, 0, 0)),
         "fillet": dict(axis="z", radius=2, at=(0, 0, 0)),
         "flat": dict(axis="z", across=15, at=(0, 0, 0)),
         "groove": dict(axis="z", width=3, diameter=16, at=(0, 0, 0)),
         "plate": dict(axis="z", lo=0, hi=4, u=10, v=5),
         "step_level": dict(base=0, levels=(4.0,), at=(0, 0, 0)),
+        "measured_dimension": dict(
+            kind="linear", value=5, label="5", dominant_axis="X", ref_pts=((0, 0, 0), (5, 0, 0))
+        ),
     }
 
-    @pytest.mark.parametrize("verb", sorted(_CALLS))
-    def test_the_verb_returns_something_dimension_can_name(self, verb):
+    @staticmethod
+    def _declaration_verbs() -> set:
+        import inspect
+
+        from draftwright.sheet import Sheet as _Sheet
+
+        return {
+            name
+            for name, fn in inspect.getmembers(_Sheet, inspect.isfunction)
+            if not name.startswith("_") and "self._features.append(" in inspect.getsource(fn)
+        }
+
+    def _invoke(self, sheet, verb):
+        """Call *verb* on *sheet* with a minimal argument set, returning its handle."""
+        from draftwright.model import hole as _mk_hole
+        from draftwright.model.ir import EnvelopeFeature, Frame
+
+        if verb == "add":
+            return sheet.add(
+                EnvelopeFeature(
+                    Frame((0, 0, 0), "z"),
+                    width=80.0,
+                    depth=50.0,
+                    height=8.0,
+                    bbox_min=(-40.0, -25.0, -4.0),
+                    bbox_max=(40.0, 25.0, 4.0),
+                )
+            )
+        if verb.endswith("pattern"):
+            member = {
+                "pattern": lambda: _mk_hole(diameter=6, at=(-20, 0, 0), axis="z"),
+                "pocket_pattern": lambda: _pocket_member(),
+                "slot_pattern": lambda: _slot_member(),
+            }[verb]()
+            return getattr(sheet, verb)(
+                member, kind="linear", count=3, pitch=20, direction=(1, 0, 0), at=(0, 0, 0)
+            )
+        return getattr(sheet, verb)(**self._CALLS[verb])
+
+    def test_the_call_table_covers_every_declaration_verb(self):
+        """The ratchet. A verb added later with no entry fails HERE, so the behavioural
+        contract below cannot quietly stop covering the API."""
+        covered = set(self._CALLS) | {"add", "pattern", "pocket_pattern", "slot_pattern"}
+        missing = self._declaration_verbs() - covered
+        assert not missing, (
+            f"{sorted(missing)} declare a feature but have no entry in _CALLS — add one so "
+            "the nameability contract actually covers them"
+        )
+
+    @pytest.mark.parametrize(
+        "verb", sorted(_CALLS) + ["add", "pattern", "pocket_pattern", "slot_pattern"]
+    )
+    def test_the_handle_resolves_and_survives_a_reorder(self, verb):
+        """The property, for every verb: the returned handle names its feature, and keeps
+        naming it after the feature list moves.
+
+        Reordering is the half that matters. A handle carrying a bare INDEX would pass a
+        resolve-once check and then silently name a neighbour the moment a script comments a
+        feature out — the positional-addressing defect this work removes from the generated
+        artefact (#908/#922).
+        """
         from build123d import Box
 
         sheet = Sheet(Box(80, 50, 8))
-        handle = getattr(sheet, verb)(**self._CALLS[verb])
+        sheet.hole(diameter=4, at=(-30, 0, 0), axis="z")  # a decoy that the reorder moves
+        handle = self._invoke(sheet, verb)
         assert handle is not sheet, f"Sheet.{verb} hands back no reference to its feature"
-        # The property that matters is not the type but that `dimension` accepts it: a
-        # handle nothing can address is not identity, it is an object.
-        role = next(p.role for p in sheet.features[-1].parameters())
-        sheet.dimension(handle, role)
+        declared = sheet.features[handle._i]
+        sheet.features.reverse()
+        assert sheet.features[handle._i] is declared, (
+            f"Sheet.{verb}'s handle stopped naming its feature after a reorder"
+        )
+
+    @pytest.mark.parametrize("verb", sorted(_CALLS) + ["add", "pattern"])
+    def test_a_feature_with_parameters_can_be_dimensioned_by_its_handle(self, verb):
+        """Resolving is necessary but not sufficient — the handle has to be accepted by the
+        verb it exists for. Parameterless kinds are exercised by the raise below instead."""
+        from build123d import Box
+
+        sheet = Sheet(Box(80, 50, 8))
+        handle = self._invoke(sheet, verb)
+        roles = [p.role for p in sheet.features[handle._i].parameters()]
+        if not roles:
+            pytest.skip(f"{verb} declares a parameterless feature — covered by the raise test")
+        sheet.dimension(handle, roles[0])
+
+    def test_a_parameterless_feature_refuses_a_tolerance_rather_than_dropping_it(self):
+        """`_Params` is handed out for every kind now, including ones with no dimensioned
+        parameter, so its aspect verbs must not accept an instruction they cannot record.
+
+        `tolerance()` iterated an empty role set and returned successfully, dropping the
+        instruction in silence (Codex review of #931) — the failure this codebase ranks below
+        a visible raise. Reachable only since #922: these verbs used to return the Sheet, so
+        `.tolerance()` could not be called on them at all.
+        """
+        from build123d import Box
+
+        sheet = Sheet(Box(10, 10, 10))
+        handle = self._invoke(sheet, "measured_dimension")
+        with pytest.raises(ValueError, match="no dimensioned parameter"):
+            handle.tolerance(0.2)
+        assert sheet._tolerances == {}
 
     def test_a_declaration_verb_still_chains(self):
-        """The false-positive half. These verbs returned `Sheet` so calls could chain, and
-        the handles keep that working by forwarding — otherwise making them nameable would
-        have broken every existing script that chains off one."""
+        """The false-positive half. These verbs returned `Sheet` so calls could chain, and the
+        handles keep that working by forwarding — otherwise making them nameable would have
+        broken every existing script that chains off one."""
         from build123d import Box
 
         chained = (
@@ -1175,24 +1283,18 @@ class TestEveryFeatureVerbIsNameable:
             .chamfer(axis="z", leg=2, at=(0, 0, 0))
             .hole(diameter=6, at=(0, 0, 0), axis="z")
         )
-        assert chained is not None
         assert len(chained._sheet.features) == 2
 
-    def test_no_declaration_verb_is_left_returning_the_sheet(self):
-        """The ratchet. A verb added later that returns `Sheet` is a feature nobody can
-        name, and it fails here rather than at the moment someone tries to dimension it."""
-        import inspect
 
-        from draftwright.sheet import Sheet as _Sheet
+def _pocket_member():
+    from draftwright.model import pocket as _mk
 
-        unnameable = [
-            name
-            for name, fn in inspect.getmembers(_Sheet, inspect.isfunction)
-            if not name.startswith("_")
-            and "self._features.append(" in inspect.getsource(fn)
-            and inspect.getsource(fn).rstrip().endswith("return self")
-        ]
-        assert not unnameable, (
-            f"{unnameable} declare a feature and hand back the Sheet, so the feature cannot "
-            "be named by a dimension(...) line"
-        )
+    return _mk(
+        width=8, length=20, depth=4, long_axis="x", width_axis="y", w_center=0, lo=-10, hi=10
+    )
+
+
+def _slot_member():
+    from draftwright.model import slot as _mk
+
+    return _mk(width=8, length=20, long_axis="x", width_axis="y", w_center=0, lo=-10, hi=10)

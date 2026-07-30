@@ -478,6 +478,24 @@ class _Params:
         every parameter of the feature alike (the kind-keyed form)."""
         val = _tol_value(lo, hi)
         roles = self._roles()
+        if not roles:
+            # A feature with no dimensioned parameters has nothing to tolerance, and
+            # accepting the call would drop a drafting instruction in silence — the failure
+            # this codebase ranks below a visible raise (#630/#631). Reachable since #922
+            # made every declaration verb hand back a handle: `add(PmiFeature(...))` and
+            # `measured_dimension(...)` both produce parameterless features, and before that
+            # they returned the Sheet so `.tolerance()` could not be called at all (Codex
+            # review of #931).
+            kind = self._sheet._features[self._i].kind
+            extra = (
+                " — a measured dimension carries its own tolerance: pass upper_tol=/lower_tol="
+                " to measured_dimension()"
+                if kind == "authored_dimension"
+                else ""
+            )
+            raise ValueError(
+                f"tolerance(): a {kind} exposes no dimensioned parameter to tolerance{extra}"
+            )
         if on is None:
             # A whole-feature tolerance supersedes any earlier per-role override on this
             # feature — bare means "all alike", so it is order-independent (#807 review):
