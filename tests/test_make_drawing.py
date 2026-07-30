@@ -9148,6 +9148,60 @@ class TestTurnedDiameters:
             deferred.overall_height()
         assert deferred.annotations() == live.annotations()
 
+    @pytest.mark.parametrize("deferred", [False, True], ids=["live", "deferred"])
+    def test_overall_height_is_refused_when_the_model_declares_an_envelope(self, deferred):
+        """One measurement, one verb.
+
+        `overall_height()` exists ONLY for the featureless fallback — a model with no
+        `EnvelopeFeature`, whose height comes from the bounding box and has nothing to name.
+        It did not enforce that, so on an enveloped model both public spellings were
+        available and composing them drew the height twice:
+
+            live,  overall_height() then dimension(env, …, role="height")  →  BOTH
+            live,  the reverse order                                       →  one
+            deferred, either order                                         →  one
+
+        Order-dependent live AND live ≠ deferred, from two spellings of one measurement —
+        the "three spellings of pin" problem (#906) in miniature (#934 review).
+
+        Refused before the deferred/live split, so both routes answer identically. That is
+        the shape #925 settled for `callout()`: a check on one side makes the answer depend
+        on whether you are inside `deferred()`.
+        """
+        from draftwright.model.declare import envelope
+
+        part = Box(80, 60, 30)
+        dwg = build_drawing(part, model=[envelope(part)], auto_dims=False)
+        with pytest.raises(ValueError, match="declares an envelope"):
+            if deferred:
+                with dwg.deferred():
+                    dwg.overall_height()
+            else:
+                dwg.overall_height()
+
+    @pytest.mark.parametrize("deferred", [False, True], ids=["live", "deferred"])
+    def test_an_enveloped_height_is_drawn_once_by_its_feature_verb(self, deferred):
+        """The false-positive half: refusing the second spelling must not cost the first.
+
+        The enveloped model's height is still dimensionable — through the feature that owns
+        it — and exactly once, on both routes."""
+        from draftwright.model.declare import envelope
+
+        part = Box(80, 60, 30)
+        dwg = build_drawing(part, model=[envelope(part)], auto_dims=False)
+        feature = dwg.model().features[0]
+        if deferred:
+            with dwg.deferred():
+                dwg.dimension(feature, "length", role="height")
+        else:
+            dwg.dimension(feature, "length", role="height")
+        heights = [
+            a.label
+            for n, a in dwg.iter_annotations()
+            if n.startswith(("dim_height", "dim_length"))
+        ]
+        assert heights == ["30"], f"the height should be drawn once, got {heights}"
+
     def test_the_overall_height_intent_is_commentable_not_injected(self):
         """The half that the first fix got wrong, and the reason there is a verb at all.
 
@@ -9160,7 +9214,12 @@ class TestTurnedDiameters:
         the property the whole intent-level script rests on (ADR 0016, "the script records
         intent").
         """
-        part = Box(80, 60, 12) - Pos(20, 10, 0) * Cylinder(4, 40)
+        # The verb's actual domain: a part with NO `EnvelopeFeature`, so the height comes
+        # from the bounding-box fallback and there is nothing to name. (An enveloped model
+        # refuses this verb and uses its feature instead — see the test above; this fixture
+        # asserted the property on an enveloped plate, which is the overlap itself.)
+        part = self._issue_881_y_step_flange()
+        assert not any(f.kind == "envelope" for f in build_drawing(part).model().features)
 
         silent = build_drawing(part, auto_dims=False)
         assert "dim_height" not in silent.annotations(), "not recorded ⇒ not drawn"

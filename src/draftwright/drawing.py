@@ -1235,10 +1235,28 @@ class Drawing:
         Returns the placed names (empty when the compiler withholds the height — a Z-turned
         part whose step chain already tiles it, or an X/Y rotational OD that conveys it).
         """
+        model, a = self._part_model, self._analysis
+        # BEFORE the deferred/live split, so both routes refuse identically — the shape #925
+        # settled for `callout()`: a check on one side of that split makes the answer depend
+        # on whether you are inside `deferred()`.
+        if model is not None and any(f.kind == "envelope" for f in model.features):
+            # This verb exists ONLY for the featureless fallback. On an enveloped model the
+            # measurement already has a feature to name, and supporting both spellings gave
+            # two: live, `overall_height()` then `dimension(env, …, role="height")` drew the
+            # 30 mm height TWICE, while the reverse order and the deferred route drew it once
+            # (`explicit_envelope_height` removes the overall ladder from the compile). Order-
+            # dependent live and live ≠ deferred, from composing two public spellings of one
+            # measurement — the "three spellings of pin" problem (#906) in miniature (#934
+            # review). One measurement, one verb.
+            raise ValueError(
+                "overall_height(): this model declares an envelope, so its height has a "
+                'feature to name — use dimension(envelope, "length", role="height"). This '
+                "verb is for a model with NO envelope feature, where the height comes from "
+                "the bounding box and there is nothing to name."
+            )
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("overall_height", None, {}))
             return []
-        model, a = self._part_model, self._analysis
         if model is None or a is None:
             raise ValueError("overall_height(): no detected model — build the drawing first")
         from draftwright._core import layout_frame
