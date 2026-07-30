@@ -153,9 +153,9 @@ reach (`_staircase()` has no holes, which is how two dimensional paths stayed ou
 boundary unnoticed); the source ratchet covers every path whether a fixture walks it or not.
 It is shrink-only, and each survivor carries a written reason.
 
-**Designating an owner means DELETING the alternative reader, not redirecting the caller.**
-The rule that most reliably held while this ADR was implemented, and the one that explains
-why some fixes stuck and others did not:
+**Once a semantic owner is designated, parallel INFERENCE paths must be deleted, not
+redirected.** The rule that most reliably held while this ADR was implemented, and the one
+that explains why some fixes stuck and others did not:
 
 - #921 fixed eight renderers to check `suppressed`. The ninth leaked.
 - #923 **deleted the field**. No renderer has leaked it since — `ApprovedDimension` has
@@ -165,10 +165,25 @@ why some fixes stuck and others did not:
 
 A redirect leaves the trap armed: the next author reaches for the reader that still exists,
 because it still exists. Fixing N call sites is O(N) work that must be repeated for every
-new call site; removing the thing they call is O(1) and permanent. So when this ADR names a
-single source of truth, the same change removes the other way to get the same answer —
-and if it cannot yet be removed, it is NAMED as pending (`_PENDING_VALUE_CARRYING`,
-`_FMT_BUDGET`, `_SAME_PATH_AS_ENVELOPE`) rather than left to be discovered.
+new call site; deleting the thing they call is O(1) and permanent.
+
+**Scoped to competing readers of one semantic fact — not to compatibility forwarding.** Two
+ways to *ask* for an answer is an API convenience and this codebase keeps several on purpose
+(`make_drawing`'s facade, the `sheet_dsl` alias, `dimension`'s transitional overload). Two
+ways to *decide* an answer is the defect: `location_role` and `plan_locations` and the
+off-axis pass each independently concluding whether a hole has a position. A forwarding shim
+computes nothing, so it cannot disagree; a second inference path exists precisely to
+conclude, and will.
+
+When a parallel path cannot yet be deleted, it is named — and the two ways of naming one are
+different mechanisms that should not be confused:
+
+- **Unresolved debt** is inventoried AND **shrink-only**, so it can only ever get smaller:
+  `_PENDING_VALUE_CARRYING`, `_FMT_BUDGET`.
+- **An intentional shared route** is inventoried AND **behaviourally verified**, so the
+  listing stays a checked claim rather than an assertion: `_SAME_PATH_AS_ENVELOPE`, whose
+  members are proven by `test_the_same_path_verbs_really_share_the_route` to reach their
+  handle by the same two lines `envelope` does.
 
 The corollary is why this ADR keeps producing *tables* rather than checks: a check must be
 remembered at each site, a table is consulted from one. `location_datum`, `_FACTS` and
