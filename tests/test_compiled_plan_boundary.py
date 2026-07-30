@@ -498,7 +498,7 @@ class TestAPositionIsADimension:
         `None`, and the bolt-circle branch of the furniture sweep skip it: the author named a
         50 mm BCD and the drawing contained neither it nor a diagnostic (#925 review).
         """
-        with pytest.raises(ValueError, match="bolt_circle.diameter"):
+        with pytest.raises(ValueError, match="EQ SP ON ø50 BC"):
             self._bolt_circle_drawing(["bolt_circle.diameter"])
 
     def test_the_BCD_prints_when_its_bore_is_authored_too(self):
