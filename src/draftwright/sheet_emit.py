@@ -547,28 +547,83 @@ def mirror_model(model):
     return replace(model, features=[*model.features, env]), env
 
 
-def _is_mirrorable(model) -> bool:
-    """Can every dimension the planner chose be named by an emitted line?
+#: The parameter an approved ladder is named by, where the two spellings differ. An
+#: `overall_height` ladder attached to an `EnvelopeFeature` is that envelope's `height`
+#: parameter — the ladder is a placement grouping, the parameter is what a script names.
+_LADDER_PARAMETER = {"overall_height": "height.length"}
 
-    A feature kind with no declarative verb (`_GAP_KINDS` — `rotational` today) emits a
-    COMMENT, so it binds no variable and a `dimension(...)` line has nothing to reference. If
-    such a feature carries planned dimensions, a mirrored set would silently omit them, which
-    is worse than not mirroring: the script would claim completeness it does not have.
 
-    So those models keep `auto_dimensions()` and say why. Honest, and it shrinks as the gap
-    kinds gain verbs — the mirror is not the thing to compromise (#938/#939).
+def unmirrored_dimensions(model) -> list[str]:
+    """Dimensions the COMPILER approved that no emitted line would name.
+
+    The one production answer to "can this script claim to be complete?", and the reason it
+    is here rather than in a test: the first cut asked a weaker question — whether an
+    unsuppressed `plan_dimensions()` group belonged to a feature with no declarative verb —
+    which misses every dimension created OUTSIDE `plan_dimensions`. Locations already prove
+    such paths exist, so a compiled location or ladder on an otherwise nameable feature left
+    the script printing "THIS IS THE COMPLETE SET" while silently omitting it: a real
+    user-facing third state, not merely a missing diagnostic (#947 review).
+
+    Compares the compiled approved set against the requests the emitter would actually write,
+    so a new compiler-owned dimension is caught by construction rather than by someone
+    remembering to extend the check. The test calls this same function — a test-only
+    approximation of a production rule is two spellings of one fact, which is the defect this
+    codebase keeps paying for.
     """
-    from draftwright.model.planner import plan_dimensions
+    from draftwright.model.compiled import compile_dimensions, resolve_feature
 
-    # "Unnameable" is derived from the emitter itself — a feature whose line is a COMMENT
-    # binds no variable — rather than from a second list of kinds. `_binding` makes the same
-    # call; two spellings of "does this kind have a verb" is the drift this codebase pays for.
-    unnameable = {id(f) for f in model.features if _feature_line(f).lstrip().startswith("#")}
-    return not any(
-        id(group.feature) in unnameable
-        and any(not all(d.suppressed for d in unit.members) for unit in group.units)
-        for group in plan_dimensions(model)
-    )
+    declared, synthesised = mirror_model(model)
+    # A request only counts if the script can WRITE it. A feature whose line is a comment
+    # binds no variable, so `dimension(<nothing>, role)` cannot be emitted — the request
+    # exists in the walk and would never reach the file. Checking the request alone reported
+    # a turned part as fully mirrorable while its rotational dimensions had no name.
+    requested = {
+        (id(feature), role)
+        for feature, role, _disc in _mirrored_requests(declared, synthesised)
+        if not _feature_line(feature).lstrip().startswith("#")
+    }
+
+    def _asked(feature, parameter_id: str) -> bool:
+        # A line names either the full parameter id ("bore.diameter") or the bare role
+        # ("bore"); a correlated set emits one line covering N members.
+        return (id(feature), parameter_id) in requested or (
+            id(feature),
+            parameter_id.split(".")[0],
+        ) in requested
+
+    missing: list[str] = []
+    plan = compile_dimensions(model)
+    for group in plan.groups:
+        feature = resolve_feature(group.ref)
+        missing += [
+            f"{feature.kind}.{d.parameter_id}"
+            for d in group.dims
+            if not _asked(feature, d.parameter_id)
+        ]
+    for approved in plan.locations:
+        feature = resolve_feature(approved.ref)
+        if feature is not None and (id(feature), "location") not in requested:
+            missing.append(f"{feature.kind}.location")
+    for ladder in plan.ladders:
+        feature = resolve_feature(ladder.ref) if ladder.ref is not None else None
+        if feature is None:
+            if synthesised is None or (id(synthesised), "height.length") not in requested:
+                missing.append("(bounding box).overall_height")
+        elif not _asked(feature, _LADDER_PARAMETER.get(ladder.kind, f"{ladder.kind}.length")):
+            missing.append(f"{feature.kind}.{ladder.kind}")
+    return sorted(set(missing))
+
+
+def _is_mirrorable(model) -> bool:
+    """Can every dimension the compiler approved be named by an emitted line?
+
+    Derived from :func:`unmirrored_dimensions`, so "the emitter says it can mirror" and "the
+    emitter actually can" are the same computation rather than two that agree until they do
+    not. A model that fails keeps `auto_dimensions()` and says why — a mirrored set that
+    silently omitted a dimension would claim a completeness it does not have, which is worse
+    than not mirroring.
+    """
+    return not unmirrored_dimensions(model)
 
 
 def _mirrored_requests(model, declared_envelope=None):

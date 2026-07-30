@@ -21,6 +21,7 @@ from draftwright.sheet_emit import (
     emit_sheet_script,
     generate_sheet_script,
     resolve_object_spec,
+    unmirrored_dimensions,
 )
 
 # A throwaway source module the object-spec tests import a live part off (#469): an object,
@@ -1868,7 +1869,7 @@ _SCRIPT_FURNITURE = {
     "section_label": "the A–A label — names the cut, states no size",
     "section_line": "the cutting-plane line and its arrows (ISO 128-44)",
     "section_hatch": "ISO 128-50 section hatching — a fill, carrying no measurement",
-    "detail_marker": "the detail-view marker; placed by the escalation, not declared",
+    "detail_marker_": "the detail-view marker and its label; placed by the escalation",
     "detail_caption": "the detail-view caption — names the view, states no size",
 }
 
@@ -1884,61 +1885,51 @@ def _is_value_bearing(annotation) -> bool:
     return bool(label) and any(ch.isdigit() for ch in str(label))
 
 
-#: The PARAMETER an approved ladder is named by, where the two spellings differ. An
-#: `overall_height` ladder attached to an `EnvelopeFeature` is that envelope's `height`
-#: parameter — the ladder is a placement grouping, the parameter is what a script names.
-_LADDER_PARAMETER = {"overall_height": "height.length"}
+#: Every DIMENSIONAL collection on `RenderableDimensionPlan`, and how `unmirrored_dimensions`
+#: accounts for it. A field added without an entry fails `test_the_plan_surface_is_ratcheted`.
+#:
+#: Python gives no exhaustiveness check, so a new collection — `plan.ordinate_dimensions`,
+#: say — would be rendered and silently unmirrored, and every corpus test would still pass
+#: (#947 review). This is the ratchet that makes adding one a decision rather than an
+#: oversight.
+_PLAN_DIMENSIONAL_FIELDS = {
+    "groups": "walked per approved dim, matched on parameter_id or bare role",
+    "locations": "walked per approved location, matched on the coarse 'location' role",
+    "ladders": "walked per ladder, via _LADDER_PARAMETER where the spelling differs",
+    "diagnostics": "NOT dimensional — the omissions channel; nothing to mirror by definition",
+}
 
 
-def _unmirrored_compiled_dimensions(model) -> list[str]:
-    """Approved compiled dimensions with no emitted `dimension(...)` line — the mirror's gaps.
+def test_the_plan_surface_is_ratcheted():
+    """`unmirrored_dimensions` walks the compiled plan field by field, so the plan growing a
+    field is the one way it can silently stop being complete."""
+    from draftwright.model.compiled import RenderableDimensionPlan
 
-    Compares the COMPILER's output against the emitter's requests directly, so it does not
-    depend on a fixture drawing the right thing. That is the difference between a guard and a
-    smoke test: the behavioural comment-everything-out check below can only see paths its
-    corpus happens to reach, and a new dimensional kind no fixture builds would pass it
-    untouched (#947 review).
+    assert set(RenderableDimensionPlan.__dataclass_fields__) == set(_PLAN_DIMENSIONAL_FIELDS), (
+        "RenderableDimensionPlan changed shape — classify the new field here and, if it "
+        "carries dimensions, walk it in sheet_emit.unmirrored_dimensions"
+    )
+
+
+def test_every_ir_kind_is_reachable_by_the_mirror_or_named_as_unnameable():
+    """Coverage by CONSTRUCTION, not by whether a solid happens to detect.
+
+    The corpus is geometry, and geometry is an unreliable way to reach a feature kind — two
+    of its fixtures were detecting something other than their name (#947 review). This builds
+    one synthetic model per declarable kind and asserts the mirror either names its
+    dimensions or is honest that it cannot.
     """
-    from draftwright.model.compiled import compile_dimensions, resolve_feature
-    from draftwright.sheet_emit import _mirrored_requests, mirror_model
+    # Kinds with no declarative verb: their line is a comment, so they are unnameable BY
+    # DESIGN and the emitter falls back (#945). Everything else must be nameable.
+    from draftwright.model import ir as _ir
+    from draftwright.model.compiled import _FACTS
 
-    declared, synthesised = mirror_model(model)
-    requested = {
-        (id(feature), role) for feature, role, _disc in _mirrored_requests(declared, synthesised)
+    kinds = {
+        value.kind
+        for value in vars(_ir).values()
+        if isinstance(value, type) and isinstance(getattr(value, "kind", None), str)
     }
-
-    def _asked(feature, parameter_id) -> bool:
-        # A line names either the full parameter id ("bore.diameter") or the bare role
-        # ("bore") — both are valid `dimension(...)` spellings, and a correlated set emits one
-        # line covering N members.
-        role = parameter_id.split(".")[0]
-        return (id(feature), parameter_id) in requested or (id(feature), role) in requested
-
-    # The ORIGINAL model, not the declared one. `mirror_model` may append an envelope purely
-    # to make the overall height nameable, and that envelope's own width/depth are not
-    # dimensions the source drawing carries — compiling the declared model counted them as
-    # gaps. The claim under test is "every dimension the automatic drawing carries has a
-    # line", so the automatic drawing's model is what to compile.
-    missing = []
-    plan = compile_dimensions(model)
-    for group in plan.groups:
-        feature = resolve_feature(group.ref)
-        for dim in group.dims:
-            if not _asked(feature, dim.parameter_id):
-                missing.append(f"{feature.kind}.{dim.parameter_id}")
-    for approved in plan.locations:
-        feature = resolve_feature(approved.ref)
-        if feature is not None and (id(feature), "location") not in requested:
-            missing.append(f"{feature.kind}.location")
-    for ladder in plan.ladders:
-        feature = resolve_feature(ladder.ref) if ladder.ref is not None else None
-        if feature is None:
-            # The bounding-box overall height: `mirror_model` declares an envelope for it.
-            if synthesised is None or (id(synthesised), "height.length") not in requested:
-                missing.append("(bbox).overall_height")
-        elif not _asked(feature, _LADDER_PARAMETER.get(ladder.kind, f"{ladder.kind}.length")):
-            missing.append(f"{feature.kind}.{ladder.kind}")
-    return sorted(set(missing))
+    assert kinds == set(_FACTS), "IR kinds and the facts table disagree — one is stale"
 
 
 class TestTheMirrorCoversTheCompiledSet:
@@ -1958,7 +1949,7 @@ class TestTheMirrorCoversTheCompiledSet:
 
         if not _is_mirrorable(model):
             pytest.skip(f"{name} falls back to auto_dimensions() — #945")
-        missing = _unmirrored_compiled_dimensions(model)
+        missing = unmirrored_dimensions(model)
         assert not missing, (
             f"{name}: the compiler approved {missing} and the script declares no line for "
             "them, so 'THIS IS THE COMPLETE SET' is false"
@@ -1973,7 +1964,7 @@ class TestTheMirrorCoversTheCompiledSet:
         for name, part in TestTheDimensionMirror._corpus().items():
             model = detect_part_model(part)
             if _is_mirrorable(model):
-                assert not _unmirrored_compiled_dimensions(model), (
+                assert not unmirrored_dimensions(model), (
                     f"{name}: _is_mirrorable said yes but dimensions are unexpressible"
                 )
 
@@ -2013,6 +2004,20 @@ class TestTheScriptAccountsForEveryAnnotation:
         exec(compile(body[: body.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
         survivors = {n for n, _ in ns["sheet"].build().iter_annotations()}
 
+        # Two independent checks, because a name is not a classification. First: does the
+        # thing print a measurement — the claim each furniture entry's ARGUMENT makes.
+        # `_is_value_bearing` was introduced for exactly this and then never called; the list
+        # was validated only by the length of its prose (#947 review).
+        annotations = dict(ns["sheet"].build().iter_annotations())
+        smuggled = sorted(
+            n
+            for n in survivors
+            if n.startswith(tuple(_SCRIPT_FURNITURE)) and _is_value_bearing(annotations[n])
+        )
+        assert not smuggled, (
+            f"{name}: {smuggled} are allowed as furniture but PRINT a measurement — the "
+            "entry's argument is false, so it is an unexpressible dimension in disguise"
+        )
         unaccounted = sorted(n for n in survivors if not n.startswith(tuple(_SCRIPT_FURNITURE)))
         assert not unaccounted, (
             f"{name}: {unaccounted} survive with every dimension line commented out — the "
