@@ -591,7 +591,18 @@ sheet = Sheet(part)                           # or: these declarations ARE the s
 sheet.dimension(bore, "diameter")
 sheet.dimension(bore, "depth")
 dwg = sheet.build()
+
+sheet = Sheet(part).authored_dimensions()     # ...and this one is complete and EMPTY
+dwg = sheet.build()                           # a drawing with no generated dimensions
 ```
+
+**Each source has a verb (#933).** `dimension(...)` selects the authored source on its own,
+so `authored_dimensions()` is redundant for a non-empty set — but a set that is complete and
+*empty* has no line to select it with, and absence of `dimension(...)` lines is also what a
+script with no source at all looks like. Without the verb, `authored_dimensions=()` was a
+valid `PartModel` that could be built directly and not written as a script. Emitted scripts
+write the verb unconditionally, so an authored script states its source the same way an
+automatic one does rather than in a comment.
 
 - `auto_dimensions()` requests the planner-selected set (ADR 0015 `plan_dimensions`);
   `dimension(...)` declarations form the **complete** authored set — which is what makes

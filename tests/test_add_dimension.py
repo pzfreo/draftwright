@@ -150,6 +150,27 @@ class TestSheetSurface:
         with pytest.raises(ValueError, match="does not say where its dimensions come from"):
             sheet.build()
 
+    def test_the_no_source_error_names_BOTH_source_verbs(self):
+        """The error is the only place a caller learns how to fix it, so it has to name every
+        way to do so.
+
+        It said "declare the complete set with dimension(feature, role) lines" — advice that
+        is impossible to follow for a complete set that happens to be EMPTY, which is exactly
+        why `authored_dimensions()` exists (#933 review). Accurate before that verb, stale
+        after it, and stale error text about an API is worse than none: it reads as an
+        exhaustive list.
+
+        Asserted rather than left to review, so the verb stays discoverable from the failure
+        a caller actually hits.
+        """
+        sheet = Sheet(_part(), title="T", number="N")
+        sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+        with pytest.raises(ValueError) as excinfo:
+            sheet.build()
+        message = str(excinfo.value)
+        assert "auto_dimensions()" in message
+        assert "authored_dimensions()" in message, "the error hides the empty-set route"
+
     def test_the_model_surface_is_gated_too(self):
         """`Sheet.model()` is the model the engine WOULD draw, so a sheet that cannot be built
         must not hand one out — otherwise `build_drawing(part, model=sheet.model())` walks

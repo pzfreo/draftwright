@@ -1378,10 +1378,12 @@ class Sheet:
         if not self._auto_dimensions and not authored:
             raise ValueError(
                 "this sheet does not say where its dimensions come from. Call "
-                "auto_dimensions() for the planner's set, or declare the complete set with "
-                "dimension(feature, role) lines. (Building without either used to mean the "
-                "automatic set; ADR 0016 makes the source explicit so that omitting a "
-                "dimension can mean something.)"
+                "auto_dimensions() for the planner's set, or authored_dimensions() to declare "
+                "the complete set yourself and then add zero or more dimension(feature, role) "
+                "lines. (A dimension(...) line selects the authored source on its own; the "
+                "verb is how a COMPLETE-BUT-EMPTY set says so, since it has no line to say it "
+                "with. Building without either used to mean the automatic set; ADR 0016 makes "
+                "the source explicit so that omitting a dimension can mean something.)"
             )
 
     def _resolve_measurement(self, feature, role: str, axis: str | None, verb: str):
@@ -1479,8 +1481,13 @@ class Sheet:
         """The complete authored set, or ``None`` when the planner's automatic set is in use.
 
         ``None`` and ``()`` mean different things here and the distinction is load-bearing:
-        ``None`` is "the planner chooses", an empty tuple would be "the author chose nothing",
-        which :meth:`_check_dimension_source` rejects before we get here."""
+        ``None`` is "the planner chooses", ``()`` is "the author chose nothing" — a complete
+        set that happens to be empty, which is a legitimate drawing.
+
+        That second case was unreachable until #933, because the authored source could only
+        be selected by writing a `dimension(...)` line, and this docstring said so. It is
+        reachable now through :meth:`authored_dimensions`, which is what that verb exists
+        for; what :meth:`_check_dimension_source` still rejects is naming NO source at all."""
         if not self._authored:
             # `()` when the script SAID the authored set is its source and named nothing —
             # "the author chose no dimensions", which is a legitimate drawing. `None` only
