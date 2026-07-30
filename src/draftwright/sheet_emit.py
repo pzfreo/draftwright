@@ -203,8 +203,14 @@ def _feature_line(f) -> str:
         thr = (
             f", thread={f.thread!r}" if getattr(f, "thread", None) else ""
         )  # external thread (#859)
+        # The HEIGHT round-trips too (#938). Dropping it made the declared boss carry only
+        # `boss.diameter` while the detected one also carries `boss_height.length`, so the
+        # regenerated model could not express a dimension its source had — silently before
+        # the mirror named it, and as a raise afterwards. ADR 0011's round-trip rule is that
+        # recognise, emit and declare agree about a feature's parameters.
+        height = f", height={_n(f.height)}" if getattr(f, "height", None) else ""
         return (
-            f"sheet.diameter(diameter={_n(f.diameter)}, at={_pt(f.frame.origin)}, "
+            f"sheet.diameter(diameter={_n(f.diameter)}{height}, at={_pt(f.frame.origin)}, "
             f'axis="{f.frame.axis}"{thr})'
         )
     if k == "step":
@@ -488,6 +494,138 @@ def _binding(f, line: str, counts: dict[str, int]) -> str | None:
     return f"{f.kind}{counts[f.kind]}"
 
 
+def _declared_envelope(model):
+    """The envelope this emitter SYNTHESISED for *model*, or ``None``.
+
+    Recognised by identity against `mirror_model`'s own construction: the appended feature is
+    the last one and carries the bounding box exactly. Kept separate from the planner walk so
+    its width and depth are never named — see `_mirrored_requests`."""
+    tail = model.features[-1] if model.features else None
+    if tail is None or tail.kind != "envelope":
+        return None
+    bb = model.bbox
+    same = (
+        abs(tail.width - float(bb.size.X)) < 1e-9
+        and abs(tail.depth - float(bb.size.Y)) < 1e-9
+        and abs(tail.height - float(bb.size.Z)) < 1e-9
+    )
+    return tail if same and getattr(tail, "_dw_synthesised", False) else None
+
+
+def mirror_model(model):
+    """The model the emitted script DECLARES — *model*, plus an envelope when the part's
+    overall height would otherwise be unnameable.
+
+    A generated script mirrors the planner's chosen set as explicit `dimension(...)` lines
+    (#938), which makes it an AUTHORED set — and an authored set is the complete
+    dimensioning, so every measurement in it must be nameable. The overall height usually is:
+    an `EnvelopeFeature` carries a `height` parameter. On a part with no envelope feature the
+    compiler falls back to the bounding box, and `_compile_overall_height` deliberately
+    refuses that fallback under an authored set — a script "must not acquire a measurement
+    its author had no way to ask for" (#925). Mirroring such a part would silently drop its
+    overall height, which is #889's bug at the authored level.
+
+    So the script declares the envelope and names only its height. That is honest rather than
+    a workaround: the engine was already dimensioning the bounding box, and the declaration
+    writes down what it was doing implicitly. Naming only `height` keeps the drawing
+    identical — the width and depth stay omitted exactly as the planner left them.
+    """
+    if any(f.kind == "envelope" for f in model.features):
+        return model
+    from draftwright.model.compiled import compile_dimensions
+
+    if compile_dimensions(model).ladder("overall_height") is None:
+        return model  # the compiler withholds it (Z-turned, rotational OD) — nothing to name
+    from dataclasses import replace
+
+    from draftwright.model.ir import EnvelopeFeature, Frame
+
+    bb = model.bbox
+    lo = (float(bb.min.X), float(bb.min.Y), float(bb.min.Z))
+    hi = (float(bb.max.X), float(bb.max.Y), float(bb.max.Z))
+    env = EnvelopeFeature(
+        Frame((0.0, 0.0, 0.0), "z"),
+        width=float(bb.size.X),
+        depth=float(bb.size.Y),
+        height=float(bb.size.Z),
+        bbox_min=lo,
+        bbox_max=hi,
+    )
+    object.__setattr__(env, "_dw_synthesised", True)
+    return replace(model, features=[*model.features, env])
+
+
+def _is_mirrorable(model) -> bool:
+    """Can every dimension the planner chose be named by an emitted line?
+
+    A feature kind with no declarative verb (`_GAP_KINDS` — `rotational` today) emits a
+    COMMENT, so it binds no variable and a `dimension(...)` line has nothing to reference. If
+    such a feature carries planned dimensions, a mirrored set would silently omit them, which
+    is worse than not mirroring: the script would claim completeness it does not have.
+
+    So those models keep `auto_dimensions()` and say why. Honest, and it shrinks as the gap
+    kinds gain verbs — the mirror is not the thing to compromise (#938/#939).
+    """
+    from draftwright.model.planner import plan_dimensions
+
+    # "Unnameable" is derived from the emitter itself — a feature whose line is a COMMENT
+    # binds no variable — rather than from a second list of kinds. `_binding` makes the same
+    # call; two spellings of "does this kind have a verb" is the drift this codebase pays for.
+    unnameable = {id(f) for f in model.features if _feature_line(f).lstrip().startswith("#")}
+    return not any(
+        id(group.feature) in unnameable
+        and any(not all(d.suppressed for d in unit.members) for unit in group.units)
+        for group in plan_dimensions(model)
+    )
+
+
+def _mirrored_requests(model, declared_envelope=None):
+    """One `(feature, role)` per dimension the planner CHOSE — the mirror's content.
+
+    Emitted per addressable UNIT, never per member: a `step_height` ladder and a rotational
+    body's bores are one `AddressableDimension` holding N, so one line drops the set and
+    there is no member line to mislead (ADR 0016 identity tier 3).
+
+    From the planner's INTENT, never from placed annotations. Walking the drawing is the
+    obvious way to build a mirror and it is wrong: a dimension the solver dropped would
+    vanish from the regenerated script and could never be recovered by re-running it, and an
+    unrelated layout change would silently rewrite version-controlled source.
+    """
+    from draftwright.model.planner import plan_dimensions
+
+    out: list[tuple] = []
+    if declared_envelope is not None:
+        # The synthesised envelope exists ONLY to make the overall height nameable, so name
+        # its height and nothing else — its width and depth stay omitted exactly as the
+        # planner left them on a model that never declared an envelope (`mirror_model`).
+        out.append((declared_envelope, "height.length", None))
+    for group in plan_dimensions(model):
+        if declared_envelope is not None and group.feature is declared_envelope:
+            continue  # its height is named above; its width/depth stay omitted
+        for unit in group.units:
+            if all(d.suppressed for d in unit.members):
+                continue  # the planner did not choose it; the mirror must not add it
+            out.append((group.feature, str(unit.id), None))
+    # Locations come from the COMPILED set, not from `plan_locations`. The two differ, and
+    # the difference is exactly the positions that are compiled elsewhere: a slot's near-end
+    # offset and a side-drilled hole's, which measure from the bounding box rather than from
+    # `datum_xy` (#925). Walking the planner missed them, so a mirrored pad/slot part lost
+    # its position dim — the whole class of bug this mirror exists to prevent.
+    from draftwright.model.compiled import compile_dimensions, resolve_feature
+
+    named: set[int] = set()
+    for approved in compile_dimensions(model).locations:
+        # One line per FEATURE, not per ref: coincident refs are deduplicated across
+        # features, and `dimension(f, "location")` is a per-feature unit (#883 is the
+        # per-member question, deliberately not answered here).
+        feature = resolve_feature(approved.ref)
+        if feature is None or id(feature) in named:
+            continue
+        named.add(id(feature))
+        out.append((feature, "location", None))
+    return out
+
+
 def _dimension_block(model, names: dict[int, str]) -> list[str]:
     """The authored set as `sheet.dimension(...)` declarations, or the `auto_dimensions()` line.
 
@@ -499,12 +637,26 @@ def _dimension_block(model, names: dict[int, str]) -> list[str]:
     A generated script must state its source either way (ADR 0016 / #874): a dimension the
     script does not name only means "omitted" inside a set that says it is complete.
     """
-    if model.authored_dimensions is None:
+    if model.authored_dimensions is None and not _is_mirrorable(model):
+        # A feature with no declarative verb carries planned dimensions, so a mirrored set
+        # would silently omit them and claim completeness it does not have (#938).
         return [
-            "# The planner selects the dimensions. Replace with dimension(feature, role) lines",
-            "# to declare the complete set by hand (ADR 0016).",
+            "# The planner selects the dimensions: this part has a feature with no",
+            "# declarative verb (flagged above), so its dimensions cannot be named here.",
+            "# Replace with dimension(feature, role) lines to declare the set by hand.",
             "sheet.auto_dimensions()",
         ]
+    requests = (
+        [(a.feature, a.role, a.discriminator) for a in model.authored_dimensions]
+        if model.authored_dimensions is not None
+        # A detected model has no authored set, so the script MIRRORS the planner's choice as
+        # explicit lines instead of `auto_dimensions()` (#938). That is what makes an
+        # automatic dimension commentable: before this, the promise "comment a line out to
+        # drop it" held for features and not for dimensions, so the only way to drop one
+        # dimension was to drop its whole feature — losing the callout, the centre marks and
+        # the location with it.
+        else _mirrored_requests(model, _declared_envelope(model))
+    )
     out = [
         "# ── Dimensions ────────────────────────────────────────────────────────────────",
         "# THIS IS THE COMPLETE SET (ADR 0016). A measurement with no line here is omitted",
@@ -517,8 +669,8 @@ def _dimension_block(model, names: dict[int, str]) -> list[str]:
         # automatic one does, rather than in prose a reader has to trust.
         "sheet.authored_dimensions()",
     ]
-    for authored in model.authored_dimensions:
-        name = names.get(id(authored.feature))
+    for feature, role, discriminator in requests:
+        name = names.get(id(feature))
         if name is None:
             # Reachable for a kind with no declarative verb (its line is a comment, so it
             # binds nothing). Refusing the SCRIPT is right: emitting the rest would produce
@@ -526,14 +678,14 @@ def _dimension_block(model, names: dict[int, str]) -> list[str]:
             # divergence the blanket refusal existed to prevent — just narrowed from "any
             # authored model" to "an authored dimension on an unemittable feature".
             raise ValueError(
-                f"emit_sheet_script(): cannot name the {authored.feature.kind} carrying the "
-                f"authored dimension {authored.role!r} — that kind has no declarative verb, "
-                "so the generated script has no variable to reference it by"
+                f"emit_sheet_script(): cannot name the {feature.kind} carrying the "
+                f"dimension {role!r} — that kind has no declarative verb, so the generated "
+                "script has no variable to reference it by"
             )
         # Double quotes, matching the house style of every other emitted string argument
         # (`axis="z"`); `!r` would render single and make the file read as two dialects.
-        axis = f', axis="{authored.discriminator}"' if authored.discriminator else ""
-        out.append(f'sheet.dimension({name}, "{authored.role}"{axis})')
+        axis = f', axis="{discriminator}"' if discriminator else ""
+        out.append(f'sheet.dimension({name}, "{role}"{axis})')
     return out
 
 
@@ -635,6 +787,10 @@ def emit_sheet_script(
     comment a feature line out and re-run — which shifts every later index and silently
     retargets the declarations onto their neighbours. #931 and #932 removed positional
     addressing from the artefact, so the declarations can now be written honestly."""
+    # The script declares this model — `model` plus an envelope when the overall height would
+    # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
+    # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
+    model = mirror_model(model)
     model_imports = set()
     if any(f.kind in ("hole", "pattern") for f in model.features):
         model_imports.add("hole")
@@ -685,11 +841,11 @@ def emit_sheet_script(
         # dimension only means something inside a set that says it is complete. The planner's
         # set is stated here; an AUTHORED set is stated after the features instead, because
         # each of its lines names a feature by the variable that feature's line binds.
-        *(
-            _dimension_block(model, _names) + [""]
-            if model.authored_dimensions is None
-            else ["# The dimension source is DECLARED below the features (ADR 0016).", ""]
-        ),
+        # Every generated script now declares its dimensions below the features (#938), so
+        # the source is stated here as a pointer rather than inline: the lines name features
+        # by the variables those features' lines bind, and cannot precede them.
+        "# The dimension source is DECLARED below the features (ADR 0016).",
+        "",
         # For a live-source part (#771), the values below were read off YOUR objects — point
         # each line back at the object to keep it a single source of truth (a STEP-sourced
         # script has no such objects, so this note is emitted only for object inputs).
@@ -708,7 +864,8 @@ def emit_sheet_script(
         # a value, re-run). Runs are consecutive in feature order; never reordered (ADR 0014).
         *feature_lines,
         "",
-        *(_dimension_block(model, _names) + [""] if model.authored_dimensions is not None else []),
+        *_dimension_block(model, _names),
+        "",
         "# ── Views ─────────────────────────────────────────────────────────────────────",
         "# front / plan / side / iso are always produced.",
     ]

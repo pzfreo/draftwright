@@ -80,11 +80,16 @@ class TestEmit:
         "part", [Box(40, 20, 10), _plate(), Box(80, 60, 40)], ids=["bare", "plate", "block"]
     )
     def test_every_emitted_script_states_its_dimension_source(self, part):
-        """#874's emitter gate. A generated script must SAY where its dimensions come
-        from, not rely on a default — that is what makes omission mean something. Round
-        trips cover this only implicitly (the build would raise), so assert the line
-        directly: a part with no features must still emit it."""
-        assert "sheet.auto_dimensions()" in _script_for(part)
+        """#874's emitter gate. A generated script must SAY where its dimensions come from,
+        not rely on a default — that is what makes omission mean something. Round trips cover
+        this only implicitly (the build would raise), so assert the line directly: a part with
+        no features must still emit one.
+
+        EITHER verb satisfies it. This asserted `auto_dimensions()` specifically until #938
+        made the script mirror the planner's set as `dimension(...)` lines, which is the
+        authored source — a different answer to the same question, not a missing one."""
+        src = _script_for(part)
+        assert "sheet.auto_dimensions()" in src or "sheet.authored_dimensions()" in src
 
     def test_an_authored_set_emits_its_declarations_through_the_facade(self):
         """The emitter used to write `sheet.auto_dimensions()` for ANY model, so a script
@@ -150,7 +155,11 @@ class TestEmit:
         # `measured_dimension` since #873: a generated script must not emit the
         # transitional overload, or every regenerated AP242 script arrives deprecated.
         assert "sheet.measured_dimension(" in src
-        assert "sheet.dimension(" not in src
+        # The transitional MEASURED overload (`dimension(kind=…, value=…)`), not the
+        # referential verb: a regenerated AP242 script must not arrive pre-deprecated (#873).
+        # Bare `sheet.dimension(` stopped meaning that when #938 made every script mirror the
+        # planner's set with referential `dimension(feature, role)` lines.
+        assert "sheet.dimension(kind=" not in src
         assert "sheet.pmi(" not in src
         assert "# authored_dimension" not in src
         assert "source='ap242_pmi'" in src
@@ -1407,19 +1416,19 @@ class TestEmittedFeaturesAreNamed:
         import ast
 
         src = self._src()
-        block = [
-            ln
-            for ln in src.splitlines()
-            if ln.startswith(("sheet.", "hole", "envelope", "pattern")) and "sheet." in ln
+        # The FEATURE block only. Since #938 the script also contains `dimension(...)` lines,
+        # which are statements that correctly bind nothing — they name features rather than
+        # declaring them. Slicing the block is what keeps this about feature declarations.
+        lines = src.splitlines()
+        start = next(i for i, ln in enumerate(lines) if ln.startswith("# ── Features"))
+        end = next(i for i, ln in enumerate(lines[start:], start) if ln.startswith("# ── Dim"))
+        declarations = [
+            ln.split("#")[0].rstrip()
+            for ln in lines[start:end]
+            if "sheet." in ln and not ln.lstrip().startswith("#")
         ]
-        declarations = [ln.split("#")[0].rstrip() for ln in block if "sheet.export" not in ln]
-        unbound = [
-            ln
-            for ln in declarations
-            if not isinstance(ast.parse(ln).body[0], ast.Assign)
-            and "auto_dimensions" not in ln
-            and "Sheet(" not in ln
-        ]
+        assert declarations, "the fixture must emit feature lines"
+        unbound = [ln for ln in declarations if not isinstance(ast.parse(ln).body[0], ast.Assign)]
         assert not unbound, f"emitted feature lines with no binding: {unbound}"
 
     def test_the_names_are_distinct_and_valid_identifiers(self):
@@ -1562,9 +1571,12 @@ class TestAuthoredSetRoundTrips:
         the auto path its explicit `auto_dimensions()` line."""
         from build123d import Box
 
+        # Since #938 a detected model MIRRORS the planner's set as `dimension(...)` lines
+        # rather than deferring to `auto_dimensions()`. The property this guards is unchanged
+        # — the script states its source explicitly — and the source is now the authored one.
         src = _script_for(Box(40, 20, 10))
-        assert "sheet.auto_dimensions()" in src
-        assert "sheet.dimension(" not in src
+        assert "sheet.authored_dimensions()" in src
+        assert "sheet.dimension(" in src
 
     def test_an_EMPTY_authored_set_round_trips(self):
         """`authored_dimensions=()` is a valid model: "the author chose no dimensions".
@@ -1628,3 +1640,136 @@ class TestAuthoredSetRoundTrips:
         model = dataclasses.replace(model, authored_dimensions=(RequestedDimension(rot, "od"),))
         with pytest.raises(ValueError, match="has no declarative verb"):
             emit_sheet_script(model, "part", "bracket", title="T", number="N")
+
+
+class TestTheDimensionMirror:
+    """A generated script declares the planner's dimensions as commentable lines (#938).
+
+    Before this the script said `sheet.auto_dimensions()`, so the editable-drawing promise —
+    comment a line out to drop it — held for FEATURES and not for DIMENSIONS. The only way to
+    drop one dimension was to comment out its whole feature, losing that feature's callout,
+    centre marks and location with it. #922 built the capability across three PRs; nothing
+    used it, because `--script` emits from `detect_part_model`, which never carries an
+    authored set.
+    """
+
+    @staticmethod
+    def _corpus():
+        from build123d import Align, Axis, Box, Cylinder, Pos
+
+        def flange():
+            part = Cylinder(21, 4)
+            for x in (-18, 18):
+                for y in (-18, 18):
+                    part += Pos(x, y, 2) * Box(10, 10, 4, align=(Align.CENTER,) * 3)
+            part = part + Pos(0, 0, 2) * Cylinder(15.5, 12) + Pos(0, 0, 10) * Cylinder(12.5, 12)
+            part -= Cylinder(8, 30)
+            for x in (-18, 18):
+                for y in (-18, 18):
+                    part -= Pos(x, y, 0) * Cylinder(2, 10)
+            return part.rotate(Axis.X, 90)
+
+        return {
+            "plate+hole": Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20),
+            "flange (no envelope feature)": flange(),
+            "stepped": Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20),
+            "slot": Box(80, 60, 12) - Pos(10, 0, 6) * Box(30, 8, 10),
+            "pocket": Box(80, 60, 20) - Pos(0, 0, 14) * Box(30, 20, 14),
+            "two holes": Box(80, 50, 8)
+            - Pos(-20, 0, 0) * Cylinder(4, 20)
+            - Pos(20, 10, 0) * Cylinder(3, 20),
+            "pad": Box(80, 60, 10) + Pos(0, 0, 10) * Box(30, 20, 4),
+            "bare block": Box(60, 40, 20),
+            "side-drilled": Box(80, 60, 20) - Pos(0, 0, 10) * Cylinder(3, 200).rotate(Axis.Y, 90),
+        }
+
+    @staticmethod
+    def _run(src, part):
+        ns: dict = {"part": part}
+        body = src.replace("\npart\n", "\n", 1)
+        exec(compile(body[: body.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        return ns
+
+    @pytest.mark.parametrize("name", sorted(_corpus()))
+    def test_the_mirrored_script_draws_what_the_automatic_drawing_draws(self, name):
+        """The acceptance, per fixture: annotation-set EQUALITY.
+
+        On drawn annotations, not emitted text — a text assertion passes on a script that
+        names the wrong feature, which is exactly what positional addressing produced before
+        #932. A corpus rather than one part, because single-fixture guards are how whole
+        paths stayed uncovered twice in this series (#925 had no holes, #934 had one ladder).
+        """
+        part = self._corpus()[name]
+        model = detect_part_model(part)
+        automatic = build_drawing(part, model=model, number="N")
+        src = emit_sheet_script(model, "part", "s", title="T", number="N")
+        regenerated = self._run(src, part)["sheet"].build()
+
+        def marks(dwg):
+            return {n for n, _ in dwg.iter_annotations()}
+
+        assert marks(regenerated) == marks(automatic), (
+            f"{name}: missing {sorted(marks(automatic) - marks(regenerated))}, "
+            f"extra {sorted(marks(regenerated) - marks(automatic))}"
+        )
+
+    def test_every_planner_dimension_gets_a_line(self):
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20)
+        src = emit_sheet_script(detect_part_model(part), "part", "s", title="T", number="N")
+        assert "sheet.auto_dimensions()" not in src
+        assert 'sheet.dimension(hole1, "bore.diameter")' in src
+        assert 'sheet.dimension(hole1, "location")' in src
+        assert 'sheet.dimension(envelope1, "width.length")' in src
+
+    def test_commenting_one_line_drops_exactly_that_dimension(self):
+        """The point of the whole change, executed rather than asserted about."""
+        from build123d import Box, Cylinder, Pos
+
+        part = Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20)
+        src = emit_sheet_script(detect_part_model(part), "part", "s", title="T", number="N")
+        full = {n for n, _ in self._run(src, part)["sheet"].build().iter_annotations()}
+
+        target = 'sheet.dimension(envelope1, "width.length")'
+        assert target in src
+        edited = src.replace(target, "# " + target)
+        reduced = {n for n, _ in self._run(edited, part)["sheet"].build().iter_annotations()}
+        assert full - reduced == {"m_env_width"}, (
+            f"commenting one line changed {sorted(full - reduced)} — it must drop exactly one"
+        )
+
+    def test_a_correlated_set_emits_ONE_line(self):
+        """A `step_height` ladder is one `AddressableDimension` holding N rungs, so there is
+        one line and no member line to mislead (ADR 0016 identity tier 3)."""
+        from build123d import Box, Pos
+
+        part = Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20)
+        src = emit_sheet_script(detect_part_model(part), "part", "s", title="T", number="N")
+        assert src.count("step_height") == 1
+
+    def test_a_model_with_an_unnameable_feature_keeps_the_planner_source(self):
+        """A feature with no declarative verb emits a COMMENT, so it binds no name and its
+        dimensions cannot be mirrored. Falling back to `auto_dimensions()` and saying why
+        beats emitting a set that claims a completeness it does not have."""
+        from build123d import Cylinder
+
+        part = Cylinder(40, 8) - Cylinder(8, 20)
+        model = detect_part_model(part)
+        assert any(f.kind == "rotational" for f in model.features), "fixture must hit the gap"
+        src = emit_sheet_script(model, "part", "s", title="T", number="N")
+        assert "sheet.auto_dimensions()" in src
+        assert "no\n# declarative verb" in src or "declarative verb" in src
+
+    def test_the_synthesised_envelope_names_only_its_height(self):
+        """A part with no `EnvelopeFeature` gets one declared, because an authored set must
+        be able to name every measurement in it and `_compile_overall_height` refuses the
+        bounding-box fallback under one (#925). Naming only `height` keeps the drawing
+        identical — width and depth stay omitted exactly as the planner left them."""
+        part = self._corpus()["flange (no envelope feature)"]
+        model = detect_part_model(part)
+        assert not any(f.kind == "envelope" for f in model.features)
+        src = emit_sheet_script(model, "part", "s", title="T", number="N")
+        assert 'sheet.dimension(envelope1, "height.length")' in src
+        assert 'sheet.dimension(envelope1, "width.length")' not in src
+        assert 'sheet.dimension(envelope1, "depth.length")' not in src
