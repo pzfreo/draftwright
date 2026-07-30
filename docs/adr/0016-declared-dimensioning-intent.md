@@ -131,6 +131,12 @@ Two paths outside `render_*` also print values, and both are now compiled:
 - **Slot positions** measure from the bounding box rather than from `datum_xy`, so they are
   compiled by `_compile_slot_positions` rather than by `plan_locations`, and gated by the
   same `location_role` table.
+- **Side-drilled hole positions** likewise: an X/Y-drilled bore's in-plane offset and its
+  height are measured from the bounding box in its end-on view, so
+  `_compile_off_axis_hole_locations` owns them. Two approved entries per member, not one —
+  `dim_loc_side_y3500` and `dim_loc_front_z1200` are separate dimensions on the page, and a
+  single "this hole is located" approval would leave the renderer deciding which of the two
+  it covered.
 
 **Hole callouts (`hc_`) remain on the legacy surface.** They honour `suppressed` at every
 term (`model/callout.py` checks it for each segment, head and dependent), so this is a
@@ -148,6 +154,15 @@ every location was drawn regardless of what the script declared.
 `planner._LOCATION_ROLE` is now the single statement of which kinds have a position;
 `location_role()` derives both `plan_locations` and the authored vocabulary from it, and
 `compile_dimensions().locations` is the approved set every location renderer reads.
+
+**A position is compiled wherever it is measured from.** `plan_locations` owns the Z-normal
+ladder, which measures from `datum_xy`; the compiler owns the two that measure from the
+BOUNDING BOX in a feature's own view — a slot's near-end offset and a side-drilled hole's
+offset + height. Splitting by datum rather than by feature kind is what keeps
+`_LOCATION_ROLE` a single answer: a hole is locatable, full stop, and where its span comes
+from is a separate question. Before #925 those three disagreed — the table said locatable,
+`plan_locations` said Z-normal only, and `_locate_off_axis_holes` drew the X/Y ones from raw
+IR anyway.
 
 The authored role is the coarse `"location"` — one unit per feature. #883 asks whether a
 patterned hole's position is one addressable thing or one per member, which is a question

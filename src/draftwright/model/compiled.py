@@ -56,6 +56,7 @@ from draftwright._geometry import _fmt
 from draftwright.model.ir import (
     EnvelopeFeature,
     Feature,
+    HoleFeature,
     PartModel,
     Point,
     RotationalFeature,
@@ -688,6 +689,66 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
     return approved, omissions
 
 
+def _compile_off_axis_hole_locations(
+    model: PartModel,
+) -> tuple[list[ApprovedDimension], list[Omission]]:
+    """A side-drilled hole's positions — its in-plane offset and its height.
+
+    `plan_locations` handles the Z-normal ladder, which measures from `datum_xy`. These
+    measure from the BOUNDING BOX in the hole's end-on view, so they are compiled here for
+    the same reason a slot's position is: same authored decision, different datum.
+
+    The gap this closes: `location_role` said a hole is locatable, `plan_locations` said
+    only a Z-normal one is, and `_locate_off_axis_holes` drew the X/Y ones anyway from the
+    raw IR. Three statements of one fact, so an authored set naming only a side-drilled
+    bore's ⌀ still produced its 35 mm offset and 12 mm height (#925 review).
+
+    **Two entries per member, not one.** `dim_loc_side_y3500` and `dim_loc_front_z1200` are
+    separate dimensions on the page; collapsing them into a single "this hole is located"
+    approval would leave the renderer deciding which of the two an approval covered, which
+    is the content decision this boundary exists to remove. `discriminator` is the MEASURED
+    axis and `axis` is the hole's own — the renderer needs both, and neither is derivable
+    from the other.
+    """
+    approved: list[ApprovedDimension] = []
+    omissions: list[Omission] = []
+    bb: Any = model.bbox
+    for f in model.features:
+        if not isinstance(f, HoleFeature) or f.frame.axis not in ("x", "y"):
+            continue
+        # An X-drilled hole is located across Y; a Y-drilled one across X. Both carry a
+        # height. (Pattern members are their own `PatternFeature`, so patterned holes are
+        # excluded by construction — as `_ir_off_axis_holes` documents.)
+        measured = ("y" if f.frame.axis == "x" else "x", "z")
+        omitted = authored_location_omitted(model, f)
+        for member in f.members or (f.frame.origin,):
+            for meas in measured:
+                index = "xyz".index(meas)
+                datum = float(getattr(bb.min, meas.upper()))
+                value = abs(member[index] - datum)
+                if omitted:
+                    omissions.append(
+                        Omission(f, f"location_off_axis.{meas}", value, _AUTHORED_OMISSION)
+                    )
+                    continue
+                start = list(member)
+                start[index] = datum
+                approved.append(
+                    ApprovedDimension(
+                        id=_dim_id(f, f"location_off_axis.{meas}"),
+                        value_text=_fmt(value),
+                        value=value,
+                        span=((start[0], start[1], start[2]), member),
+                        ref=FeatureRef(f),
+                        kind="length",
+                        role="location_off_axis",
+                        discriminator=meas,
+                        axis=f.frame.axis,
+                    )
+                )
+    return approved, omissions
+
+
 def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], list[Omission]]:
     """A slot's datum→near-end position, along its long axis.
 
@@ -820,6 +881,9 @@ def compile_dimensions(
     slot_positions, slot_omissions = _compile_slot_positions(model)
     locations.extend(slot_positions)
     location_omissions.extend(slot_omissions)
+    off_axis, off_axis_omissions = _compile_off_axis_hole_locations(model)
+    locations.extend(off_axis)
+    location_omissions.extend(off_axis_omissions)
     groups_out, group_omissions = _compile_groups(planned)
     return RenderableDimensionPlan(
         groups=tuple(groups_out),

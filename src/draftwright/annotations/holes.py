@@ -535,27 +535,43 @@ def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None):
 
 
 class _OffHole(NamedTuple):
-    """One side-drilled hole occurrence for the off-axis location pass — the IR fields
-    it reads (the axis letter + the member location), so no ``HoleRecord`` is needed
-    (ADR 0008; #584 WP1 B3)."""
+    """One side-drilled hole occurrence for the off-axis location pass.
+
+    *approved* maps the MEASURED axis (``"x"``/``"y"``/``"z"``) to the compiled entry for
+    that dimension, and is the pass's whole content contract: a member with no entry for an
+    axis has no dimension on it, and the value printed is the entry's, not one the renderer
+    recomputes from `a.bb`. Two formulas for one number is the drift #923 removed
+    everywhere else.
+    """
 
     axis: str
     location: tuple
+    approved: dict
 
 
-def _ir_off_axis_holes(model) -> list[_OffHole]:
-    """Every loose x/y-axis (side-drilled) hole member in the IR, as :class:`_OffHole`.
+def _approved_off_axis_holes(plan) -> list[_OffHole]:
+    """Every side-drilled hole member the compiler approved a position for.
 
-    Pattern members are separate ``PatternFeature``s (skipped), so patterned holes are
-    excluded by construction — matching the old ``h not in patterned`` filter without a
-    ``HoleRecord`` (ADR 0008; #584 WP1 B3). The turning-axis concentric filter is applied
-    by the caller that needs it."""
-    return [
-        _OffHole(f.frame.axis, pos)
-        for f in (model.features if model is not None else ())
-        if f.kind == "hole" and f.frame.axis in ("x", "y")
-        for pos in (f.members or (f.frame.origin,))
-    ]
+    Replaces `_ir_off_axis_holes`, which walked `model.features` directly. That was the
+    last dimensional path outside the boundary: `location_role` said a hole is locatable,
+    `plan_locations` said only a Z-normal one is, and this pass drew the X/Y ones from raw
+    IR regardless — so an authored set naming only a side-drilled bore's ⌀ still produced
+    its offset and height dims (#925 review).
+
+    A filter over approved entries, deliberately, rather than an authored check added here:
+    a renderer-side check is the suppression convention this work exists to replace.
+    """
+    by_member: dict[tuple, _OffHole] = {}
+    for entry in plan.locations:
+        if entry.role != "location_off_axis":
+            continue
+        assert entry.span is not None  # off-axis entries always carry datum → member
+        member = entry.span[1]
+        hole = by_member.get(member)
+        if hole is None:
+            hole = by_member[member] = _OffHole(entry.axis, member, {})
+        hole.approved[entry.discriminator] = entry
+    return list(by_member.values())
 
 
 def _off_axis_drop(dwg, axis, view, *, ctx):
@@ -670,7 +686,11 @@ def _locate_across(dwg, ctx, a: Analysis, off):
     order_y: dict = {}
     loc_by_name: dict = {}  # dim name -> contributing hole locations (for provenance)
     for h in (h for h in off if h.axis == "x"):
-        yo = round(abs(h.location[1] - dy), 2)
+        # The VALUE is the approved entry's; `dy` survives only as the witness anchor.
+        entry = h.approved.get("y")
+        if entry is None:
+            continue  # not approved — the compiler withheld this position
+        yo = round(entry.value, 2)
         if yo * a.SCALE < 1.0:
             continue
         name = f"dim_loc_side_y{round(yo * 100)}"
@@ -717,7 +737,10 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
     order_x: dict = {}
     x_loc_by_name: dict = {}
     for h in (h for h in off if h.axis == "y"):
-        xo = round(abs(h.location[0] - dx), 2)
+        entry = h.approved.get("x")
+        if entry is None:
+            continue  # not approved
+        xo = round(entry.value, 2)
         if xo * a.SCALE < 1.0:
             continue
         name = f"dim_loc_front_x{round(xo * 100)}"
@@ -764,12 +787,15 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
     zr, zrf = SX(a.bb.max.Y), FX(a.bb.max.X)
     z_locs: dict = {}  # z-offset -> contributing hole locations (for provenance)
     for h in off:
-        zo = round(abs(h.location[2] - dz), 2)
-        if zo * a.SCALE >= 1.0:
-            z_locs.setdefault(zo, []).append(h.location)
+        entry = h.approved.get("z")
+        if entry is not None and round(entry.value, 2) * a.SCALE >= 1.0:
+            z_locs.setdefault(round(entry.value, 2), []).append(h.location)
     seen_z = set()
     for h in off:
-        zo = round(abs(h.location[2] - dz), 2)
+        entry = h.approved.get("z")
+        if entry is None:
+            continue  # not approved
+        zo = round(entry.value, 2)
         if zo * a.SCALE < 1.0 or zo in seen_z:
             continue
         seen_z.add(zo)
@@ -846,7 +872,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
         )
 
 
-def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which):
+def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which, plan):
     """Location dimensions for side-drilled holes (#133).
 
     An X-axis hole is a circle in the SIDE view (locate its Y below the view and
@@ -864,7 +890,6 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which):
     ``across`` phase is `_locate_across`; the ``along`` phase is `_locate_along_planar`
     (a Y-hole's X) then `_locate_along_z` (every hole's height), split out at #638.
     """
-    model = ctx.part_model
 
     def _coaxial(h):
         # The turning-axis bore of a rotational part is located by its centreline, not
@@ -891,9 +916,10 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which):
             if ax != turning_axis
         )
 
-    # Off-axis holes sourced from the IR (ADR 0008 Am6; #584 WP1 B3) — the turning-axis
-    # concentric bore excluded (located by its centreline, not a position dim).
-    off = [h for h in _ir_off_axis_holes(model) if not _coaxial(h)]
+    # Off-axis holes sourced from the COMPILED PLAN — the turning-axis concentric bore
+    # excluded (located by its centreline, not a position dim). That exclusion stays here
+    # because it only ever REMOVES an approved entry, which is a drop, not a leak.
+    off = [h for h in _approved_off_axis_holes(plan) if not _coaxial(h)]
     if not off:
         return
     if which == "across":
@@ -2169,10 +2195,15 @@ def _place_planside_callouts(
     #    its callout crossed by the centre mark / centreline (#305). Near-centre callouts only.
     clr = draft.font_size + 3 * draft.pad_around_text  # clearance off a crossing line
     off_axis_letter = {"side": "x", "front": "y"}.get(view)
+    # Sourced from the plan, like the pass that draws them. Reserving from raw IR was a
+    # deliberate over-reservation ("still valid, never under"), and on an auto build the two
+    # agree exactly — every off-axis hole is approved. They diverge only under an authored
+    # set, where reserving rows for dims that will not be drawn would deny a callout space
+    # for no reason.
     reserved_rows = (
         [
             to_page(h.location)[1]
-            for h in _ir_off_axis_holes(ctx.part_model)
+            for h in _approved_off_axis_holes(plan)
             if h.axis == off_axis_letter
         ]
         if off_axis_letter

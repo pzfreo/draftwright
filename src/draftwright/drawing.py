@@ -1883,19 +1883,21 @@ class Drawing:
 
         def _s_off_axis_across():
             # Side-drilled holes' in-plane (side-below) locations — REGISTER-only, whole-model
-            # (_locate_off_axis_holes reads the IR's X/Y holes, no only= subset); they place at
-            # the shared drain. Whole-model like the auto pass: commenting SOME dwg.locate lines
+            # (_locate_off_axis_holes takes the compiled plan's approved off-axis positions,
+            # no only= subset); they place at the shared drain. Whole-model like the auto pass: commenting SOME dwg.locate lines
             # still redraws every side-drilled location; commenting them ALL empties the bucket.
             if r.off_axis_loc_ids:
                 assert a is not None
-                _locate_off_axis_holes(self, ctx, a, which="across")
+                _locate_off_axis_holes(
+                    self, ctx, a, which="across", plan=compile_dimensions(model)
+                )
 
         def _s_off_axis_along():
             # Side-drilled (X/Y-axis) hole HEIGHT locations — register-only, placed at the drain
             # (mirrors the auto pass's off_axis_along stage; after the envelope candidates).
             if r.off_axis_loc_ids:
                 assert a is not None
-                _locate_off_axis_holes(self, ctx, a, which="along")
+                _locate_off_axis_holes(self, ctx, a, which="along", plan=compile_dimensions(model))
 
         def _s_height_ladder():
             # Prismatic step-height ladder through the auto-pass renderer. (#636) This

@@ -29,7 +29,7 @@ import pickle
 from dataclasses import replace
 
 import pytest
-from build123d import Box, Cylinder, Pos
+from build123d import Box, Cylinder, Pos, Rot
 
 from draftwright import Sheet
 from draftwright.annotations.from_model import render_height_ladder
@@ -83,6 +83,22 @@ def _crowded_staircase():
         part = part + Pos(0, 0, z + 1.5) * Box(w, 12, 3)
         z += 3
     return part
+
+
+def _side_drilled():
+    """A block with X- and Y-drilled bores and a Z one, so the empty-plan guard actually
+    walks the off-axis location pass.
+
+    `_staircase()` has no holes at all, which is why the guard passed for a whole review
+    round while `_locate_off_axis_holes` rebuilt every side-drilled position from raw IR
+    (#925 review). A behavioural guard only covers the paths its fixture reaches.
+    """
+    return (
+        Box(100, 60, 20)
+        - Pos(0, 5, 2) * Rot(0, 90, 0) * Cylinder(2, 200)
+        - Pos(10, 0, 8) * Rot(90, 0, 0) * Cylinder(2, 200)
+        - Pos(-30, -15, 0) * Cylinder(3, 60)
+    )
 
 
 def _uniform_staircase():
@@ -436,6 +452,37 @@ class TestAPositionIsADimension:
             "the surviving feature's position was deduped away against an OMITTED sibling"
         )
 
+    @pytest.mark.parametrize("axis", ["x", "y"])
+    def test_a_side_drilled_holes_positions_obey_the_authored_set(self, axis):
+        """Off-axis positions were the last dimensional path outside the boundary.
+
+        Three statements of one fact disagreed: `location_role` said a hole is locatable,
+        `plan_locations` said only a Z-normal one is, and `_locate_off_axis_holes` drew the
+        X/Y ones from raw IR regardless — so an authored set naming only a side-drilled
+        bore's ⌀ still produced its offset and height dims, with no diagnostic, because they
+        were successfully PLACED dimensions that simply sat outside the plan (#925 review).
+        """
+        from draftwright.model.ir import Frame, HoleFeature, RequestedDimension
+
+        hole = HoleFeature(Frame((10, 5, 2), axis), 4.0, depth=None, through=True)
+
+        def drawn(roles):
+            return {
+                n
+                for n, _ in build_drawing(
+                    Box(100, 60, 20),
+                    model=[hole],
+                    authored=tuple(RequestedDimension(hole, r) for r in roles),
+                ).iter_annotations()
+                if n.startswith("dim_loc_")
+            }
+
+        assert not drawn(["bore.diameter"]), "the author named the ⌀ only"
+        # Both halves: omission is only meaningful if naming it still works. A side-drilled
+        # hole carries TWO positions (its in-plane offset and its height), and the coarse
+        # `location` role approves both.
+        assert len(drawn(["bore.diameter", "location"])) == 2
+
     def test_a_pattern_pitch_obeys_the_authored_set_both_ways(self):
         """`4× 20` is a value, so it is dimensional however the code groups it.
 
@@ -624,6 +671,37 @@ class TestLiveAndDeferredEditsAgree:
 
 
 class TestTheBoundaryIsLoadBearing:
+    @pytest.mark.parametrize(
+        "make_part", [_staircase, _side_drilled], ids=["staircase", "side-drilled"]
+    )
+    def test_an_empty_plan_draws_nothing_dimensional_in_a_REAL_build(self, monkeypatch, make_part):
+        """The behavioural statement, over a fixture set that reaches every pass.
+
+        Parametrised because a single fixture is how a whole dimensional path stayed
+        outside the boundary unnoticed: `_staircase()` has no holes, so it never entered
+        `_locate_off_axis_holes`, which was rebuilding side-drilled positions from raw IR
+        (#925 review). The guard is only as wide as what its parts exercise.
+        """
+        part = make_part()
+        before = {n for n, _ in Sheet.from_part(part).build().iter_annotations()}
+        assert [n for n in before if not n.startswith(_VALUE_FREE)], (
+            "the fixture must draw something dimensional to be worth emptying"
+        )
+
+        monkeypatch.setattr(
+            "draftwright.annotations.orchestrator.compile_dimensions",
+            lambda *a, **kw: RenderableDimensionPlan(),
+        )
+        empty = {n for n, _ in Sheet.from_part(part).build().iter_annotations()}
+        leaked = sorted(
+            n for n in empty if not n.startswith(_VALUE_FREE + _PENDING_VALUE_CARRYING)
+        )
+        assert not leaked, (
+            f"{leaked} reached the page from an EMPTY compiled plan — something is "
+            "rebuilding dimensions from somewhere other than the plan, and it is not on "
+            "the pending list"
+        )
+
     def test_an_empty_plan_draws_no_ladder_in_a_REAL_build(self, monkeypatch):
         """The behavioural statement, and it has to render to mean anything.
 

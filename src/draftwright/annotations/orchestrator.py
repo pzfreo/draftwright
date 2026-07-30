@@ -453,7 +453,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # later subchain + mandatory priority keeps ISO outermost stacking and prevents
         # best-effort locations from starving the principal depth dimension (#477).
         if feature_keys:
-            _locate_off_axis_holes(dwg, ctx, a, which="across")
+            _locate_off_axis_holes(dwg, ctx, a, which="across", plan=_compiled)
 
     def _s_envelope():
         # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
@@ -500,7 +500,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # survives inside its candidates' build closures since #636; nothing here
         # places immediately.)
         if feature_keys:
-            _locate_off_axis_holes(dwg, ctx, a, which="along")
+            _locate_off_axis_holes(dwg, ctx, a, which="along", plan=_compiled)
 
     def _s_slots():
         # Non-cylindrical machined features: slots / reduced across-flats sections
