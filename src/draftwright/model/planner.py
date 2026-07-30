@@ -349,6 +349,7 @@ _LOCATION_ROLE: dict[type, str] = {
     SlotFeature: "location_slot",
 }
 
+
 #: Which DATUM each kind's position is measured from, per orientation — and therefore
 #: whether it has one at all.
 #:
@@ -382,6 +383,7 @@ def location_datum(feature) -> str | None:
         return "datum_xy" if feature.frame.axis == "z" else "bbox"
     # Patterns and pads: the plan-X / side-Y ladder only, so Z-normal only.
     return "datum_xy" if feature.frame.axis == "z" else None
+
 
 #: The role every authored entry uses to name a location, whatever the per-kind role above.
 #:

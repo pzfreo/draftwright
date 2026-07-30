@@ -714,8 +714,10 @@ def _locate_across(dwg, ctx, a: Analysis, off):
             cands.append(
                 (
                     name,
-                    lambda pos, pl=p_lo, ph=p_hi, lb=yo: _dim(
-                        pl, ph, "below", yw - pos, draft, label=_fmt(lb)
+                    # The label is the approved entry's text; `yo` survives only as the
+                    # name key and the spacing order.
+                    lambda pos, pl=p_lo, ph=p_hi, lb=entry.value_text: _dim(
+                        pl, ph, "below", yw - pos, draft, label=lb
                     ),
                 )
             )
@@ -764,8 +766,8 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
             x_cands.append(
                 (
                     name,
-                    lambda pos, pl=p_lo, ph=p_hi, lb=xo: _dim(
-                        pl, ph, "below", xw - pos, draft, label=_fmt(lb)
+                    lambda pos, pl=p_lo, ph=p_hi, lb=entry.value_text: _dim(
+                        pl, ph, "below", xw - pos, draft, label=lb
                     ),
                 )
             )
@@ -814,11 +816,11 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
         hz = h.location[2]
         owner = _off_axis_owner(ctx, z_locs[zo])
 
-        def _zc(view, p_lo, p_hi, edge, _zo=zo):
+        def _zc(view, p_lo, p_hi, edge, _zo=zo, _lbl=entry.value_text):
             return (
                 f"dim_loc_{view}_z{round(_zo * 100)}",
                 lambda pos, pl=p_lo, ph=p_hi, e=edge: _dim(
-                    pl, ph, "right", pos - e, draft, label=_fmt(_zo)
+                    pl, ph, "right", pos - e, draft, label=_lbl
                 ),
             )
 

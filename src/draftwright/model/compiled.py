@@ -58,6 +58,7 @@ from draftwright.model.ir import (
     Feature,
     HoleFeature,
     PartModel,
+    PocketFeature,
     Point,
     RotationalFeature,
     SlotFeature,
@@ -675,16 +676,52 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                 Omission(feature, pd.param.parameter_id, None, pd.reason or "suppressed")
             )
             continue
+        axis = feature.frame.axis if feature is not None else None
+        if isinstance(feature, PocketFeature) and axis != "z":
+            # A non-Z pocket's two in-plane coordinates are drawn as TWO dims in its end-on
+            # view (`render_slots`), so they are approved as two entries carrying their own
+            # values — the same shape `_compile_off_axis_hole_locations` uses.
+            #
+            # One entry with `value_text=""` made the renderer subtract the span's endpoints
+            # itself to get each axis's number, which is the compiler's job done twice; the
+            # site that consumed it would have printed an empty label the moment it read
+            # `value_text` (#925). The Z-normal ladder below is the remaining exception and
+            # is listed as such.
+            for meas in (feature.long_axis, feature.width_axis):
+                index = "xyz".index(meas)
+                value = abs(span[1][index] - span[0][index])
+                start = list(span[1])
+                start[index] = span[0][index]
+                approved.append(
+                    ApprovedDimension(
+                        id=_dim_id(feature, f"{pd.param.role}.{meas}"),
+                        value_text=_fmt(value),
+                        value=value,
+                        span=((start[0], start[1], start[2]), span[1]),
+                        ref=FeatureRef(feature),
+                        kind="location",
+                        role=pd.param.role,
+                        discriminator=meas,
+                        axis=axis,
+                    )
+                )
+            continue
         approved.append(
             ApprovedDimension(
                 id=_dim_id(feature, pd.param.parameter_id),
-                value_text="",  # a location is a 2-D offset; each axis reads its own span
+                #: The Z-normal ladder is the one location entry with no per-axis value:
+                #: `render_locations` groups refs ACROSS features and dedups per axis before
+                #: it knows which dims exist, so an entry per axis would be approving a mark
+                #: whose existence the renderer decides. Splitting it needs that grouping to
+                #: move into the compiler — tracked as follow-up work, and listed in the
+                #: label-provenance ratchet so it cannot be forgotten.
+                value_text="",
                 value=0.0,
                 span=span,
                 ref=FeatureRef(feature) if feature is not None else None,
                 kind="location",
                 role=pd.param.role,
-                axis=feature.frame.axis if feature is not None else None,
+                axis=axis,
             )
         )
     return approved, omissions

@@ -138,6 +138,15 @@ Two paths outside `render_*` also print values, and both are now compiled:
   single "this hole is located" approval would leave the renderer deciding which of the two
   it covered.
 
+**Two ratchets, on the symptom and on the cause.** `test_compiled_plan_boundary.py` checks
+behaviour — an empty plan draws nothing — and `test_label_provenance.py` checks the cause:
+a renderer that calls `_fmt(x)` is turning a number into printed text, which means the
+number reached it as a number rather than as the compiler's `value_text`. Every defect of
+this class looked exactly like that. A behavioural guard only covers the paths its fixtures
+reach (`_staircase()` has no holes, which is how two dimensional paths stayed outside the
+boundary unnoticed); the source ratchet covers every path whether a fixture walks it or not.
+It is shrink-only, and each survivor carries a written reason.
+
 **Hole callouts (`hc_`) remain on the legacy surface.** They honour `suppressed` at every
 term (`model/callout.py` checks it for each segment, head and dependent), so this is a
 structural gap rather than a behavioural one — but "the renderer checks" is exactly the

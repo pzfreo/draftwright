@@ -185,7 +185,13 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     # Pocket location geometry is rendered in this in-plane pass, but its content
     # remains compiler-authoritative (ADR 0015/0016): datum and target come from the same
     # approved location consumed by render_locations, including non-Z openings.
-    pocket_locations = {loc.ref: loc for loc in plan.locations if loc.role == "location_pocket"}
+    # Keyed by (feature, MEASURED axis): a non-Z pocket is approved one entry per in-plane
+    # coordinate, so keying by feature alone would keep whichever came last.
+    pocket_locations = {
+        (loc.ref, loc.discriminator): loc
+        for loc in plan.locations
+        if loc.role == "location_pocket" and loc.discriminator is not None
+    }
     # A slot's own position dim — datum→near-end along its long axis. Compiled, not
     # computed from `a.bb`: it prints a number, so an authored set that does not name the
     # slot's location must not get one (#925).
@@ -219,7 +225,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
             p_hi,
             perp_lo,
             perp_hi,
-            value,
+            approved,
             kind,
             anchor="center",
             sfx="",
@@ -230,9 +236,10 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
             vp=v_proj,
             idx=i,
         ):
-            # The rendered label: the PLANNED value + its pre-formatted tolerance suffix
-            # (#730 — planner-authoritative; sfx="" keeps untolerated labels byte-identical).
-            lbl = _fmt(value) + sfx
+            # The rendered label is the APPROVED entry's own text plus its pre-formatted
+            # tolerance suffix (#730 planner-authoritative, #925 compiler-formatted): the
+            # renderer never turns a number into printed text of its own.
+            lbl = approved.value_text + sfx
             # Raw (pre-snap) endpoints — the dedup key must share a basis with the
             # hole-location key (which uses the raw ref), else the ~0.05 mm snap gap can
             # push a coincident span into an adjacent 0.1 mm page bin and the #345
@@ -240,7 +247,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
             raw_lo, raw_hi = p_lo, p_hi
             # Snap the geometric span to the displayed (1-dp) value so drawn length
             # matches the label (else label-vs-measured lint trips).
-            disp = float(_fmt(value))
+            disp = float(approved.value_text)
             sgn = 1.0 if p_hi >= p_lo else -1.0
             if anchor == "center":
                 mid = (p_lo + p_hi) / 2
@@ -414,7 +421,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 s.w_center + half,
                 s.lo,
                 s.hi,
-                wpd.value,
+                wpd,
                 "width",
                 sfx=_tol_suffix(wpd.tolerance, draft),
             ):
@@ -428,7 +435,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 s.hi,
                 s.w_center - half,
                 s.w_center + half,
-                lpd.value,
+                lpd,
                 "length",
                 sfx=_tol_suffix(lpd.tolerance, draft),
             ):
@@ -446,50 +453,31 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 pos.span[1][axis_i],
                 s.w_center - half,
                 s.w_center + half,
-                pos.value,
+                pos,
                 "pos",
                 anchor="lo",
             ):
                 count += 1
             else:
                 _record_slot_drop(ctx, dwg, "position", i, name, s)
-        elif s.kind == "pocket" and s.frame.axis != "z" and FeatureRef(s) in pocket_locations:
+        elif s.kind == "pocket" and s.frame.axis != "z":
             # Side-/front-opening pockets need two in-plane coordinates in their
-            # end-on view.  The compiler supplies the datum→centre span; Z-opening
-            # pockets use render_locations' X(plan)/Y(side) ladder.
-            datum_point, target_point = pocket_locations[FeatureRef(s)].span
-            axis_index = {axis: i for i, axis in enumerate("xyz")}
+            # end-on view.  The compiler approves one entry PER coordinate, each with its
+            # own value and span; Z-opening pockets use render_locations' X(plan)/Y(side)
+            # ladder instead.
             width_lo, width_hi = s.w_center - half, s.w_center + half
-            for axis, start, end, perp_lo, perp_hi, kind in (
-                (
-                    s.long_axis,
-                    datum_point[axis_index[s.long_axis]],
-                    target_point[axis_index[s.long_axis]],
-                    width_lo,
-                    width_hi,
-                    "pos_long",
-                ),
-                (
-                    s.width_axis,
-                    datum_point[axis_index[s.width_axis]],
-                    target_point[axis_index[s.width_axis]],
-                    s.lo,
-                    s.hi,
-                    "pos_width",
-                ),
+            for axis, perp_lo, perp_hi, kind in (
+                (s.long_axis, width_lo, width_hi, "pos_long"),
+                (s.width_axis, s.lo, s.hi, "pos_width"),
             ):
+                entry = pocket_locations.get((FeatureRef(s), axis))
+                if entry is None:
+                    continue  # not approved
+                index = "xyz".index(axis)
+                start, end = entry.span[0][index], entry.span[1][index]
                 if abs(end - start) * a.SCALE < 1.0:
                     continue
-                if _place(
-                    axis,
-                    start,
-                    end,
-                    perp_lo,
-                    perp_hi,
-                    end - start,
-                    kind,
-                    anchor="lo",
-                ):
+                if _place(axis, start, end, perp_lo, perp_hi, entry, kind, anchor="lo"):
                     count += 1
                 else:
                     _record_slot_drop(ctx, dwg, "position", i, name, s)
@@ -2006,7 +1994,7 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
         p1 = dwg.at(view, *pd.span[0])
         p2 = dwg.at(view, *pd.span[1])
         edge = max(p1[0], p2[0]) if side == "right" else max(p1[1], p2[1])
-        label = _fmt(pd.value) + _tol_suffix(pd.tolerance, dwg.draft)
+        label = pd.value_text + _tol_suffix(pd.tolerance, dwg.draft)
         name = f"m_bossheight_{b.frame.axis}{bi}"
 
         def build(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
@@ -2272,16 +2260,16 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             "plan",
             _SLOT_DIM_WIDTH,
             abs(x1 - x0),
-            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.value: _dim(
+            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.value_text: _dim(
                 (_p1[0], _w, 0),
                 (_p2[0], _w, 0),
                 "below",
                 _w - pos,
                 dwg.draft,
-                label=_fmt(_v),
+                label=_v,
             ),
-            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.value: dim_footprint(
-                (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _fmt(_v)
+            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.value_text: dim_footprint(
+                (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v
             ),
         )
         n += 1
@@ -2296,16 +2284,16 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             "side",
             _SLOT_DIM_DEPTH,
             abs(y1 - y0),
-            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.value: _dim(
+            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.value_text: _dim(
                 (_p1[0], _w, 0),
                 (_p2[0], _w, 0),
                 "below",
                 _w - pos,
                 dwg.draft,
-                label=_fmt(_v),
+                label=_v,
             ),
-            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.value: dim_footprint(
-                (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _fmt(_v)
+            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.value_text: dim_footprint(
+                (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v
             ),
         )
         n += 1
