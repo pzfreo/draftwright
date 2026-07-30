@@ -1054,6 +1054,21 @@ def _feature_listing(a: Analysis) -> str:
         for p in feat.parameters():
             if p.span is not None or kind in ("slot", "pad"):
                 body.append(f'dwg.dimension(f, "{p.kind}", role="{p.role}")   # {display(p)}')
+    # The overall height, when it comes from the compiler's BOUNDING-BOX fallback rather
+    # than from an `EnvelopeFeature`. An enveloped model already emitted
+    # `dimension(f, "length", role="height")` in the loop above; a model without one has no
+    # feature to name, so the replay simply lost the dimension — silently and lint-clean
+    # (#889). `overall_height()` is the verb for exactly that case.
+    if not any(f.kind == "envelope" for f in feats):
+        from draftwright.model.compiled import compile_dimensions
+
+        if compile_dimensions(model).ladder("overall_height") is not None:
+            body += [
+                "",
+                "# Overall height (from the bounding box — this part declares no envelope",
+                "# feature, so there is none to hang a dimension(...) intent on).",
+                "dwg.overall_height()",
+            ]
     if plan_sections(model, feature_hole_keys(model, a)) is not None:
         body += [
             "",

@@ -9045,6 +9045,77 @@ class TestTurnedDiameters:
                 dwg.remove(name)
         assert "axial_length_missing" in {issue.code for issue in dwg.lint()}
 
+    def test_the_overall_height_intent_is_commentable_not_injected(self):
+        """The half that the first fix got wrong, and the reason there is a verb at all.
+
+        Making the drain draw the overall height whenever the compiler approved one restored
+        #889's parity — and broke record-then-finalize == place-live, because `auto_dims=False`
+        means the recorded verbs ARE the drawing and an automatic dimension nobody asked for
+        appeared in the deferred result. `test_finalize_replay_equals_live_placement` caught it.
+
+        So it is an INTENT: absent unless recorded, which also makes it commentable, which is
+        the property the whole intent-level script rests on (ADR 0016, "the script records
+        intent").
+        """
+        part = Box(80, 60, 12) - Pos(20, 10, 0) * Cylinder(4, 40)
+
+        silent = build_drawing(part, auto_dims=False)
+        assert "dim_height" not in silent.annotations(), "not recorded ⇒ not drawn"
+
+        live = build_drawing(part, auto_dims=False)
+        assert live.overall_height() == ["dim_height"]
+
+        deferred = build_drawing(part, auto_dims=False)
+        with deferred.deferred():
+            deferred.overall_height()
+        assert deferred.annotations() == live.annotations(), "record-then-finalize == live"
+
+    def test_overall_height_round_trips_through_generated_script(self, tmp_path):
+        """#889: the replay dropped the automatic overall height, silently and lint-clean.
+
+        Two different things share `render_height_ladder`, and the drain gated BOTH on the
+        step-ladder intent. The step-height LADDER is a `step_level` feature's correlated
+        rungs, so one recorded intent meaning "rebuild the whole chain" is right. The OVERALL
+        HEIGHT is envelope furniture — and on a part with no `EnvelopeFeature` it comes from
+        the compiler's bounding-box fallback, so there is NO feature for a script to record an
+        intent against. It could never be replayed, only lost.
+
+        The Y-axis stepped flange is the case that exposes it: `step` features but no
+        `step_level`, so no ladder intent exists to carry the overall height along.
+
+        Asserted as full annotation-set parity rather than "dim_height is present", because
+        the acceptance is that replay matches the automatic drawing — and the risk on the
+        other side is duplicating the Y-step length chain, which a presence check would miss.
+        """
+        import runpy
+
+        from build123d import export_step
+
+        from draftwright.make_drawing import generate_script
+
+        part = self._issue_881_y_step_flange()
+        assert not any(f.kind == "envelope" for f in build_drawing(part).model().features), (
+            "the fixture must have NO envelope feature — the bbox fallback is the case "
+            "with no intent to record"
+        )
+        step = tmp_path / "flange.step"
+        export_step(part, str(step))
+
+        auto = build_drawing(part)
+        replayed = runpy.run_path(generate_script(str(step), out=str(tmp_path / "gen")))["dwg"]
+
+        automatic = {n for n, _ in auto.iter_annotations()}
+        replay = {n for n, _ in replayed.iter_annotations()}
+        assert "dim_height" in automatic, "the fixture must draw an overall height to lose"
+        assert replay == automatic, (
+            f"replay differs — missing {sorted(automatic - replay)}, "
+            f"extra {sorted(replay - automatic)}"
+        )
+        assert (
+            auto.get_annotation("dim_height").label == replayed.get_annotation("dim_height").label
+        )
+        assert not auto.lint_summary()["by_code"] and not replayed.lint_summary()["by_code"]
+
     @pytest.mark.parametrize(("axis_z", "rotation"), [(0.0, 90), (17.0, 90), (-11.0, -90)])
     def test_issue_892_short_y_step_chain_moves_to_enlarged_side_detail(self, axis_z, rotation):
         # P10-base axial profile: 3 | 5.5 | 3.5 mm along Y.  Centred labels crowd at
