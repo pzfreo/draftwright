@@ -908,6 +908,18 @@ class Sheet:
             return self._index_of_token(token)
         if isinstance(ref, Feature):
             raise ValueError("of(): that Feature is not in this sheet's features")
+        if not hasattr(ref, "bounding_box"):
+            # Anything else must be the build123d object to match by ⌀ + position, and
+            # `_match_object` assumes that without checking — so a wrong argument surfaced as
+            # a leaked `AttributeError: 'function' object has no attribute 'bounding_box'`.
+            #
+            # Now reachable by an obvious route (#922): the emitted script binds `hole1` and
+            # imports `hole`, so a user who comments a feature out gets Python's own
+            # "Did you mean: 'hole'?" and lands here with the constructor function.
+            raise ValueError(
+                f"of(): expected a handle, a feature index, a Feature from this sheet, or the "
+                f"build123d object you built — got {type(ref).__name__}"
+            )
         return self._match_object(ref)
 
     def _match_object(self, obj) -> int:

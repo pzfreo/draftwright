@@ -55,6 +55,26 @@ def _script_for(part, part_expr="part = PART", stem="drawing", **kw):
     return emit_sheet_script(detect_part_model(part), part_expr, stem, title="T", number="N", **kw)
 
 
+def _feature_line_for(src: str, call: str) -> str:
+    """The emitted DECLARATION line containing *call*, e.g. ``"sheet.hole("``.
+
+    Matching by prefix stopped working when #922 made every feature line bind a name
+    (`hole1 = sheet.hole(...)`), and matching by bare substring is too loose — the module
+    docstring mentions `sheet.hole(my_bore)`. A declaration is an assignment whose value is
+    that call, so that is what this looks for."""
+    for line in src.splitlines():
+        stripped = line.split("#")[0].rstrip()
+        if call in stripped and " = " in stripped and not stripped.lstrip().startswith("#"):
+            return line
+    raise AssertionError(f"no emitted declaration line contains {call!r}")
+
+
+def _call_expr(line: str) -> str:
+    """The call on the right of an emitted declaration, without its binding or comment —
+    for the tests that `eval()` a line, which cannot take an assignment."""
+    return line.split("#")[0].split(" = ", 1)[-1].strip()
+
+
 class TestEmit:
     @pytest.mark.parametrize(
         "part", [Box(40, 20, 10), _plate(), Box(80, 60, 40)], ids=["bare", "plate", "block"]
@@ -250,12 +270,9 @@ class TestEmit:
     def test_count_group_hole_carries_its_members(self):
         # a count>1 hole MUST emit members= with every position — without them the render
         # collapses to a single hole at the anchor (fidelity loss). The plate has two ⌀8 holes.
-        line = next(
-            ln
-            for ln in _script_for(_plate()).splitlines()
-            if ln.startswith("sheet.hole(diameter=8")
-        )
-        call = ast.parse(line, mode="eval").body  # the sheet.hole(...) Call node
+        line = _feature_line_for(_script_for(_plate()), "sheet.hole(diameter=8")
+        # `mode="eval"` cannot parse an assignment, and the line binds a name since #922.
+        call = ast.parse(_call_expr(line), mode="eval").body  # the sheet.hole(...) Call node
         kw = {k.arg: k.value for k in call.keywords}
         assert ast.literal_eval(kw["count"]) == 2
         assert len(kw["members"].elts) == 2  # both hole positions spelled out
@@ -357,7 +374,7 @@ class TestEmit:
         # Each verb line ends in a plain-language comment so the body is readable without
         # decoding the coordinates — a hole reads "⌀8 THRU ×N", a fillet "R3".
         src = _script_for(_plate())
-        hole = next(ln for ln in src.splitlines() if ln.startswith("sheet.hole("))
+        hole = _feature_line_for(src, "sheet.hole(")
         assert "   # ⌀8 THRU" in hole
 
     def test_body_is_grouped_under_section_sub_headers(self):
@@ -527,7 +544,7 @@ class TestEmit:
         line = next(
             ln
             for ln in _script_for(self._bolt_circle()).splitlines()
-            if ln.startswith("sheet.pattern(")
+            if "sheet.pattern(" in ln and " = " in ln
         )
         assert "members=[" in line and line.count("(") >= 7  # member hole + 6 positions
 
@@ -536,7 +553,7 @@ class TestEmit:
         line = next(
             ln
             for ln in _script_for(self._bolt_circle(cbore=True)).splitlines()
-            if ln.startswith("sheet.pattern(")
+            if "sheet.pattern(" in ln and " = " in ln
         )
         assert "cbore=(" in line  # on the member hole(...) template
 
@@ -613,7 +630,7 @@ class TestEmit:
         from draftwright import Sheet
 
         part = Box(60, 30, 12) - Pos(0, 0, 0) * Box(20.33, 8, 20)  # off-round → stresses rounding
-        line = next(ln for ln in _script_for(part).splitlines() if ln.startswith("sheet.slot("))
+        line = _call_expr(_feature_line_for(_script_for(part), "sheet.slot("))
         eval(line, {"sheet": Sheet(part).auto_dimensions()})  # declare.slot() must not raise
 
     def test_pocket_line_re_runs_without_the_length_invariant_error(self):
@@ -622,7 +639,7 @@ class TestEmit:
         from draftwright import Sheet
 
         part = Box(80, 60, 20) - Pos(0, 0, 6) * Box(30.33, 20, 8)  # off-round → stresses rounding
-        line = next(ln for ln in _script_for(part).splitlines() if ln.startswith("sheet.pocket("))
+        line = _call_expr(_feature_line_for(_script_for(part), "sheet.pocket("))
         eval(line, {"sheet": Sheet(part).auto_dimensions()})  # declare.pocket() must not raise
 
     def test_linear_pattern_spells_out_members(self):
@@ -1350,3 +1367,122 @@ class TestRoundTripParity:
         m = PartModel(bbox=shaft.bounding_box(), orientation=None, features=[declared], datums=[])
         rot = [f for f in build_drawing(shaft, model=m).model().features if f.kind == "rotational"]
         assert len(rot) == 1 and rot[0].od == 99.0
+
+
+class TestEmittedFeaturesAreNamed:
+    """Every emitted feature line binds a name, and the names are usable (#922).
+
+    Not primarily a dimension feature: it removes POSITIONAL addressing from the artefact.
+    The documented workflow is to comment a feature line out and re-run (ADR 0011 Amdt 1),
+    which shifts every later index — so `sheet.of(2)` silently retargets onto a neighbour,
+    while `sheet.of(hole1)` raises `NameError` at the line you edited.
+
+    Uniform rather than only-where-referenced, because the alternative keys a FORMATTING
+    decision on the dimension source, which has nothing to do with formatting.
+    """
+
+    @staticmethod
+    def _part():
+        from build123d import Box, Cylinder, Pos
+
+        return Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20) - Pos(20, 10, 0) * Cylinder(3, 20)
+
+    def _src(self):
+        return emit_sheet_script(
+            detect_part_model(self._part()), "part", "bracket", title="T", number="N"
+        )
+
+    def test_every_statement_line_binds_a_name(self):
+        """The property over the whole block, not a sample: any feature line that is a
+        STATEMENT must bind. Sampling one kind is how nine verbs stayed unnameable."""
+        import ast
+
+        src = self._src()
+        block = [
+            ln
+            for ln in src.splitlines()
+            if ln.startswith(("sheet.", "hole", "envelope", "pattern")) and "sheet." in ln
+        ]
+        declarations = [ln.split("#")[0].rstrip() for ln in block if "sheet.export" not in ln]
+        unbound = [
+            ln
+            for ln in declarations
+            if not isinstance(ast.parse(ln).body[0], ast.Assign)
+            and "auto_dimensions" not in ln
+            and "Sheet(" not in ln
+        ]
+        assert not unbound, f"emitted feature lines with no binding: {unbound}"
+
+    def test_the_names_are_distinct_and_valid_identifiers(self):
+        import ast
+
+        src = self._src()
+        names = [
+            node.targets[0].id
+            for node in ast.parse(src).body
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+        ]
+        feature_names = [n for n in names if n not in ("part", "sheet")]
+        assert feature_names, "the fixture must emit at least one feature"
+        assert len(set(feature_names)) == len(feature_names), (
+            f"duplicate bindings: {feature_names}"
+        )
+        assert all(n.isidentifier() for n in feature_names)
+        # A binding must not shadow the script's own imports — `hole` is imported for pattern
+        # members, so an unsuffixed `hole = ...` would break every later pattern line.
+        imported = {
+            alias.asname or alias.name
+            for node in ast.parse(src).body
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
+        assert not (set(feature_names) & imported), "a binding shadows an import"
+
+    def test_a_name_is_usable_by_the_verbs_it_exists_for(self):
+        """The point of the name, executed rather than asserted about. Runs the emitted
+        script with an extra line that references a binding — if the name did not resolve, or
+        did not name that feature, this raises."""
+        src = self._src()
+        ns: dict = {"part": self._part()}
+        body = src.replace("\npart\n", "\n", 1).replace("sheet.export('bracket')", "")
+        exec(compile(body, "<emit>", "exec"), ns)  # noqa: S102 — exercising the generated script
+        sheet = ns["sheet"]
+        assert ns["hole1"] is not None
+        assert sheet.features[ns["hole1"]._i].kind == "hole"
+        assert sheet.features[ns["envelope1"]._i].kind == "envelope"
+
+    def test_a_kind_with_no_declarative_verb_binds_nothing(self):
+        """Its line is a COMMENT, and `rotational1 = # …` does not parse. Checked because the
+        binding is applied in the emit loop, where a comment line looks like any other."""
+        from draftwright.sheet_emit import _binding
+
+        counts: dict = {}
+        commented = "# rotational @ (0, 0, 0) — no declarative verb yet; drawn by the auto-pass"
+        assert _binding(_Sentinel(), commented, counts) is None
+        assert counts == {}, "a comment line must not consume a name"
+
+
+class _Sentinel:
+    kind = "rotational"
+
+
+def test_of_rejects_a_wrong_argument_clearly():
+    """The path Python's own suggester points at, after #922 named the features.
+
+    Comment out `hole1` and re-run: Python raises `NameError ... Did you mean: 'hole'?`,
+    because the script imports `hole` for pattern members. A user who follows that
+    suggestion reaches `of()` with the constructor FUNCTION, and used to get a leaked
+    `AttributeError: 'function' object has no attribute 'bounding_box'` from the
+    match-by-object path, which assumed anything not a handle/index/Feature was a solid.
+    """
+    from build123d import Box
+
+    from draftwright import Sheet
+    from draftwright.model import hole as hole_ctor
+
+    sheet = Sheet(Box(80, 50, 8))
+    sheet.hole(diameter=6, at=(0, 0, 0), axis="z")
+    for wrong in (hole_ctor, object(), "hole1"):
+        with pytest.raises(ValueError, match="of\\(\\): expected a handle"):
+            sheet.of(wrong)
+    assert sheet.of(0) is not None  # the real routes still work
