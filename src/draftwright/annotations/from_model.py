@@ -1339,19 +1339,21 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
     return rerouted
 
 
-def _chamfer_label(pd, ch) -> str:
+def _chamfer_label(leg_text, leg, ch) -> str:
     """The chamfer callout string: ``C{leg}`` for an equal-leg 45° chamfer, else
-    ``{leg} × {angle}°`` (#560). *leg* is the PLANNED value (``pd.param.value`` —
-    the planner-authoritative number, #724 review); the feature supplies only the
-    geometric *form* discriminators (``leg2``/``angle``). Formatting lives in the
-    render layer, not on the IR feature — every other feature's label is formed by
-    the planner/renderer too, so a ``ChamferFeature`` stays pure data (ADR 0013 §7)."""
-    if abs(pd.value - ch.leg2) < 0.05 and abs(ch.angle - 45.0) < 0.5:
-        return f"C{pd.value_text}"
+    ``{leg} × {angle}°`` (#560).
+
+    Takes the leg TWICE, on purpose, because printing it and testing its form are different
+    jobs: *leg_text* is the compiler's own `value_text` and is what appears on the sheet,
+    while *leg* is the number the equal-leg comparison needs. The feature supplies only the
+    geometric form discriminators (``leg2``/``angle``), and a ``ChamferFeature`` stays pure
+    data (ADR 0013 §7)."""
+    if abs(leg - ch.leg2) < 0.05 and abs(ch.angle - 45.0) < 0.5:
+        return f"C{leg_text}"
     # `ch.angle` is a FORM discriminator, not a planned parameter — `ChamferFeature.
     # parameters()` emits only the leg — so it has no approved text to consume. That is the
     # IR gap `_FACTS` records, and it is why this line stays in the provenance budget.
-    return f"{pd.value_text} × {_fmt(ch.angle)}°"
+    return f"{leg_text} × {_fmt(ch.angle)}°"
 
 
 # ── Shared machined-feature leader-callout pass (#637) ──────────────────────────────────
@@ -1518,7 +1520,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
                 f"m_chamfer_{ch.axis}{i}",
                 view,
                 vb,
-                _chamfer_label(pd, ch) + _tol_suffix(pd.tolerance, draft),
+                _chamfer_label(pd.value_text, pd.value, ch) + _tol_suffix(pd.tolerance, draft),
                 _corner_candidates(dwg, view, vb, [ch], reach, provenances=[g.ref]),
             )
         )
