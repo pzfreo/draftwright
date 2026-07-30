@@ -2822,6 +2822,33 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
     return _draw_step_chain(dwg, view, fsegs, "m_steplen", ctx=ctx, start=start)
 
 
+def ladder_plan_for(plan, *, step_height: bool, overall: bool):
+    """*plan* narrowed to the ladders a caller actually asked :func:`render_height_ladder` for.
+
+    The renderer draws TWO independent things — a `step_level` feature's correlated rungs and
+    the envelope/bbox overall height — and reads a third, `step_position`, only for its
+    PRESENCE (short-rung placement). Handing it a plan containing more than was asked for
+    draws more than was asked for: the #889 drain passed the whole compiled plan once either
+    intent was recorded, so `overall_height()` alone also rebuilt the step rungs — a
+    dimension nobody recorded, and live/deferred divergence in the one PR relying on their
+    equivalence (#934 review).
+
+    Exists so the live verb and the finalize drain project the plan the SAME way. Two
+    spellings of "which ladders did they ask for" is how they diverged in the first place.
+
+    `step_position` rides `step_height`: it is not content here, it is how those rungs are
+    placed, so it is meaningless without them.
+    """
+    from dataclasses import replace
+
+    kinds = []
+    if step_height:
+        kinds += ["step_height", "step_position"]
+    if overall:
+        kinds.append("overall_height")
+    return replace(plan, ladders=tuple(lad for lad in plan.ladders if lad.kind in kinds))
+
+
 def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) -> int:
     """Front-view right ladder: prismatic step heights stacked inner→outer, then the overall
     height outermost — registered as :class:`CorridorCandidate`s in the shared

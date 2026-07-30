@@ -1243,21 +1243,18 @@ class Drawing:
             raise ValueError("overall_height(): no detected model — build the drawing first")
         from draftwright._core import layout_frame
         from draftwright.annotations._common import drain_corridors
-        from draftwright.annotations.from_model import render_height_ladder
-        from draftwright.model.compiled import RenderableDimensionPlan, compile_dimensions
+        from draftwright.annotations.from_model import ladder_plan_for, render_height_ladder
+        from draftwright.model.compiled import compile_dimensions
 
         before = set(self.annotations())
         ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
-        overall = compile_dimensions(model).ladder("overall_height")
-        if overall is not None:
-            # ONLY the overall height: passing the whole plan would also rebuild the step
-            # ladder, which is a different intent with its own verb.
+        # ONLY the overall height: the renderer also draws the step ladder, which is a
+        # different intent with its own verb. The drain projects the plan with the same
+        # helper, so the two routes cannot disagree about what was asked for (#934 review).
+        plan = ladder_plan_for(compile_dimensions(model), step_height=False, overall=True)
+        if plan.ladder("overall_height") is not None:
             render_height_ladder(
-                self,
-                RenderableDimensionPlan(ladders=(overall,)),
-                layout_frame(a),
-                ctx=ctx,
-                detail_view=self._build.detail_view,
+                self, plan, layout_frame(a), ctx=ctx, detail_view=self._build.detail_view
             )
             drain_corridors(ctx, self)
         return sorted(set(self.annotations()) - before)
@@ -1974,15 +1971,25 @@ class Drawing:
                 return
             assert a is not None and isinstance(model, PartModel)
             from draftwright._core import layout_frame
+            from draftwright.annotations.from_model import ladder_plan_for
             from draftwright.model.compiled import compile_dimensions
 
             render_height_ladder(
                 self,
+                # Projected to what was RECORDED. Passing the whole compiled plan once either
+                # intent was present meant `overall_height()` alone also rebuilt the step
+                # rungs — a dimension nobody asked for, and live/deferred divergence in the
+                # one change relying on their equivalence (#934 review).
+                #
                 # `include_overall` is drawing state, so it is an input to the COMPILE
                 # (whether the overall height is in the set) rather than something the
                 # renderer decides after the fact. An explicit `role="height"` intent draws it
                 # through the dimension path instead, so the compile must leave it out.
-                compile_dimensions(model, include_overall=not r.explicit_envelope_height),
+                ladder_plan_for(
+                    compile_dimensions(model, include_overall=not r.explicit_envelope_height),
+                    step_height=bool(r.height_ladder_ids),
+                    overall=bool(r.overall_height_ids),
+                ),
                 layout_frame(a),
                 ctx=ctx,
                 detail_view=self._build.detail_view,
