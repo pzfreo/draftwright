@@ -358,6 +358,16 @@ def test_generated_script_roundtrip_is_lint_error_free(tmp_path, name, factory):
     # defaults to PDF (matching the CLI) while Drawing.export still defaults to the legacy
     # SVG+DXF tuple. Dropping to the Drawing verb therefore has to say what the Sheet verb
     # would have done, or this asserts the wrong file.
+    calls = re.findall(r"^sheet\.export\(([^)]*)\)$", src, flags=re.M)
+    assert len(calls) == 1, f"{name}: expected exactly one sheet.export(...) line, got {calls}"
+    # Checked on the ORIGINAL call, before substitution — an emitted `formats=` would be
+    # doubled by the epilogue's, and a fixture that starts requesting one must be noticed
+    # rather than silently overridden to PDF (#957 review: the earlier form of this
+    # assertion read the line before the substitution point, so it was vacuously true).
+    assert "formats=" not in calls[0], (
+        f"{name}: the emitted export already sets formats ({calls[0]}); "
+        "the epilogue would double it"
+    )
     src, subs = re.subn(
         r"^sheet\.export\(([^)]*)\)$",
         "dwg = sheet.build()\n"
@@ -369,10 +379,7 @@ def test_generated_script_roundtrip_is_lint_error_free(tmp_path, name, factory):
         src,
         flags=re.M,
     )
-    assert subs == 1, f"{name}: expected exactly one sheet.export(...) line, got {subs}"
-    assert "formats=" not in src.split("dwg = sheet.build()")[0].splitlines()[-1], (
-        f"{name}: the emitted export already sets formats; the epilogue would double it"
-    )
+    assert subs == 1, f"{name}: substitution did not apply"
     Path(py).write_text(src, encoding="utf-8")
 
     r = subprocess.run(

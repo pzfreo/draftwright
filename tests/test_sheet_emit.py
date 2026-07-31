@@ -1106,6 +1106,19 @@ class TestCli:
         assert (tmp_path / "g.pdf").exists()  # #702: Sheet.export defaults to PDF
 
 
+def _linear_recess_row(cutter, *, z, n=4, pitch=30.0, width=30.0):
+    """A block with *n* identical recesses in a row — a pocket array when the cutter is
+    blind, a slot array when it breaks through. Shaped after the recognisers' own fixtures
+    (`test_pocket_pattern_recognition` / `test_slot_pattern_recognition`), because a
+    pattern fixture that detects as N separate features tests nothing it claims to."""
+    from build123d import Box, Pos
+
+    part = Box(width, pitch * (n + 2), 20)
+    for i in range(n):
+        part -= Pos(0, (i - (n - 1) / 2) * pitch, z) * cutter
+    return part
+
+
 def _annotation_signature(dwg):
     """Value-aware annotation signature for #472 round-trip parity.
 
@@ -1242,6 +1255,17 @@ class TestRoundTripParity:
             codes = dwg.lint_summary()["by_code"]
             assert codes.get("axial_length_missing") == 1, (gap, codes)
             assert codes.get("step_dim_dropped") == 1, (gap, codes)
+
+    def test_pocket_pattern_parity(self, tmp_path, monkeypatch):
+        """#957 review: the emitted script named `pocket` without importing it, so a
+        four-pocket array produced a file that raised NameError on its first feature line —
+        a capability the imperative emitter had and #940 would have deleted without
+        replacing. Full parity, executed, not a source-text check."""
+        self._parity(_linear_recess_row(Box(10, 12, 6), z=7), tmp_path, monkeypatch)
+
+    def test_slot_pattern_parity(self, tmp_path, monkeypatch):
+        """The same defect on the slot verb (#957 review)."""
+        self._parity(_linear_recess_row(Box(30, 8, 20), z=0, width=60), tmp_path, monkeypatch)
 
     def test_title_block_and_layout_aspects_round_trip(self, tmp_path, monkeypatch):
         # #474: a generated sheet script carrying drawn_by/tolerance/scale/page must reproduce the
@@ -1729,6 +1753,14 @@ class TestTheDimensionMirror:
             # purpose — a disconnected profile is a separate, unrelated defect (#943).
             "turned shaft": Cylinder(15, 20) + Pos(0, 0, 17.5) * Cylinder(10, 15),
             "bored flange": Cylinder(40, 8) - Cylinder(8, 20),
+            # The two PATTERN kinds whose members are nested constructor calls
+            # (`pocket_pattern(pocket(...), …)`). They were classified "untested" under
+            # #948 and were in fact BROKEN — the emitted script named `pocket`/`slot`
+            # without importing them, so it raised NameError on its first feature line
+            # (#957 review). This corpus executes what it emits, so carrying them here is
+            # what makes that class of defect impossible to reintroduce quietly.
+            "pocket pattern": _linear_recess_row(Box(10, 12, 6), z=7),
+            "slot pattern": _linear_recess_row(Box(30, 8, 20), z=0, width=60),
         }
 
     @staticmethod
@@ -1754,6 +1786,8 @@ class TestTheDimensionMirror:
         "boss": {"boss"},
         "turned shaft": {"rotational", "step"},
         "bored flange": {"rotational"},
+        "pocket pattern": {"pocket_pattern"},
+        "slot pattern": {"slot_pattern"},
     }
 
     @pytest.mark.parametrize("name", sorted(_corpus()))
@@ -1967,8 +2001,8 @@ _KIND_MIRROR_COVERAGE = {
     "flat": "untested — no corpus fixture detects one (#948)",
     "groove": "untested — no corpus fixture detects one (#948)",
     "plate": "untested — no corpus fixture detects one (#948)",
-    "pocket_pattern": "untested — no corpus fixture detects one (#948)",
-    "slot_pattern": "untested — no corpus fixture detects one (#948)",
+    "pocket_pattern": "corpus",
+    "slot_pattern": "corpus",
     "authored_dimension": "untested — the measured_dimension path (#948)",
     "control_frame": "aspect — carries no DimParameter, so nothing to mirror",
     "datum_ref": "aspect — carries no DimParameter, so nothing to mirror",

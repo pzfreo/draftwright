@@ -179,15 +179,21 @@ mcp__build123d-mcp__inspect_drawing(svg_path='drawings/part_name.svg')
 **A — Drawing from a STEP file**:
 
 ```python
-from draftwright import generate_script
+from draftwright.sheet_emit import generate_sheet_script
 
-generate_script(
+generate_sheet_script(
     "path/to/part.step",
     out="scripts/drawings/bracket",
     title="BRACKET", number="DWG-042",
     tolerance="ISO 2768-f", drawn_by="Your Name",
 )
 ```
+
+This writes a declarative `Sheet` script: one named line per detected feature, then the
+dimension set it draws. Comment a feature line out to drop that feature; edit a value
+freely; re-run the file. (`generate_script`, the older imperative flavour, was retired in
+#940 — it now raises with this pointer.) The CLI equivalent is `draftwright part.step
+--script --out scripts/drawings/bracket`.
 
 **B — Drawing an in-session object** (hand-write the script):
 
