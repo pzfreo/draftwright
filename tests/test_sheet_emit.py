@@ -2325,9 +2325,6 @@ class TestTheScriptAccountsForEveryAnnotation:
         )
 
 
-#: The geometric kinds the emitter writes a declarative line for — derived from
-#: `_KIND_MIRROR_COVERAGE`, which is itself fail-closed against the IR, so this cannot drift
-#: independently of the kinds that exist.
 def _structurally_equal(a, b, *, tol=5e-4):
     """Structural equality, tolerant of the emitter's 3-dp rounding but of nothing else.
 
@@ -2335,10 +2332,9 @@ def _structurally_equal(a, b, *, tol=5e-4):
     A tolerance smaller than that rounding fails on every float; one larger stops noticing real
     drift, which is the failure the fidelity oracles exist to catch.
 
-    Module level because BOTH round-trip routes use it — the detected one below and the
-    declared one in `TestAuthoredSetRoundTrips`. They compared different things while claiming
-    to cover each other, which is how `authored_dimension` ended up exempted from one on the
-    strength of a partial assertion in the other (#967 r4).
+    Module level because BOTH round-trip routes use it — the detected corpus and the declared
+    one. They compared different things while each leaned on the other, which is how a 1 mm
+    shift in every reference point survived four review rounds (#967 r4).
     """
     import dataclasses
     import math
@@ -2359,18 +2355,20 @@ def _structurally_equal(a, b, *, tol=5e-4):
     return a == b
 
 
-_EMITTED_GEOMETRIC_KINDS = {
-    kind
-    for kind, note in _KIND_MIRROR_COVERAGE.items()
-    if note == "corpus" or note.startswith("untested")
+#: Every kind the emitter writes a line for, and WHICH round-trip route proves it. Derived from
+#: `_KIND_MIRROR_COVERAGE`, which is itself fail-closed against the IR, so this cannot drift
+#: independently of the kinds that exist.
+#:
+#: The route split is the point. A kind nothing detects cannot be checked by emitting a detected
+#: model, so it needs the declared route instead — and saying so in prose is what failed four
+#: times running. `authored_dimension`'s note read "corpus (declared route …)", which the old
+#: membership test (`== "corpus"`) silently excluded, so its exemption was dead code and
+#: deleting it broke nothing (#967 r5). Route is now a value, and both routes are corpora.
+_DECLARED_ROUTE_KINDS = {
+    kind for kind, note in _KIND_MIRROR_COVERAGE.items() if "declared route" in note
 }
-
-#: Kinds the FIDELITY corpus does not reach, each with the reason. Distinct from the mirror
-#: corpus's own list: this one is about model round-trip, not dimension mirroring, and an
-#: entry here is a statement that no fixture produces the kind — not that it is unimportant.
-_FIDELITY_UNCOVERED = {
-    "authored_dimension": "not a geometric feature and not detected — it is declared, so there "
-    "is no detected original to compare against. Its round trip is TestAuthoredSetRoundTrips.",
+_ROUND_TRIPPED_KINDS = {
+    kind for kind, note in _KIND_MIRROR_COVERAGE.items() if note.startswith(("corpus", "untested"))
 }
 
 
@@ -2508,19 +2506,81 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         expected = self._EXPECTED_KINDS[name]
         assert expected <= kinds, f"{name} detects {sorted(kinds)}, missing {sorted(expected)}"
 
-    def test_every_emitted_geometric_kind_is_exercised(self):
-        """Fail-closed on COVERAGE, not just on correctness. The oracle is only as good as
-        the branches its corpus reaches, and it demonstrably missed a live divergence in a
-        branch nothing exercised. A kind the emitter can write but this corpus never
-        produces must be named as such, not silently absent."""
-        covered = set()
+    #: The DECLARED route: models nothing detects, so they cannot be reached by emitting a
+    #: detected part. Each is `name -> a callable returning (part, model)`.
+    @staticmethod
+    def _declared_corpus():
+        from build123d import Box
+
+        from draftwright import Sheet
+
+        def measured_dimension():
+            part = Box(40, 20, 10)
+            sheet = Sheet(part, title="T", number="N").auto_dimensions()
+            sheet.measured_dimension(
+                kind="linear",
+                value=40,
+                label="40",
+                dominant_axis="X",
+                ref_bbox=(-20, -10, -5, 20, 10, 5),
+                ref_pts=[(-20, 0, 0), (20, 0, 0)],
+                upper_tol=0.1,
+                lower_tol=0.0,
+            )
+            return part, sheet.model()
+
+        return {"measured dimension": measured_dimension}
+
+    def test_every_emitted_kind_is_round_tripped_by_one_route_or_the_other(self):
+        """Fail-closed on COVERAGE, with no exemption list to hide behind.
+
+        There were nine exemptions, then one, and the one was dead — excluded from the
+        membership test by a string mismatch, so deleting it broke nothing. Every kind now has
+        to be OBSERVED in a corpus, and which route observes it is a value rather than a
+        sentence."""
+        detected = set()
         for part in self._corpus().values():
-            covered |= {f.kind for f in detect_part_model(part).features}
-        missing = _EMITTED_GEOMETRIC_KINDS - covered - set(_FIDELITY_UNCOVERED)
+            detected |= {f.kind for f in detect_part_model(part).features}
+        declared = set()
+        for build in self._declared_corpus().values():
+            _part, model = build()
+            declared |= {f.kind for f in model.features}
+
+        assert not (_DECLARED_ROUTE_KINDS - declared), (
+            f"{sorted(_DECLARED_ROUTE_KINDS - declared)} is classified declared-route but no "
+            "declared fixture produces one"
+        )
+        missing = _ROUND_TRIPPED_KINDS - detected - declared
         assert not missing, (
             f"the emitter writes {sorted(missing)} but no fidelity fixture produces one — "
-            "add a fixture, or name it in _FIDELITY_UNCOVERED with the reason"
+            "add it to the detected or the declared corpus; there is no exemption list"
         )
+
+    @pytest.mark.parametrize("name", sorted(_declared_corpus()))
+    def test_every_declared_feature_survives_its_own_emit(self, name):
+        """The declared route, with the SAME comparator as the detected one. Previously this
+        lived in another class and compared four fields of seven, which is how a 1 mm shift in
+        every reference point went unnoticed (#967 r4)."""
+        part, model = self._declared_corpus()[name]()
+        src = emit_sheet_script(model, "part", "s", title="T", number="N")
+        ns: dict = {"part": part}
+        exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        rebuilt = ns["sheet"].model()
+
+        # The emitter SYNTHESISES an envelope when the overall height would otherwise be
+        # unnameable under an authored set. That is a real extra feature, not a comparison
+        # artefact — it is the "synthesised-envelope workaround" #946 exists to delete — so it
+        # is named here rather than absorbed by a loose comparison. Anything else appearing is
+        # a failure.
+        extra = [f.kind for f in rebuilt.features][len(model.features) :]
+        assert set(extra) <= {"envelope"}, f"{name}: unexpected synthesised features {extra}"
+        assert [f.kind for f in rebuilt.features][: len(model.features)] == [
+            f.kind for f in model.features
+        ], name
+        for original, back in zip(model.features, rebuilt.features):
+            assert _structurally_equal(original, back), (
+                f"{name}: {original.kind} came back different:\n  from {original}\n  to   {back}"
+            )
 
     def test_exempt_plate_origin_is_the_part_centroid(self):
         """The premise behind the `("plate", "frame")` exemption, asserted separately so the
