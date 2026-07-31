@@ -6400,8 +6400,9 @@ class TestFeatureEdits:
 
     @staticmethod
     def _reconstruct(dwg):
-        # The per-feature verb dispatch the #400 Ph2 emitter writes (mirrors
-        # builder._feature_listing) — used to exercise the reconstruction in-process.
+        # The per-feature verb dispatch the imperative emitter used to write. That emitter is
+        # gone (#940), so this is no longer a mirror of anything generated — it exercises the
+        # `Drawing` edit verbs in-process, which remain a hand-use API (ADR 0016).
         for f in dwg.model().features:
             if f.kind in ("hole", "pattern"):
                 dwg.callout(f)

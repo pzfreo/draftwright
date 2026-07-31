@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 from build123d import Box, Cylinder, Pos, Shape, export_step
+from build123d import chamfer as bd_chamfer
+from build123d import fillet as bd_fillet
 
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.model.declare import hole as _declare_hole
@@ -1106,6 +1108,17 @@ class TestCli:
         assert (tmp_path / "g.pdf").exists()  # #702: Sheet.export defaults to PDF
 
 
+def _chamfered_corner(op, size):
+    """A plate with ONE vertical corner edge chamfered or filleted — `op` is build123d's
+    `chamfer` or `fillet`. Same edge selection the per-kind emit tests use, so the corpus
+    and those tests describe the same geometry."""
+    from build123d import Axis, Box
+
+    part = Box(80, 50, 8)
+    e = part.edges().filter_by(Axis.Z).sort_by(lambda x: x.center().X + x.center().Y)[-1]
+    return op(e, size)
+
+
 def _linear_recess_row(cutter, *, z, n=4, pitch=30.0, width=30.0):
     """A block with *n* identical recesses in a row — a pocket array when the cutter is
     blind, a slot array when it breaks through. Shaped after the recognisers' own fixtures
@@ -1598,6 +1611,50 @@ class TestAuthoredSetRoundTrips:
             "the regenerated script draws a different set from the model it came from"
         )
 
+    def test_a_measured_dimension_round_trips_through_the_emitted_script(self):
+        """The `authored_dimension` kind, executed (#957 review round 2).
+
+        It is the one IR kind the detection corpus cannot reach — nothing detects an
+        imported AP242 measurement or a hand-written `measured_dimension`, so it has to
+        round-trip through the DECLARED route instead. It also has no referential form:
+        it carries its own value, label, tolerances and reference points, so what must
+        survive emit-and-re-run is that materialised content, not a role name.
+        """
+        from draftwright import Sheet, build_drawing
+
+        def authored(part):
+            sheet = Sheet(part, title="T", number="N").auto_dimensions()
+            sheet.measured_dimension(
+                kind="linear",
+                value=40,
+                label="40",
+                dominant_axis="X",
+                ref_bbox=(-20, -10, -5, 20, 10, 5),
+                ref_pts=[(-20, 0, 0), (20, 0, 0)],
+                upper_tol=0.1,
+                lower_tol=0.0,
+            )
+            return sheet.model()
+
+        part = Box(40, 20, 10)
+        model = authored(part)
+        direct = build_drawing(part, model=model, number="N")
+        src = emit_sheet_script(model, "part", "authored", title="T", number="N")
+        assert "sheet.measured_dimension(" in src
+        regenerated = self._run(src, part)["sheet"].build()
+
+        assert {n for n, _ in regenerated.iter_annotations()} == {
+            n for n, _ in direct.iter_annotations()
+        }
+        # The materialised content, not just the annotation name: a re-run that dropped the
+        # tolerance would still match on names alone.
+        feat = next(
+            f
+            for f in self._run(src, part)["sheet"].model().features
+            if f.kind == "authored_dimension"
+        )
+        assert (feat.value, feat.label, feat.upper_tol, feat.lower_tol) == (40, "40", 0.1, 0.0)
+
     def test_the_authored_set_is_not_silently_widened_to_the_planner_set(self):
         """The specific regression the old refusal existed to prevent: emitting
         `auto_dimensions()` for an authored model restores every omitted dimension."""
@@ -1761,6 +1818,16 @@ class TestTheDimensionMirror:
             # what makes that class of defect impossible to reintroduce quietly.
             "pocket pattern": _linear_recess_row(Box(10, 12, 6), z=7),
             "slot pattern": _linear_recess_row(Box(30, 8, 20), z=0, width=60),
+            # The machined kinds (#957 review round 2). Each already had a fixture proving
+            # it EMITS its verb; none had one proving the emitted script RUNS and draws the
+            # same drawing. That is the gap round 1 turned into a NameError, so the answer
+            # is the same: the fixtures move to the corpus that executes, and the coverage
+            # roster stops saying "untested".
+            "chamfer": _chamfered_corner(bd_chamfer, 4),
+            "fillet": _chamfered_corner(bd_fillet, 3),
+            "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),  # D-shaft
+            "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),  # circlip groove
+            "plate": Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50),  # base + upright
         }
 
     @staticmethod
@@ -1788,6 +1855,11 @@ class TestTheDimensionMirror:
         "bored flange": {"rotational"},
         "pocket pattern": {"pocket_pattern"},
         "slot pattern": {"slot_pattern"},
+        "chamfer": {"chamfer"},
+        "fillet": {"fillet"},
+        "flat": {"flat"},
+        "groove": {"groove"},
+        "plate": {"plate"},
     }
 
     @pytest.mark.parametrize("name", sorted(_corpus()))
@@ -1996,14 +2068,14 @@ _KIND_MIRROR_COVERAGE = {
     "envelope": "corpus",
     "rotational": "corpus",
     "pmi": "unnameable — raw AP242, emitted as sheet.add(PmiFeature(...)) (ADR 0016)",
-    "chamfer": "untested — no corpus fixture detects one (#948)",
-    "fillet": "untested — no corpus fixture detects one (#948)",
-    "flat": "untested — no corpus fixture detects one (#948)",
-    "groove": "untested — no corpus fixture detects one (#948)",
-    "plate": "untested — no corpus fixture detects one (#948)",
+    "chamfer": "corpus",
+    "fillet": "corpus",
+    "flat": "corpus",
+    "groove": "corpus",
+    "plate": "corpus",
     "pocket_pattern": "corpus",
     "slot_pattern": "corpus",
-    "authored_dimension": "untested — the measured_dimension path (#948)",
+    "authored_dimension": "corpus (declared route — nothing detects one)",
     "control_frame": "aspect — carries no DimParameter, so nothing to mirror",
     "datum_ref": "aspect — carries no DimParameter, so nothing to mirror",
     "finish": "aspect — carries no DimParameter, so nothing to mirror",

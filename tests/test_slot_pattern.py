@@ -135,9 +135,11 @@ def test_manual_callout_verb_places_grouped_callout_and_pitch():
 
 
 def test_deferred_callout_reconstructs_the_pattern():
-    # the reconstruction path (builder._feature_listing emits `dwg.callout(f)`): a callout intent
-    # recorded inside `with dwg.deferred()` drains through finalize's pre-drain "slot_patterns"
-    # stage, drawing the same grouped callout + pitch (#841 editable surface).
+    # The deferred-callout path: a callout intent recorded inside `with dwg.deferred()` drains
+    # through finalize's pre-drain "slot_patterns" stage, drawing the same grouped callout +
+    # pitch (#841 editable surface). This was the imperative script's reconstruction route;
+    # #940 retired that emitter, so what is covered here now is the `Drawing.deferred()` API
+    # itself, which remains hand-usable.
     part = Box(60, 161, 21)
     s = Sheet(part).auto_dimensions()
     s.envelope()

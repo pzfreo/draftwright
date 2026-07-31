@@ -234,7 +234,8 @@ def test_manual_callout_verb_places_grouped_callout_and_pitch():
 
 
 def test_deferred_callout_reconstructs_the_pattern():
-    # the reconstruction path (builder._feature_listing emits `dwg.callout(f)`): a callout intent
+    # The deferred-callout path (was the imperative script's reconstruction route until #940
+    # retired that emitter; this now covers the hand-usable `Drawing.deferred()` API): a callout intent
     # recorded inside `with dwg.deferred()` drains through finalize's pre-drain "pocket_patterns"
     # stage, drawing the same grouped callout + pitch (#841 outcome 3).
     part = Box(26, 161, 21)

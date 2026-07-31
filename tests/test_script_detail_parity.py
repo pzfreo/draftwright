@@ -225,9 +225,11 @@ def _machined_callouts(dwg):
 def test_generated_script_reproduces_machined_callouts(tmp_path):
     """Machined-feature callout parity (#148): a pocket/fillet/flat/chamfer/groove is a Leader
     callout, not a linear Dimension (its IR params carry no span), so the emitted script could
-    not route it through ``dimension()``. The reconstruction had NO callout verb for these
-    kinds, so ``_feature_listing`` emitted nothing and every machined callout was silently
-    dropped from the script's drawing — contradicting its own "never silently dropped" contract.
+    not route it through ``dimension()``. The imperative emitter had NO callout verb for these
+    kinds, so it emitted nothing and every machined callout was silently dropped from the
+    script's drawing — contradicting its own "never silently dropped" contract. That emitter
+    is gone (#940); the parity claim carries over to the Sheet script, which is what this
+    now runs.
 
     A chamfered block with a floored pocket exercises TWO kinds (four ``C6`` chamfer leaders +
     one pocket) that place identically on both paths (roomy, so no layout-driven drop
