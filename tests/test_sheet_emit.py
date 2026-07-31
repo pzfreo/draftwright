@@ -2355,12 +2355,39 @@ def _structurally_equal(a, b, *, tol=5e-4):
     return a == b
 
 
-#: The closed set of round-trip routes. A route is a VALUE, not a phrase — five review rounds
-#: found the same defect (a coverage claim no code required), and the sixth found it again
-#: after the claim moved from `== "corpus"` to `"declared route" in note`. Substring parsing
-#: of an explanation is still prose deciding an obligation; a prose edit silently dropped
-#: `authored_dimension` from coverage entirely (#967 r6).
-_ROUTES = ("detected", "declared", "aspect", "unnameable")
+#: ``route -> the obligation it imposes``, as CODE. Each takes the kinds carrying that route
+#: plus what the two corpora actually produced, and returns the offenders.
+#:
+#: This mapping is the single source of truth for what routes exist. Seven review rounds found
+#: the same defect — a coverage claim nothing enforced — and each fix moved the claim one level
+#: out: from a note string, to a substring match, to a separately-listed tuple of valid routes.
+#: The last of those was still editable independently of the enforcement, so adding a route
+#: with no handler excused a kind while everything stayed green (#967 r7). Deriving the route
+#: set FROM the handlers ends the regress: a route that imposes nothing cannot be spelled.
+_ROUTE_OBLIGATIONS = {
+    # Must be produced by the corpus its route names...
+    "detected": lambda kinds, detected, declared: (
+        kinds - detected,
+        "is routed 'detected' but no detected fixture produces one",
+    ),
+    "declared": lambda kinds, detected, declared: (
+        kinds - declared,
+        "is routed 'declared' but no declared fixture produces one",
+    ),
+    # ...or, for the routes that assert NO obligation, must be produced by neither — an excuse
+    # is only honest while nothing falsifies it.
+    "aspect": lambda kinds, detected, declared: (
+        kinds & (detected | declared),
+        "is routed as having no round-trip obligation, but a fixture produces one",
+    ),
+    "unnameable": lambda kinds, detected, declared: (
+        kinds & (detected | declared),
+        "is routed as having no round-trip obligation, but a fixture produces one",
+    ),
+}
+
+#: Derived, never hand-written — see above.
+_ROUTES = tuple(_ROUTE_OBLIGATIONS)
 
 #: ``kind -> (route, reason)`` for EVERY IR kind. The reason is documentation and nothing
 #: reads it; the route decides which corpus must contain the kind, and is validated against
@@ -2555,11 +2582,15 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
 
         return {"measured dimension": measured_dimension}
 
-    def test_every_route_value_is_one_of_the_closed_set(self):
-        """The route decides an obligation, so an unrecognised one must fail loudly rather
-        than quietly matching no branch and excusing the kind (#967 r6)."""
-        bad = {k: r for k, (r, _why) in _FIDELITY_ROUTE.items() if r not in _ROUTES}
-        assert not bad, f"unknown routes {bad}; valid are {_ROUTES}"
+    def test_every_route_has_an_obligation(self):
+        """A route only exists because a handler imposes something. Validating against a
+        separately-maintained list of names was the seventh instance of this defect: a route
+        could be added there, used, and enforce nothing (#967 r7)."""
+        used = {r for r, _why in _FIDELITY_ROUTE.values()}
+        assert used <= set(_ROUTE_OBLIGATIONS), (
+            f"{sorted(used - set(_ROUTE_OBLIGATIONS))} imposes no obligation — add a handler "
+            "to _ROUTE_OBLIGATIONS saying what the route requires, or use an existing route"
+        )
 
     def test_every_ir_kind_has_a_route(self):
         """Fail-closed against the IR, not against another table. A new feature kind cannot
@@ -2589,25 +2620,10 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             _part, model = build()
             declared |= {f.kind for f in model.features}
 
-        observed = {"detected": detected, "declared": declared}
-        for route, seen in observed.items():
-            want = {k for k, (r, _why) in _FIDELITY_ROUTE.items() if r == route}
-            assert not (want - seen), (
-                f"{sorted(want - seen)} is routed {route!r} but no {route} fixture produces "
-                "one — add a fixture, or change the route and say why"
-            )
-
-        # The other direction, and the one that makes the route itself unfalsifiable prose if
-        # it is missing: `aspect` and `unnameable` are claims that a kind has NO round-trip
-        # obligation. That is only honest while no fixture produces one. Without this, moving
-        # a kind to `aspect` silently excused it and every test stayed green — the sixth
-        # instance of this defect, in the machinery built to prevent the fifth (#967 r6).
-        excused = {k for k, (r, _why) in _FIDELITY_ROUTE.items() if r in ("aspect", "unnameable")}
-        produced = excused & (detected | declared)
-        assert not produced, (
-            f"{sorted(produced)} is routed as having no round-trip obligation, but a fixture "
-            "produces one — so the obligation is real and the route is wrong"
-        )
+        for route, obligation in _ROUTE_OBLIGATIONS.items():
+            kinds = {k for k, (r, _why) in _FIDELITY_ROUTE.items() if r == route}
+            offenders, why = obligation(kinds, detected, declared)
+            assert not offenders, f"{sorted(offenders)} {why}"
 
     @pytest.mark.parametrize("name", sorted(_declared_corpus()))
     def test_every_declared_feature_survives_its_own_emit(self, name):
