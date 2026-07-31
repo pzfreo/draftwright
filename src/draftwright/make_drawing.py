@@ -1,10 +1,14 @@
 """Compat facade: the engine split into stage modules (#138 / ADR 0005).
 
 The `Drawing` result object now lives in `drawing.py`; build orchestration
-(`build_drawing`/`make_drawing`/`generate_script`) in `builder.py`; the `_cli`
+(`build_drawing`/`make_drawing`) in `builder.py`; the `_cli`
 compat shim beside the Typer app in `cli.py` (#523). This module re-exports the
 public surface so `from draftwright.make_drawing import ...` and the `draftwright`
 CLI entry point keep working.
+
+`generate_script` is re-exported too, but only as the raising stub #940 left behind: this
+facade's job is that an old import still resolves, and resolving to an explanation beats
+resolving to an ImportError.
 """
 
 from draftwright.builder import (  # noqa: F401

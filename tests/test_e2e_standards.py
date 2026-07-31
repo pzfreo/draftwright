@@ -328,30 +328,50 @@ _ROUNDTRIP_FAMILIES = [
     "name,factory", _ROUNDTRIP_FAMILIES, ids=[n for n, _ in _ROUNDTRIP_FAMILIES]
 )
 def test_generated_script_roundtrip_is_lint_error_free(tmp_path, name, factory):
-    """#436: the STEP → generate_script → run-the-.py → drawing round-trip, exercised
-    end-to-end across part families. The emitted script text is the thing under test (not
-    the in-process `_reconstruct` mirror): it wraps the intent verbs in `with dwg.deferred():`
-    and relies on `finalize()` running on block exit — a behavior only the *executed* script
-    exercises. We append a lint epilogue so the script reports ITS OWN drawing's lint to
-    stdout (no rebuild in this process), then assert exit 0 + the exported file written
-    (PDF — the #709 default, aligned with the direct CLI) + no error-severity lint
-    (warnings tolerated, matching _assert_meets_standards)."""
+    """#436: the STEP → emit → run-the-.py → drawing round-trip, exercised end-to-end across
+    part families. The emitted script TEXT is the thing under test, not an in-process mirror
+    of it: it runs in a subprocess, on a clean interpreter, exactly as a user would run it.
+    We swap its terminal ``sheet.export(...)`` for a build-export-and-report epilogue (one
+    build, not two) so the script reports ITS OWN drawing's lint to stdout, then assert exit
+    0 + the exported file written (PDF — the #709 default, aligned with the direct CLI) + no
+    error-severity lint (warnings tolerated, matching _assert_meets_standards).
+
+    Migrated from the imperative emitter to the Sheet one when #940 retired it. The original
+    turned on `with dwg.deferred():` and `finalize()` firing on block exit; the Sheet script
+    has no such block, so what remains under test is the plainer and more important claim —
+    the generated file runs and draws a lint-clean drawing."""
     import json
+    import re
     import subprocess
     import sys
 
-    from draftwright.make_drawing import generate_script
+    from draftwright.sheet_emit import generate_sheet_script
 
     step = tmp_path / f"{name}.step"
     export_step(factory(), str(step))
-    py = generate_script(str(step), out=str(tmp_path / name))
+    py = generate_sheet_script(str(step), out=str(tmp_path / name))
 
-    # Make the executed script print its own drawing's error-severity lint codes.
+    # Replace the script's own export call with build → export → report, so the lint comes
+    # off the same Drawing the PDF did rather than a second build of the same model.
     src = Path(py).read_text(encoding="utf-8")
-    src += (
-        "\nimport json as _dwj\n"
+    # `formats` is restated because the two export verbs do not share a default: Sheet.export
+    # defaults to PDF (matching the CLI) while Drawing.export still defaults to the legacy
+    # SVG+DXF tuple. Dropping to the Drawing verb therefore has to say what the Sheet verb
+    # would have done, or this asserts the wrong file.
+    src, subs = re.subn(
+        r"^sheet\.export\(([^)]*)\)$",
+        "dwg = sheet.build()\n"
+        r"dwg.export(\1, formats=('pdf',))"
+        "\n"
+        "import json as _dwj\n"
         "_dwerrs = sorted({i.code for i in dwg.lint() if i.severity == 'error'})\n"
-        "print('LINT_ERRORS=' + _dwj.dumps(_dwerrs))\n"
+        "print('LINT_ERRORS=' + _dwj.dumps(_dwerrs))",
+        src,
+        flags=re.M,
+    )
+    assert subs == 1, f"{name}: expected exactly one sheet.export(...) line, got {subs}"
+    assert "formats=" not in src.split("dwg = sheet.build()")[0].splitlines()[-1], (
+        f"{name}: the emitted export already sets formats; the epilogue would double it"
     )
     Path(py).write_text(src, encoding="utf-8")
 

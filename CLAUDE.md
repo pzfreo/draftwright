@@ -46,9 +46,14 @@ entry. Keep `_LAYERS` and this section in step.
   `FeatureInfo`, `fix_svg_page_size`, `lint_feature_coverage`) so existing imports
   and the `draftwright` CLI entry point keep working. The engine lives in:
   - **`builder.py`** — build orchestration: `build_drawing` (analyse → assemble →
-    measure-and-repack → `Drawing`), `make_drawing` (+ export), and the
-    editable-script generator (`generate_script`). Imports `drawing`/`analysis`/
-    the annotation orchestrator/the stage modules — never `make_drawing` (a DAG).
+    measure-and-repack → `Drawing`) and `make_drawing` (+ export). Imports
+    `drawing`/`analysis`/the annotation orchestrator/the stage modules — never
+    `make_drawing` (a DAG). *(`generate_script`, the imperative editable-script
+    generator, was retired by #940 — ADR 0016 phase 6 / ADR 0001 Amdt 2. What
+    remains under the name is a raising stub pointing at `sheet_emit`, kept only
+    because the name is in `draftwright.__all__`; it exits at 0.4.0 with #720.
+    `--style imperative` likewise errors with the reason; `--style` survives with
+    the single value `sheet` so existing invocations keep working.)*
     *(The CLI moved out to `cli.py`; the `_cli` compat shim lives there too (#523),
     so `builder` no longer imports `cli`.)*
   - **`cli.py`** — the Typer command-line interface (#289): argument parsing,
@@ -156,8 +161,9 @@ entry. Keep `_LAYERS` and this section in step.
   `model/declare.py` and calls `build_drawing(model=…)`. Née `sheet_dsl.py`
   (renamed #640 — it's a fluent facade, not a DSL, per ADR 0001; a deprecated
   `sheet_dsl` alias shim remains until 0.4.0).
-- **`sheet_emit.py`** — the Sheet-script emitter behind `--script --style sheet`:
-  generates an editable `Sheet` script from a detected model. Facade tier;
+- **`sheet_emit.py`** — **the** script emitter, behind `--script` (#940 retired the
+  imperative alternative): generates an editable `Sheet` script from a detected
+  model — one named binding per feature, an explicit dimension source. Facade tier;
   imports `builder` downward at module level. The old builder→cli→sheet_emit
   lazy cycle is **gone** (#523): the `_cli` compat shim moved from `builder` to
   `cli.py` (beside the Typer `app`), so `builder` no longer imports `cli` and

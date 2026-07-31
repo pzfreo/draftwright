@@ -1073,7 +1073,10 @@ second with the single-source-of-truth of the first — over the identified set,
 - **`--style imperative` retires once the declarative mirror reaches its coverage**, leaving
   one generated output. The low-level `Drawing` verbs stay a hand-use API but stop being a
   generated surface (ADR 0001 §3), and the generated file deliberately loses its
-  raw-coordinate escape hatch.
+  raw-coordinate escape hatch. **Done** (#940, 2026-07-31; ADR 0001 Amendment 2). The lost
+  escape hatch cost one real capability — the imperative file's raw `build_drawing(...)`
+  call let a reader add any engine kwarg by editing it — so `detail_view` became a `Sheet`
+  argument in the same change rather than disappearing from the generated surface.
 - **The view / section surface is explicitly NOT decided here.** Accepting this ADR commits
   to the dimension layer only.
 - Extends ADR 0011 (declare features) to declare *dimensioning intent*; extends ADR 0012
@@ -1128,7 +1131,11 @@ second with the single-source-of-truth of the first — over the identified set,
    is neither identical nor coincident (a pattern's per-hole locations *and* its pitch).
 6. **Retire `--style imperative`** once the mirror reaches its reconstruction coverage
    (rotational, the ladders, off-axis `locate`, machined callouts, pocket / slot patterns),
-   leaving the declarative script as the single generated output.
+   leaving the declarative script as the single generated output. **Landed** (#940). The
+   gate was met as annotation-set parity per kind, not textual similarity: the coverage
+   regressions asserted only against the imperative script (#555, #881, #889, #133) were
+   retargeted onto the Sheet script and hold as full parity, and every part family in the
+   round-trip corpus emits, runs and lints clean through it.
 
 ## Open questions
 

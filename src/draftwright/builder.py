@@ -2,7 +2,8 @@
 
 The pipeline driver: `build_drawing` runs analysis -> assemble (project +
 annotate + fit) -> measure-and-repack -> returns the `Drawing`; `make_drawing`
-wraps it with export; plus the editable-script generator and the CLI. Imports
+wraps it with export. (The editable-script generator moved out: #940 retired the
+imperative one and `sheet_emit` owns the surviving declarative emitter.) Imports
 `drawing` (the result object), `analysis`, the annotation orchestrator, and the
 stage modules -- never make_drawing -- so the graph stays a DAG.
 """
@@ -28,7 +29,6 @@ from draftwright._core import (
     _LADDER,
     _PAGE_SIZES,
     _SCALES,
-    Analysis,
     _add_projection_symbol,
     _add_sheet_frame,
     _add_title_block,
@@ -46,7 +46,6 @@ from draftwright.annotations.orchestrator import (
     build_model,
     build_rotational_feature,
 )
-from draftwright.annotations.sections import feature_hole_keys
 from draftwright.compose import (
     ViewBlock,
     _attribute_annotations,
@@ -54,7 +53,7 @@ from draftwright.compose import (
     _layout_geometry,
     _view_geom,
 )
-from draftwright.drawing import _MACHINED_CALLOUT_KINDS, Drawing
+from draftwright.drawing import Drawing
 from draftwright.fonts import PLEX_MONO
 from draftwright.model import (
     Datum,
@@ -63,8 +62,6 @@ from draftwright.model import (
     PartModel,
     StepFeature,
     build_pmi_features,
-    display,
-    plan_sections,
 )
 from draftwright.projection import (
     _fit_iso_view,
@@ -275,8 +272,15 @@ def detect_part_model(part, *, pmi="off") -> PartModel:
     a = _analyse(
         part, title="", number="", tolerance="ISO 2768-m", drawn_by="", out="model", pmi=pmi
     )
-    model: PartModel = build_model(a)  # build_model is untyped; it returns a PartModel
-    return model
+    # `_analyse` already detected and stored the model, so calling `build_model(a)`
+    # unconditionally re-ran every detector `build_part_model` doesn't take by injection —
+    # the #602 duplicate-detection bug, fixed in `_assemble` but never here. It went unnoticed
+    # because the emitter that had the detect-once test went through `_assemble`; #940 made
+    # this the path, and migrating that test found it. Same fallback as `_assemble`: a
+    # hand-built Analysis with no stored model still detects.
+    # `Analysis.model` is `object | None` (it sits below the IR in the DAG), so the cast is
+    # what says the stored value is the same PartModel `build_model` would have rebuilt.
+    return cast("PartModel", a.model if a.model is not None else build_model(a))
 
 
 def _assemble(
@@ -962,396 +966,25 @@ def make_drawing(
     return svg_path, dxf_path
 
 
-# ---------------------------------------------------------------------------
-# Script generation (Cog-enabled .py output)
-# ---------------------------------------------------------------------------
+def generate_script(*_args, **_kwargs):
+    """Retired (#940, ADR 0016 phase 6). Use `sheet_emit.generate_sheet_script`.
 
+    A raising stub rather than a plain deletion because this name is in
+    `draftwright.__all__`: a caller who upgrades deserves the reason and the replacement,
+    not an `AttributeError` on a name that was public last release. The stub itself goes at
+    0.4.0 with the other compat exits (#720).
 
-def _fmt_pt(p) -> str:
-    """A compact ``x, y, z`` for a model-space point (integers stay integers).
-
-    Near-integer coords round to an ``int`` (not ``f"{c:.0f}"``) so a symmetric part's
-    tiny-negative bbox-centre float (``-1e-16``) prints ``0``, never ``-0`` (#416 review).
+    It emitted the *imperative* script — a `dwg.<verb>()` reconstruction that addressed
+    features by list position (`dwg.model().features[3]`), which is the positional addressing
+    ADR 0016's identity work removed everywhere else. The Sheet script reconstructs the same
+    drawings, binds a name per feature, and states its dimension source.
     """
-    return ", ".join(f"{round(c)}" if abs(c - round(c)) < 1e-6 else f"{c:.1f}" for c in p)
-
-
-# Feature kinds with no intent verb yet — emitted as a flagged comment, never a broken
-# call. The build_drawing(auto_dims=True) pointer recovers the full auto drawing (#424).
-_GAP_KINDS = {
-    "pmi": "pre-authored PMI, rendered by --pmi annotate; an add verb is deferred to #422",
-}
-
-
-def _feature_listing(a: Analysis) -> str:
-    """Emit the detected features as **runnable intent-verb calls** (#400 Ph2 / #426) that
-    reconstruct the drawing on the detect-only build (``auto_dims=False``) above.
-
-    The verb calls run inside a ``with dwg.deferred():`` block: each verb **records** its
-    intent, and on block exit ``finalize()`` drains them through the auto-pass's own batch
-    solvers (#426 Phase 5) — so the reconstruction reaches auto-pass placement quality
-    (crossing-free locations, the priority-drop callout solve, the turned diameter /
-    step-length set-solves) rather than greedy live placement.
-
-    Each feature is redrawn against the detected model (``dwg.model().features[i]``, the
-    ADR-0008 IR): holes/patterns → ``callout`` + ``locate`` + ``furniture``; steps/bosses →
-    ``callout`` (ø); steps/envelopes/slots → ``dimension(...)`` per linear param; prismatic
-    step levels → one ``dimension(..., role="step_height")`` intent that regenerates the
-    correlated height ladder; a rotational body → ``rotational`` (OD + centrelines +
-    concentric-bore leaders, #424/#426). A section A–A is recorded when a
-    counterbored/spotfaced/blind Z-hole warrants one (finalize renders it last). Feature
-    kinds with no verb yet (pmi) are emitted as flagged comments naming the gap (#424) —
-    never silently dropped. Commenting a per-feature verb line drops exactly that intent
-    (nothing is auto-drawn, so there is no double-dimension risk); the WHOLE-MODEL passes —
-    ``rotational``, the ``dwg.locate(f)`` of side-drilled bores, and the ``role="step_height"``
-    height ladder — reconstruct as a set, so commenting *some* of their lines still redraws
-    the whole group and only commenting them *all* drops it. Pure function of *a*.
-    """
-    model = cast(PartModel, a.model) if a.model is not None else build_model(a)
-    feats = getattr(model, "features", [])
-    if not feats:
-        return (
-            "# ── Reconstruct the drawing (#400 Ph2 / #426) ─────────────────────────────────\n"
-            "# No dimensionable features detected.\n"
-        )
-    # The recorded verb calls + inline gap comments — go inside `with dwg.deferred():`.
-    body: list[str] = []
-    for i, feat in enumerate(feats):
-        kind = feat.kind
-        body.append(f"# features[{i}]  {kind} @ ({_fmt_pt(feat.frame.origin)})")
-        if kind in _GAP_KINDS:
-            body.append(f"#     {kind} — {_GAP_KINDS[kind]}. auto_dims=True to keep it.")
-            continue
-        body.append(f"f = dwg.model().features[{i}]")
-        if kind == "rotational":
-            body.append("dwg.rotational(f)")  # OD + centrelines + bore leaders (#424/#426)
-            continue
-        if kind in ("hole", "pattern"):
-            body.append("dwg.callout(f)")
-            # locate() records the position intent for a hole on ANY axis (#426/#133): a
-            # Z-plan hole drains through render_locations, a side-drilled (X/Y) bore through
-            # the whole-model _locate_off_axis_holes pass — finalize routes by the feature's
-            # axis, so the same verb line reconstructs both.
-            body.append("dwg.locate(f)")
-            body.append("dwg.furniture(f)")
-        elif kind in ("step", "boss"):
-            # X/Z steps route to the profile row/column; a Y step routes to radial
-            # leaders in the end-on front view. All three axes replay through the
-            # same deferred callout intent (#881).
-            body.append("dwg.callout(f)")
-        elif kind == "step_level":
-            body.append(
-                'dwg.dimension(f, "length", role="step_height")   # prismatic height ladder'
-            )
-            # The shoulder POSITION(s) (#555) — ONE verb rebuilds them all on finalize
-            # (render_step_positions), mirroring the height ladder; a per-shoulder verb
-            # would be un-disambiguatable (same role) and crash a multi-shoulder rebate.
-            if feat.shoulders:
-                body.append(
-                    'dwg.dimension(f, "length", role="step_position")   # shoulder position(s)'
-                )
-            continue
-        elif kind in _MACHINED_CALLOUT_KINDS:
-            # Machined-feature leader callouts (#148): a chamfer/fillet/flat/pocket/groove
-            # carries no linear-dim param (span=None — it is a Leader callout, not a Dimension),
-            # so dimension() can't reconstruct it. callout(f) records a per-feature intent that
-            # finalize renders through the kind's auto-pass renderer restricted to this feature
-            # (only={f}, #811) — commenting one line drops exactly that one callout. (A plate is
-            # a spanned dimension, so it falls through to the dimension() emit below, not here.)
-            body.append("dwg.callout(f)")
-            continue
-        elif kind == "pocket_pattern":
-            # A pocket pattern reconstructs through callout(f) (#841 outcome 3): finalize drains
-            # the recorded intent at the pre-drain "pocket_patterns" stage, drawing the grouped
-            # size/depth callout + its pitch dim(s). No locate()/furniture() — a pocket pattern
-            # has no location dims and render_pocket_patterns emits the pitch itself.
-            body.append("dwg.callout(f)")
-            continue
-        elif kind == "slot_pattern":
-            # A slot pattern reconstructs through callout(f), exactly like a pocket pattern:
-            # finalize drains it at the pre-drain "slot_patterns" stage, drawing the grouped
-            # SLOT W × L callout + its pitch dim(s). No locate()/furniture() (#841).
-            body.append("dwg.callout(f)")
-            continue
-        elif kind == "pad":
-            # Pads have two defining footprint sizes plus a two-axis datum
-            # location.  Reconstruct both sets on the detect-only drawing; merely
-            # replaying the size parameters leaves an apparently complete pad
-            # floating without X/Y definition (#885).
-            body.append("dwg.locate(f)")
-        for p in feat.parameters():
-            if p.span is not None or kind in ("slot", "pad"):
-                body.append(f'dwg.dimension(f, "{p.kind}", role="{p.role}")   # {display(p)}')
-    # The overall height, when it comes from the compiler's BOUNDING-BOX fallback rather
-    # than from an `EnvelopeFeature`. An enveloped model already emitted
-    # `dimension(f, "length", role="height")` in the loop above; a model without one has no
-    # feature to name, so the replay simply lost the dimension — silently and lint-clean
-    # (#889). `overall_height()` is the verb for exactly that case.
-    if not any(f.kind == "envelope" for f in feats):
-        from draftwright.model.compiled import compile_dimensions
-
-        if compile_dimensions(model).ladder("overall_height") is not None:
-            body += [
-                "",
-                "# Overall height (from the bounding box — this part declares no envelope",
-                "# feature, so there is none to hang a dimension(...) intent on).",
-                "dwg.overall_height()",
-            ]
-    if plan_sections(model, feature_hole_keys(model, a)) is not None:
-        body += [
-            "",
-            "# Section A–A (part-level; comment to drop the whole section)",
-            "dwg.section()",
-        ]
-    header = [
-        "# ── Reconstruct the drawing at intent level (record → finalize, #426) ─────────",
-        "# The verbs RECORD intents inside `with dwg.deferred()`; on block exit finalize()",
-        "# drains them through the auto-pass's own batch solvers, so the reconstruction",
-        "# reaches auto-pass placement quality — not greedy live placement. Comment any",
-        "# single line to drop exactly that intent; comment a whole block to stop",
-        "# dimensioning that feature. The build above is detect-only, so nothing is drawn",
-        "# twice. Kinds with no verb yet are flagged inline — build_drawing(auto_dims=True)",
-        "# recovers the full automatic drawing for those.",
-        "#",
-    ]
-    # A part whose every feature is a gap kind (and no section) records nothing — emit the
-    # flagged comments flat rather than an empty `with` block (an IndentationError).
-    if not any(ln.strip() and not ln.startswith("#") for ln in body):
-        return "\n".join(header + body) + "\n"
-    indented = ["    " + ln if ln.strip() else ln for ln in body]
-    return "\n".join(header + ["with dwg.deferred():"] + indented) + "\n"
-
-
-def _write_script(
-    a: Analysis,
-    scale: float | None = None,
-    page: str | None = None,
-    formats: Sequence[str] = ("pdf",),
-) -> str:
-    """Write an editable script at ``a.out + '.py'`` that calls make_drawing().
-
-    ``scale``/``page`` are the caller's *overrides* (``None`` = auto); ``pmi`` is
-    carried from the analysis (``a.pmi_mode``). All three are preserved as config
-    fields and threaded into the emitted ``build_drawing(...)`` call so the script
-    reproduces the CLI's intent (#388). ``formats`` (the CLI's ``--format``, #709)
-    is baked into the emitted ``dwg.export(...)`` call for the same reason.
-    """
-    py_path = a.out + ".py"
-    py_name = Path(py_path).name
-
-    cog_output = "\n".join(
-        [
-            f"STEP_FILE = {a.step_file!r}",
-            f"TITLE = {a.title!r}",
-            f"NUMBER = {a.number!r}",
-            f"TOLERANCE = {a.tolerance!r}",
-            f"DRAWN_BY = {a.drawn_by!r}",
-            f"MATERIAL = {a.material!r}",
-            f"DATE = {a.date!r}",
-            f"REVISION = {a.revision!r}",
-            f"COMPANY = {a.company!r}",
-            f"FRAME = {a.frame!r}",
-            f"ZONES = {a.zones!r}",
-            f"PROJECTION = {a.projection!r}",
-            f"PMI = {a.pmi_mode!r}",
-            f"SCALE = {scale!r}",
-            f"PAGE = {page!r}",
-        ]
+    raise NotImplementedError(
+        "generate_script() (the imperative drawing script) was retired in #940. Use "
+        "draftwright.sheet_emit.generate_sheet_script(), or the `draftwright --script` CLI, "
+        "which emits the declarative Sheet script: same reconstruction, features named "
+        "rather than addressed by position, and an explicit dimension source (ADR 0016)."
     )
-
-    cog_block = (
-        "# [[[cog\n"
-        "# ── Config: edit these, then run `cog -r <script>.py` to update ────────────\n"
-        f"_STEP_FILE = {a.step_file!r}\n"
-        f"_TITLE     = {a.title!r}\n"
-        f"_NUMBER    = {a.number!r}\n"
-        f"_TOLERANCE = {a.tolerance!r}\n"
-        f"_DRAWN_BY  = {a.drawn_by!r}\n"
-        f"_MATERIAL  = {a.material!r}\n"
-        f"_DATE      = {a.date!r}\n"
-        f"_REVISION  = {a.revision!r}\n"
-        f"_COMPANY   = {a.company!r}\n"
-        f"_FRAME     = {a.frame!r}   # draw a sheet border (#767)\n"
-        f"_ZONES     = {a.zones!r}   # ISO 5457 zone ruler (implies frame, #768)\n"
-        f"_PROJECTION = {a.projection!r}   # 'third' | 'first' | None (#769)\n"
-        f"_PMI       = {a.pmi_mode!r}   # 'off' | 'report' | 'annotate'\n"
-        f"_SCALE     = {scale!r}   # None = auto; e.g. 5 for 5:1, 0.5 for 1:2\n"
-        f"_PAGE      = {page!r}   # None = auto; e.g. 'A3' or (297, 210)\n"
-        "try:\n"
-        "    cog  # NameError → not under cog\n"
-        "    for _k, _v in [\n"
-        "        ('STEP_FILE', repr(_STEP_FILE)), ('TITLE', repr(_TITLE)),\n"
-        "        ('NUMBER', repr(_NUMBER)), ('TOLERANCE', repr(_TOLERANCE)),\n"
-        "        ('DRAWN_BY', repr(_DRAWN_BY)), ('MATERIAL', repr(_MATERIAL)),\n"
-        "        ('DATE', repr(_DATE)), ('REVISION', repr(_REVISION)),\n"
-        "        ('COMPANY', repr(_COMPANY)), ('FRAME', repr(_FRAME)),\n"
-        "        ('ZONES', repr(_ZONES)), ('PROJECTION', repr(_PROJECTION)),\n"
-        "        ('PMI', repr(_PMI)),\n"
-        "        ('SCALE', repr(_SCALE)), ('PAGE', repr(_PAGE)),\n"
-        "    ]:\n"
-        "        cog.outl(f'{_k} = {_v}')\n"
-        "except NameError:\n"
-        "    pass\n"
-        "# ]]]\n"
-        f"{cog_output}\n"
-        "# [[[end]]]"
-    )
-
-    _tq = '"""'
-    _safe_doc_title = a.title.replace(_tq, "'''")
-    _safe_doc_number = a.number.replace(_tq, "'''")
-    header = (
-        f"#!/usr/bin/env python3\n"
-        f'"""\n'
-        f"{_safe_doc_title} — Technical drawing ({_safe_doc_number}).\n"
-        f"\n"
-        f"Auto-generated by make-drawing. Edit freely.\n"
-        f"To update metadata: edit _STEP_FILE / _TITLE / etc. in the cog block, then run:\n"
-        f"  cog -r {py_name}   (pip install cogapp)\n"
-        f"\n"
-        f"Run:  uv run python {py_name}\n"
-        f'"""\n'
-        f"import os as _os\n"
-        f"from draftwright import build_drawing\n"
-        f"\n"
-        f"# Available for lint-suggestion snippets (dwg.lint_summary()); unused otherwise.\n"
-        f"from build123d_drafting import Dimension, HoleCallout, Leader  # noqa: F401\n"
-        f"\n"
-        f"# ── Config (auto-updated by cog) ──────────────────────────────────────────────\n"
-    )
-
-    run_section = (
-        "\n"
-        "# ── Build drawing (detect-only 4-view layout; dimensions added below) ──────────\n"
-        "_stem = _os.path.splitext(__file__)[0]\n"
-        "dwg = build_drawing(\n"
-        "    STEP_FILE,\n"
-        "    out=_stem,\n"
-        "    title=TITLE,\n"
-        "    number=NUMBER,\n"
-        "    tolerance=TOLERANCE,\n"
-        "    drawn_by=DRAWN_BY,\n"
-        "    material=MATERIAL,\n"
-        "    date=DATE,\n"
-        "    revision=REVISION,\n"
-        "    company=COMPANY,\n"
-        "    frame=FRAME,\n"
-        "    zones=ZONES,\n"
-        "    projection=PROJECTION,\n"
-        "    pmi=PMI,\n"
-        "    scale=SCALE,\n"
-        "    page=PAGE,\n"
-        "    auto_dims=False,   # detect-only — the intent verbs below add every dimension\n"
-        ")\n"
-        "\n"
-        "# ── Customise here — runs BEFORE export, so edits land in the output ───────────\n"
-        "# Prefer domain edits (the intent verbs below) over page mechanics (at / Leader);\n"
-        "# the engine places annotations automatically — say WHAT, not WHERE.\n"
-        "# dwg.model().features     → detected feature IR for domain edits\n"
-        "# dwg.dimension(f, param, role=…, pin=True, priority=…)  → feature-backed dimension\n"
-        "# dwg.locate(f, pin=True)  → feature-backed location dimension\n"
-        "# dwg.annotations()        → {name: type} of every named annotation\n"
-        "# dwg.get_annotation(name) → the named annotation object, or None\n"
-        "# dwg.remove(name)         → drop a named annotation\n"
-        "# dwg.callout(f) / dwg.note(text, at)  → feature callout / free-form text note\n"
-        "# dwg.pin(name) / dwg.unpin(name)  → fix a placement so repair never moves it\n"
-        "# dwg.lint_summary()       → {passed, score, by_code, issues:[…suggestion]}\n"
-        "# dwg.repair()             → auto-fix mechanically-fixable lint (never worsens)\n"
-        "# dwg.section()            → add the section A–A view (add_view is now engine-internal)\n"
-        "# dwg.items / dwg.views / dwg.at(view,x,y,z) / dwg.view_bounds(view)  → low-level escape\n"
-        "# dwg.place_dim(...)       → deprecated raw page-coordinate dimension escape hatch\n"
-        "# Example — add a pinned feature-backed linear dimension:\n"
-        "#   env = next(f for f in dwg.model().features if f.kind == 'envelope')\n"
-        "#   dwg.dimension(env, 'length', role='width', side='below', pin=True)\n"
-        "\n" + _feature_listing(a) + "\n"
-        "# finalize() (auto-run on the `with` exit above, and again by export) batch-solved\n"
-        "# the recorded intents; repair() is now just a peephole net — it never worsens the\n"
-        "# sheet (#426 Phase 5).\n"
-        "dwg.repair()\n"
-        "\n"
-        "# ── Export ────────────────────────────────────────────────────────────────────\n"
-        # The modern dict form, honouring the CLI's --format (#709); the legacy
-        # `svg_path, dxf_path = dwg.export(_stem)` tuple path is deprecated.
-        f"_formats = {tuple(formats)!r}\n"
-        "paths = dwg.export(_stem, formats=_formats)\n"
-        # Print in the REQUESTED order (#755 review): Drawing.export returns its
-        # dict in dependency order (svg before the png derived from it), so
-        # iterating paths.items() would reorder `-f png,svg` output vs the
-        # direct CLI's _emit, which prints as requested.
-        "for _fmt in _formats:\n"
-        # ASCII arrow: a Unicode → crashes the print on a Windows cp1252 console
-        # (UnicodeEncodeError) — the generated script must run everywhere.
-        '    print(f"{_fmt.upper()} -> {paths[_fmt]}")\n'
-    )
-
-    content = header + cog_block + run_section
-    Path(py_path).write_text(content, encoding="utf-8")
-    _log.info("Script → %s", py_path)
-    return py_path
-
-
-def generate_script(
-    step_file: str,
-    out: str | None = None,
-    title: str | None = None,
-    number: str = "DWG-001",
-    tolerance: str = "ISO 2768-m",
-    drawn_by: str = "",
-    pmi: Literal["off", "report", "annotate"] = "off",
-    scale: float | None = None,
-    page: str | None = None,
-    material: str = "",
-    date: str = "",
-    revision: str = "A",
-    company: str = "",
-    frame: bool = False,
-    zones: bool = False,
-    projection: str | None = None,
-    formats: Sequence[str] = ("pdf",),
-) -> str:
-    """Generate an editable Cog-enabled drawing script from a STEP file.
-
-    ``formats`` (the CLI's ``--format``, #709) is baked into the script's
-    ``dwg.export(...)`` call so a re-run writes the requested outputs.
-
-    Returns:
-        Path to the generated ``.py`` file.
-    """
-    if isinstance(step_file, Shape):
-        raise TypeError(
-            "generate_script() requires a STEP file path — the generated script "
-            "reloads geometry from disk and cannot embed a live build123d object. "
-            "Use make_drawing() directly to draw an in-memory object."
-        )
-    stem = Path(step_file).stem
-    out = out or stem
-    for _ext in (".py", ".svg", ".dxf"):
-        if out.endswith(_ext):
-            out = out[: -len(_ext)]
-            break
-    title = title or stem.replace("_", " ").upper()
-    # scale/page are NOT passed to this analysis: the script embeds them as literal
-    # config fields and re-validates them at run time inside build_drawing(). Validating
-    # here too would crash generation on an out-of-range value (e.g. --script --scale
-    # 0.001 / --page A9) instead of writing the script and deferring — inconsistent with
-    # a large unfittable scale, which already defers (review #401).
-    a = _analyse(
-        step_file,
-        title,
-        number,
-        tolerance,
-        drawn_by,
-        out,
-        pmi=pmi,
-        material=material,
-        date=date,
-        revision=revision,
-        company=company,
-        frame=frame,
-        zones=zones,
-        projection=projection,
-    )
-    return _write_script(a, scale=scale, page=page, formats=formats)
 
 
 # The CLI moved out to draftwright.cli (#289); the `_cli` compat shim now lives there

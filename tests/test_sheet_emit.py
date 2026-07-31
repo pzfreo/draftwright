@@ -949,36 +949,6 @@ class TestCli:
         src = open(tmp_path / "g.py", encoding="utf-8").read()
         assert "from draftwright import Sheet" in src and "sheet.hole(" in src
 
-    def test_imperative_style_still_available(self, tmp_path):
-        # the imperative reconstruction is still reachable via an explicit --style imperative
-        from typer.testing import CliRunner
-
-        from draftwright.cli import app
-
-        step = tmp_path / "plate.step"
-        export_step(_plate(), str(step))
-        r = CliRunner().invoke(
-            app, [str(step), "--script", "--style", "imperative", "--out", str(tmp_path / "g")]
-        )
-        assert r.exit_code == 0, r.output
-        assert (
-            "from draftwright import Sheet" not in open(tmp_path / "g.py", encoding="utf-8").read()
-        )
-
-    def test_imperative_with_object_spec_is_rejected(self, tmp_path, monkeypatch):
-        # imperative reads a STEP file, not a module:attr object → a clear error, not import_step noise
-        from typer.testing import CliRunner
-
-        from draftwright.cli import app
-
-        (tmp_path / "climod.py").write_text(_SOURCE_MODULE, encoding="utf-8")
-        monkeypatch.chdir(tmp_path)
-        r = CliRunner().invoke(app, ["climod:bracket", "--script", "--style", "imperative"])
-        assert r.exit_code != 0
-        # rich wraps the error panel at the (CI-narrow) console width, so the phrase can straddle
-        # a bordered line — normalise ANSI + box borders + whitespace before the substring check
-        assert "--style sheet" in _norm(r.output)
-
     def test_sheet_style_embeds_title_block_and_layout_flags(self, tmp_path):
         # #474: the Sheet DSL now carries --drawn-by/--tolerance/--scale/--page, so the sheet path
         # forwards them into the generated Sheet(...) constructor (no more inert-flag warning).
@@ -1064,32 +1034,6 @@ class TestCli:
         assert f"sheet.export({str(tmp_path / 'g')!r})" in src
         assert "formats=" not in src
 
-    def test_format_is_forwarded_into_the_imperative_script(self, tmp_path):
-        # #709: the imperative flavour honours --format too, via the modern dict export.
-        from typer.testing import CliRunner
-
-        from draftwright.cli import app
-
-        step = tmp_path / "plate.step"
-        export_step(_plate(), str(step))
-        r = CliRunner().invoke(
-            app,
-            [
-                str(step),
-                "--script",
-                "--style",
-                "imperative",
-                "-f",
-                "svg,dxf",
-                "--out",
-                str(tmp_path / "g"),
-            ],
-        )
-        assert r.exit_code == 0, r.output
-        src = (tmp_path / "g.py").read_text(encoding="utf-8")
-        assert "_formats = ('svg', 'dxf')" in src
-        assert "paths = dwg.export(_stem, formats=_formats)" in src
-
     def test_bad_style_is_rejected(self, tmp_path):
         from typer.testing import CliRunner
 
@@ -1099,6 +1043,35 @@ class TestCli:
         export_step(_plate(), str(step))
         r = CliRunner().invoke(app, [str(step), "--script", "--style", "bogus"])
         assert r.exit_code != 0
+
+    def test_the_retired_imperative_style_says_so(self, tmp_path):
+        """#940: `--style imperative` was a working flag last release, so it gets its own
+        message rather than falling into the generic bad-value branch. The flag survives with
+        one value; a script passing `--style sheet` keeps working, which is why it wasn't
+        deleted outright."""
+        from typer.testing import CliRunner
+
+        from draftwright.cli import app
+
+        step = tmp_path / "plate.step"
+        export_step(_plate(), str(step))
+        r = CliRunner().invoke(app, [str(step), "--script", "--style", "imperative"])
+        assert r.exit_code != 0
+        out = _norm(r.output)
+        assert "retired" in out and "--style sheet" in out
+        # ...and it is a distinct message, not the generic one a typo gets.
+        generic = CliRunner().invoke(app, [str(step), "--script", "--style", "bogus"])
+        assert _norm(generic.output) != out
+
+    def test_the_retired_imperative_emitter_explains_itself(self):
+        """The Python-level counterpart: `generate_script` is in `draftwright.__all__`, so a
+        caller who upgrades hits a stub with the replacement in it rather than an
+        AttributeError on a name that was public last release (#940; the stub exits at 0.4.0
+        with #720)."""
+        import draftwright
+
+        with pytest.raises(NotImplementedError, match="generate_sheet_script"):
+            draftwright.generate_script("part.step")
 
     def test_module_spec_routes_to_the_live_object(self, tmp_path, monkeypatch):
         # `draftwright climod:bracket --script --style sheet` → detect off the imported object

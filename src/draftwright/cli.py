@@ -1,7 +1,7 @@
 """cli — the draftwright command-line interface (Typer, #289).
 
 A thin Typer front-end over the build engine (`builder.build_drawing` /
-`generate_script`): it owns argument parsing, ``--version``, shell completion,
+`sheet_emit.generate_sheet_script`): it owns argument parsing, ``--version``, shell completion,
 and rich-formatted help, then calls down into the engine. The engine stays
 headless — no presentation concern leaks below this module, so this is also the
 home the event-stream / TUI work (#276) wraps its sink + renderer around.
@@ -129,8 +129,8 @@ def main(
     style: str = typer.Option(
         "sheet",
         "--style",
-        help="--script flavour: 'sheet' (declarative Sheet script - one line per feature, "
-        "default) or 'imperative' (edit-verb reconstruction)",
+        help="--script flavour: only 'sheet' (the declarative Sheet script, one line per "
+        "feature). Retained for scripts that pass it; 'imperative' is retired",
     ),
     pmi: PmiMode = typer.Option(
         PmiMode.off,
@@ -163,78 +163,61 @@ def main(
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING, format="%(message)s")
 
     formats = _parse_formats(output_format)
-    if script and style not in ("imperative", "sheet"):
+    if script and style != "sheet":
         # validate before the ~5 s engine import so a typo fails fast
-        raise typer.BadParameter("--style must be 'imperative' or 'sheet'", param_hint="--style")
+        if style == "imperative":
+            raise typer.BadParameter(
+                "'imperative' was retired (#940): the Sheet script is the one emitter. It "
+                "reconstructs everything the imperative script did, names features instead "
+                "of addressing them by position, and states its dimension source (ADR 0016). "
+                "Drop --style, or pass --style sheet.",
+                param_hint="--style",
+            )
+        raise typer.BadParameter("--style must be 'sheet'", param_hint="--style")
 
     # Import the engine lazily, only on the build path: it pulls in build123d/OCP
     # (~5 s of CAD-kernel import). Keeping it out of module scope means shell
     # completion, --help and --version (which import this module but never call
     # the command) stay sub-second instead of paying for the kernel every time.
-    from draftwright.builder import build_drawing, generate_script
+    from draftwright.builder import build_drawing
 
     if script:
-        if style == "sheet":
-            from draftwright.sheet_emit import generate_sheet_script, resolve_object_spec
+        from draftwright.sheet_emit import generate_sheet_script, resolve_object_spec
 
-            # The Sheet script now carries the title-block / layout aspects (#474), so forward all
-            # four flags — the generated script reproduces them on re-run (no more inert warning).
-            if _looks_like_object_spec(step_file):
-                # STEP_FILE is a `module:attr` / `file.py:attr` spec → reference a live object
-                obj, seam = resolve_object_spec(step_file)
-                py_path = generate_sheet_script(
-                    obj,
-                    out=out,
-                    title=title,
-                    number=number,
-                    tolerance=tolerance,
-                    drawn_by=drawn_by,
-                    scale=scale,
-                    page=page,
-                    material=material,
-                    date=date,
-                    revision=revision,
-                    company=company,
-                    frame=frame,
-                    zones=zones,
-                    projection=projection or None,
-                    part_expr=seam,
-                    formats=tuple(formats),
-                )
-            else:
-                py_path = generate_sheet_script(
-                    step_file,
-                    out=out,
-                    title=title,
-                    number=number,
-                    tolerance=tolerance,
-                    drawn_by=drawn_by,
-                    scale=scale,
-                    page=page,
-                    material=material,
-                    date=date,
-                    revision=revision,
-                    company=company,
-                    frame=frame,
-                    zones=zones,
-                    projection=projection or None,
-                    pmi=pmi.value,
-                    formats=tuple(formats),
-                )
-        else:
-            if _looks_like_object_spec(step_file):
-                raise typer.BadParameter(
-                    "the imperative reconstruction reads a STEP file; use --style sheet "
-                    "(the default) to reference a 'module:attr' object",
-                    param_hint="--style",
-                )
-            py_path = generate_script(
-                step_file=step_file,
+        # The Sheet script now carries the title-block / layout aspects (#474), so forward all
+        # four flags — the generated script reproduces them on re-run (no more inert warning).
+        if _looks_like_object_spec(step_file):
+            # STEP_FILE is a `module:attr` / `file.py:attr` spec → reference a live object
+            obj, seam = resolve_object_spec(step_file)
+            py_path = generate_sheet_script(
+                obj,
                 out=out,
                 title=title,
                 number=number,
                 tolerance=tolerance,
                 drawn_by=drawn_by,
+                scale=scale,
+                page=page,
+                material=material,
+                date=date,
+                revision=revision,
+                company=company,
+                frame=frame,
+                zones=zones,
+                projection=projection or None,
+                part_expr=seam,
+                formats=tuple(formats),
+            )
+        else:
+            py_path = generate_sheet_script(
+                step_file,
+                out=out,
+                title=title,
+                number=number,
+                tolerance=tolerance,
+                drawn_by=drawn_by,
+                scale=scale,
+                page=page,
                 material=material,
                 date=date,
                 revision=revision,
@@ -243,8 +226,6 @@ def main(
                 zones=zones,
                 projection=projection or None,
                 pmi=pmi.value,
-                scale=scale,
-                page=page,
                 formats=tuple(formats),
             )
         print(py_path)

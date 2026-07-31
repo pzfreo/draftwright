@@ -3,7 +3,6 @@
 import logging
 import math
 import os
-import runpy
 import subprocess
 import sys
 import warnings
@@ -25,7 +24,7 @@ from draftwright.compose import StripDepths, _fits, choose_scale
 from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
 from draftwright.linting import LintIssue
-from draftwright.make_drawing import generate_script, lint_feature_coverage
+from draftwright.make_drawing import lint_feature_coverage
 from draftwright.recognition import (
     Slot,
     recognise_face_levels,
@@ -42,6 +41,31 @@ def _ctx_for(dwg):
     from draftwright.annotations._common import PlacementContext
 
     return PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
+
+
+def _sheet_script_drawing(part, tmp_path, name, **emit_kw):
+    """Emit the Sheet script for *part*, run it, and return ``(script_source, Drawing)``.
+
+    The generated script's terminal call is ``sheet.export(...)``, which would write a PDF;
+    patching it to build-and-capture is how every script round-trip test in this repo gets at
+    the Drawing without paying for the render. Local rather than shared with `test_sheet_emit`
+    because importing across test modules couples their collection order.
+    """
+    from unittest.mock import patch
+
+    from draftwright import Sheet
+    from draftwright.sheet_emit import generate_sheet_script
+
+    step = tmp_path / f"{name}.step"
+    export_step(part, str(step))
+    py = generate_sheet_script(str(step), out=str(tmp_path / name), **emit_kw)
+    source = Path(py).read_text(encoding="utf-8")
+    captured = {}
+    with patch.object(
+        Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+    ):
+        exec(compile(source, py, "exec"), {})  # noqa: S102 — our own generated script
+    return source, captured["dwg"]
 
 
 def _state_snapshot(dwg):
@@ -410,26 +434,24 @@ class TestStepPosition:
         assert not [n for n in dwg.annotations() if n.startswith("dim_shoulder")]
 
     def test_step_position_round_trips_through_generated_script(self, tmp_path):
-        # #555 review: the --script reconstruction (record→finalize) must keep the step
-        # position, else a regenerated drawing is under-constrained again — the very bug.
-        # A CENTERED rebate (two shoulders sharing role="step_position") is the case a
-        # per-shoulder verb would crash on: one verb must rebuild both via finalize.
-        from build123d import export_step
-
-        from draftwright.make_drawing import generate_script
-
+        # #555 review: the emitted script must keep the step position, else a regenerated
+        # drawing is under-constrained again — the very bug. A CENTERED rebate (two shoulders
+        # on one step_level) is the case a per-shoulder verb would crash on: one line carries
+        # both. Migrated to the Sheet script when #940 retired the imperative one; the
+        # "exactly one verb rebuilds all shoulders" claim is now "one step_level line", and
+        # full parity with the automatic drawing replaces the two label spot-checks.
         part = Box(80, 60, 30) - Pos(0, 0, 7.5) * Box(80, 20, 15)  # two shoulders: 20 and 40
-        step = tmp_path / "stepped.step"
-        export_step(part, str(step))
-        script_path = generate_script(str(step), out=str(tmp_path / "gen"))
-        src = Path(script_path).read_text()
-        assert src.count('role="step_position"') == 1  # ONE verb rebuilds all shoulders
-        ns = {"__file__": script_path}
-        exec(src, ns)  # noqa: S102 — executing our own generated reconstruction (must not crash)
+        source, scripted = _sheet_script_drawing(part, tmp_path, "stepped")
+
+        assert len([ln for ln in source.splitlines() if "sheet.step_level(" in ln]) == 1
         labels = [
-            str(o.label) for _, o in ns["dwg"].iter_annotations() if getattr(o, "label", None)
+            str(o.label) for _, o in scripted.iter_annotations() if getattr(o, "label", None)
         ]
         assert "20" in labels and "40" in labels  # both shoulder positions survive
+        auto = build_drawing(part)
+        assert {n for n, _ in scripted.iter_annotations()} == {
+            n for n, _ in auto.iter_annotations()
+        }
 
     def test_step_position_round_trips_through_declared_model(self):
         # #555 review: a declared StepLevelFeature carrying shoulders renders the position
@@ -3014,13 +3036,6 @@ def test_make_drawing_object_defaults_out_to_drawing(tmp_path, monkeypatch):
     assert (tmp_path / "drawing.svg").exists()
 
 
-def test_generate_script_rejects_build123d_object():
-    """generate_script() needs a path — a live object cannot be embedded."""
-    box = Box(10, 10, 10)
-    with pytest.raises(TypeError, match="STEP file path"):
-        generate_script(box)
-
-
 @pytest.mark.smoke
 def test_make_drawing_module_entrypoint_runs_cli_help():
     """The compat facade remains executable as ``python -m draftwright.make_drawing``."""
@@ -3674,208 +3689,38 @@ def test_drawing_add_view(tmp_path):
     assert Path(svg).exists()
 
 
-@pytest.mark.timeout(60)
-def test_generate_script_emits_build_drawing(tmp_path):
-    box = Box(30, 20, 10)
-    step = tmp_path / "p.step"
-    export_step(box, str(step))
-    py = generate_script(str(step), out=str(tmp_path / "p"))
-    content = Path(py).read_text(encoding="utf-8")
-    assert "build_drawing(" in content
-    assert "dwg.export(" in content
-    assert "Customise here" in content
-
-
-def test_generate_script_preserves_pmi_scale_page(tmp_path):
-    # #388: the generated script must carry the CLI's build intent — pmi/scale/page as
-    # config fields AND threaded into the emitted build_drawing() call — so running the
-    # script reproduces what the CLI would have built.
-    step = tmp_path / "p.step"
-    export_step(Box(30, 20, 10), str(step))
-    py = generate_script(str(step), out=str(tmp_path / "p"), pmi="annotate", scale=5.0, page="A3")
-    content = Path(py).read_text(encoding="utf-8")
-    assert "PMI = 'annotate'" in content
-    assert "SCALE = 5.0" in content
-    assert "PAGE = 'A3'" in content
-    assert "pmi=PMI," in content and "scale=SCALE," in content and "page=PAGE," in content
-
-
-def test_generate_script_preserves_title_block_and_furniture(tmp_path):
-    # #775: the imperative script must round-trip the standing title-block fields (#766) and
-    # the sheet furniture (frame #767 / zones #768 / projection #769) — as config fields AND
-    # threaded into the emitted build_drawing() call — so running it reproduces the CLI's
-    # drawing (the sheet flavour already round-trips these; this closes the imperative gap).
-    step = tmp_path / "p.step"
-    export_step(Box(30, 20, 10), str(step))
-    py = generate_script(
-        str(step),
-        out=str(tmp_path / "p"),
-        material="STEEL",
-        date="2026-07-20",
-        revision="B",
-        company="ACME",
-        frame=True,
-        zones=True,
-        projection="third",
-    )
-    content = Path(py).read_text(encoding="utf-8")
-    for cfg in (
-        "MATERIAL = 'STEEL'",
-        "DATE = '2026-07-20'",
-        "REVISION = 'B'",
-        "COMPANY = 'ACME'",
-        "FRAME = True",
-        "ZONES = True",
-        "PROJECTION = 'third'",
-    ):
-        assert cfg in content, cfg
-    for threaded in (
-        "material=MATERIAL,",
-        "date=DATE,",
-        "revision=REVISION,",
-        "company=COMPANY,",
-        "frame=FRAME,",
-        "zones=ZONES,",
-        "projection=PROJECTION,",
-    ):
-        assert threaded in content, threaded
-
-
-def test_generate_script_uses_modern_dict_export(tmp_path):
-    # #709: the emitted export is the modern {format: path} dict form (default pdf,
-    # matching the CLI / sheet flavour) — never the deprecated legacy tuple path.
-    step = tmp_path / "p.step"
-    export_step(Box(30, 20, 10), str(step))
-    content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text()
-    assert "_formats = ('pdf',)" in content
-    assert "paths = dwg.export(_stem, formats=_formats)" in content
-    assert "svg_path, dxf_path = dwg.export" not in content  # the legacy tuple is gone
-
-
-def test_generate_script_forwards_formats(tmp_path):
-    # #709: --format reaches the emitted export call.
-    step = tmp_path / "p.step"
-    export_step(Box(30, 20, 10), str(step))
-    content = Path(
-        generate_script(str(step), out=str(tmp_path / "p"), formats=("svg", "png"))
-    ).read_text()
-    assert "_formats = ('svg', 'png')" in content
-
-
-def test_generated_script_prints_in_requested_order(tmp_path):
-    # #755 review: Drawing.export returns its dict in DEPENDENCY order (svg before
-    # the png derived from it), so printing paths.items() would reorder a
-    # `-f png,svg` request vs the direct CLI's _emit. The template must iterate
-    # the requested tuple. Execute a non-canonical-order script and assert the
-    # printed order matches the request.
-    import subprocess
-    import sys
-
-    step = tmp_path / "p.step"
-    export_step(Box(30, 20, 10), str(step))
-    py = generate_script(str(step), out=str(tmp_path / "p"), formats=("png", "svg"))
-    r = subprocess.run(
-        [sys.executable, py], capture_output=True, text=True, cwd=str(tmp_path), timeout=150
-    )
-    assert r.returncode == 0, f"generated script failed:\n{r.stderr[-1500:]}"
-    assert (tmp_path / "p.png").exists() and (tmp_path / "p.svg").exists()
-    png_at, svg_at = r.stdout.find("PNG ->"), r.stdout.find("SVG ->")
-    assert 0 <= png_at < svg_at, f"requested png,svg order not preserved:\n{r.stdout}"
-
-
-def test_generate_script_defaults_are_auto(tmp_path):
-    # Defaults: no overrides → PMI off, SCALE/PAGE None (auto) — still emitted so the
-    # fields exist for the user to set.
-    step = tmp_path / "p.step"
-    export_step(Box(30, 20, 10), str(step))
-    content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text()
-    assert "PMI = 'off'" in content
-    assert "SCALE = None" in content and "PAGE = None" in content
-
-
-def test_generate_script_imports_lint_suggestion_classes(tmp_path):
-    # #388: lint suggestions (dwg.lint_summary()) reference Leader/HoleCallout/Dimension;
-    # the script must import them so a suggestion pastes+runs without manual imports.
-    step = tmp_path / "p.step"
-    export_step(Box(30, 20, 10), str(step))
-    content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text()
-    assert "from build123d_drafting import Dimension, HoleCallout, Leader" in content
-
-
 def test_generate_script_defers_invalid_scale_page(tmp_path):
     # #388/#401: an out-of-range scale/page must NOT crash generation — the script is
     # written with the value embedded and validation deferred to run time (consistent
-    # with a large unfittable scale, which already defers).
+    # with a large unfittable scale, which already defers). Retargeted onto the Sheet
+    # emitter by #940; the value rides the emitted Sheet(...) call rather than a cog field.
+    from draftwright.sheet_emit import generate_sheet_script
+
     step = tmp_path / "p.step"
     export_step(Box(30, 20, 10), str(step))
-    py = generate_script(str(step), out=str(tmp_path / "p"), scale=0.001, page="A9")
-    content = Path(py).read_text()
-    assert "SCALE = 0.001" in content and "PAGE = 'A9'" in content
-
-
-def test_generate_script_reconstructs_features_as_intent_calls(tmp_path):
-    # #400 Ph2 / #426 Ph5: the Customise section is a runnable detect-only reconstruction —
-    # each feature redrawn by the domain add verbs against model().features[i]. The verbs
-    # record inside `with dwg.deferred()`; finalize() (on block exit) batch-solves them.
-    step = tmp_path / "p.step"
-    export_step(Box(60, 60, 12) - Pos(0, 0, 0) * Cylinder(4, 40), str(step))
-    content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text(encoding="utf-8")
-    assert "# ── Reconstruct the drawing at intent level (record → finalize, #426)" in content
-    assert "auto_dims=False" in content  # the build is detect-only
-    assert "with dwg.deferred():" in content  # #426 Ph5: verbs record, finalize on exit
-    assert "# features[0]  hole @" in content  # indexed by model().features[i]
-    assert "    dwg.callout(f)" in content  # hole ø via the callout verb (indented in block)
-    assert "    dwg.locate(f)" in content  # its datum position
-    assert "    dwg.furniture(f)" in content  # its centre mark
-    assert '    dwg.dimension(f, "length", role="width")' in content  # envelope, editable
-    assert "dwg.repair()" in content  # a peephole net after the batch solve
-
-
-def test_generate_script_emits_prismatic_step_level_intent(tmp_path):
-    # The prismatic height ladder is a correlated chain, but it now has a semantic
-    # reconstruction verb instead of a gap comment.
-    step = tmp_path / "stepped.step"
-    part = Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20)
-    export_step(part, str(step))
-    content = Path(generate_script(str(step), out=str(tmp_path / "stepped"))).read_text(
-        encoding="utf-8"
-    )
-    assert 'dwg.dimension(f, "length", role="step_height")' in content
-    assert 'dwg.dimension(f, "length", role="height")' in content
-    assert "step_level — auto-pass draws the prismatic height ladder" not in content
-
-
-def test_feature_listing_is_deferred_intent_calls(tmp_path):
-    # #400 Ph2 / #426 Ph5 (was Ph1 "fully inert"): the reconstruction block now contains
-    # BARE, uncommented verb calls recorded inside `with dwg.deferred()`. Verify there are
-    # runnable calls (indented under the with), they reference the read surface, and the
-    # deferred block is present.
-    step = tmp_path / "p.step"
-    export_step(Box(40, 30, 8) - Pos(0, 0, 0) * Cylinder(3, 20), str(step))
-    content = Path(generate_script(str(step), out=str(tmp_path / "p"))).read_text(encoding="utf-8")
-    start = content.index("# ── Reconstruct the drawing at intent level")
-    end = content.index("# ── Export", start)
-    block = [ln for ln in content[start:end].splitlines() if ln.strip()]
-    assert "with dwg.deferred():" in block  # the record → finalize scope
-    live = [ln for ln in block if not ln.lstrip().startswith("#")]
-    assert live, "reconstruction must contain runnable (uncommented) calls"
-    assert any(ln.lstrip().startswith("dwg.") for ln in live)  # indented under the with
-    assert any("dwg.model().features[" in ln for ln in live)
+    py = generate_sheet_script(str(step), out=str(tmp_path / "p"), scale=0.001, page="A9")
+    content = Path(py).read_text(encoding="utf-8")
+    assert "scale=0.001" in content and "page='A9'" in content
 
 
 @pytest.mark.timeout(180)
 def test_generated_script_runs_and_preserves_pmi(tmp_path):
     # #388 acceptance: a generated --pmi annotate script preserves pmi when RUN — execute
-    # it in a subprocess and assert it builds output without error.
+    # it in a subprocess and assert it builds output without error. Retargeted onto the
+    # Sheet emitter by #940. PMI survives differently there and better: it is threaded
+    # through detection and emitted as explicit dimension lines, rather than a flag the
+    # script re-applies on every run.
     import os
     import subprocess
     import sys
+
+    from draftwright.sheet_emit import generate_sheet_script
 
     step = tmp_path / "p.step"
     # A hole so the #400 listing carries a non-ASCII ø in a comment — proves the utf-8
     # source runs even under an ASCII stdout (source encoding is independent of stdout).
     export_step(Box(80, 50, 8) - Pos(0, 0, 0) * Cylinder(4, 40), str(step))
-    py = generate_script(str(step), out=str(tmp_path / "p"), pmi="annotate")
+    py = generate_sheet_script(str(step), out=str(tmp_path / "p"), pmi="annotate")
     # Force an ASCII stdout so a non-ASCII char in the script's own print() (e.g. a
     # Unicode arrow) fails HERE on every platform, not only on a Windows cp1252 console.
     env = {**os.environ, "PYTHONIOENCODING": "ascii"}
@@ -6636,28 +6481,6 @@ class TestFeatureEdits:
         self._reconstruct(dwg)  # many callout(step) calls — none may raise "no room"
         dwg.repair()  # the script must reach repair(), not abort before it
 
-    def test_generated_script_emits_locate_for_side_drilled_holes(self):
-        # #426/#133 (supersedes the #427 F1 gap comment): the emitter now records
-        # dwg.locate(f) for a side-drilled bore too. Safe because locate()'s deferred
-        # branch records the intent WITHOUT the Z-axis check, and finalize routes the
-        # off-axis location to the whole-model _locate_off_axis_holes pass — never the
-        # Z-only live verb (which still raises). End-to-end execution + the dim_loc_*
-        # parity is covered by test_generated_script_matches_direct_side_drilled_locations.
-        import tempfile
-        from pathlib import Path
-
-        from build123d import Box, Cylinder, Pos, Rot, export_step
-
-        from draftwright.make_drawing import generate_script
-
-        part = Box(120, 90, 40) - Pos(0, 0, 5) * Rot(0, 90, 0) * Cylinder(5, 120)
-        with tempfile.TemporaryDirectory() as d:
-            step = Path(d) / "sd.step"
-            export_step(part, str(step))
-            content = Path(generate_script(str(step), out=str(Path(d) / "sd"))).read_text()
-        assert "locate() is Z-axis only" not in content  # the old gap comment is gone
-        assert "dwg.locate(f)" in content  # the side-drilled location is now reconstructed
-
     def test_intent_reconstruction_comment_drops_exactly_that(self):
         # #400 Ph2 soft acceptance: commenting one verb line drops exactly that annotation.
         # With auto_dims=False nothing is auto-drawn, so omitting callout(f) removes exactly
@@ -9248,23 +9071,21 @@ class TestTurnedDiameters:
         Asserted as full annotation-set parity rather than "dim_height is present", because
         the acceptance is that replay matches the automatic drawing — and the risk on the
         other side is duplicating the Y-step length chain, which a presence check would miss.
+
+        Retargeted onto the Sheet script by #940. This fixture also carries what
+        `test_issue_881_generated_script_emits_y_step_intents` used to assert about the
+        imperative script's TEXT: that suite's executable half — side/plan centrelines, no
+        front/side location dims, the step-length chain on the side view — is folded in
+        below, since the source-text half described a file that no longer exists.
         """
-        import runpy
-
-        from build123d import export_step
-
-        from draftwright.make_drawing import generate_script
-
         part = self._issue_881_y_step_flange()
         assert not any(f.kind == "envelope" for f in build_drawing(part).model().features), (
             "the fixture must have NO envelope feature — the bbox fallback is the case "
             "with no intent to record"
         )
-        step = tmp_path / "flange.step"
-        export_step(part, str(step))
 
         auto = build_drawing(part)
-        replayed = runpy.run_path(generate_script(str(step), out=str(tmp_path / "gen")))["dwg"]
+        _source, replayed = _sheet_script_drawing(part, tmp_path, "flange")
 
         automatic = {n for n, _ in auto.iter_annotations()}
         replay = {n for n, _ in replayed.iter_annotations()}
@@ -9277,6 +9098,12 @@ class TestTurnedDiameters:
             auto.get_annotation("dim_height").label == replayed.get_annotation("dim_height").label
         )
         assert not auto.lint_summary()["by_code"] and not replayed.lint_summary()["by_code"]
+
+        # ── from #881: the Y-step furniture lands in the right views on the replay ──
+        assert replayed.view_of("centerline_side") == "side"
+        assert replayed.view_of("centerline_plan") == "plan"
+        assert not any(n.startswith(("dim_loc_front_", "dim_loc_side_")) for n in replay)
+        assert {replayed.view_of(n) for n in replay if n.startswith("m_steplen")} == {"side"}
 
     @pytest.mark.parametrize(("axis_z", "rotation"), [(0.0, 90), (17.0, 90), (-11.0, -90)])
     def test_issue_892_short_y_step_chain_moves_to_enlarged_side_detail(self, axis_z, rotation):
@@ -9371,30 +9198,6 @@ class TestTurnedDiameters:
         }
         assert dwg.view_of("centerline_side") == "side"
         assert dwg.view_of("centerline_plan") == "plan"
-
-    def test_issue_881_generated_script_emits_y_step_intents(self, tmp_path):
-        step_path = tmp_path / "y-step.step"
-        export_step(self._issue_881_y_step_flange(), str(step_path))
-
-        script_path = Path(generate_script(str(step_path), out=str(tmp_path / "y-step-drawing")))
-        script = script_path.read_text()
-
-        assert "no Y-turned step pipeline" not in script
-        assert "the auto-pass skips them too" not in script
-        assert "dwg.callout(f)" in script
-        assert 'dwg.dimension(f, "length", role="step")' in script
-
-        # Execute the auto_dims=False reconstruction. Source-text checks cannot
-        # prove the deferred drain reproduced the automatic furniture.
-        rebuilt = runpy.run_path(str(script_path))["dwg"]
-        assert rebuilt.view_of("centerline_side") == "side"
-        assert rebuilt.view_of("centerline_plan") == "plan"
-        assert not any(n.startswith("dim_loc_front_") for n in rebuilt.annotations())
-        assert not any(n.startswith("dim_loc_side_") for n in rebuilt.annotations())
-        assert {
-            rebuilt.view_of(n) for n in rebuilt.annotations() if n.startswith("m_steplen")
-        } == {"side"}
-        assert not rebuilt.lint()
 
     def test_each_external_diameter_gets_a_callout(self):
         dwg = build_drawing(_x_stepped_shaft())

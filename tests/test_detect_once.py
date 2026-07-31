@@ -55,13 +55,13 @@ def test_detectors_run_once_per_build(fillet_counter):
 def test_generate_script_detects_once(fillet_counter, tmp_path):
     from build123d import export_step
 
-    from draftwright import generate_script
+    from draftwright.sheet_emit import generate_sheet_script
 
     step = str(tmp_path / "filleted.step")
     export_step(_filleted(), step)
-    generate_script(step, out=str(tmp_path / "s"))
+    generate_sheet_script(step, out=str(tmp_path / "s"))
     assert fillet_counter["n"] == 1, (
-        f"recognise_fillets ran {fillet_counter['n']}× in generate_script — the emitter "
+        f"recognise_fillets ran {fillet_counter['n']}× in generate_sheet_script — the emitter "
         f"must reuse Analysis.model, not rebuild"
     )
 

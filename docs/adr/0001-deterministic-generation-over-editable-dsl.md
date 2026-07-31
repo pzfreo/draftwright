@@ -145,6 +145,34 @@ is thereby reframed as serving both auto-dimensioning quality *and* the semantic
 edit surface. This does not reopen §3's primitive-expansion rejection; it
 specifies *what* the domain-semantic layer (§2) is anchored to.
 
+## Amendment 2 — `generate_script` is retired; the emitted script is declarative only
+
+- **Status:** Accepted
+- **Date:** 2026-07-31
+
+**Why.** §3 said `generate_script` "remains a convenience for reproducible builds"
+while not accruing investment toward editability. Amendment 1 then sanctioned an
+executable form of the edit surface at the *intent* level. Two emitters ended up
+existing side by side, and they diverged: the imperative one addressed features by
+list position (`dwg.model().features[3]`) — the positional addressing ADR 0016's
+identity work removed everywhere else — while the declarative `Sheet` emitter binds
+a name per feature and states its dimension source explicitly.
+
+**Decision.** `builder.generate_script` and `--style imperative` are retired (#940,
+ADR 0016 phase 6). The Sheet script (`sheet_emit.generate_sheet_script`) is the one
+emitter. §3's "de-emphasise bespoke editable-code generation" is unchanged and its
+primitive-dump rejection still stands; what changes is that the *sanctioned* form
+Amendment 1 carved out is now singular. `--style` survives with one valid value so
+existing invocations keep working; `generate_script` survives as a raising stub
+carrying the replacement, and exits at 0.4.0 with #720.
+
+**Why this is a simplification and not a loss.** The gate was annotation-set parity
+per kind, not a promise of textual similarity: every part family in the
+`test_e2e_standards` round-trip corpus emits, runs and lints clean through the Sheet
+script, and the regressions that were only asserted against the imperative script
+(#555 step positions, #881 Y-step furniture, #889 overall height, #133 side-drilled
+locations) were retargeted onto it and hold as full annotation-set parity.
+
 ## Related
 
 - `docs/plans/right-first-time-roadmap.md` — the deterministic-core + Cluster B

@@ -1087,8 +1087,8 @@ def generate_sheet_script(
     formats: Sequence[str] = ("pdf",),
 ) -> str:
     """Write a declarative ``Sheet``-DSL script for *step_file* (a STEP path or a build123d
-    object). Returns the path to the generated ``.py``. The mode-3 declarative counterpart of
-    :func:`draftwright.builder.generate_script` (which emits the imperative reconstruction).
+    object). Returns the path to the generated ``.py``. **The** script emitter, since #940
+    retired the imperative one it used to sit alongside.
 
     ``tolerance``/``drawn_by``/``scale``/``page`` are the title-block / layout aspects (#474):
     when non-default they are emitted into the generated ``Sheet(...)`` so a re-run reproduces
