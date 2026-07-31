@@ -778,7 +778,7 @@ class TestAPositionIsADimension:
             direction=(1, 0, 0),
             at=(0, 0, 0),
         )
-        sheet.dimension(sheet.features[0], "pitch")
+        sheet.dimension(sheet.features[0], "pitch.length")
         drawn = {n for n, _ in sheet.build().iter_annotations()}  # must not raise
         assert not [n for n in drawn if n.startswith("hc_")]
 

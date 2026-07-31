@@ -51,6 +51,70 @@ Role = str
 # `dimension(...)` lines, and must stay stable across re-detection and planner changes.
 # See :attr:`DimParameter.parameter_id` for how it is derived.
 ParameterId = str
+#: The measurement vocabulary a caller can name — what `Sheet.dimension(feature, role)` and
+#: `add_dimension` accept (#963). Closed where `Role` above is open, and deliberately so: the
+#: IR must stay extensible for new detectors, but a *caller* can only name a measurement that
+#: exists today, and annotating that as a bare `str` gave no completion, no type checking and
+#: no way to see the options without running the code.
+#:
+#: **The parameter id is the canonical spelling.** The bare role (`"bore"`) also resolves, but
+#: it is the FAMILY spelling — it selects every parameter carrying that role, which on `step`
+#: meant `dimension(step, "step")` silently declared both `step.length` and `step.diameter`.
+#: In an authored set, whose whole semantics is that omission means suppression, quietly
+#: declaring an extra measurement is the mirror image of the rule. So `_resolve_measurement`
+#: now refuses a role naming more than one, deprecates the rest, and normalises what it stores
+#: to the id — which also means an emitted script no longer changes dialect with how its
+#: source model was authored. Bare roles are therefore NOT listed here: they are tolerated
+#: input on the way out, not the spelling to reach for.
+#:
+#: `"location"` is here but is not a `DimParameter`: it is synthesised from the planner plus a
+#: datum, and only exists on features `planner.location_datum` deems eligible (#876), so the
+#: runtime check in `_resolve_measurement` stays authoritative. This alias is an authoring aid,
+#: not a second decision site.
+#:
+#: Kept in step with the IR by `tests/test_dimension_role_vocabulary.py`, which derives the
+#: truth from the `DimParameter(...)` construction sites rather than trusting this list.
+#: A discriminated variant (`grid_pitch.length.row`) is reached with `axis=`, not spelled here.
+DimensionRole = Literal[
+    "bolt_circle.diameter",
+    "bore.depth",
+    "bore.diameter",
+    "boss.diameter",
+    "boss_height.length",
+    "chamfer.length",
+    "counterbore.depth",
+    "counterbore.diameter",
+    "countersink.angle",
+    "countersink.diameter",
+    "depth.length",
+    "fillet.radius",
+    "flat.length",
+    "groove.diameter",
+    "groove.length",
+    "height.length",
+    "od.diameter",
+    "pad_length.length",
+    "pad_width.length",
+    "pitch.length",
+    "pocket_depth.length",
+    "pocket_length.length",
+    "pocket_width.length",
+    "slot_length.length",
+    "slot_width.length",
+    "spotface.depth",
+    "spotface.diameter",
+    "step.diameter",
+    "step.length",
+    "step_height.length",
+    "step_position.length",
+    "thickness.length",
+    "width.length",
+    # DISCRIMINATED: its full id carries the variant (`grid_pitch.length.row`), which
+    # `axis=` supplies separately — so the bare role IS the spelling here.
+    "grid_pitch",
+    # synthesised, not a DimParameter (see above)
+    "location",
+]
 
 
 @dataclass(frozen=True)

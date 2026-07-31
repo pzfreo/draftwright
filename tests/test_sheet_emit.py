@@ -120,7 +120,7 @@ class TestEmit:
             sheet.model(), "part = Box(90, 60, 20)", "s", title="T", number="N"
         )
         assert "sheet.auto_dimensions()" not in src
-        assert 'sheet.dimension(envelope1, "width")' in src
+        assert 'sheet.dimension(envelope1, "width.length")' in src
 
     def test_emits_one_declarative_line_per_feature(self):
         src = _script_for(_plate())
@@ -1586,7 +1586,13 @@ class TestAuthoredSetRoundTrips:
         model = detect_part_model(part)
         hole = next(f for f in model.features if f.kind == "hole")
         env = next(f for f in model.features if f.kind == "envelope")
-        authored = (RequestedDimension(hole, "bore.diameter"), RequestedDimension(env, "width"))
+        # Both spelled canonically (#963). This route builds `RequestedDimension`s directly,
+        # below the `Sheet` facade that normalises, so what is written here is what the
+        # emitter writes — which makes it the place a bare role would leak into an artefact.
+        authored = (
+            RequestedDimension(hole, "bore.diameter"),
+            RequestedDimension(env, "width.length"),
+        )
         return part, dataclasses.replace(model, authored_dimensions=authored)
 
     def _run(self, src, part):
@@ -1662,7 +1668,7 @@ class TestAuthoredSetRoundTrips:
         src = emit_sheet_script(model, "part", "bracket", title="T", number="N")
         assert "sheet.auto_dimensions()" not in src
         assert 'sheet.dimension(hole1, "bore.diameter")' in src
-        assert 'sheet.dimension(envelope1, "width")' in src
+        assert 'sheet.dimension(envelope1, "width.length")' in src
 
     def test_a_detected_model_still_states_the_planner_source(self):
         """The other half of the mandatory-source rule — narrowing the refusal must not cost

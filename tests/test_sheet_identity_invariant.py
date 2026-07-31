@@ -158,7 +158,7 @@ def _scn_dimension(s):
     s._auto_dimensions = None
     a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
     s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
-    return a, lambda a: s.dimension(a, "bore")
+    return a, lambda a: s.dimension(a, "bore.diameter")
 
 
 def _scn_add_dimension(s):
@@ -172,7 +172,7 @@ def _scn_add_dimension(s):
     there is."""
     a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
     s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
-    return a, lambda a: s.add_dimension(a, "bore")
+    return a, lambda a: s.add_dimension(a, "bore.diameter")
 
 
 #: verb name -> (prepare, drive). The ratchet below asserts this covers every handle-returning
@@ -429,7 +429,7 @@ class TestTokensDivergedFromIndices:
 
     def test_add_dimension_records_the_named_feature(self):
         s, a, _b = self._offset()
-        s.add_dimension(a, "bore")
+        s.add_dimension(a, "bore.diameter")
         assert s._added_dimensions[0]["token"] == s._token_at(0)
 
     def test_gdt_provenance_binds_to_the_named_feature(self):
@@ -474,12 +474,16 @@ class TestIntegerRefs:
     def test_negative_indices_resolve_from_the_end_everywhere(self):
         s = self._two()
         assert s.of(-1)._i == 1
-        s.add_dimension(-1, "bore")
+        s.add_dimension(-1, "bore.diameter")
         assert s._added_dimensions[0]["token"] == s._token_at(1)
 
     def test_an_out_of_range_index_raises_on_every_verb(self):
         s = self._two()
-        for call in (lambda: s.of(2), lambda: s.of(-3), lambda: s.add_dimension(-3, "bore")):
+        for call in (
+            lambda: s.of(2),
+            lambda: s.of(-3),
+            lambda: s.add_dimension(-3, "bore.diameter"),
+        ):
             with pytest.raises(IndexError, match="out of range"):
                 call()
 
@@ -488,7 +492,7 @@ class TestIntegerRefs:
         silently dimension the second feature."""
         s = self._two()
         with pytest.raises(TypeError, match="must be a handle"):
-            s.add_dimension(True, "bore")
+            s.add_dimension(True, "bore.diameter")
 
 
 class TestCrossSheetHandles:
@@ -505,7 +509,7 @@ class TestCrossSheetHandles:
     def test_add_dimension_rejects_a_foreign_handle(self):
         _s1, s2, h1 = self._pair()
         with pytest.raises(ValueError, match="different Sheet"):
-            s2.add_dimension(h1, "bore")
+            s2.add_dimension(h1, "bore.diameter")
 
     def test_control_rejects_a_foreign_handle(self):
         _s1, s2, h1 = self._pair()

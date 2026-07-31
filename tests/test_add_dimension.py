@@ -92,8 +92,9 @@ class TestSheetSurface:
     def test_the_handle_records_the_request(self):
         sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
-        intent = sheet.add_dimension(bore, "bore")
-        assert intent._entry["role"] == "bore"
+        intent = sheet.add_dimension(bore, "bore.diameter")
+        # The CANONICAL spelling is recorded, not what was typed (#963).
+        assert intent._entry["role"] == "bore.diameter"
         assert intent._entry["token"] == sheet._token_at(0)
 
     def test_the_handle_forwards_unknown_attributes_to_the_sheet(self):
@@ -101,7 +102,9 @@ class TestSheetSurface:
         the same contract `_Params` holds."""
         sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
-        chained = sheet.add_dimension(bore, "bore").hole(diameter=4, at=(20, 0, 20), axis="z")
+        chained = sheet.add_dimension(bore, "bore.diameter").hole(
+            diameter=4, at=(20, 0, 20), axis="z"
+        )
         assert chained is not None
         assert len(sheet.features) == 2
 
@@ -110,7 +113,7 @@ class TestSheetSurface:
         before `.depth()` replaces the feature still resolves against the final one."""
         sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z")
-        sheet.add_dimension(bore, "bore")
+        sheet.add_dimension(bore, "bore.diameter")
         bore.depth(12)  # replaces the frozen feature at that index
         (request,) = sheet._requested_dimensions()
         assert request.feature is sheet.features[0]
@@ -126,7 +129,7 @@ class TestSheetSurface:
         """`add_dimension` augments the planner's set, so there must be one."""
         sheet = Sheet(_part(), title="T", number="N")  # deliberately no source
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
-        sheet.add_dimension(bore, "bore")
+        sheet.add_dimension(bore, "bore.diameter")
         with pytest.raises(ValueError, match="call auto_dimensions"):
             sheet.build()
 
@@ -135,7 +138,7 @@ class TestSheetSurface:
         these two scripts must not disagree."""
         sheet = Sheet(_part(), title="T", number="N")  # the source arrives below
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
-        sheet.add_dimension(bore, "bore")
+        sheet.add_dimension(bore, "bore.diameter")
         sheet.auto_dimensions()
         assert sheet.build() is not None
 
@@ -183,7 +186,7 @@ class TestSheetSurface:
     def test_declaring_both_sources_raises(self):
         sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
-        sheet.dimension(bore, "bore")
+        sheet.dimension(bore, "bore.diameter")
         with pytest.raises(ValueError, match="ONE dimension source"):
             sheet.build()
 
@@ -359,7 +362,7 @@ class TestSheetSurface:
         sheet = Sheet.from_part(part)
         env = next(f for f in sheet.features if f.kind == "envelope")
         hole = next(f for f in sheet.features if f.kind == "hole")
-        sheet.dimension(env, "width")
+        sheet.dimension(env, "width.length")
         dwg = sheet.build()
 
         before = set(dwg.annotations())
@@ -443,7 +446,7 @@ class TestSheetSurface:
         the #707 class of bug, where the emitted script and the drawing disagree."""
         sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
-        sheet.add_dimension(bore, "bore")
+        sheet.add_dimension(bore, "bore.diameter")
         assert len(sheet.model().requested_dimensions) == 1
 
 
@@ -500,20 +503,22 @@ class TestFeatureResolution:
 
     def test_a_handle_resolves(self):
         sheet, handle = self._sheet_with_hole()
-        assert sheet.add_dimension(handle, "bore")._entry["token"] == sheet._token_at(0)
+        assert sheet.add_dimension(handle, "bore.diameter")._entry["token"] == sheet._token_at(0)
 
     def test_an_index_resolves(self):
         sheet, _ = self._sheet_with_hole()
-        assert sheet.add_dimension(0, "bore")._entry["token"] == sheet._token_at(0)
+        assert sheet.add_dimension(0, "bore.diameter")._entry["token"] == sheet._token_at(0)
 
     def test_the_ir_feature_itself_resolves(self):
         sheet, _ = self._sheet_with_hole()
-        assert sheet.add_dimension(sheet.features[0], "bore")._entry["token"] == sheet._token_at(0)
+        assert sheet.add_dimension(sheet.features[0], "bore.diameter")._entry[
+            "token"
+        ] == sheet._token_at(0)
 
     def test_an_out_of_range_index_raises(self):
         sheet, _ = self._sheet_with_hole()
         with pytest.raises(IndexError, match="out of range"):
-            sheet.add_dimension(7, "bore")
+            sheet.add_dimension(7, "bore.diameter")
 
     def test_a_feature_from_another_sheet_raises(self):
         """A feature that was never declared here cannot be augmented — silently
@@ -521,7 +526,7 @@ class TestFeatureResolution:
         sheet, _ = self._sheet_with_hole()
         stranger = HoleFeature(Frame((99, 99, 0), "z"), 3.0, depth=None, through=True)
         with pytest.raises(ValueError, match="not a feature declared on this sheet"):
-            sheet.add_dimension(stranger, "bore")
+            sheet.add_dimension(stranger, "bore.diameter")
 
 
 def test_a_verbatim_partmodel_carries_requests_through_the_builder():
@@ -562,7 +567,7 @@ class TestItActuallyChangesTheDrawing:
         sheet = Sheet(self._square_part(), title="T", number="N").auto_dimensions()
         env = sheet.envelope()
         if request:
-            sheet.add_dimension(env, "depth")
+            sheet.add_dimension(env, "depth.length")
         drawing = sheet.build()
         return sorted(n for n in drawing.annotations() if n.startswith("m_env"))
 
@@ -612,7 +617,7 @@ class TestRequestTargeting:
         twin = HoleFeature(**vars(sheet.features[0]))
         assert twin == sheet.features[0]
         with pytest.raises(ValueError, match="not a feature declared on this sheet"):
-            sheet.add_dimension(twin, "bore")
+            sheet.add_dimension(twin, "bore.diameter")
 
 
 class TestInvalidCombinations:
@@ -660,7 +665,7 @@ class TestInvalidCombinations:
         sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
         sheet.hole(diameter=4, at=(30, 0, 14), axis="z")
-        sheet.add_dimension(bore, "bore")
+        sheet.add_dimension(bore, "bore.diameter")
 
         del sheet.features[0]
 
@@ -690,7 +695,7 @@ def test_a_gdt_aspect_alongside_a_dimension_intent_is_legitimate():
     sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
     bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
     bore.note("HONE")
-    sheet.add_dimension(bore, "bore")
+    sheet.add_dimension(bore, "bore.diameter")
     assert sheet.model() is not None
     assert sheet.build() is not None
     assert sheet.build() is not None, "and again — repeated builds must stay legal"
@@ -912,12 +917,14 @@ class TestOmissionReachesTheDrawing:
 
     def test_an_authored_set_survives_the_build(self):
         sheet, env = self._sheet()
-        sheet.dimension(env, "width")
-        assert [d.role for d in sheet.build().model().authored_dimensions] == ["width"]
+        sheet.dimension(env, "width.length")
+        # Normalised to the parameter id on the way in (#963), so the set the build sees
+        # reads the same however the script spelled it.
+        assert [d.role for d in sheet.build().model().authored_dimensions] == ["width.length"]
 
     def test_an_omitted_measurement_is_marked_suppressed(self):
         sheet, env = self._sheet()
-        sheet.dimension(env, "width")
+        sheet.dimension(env, "width.length")
         groups = plan_dimensions(sheet.model())
         marked = {pd.param.role: pd.suppressed for g in groups for pd in g.dims}
         assert marked["width"] is False, "the named measurement prints"
@@ -927,7 +934,7 @@ class TestOmissionReachesTheDrawing:
         """Marked, NOT filtered (#875): the group retains its engineering data, so a later
         pass can still see what was left out and why."""
         sheet, env = self._sheet()
-        sheet.dimension(env, "width")
+        sheet.dimension(env, "width.length")
         groups = plan_dimensions(sheet.model())
         omitted = [pd for g in groups for pd in g.dims if pd.suppressed]
         assert omitted and all(pd.param.value is not None for pd in omitted)
@@ -994,8 +1001,8 @@ class TestOmittedDimensionsDoNotRender:
         gets it. Without this, deleting the height ladder outright would pass."""
         sheet = Sheet(self._plate(), title="T", number="N")
         env = sheet.envelope()
-        sheet.dimension(env, "width")
-        sheet.dimension(env, "height")
+        sheet.dimension(env, "width.length")
+        sheet.dimension(env, "height.length")
         assert "dim_height" in _names(sheet.build())
 
     def test_the_automatic_set_still_draws_the_overall_height(self):
@@ -1082,7 +1089,7 @@ class TestOmittedDimensionsDoNotRender:
         env = sheet.envelope()
         sheet.hole(Pos(-30, 0, 17) * Cylinder(5, 20))
         sheet.hole(Pos(30, 20, 17) * Cylinder(4, 20))
-        sheet.dimension(env, "width")
+        sheet.dimension(env, "width.length")
 
         drawn = _names(sheet.build())
         assert "m_env_width" in drawn, "the one authored measurement"
@@ -1272,10 +1279,13 @@ class TestEveryFeatureVerbIsNameable:
 
         sheet = Sheet(Box(80, 50, 8))
         handle = self._invoke(sheet, verb)
-        roles = [p.role for p in sheet.features[handle._i].parameters()]
-        if not roles:
+        # The CANONICAL spelling (#963): a bare role names the whole family, so on a kind
+        # carrying two — `groove` is `groove.diameter` + `groove.length` — it is refused.
+        # `parameter_id` is what a caller should write and what this must therefore exercise.
+        params = sheet.features[handle._i].parameters()
+        if not params:
             pytest.skip(f"{verb} declares a parameterless feature — covered by the raise test")
-        sheet.dimension(handle, roles[0])
+        sheet.dimension(handle, params[0].parameter_id)
 
     def test_a_parameterless_feature_refuses_a_tolerance_rather_than_dropping_it(self):
         """`_Params` is handed out for every kind now, including ones with no dimensioned

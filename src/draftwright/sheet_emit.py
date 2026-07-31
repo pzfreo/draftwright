@@ -742,6 +742,11 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         "# ── Dimensions ────────────────────────────────────────────────────────────────",
         "# THIS IS THE COMPLETE SET (ADR 0016). A measurement with no line here is omitted",
         "# deliberately — comment a line out to drop that dimension, add one to declare it.",
+        # The role vocabulary was undiscoverable from the artefact: an editor had to guess a
+        # string or read the source (#963). Typing narrows it now, but a generated file is
+        # read by people and agents who may have neither, so it says where the answer is.
+        '# To add one: sheet.dimension(<name>, "<role>") — a feature\'s roles are listed by',
+        "# feature.parameters(), and naming a role it lacks reports the ones it has.",
         # The VERB, not just the comment above it. `dimension(...)` lines imply this source
         # on their own, so writing it was optional for a non-empty set — but an EMPTY
         # authored set has no line to imply it from, and the script then said its source in a
