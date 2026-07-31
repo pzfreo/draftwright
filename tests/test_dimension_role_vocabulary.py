@@ -107,3 +107,134 @@ def test_a_real_role_resolves_and_an_invented_one_raises():
     sheet.dimension(hole, "bore.diameter")  # listed, and it resolves
     with pytest.raises(ValueError, match="no 'diameter' measurement"):
         sheet.dimension(hole, "diameter")  # type: ignore[call-overload]
+
+
+class TestTheCanonicalSpellingIsEnforced:
+    """The BEHAVIOUR, not just the vocabulary (#965 review).
+
+    The tests above check `DimensionRole`'s contents; deleting the refuse/warn/normalise
+    branch in `_resolve_measurement` would leave every one of them passing. These fail if it
+    goes — which is the point of having them.
+    """
+
+    @staticmethod
+    def _shaft_sheet():
+        from build123d import Cylinder, Pos
+
+        from draftwright import Sheet
+
+        shaft = Cylinder(15, 20) + Pos(0, 0, 17.5) * Cylinder(10, 15)
+        sheet = Sheet.from_part(shaft, title="T", number="N").authored_dimensions()
+        return sheet, next(f for f in sheet.features if f.kind == "step")
+
+    @staticmethod
+    def _hole_sheet(verb="dimension"):
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import Sheet
+
+        part = Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20)
+        sheet = Sheet.from_part(part, title="T", number="N")
+        sheet.authored_dimensions() if verb == "dimension" else sheet.auto_dimensions()
+        return sheet, next(f for f in sheet.features if f.kind == "hole")
+
+    def test_a_family_naming_two_measurements_is_refused(self):
+        """The defect this was written for: `dimension(step, "step")` used to declare BOTH
+        `step.length` and `step.diameter` and say nothing, inside a set whose semantics is
+        that omission means suppression."""
+        import pytest
+
+        sheet, step = self._shaft_sheet()
+        with pytest.raises(ValueError) as exc:
+            sheet.dimension(step, "step")  # type: ignore[call-overload]
+        # Names them, so the fix is a choice rather than a guess.
+        assert "step.diameter" in str(exc.value) and "step.length" in str(exc.value)
+
+    def test_the_members_remain_individually_nameable(self):
+        """Refusing the family must not cost the ability to say which one you meant."""
+        sheet, step = self._shaft_sheet()
+        sheet.dimension(step, "step.length")
+        assert sheet._authored[-1]["role"] == "step.length"
+
+    def test_a_singleton_family_warns_and_is_normalised(self):
+        import warnings
+
+        sheet, hole = self._hole_sheet()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            sheet.dimension(hole, "bore")  # type: ignore[call-overload]
+        assert sheet._authored[-1]["role"] == "bore.diameter"
+        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+
+    def test_add_dimension_normalises_identically(self):
+        """The two verbs address a measurement through one resolver, so normalisation must
+        not be something only the authored path gets."""
+        import warnings
+
+        sheet, hole = self._hole_sheet("add_dimension")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sheet.add_dimension(hole, "bore")  # type: ignore[call-overload]
+        assert sheet._added_dimensions[-1]["role"] == "bore.diameter"
+
+    def test_the_canonical_spelling_is_silent(self):
+        """A deprecation that fires on the recommended spelling trains people to ignore it."""
+        import warnings
+
+        sheet, hole = self._hole_sheet()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            sheet.dimension(hole, "bore.diameter")
+        assert not [w for w in caught if issubclass(w.category, DeprecationWarning)]
+
+    def test_a_discriminated_family_keeps_its_bare_role_and_still_needs_an_axis(self):
+        """`grid_pitch`'s id carries the variant (`grid_pitch.length.row`) that `axis=`
+        supplies separately, so the bare role IS its canonical spelling. An early cut of the
+        refusal counted those variants as two measurements and fired in place of the older,
+        more useful `axis=` error (#965 review)."""
+        import pytest
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import Sheet
+
+        part = Box(160, 120, 12)
+        for x in (-45, 0, 45):
+            for y in (-30, 30):
+                part -= Pos(x, y, 0) * Cylinder(3, 30)
+        sheet = Sheet.from_part(part, title="T", number="N").authored_dimensions()
+        pattern = next(f for f in sheet.features if f.kind == "pattern")
+        if not any(p.role == "grid_pitch" for p in pattern.parameters()):
+            pytest.skip("fixture stopped detecting a grid pattern")
+
+        with pytest.raises(ValueError, match="ambiguous"):
+            sheet.dimension(pattern, "grid_pitch")
+        sheet.dimension(pattern, "grid_pitch", axis="row")
+        assert sheet._authored[-1]["role"] == "grid_pitch"
+
+    def test_a_legacy_spelling_reaches_the_script_canonically(self):
+        """Why normalisation is at the facade rather than only in the error message: the
+        emitter writes what was stored, so before this an emitted script's dialect depended
+        on how its source model was authored."""
+        import warnings
+
+        from draftwright.sheet_emit import emit_sheet_script
+
+        sheet, hole = self._hole_sheet()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sheet.dimension(hole, "bore")  # type: ignore[call-overload]
+        src = emit_sheet_script(sheet.model(), "part", "s", title="T", number="N")
+        assert '"bore.diameter"' in src
+        assert '"bore")' not in src
+
+
+def test_the_package_ships_its_typing_marker():
+    """PEP 561: without `py.typed`, an installed draftwright is untyped to consumers and
+    every annotation in it — these Literals, `ParamKind`, `pmi=`, `severity=` — resolves to
+    `Any` outside this repo. The marker is what makes the typing in this change reach the
+    people it was added for (#965 review); a mypy run inside the source tree does not prove
+    it, because there the modules are found as source rather than as an installed package."""
+    import draftwright
+
+    marker = Path(draftwright.__file__).parent / "py.typed"
+    assert marker.exists(), "py.typed is missing — the package is untyped to its consumers"

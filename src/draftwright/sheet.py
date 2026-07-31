@@ -785,7 +785,9 @@ class Sheet:
         axis: str | None = ...,
         upper_tol: float | None = ...,
         lower_tol: float | None = ...,
-    ): ...
+        source: str = ...,
+        source_kind: str | None = ...,
+    ) -> _Params: ...
 
     def dimension(self, *args, **kw):
         """Transitional overload for the pre-#873 spelling of :meth:`measured_dimension`.
@@ -1489,7 +1491,11 @@ class Sheet:
                 "role is the family spelling and is deprecated (#963) — it is what let "
                 "`dimension(step, 'step')` declare two dimensions silently. Expires at 0.4.0.",
                 DeprecationWarning,
-                stacklevel=3,
+                # `add_dimension` calls here directly; `dimension` goes through the
+                # transitional dispatcher AND `_authored_dimension`, so it is two frames
+                # further out. A shared constant pointed the warning at draftwright's own
+                # source instead of the caller's line (#965 review).
+                stacklevel=5 if verb == "dimension" else 3,
             )
         # A discriminated parameter keeps the BARE role: its full id carries the variant
         # (`grid_pitch.length.row`), which `axis=` supplies separately, so normalising to the
