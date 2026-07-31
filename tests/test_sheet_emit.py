@@ -2476,6 +2476,13 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 part -= Pos(0, (i - (n - 1) / 2) * pitch, z) * cutter
             return part
 
+        def grid(cutter, z, nx=3, ny=2, px=40.0, py=45.0):
+            part = Box(160, 140, 20)
+            for i in range(nx):
+                for j in range(ny):
+                    part -= Pos((i - (nx - 1) / 2) * px, (j - (ny - 1) / 2) * py, z) * cutter
+            return part
+
         return {
             # The #962 fixture: a recess in the UNDERSIDE, whose depth-axis position is the
             # coordinate the emitter dropped. A top-face pocket hides the bug — its synthesised
@@ -2495,6 +2502,10 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             - Pos(20, 0, 0) * Cylinder(4, 40)
             - Pos(60, 0, 0) * Cylinder(4, 40),
             "pocket pattern": rows(Box(10, 12, 6), z=7),
+            # GRID variants. The linear ones above leave the grid branches of
+            # `pocket_pattern`/`slot_pattern` unexecuted — which CI's coverage gate caught,
+            # not the review. Both detect angle=0.0, so they also pin the falsy-zero guard
+            # on the paths the hole grid does not reach.
             "slot pattern": rows(Box(30, 8, 20), z=0, w=60),
             "plate+hole": Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20),
             # Two slabs. Exempted-and-unchecked in the first cut, which was wrong: the review
@@ -2652,6 +2663,44 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             offenders, why = obligation(kinds, detected, declared)
             assert not offenders, f"{sorted(offenders)} {why}"
 
+    @pytest.mark.parametrize(
+        "cutter,z,kind", [((12, 14, 6), 7, "pocket_pattern"), ((24, 8, 40), 0, "slot_pattern")]
+    )
+    def test_a_grid_recess_array_does_not_round_trip_yet(self, cutter, z, kind):
+        """A GRID pocket/slot array comes back TRANSPOSED — #969, found by this oracle.
+
+        Detection reports `grid[0]` as the X pitch with `rows` positions along X;
+        `declare._pattern_members` reads `rp, cp = grid` and lays `cols` across X using
+        `grid[1]`. The hole `pattern` verb masks it by emitting explicit `members=`, which
+        declare uses as-is; these two recompute, so they expose it.
+
+        Asserted as broken rather than omitted, for two reasons: it executes the grid emit
+        branches nothing else reaches, and it fails the moment #969 is fixed — at which point
+        these fixtures belong in `_corpus()` and this test should be deleted. Fixing it here
+        was tried and rejected: transposing at the emitter makes the POSITIONS right while
+        leaving `grid`/`rows`/`cols` stored transposed, which trades one divergence for
+        another rather than removing it.
+        """
+        from build123d import Box, Pos
+
+        part = Box(160, 140, 20)
+        for i in range(3):
+            for j in range(2):
+                part -= Pos((i - 1) * 40, (j - 0.5) * 45, z) * Box(*cutter)
+
+        model = detect_part_model(part)
+        original = next(f for f in model.features if f.kind == kind)
+        assert original.pattern == "grid", "the fixture must detect a GRID array"
+
+        src = emit_sheet_script(model, "part", "s", title="T", number="N")
+        ns: dict = {"part": part}
+        exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        rebuilt = next(f for f in ns["sheet"].model().features if f.kind == kind)
+
+        assert sorted(map(tuple, rebuilt.members)) != sorted(map(tuple, original.members)), (
+            "#969 appears to be fixed — move these fixtures into _corpus() and delete this test"
+        )
+
     @pytest.mark.parametrize("name", sorted(_declared_corpus()))
     def test_every_declared_feature_survives_its_own_emit(self, name):
         """The declared route, with the SAME comparator as the detected one. Previously this
@@ -2732,17 +2781,17 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
 
         for original, rebuilt in zip(by_kind_detected, by_kind_declared):
             for field in dataclasses.fields(original):
-                if (original.kind, field.name) in self._EXEMPT:
-                    assert self._exemption_holds(original, rebuilt, field.name), (
-                        f"{name}: {original.kind}.{field.name} is exempt because "
-                        f"{self._EXEMPT[(original.kind, field.name)]}, but that does not hold "
-                        "here — the exemption is covering a real divergence"
-                    )
-                    continue
                 want = getattr(original, field.name)
                 got = getattr(rebuilt, field.name)
-                assert _structurally_equal(want, got), (
+                if _structurally_equal(want, got):
+                    continue  # agrees; an exemption is not consulted unless it is needed
+                assert (original.kind, field.name) in self._EXEMPT, (
                     f"{name}: {original.kind}.{field.name} came back as {got!r}, "
                     f"not {want!r} — the script declares a different feature from the one "
                     "it was generated from"
+                )
+                assert self._exemption_holds(original, rebuilt, field.name), (
+                    f"{name}: {original.kind}.{field.name} is exempt because "
+                    f"{self._EXEMPT[(original.kind, field.name)]}, but that does not hold "
+                    "here — the exemption is covering a real divergence"
                 )
