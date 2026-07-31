@@ -2495,16 +2495,22 @@ class TestTheEmitBranchesBothWays:
         The angle is unaffected by #969, so it can be asserted here, outside the xfail, and a
         wrong angle fails for its own reason.
         """
-        from draftwright.sheet_emit import _feature_line
+        from draftwright.sheet_emit import _feature_line, _n
 
         model = detect_part_model(self._grid_array(blind=kind == "pocket_pattern"))
         original = next(f for f in model.features if f.kind == kind)
         assert original.angle == 0.0, "the fixture must detect an unrotated grid"
         line = _feature_line(original)
         assert "angle=0" in line, line
-        # ...and the arrangement fields the transpose does not touch.
+        # ...and every other field these branches write. #969 is a mismatch in how `declare`
+        # INTERPRETS grid/rows/cols — the emitter writes them verbatim — so what the line says
+        # is fully assertable here, outside the xfail. Without this, corrupting `grid[0]` was
+        # absorbed as an expected failure (review of round 10's fix).
         assert f"count={original.count}" in line
         assert 'kind="grid"' in line
+        assert f"grid=({_n(original.grid[0])}, {_n(original.grid[1])})" in line, line
+        assert f"rows={original.rows}" in line
+        assert f"cols={original.cols}" in line
 
     @staticmethod
     def _grid_array(*, blind):
