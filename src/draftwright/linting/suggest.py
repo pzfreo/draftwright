@@ -107,9 +107,10 @@ def _suggest_fix(issue, dwg) -> str | None:
         # drafting judgement about the part, not something the geometry says.
         return (
             "# Two dimensions say the same thing. Keep the functionally significant one\n"
-            "# (ISO 129) and drop the other. In a generated Sheet script, comment out its\n"
-            "# line; on a live drawing:\n"
-            '# dwg.drop("<the redundant annotation name>")'
+            "# (ISO 129) and drop the other. The message names both; on a live drawing\n"
+            "# remove the one you do not want BY NAME (drop() takes a feature, not a name):\n"
+            '# dwg.remove("<the redundant annotation name>")\n'
+            "# In a generated Sheet script, comment out the dimension line instead."
         )
 
     if code == "plate_thickness_dropped":

@@ -710,8 +710,9 @@ one exists today:
    different features measuring the same span.
 3. **A redundancy lint** — for over-dimensioning that is neither identical nor coincident,
    e.g. carrying both a pattern's per-hole locations *and* the pitch that determines them.
-   **Landed as `redundant_dimension` (#941, 2026-07-31)**, but narrower than written here,
-   because the motivating example turned out not to occur — see the amendment below.
+   **Landed as `redundant_dimension` (#941, 2026-07-31)**, narrower than written here: the
+   motivating pattern example does not occur, and the check compares rather than prevents —
+   see Amendment 2.
 
 ### Dimensions are sheet-level; the view is derived placement
 
@@ -1159,42 +1160,54 @@ second with the single-source-of-truth of the first — over the identified set,
    retargeted onto the Sheet script and hold as full parity, and every part family in the
    round-trip corpus emits, runs and lints clean through it.
 
-## Amendment 2 — the redundancy lint is an authored-path check, because the planner cannot over-dimension (2026-07-31)
+## Amendment 2 — redundancy is reported, not planned away; the planner is not immune (2026-07-31)
 
 Phase 5 asked whether redundancy is a lint or a planner rule. Measuring the planner's output
-before writing anything (#941) answered it, and rescoped the phase:
+before writing anything (#941) narrowed the question, and reviewing the result corrected the
+first answer — recorded here in the order it happened, because the correction is the useful part.
 
-- **The planner cannot close a dimension chain.** Every span it approves along an axis is
-  measured from a **common datum** — on a stepped block, `step_height` z(−20→10) and
-  `overall_height` z(−20→20) share a start; `step_position` x(−30→10) and the envelope width
-  x(−30→30) likewise. The derived remainders are simply left unstated, which is correct
-  datum dimensioning. A suppression rule in `plan_dimensions` would have nothing to suppress.
-- **The motivating example does not occur.** A linear pattern draws its pitch **plus one
-  origin location**, not per-hole locations *and* pitch. Those are complementary: the pitch
-  gives the spacing, the location gives where the array sits.
-- **The referential authored path cannot create redundancy either.** `dimension(feature, role)`
-  selects a *subset* of the addressable set, and a subset of a non-redundant set is
-  non-redundant.
-- **The materialised path can, and did.** `measured_dimension(...)` (and imported AP242 PMI,
-  the same IR kind) carries its own value and reference points and is checked against nothing.
-  Restating an approved measurement drew it twice, lint-clean.
+**What measurement established.** Ordinary datum ladders do not close chains. Every span the
+planner approves along a *feature's own* axis is measured from a common datum — on a stepped
+block, `step_height` z(−20→10) and `overall_height` z(−20→20) share a start; `step_position`
+x(−30→10) and the envelope width x(−30→30) likewise. The derived remainders are simply left
+unstated, which is correct datum dimensioning. And the issue's motivating example does not
+occur: a linear pattern draws its pitch **plus one origin location**, not per-hole locations
+*and* pitch — those are complementary. (Pattern kinds differ in what they draw; slot patterns
+emit pitch with no origin location at all, which is a separate gap, #960.)
 
-So `redundant_dimension` reports only what it can prove — same orientation, same measured
-length, coincident extent along the measuring axis — and does **not** attempt the general
-over-dimensioning question. It names the pair and chooses no winner: ISO 129 keeps the
-functionally significant dimension, which is a judgement about the part.
+**What that did NOT establish, contrary to this amendment's first draft.** "The planner cannot
+over-dimension" was too strong, and its own supporting example refutes it (#959 review). #958
+is an *automatic* drawing in which a pad and a mis-recognised slot carry the identical x span
+and both get dimensioned. The recognition defect is upstream, but the planner still accepted
+two roles on two features naming the same span and emitted both. So:
 
-**The planner-rule half of phase 5 already exists, ad hoc, and is unsound.**
+- Two roles on two different features **can** name the same span; nothing in the planner
+  prevents it.
+- Therefore the referential authored path is not immune either — it selects a subset of the
+  addressable set, and that set is not guaranteed redundancy-free.
+- The materialised path (`measured_dimension`, imported AP242 PMI) is simply the *easiest*
+  way to produce it, since it carries its own value and reference points and is checked
+  against nothing.
+
+**Decision.** Report, do not plan away. `redundant_dimension` (severity `warning`) reports a
+pair that measures the same world axis over the same extent, names both annotations, and picks
+no winner: ISO 129 keeps the functionally significant dimension, which is a judgement about the
+part, and guessing produces a plausible wrong drawing (#630/#631). The check is comparison-only
+and deliberately narrow; it does not attempt the general over-dimensioning question.
+
+A planner-side suppression rule is **not** ruled out by this, and phase 5 should not be read as
+having decided against one. The evidence says a rule keyed on *datum ladders* would have nothing
+to catch, not that no planner rule could help — #958's pad/slot pair is exactly the shape a
+planner-side "two roles, one span" rule would resolve at the waist. What argues for lint first is
+that the pair's correct resolution is a drafting judgement, so a report is useful even once a
+planner rule exists.
+
+**The planner-rule half also already exists, ad hoc, and is unsound.**
 `_compile_overall_height` suppresses the overall height with the reasons "Z-turned (the step
-chain tiles the height)" and "rotational OD conveys the height". Those *are* redundancy rules
-in the planner. #955 records that they fire on a premise placement can invalidate: when the
-step chain drops at placement, nothing conveys the height, and a rule meant to prevent
-over-dimensioning leaves the drawing under-dimensioned. Fixing that is worth more than adding
-a second planner rule here.
-
-On its first corpus sweep the new check found one true positive in twenty parts — a plate
-with a pad dimensions the same 30 mm span twice, as the pad's length and as a
-mis-recognised slot's (#958).
+chain tiles the height)" and "rotational OD conveys the height" — redundancy rules in the
+planner. #955 records that they fire on a premise placement can invalidate: when the step chain
+drops at placement, nothing conveys the height, and a rule meant to prevent over-dimensioning
+leaves the drawing under-dimensioned. Fixing that is worth more than adding a second rule.
 
 ## Open questions
 

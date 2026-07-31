@@ -24,7 +24,7 @@ from build123d_drafting import (
     place_dims,
 )
 
-from draftwright.linting import lint_drawing
+from draftwright.linting import lint_drawing, lint_redundant_dimensions
 
 
 @pytest.fixture
@@ -565,54 +565,100 @@ class TestLeaderCrossesSilhouette:
 class TestRedundantDimension:
     """#941 (ADR 0016 phase 5): two dimensions that state the SAME measurement.
 
-    The engine's existing duplicate protections do not cover this — value/identity dedup
-    needs the same identity, and the corridor solve's coincident-span dedup compares
-    candidates within one solve — so a measurement arriving from a different producer
-    passes both. See `_lint_redundant_dims` for why the check is deliberately narrow.
+    `lint_redundant_dimensions` takes resolved entries rather than annotations, because the
+    check needs each dimension's registry NAME (so the report says which two to look at)
+    and its VIEW (so the world axis is known rather than inferred from page geometry). See
+    `Drawing._redundancy_entries` for the caller.
     """
 
-    def _codes(self, items):
-        return [i.code for i in lint_drawing(items)]
+    @staticmethod
+    def _entry(name, view, length, lo, hi, horizontal=True, label=None):
+        return (name, view, length, lo, hi, horizontal, label or str(length))
 
-    def test_two_dims_over_the_same_span_are_reported(self, draft):
-        a = Dimension((-20, 0, 0), (20, 0, 0), "above", 8, draft, label="40")
-        b = Dimension((-20, 0, 0), (20, 0, 0), "above", 16, draft, label="40")
-        issues = [i for i in lint_drawing([a, b]) if i.code == "redundant_dimension"]
+    def _codes(self, entries):
+        return [i.code for i in lint_redundant_dimensions(entries)]
+
+    def test_two_dims_over_the_same_span_are_reported(self):
+        issues = lint_redundant_dimensions(
+            [
+                self._entry("m_env_width", "plan", 40, -20, 20),
+                self._entry("pmi_x_0", "front", 40, -20, 20),
+            ]
+        )
         assert len(issues) == 1
         assert issues[0].severity == "warning"
-        # Names the pair, so the fix is a line to remove rather than a puzzle (#941).
-        assert "'40'" in issues[0].message
+        # Names the PAIR. Quoting two identical labels ("Dims '40' and '40'") tells the
+        # reader nothing about which two annotations to look at (#959 review).
+        assert "'m_env_width'" in issues[0].message
+        assert "'pmi_x_0'" in issues[0].message
+        assert "X extent" in issues[0].message
 
-    def test_one_dim_alone_is_clean(self, draft):
-        a = Dimension((-20, 0, 0), (20, 0, 0), "above", 8, draft, label="40")
-        assert "redundant_dimension" not in self._codes([a])
+    def test_one_dim_alone_is_clean(self):
+        assert not self._codes([self._entry("a", "front", 40, -20, 20)])
 
-    def test_same_length_at_a_different_position_is_not_redundant(self, draft):
+    def test_same_length_at_a_different_position_is_not_redundant(self):
         """The discriminator. Two 40s measuring DIFFERENT spans is ordinary dimensioning —
-        it is coincidence of value, not of measurement, and flagging it would make the
-        check useless on any part with repeated feature sizes."""
-        a = Dimension((-20, 0, 0), (20, 0, 0), "above", 8, draft, label="40")
-        b = Dimension((30, 0, 0), (70, 0, 0), "above", 8, draft, label="40")
-        assert "redundant_dimension" not in self._codes([a, b])
+        coincidence of value, not of measurement. Flagging it would make the check useless
+        on any part with repeated feature sizes."""
+        assert not self._codes(
+            [
+                self._entry("a", "front", 40, -20, 20),
+                self._entry("b", "front", 40, 30, 70),
+            ]
+        )
 
-    def test_different_lengths_over_overlapping_spans_are_not_redundant(self, draft):
-        a = Dimension((-20, 0, 0), (20, 0, 0), "above", 8, draft, label="40")
-        b = Dimension((-20, 0, 0), (0, 0, 0), "above", 16, draft, label="20")
-        assert "redundant_dimension" not in self._codes([a, b])
+    def test_different_lengths_over_overlapping_spans_are_not_redundant(self):
+        assert not self._codes(
+            [
+                self._entry("a", "front", 40, -20, 20),
+                self._entry("b", "front", 20, -20, 0),
+            ]
+        )
 
-    def test_perpendicular_dims_are_not_redundant(self, draft):
-        """A 40-wide and a 40-tall dimension are not the same measurement, even though
-        both are 40 and both touch the same corner."""
-        a = Dimension((-20, 0, 0), (20, 0, 0), "above", 8, draft, label="40")
-        b = Dimension((-20, -20, 0), (-20, 20, 0), "left", 8, draft, label="40")
-        assert "redundant_dimension" not in self._codes([a, b])
+    def test_the_same_page_extent_on_a_different_WORLD_axis_is_not_redundant(self):
+        """The reason the view is threaded in at all (#959 review). A vertical dimension
+        means Z on the front view and Y on the plan; identical page geometry in those two
+        views is two different measurements. An earlier form compared page extents only and
+        argued view alignment made the mapping unnecessary — unsound, and this is the case
+        that proves it."""
+        assert not self._codes(
+            [
+                self._entry("front_v", "front", 40, -20, 20, horizontal=False),
+                self._entry("plan_v", "plan", 40, -20, 20, horizontal=False),
+            ]
+        )
 
-    def test_three_dims_over_one_span_report_every_pair(self, draft):
-        """Reporting per PAIR rather than per span is deliberate: the author has to decide
-        which to keep, and needs to see each conflict named."""
-        dims = [
-            Dimension((-20, 0, 0), (20, 0, 0), "above", off, draft, label="40")
-            for off in (8, 16, 24)
-        ]
-        issues = [i for i in lint_drawing(dims) if i.code == "redundant_dimension"]
-        assert len(issues) == 3
+    def test_the_same_world_axis_across_views_IS_redundant(self):
+        """The converse, and the case that matters: front-vertical and side-vertical both
+        measure Z, so the same extent there is the same measurement stated twice."""
+        assert self._codes(
+            [
+                self._entry("front_v", "front", 40, -20, 20, horizontal=False),
+                self._entry("side_v", "side", 40, -20, 20, horizontal=False),
+            ]
+        ) == ["redundant_dimension"]
+
+    def test_perpendicular_dims_are_not_redundant(self):
+        assert not self._codes(
+            [
+                self._entry("a", "front", 40, -20, 20),
+                self._entry("b", "front", 40, -20, 20, horizontal=False),
+            ]
+        )
+
+    def test_an_unknown_view_is_skipped_not_guessed(self):
+        """A detail view or an unplaced annotation has no entry in the axis table. It is
+        dropped rather than assigned a guessed axis — a wrong warning is worse than a
+        missed one for a check whose whole value is that it is trustworthy."""
+        assert not self._codes(
+            [
+                self._entry("a", "detail_a", 40, -20, 20),
+                self._entry("b", "detail_a", 40, -20, 20),
+            ]
+        )
+
+    def test_three_dims_over_one_span_report_every_pair(self):
+        """Per PAIR rather than per span: the author decides which to keep, and needs each
+        conflict named."""
+        entries = [self._entry(f"d{i}", "front", 40, -20, 20) for i in range(3)]
+        assert len(lint_redundant_dimensions(entries)) == 3

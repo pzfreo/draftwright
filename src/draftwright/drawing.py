@@ -75,7 +75,9 @@ from draftwright.linting import (
     lint_feature_coverage,
     lint_location_coverage,
     lint_prismatic_coverage,
+    lint_redundant_dimensions,
 )
+from draftwright.linting.structural import _ann_box as _annotation_box
 from draftwright.projection import (
     project_view_geometry,
 )
@@ -2540,6 +2542,47 @@ class Drawing:
         self.items = [o for o in self.items if id(o) in kept_ids]
         return removed
 
+    def _redundancy_entries(self):
+        """``(name, view, length, lo, hi, horizontal, label)`` per drawn dimension (#941).
+
+        Assembled HERE rather than inside `lint_drawing` because the redundancy check needs
+        two things a bare annotation cannot supply: its registry NAME, so the report says
+        which two to look at rather than quoting two identical labels, and its VIEW, so the
+        world axis it measures is known rather than inferred from page geometry.
+
+        Non-sheet-scale annotations (the enlarged detail view, #42) are excluded: the same
+        measurement drawn again at detail scale has a different page length and extent, so
+        it is neither comparable to its sheet-scale twin nor to anything else here. That
+        makes a detail-view repeat a known blind spot rather than a wrong answer.
+        """
+        entries = []
+        for name, obj in self.iter_annotations():
+            if getattr(obj, "measured_length", None) is None:
+                continue
+            if getattr(obj, "_dw_scale", self.scale) != self.scale:
+                continue
+            view = self.view_of(name)
+            if view is None:
+                continue
+            box = _annotation_box(obj, self._ann_box_cache)
+            if box is None:
+                continue
+            min_x, min_y, max_x, max_y = box
+            horizontal = (max_x - min_x) >= (max_y - min_y)
+            lo, hi = (min_x, max_x) if horizontal else (min_y, max_y)
+            entries.append(
+                (
+                    name,
+                    view,
+                    float(obj.measured_length),
+                    lo,
+                    hi,
+                    horizontal,
+                    str(getattr(obj, "label", "")),
+                )
+            )
+        return entries
+
     def _record_build_issue(self, severity, code, message):
         """Record a lint issue discovered during construction (e.g. an
         annotation the layout had to drop). Surfaced by :meth:`lint` so a
@@ -2617,6 +2660,8 @@ class Drawing:
                     view_edge_cache=self._view_edge_cache,
                     ann_box_cache=self._ann_box_cache,
                 )
+        issues += lint_redundant_dimensions(self._redundancy_entries())
+
         if self.part is not None:
             # Reuse the single feature inventory from the build (#244) when present,
             # so lint does not re-detect holes/patterns/turned-steps; fall back to

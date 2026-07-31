@@ -26,10 +26,11 @@ from draftwright.linting.coverage import (
     lint_prismatic_coverage,
 )
 from draftwright.linting.issues import LintIssue
-from draftwright.linting.structural import lint_drawing
+from draftwright.linting.structural import lint_drawing, lint_redundant_dimensions
 from draftwright.linting.suggest import _suggest_fix
 
 __all__ = [
+    "lint_redundant_dimensions",
     "CoverageState",
     "LintIssue",
     "_suggest_fix",

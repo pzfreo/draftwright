@@ -80,6 +80,8 @@ class TestRedundantDimensionEndToEnd:
         issues = self._codes(dwg)
         assert len(issues) == 1, [i.message for i in issues]
         assert issues[0].severity == "warning"
+        # Names both annotations, so the reader knows which two to look at.
+        assert "'m_env_width'" in issues[0].message and "'pmi_x_0'" in issues[0].message
 
     def test_the_same_part_without_the_restatement_is_clean(self):
         """The control. Without this, the test above would pass on a check that fires on
@@ -89,16 +91,16 @@ class TestRedundantDimensionEndToEnd:
         dwg = Sheet.from_part(self._plate(), title="T", number="N").auto_dimensions().build()
         assert not self._codes(dwg)
 
-    def test_the_planner_alone_does_not_over_dimension(self):
-        """#941's open question, as an executable answer: the automatic path emits no
-        redundant pair. Every span it approves along an axis is measured from a common
-        datum, so the derived remainders are left unstated. If a planner change starts
-        producing redundancy, this fails and the "lint, not a planner rule" conclusion
-        recorded on #941 has to be revisited.
+    def test_ordinary_datum_ladders_do_not_over_dimension(self):
+        """The measured half of #941's open question: on these parts the automatic path
+        emits no redundant pair, because every span it approves along a feature's own axis
+        is measured from a common datum and the derived remainders are left unstated.
 
-        The pad fixture is deliberately absent — it DOES report, and correctly: its pad
-        and its (mis-recognised) slot carry the identical x span, so the drawing states
-        that 30 mm twice. Tracked as #958 rather than papered over here.
+        Named for what it actually shows. It does NOT show that the planner cannot
+        over-dimension — #958 is an automatic drawing that does, where a pad and a
+        mis-recognised slot carry the identical x span and both get dimensioned. That
+        fixture is deliberately absent here and the exclusion is stated rather than silent;
+        add it back when #958 is fixed. ADR 0016 Amendment 2 records the corrected claim.
         """
         from build123d import Box, Cylinder, Pos
 

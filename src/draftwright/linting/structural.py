@@ -264,8 +264,6 @@ def lint_drawing(
         elif getattr(item, "measured_length", None) is not None:
             _lint_dim(item, part_bbox, issues, drawing_scale, box_cache)
 
-    _lint_redundant_dims(items, issues, box_cache)
-
     # Pairwise label-overlap check. The compare-box for a label-less item is an
     # *optimal* bounding_box() — expensive, and previously recomputed for both
     # items of every pair (O(n²): ~200 s on an 83-hole part). Compute each
@@ -827,74 +825,68 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
 #: precision (sub-micron) and far tighter than any real pair of distinct measurements.
 _REDUNDANT_TOL_MM = 0.15
 
-
-def _dim_measure(item, box_cache):
-    """What a dimension MEASURES, as page geometry: ``(orientation, length, lo, hi)``.
-
-    ``lo``/``hi`` bound it along its own measuring axis. That axis is the whole trick — two
-    dimensions of the same length that measure different things sit at different places
-    along it, and two that measure the same thing coincide there even when they are drawn
-    on different views, because the orthographic views are aligned (a plan-view width and a
-    front-view width share the page's x band by construction). So no view mapping is
-    needed, and none is guessed at. Returns None for anything unmeasurable.
-    """
-    bb = _ann_box(item, box_cache)
-    length = getattr(item, "measured_length", None)
-    if bb is None or length is None:
-        return None
-    min_x, min_y, max_x, max_y = bb
-    horizontal = (max_x - min_x) >= (max_y - min_y)
-    lo, hi = (min_x, max_x) if horizontal else (min_y, max_y)
-    return ("h" if horizontal else "v", float(length), lo, hi)
+#: ``(view, orientation) -> the WORLD axis the dimension measures.`` Two dimensions are only
+#: comparable when they measure the same world axis, and page geometry alone cannot say which
+#: — a vertical dim means Z on the front view and Y on the plan. An earlier form of this check
+#: compared page extents and argued that view alignment made the mapping unnecessary; that was
+#: unsound (#959 review). It happened not to misfire on any corpus part, but the safety came
+#: from where the packer put the views, not from the data, so it is stated explicitly instead.
+_VIEW_AXIS = {
+    ("front", "h"): "x",
+    ("front", "v"): "z",
+    ("plan", "h"): "x",
+    ("plan", "v"): "y",
+    ("side", "h"): "y",
+    ("side", "v"): "z",
+}
 
 
-def _lint_redundant_dims(items, issues, box_cache) -> None:
+def lint_redundant_dimensions(entries) -> list[LintIssue]:
     """Report two dimensions that state the SAME measurement (#941, ADR 0016 phase 5).
+
+    *entries* are ``(name, view, length, lo, hi, horizontal, label)`` — the caller resolves
+    them, because this module is duck-typed on a bare annotation list and a `Dimension`
+    exposes neither its name nor its view. ``lo``/``hi`` bound the dimension along its own
+    measuring axis in page mm; ``length`` is the measured length.
 
     The engine's two existing duplicate protections do not cover this. Value/identity dedup
     needs the same identity, and the corridor solve's coincident-span dedup compares
-    candidates within a solve — so a measurement that arrives from a *different producer*
-    passes both. The demonstrated case is a materialised
-    ``Sheet.measured_dimension(...)`` (or imported AP242 PMI, which is the same IR kind)
-    restating a measurement the planner already approved: both get drawn, and nothing said
-    anything.
+    candidates *within* a solve — so a measurement arriving from a different producer passes
+    both. The demonstrated case is a materialised ``Sheet.measured_dimension(...)`` (or
+    imported AP242 PMI, the same IR kind) restating a measurement the planner already
+    approved: both drawn, nothing said.
 
-    Deliberately narrow. It reports only the case it can prove — same orientation, same
-    measured length, coincident extent along the measuring axis — and NOT the general
-    over-dimensioning question. The planner's own output cannot close a dimension chain:
-    every span it emits along an axis is measured from a common datum, so the derived
-    remainders are simply left unstated (verified across the drawing corpus, #941). A
-    checker for redundancy the planner cannot produce would be a rule with nothing to
-    catch.
-
-    It does not choose a winner either. Which of two redundant dimensions to keep is a
-    drafting judgement — ISO 129 prefers the functional one — and guessing produces a
-    plausible wrong drawing, which this codebase ranks below a visible message
-    (#630/#631). Severity ``warning``: the drawing is valid, the dimensioning is not.
+    Deliberately narrow — same world axis, same measured length, coincident extent. It does
+    NOT attempt the general over-dimensioning question, and it does not pick a winner: which
+    of two redundant dimensions to keep is a drafting judgement (ISO 129 prefers the
+    functional one), and guessing produces a plausible wrong drawing, which this codebase
+    ranks below a visible message (#630/#631). Severity ``warning``: the drawing is valid,
+    the dimensioning is not.
     """
-    measured = []
-    for item in items:
-        m = _dim_measure(item, box_cache)
-        if m is not None:
-            measured.append((m, _item_label(item)))
-
-    for i, (a, label_a) in enumerate(measured):
-        for b, label_b in measured[i + 1 :]:
-            if a[0] != b[0] or abs(a[1] - b[1]) > _REDUNDANT_TOL_MM:
+    issues: list[LintIssue] = []
+    axed = [
+        (name, _VIEW_AXIS[(view, "h" if horizontal else "v")], length, lo, hi, label)
+        for name, view, length, lo, hi, horizontal, label in entries
+        if (view, "h" if horizontal else "v") in _VIEW_AXIS
+    ]
+    for i, (name_a, axis_a, len_a, lo_a, hi_a, label_a) in enumerate(axed):
+        for name_b, axis_b, len_b, lo_b, hi_b, label_b in axed[i + 1 :]:
+            if axis_a != axis_b or abs(len_a - len_b) > _REDUNDANT_TOL_MM:
                 continue
-            if abs(a[2] - b[2]) > _REDUNDANT_TOL_MM or abs(a[3] - b[3]) > _REDUNDANT_TOL_MM:
+            if abs(lo_a - lo_b) > _REDUNDANT_TOL_MM or abs(hi_a - hi_b) > _REDUNDANT_TOL_MM:
                 continue
             issues.append(
                 LintIssue(
                     severity="warning",
                     message=(
-                        f"Dims '{label_a}' and '{label_b}' state the same measurement "
-                        f"— they span the same extent along the same axis. Drop one; ISO 129 "
-                        f"keeps the functionally significant dimension"
+                        f"Dims {name_a!r} ({label_a!r}) and {name_b!r} ({label_b!r}) state the "
+                        f"same measurement — the same {axis_a.upper()} extent. Drop one; "
+                        f"ISO 129 keeps the functionally significant dimension"
                     ),
                     code="redundant_dimension",
                 )
             )
+    return issues
 
 
 def _lint_leader(item, issues, box_cache=None, warned=None) -> None:
