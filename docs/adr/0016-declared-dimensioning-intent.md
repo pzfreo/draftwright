@@ -21,11 +21,14 @@
 > to check the flag failed sixteen times, so the mark became content renderers never
 > receive. That was #923's work, not scheduling.
 >
-> **Phase 4 (the emitter dimension-mirror) has not shipped and is not blocked on the
-> recompose either.** Its blocker is that emitted features have no names, so a
-> `dimension(...)` line in a generated script would address a feature by position and
-> break the moment a feature line is commented out — the documented editing workflow.
-> `emit_sheet_script` refuses an authored model rather than emit that. Tracked as **#922**.
+> **Phase 4 (the emitter dimension-mirror) SHIPPED in #922** (this paragraph previously said
+> it had not, and stayed stale past the fact — #957 review round 3). Its blocker was that
+> emitted features had no names, so a `dimension(...)` line in a generated script would have
+> addressed a feature by position and broken the moment a feature line was commented out —
+> the documented editing workflow. #931/#932 removed positional addressing from the artefact,
+> so the emitter now binds a name per feature and writes the declarations honestly; it no
+> longer refuses an authored model. **Phase 6 (retire `--style imperative`) landed in #940** —
+> see "One generated output" below for what shipped and where it departed from the plan.
 
 ## Amendment 1 — the compiled-plan boundary (2026-07-29)
 

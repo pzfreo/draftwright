@@ -2131,12 +2131,38 @@ class TestTheMirrorCoversTheCompiledSet:
     """
 
     @pytest.mark.parametrize("name", sorted(TestTheDimensionMirror._corpus()))
-    def test_every_approved_dimension_has_a_line(self, name):
-        model = detect_part_model(TestTheDimensionMirror._corpus()[name])
+    def test_no_corpus_fixture_falls_back_to_auto_dimensions(self, name):
+        """The corpus is the load-bearing proof of the #940 per-kind gate, so it must not be
+        able to go green while a kind stops being mirrored.
+
+        `auto_dimensions()` is the emitter's fallback for a model it cannot express as
+        declarations. A drawing built from it reproduces the automatic one BY CONSTRUCTION,
+        so the parity test below passes either way, and the completeness guard used to SKIP
+        exactly when the fallback kicked in — the two tests covering for each other rather
+        than catching it (#957 review round 3, found by mutating `_mirrored_requests` to
+        drop chamfer groups: parity stayed green, the guard skipped).
+
+        Every fixture here mirrors today. If one legitimately cannot, it does not get to
+        fail quietly: give it its own named exemption with the reason, the way
+        `_KIND_MIRROR_COVERAGE` does for unnameable kinds."""
         from draftwright.sheet_emit import _is_mirrorable
 
-        if not _is_mirrorable(model):
-            pytest.skip(f"{name} falls back to auto_dimensions() — #945")
+        part = TestTheDimensionMirror._corpus()[name]
+        model = detect_part_model(part)
+        assert _is_mirrorable(model), f"{name}: the emitter cannot mirror this model"
+        src = emit_sheet_script(model, "part", "s", title="T", number="N")
+        assert "sheet.auto_dimensions()" not in src, (
+            f"{name}: the emitted script fell back to auto_dimensions(), so it declares no "
+            "editable dimension set — the corpus would still pass parity, which is the hole"
+        )
+        assert "sheet.dimension(" in src, f"{name}: no dimension declarations emitted"
+
+    @pytest.mark.parametrize("name", sorted(TestTheDimensionMirror._corpus()))
+    def test_every_approved_dimension_has_a_line(self, name):
+        model = detect_part_model(TestTheDimensionMirror._corpus()[name])
+        # No mirrorability skip: `test_no_corpus_fixture_falls_back_to_auto_dimensions`
+        # makes a non-mirrorable corpus fixture a failure, so reaching here unmirrorable
+        # would be that test's job to report, not this one's to tolerate (#957 r3).
         missing = unmirrored_dimensions(model)
         assert not missing, (
             f"{name}: the compiler approved {missing} and the script declares no line for "
