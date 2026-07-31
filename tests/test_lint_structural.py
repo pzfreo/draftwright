@@ -560,3 +560,59 @@ class TestLeaderCrossesSilhouette:
         arc = Edge.make_circle(5)
         edges = [(arc, _shape_box2d(arc))]
         assert _leader_shaft_hits_edges((-10.0, 0.0), (10.0, 0.0), edges)
+
+
+class TestRedundantDimension:
+    """#941 (ADR 0016 phase 5): two dimensions that state the SAME measurement.
+
+    The engine's existing duplicate protections do not cover this — value/identity dedup
+    needs the same identity, and the corridor solve's coincident-span dedup compares
+    candidates within one solve — so a measurement arriving from a different producer
+    passes both. See `_lint_redundant_dims` for why the check is deliberately narrow.
+    """
+
+    def _codes(self, items):
+        return [i.code for i in lint_drawing(items)]
+
+    def test_two_dims_over_the_same_span_are_reported(self, draft):
+        a = Dimension((-20, 0, 0), (20, 0, 0), "above", 8, draft, label="40")
+        b = Dimension((-20, 0, 0), (20, 0, 0), "above", 16, draft, label="40")
+        issues = [i for i in lint_drawing([a, b]) if i.code == "redundant_dimension"]
+        assert len(issues) == 1
+        assert issues[0].severity == "warning"
+        # Names the pair, so the fix is a line to remove rather than a puzzle (#941).
+        assert "'40'" in issues[0].message
+
+    def test_one_dim_alone_is_clean(self, draft):
+        a = Dimension((-20, 0, 0), (20, 0, 0), "above", 8, draft, label="40")
+        assert "redundant_dimension" not in self._codes([a])
+
+    def test_same_length_at_a_different_position_is_not_redundant(self, draft):
+        """The discriminator. Two 40s measuring DIFFERENT spans is ordinary dimensioning —
+        it is coincidence of value, not of measurement, and flagging it would make the
+        check useless on any part with repeated feature sizes."""
+        a = Dimension((-20, 0, 0), (20, 0, 0), "above", 8, draft, label="40")
+        b = Dimension((30, 0, 0), (70, 0, 0), "above", 8, draft, label="40")
+        assert "redundant_dimension" not in self._codes([a, b])
+
+    def test_different_lengths_over_overlapping_spans_are_not_redundant(self, draft):
+        a = Dimension((-20, 0, 0), (20, 0, 0), "above", 8, draft, label="40")
+        b = Dimension((-20, 0, 0), (0, 0, 0), "above", 16, draft, label="20")
+        assert "redundant_dimension" not in self._codes([a, b])
+
+    def test_perpendicular_dims_are_not_redundant(self, draft):
+        """A 40-wide and a 40-tall dimension are not the same measurement, even though
+        both are 40 and both touch the same corner."""
+        a = Dimension((-20, 0, 0), (20, 0, 0), "above", 8, draft, label="40")
+        b = Dimension((-20, -20, 0), (-20, 20, 0), "left", 8, draft, label="40")
+        assert "redundant_dimension" not in self._codes([a, b])
+
+    def test_three_dims_over_one_span_report_every_pair(self, draft):
+        """Reporting per PAIR rather than per span is deliberate: the author has to decide
+        which to keep, and needs to see each conflict named."""
+        dims = [
+            Dimension((-20, 0, 0), (20, 0, 0), "above", off, draft, label="40")
+            for off in (8, 16, 24)
+        ]
+        issues = [i for i in lint_drawing(dims) if i.code == "redundant_dimension"]
+        assert len(issues) == 3

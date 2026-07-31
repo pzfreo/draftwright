@@ -38,3 +38,88 @@ def test_dropped_diams_append_read_reset():
     assert c.dropped_diams == [8.0, 5.0]
     c.reset_dropped()
     assert c.dropped_diams == []
+
+
+class TestRedundantDimensionEndToEnd:
+    """#941: the case the check exists for, on a real build rather than stand-ins.
+
+    `measured_dimension` (and imported AP242 PMI, the same IR kind) carries its own value
+    and reference points and is not checked against the planner's approved set. Restating a
+    measurement the planner already draws produced two dimensions saying the same thing,
+    with nothing reporting it — which is what settled #941's open question: redundancy is
+    reachable from the authored/materialised path, not from the planner, whose spans are
+    all measured from a common datum and so cannot close a chain.
+    """
+
+    @staticmethod
+    def _plate():
+        from build123d import Box
+
+        return Box(40, 20, 10)
+
+    def _codes(self, dwg):
+        return [i for i in dwg.lint() if i.code == "redundant_dimension"]
+
+    def test_restating_an_approved_measurement_is_reported(self):
+        from draftwright import Sheet
+
+        sheet = Sheet.from_part(self._plate(), title="T", number="N").auto_dimensions()
+        # The envelope width the planner already approves, stated again by hand.
+        sheet.measured_dimension(
+            kind="linear",
+            value=40,
+            label="40",
+            dominant_axis="X",
+            ref_bbox=(-20, -10, -5, 20, 10, 5),
+            ref_pts=[(-20, 0, 0), (20, 0, 0)],
+        )
+        dwg = sheet.build()
+
+        drawn = {n for n, o in dwg.iter_annotations() if getattr(o, "label", None)}
+        assert {"m_env_width", "pmi_x_0"} <= drawn  # guard: both really are drawn
+        issues = self._codes(dwg)
+        assert len(issues) == 1, [i.message for i in issues]
+        assert issues[0].severity == "warning"
+
+    def test_the_same_part_without_the_restatement_is_clean(self):
+        """The control. Without this, the test above would pass on a check that fires on
+        every drawing."""
+        from draftwright import Sheet
+
+        dwg = Sheet.from_part(self._plate(), title="T", number="N").auto_dimensions().build()
+        assert not self._codes(dwg)
+
+    def test_the_planner_alone_does_not_over_dimension(self):
+        """#941's open question, as an executable answer: the automatic path emits no
+        redundant pair. Every span it approves along an axis is measured from a common
+        datum, so the derived remainders are left unstated. If a planner change starts
+        producing redundancy, this fails and the "lint, not a planner rule" conclusion
+        recorded on #941 has to be revisited.
+
+        The pad fixture is deliberately absent — it DOES report, and correctly: its pad
+        and its (mis-recognised) slot carry the identical x span, so the drawing states
+        that 30 mm twice. Tracked as #958 rather than papered over here.
+        """
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import build_drawing
+
+        corpus = {
+            "plate": Box(80, 50, 8),
+            "plate+hole": Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20),
+            "two holes": Box(80, 50, 8)
+            - Pos(-20, 0, 0) * Cylinder(4, 20)
+            - Pos(20, 10, 0) * Cylinder(3, 20),
+            "stepped": Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20),
+            "pocket": Box(80, 60, 20) - Pos(0, 0, 14) * Box(30, 20, 14),
+            "boss": Box(80, 60, 12) + Pos(0, 0, 12) * Cylinder(10, 8),
+            "turned shaft": Cylinder(15, 20) + Pos(0, 0, 17.5) * Cylinder(10, 15),
+            "bored flange": Cylinder(40, 8) - Cylinder(8, 20),
+        }
+        noisy = {
+            name: [
+                i.message for i in build_drawing(part).lint() if i.code == "redundant_dimension"
+            ]
+            for name, part in corpus.items()
+        }
+        assert not any(noisy.values()), {k: v for k, v in noisy.items() if v}

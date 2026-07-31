@@ -101,6 +101,17 @@ def _suggest_fix(issue, dwg) -> str | None:
             "dwg = build_drawing(part, detail_view=True)"
         )
 
+    if code == "redundant_dimension":
+        # Two dimensions state the same measurement (#941). The engine deliberately does
+        # not pick a winner — ISO 129 keeps the functionally significant one, which is a
+        # drafting judgement about the part, not something the geometry says.
+        return (
+            "# Two dimensions say the same thing. Keep the functionally significant one\n"
+            "# (ISO 129) and drop the other. In a generated Sheet script, comment out its\n"
+            "# line; on a live drawing:\n"
+            '# dwg.drop("<the redundant annotation name>")'
+        )
+
     if code == "plate_thickness_dropped":
         # A recognised plate/wall thickness had no room in its target strip (#559).
         return (

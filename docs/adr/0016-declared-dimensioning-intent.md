@@ -710,8 +710,8 @@ one exists today:
    different features measuring the same span.
 3. **A redundancy lint** — for over-dimensioning that is neither identical nor coincident,
    e.g. carrying both a pattern's per-hole locations *and* the pitch that determines them.
-   **This does not exist**: the current codes are `*_dropped` and `feature_not_dimensioned`;
-   nothing reports duplicate or redundant dimensioning. Adding it is part of this work.
+   **Landed as `redundant_dimension` (#941, 2026-07-31)**, but narrower than written here,
+   because the motivating example turned out not to occur — see the amendment below.
 
 ### Dimensions are sheet-level; the view is derived placement
 
@@ -1089,7 +1089,8 @@ second with the single-source-of-truth of the first — over the identified set,
   editable line, so the intent-mirror property holds; the two verbs stay distinct precisely
   because one references and the other restates.
 - **A duplicate/redundancy lint code joins `linting/structural.py`** — the third protection
-  layer; nothing reports redundant dimensioning today.
+  layer; nothing reports redundant dimensioning today. **Done** (#941): `redundant_dimension`,
+  severity `warning`, reporting the pair rather than picking a winner.
 - **`--style imperative` retires once the declarative mirror reaches its coverage**, leaving
   one generated output. The low-level `Drawing` verbs stay a hand-use API but stop being a
   generated surface (ADR 0001 §3), and the generated file deliberately loses its
@@ -1149,6 +1150,7 @@ second with the single-source-of-truth of the first — over the identified set,
    not yet mirrorable.
 5. **Redundancy lint.** The third duplicate-protection layer — report over-dimensioning that
    is neither identical nor coincident (a pattern's per-hole locations *and* its pitch).
+   **Landed** (#941), rescoped — the pattern example does not occur; see the amendment.
 6. **Retire `--style imperative`** once the mirror reaches its reconstruction coverage
    (rotational, the ladders, off-axis `locate`, machined callouts, pocket / slot patterns),
    leaving the declarative script as the single generated output. **Landed** (#940). The
@@ -1156,6 +1158,43 @@ second with the single-source-of-truth of the first — over the identified set,
    regressions asserted only against the imperative script (#555, #881, #889, #133) were
    retargeted onto the Sheet script and hold as full parity, and every part family in the
    round-trip corpus emits, runs and lints clean through it.
+
+## Amendment 2 — the redundancy lint is an authored-path check, because the planner cannot over-dimension (2026-07-31)
+
+Phase 5 asked whether redundancy is a lint or a planner rule. Measuring the planner's output
+before writing anything (#941) answered it, and rescoped the phase:
+
+- **The planner cannot close a dimension chain.** Every span it approves along an axis is
+  measured from a **common datum** — on a stepped block, `step_height` z(−20→10) and
+  `overall_height` z(−20→20) share a start; `step_position` x(−30→10) and the envelope width
+  x(−30→30) likewise. The derived remainders are simply left unstated, which is correct
+  datum dimensioning. A suppression rule in `plan_dimensions` would have nothing to suppress.
+- **The motivating example does not occur.** A linear pattern draws its pitch **plus one
+  origin location**, not per-hole locations *and* pitch. Those are complementary: the pitch
+  gives the spacing, the location gives where the array sits.
+- **The referential authored path cannot create redundancy either.** `dimension(feature, role)`
+  selects a *subset* of the addressable set, and a subset of a non-redundant set is
+  non-redundant.
+- **The materialised path can, and did.** `measured_dimension(...)` (and imported AP242 PMI,
+  the same IR kind) carries its own value and reference points and is checked against nothing.
+  Restating an approved measurement drew it twice, lint-clean.
+
+So `redundant_dimension` reports only what it can prove — same orientation, same measured
+length, coincident extent along the measuring axis — and does **not** attempt the general
+over-dimensioning question. It names the pair and chooses no winner: ISO 129 keeps the
+functionally significant dimension, which is a judgement about the part.
+
+**The planner-rule half of phase 5 already exists, ad hoc, and is unsound.**
+`_compile_overall_height` suppresses the overall height with the reasons "Z-turned (the step
+chain tiles the height)" and "rotational OD conveys the height". Those *are* redundancy rules
+in the planner. #955 records that they fire on a premise placement can invalidate: when the
+step chain drops at placement, nothing conveys the height, and a rule meant to prevent
+over-dimensioning leaves the drawing under-dimensioned. Fixing that is worth more than adding
+a second planner rule here.
+
+On its first corpus sweep the new check found one true positive in twenty parts — a plate
+with a pad dimensions the same 30 mm span twice, as the pad's length and as a
+mis-recognised slot's (#958).
 
 ## Open questions
 

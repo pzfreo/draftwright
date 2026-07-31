@@ -107,6 +107,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "chamfer_dropped",
         "placement_unsatisfiable",
         "pmi_dropped",
+        "redundant_dimension",
     }
 )
 
