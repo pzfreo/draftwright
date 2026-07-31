@@ -1030,8 +1030,19 @@ def _rect_grid(members, pts, make):
         cells.append((ci, cj))
     if len(set(cells)) != n:
         return None
-    rows = max(c[0] for c in cells) + 1
-    cols = max(c[1] for c in cells) + 1
+    # `u1` is the FIRST lattice basis and `u2` the orthogonal one; the cell index along each
+    # is `ci`/`cj`. Which of those is a "row" is a naming choice, and this recogniser made the
+    # opposite one to `declare._pattern_members`, which lays COLUMNS along its first local
+    # direction and ROWS along the second, reading `rp, cp = grid`. Feeding one into the other
+    # transposed every declared grid array (#969) — invisible on the hole path, which emits
+    # explicit `members=`, and exposed by pocket/slot arrays, which recompute.
+    #
+    # Detection now follows declaration, per the decision on #969: columns vary along the first
+    # basis, rows along the second, and the pitch tuple is `(row_pitch, column_pitch)`. Note
+    # `u1` is the SHORTEST pairwise vector, not "X" — so this is a consistent local-lattice
+    # convention, not a world-axis one, and holds for a rotated grid.
+    cols = max(c[0] for c in cells) + 1
+    rows = max(c[1] for c in cells) + 1
     if rows < 2 or cols < 2 or max(rows, cols) < 3 or rows * cols != n:
         return None
     center = tuple(sum(c) / n for c in zip(*(h.location for h in members), strict=True))
@@ -1039,8 +1050,8 @@ def _rect_grid(members, pts, make):
         tuple(members),
         rows,
         cols,
-        round(l1, 2),
         round(l2, 2),
+        round(l1, 2),
         round(math.degrees(math.atan2(u1[1], u1[0])) % 90.0, 2),
         center,
     )
