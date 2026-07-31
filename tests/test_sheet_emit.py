@@ -2582,6 +2582,33 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
 
         return {"measured dimension": measured_dimension}
 
+    @pytest.mark.parametrize("route", sorted(_ROUTE_OBLIGATIONS))
+    def test_each_obligation_actually_depends_on_the_corpora(self, route):
+        """The handlers are functions, so test them as functions — with inputs chosen to make
+        a handler that ignores its corpora fail.
+
+        The eighth instance of this PR's recurring defect was `kinds - detected` mutated to
+        `kinds - kinds`: the route survived, its classification survived, and every coverage
+        claim silently required nothing (#967 r8). Nothing above could catch that, because
+        `_ROUTE_OBLIGATIONS` was both the specification and its own enforcement. This is the
+        independent check — it does not consult the corpora at all, it asks whether the
+        handler's answer CHANGES with them.
+        """
+        obligation = _ROUTE_OBLIGATIONS[route]
+        kinds = {"probe"}
+        satisfied = {"probe"} if route in ("detected", "declared") else set()
+        violating = set() if route in ("detected", "declared") else {"probe"}
+
+        happy, _why = obligation(kinds, satisfied, satisfied)
+        assert not happy, f"{route}: reports an offender when its obligation IS met"
+
+        sad, why = obligation(kinds, violating, violating)
+        assert sad == kinds, (
+            f"{route}: does not report an offender when its obligation is NOT met — the "
+            "handler ignores the corpora it claims to enforce"
+        )
+        assert why, f"{route}: reports offenders with no explanation"
+
     def test_every_route_has_an_obligation(self):
         """A route only exists because a handler imposes something. Validating against a
         separately-maintained list of names was the seventh instance of this defect: a route
