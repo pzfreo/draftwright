@@ -236,9 +236,15 @@ class _Nameable:
     point at something that works (#963/#965 review). A handle is not an IR `Feature`, so
     `feature.parameters()` — the route the header first advertised — raises on one; the
     working alternative went through a private index. Returns the CANONICAL spellings, so
-    what it lists is what `dimension()` wants: parameter ids, except where the id carries a
-    variant `axis=` supplies separately, plus `location` when this feature is eligible for
-    one (which the planner decides, so it cannot be read off the type).
+    what it lists is what `dimension()` wants: the parameter id for every measurement —
+    discriminated ones included, since their id carries the variant and resolves on its own —
+    plus `location` when this feature is eligible for one (which the planner decides, so it
+    cannot be read off the type).
+
+    Every entry must resolve. That is the whole contract, and it was broken once: this
+    listed a bare `"grid_pitch"` for a grid pattern, which `dimension()` then refused as
+    ambiguous, while the guard test passed because it reconstructed the expected answer
+    instead of calling this method (#965 review).
     """
 
     _sheet: Sheet
@@ -249,7 +255,7 @@ class _Nameable:
 
     def roles(self) -> tuple[str, ...]:
         feature = self._sheet.features[self._i]
-        names = {p.role if p.discriminator else p.parameter_id for p in feature.parameters()}
+        names = {p.parameter_id for p in feature.parameters()}
         if _location_role(feature) is not None:
             names.add(_LOCATION_ROLE)
         return tuple(sorted(names))

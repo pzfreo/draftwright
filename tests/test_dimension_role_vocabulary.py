@@ -246,29 +246,38 @@ class TestTheCanonicalSpellingIsEnforced:
     def test_every_role_a_grid_pattern_advertises_actually_resolves(self):
         """The contract `roles()` states — what it lists is what `dimension()` wants — held
         for a hole and NOT for a grid pattern, which advertised a bare `"grid_pitch"` that
-        then raised "ambiguous" (#965 review). The hole fixture could not catch it; nothing
-        else in the corpus carries a discriminated parameter. The generated header points
-        people at this method, so a spelling it lists must work."""
+        `dimension()` then refused as ambiguous (#965 review).
+
+        This calls `roles()` on the handle an EMITTED SCRIPT binds. An earlier version
+        reconstructed the expected answer from `p.parameter_id` instead, so it passed while
+        the method it claimed to guard was broken — a guard that bypasses its own subject
+        proves only that the author knows what the answer should be.
+        """
         import pytest
         from build123d import Box, Cylinder, Pos
 
-        from draftwright import Sheet
+        from draftwright.builder import detect_part_model
+        from draftwright.sheet_emit import emit_sheet_script
 
         part = Box(160, 120, 12)
         for x in (-45, 0, 45):
             for y in (-30, 30):
                 part -= Pos(x, y, 0) * Cylinder(3, 30)
-        sheet = Sheet.from_part(part, title="T", number="N").authored_dimensions()
-        pattern = next((f for f in sheet.features if f.kind == "pattern"), None)
+        model = detect_part_model(part)
+        pattern = next((f for f in model.features if f.kind == "pattern"), None)
         if pattern is None or not any(p.discriminator for p in pattern.parameters()):
             pytest.skip("fixture stopped detecting a discriminated grid pattern")
 
-        # What `roles()` reports, computed the same way — a pattern has no aspect handle to
-        # call it on, so the contract is asserted against the source it draws from.
-        advertised = sorted({p.parameter_id for p in pattern.parameters()})
-        assert "grid_pitch.length.row" in advertised
+        src = emit_sheet_script(model, "part", "s", title="T", number="N")
+        ns: dict = {"part": part}
+        exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        handle = ns[next(k for k in ns if k.startswith("pattern"))]
+
+        advertised = handle.roles()
+        assert "grid_pitch.length.row" in advertised, advertised
+        assert "grid_pitch" not in advertised, "the ambiguous bare role is still advertised"
         for role in advertised:
-            sheet.dimension(pattern, role)  # every advertised spelling must resolve
+            ns["sheet"].dimension(handle, role)  # every advertised spelling must resolve
 
     def test_a_discriminated_id_and_a_conflicting_axis_is_refused(self):
         """The id already names the variant, so an `axis=` disagreeing with it is a
