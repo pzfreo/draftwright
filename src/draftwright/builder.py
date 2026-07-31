@@ -367,8 +367,14 @@ def _assemble(
             # moment that output was declared rather than detected. Grooves are the only
             # detected feature that splits the chain: a chamfered or filleted shoulder leaves
             # the two step spans meeting (checked), and a bore or cross-hole carves no axial
-            # interval. The #631 case is untouched — a boss on a plate leaves a gap that no
-            # feature of any kind covers.
+            # interval. #631's own repro still raises.
+            # What this does NOT do is verify the declaration against the solid, and it never
+            # did: `.step(diameter=20, length=48, at=…)` fabricating one full-extent segment
+            # already defeats it on its own, groove or no groove (checked). Declared spans are
+            # the author's statement of intent, which ADR 0011 takes at face value rather than
+            # re-deriving, so this catches the honest mistake #631 reported — declaring the
+            # boss you can see and getting a worse drawing — not a fabricated coverage claim.
+            # Hardening it into a real verb-domain check is #956.
             # NOT claimed here: that the resulting drawing dimensions the height. On this very
             # fixture the step chain drops at placement (crowded shoulders) and the height,
             # suppressed at compile time on the premise the chain conveys it, is then conveyed

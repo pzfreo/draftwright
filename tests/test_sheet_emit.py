@@ -1258,12 +1258,17 @@ class TestRoundTripParity:
             assert any(n.startswith("m_groove") for n in names), (which, names)
             assert "4 WIDE × ø18" in labels, (which, labels)
             assert "ø24" in labels, (which, labels)
-            # The #955 gap, stated: no height, and lint says so on both paths.
-            assert "dim_height" not in names, (which, names)
-            assert "60" not in labels, (which, labels)
+            # The #955 gap, stated: no height, and lint says so on both paths. These four
+            # assertions are expected to fail when #955 lands — that is deliberate. Replace
+            # them with the height's presence then, and check parity still holds; do not
+            # relax them, or the fixture stops describing the drawing it produces. (Asserting
+            # only the lint codes would not decouple this: they change when #955 lands too.)
+            gap = f"{which}: #955 fixed? see the note above — update, don't relax."
+            assert "dim_height" not in names, (gap, names)
+            assert "60" not in labels, (gap, labels)
             codes = dwg.lint_summary()["by_code"]
-            assert codes.get("axial_length_missing") == 1, (which, codes)
-            assert codes.get("step_dim_dropped") == 1, (which, codes)
+            assert codes.get("axial_length_missing") == 1, (gap, codes)
+            assert codes.get("step_dim_dropped") == 1, (gap, codes)
 
     def test_title_block_and_layout_aspects_round_trip(self, tmp_path, monkeypatch):
         # #474: a generated sheet script carrying drawn_by/tolerance/scale/page must reproduce the
