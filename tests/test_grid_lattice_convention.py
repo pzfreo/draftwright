@@ -203,9 +203,11 @@ def test_the_frame_and_the_ir_axis_letter_agree(axis):
     # The frame is seeded from the dominant component, so it DOES jump across a tie. That is
     # only a defect if it can disagree with the axis letter `detect` stamps on the feature —
     # then the angle would be measured in one plane and applied in another, which is #969 all
-    # over again. It cannot: both are chosen by the same dominant-component rule. Pinned
-    # against `detect`'s own helper rather than restated, so a change to either side breaks it
-    # (Codex review of #970, round 3, which flagged the discontinuity).
+    # over again. It cannot: both are chosen by the same dominant-component rule. Pinned by
+    # calling `_axis_letter` — the `_geometry` helper `detect._pattern_feature` itself uses —
+    # rather than by restating the rule, so a change to it breaks this. That is white-box: it
+    # locks the shared convention, not `detect`'s call site, which stays covered by the
+    # round-trip tests above (Codex review of #970, rounds 3 and 4).
     from draftwright._geometry import _axis_letter
 
     letter = _axis_letter(type("F", (), {"axis": axis})())
