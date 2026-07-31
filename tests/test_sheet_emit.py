@@ -2313,3 +2313,127 @@ class TestTheScriptAccountsForEveryAnnotation:
             f"{unobserved} are exempted as furniture but this corpus never draws them — "
             "remove them, or add a fixture that produces them so the name is observed"
         )
+
+
+class TestTheDeclaredModelMatchesTheDetectedOne:
+    """Model fidelity, not just drawing fidelity (#962, epic #964).
+
+    `TestRoundTripParity` compares the DRAWINGS an emitted script and a direct build produce.
+    That is necessary and it is not sufficient: #962 was an emitted pocket reconstructed at
+    the wrong depth, and annotation-set parity passed throughout because the callout is placed
+    from the projected geometry rather than from the declared frame. The only signal was an
+    incidental lint divergence, which fired because `coverage.py::pocket_owner` happens to
+    match on location — luck, not coverage.
+
+    So this compares the models: emit a detected model, run the script, and check the model it
+    declares field for field against the one it came from.
+    """
+
+    #: Fields that legitimately differ, with the reason. An exemption is a claim that a script
+    #: need not reproduce something, so each one is argued AND checked below — a bare skip
+    #: list would let a real divergence hide behind a plausible sentence.
+    _EXEMPT = {
+        ("hole", "members"): "a single hole's member list is exactly its own frame origin",
+    }
+
+    def _exemption_holds(self, original, rebuilt, field):
+        """Prove the exemption rather than trusting it. Returns False to fail the test."""
+        if (original.kind, field) == ("hole", "members"):
+            # Only for a lone hole: a PATTERN's members carry positions the frame cannot,
+            # so the exemption must not silently cover that case.
+            return (
+                original.count == 1
+                and tuple(rebuilt.members) == ()
+                and tuple(map(tuple, original.members)) == (tuple(original.frame.origin),)
+            )
+        return False
+
+    @staticmethod
+    def _same(a, b, *, tol=5e-4):
+        """Structural equality, tolerant of the emitter's 3-dp rounding but of nothing else.
+
+        Not `==`: the emitted script writes `_n(value)`, so a detected 12.4999 comes back as
+        12.5. A tolerance smaller than that rounding would fail on every float; one larger
+        would stop noticing real drift, which is the failure this whole class exists to catch.
+        """
+        import dataclasses
+        import math
+
+        if dataclasses.is_dataclass(a) and dataclasses.is_dataclass(b):
+            fields = {f.name for f in dataclasses.fields(a)}
+            if fields != {f.name for f in dataclasses.fields(b)}:
+                return False
+            return all(
+                TestTheDeclaredModelMatchesTheDetectedOne._same(
+                    getattr(a, n), getattr(b, n), tol=tol
+                )
+                for n in sorted(fields)
+            )
+        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            if isinstance(a, bool) or isinstance(b, bool):
+                return a is b
+            return math.isclose(a, b, rel_tol=0, abs_tol=tol)
+        if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+            return len(a) == len(b) and all(
+                TestTheDeclaredModelMatchesTheDetectedOne._same(x, y, tol=tol)
+                for x, y in zip(a, b)
+            )
+        return a == b
+
+    @staticmethod
+    def _corpus():
+        from build123d import Box, Cylinder, Pos
+
+        def rows(cutter, z, n=4, pitch=30.0, w=30.0):
+            part = Box(w, pitch * (n + 2), 20)
+            for i in range(n):
+                part -= Pos(0, (i - (n - 1) / 2) * pitch, z) * cutter
+            return part
+
+        return {
+            # The #962 fixture: a recess in the UNDERSIDE, whose depth-axis position is the
+            # coordinate the emitter dropped. A top-face pocket hides the bug — its synthesised
+            # origin happens to be near zero.
+            "underside pocket": Box(120, 80, 16) - Pos(-35, 0, -8) * Box(30, 20, 10),
+            "top pocket": Box(80, 60, 20) - Pos(0, 0, 14) * Box(30, 20, 14),
+            "slot": Box(80, 60, 12) - Pos(10, 0, 6) * Box(30, 8, 10),
+            "pocket pattern": rows(Box(10, 12, 6), z=7),
+            "slot pattern": rows(Box(30, 8, 20), z=0, w=60),
+            "plate+hole": Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20),
+            "boss": Box(80, 60, 12) + Pos(0, 0, 12) * Cylinder(10, 8),
+            "turned shaft": Cylinder(15, 20) + Pos(0, 0, 17.5) * Cylinder(10, 15),
+        }
+
+    @pytest.mark.parametrize("name", sorted(_corpus()))
+    def test_every_declared_feature_matches_its_detected_original(self, name):
+        import dataclasses
+
+        part = self._corpus()[name]
+        detected = detect_part_model(part)
+        src = emit_sheet_script(detected, "part", "s", title="T", number="N")
+        ns: dict = {"part": part}
+        exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        declared = ns["sheet"].model()
+
+        by_kind_detected = [f for f in detected.features if f.kind != "authored_dimension"]
+        by_kind_declared = [f for f in declared.features if f.kind != "authored_dimension"]
+        assert [f.kind for f in by_kind_declared] == [f.kind for f in by_kind_detected], (
+            f"{name}: the script declares a different set of feature kinds"
+        )
+
+        for original, rebuilt in zip(by_kind_detected, by_kind_declared):
+            for field in dataclasses.fields(original):
+                if (original.kind, field.name) in self._EXEMPT:
+                    assert self._exemption_holds(original, rebuilt, field.name), (
+                        f"{name}: {original.kind}.{field.name} is exempt because "
+                        f"{self._EXEMPT[(original.kind, field.name)]}, but that does not hold "
+                        "here — the exemption is covering a real divergence"
+                    )
+                    continue
+                want = getattr(original, field.name)
+                got = getattr(rebuilt, field.name)
+                assert self._same(want, got), (
+                    f"{name}: {original.kind}.{field.name} came back as {got!r}, "
+                    f"not {want!r} — the script declares a different feature from the one "
+                    "it was generated from"
+                )

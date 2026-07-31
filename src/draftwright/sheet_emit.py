@@ -86,6 +86,13 @@ def _hole_line(f) -> str:
     # an emitter) may not infer an engineering fact from a dimension's presence.
     if not f.through and f.depth is None:
         kw.append("through=False")
+    elif f.through and f.depth is not None:
+        # A THROUGH hole's measured depth is a fact too — it is the bore length through the
+        # material — and dropping it left the declared feature with `depth=None` where
+        # detection had 8.0 (#962, epic #964's model-fidelity oracle). It changes no
+        # annotation: the callout reads THRU either way, checked. `.depth()` is not usable
+        # here because it also sets `through=False`, which would invert the very fact above.
+        kw.append(f"depth={_n(f.depth)}")
     line = f"sheet.hole({', '.join(kw)})"
     if not f.through and f.depth is not None:
         line += f".depth({_n(f.depth)})"  # sets through=False too
@@ -116,29 +123,38 @@ def _member_hole_str(m) -> str:
 
 def _member_pocket_str(m) -> str:
     """The ``pocket(...)`` template for a pocket-pattern member — carries its width × length ×
-    depth and orientation. Its own position is irrelevant (the pattern's ``at=`` fixes the
-    array centre), so only the size/axes need round-trip. Length is derived from the emitted
-    lo/hi so ``hi - lo == length`` exactly (declare.pocket rejects a 1e-6 mismatch)."""
+    depth, orientation and position. Length is derived from the emitted lo/hi so
+    ``hi - lo == length`` exactly (declare.pocket rejects a 1e-6 mismatch).
+
+    ``at=`` is carried for the same reason as the standalone verb (#962): without it
+    `declare.pocket` synthesises an origin whose DEPTH-axis component is zero, so a member
+    recessed into a face came back at 0 and the declared model diverged from the detected one.
+    It cannot move the array — `declare.pocket_pattern` takes its centre from the pattern's own
+    ``at=`` and falls back to the member's only when that is absent."""
     lo, hi = _n(m.lo), _n(m.hi)
     length = _n(round(float(hi) - float(lo), 3))
     return (
         f"pocket(width={_n(m.width)}, length={length}, depth={_n(m.depth)}, "
         f'long_axis="{m.long_axis}", width_axis="{m.width_axis}", '
-        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)})"
+        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)}, at={_pt(m.frame.origin)})"
     )
 
 
 def _member_slot_str(m) -> str:
-    """The ``slot(...)`` template for a slot-pattern member — carries its width × length and
-    orientation (a slot has no depth). Its own position is irrelevant (the pattern's ``at=``
-    fixes the array centre); length is derived from the emitted lo/hi so ``hi - lo == length``
-    exactly (declare.slot rejects a 1e-6 mismatch)."""
+    """The ``slot(...)`` template for a slot-pattern member — carries its width × length,
+    orientation and position (a slot has no depth). Length is derived from the emitted lo/hi so
+    ``hi - lo == length`` exactly (declare.slot rejects a 1e-6 mismatch).
+
+    ``at=`` rides along for the same reason as the pocket member above (#962). A through-slot's
+    depth-axis coordinate happens to be zero either way today, so this changes nothing now —
+    it is here so the two member templates cannot drift apart, which is how the pocket one
+    came to be the only place still dropping a position."""
     lo, hi = _n(m.lo), _n(m.hi)
     length = _n(round(float(hi) - float(lo), 3))
     return (
         f"slot(width={_n(m.width)}, length={length}, "
         f'long_axis="{m.long_axis}", width_axis="{m.width_axis}", '
-        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)})"
+        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)}, at={_pt(m.frame.origin)})"
     )
 
 
@@ -246,7 +262,7 @@ def _feature_line(f) -> str:
         return (
             f"sheet.slot(width={_n(f.width)}, length={length}, "
             f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
-            f"lo={lo}, hi={hi}, w_center={_n(f.w_center)})"
+            f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)})"
         )
     if k == "pocket":
         lo, hi = _n(f.lo), _n(f.hi)
@@ -256,7 +272,12 @@ def _feature_line(f) -> str:
         return (
             f"sheet.pocket(width={_n(f.width)}, length={length}, depth={_n(f.depth)}, "
             f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
-            f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}"
+            # `at=` is NOT redundant with lo/hi/w_center: those fix two axes, and with `at`
+            # omitted `declare.pocket` synthesises an origin whose DEPTH-axis component is
+            # zero. So a recess in an underside came back at z=0, the declared model diverged
+            # from the detected one, and annotation parity still passed because the callout is
+            # placed from the projected geometry (#962). Same reasoning on `slot` above.
+            f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)}"
             + (", edge_anchored=True" if f.edge_anchored else "")
             + ")"
         )
