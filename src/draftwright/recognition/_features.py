@@ -41,6 +41,7 @@ from OCP.GeomAbs import (
 )
 from OCP.TopAbs import TopAbs_Orientation
 
+from draftwright._geometry import plane_axes
 from draftwright.recognition._record import Record
 from draftwright.recognition.countersinks import CounterSink
 
@@ -803,8 +804,17 @@ def _spec_key(h):
 
 
 def _plane_uv(axis):
-    """Two unit vectors spanning the plane perpendicular to *axis*."""
+    """Two unit vectors spanning the plane perpendicular to *axis*.
+
+    For an axis-aligned *axis* this is the shared :func:`~draftwright._geometry.plane_axes`
+    basis — the very frame ``model.declare`` lays a declared pattern out in, so a grid angle
+    measured here means the same thing there (#969). An oblique axis has no declared
+    counterpart (the IR carries an axis *letter*), so it keeps the generic construction below,
+    which spans the right plane but in a frame of its own choosing.
+    """
     ax, ay, az = axis
+    if max(abs(ax), abs(ay), abs(az)) > 0.999 * math.hypot(ax, ay, az):
+        return plane_axes(axis)
     ref = (0.0, 0.0, 1.0) if abs(az) < 0.9 else (1.0, 0.0, 0.0)
     ux = ay * ref[2] - az * ref[1]
     uy = az * ref[0] - ax * ref[2]
@@ -1041,6 +1051,13 @@ def _rect_grid(members, pts, make):
     # basis, rows along the second, and the pitch tuple is `(row_pitch, column_pitch)`. Note
     # `u1` is the SHORTEST pairwise vector, not "X" — so this is a consistent local-lattice
     # convention, not a world-axis one, and holds for a rotated grid.
+    #
+    # Hence the angle is reduced modulo 180°, not 90°. `angle` names the COLUMN direction, and
+    # a grid is invariant under a half-turn (the cell set is symmetric about its centre) but
+    # NOT under a quarter-turn — a quarter-turn swaps the roles of rows and columns. Folding to
+    # [0, 90) discarded exactly that distinction, so whenever the shortest basis was the
+    # original ROW direction the rebuilt lattice came back transposed in place: same angle,
+    # swapped counts and pitches, different point set (Codex review of #970).
     cols = max(c[0] for c in cells) + 1
     rows = max(c[1] for c in cells) + 1
     if rows < 2 or cols < 2 or max(rows, cols) < 3 or rows * cols != n:
@@ -1052,7 +1069,7 @@ def _rect_grid(members, pts, make):
         cols,
         round(l2, 2),
         round(l1, 2),
-        round(math.degrees(math.atan2(u1[1], u1[0])) % 90.0, 2),
+        round(math.degrees(math.atan2(u1[1], u1[0])) % 180.0, 2),
         center,
     )
 

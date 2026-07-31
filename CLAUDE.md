@@ -120,7 +120,10 @@ entry. Keep `_LAYERS` and this section in step.
   layer). Sits *below* the domain API.
 - **`_geometry.py`** — model-neutral geometry primitives (`_xyz`, `HoleRef`,
   `_axis_letter`, `_END_ON`) plus the #700 shared page-plane maths (`_fmt`,
-  `_boxes_overlap`, the two segment/box tests); the DAG's bottom leaf (guarded
+  `_boxes_overlap`, the two segment/box tests) and `plane_axes` — the one
+  in-plane `(u, v)` basis per axis, shared by `recognition._features._plane_uv`
+  and `model.declare._plane_axes` so a pattern's `angle` means the same thing
+  detected as declared (#969); the DAG's bottom leaf (guarded
   by `test_geometry_is_a_leaf`) so the IR waist uses them without importing
   `_core`.
 - **`fits.py`** — the ISO 286 fit tables (`fit_deviation`, `FitClass`; ADR 0011

@@ -49,7 +49,38 @@ def _axis_letter(obj) -> str:
 
     ``obj`` is anything carrying an ``.axis`` 3-vector (a hole or a boss).
     """
-    return max(zip("xyz", obj.axis, strict=True), key=lambda t: abs(t[1]))[0]
+    return _axis_letter_of(obj.axis)
+
+
+#: The in-plane basis for each axis, as ``(u, v)`` world unit vectors — cyclic and
+#: right-handed, so ``u × v = +axis``.
+#:
+#: THE one choice, deliberately shared: recognition projects a pattern's member centres onto
+#: this basis to find its lattice, and declaration lays a declared pattern out along it. A grid
+#: ``angle`` therefore means the same thing on both sides of the IR. They disagreed until #969 —
+#: recognition built its own basis from a cross product with a reference direction, spanning the
+#: same plane a quarter turn round, so every declared grid came back transposed in place.
+_PLANE_AXES = {
+    "x": ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+    "y": ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0)),
+    "z": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+}
+
+
+def plane_axes(axis) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """The two in-plane unit directions for a feature lying perpendicular to *axis*.
+
+    *axis* is an axis letter or a 3-vector; a vector is reduced to its dominant component's
+    letter, so ``(0, 0, -1)`` and ``(0, 0, 1)`` share a basis. That is deliberate: the IR
+    carries only the letter, so a sign it cannot express must not change the frame.
+    """
+    letter = axis if isinstance(axis, str) else _axis_letter_of(axis)
+    return _PLANE_AXES[letter]
+
+
+def _axis_letter_of(axis) -> str:
+    """Letter of a bare 3-vector's dominant component (:func:`_axis_letter` takes an object)."""
+    return max(zip("xyz", axis, strict=True), key=lambda t: abs(t[1]))[0]
 
 
 def _fmt(v: float) -> str:

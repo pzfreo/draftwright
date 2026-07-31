@@ -2325,6 +2325,15 @@ class TestTheScriptAccountsForEveryAnnotation:
         )
 
 
+def _rounded(points):
+    """Member centres rounded to the emitter's 3 dp, so they can be SORTED for an
+    order-independent comparison. Rounding first is what makes the sort meaningful: a lattice
+    recomputed by declaration lands on -1.4e-15 where detection has exact 0.0, and two values
+    `_structurally_equal` calls equal can otherwise sort either side of each other. `+ 0.0`
+    normalises the -0.0 that rounding a small negative produces."""
+    return sorted(tuple(round(c, 3) + 0.0 for c in p) for p in points)
+
+
 def _structurally_equal(a, b, *, tol=5e-4):
     """Structural equality, tolerant of the emitter's 3-dp rounding but of nothing else.
 
@@ -2652,26 +2661,27 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "pad": Box(80, 60, 10) + Pos(0, 0, 10) * Box(30, 20, 4),
         }
 
-    #: Fixtures whose round trip is a KNOWN defect, as STRICT xfails. Strict because an
-    #: assertion that the models merely DIFFER — which this was first — stays green if a later
-    #: change produces a DIFFERENT wrong answer, and because fixing the defect then XPASSes and
-    #: forces the marker's removal and promotion into the normal corpus (reviews of 9aac6d2).
-    _KNOWN_BAD = {
-        "pocket grid": "#969 — detector/declare grid convention mismatch transposes the array",
-        "slot grid": "#969 — as pocket grid",
+    #: Fixtures whose member ENUMERATION ORDER is a known defect, as STRICT xfails. Strict
+    #: because an assertion that the models merely DIFFER — which this was first — stays green
+    #: if a later change produces a DIFFERENT wrong answer, and because fixing the defect then
+    #: XPASSes and forces the marker's removal (reviews of 9aac6d2).
+    #:
+    #: Scoped to order ALONE, and deliberately so. This was first a whole-test xfail on the
+    #: same two fixtures, which is the trap ADR-review lesson 2 names: a strict xfail absorbs
+    #: ANY failure in the test it marks, so every property the test also checks — `grid`,
+    #: `rows`, `cols`, `angle`, and the member POSITIONS — stopped being checked on exactly the
+    #: two fixtures most likely to regress. #969's second defect (recognition projecting onto
+    #: its own plane basis) was live underneath one of these markers (Codex review of #970).
+    _KNOWN_BAD_ORDER = {
+        "pocket grid": "#883 — per-member identity: detection enumerates a grid by column, "
+        "declaration by row. Same members, same places, different tuple order.",
+        "slot grid": "#883 — as pocket grid",
     }
 
-    #: …and the subset whose LINT also diverges. Only the pocket grid's does: a transposed
-    #: blind recess array lands where the coverage lint notices, a through-cut one does not.
-    #: Marking both would XPASS on the slot grid, which strictness correctly rejects — an
-    #: xfail has to name the failure that actually happens, not the one that might.
-    _KNOWN_BAD_LINT = {"pocket grid": _KNOWN_BAD["pocket grid"]}
-
-    def _cases(_corpus=_corpus, _bad=None, _default=_KNOWN_BAD):  # noqa: N805 — class-body
+    def _order_cases(_corpus=_corpus, _bad=_KNOWN_BAD_ORDER):  # noqa: N805 — class-body
         # Bound through defaults, and a plain loop rather than a comprehension: a
         # comprehension gets its own scope that cannot see class-body names, so
-        # `_KNOWN_BAD[name]` inside one raises NameError at import.
-        _bad = _default if _bad is None else _bad
+        # `_KNOWN_BAD_ORDER[name]` inside one raises NameError at import.
         cases = []
         for name in sorted(_corpus()):
             bad = _bad.get(name)
@@ -2868,7 +2878,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 "information, so the fidelity exemption must be re-argued"
             )
 
-    @pytest.mark.parametrize("name", _cases(_bad=_KNOWN_BAD_LINT))
+    @pytest.mark.parametrize("name", sorted(_corpus()))
     def test_the_script_lints_the_same_as_the_direct_build(self, name):
         """Critique parity, which epic #964 makes part of the round-trip contract. It is also
         how #962 was noticed at all — the drawings matched and only the lint differed."""
@@ -2898,7 +2908,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             f"  script: {issues(captured['dwg'])}\n  direct: {issues(direct)}"
         )
 
-    @pytest.mark.parametrize("name", _cases())
+    @pytest.mark.parametrize("name", sorted(_corpus()))
     def test_every_declared_feature_matches_its_detected_original(self, name):
         import dataclasses
 
@@ -2919,6 +2929,12 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             for field in dataclasses.fields(original):
                 want = getattr(original, field.name)
                 got = getattr(rebuilt, field.name)
+                if field.name == "members":
+                    # WHERE the members are is this test's business; what ORDER they are
+                    # enumerated in is #883's, checked separately below. Compared as a multiset
+                    # so that a member in the wrong PLACE still fails here rather than
+                    # disappearing into the order xfail.
+                    want, got = _rounded(want), _rounded(got)
                 if _structurally_equal(want, got):
                     continue  # agrees; an exemption is not consulted unless it is needed
                 assert (original.kind, field.name) in self._EXEMPT, (
@@ -2931,3 +2947,48 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                     f"{self._EXEMPT[(original.kind, field.name)]}, but that does not hold "
                     "here — the exemption is covering a real divergence"
                 )
+
+    @pytest.mark.parametrize("name", _order_cases())
+    def test_every_declared_feature_enumerates_its_members_in_the_detected_order(self, name):
+        """The other half of the members contract, split out so its known failures are narrow.
+
+        A pattern's `members` tuple is indexed — balloons, the hole table and per-member
+        addressing (#883) all read position N of it — so the order is part of fidelity, not
+        cosmetic. It is checked here rather than inside
+        `test_every_declared_feature_matches_its_detected_original` because the two grid
+        fixtures fail it, and marking THAT test xfail would silently stop checking every other
+        field on exactly the two fixtures where the convention is under repair.
+        """
+        import dataclasses
+
+        part = self._corpus()[name]
+        detected = detect_part_model(part)
+        src = emit_sheet_script(detected, "part", "s", title="T", number="N")
+        ns: dict = {"part": part}
+        exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        declared = ns["sheet"].model()
+
+        pairs = [
+            (o, r)
+            for o, r in zip(
+                [f for f in detected.features if f.kind != "authored_dimension"],
+                [f for f in declared.features if f.kind != "authored_dimension"],
+            )
+            if any(f.name == "members" for f in dataclasses.fields(o))
+        ]
+        # Most kinds carry no member list at all, and for them this check simply does not
+        # apply. For a PATTERN it always applies, so tie the two together against the roster
+        # `_EXPECTED_KINDS` already maintains: if a pattern fixture stops producing a member
+        # list, that is the check going vacuous, not the fixture being irrelevant.
+        if self._EXPECTED_KINDS[name] & {"pattern", "pocket_pattern", "slot_pattern"}:
+            assert pairs, (
+                f"{name}: a pattern fixture whose features carry no member list — the order "
+                "check has gone vacuous on exactly the kind it exists for"
+            )
+        for original, rebuilt in pairs:
+            if (original.kind, "members") in self._EXEMPT:
+                continue
+            assert _structurally_equal(original.members, rebuilt.members), (
+                f"{name}: {original.kind}.members came back in a different order — "
+                f"{rebuilt.members!r} rather than {original.members!r}"
+            )

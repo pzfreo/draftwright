@@ -28,6 +28,7 @@ from __future__ import annotations
 import math
 import warnings
 
+from draftwright._geometry import plane_axes
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
@@ -1041,12 +1042,11 @@ def pad(
 
 
 def _plane_axes(axis: str) -> tuple[Point, Point]:
-    """The two in-plane unit directions for a pattern lying perpendicular to *axis*."""
-    return {
-        "x": ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
-        "y": ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0)),
-        "z": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
-    }[axis]
+    """The two in-plane unit directions for a pattern lying perpendicular to *axis*.
+
+    Delegates to :func:`~draftwright._geometry.plane_axes` — the same basis recognition
+    projects onto, so a grid ``angle`` means one thing across the IR waist (#969)."""
+    return plane_axes(axis)
 
 
 def _pattern_members(
