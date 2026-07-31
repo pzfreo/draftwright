@@ -735,12 +735,24 @@ class LinearArray(Record):
 class RectGrid(Record):
     """A fully-populated rectangular grid of identical holes (an N×M lattice).
 
-    ``rows``×``cols`` holes sit on a regular rectangular lattice with
-    ``row_pitch`` spacing along the first lattice axis and ``col_pitch`` along
-    the second; every lattice position is occupied (``rows * cols == len(holes)``).
-    ``angle`` is the first axis's orientation in degrees within the holes'
-    opening plane, normalised to ``[0, 90)``. ``center`` is the world point at
-    the grid centroid (opening plane).
+    ``rows``×``cols`` holes sit on a regular rectangular lattice; every lattice
+    position is occupied (``rows * cols == len(holes)``). ``center`` is the world
+    point at the grid centroid (opening plane).
+
+    The lattice convention is shared with ``model.declare``, which reconstructs a
+    declared grid from these very fields (#969): **columns** are spaced
+    ``col_pitch`` apart along the lattice's first basis direction and **rows**
+    ``row_pitch`` apart along the second, and ``angle`` is the COLUMN direction's
+    orientation in degrees within the holes' opening plane, measured in the
+    :func:`~draftwright._geometry.plane_axes` frame and normalised to ``[0, 180)``.
+
+    ``[0, 180)`` and not ``[0, 90)``: the lattice is unchanged by a half-turn (its
+    cell set is symmetric about ``center``, so the basis sign carries no
+    information) but a QUARTER-turn swaps rows for columns, which these fields
+    distinguish. Note the first basis is the SHORTEST pairwise vector rather than
+    anything world-aligned, so a grid may legitimately come back with its rows and
+    columns named the other way round — what is fixed is that each count keeps its
+    own pitch, and that the fields describe the same lattice.
 
     A rectangular *ring* / perimeter (holes only around the edge, interior
     empty) is not a grid — it is reported as its constituent edge
@@ -803,30 +815,42 @@ def _spec_key(h):
     return HoleSpec.from_hole(h)
 
 
-def _plane_uv(axis):
-    """Two unit vectors spanning the plane perpendicular to *axis*.
+def _project_out(w, *directions):
+    """*w* with every direction in *directions* (unit, mutually orthogonal) removed, renormalised."""
+    for d in directions:
+        k = sum(p * q for p, q in zip(w, d, strict=True))
+        w = tuple(p - k * q for p, q in zip(w, d, strict=True))
+    n = math.hypot(*w)
+    return tuple(c / n for c in w)
 
-    For an axis-aligned *axis* this is the shared :func:`~draftwright._geometry.plane_axes`
-    basis — the very frame ``model.declare`` lays a declared pattern out in, so a grid angle
-    measured here means the same thing there (#969). An oblique axis has no declared
-    counterpart (the IR carries an axis *letter*), so it keeps the generic construction below,
-    which spans the right plane but in a frame of its own choosing.
+
+def _plane_uv(axis):
+    """Two orthonormal vectors spanning the plane perpendicular to *axis*.
+
+    Seeded from the shared :func:`~draftwright._geometry.plane_axes` basis for *axis*'s
+    dominant component — the very frame ``model.declare`` lays a declared pattern out in, so a
+    grid angle measured here means the same thing there (#969) — then Gram-Schmidt'd against
+    the *actual* axis so the result is exactly perpendicular to it whatever the axis is.
+
+    Seed-and-orthogonalise rather than a near-axis special case: a threshold wide enough to
+    absorb real STEP noise is also wide enough to return a basis that is NOT perpendicular to
+    the normal it was given, which silently distorts every projected pitch (Codex review of
+    #970 — a 0.999 cosine cutoff let a 2.5°-off normal through). Here an exactly axis-aligned
+    axis reproduces the canonical basis unchanged, a noisy one lands imperceptibly beside it,
+    and an oblique one is still handled — continuous everywhere, with no cutoff to sit near.
+
+    Deliberately NOT made right-handed about *axis*: ``(0, 0, -1)`` and ``(0, 0, 1)`` return the
+    same pair, because the IR records a pattern's axis as a LETTER. A frame that flipped with a
+    sign declaration cannot express would mirror the angle back through the waist.
     """
-    ax, ay, az = axis
-    if max(abs(ax), abs(ay), abs(az)) > 0.999 * math.hypot(ax, ay, az):
-        return plane_axes(axis)
-    ref = (0.0, 0.0, 1.0) if abs(az) < 0.9 else (1.0, 0.0, 0.0)
-    ux = ay * ref[2] - az * ref[1]
-    uy = az * ref[0] - ax * ref[2]
-    uz = ax * ref[1] - ay * ref[0]
-    n = math.hypot(ux, uy, uz)
-    u = (ux / n, uy / n, uz / n)
-    v = (
-        ay * u[2] - az * u[1],
-        az * u[0] - ax * u[2],
-        ax * u[1] - ay * u[0],
-    )
-    return u, v
+    n = math.hypot(*axis)
+    a = tuple(c / n for c in axis)
+    u0, v0 = plane_axes(a)
+    # `u0`/`v0` span the plane of the DOMINANT component, so neither is parallel to `a` and
+    # neither projection can collapse: `a`'s component along the third axis is the largest of
+    # the three, hence at least 1/√3.
+    u = _project_out(u0, a)
+    return u, _project_out(v0, a, u)
 
 
 def _as_bolt_circle(holes, pts):

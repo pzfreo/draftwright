@@ -18,16 +18,25 @@ point. Two branches of it were unexecuted by every fixture in the corpus:
 
 Projecting through `_plane_uv` here rather than just taking ``(x, y)`` is what makes the second
 one visible: a test that assumes the basis cannot detect that the basis is wrong.
+
+The basis-level tests at the bottom are the third round's lesson: sharing one basis is only
+right if the shared basis is still perpendicular to the axis it was asked for, which a
+near-axis shortcut quietly stopped being.
 """
 
 import math
 
 import pytest
 
+from draftwright._geometry import plane_axes
 from draftwright.model.declare import _pattern_members
 from draftwright.recognition._features import _plane_uv, _rect_grid
 
 _AXIS_UNIT = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+
+
+def _dot(a, b):
+    return sum(p * q for p, q in zip(a, b, strict=True))
 
 
 class _Member:
@@ -136,22 +145,50 @@ def test_each_count_keeps_its_own_pitch(axis, rows, cols, row_pitch, col_pitch, 
 
 @pytest.mark.parametrize("axis", ["x", "y", "z"])
 def test_recognition_and_declaration_span_the_plane_the_same_way(axis):
-    # The basis itself, stated once. `_plane_uv` takes a vector and `declare._plane_axes` a
-    # letter; they must land on the same pair, or `angle` is measured in one frame and applied
-    # in another — which is how a quarter-turn error hid behind a mod-90 fold for so long.
+    # The basis itself, stated once, and by exact equality: `_plane_uv` takes a vector and
+    # `declare._plane_axes` a letter, and both must land on the shared pair, or `angle` is
+    # measured in one frame and applied in another — which is how a quarter-turn error hid
+    # behind a mod-90 fold for so long. Exact rather than approximate because the
+    # orthogonalisation inside `_plane_uv` has to be a genuine no-op on a principal axis.
     from draftwright.model.declare import _plane_axes
 
-    assert _plane_uv(_AXIS_UNIT[axis]) == _plane_axes(axis)
+    assert _plane_uv(_AXIS_UNIT[axis]) == plane_axes(axis)
+    assert _plane_axes(axis) == plane_axes(axis)
 
 
-def test_an_oblique_axis_still_gets_an_orthonormal_plane():
-    # `_plane_uv` only defers to the shared basis for an axis-aligned axis; an oblique one has
-    # no declared counterpart (the IR carries an axis LETTER) and keeps the generic
-    # construction. Pin that the fallback still returns a sane frame, so the guard above cannot
-    # be satisfied by breaking it.
-    axis = (0.0, 0.6, 0.8)
+#: Axes that are awkward for the shared-basis seed: several a hair off principal, some properly
+#: oblique, one antiparallel. The near-axis cases are the point — a first cut treated anything
+#: within ~2.6° of an axis as axis-aligned and returned the exact principal basis, which is not
+#: perpendicular to the normal it was given, so it silently foreshortened every projected pitch
+#: (Codex review of #970, round 2).
+_TRICKY_AXES = [
+    (0.04, 0.0, 1.0),  # 2.3° off +Z — inside the cutoff the first cut used
+    (0.0, 1.0, 0.001),  # 0.06° off +Y
+    (1.0, -0.005, 0.002),  # a hair off +X, and off in BOTH other components
+    (0.0, 0.6, 0.8),  # properly oblique
+    (0.6, -0.48, 0.64),  # oblique with no zero component
+    (0.0, 0.0, -1.0),  # exactly antiparallel to +Z
+]
+
+
+@pytest.mark.parametrize("axis", _TRICKY_AXES)
+def test_every_axis_gets_an_orthonormal_basis_of_its_own_plane(axis):
     u, v = _plane_uv(axis)
+    n = math.hypot(*axis)
+    unit = tuple(c / n for c in axis)
     for w in (u, v):
-        assert math.isclose(math.hypot(*w), 1.0, abs_tol=1e-9)
-        assert math.isclose(sum(a * b for a, b in zip(w, axis, strict=True)), 0.0, abs_tol=1e-9)
-    assert math.isclose(sum(a * b for a, b in zip(u, v, strict=True)), 0.0, abs_tol=1e-9)
+        assert math.isclose(math.hypot(*w), 1.0, abs_tol=1e-12), "not a unit vector"
+        assert math.isclose(_dot(w, unit), 0.0, abs_tol=1e-12), (
+            "the basis is not perpendicular to the axis it was asked for, so every pitch "
+            "projected onto it is foreshortened"
+        )
+    assert math.isclose(_dot(u, v), 0.0, abs_tol=1e-12), "the two basis vectors are not orthogonal"
+
+
+@pytest.mark.parametrize("axis", ["x", "y", "z"])
+def test_a_reversed_axis_keeps_the_same_frame(axis):
+    # The IR records a pattern's axis as a LETTER, so declaration cannot tell +Z from -Z. A
+    # recognition frame that flipped with the sign would mirror the angle back through the
+    # waist. Pinned because the natural right-handed construction does exactly that.
+    forward = _AXIS_UNIT[axis]
+    assert _plane_uv(forward) == _plane_uv(tuple(-c for c in forward))

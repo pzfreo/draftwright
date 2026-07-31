@@ -126,7 +126,7 @@ class SlotGrid(Record):
     """N×M identical milled slots on a rectangular lattice (#841) — the through-slot analog of
     :class:`PocketGrid`. ``slots`` are the member :class:`Slot` records; the lattice is
     ``rows``×``cols`` at ``row_pitch``/``col_pitch``, rotated ``angle`` degrees about
-    ``center``."""
+    ``center`` — the same convention :class:`PocketGrid` and `RectGrid` document."""
 
     slots: tuple
     rows: int
@@ -211,7 +211,8 @@ class PocketGrid(Record):
     """N×M identical blind pockets on a rectangular lattice (#841) — the recess analog of
     :class:`~draftwright.recognition._features.RectGrid`. ``pockets`` are the member
     :class:`Pocket` records; the lattice is ``rows``×``cols`` at ``row_pitch``/``col_pitch``,
-    rotated ``angle`` degrees about ``center``."""
+    rotated ``angle`` degrees about ``center`` — the same convention `RectGrid` documents
+    (columns along the first basis, ``angle`` naming that direction in ``[0, 180)``)."""
 
     pockets: tuple
     rows: int
