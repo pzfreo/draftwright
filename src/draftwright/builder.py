@@ -59,6 +59,7 @@ from draftwright.fonts import PLEX_MONO
 from draftwright.model import (
     Datum,
     Feature,
+    GrooveFeature,
     PartModel,
     StepFeature,
     build_pmi_features,
@@ -358,8 +359,21 @@ def _assemble(
             # The step lengths convey the overall height only if the steps TILE the z-extent
             # contiguously — a single reach to each end isn't enough (an interior gap would
             # still leave height unconveyed). Walk the spans low→high, extending coverage.
+            # A GROOVE between two steps is covered too (#943 follow-on): it interrupts the
+            # step chain, but its width is a stated dimension on the groove callout, so
+            # 30 + (groove 4) + 26 still conveys the 60 mm height. Without this, the emitted
+            # script for any grooved shaft RAISED — the detector produces exactly this model
+            # (step, groove, step) and the direct build draws it, so the engine was rejecting
+            # its own detector's output the moment that output was declared rather than
+            # detected. The interior-gap case #631 guards is untouched: an unmeasured gap has
+            # no feature covering it.
             spans = sorted(
-                (min(p0[2], p1[2]), max(p0[2], p1[2])) for f in z_steps for (p0, p1) in [f.span]
+                [(min(p0[2], p1[2]), max(p0[2], p1[2])) for f in z_steps for (p0, p1) in [f.span]]
+                + [
+                    (f.frame.origin[2] - f.width / 2, f.frame.origin[2] + f.width / 2)
+                    for f in pm.features
+                    if isinstance(f, GrooveFeature) and f.frame.axis == "z"
+                ]
             )
             covered = a.bb.min.Z
             for lo, hi in spans:

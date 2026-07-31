@@ -1227,6 +1227,24 @@ class TestRoundTripParity:
         part = Box(80, 60, 20) - Pos(0, 0, 0) * Cylinder(8, 40) - Pos(0, 0, 8) * Cylinder(14, 20)
         self._parity(part, tmp_path, monkeypatch)
 
+    def test_grooved_shaft_parity(self, tmp_path, monkeypatch):
+        """A groove between two steps (#953). The emitted script did not merely diverge here —
+        it RAISED: the #631 span guard walks step spans only, so the groove's 4 mm read as an
+        unmeasured interior gap and the declared model was refused. `build_drawing(shaft)`
+        drew the same model happily, so the engine was rejecting its own detector's output the
+        moment that output was declared rather than detected.
+
+        The groove's width is stated on its callout, so 30 + 4 + 26 does convey the 60 mm
+        height that guard exists to protect."""
+        from build123d import Align
+
+        shaft = Cylinder(12, 60, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        shaft -= Pos(0, 0, 30) * (
+            Cylinder(12, 4, align=(Align.CENTER, Align.CENTER, Align.MIN))
+            - Cylinder(9, 4, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        )
+        self._parity(shaft, tmp_path, monkeypatch)
+
     def test_title_block_and_layout_aspects_round_trip(self, tmp_path, monkeypatch):
         # #474: a generated sheet script carrying drawn_by/tolerance/scale/page must reproduce the
         # same title-block + scale + page as a direct build with the same flags. Compare the
