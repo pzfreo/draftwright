@@ -2485,6 +2485,27 @@ class TestTheEmitBranchesBothWays:
         assert original.pattern == "grid" and original.angle is not None
         assert "angle=" not in _feature_line(dataclasses.replace(original, angle=None))
 
+    @pytest.mark.parametrize("kind", ["pocket_pattern", "slot_pattern"])
+    def test_a_grid_recess_array_emits_its_true_angle(self, kind):
+        """The TRUE side of the falsy-zero guard, on the two branches an xfail hides.
+
+        `pocket_pattern` and `slot_pattern` grids are xfailed for #969, and a whole-test xfail
+        absorbs ANY failure in that test — so a second, unrelated corruption of these branches
+        would sit behind the known transposition unnoticed (review of the xfail conversion).
+        The angle is unaffected by #969, so it can be asserted here, outside the xfail, and a
+        wrong angle fails for its own reason.
+        """
+        from draftwright.sheet_emit import _feature_line
+
+        model = detect_part_model(self._grid_array(blind=kind == "pocket_pattern"))
+        original = next(f for f in model.features if f.kind == kind)
+        assert original.angle == 0.0, "the fixture must detect an unrotated grid"
+        line = _feature_line(original)
+        assert "angle=0" in line, line
+        # ...and the arrangement fields the transpose does not touch.
+        assert f"count={original.count}" in line
+        assert 'kind="grid"' in line
+
     @staticmethod
     def _grid_array(*, blind):
         from build123d import Box, Pos
