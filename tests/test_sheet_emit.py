@@ -2328,16 +2328,8 @@ _EMITTED_GEOMETRIC_KINDS = {
 #: corpus's own list: this one is about model round-trip, not dimension mirroring, and an
 #: entry here is a statement that no fixture produces the kind — not that it is unimportant.
 _FIDELITY_UNCOVERED = {
-    "chamfer": "detected on a filleted/chamfered edge; covered for EMIT by the mirror corpus, "
-    "and its declaration carries no position to lose — a fixture is worth adding (#948)",
-    "fillet": "as chamfer",
-    "flat": "as chamfer",
-    "groove": "as chamfer",
-    "plate": "as chamfer",
-    "pad": "as chamfer",
-    "envelope": "synthesised rather than positioned; every fixture carries one already",
-    "step_level": "correlated ladder, carried by the turned-shaft fixture's step features",
-    "authored_dimension": "not a geometric feature; filtered by this oracle by design",
+    "authored_dimension": "not a geometric feature and not detected — it is declared, so there "
+    "is no detected original to compare against. Its round trip is TestAuthoredSetRoundTrips.",
 }
 
 
@@ -2462,6 +2454,17 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             - Pos(45, 30, 0) * Cylinder(4, 40),
             "boss": Box(80, 60, 12) + Pos(0, 0, 12) * Cylinder(10, 8),
             "turned shaft": Cylinder(15, 20) + Pos(0, 0, 17.5) * Cylinder(10, 15),
+            "stepped": Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20),
+            # The machined kinds. Excused in the first two cuts as carrying "no position to
+            # lose" — false: every one of them emits `at=`, and a review mutation moved a
+            # chamfer from (38,23,0) to (38,23,1) with all six chamfer tests still passing
+            # (#967 r3). Writing a third exemption I could not defend was the wrong answer;
+            # these are the same fixtures the mirror corpus already uses.
+            "chamfer": _chamfered_corner(bd_chamfer, 4),
+            "fillet": _chamfered_corner(bd_fillet, 3),
+            "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),
+            "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),
+            "pad": Box(80, 60, 10) + Pos(0, 0, 10) * Box(30, 20, 4),
         }
 
     #: What each fixture is FOR. A fixture that stops detecting its kind stops testing the
@@ -2479,6 +2482,12 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "plate": {"plate"},
         "boss": {"boss"},
         "turned shaft": {"rotational", "step"},
+        "stepped": {"step_level"},
+        "chamfer": {"chamfer"},
+        "fillet": {"fillet"},
+        "flat": {"flat"},
+        "groove": {"groove"},
+        "pad": {"pad"},
     }
 
     def test_the_corpus_names_every_fixture_it_carries(self):
