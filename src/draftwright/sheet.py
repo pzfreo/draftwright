@@ -835,6 +835,14 @@ class Sheet:
         scripts are written in (#963). They also make the transitional dual shape legible:
         one call form takes a feature and a role, the other restates a measurement.
 
+        They are **call-shape** overloads, not per-feature ones, and the difference matters
+        to anyone reading the completion list: ``feature`` is untyped and every feature gets
+        the same flat vocabulary, so an editor will offer ``pocket_width.length`` on a hole.
+        Narrowing that needs handle types that can express a per-feature vocabulary, which
+        `pocket()`, `slot()`, `pad()` and `envelope()` cannot today — they all return
+        `_Params`. The runtime resolver remains the authority; this is guidance, not a
+        complete static model of what a given feature carries (#965 review).
+
         A **transitional overload, not a deprecation wrapper**, because the name is *reused*
         rather than retired: ADR 0016 gives ``dimension`` the referential meaning — name a
         feature and a role, carry no number — on both :class:`Sheet` and ``Drawing``. A plain
