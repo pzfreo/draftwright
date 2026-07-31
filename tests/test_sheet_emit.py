@@ -2418,9 +2418,93 @@ _FIDELITY_ROUTE = {
     "datum_ref": ("aspect", "GD&T; carries no DimParameter"),
     "finish": ("aspect", "surface finish; carries no DimParameter"),
     "note": ("aspect", "free text"),
-    # Unnameable: emitted as a raw constructor, with no declarative verb to declare it.
-    "pmi": ("unnameable", "raw AP242, emitted as sheet.add(PmiFeature(...))"),
+    # Also declared: `_raw_pmi_line` SERIALISES every raw record as `sheet.add(PmiFeature(...))`,
+    # so it is an emitted declaration with exactly the fidelity obligation `authored_dimension`
+    # has. Routing it `unnameable` said the opposite, and the AP242 test only greps the source
+    # for `sheet.add(PmiFeature(` without executing it — so a lossy change to `_raw_pmi_line`
+    # stayed green while the machinery claimed every emitted kind was covered (review of
+    # 9aac6d2). "Raw fallback" describes the API's quality, not an exemption from fidelity.
+    "pmi": ("declared", "raw AP242, emitted as sheet.add(PmiFeature(...))"),
 }
+
+
+class TestTheEmitBranchesBothWays:
+    """The FALSE side of each condition #962 added, exercised directly.
+
+    Detection does not produce every combination — a through hole whose depth was not measured,
+    a linear array with no recorded direction — so the corpora reach only one side of these
+    branches and codecov reports them as partials. Constructing the feature is more honest than
+    contriving a solid that happens to detect the other way, and it says what the branch is FOR.
+    """
+
+    def _hole(self, **kw):
+        from draftwright.model import Frame, HoleFeature
+
+        base = dict(frame=Frame((0.0, 0.0, 0.0), "z"), diameter=8.0, through=True, depth=None)
+        return HoleFeature(**{**base, **kw})
+
+    def test_a_through_hole_with_no_measured_depth_emits_none(self):
+        from draftwright.sheet_emit import _hole_line, _member_hole_str
+
+        assert "depth=" not in _hole_line(self._hole())
+        assert "depth=" not in _member_hole_str(self._hole())
+
+    def test_a_through_hole_with_a_measured_depth_emits_it(self):
+        from draftwright.sheet_emit import _hole_line, _member_hole_str
+
+        assert "depth=12" in _hole_line(self._hole(depth=12.0))
+        assert "depth=12" in _member_hole_str(self._hole(depth=12.0))
+
+    @pytest.mark.parametrize("kind", ["pocket_pattern", "slot_pattern"])
+    def test_a_linear_recess_array_with_no_direction_omits_it(self, kind):
+        """`direction` is optional on the IR, and a member array assembled without one must
+        not emit `direction=None` — declare would reject it."""
+        import dataclasses
+
+        from draftwright.sheet_emit import _feature_line
+
+        part_model = detect_part_model(
+            self._recess_array(blind=kind == "pocket_pattern"),
+        )
+        original = next(f for f in part_model.features if f.kind == kind)
+        assert original.direction, "the fixture must normally carry a direction"
+        line = _feature_line(dataclasses.replace(original, direction=None))
+        assert "direction=" not in line
+
+    @pytest.mark.parametrize("kind", ["pocket_pattern", "slot_pattern"])
+    def test_a_grid_recess_array_with_no_angle_omits_it(self, kind):
+        """The other side of the falsy-zero guard. Detection always reports an angle for a
+        grid (0.0 for an unrotated one), so only `is not None` TRUE is reachable from a part —
+        but `angle` is optional on the IR and `angle=None` must not be emitted."""
+        import dataclasses
+
+        from draftwright.sheet_emit import _feature_line
+
+        model = detect_part_model(self._grid_array(blind=kind == "pocket_pattern"))
+        original = next(f for f in model.features if f.kind == kind)
+        assert original.pattern == "grid" and original.angle is not None
+        assert "angle=" not in _feature_line(dataclasses.replace(original, angle=None))
+
+    @staticmethod
+    def _grid_array(*, blind):
+        from build123d import Box, Pos
+
+        cutter = Box(12, 14, 6) if blind else Box(24, 8, 40)
+        part = Box(160, 140, 20)
+        for i in range(3):
+            for j in range(2):
+                part -= Pos((i - 1) * 40, (j - 0.5) * 45, 7 if blind else 0) * cutter
+        return part
+
+    @staticmethod
+    def _recess_array(*, blind):
+        from build123d import Box, Pos
+
+        cutter = Box(10, 12, 6) if blind else Box(30, 8, 40)
+        part = Box(30 if blind else 60, 30 * 6, 20)
+        for i in range(4):
+            part -= Pos(0, (i - 1.5) * 30, 7 if blind else 0) * cutter
+        return part
 
 
 class TestTheDeclaredModelMatchesTheDetectedOne:
@@ -2591,7 +2675,26 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             )
             return part, sheet.model()
 
-        return {"measured dimension": measured_dimension}
+        def raw_pmi():
+            import dataclasses
+
+            from draftwright.builder import detect_part_model
+            from draftwright.model import Frame, PmiFeature
+
+            part = Box(60, 40, 20)
+            model = detect_part_model(part)
+            record = PmiFeature(
+                frame=Frame((1.0, 2.0, 3.0), "z"),
+                pmi_kind="linear",
+                value=60.0,
+                label="60",
+                dominant_axis="X",
+                ref_bbox=(-30.0, -20.0, -10.0, 30.0, 20.0, 10.0),
+                ref_pts=((-30.0, 0.0, 0.0), (30.0, 0.0, 0.0)),
+            )
+            return part, dataclasses.replace(model, features=[*model.features, record])
+
+        return {"measured dimension": measured_dimension, "raw pmi": raw_pmi}
 
     @pytest.mark.parametrize("route", sorted(_ROUTE_OBLIGATIONS))
     def test_each_obligation_actually_depends_on_the_corpora(self, route):
@@ -2758,8 +2861,18 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
         ):
             exec(compile(src, "<emit>", "exec"), captured)  # noqa: S102
-        assert captured["dwg"].lint_summary()["by_code"] == direct.lint_summary()["by_code"], (
-            f"{name}: the script's drawing lints differently from the direct build"
+
+        def issues(dwg):
+            # (code, severity) as a sorted multiset. `by_code` alone compares COUNTS, so two
+            # drawings could agree on every code while disagreeing on how serious each is —
+            # and epic #964 asks for code AND severity parity (review of 9aac6d2). Message
+            # text is deliberately excluded: it embeds labels and measurements, so comparing
+            # it would fail on presentation rather than on critique.
+            return sorted((i.code, i.severity) for i in dwg.lint())
+
+        assert issues(captured["dwg"]) == issues(direct), (
+            f"{name}: the script's drawing lints differently from the direct build\n"
+            f"  script: {issues(captured['dwg'])}\n  direct: {issues(direct)}"
         )
 
     @pytest.mark.parametrize("name", sorted(_corpus()))
