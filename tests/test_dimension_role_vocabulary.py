@@ -166,6 +166,39 @@ class TestTheCanonicalSpellingIsEnforced:
         assert sheet._authored[-1]["role"] == "bore.diameter"
         assert any(issubclass(w.category, DeprecationWarning) for w in caught)
 
+    def test_the_warning_points_at_the_caller_not_at_draftwright(self):
+        """A deprecation reported against the library's own source tells the reader nothing
+        about which of their lines to change. `dimension` reaches the resolver two frames
+        deeper than `add_dimension` (through the transitional dispatcher and
+        `_authored_dimension`), so one shared stacklevel cannot serve both — and asserting
+        only that a warning EXISTS does not catch it (#965 review)."""
+        import warnings
+
+        for verb in ("dimension", "add_dimension"):
+            sheet, hole = self._hole_sheet(verb)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                getattr(sheet, verb)(hole, "bore")  # type: ignore[call-overload]
+            dep = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+            assert dep, verb
+            assert Path(dep[0].filename).name == Path(__file__).name, (
+                f"{verb}: warning blamed {dep[0].filename}, not the calling test"
+            )
+
+    def test_the_handles_answer_what_they_can_be_asked_for(self):
+        """`roles()` is the runtime half of the discoverability #963 is about, and it lists
+        the CANONICAL spellings — so what it returns is what `dimension()` accepts."""
+        from build123d import Box
+
+        from draftwright import Sheet
+
+        sheet = Sheet(Box(80, 50, 8))
+        hole = sheet.hole(diameter=8, at=(0, 0, 4), axis="z")
+        assert "bore.diameter" in hole.roles()
+        assert "bore" not in hole.roles()  # the deprecated family spelling is not advertised
+        for role in hole.roles():
+            sheet.dimension(hole, role)  # every listed role must actually resolve
+
     def test_add_dimension_normalises_identically(self):
         """The two verbs address a measurement through one resolver, so normalisation must
         not be something only the authored path gets."""
@@ -226,6 +259,26 @@ class TestTheCanonicalSpellingIsEnforced:
         src = emit_sheet_script(sheet.model(), "part", "s", title="T", number="N")
         assert '"bore.diameter"' in src
         assert '"bore")' not in src
+
+    def test_the_generated_header_advertises_a_route_that_runs(self):
+        """The header first pointed at `feature.parameters()`, which raises on the facade
+        handles a generated script actually binds — advertising discoverability that did not
+        work, in the artefact the issue is about (#965 review). Executed, not grepped."""
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright.builder import detect_part_model
+        from draftwright.sheet_emit import emit_sheet_script
+
+        part = Box(80, 50, 16) - Pos(-20, 0, 0) * Cylinder(4, 40)
+        src = emit_sheet_script(detect_part_model(part), "part", "s", title="T", number="N")
+        assert "<name>.roles()" in src
+
+        ns: dict = {"part": part}
+        body = src[: src.index("sheet.export(")].replace("\npart\n", "\n", 1)
+        exec(compile(body, "<emit>", "exec"), ns)  # noqa: S102 — our own generated script
+        handle = ns["hole1"]
+        assert handle.roles(), "the advertised route returned nothing"
+        assert "bore.diameter" in handle.roles()
 
 
 def test_the_package_ships_its_typing_marker():

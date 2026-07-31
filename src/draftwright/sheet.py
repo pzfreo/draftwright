@@ -229,7 +229,33 @@ class _FeatureView(MutableSequence):
         return [e[1] for e in self._entries] == list(other)
 
 
-class _Hole:
+class _Nameable:
+    """`roles()` for a declared-feature handle — the measurements it can be asked for.
+
+    The runtime answer to "what can I write here", and the reason the generated script can
+    point at something that works (#963/#965 review). A handle is not an IR `Feature`, so
+    `feature.parameters()` — the route the header first advertised — raises on one; the
+    working alternative went through a private index. Returns the CANONICAL spellings, so
+    what it lists is what `dimension()` wants: parameter ids, except where the id carries a
+    variant `axis=` supplies separately, plus `location` when this feature is eligible for
+    one (which the planner decides, so it cannot be read off the type).
+    """
+
+    _sheet: Sheet
+
+    @property
+    def _i(self) -> int:  # provided by each handle; declared for the mixin's own use
+        raise NotImplementedError
+
+    def roles(self) -> tuple[str, ...]:
+        feature = self._sheet.features[self._i]
+        names = {p.role if p.discriminator else p.parameter_id for p in feature.parameters()}
+        if _location_role(feature) is not None:
+            names.add(_LOCATION_ROLE)
+        return tuple(sorted(names))
+
+
+class _Hole(_Nameable):
     """A fluent handle for one declared hole — through vs blind (which changes the callout),
     and the P2a ± tolerance on its bore ⌀."""
 
@@ -337,7 +363,7 @@ class _Hole:
         return self
 
 
-class _Dim:
+class _Dim(_Nameable):
     """A fluent handle for a declared dimension-bearing feature (a diameter / boss OD, or a
     turned step), carrying the P2a ``.tolerance`` aspect. ``default_kind`` is the parameter a
     bare ``.tolerance(...)`` targets — ``"diameter"`` for an OD, ``"length"`` for a step."""
@@ -433,7 +459,7 @@ class DimensionIntent:
         return getattr(self._sheet, name)
 
 
-class _Params:
+class _Params(_Nameable):
     """A fluent handle for a declared MULTI-parameter feature — a pocket
     (width/length/depth), slot (width/length) or envelope (width/height/depth) — whose
     parameters share a KIND but have distinct ROLES. ``.tolerance(..., on=role)``
@@ -1371,7 +1397,7 @@ class Sheet:
 
         *feature* is a declared-feature handle (what :meth:`hole`, :meth:`boss`, … return),
         an index into :attr:`features`, or the IR feature itself. *role* names the
-        measurement — ``"bore"``, ``"grid_pitch"``, … — and carries **no number**: the
+        measurement — ``"bore.diameter"``, ``"grid_pitch"``, … — and carries **no number**: the
         value is read from the geometry, so the size still lives in exactly one place.
 
         Returns a :class:`DimensionIntent`.
@@ -1495,7 +1521,7 @@ class Sheet:
                 # transitional dispatcher AND `_authored_dimension`, so it is two frames
                 # further out. A shared constant pointed the warning at draftwright's own
                 # source instead of the caller's line (#965 review).
-                stacklevel=5 if verb == "dimension" else 3,
+                stacklevel=4 if verb == "dimension" else 3,
             )
         # A discriminated parameter keeps the BARE role: its full id carries the variant
         # (`grid_pitch.length.row`), which `axis=` supplies separately, so normalising to the
