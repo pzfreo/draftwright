@@ -2315,6 +2315,32 @@ class TestTheScriptAccountsForEveryAnnotation:
         )
 
 
+#: The geometric kinds the emitter writes a declarative line for — derived from
+#: `_KIND_MIRROR_COVERAGE`, which is itself fail-closed against the IR, so this cannot drift
+#: independently of the kinds that exist.
+_EMITTED_GEOMETRIC_KINDS = {
+    kind
+    for kind, note in _KIND_MIRROR_COVERAGE.items()
+    if note == "corpus" or note.startswith("untested")
+}
+
+#: Kinds the FIDELITY corpus does not reach, each with the reason. Distinct from the mirror
+#: corpus's own list: this one is about model round-trip, not dimension mirroring, and an
+#: entry here is a statement that no fixture produces the kind — not that it is unimportant.
+_FIDELITY_UNCOVERED = {
+    "chamfer": "detected on a filleted/chamfered edge; covered for EMIT by the mirror corpus, "
+    "and its declaration carries no position to lose — a fixture is worth adding (#948)",
+    "fillet": "as chamfer",
+    "flat": "as chamfer",
+    "groove": "as chamfer",
+    "plate": "as chamfer",
+    "pad": "as chamfer",
+    "envelope": "synthesised rather than positioned; every fixture carries one already",
+    "step_level": "correlated ladder, carried by the turned-shaft fixture's step features",
+    "authored_dimension": "not a geometric feature; filtered by this oracle by design",
+}
+
+
 class TestTheDeclaredModelMatchesTheDetectedOne:
     """Model fidelity, not just drawing fidelity (#962, epic #964).
 
@@ -2396,13 +2422,82 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             # origin happens to be near zero.
             "underside pocket": Box(120, 80, 16) - Pos(-35, 0, -8) * Box(30, 20, 10),
             "top pocket": Box(80, 60, 20) - Pos(0, 0, 14) * Box(30, 20, 14),
-            "slot": Box(80, 60, 12) - Pos(10, 0, 6) * Box(30, 8, 10),
+            # A THROUGH cut, so it detects as a slot rather than a pocket. The first version
+            # of this fixture was named "slot" and detected as a pocket — coverage theatre of
+            # exactly the kind `_EXPECTED_KINDS` now makes impossible (#967 review).
+            "slot": Box(80, 60, 12) - Pos(10, 0, 0) * Box(30, 8, 40),
+            # A hole PATTERN. Its absence is why the oracle missed `_member_hole_str`
+            # dropping a through member's depth — the same bug one level down from the one
+            # this PR started with.
+            "hole pattern": Box(200, 80, 20)
+            - Pos(-60, 0, 0) * Cylinder(4, 40)
+            - Pos(-20, 0, 0) * Cylinder(4, 40)
+            - Pos(20, 0, 0) * Cylinder(4, 40)
+            - Pos(60, 0, 0) * Cylinder(4, 40),
             "pocket pattern": rows(Box(10, 12, 6), z=7),
             "slot pattern": rows(Box(30, 8, 20), z=0, w=60),
             "plate+hole": Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20),
             "boss": Box(80, 60, 12) + Pos(0, 0, 12) * Cylinder(10, 8),
             "turned shaft": Cylinder(15, 20) + Pos(0, 0, 17.5) * Cylinder(10, 15),
         }
+
+    #: What each fixture is FOR. A fixture that stops detecting its kind stops testing the
+    #: path it was added for, silently — the failure `TestTheDimensionMirror._EXPECTED_KINDS`
+    #: exists for, repeated here because this corpus made the same mistake (#967 review).
+    _EXPECTED_KINDS = {
+        "underside pocket": {"pocket"},
+        "top pocket": {"pocket"},
+        "slot": {"slot"},
+        "pocket pattern": {"pocket_pattern"},
+        "slot pattern": {"slot_pattern"},
+        "hole pattern": {"pattern"},
+        "plate+hole": {"hole"},
+        "boss": {"boss"},
+        "turned shaft": {"rotational", "step"},
+    }
+
+    def test_the_corpus_names_every_fixture_it_carries(self):
+        assert set(self._corpus()) == set(self._EXPECTED_KINDS)
+
+    @pytest.mark.parametrize("name", sorted(_corpus()))
+    def test_the_corpus_detects_what_it_claims(self, name):
+        kinds = {f.kind for f in detect_part_model(self._corpus()[name]).features}
+        expected = self._EXPECTED_KINDS[name]
+        assert expected <= kinds, f"{name} detects {sorted(kinds)}, missing {sorted(expected)}"
+
+    def test_every_emitted_geometric_kind_is_exercised(self):
+        """Fail-closed on COVERAGE, not just on correctness. The oracle is only as good as
+        the branches its corpus reaches, and it demonstrably missed a live divergence in a
+        branch nothing exercised. A kind the emitter can write but this corpus never
+        produces must be named as such, not silently absent."""
+        covered = set()
+        for part in self._corpus().values():
+            covered |= {f.kind for f in detect_part_model(part).features}
+        missing = _EMITTED_GEOMETRIC_KINDS - covered - set(_FIDELITY_UNCOVERED)
+        assert not missing, (
+            f"the emitter writes {sorted(missing)} but no fidelity fixture produces one — "
+            "add a fixture, or name it in _FIDELITY_UNCOVERED with the reason"
+        )
+
+    @pytest.mark.parametrize("name", sorted(_corpus()))
+    def test_the_script_lints_the_same_as_the_direct_build(self, name):
+        """Critique parity, which epic #964 makes part of the round-trip contract. It is also
+        how #962 was noticed at all — the drawings matched and only the lint differed."""
+        from unittest.mock import patch
+
+        from draftwright import Sheet, build_drawing
+
+        part = self._corpus()[name]
+        direct = build_drawing(part, title="T", number="N")
+        src = emit_sheet_script(detect_part_model(part), "part", "s", title="T", number="N")
+        captured: dict = {"part": part}
+        with patch.object(
+            Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+        ):
+            exec(compile(src, "<emit>", "exec"), captured)  # noqa: S102
+        assert captured["dwg"].lint_summary()["by_code"] == direct.lint_summary()["by_code"], (
+            f"{name}: the script's drawing lints differently from the direct build"
+        )
 
     @pytest.mark.parametrize("name", sorted(_corpus()))
     def test_every_declared_feature_matches_its_detected_original(self, name):

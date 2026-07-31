@@ -118,6 +118,12 @@ def _member_hole_str(m) -> str:
         if m.depth is not None:
             kw.append(f"depth={_n(m.depth)}")
         kw.append("through=False")
+    elif m.depth is not None:
+        # A THROUGH member's measured depth is a fact too, exactly as on the standalone verb
+        # — and this template was the sibling that still dropped it after `_hole_line` was
+        # fixed, which the model-fidelity oracle missed because its corpus carried no hole
+        # pattern (#967 review). The two templates diverging is the recurring shape here.
+        kw.append(f"depth={_n(m.depth)}")
     return f"hole({', '.join(kw)})"
 
 
@@ -298,8 +304,16 @@ def _feature_line(f) -> str:
             parts.append(f"bcd={_n(f.bcd)}")
         elif f.pattern == "linear" and f.pitch:
             parts.append(f"pitch={_n(f.pitch)}")
+            if f.direction:
+                # Redundant for the LAYOUT, since `members=` below is spelled out — but it is
+                # a field on the feature, and leaving it None made the declared pattern differ
+                # from the detected one (#967 review). The emitted script is a representation
+                # of the model, not only a program that reproduces its positions.
+                parts.append(f"direction={_pt(f.direction)}")
         elif f.pattern == "grid" and f.grid:
             parts.append(f"grid=({_n(f.grid[0])}, {_n(f.grid[1])}), rows={f.rows}, cols={f.cols}")
+            if f.angle:
+                parts.append(f"angle={_n(f.angle)}")
         if f.members:
             parts.append("members=[" + ", ".join(_pt(p) for p in f.members) + "]")
         return f"sheet.pattern({_member_hole_str(f.member)}, " + ", ".join(parts) + ")"
