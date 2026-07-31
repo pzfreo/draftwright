@@ -50,7 +50,13 @@ _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright" / "sheet.p
 
 #: Every class `Sheet` hands back that outlives the call which made it. A new entry here is a new
 #: opportunity for the #910 bug, so each must appear in a scenario below.
-_HANDLE_CLASSES = frozenset({"_Hole", "_Dim", "_Params", "_Control", "DimensionIntent"})
+#: `_Nameable` is a MIXIN, not a retained object — nothing hands one back, so it needs no
+#: scenario; it is listed because this roster is closed on class NAMES in sheet.py, which is
+#: what makes a new kind of handle impossible to add unnoticed (#963). If it ever gains state
+#: or is returned by a verb, it needs a scenario in `_SCENARIOS` like the rest.
+_HANDLE_CLASSES = frozenset(
+    {"_Hole", "_Dim", "_Params", "_Control", "DimensionIntent", "_Nameable"}
+)
 
 
 def _part():

@@ -1185,10 +1185,16 @@ mirror image of it, and nothing reported that it had happened.
   `Axis`, `pmi=`, `severity=`). Bare roles are deliberately absent: listing them would recommend
   the thing being retired. `Role` above it stays `str` — the IR must remain open to new
   detectors; only what a *caller* may name is closed.
-- **`grid_pitch` is the exception, and keeps its bare role.** Its id carries a variant
-  (`grid_pitch.length.row`) that `axis=` supplies separately, so the id matches no parameter on
-  its own. The refusal compares undiscriminated ids for the same reason — counting variants as
-  separate measurements would fire it in place of the older, more useful `axis=` error.
+- **Discriminated parameters are named in full, like every other.** `grid_pitch.length.row`
+  and `.col` resolve on their own; the id already carries the variant, so nothing extra is
+  needed to reach one. An earlier cut of this amendment made `grid_pitch` an exception — the
+  bare role plus `axis=` — and that exception was the defect: `roles()`, which the generated
+  script tells readers to call, listed a spelling `dimension()` then refused as ambiguous
+  (#965 review). Removing the exception is what makes "the parameter id is canonical" true
+  without a footnote. The bare role with `axis=` still resolves, for scripts already written
+  that way, and an `axis=` contradicting the id is refused rather than silently preferred.
+  The family refusal compares undiscriminated ids, so it does not fire on variants of one
+  measurement.
 
 **Not closed by this.** Normalisation happens at the `Sheet` facade. A hand-built
 `RequestedDimension` through `build_drawing(model=…)` still carries whatever spelling it was
