@@ -101,6 +101,9 @@ precision = 1
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
+    # `@overload` stubs are typing declarations: Python discards the bodies, so they can
+    # never execute and counting them as missed coverage measures nothing (#963).
+    "@overload",
 ]
 
 [tool.mypy]

@@ -46,7 +46,7 @@ import math
 import warnings
 from collections.abc import MutableSequence
 from dataclasses import replace
-from typing import overload
+from typing import TYPE_CHECKING, overload
 
 from draftwright.analysis import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
@@ -247,11 +247,16 @@ class _Nameable:
     instead of calling this method (#965 review).
     """
 
+    # Declared, not defined: every handle already implements these — `_i` as a token-resolved
+    # property — so a body here would be unreachable code the mixin does not need. Under
+    # TYPE_CHECKING because a bare `_i: int` is a WRITEABLE attribute, which a read-only
+    # property may not override.
     _sheet: Sheet
 
-    @property
-    def _i(self) -> int:  # provided by each handle; declared for the mixin's own use
-        raise NotImplementedError
+    if TYPE_CHECKING:
+
+        @property
+        def _i(self) -> int: ...
 
     def roles(self) -> tuple[str, ...]:
         feature = self._sheet.features[self._i]
