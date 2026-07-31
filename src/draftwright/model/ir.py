@@ -52,6 +52,9 @@ Role = str
 # See :attr:`DimParameter.parameter_id` for how it is derived.
 ParameterId = str
 #: The measurement vocabulary a caller can name — what `Sheet.dimension(feature, role)` and
+#: `add_dimension` accept, spelled as PARAMETER IDS, which is what the name says (#963).
+#: Distinct from `ParameterId` above: that one is the open IR alias, this is the closed
+#: set a caller may write. What follows is the rest of the rationale.
 #: `add_dimension` accept (#963). Closed where `Role` above is open, and deliberately so: the
 #: IR must stay extensible for new detectors, but a *caller* can only name a measurement that
 #: exists today, and annotating that as a bare `str` gave no completion, no type checking and
@@ -76,7 +79,7 @@ ParameterId = str
 #: truth from the `DimParameter(...)` construction sites rather than trusting this list.
 #: A discriminated variant is spelled in full (`grid_pitch.length.row`); `axis=` still
 #: works with the bare role, for scripts that already wrote it that way.
-DimensionRole = Literal[
+DimensionParameterId = Literal[
     "bolt_circle.diameter",
     "bore.depth",
     "bore.diameter",

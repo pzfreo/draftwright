@@ -1,4 +1,4 @@
-"""`DimensionRole` must stay in step with the measurements the IR actually carries (#963).
+"""`DimensionParameterId` must stay in step with the measurements the IR actually carries (#963).
 
 `Sheet.dimension(feature, role)` used to take a bare `str`: no completion, no type checking,
 and no way to see the options without running the code. It now takes a `Literal`, which is how
@@ -17,7 +17,7 @@ import ast
 from pathlib import Path
 from typing import get_args
 
-from draftwright.model import DimensionRole
+from draftwright.model import DimensionParameterId
 
 _IR = Path(__file__).resolve().parents[1] / "src" / "draftwright" / "model" / "ir.py"
 
@@ -79,9 +79,9 @@ def test_the_extraction_finds_the_construction_sites():
 def test_every_ir_measurement_is_nameable():
     """Every parameter id must type — that is the canonical spelling (#963), so a caller
     naming one must never get a type error for a measurement that works."""
-    allowed = set(get_args(DimensionRole))
+    allowed = set(get_args(DimensionParameterId))
     missing = _canonical_spellings() - allowed
-    assert not missing, f"canonical spellings missing from DimensionRole: {sorted(missing)}"
+    assert not missing, f"canonical spellings missing from DimensionParameterId: {sorted(missing)}"
 
 
 def test_bare_roles_are_deliberately_absent():
@@ -89,7 +89,7 @@ def test_bare_roles_are_deliberately_absent():
     parameter carrying it, which is how `dimension(step, "step")` declared two dimensions
     silently. It stays accepted at runtime for one release, but it is not what the type
     advertises — listing it would recommend the thing being retired."""
-    allowed = set(get_args(DimensionRole))
+    allowed = set(get_args(DimensionParameterId))
     canonical = _canonical_spellings()
     bare = {role for role, _, disc in _ir_parameters() if not disc}
     assert not (bare & allowed) - canonical, (
@@ -100,17 +100,17 @@ def test_bare_roles_are_deliberately_absent():
 def test_no_invented_members():
     """The other direction: a member that names nothing offers a caller a role the engine
     will reject at runtime, which is worse than no completion at all."""
-    allowed = set(get_args(DimensionRole))
+    allowed = set(get_args(DimensionParameterId))
     real = _canonical_spellings() | _SYNTHESISED
     assert not (allowed - real), (
-        f"DimensionRole lists {sorted(allowed - real)}, which no DimParameter produces"
+        f"DimensionParameterId lists {sorted(allowed - real)}, which no DimParameter produces"
     )
 
 
 def test_the_synthesised_roles_are_stated_not_smuggled():
     """`location` is in the alias but is not a `DimParameter`. It is listed in `_SYNTHESISED`
     so that exemption is visible here rather than being an unexplained gap in the diff above."""
-    assert _SYNTHESISED <= set(get_args(DimensionRole))
+    assert _SYNTHESISED <= set(get_args(DimensionParameterId))
     assert _SYNTHESISED.isdisjoint({role for role, _, _ in _ir_parameters()})
 
 
@@ -135,7 +135,7 @@ def test_a_real_role_resolves_and_an_invented_one_raises():
 class TestTheCanonicalSpellingIsEnforced:
     """The BEHAVIOUR, not just the vocabulary (#965 review).
 
-    The tests above check `DimensionRole`'s contents; deleting the refuse/warn/normalise
+    The tests above check `DimensionParameterId`'s contents; deleting the refuse/warn/normalise
     branch in `_resolve_measurement` would leave every one of them passing. These fail if it
     goes — which is the point of having them.
     """
@@ -209,7 +209,7 @@ class TestTheCanonicalSpellingIsEnforced:
             )
 
     def test_the_handles_answer_what_they_can_be_asked_for(self):
-        """`roles()` is the runtime half of the discoverability #963 is about, and it lists
+        """`dimension_ids()` is the runtime half of the discoverability #963 is about, and it lists
         the CANONICAL spellings — so what it returns is what `dimension()` accepts."""
         from build123d import Box
 
@@ -217,9 +217,11 @@ class TestTheCanonicalSpellingIsEnforced:
 
         sheet = Sheet(Box(80, 50, 8))
         hole = sheet.hole(diameter=8, at=(0, 0, 4), axis="z")
-        assert "bore.diameter" in hole.roles()
-        assert "bore" not in hole.roles()  # the deprecated family spelling is not advertised
-        for role in hole.roles():
+        assert "bore.diameter" in hole.dimension_ids()
+        assert (
+            "bore" not in hole.dimension_ids()
+        )  # the deprecated family spelling is not advertised
+        for role in hole.dimension_ids():
             sheet.dimension(hole, role)  # every listed role must actually resolve
 
     def test_add_dimension_normalises_identically(self):
@@ -244,11 +246,11 @@ class TestTheCanonicalSpellingIsEnforced:
         assert not [w for w in caught if issubclass(w.category, DeprecationWarning)]
 
     def test_every_role_a_grid_pattern_advertises_actually_resolves(self):
-        """The contract `roles()` states — what it lists is what `dimension()` wants — held
+        """The contract `dimension_ids()` states — what it lists is what `dimension()` wants — held
         for a hole and NOT for a grid pattern, which advertised a bare `"grid_pitch"` that
         `dimension()` then refused as ambiguous (#965 review).
 
-        This calls `roles()` on the handle an EMITTED SCRIPT binds. An earlier version
+        This calls `dimension_ids()` on the handle an EMITTED SCRIPT binds. An earlier version
         reconstructed the expected answer from `p.parameter_id` instead, so it passed while
         the method it claimed to guard was broken — a guard that bypasses its own subject
         proves only that the author knows what the answer should be.
@@ -273,7 +275,7 @@ class TestTheCanonicalSpellingIsEnforced:
         exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
         handle = ns[next(k for k in ns if k.startswith("pattern"))]
 
-        advertised = handle.roles()
+        advertised = handle.dimension_ids()
         assert "grid_pitch.length.row" in advertised, advertised
         assert "grid_pitch" not in advertised, "the ambiguous bare role is still advertised"
         for role in advertised:
@@ -349,14 +351,14 @@ class TestTheCanonicalSpellingIsEnforced:
 
         part = Box(80, 50, 16) - Pos(-20, 0, 0) * Cylinder(4, 40)
         src = emit_sheet_script(detect_part_model(part), "part", "s", title="T", number="N")
-        assert "<name>.roles()" in src
+        assert "<name>.dimension_ids()" in src
 
         ns: dict = {"part": part}
         body = src[: src.index("sheet.export(")].replace("\npart\n", "\n", 1)
         exec(compile(body, "<emit>", "exec"), ns)  # noqa: S102 — our own generated script
         handle = ns["hole1"]
-        assert handle.roles(), "the advertised route returned nothing"
-        assert "bore.diameter" in handle.roles()
+        assert handle.dimension_ids(), "the advertised route returned nothing"
+        assert "bore.diameter" in handle.dimension_ids()
 
 
 def test_the_package_ships_its_typing_marker():

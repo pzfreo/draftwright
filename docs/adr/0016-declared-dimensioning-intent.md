@@ -1180,15 +1180,17 @@ mirror image of it, and nothing reported that it had happened.
 - A bare role naming exactly one is deprecated (warns, expires 0.4.0 with #720) and
   **normalised** to the id before it is stored — so an emitted script no longer changes dialect
   with how its source model was authored.
-- `DimensionRole` (`model/ir.py`) types the authoring verbs as a `Literal` of the canonical
-  spellings, which is how this codebase already spells a closed string vocabulary (`ParamKind`,
+- `DimensionParameterId` (`model/ir.py`) types the authoring verbs as a `Literal` of the canonical
+  spellings — named for what it holds, ids rather than roles, as is the handles'
+  `dimension_ids()` discovery method — which is how this codebase already spells a closed
+  string vocabulary (`ParamKind`,
   `Axis`, `pmi=`, `severity=`). Bare roles are deliberately absent: listing them would recommend
   the thing being retired. `Role` above it stays `str` — the IR must remain open to new
   detectors; only what a *caller* may name is closed.
 - **Discriminated parameters are named in full, like every other.** `grid_pitch.length.row`
   and `.col` resolve on their own; the id already carries the variant, so nothing extra is
   needed to reach one. An earlier cut of this amendment made `grid_pitch` an exception — the
-  bare role plus `axis=` — and that exception was the defect: `roles()`, which the generated
+  bare role plus `axis=` — and that exception was the defect: `dimension_ids()`, which the generated
   script tells readers to call, listed a spelling `dimension()` then refused as ambiguous
   (#965 review). Removing the exception is what makes "the parameter id is canonical" true
   without a footnote. The bare role with `axis=` still resolves, for scripts already written

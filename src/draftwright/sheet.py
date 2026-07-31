@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING, overload
 from draftwright.analysis import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
-from draftwright.model import DimensionRole, Feature
+from draftwright.model import DimensionParameterId, Feature
 from draftwright.model import boss as _boss
 from draftwright.model import chamfer as _chamfer
 from draftwright.model import control_frame as _declare_control
@@ -230,7 +230,14 @@ class _FeatureView(MutableSequence):
 
 
 class _Nameable:
-    """`roles()` for a declared-feature handle — the measurements it can be asked for.
+    """`dimension_ids()` for a declared-feature handle — the measurements it can be asked for.
+
+    Named for what it returns. An earlier cut called this `roles()` and the alias below
+    `DimensionRole`, which described neither: both carry parameter IDS, and the bare role is
+    the deprecated family spelling they deliberately exclude (#965 review). Both names were
+    new, so renaming cost nothing here and would have been a compat burden a release later.
+    The `role` PARAMETER keeps its name — it predates this change, so moving it would break
+    keyword callers; it exits with the other 0.4.0 renames (#720, #966).
 
     The runtime answer to "what can I write here", and the reason the generated script can
     point at something that works (#963/#965 review). A handle is not an IR `Feature`, so
@@ -258,7 +265,7 @@ class _Nameable:
         @property
         def _i(self) -> int: ...
 
-    def roles(self) -> tuple[str, ...]:
+    def dimension_ids(self) -> tuple[str, ...]:
         feature = self._sheet.features[self._i]
         names = {p.parameter_id for p in feature.parameters()}
         if _location_role(feature) is not None:
@@ -805,7 +812,7 @@ class Sheet:
 
     @overload
     def dimension(
-        self, feature, role: DimensionRole, *, axis: str | None = ...
+        self, feature, role: DimensionParameterId, *, axis: str | None = ...
     ) -> DimensionIntent: ...
 
     @overload
@@ -864,7 +871,7 @@ class Sheet:
             return self.measured_dimension(*args, **kw)
         return self._authored_dimension(*args, **kw)
 
-    def _authored_dimension(self, feature, role: DimensionRole, *, axis: str | None = None):
+    def _authored_dimension(self, feature, role: DimensionParameterId, *, axis: str | None = None):
         """`dimension(feature, role)` — declare one member of the COMPLETE authored set.
 
         Referential, like every ADR 0016 intent: it names a feature and a role and carries no
@@ -1411,7 +1418,7 @@ class Sheet:
         self._authored_source = True
         return self
 
-    def add_dimension(self, feature, role: DimensionRole, *, axis: str | None = None):
+    def add_dimension(self, feature, role: DimensionParameterId, *, axis: str | None = None):
         """Augment the planner's set with one more measurement (ADR 0016 / #872).
 
         *feature* is a declared-feature handle (what :meth:`hole`, :meth:`boss`, … return),
@@ -1487,7 +1494,9 @@ class Sheet:
                 "the source explicit so that omitting a dimension can mean something.)"
             )
 
-    def _resolve_measurement(self, feature, role: DimensionRole, axis: str | None, verb: str):
+    def _resolve_measurement(
+        self, feature, role: DimensionParameterId, axis: str | None, verb: str
+    ):
         """Resolve ``(feature, role, axis)`` to ``(token, feature, discriminator)``, or raise.
 
         Shared by :meth:`add_dimension` and :meth:`dimension` — the two verbs ADDRESS a
@@ -1530,7 +1539,7 @@ class Sheet:
                 f"one you mean, or declare each."
             )
         # A DISCRIMINATED parameter is named by its full id like any other (#965 review). It
-        # was the one exception — the bare role plus `axis=` — which meant `roles()` listed a
+        # was the one exception — the bare role plus `axis=` — which meant `dimension_ids()` listed a
         # spelling that then raised "ambiguous", breaking the contract the generated header
         # points people at. The id already carries the variant, so it is self-sufficient; the
         # bare role keeps working with `axis=` because that is what older scripts wrote.
