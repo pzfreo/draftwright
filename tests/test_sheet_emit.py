@@ -2586,6 +2586,11 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             - Pos(20, 0, 0) * Cylinder(4, 40)
             - Pos(60, 0, 0) * Cylinder(4, 40),
             "pocket pattern": rows(Box(10, 12, 6), z=7),
+            # Grid variants. They do NOT round-trip — #969 transposes the array — so they
+            # carry a strict xfail rather than sitting outside the corpus, which keeps the
+            # DESIRED equality as the assertion and still executes the grid emit branches.
+            "pocket grid": grid(Box(12, 14, 6), z=7),
+            "slot grid": grid(Box(24, 8, 40), z=0),
             # GRID variants. The linear ones above leave the grid branches of
             # `pocket_pattern`/`slot_pattern` unexecuted — which CI's coverage gate caught,
             # not the review. Both detect angle=0.0, so they also pin the falsy-zero guard
@@ -2620,6 +2625,33 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "pad": Box(80, 60, 10) + Pos(0, 0, 10) * Box(30, 20, 4),
         }
 
+    #: Fixtures whose round trip is a KNOWN defect, as STRICT xfails. Strict because an
+    #: assertion that the models merely DIFFER — which this was first — stays green if a later
+    #: change produces a DIFFERENT wrong answer, and because fixing the defect then XPASSes and
+    #: forces the marker's removal and promotion into the normal corpus (reviews of 9aac6d2).
+    _KNOWN_BAD = {
+        "pocket grid": "#969 — detector/declare grid convention mismatch transposes the array",
+        "slot grid": "#969 — as pocket grid",
+    }
+
+    #: …and the subset whose LINT also diverges. Only the pocket grid's does: a transposed
+    #: blind recess array lands where the coverage lint notices, a through-cut one does not.
+    #: Marking both would XPASS on the slot grid, which strictness correctly rejects — an
+    #: xfail has to name the failure that actually happens, not the one that might.
+    _KNOWN_BAD_LINT = {"pocket grid": _KNOWN_BAD["pocket grid"]}
+
+    def _cases(_corpus=_corpus, _bad=None, _default=_KNOWN_BAD):  # noqa: N805 — class-body
+        # Bound through defaults, and a plain loop rather than a comprehension: a
+        # comprehension gets its own scope that cannot see class-body names, so
+        # `_KNOWN_BAD[name]` inside one raises NameError at import.
+        _bad = _default if _bad is None else _bad
+        cases = []
+        for name in sorted(_corpus()):
+            bad = _bad.get(name)
+            marks = [pytest.mark.xfail(strict=True, reason=bad)] if bad else []
+            cases.append(pytest.param(name, marks=marks))
+        return cases
+
     #: What each fixture is FOR. A fixture that stops detecting its kind stops testing the
     #: path it was added for, silently — the failure `TestTheDimensionMirror._EXPECTED_KINDS`
     #: exists for, repeated here because this corpus made the same mistake (#967 review).
@@ -2629,6 +2661,8 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "slot": {"slot"},
         "pocket pattern": {"pocket_pattern"},
         "slot pattern": {"slot_pattern"},
+        "pocket grid": {"pocket_pattern"},
+        "slot grid": {"slot_pattern"},
         "hole pattern": {"pattern"},
         "grid pattern": {"pattern"},
         "plate+hole": {"hole"},
@@ -2766,44 +2800,6 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             offenders, why = obligation(kinds, detected, declared)
             assert not offenders, f"{sorted(offenders)} {why}"
 
-    @pytest.mark.parametrize(
-        "cutter,z,kind", [((12, 14, 6), 7, "pocket_pattern"), ((24, 8, 40), 0, "slot_pattern")]
-    )
-    def test_a_grid_recess_array_does_not_round_trip_yet(self, cutter, z, kind):
-        """A GRID pocket/slot array comes back TRANSPOSED — #969, found by this oracle.
-
-        Detection reports `grid[0]` as the X pitch with `rows` positions along X;
-        `declare._pattern_members` reads `rp, cp = grid` and lays `cols` across X using
-        `grid[1]`. The hole `pattern` verb masks it by emitting explicit `members=`, which
-        declare uses as-is; these two recompute, so they expose it.
-
-        Asserted as broken rather than omitted, for two reasons: it executes the grid emit
-        branches nothing else reaches, and it fails the moment #969 is fixed — at which point
-        these fixtures belong in `_corpus()` and this test should be deleted. Fixing it here
-        was tried and rejected: transposing at the emitter makes the POSITIONS right while
-        leaving `grid`/`rows`/`cols` stored transposed, which trades one divergence for
-        another rather than removing it.
-        """
-        from build123d import Box, Pos
-
-        part = Box(160, 140, 20)
-        for i in range(3):
-            for j in range(2):
-                part -= Pos((i - 1) * 40, (j - 0.5) * 45, z) * Box(*cutter)
-
-        model = detect_part_model(part)
-        original = next(f for f in model.features if f.kind == kind)
-        assert original.pattern == "grid", "the fixture must detect a GRID array"
-
-        src = emit_sheet_script(model, "part", "s", title="T", number="N")
-        ns: dict = {"part": part}
-        exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
-        rebuilt = next(f for f in ns["sheet"].model().features if f.kind == kind)
-
-        assert sorted(map(tuple, rebuilt.members)) != sorted(map(tuple, original.members)), (
-            "#969 appears to be fixed — move these fixtures into _corpus() and delete this test"
-        )
-
     @pytest.mark.parametrize("name", sorted(_declared_corpus()))
     def test_every_declared_feature_survives_its_own_emit(self, name):
         """The declared route, with the SAME comparator as the detected one. Previously this
@@ -2845,7 +2841,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 "information, so the fidelity exemption must be re-argued"
             )
 
-    @pytest.mark.parametrize("name", sorted(_corpus()))
+    @pytest.mark.parametrize("name", _cases(_bad=_KNOWN_BAD_LINT))
     def test_the_script_lints_the_same_as_the_direct_build(self, name):
         """Critique parity, which epic #964 makes part of the round-trip contract. It is also
         how #962 was noticed at all — the drawings matched and only the lint differed."""
@@ -2875,7 +2871,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             f"  script: {issues(captured['dwg'])}\n  direct: {issues(direct)}"
         )
 
-    @pytest.mark.parametrize("name", sorted(_corpus()))
+    @pytest.mark.parametrize("name", _cases())
     def test_every_declared_feature_matches_its_detected_original(self, name):
         import dataclasses
 
