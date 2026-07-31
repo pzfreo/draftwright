@@ -38,10 +38,33 @@ def _ir_parameters() -> set[tuple[str, str, bool]]:
     return out
 
 
+def _discriminated_ids() -> set[str]:
+    """Full ids for discriminated parameters (`grid_pitch.length.row`)."""
+    out = set()
+    for node in ast.walk(ast.parse(_IR.read_text(encoding="utf-8"))):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "DimParameter"):
+            continue
+        d = next(
+            (
+                kw.value.value
+                for kw in node.keywords
+                if kw.arg == "discriminator" and isinstance(kw.value, ast.Constant)
+            ),
+            None,
+        )
+        if d and len(node.args) >= 2:
+            out.add(f"{node.args[1].value}.{node.args[0].value}.{d}")
+    return out
+
+
 def _canonical_spellings() -> set[str]:
     """What a caller should write for each parameter: the id, or — where the id carries a
     variant that `axis=` supplies separately — the bare role."""
-    return {role if disc else f"{role}.{kind}" for role, kind, disc in _ir_parameters()}
+    # A discriminated parameter's canonical spelling is its FULL id; its `role.kind` prefix
+    # names nothing on its own, so it is not a spelling anyone should write.
+    return {
+        f"{role}.{kind}" for role, kind, disc in _ir_parameters() if not disc
+    } | _discriminated_ids()
 
 
 def test_the_extraction_finds_the_construction_sites():
@@ -220,7 +243,53 @@ class TestTheCanonicalSpellingIsEnforced:
             sheet.dimension(hole, "bore.diameter")
         assert not [w for w in caught if issubclass(w.category, DeprecationWarning)]
 
-    def test_a_discriminated_family_keeps_its_bare_role_and_still_needs_an_axis(self):
+    def test_every_role_a_grid_pattern_advertises_actually_resolves(self):
+        """The contract `roles()` states — what it lists is what `dimension()` wants — held
+        for a hole and NOT for a grid pattern, which advertised a bare `"grid_pitch"` that
+        then raised "ambiguous" (#965 review). The hole fixture could not catch it; nothing
+        else in the corpus carries a discriminated parameter. The generated header points
+        people at this method, so a spelling it lists must work."""
+        import pytest
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import Sheet
+
+        part = Box(160, 120, 12)
+        for x in (-45, 0, 45):
+            for y in (-30, 30):
+                part -= Pos(x, y, 0) * Cylinder(3, 30)
+        sheet = Sheet.from_part(part, title="T", number="N").authored_dimensions()
+        pattern = next((f for f in sheet.features if f.kind == "pattern"), None)
+        if pattern is None or not any(p.discriminator for p in pattern.parameters()):
+            pytest.skip("fixture stopped detecting a discriminated grid pattern")
+
+        # What `roles()` reports, computed the same way — a pattern has no aspect handle to
+        # call it on, so the contract is asserted against the source it draws from.
+        advertised = sorted({p.parameter_id for p in pattern.parameters()})
+        assert "grid_pitch.length.row" in advertised
+        for role in advertised:
+            sheet.dimension(pattern, role)  # every advertised spelling must resolve
+
+    def test_a_discriminated_id_and_a_conflicting_axis_is_refused(self):
+        """The id already names the variant, so an `axis=` disagreeing with it is a
+        contradiction rather than something to silently prefer one side of."""
+        import pytest
+        from build123d import Box, Cylinder, Pos
+
+        from draftwright import Sheet
+
+        part = Box(160, 120, 12)
+        for x in (-45, 0, 45):
+            for y in (-30, 30):
+                part -= Pos(x, y, 0) * Cylinder(3, 30)
+        sheet = Sheet.from_part(part, title="T", number="N").authored_dimensions()
+        pattern = next((f for f in sheet.features if f.kind == "pattern"), None)
+        if pattern is None or not any(p.discriminator for p in pattern.parameters()):
+            pytest.skip("fixture stopped detecting a discriminated grid pattern")
+        with pytest.raises(ValueError, match="already names"):
+            sheet.dimension(pattern, "grid_pitch.length.row", axis="col")
+
+    def test_the_bare_role_with_an_axis_still_works_for_existing_scripts(self):
         """`grid_pitch`'s id carries the variant (`grid_pitch.length.row`) that `axis=`
         supplies separately, so the bare role IS its canonical spelling. An early cut of the
         refusal counted those variants as two measurements and fired in place of the older,

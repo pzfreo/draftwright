@@ -1510,6 +1510,19 @@ class Sheet:
                 f"({', '.join(bases)}) — the role is the family, not one of them. Name the "
                 f"one you mean, or declare each."
             )
+        # A DISCRIMINATED parameter is named by its full id like any other (#965 review). It
+        # was the one exception — the bare role plus `axis=` — which meant `roles()` listed a
+        # spelling that then raised "ambiguous", breaking the contract the generated header
+        # points people at. The id already carries the variant, so it is self-sufficient; the
+        # bare role keeps working with `axis=` because that is what older scripts wrote.
+        exact = next((p for p in matching if p.parameter_id == role), None)
+        if exact is not None and exact.discriminator:
+            if axis is not None and axis != exact.discriminator:
+                raise ValueError(
+                    f"{verb}({role!r}, axis={axis!r}): that id already names the "
+                    f"{exact.discriminator!r} variant"
+                )
+            return token, target, exact.discriminator, role
         discriminated = any(p.discriminator for p in matching)
         if bare and not discriminated:
             warnings.warn(

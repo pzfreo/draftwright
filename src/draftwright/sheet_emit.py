@@ -770,7 +770,14 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
             )
         # Double quotes, matching the house style of every other emitted string argument
         # (`axis="z"`); `!r` would render single and make the file read as two dialects.
-        axis = f', axis="{discriminator}"' if discriminator else ""
+        # A full discriminated id already names the variant, so restating it as `axis=`
+        # would be redundant — and would make the emitted line the only place two spellings
+        # of one thing appear side by side (#965 review).
+        axis = (
+            f', axis="{discriminator}"'
+            if discriminator and "." not in role[role.find(".") + 1 :]
+            else ""
+        )
         out.append(f'sheet.dimension({name}, "{role}"{axis})')
     return out
 

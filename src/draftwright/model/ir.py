@@ -74,7 +74,8 @@ ParameterId = str
 #:
 #: Kept in step with the IR by `tests/test_dimension_role_vocabulary.py`, which derives the
 #: truth from the `DimParameter(...)` construction sites rather than trusting this list.
-#: A discriminated variant (`grid_pitch.length.row`) is reached with `axis=`, not spelled here.
+#: A discriminated variant is spelled in full (`grid_pitch.length.row`); `axis=` still
+#: works with the bare role, for scripts that already wrote it that way.
 DimensionRole = Literal[
     "bolt_circle.diameter",
     "bore.depth",
@@ -89,6 +90,8 @@ DimensionRole = Literal[
     "depth.length",
     "fillet.radius",
     "flat.length",
+    "grid_pitch.length.col",
+    "grid_pitch.length.row",
     "groove.diameter",
     "groove.length",
     "height.length",
@@ -109,9 +112,6 @@ DimensionRole = Literal[
     "step_position.length",
     "thickness.length",
     "width.length",
-    # DISCRIMINATED: its full id carries the variant (`grid_pitch.length.row`), which
-    # `axis=` supplies separately — so the bare role IS the spelling here.
-    "grid_pitch",
     # synthesised, not a DimParameter (see above)
     "location",
 ]
