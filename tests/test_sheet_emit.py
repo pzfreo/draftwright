@@ -2355,20 +2355,44 @@ def _structurally_equal(a, b, *, tol=5e-4):
     return a == b
 
 
-#: Every kind the emitter writes a line for, and WHICH round-trip route proves it. Derived from
-#: `_KIND_MIRROR_COVERAGE`, which is itself fail-closed against the IR, so this cannot drift
-#: independently of the kinds that exist.
-#:
-#: The route split is the point. A kind nothing detects cannot be checked by emitting a detected
-#: model, so it needs the declared route instead — and saying so in prose is what failed four
-#: times running. `authored_dimension`'s note read "corpus (declared route …)", which the old
-#: membership test (`== "corpus"`) silently excluded, so its exemption was dead code and
-#: deleting it broke nothing (#967 r5). Route is now a value, and both routes are corpora.
-_DECLARED_ROUTE_KINDS = {
-    kind for kind, note in _KIND_MIRROR_COVERAGE.items() if "declared route" in note
-}
-_ROUND_TRIPPED_KINDS = {
-    kind for kind, note in _KIND_MIRROR_COVERAGE.items() if note.startswith(("corpus", "untested"))
+#: The closed set of round-trip routes. A route is a VALUE, not a phrase — five review rounds
+#: found the same defect (a coverage claim no code required), and the sixth found it again
+#: after the claim moved from `== "corpus"` to `"declared route" in note`. Substring parsing
+#: of an explanation is still prose deciding an obligation; a prose edit silently dropped
+#: `authored_dimension` from coverage entirely (#967 r6).
+_ROUTES = ("detected", "declared", "aspect", "unnameable")
+
+#: ``kind -> (route, reason)`` for EVERY IR kind. The reason is documentation and nothing
+#: reads it; the route decides which corpus must contain the kind, and is validated against
+#: `_ROUTES`. Fail-closed against the IR itself, so a new kind cannot arrive unclassified.
+_FIDELITY_ROUTE = {
+    # Detected: reachable by emitting a model the detectors built from a part.
+    "hole": ("detected", "plate+hole, and as a pattern member"),
+    "pattern": ("detected", "hole pattern (linear) and grid pattern"),
+    "boss": ("detected", "boss"),
+    "step": ("detected", "turned shaft"),
+    "step_level": ("detected", "stepped"),
+    "slot": ("detected", "slot"),
+    "pocket": ("detected", "underside pocket / top pocket"),
+    "pocket_pattern": ("detected", "pocket pattern"),
+    "slot_pattern": ("detected", "slot pattern"),
+    "pad": ("detected", "pad"),
+    "plate": ("detected", "plate"),
+    "chamfer": ("detected", "chamfer"),
+    "fillet": ("detected", "fillet"),
+    "flat": ("detected", "flat"),
+    "groove": ("detected", "groove"),
+    "rotational": ("detected", "turned shaft"),
+    "envelope": ("detected", "every fixture carries one"),
+    # Declared: nothing detects one, so emitting a detected model cannot reach it.
+    "authored_dimension": ("declared", "an imported AP242 or hand-written measurement"),
+    # Aspects: carry no geometry to lose, and no declarative feature line to round-trip.
+    "control_frame": ("aspect", "GD&T; carries no DimParameter"),
+    "datum_ref": ("aspect", "GD&T; carries no DimParameter"),
+    "finish": ("aspect", "surface finish; carries no DimParameter"),
+    "note": ("aspect", "free text"),
+    # Unnameable: emitted as a raw constructor, with no declarative verb to declare it.
+    "pmi": ("unnameable", "raw AP242, emitted as sheet.add(PmiFeature(...))"),
 }
 
 
@@ -2531,13 +2555,32 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
 
         return {"measured dimension": measured_dimension}
 
-    def test_every_emitted_kind_is_round_tripped_by_one_route_or_the_other(self):
-        """Fail-closed on COVERAGE, with no exemption list to hide behind.
+    def test_every_route_value_is_one_of_the_closed_set(self):
+        """The route decides an obligation, so an unrecognised one must fail loudly rather
+        than quietly matching no branch and excusing the kind (#967 r6)."""
+        bad = {k: r for k, (r, _why) in _FIDELITY_ROUTE.items() if r not in _ROUTES}
+        assert not bad, f"unknown routes {bad}; valid are {_ROUTES}"
 
-        There were nine exemptions, then one, and the one was dead — excluded from the
-        membership test by a string mismatch, so deleting it broke nothing. Every kind now has
-        to be OBSERVED in a corpus, and which route observes it is a value rather than a
-        sentence."""
+    def test_every_ir_kind_has_a_route(self):
+        """Fail-closed against the IR, not against another table. A new feature kind cannot
+        arrive without someone deciding how its round trip is proven."""
+        from draftwright.model import ir as _ir
+
+        kinds = {
+            value.kind
+            for value in vars(_ir).values()
+            if isinstance(value, type) and isinstance(getattr(value, "kind", None), str)
+        }
+        assert kinds == set(_FIDELITY_ROUTE), (
+            "an IR kind was added or removed — classify it in _FIDELITY_ROUTE: which corpus "
+            f"proves its round trip? (missing {sorted(kinds - set(_FIDELITY_ROUTE))}, "
+            f"stale {sorted(set(_FIDELITY_ROUTE) - kinds)})"
+        )
+
+    def test_every_routed_kind_is_observed_in_the_corpus_its_route_names(self):
+        """The obligation itself. A kind routed `detected` must appear in the detected corpus
+        and a `declared` one in the declared corpus — no exemption list, and no phrase that
+        can be edited to make the requirement disappear."""
         detected = set()
         for part in self._corpus().values():
             detected |= {f.kind for f in detect_part_model(part).features}
@@ -2546,14 +2589,24 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             _part, model = build()
             declared |= {f.kind for f in model.features}
 
-        assert not (_DECLARED_ROUTE_KINDS - declared), (
-            f"{sorted(_DECLARED_ROUTE_KINDS - declared)} is classified declared-route but no "
-            "declared fixture produces one"
-        )
-        missing = _ROUND_TRIPPED_KINDS - detected - declared
-        assert not missing, (
-            f"the emitter writes {sorted(missing)} but no fidelity fixture produces one — "
-            "add it to the detected or the declared corpus; there is no exemption list"
+        observed = {"detected": detected, "declared": declared}
+        for route, seen in observed.items():
+            want = {k for k, (r, _why) in _FIDELITY_ROUTE.items() if r == route}
+            assert not (want - seen), (
+                f"{sorted(want - seen)} is routed {route!r} but no {route} fixture produces "
+                "one — add a fixture, or change the route and say why"
+            )
+
+        # The other direction, and the one that makes the route itself unfalsifiable prose if
+        # it is missing: `aspect` and `unnameable` are claims that a kind has NO round-trip
+        # obligation. That is only honest while no fixture produces one. Without this, moving
+        # a kind to `aspect` silently excused it and every test stayed green — the sixth
+        # instance of this defect, in the machinery built to prevent the fifth (#967 r6).
+        excused = {k for k, (r, _why) in _FIDELITY_ROUTE.items() if r in ("aspect", "unnameable")}
+        produced = excused & (detected | declared)
+        assert not produced, (
+            f"{sorted(produced)} is routed as having no round-trip obligation, but a fixture "
+            "produces one — so the obligation is real and the route is wrong"
         )
 
     @pytest.mark.parametrize("name", sorted(_declared_corpus()))
