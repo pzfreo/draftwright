@@ -173,6 +173,12 @@ _TRICKY_AXES = [
 
 @pytest.mark.parametrize("axis", _TRICKY_AXES)
 def test_every_axis_gets_an_orthonormal_basis_of_its_own_plane(axis):
+    # NOT a claim that an oblique pattern round-trips — it does not, and cannot: the IR records
+    # a pattern's axis as a LETTER, so declaration flattens an oblique lattice into its dominant
+    # plane whatever frame it was found in (#971, pre-dating this branch). The claim here is
+    # narrower and is the one the near-axis regression broke: whatever axis it is given, the
+    # PROJECTION is geometrically honest, so pitches are not foreshortened and the lattice is
+    # recognised at its true shape.
     u, v = _plane_uv(axis)
     n = math.hypot(*axis)
     unit = tuple(c / n for c in axis)
@@ -183,6 +189,34 @@ def test_every_axis_gets_an_orthonormal_basis_of_its_own_plane(axis):
             "projected onto it is foreshortened"
         )
     assert math.isclose(_dot(u, v), 0.0, abs_tol=1e-12), "the two basis vectors are not orthogonal"
+
+
+@pytest.mark.parametrize(
+    "axis",
+    [
+        *_TRICKY_AXES,
+        (1.0, 1.0 - 1e-9, 0.0),  # either side of a dominant-component tie, where the frame
+        (1.0 - 1e-9, 1.0, 0.0),  # ...turns a quarter turn between one call and the next
+    ],
+)
+def test_the_frame_and_the_ir_axis_letter_agree(axis):
+    # The frame is seeded from the dominant component, so it DOES jump across a tie. That is
+    # only a defect if it can disagree with the axis letter `detect` stamps on the feature —
+    # then the angle would be measured in one plane and applied in another, which is #969 all
+    # over again. It cannot: both are chosen by the same dominant-component rule. Pinned
+    # against `detect`'s own helper rather than restated, so a change to either side breaks it
+    # (Codex review of #970, round 3, which flagged the discontinuity).
+    from draftwright._geometry import _axis_letter
+
+    letter = _axis_letter(type("F", (), {"axis": axis})())
+    u, v = _plane_uv(axis)
+    cu, cv = plane_axes(letter)
+    # Aligned with the letter's canonical basis rather than equal to it: the orthogonalisation
+    # tilts the frame by however far the axis is off principal. A quarter-turn disagreement —
+    # the failure this guards — would read ~0 here. The floor is 1/√2, approached only AT a
+    # tie, so 0.7 is the tightest bound that holds for every axis rather than a round number.
+    assert _dot(u, cu) >= 0.7, "the frame is a quarter turn from the basis the IR letter names"
+    assert _dot(v, cv) >= 0.7, "the frame is a quarter turn from the basis the IR letter names"
 
 
 @pytest.mark.parametrize("axis", ["x", "y", "z"])

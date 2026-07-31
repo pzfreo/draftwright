@@ -835,13 +835,25 @@ def _plane_uv(axis):
     Seed-and-orthogonalise rather than a near-axis special case: a threshold wide enough to
     absorb real STEP noise is also wide enough to return a basis that is NOT perpendicular to
     the normal it was given, which silently distorts every projected pitch (Codex review of
-    #970 — a 0.999 cosine cutoff let a 2.5°-off normal through). Here an exactly axis-aligned
-    axis reproduces the canonical basis unchanged, a noisy one lands imperceptibly beside it,
-    and an oblique one is still handled — continuous everywhere, with no cutoff to sit near.
+    #970 — a 0.999 cosine cutoff let a 2.5°-off normal through). An exactly axis-aligned axis
+    reproduces the canonical basis unchanged, and a noisy one lands imperceptibly beside it,
+    with no cutoff for real geometry to sit near.
 
     Deliberately NOT made right-handed about *axis*: ``(0, 0, -1)`` and ``(0, 0, 1)`` return the
     same pair, because the IR records a pattern's axis as a LETTER. A frame that flipped with a
     sign declaration cannot express would mirror the angle back through the waist.
+
+    **Scope.** The seed follows *axis*'s dominant component, so the frame does jump a quarter
+    turn across a dominant-component tie (``(1, 1-ε, 0)`` → ``(1-ε, 1, 0)``). That is not a gap
+    between the two halves of the waist: :func:`~draftwright._geometry.plane_axes` and
+    ``detect._pattern_feature``'s axis LETTER are chosen by the same rule, so the frame and the
+    letter turn together, and `test_the_frame_and_the_ir_axis_letter_agree` pins it. What such
+    an axis does not have is a faithful declared counterpart at all — an oblique pattern is
+    flattened into its dominant plane by the letter, whatever frame it was found in. The
+    projection here stays geometrically honest (unforeshortened pitches, so the lattice is
+    recognised correctly), but the round trip through the IR is lossy for a genuinely oblique
+    pattern. That is a pre-existing limit of the letter-only IR, not something this function can
+    fix; it is #971 (Codex review of #970, round 3).
     """
     n = math.hypot(*axis)
     a = tuple(c / n for c in axis)
