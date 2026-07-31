@@ -2360,10 +2360,20 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
     #: list would let a real divergence hide behind a plausible sentence.
     _EXEMPT = {
         ("hole", "members"): "a single hole's member list is exactly its own frame origin",
+        ("plate", "frame"): "detection fills a plate's frame with the PART centroid, so it "
+        "carries no per-plate information and nothing reads it",
     }
 
     def _exemption_holds(self, original, rebuilt, field):
         """Prove the exemption rather than trusting it. Returns False to fail the test."""
+        if (original.kind, field) == ("plate", "frame"):
+            # The proof: detection sets `Frame(bbox.center(), axis)` for EVERY plate
+            # (`detect._convert_plate`), so two plates in one part get identical origins and
+            # the field cannot distinguish them. The slab's real position is axis/lo/hi/u/v,
+            # which this test compares like any other field. If detection ever starts filling
+            # this in meaningfully, `_exempt_plate_origin_is_the_part_centroid` fails and the
+            # exemption has to be re-argued.
+            return original.frame.axis == rebuilt.frame.axis
         if (original.kind, field) == ("hole", "members"):
             # Only for a lone hole: a PATTERN's members carry positions the frame cannot,
             # so the exemption must not silently cover that case.
@@ -2437,6 +2447,19 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "pocket pattern": rows(Box(10, 12, 6), z=7),
             "slot pattern": rows(Box(30, 8, 20), z=0, w=60),
             "plate+hole": Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20),
+            # Two slabs. Exempted-and-unchecked in the first cut, which was wrong: the review
+            # showed `PlateFeature.frame.origin` really does change. It is not semantic — see
+            # `_exemption_holds` — but that had to be PROVEN rather than asserted (#967 r2).
+            "plate": Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50),
+            # A GRID pattern. Every other pattern fixture is linear, and the coverage ratchet
+            # is kind-level, so deleting the grid emit branches passed all 29 tests (#967 r2).
+            "grid pattern": Box(160, 120, 20)
+            - Pos(-45, -30, 0) * Cylinder(4, 40)
+            - Pos(0, -30, 0) * Cylinder(4, 40)
+            - Pos(45, -30, 0) * Cylinder(4, 40)
+            - Pos(-45, 30, 0) * Cylinder(4, 40)
+            - Pos(0, 30, 0) * Cylinder(4, 40)
+            - Pos(45, 30, 0) * Cylinder(4, 40),
             "boss": Box(80, 60, 12) + Pos(0, 0, 12) * Cylinder(10, 8),
             "turned shaft": Cylinder(15, 20) + Pos(0, 0, 17.5) * Cylinder(10, 15),
         }
@@ -2451,7 +2474,9 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "pocket pattern": {"pocket_pattern"},
         "slot pattern": {"slot_pattern"},
         "hole pattern": {"pattern"},
+        "grid pattern": {"pattern"},
         "plate+hole": {"hole"},
+        "plate": {"plate"},
         "boss": {"boss"},
         "turned shaft": {"rotational", "step"},
     }
@@ -2478,6 +2503,21 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             f"the emitter writes {sorted(missing)} but no fidelity fixture produces one — "
             "add a fixture, or name it in _FIDELITY_UNCOVERED with the reason"
         )
+
+    def test_exempt_plate_origin_is_the_part_centroid(self):
+        """The premise behind the `("plate", "frame")` exemption, asserted separately so the
+        exemption rests on a checked fact rather than a sentence. Two plates in one part must
+        share an origin, and it must be the part's bbox centre — that is what makes the field
+        a placeholder rather than a position."""
+        model = detect_part_model(self._corpus()["plate"])
+        plates = [f for f in model.features if f.kind == "plate"]
+        assert len(plates) == 2, "the fixture must carry two slabs for this to mean anything"
+        centre = model.bbox.center()
+        for plate in plates:
+            assert plate.frame.origin == pytest.approx((centre.X, centre.Y, centre.Z)), (
+                "a plate's frame is no longer the part centroid — it may now carry real "
+                "information, so the fidelity exemption must be re-argued"
+            )
 
     @pytest.mark.parametrize("name", sorted(_corpus()))
     def test_the_script_lints_the_same_as_the_direct_build(self, name):

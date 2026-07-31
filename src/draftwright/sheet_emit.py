@@ -312,7 +312,10 @@ def _feature_line(f) -> str:
                 parts.append(f"direction={_pt(f.direction)}")
         elif f.pattern == "grid" and f.grid:
             parts.append(f"grid=({_n(f.grid[0])}, {_n(f.grid[1])}), rows={f.rows}, cols={f.cols}")
-            if f.angle:
+            # `is not None`, not truthiness: 0.0 is a MEANINGFUL angle (an
+            # unrotated grid) and `if f.angle:` silently dropped it, so a grid
+            # pattern came back with angle=None (#967 r2).
+            if f.angle is not None:
                 parts.append(f"angle={_n(f.angle)}")
         if f.members:
             parts.append("members=[" + ", ".join(_pt(p) for p in f.members) + "]")
@@ -329,7 +332,7 @@ def _feature_line(f) -> str:
                 parts.append(f"direction={_pt(f.direction)}")
         elif f.pattern == "grid" and f.grid:
             parts.append(f"grid=({_n(f.grid[0])}, {_n(f.grid[1])}), rows={f.rows}, cols={f.cols}")
-            if f.angle:
+            if f.angle is not None:
                 parts.append(f"angle={_n(f.angle)}")
         return f"sheet.pocket_pattern({_member_pocket_str(f.member)}, " + ", ".join(parts) + ")"
     if k == "slot_pattern":
@@ -342,7 +345,7 @@ def _feature_line(f) -> str:
                 parts.append(f"direction={_pt(f.direction)}")
         elif f.pattern == "grid" and f.grid:
             parts.append(f"grid=({_n(f.grid[0])}, {_n(f.grid[1])}), rows={f.rows}, cols={f.cols}")
-            if f.angle:
+            if f.angle is not None:
                 parts.append(f"angle={_n(f.angle)}")
         return f"sheet.slot_pattern({_member_slot_str(f.member)}, " + ", ".join(parts) + ")"
     if k == "chamfer":
