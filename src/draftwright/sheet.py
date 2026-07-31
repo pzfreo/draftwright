@@ -645,6 +645,7 @@ class Sheet:
         frame=None,
         projection=None,
         zones=None,
+        detail_view=None,
     ):
         self._part = part
         # (token, feature) entries — identity, not position (#908). `_features` is the
@@ -711,6 +712,12 @@ class Sheet:
             ("frame", frame),
             ("projection", projection),
             ("zones", zones),
+            # The last build option the facade did not forward (#940). It matters now that the
+            # Sheet script is the only generated script: the imperative one put a raw
+            # `build_drawing(...)` call in the file, so a reader could add any engine kwarg by
+            # editing it. Retiring that surface without this would take `detail_view` away from
+            # everyone generating a script, which is the capability loss #940's gate forbids.
+            ("detail_view", detail_view),
         ):
             if _v is not None:
                 self._opts[_k] = _v

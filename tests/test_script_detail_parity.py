@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 from build123d import Align, Axis, Box, Cylinder, Pos, Rot, Rotation, chamfer, export_step, fillet
 
-from draftwright import build_drawing, generate_script
+from draftwright import build_drawing
+from draftwright.sheet_emit import generate_sheet_script
 
 # Characterisation with executable acceptance criteria for the known direct/script gaps
 # (#707 umbrella; #661 details; #426 reconstruction convergence). The strict xfails below
@@ -68,26 +69,25 @@ def crowded_step(tmp_path):
 def _run_generated_script(step, tmp_path, name, *, scale=None, page=None, detail_view=None):
     """Execute an emitted script with the same build settings as its direct peer.
 
-    ``generate_script`` does not yet expose ``detail_view``. Because the generated file is
-    explicitly an editable surface, inject that setting into its ``build_drawing`` call when
-    a parity fixture needs it. This keeps the comparison inputs equal without changing the
-    production emitter merely to enable a characterization test.
+    Intercepts `Sheet.export` to capture the Drawing rather than writing a PDF, the same way
+    `test_sheet_emit`'s round-trip parity does.
     """
-    script = Path(
-        generate_script(
-            str(step),
-            out=str(tmp_path / name),
-            scale=scale,
-            page=page,
-        )
-    )
+    from unittest.mock import patch
+
+    from draftwright import Sheet
+
+    py = generate_sheet_script(str(step), out=str(tmp_path / name), scale=scale, page=page)
+    source = Path(py).read_text(encoding="utf-8")
     if detail_view is not None:
-        source = script.read_text(encoding="utf-8")
-        anchor = "    page=PAGE,\n"
-        assert source.count(anchor) == 1, "generated build_drawing call changed"
-        source = source.replace(anchor, anchor + f"    detail_view={detail_view!r},\n")
-        script.write_text(source, encoding="utf-8")
-    return runpy.run_path(str(script))["dwg"]
+        anchor = "sheet = Sheet(part,"
+        assert source.count(anchor) == 1, "generated Sheet(...) call changed"
+        source = source.replace(anchor, f"sheet = Sheet(part, detail_view={detail_view!r},")
+    captured = {}
+    with patch.object(
+        Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+    ):
+        exec(compile(source, py, "exec"), {})
+    return captured["dwg"]
 
 
 def _scripted_drawing(part, tmp_path, name, **build_settings):
