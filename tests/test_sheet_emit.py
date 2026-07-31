@@ -1661,6 +1661,16 @@ class TestAuthoredSetRoundTrips:
         )
         assert (feat.value, feat.label, feat.upper_tol, feat.lower_tol) == (40, "40", 0.1, 0.0)
 
+        # ...and the WHOLE feature, field by field. The four spot-checks above were what
+        # `_FIDELITY_UNCOVERED` leaned on to exempt `authored_dimension` from the detected-route
+        # oracle — and they missed `ref_pts`, `ref_bbox`, `frame`, `dimension_kind`,
+        # `dominant_axis`, `source` and `source_kind`, all of which the emitter writes. A review
+        # mutation moved every reference point by 1 mm and this test still passed (#967 r4).
+        original = next(f for f in model.features if f.kind == "authored_dimension")
+        assert _structurally_equal(original, feat), (
+            f"the re-run declares a different measurement:\n  from {original}\n  to   {feat}"
+        )
+
     def test_the_authored_set_is_not_silently_widened_to_the_planner_set(self):
         """The specific regression the old refusal existed to prevent: emitting
         `auto_dimensions()` for an authored model restores every omitted dimension."""
@@ -2318,6 +2328,37 @@ class TestTheScriptAccountsForEveryAnnotation:
 #: The geometric kinds the emitter writes a declarative line for — derived from
 #: `_KIND_MIRROR_COVERAGE`, which is itself fail-closed against the IR, so this cannot drift
 #: independently of the kinds that exist.
+def _structurally_equal(a, b, *, tol=5e-4):
+    """Structural equality, tolerant of the emitter's 3-dp rounding but of nothing else.
+
+    Not `==`: the emitted script writes `_n(value)`, so a detected 12.4999 comes back as 12.5.
+    A tolerance smaller than that rounding fails on every float; one larger stops noticing real
+    drift, which is the failure the fidelity oracles exist to catch.
+
+    Module level because BOTH round-trip routes use it — the detected one below and the
+    declared one in `TestAuthoredSetRoundTrips`. They compared different things while claiming
+    to cover each other, which is how `authored_dimension` ended up exempted from one on the
+    strength of a partial assertion in the other (#967 r4).
+    """
+    import dataclasses
+    import math
+
+    if dataclasses.is_dataclass(a) and dataclasses.is_dataclass(b):
+        fields = {f.name for f in dataclasses.fields(a)}
+        if fields != {f.name for f in dataclasses.fields(b)}:
+            return False
+        return all(
+            _structurally_equal(getattr(a, n), getattr(b, n), tol=tol) for n in sorted(fields)
+        )
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if isinstance(a, bool) or isinstance(b, bool):
+            return a is b
+        return math.isclose(a, b, rel_tol=0, abs_tol=tol)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(_structurally_equal(x, y, tol=tol) for x, y in zip(a, b))
+    return a == b
+
+
 _EMITTED_GEOMETRIC_KINDS = {
     kind
     for kind, note in _KIND_MIRROR_COVERAGE.items()
@@ -2375,38 +2416,6 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 and tuple(map(tuple, original.members)) == (tuple(original.frame.origin),)
             )
         return False
-
-    @staticmethod
-    def _same(a, b, *, tol=5e-4):
-        """Structural equality, tolerant of the emitter's 3-dp rounding but of nothing else.
-
-        Not `==`: the emitted script writes `_n(value)`, so a detected 12.4999 comes back as
-        12.5. A tolerance smaller than that rounding would fail on every float; one larger
-        would stop noticing real drift, which is the failure this whole class exists to catch.
-        """
-        import dataclasses
-        import math
-
-        if dataclasses.is_dataclass(a) and dataclasses.is_dataclass(b):
-            fields = {f.name for f in dataclasses.fields(a)}
-            if fields != {f.name for f in dataclasses.fields(b)}:
-                return False
-            return all(
-                TestTheDeclaredModelMatchesTheDetectedOne._same(
-                    getattr(a, n), getattr(b, n), tol=tol
-                )
-                for n in sorted(fields)
-            )
-        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-            if isinstance(a, bool) or isinstance(b, bool):
-                return a is b
-            return math.isclose(a, b, rel_tol=0, abs_tol=tol)
-        if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
-            return len(a) == len(b) and all(
-                TestTheDeclaredModelMatchesTheDetectedOne._same(x, y, tol=tol)
-                for x, y in zip(a, b)
-            )
-        return a == b
 
     @staticmethod
     def _corpus():
@@ -2576,7 +2585,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                     continue
                 want = getattr(original, field.name)
                 got = getattr(rebuilt, field.name)
-                assert self._same(want, got), (
+                assert _structurally_equal(want, got), (
                     f"{name}: {original.kind}.{field.name} came back as {got!r}, "
                     f"not {want!r} — the script declares a different feature from the one "
                     "it was generated from"
