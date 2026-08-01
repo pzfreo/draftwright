@@ -1088,13 +1088,30 @@ def test_every_approved_collection_is_addressable():
     from draftwright.model.compiled import RenderableDimensionPlan
 
     excluded = {"diagnostics": "what was NOT approved; #939's floor consumes it separately"}
+    roster = RenderableDimensionPlan._ADDRESSABLE
     carried = {f.name for f in dataclasses.fields(RenderableDimensionPlan)}
-    unaccounted = carried - set(RenderableDimensionPlan._ADDRESSABLE) - set(excluded)
+
+    unaccounted = carried - set(roster) - set(excluded)
     assert not unaccounted, (
         f"{sorted(unaccounted)} carry compiled content that `addressable()` never walks, so "
         "a script would silently omit them; add them to `_ADDRESSABLE` or exclude them here "
         "with a reason"
     )
+    # ...and the roster names REAL fields with REAL adapters. Comparing name sets alone let a
+    # listed-but-unimplemented field through: adding one only made `unaccounted` smaller, and
+    # a canary that added `"callouts"` with no adapter passed this test while `addressable()`
+    # would raise on the first call (#975 review, caught by canarying the guard itself).
+    invented = set(roster) - carried
+    assert not invented, f"{sorted(invented)} are in `_ADDRESSABLE` but are not plan fields"
+    missing_adapters = [
+        n for n in roster if not hasattr(RenderableDimensionPlan, f"_addressable_{n}")
+    ]
+    assert not missing_adapters, (
+        f"{missing_adapters} are rostered with no `_addressable_<name>` adapter, so "
+        "`addressable()` raises rather than walking them"
+    )
+    # And it runs — the roster is dispatched through, so this is what proves the wiring.
+    assert isinstance(RenderableDimensionPlan().addressable(), tuple)
 
 
 def test_the_emitter_reads_only_the_addressable_result():

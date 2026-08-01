@@ -445,19 +445,18 @@ class AddressableIntent:
     generated scripts until someone remembered to extend it.
 
     ``ref`` is the feature a script names, or ``None`` for a model-level intent (the overall
-    height, which belongs to the part rather than to any feature). ``role`` is the parameter
-    id or role that would be written. ``reason`` is set only when the intent cannot be
-    addressed at all, and is what #939's comment floor prints.
+    height, which belongs to the part rather than to any feature). ``role`` is the parameter id
+    or role that would be written.
+
+    Deliberately carries no "not representable" state yet. The first cut had a `reason` field
+    and a `representable` property that every construction site left unset — machinery
+    documenting a capability that did not exist, while unrepresentability was still discovered
+    downstream from `_feature_line`. #939's comment floor is what would populate it; it can
+    arrive with that work rather than ahead of it (Codex review of #975).
     """
 
     ref: FeatureRef | None
     role: str
-    reason: str | None = None
-
-    @property
-    def representable(self) -> bool:
-        """Whether a script can name this intent. False means `reason` says why not."""
-        return self.reason is None
 
 
 @dataclass(frozen=True)
@@ -511,10 +510,24 @@ class RenderableDimensionPlan:
         no member line misleads (ADR 0016 identity tier 3).
         """
         out: list[AddressableIntent] = []
+        # Dispatched THROUGH the roster, not merely documented by it: the first cut hard-coded
+        # three loops and listed the field names beside them, so adding a field and adding its
+        # name passed the guard while the method never traversed it — confidence without
+        # enforcement (Codex review of #975).
+        for name in self._ADDRESSABLE:
+            out += getattr(self, f"_addressable_{name}")()
+        return tuple(_deduplicated(out))
+
+    def _addressable_groups(self) -> list[AddressableIntent]:
+        out: list[AddressableIntent] = []
         for group in self.groups:
             out += [
                 AddressableIntent(group.ref, d.parameter_id) for d in _addressable_units(group)
             ]
+        return out
+
+    def _addressable_ladders(self) -> list[AddressableIntent]:
+        out: list[AddressableIntent] = []
         for lad in self.ladders:
             # A ladder's rungs carry no parameter id — they are a correlated set, not one
             # feature parameter — so the role a script would name is stated here, by the
@@ -527,11 +540,11 @@ class RenderableDimensionPlan:
             if lad.kind not in _LADDER_ROLE:
                 continue
             out.append(AddressableIntent(lad.ref, _LADDER_ROLE[lad.kind]))
-        # One intent per (feature, role). The overall-height ladder and the envelope's own
-        # `height.length` parameter are the SAME measurement reached two ways — the ladder is
-        # how it is drawn, the parameter is how it is named — so a script must not be asked to
-        # declare it twice.
-        out = _deduplicated(out)
+
+        return out
+
+    def _addressable_locations(self) -> list[AddressableIntent]:
+        out: list[AddressableIntent] = []
         named: set[int] = set()
         for approved in self.locations:
             # One intent per FEATURE, not per ref: coincident refs are deduplicated across
@@ -542,7 +555,7 @@ class RenderableDimensionPlan:
                 continue
             named.add(id(feature))
             out.append(AddressableIntent(approved.ref, "location"))
-        return tuple(out)
+        return out
 
     def omitted(self, kind: str) -> tuple[Omission, ...]:
         """Diagnostics whose parameter belongs to *kind* — what a lint pass reports."""

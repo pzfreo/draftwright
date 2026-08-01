@@ -596,12 +596,6 @@ def mirror_model(model):
     return replace(model, features=[*model.features, env]), env
 
 
-#: The parameter an approved ladder is named by, where the two spellings differ. An
-#: `overall_height` ladder attached to an `EnvelopeFeature` is that envelope's `height`
-#: parameter — the ladder is a placement grouping, the parameter is what a script names.
-_LADDER_PARAMETER = {"overall_height": "height.length"}
-
-
 def unmirrored_dimensions(model) -> list[str]:
     """Dimensions the COMPILER approved that no emitted line would name.
 
@@ -640,26 +634,24 @@ def unmirrored_dimensions(model) -> list[str]:
             parameter_id.split(".")[0],
         ) in requested
 
+    # ONE interpreter, the same one the emitter serialises (#946). This used to walk
+    # `plan.groups`, `plan.locations` and `plan.ladders` itself, with its own copy of the
+    # ladder→parameter mapping — so the completeness GATE re-derived the compiler's answer
+    # even after the emitter stopped. A category the compiler grew would have been mirrored
+    # by `_mirrored_requests` and still reported missing here, or worse, the reverse.
+    #
+    # `model`, not `declared`: the synthesised envelope adds width and depth parameters the
+    # emitter deliberately omits, so compiling the mirror model would report them missing.
     missing: list[str] = []
-    plan = compile_dimensions(model)
-    for group in plan.groups:
-        feature = resolve_feature(group.ref)
-        missing += [
-            f"{feature.kind}.{d.parameter_id}"
-            for d in group.dims
-            if not _asked(feature, d.parameter_id)
-        ]
-    for approved in plan.locations:
-        feature = resolve_feature(approved.ref)
-        if feature is not None and (id(feature), "location") not in requested:
-            missing.append(f"{feature.kind}.location")
-    for ladder in plan.ladders:
-        feature = resolve_feature(ladder.ref) if ladder.ref is not None else None
+    for intent in compile_dimensions(model).addressable():
+        feature = resolve_feature(intent.ref)
         if feature is None:
+            # Model-level — the overall height of a part with no envelope feature. Only the
+            # synthesised envelope can name it, until #976 gives it a declarative target.
             if synthesised is None or (id(synthesised), "height.length") not in requested:
                 missing.append("(bounding box).overall_height")
-        elif not _asked(feature, _LADDER_PARAMETER.get(ladder.kind, f"{ladder.kind}.length")):
-            missing.append(f"{feature.kind}.{ladder.kind}")
+        elif not _asked(feature, intent.role):
+            missing.append(f"{feature.kind}.{intent.role}")
     return sorted(set(missing))
 
 
@@ -698,8 +690,6 @@ def _mirrored_requests(model, declared_envelope=None):
     # roster is guarded so a new collection cannot skip it.
     out: list[tuple] = []
     for intent in compile_dimensions(model).addressable():
-        if not intent.representable:
-            continue  # #939's comment floor prints these; they are not requests
         feature = resolve_feature(intent.ref)
         if feature is None:
             # A model-level intent — the part's overall height, which belongs to no feature.
