@@ -13,11 +13,3 @@ coverage.xml
 coverage*.json
 htmlcov/
 .DS_Store
-
-# Drawing artefacts a test wrote to the repo root (a relative export stem, e.g. `out.pdf`).
-# Root-anchored so docs/images/* stays tracked. Three of these reached a commit via
-# `git add -A` before a review caught them (#972).
-/*.pdf
-/*.svg
-/*.dxf
-/*.png

@@ -167,18 +167,26 @@ class TestEmit:
         src = _script_for(_plate())
         marker = "drawing.export("
         assert src.count(marker) == 1
-        spliced = src.replace(marker, "_linted.append(id(drawing))\ndrawing.export(")
+        # A real `drawing.lint()` call, not a stand-in: the acceptance criterion is that this
+        # edit WORKS at this point in the script, so the call has to actually happen.
+        spliced = src.replace(
+            marker, "_linted.append((id(drawing), drawing.lint()))\ndrawing.export("
+        )
 
         exported: list = []
         ns: dict = {"PART": _plate(), "_linted": []}  # `_script_for`'s seam is `part = PART`
         with patch.object(Drawing, "export", lambda self, *a, **k: exported.append(id(self))):
             exec(compile(spliced, "<emit>", "exec"), ns)  # noqa: S102 — our generated script
 
-        assert ns["_linted"] == exported, (
+        assert len(ns["_linted"]) == 1 and len(exported) == 1, "the script did not build once"
+        (linted_id, issues) = ns["_linted"][0]
+        assert linted_id == exported[0], (
             "the script linted one Drawing and exported another — the whole point of naming "
             "the build result is that they are the same object"
         )
-        assert len(exported) == 1, "the script exported more than once"
+        assert isinstance(issues, list) and all(hasattr(i, "code") for i in issues), (
+            f"lint() between build and export did not return usable issues: {issues!r}"
+        )
 
     def test_step_seam_preserves_detected_ctc01_envelope(self, tmp_path):
         # #536: build123d.import_step reports CTC01's raw bbox as 1170 × 650, but the
