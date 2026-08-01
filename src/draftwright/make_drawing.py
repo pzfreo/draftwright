@@ -5,15 +5,10 @@ The `Drawing` result object now lives in `drawing.py`; build orchestration
 compat shim beside the Typer app in `cli.py` (#523). This module re-exports the
 public surface so `from draftwright.make_drawing import ...` and the `draftwright`
 CLI entry point keep working.
-
-`generate_script` is re-exported too, but only as the raising stub #940 left behind: this
-facade's job is that an old import still resolves, and resolving to an explanation beats
-resolving to an ImportError.
 """
 
 from draftwright.builder import (  # noqa: F401
     build_drawing,
-    generate_script,
     make_drawing,
 )
 from draftwright.cli import _cli  # noqa: F401 — #523: the shim lives beside the Typer app now

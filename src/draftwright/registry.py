@@ -206,6 +206,13 @@ class AnnotationRegistry:
         """Drop all build issues (re-annotation starts from a clean slate)."""
         self._build_issues = []
 
+    def restore_issues(self, issues) -> None:
+        """Replace the recorded build issues with *issues* — the write half of the
+        :attr:`issues` read, for the transactional finalize rollback (#647). Kept
+        separate from :meth:`snapshot`/:meth:`restore` because those are identity-only:
+        repair undo rolls back annotations without discarding what the build found."""
+        self._build_issues = list(issues)
+
     def drop_issues(self, codes) -> None:
         """Drop recorded build issues whose ``code`` is in *codes* — e.g. when a
         fallback restores annotations the layout had tentatively dropped."""

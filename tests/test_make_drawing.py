@@ -345,6 +345,7 @@ class TestStepPosition:
         names_before, items_before = set(dwg.annotations()), len(dwg.items)
         intents_before = len(dwg._intents)
         coverage_before = dwg.coverage.snapshot()
+        issues_before = dwg.registry.issues
 
         calls = {"n": 0}
         real = _common.drain_corridors
@@ -352,6 +353,12 @@ class TestStepPosition:
         def _boom(ctx, d):
             calls["n"] += 1
             if calls["n"] == 1:
+                # A pass that records a build issue and THEN raises: the issue is part of the
+                # transaction too (#720 canary — the rollback restored _named/items/coverage
+                # but nothing asserted the build issues, so a no-op restore passed this suite).
+                dwg.registry.record_issue(
+                    LintIssue(severity="warning", message="mid-drain", code="injected")
+                )
                 raise RuntimeError("injected drain failure")
             return real(ctx, d)
 
@@ -363,6 +370,7 @@ class TestStepPosition:
         assert len(dwg.items) == items_before
         assert len(dwg._intents) == intents_before
         assert dwg.coverage.snapshot() == coverage_before  # coverage restored (#647 review)
+        assert dwg.registry.issues == issues_before  # the mid-drain issue rolled out too
 
         monkeypatch.undo()
         dwg.finalize()  # clean retry — the shoulder position places exactly once (no duplicate)

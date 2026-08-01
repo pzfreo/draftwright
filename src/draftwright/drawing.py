@@ -313,14 +313,13 @@ class Drawing:
         self.items: list = []
         self._coords: dict = {}
         # Annotation identity, ownership, pins, and build issues live in the
-        # registry (#138 / ADR 0005, Step 2). `_named` / `_anno_view` / `_pinned`
-        # / `_build_issues` remain reachable as properties (below) so tests and
-        # helpers that read through them keep working during the migration.
+        # registry (#138 / ADR 0005, Step 2), reached through its own surface
+        # (`in reg` / `names()` / `issues`) — the `dwg._named` &c. compat aliases
+        # that shadowed them were deleted at the ADR 0005 §4 exit date (#720).
         self._registry = AnnotationRegistry()
         # Lint-side coverage signal (pattern callouts, patterned holes, dropped
-        # callout diameters) lives in its own owner (#138 / ADR 0005, Step 3).
-        # _pattern_callouts / _patterned_holes / _dropped_callout_diams remain
-        # reachable as properties below.
+        # callout diameters) lives in its own owner (#138 / ADR 0005, Step 3);
+        # its `dwg._pattern_callouts` &c. aliases went the same way (#720).
         self._coverage = CoverageState()
         # ADR 0005 §2 (#639): the drawing's build context in ONE typed object —
         # analysis, part model, and the two geometry caches lint persists.
@@ -341,47 +340,6 @@ class Drawing:
         self._intents: list[Intent] = []
         self._defer_intents: bool = False
 
-    # -- annotation registry (compat accessors, ADR 0005 §4) ------------------
-    # The registry owns these four; they are exposed as their live containers so
-    # code that reads or mutates ``dwg._named`` / ``_anno_view`` / ``_pinned`` /
-    # ``_build_issues`` keeps working until those call sites are redirected.
-    # DEPRECATED alias set — tracked by #720, REMOVAL TARGET 0.4.0 (the §4 exit
-    # criterion: every alias carries a tracking issue + removal date). External
-    # call sites were redirected to the public reads (annotations() /
-    # iter_annotations() / get_annotation() / view_of() / registry.*) in #699
-    # slice c; only drawing.py internals still ride these until deletion.
-    @property
-    def _named(self) -> dict:
-        return self._registry._named
-
-    @_named.setter
-    def _named(self, value) -> None:
-        self._registry._named = value
-
-    @property
-    def _anno_view(self) -> dict:
-        return self._registry._anno_view
-
-    @_anno_view.setter
-    def _anno_view(self, value) -> None:
-        self._registry._anno_view = value
-
-    @property
-    def _pinned(self) -> set:
-        return self._registry._pinned
-
-    @_pinned.setter
-    def _pinned(self, value) -> None:
-        self._registry._pinned = value
-
-    @property
-    def _build_issues(self) -> list:
-        return self._registry._build_issues
-
-    @_build_issues.setter
-    def _build_issues(self, value) -> None:
-        self._registry._build_issues = value
-
     @property
     def registry(self):
         """The AnnotationRegistry (identity/build-issue store) — the build handle the passes' PlacementContext references (#639)."""
@@ -391,36 +349,6 @@ class Drawing:
     def coverage(self):
         """The CoverageState — referenced by the run's PlacementContext (#639)."""
         return self._coverage
-
-    # -- coverage state (compat accessors, ADR 0005 §4) -----------------------
-    # The CoverageState owner holds these three; exposed as their live containers
-    # so code reading dwg._pattern_callouts / _patterned_holes /
-    # _dropped_callout_diams keeps working until those sites are redirected.
-    # DEPRECATED alias set — tracked by #720, REMOVAL TARGET 0.4.0 (see the
-    # registry alias block above; ``dwg.coverage`` is the public handle).
-    @property
-    def _pattern_callouts(self) -> set:
-        return self._coverage._pattern_callouts
-
-    @_pattern_callouts.setter
-    def _pattern_callouts(self, value) -> None:
-        self._coverage._pattern_callouts = value
-
-    @property
-    def _patterned_holes(self) -> set:
-        return self._coverage._patterned_holes
-
-    @_patterned_holes.setter
-    def _patterned_holes(self, value) -> None:
-        self._coverage._patterned_holes = value
-
-    @property
-    def _dropped_callout_diams(self) -> list:
-        return self._coverage._dropped_callout_diams
-
-    @_dropped_callout_diams.setter
-    def _dropped_callout_diams(self, value) -> None:
-        self._coverage._dropped_callout_diams = value
 
     # -- coverage state operations (used by the annotation passes) ------------
     def _is_scattered_hole_doc(self, name) -> bool:
@@ -925,7 +853,7 @@ class Drawing:
         if name is None:
             used_names = used_names if used_names is not None else set()
             i = 0
-            while (name := f"dim_{it.kwargs['param']}{i}") in self._named or name in used_names:
+            while (name := f"dim_{it.kwargs['param']}{i}") in self._registry or name in used_names:
                 i += 1
             used_names.add(name)
 
@@ -1053,7 +981,7 @@ class Drawing:
         _rec, view, p1, p2 = self._resolve_dimension_span(feature, param, role=role, view=view)
         if name is None:
             i = 0
-            while (name := f"dim_{param}{i}") in self._named:
+            while (name := f"dim_{param}{i}") in self._registry:
                 i += 1
         self._place_dim(
             p1,
@@ -1733,7 +1661,7 @@ class Drawing:
         # views/build-issues/coverage/coords are the rest (a section view adds to BOTH views and
         # _coords; the passes mutate coverage); the edge cache is recomputable so it is just cleared.
         reg_snap = self._registry.snapshot()
-        issues_snap = list(self._build_issues)
+        issues_snap = self._registry.issues
         items_snap = list(self.items)
         intents_snap = list(self._intents)
         views_snap = dict(self.views)
@@ -1753,7 +1681,7 @@ class Drawing:
             # still restores the drawing before propagating — the transaction is all-or-nothing
             # on *any* raise, matching the guarantee this block advertises.
             self._registry.restore(reg_snap)
-            self._build_issues = issues_snap
+            self._registry.restore_issues(issues_snap)
             self.items = items_snap
             self._intents = intents_snap
             self.views = views_snap
@@ -2368,7 +2296,7 @@ class Drawing:
         )
         if name is None:
             i = 0
-            while (name := f"note{i}") in self._named:
+            while (name := f"note{i}") in self._registry:
                 i += 1
         self._add(n, name, view=view)
         return name
@@ -2685,7 +2613,7 @@ class Drawing:
             if self._model_declared and self._part_model is not None:
                 features = getattr(self._part_model, "features", ())
                 issues += lint_declaration_reconciliation(features, cyls)
-        issues += list(self._build_issues)
+        issues += list(self._registry.issues)
         # Attach a ready-to-paste fix snippet where one is computable (#29).
         # str | None — None when no concrete repair can be inferred.
         for i in issues:

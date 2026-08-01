@@ -182,8 +182,8 @@ def test_write_guard_catches_every_mutation_form():
     for snippet in (
         "dwg._part_model = m",
         "dwg._part_model: int = m",
-        "dwg._named += x",
-        "dwg._named |= x",
+        "dwg._intents += x",
+        "dwg._intents |= x",
         "del dwg._part_model",
         'setattr(dwg, "_part_model", m)',
         'delattr(dwg, "_part_model")',
@@ -196,7 +196,7 @@ def test_write_guard_catches_every_mutation_form():
         writes = _dwg_private_writes(ast.parse(snippet))
         assert writes, f"guard missed a mutation form: {snippet!r}"
     # A pure read must NOT register as a write (else every read is a false positive).
-    assert not _dwg_private_writes(ast.parse("use(dwg._named)"))
+    assert not _dwg_private_writes(ast.parse("use(dwg._intents)"))
     # #830 Path A: a call to one of the sanctioned LAYOUT-SEAM methods is exempt from the read scan
     # (the engine's only legitimate private-method calls) — and ONLY those two (#840 dropped
     # _drop_view_coordinates by making the detail view transactional).

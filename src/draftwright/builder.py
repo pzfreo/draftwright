@@ -964,29 +964,3 @@ def make_drawing(
     ).export()
     assert svg_path is not None and dxf_path is not None  # export() writes both by default
     return svg_path, dxf_path
-
-
-def generate_script(*_args, **_kwargs):
-    """Retired (#940, ADR 0016 phase 6). Use `sheet_emit.generate_sheet_script`.
-
-    A raising stub rather than a plain deletion because this name is in
-    `draftwright.__all__`: a caller who upgrades deserves the reason and the replacement,
-    not an `AttributeError` on a name that was public last release. The stub itself goes at
-    0.4.0 with the other compat exits (#720).
-
-    It emitted the *imperative* script — a `dwg.<verb>()` reconstruction that addressed
-    features by list position (`dwg.model().features[3]`), which is the positional addressing
-    ADR 0016's identity work removed everywhere else. The Sheet script reconstructs the same
-    drawings, binds a name per feature, and states its dimension source.
-    """
-    raise NotImplementedError(
-        "generate_script() (the imperative drawing script) was retired in #940. Use "
-        "draftwright.sheet_emit.generate_sheet_script(), or the `draftwright --script` CLI, "
-        "which emits the declarative Sheet script: same reconstruction, features named "
-        "rather than addressed by position, and an explicit dimension source (ADR 0016)."
-    )
-
-
-# The CLI moved out to draftwright.cli (#289); the `_cli` compat shim now lives there
-# too (#523), so `builder` no longer imports `cli` — the builder→cli→sheet_emit cycle
-# is gone. `from draftwright.make_drawing import _cli` still works (re-exported from cli).

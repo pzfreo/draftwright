@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING
 # on every TAB press (#313). Each name maps to the submodule that provides it.
 _LAZY = {
     "build_drawing": "draftwright.builder",
-    "generate_script": "draftwright.builder",
     "make_drawing": "draftwright.builder",
     "Drawing": "draftwright.drawing",
     "FeatureInfo": "draftwright.drawing",
@@ -69,7 +68,7 @@ _sys.modules[__name__].__class__ = _DraftwrightModule
 
 
 if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel cost
-    from draftwright.builder import build_drawing, generate_script, make_drawing
+    from draftwright.builder import build_drawing, make_drawing
     from draftwright.compose import choose_scale
     from draftwright.drawing import Drawing, FeatureInfo
     from draftwright.linting import lint_feature_coverage
@@ -92,7 +91,6 @@ __all__ = [
     "build_drawing",
     "choose_scale",
     "extract_pmi",
-    "generate_script",
     "lint_feature_coverage",
     "make_drawing",
 ]

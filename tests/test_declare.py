@@ -1604,35 +1604,6 @@ class TestSheet:
         assert "hole" in {f.kind for f in sheet.features}
 
 
-class TestSheetDslShim:
-    """The deprecated ``sheet_dsl`` alias (renamed to ``sheet``, #640) still resolves."""
-
-    def test_shim_warns_and_aliases(self):
-        import importlib
-        import sys
-
-        sys.modules.pop("draftwright.sheet_dsl", None)
-        with pytest.warns(DeprecationWarning, match="renamed to.*draftwright.sheet"):
-            shim = importlib.import_module("draftwright.sheet_dsl")
-        import draftwright.sheet as sheet
-
-        assert shim.Sheet is sheet.Sheet
-        assert shim._parse_scale is sheet._parse_scale  # private helpers alias too
-
-    def test_shim_star_import_and_dir_surface(self):
-        # __getattr__ alone is invisible to `import *` (no __all__ → only real
-        # globals bind) and to dir(); the shim must mirror the pre-rename surface.
-        import draftwright.sheet as sheet
-        import draftwright.sheet_dsl as shim
-
-        ns: dict = {}
-        exec("from draftwright.sheet_dsl import *", ns)  # noqa: S102 — the pattern under test
-        assert ns["Sheet"] is sheet.Sheet
-        assert "Sheet" in dir(shim)
-        public = {n for n in dir(sheet) if not n.startswith("_")}
-        assert public <= set(shim.__all__)
-
-
 class TestAuthoredDimension:
     """``model.measured_dimension`` — the IR constructor behind ``Sheet.measured_dimension``
     (#704/#873),

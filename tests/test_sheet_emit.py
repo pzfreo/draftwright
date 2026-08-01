@@ -1185,16 +1185,6 @@ class TestCli:
         generic = CliRunner().invoke(app, [str(step), "--script", "--style", "bogus"])
         assert _norm(generic.output) != out
 
-    def test_the_retired_imperative_emitter_explains_itself(self):
-        """The Python-level counterpart: `generate_script` is in `draftwright.__all__`, so a
-        caller who upgrades hits a stub with the replacement in it rather than an
-        AttributeError on a name that was public last release (#940; the stub exits at 0.4.0
-        with #720)."""
-        import draftwright
-
-        with pytest.raises(NotImplementedError, match="generate_sheet_script"):
-            draftwright.generate_script("part.step")
-
     def test_module_spec_routes_to_the_live_object(self, tmp_path, monkeypatch):
         # `draftwright climod:bracket --script --style sheet` → detect off the imported object
         from typer.testing import CliRunner
