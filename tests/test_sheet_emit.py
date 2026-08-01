@@ -116,7 +116,7 @@ class TestEmit:
         from draftwright.sheet_emit import emit_sheet_script
 
         sheet = Sheet(Box(90, 60, 20), title="T", number="N")
-        sheet.dimension(sheet.envelope(), "width")
+        sheet.dimension(sheet.envelope(), "width.length")
         src = emit_sheet_script(
             sheet.model(), "part = Box(90, 60, 20)", "s", title="T", number="N"
         )

@@ -13,8 +13,6 @@ something.
 
 | Surface | Use instead | Deprecated in | Removed in |
 |---|---|---|---|
-| `Sheet.dimension(kind=…, value=…)` call shape | `Sheet.measured_dimension(...)` | never released (#963) | **0.4.0** (#720) — breaking, **see below** |
-| bare dimension-role spellings — `dimension(f, "width")` | the parameter id — `"width.length"` | never released (#963) | **0.4.0** (#720) — breaking, **see below** |
 | `Drawing.add()` | the placement verbs (`callout` / `dimension` / `note` / `add_table`) | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.add_view()` | the section verb; the raw projector is private | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.clear_annotations()` | the feature-scoped verbs (`drop` / `remove`) | 0.3.8 (#817) | 0.5.0 |
@@ -38,29 +36,33 @@ removes it, it has to start warning — otherwise the removal is a silent break 
 still using the tuple form. Adding that warning is a behaviour change beyond dating, so it is
 **not** in this pass; it is the reason the row above is annotated rather than plain.
 
-### ⚠ The two #963 deprecations break without a warning release — deliberately
+### ⚠ The two #963 removals broke without a warning release — deliberately
 
-Both were added **after v0.3.9** (`4030913`), so they have never appeared in a released
-version — and ADR 0016 dates them to expire at 0.4.0. As written, 0.4.0 is both the first
-release in which the warning exists and the release that removes the surface: nobody
-upgrading from v0.3.9 ever sees the `DeprecationWarning` before the break.
+Both deprecations were added **after v0.3.9** (`4030913`) and removed in 0.4.0, so the
+`DeprecationWarning` never appeared in a released version — and no longer exists at all.
+Upgrading from v0.3.9 or earlier goes straight from working to a raise.
 
-That matters because bare roles are the **pre-existing** spelling. `dimension(f, "width")`
-is what scripts have been written with since the verb existed; `"width.length"` is the new
-one. So the effect is a hard break on longstanding usage with no migration release.
+That matters because the bare role is the **pre-existing** spelling: `dimension(f, "width")`
+is what scripts were written with, and `"width.length"` is the new one. So this is a hard
+break on longstanding usage with no migration release.
 
-The mechanical scale is small — one call site in the whole test corpus, measured — so this was
-a policy question, not a work question.
+**Decided: 0.4.0** (maintainer, 2026-08-01), as ADR 0016 already specified. The warning period
+is skipped knowingly rather than by oversight, which makes it **a documented break**: this
+page, the 0.4.0 CHANGELOG entry, and the raise itself have to carry what the runtime cannot.
+Nothing in your own run will tell you.
 
-**Decided: they go at 0.4.0** (maintainer, 2026-08-01), as ADR 0016 already specified. The
-warning period is skipped knowingly rather than by oversight, so it is **a documented break**:
-this section, the 0.4.0 CHANGELOG entry, and the removal itself have to spell out what changed
-and what to write instead, because the runtime will not get the chance to. If you are upgrading
-from v0.3.9 or earlier, this is the page that tells you — nothing in your own run will.
-
-Migration: replace the bare family role with the parameter id (`"width"` → `"width.length"`;
+Migration — replace the bare family role with the parameter id (`"width"` → `"width.length"`;
 `dimension_ids()` on a `Sheet` handle lists the valid ones), and replace
-`sheet.dimension(kind=…, value=…)` with `sheet.measured_dimension(…)`.
+`sheet.dimension(kind=…, value=…)` with `sheet.measured_dimension(…)`. Both failures name
+their replacement rather than raising about argument counts.
+
+**Note on scale.** Before doing it, this section said "one call site in the whole test corpus,
+measured". That was the count of *bare-role calls*, and it was right — but the removal also
+touched four tests that existed to pin the deprecated behaviour itself (warn-and-normalise,
+the warning's `stacklevel`, the legacy form reaching the emitter). Those were rewritten to
+assert the refusal, not deleted: a removal nobody asserts is a removal that comes back. Worth
+recording, because "one call site" is the sort of measurement that reads as "trivial" and
+under-counts the tests written *about* the thing being removed.
 
 ### Why `place_dim` has a gate rather than a version
 
@@ -87,6 +89,12 @@ checkable.
 | `draftwright.sheet_dsl` | 0.4.0 (#720) | import from `draftwright.sheet` (renamed #640) |
 | `generate_script` | 0.4.0 (#720) | retired #940; use `--script` / `emit_sheet_script` |
 | `--style imperative` (bespoke message) | 0.4.0 (#720) | now an ordinary unrecognised value |
+| bare dimension-role spellings — `dimension(f, "width")` | 0.4.0 (#720) | **breaking, never warned in a release** — use the id (`"width.length"`); `dimension_ids()` lists them |
+| `Sheet.dimension(kind=…, value=…)` call shape | 0.4.0 (#720) | **breaking, never warned in a release** — use `measured_dimension(...)` |
+
+The last two raise with the replacement named, rather than resolving or `TypeError`-ing about
+argument counts, because that message is the only notice this break gets — see the section
+above on why the warning period is deliberately absent.
 
 Absence is asserted by `test_the_expired_compat_aliases_stay_deleted` and
 `test_the_deleted_modules_and_stubs_stay_deleted` — a deletion nobody asserts is a deletion

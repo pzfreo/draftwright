@@ -1631,33 +1631,22 @@ class TestAuthoredDimension:
         via_facade = next(f for f in sheet.features if f.kind == "authored_dimension")
         assert measured_dimension(**self._KW) == via_facade
 
-    def test_the_transitional_overload_still_reaches_the_same_feature(self):
-        """#873 REUSES the name `dimension` rather than retiring it, so an old keyword call
-        cannot be left to fail with a `TypeError` from the new signature's argument list. It
-        warns and delegates for one release, and must build the identical feature."""
-        from draftwright.model import measured_dimension
+    def test_the_measured_call_shape_is_refused_by_name(self):
+        """#720 removed the transitional dispatch at 0.4.0, so `dimension` means one thing.
+
+        These two tests previously asserted that the measured keywords WARNED and delegated.
+        The reason that shim existed is the reason this test replaces rather than deletes
+        them: #873 reused the name `dimension` instead of retiring it, so an old keyword call
+        must not be left to fail with a `TypeError` about missing positional arguments. It now
+        fails by NAMING the replacement — which is the only notice this break gets, since the
+        deprecation never appeared in a release (docs/deprecations.md)."""
         from draftwright.sheet import Sheet
 
         sheet = Sheet(Box(40, 20, 10), title="P").auto_dimensions()
-        with pytest.warns(DeprecationWarning, match="measured_dimension"):
+        with pytest.raises(TypeError, match="measured_dimension"):
             sheet.dimension(**self._KW)
-        assert next(f for f in sheet.features if f.kind == "authored_dimension") == (
-            measured_dimension(**self._KW)
-        )
-
-    def test_the_overload_still_routes_the_measured_form(self):
-        """This replaces a test asserting that `dimension(feature, role)` was NOT yet the
-        referential verb — "the referential form is #874. Until then…". #874 has landed, so
-        that assertion is superseded; what still needs pinning is the transitional overload
-        underneath it, which dispatches on the measured keywords so a pre-rename call says
-        what happened instead of raising a TypeError about missing arguments."""
-        import warnings
-
-        from draftwright.sheet import Sheet
-
-        sheet = Sheet(Box(40, 20, 10), title="P").auto_dimensions()
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
+        # ...and it says which keywords it is talking about, not just "unexpected keyword".
+        with pytest.raises(TypeError, match=r"kind=…"):
             sheet.dimension(
                 kind="linear",
                 value=40,
@@ -1665,9 +1654,8 @@ class TestAuthoredDimension:
                 dominant_axis="X",
                 ref_pts=[(-20, 0, 0), (20, 0, 0)],
             )
-        assert any("measured_dimension" in str(w.message) for w in caught), (
-            "the measured form must route to measured_dimension with a deprecation notice"
-        )
+        # The referential form is unaffected — same verb, the one meaning it now has.
+        assert not [f for f in sheet.features if f.kind == "authored_dimension"]
 
     def test_validates_without_the_facade(self):
         from draftwright.model import measured_dimension

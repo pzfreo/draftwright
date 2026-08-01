@@ -46,7 +46,7 @@ import math
 import warnings
 from collections.abc import MutableSequence
 from dataclasses import replace
-from typing import TYPE_CHECKING, overload
+from typing import TYPE_CHECKING
 
 from draftwright._geometry import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
@@ -86,6 +86,11 @@ from draftwright.model.declare import read_countersink as _read_countersink
 from draftwright.model.ir import RequestedDimension
 from draftwright.model.planner import LOCATION_ROLE as _LOCATION_ROLE
 from draftwright.model.planner import location_role as _location_role
+
+#: "Not supplied" for `Sheet.dimension`'s positional parameters. They cannot simply be
+#: required: a keyword-only legacy call has to reach the removal message rather than die on
+#: "missing 2 required positional arguments" (#720).
+_UNSET = object()
 
 
 def _parse_datums(to) -> tuple[str, ...]:
@@ -810,66 +815,41 @@ class Sheet:
     #: intersection of what only a measured call can supply.
     _MEASURED_KEYWORDS = frozenset({"kind", "value", "label", "dominant_axis", "ref_pts"})
 
-    @overload
-    def dimension(
-        self, feature, role: DimensionParameterId, *, axis: str | None = ...
-    ) -> DimensionIntent: ...
-
-    @overload
     def dimension(
         self,
+        feature=_UNSET,
+        role: DimensionParameterId = _UNSET,  # type: ignore[assignment]
         *,
-        kind: str,
-        value: float,
-        label: str,
-        dominant_axis: str,
-        ref_pts,
-        ref_bbox=...,
-        at=...,
-        axis: str | None = ...,
-        upper_tol: float | None = ...,
-        lower_tol: float | None = ...,
-        source: str = ...,
-        source_kind: str | None = ...,
-    ) -> _Params: ...
+        axis: str | None = None,
+        **removed,
+    ):
+        """`dimension(feature, role)` — the ADR 0016 referential verb. See
+        :meth:`_authored_dimension` for the semantics.
 
-    def dimension(self, *args, **kw):
-        """Transitional overload for the pre-#873 spelling of :meth:`measured_dimension`.
+        The signature is the real one again (#720): the transitional call-shape dispatch to
+        :meth:`measured_dimension` was removed at 0.4.0, so `dimension` means one thing. That
+        restores what the `@overload` pair existed to provide — completion and type-checking on
+        the verb scripts are actually written in (#963) — without the dual shape.
 
-        The two ``@overload`` stubs above are what an editor and mypy see. Without them the
-        runtime signature is ``(*args, **kw)`` — so the referential form, which is the whole
-        ADR 0016 authoring surface, offered no completion and no checking on the very verb
-        scripts are written in (#963). They also make the transitional dual shape legible:
-        one call form takes a feature and a role, the other restates a measurement.
-
-        They are **call-shape** overloads, not per-feature ones, and the difference matters
-        to anyone reading the completion list: ``feature`` is untyped and every feature gets
-        the same flat vocabulary, so an editor will offer ``pocket_width.length`` on a hole.
-        Narrowing that needs handle types that can express a per-feature vocabulary, which
-        `pocket()`, `slot()`, `pad()` and `envelope()` cannot today — they all return
-        `_Params`. The runtime resolver remains the authority; this is guidance, not a
-        complete static model of what a given feature carries (#965 review).
-
-        A **transitional overload, not a deprecation wrapper**, because the name is *reused*
-        rather than retired: ADR 0016 gives ``dimension`` the referential meaning — name a
-        feature and a role, carry no number — on both :class:`Sheet` and ``Drawing``. A plain
-        rename would leave old keyword calls raising ``TypeError`` from the new signature's
-        argument list rather than saying what happened, which is the worst of both.
-
-        So this dispatches on how it was called, for one release. It expires at 0.4.0 with the
-        ADR 0005 §4 alias removals (#720).
+        ``feature``/``role`` default to a sentinel rather than being required so that a
+        keyword-only legacy call (`dimension(kind=…, value=…)`) reaches the message below
+        instead of a bare "missing 2 required positional arguments". The old shape never
+        appeared in a release, so this refusal is the only notice it gets — a documented
+        break (`docs/deprecations.md`).
         """
-        if self._MEASURED_KEYWORDS & set(kw):
-            warnings.warn(
-                "Sheet.dimension(kind=…, value=…) is now Sheet.measured_dimension(...) — "
-                "`dimension` is becoming the referential verb that names a feature and a role "
-                "and reads the value off the geometry (ADR 0016). This overload expires at "
-                "0.4.0.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            return self.measured_dimension(*args, **kw)
-        return self._authored_dimension(*args, **kw)
+        if removed:
+            legacy = sorted(self._MEASURED_KEYWORDS & set(removed))
+            if legacy:
+                raise TypeError(
+                    f"Sheet.dimension({', '.join(f'{k}=…' for k in legacy)}) was removed at "
+                    "0.4.0 (#720) — use Sheet.measured_dimension(...) for a measurement that "
+                    "restates a value. `dimension` is the referential verb: it names a feature "
+                    "and a parameter id and reads the value off the geometry (ADR 0016)."
+                )
+            raise TypeError(f"dimension() got unexpected keyword(s) {sorted(removed)}")
+        if feature is _UNSET or role is _UNSET:
+            raise TypeError("dimension() requires a feature and a parameter id")
+        return self._authored_dimension(feature, role, axis=axis)
 
     def _authored_dimension(self, feature, role: DimensionParameterId, *, axis: str | None = None):
         """`dimension(feature, role)` — declare one member of the COMPLETE authored set.
@@ -1553,21 +1533,22 @@ class Sheet:
             return token, target, exact.discriminator, role
         discriminated = any(p.discriminator for p in matching)
         if bare and not discriminated:
-            warnings.warn(
+            # Deprecated in #963, REMOVED at 0.4.0 (#720). This warned for one development
+            # cycle but never appeared in a release, so the break is documented rather than
+            # warned — see docs/deprecations.md and the 0.4.0 CHANGELOG. Raising (not
+            # normalising) is the point: an authored set means omission is suppression, and a
+            # spelling that selects the whole family is how `dimension(step, "step")` quietly
+            # declared two measurements the author never named.
+            raise ValueError(
                 f"{verb}({role!r}): name the measurement by its id, {bases[0]!r}. The bare "
-                "role is the family spelling and is deprecated (#963) — it is what let "
-                "`dimension(step, 'step')` declare two dimensions silently. Expires at 0.4.0.",
-                DeprecationWarning,
-                # `add_dimension` calls here directly; `dimension` goes through the
-                # transitional dispatcher AND `_authored_dimension`, so it is two frames
-                # further out. A shared constant pointed the warning at draftwright's own
-                # source instead of the caller's line (#965 review).
-                stacklevel=4 if verb == "dimension" else 3,
+                "role is the family spelling, not one of its measurements; it was removed at "
+                "0.4.0 (#720). dimension_ids() lists the valid ids for a feature."
             )
         # A discriminated parameter keeps the BARE role: its full id carries the variant
         # (`grid_pitch.length.row`), which `axis=` supplies separately, so normalising to the
-        # id here would hand the planner a spelling that matches no parameter.
-        canonical = bases[0] if (bare and not discriminated) else role
+        # id here would hand the planner a spelling that matches no parameter. This is NOT the
+        # removed spelling — it is how variants are addressed, and it never warned.
+        canonical = role
         discs = {p.discriminator for p in matching}
         if len(discs) > 1 and axis is None:
             raise ValueError(

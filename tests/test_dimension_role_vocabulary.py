@@ -17,6 +17,8 @@ import ast
 from pathlib import Path
 from typing import get_args
 
+import pytest
+
 from draftwright.model import DimensionParameterId
 
 _IR = Path(__file__).resolve().parents[1] / "src" / "draftwright" / "model" / "ir.py"
@@ -179,34 +181,35 @@ class TestTheCanonicalSpellingIsEnforced:
         sheet.dimension(step, "step.length")
         assert sheet._authored[-1]["role"] == "step.length"
 
-    def test_a_singleton_family_warns_and_is_normalised(self):
-        import warnings
+    def test_a_singleton_family_is_refused(self):
+        """#720 removed the bare family spelling at 0.4.0. It previously warned and normalised
+        to the id; it now raises, because in an authored set — where omission is suppression —
+        a spelling that selects the whole family declares measurements the author never named.
 
+        Refusing rather than normalising is what makes the two rules consistent: `step` already
+        raised for naming two measurements, and `bore` silently resolving was the same defect
+        hidden by there happening to be only one."""
         sheet, hole = self._hole_sheet()
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            sheet.dimension(hole, "bore")  # type: ignore[call-overload]
-        assert sheet._authored[-1]["role"] == "bore.diameter"
-        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+        with pytest.raises(ValueError, match="bore.diameter"):
+            sheet.dimension(hole, "bore")  # type: ignore[arg-type]
+        assert not sheet._authored, "a refused spelling must not record an authored dimension"
 
-    def test_the_warning_points_at_the_caller_not_at_draftwright(self):
-        """A deprecation reported against the library's own source tells the reader nothing
-        about which of their lines to change. `dimension` reaches the resolver two frames
-        deeper than `add_dimension` (through the transitional dispatcher and
-        `_authored_dimension`), so one shared stacklevel cannot serve both — and asserting
-        only that a warning EXISTS does not catch it (#965 review)."""
-        import warnings
+    def test_the_refusal_names_the_spelling_to_use_for_both_verbs(self):
+        """Was `test_the_warning_points_at_the_caller_not_at_draftwright`, which pinned the
+        stacklevel of the deprecation — `dimension` reached the resolver two frames deeper
+        than `add_dimension`, so one shared value could not serve both (#965 review).
 
+        A raise has no stacklevel to get wrong: the traceback ends at the caller's line by
+        construction. What survives is the intent — the failure has to tell you which line to
+        change AND what to write there — so this now asserts the message carries both the
+        rejected spelling and the id that replaces it, for each verb."""
         for verb in ("dimension", "add_dimension"):
             sheet, hole = self._hole_sheet(verb)
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                getattr(sheet, verb)(hole, "bore")  # type: ignore[call-overload]
-            dep = [w for w in caught if issubclass(w.category, DeprecationWarning)]
-            assert dep, verb
-            assert Path(dep[0].filename).name == Path(__file__).name, (
-                f"{verb}: warning blamed {dep[0].filename}, not the calling test"
-            )
+            with pytest.raises(ValueError) as exc:
+                getattr(sheet, verb)(hole, "bore")
+            msg = str(exc.value)
+            assert "'bore'" in msg and "bore.diameter" in msg, f"{verb}: unhelpful — {msg}"
+            assert "dimension_ids()" in msg, f"{verb}: does not say how to find valid ids"
 
     def test_the_handles_answer_what_they_can_be_asked_for(self):
         """`dimension_ids()` is the runtime half of the discoverability #963 is about, and it lists
@@ -224,16 +227,15 @@ class TestTheCanonicalSpellingIsEnforced:
         for role in hole.dimension_ids():
             sheet.dimension(hole, role)  # every listed role must actually resolve
 
-    def test_add_dimension_normalises_identically(self):
-        """The two verbs address a measurement through one resolver, so normalisation must
-        not be something only the authored path gets."""
-        import warnings
-
+    def test_add_dimension_refuses_identically(self):
+        """The two verbs address a measurement through ONE resolver, so the refusal must not
+        be something only the authored path gets — as normalisation had to not be, before
+        #720 replaced it with a refusal. A second copy of the addressing logic is how the
+        callout reading drifted in #875."""
         sheet, hole = self._hole_sheet("add_dimension")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            sheet.add_dimension(hole, "bore")  # type: ignore[call-overload]
-        assert sheet._added_dimensions[-1]["role"] == "bore.diameter"
+        with pytest.raises(ValueError, match="bore.diameter"):
+            sheet.add_dimension(hole, "bore")
+        assert not sheet._added_dimensions, "a refused spelling must not record a dimension"
 
     def test_the_canonical_spelling_is_silent(self):
         """A deprecation that fires on the recommended spelling trains people to ignore it."""
@@ -324,21 +326,24 @@ class TestTheCanonicalSpellingIsEnforced:
         sheet.dimension(pattern, "grid_pitch", axis="row")
         assert sheet._authored[-1]["role"] == "grid_pitch"
 
-    def test_a_legacy_spelling_reaches_the_script_canonically(self):
-        """Why normalisation is at the facade rather than only in the error message: the
-        emitter writes what was stored, so before this an emitted script's dialect depended
-        on how its source model was authored."""
-        import warnings
+    def test_the_script_can_only_be_written_in_the_canonical_spelling(self):
+        """The emitter writes what was stored, so an emitted script's dialect used to depend on
+        how its source model was authored — which is what normalisation at the facade fixed.
 
+        #720 removes the other dialect entirely, so this now asserts the stronger property: the
+        canonical id round-trips, and the bare family spelling cannot reach a script at all
+        because it cannot be stored in the first place."""
         from draftwright.sheet_emit import emit_sheet_script
 
         sheet, hole = self._hole_sheet()
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            sheet.dimension(hole, "bore")  # type: ignore[call-overload]
+        sheet.dimension(hole, "bore.diameter")
         src = emit_sheet_script(sheet.model(), "part", "s", title="T", number="N")
         assert '"bore.diameter"' in src
         assert '"bore")' not in src
+
+        sheet2, hole2 = self._hole_sheet()
+        with pytest.raises(ValueError):
+            sheet2.dimension(hole2, "bore")  # never gets as far as the emitter
 
     def test_the_generated_header_advertises_a_route_that_runs(self):
         """The header first pointed at `feature.parameters()`, which raises on the facade

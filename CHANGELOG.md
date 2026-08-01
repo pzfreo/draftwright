@@ -29,16 +29,23 @@ carries a tracking issue *and* a removal date, or the facade is permanent by acc
   accepts its sole value `sheet`; `imperative` is now an unrecognised value like any typo,
   rather than one carrying its own explanation of the #940 retirement.
 
-**Also going in this release, not yet removed as of this entry** — the bare dimension-role
-spellings (`dimension(f, "width")`, use the parameter id `"width.length"`) and the
-`Sheet.dimension(kind=…, value=…)` call shape (use `measured_dimension(...)`). Both warn
-today and both are removed by #720 before 0.4.0 ships.
+- **Bare dimension-role spellings** — `sheet.dimension(f, "width")`. Use the parameter id,
+  `"width.length"`; `dimension_ids()` on a handle lists the valid ones. The bare role is the
+  *family* spelling: it selects every parameter carrying it, which is how
+  `dimension(step, "step")` quietly declared two measurements. In an authored set, where
+  omission means suppression, silently declaring an extra one is the mirror image of the rule
+  — so it now raises rather than resolving. (A *discriminated* bare role, used with `axis=`,
+  is unaffected: that is how variants like `grid_pitch.length.row` are addressed, and it never
+  warned.)
+- **The `Sheet.dimension(kind=…, value=…)` call shape** — use `Sheet.measured_dimension(...)`.
+  `dimension` is now solely the ADR 0016 referential verb: it names a feature and a parameter
+  id and reads the value off the geometry.
 
-Note these break **without a release that warns you**: they were deprecated after v0.3.9 and
-removed in 0.4.0, so upgrading from v0.3.9 or earlier goes straight from working to
-`ValueError` with no `DeprecationWarning` in between. That is deliberate (ADR 0016), which is
-why it is written down here and in `docs/deprecations.md` — the documentation is the only
-notice you get. `dimension_ids()` on a `Sheet` handle lists the valid parameter ids.
+Those last two break **without a release that warns you**. They were deprecated after v0.3.9
+and removed in 0.4.0, so the `DeprecationWarning` never appeared in a released version —
+upgrading from v0.3.9 or earlier goes straight from working to a raise. That is deliberate
+(ADR 0016); this entry and `docs/deprecations.md` are the only notice you get, so both
+failures name their replacement rather than raising about argument counts.
 
 ### Fixed
 

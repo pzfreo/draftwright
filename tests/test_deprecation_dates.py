@@ -109,12 +109,24 @@ def test_every_deprecation_names_its_removal() -> None:
     )
 
 
+#: The number of deprecation announcements the scanner must still find. Lower it ONLY when a
+#: deprecation was genuinely removed, and say which — the point is that a silent drop means the
+#: scanner broke, not that the codebase got cleaner. Was 11 until #720 removed the two #963
+#: warnings (the bare dimension-role spelling and the `dimension(kind=…, value=…)` call shape)
+#: at 0.4.0; those are now raises, which carry no removal date to check.
+_EXPECTED_DEPRECATIONS = 9
+
+
 def test_the_scanner_actually_matches_something() -> None:
     """Guard the guard: if `_is_deprecation` stopped recognising the call shapes — a decorator
     rename, a move to `warnings.warn(category=...)` — the test above would pass by finding
     nothing to check, which is the failure mode it exists to prevent."""
     found = len(_scan())
-    assert found >= 11, f"the deprecation scanner found only {found} — has the shape changed?"
+    assert found >= _EXPECTED_DEPRECATIONS, (
+        f"the deprecation scanner found only {found}, expected at least "
+        f"{_EXPECTED_DEPRECATIONS} — either a deprecation was removed (lower the constant and "
+        "note which) or the scanner stopped recognising a call shape"
+    )
 
 
 def test_the_removal_pattern_rejects_a_bare_version() -> None:
