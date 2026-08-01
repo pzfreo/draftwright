@@ -17,8 +17,11 @@ to be installed in the execution environment.
 2. **Builder (`build_drawing`)** — the same pipeline, but it hands back a live
    `Drawing` you can edit before export.
 
-Requires `draftwright >= 0.1.9` and `build123d-drafting-helpers >= 0.10.1`.
+Requires `draftwright >= 0.4.0` and `build123d-drafting-helpers >= 0.14.1`.
 Install: `pip install draftwright`.
+
+(The old floor said 0.1.9, which cannot run this guide: none of the feature-backed
+verbs existed then, and the dotted parameter ids in Step 2 are new in 0.4.0.)
 
 **Design model (worth knowing before you edit):** the engine is *deterministic*
 — no AI inside it — and you refine a drawing by **stating domain intent**
