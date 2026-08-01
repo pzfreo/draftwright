@@ -2103,14 +2103,45 @@ def test_the_plan_surface_is_ratcheted():
     )
 
 
-#: The route vocabulary. A value is a route, optionally followed by ``" — <reason>"``; the
-#: route itself must be one of these, so a typo or an invented classification fails
-#: `test_every_route_in_the_roster_is_one_of_the_known_ones` rather than passing as prose.
+#: Each route, mapped to what claiming it OBLIGES — as code, given the measured facts.
+#: Returns the kinds on that route which fail the obligation, plus how to say so.
 #:
-#: Checked exactly, not by prefix: `startswith("corpus")` accepted `"corpus nonsense"`, and a
-#: roster whose whole purpose is to verify its own claims should not take a claim's word for
-#: what route it is on (Codex review of #973).
-_MIRROR_ROUTES = ("corpus", "declared", "aspect", "unnameable")
+#: The vocabulary is DERIVED from this table (`_MIRROR_ROUTES` below), so a route cannot be
+#: spelled unless it requires something. That is the lesson `_ROUTE_OBLIGATIONS` paid seven
+#: review rounds for on #967, and not applying it here was this roster stopping one step
+#: short: `aspect` and `unnameable` passed the vocabulary check while obliging nothing, so any
+#: kind parked under either escaped verification entirely (Codex review of #973, round 2).
+_MIRROR_ROUTE_OBLIGATIONS = {
+    # Some corpus fixture owns an approved dimension of this kind, so the mirror round trip
+    # runs for it. Asked of the compiler: recognising a feature that yields no approved
+    # dimension leaves the mirror untouched however cleanly it is recognised.
+    "corpus": lambda kinds, facts: (
+        kinds - facts["dimensioned"],
+        "no corpus fixture yields an approved dimension owned by that kind",
+    ),
+    # Nothing detects it, so it is reached by declaring it instead — and the emitter writes it.
+    "declared": lambda kinds, facts: (
+        kinds - facts["declarable"],
+        "building the declared model does not produce them, or the emitter writes no line",
+    ),
+    # No DimParameter, so there is nothing for the mirror to reproduce. The obligation is that
+    # the corpus does NOT dimension it: a kind the compiler approves a dimension for plainly
+    # has something to mirror, whatever the roster says.
+    "aspect": lambda kinds, facts: (
+        kinds & facts["dimensioned"],
+        "the compiler approves a dimension owned by that kind, so it is not dimensionless",
+    ),
+    # No declarative verb — `sheet.add(...)` of a raw record is not one — so the emitter cannot
+    # mirror it by design. Same obligation as `aspect` for the same reason: if the corpus
+    # dimensions it, the claim is false however it is worded.
+    "unnameable": lambda kinds, facts: (
+        kinds & facts["dimensioned"],
+        "the compiler approves a dimension owned by that kind, so the mirror does reach it",
+    ),
+}
+
+#: Derived, never hand-written — see above.
+_MIRROR_ROUTES = tuple(_MIRROR_ROUTE_OBLIGATIONS)
 
 
 def _route_of(value: str) -> str:
@@ -2191,23 +2222,6 @@ def test_every_ir_kind_is_classified_for_mirror_coverage():
     )
 
 
-def test_every_route_in_the_roster_is_one_of_the_known_ones():
-    """A route is a vocabulary, not free text.
-
-    Without this, a value only has to LOOK like a classification: `"corpus nonsense"` passed a
-    prefix test, and a misspelt `"asspect"` would have matched no obligation at all and so been
-    required to satisfy nothing — the fail-open this roster exists to prevent, one level up
-    (Codex review of #973).
-    """
-    unknown = {
-        k: v for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) not in _MIRROR_ROUTES
-    }
-    assert not unknown, (
-        f"{unknown} name routes outside {_MIRROR_ROUTES} — a route with no obligation requires "
-        "nothing, which is what an unclassified kind already was"
-    )
-
-
 def _kinds_the_mirror_dimensions() -> set[str]:
     """Feature kinds some corpus fixture contributes an APPROVED dimension for.
 
@@ -2227,23 +2241,6 @@ def _kinds_the_mirror_dimensions() -> set[str]:
             if feature is not None:
                 covered.add(feature.kind)
     return covered
-
-
-def test_the_corpus_really_covers_the_kinds_it_claims():
-    """`"corpus"` is a claim about fixtures, so check it against them. Two fixtures were
-    detecting something other than their name until the review counted them (#947).
-
-    Strengthened from detection to DIMENSIONING (#948): the roster names mirror coverage, and
-    the mirror reproduces approved dimensions. A kind whose fixture yields no approved
-    dimension is not mirrored by that fixture however cleanly it is recognised, and the
-    detection-only form would have called that covered.
-    """
-    dimensioned = _kinds_the_mirror_dimensions()
-    claimed = {k for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) == "corpus"}
-    assert claimed <= dimensioned, (
-        f"{sorted(claimed - dimensioned)} are marked 'corpus' but no corpus fixture yields "
-        "an approved dimension owned by that kind — the mirror never exercises them"
-    )
 
 
 def _declared_measurement_model():
@@ -2270,28 +2267,48 @@ def _declared_measurement_model():
     return part, sheet.model()
 
 
-def test_the_declared_route_reaches_the_kind_that_claims_it():
-    """`"declared"` is a claim too, so give it an obligation rather than a sentence.
-
-    The entry it replaced was prose that no guard could check, and which happened to escape
-    the corpus check on an exact-string comparison. This builds the declared model and
-    requires both halves of the claim: the kind exists on it, and the emitter writes a line
-    that declares it. `test_a_measured_dimension_round_trips_through_the_emitted_script` is
-    what proves the values then survive re-running that line; this is what stops the roster
-    claiming a route nothing travels (#948).
-    """
-    declared = {k for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) == "declared"}
-    assert declared, "the 'declared' route has no kinds — delete it rather than leave it empty"
+def _declarable_kinds() -> set[str]:
+    """Kinds the DECLARED route actually reaches: present on the declared model, and written
+    by the emitter. Both halves, because a kind the emitter silently drops is not declarable
+    however cleanly the model carries it."""
     _part, model = _declared_measurement_model()
-    reached = {f.kind for f in model.features}
-    assert declared <= reached, (
-        f"{sorted(declared - reached)} claim the declared route, but building the declared "
-        "model does not produce them"
-    )
     src = emit_sheet_script(model, "part", "s", title="T", number="N")
-    assert "sheet.measured_dimension(" in src, (
-        "the declared model emits no measured_dimension line, so the route is unwritable"
-    )
+    return {f.kind for f in model.features if "sheet.measured_dimension(" in src}
+
+
+@pytest.mark.parametrize("route", _MIRROR_ROUTES)
+def test_every_kind_meets_the_obligation_of_the_route_it_claims(route):
+    """Each route's claim, enforced by the obligation that defines it.
+
+    Parametrised over the DERIVED vocabulary, so adding a route without an obligation is not
+    a weaker test — it is an impossible one. That is the difference between this and the
+    version Codex rejected, where `aspect` and `unnameable` were accepted spellings that
+    obliged nothing, and any kind parked under either was verified by nothing at all (#973 r2).
+    """
+    facts = {"dimensioned": _kinds_the_mirror_dimensions(), "declarable": _declarable_kinds()}
+    kinds = {k for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) == route}
+    failing, why = _MIRROR_ROUTE_OBLIGATIONS[route](kinds, facts)
+    assert not failing, f"{sorted(failing)} claim the '{route}' route, but {why}"
+
+
+def test_each_obligation_can_actually_fail():
+    """The obligations, applied to a roster that is wrong on purpose.
+
+    An obligation that returns nothing whatever it is given is the failure this whole table
+    exists to prevent, and it is invisible while the real roster is correct — the shape that
+    took seven rounds to kill on #967. Every route is checked, so a future one cannot be added
+    inert."""
+    facts = {"dimensioned": {"hole"}, "declarable": {"authored_dimension"}}
+    wrong = {
+        "corpus": {"note"},  # not dimensioned
+        "declared": {"note"},  # not declarable
+        "aspect": {"hole"},  # dimensioned, so not dimensionless
+        "unnameable": {"hole"},  # dimensioned, so the mirror does reach it
+    }
+    assert set(wrong) == set(_MIRROR_ROUTE_OBLIGATIONS), "a route has no failing example here"
+    for route, kinds in wrong.items():
+        failing, _why = _MIRROR_ROUTE_OBLIGATIONS[route](kinds, facts)
+        assert failing, f"the '{route}' obligation accepts {kinds} — it requires nothing"
 
 
 def test_every_kind_the_corpus_dimensions_is_claimed_as_corpus():
