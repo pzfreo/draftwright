@@ -1897,3 +1897,32 @@ def test_declared_envelope_measures_the_part_not_the_pmi_geometry():
         f"declared envelope is {env.width} x {env.depth} x {env.height}; it is measuring the "
         "imported compound (PMI presentation geometry included) rather than the solid body"
     )
+
+
+def test_declared_step_levels_measure_the_part_not_the_pmi_geometry():
+    """`step_level(part)` has the same exposure as `envelope()` — it takes the WHOLE part.
+
+    Confirmed on the CTC01 fixture: measuring the imported compound put the datum at
+    (-590, -325) and the frame anchor at (-5, 0), where the part's are (-400, -225) and (0, 0).
+    Every step position would then be offset by the annotation overhang.
+
+    Found by auditing the sibling verbs after #977 rather than by a failing drawing — the
+    declared path had no STEP-based coverage, so nothing was going to report it.
+    """
+    from pathlib import Path
+
+    from build123d import import_step
+
+    from draftwright.model.declare import step_level
+
+    step = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
+    obj = import_step(str(step))
+    assert round(obj.bounding_box().size.X) == 1170, "fixture no longer carries PMI geometry"
+
+    feat = step_level(obj)
+    assert (round(feat.datum[0]), round(feat.datum[1])) == (-400, -225), (
+        f"datum {feat.datum} is measured off the imported compound, not the solid body"
+    )
+    assert (round(feat.frame.origin[0]), round(feat.frame.origin[1])) == (0, 0), (
+        f"frame anchor {feat.frame.origin} is measured off the imported compound"
+    )

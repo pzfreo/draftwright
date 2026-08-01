@@ -686,6 +686,12 @@ def _read_step_levels(
     matching ``detect.py`` so an object round-trips to the same IR)."""
     from draftwright.recognition import recognise_step_shoulders, step_level_zs
 
+    # Solids only, for the same reason as `envelope()` (#977): this takes the WHOLE part, so a
+    # STEP import hands it PMI presentation geometry too. Measuring the compound put CTC01's
+    # datum at (-590, -325) and its anchor at (-5, 0) instead of (-400, -225) and (0, 0) —
+    # every step position off by the annotation overhang. The recognisers get the same body, or
+    # they would read levels off geometry the drawing is not of.
+    obj = _solids_body(obj)
     bb = obj.bounding_box()
     base = round(bb.min.Z, 3)
     levels = tuple(sorted(round(z, 3) for z in step_level_zs(obj)))

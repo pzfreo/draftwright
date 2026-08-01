@@ -48,7 +48,7 @@ from collections.abc import MutableSequence
 from dataclasses import replace
 from typing import TYPE_CHECKING, overload
 
-from draftwright.analysis import _solids_body
+from draftwright._geometry import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
 from draftwright.model import DimensionParameterId, Feature
