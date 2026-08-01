@@ -2281,15 +2281,46 @@ def _aspect_instances():
     from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note
 
     frame = Frame((0.0, 0.0, 0.0), "z")
-    common = {"frame": frame, "view": "front", "side": "top"}
+    # MAXIMAL, and ratcheted by `test_the_aspect_samples_leave_no_field_at_its_default`: a
+    # sample that leaves an optional field unset cannot exercise a `parameters()` branch gated
+    # on that field, so `Note` gaining a dimension-bearing option would report no parameters
+    # and keep its `aspect` route with every guard green (Codex review of #973, round 4).
+    common = {"frame": frame, "view": "front", "side": "top", "origin": object()}
     return {
         "control_frame": ControlFrame(
-            **common, characteristic="position", tolerance="0.1", datums=("A",), diameter=True
+            **common,
+            characteristic="position",
+            tolerance="0.1",
+            datums=("A",),
+            diameter=True,
+            modifier="M",
         ),
         "datum_ref": DatumRef(**common, letter="A"),
         "finish": Finish(**common, ra="1.6"),
         "note": Note(**common, text="TYP"),
     }
+
+
+def test_the_aspect_samples_leave_no_field_at_its_default():
+    """The `aspect` obligation asks a CONSTRUCTED instance, so the instance has to be maximal.
+
+    A hand-written sample cannot exercise a `parameters()` branch gated on a field it does not
+    set — and a field it does not set is exactly what a new IR option looks like. Comparing
+    against `dataclasses.fields` makes IR growth fail here, at the sample, rather than silently
+    widening the exemption it feeds (#973 r4).
+    """
+    import dataclasses
+
+    for kind, obj in _aspect_instances().items():
+        at_default = [
+            f.name
+            for f in dataclasses.fields(obj)
+            if f.default is not dataclasses.MISSING and getattr(obj, f.name) == f.default
+        ]
+        assert not at_default, (
+            f"{kind}: the sample leaves {at_default} at the class default, so any "
+            "`parameters()` branch gated on those fields is unexercised — populate them"
+        )
 
 
 def _parameterised_kinds() -> dict[str, bool]:
