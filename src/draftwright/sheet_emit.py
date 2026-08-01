@@ -1165,9 +1165,10 @@ def generate_sheet_script(
 
     ``tolerance``/``drawn_by``/``scale``/``page`` are the title-block / layout aspects (#474):
     when non-default they are emitted into the generated ``Sheet(...)`` so a re-run reproduces
-    them. ``formats`` (the CLI's ``--format``, #709) is likewise emitted into the
-    ``sheet.export(...)`` call when non-default (PDF). ``pmi`` is threaded to detection so
-    AP242 PMI features surface (flagged inline).
+    them. The script ends ``drawing = sheet.build()`` then ``drawing.export(...)`` (#968), with
+    ``formats`` (the CLI's ``--format``, #709) always spelled out on that call so a re-run
+    reproduces the requested outputs. ``pmi`` is threaded to detection so AP242 PMI features
+    surface (flagged inline).
     *part_expr*, when given, overrides the ``part = …`` seam — e.g. the import seam from
     :func:`resolve_object_spec` so the script references a live module (#469)."""
     is_shape = isinstance(step_file, Shape)

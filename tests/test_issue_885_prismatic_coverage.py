@@ -68,9 +68,13 @@ def test_pad_declaration_and_sheet_emission_round_trip_surface():
     compile(source, "<generated-pad-sheet>", "exec")
     # Execute the generated declarations as well: syntax alone cannot catch a
     # PadFeature argument/order drift between the emitter and Sheet facade.
-    executable = (
-        source.rsplit("\ndrawing = sheet.build()", 1)[0] + "\nround_tripped = sheet.build()\n"
-    )
+    # `index` after asserting the count, NOT `rsplit`: rsplit on a missing marker returns the
+    # WHOLE script, so this would go on to run the real export — writing a stray out.pdf into
+    # the repo root — and still pass its model comparison, exactly when the emitted lifecycle
+    # had regressed (Codex review of #972).
+    marker = "\ndrawing = sheet.build()"
+    assert source.count(marker) == 1, "the generated script no longer names its Drawing once"
+    executable = source[: source.index(marker)] + "\nround_tripped = sheet.build()\n"
     namespace = {"part": _case_study()}
     exec(executable, namespace)  # noqa: S102 — exercising our generated source
     rebuilt = namespace["round_tripped"].model()
