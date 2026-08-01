@@ -22,7 +22,7 @@ def build_thumbwheel() -> Part:
     disc = Pos(1.5, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=5, height=2)
     journal = Pos(-1.6, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=2, height=3.2)
     tap = Pos(-3.2, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=0.8, height=8)
-    thread = Pos(15.5, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=1.5, height=20)
+    thread = Pos(1.5, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=1.5, height=20)
 
     body = boss + disc + journal + thread
     body = body - tap
@@ -61,7 +61,7 @@ def build_thumbwheel_features() -> ThumbwheelFeatures:
     disc = Pos(1.5, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=5, height=2)
     journal = Pos(-1.6, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=2, height=3.2)
     tap = Pos(-3.2, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=0.8, height=8)
-    thread = Pos(15.5, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=1.5, height=20)
+    thread = Pos(1.5, 0, 0) * Rot(0, 90, 0) * Cylinder(radius=1.5, height=20)
 
     body = boss + disc + journal + thread
     body = body - tap
@@ -76,6 +76,42 @@ def build_thumbwheel() -> Part:
 callable (or an already-built object) — `build_thumbwheel_features` above qualifies as-is;
 if your builder takes a `params` argument, point the spec at a small zero-arg factory
 instead of the parametrised function itself.
+
+## Generate the script first, then edit it
+
+You do not write the `Sheet` script below from scratch — you generate it and edit it. Point
+`--script` at your features function's part (the `module:attr` object spec):
+
+```bash
+draftwright yourmodule:thumbwheel --script --out thumbwheel
+```
+
+That writes `thumbwheel.py`. `--script` emits the declarative `Sheet` flavour by default (the
+only one since 0.3 — `--style sheet` is the sole accepted value).
+
+What comes out has your part's **detected** numbers in it, one named binding per feature:
+
+```python
+part = yourmodule.thumbwheel                       # your live source, not a frozen STEP
+
+sheet = Sheet(part, title='THUMBWHEEL', number='DWG-001')
+step2 = sheet.step(diameter=4, length=3.7, at=(-1.35, 0, 0), axis="x")   # ⌀4 × 3.7 step
+step3 = sheet.step(diameter=10, length=2, at=(1.5, 0, 0), axis="x")      # ⌀10 × 2 step
+envelope1 = sheet.envelope()                       # reads the size off the part
+
+sheet.authored_dimensions()
+sheet.dimension(step2, "step.diameter")            # comment a line out to drop that dimension
+sheet.dimension(step2, "step.length")
+
+drawing = sheet.build()                            # the finalized Drawing — lint or inspect it
+drawing.export('thumbwheel', formats=('pdf',))
+```
+
+Honest, and a working starting point. But `diameter=4, length=3.7` are numbers *restated* from
+geometry you already have — change the journal in your source and the drawing quietly disagrees.
+The rest of this doc is the edit that fixes that: swap each numbered line for the object it was
+measured from.
+
 
 ## Declaring the drawing by reference
 

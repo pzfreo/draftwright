@@ -2155,7 +2155,8 @@ def _is_value_bearing(annotation) -> bool:
 _PLAN_DIMENSIONAL_FIELDS = {
     "groups": "walked per approved dim, matched on parameter_id or bare role",
     "locations": "walked per approved location, matched on the coarse 'location' role",
-    "ladders": "walked per ladder, via _LADDER_PARAMETER where the spelling differs",
+    "ladders": "walked per ladder; the compiler states the role it is named by "
+    "(`_LADDER_ROLE`), so the emitter no longer carries its own copy (#975)",
     "diagnostics": "NOT dimensional — the omissions channel; nothing to mirror by definition",
 }
 
