@@ -359,7 +359,7 @@ class Drawing:
     @deprecated(
         "Drawing.add_view() is deprecated (#817): view projection is engine plumbing. Custom "
         "section/auxiliary views come from the section verb; the raw projector is now private "
-        "(_add_view)."
+        "(_add_view). Removed in 0.5.0."
     )
     def add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
         """DEPRECATED (#817): the raw view projector is now private (:meth:`_add_view`)."""
@@ -397,7 +397,7 @@ class Drawing:
 
     @deprecated(
         "Drawing.set_view_coordinates() is deprecated (#817): view-coordinate plumbing is "
-        "engine-internal; the mutator is now private (_set_view_coordinates)."
+        "engine-internal; the mutator is now private (_set_view_coordinates). Removed in 0.5.0."
     )
     def set_view_coordinates(self, view, coords) -> None:
         """DEPRECATED (#817): now private (:meth:`_set_view_coordinates`)."""
@@ -409,7 +409,7 @@ class Drawing:
 
     @deprecated(
         "Drawing.drop_view_coordinates() is deprecated (#817): view-coordinate plumbing is "
-        "engine-internal; the mutator is now private (_drop_view_coordinates)."
+        "engine-internal; the mutator is now private (_drop_view_coordinates). Removed in 0.5.0."
     )
     def drop_view_coordinates(self, view) -> None:
         """DEPRECATED (#817): now private (:meth:`_drop_view_coordinates`)."""
@@ -547,7 +547,7 @@ class Drawing:
 
     @deprecated(
         "Drawing.attach_part_model() is deprecated (#817): build-state attach is engine "
-        "plumbing; the mutator is now private (_attach_part_model)."
+        "plumbing; the mutator is now private (_attach_part_model). Removed in 0.5.0."
     )
     def attach_part_model(self, model) -> None:
         """DEPRECATED (#817): now private (:meth:`_attach_part_model`)."""
@@ -566,7 +566,7 @@ class Drawing:
 
     @deprecated(
         "Drawing.attach_solve_trace() is deprecated (#817): build-state attach is engine "
-        "plumbing; the mutator is now private (_attach_solve_trace)."
+        "plumbing; the mutator is now private (_attach_solve_trace). Removed in 0.5.0."
     )
     def attach_solve_trace(self, trace) -> None:
         """DEPRECATED (#817): now private (:meth:`_attach_solve_trace`)."""
@@ -588,7 +588,13 @@ class Drawing:
         "Drawing.place_dim() is deprecated for normal editable scripts; use "
         "Drawing.dimension(feature, param, ..., pin=True) or "
         "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
-        "place_dim() remains only as a raw page-coordinate escape hatch."
+        "place_dim() remains only as a raw page-coordinate escape hatch. "
+        # Not dated with the #817 plumbing: ADR 0012 makes this the sanctioned escape hatch
+        # until the full auto-plus-user recompose lands, so it has no replacement to point at.
+        # But a bare "not before 0.5.0" is a lower bound, not an exit — and §4's complaint is
+        # precisely about surfaces with no exit (Codex #987 r1). So it names BOTH: the
+        # prerequisite and a target release, the latter to be revised if #707 slips.
+        "Removal gated on #707 (full recompose); target 0.6.0."
     )
     def place_dim(
         self,
@@ -714,7 +720,8 @@ class Drawing:
 
     @deprecated(
         "Drawing.add() is deprecated (#817): use the placement verbs (callout/dimension/note/"
-        "add_table/…); free text is note(). The raw add primitive is now private (_add)."
+        "add_table/…); free text is note(). The raw add primitive is now private (_add). "
+        "Removed in 0.5.0."
     )
     def add(self, obj, name=None, view=None, feature=None):
         """DEPRECATED (#817): the raw placement primitive is now private (:meth:`_add`). Use the
@@ -2445,7 +2452,7 @@ class Drawing:
     @deprecated(
         "Drawing.clear_annotations() is deprecated (#817): wholesale annotation removal is a "
         "footgun for user scripts — use the feature-scoped verbs (drop/remove). The primitive "
-        "is now private (_clear_annotations)."
+        "is now private (_clear_annotations). Removed in 0.5.0."
     )
     def clear_annotations(self, keep=("title_block",)):
         """DEPRECATED (#817): now private (:meth:`_clear_annotations`)."""
@@ -2812,7 +2819,8 @@ class Drawing:
         """Deprecated — use ``export(out, formats=("pdf",))["pdf"]``. Renders a PDF (svglib +
         reportlab) with the draftwright metadata + clickable title-block link."""
         warnings.warn(
-            "Drawing.export_pdf() is deprecated; use export(formats=('pdf',))['pdf'].",
+            "Drawing.export_pdf() is deprecated; use export(formats=('pdf',))['pdf']. "
+            "Removed in 0.5.0.",
             DeprecationWarning,
             stacklevel=2,
         )
