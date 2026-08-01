@@ -92,30 +92,32 @@ draftwright yourmodule:build_thumbwheel --script --out thumbwheel
 That writes `thumbwheel.py`. `--script` emits the declarative `Sheet` flavour by default (the
 only one since 0.3 — `--style sheet` is the sole accepted value).
 
-What comes out binds `part` back to your live source and then declares one named feature per
-line, with your part's **detected** numbers:
+What comes out — **verbatim, with feature and dimension lines elided where marked**:
 
 ```python
 from yourmodule import build_thumbwheel as _obj
-part = _obj()                                      # your live source, not a frozen STEP
+part = _obj()
 
-sheet = Sheet(part, title='THUMBWHEEL', number='DWG-001')
-hole1 = sheet.hole(diameter=1.6, at=(0.8, 0, 0), axis="x").depth(8)
-step1 = sheet.step(diameter=3, length=5.3, at=(-5.85, 0, 0), axis="x")
-step2 = sheet.step(diameter=4, length=3.7, at=(-1.35, 0, 0), axis="x")
-# ... step3, step4, boss1 — one line per detected feature ...
-envelope1 = sheet.envelope()                       # reads the size off the part
+sheet = Sheet(part, title='DRAWING', number='DWG-001')
+hole1 = sheet.hole(diameter=1.6, at=(0.8, 0, 0), axis="x").depth(8)   # ⌀1.6 blind 8
+step1 = sheet.step(diameter=3, length=5.3, at=(-5.85, 0, 0), axis="x")   # ⌀3 × 5.3 step
+step2 = sheet.step(diameter=4, length=3.7, at=(-1.35, 0, 0), axis="x")   # ⌀4 × 3.7 step
+# ... step3, step4, boss1 ...
+envelope1 = sheet.envelope()   # envelope 20 × 10 × 10
 
-sheet.authored_dimensions()                        # this is the COMPLETE set
-sheet.dimension(hole1, "bore.diameter")            # comment a line out to drop that dimension
+sheet.authored_dimensions()
+sheet.dimension(hole1, "bore.diameter")
 sheet.dimension(hole1, "bore.depth")
-# ... fourteen dimension lines in total ...
+# ... twelve more dimension lines ...
 
-drawing = sheet.build()                            # the finalized Drawing — lint or inspect it
+drawing = sheet.build()
 drawing.export('thumbwheel', formats=('pdf',))
 ```
 
-(Feature and dimension lines are elided where marked; the real file lists every one.)
+`part` is rebound to your **live source**, not a frozen STEP. `authored_dimensions()` declares
+that this is the complete set, so commenting a `dimension(...)` line out drops exactly that
+dimension. `sheet.envelope()` reads the overall size off the part rather than restating it. The
+title defaults to `DRAWING` — pass `--title` to set it.
 
 Honest, and a working starting point. But `diameter=4, length=3.7` are numbers *restated* from
 geometry you already have — change the journal in your source and the drawing quietly disagrees.
