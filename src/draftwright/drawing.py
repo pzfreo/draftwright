@@ -589,11 +589,12 @@ class Drawing:
         "Drawing.dimension(feature, param, ..., pin=True) or "
         "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
         "place_dim() remains only as a raw page-coordinate escape hatch. "
-        # NOT dated 0.5.0 with the #817 plumbing, deliberately: ADR 0012 makes this the
-        # sanctioned escape hatch until the full auto-plus-user recompose lands, so it has no
-        # replacement to point at yet. Dating it to a version whose replacement does not exist
-        # would be a promise the engine cannot keep (#987).
-        "Removal gated on #707 (full recompose); not before 0.5.0."
+        # Not dated with the #817 plumbing: ADR 0012 makes this the sanctioned escape hatch
+        # until the full auto-plus-user recompose lands, so it has no replacement to point at.
+        # But a bare "not before 0.5.0" is a lower bound, not an exit — and §4's complaint is
+        # precisely about surfaces with no exit (Codex #987 r1). So it names BOTH: the
+        # prerequisite and a target release, the latter to be revised if #707 slips.
+        "Removal gated on #707 (full recompose); target 0.6.0."
     )
     def place_dim(
         self,

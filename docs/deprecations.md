@@ -23,7 +23,20 @@ something.
 | `Drawing.attach_part_model()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.attach_solve_trace()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.export_pdf()` | `export(out, formats=("pdf",))["pdf"]` | 0.3.1 | 0.5.0 |
-| `Drawing.place_dim()` | `dimension(feature, param, pin=True)` / `locate(…, pin=True)` | 0.3.8 (#817) | **gated on #707** |
+| `Drawing.export(svg=, dxf=)` keywords + tuple return | `export(out, formats=[...])` → `{format: path}` | 0.3.1 | 0.5.0 — **warns nowhere, see below** |
+| `Drawing.place_dim()` | `dimension(feature, param, pin=True)` / `locate(…, pin=True)` | 0.3.8 (#817) | gated on #707, target 0.6.0 |
+
+### ⚠ `export(svg=, dxf=)` is declared deprecated but emits no warning
+
+It sits under v0.3.1's **"### Deprecated"** heading in the CHANGELOG, and `export()`'s docstring
+calls it "legacy (kept for back-compat)" — but the code path at `drawing.py:2753` warns nowhere.
+`tests/test_deprecation_dates.py` therefore cannot see it *by construction*: that guard scans
+things that warn.
+
+A deprecation nobody is warned about is not a deprecation, it is documentation. Before 0.5.0
+removes it, it has to start warning — otherwise the removal is a silent break for every caller
+still using the tuple form. Adding that warning is a behaviour change beyond dating, so it is
+**not** in this pass; it is the reason the row above is annotated rather than plain.
 
 ### ⚠ The two #963 deprecations have a zero-length warning period
 
@@ -37,9 +50,12 @@ is what scripts have been written with since the verb existed; `"width.length"` 
 one. So the effect is a hard break on longstanding usage with no migration release.
 
 The mechanical scale is small — one call site in the whole test corpus, measured — so this is
-about the policy, not the work. **Unresolved: whether these move to 0.5.0** (a real
-deprecation period, requiring an ADR 0016 amendment) **or stay at 0.4.0** as a documented
-breaking change. Tracked in #720.
+about the policy, not the work.
+
+**As it stands the answer is 0.4.0**: that is what ADR 0016 decided and what the runtime
+messages say, so the table above states it rather than leaving the row blank. It is *under
+review* — moving to 0.5.0 would give a real deprecation period and needs an ADR 0016
+amendment. Tracked in #720, awaiting the maintainer's call.
 
 ### Why `place_dim` has a gate rather than a version
 
