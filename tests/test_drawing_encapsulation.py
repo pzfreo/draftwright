@@ -26,6 +26,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright"
 _ANNO_DIR = _SRC / "annotations"
 
@@ -278,6 +280,37 @@ def test_the_expired_compat_aliases_stay_deleted():
         "deleted ADR 0005 §4 compat alias(es) are back on Drawing: "
         f"{back}. Reach through dwg.registry / dwg.coverage instead (#720)."
     )
+
+
+def test_the_deleted_modules_and_stubs_stay_deleted():
+    """The other half of the #720 exit, for symmetry with the alias guard above.
+
+    `sheet_dsl` and `generate_script` had tests asserting they were PRESENT (that importing the
+    shim worked, that the stub raised with a pointer). Deleting the surfaces deleted those tests
+    and left nothing in their place, so either could be restored without a targeted failure
+    (Codex r5). A deletion nobody asserts is a deletion that comes back.
+    """
+    import importlib
+
+    import draftwright
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("draftwright.sheet_dsl")  # the #640 rename alias
+
+    # The #940-retired emitter: gone from the package's lazy surface AND its owners, so the
+    # failure is an ImportError at the top of a script rather than mid-run.
+    #
+    # import_module, NOT `from draftwright import make_drawing` — the package re-exports a
+    # FUNCTION of that name which shadows the submodule, so the latter would assert about a
+    # function object and pass no matter what the module contained (caught by canary).
+    owners = [draftwright] + [
+        importlib.import_module(f"draftwright.{m}") for m in ("builder", "make_drawing")
+    ]
+    assert "generate_script" not in draftwright.__all__
+    for mod in owners:
+        assert not hasattr(mod, "generate_script"), (
+            f"the retired generate_script is back on {mod.__name__} (#720/#940)"
+        )
 
 
 def test_private_reads_are_a_documented_shrinking_allowlist():
