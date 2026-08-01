@@ -2124,21 +2124,21 @@ _MIRROR_ROUTE_OBLIGATIONS = {
         kinds - facts["declarable"],
         "building the declared model does not produce them, or the emitter writes no line",
     ),
-    # No DimParameter, so there is nothing for the mirror to reproduce. The obligation is that
-    # the corpus does NOT dimension it: a kind the compiler approves a dimension for plainly
-    # has something to mirror, whatever the roster says.
+    # No DimParameter, so there is nothing for the mirror to reproduce. Checked by CONSTRUCTING
+    # one and asking it — the claim is about the kind's own content, so a condition on the
+    # corpus cannot establish it. "The corpus does not dimension it" was the first cut and was
+    # near-vacuous: any kind absent from the corpus satisfied it, so a dimension-bearing kind
+    # could sit here untouched (Codex review of #973, round 3).
     "aspect": lambda kinds, facts: (
-        kinds & facts["dimensioned"],
-        "the compiler approves a dimension owned by that kind, so it is not dimensionless",
-    ),
-    # No declarative verb — `sheet.add(...)` of a raw record is not one — so the emitter cannot
-    # mirror it by design. Same obligation as `aspect` for the same reason: if the corpus
-    # dimensions it, the claim is false however it is worded.
-    "unnameable": lambda kinds, facts: (
-        kinds & facts["dimensioned"],
-        "the compiler approves a dimension owned by that kind, so the mirror does reach it",
+        {k for k in kinds if facts["parameterised"].get(k, True)},
+        "an instance of that kind reports DimParameters, so there IS something to mirror",
     ),
 }
+
+#: There is deliberately no `unnameable` route. `pmi` was its only member and is `declared` —
+#: the emitter serialises it and the script reconstructs it. An empty route is a spelling
+#: waiting to be misused, so it is gone rather than kept for symmetry; a genuinely unmirrorable
+#: kind would add it back WITH an obligation, which is now the only way to add one at all.
 
 #: Derived, never hand-written — see above.
 _MIRROR_ROUTES = tuple(_MIRROR_ROUTE_OBLIGATIONS)
@@ -2176,7 +2176,14 @@ _KIND_MIRROR_COVERAGE = {
     "pad": "corpus",
     "envelope": "corpus",
     "rotational": "corpus",
-    "pmi": "unnameable — raw AP242, emitted as sheet.add(PmiFeature(...)) (ADR 0016)",
+    # `declared`, not `unnameable`: the emitter SERIALISES every raw record as
+    # `sheet.add(PmiFeature(...))`, and the generated script names, reconstructs and
+    # executes it. Whether `sheet.add` is as fluent as a feature verb is an API-quality
+    # question; it does not make the kind unnameable, and `_FIDELITY_ROUTE` below has
+    # classified this exact behaviour as declared since #962. Calling it unnameable here
+    # contradicted that, and rewording the reason would have kept the false claim
+    # (Codex review of #973, round 3).
+    "pmi": "declared — raw AP242, emitted as sheet.add(PmiFeature(...)) (ADR 0016)",
     "chamfer": "corpus",
     "fillet": "corpus",
     "flat": "corpus",
@@ -2267,13 +2274,69 @@ def _declared_measurement_model():
     return part, sheet.model()
 
 
+#: One constructed instance per aspect kind, so `parameters()` can be ASKED rather than
+#: assumed. Every aspect class defines the method — they satisfy the `Feature` protocol — so
+#: `hasattr` proves nothing and the call is the only real check.
+def _aspect_instances():
+    from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note
+
+    frame = Frame((0.0, 0.0, 0.0), "z")
+    common = {"frame": frame, "view": "front", "side": "top"}
+    return {
+        "control_frame": ControlFrame(
+            **common, characteristic="position", tolerance="0.1", datums=("A",), diameter=True
+        ),
+        "datum_ref": DatumRef(**common, letter="A"),
+        "finish": Finish(**common, ra="1.6"),
+        "note": Note(**common, text="TYP"),
+    }
+
+
+def _parameterised_kinds() -> dict[str, bool]:
+    """kind -> whether an instance of it reports any `DimParameter`."""
+    return {k: bool(v.parameters()) for k, v in _aspect_instances().items()}
+
+
+def _declared_models():
+    """`(kind, model, expected_line)` for each model that reaches a kind detection cannot.
+
+    Both are executed by `TestTheDeclaredModelMatchesTheDetectedOne`'s declared corpus too;
+    named here so the roster's obligation and those round trips travel the same route.
+    """
+    _part, measured = _declared_measurement_model()
+    yield "authored_dimension", measured, "sheet.measured_dimension("
+    _part, pmi = TestTheDeclaredModelMatchesTheDetectedOne._declared_corpus()["raw pmi"]()
+    yield "pmi", pmi, "sheet.add(PmiFeature("
+
+
 def _declarable_kinds() -> set[str]:
-    """Kinds the DECLARED route actually reaches: present on the declared model, and written
-    by the emitter. Both halves, because a kind the emitter silently drops is not declarable
+    """Kinds the DECLARED route actually reaches: present on a declared model, AND written by
+    the emitter. Both halves, because a kind the emitter silently drops is not declarable
     however cleanly the model carries it."""
-    _part, model = _declared_measurement_model()
-    src = emit_sheet_script(model, "part", "s", title="T", number="N")
-    return {f.kind for f in model.features if "sheet.measured_dimension(" in src}
+    reached = set()
+    for kind, model, line in _declared_models():
+        src = emit_sheet_script(model, "part", "s", title="T", number="N")
+        if line in src and any(f.kind == kind for f in model.features):
+            reached.add(kind)
+    return reached
+
+
+def test_every_kind_is_on_a_route_that_exists():
+    """The partition is TOTAL — every kind sits on a route the obligations define.
+
+    Parametrising the obligation test over routes covers every route; it does not cover every
+    KIND. A kind spelled with a route that no longer exists belongs to no parametrisation and
+    is therefore checked by nothing at all. Deleting this guard as "subsumed" while
+    consolidating is exactly how that happened, and a canary reverting `pmi` to the removed
+    `unnameable` route passed until this came back (#973 r3).
+    """
+    stranded = {
+        k: v for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) not in _MIRROR_ROUTES
+    }
+    assert not stranded, (
+        f"{stranded} name routes outside {_MIRROR_ROUTES}; a kind on no route has no "
+        "obligation, which is what an unclassified kind already was"
+    )
 
 
 @pytest.mark.parametrize("route", _MIRROR_ROUTES)
@@ -2285,7 +2348,11 @@ def test_every_kind_meets_the_obligation_of_the_route_it_claims(route):
     version Codex rejected, where `aspect` and `unnameable` were accepted spellings that
     obliged nothing, and any kind parked under either was verified by nothing at all (#973 r2).
     """
-    facts = {"dimensioned": _kinds_the_mirror_dimensions(), "declarable": _declarable_kinds()}
+    facts = {
+        "dimensioned": _kinds_the_mirror_dimensions(),
+        "declarable": _declarable_kinds(),
+        "parameterised": _parameterised_kinds(),
+    }
     kinds = {k for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) == route}
     failing, why = _MIRROR_ROUTE_OBLIGATIONS[route](kinds, facts)
     assert not failing, f"{sorted(failing)} claim the '{route}' route, but {why}"
@@ -2298,12 +2365,15 @@ def test_each_obligation_can_actually_fail():
     exists to prevent, and it is invisible while the real roster is correct — the shape that
     took seven rounds to kill on #967. Every route is checked, so a future one cannot be added
     inert."""
-    facts = {"dimensioned": {"hole"}, "declarable": {"authored_dimension"}}
+    facts = {
+        "dimensioned": {"hole"},
+        "declarable": {"authored_dimension"},
+        "parameterised": {"hole": True},
+    }
     wrong = {
         "corpus": {"note"},  # not dimensioned
         "declared": {"note"},  # not declarable
-        "aspect": {"hole"},  # dimensioned, so not dimensionless
-        "unnameable": {"hole"},  # dimensioned, so the mirror does reach it
+        "aspect": {"hole"},  # reports DimParameters, so not dimensionless
     }
     assert set(wrong) == set(_MIRROR_ROUTE_OBLIGATIONS), "a route has no failing example here"
     for route, kinds in wrong.items():
