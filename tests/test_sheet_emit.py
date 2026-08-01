@@ -7,6 +7,7 @@ Detected input only writes numbers (the part-seam form); we never fabricate geom
 import ast
 import math
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -3321,3 +3322,49 @@ def test_the_generated_script_imports_exactly_what_it_uses(name, tmp_path):
         text=True,
     )
     assert r.returncode == 0, f"{name}: generated script has unused imports\n{r.stdout}"
+
+
+@pytest.mark.slow
+def test_the_object_reference_doc_quotes_real_generated_output(tmp_path):
+    """The workflow doc quotes generated output verbatim, so it must stay true (#857).
+
+    Generated output changed twice in one day (#976's `sheet.envelope()`, #968's
+    `drawing = sheet.build()`), and a doc that quotes it drifts silently — a reader follows it
+    and gets something else.
+
+    Three attempts at that quote were wrong before this existed, each plausible on the page:
+    a module doctored with a binding the doc does not show, the API instead of the CLI (so the
+    title default differed), and hand-written trailing comments the generator never emits. None
+    was catchable by reading the diff.
+
+    So this extracts the features function FROM THE DOC, runs the command the doc documents, and
+    requires every quoted line to appear verbatim. Marked slow: it shells out to the CLI, which
+    builds the part.
+    """
+    import subprocess
+
+    doc = Path(__file__).parent.parent / "docs" / "multi-feature-object-reference-workflow.md"
+    text = doc.read_text(encoding="utf-8")
+
+    module_src = text.split("```python", 2)[2].split("```")[0]
+    assert "def build_thumbwheel(" in module_src, "the doc no longer defines the wrapper"
+    (tmp_path / "yourmodule.py").write_text(module_src, encoding="utf-8")
+
+    command = next(
+        ln for ln in text.splitlines() if ln.startswith("draftwright yourmodule:")
+    ).split()
+    exe = Path(sys.executable).parent / "draftwright"
+    env = dict(os.environ, PYTHONPATH=str(tmp_path))
+    r = subprocess.run(
+        [str(exe), *command[1:]], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert r.returncode == 0, f"the documented command failed:\n{r.stderr[-1500:]}"
+
+    real = (tmp_path / "thumbwheel.py").read_text(encoding="utf-8").splitlines()
+    block = text.split("What comes out — **verbatim")[1].split("```python")[1].split("```")[0]
+    quoted = [ln for ln in block.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    assert len(quoted) > 8, "the quoted block shrank — is it still showing generated output?"
+    missing = [q for q in quoted if q not in real]
+    assert not missing, "the doc quotes lines the tool does not emit:\n  " + "\n  ".join(
+        missing[:5]
+    )
