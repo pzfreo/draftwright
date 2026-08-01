@@ -24,7 +24,7 @@ something.
 | `Drawing.attach_solve_trace()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.export_pdf()` | `export(out, formats=("pdf",))["pdf"]` | 0.3.1 | 0.5.0 |
 | `Drawing.export(svg=, dxf=)` keywords + tuple return | `export(out, formats=[...])` → `{format: path}` | 0.3.1 | 0.5.0 — **warns nowhere, see below** |
-| `Drawing.place_dim()` | `dimension(feature, param, pin=True)` / `locate(…, pin=True)` | 0.3.8 (#817) | gated on #707, target 0.6.0 |
+| `Drawing.place_dim()` | `dimension(feature, param, pin=True)` / `locate(…, pin=True)` | **0.2.12** (0.3.8 added the PEP 702 shim) | gated on #707, target 0.6.0 |
 
 ### ⚠ `export(svg=, dxf=)` is declared deprecated but emits no warning
 
