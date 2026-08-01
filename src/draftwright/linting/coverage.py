@@ -8,8 +8,9 @@ Part of the :mod:`draftwright.linting` package (ADR 0007):
   for capped diameters.
 - `CoverageState` — the coverage signal the passes record and the checks read
   (pattern callouts, patterned holes, dropped callout diameters). `Drawing`
-  delegates to it and keeps `_pattern_callouts` / `_patterned_holes` /
-  `_dropped_callout_diams` reachable as properties during the migration (§4).
+  delegates to it via `dwg.coverage`; the `_pattern_callouts` /
+  `_patterned_holes` / `_dropped_callout_diams` aliases that also reached it
+  were deleted at their ADR 0005 §4 removal date (#720).
 
 (`_suggest_fix` now lives in :mod:`.suggest`; `lint_drawing` in
 :mod:`.structural`.) Depends only on `_core` + recognition + the rendering

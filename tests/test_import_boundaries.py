@@ -85,7 +85,6 @@ _LAYERS: dict[str, int] = {
     # 7 — the user-facing surfaces
     "make_drawing": 7,
     "sheet": 7,
-    "sheet_dsl": 7,  # frozen deprecation shim — re-exports the sheet facade (renamed, #640)
     "sheet_emit": 7,
     "cli": 7,
     # 8 — the package root: the public API surface, above everything
