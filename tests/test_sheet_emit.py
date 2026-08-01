@@ -2171,19 +2171,30 @@ def test_the_plan_surface_is_ratcheted():
     )
 
 
-#: Each route, mapped to what claiming it OBLIGES — as code, given the measured facts.
-#: Returns the kinds on that route which fail the obligation, plus how to say so.
+#: The route vocabulary. A value in `_KIND_MIRROR_COVERAGE` is a route, optionally followed
+#: by ``" — <reason>"``.
 #:
-#: The vocabulary is DERIVED from this table (`_MIRROR_ROUTES` below), so a route cannot be
-#: spelled unless it requires something. That is the lesson `_ROUTE_OBLIGATIONS` paid seven
-#: review rounds for on #967, and not applying it here was this roster stopping one step
-#: short: `aspect` and `unnameable` passed the vocabulary check while obliging nothing, so any
-#: kind parked under either escaped verification entirely (Codex review of #973, round 2).
-#: The route vocabulary. A value is a route, optionally followed by ``" — <reason>"``.
+#: Hand-written, and checked rather than derived. An earlier cut derived it from a table of
+#: obligation callables so a route could not be spelled unless it required something; #973's
+#: last review judged that framework over-engineered — it tested the taxonomy more than the
+#: mirror — and it was cut back to the three direct tests below. This comment claimed the
+#: derived property for several commits after the table it named was deleted, which is the
+#: over-claiming those same reviews kept finding (#974).
+#:
+#: What replaces it is `_ROUTE_CHECKS`: every route must name the test that enforces it, so
+#: adding a route without a check fails rather than silently exempting every kind on it.
 #:
 #: There is deliberately no `unnameable` route: `pmi` was its only member and is `declared` —
 #: the emitter serialises it and the generated script reconstructs it (#973 r3).
 _MIRROR_ROUTES = ("corpus", "declared", "aspect")
+
+#: route -> the test that enforces what claiming it means. Names, not callables: the point is
+#: that a reader can follow the claim to the check, and that adding a route without one fails.
+_ROUTE_CHECKS = {
+    "corpus": "test_corpus_kinds_own_an_approved_dimension",
+    "declared": "test_declared_kinds_are_reachable_and_emitted",
+    "aspect": "test_aspect_kinds_report_no_dimension_parameters",
+}
 
 
 def _route_of(value: str) -> str:
@@ -3328,3 +3339,23 @@ def test_the_generated_script_imports_exactly_what_it_uses(name, tmp_path):
         text=True,
     )
     assert r.returncode == 0, f"{name}: generated script has unused imports\n{r.stdout}"
+
+
+def test_every_route_names_a_check_that_exists():
+    """A route with no check exempts every kind on it — silently, and by construction.
+
+    This is the property an earlier cut got by DERIVING the vocabulary from a table of
+    obligation callables. That framework was judged over-engineered (#973 r5) and cut, but the
+    comment kept claiming the property for several commits after the table was gone. So the
+    claim is small and true now: every route names its test, and the test exists in this module
+    (#974).
+    """
+    missing_checks = set(_MIRROR_ROUTES) - set(_ROUTE_CHECKS)
+    assert not missing_checks, (
+        f"{sorted(missing_checks)} are routes with no entry in `_ROUTE_CHECKS`, so nothing "
+        "verifies what claiming them means"
+    )
+    stale = set(_ROUTE_CHECKS) - set(_MIRROR_ROUTES)
+    assert not stale, f"{sorted(stale)} name checks for routes that no longer exist"
+    absent = [t for t in _ROUTE_CHECKS.values() if t not in globals()]
+    assert not absent, f"{absent} are named as route checks but not defined in this module"
