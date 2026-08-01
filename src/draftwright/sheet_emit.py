@@ -576,14 +576,14 @@ def mirror_model(model):
         return model, None  # the compiler withholds it (Z-turned, rotational OD)
     from dataclasses import replace
 
-    from draftwright.model.declare import envelope_from_bbox
+    from draftwright.model.declare import _envelope_from_bbox
 
     # The SAME construction `sheet.envelope()` uses, not a copy. Hand-rolling it here hardcoded
     # the frame origin to (0, 0, 0) — the bbox centre only for a part centred on the origin, and
     # 6 mm out in Y on the corpus flange — so the synthesised envelope disagreed with both the
     # detector and the declared verb. That is the fourth instance of #977's signature: a
     # constructed envelope that does not match what detection would produce (#976).
-    env = envelope_from_bbox(model.bbox)
+    env = _envelope_from_bbox(model.bbox)
     # Returned ALONGSIDE the model rather than stamped onto it. The first cut set a private
     # marker on the frozen `EnvelopeFeature` and rediscovered it later by position and size —
     # emitter bookkeeping masquerading as model state, on a public IR type (#944 review).

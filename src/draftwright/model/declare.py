@@ -1467,10 +1467,10 @@ def envelope(obj) -> EnvelopeFeature:
     makes the docstring's "matching the detector's" claim true rather than aspirational; the
     detected path was always right, and it is this declared verb that was measuring the file.
     """
-    return envelope_from_bbox(_solids_body(obj).bounding_box())
+    return _envelope_from_bbox(_solids_body(obj).bounding_box())
 
 
-def envelope_from_bbox(bb) -> EnvelopeFeature:
+def _envelope_from_bbox(bb) -> EnvelopeFeature:
     """An :class:`EnvelopeFeature` for an already-measured bounding box.
 
     The construction, split from the measurement so the two callers cannot drift: `envelope()`

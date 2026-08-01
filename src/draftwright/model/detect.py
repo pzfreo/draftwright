@@ -25,7 +25,6 @@ from draftwright.model.ir import (
     BossFeature,
     ChamferFeature,
     Datum,
-    EnvelopeFeature,
     Feature,
     FilletFeature,
     FlatFeature,
@@ -733,17 +732,13 @@ def build_part_model(
         # (a boss whose diameter fills the footprint is the body, dimensioned by its
         # OD, not a box).
         if not _is_round(bbox, bosses_d):
-            c = bbox.center()
-            features.append(
-                EnvelopeFeature(
-                    frame=Frame((c.X, c.Y, c.Z), "z"),
-                    width=bbox.size.X,
-                    height=bbox.size.Z,
-                    depth=bbox.size.Y,
-                    bbox_min=(bbox.min.X, bbox.min.Y, bbox.min.Z),
-                    bbox_max=(bbox.max.X, bbox.max.Y, bbox.max.Z),
-                )
-            )
+            # The same construction the declared verb and the emitter's synthesis use.
+            # Detection was the REFERENCE the other two were fixed to match (#977/#976); with
+            # three independent producers, "matches the detector" was a property to re-verify
+            # rather than one the code held. Now there is one spelling.
+            from draftwright.model.declare import _envelope_from_bbox
+
+            features.append(_envelope_from_bbox(bbox))
 
     # Plate/wall thicknesses on a multi-plate prismatic (#559) — the thin extent of a
     # slab that no other prismatic dim recovers (a wall along X/Y, or a Z base plate too

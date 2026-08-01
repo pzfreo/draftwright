@@ -1977,3 +1977,40 @@ def test_the_declared_envelope_equals_the_detected_one():
                 )
             else:
                 assert want == got, f"{name}: {f.name} {got!r} != {want!r}"
+
+
+def test_the_synthesised_envelope_is_centred_like_a_detected_one():
+    """The emitter's synthesis matches detection too — the fourth producer of this feature.
+
+    `mirror_model` hand-rolled an `EnvelopeFeature` with `Frame((0, 0, 0))`, which is the bbox
+    centre only for a part centred on the origin. The corpus flange is not: its bbox spans
+    (-23,-16,-23) to (23,4,23), centre (0, -6, 0), so the synthesised frame was 6 mm out in Y.
+
+    Pinned directly. The emit suite proves behavioural parity, which is why nothing caught this
+    — the frame does not move a dimension, it moves what a GD&T frame or note would target.
+    """
+    from build123d import Align, Axis, Box, Cylinder, Pos
+
+    from draftwright.model.detect import build_part_model
+    from draftwright.sheet_emit import mirror_model
+
+    part = Cylinder(21, 4)
+    for x in (-18, 18):
+        for y in (-18, 18):
+            part += Pos(x, y, 2) * Box(10, 10, 4, align=(Align.CENTER,) * 3)
+    part = part + Pos(0, 0, 2) * Cylinder(15.5, 12) + Pos(0, 0, 10) * Cylinder(12.5, 12)
+    part -= Cylinder(8, 30)
+    for x in (-18, 18):
+        for y in (-18, 18):
+            part -= Pos(x, y, 0) * Cylinder(2, 10)
+
+    model = build_part_model(part.rotate(Axis.X, 90))
+    _declared, synthesised = mirror_model(model)
+    assert synthesised is not None, "the fixture no longer reaches the synthesis path"
+
+    bb = model.bbox
+    centre = (bb.center().X, bb.center().Y, bb.center().Z)
+    assert all(abs(a - b) < 1e-6 for a, b in zip(synthesised.frame.origin, centre)), (
+        f"synthesised frame {synthesised.frame.origin} is not the bbox centre {centre} — it is "
+        "hardcoded rather than measured, so it only matches for a part centred on the origin"
+    )
