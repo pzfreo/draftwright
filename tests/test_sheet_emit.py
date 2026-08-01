@@ -127,14 +127,65 @@ class TestEmit:
         assert "sheet = Sheet(part, title='T', number='N')" in src
         assert "sheet.hole(diameter=8" in src  # the ⌀8 holes
         assert "sheet.add(EnvelopeFeature(" in src
-        assert src.rstrip().endswith("sheet.export('drawing')")
+        assert src.rstrip().endswith("drawing.export('drawing', formats=('pdf',))")
 
-    def test_non_default_formats_are_emitted_into_the_export_call(self):
-        # #709: --format must survive into the generated script; the default (pdf)
-        # keeps the bare call so a plain script matches Sheet.export's own default.
+    def test_the_script_names_the_drawing_before_exporting_it(self):
+        # #968: the tail is two statements, not `sheet.export(...)`. The point is that the
+        # finalized Drawing has a NAME, so an editor can lint or inspect it between the build
+        # and the export without rewriting the tail or paying for a second build.
+        src = _script_for(_plate()).rstrip()
+        assert src.endswith("drawing = sheet.build()\ndrawing.export('drawing', formats=('pdf',))")
+        assert src.count("sheet.build()") == 1, "the generated script must build exactly once"
+
+    def test_formats_are_always_emitted_into_the_export_call(self):
+        # #709: --format must survive into the generated script. Spelled out even for the
+        # default, unlike the constructor's non-default-only aspects: `Drawing.export` with no
+        # `formats` is the LEGACY svg=/dxf= call, not a PDF, so the bare form would silently
+        # turn every generated script's PDF into a pair of vector files (#968).
         src = _script_for(_plate(), formats=("svg", "dxf"))
-        assert src.rstrip().endswith("sheet.export('drawing', formats=('svg', 'dxf'))")
-        assert _script_for(_plate(), formats=("pdf",)).rstrip().endswith("sheet.export('drawing')")
+        assert src.rstrip().endswith("drawing.export('drawing', formats=('svg', 'dxf'))")
+        assert (
+            _script_for(_plate(), formats=("pdf",))
+            .rstrip()
+            .endswith("drawing.export('drawing', formats=('pdf',))")
+        )
+
+    def test_lint_between_build_and_export_critiques_the_exported_drawing(self, tmp_path):
+        """#968's actual payoff, executed rather than asserted about.
+
+        Run the generated script with a `drawing.lint()` line spliced in between the build and
+        the export, and prove the object it critiqued IS the object that got exported — same
+        `id`, one build. The text assertions above would all still pass if `build()` returned a
+        fresh Drawing each call, or if `drawing` were rebound before the export; this is what
+        makes "no second build" a checked claim rather than a description of the emitted text.
+        """
+        from unittest.mock import patch
+
+        from draftwright import Drawing
+
+        src = _script_for(_plate())
+        marker = "drawing.export("
+        assert src.count(marker) == 1
+        spliced = src.replace(
+            marker, "_seen.append((id(drawing), drawing.lint()))\ndrawing.export("
+        )
+
+        exported: list = []
+        ns: dict = {"PART": _plate(), "_seen": []}  # `_script_for`'s seam is `part = PART`
+        with patch.object(
+            Drawing, "export", lambda self, *a, **k: exported.append((id(self), self.lint()))
+        ):
+            exec(compile(spliced, "<emit>", "exec"), ns)  # noqa: S102 — our generated script
+
+        assert len(ns["_seen"]) == 1 and len(exported) == 1
+        (linted_id, linted), (exported_id, at_export) = ns["_seen"][0], exported[0]
+        assert linted_id == exported_id, (
+            "the script linted one Drawing and exported another — the whole point of naming "
+            "the build result is that they are the same object"
+        )
+        assert [(i.code, i.severity) for i in linted] == [
+            (i.code, i.severity) for i in at_export
+        ], "the critique changed between the lint call and the export"
 
     def test_step_seam_preserves_detected_ctc01_envelope(self, tmp_path):
         # #536: build123d.import_step reports CTC01's raw bbox as 1170 × 650, but the
@@ -1020,10 +1071,12 @@ class TestCli:
         )
         assert r.exit_code == 0, r.output
         src = (tmp_path / "g.py").read_text(encoding="utf-8")
-        assert f"sheet.export({str(tmp_path / 'g')!r}, formats=('svg',))" in src
+        assert f"drawing.export({str(tmp_path / 'g')!r}, formats=('svg',))" in src
 
-    def test_default_format_keeps_the_bare_sheet_export_call(self, tmp_path):
-        # No --format → the emitted call stays bare (Sheet.export defaults to PDF).
+    def test_default_format_is_spelled_out_on_the_export_call(self, tmp_path):
+        # No --format → PDF, and said so explicitly: `Drawing.export` with no `formats` is the
+        # legacy svg=/dxf= call, so silence would mean SVG+DXF rather than the PDF the CLI
+        # produced (#968).
         from typer.testing import CliRunner
 
         from draftwright.cli import app
@@ -1033,8 +1086,7 @@ class TestCli:
         r = CliRunner().invoke(app, [str(step), "--script", "--out", str(tmp_path / "g")])
         assert r.exit_code == 0, r.output
         src = (tmp_path / "g.py").read_text(encoding="utf-8")
-        assert f"sheet.export({str(tmp_path / 'g')!r})" in src
-        assert "formats=" not in src
+        assert f"drawing.export({str(tmp_path / 'g')!r}, formats=('pdf',))" in src
 
     def test_bad_style_is_rejected(self, tmp_path):
         from typer.testing import CliRunner
@@ -1177,12 +1229,10 @@ def _annotation_signature(dwg):
 def _drawing_from_generated_script(step_path, tmp_path, monkeypatch):
     """Run the ACTUAL generated sheet script (STEP-seam form, self-runnable) and capture the
     Drawing it builds, by intercepting Sheet.export — the true end-to-end sheet-script path."""
-    from draftwright import Sheet
+    from draftwright import Drawing
 
     captured = {}
-    monkeypatch.setattr(
-        Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
-    )
+    monkeypatch.setattr(Drawing, "export", lambda self, *a, **k: captured.setdefault("dwg", self))
     py = generate_sheet_script(str(step_path), out=str(tmp_path / "gen"), title="PART")
     exec(compile(open(py, encoding="utf-8").read(), py, "exec"), {})
     return captured["dwg"]
@@ -1284,7 +1334,7 @@ class TestRoundTripParity:
         # #474: a generated sheet script carrying drawn_by/tolerance/scale/page must reproduce the
         # same title-block + scale + page as a direct build with the same flags. Compare the
         # Analysis the drawing was built from (title-block text is path-vectorised, not greppable).
-        from draftwright import Sheet
+        from draftwright import Drawing
 
         flags = dict(drawn_by="PF", tolerance="ISO 2768-f", scale=2.0, page="A3")
         step = tmp_path / "part.step"
@@ -1294,7 +1344,7 @@ class TestRoundTripParity:
 
         captured = {}
         monkeypatch.setattr(
-            Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+            Drawing, "export", lambda self, *a, **k: captured.setdefault("dwg", self)
         )
         py = generate_sheet_script(str(step), out=str(tmp_path / "gen"), title="PART", **flags)
         exec(compile(open(py, encoding="utf-8").read(), py, "exec"), {})
@@ -1310,7 +1360,7 @@ class TestRoundTripParity:
         # #766: material/date/revision/company thread through build_drawing and the emitted
         # Sheet script reproduces them (like #474's drawn_by/tolerance). Defaults preserve
         # the prior output: revision "A", the rest blank.
-        from draftwright import Sheet
+        from draftwright import Drawing
 
         flags = dict(material="STEEL", date="2026-07-20", revision="B", company="ACME")
         step = tmp_path / "part.step"
@@ -1327,7 +1377,7 @@ class TestRoundTripParity:
 
         captured = {}
         monkeypatch.setattr(
-            Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+            Drawing, "export", lambda self, *a, **k: captured.setdefault("dwg", self)
         )
         py = generate_sheet_script(str(step), out=str(tmp_path / "gen"), title="PART", **flags)
         # the emitted ctor carries the non-default fields
@@ -1350,7 +1400,7 @@ class TestRoundTripParity:
         # Script parity: --frame/--zones/--projection on the CLI must round-trip into the
         # emitted Sheet so the regenerated drawing matches the direct build (the furniture
         # was added in #767/#768/#769 but not wired into the emitter until now).
-        from draftwright import Sheet
+        from draftwright import Drawing
 
         flags = dict(frame=True, zones=True, projection="third")
         step = tmp_path / "part.step"
@@ -1359,7 +1409,7 @@ class TestRoundTripParity:
 
         captured = {}
         monkeypatch.setattr(
-            Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+            Drawing, "export", lambda self, *a, **k: captured.setdefault("dwg", self)
         )
         py = generate_sheet_script(str(step), out=str(tmp_path / "gen"), title="PART", **flags)
         ctor = next(
@@ -1516,7 +1566,8 @@ class TestEmittedFeaturesAreNamed:
         did not name that feature, this raises."""
         src = self._src()
         ns: dict = {"part": self._part()}
-        body = src.replace("\npart\n", "\n", 1).replace("sheet.export('bracket')", "")
+        body = src.replace("\npart\n", "\n", 1)
+        body = body[: body.index("drawing = sheet.build()")]
         exec(compile(body, "<emit>", "exec"), ns)  # noqa: S102 — exercising the generated script
         sheet = ns["sheet"]
         assert ns["hole1"] is not None
@@ -1598,7 +1649,7 @@ class TestAuthoredSetRoundTrips:
     def _run(self, src, part):
         ns: dict = {"part": part}
         body = src.replace("\npart\n", "\n", 1)
-        body = body[: body.index("sheet.export(")]
+        body = body[: body.index("drawing = sheet.build()")]
         exec(compile(body, "<emit>", "exec"), ns)  # noqa: S102 — exercising the generated script
         return ns
 
@@ -1850,7 +1901,7 @@ class TestTheDimensionMirror:
     def _run(src, part):
         ns: dict = {"part": part}
         body = src.replace("\npart\n", "\n", 1)
-        exec(compile(body[: body.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        exec(compile(body[: body.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
         return ns
 
     #: What each fixture is FOR. A fixture that stops detecting its kind stops testing the
@@ -2267,7 +2318,7 @@ class TestTheScriptAccountsForEveryAnnotation:
         )
         ns: dict = {"part": part}
         body = blanked.replace("\npart\n", "\n", 1)
-        exec(compile(body[: body.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        exec(compile(body[: body.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
         survivors = {n for n, _ in ns["sheet"].build().iter_annotations()}
 
         # Two independent checks, because a name is not a classification. First: does the
@@ -2845,7 +2896,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         part, model = self._declared_corpus()[name]()
         src = emit_sheet_script(model, "part", "s", title="T", number="N")
         ns: dict = {"part": part}
-        exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        exec(compile(src[: src.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
         rebuilt = ns["sheet"].model()
 
         # The emitter SYNTHESISES an envelope when the overall height would otherwise be
@@ -2884,14 +2935,14 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         how #962 was noticed at all — the drawings matched and only the lint differed."""
         from unittest.mock import patch
 
-        from draftwright import Sheet, build_drawing
+        from draftwright import Drawing, build_drawing
 
         part = self._corpus()[name]
         direct = build_drawing(part, title="T", number="N")
         src = emit_sheet_script(detect_part_model(part), "part", "s", title="T", number="N")
         captured: dict = {"part": part}
         with patch.object(
-            Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
+            Drawing, "export", lambda self, *a, **k: captured.setdefault("dwg", self)
         ):
             exec(compile(src, "<emit>", "exec"), captured)  # noqa: S102
 
@@ -2916,7 +2967,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         detected = detect_part_model(part)
         src = emit_sheet_script(detected, "part", "s", title="T", number="N")
         ns: dict = {"part": part}
-        exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        exec(compile(src[: src.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
         declared = ns["sheet"].model()
 
         by_kind_detected = [f for f in detected.features if f.kind != "authored_dimension"]
@@ -2965,7 +3016,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         detected = detect_part_model(part)
         src = emit_sheet_script(detected, "part", "s", title="T", number="N")
         ns: dict = {"part": part}
-        exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        exec(compile(src[: src.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
         declared = ns["sheet"].model()
 
         pairs = [

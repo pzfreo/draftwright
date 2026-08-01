@@ -68,7 +68,9 @@ def test_pad_declaration_and_sheet_emission_round_trip_surface():
     compile(source, "<generated-pad-sheet>", "exec")
     # Execute the generated declarations as well: syntax alone cannot catch a
     # PadFeature argument/order drift between the emitter and Sheet facade.
-    executable = source.rsplit("\nsheet.export(", 1)[0] + "\nround_tripped = sheet.build()\n"
+    executable = (
+        source.rsplit("\ndrawing = sheet.build()", 1)[0] + "\nround_tripped = sheet.build()\n"
+    )
     namespace = {"part": _case_study()}
     exec(executable, namespace)  # noqa: S102 — exercising our generated source
     rebuilt = namespace["round_tripped"].model()

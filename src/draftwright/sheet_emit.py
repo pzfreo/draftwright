@@ -904,9 +904,11 @@ def emit_sheet_script(
     seam); *stem* is the output basename the script exports to. The title-block / layout aspects
     (``drawn_by``/``tolerance``/``scale``/``page``, #474) are emitted into the ``Sheet(...)``
     constructor only when non-default, so a plain drawing keeps a clean one-line constructor.
-    *formats* (the CLI's ``--format``, #709) is emitted into the ``sheet.export(...)`` call when
-    it differs from ``Sheet.export``'s own default (PDF), so a re-run reproduces the requested
-    outputs.
+    The script ends with the explicit lifecycle ``drawing = sheet.build()`` then
+    ``drawing.export(...)`` (#968), so the finalized :class:`~draftwright.drawing.Drawing` has a
+    name an editor can lint or inspect without rewriting the tail or building twice. *formats*
+    (the CLI's ``--format``, #709) is always spelled out on that call, so a re-run reproduces the
+    requested outputs.
 
     AP242 PMI cannot be re-extracted from the ``import_step`` seam, so detected dimensional PMI is
     emitted as declared Sheet dimensions; unsupported raw PMI records are kept as explicit
@@ -1011,15 +1013,27 @@ def emit_sheet_script(
     ]
     if _needs_section(model):
         lines.append("# Section A–A auto-triggers from the counterbore/blind bore above.")
-    # Only spell out formats when they differ from Sheet.export's own default (PDF),
-    # mirroring the constructor's non-default-aspects-only rule above (#709).
+    # Build and export as two statements, so the finalized Drawing has a name (#968). That is
+    # the lifecycle the architecture already has — Sheet declares intent, `build()` compiles and
+    # solves placement, `Drawing` is the artefact that gets critiqued and serialised — and an
+    # editor wanting to lint, inspect `drawing.model()` or export twice can now do it without
+    # rewriting the tail or paying for a second build. `Sheet.export` stays as shorthand for
+    # handwritten programs; it is this GENERATED tail that has an editor to serve.
+    #
+    # `formats` is always spelled out, unlike the constructor's non-default-only aspects (#709).
+    # `Drawing.export` treats a missing `formats` as the legacy svg=/dxf= call and writes SVG +
+    # DXF, where `Sheet.export` defaults to PDF — so the bare call is not the default, it is a
+    # different one, and suppressing the argument here would quietly turn every generated
+    # script's PDF into a pair of vector files.
     fmts = tuple(formats)
-    export_call = (
-        f"sheet.export({stem!r})"
-        if fmts == ("pdf",)
-        else f"sheet.export({stem!r}, formats={fmts!r})"
-    )
-    lines += ["", export_call]
+    lines += [
+        "",
+        "# ── Build ─────────────────────────────────────────────────────────────────────",
+        "# `build()` returns the finalized Drawing: critique it with `drawing.lint()` or read",
+        "# `drawing.model()` here, then export the same object — no second build.",
+        "drawing = sheet.build()",
+        f"drawing.export({stem!r}, formats={fmts!r})",
+    ]
     return "\n".join(lines) + "\n"
 
 

@@ -331,9 +331,12 @@ def test_generated_script_roundtrip_is_lint_error_free(tmp_path, name, factory):
     """#436: the STEP → emit → run-the-.py → drawing round-trip, exercised end-to-end across
     part families. The emitted script TEXT is the thing under test, not an in-process mirror
     of it: it runs in a subprocess, on a clean interpreter, exactly as a user would run it.
-    We swap its terminal ``sheet.export(...)`` for a build-export-and-report epilogue (one
-    build, not two) so the script reports ITS OWN drawing's lint to stdout, then assert exit
-    0 + the exported file written (PDF — the #709 default, aligned with the direct CLI) + no
+    Since #968 the script already ends with ``drawing = sheet.build()`` then
+    ``drawing.export(...)``, so we only APPEND a lint report — the drawing it critiques is the
+    one the script itself built and exported, which is precisely the property #968 exists to
+    give an editor. (Before #968 this test had to rewrite the tail to get a handle on the
+    Drawing at all; that it no longer does is the change working.) Then assert exit 0 + the
+    exported file written (PDF — the #709 default, aligned with the direct CLI) + no
     error-severity lint (warnings tolerated, matching _assert_meets_standards).
 
     Migrated from the imperative emitter to the Sheet one when #940 retired it. The original
@@ -351,35 +354,30 @@ def test_generated_script_roundtrip_is_lint_error_free(tmp_path, name, factory):
     export_step(factory(), str(step))
     py = generate_sheet_script(str(step), out=str(tmp_path / name))
 
-    # Replace the script's own export call with build → export → report, so the lint comes
-    # off the same Drawing the PDF did rather than a second build of the same model.
     src = Path(py).read_text(encoding="utf-8")
-    # `formats` is restated because the two export verbs do not share a default: Sheet.export
-    # defaults to PDF (matching the CLI) while Drawing.export still defaults to the legacy
-    # SVG+DXF tuple. Dropping to the Drawing verb therefore has to say what the Sheet verb
-    # would have done, or this asserts the wrong file.
-    calls = re.findall(r"^sheet\.export\(([^)]*)\)$", src, flags=re.M)
-    assert len(calls) == 1, f"{name}: expected exactly one sheet.export(...) line, got {calls}"
-    # Checked on the ORIGINAL call, before substitution — an emitted `formats=` would be
-    # doubled by the epilogue's, and a fixture that starts requesting one must be noticed
-    # rather than silently overridden to PDF (#957 review: the earlier form of this
-    # assertion read the line before the substitution point, so it was vacuously true).
-    assert "formats=" not in calls[0], (
-        f"{name}: the emitted export already sets formats ({calls[0]}); "
-        "the epilogue would double it"
+    # The script binds `drawing` itself now, so nothing is rewritten — the epilogue reads the
+    # same object the export wrote. Pinned rather than assumed: if the emitted tail ever stops
+    # naming the drawing, or builds twice, this test would otherwise quietly go back to
+    # critiquing a different Drawing from the one it checks on disk.
+    assert re.search(r"^drawing = sheet\.build\(\)$", src, flags=re.M), (
+        f"{name}: the generated script no longer names its Drawing — the lint below would "
+        "critique something other than what it exported"
     )
-    src, subs = re.subn(
-        r"^sheet\.export\(([^)]*)\)$",
-        "dwg = sheet.build()\n"
-        r"dwg.export(\1, formats=('pdf',))"
-        "\n"
-        "import json as _dwj\n"
-        "_dwerrs = sorted({i.code for i in dwg.lint() if i.severity == 'error'})\n"
-        "print('LINT_ERRORS=' + _dwj.dumps(_dwerrs))",
-        src,
-        flags=re.M,
+    assert src.count("sheet.build()") == 1, f"{name}: the generated script builds more than once"
+    exports = re.findall(r"^drawing\.export\((.*)\)$", src, flags=re.M)
+    assert len(exports) == 1, f"{name}: expected one drawing.export(...) line, got {exports}"
+    # PDF is what this test then looks for on disk, so a fixture that starts requesting
+    # something else must fail here rather than silently pass an existence check for a file
+    # nothing wrote (#957 review made the same point about a vacuous assertion).
+    assert "formats=('pdf',)" in exports[0], (
+        f"{name}: the emitted export requests {exports[0]}, not PDF; the assertion below "
+        "would be checking for a file the script never writes"
     )
-    assert subs == 1, f"{name}: substitution did not apply"
+    src += (
+        "\nimport json as _dwj\n"
+        "_dwerrs = sorted({i.code for i in drawing.lint() if i.severity == 'error'})\n"
+        "print('LINT_ERRORS=' + _dwj.dumps(_dwerrs))\n"
+    )
     Path(py).write_text(src, encoding="utf-8")
 
     r = subprocess.run(

@@ -138,6 +138,20 @@ sheet.hole(features.m3_bore).thread("M3x0.5").finish("1.6")   # tapped + Ra on t
 An object-sourced script carries an inline tip pointing at exactly this edit; a STEP-sourced
 script keeps the detected numbers (there's no object to reference).
 
+Every generated script ends by naming the drawing it built, so you can critique or inspect it
+before (or instead of) exporting — one build, not two:
+
+```python
+drawing = sheet.build()
+
+for issue in drawing.lint():                  # ISO/coverage critique of THIS drawing
+    print(issue.severity, issue.code, issue.message)
+
+drawing.export("part", formats=("pdf",))
+```
+
+`sheet.export(...)` remains the one-liner for handwritten scripts that just want the file.
+
 See [`docs/multi-feature-object-reference-workflow.md`](docs/multi-feature-object-reference-workflow.md)
 for a complete, runnable walkthrough of this pattern on a multi-feature turned part —
 including the backward-compatible refactor, external threads (no `.thread()` on a step —

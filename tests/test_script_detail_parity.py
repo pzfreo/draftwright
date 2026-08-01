@@ -74,12 +74,10 @@ def _exec_sheet_script(source, path):
     """
     from unittest.mock import patch
 
-    from draftwright import Sheet
+    from draftwright import Drawing
 
     captured = {}
-    with patch.object(
-        Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
-    ):
+    with patch.object(Drawing, "export", lambda self, *a, **k: captured.setdefault("dwg", self)):
         exec(compile(source, str(path), "exec"), {})
     return captured["dwg"]
 

@@ -46,14 +46,16 @@ def _ctx_for(dwg):
 def _sheet_script_drawing(part, tmp_path, name, **emit_kw):
     """Emit the Sheet script for *part*, run it, and return ``(script_source, Drawing)``.
 
-    The generated script's terminal call is ``sheet.export(...)``, which would write a PDF;
-    patching it to build-and-capture is how every script round-trip test in this repo gets at
-    the Drawing without paying for the render. Local rather than shared with `test_sheet_emit`
-    because importing across test modules couples their collection order.
+    The script ends ``drawing = sheet.build()`` then ``drawing.export(...)`` (#968), which would
+    write a PDF; stubbing the export and capturing its ``self`` is how every script round-trip
+    test in this repo gets at the Drawing without paying for the render. That capture is now the
+    exact object the script exports rather than a second build of the same model. Local rather
+    than shared with `test_sheet_emit` because importing across test modules couples their
+    collection order.
     """
     from unittest.mock import patch
 
-    from draftwright import Sheet
+    from draftwright import Drawing
     from draftwright.sheet_emit import generate_sheet_script
 
     step = tmp_path / f"{name}.step"
@@ -61,9 +63,7 @@ def _sheet_script_drawing(part, tmp_path, name, **emit_kw):
     py = generate_sheet_script(str(step), out=str(tmp_path / name), **emit_kw)
     source = Path(py).read_text(encoding="utf-8")
     captured = {}
-    with patch.object(
-        Sheet, "export", lambda self, stem=None: captured.setdefault("dwg", self.build())
-    ):
+    with patch.object(Drawing, "export", lambda self, *a, **k: captured.setdefault("dwg", self)):
         exec(compile(source, py, "exec"), {})  # noqa: S102 — our own generated script
     return source, captured["dwg"]
 

@@ -272,7 +272,7 @@ class TestTheCanonicalSpellingIsEnforced:
 
         src = emit_sheet_script(model, "part", "s", title="T", number="N")
         ns: dict = {"part": part}
-        exec(compile(src[: src.index("sheet.export(")], "<emit>", "exec"), ns)  # noqa: S102
+        exec(compile(src[: src.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
         handle = ns[next(k for k in ns if k.startswith("pattern"))]
 
         advertised = handle.dimension_ids()
@@ -354,7 +354,7 @@ class TestTheCanonicalSpellingIsEnforced:
         assert "<name>.dimension_ids()" in src
 
         ns: dict = {"part": part}
-        body = src[: src.index("sheet.export(")].replace("\npart\n", "\n", 1)
+        body = src[: src.index("drawing = sheet.build()")].replace("\npart\n", "\n", 1)
         exec(compile(body, "<emit>", "exec"), ns)  # noqa: S102 — our own generated script
         handle = ns["hole1"]
         assert handle.dimension_ids(), "the advertised route returned nothing"
