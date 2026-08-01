@@ -104,6 +104,19 @@ def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFe
     )
 
 
+def _is_principal_axis(axis) -> bool:
+    """Whether *axis* is exactly along X, Y or Z — the only planes `Frame.axis` can name.
+
+    Exact after the same snap `HoleSpec.from_hole` applies (components below 1e-6 to zero), so
+    analytic STEP noise is absorbed and nothing else is. An earlier cut compared
+    `1 - |component| <= 1e-6`, which is a COSINE tolerance: it reads as 1e-6 and actually
+    admits ~0.081°, an off-axis component near 1.4e-3 — about 1.4 mm of flattening over a
+    metre (#983 review). Asking for exactly one non-zero component says what is meant.
+    """
+    snapped = [0.0 if abs(c) < 1e-6 else c for c in axis]
+    return sum(1 for c in snapped if c != 0.0) == 1
+
+
 def _pattern_feature(pat, members) -> PatternFeature:
     """Map a recognised pattern + its member holes to a `PatternFeature`,
     composing a representative member hole so its counterbore/spotface survive."""
@@ -616,6 +629,20 @@ def build_part_model(
     patterned: set[int] = set()
     for pat in patterns:
         members = list(pat.holes)
+        if not _is_principal_axis(members[0].axis):
+            # An OBLIQUE pattern plane has no faithful `PatternFeature`: `Frame.axis` is a
+            # LETTER, so declaration lays the lattice out in that letter's canonical plane and
+            # a 40 mm Z spread comes back as 0 — a silently wrong drawing (#971).
+            #
+            # Refused HERE, at the recognition→IR adapter, not in the recogniser: ADR 0013 says
+            # a recogniser reports the geometry it finds, and `recognise_hole_patterns` finds
+            # this one correctly. The limitation is draftwright's IR, so it belongs on
+            # draftwright's side of the boundary — which also covers an injected `patterns=`.
+            #
+            # The members simply stay unpatterned below, so they are still drawn, dimensioned
+            # and located. Carrying a full normal on `Frame` would be faithful but widens the
+            # ADR 0015 waist; that option stays recorded on #971.
+            continue
         patterned.update(id(h) for h in members)
         features.append(_pattern_feature(pat, members))
     # Un-patterned holes: group by machining spec so identical holes share one

@@ -251,29 +251,77 @@ def _oblique_and_principal_lattices():
     return holes(oblique, a), holes(flat, (0.0, 0.0, 1.0))
 
 
-def test_an_oblique_lattice_is_not_recognised_as_a_pattern():
+def test_an_oblique_lattice_does_not_become_a_pattern_feature():
     """The IR records a pattern's axis as a LETTER, so an oblique plane has no faithful
-    declaration — recognising one anyway produces a silently wrong drawing (#971).
+    `PatternFeature` — building one anyway produces a silently wrong drawing (#971).
 
     Measured before the guard: a lattice spanning 39.96 mm in Z was recognised correctly and
     redeclared to a Z spread of 0.00, flat in the letter's canonical plane.
 
-    Refusing degrades gracefully — the holes are still recognised individually, so they are
-    still drawn, dimensioned and located; only the grouped callout is lost. Carrying a full
-    normal on `Frame` would be faithful but widens the ADR 0015 waist for a case no corpus part
-    exhibits; that option stays recorded on #971.
+    Checked through `build_part_model`, not against the recogniser. `recognise_hole_patterns`
+    still FINDS this lattice — ADR 0013 says a recogniser reports the geometry it finds, and the
+    limitation is draftwright's IR, so the refusal lives at the adapter. Asserting the
+    recogniser returned nothing would codify the layering violation the first cut had
+    (#983 review).
     """
+    from build123d import Box
+
+    from draftwright.model.detect import build_part_model
     from draftwright.recognition._features import recognise_hole_patterns
 
     oblique, principal = _oblique_and_principal_lattices()
+    block = Box(200, 200, 200)
 
     zs = [h.location[2] for h in oblique]
     assert max(zs) - min(zs) > 1.0, "the fixture is not actually out of plane"
-    assert recognise_hole_patterns(oblique) == [], (
-        "an oblique lattice was grouped into a pattern, and the IR cannot express its plane — "
-        "declaring it flattens the lattice into the dominant axis's plane"
+    assert recognise_hole_patterns(oblique), (
+        "recognition should still FIND the oblique lattice — the refusal belongs at the IR "
+        "adapter, and a recogniser that stopped reporting it would be weaker for every consumer"
     )
-    # ...and the guard is not simply refusing everything.
-    assert [type(p).__name__ for p in recognise_hole_patterns(principal)] == ["RectGrid"], (
-        "the same lattice in a principal plane stopped being recognised — the guard is too wide"
+
+    model = build_part_model(block, holes=oblique)
+    assert "pattern" not in [f.kind for f in model.features], (
+        "an oblique lattice became a PatternFeature, and `Frame.axis` cannot express its "
+        "plane — declaring it flattens the lattice into the dominant axis's plane"
     )
+    # ...and nothing is LOST. Identical unpatterned holes regroup into one count-bearing
+    # HoleFeature, so count MEMBERS rather than features.
+    holes = [f for f in model.features if f.kind == "hole"]
+    survived = sum(len(f.members) for f in holes)
+    assert survived == len(oblique), (
+        f"{survived} of {len(oblique)} members survived as holes — refusing the pattern must "
+        "not drop the holes themselves"
+    )
+
+    # The guard is not simply refusing everything.
+    principal_model = build_part_model(block, holes=principal)
+    assert "pattern" in [f.kind for f in principal_model.features], (
+        "the same lattice in a principal plane stopped becoming a pattern — the guard is too wide"
+    )
+
+
+@pytest.mark.parametrize(
+    ("axis", "principal", "why"),
+    [
+        ((0.0, 0.0, 1.0), True, "exactly Z"),
+        ((0.0, 0.0, -1.0), True, "exactly -Z"),
+        ((1e-7, 0.0, 1.0), True, "noise below the HoleSpec snap"),
+        ((1.4e-3, 0.0, 1.0), False, "0.08° off — a cosine 1e-6 test WRONGLY accepts this"),
+        ((0.02, 0.0, 1.0), False, "1.1° off"),
+        ((0.6, -0.48, 0.64), False, "properly oblique"),
+    ],
+)
+def test_the_principal_axis_predicate_is_exact_not_a_cosine_tolerance(axis, principal, why):
+    """The boundary, because the first cut's tolerance was three orders looser than it read.
+
+    It tested `1 - |component| <= 1e-6`, which is a COSINE tolerance: it looks like 1e-6 and
+    admits ~0.081°, an off-axis component near 1.4e-3 — about 1.4 mm of flattening over a metre
+    (#983 review). The far-oblique fixture above cannot catch that, since both predicates reject
+    it; only a NEAR-principal case can, which is why this exists.
+
+    Exact after the snap `HoleSpec.from_hole` already applies, so analytic STEP noise is
+    absorbed and nothing else is.
+    """
+    from draftwright.model.detect import _is_principal_axis
+
+    assert _is_principal_axis(axis) is principal, why

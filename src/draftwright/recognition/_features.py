@@ -824,20 +824,6 @@ def _project_out(w, *directions):
     return tuple(c / n for c in w)
 
 
-def _is_principal(axis, tol: float = 1e-6) -> bool:
-    """Whether *axis* lies (near enough) along X, Y or Z — the axes the IR can express.
-
-    `Frame.axis` is a letter, so a pattern on any other plane has no faithful declaration.
-    The tolerance is tight on purpose: this asks whether the axis IS principal, not which
-    principal axis it is closest to (`_axis_letter` answers that, and answers it for every
-    input, which is exactly why the loss was silent).
-    """
-    n = math.hypot(*axis)
-    if n == 0:
-        return False
-    return any(abs(abs(c) / n - 1.0) <= tol for c in axis)
-
-
 def _plane_uv(axis):
     """Two orthonormal vectors spanning the plane perpendicular to *axis*.
 
@@ -862,12 +848,13 @@ def _plane_uv(axis):
     between the two halves of the waist: :func:`~draftwright._geometry.plane_axes` and
     ``detect._pattern_feature``'s axis LETTER are chosen by the same rule, so the frame and the
     letter turn together, and `test_the_frame_and_the_ir_axis_letter_agree` pins it. What such
-    an axis does not have is a faithful declared counterpart at all — an oblique pattern is
-    flattened into its dominant plane by the letter, whatever frame it was found in. The
-    projection here stays geometrically honest (unforeshortened pitches, so the lattice is
-    recognised correctly), but the round trip through the IR is lossy for a genuinely oblique
-    pattern. That is a pre-existing limit of the letter-only IR, not something this function can
-    fix; it is #971 (Codex review of #970, round 3).
+    an axis does not have is a faithful declared counterpart at all — an oblique pattern
+    would be flattened into its dominant plane by the letter, whatever frame it was found
+    in. The projection here stays geometrically honest (unforeshortened pitches, so the
+    lattice IS recognised correctly), and #971 settled what happens next: `model/detect.py`
+    refuses to build a `PatternFeature` for a non-principal axis, so the members stay
+    ordinary holes rather than a lattice in the wrong plane. Recognition still reports what
+    it finds — the limitation is the IR's, so the refusal lives at the adapter (ADR 0013).
     """
     n = math.hypot(*axis)
     a = tuple(c / n for c in axis)
@@ -1164,17 +1151,6 @@ def recognise_hole_patterns(holes) -> list[BoltCircle | LinearArray | RectGrid]:
     patterns = []
     for spec, members in groups.items():
         if len(members) < 3:
-            continue
-        if not _is_principal(spec.axis):
-            # The IR records a pattern's axis as a LETTER, so an OBLIQUE plane cannot be
-            # expressed: declaration lays the lattice out in the letter's canonical plane and a
-            # 40 mm Z spread comes back as 0 — a silently wrong drawing (#971).
-            #
-            # Refused rather than mis-stated. These holes are still recognised individually, so
-            # they are still drawn, dimensioned and located; what is lost is the grouped
-            # callout, which is a smaller loss than a lattice in the wrong plane. Carrying a
-            # full normal on `Frame` would be faithful but widens the ADR 0015 waist for a case
-            # no corpus part exhibits — that is the deferred option, recorded on #971.
             continue
         u, v = _plane_uv(spec.axis)
         pts = [
