@@ -2103,15 +2103,37 @@ def test_the_plan_surface_is_ratcheted():
     )
 
 
+#: The route vocabulary. A value is a route, optionally followed by ``" — <reason>"``; the
+#: route itself must be one of these, so a typo or an invented classification fails
+#: `test_every_route_in_the_roster_is_one_of_the_known_ones` rather than passing as prose.
+#:
+#: Checked exactly, not by prefix: `startswith("corpus")` accepted `"corpus nonsense"`, and a
+#: roster whose whole purpose is to verify its own claims should not take a claim's word for
+#: what route it is on (Codex review of #973).
+_MIRROR_ROUTES = ("corpus", "declared", "aspect", "unnameable")
+
+
+def _route_of(value: str) -> str:
+    """The route a `_KIND_MIRROR_COVERAGE` value names, without its reason."""
+    return value.split("—")[0].strip()
+
+
 #: Every IR feature kind, mapped to how the dimension mirror is proven to handle it.
 #:
-#: `"corpus"` — a fixture in `TestTheDimensionMirror._corpus()` detects it, so the round trip
-#: is exercised end to end (emit → run → compare annotation signatures).
-#: A string starting with `"unnameable"` — no declarative verb, so the emitter falls back and
-#: says so; the kind cannot be mirrored by design until that verb exists.
-#: `"untested"` — neither. **This is debt**, and naming it is the point: the review found two
-#: fixtures detecting something other than their name, and an unlisted kind is the same hole
-#: with no label on it.
+#: `"corpus"` — some fixture in `TestTheDimensionMirror._corpus()` owns an approved dimension
+#: of this kind, so the round trip is exercised end to end (emit → run → compare signatures).
+#: Checked against the COMPILER, not against detection: recognising a feature that yields no
+#: approved dimension leaves the mirror untouched however cleanly it is recognised (#948).
+#: `"declared"` — nothing detects it, so it is reached through the declared route instead;
+#: `test_the_declared_route_reaches_the_kind_that_claims_it` builds that model and requires
+#: the emitter to write its line.
+#: `"aspect"` — carries no DimParameter, so there is nothing for the mirror to reproduce.
+#: `"unnameable"` — no declarative verb, so the emitter falls back and says so; the kind
+#: cannot be mirrored by design until that verb exists.
+#:
+#: There is deliberately no "untested" route any more: #948 closed the last of them, and every
+#: route above now carries an obligation a test enforces. Re-introducing one would mean adding
+#: it to `_MIRROR_ROUTES` and saying, in the open, that it requires nothing.
 _KIND_MIRROR_COVERAGE = {
     "hole": "corpus",
     "pattern": "corpus",
@@ -2169,6 +2191,23 @@ def test_every_ir_kind_is_classified_for_mirror_coverage():
     )
 
 
+def test_every_route_in_the_roster_is_one_of_the_known_ones():
+    """A route is a vocabulary, not free text.
+
+    Without this, a value only has to LOOK like a classification: `"corpus nonsense"` passed a
+    prefix test, and a misspelt `"asspect"` would have matched no obligation at all and so been
+    required to satisfy nothing — the fail-open this roster exists to prevent, one level up
+    (Codex review of #973).
+    """
+    unknown = {
+        k: v for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) not in _MIRROR_ROUTES
+    }
+    assert not unknown, (
+        f"{unknown} name routes outside {_MIRROR_ROUTES} — a route with no obligation requires "
+        "nothing, which is what an unclassified kind already was"
+    )
+
+
 def _kinds_the_mirror_dimensions() -> set[str]:
     """Feature kinds some corpus fixture contributes an APPROVED dimension for.
 
@@ -2200,7 +2239,7 @@ def test_the_corpus_really_covers_the_kinds_it_claims():
     detection-only form would have called that covered.
     """
     dimensioned = _kinds_the_mirror_dimensions()
-    claimed = {k for k, v in _KIND_MIRROR_COVERAGE.items() if v.startswith("corpus")}
+    claimed = {k for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) == "corpus"}
     assert claimed <= dimensioned, (
         f"{sorted(claimed - dimensioned)} are marked 'corpus' but no corpus fixture yields "
         "an approved dimension owned by that kind — the mirror never exercises them"
@@ -2241,7 +2280,7 @@ def test_the_declared_route_reaches_the_kind_that_claims_it():
     what proves the values then survive re-running that line; this is what stops the roster
     claiming a route nothing travels (#948).
     """
-    declared = {k for k, v in _KIND_MIRROR_COVERAGE.items() if v == "declared"}
+    declared = {k for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) == "declared"}
     assert declared, "the 'declared' route has no kinds — delete it rather than leave it empty"
     _part, model = _declared_measurement_model()
     reached = {f.kind for f in model.features}
@@ -2263,7 +2302,7 @@ def test_every_kind_the_corpus_dimensions_is_claimed_as_corpus():
     understated = {
         k
         for k in dimensioned
-        if k in _KIND_MIRROR_COVERAGE and not _KIND_MIRROR_COVERAGE[k].startswith("corpus")
+        if k in _KIND_MIRROR_COVERAGE and _route_of(_KIND_MIRROR_COVERAGE[k]) != "corpus"
     }
     assert not understated, (
         f"{sorted(understated)} are dimensioned by a corpus fixture but the roster claims "
