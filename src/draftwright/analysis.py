@@ -33,6 +33,7 @@ from draftwright._core import (
     _legible_steps,
     _Projector,
 )
+from draftwright._geometry import _solids_body
 from draftwright.compose import (
     StripDepths,
     _build_zones,
@@ -315,26 +316,6 @@ def _converge_step_sizing(
 # set minimum corridor widths, and by _fits() (Phase 3) for consistent sheet
 # selection.
 # ---------------------------------------------------------------------------
-
-
-def _solids_body(part, src: str = "part"):
-    """The part reduced to just its solids — the geometry the drawing is *of*.
-
-    AP242 STEP files (and hand-built Compounds) can carry non-solid geometry beside
-    the solid — PMI presentation wires, leader curves, construction edges/sketches —
-    which, left in, draw as phantom rectangles in every view and inflate the bounding
-    box, corrupting the scale choice and the envelope dimensions. Shared by
-    :func:`_analyse` and :meth:`draftwright.Sheet.model` (#453) so the model a caller
-    *inspects* is wrapped from the exact same body the engine *draws*."""
-    solids = part.solids()
-    if not solids:
-        return part
-    body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
-    if body.bounding_box().size != part.bounding_box().size or len(part.edges()) != len(
-        body.edges()
-    ):
-        _log.info("Dropping non-solid geometry from %s (PMI presentation data)", src)
-    return body
 
 
 @dataclass(frozen=True)

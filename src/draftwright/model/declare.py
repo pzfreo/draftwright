@@ -28,7 +28,7 @@ from __future__ import annotations
 import math
 import warnings
 
-from draftwright._geometry import plane_axes
+from draftwright._geometry import _solids_body, plane_axes
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
@@ -1442,8 +1442,19 @@ def slot_pattern(
 
 def envelope(obj) -> EnvelopeFeature:
     """The overall bounding box of *obj* as width (X) / height (Z) / depth (Y),
-    matching the detector's prismatic envelope."""
-    bb = obj.bounding_box()
+    matching the detector's prismatic envelope.
+
+    Measured on the SOLIDS, not on *obj* as handed in. An AP242 STEP import is a compound of
+    the part plus its PMI presentation geometry — annotation planes, leader curves — and
+    measuring the whole thing declared CTC01 as 1170 × 650 where the part is 800 × 450: an
+    envelope 370 mm too wide, silently, in anything a user declared by hand (#977).
+
+    `_solids_body` is the engine's existing answer to that, already used by `_analyse` and
+    `Sheet.model` so a caller inspects the body the engine draws (#453). Sharing it is what
+    makes the docstring's "matching the detector's" claim true rather than aspirational; the
+    detected path was always right, and it is this declared verb that was measuring the file.
+    """
+    bb = _solids_body(obj).bounding_box()
     c = bb.center()
     return EnvelopeFeature(
         frame=Frame((c.X, c.Y, bb.min.Z), "z"),
