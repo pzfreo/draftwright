@@ -79,13 +79,16 @@ Then verify (Step 3). For most parts you are done here.
 
 ## Step 2 — Customise with the Drawing builder
 
-`build_drawing(...)` returns a live `Drawing`. **Edit it in *domain* vocabulary
-— locate things with `features()`, add dimensions with `place_dim()`, choose a
-side and view.** You give *what* and *where on the part*; the engine decides the
-*offset, stacking, and strip slot* (placement is automatic and constraint-based).
-You still pass page-point endpoints, but you get them from `features()` or
-`dwg.at(...)` — you never compute offsets or pick a strip. Hand-building a raw
-`Leader` at `dwg.at(...)` coordinates is the escape hatch, not the default.
+`build_drawing(...)` returns a live `Drawing`. **Edit it in *domain* vocabulary —
+name a detected *feature* and the measurement you want; the engine decides the
+offset, stacking, and strip slot.** You give *what*, never *where on the page*:
+placement is automatic and constraint-based.
+
+Prefer the feature-backed verbs (`dimension` / `locate` / `callout` / `note` /
+`drop`) over the raw page-coordinate primitives. The low-level API (`place_dim`,
+`add`, `add_view`, the view-coordinate plumbing) is **deprecated** — see
+`docs/deprecations.md` — because a raw coordinate does not route through the
+layout solve, so it cannot be re-flowed when anything around it moves.
 
 ```python
 from draftwright import build_drawing
@@ -107,17 +110,37 @@ dwg.views                   # {"front","plan","side","iso"} → (visible, hidden
 dwg.draft / dwg.scale / dwg.page_w / dwg.page_h
 ```
 
-**Add a linear dimension with `place_dim`** — it allocates the offset and stacks
-clear of existing dims; you give two page-point endpoints and a side/view:
+**Add a dimension by naming a feature and a measurement** — the engine derives the
+value from the geometry and owns the placement:
 
 ```python
 # side ∈ {"above","below","left","right"}; view ∈ {"front","plan","side"}.
-p1 = dwg.at("front", 0, 0, 0)          # world → page point
-p2 = dwg.at("front", 40, 0, 0)
-dwg.place_dim(p1, p2, "above", "front", dwg.draft, name="dim_len")
+env  = next(f for f in dwg.model().features if f.kind == "envelope")
+hole = next(f for f in dwg.model().features if f.kind == "hole")
 
-dwg.remove("dim_od")                    # drop an automatic annotation by name
+dwg.dimension(env, "length", role="width", side="above", view="front")
+dwg.locate(hole)                         # locating dimensions for the feature
+dwg.callout(hole)                        # a ⌀ callout the auto-pass missed
+
+dwg.drop(hole)                           # stop dimensioning this feature
+dwg.remove("dim_od")                     # drop one automatic annotation by name
 ```
+
+**Mind the two spellings.** On `Drawing.dimension` the second argument is the
+parameter *kind* (`"length"`, `"diameter"`) and `role=` discriminates between
+same-kind parameters — an envelope has three `length` params with roles `width` /
+`height` / `depth`, so `dimension(env, "length")` alone is ambiguous and raises,
+naming them. `feature.parameters()` lists `(kind, role)` pairs, so it is the way
+to see what a feature accepts.
+
+On the `Sheet` facade the same measurement is one dotted **parameter id** —
+`"width.length"` — and `dimension_ids()` on a handle lists them. Use the id there
+rather than the bare family role (`"width"`): the bare spelling is deprecated,
+because it is what let a single call silently declare two dimensions.
+
+`place_dim(p1, p2, side, view, …)` still exists for raw page coordinates, but it is
+the **escape hatch of last resort** (ADR 0012) and is deprecated: it bypasses the
+layout solve, so nothing re-flows around it.
 
 **Add a diameter callout on a hole the auto-pass missed** — locate it with
 `features()` and attach a `HoleCallout` (this is what the `feature_not_dimensioned`
@@ -148,19 +171,34 @@ Then re-lint and export:
 
 ```python
 issues = dwg.lint()                       # list of LintIssue; [] when clean
-svg, dxf = dwg.export("drawings/bracket")
+paths = dwg.export("drawings/bracket", formats=("svg", "dxf", "pdf"))
+svg, dxf = paths["svg"], paths["dxf"]
 ```
+
+Pass `formats=` and read the `{format: path}` dict. Calling `export()` with no
+`formats` takes the legacy path and returns a `(svg, dxf)` tuple — kept for
+back-compat, deprecated, and slated for removal (`docs/deprecations.md`).
 
 `make_drawing(...)` is exactly `build_drawing(...).export()`.
 
-**Add a section or auxiliary view** with `add_view()`:
+**Section and auxiliary views** come from the section verb, not from projecting a
+view by hand:
 
 ```python
-look = dwg.look_at
-bottom = (look[0], look[1], look[2] - dwg.dist)
-vc = dwg.add_view("bottom", part, bottom, (0, 1, 0), (260.0, 60.0))
-px, py = vc.pp(world_x, world_y, world_z)
+# Declarative: the engine sites the cut and draws the arrows/hatching.
+dwg = Sheet.from_part(part, number="DWG-042").section().build()
+"section_aa" in dwg.views                 # True — the cut view is on the sheet
+# section(feature) cuts through that feature; section(at=y) at an explicit Y.
+
+# Imperative equivalent on a built Drawing — ADDS the automatic A–A and returns the
+# placed annotation names, or [] when no section is warranted or there is no room:
+dwg.section()
 ```
+
+`add_view()` and the view-coordinate plumbing (`set_view_coordinates`,
+`drop_view_coordinates`, and the `vc.pp(...)` projector) are **deprecated** (#817):
+view projection is engine plumbing, and hand-placed views do not participate in the
+compose-then-pack layout.
 
 ---
 
@@ -242,7 +280,7 @@ crit = dwg.lint_summary()
 for i in dwg.lint():
     print(i.severity, i.code, i.message)
     if getattr(i, "suggestion", None):
-        print("  fix:", i.suggestion)   # e.g. dwg.place_dim(...) / dwg.add_view(...)
+        print("  fix:", i.suggestion)   # e.g. dwg.callout(...) / dwg.dimension(...)
 
 # 3. Self-repair — auto-applies the mechanically-fixable issues (overlapping
 #    labels pushed apart, wrong-side dims flipped). Runs by default inside
@@ -256,8 +294,9 @@ dwg.pin(name)             # name from dwg.annotations(); dwg.unpin(name) to rele
 
 Codes are domain-meaningful (`feature_not_dimensioned`, `feature_count_mismatch`,
 `callout_dropped`, `location_ref_dropped`, `step_dim_dropped`, …), so a fix is
-always expressible through the domain API (`place_dim`, `features`, `add_view`),
-never the page-layout internals. Loop until `passed` (or the score plateaus).
+always expressible through the domain API (`dimension`, `locate`, `callout`,
+`features`), never the page-layout internals. Loop until `passed` (or the score
+plateaus).
 
 Coverage-only check, standalone:
 
