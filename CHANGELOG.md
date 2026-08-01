@@ -29,9 +29,16 @@ carries a tracking issue *and* a removal date, or the facade is permanent by acc
   accepts its sole value `sheet`; `imperative` is now an unrecognised value like any typo,
   rather than one carrying its own explanation of the #940 retirement.
 
-Still deprecated, **not** yet removed: the bare dimension-role spellings
-(`dimension(f, "width")` for `"width.length"`) and the `Sheet.dimension(kind=…, value=…)`
-call shape. Both remain #720, and both warn.
+**Also going in this release, not yet removed as of this entry** — the bare dimension-role
+spellings (`dimension(f, "width")`, use the parameter id `"width.length"`) and the
+`Sheet.dimension(kind=…, value=…)` call shape (use `measured_dimension(...)`). Both warn
+today and both are removed by #720 before 0.4.0 ships.
+
+Note these break **without a release that warns you**: they were deprecated after v0.3.9 and
+removed in 0.4.0, so upgrading from v0.3.9 or earlier goes straight from working to
+`ValueError` with no `DeprecationWarning` in between. That is deliberate (ADR 0016), which is
+why it is written down here and in `docs/deprecations.md` — the documentation is the only
+notice you get. `dimension_ids()` on a `Sheet` handle lists the valid parameter ids.
 
 ### Fixed
 
