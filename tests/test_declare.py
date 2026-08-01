@@ -1926,3 +1926,45 @@ def test_declared_step_levels_measure_the_part_not_the_pmi_geometry():
     assert (round(feat.frame.origin[0]), round(feat.frame.origin[1])) == (0, 0), (
         f"frame anchor {feat.frame.origin} is measured off the imported compound"
     )
+
+
+def test_the_declared_envelope_equals_the_detected_one():
+    """The property behind #977's three fixes, asserted directly instead of per-instance.
+
+    `declare.envelope()` claims to match the detector's prismatic envelope. It did not, twice
+    over and on different axes: it measured the raw compound (PMI geometry included, 1170 where
+    the part is 800) and it put the frame origin at `bb.min.Z` where the detector uses the
+    centre — a hand-declared envelope sitting a half-height below a detected one.
+
+    Both were invisible through the emitter, which bakes the detected values explicitly, so only
+    a hand-written `sheet.envelope()` was ever wrong — which is what the README shows. Comparing
+    the two paths is what makes the docstring's claim checkable rather than aspirational; each
+    fix was found by inspection, and this is what finds the next one.
+    """
+    from pathlib import Path
+
+    from build123d import Box, Cylinder, Pos, import_step
+
+    from draftwright._geometry import _solids_body
+    from draftwright.model.declare import envelope as declare_envelope
+    from draftwright.model.detect import build_part_model
+
+    step = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
+    cases = {
+        "STEP import (carries PMI geometry)": import_step(str(step)),
+        "plain solid": Box(80, 60, 10) - Pos(0, 0, 0) * Cylinder(4, 20),
+        "off-origin solid": Pos(15, -7, 3) * Box(40, 20, 12),
+    }
+    for name, obj in cases.items():
+        detected = next(
+            f for f in build_part_model(_solids_body(obj)).features if f.kind == "envelope"
+        )
+        declared = declare_envelope(obj)
+        for field in ("width", "height", "depth"):
+            assert abs(getattr(detected, field) - getattr(declared, field)) < 1e-6, (
+                f"{name}: declared {field} {getattr(declared, field)} != detected "
+                f"{getattr(detected, field)} — the verb does not match the detector it claims to"
+            )
+        assert all(
+            abs(a - b) < 1e-6 for a, b in zip(detected.frame.origin, declared.frame.origin)
+        ), f"{name}: declared origin {declared.frame.origin} != detected {detected.frame.origin}"

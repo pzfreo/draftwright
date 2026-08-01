@@ -1455,6 +1455,13 @@ def envelope(obj) -> EnvelopeFeature:
     measuring the whole thing declared CTC01 as 1170 × 650 where the part is 800 × 450: an
     envelope 370 mm too wide, silently, in anything a user declared by hand (#977).
 
+    The frame origin is the bbox CENTRE, matching `detect.py` — it was `bb.min.Z`, so a
+    hand-declared envelope sat a half-height below a detected one on the same part. Invisible
+    through the emitter, which bakes the detected frame explicitly, and therefore only ever
+    wrong for someone writing `sheet.envelope()` themselves — which is what the README shows.
+    The same shape of defect as the measurement above: this verb claimed to match the detector
+    and did not (#977).
+
     `_solids_body` is the engine's existing answer to that, already used by `_analyse` and
     `Sheet.model` so a caller inspects the body the engine draws (#453). Sharing it is what
     makes the docstring's "matching the detector's" claim true rather than aspirational; the
@@ -1463,7 +1470,7 @@ def envelope(obj) -> EnvelopeFeature:
     bb = _solids_body(obj).bounding_box()
     c = bb.center()
     return EnvelopeFeature(
-        frame=Frame((c.X, c.Y, bb.min.Z), "z"),
+        frame=Frame((c.X, c.Y, c.Z), "z"),
         width=bb.size.X,
         height=bb.size.Z,
         depth=bb.size.Y,
