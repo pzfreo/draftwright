@@ -1941,6 +1941,7 @@ def test_the_declared_envelope_equals_the_detected_one():
     the two paths is what makes the docstring's claim checkable rather than aspirational; each
     fix was found by inspection, and this is what finds the next one.
     """
+    import dataclasses
     from pathlib import Path
 
     from build123d import Box, Cylinder, Pos, import_step
@@ -1960,11 +1961,19 @@ def test_the_declared_envelope_equals_the_detected_one():
             f for f in build_part_model(_solids_body(obj)).features if f.kind == "envelope"
         )
         declared = declare_envelope(obj)
-        for field in ("width", "height", "depth"):
-            assert abs(getattr(detected, field) - getattr(declared, field)) < 1e-6, (
-                f"{name}: declared {field} {getattr(declared, field)} != detected "
-                f"{getattr(detected, field)} — the verb does not match the detector it claims to"
-            )
-        assert all(
-            abs(a - b) < 1e-6 for a, b in zip(detected.frame.origin, declared.frame.origin)
-        ), f"{name}: declared origin {declared.frame.origin} != detected {detected.frame.origin}"
+        # EVERY field, not just the two that were wrong. The name says equal, so it compares
+        # equal — `frame.axis`, `bbox_min` and `bbox_max` went unchecked in the first cut, and a
+        # property test that inspects a subset is the shape both earlier bugs hid in.
+        for f in dataclasses.fields(detected):
+            want, got = getattr(detected, f.name), getattr(declared, f.name)
+            if f.name == "frame":
+                assert want.axis == got.axis, f"{name}: frame axis {got.axis} != {want.axis}"
+                want, got = want.origin, got.origin
+            if isinstance(want, (int, float)) and not isinstance(want, bool):
+                assert abs(want - got) < 1e-6, f"{name}: {f.name} {got} != {want}"
+            elif isinstance(want, tuple) and want and isinstance(want[0], (int, float)):
+                assert all(abs(a - b) < 1e-6 for a, b in zip(want, got, strict=True)), (
+                    f"{name}: {f.name} {got} != {want}"
+                )
+            else:
+                assert want == got, f"{name}: {f.name} {got!r} != {want!r}"
