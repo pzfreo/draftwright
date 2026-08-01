@@ -2111,37 +2111,11 @@ def test_the_plan_surface_is_ratcheted():
 #: review rounds for on #967, and not applying it here was this roster stopping one step
 #: short: `aspect` and `unnameable` passed the vocabulary check while obliging nothing, so any
 #: kind parked under either escaped verification entirely (Codex review of #973, round 2).
-_MIRROR_ROUTE_OBLIGATIONS = {
-    # Some corpus fixture owns an approved dimension of this kind, so the mirror round trip
-    # runs for it. Asked of the compiler: recognising a feature that yields no approved
-    # dimension leaves the mirror untouched however cleanly it is recognised.
-    "corpus": lambda kinds, facts: (
-        kinds - facts["dimensioned"],
-        "no corpus fixture yields an approved dimension owned by that kind",
-    ),
-    # Nothing detects it, so it is reached by declaring it instead — and the emitter writes it.
-    "declared": lambda kinds, facts: (
-        kinds - facts["declarable"],
-        "building the declared model does not produce them, or the emitter writes no line",
-    ),
-    # No DimParameter, so there is nothing for the mirror to reproduce. Checked by CONSTRUCTING
-    # one and asking it — the claim is about the kind's own content, so a condition on the
-    # corpus cannot establish it. "The corpus does not dimension it" was the first cut and was
-    # near-vacuous: any kind absent from the corpus satisfied it, so a dimension-bearing kind
-    # could sit here untouched (Codex review of #973, round 3).
-    "aspect": lambda kinds, facts: (
-        {k for k in kinds if facts["parameterised"].get(k, True)},
-        "an instance of that kind reports DimParameters, so there IS something to mirror",
-    ),
-}
-
-#: There is deliberately no `unnameable` route. `pmi` was its only member and is `declared` —
-#: the emitter serialises it and the script reconstructs it. An empty route is a spelling
-#: waiting to be misused, so it is gone rather than kept for symmetry; a genuinely unmirrorable
-#: kind would add it back WITH an obligation, which is now the only way to add one at all.
-
-#: Derived, never hand-written — see above.
-_MIRROR_ROUTES = tuple(_MIRROR_ROUTE_OBLIGATIONS)
+#: The route vocabulary. A value is a route, optionally followed by ``" — <reason>"``.
+#:
+#: There is deliberately no `unnameable` route: `pmi` was its only member and is `declared` —
+#: the emitter serialises it and the generated script reconstructs it (#973 r3).
+_MIRROR_ROUTES = ("corpus", "declared", "aspect")
 
 
 def _route_of(value: str) -> str:
@@ -2278,54 +2252,29 @@ def _declared_measurement_model():
 #: assumed. Every aspect class defines the method — they satisfy the `Feature` protocol — so
 #: `hasattr` proves nothing and the call is the only real check.
 def _aspect_instances():
+    """One instance per aspect kind, for asking `parameters()` directly.
+
+    Minimal on purpose. An earlier cut built MAXIMAL samples and ratcheted them against
+    `dataclasses.fields`, to catch an aspect class gaining a dimension-bearing option. It could
+    not: `default_factory` fields are invisible to that comparison, and "different from the
+    default" is not "the dimension-bearing branch ran" — `measurement=0.0` against a `> 0` gate
+    passes it. No generic comparison of dataclass values proves branch coverage, so the
+    machinery bought a specific canary and an overstated claim (Codex review of #973, round 5).
+    All four implementations return `[]` unconditionally today; if one becomes conditional, its
+    semantics need a purpose-built test rather than a generic one anticipating it.
+    """
     from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note
 
     frame = Frame((0.0, 0.0, 0.0), "z")
-    # MAXIMAL, and ratcheted by `test_the_aspect_samples_leave_no_field_at_its_default`: a
-    # sample that leaves an optional field unset cannot exercise a `parameters()` branch gated
-    # on that field, so `Note` gaining a dimension-bearing option would report no parameters
-    # and keep its `aspect` route with every guard green (Codex review of #973, round 4).
-    common = {"frame": frame, "view": "front", "side": "top", "origin": object()}
+    common = {"frame": frame, "view": "front", "side": "top"}
     return {
         "control_frame": ControlFrame(
-            **common,
-            characteristic="position",
-            tolerance="0.1",
-            datums=("A",),
-            diameter=True,
-            modifier="M",
+            **common, characteristic="position", tolerance="0.1", datums=("A",)
         ),
         "datum_ref": DatumRef(**common, letter="A"),
         "finish": Finish(**common, ra="1.6"),
         "note": Note(**common, text="TYP"),
     }
-
-
-def test_the_aspect_samples_leave_no_field_at_its_default():
-    """The `aspect` obligation asks a CONSTRUCTED instance, so the instance has to be maximal.
-
-    A hand-written sample cannot exercise a `parameters()` branch gated on a field it does not
-    set — and a field it does not set is exactly what a new IR option looks like. Comparing
-    against `dataclasses.fields` makes IR growth fail here, at the sample, rather than silently
-    widening the exemption it feeds (#973 r4).
-    """
-    import dataclasses
-
-    for kind, obj in _aspect_instances().items():
-        at_default = [
-            f.name
-            for f in dataclasses.fields(obj)
-            if f.default is not dataclasses.MISSING and getattr(obj, f.name) == f.default
-        ]
-        assert not at_default, (
-            f"{kind}: the sample leaves {at_default} at the class default, so any "
-            "`parameters()` branch gated on those fields is unexercised — populate them"
-        )
-
-
-def _parameterised_kinds() -> dict[str, bool]:
-    """kind -> whether an instance of it reports any `DimParameter`."""
-    return {k: bool(v.parameters()) for k, v in _aspect_instances().items()}
 
 
 def _declared_models():
@@ -2352,64 +2301,56 @@ def _declarable_kinds() -> set[str]:
     return reached
 
 
-def test_every_kind_is_on_a_route_that_exists():
-    """The partition is TOTAL — every kind sits on a route the obligations define.
+def _kinds_on(route: str) -> set[str]:
+    return {k for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) == route}
 
-    Parametrising the obligation test over routes covers every route; it does not cover every
-    KIND. A kind spelled with a route that no longer exists belongs to no parametrisation and
-    is therefore checked by nothing at all. Deleting this guard as "subsumed" while
-    consolidating is exactly how that happened, and a canary reverting `pmi` to the removed
-    `unnameable` route passed until this came back (#973 r3).
-    """
+
+def test_every_kind_is_on_a_route_that_exists():
+    """The partition is TOTAL. A kind naming a route that does not exist is on no route, so
+    none of the checks below look at it — which is what an unclassified kind already was. A
+    canary reverting `pmi` to the removed `unnameable` route passed until this existed."""
     stranded = {
         k: v for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) not in _MIRROR_ROUTES
     }
-    assert not stranded, (
-        f"{stranded} name routes outside {_MIRROR_ROUTES}; a kind on no route has no "
-        "obligation, which is what an unclassified kind already was"
+    assert not stranded, f"{stranded} name routes outside {_MIRROR_ROUTES}"
+
+
+def test_corpus_kinds_own_an_approved_dimension():
+    """`"corpus"` means the mirror round trip RUNS for that kind, and the mirror reproduces
+    approved dimensions — so ask the compiler, not detection. A fixture recognising a chamfer
+    that yields no approved dimension leaves the mirror untouched (#948)."""
+    missing = _kinds_on("corpus") - _kinds_the_mirror_dimensions()
+    assert not missing, (
+        f"{sorted(missing)} are marked 'corpus' but no corpus fixture yields an approved "
+        "dimension owned by that kind — the mirror never exercises them"
     )
 
 
-@pytest.mark.parametrize("route", _MIRROR_ROUTES)
-def test_every_kind_meets_the_obligation_of_the_route_it_claims(route):
-    """Each route's claim, enforced by the obligation that defines it.
-
-    Parametrised over the DERIVED vocabulary, so adding a route without an obligation is not
-    a weaker test — it is an impossible one. That is the difference between this and the
-    version Codex rejected, where `aspect` and `unnameable` were accepted spellings that
-    obliged nothing, and any kind parked under either was verified by nothing at all (#973 r2).
-    """
-    facts = {
-        "dimensioned": _kinds_the_mirror_dimensions(),
-        "declarable": _declarable_kinds(),
-        "parameterised": _parameterised_kinds(),
-    }
-    kinds = {k for k, v in _KIND_MIRROR_COVERAGE.items() if _route_of(v) == route}
-    failing, why = _MIRROR_ROUTE_OBLIGATIONS[route](kinds, facts)
-    assert not failing, f"{sorted(failing)} claim the '{route}' route, but {why}"
+def test_declared_kinds_are_reachable_and_emitted():
+    """`"declared"` means detection cannot reach it, so a declared model does — and the emitter
+    writes it. Both halves: a kind the emitter silently drops is not declarable however cleanly
+    the model carries it."""
+    missing = _kinds_on("declared") - _declarable_kinds()
+    assert not missing, (
+        f"{sorted(missing)} claim the declared route, but building the declared model does not "
+        "produce them, or the emitter writes no line for them"
+    )
 
 
-def test_each_obligation_can_actually_fail():
-    """The obligations, applied to a roster that is wrong on purpose.
-
-    An obligation that returns nothing whatever it is given is the failure this whole table
-    exists to prevent, and it is invisible while the real roster is correct — the shape that
-    took seven rounds to kill on #967. Every route is checked, so a future one cannot be added
-    inert."""
-    facts = {
-        "dimensioned": {"hole"},
-        "declarable": {"authored_dimension"},
-        "parameterised": {"hole": True},
-    }
-    wrong = {
-        "corpus": {"note"},  # not dimensioned
-        "declared": {"note"},  # not declarable
-        "aspect": {"hole"},  # reports DimParameters, so not dimensionless
-    }
-    assert set(wrong) == set(_MIRROR_ROUTE_OBLIGATIONS), "a route has no failing example here"
-    for route, kinds in wrong.items():
-        failing, _why = _MIRROR_ROUTE_OBLIGATIONS[route](kinds, facts)
-        assert failing, f"the '{route}' obligation accepts {kinds} — it requires nothing"
+def test_aspect_kinds_report_no_dimension_parameters():
+    """`"aspect"` means the kind carries no DimParameter, so there is nothing to mirror. Asked
+    of an instance, because every aspect class DEFINES `parameters()` — they satisfy the
+    `Feature` protocol — so its presence proves nothing and the call is the only real check."""
+    samples = _aspect_instances()
+    aspects = _kinds_on("aspect")
+    assert aspects <= set(samples), (
+        f"{sorted(aspects - set(samples))} claim the aspect route with no sample to ask"
+    )
+    bearing = {k for k in aspects if samples[k].parameters()}
+    assert not bearing, (
+        f"{sorted(bearing)} are marked 'aspect' but report DimParameters, so there IS "
+        "something for the mirror to reproduce"
+    )
 
 
 def test_every_kind_the_corpus_dimensions_is_claimed_as_corpus():
