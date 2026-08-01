@@ -239,6 +239,39 @@ def test_no_build_context_probing():
     )
 
 
+def test_the_expired_compat_aliases_stay_deleted():
+    """ADR 0005 §4's exit criterion, made executable (#720).
+
+    The seven ``Drawing`` alias properties that shadowed registry- and coverage-owned state
+    were deleted at their 0.4.0 removal date. Nothing prevented them coming back: the
+    ``_DRAWING_PRIVATES`` roster in ``test_private_test_attr_reads`` is a SUPERSET check, so
+    it kept passing with the deleted names still listed, and would keep passing if they were
+    reintroduced. §4 calls the deletion the migration's completion criterion — so assert the
+    absence, not merely the roster.
+
+    Reintroducing any of these recreates the two-ways-to-reach-one-state that ADR 0005 calls
+    "the disease". Read through the owners instead: ``dwg.registry`` and ``dwg.coverage``.
+    """
+    from draftwright.drawing import Drawing
+
+    gone = {
+        # registry-owned (ADR 0005 Step 2)
+        "_named",
+        "_anno_view",
+        "_pinned",
+        "_build_issues",
+        # coverage-owned (ADR 0005 Step 3)
+        "_pattern_callouts",
+        "_patterned_holes",
+        "_dropped_callout_diams",
+    }
+    back = sorted(n for n in gone if hasattr(Drawing, n))
+    assert not back, (
+        "deleted ADR 0005 §4 compat alias(es) are back on Drawing: "
+        f"{back}. Reach through dwg.registry / dwg.coverage instead (#720)."
+    )
+
+
 def test_private_reads_are_a_documented_shrinking_allowlist():
     """Every distinct ``dwg._<name>`` private READ across annotations/ is in the documented
     allowlist — the compat surface #639 will shrink to zero. The allowlist may only SHRINK:

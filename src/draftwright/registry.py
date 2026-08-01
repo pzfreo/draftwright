@@ -17,9 +17,10 @@ and build-time metadata** — a single owner:
   feature must never be silent.
 
 `Drawing` delegates its annotation add/remove/pin/ownership/build-issue
-operations here and keeps ``items`` (the ordered render list); the four field
-names remain reachable as ``Drawing`` properties during the migration because
-tests and helpers still read through them (ADR 0005 §4).
+operations here and keeps ``items`` (the ordered render list). The four field
+names were reachable as ``Drawing`` properties during the migration; those
+aliases were deleted at their ADR 0005 §4 removal date (#720), so this class's
+own surface — ``in reg`` / :meth:`names` / :attr:`issues` — is the only way in.
 
 This module sits at the bottom of the import DAG — it depends on nothing in
 draftwright and carries no behaviour beyond the bookkeeping moved out of

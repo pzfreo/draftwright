@@ -130,7 +130,7 @@ def main(
         "sheet",
         "--style",
         help="--script flavour: only 'sheet' (the declarative Sheet script, one line per "
-        "feature). Retained for scripts that pass it; 'imperative' is retired",
+        "feature). Retained for scripts that pass it",
     ),
     pmi: PmiMode = typer.Option(
         PmiMode.off,
@@ -165,14 +165,6 @@ def main(
     formats = _parse_formats(output_format)
     if script and style != "sheet":
         # validate before the ~5 s engine import so a typo fails fast
-        if style == "imperative":
-            raise typer.BadParameter(
-                "'imperative' was retired (#940): the Sheet script is the one emitter. It "
-                "reconstructs everything the imperative script did, names features instead "
-                "of addressing them by position, and states its dimension source (ADR 0016). "
-                "Drop --style, or pass --style sheet.",
-                param_hint="--style",
-            )
         raise typer.BadParameter("--style must be 'sheet'", param_hint="--style")
 
     # Import the engine lazily, only on the build path: it pulls in build123d/OCP

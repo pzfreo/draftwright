@@ -908,7 +908,12 @@ the change is that a second emitter stops existing, and an emitter kept alive to
 warning is still a second emitter. So both entry points *fail* rather than warn —
 `generate_script` raises with the replacement in the message, `--style imperative` errors with
 its own text rather than the generic bad-value branch — and the stubs themselves exit at 0.4.0
-with #720 as planned. The gate was met as **coverage** parity per this section, not
+with #720 as planned.
+
+**Both stubs are now gone (2026-08-01, #720).** `generate_script` is deleted from
+`draftwright.__all__`, and `--style imperative` is simply an unrecognised value — the generic
+bad-value branch, no bespoke explanation. `--style` itself survives with its sole value `sheet`,
+since scripts passing it must keep working; that is a live option, not a compat stub. The gate was met as **coverage** parity per this section, not
 line-for-line: the four regressions asserted only against the imperative script (#555, #881,
 #889, #133) were retargeted and hold as full annotation-set parity.
 

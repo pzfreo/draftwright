@@ -202,6 +202,18 @@ a failure mode, not a success.
 > `view_of()` / `registry.pinned_names()` / `registry.issues`); only
 > `drawing.py` internals ride the aliases until #720 deletes them.
 
+> **Status (2026-08-01, #720): the seven aliases are DELETED** — this criterion
+> is met for the `Drawing` state bus. `drawing.py`'s own six reach-throughs went
+> to the registry's surface (`in reg`, `reg.issues`, the new `restore_issues`),
+> *not* to `reg._named`/`reg._build_issues`: pointing them at the privates would
+> have satisfied the deletion while recreating the same two-ways-to-reach-one-
+> state under a different owner. The exit is now executable rather than
+> documentary — `test_the_expired_compat_aliases_stay_deleted` asserts their
+> absence, because the `_DRAWING_PRIVATES` roster is a superset check and so
+> could not notice a reintroduction. (`sheet_dsl` and the `generate_script` /
+> `--style imperative` stubs went in the same PR; the remaining §4 items are
+> the `Sheet.dimension` call-shape shim and the bare-role spellings, still #720.)
+
 ### 5. Migration order (each step its own releasable PR)
 
 Follows the issue (#138) sequence, with §3 added as Step 0:

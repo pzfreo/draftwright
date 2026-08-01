@@ -1166,11 +1166,11 @@ class TestCli:
         r = CliRunner().invoke(app, [str(step), "--script", "--style", "bogus"])
         assert r.exit_code != 0
 
-    def test_the_retired_imperative_style_says_so(self, tmp_path):
-        """#940: `--style imperative` was a working flag last release, so it gets its own
-        message rather than falling into the generic bad-value branch. The flag survives with
-        one value; a script passing `--style sheet` keeps working, which is why it wasn't
-        deleted outright."""
+    def test_the_retired_imperative_style_is_just_a_bad_value(self, tmp_path):
+        """#720: `imperative` had its own explanatory message for one release after #940
+        retired it. That stub was dated to 0.4.0 alongside the `generate_script` one (ADR 0016),
+        so it is now simply an unrecognised value. `--style` itself survives with its sole
+        value, because a script passing `--style sheet` must keep working."""
         from typer.testing import CliRunner
 
         from draftwright.cli import app
@@ -1179,11 +1179,10 @@ class TestCli:
         export_step(_plate(), str(step))
         r = CliRunner().invoke(app, [str(step), "--script", "--style", "imperative"])
         assert r.exit_code != 0
-        out = _norm(r.output)
-        assert "retired" in out and "--style sheet" in out
-        # ...and it is a distinct message, not the generic one a typo gets.
+        # No bespoke explanation survives — it is the generic bad-value branch a typo gets.
         generic = CliRunner().invoke(app, [str(step), "--script", "--style", "bogus"])
-        assert _norm(generic.output) != out
+        assert _norm(r.output) == _norm(generic.output)
+        assert "retired" not in _norm(r.output)
 
     def test_module_spec_routes_to_the_live_object(self, tmp_path, monkeypatch):
         # `draftwright climod:bracket --script --style sheet` → detect off the imported object
