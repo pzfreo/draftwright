@@ -3324,7 +3324,6 @@ def test_the_generated_script_imports_exactly_what_it_uses(name, tmp_path):
     assert r.returncode == 0, f"{name}: generated script has unused imports\n{r.stdout}"
 
 
-@pytest.mark.slow
 def test_the_object_reference_doc_quotes_real_generated_output(tmp_path):
     """The workflow doc quotes generated output verbatim, so it must stay true (#857).
 
@@ -3338,8 +3337,11 @@ def test_the_object_reference_doc_quotes_real_generated_output(tmp_path):
     was catchable by reading the diff.
 
     So this extracts the features function FROM THE DOC, runs the command the doc documents, and
-    requires every quoted line to appear verbatim. Marked slow: it shells out to the CLI, which
-    builds the part.
+    requires every quoted line to appear verbatim.
+
+    NOT marked slow, deliberately: at ~20s against an eight-minute fast tier this is nothing
+    like the multi-minute CTC fixtures that marker is for, and marking it slow would run the
+    check only AFTER the merge that broke the doc — which defeats it (#985 review round 3).
     """
     import subprocess
 
