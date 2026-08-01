@@ -1678,24 +1678,12 @@ class TestAuthoredSetRoundTrips:
         it carries its own value, label, tolerances and reference points, so what must
         survive emit-and-re-run is that materialised content, not a role name.
         """
-        from draftwright import Sheet, build_drawing
+        from draftwright import build_drawing
 
-        def authored(part):
-            sheet = Sheet(part, title="T", number="N").auto_dimensions()
-            sheet.measured_dimension(
-                kind="linear",
-                value=40,
-                label="40",
-                dominant_axis="X",
-                ref_bbox=(-20, -10, -5, 20, 10, 5),
-                ref_pts=[(-20, 0, 0), (20, 0, 0)],
-                upper_tol=0.1,
-                lower_tol=0.0,
-            )
-            return sheet.model()
-
-        part = Box(40, 20, 10)
-        model = authored(part)
+        # The same model `test_the_declared_route_reaches_the_kind_that_claims_it` checks the
+        # roster against, so the route the roster names and the route proven to round-trip
+        # cannot drift apart (#948).
+        part, model = _declared_measurement_model()
         direct = build_drawing(part, model=model, number="N")
         src = emit_sheet_script(model, "part", "authored", title="T", number="N")
         assert "sheet.measured_dimension(" in src
@@ -2143,7 +2131,12 @@ _KIND_MIRROR_COVERAGE = {
     "plate": "corpus",
     "pocket_pattern": "corpus",
     "slot_pattern": "corpus",
-    "authored_dimension": "corpus (declared route — nothing detects one)",
+    # NOT "corpus": nothing detects an imported AP242 measurement or a hand-written
+    # `measured_dimension`, so no detection fixture can reach it. It said "corpus (declared
+    # route — nothing detects one)", which read as covered while escaping the corpus check
+    # entirely — the string did not equal "corpus", so the guard skipped it and nothing
+    # verified the claim (#948). Its own route, with its own obligation, below.
+    "authored_dimension": "declared",
     "control_frame": "aspect — carries no DimParameter, so nothing to mirror",
     "datum_ref": "aspect — carries no DimParameter, so nothing to mirror",
     "finish": "aspect — carries no DimParameter, so nothing to mirror",
@@ -2176,15 +2169,105 @@ def test_every_ir_kind_is_classified_for_mirror_coverage():
     )
 
 
+def _kinds_the_mirror_dimensions() -> set[str]:
+    """Feature kinds some corpus fixture contributes an APPROVED dimension for.
+
+    Asked of the compiler, not of detection. A fixture can detect a chamfer perfectly and
+    still leave the mirror unexercised for it, because what the mirror reproduces is the
+    approved dimension SET — so "a fixture detects this kind" was never the claim
+    `_KIND_MIRROR_COVERAGE` makes (#948).
+    """
+    from draftwright.model.compiled import compile_dimensions, resolve_feature
+
+    covered: set[str] = set()
+    for part in TestTheDimensionMirror._corpus().values():
+        model = detect_part_model(part)
+        plan = compile_dimensions(model)
+        for owner in (*plan.groups, *plan.locations, *plan.ladders):
+            feature = resolve_feature(owner.ref) if owner.ref is not None else None
+            if feature is not None:
+                covered.add(feature.kind)
+    return covered
+
+
 def test_the_corpus_really_covers_the_kinds_it_claims():
     """`"corpus"` is a claim about fixtures, so check it against them. Two fixtures were
-    detecting something other than their name until the review counted them (#947)."""
-    detected: set[str] = set()
-    for part in TestTheDimensionMirror._corpus().values():
-        detected |= {f.kind for f in detect_part_model(part).features}
-    claimed = {k for k, v in _KIND_MIRROR_COVERAGE.items() if v == "corpus"}
-    assert claimed <= detected, (
-        f"{sorted(claimed - detected)} are marked 'corpus' but no fixture detects them"
+    detecting something other than their name until the review counted them (#947).
+
+    Strengthened from detection to DIMENSIONING (#948): the roster names mirror coverage, and
+    the mirror reproduces approved dimensions. A kind whose fixture yields no approved
+    dimension is not mirrored by that fixture however cleanly it is recognised, and the
+    detection-only form would have called that covered.
+    """
+    dimensioned = _kinds_the_mirror_dimensions()
+    claimed = {k for k, v in _KIND_MIRROR_COVERAGE.items() if v.startswith("corpus")}
+    assert claimed <= dimensioned, (
+        f"{sorted(claimed - dimensioned)} are marked 'corpus' but no corpus fixture yields "
+        "an approved dimension owned by that kind — the mirror never exercises them"
+    )
+
+
+def _declared_measurement_model():
+    """`(part, model)` for a model carrying an `authored_dimension` — the one IR kind
+    detection cannot reach.
+
+    Module level so the roster guard and the round-trip test build the SAME thing — two
+    spellings of one fact is the defect this file keeps paying for.
+    """
+    from draftwright import Sheet
+
+    part = Box(40, 20, 10)
+    sheet = Sheet(part, title="T", number="N").auto_dimensions()
+    sheet.measured_dimension(
+        kind="linear",
+        value=40,
+        label="40",
+        dominant_axis="X",
+        ref_bbox=(-20, -10, -5, 20, 10, 5),
+        ref_pts=[(-20, 0, 0), (20, 0, 0)],
+        upper_tol=0.1,
+        lower_tol=0.0,
+    )
+    return part, sheet.model()
+
+
+def test_the_declared_route_reaches_the_kind_that_claims_it():
+    """`"declared"` is a claim too, so give it an obligation rather than a sentence.
+
+    The entry it replaced was prose that no guard could check, and which happened to escape
+    the corpus check on an exact-string comparison. This builds the declared model and
+    requires both halves of the claim: the kind exists on it, and the emitter writes a line
+    that declares it. `test_a_measured_dimension_round_trips_through_the_emitted_script` is
+    what proves the values then survive re-running that line; this is what stops the roster
+    claiming a route nothing travels (#948).
+    """
+    declared = {k for k, v in _KIND_MIRROR_COVERAGE.items() if v == "declared"}
+    assert declared, "the 'declared' route has no kinds — delete it rather than leave it empty"
+    _part, model = _declared_measurement_model()
+    reached = {f.kind for f in model.features}
+    assert declared <= reached, (
+        f"{sorted(declared - reached)} claim the declared route, but building the declared "
+        "model does not produce them"
+    )
+    src = emit_sheet_script(model, "part", "s", title="T", number="N")
+    assert "sheet.measured_dimension(" in src, (
+        "the declared model emits no measured_dimension line, so the route is unwritable"
+    )
+
+
+def test_every_kind_the_corpus_dimensions_is_claimed_as_corpus():
+    """The converse, so the roster cannot understate either. A kind the corpus already
+    exercises should say so rather than sit under a weaker route — otherwise the next reader
+    adds a redundant fixture, or worse, argues an exemption for something already covered."""
+    dimensioned = _kinds_the_mirror_dimensions()
+    understated = {
+        k
+        for k in dimensioned
+        if k in _KIND_MIRROR_COVERAGE and not _KIND_MIRROR_COVERAGE[k].startswith("corpus")
+    }
+    assert not understated, (
+        f"{sorted(understated)} are dimensioned by a corpus fixture but the roster claims "
+        "something weaker for them"
     )
 
 
