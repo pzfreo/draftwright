@@ -13,8 +13,8 @@ something.
 
 | Surface | Use instead | Deprecated in | Removed in |
 |---|---|---|---|
-| `Sheet.dimension(kind=…, value=…)` call shape | `Sheet.measured_dimension(...)` | **unreleased** (#963) | 0.4.0 (#720) — **see below** |
-| bare dimension-role spellings — `dimension(f, "width")` | the parameter id — `"width.length"` | **unreleased** (#963) | 0.4.0 (#720) — **see below** |
+| `Sheet.dimension(kind=…, value=…)` call shape | `Sheet.measured_dimension(...)` | never released (#963) | **0.4.0** (#720) — breaking, **see below** |
+| bare dimension-role spellings — `dimension(f, "width")` | the parameter id — `"width.length"` | never released (#963) | **0.4.0** (#720) — breaking, **see below** |
 | `Drawing.add()` | the placement verbs (`callout` / `dimension` / `note` / `add_table`) | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.add_view()` | the section verb; the raw projector is private | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.clear_annotations()` | the feature-scoped verbs (`drop` / `remove`) | 0.3.8 (#817) | 0.5.0 |
@@ -38,7 +38,7 @@ removes it, it has to start warning — otherwise the removal is a silent break 
 still using the tuple form. Adding that warning is a behaviour change beyond dating, so it is
 **not** in this pass; it is the reason the row above is annotated rather than plain.
 
-### ⚠ The two #963 deprecations have a zero-length warning period
+### ⚠ The two #963 deprecations break without a warning release — deliberately
 
 Both were added **after v0.3.9** (`4030913`), so they have never appeared in a released
 version — and ADR 0016 dates them to expire at 0.4.0. As written, 0.4.0 is both the first
@@ -49,13 +49,18 @@ That matters because bare roles are the **pre-existing** spelling. `dimension(f,
 is what scripts have been written with since the verb existed; `"width.length"` is the new
 one. So the effect is a hard break on longstanding usage with no migration release.
 
-The mechanical scale is small — one call site in the whole test corpus, measured — so this is
-about the policy, not the work.
+The mechanical scale is small — one call site in the whole test corpus, measured — so this was
+a policy question, not a work question.
 
-**As it stands the answer is 0.4.0**: that is what ADR 0016 decided and what the runtime
-messages say, so the table above states it rather than leaving the row blank. It is *under
-review* — moving to 0.5.0 would give a real deprecation period and needs an ADR 0016
-amendment. Tracked in #720, awaiting the maintainer's call.
+**Decided: they go at 0.4.0** (maintainer, 2026-08-01), as ADR 0016 already specified. The
+warning period is skipped knowingly rather than by oversight, so it is **a documented break**:
+this section, the 0.4.0 CHANGELOG entry, and the removal itself have to spell out what changed
+and what to write instead, because the runtime will not get the chance to. If you are upgrading
+from v0.3.9 or earlier, this is the page that tells you — nothing in your own run will.
+
+Migration: replace the bare family role with the parameter id (`"width"` → `"width.length"`;
+`dimension_ids()` on a `Sheet` handle lists the valid ones), and replace
+`sheet.dimension(kind=…, value=…)` with `sheet.measured_dimension(…)`.
 
 ### Why `place_dim` has a gate rather than a version
 
