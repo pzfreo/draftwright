@@ -386,7 +386,7 @@ class TestSheetSurface:
         part = Rot(0, 90, 0) * Cylinder(4, 20) + Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10)
         sheet = Sheet(part, title="T", number="N")
         sheet.step(diameter=8, length=20, at=(0, 0, 0), axis="x")
-        sheet.dimension(sheet.envelope(), "width")
+        sheet.dimension(sheet.envelope(), "width.length")
         dwg = sheet.build()
         step = next(f for f in dwg.model().features if f.kind == "step")
 
@@ -993,7 +993,7 @@ class TestOmittedDimensionsDoNotRender:
 
     def test_an_omitted_overall_height_is_not_drawn(self):
         sheet = Sheet(self._plate(), title="T", number="N")
-        sheet.dimension(sheet.envelope(), "width")
+        sheet.dimension(sheet.envelope(), "width.length")
         assert "dim_height" not in _names(sheet.build())
 
     def test_the_authored_overall_height_is_drawn(self):
@@ -1021,7 +1021,7 @@ class TestOmittedDimensionsDoNotRender:
         part = self._staircase()
         sheet = Sheet(part, title="T", number="N")
         sheet.step_level(part)
-        sheet.dimension(sheet.envelope(), "width")
+        sheet.dimension(sheet.envelope(), "width.length")
         assert self._rungs(sheet.build()) == []
 
     def test_a_correlated_set_is_addressed_whole(self):
@@ -1032,7 +1032,7 @@ class TestOmittedDimensionsDoNotRender:
         part = self._staircase()
         authored = Sheet(part, title="T", number="N")
         authored.step_level(part)
-        authored.dimension(authored.features[-1], "step_height")
+        authored.dimension(authored.features[-1], "step_height.length")
         auto = Sheet(part, title="T", number="N")
         auto.step_level(part)
         auto.auto_dimensions()
@@ -1044,7 +1044,7 @@ class TestOmittedDimensionsDoNotRender:
         part = self._shouldered()
         sheet = Sheet(part, title="T", number="N")
         sheet.step_level(part)
-        sheet.dimension(sheet.features[-1], "step_height")
+        sheet.dimension(sheet.features[-1], "step_height.length")
         assert self._shoulders(sheet.build()) == [], "step_position was not authored"
         assert self._rungs(sheet.build()), "but its sibling set on the same feature was"
 
@@ -1052,7 +1052,7 @@ class TestOmittedDimensionsDoNotRender:
         part = self._shouldered()
         sheet = Sheet(part, title="T", number="N")
         sheet.step_level(part)
-        sheet.dimension(sheet.features[-1], "step_position")
+        sheet.dimension(sheet.features[-1], "step_position.length")
         assert self._shoulders(sheet.build())
 
     def test_an_unaddressable_overall_height_is_refused_not_drawn(self):
@@ -1150,9 +1150,9 @@ class TestOmittedDimensionsDoNotRender:
             sheet.dimension(sheet.features[-1], role)
             return _names(sheet.build())
 
-        od_only = _built("od")
+        od_only = _built("od.diameter")
         assert "dim_od" in od_only and "ldr_z0" not in od_only
-        bore_only = _built("bore")
+        bore_only = _built("bore.diameter")
         assert "ldr_z0" in bore_only and "dim_od" not in bore_only
 
 

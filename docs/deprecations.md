@@ -56,13 +56,23 @@ Migration — replace the bare family role with the parameter id (`"width"` → 
 `sheet.dimension(kind=…, value=…)` with `sheet.measured_dimension(…)`. Both failures name
 their replacement rather than raising about argument counts.
 
-**Note on scale.** Before doing it, this section said "one call site in the whole test corpus,
-measured". That was the count of *bare-role calls*, and it was right — but the removal also
-touched four tests that existed to pin the deprecated behaviour itself (warn-and-normalise,
-the warning's `stacklevel`, the legacy form reaching the emitter). Those were rewritten to
-assert the refusal, not deleted: a removal nobody asserts is a removal that comes back. Worth
-recording, because "one call site" is the sort of measurement that reads as "trivial" and
-under-counts the tests written *about* the thing being removed.
+**Note on scale — and on how the estimate was wrong.** Before doing it, this section said
+"one call site in the whole test corpus, measured". That was wrong twice over.
+
+The measurement counted `DeprecationWarning`s emitted by a *selection* of test files, not the
+corpus — so it reported the one call site in the files it happened to run and missed nine more
+in `tests/test_add_dimension.py` and `tests/test_compiled_plan_boundary.py`, which it never
+executed. A count is only corpus-wide if it was taken corpus-wide, and "measured" made it
+sound like it had been. What found the rest was running the whole suite.
+
+It also counted only *calls*, missing four tests that existed to pin the deprecated behaviour
+itself (warn-and-normalise for both verbs, the warning's `stacklevel`, the legacy spelling
+reaching the emitter). Those were rewritten to assert the refusal rather than deleted: a
+removal nobody asserts is a removal that comes back.
+
+The true scope was ten call sites across three files plus four rewritten tests. Recorded
+because the failure mode generalises: a number attached to the word "measured" gets trusted
+in place of the thing it was supposed to measure.
 
 ### Why `place_dim` has a gate rather than a version
 

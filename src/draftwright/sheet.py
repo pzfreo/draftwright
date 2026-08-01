@@ -822,14 +822,20 @@ class Sheet:
         *,
         axis: str | None = None,
         **removed,
-    ):
+    ) -> DimensionIntent:
         """`dimension(feature, role)` — the ADR 0016 referential verb. See
         :meth:`_authored_dimension` for the semantics.
 
         The signature is the real one again (#720): the transitional call-shape dispatch to
         :meth:`measured_dimension` was removed at 0.4.0, so `dimension` means one thing. That
-        restores what the `@overload` pair existed to provide — completion and type-checking on
-        the verb scripts are actually written in (#963) — without the dual shape.
+        restores most of what the `@overload` pair provided — the parameter names and the
+        `DimensionIntent` return a caller sees (#963) — without the dual shape.
+
+        One thing it does NOT restore: `**removed` means a type checker accepts any keyword
+        rather than rejecting an unknown one (Codex #720 r1). That is the price of catching the
+        legacy call at runtime to name its replacement; the alternative is a static error whose
+        text is about argument counts. Worth revisiting once the break is old news, at which
+        point `**removed` can go and the signature becomes exact.
 
         ``feature``/``role`` default to a sentinel rather than being required so that a
         keyword-only legacy call (`dimension(kind=…, value=…)`) reaches the message below
@@ -851,7 +857,9 @@ class Sheet:
             raise TypeError("dimension() requires a feature and a parameter id")
         return self._authored_dimension(feature, role, axis=axis)
 
-    def _authored_dimension(self, feature, role: DimensionParameterId, *, axis: str | None = None):
+    def _authored_dimension(
+        self, feature, role: DimensionParameterId, *, axis: str | None = None
+    ) -> DimensionIntent:
         """`dimension(feature, role)` — declare one member of the COMPLETE authored set.
 
         Referential, like every ADR 0016 intent: it names a feature and a role and carries no

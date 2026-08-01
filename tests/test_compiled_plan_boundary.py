@@ -659,7 +659,7 @@ class TestAPositionIsADimension:
             return {n for n, _ in sheet.build().iter_annotations()}
 
         assert not [n for n in build(["bore.diameter"]) if n.startswith("dim_pitch")]
-        assert [n for n in build(["pitch"]) if n.startswith("dim_pitch")], (
+        assert [n for n in build(["pitch.length"]) if n.startswith("dim_pitch")], (
             "the script named the pitch and the drawing has no pitch dim"
         )
 
