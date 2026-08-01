@@ -1467,7 +1467,18 @@ def envelope(obj) -> EnvelopeFeature:
     makes the docstring's "matching the detector's" claim true rather than aspirational; the
     detected path was always right, and it is this declared verb that was measuring the file.
     """
-    bb = _solids_body(obj).bounding_box()
+    return envelope_from_bbox(_solids_body(obj).bounding_box())
+
+
+def envelope_from_bbox(bb) -> EnvelopeFeature:
+    """An :class:`EnvelopeFeature` for an already-measured bounding box.
+
+    The construction, split from the measurement so the two callers cannot drift: `envelope()`
+    measures a build123d object, and `sheet_emit.mirror_model` has only a `PartModel` and its
+    bbox. The emitter used to hand-roll this and hardcoded the frame origin to (0, 0, 0), which
+    is the bbox centre only for a part centred on the origin — on the corpus flange it was 6 mm
+    out in Y, disagreeing with both the detector and this verb (#976).
+    """
     c = bb.center()
     return EnvelopeFeature(
         frame=Frame((c.X, c.Y, c.Z), "z"),
