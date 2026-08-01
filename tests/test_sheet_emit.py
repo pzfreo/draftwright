@@ -1746,7 +1746,7 @@ class TestAuthoredSetRoundTrips:
         """
         from draftwright import build_drawing
 
-        # The same model `test_the_declared_route_reaches_the_kind_that_claims_it` checks the
+        # The same model `test_declared_kinds_are_reachable_and_emitted` checks the
         # roster against, so the route the roster names and the route proven to round-trip
         # cannot drift apart (#948).
         part, model = _declared_measurement_model()
@@ -2171,31 +2171,11 @@ def test_the_plan_surface_is_ratcheted():
     )
 
 
-#: The route vocabulary. A value in `_KIND_MIRROR_COVERAGE` is a route, optionally followed
-#: by ``" — <reason>"``.
+#: The route vocabulary. A value in `_KIND_MIRROR_COVERAGE` is one of these, optionally
+#: followed by ``" — <reason>"``.
 #:
-#: Hand-written, and NOT derived — which is the whole of what follows. An earlier cut derived
-#: obligation callables so a route could not be spelled unless it required something; #973's
-#: last review judged that framework over-engineered — it tested the taxonomy more than the
-#: mirror — and it was cut back to the three direct tests below. This comment claimed the
-#: derived property for several commits after the table it named was deleted, which is the
-#: over-claiming those same reviews kept finding (#974).
-#:
-#: Nothing replaces that enforcement, and this says so rather than implying otherwise. The
-#: three routes are checked by three named tests below — `test_corpus_kinds_own_an_approved_
-#: dimension`, `test_declared_kinds_are_reachable_and_emitted`,
-#: `test_aspect_kinds_report_no_dimension_parameters` — and keeping this tuple in step with them
-#: is MANUAL. Adding a fourth route without writing its check would exempt every kind on it
-#: silently.
-#:
-#: A `_ROUTE_CHECKS` map from route to test NAME was tried and removed: it verified only that a
-#: name existed in `globals()`, so a new route could point at an existing test that examines a
-#: different route entirely — the same fail-open, now wearing a guard (#984 review). Claiming
-#: less is better than a check that reads like enforcement and is not. Making it real means the
-#: derived-obligation design in `_ROUTE_OBLIGATIONS` below, which #973's last review cut here as
-#: over-engineered; that tension is genuine and stays recorded on #974.
-#: There is deliberately no `unnameable` route: `pmi` was its only member and is `declared` —
-#: the emitter serialises it and the generated script reconstructs it (#973 r3).
+#: Nothing enforces that a route has a check. Adding one here without writing its test
+#: would exempt every kind on it, silently — #974.
 _MIRROR_ROUTES = ("corpus", "declared", "aspect")
 
 
@@ -2210,16 +2190,15 @@ def _route_of(value: str) -> str:
 #: of this kind, so the round trip is exercised end to end (emit → run → compare signatures).
 #: Checked against the COMPILER, not against detection: recognising a feature that yields no
 #: approved dimension leaves the mirror untouched however cleanly it is recognised (#948).
-#: `"declared"` — nothing detects it, so it is reached through the declared route instead;
-#: `test_the_declared_route_reaches_the_kind_that_claims_it` builds that model and requires
-#: the emitter to write its line.
+#: `"declared"` — nothing detects it, so it is reached through the declared route instead.
+#: `test_declared_kinds_are_reachable_and_emitted` builds that model and requires the
+#: emitter to write its line; the premise that nothing detects it is a claim about the
+#: detectors that no test here checks.
 #: `"aspect"` — carries no DimParameter, so there is nothing for the mirror to reproduce.
-#: `"unnameable"` — no declarative verb, so the emitter falls back and says so; the kind
-#: cannot be mirrored by design until that verb exists.
 #:
-#: There is deliberately no "untested" route any more: #948 closed the last of them, and every
-#: route above now carries an obligation a test enforces. Re-introducing one would mean adding
-#: it to `_MIRROR_ROUTES` and saying, in the open, that it requires nothing.
+#: No `"unnameable"` route: `pmi` was its only member and is `declared` — the emitter
+#: serialises it and the generated script reconstructs it (#973 r3). No `"untested"` route
+#: either; #948 closed the last of them.
 _KIND_MIRROR_COVERAGE = {
     "hole": "corpus",
     "pattern": "corpus",
