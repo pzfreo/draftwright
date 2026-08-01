@@ -199,13 +199,33 @@ def _raw_pmi_line(f) -> str:
     )
 
 
-def _feature_line(f) -> str:
+def _feature_line(f, part_envelope=None) -> str:
+    """The declaration for one feature.
+
+    *part_envelope* is the whole-part `EnvelopeFeature` when the caller knows it, so an
+    envelope that IS that one can emit the verb instead of six baked numbers (#976). Optional
+    because two callers only ask whether the line is a comment, and passing it there would be
+    noise; omitting it simply keeps the explicit form.
+    """
     k = f.kind
     if k == "authored_dimension":
         return _measured_dimension_line(f)
     if k == "pmi":
         return _raw_pmi_line(f)
     if k == "envelope":
+        if part_envelope is not None and f == part_envelope:
+            # `sheet.envelope()` defaults to the whole part and now measures its SOLIDS with a
+            # centred frame (#977/#976), so for the whole-part envelope it reconstructs exactly
+            # this feature — verified on the CTC-01 STEP seam, where the raw import is
+            # 1170 × 650 and the part is 800 × 450. Restating six numbers the object already
+            # carries is what ADR 0011 exists to avoid.
+            #
+            # Guarded by equality rather than assumed: an envelope declared on a SUB-OBJECT is
+            # not the part, and the bare verb would silently measure something else — the exact
+            # shape of the four defects #977 closed.
+            return "sheet.envelope()   # envelope " + (
+                f"{_n(f.width)} × {_n(f.height)} × {_n(f.depth)}"
+            )
         return (
             "sheet.add(EnvelopeFeature("
             f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
@@ -803,7 +823,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
     return out
 
 
-def _feature_block(features) -> tuple[list[str], dict[int, str]]:
+def _feature_block(features, part_envelope=None) -> tuple[list[str], dict[int, str]]:
     """The emitted feature lines plus ``{id(feature): binding}`` for the names they bind.
 
     The map is RETURNED rather than recomputed by the dimension block, which needs the same
@@ -829,7 +849,7 @@ def _feature_block(features) -> tuple[list[str], dict[int, str]]:
         summary = _run_summary(run)
         out.append(f"#   {section}" + (f" · {summary}" if summary else "") + " ─────")
         for f in run:
-            line = _feature_line(f)
+            line = _feature_line(f, part_envelope)
             name = _binding(f, line, counts)
             if name is not None:
                 names[id(f)] = name
@@ -948,7 +968,9 @@ def emit_sheet_script(
         ctor.append("zones=True")
     if projection:
         ctor.append(f"projection={projection!r}")
-    feature_lines, _names = _feature_block(model.features)
+    from draftwright.model.declare import _envelope_from_bbox
+
+    feature_lines, _names = _feature_block(model.features, _envelope_from_bbox(model.bbox))
     lines = [
         _HEADER,
         "from draftwright import Sheet",

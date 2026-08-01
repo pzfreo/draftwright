@@ -126,7 +126,7 @@ class TestEmit:
         src = _script_for(_plate())
         assert "sheet = Sheet(part, title='T', number='N')" in src
         assert "sheet.hole(diameter=8" in src  # the ⌀8 holes
-        assert "sheet.add(EnvelopeFeature(" in src
+        assert "sheet.envelope()" in src  # #976: the whole-part envelope emits the verb
         assert src.rstrip().endswith("drawing.export('drawing', formats=('pdf',))")
 
     def test_the_script_names_the_drawing_before_exporting_it(self):
@@ -188,19 +188,61 @@ class TestEmit:
             f"lint() between build and export did not return usable issues: {issues!r}"
         )
 
+    def test_only_the_whole_part_envelope_emits_the_bare_verb(self):
+        """`sheet.envelope()` measures the whole part, so only the whole-part envelope may use
+        it (#976).
+
+        An envelope declared on a SUB-OBJECT is a different measurement, and substituting the
+        bare verb there would silently emit a script that measures something else — the exact
+        shape of the four defects #977 closed. The substitution is guarded by equality against
+        `_envelope_from_bbox(model.bbox)`, and this is what proves the guard discriminates
+        rather than always firing.
+        """
+        import dataclasses
+
+        from draftwright.model.declare import envelope as declare_envelope
+
+        part = _plate()
+        model = detect_part_model(part)
+        whole = _script_for(part)
+        assert "sheet.envelope()" in whole, "the whole-part envelope should emit the verb"
+
+        sub = declare_envelope(Box(20, 20, 10))
+        swapped = dataclasses.replace(
+            model, features=[sub if f.kind == "envelope" else f for f in model.features]
+        )
+        src = emit_sheet_script(swapped, "part", "drawing", title="T", number="N")
+        line = next(ln for ln in src.splitlines() if "envelope" in ln and " = " in ln)
+        assert "sheet.envelope()" not in line, (
+            f"a sub-object envelope emitted the bare verb ({line.strip()}), which measures the "
+            "whole part instead — the declaration would silently change what it means"
+        )
+        assert "EnvelopeFeature(" in line and "width=20" in line
+
     def test_step_seam_preserves_detected_ctc01_envelope(self, tmp_path):
-        # #536: build123d.import_step reports CTC01's raw bbox as 1170 × 650, but the
-        # detector's solid-body envelope is 800 × 450. The generated STEP-seam script
-        # must preserve the detected EnvelopeFeature literally instead of remeasuring
-        # the raw imported object with sheet.envelope().
+        # #536: `build123d.import_step` reports CTC01's raw bbox as 1170 × 650 while the
+        # detector's solid-body envelope is 800 × 450, so a STEP-seam script must declare the
+        # PART. This originally asserted `"sheet.envelope()" not in src` and baked the detected
+        # numbers, because the verb remeasured the raw import and got 1170.
+        #
+        # INVERTED, not deleted (#976). #977 fixed the verb to measure solids and #980 centred
+        # its frame, so `sheet.envelope()` now reconstructs the detected envelope exactly — the
+        # measurement bug the old assertion guarded no longer exists. What #536 actually
+        # protects is unchanged and still checked below: the script must not carry 1170.
         step = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
         py = generate_sheet_script(str(step), out=str(tmp_path / "ctc01"))
         src = Path(py).read_text(encoding="utf-8")
-        assert "sheet.envelope()" not in src
-        assert "sheet.add(EnvelopeFeature(" in src
-        assert "width=800" in src
-        assert "depth=450" in src
-        assert "1170" not in src
+        assert "sheet.envelope()" in src, "the whole-part envelope should emit the verb"
+        assert "1170" not in src, "the raw import's bbox leaked into the script"
+        assert "650" not in src
+
+        # ...and the verb genuinely rebuilds 800 × 450, rather than merely not saying 1170.
+        ns: dict = {}
+        exec(compile(src[: src.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
+        env = next(f for f in ns["sheet"].model().features if f.kind == "envelope")
+        assert (round(env.width), round(env.depth)) == (800, 450), (
+            f"the re-run declares {env.width} × {env.depth}, not the part's 800 × 450"
+        )
 
     @pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
     def test_step_seam_emits_ap242_pmi_as_sheet_dimensions(self, tmp_path):
@@ -1811,7 +1853,9 @@ class TestAuthoredSetRoundTrips:
             mp.setattr(
                 sheet_emit,
                 "_feature_line",
-                lambda f: "# envelope — no declarative verb" if f is env else real(f),
+                lambda f, part_envelope=None: (
+                    "# envelope — no declarative verb" if f is env else real(f, part_envelope)
+                ),
             )
             with pytest.raises(ValueError, match="has no declarative verb"):
                 emit_sheet_script(model, "part", "bracket", title="T", number="N")
