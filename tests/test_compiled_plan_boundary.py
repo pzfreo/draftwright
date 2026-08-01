@@ -1064,3 +1064,61 @@ class TestTheBoundaryIsLoadBearing:
         assert set(_PENDING_VALUE_CARRYING) == {"hc_", "pmi_"}, (
             "the pending list changed; update the ADR inventory in the same commit"
         )
+
+
+# ─── #946: one addressable result, and nothing outside it ────────────────────────────────
+
+
+def test_every_approved_collection_is_addressable():
+    """A new compiler-owned dimension category cannot skip generated scripts.
+
+    `RenderableDimensionPlan._ADDRESSABLE` names the fields `addressable()` walks, and
+    `sheet_emit._mirrored_requests` is a serialisation of that walk. Before #946 the emitter
+    assembled its answer from three sources, so a category the compiler grew rendered
+    correctly and stayed invisible to scripts until someone remembered to extend it — the
+    failure mode stated in the issue, one level up from where ADR 0016 Amendment 1 fixed it
+    for renderers.
+
+    This makes the roster fail closed: add a collection of approved content and it must be
+    walked, or excluded here on purpose with a reason. `diagnostics` is the one exclusion —
+    it is what was NOT approved and has its own contract.
+    """
+    import dataclasses
+
+    from draftwright.model.compiled import RenderableDimensionPlan
+
+    excluded = {"diagnostics": "what was NOT approved; #939's floor consumes it separately"}
+    carried = {f.name for f in dataclasses.fields(RenderableDimensionPlan)}
+    unaccounted = carried - set(RenderableDimensionPlan._ADDRESSABLE) - set(excluded)
+    assert not unaccounted, (
+        f"{sorted(unaccounted)} carry compiled content that `addressable()` never walks, so "
+        "a script would silently omit them; add them to `_ADDRESSABLE` or exclude them here "
+        "with a reason"
+    )
+
+
+def test_the_emitter_reads_only_the_addressable_result():
+    """`_mirrored_requests` is a serialisation of ONE compiler result (#946 acceptance).
+
+    Checked structurally rather than behaviourally: the behavioural corpus already proves the
+    emitted set matches, and would keep passing if a second source were reintroduced that
+    happened to agree today. What must not come back is the ASSEMBLY.
+    """
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap
+
+    from draftwright import sheet_emit
+
+    tree = _ast.parse(textwrap.dedent(_inspect.getsource(sheet_emit._mirrored_requests)))
+    # Names the function actually USES, from the AST — not a substring search over the source,
+    # which matched the comment explaining what this replaced and so failed on its own history.
+    used = {n.id for n in _ast.walk(tree) if isinstance(n, _ast.Name)} | {
+        n.attr for n in _ast.walk(tree) if isinstance(n, _ast.Attribute)
+    }
+    assert "addressable" in used, "the mirror no longer reads the compiler's addressable set"
+    reassembled = used & {"plan_dimensions", "plan_locations", "locations", "units"}
+    assert not reassembled, (
+        f"`_mirrored_requests` reads {sorted(reassembled)} again — that is the three-source "
+        "assembly #946 replaced, and it is how a compiler-owned category goes missing"
+    )

@@ -395,6 +395,71 @@ class Omission:
         return self.reason == _AUTHORED_OMISSION
 
 
+#: The role a script names for each ladder kind. The step kinds are absent deliberately:
+#: their members are the step feature's own parameters, already addressed through the group
+#: traversal, so naming them again would ask a script to declare one measurement twice.
+_LADDER_ROLE = {"overall_height": "height.length"}
+
+
+def _deduplicated(intents: list) -> list:
+    """*intents* with repeated ``(feature, role)`` targets removed, first occurrence kept."""
+    seen: set = set()
+    out = []
+    for i in intents:
+        key = (id(resolve_feature(i.ref)) if i.ref is not None else None, i.role)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(i)
+    return out
+
+
+def _addressable_units(group) -> list[ApprovedDimension]:
+    """One representative dimension per addressable UNIT of *group*, in order.
+
+    A correlated set — a pattern's members, a ladder's rungs — shares one `DimensionId` and is
+    addressed once, so a script drops the whole set with one line rather than emitting member
+    lines that cannot individually be honoured (ADR 0016 identity tier 3).
+    """
+    seen: set = set()
+    out: list[ApprovedDimension] = []
+    for d in group.dims:
+        key = d.id if d.id is not None else (id(group.ref), d.parameter_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(d)
+    return out
+
+
+@dataclass(frozen=True)
+class AddressableIntent:
+    """One approved dimensional intent, and how a script would NAME it (#946).
+
+    The compiler already decides what the drawing carries; this is the same decision said in
+    the vocabulary a generated script speaks, so emission consumes the compiler's answer
+    instead of re-deriving it. `sheet_emit._mirrored_requests` used to assemble that answer
+    from three sources — a synthesised envelope, `plan_dimensions()`, and
+    `compile_dimensions().locations` — with comments explaining which compiler facts each one
+    was reconstructing. A category the compiler grew could render correctly and vanish from
+    generated scripts until someone remembered to extend it.
+
+    ``ref`` is the feature a script names, or ``None`` for a model-level intent (the overall
+    height, which belongs to the part rather than to any feature). ``role`` is the parameter
+    id or role that would be written. ``reason`` is set only when the intent cannot be
+    addressed at all, and is what #939's comment floor prints.
+    """
+
+    ref: FeatureRef | None
+    role: str
+    reason: str | None = None
+
+    @property
+    def representable(self) -> bool:
+        """Whether a script can name this intent. False means `reason` says why not."""
+        return self.reason is None
+
+
 @dataclass(frozen=True)
 class RenderableDimensionPlan:
     """Everything approved for drawing, plus what was not and why.
@@ -429,6 +494,55 @@ class RenderableDimensionPlan:
     def ladder(self, kind: str) -> ApprovedLadder | None:
         """The approved ladder of *kind*, or ``None`` if it was not approved."""
         return next((lad for lad in self.ladders if lad.kind == kind), None)
+
+    #: The fields carrying approved dimensional content, each with how it names itself.
+    #: `addressable()` iterates exactly this, and
+    #: `test_compiled_plan_boundary.py::test_every_approved_collection_is_addressable` requires
+    #: it to cover every such field — so a NEW compiler-owned category cannot be added without
+    #: either flowing into generated scripts or being explicitly, visibly excluded (#946).
+    #: `diagnostics` is not here: it is what was NOT approved, and has its own contract.
+    _ADDRESSABLE = ("groups", "ladders", "locations")
+
+    def addressable(self) -> tuple[AddressableIntent, ...]:
+        """Every approved intent, in plan order, as the target a script would name.
+
+        One dimension per addressable UNIT, never per member: a step ladder and a rotational
+        body's bores are each ONE intent holding N, so a script drops the set with one line and
+        no member line misleads (ADR 0016 identity tier 3).
+        """
+        out: list[AddressableIntent] = []
+        for group in self.groups:
+            out += [
+                AddressableIntent(group.ref, d.parameter_id) for d in _addressable_units(group)
+            ]
+        for lad in self.ladders:
+            # A ladder's rungs carry no parameter id — they are a correlated set, not one
+            # feature parameter — so the role a script would name is stated here, by the
+            # compiler that built the ladder, rather than inferred by a consumer. That is the
+            # boundary #946 is about: this is the right side of it.
+            #
+            # `ref is None` is the model-level case: the overall height of a part with no
+            # envelope feature belongs to the part, not to any feature, and says so rather
+            # than having one invented for it.
+            if lad.kind not in _LADDER_ROLE:
+                continue
+            out.append(AddressableIntent(lad.ref, _LADDER_ROLE[lad.kind]))
+        # One intent per (feature, role). The overall-height ladder and the envelope's own
+        # `height.length` parameter are the SAME measurement reached two ways — the ladder is
+        # how it is drawn, the parameter is how it is named — so a script must not be asked to
+        # declare it twice.
+        out = _deduplicated(out)
+        named: set[int] = set()
+        for approved in self.locations:
+            # One intent per FEATURE, not per ref: coincident refs are deduplicated across
+            # features, and `dimension(f, "location")` is a per-feature unit (#883 is the
+            # per-member question, deliberately not answered here).
+            feature = resolve_feature(approved.ref)
+            if feature is None or id(feature) in named:
+                continue
+            named.add(id(feature))
+            out.append(AddressableIntent(approved.ref, "location"))
+        return tuple(out)
 
     def omitted(self, kind: str) -> tuple[Omission, ...]:
         """Diagnostics whose parameter belongs to *kind* — what a lint pass reports."""

@@ -687,38 +687,36 @@ def _mirrored_requests(model, declared_envelope=None):
     vanish from the regenerated script and could never be recovered by re-running it, and an
     unrelated layout change would silently rewrite version-controlled source.
     """
-    from draftwright.model.planner import plan_dimensions
-
-    out: list[tuple] = []
-    if declared_envelope is not None:
-        # The synthesised envelope exists ONLY to make the overall height nameable, so name
-        # its height and nothing else — its width and depth stay omitted exactly as the
-        # planner left them on a model that never declared an envelope (`mirror_model`).
-        out.append((declared_envelope, "height.length", None))
-    for group in plan_dimensions(model):
-        if declared_envelope is not None and group.feature is declared_envelope:
-            continue  # its height is named above; its width/depth stay omitted
-        for unit in group.units:
-            if all(d.suppressed for d in unit.members):
-                continue  # the planner did not choose it; the mirror must not add it
-            out.append((group.feature, str(unit.id), None))
-    # Locations come from the COMPILED set, not from `plan_locations`. The two differ, and
-    # the difference is exactly the positions that are compiled elsewhere: a slot's near-end
-    # offset and a side-drilled hole's, which measure from the bounding box rather than from
-    # `datum_xy` (#925). Walking the planner missed them, so a mirrored pad/slot part lost
-    # its position dim — the whole class of bug this mirror exists to prevent.
     from draftwright.model.compiled import compile_dimensions, resolve_feature
 
-    named: set[int] = set()
-    for approved in compile_dimensions(model).locations:
-        # One line per FEATURE, not per ref: coincident refs are deduplicated across
-        # features, and `dimension(f, "location")` is a per-feature unit (#883 is the
-        # per-member question, deliberately not answered here).
-        feature = resolve_feature(approved.ref)
-        if feature is None or id(feature) in named:
+    # ONE compiler result, serialised — not three sources reassembled (#946). This used to
+    # walk `plan_dimensions()` for parameters, `compile_dimensions().locations` for positions
+    # and a synthesised envelope for the overall height, with comments explaining which
+    # compiler fact each reconstructed. A category the compiler grew rendered correctly and
+    # vanished from generated scripts until someone extended this function;
+    # `RenderableDimensionPlan.addressable()` is now the single answer, and its `_ADDRESSABLE`
+    # roster is guarded so a new collection cannot skip it.
+    out: list[tuple] = []
+    for intent in compile_dimensions(model).addressable():
+        if not intent.representable:
+            continue  # #939's comment floor prints these; they are not requests
+        feature = resolve_feature(intent.ref)
+        if feature is None:
+            # A model-level intent — the part's overall height, which belongs to no feature.
+            # The synthesised envelope is what makes it nameable; `mirror_model` supplies it.
+            if declared_envelope is None:
+                continue
+            out.append((declared_envelope, "height.length", None))
             continue
-        named.add(id(feature))
-        out.append((feature, "location", None))
+        if declared_envelope is not None and feature is declared_envelope:
+            # The synthesised envelope exists ONLY to make the overall height nameable, so
+            # name its height and nothing else — width and depth stay omitted exactly as the
+            # planner left them on a model that declared no envelope (`mirror_model`). The
+            # compiler reaches that height twice, as the ladder and as the parameter, and
+            # `addressable()` has already collapsed them to one intent.
+            if intent.role != "height.length":
+                continue
+        out.append((feature, intent.role, None))
     return out
 
 
