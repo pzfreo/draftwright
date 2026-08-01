@@ -1139,3 +1139,54 @@ def test_the_emitter_reads_only_the_addressable_result():
         f"`_mirrored_requests` reads {sorted(reassembled)} again — that is the three-source "
         "assembly #946 replaced, and it is how a compiler-owned category goes missing"
     )
+
+
+def test_the_completeness_gate_compiles_the_original_not_the_mirror_model():
+    """The `model` / `declared` asymmetry in `sheet_emit`, pinned directly (#975 review).
+
+    `_mirrored_requests` compiles the DECLARED mirror model, so a synthesised envelope can
+    supply a nameable `height.length`. `unmirrored_dimensions` compiles the ORIGINAL, because
+    the approved drawing content is what it checks — compiling the mirror model would treat
+    that envelope's width and depth as obligations the emitter deliberately never names.
+
+    Right today, and exactly the kind of invariant that survives a careless edit while the
+    corpus stays green: the flange fixtures cover it only as a consequence.
+    """
+    # The mirror corpus's `flange (no envelope feature)` — a part with no EnvelopeFeature that
+    # still gets an overall-height ladder, which is the only shape that reaches the synthesis.
+    # A plain turned body does NOT: its rotational OD conveys the height, so no ladder exists.
+    from build123d import Align, Axis
+
+    from draftwright.model.compiled import compile_dimensions, resolve_feature
+    from draftwright.sheet_emit import mirror_model, unmirrored_dimensions
+
+    part = Cylinder(21, 4)
+    for x in (-18, 18):
+        for y in (-18, 18):
+            part += Pos(x, y, 2) * Box(10, 10, 4, align=(Align.CENTER,) * 3)
+    part = part + Pos(0, 0, 2) * Cylinder(15.5, 12) + Pos(0, 0, 10) * Cylinder(12.5, 12)
+    part -= Cylinder(8, 30)
+    for x in (-18, 18):
+        for y in (-18, 18):
+            part -= Pos(x, y, 0) * Cylinder(2, 10)
+    model = detect_part_model(part.rotate(Axis.X, 90))
+    assert not any(f.kind == "envelope" for f in model.features), "fixture stopped proving this"
+
+    declared, synthesised = mirror_model(model)
+    assert synthesised is not None, "the fixture no longer exercises the synthesised envelope"
+
+    # Compiling the MIRROR model demands the synthesised envelope's width and depth...
+    roles = {
+        i.role
+        for i in compile_dimensions(declared).addressable()
+        if resolve_feature(i.ref) is synthesised
+    }
+    assert {"width.length", "depth.length"} <= roles, (
+        "the synthesised envelope no longer carries width/depth, so this test no longer "
+        "distinguishes the two models — re-point it at whatever now differs"
+    )
+    # ...which the emitter never names, so the gate must not ask for them.
+    assert unmirrored_dimensions(model) == [], (
+        "the completeness gate reports the synthesised envelope's width/depth as missing — "
+        "it is compiling the mirror model rather than the original"
+    )

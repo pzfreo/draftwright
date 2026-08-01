@@ -667,7 +667,7 @@ def _is_mirrorable(model) -> bool:
     return not unmirrored_dimensions(model)
 
 
-def _mirrored_requests(model, declared_envelope=None):
+def _mirrored_requests(declared, declared_envelope=None):
     """One `(feature, role)` per dimension the planner CHOSE — the mirror's content.
 
     Emitted per addressable UNIT, never per member: a `step_height` ladder and a rotational
@@ -689,7 +689,7 @@ def _mirrored_requests(model, declared_envelope=None):
     # `RenderableDimensionPlan.addressable()` is now the single answer, and its `_ADDRESSABLE`
     # roster is guarded so a new collection cannot skip it.
     out: list[tuple] = []
-    for intent in compile_dimensions(model).addressable():
+    for intent in compile_dimensions(declared).addressable():
         feature = resolve_feature(intent.ref)
         if feature is None:
             # A model-level intent — the part's overall height, which belongs to no feature.
