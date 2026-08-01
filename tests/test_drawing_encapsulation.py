@@ -251,10 +251,17 @@ def test_the_expired_compat_aliases_stay_deleted():
 
     Reintroducing any of these recreates the two-ways-to-reach-one-state that ADR 0005 calls
     "the disease". Read through the owners instead: ``dwg.registry`` and ``dwg.coverage``.
+
+    Checks a BUILT drawing, not just ``Drawing`` itself: they were class-level properties, but
+    the way they would come back is as ``self._named = …`` in ``__init__`` or a render pass, and
+    a class-only ``hasattr`` would not see that (Codex r3).
     """
+    from build123d import Box
+
+    from draftwright import build_drawing
     from draftwright.drawing import Drawing
 
-    gone = {
+    gone = [
         # registry-owned (ADR 0005 Step 2)
         "_named",
         "_anno_view",
@@ -264,8 +271,9 @@ def test_the_expired_compat_aliases_stay_deleted():
         "_pattern_callouts",
         "_patterned_holes",
         "_dropped_callout_diams",
-    }
-    back = sorted(n for n in gone if hasattr(Drawing, n))
+    ]
+    dwg = build_drawing(Box(30, 20, 10), number="X")  # a full build: __init__ AND every pass
+    back = sorted(n for n in gone if hasattr(Drawing, n) or hasattr(dwg, n))
     assert not back, (
         "deleted ADR 0005 §4 compat alias(es) are back on Drawing: "
         f"{back}. Reach through dwg.registry / dwg.coverage instead (#720)."

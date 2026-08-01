@@ -42,18 +42,18 @@ lazy-load) are *downward*, not cycle-breakers. The one type-only upward referenc
 entry. Keep `_LAYERS` and this section in step.
 
 - **`make_drawing.py`** — thin compat facade (~20 lines) re-exporting the public
-  surface (`Drawing`, `build_drawing`, `make_drawing`, `generate_script`, `_cli`,
+  surface (`Drawing`, `build_drawing`, `make_drawing`, `_cli`,
   `FeatureInfo`, `fix_svg_page_size`, `lint_feature_coverage`) so existing imports
   and the `draftwright` CLI entry point keep working. The engine lives in:
   - **`builder.py`** — build orchestration: `build_drawing` (analyse → assemble →
     measure-and-repack → `Drawing`) and `make_drawing` (+ export). Imports
     `drawing`/`analysis`/the annotation orchestrator/the stage modules — never
     `make_drawing` (a DAG). *(`generate_script`, the imperative editable-script
-    generator, was retired by #940 — ADR 0016 phase 6 / ADR 0001 Amdt 2. What
-    remains under the name is a raising stub pointing at `sheet_emit`, kept only
-    because the name is in `draftwright.__all__`; it exits at 0.4.0 with #720.
-    `--style imperative` likewise errors with the reason; `--style` survives with
-    the single value `sheet` so existing invocations keep working.)*
+    generator, was retired by #940 — ADR 0016 phase 6 / ADR 0001 Amdt 2 — and
+    **deleted** at its 0.4.0 date (#720), along with the raising stub that stood
+    in for it and the bespoke `--style imperative` message. `--style` itself
+    survives with the single value `sheet` so existing invocations keep
+    working.)*
     *(The CLI moved out to `cli.py`; the `_cli` compat shim lives there too (#523),
     so `builder` no longer imports `cli`.)*
   - **`cli.py`** — the Typer command-line interface (#289): argument parsing,
@@ -133,8 +133,11 @@ entry. Keep `_LAYERS` and this section in step.
   (deliberately stringly-typed in its Phase-1 form).
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
   identity/ownership/pins/build-issues (#138 / ADR 0005, Step 2). `Drawing`
-  delegates here and keeps the render list; `_named`/`_anno_view`/`_pinned`/
-  `_build_issues` remain `Drawing` properties during the migration.
+  delegates here and keeps the render list. The `_named`/`_anno_view`/`_pinned`/
+  `_build_issues` aliases on `Drawing` (and coverage's three) were **deleted** at
+  their §4 date (#720): reach the state through `dwg.registry` (`in reg`,
+  `names()`, `issues`, `restore_issues()`) and `dwg.coverage`. Their absence is
+  asserted by `test_the_expired_compat_aliases_stay_deleted`.
 - **`linting/`** — the lint subpackage (#138 / ADR 0005; ADR 0007: draftwright
   owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
@@ -162,8 +165,8 @@ entry. Keep `_LAYERS` and this section in step.
   feature verbs (`hole`/`boss`/`slot`/…), aspect verbs (`.tolerance`/`.fit`/
   `.finish`), GD&T (`datum`/`control`). Facade tier: builds a `PartModel` via
   `model/declare.py` and calls `build_drawing(model=…)`. Née `sheet_dsl.py`
-  (renamed #640 — it's a fluent facade, not a DSL, per ADR 0001; a deprecated
-  `sheet_dsl` alias shim remains until 0.4.0).
+  (renamed #640 — it's a fluent facade, not a DSL, per ADR 0001; the `sheet_dsl`
+  alias shim was deleted at 0.4.0, #720).
 - **`sheet_emit.py`** — **the** script emitter, behind `--script` (#940 retired the
   imperative alternative): generates an editable `Sheet` script from a detected
   model — one named binding per feature, an explicit dimension source. Facade tier;

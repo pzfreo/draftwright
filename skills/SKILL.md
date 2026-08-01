@@ -192,7 +192,8 @@ generate_sheet_script(
 This writes a declarative `Sheet` script: one named line per detected feature, then the
 dimension set it draws. Comment a feature line out to drop that feature; edit a value
 freely; re-run the file. (`generate_script`, the older imperative flavour, was retired in
-#940 — it now raises with this pointer.) The CLI equivalent is `draftwright part.step
+#940 and deleted in 0.4.0 — importing it now fails; use `generate_sheet_script` above.) The
+CLI equivalent is `draftwright part.step
 --script --out scripts/drawings/bracket`.
 
 **B — Drawing an in-session object** (hand-write the script):

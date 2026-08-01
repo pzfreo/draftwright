@@ -11,8 +11,14 @@ carries a tracking issue *and* a removal date, or the facade is permanent by acc
   `_build_issues`, and `_pattern_callouts` / `_patterned_holes` / `_dropped_callout_diams`.
   These were private, and the public reads have existed since #699: use `dwg.registry`
   (`in reg`, `names()`, `issues`, `pinned_names()`) and `dwg.coverage`, or the `Drawing` verbs
-  `annotations()` / `iter_annotations()` / `get_annotation()` / `view_of()`. Code that reached
-  through a leading underscore now raises `AttributeError` instead of silently working.
+  `annotations()` / `iter_annotations()` / `get_annotation()` / `view_of()`.
+  **Note the asymmetry.** A *read* — `dwg._named` — now raises `AttributeError`. A *write* —
+  `dwg._pinned = {...}` — does **not**: these were properties with setters, and `Drawing` has
+  no `__slots__`, so assignment now quietly creates an unrelated instance attribute that no
+  longer reaches the registry or coverage owner. Writes therefore fail silently rather than
+  loudly. Grep for `\._(named|anno_view|pinned|build_issues|pattern_callouts|patterned_holes|dropped_callout_diams)\b`
+  before upgrading; mutate through `registry.add()` / `pin()` / `record_issue()` /
+  `restore_issues()` and the `CoverageState` methods instead.
 - **The `draftwright.sheet_dsl` module** — an import alias for `draftwright.sheet` since the
   #640 rename. Import `Sheet` from `draftwright` or `draftwright.sheet`.
 - **`generate_script`**, including its `draftwright.__all__` entry. It has raised since #940
