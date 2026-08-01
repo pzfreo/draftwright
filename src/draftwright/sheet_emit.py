@@ -28,6 +28,7 @@ fixtures (#472).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -971,6 +972,17 @@ def emit_sheet_script(
     from draftwright.model.declare import _envelope_from_bbox
 
     feature_lines, _names = _feature_block(model.features, _envelope_from_bbox(model.bbox))
+    # Narrowed to what the BODY actually names. The set above is derived from feature kinds,
+    # which over-imports the moment a kind stops emitting a constructor: since #976 a
+    # whole-part envelope emits `sheet.envelope()`, so `EnvelopeFeature` and `Frame` were
+    # imported and never used, and a user linting their own generated script got F401 on line
+    # three. Deriving from the emitted text cannot over-import by construction, and cannot
+    # under-import either — a name absent from the body is a name the body does not need.
+    _body = "\n".join(feature_lines)
+    # Called as a NAME, not merely present as a substring: `hole` occurs inside `sheet.hole(`,
+    # so a substring test keeps the import for every script that uses the fluent verb and needs
+    # no constructor — which is four of the nineteen corpus fixtures.
+    model_imports = {n for n in model_imports if re.search(rf"(?<![.\w]){n}\s*\(", _body)}
     lines = [
         _HEADER,
         "from draftwright import Sheet",

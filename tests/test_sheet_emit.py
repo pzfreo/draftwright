@@ -219,6 +219,30 @@ class TestEmit:
         )
         assert "EnvelopeFeature(" in line and "width=20" in line
 
+    def test_a_declared_whole_part_envelope_also_emits_the_verb(self):
+        """Provenance is immaterial — the guard is equality, not "did detection make this".
+
+        A user who called `sheet.envelope()` themselves produces the same `EnvelopeFeature` the
+        detector would, so the emitted script may say so. Documented because the guard READS
+        like a detection check and is not one: what it asks is whether this envelope is the
+        whole part, which a declared one can equally be (#982 review).
+        """
+        import dataclasses
+
+        from draftwright.model.declare import envelope as declare_envelope
+
+        part = _plate()
+        model = detect_part_model(part)
+        declared = declare_envelope(part)  # what a hand-written sheet.envelope() would build
+        swapped = dataclasses.replace(
+            model, features=[declared if f.kind == "envelope" else f for f in model.features]
+        )
+        src = emit_sheet_script(swapped, "part", "drawing", title="T", number="N")
+        assert "sheet.envelope()" in src, (
+            "a declared whole-part envelope did not emit the verb, so the guard is testing "
+            "provenance rather than equality"
+        )
+
     def test_step_seam_preserves_detected_ctc01_envelope(self, tmp_path):
         # #536: `build123d.import_step` reports CTC01's raw bbox as 1170 × 650 while the
         # detector's solid-body envelope is 800 × 450, so a STEP-seam script must declare the
@@ -3269,3 +3293,38 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 f"{name}: {original.kind}.members came back in a different order — "
                 f"{rebuilt.members!r} rather than {original.members!r}"
             )
+
+
+@pytest.mark.parametrize("name", sorted(TestTheDimensionMirror._corpus()))
+def test_the_generated_script_imports_exactly_what_it_uses(name, tmp_path):
+    """A generated script is source a user edits and lints, so it must not arrive with unused
+    imports (#982 review).
+
+    The import set was derived from feature KINDS, which over-imports the moment a kind stops
+    emitting a constructor — #976 made a whole-part envelope emit `sheet.envelope()`, leaving
+    `EnvelopeFeature` and `Frame` imported and unused. It is derived from the emitted body now,
+    matching each name as a CALL: a substring test keeps `hole` for every script that uses
+    `sheet.hole(...)` and needs no constructor, which is four of these fixtures and was true
+    before #976 too.
+
+    Module level because `TestTheDimensionMirror` is defined below `TestEmit`, and a
+    class-body parametrize cannot see a name declared later in the file.
+    """
+    import subprocess
+    import sys
+
+    src = emit_sheet_script(
+        detect_part_model(TestTheDimensionMirror._corpus()[name]),
+        "part",
+        "drawing",
+        title="T",
+        number="N",
+    )
+    script = tmp_path / "generated.py"
+    script.write_text(src, encoding="utf-8")
+    r = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--select", "F401", "--isolated", str(script)],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, f"{name}: generated script has unused imports\n{r.stdout}"
