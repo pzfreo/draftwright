@@ -163,8 +163,10 @@ ADR 0016 phase 6). The Sheet script (`sheet_emit.generate_sheet_script`) is the 
 emitter. §3's "de-emphasise bespoke editable-code generation" is unchanged and its
 primitive-dump rejection still stands; what changes is that the *sanctioned* form
 Amendment 1 carved out is now singular. `--style` survives with one valid value so
-existing invocations keep working; `generate_script` survives as a raising stub
-carrying the replacement, and exits at 0.4.0 with #720.
+existing invocations keep working; `generate_script` survived one release as a
+raising stub carrying the replacement, and was **deleted** at 0.4.0 with #720
+(as was the bespoke `--style imperative` message — the value is now simply
+unrecognised).
 
 **Why this is a simplification and not a loss.** The gate was annotation-set parity
 per kind, not a promise of textual similarity: every part family in the

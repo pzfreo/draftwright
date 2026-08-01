@@ -321,8 +321,9 @@ history. They are not current work instructions. The lasting decision is:
    lint coverage belongs to `CoverageState`.
 4. Import direction and state encapsulation are executable contracts enforced
    by `test_import_boundaries.py` and `test_drawing_encapsulation.py`.
-5. Seven private compatibility aliases remain only for the 0.4.0 transition;
-   #720 owns their deletion. They are not sanctioned extension points.
+5. The seven private compatibility aliases are **gone** — deleted at their 0.4.0
+   date (#720, §4 above). Reach the state through `dwg.registry` / `dwg.coverage`;
+   their absence is asserted, not merely documented.
 
 This amendment is the reader's current entry point. The dated sections above
 explain how the package reached it.

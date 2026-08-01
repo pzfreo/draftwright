@@ -172,7 +172,8 @@ new call site; deleting the thing they call is O(1) and permanent.
 
 **Scoped to competing readers of one semantic fact — not to compatibility forwarding.** Two
 ways to *ask* for an answer is an API convenience and this codebase keeps several on purpose
-(`make_drawing`'s facade, the `sheet_dsl` alias, `dimension`'s transitional overload). Two
+(`make_drawing`'s facade, `dimension`'s transitional overload; the `sheet_dsl` alias was one
+until #720 deleted it at 0.4.0 — dated, as §4 of ADR 0005 requires, not permanent). Two
 ways to *decide* an answer is the defect: `location_role` and `plan_locations` and the
 off-axis pass each independently concluding whether a hole has a position. A forwarding shim
 computes nothing, so it cannot disagree; a second inference path exists precisely to
