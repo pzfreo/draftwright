@@ -73,45 +73,55 @@ def build_thumbwheel() -> Part:
 ```
 
 `--out ... --script` against a `module:attr` / `file.py:attr` spec needs a **zero-arg**
-callable (or an already-built object) — `build_thumbwheel_features` above qualifies as-is;
+callable returning a build123d `Shape` (or an already-built one) — so point it at
+`build_thumbwheel`, not `build_thumbwheel_features`: the latter returns a
+`ThumbwheelFeatures` dataclass and the resolver rejects it (`resolved to
+ThumbwheelFeatures, not a build123d Shape`);
 if your builder takes a `params` argument, point the spec at a small zero-arg factory
 instead of the parametrised function itself.
 
 ## Generate the script first, then edit it
 
 You do not write the `Sheet` script below from scratch — you generate it and edit it. Point
-`--script` at your features function's part (the `module:attr` object spec):
+`--script` at the **Shape-returning** wrapper:
 
 ```bash
-draftwright yourmodule:thumbwheel --script --out thumbwheel
+draftwright yourmodule:build_thumbwheel --script --out thumbwheel
 ```
 
 That writes `thumbwheel.py`. `--script` emits the declarative `Sheet` flavour by default (the
 only one since 0.3 — `--style sheet` is the sole accepted value).
 
-What comes out has your part's **detected** numbers in it, one named binding per feature:
+What comes out binds `part` back to your live source and then declares one named feature per
+line, with your part's **detected** numbers:
 
 ```python
-part = yourmodule.thumbwheel                       # your live source, not a frozen STEP
+from yourmodule import build_thumbwheel as _obj
+part = _obj()                                      # your live source, not a frozen STEP
 
 sheet = Sheet(part, title='THUMBWHEEL', number='DWG-001')
-step2 = sheet.step(diameter=4, length=3.7, at=(-1.35, 0, 0), axis="x")   # ⌀4 × 3.7 step
-step3 = sheet.step(diameter=10, length=2, at=(1.5, 0, 0), axis="x")      # ⌀10 × 2 step
+hole1 = sheet.hole(diameter=1.6, at=(0.8, 0, 0), axis="x").depth(8)
+step1 = sheet.step(diameter=3, length=5.3, at=(-5.85, 0, 0), axis="x")
+step2 = sheet.step(diameter=4, length=3.7, at=(-1.35, 0, 0), axis="x")
+# ... step3, step4, boss1 — one line per detected feature ...
 envelope1 = sheet.envelope()                       # reads the size off the part
 
-sheet.authored_dimensions()
-sheet.dimension(step2, "step.diameter")            # comment a line out to drop that dimension
-sheet.dimension(step2, "step.length")
+sheet.authored_dimensions()                        # this is the COMPLETE set
+sheet.dimension(hole1, "bore.diameter")            # comment a line out to drop that dimension
+sheet.dimension(hole1, "bore.depth")
+# ... fourteen dimension lines in total ...
 
 drawing = sheet.build()                            # the finalized Drawing — lint or inspect it
 drawing.export('thumbwheel', formats=('pdf',))
 ```
 
+(Feature and dimension lines are elided where marked; the real file lists every one.)
+
 Honest, and a working starting point. But `diameter=4, length=3.7` are numbers *restated* from
 geometry you already have — change the journal in your source and the drawing quietly disagrees.
-The rest of this doc is the edit that fixes that: swap each numbered line for the object it was
-measured from.
-
+Note too that the fused body detects as four `step`s: the silhouette is all detection can see
+once the objects are unioned. The rest of this doc is the edit that fixes both — swap each
+numbered line for the object it was measured from.
 
 ## Declaring the drawing by reference
 
