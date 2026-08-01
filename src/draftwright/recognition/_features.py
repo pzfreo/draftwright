@@ -824,6 +824,20 @@ def _project_out(w, *directions):
     return tuple(c / n for c in w)
 
 
+def _is_principal(axis, tol: float = 1e-6) -> bool:
+    """Whether *axis* lies (near enough) along X, Y or Z — the axes the IR can express.
+
+    `Frame.axis` is a letter, so a pattern on any other plane has no faithful declaration.
+    The tolerance is tight on purpose: this asks whether the axis IS principal, not which
+    principal axis it is closest to (`_axis_letter` answers that, and answers it for every
+    input, which is exactly why the loss was silent).
+    """
+    n = math.hypot(*axis)
+    if n == 0:
+        return False
+    return any(abs(abs(c) / n - 1.0) <= tol for c in axis)
+
+
 def _plane_uv(axis):
     """Two orthonormal vectors spanning the plane perpendicular to *axis*.
 
@@ -1150,6 +1164,17 @@ def recognise_hole_patterns(holes) -> list[BoltCircle | LinearArray | RectGrid]:
     patterns = []
     for spec, members in groups.items():
         if len(members) < 3:
+            continue
+        if not _is_principal(spec.axis):
+            # The IR records a pattern's axis as a LETTER, so an OBLIQUE plane cannot be
+            # expressed: declaration lays the lattice out in the letter's canonical plane and a
+            # 40 mm Z spread comes back as 0 — a silently wrong drawing (#971).
+            #
+            # Refused rather than mis-stated. These holes are still recognised individually, so
+            # they are still drawn, dimensioned and located; what is lost is the grouped
+            # callout, which is a smaller loss than a lattice in the wrong plane. Carrying a
+            # full normal on `Frame` would be faithful but widens the ADR 0015 waist for a case
+            # no corpus part exhibits — that is the deferred option, recorded on #971.
             continue
         u, v = _plane_uv(spec.axis)
         pts = [

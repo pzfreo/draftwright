@@ -228,3 +228,52 @@ def test_a_reversed_axis_keeps_the_same_frame(axis):
     # waist. Pinned because the natural right-handed construction does exactly that.
     forward = _AXIS_UNIT[axis]
     assert _plane_uv(forward) == _plane_uv(tuple(-c for c in forward))
+
+
+def _oblique_and_principal_lattices():
+    """The same 2×3 lattice laid in an oblique plane and in the Z plane."""
+    from draftwright.recognition._features import HoleRecord
+
+    axis = (0.6, -0.48, 0.64)
+    n = math.hypot(*axis)
+    a = tuple(c / n for c in axis)
+    u, v = _plane_uv(a)
+    cells = [(c * 31.0, r * 17.0) for r in range(2) for c in range(3)]
+    oblique = [tuple(c1 * u[k] + c2 * v[k] for k in range(3)) for c1, c2 in cells]
+    flat = [(c1, c2, 0.0) for c1, c2 in cells]
+
+    def holes(locs, ax):
+        return [
+            HoleRecord(axis=ax, location=loc, diameter=6.0, depth=10.0, bottom="through")
+            for loc in locs
+        ]
+
+    return holes(oblique, a), holes(flat, (0.0, 0.0, 1.0))
+
+
+def test_an_oblique_lattice_is_not_recognised_as_a_pattern():
+    """The IR records a pattern's axis as a LETTER, so an oblique plane has no faithful
+    declaration — recognising one anyway produces a silently wrong drawing (#971).
+
+    Measured before the guard: a lattice spanning 39.96 mm in Z was recognised correctly and
+    redeclared to a Z spread of 0.00, flat in the letter's canonical plane.
+
+    Refusing degrades gracefully — the holes are still recognised individually, so they are
+    still drawn, dimensioned and located; only the grouped callout is lost. Carrying a full
+    normal on `Frame` would be faithful but widens the ADR 0015 waist for a case no corpus part
+    exhibits; that option stays recorded on #971.
+    """
+    from draftwright.recognition._features import recognise_hole_patterns
+
+    oblique, principal = _oblique_and_principal_lattices()
+
+    zs = [h.location[2] for h in oblique]
+    assert max(zs) - min(zs) > 1.0, "the fixture is not actually out of plane"
+    assert recognise_hole_patterns(oblique) == [], (
+        "an oblique lattice was grouped into a pattern, and the IR cannot express its plane — "
+        "declaring it flattens the lattice into the dominant axis's plane"
+    )
+    # ...and the guard is not simply refusing everything.
+    assert [type(p).__name__ for p in recognise_hole_patterns(principal)] == ["RectGrid"], (
+        "the same lattice in a principal plane stopped being recognised — the guard is too wide"
+    )
