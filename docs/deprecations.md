@@ -1,0 +1,72 @@
+# Deprecations
+
+Every deprecated surface in draftwright, what replaces it, and when it goes.
+
+ADR 0005 §4: *"Each alias carries a tracking issue and a removal target... A facade with no
+exit date is a failure mode, not a success."* This page is where those dates live in one
+place. `tests/test_deprecation_dates.py` fails if any `@deprecated` message or
+`DeprecationWarning` lacks a removal statement, so the rule is executable rather than a
+convention — but the test cannot check that a row exists *here*, so add one when you deprecate
+something.
+
+## Live deprecations
+
+| Surface | Use instead | Deprecated in | Removed in |
+|---|---|---|---|
+| `Sheet.dimension(kind=…, value=…)` call shape | `Sheet.measured_dimension(...)` | **unreleased** (#963) | 0.4.0 (#720) — **see below** |
+| bare dimension-role spellings — `dimension(f, "width")` | the parameter id — `"width.length"` | **unreleased** (#963) | 0.4.0 (#720) — **see below** |
+| `Drawing.add()` | the placement verbs (`callout` / `dimension` / `note` / `add_table`) | 0.3.8 (#817) | 0.5.0 |
+| `Drawing.add_view()` | the section verb; the raw projector is private | 0.3.8 (#817) | 0.5.0 |
+| `Drawing.clear_annotations()` | the feature-scoped verbs (`drop` / `remove`) | 0.3.8 (#817) | 0.5.0 |
+| `Drawing.set_view_coordinates()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
+| `Drawing.drop_view_coordinates()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
+| `Drawing.attach_part_model()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
+| `Drawing.attach_solve_trace()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
+| `Drawing.export_pdf()` | `export(out, formats=("pdf",))["pdf"]` | 0.3.1 | 0.5.0 |
+| `Drawing.place_dim()` | `dimension(feature, param, pin=True)` / `locate(…, pin=True)` | 0.3.8 (#817) | **gated on #707** |
+
+### ⚠ The two #963 deprecations have a zero-length warning period
+
+Both were added **after v0.3.9** (`4030913`), so they have never appeared in a released
+version — and ADR 0016 dates them to expire at 0.4.0. As written, 0.4.0 is both the first
+release in which the warning exists and the release that removes the surface: nobody
+upgrading from v0.3.9 ever sees the `DeprecationWarning` before the break.
+
+That matters because bare roles are the **pre-existing** spelling. `dimension(f, "width")`
+is what scripts have been written with since the verb existed; `"width.length"` is the new
+one. So the effect is a hard break on longstanding usage with no migration release.
+
+The mechanical scale is small — one call site in the whole test corpus, measured — so this is
+about the policy, not the work. **Unresolved: whether these move to 0.5.0** (a real
+deprecation period, requiring an ADR 0016 amendment) **or stay at 0.4.0** as a documented
+breaking change. Tracked in #720.
+
+### Why `place_dim` has a gate rather than a version
+
+ADR 0012 makes it the sanctioned raw page-coordinate escape hatch until the full
+auto-plus-user recompose lands (#426 / #661 / #707). Until then it has no replacement for the
+cases it exists to serve, so dating it to a release would be a promise the engine cannot keep.
+A gate names the blocker instead of inventing a version — still an answer to "when", and still
+checkable.
+
+## Not deprecated, and deliberately so
+
+- **`--style`** — survives with exactly one legal value, `sheet`. It is retained **indefinitely**
+  so existing invocations keep working, which is a decision rather than an oversight: removing
+  it would break every script that passes `--style sheet` to buy nothing. (`--style imperative`
+  was a compat stub with a date, and was deleted at it in #720.)
+- **`make_drawing.py`** — a permanent re-export facade, not a transitional one.
+
+## Removed
+
+| Surface | Removed in | Notes |
+|---|---|---|
+| `Drawing._named` / `_anno_view` / `_pinned` / `_build_issues` | 0.4.0 (#720) | private; use `dwg.registry` |
+| `Drawing._pattern_callouts` / `_patterned_holes` / `_dropped_callout_diams` | 0.4.0 (#720) | private; use `dwg.coverage` |
+| `draftwright.sheet_dsl` | 0.4.0 (#720) | import from `draftwright.sheet` (renamed #640) |
+| `generate_script` | 0.4.0 (#720) | retired #940; use `--script` / `emit_sheet_script` |
+| `--style imperative` (bespoke message) | 0.4.0 (#720) | now an ordinary unrecognised value |
+
+Absence is asserted by `test_the_expired_compat_aliases_stay_deleted` and
+`test_the_deleted_modules_and_stubs_stay_deleted` — a deletion nobody asserts is a deletion
+that comes back.
