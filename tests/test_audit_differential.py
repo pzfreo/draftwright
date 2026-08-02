@@ -26,12 +26,18 @@ from draftwright.audit import diff_builds, explain
 class _FakeDrawing:
     """The three public reads `diff_builds` uses, and nothing else."""
 
-    def __init__(self, dims: dict[str, str], suppressions: list[dict] | None = None):
+    def __init__(
+        self,
+        dims: dict[str, str],
+        suppressions: list[dict] | None = None,
+        types: dict[str, str] | None = None,
+    ):
         self._dims = dims
         self._supp = suppressions or []
+        self._types = types or {}
 
     def annotations(self):
-        return dict.fromkeys(self._dims, "Dimension")
+        return {n: self._types.get(n, "Dimension") for n in self._dims}
 
     def get_annotation(self, name):
         return type("A", (), {"label": self._dims[name]})()
@@ -65,7 +71,9 @@ def test_a_loss_a_rule_accounts_for_is_not_unexplained():
 
     diff = diff_builds(before, after)
     assert set(diff["dimensions_lost"]) == {"m_env_width", "m_env_depth"}
-    assert diff["unexplained_losses"] == {}, "the ledger accounts for both"
+    # The ledger's account appears as a HINT on each loss — it does not remove the loss.
+    assert set(diff["candidate_explanations"]) == {"m_env_width", "m_env_depth"}
+    assert all(line.startswith("LOST") for line in explain(diff)[:2])
     assert any("square footprint" in line for line in explain(diff))
 
 
@@ -81,8 +89,9 @@ def test_a_loss_no_rule_claims_is_flagged():
     after = _FakeDrawing({"dim_height": "30"})  # m_locx0 gone, ledger silent
 
     diff = diff_builds(before, after)
-    assert diff["unexplained_losses"] == {"m_locx0": "33"}
-    assert explain(diff)[0].startswith("UNEXPLAINED"), "the alarm must lead the report"
+    assert diff["dimensions_lost"] == {"m_locx0": "33"}
+    assert diff["candidate_explanations"] == {}, "nothing in the ledger claims it"
+    assert explain(diff)[0] == "LOST: m_locx0 (33) — nothing claims it"
 
 
 def test_the_report_puts_the_alarm_first():
@@ -93,8 +102,8 @@ def test_the_report_puts_the_alarm_first():
     after = _FakeDrawing({"m_new": "12"}, [_supp("depth.length", "square footprint")])
 
     lines = explain(diff_builds(before, after))
-    assert lines[0].startswith("UNEXPLAINED")
-    assert sum(line.startswith("UNEXPLAINED") for line in lines) == 1
+    assert lines[0].startswith("LOST")
+    assert sum(line.startswith("LOST") for line in lines) == 2  # both losses alarm
 
 
 def test_a_changed_value_is_reported_but_not_alarmed():
@@ -116,7 +125,7 @@ def test_a_changed_value_is_reported_but_not_alarmed():
 
     lines = explain(diff)
     assert lines == ["changed: m_env_width 80 -> 90"]
-    assert not lines[0].startswith("UNEXPLAINED"), "a value change is not an alarm"
+    assert not lines[0].startswith("LOST"), "a value change is not an alarm"
 
 
 def test_a_loss_outranks_a_change_in_the_report():
@@ -126,8 +135,54 @@ def test_a_loss_outranks_a_change_in_the_report():
     after = _FakeDrawing({"m_env_width": "90"})
 
     lines = explain(diff_builds(before, after))
-    assert lines[0].startswith("UNEXPLAINED")
+    assert lines[0].startswith("LOST")
     assert lines[-1].startswith("changed:")
+
+
+def test_a_weak_hint_never_cancels_the_alarm():
+    """The dangerous direction, and the one my own tests could not have found (Codex #1001).
+
+    The first cut cancelled a loss outright when any newly-gained suppression's parameter stem
+    appeared in the lost annotation's name. Feature identity was discarded, so an unrelated
+    ENVELOPE `width.length` suppression silently excused a lost SLOT width — an alarm removed
+    by a coincidence of substrings.
+
+    An annotation carries no feature identity, so this match cannot be made reliable here; the
+    fix is that it no longer decides anything. It annotates the loss and the loss still shows.
+    """
+    before = _FakeDrawing({"m_slot_width0": "8"})
+    after = _FakeDrawing({}, [_supp("width.length", "square footprint", feature="envelope@z")])
+
+    diff = diff_builds(before, after)
+    assert diff["dimensions_lost"] == {"m_slot_width0": "8"}, "the loss must survive the hint"
+    assert explain(diff)[0].startswith("LOST: m_slot_width0")
+
+
+def test_sheet_furniture_is_not_a_measurement():
+    """A title block, a note and a centre mark all have labels and all change between builds
+    for reasons that are not dimensional. Counting them drowns the signal in the noise this
+    module exists to lift out (Codex #1001), so the diff filters on annotation TYPE."""
+    types = {
+        "title_block": "TitleBlock",
+        "note_iso_nts": "Note",
+        "m_cm0": "CenterMark",
+        "m_env_width": "Dimension",
+        "hc_plan0": "Leader",  # a hole callout IS dimensional content
+    }
+    dims = {
+        "title_block": "DRAWING",
+        "note_iso_nts": "ISO VIEW (NTS)",
+        "m_cm0": "x",
+        "m_env_width": "50",
+        "hc_plan0": "4x ø8 THRU",
+    }
+    before = _FakeDrawing(dims, types=types)
+    after = _FakeDrawing({"m_env_width": "50"}, types={"m_env_width": "Dimension"})
+
+    diff = diff_builds(before, after)
+    assert set(diff["dimensions_lost"]) == {"hc_plan0"}, (
+        "only the callout is a measurement; the title block, note and centre mark are furniture"
+    )
 
 
 def test_no_difference_reports_nothing():
