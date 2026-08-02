@@ -75,8 +75,11 @@ from draftwright import build_drawing
 
 dwg = build_drawing(part, title="Mounting Plate")
 issues = dwg.lint()                       # list[LintIssue] — coverage, page bounds, ISO
-svg_path, dxf_path = dwg.export("my_part")
+paths = dwg.export("my_part", formats=("svg", "dxf"))   # {"svg": ..., "dxf": ...}
 ```
+
+`export()` with no `formats=` returns the old `(svg, dxf)` tuple; that shape is deprecated
+and removed in 0.5.0 (see [docs/deprecations.md](docs/deprecations.md)).
 
 ### Declarative drawings — reference features, declare intent
 
@@ -93,6 +96,9 @@ plate = Box(120, 80, 20)
 bore = Pos(0, 0, 0) * Cylinder(4, 20)
 
 sheet = Sheet(plate - bore, title="Plate", number="DWG-002")
+sheet.auto_dimensions()                                   # the planner's set (ADR 0016:
+                                                          # a build must say where its
+                                                          # dimensions come from)
 sheet.envelope()
 sheet.datum("A", plate.faces().sort_by()[-1])             # datum A on the top face
 hole = sheet.hole(bore).finish("1.6").note("M3x0.5 TAP")  # ⌀8 bore, Ra 1.6, tapped
