@@ -278,26 +278,24 @@ def _group_view(feature: Feature) -> str:
     return _END_ON.get(feature.frame.axis, "plan")
 
 
-def _square_footprint(model: PartModel) -> bool:
-    """In-plane width == depth, to a geometric epsilon.
-
-    Was "within 5%" (#997). On a 100 mm part that admitted a 5 mm difference — orders of
-    magnitude outside any machining tolerance — and the drawing then showed ONE extent with
-    no ``SQ`` notation, so a 100 × 95 part read as 100 × 100. A dimension is a specification,
-    not an approximation of the projection: two extents are only interchangeable if they are
-    the same number. The tolerance now exists solely to absorb float error from the bbox.
-    """
-    size = model.bbox.size  # type: ignore[attr-defined]  # build123d BoundBox
-    w, d = float(size.X), float(size.Y)
-    return abs(w - d) <= max(1e-6, max(w, d) * 1e-9)
-
-
 def _suppression(model: PartModel, feature: Feature, param: DimParameter):
     """Model-level suppression intent → ``(suppressed, reason)``. Decisions the
-    planner can make from the model alone (ISO 129 no-double-dimensioning):
-    a square footprint needs one overall dim, not width+depth; a turned part's
-    step-length chain already conveys the length (X) / height (Z), so the envelope
-    dim along the turning axis is redundant."""
+    planner can make from the model alone (ISO 129 no-double-dimensioning): a turned part's
+    step-length chain already conveys the length (X) / height (Z), so the envelope dim along
+    the turning axis is redundant, and its OD conveys the cross-axis extents.
+
+    **There is deliberately no square-footprint rule** (#997). One existed, suppressing the
+    depth whenever width ≈ depth, and it was wrong twice over. It used a *5%* window, so a
+    100 × 95 part was drawn showing `100` alone and read as 100 × 100. And even at exact
+    equality it left the part under-defined: orthographic projection is not a dimensional
+    constraint, so without ``□50`` / ``50 SQ`` nothing on the sheet says the second extent
+    equals the first. Two equal extents are still two independent facts.
+
+    Stating both is not the double-dimensioning ISO 129 warns about — that is about closing a
+    chain, not about two independent extents that happen to be equal. So a square part now
+    carries both, which is verbose but never ambiguous. Square notation is the optimisation
+    (#918); when it exists, a suppression rule can return *with* it, never instead of it.
+    """
     if feature.kind != "envelope":
         return False, None
     # A rotational part's OD already conveys its cross-axis extent(s); the envelope
@@ -309,13 +307,6 @@ def _suppression(model: PartModel, feature: Feature, param: DimParameter):
         od_perp = {"x": {"depth"}, "y": {"width"}, "z": {"width", "depth"}}[rot.frame.axis]
         if param.role in od_perp:
             return True, f"rotational OD ({rot.frame.axis}-axis) conveys this extent"
-    # Keep width as the single representative planar extent on a square part; suppress only
-    # the depth, which repeats it. #897 added this after suppressing BOTH left square parts
-    # with no plan size at all — but it only took effect for parts carrying a step profile,
-    # so a plain square plate still lost both and was drawn with its height alone (#997).
-    # The profile has nothing to do with whether an extent is redundant, so it is gone.
-    if param.role == "depth" and _square_footprint(model):
-        return True, "square footprint (width states the same extent)"
     if param.role == "width" and model.orientation == "x":
         return True, "X-turned (step-length chain conveys the length)"
     if param.role == "height" and model.orientation == "z":

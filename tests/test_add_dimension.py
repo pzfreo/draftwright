@@ -20,7 +20,7 @@ The invariants worth pinning, in the order they bite:
 from __future__ import annotations
 
 import pytest
-from build123d import Box, Cylinder, Pos
+from build123d import Box, Cylinder, Pos, Rot
 
 from draftwright import Sheet
 from draftwright.model import Frame, HoleFeature, PartModel
@@ -554,17 +554,24 @@ class TestItActuallyChangesTheDrawing:
     otherwise lacks it, so this asserts exactly that, end to end through the public
     surface.
 
-    A square footprint is the lever: the planner suppresses the envelope depth when
-    width and depth are equal (it would restate the width), which is a real
-    rule-set decision a caller might legitimately want to override.
+    An **X-turned** part is the lever: its OD already conveys the cross-axis extent, so the
+    planner suppresses the envelope depth — a real rule-set decision a caller might
+    legitimately want to override.
+
+    That lever used to be a square footprint. #997 deleted that suppression, and the way it
+    failed is worth keeping in view here: this class asserted `_env_dims() == []` — *no*
+    envelope dimensions — while the docstring above it said the rule suppressed "the envelope
+    depth ... it would restate the width". The stated intent and the asserted behaviour
+    disagreed, the suite passed, and a square plate shipped drawn with its height alone. A
+    lever test has to assert what survives, not only what disappears.
     """
 
     @staticmethod
-    def _square_part():
-        return Box(20, 20, 40)
+    def _turned_part():
+        return Rot(0, 90, 0) * Cylinder(10, 40)
 
     def _env_dims(self, *, request: bool):
-        sheet = Sheet(self._square_part(), title="T", number="N").auto_dimensions()
+        sheet = Sheet(self._turned_part(), title="T", number="N").auto_dimensions()
         env = sheet.envelope()
         if request:
             sheet.add_dimension(env, "depth.length")
@@ -572,19 +579,15 @@ class TestItActuallyChangesTheDrawing:
         return sorted(n for n in drawing.annotations() if n.startswith("m_env"))
 
     def test_the_planner_suppresses_it_without_a_request(self):
-        # The WIDTH stays — it is the one representative planar extent, and the class
-        # docstring above says so ("suppresses the envelope depth ... it would restate the
-        # width"). This asserted `== []` until #997: both extents were being suppressed, so a
-        # square plate was drawn with no plan size at all. The intent written two lines up and
-        # the behaviour asserted here disagreed, and the test passed anyway — which is how the
-        # bug survived to be found from a case study instead of from its own suite.
-        assert self._env_dims(request=False) == ["m_env_width"]
+        dims = self._env_dims(request=False)
+        assert "m_env_depth" not in dims, "the OD conveys the cross-axis extent"
+        assert dims, "something must survive — the part still needs a stated size"
 
     def test_a_request_puts_the_dimension_on_the_sheet(self):
-        assert self._env_dims(request=True) == ["m_env_depth", "m_env_width"]
+        assert "m_env_depth" in self._env_dims(request=True)
 
     def test_the_dotted_identity_works_end_to_end_too(self):
-        sheet = Sheet(self._square_part(), title="T", number="N").auto_dimensions()
+        sheet = Sheet(self._turned_part(), title="T", number="N").auto_dimensions()
         env = sheet.envelope()
         sheet.add_dimension(env, "depth.length")
         drawing = sheet.build()

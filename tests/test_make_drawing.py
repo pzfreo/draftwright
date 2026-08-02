@@ -1720,23 +1720,26 @@ class TestStripZones:
         ann = dwg.get_annotation("m_env_depth")
         assert ann.label == "40", f"depth label should be y_size=40, got {ann.label!r}"
 
-    def test_dim_depth_absent_for_square_plan(self):
-        # dim_depth is omitted when x_size == y_size — the width states the same extent.
+    def test_a_square_plan_states_both_extents(self):
+        """Was `test_dim_depth_absent_for_square_plan`, asserting the opposite (#997).
+
+        A square part carries BOTH envelope extents. Suppressing the depth because it equals
+        the width leaves the drawing ambiguous: orthographic projection is not a dimensional
+        constraint, so without `□60` / `60 SQ` nothing states that the second extent matches
+        the first. Two equal extents are two independent facts.
+
+        Stating both is not the double-dimensioning ISO 129 warns about — that is about
+        closing a chain. Square notation is the optimisation (#918); until it exists, verbose
+        and unambiguous beats terse and inferred.
+        """
         from build123d import Box
 
         from draftwright import build_drawing
 
-        part = Box(60, 60, 20)  # square plan: x_size == y_size
-        dwg = build_drawing(part)
-        assert "m_env_depth" not in dwg.annotations(), (
-            "depth dim should be skipped for square plan"
-        )
-        # ...but the WIDTH must survive, or the plate has no plan size at all (#997). This
-        # exact part drew only its height before the fix, and nothing here noticed, because
-        # the test asserted the absence it wanted without asserting the presence it needed.
-        assert "m_env_width" in dwg.annotations(), (
-            "a square plate must still state one planar extent"
-        )
+        dwg = build_drawing(Box(60, 60, 20))
+        for name in ("m_env_width", "m_env_depth"):
+            assert name in dwg.annotations(), f"square plan must state {name}"
+            assert dwg.get_annotation(name).label == "60"
 
     def test_a_near_square_part_states_both_extents(self):
         """#997: the square test was "within 5%", so a 100 x 95 part was drawn showing 100
@@ -3887,16 +3890,20 @@ class TestPrismaticClassification:
             "locations must stack inside"
         )
 
-    def test_square_footprint_does_not_reserve_a_suppressed_envelope_tier(self):
-        # When the planner suppresses the depth dim (square footprint / X-turned),
-        # the side-below envelope-tier reservation must NOT fire — reserving a tier
-        # render_envelope never claims would needlessly shrink the strip and drop a
-        # side location that otherwise fits (#316 review).
+    def test_a_suppressed_envelope_tier_is_not_reserved(self):
+        # When the planner suppresses the depth dim, the side-below envelope-tier reservation
+        # must NOT fire — reserving a tier render_envelope never claims would needlessly
+        # shrink the strip and drop a side location that otherwise fits (#316 review).
+        #
+        # The lever used to be a square footprint. #997 removed that suppression (a square
+        # part states both extents), so this now uses the X-turned rotational rule, which is
+        # still a live suppression: the OD conveys the cross-axis extent. The subject of the
+        # test — don't reserve space for a dim that will never be drawn — is unchanged.
         from build123d import Cylinder, Pos, Rot
 
-        part = Box(20, 20, 40) - Pos(0, 4, 0) * Rot(0, 90, 0) * Cylinder(2, 20)
+        part = Rot(0, 90, 0) * Cylinder(10, 40) - Pos(0, 4, 0) * Rot(0, 90, 0) * Cylinder(2, 50)
         dwg = build_drawing(part)
-        assert "m_env_depth" not in dwg.annotations()  # square footprint → depth suppressed
+        assert "m_env_depth" not in dwg.annotations(), "X-turned → depth suppressed by the OD"
         assert [n for n in dwg.annotations() if n.startswith("dim_loc_side_y")], (
             "location was dropped"
         )
