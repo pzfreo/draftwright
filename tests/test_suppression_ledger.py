@@ -293,6 +293,15 @@ def test_the_dedup_keeps_repetitions_within_one_source():
     heights = [o for o in rows if o.parameter_id == "height.length"]
     positions = [o for o in rows if o.parameter_id == "location.location"]
     assert len(heights) == 1, "two compilers reporting one fact is a duplicate"
+
+    # ...but two compilers DISAGREEING is not one fact. `value` is in the dedup key, so a
+    # differing measurement survives as its own row instead of the earlier source silently
+    # winning — an audit should surface a disagreement between compilers, not hide it.
+    disagreeing = _dedupe_omissions(
+        [Omission(feature, "height.length", 25.0, "authored")],
+        [Omission(feature, "height.length", 30.0, "authored")],
+    )
+    assert len(disagreeing) == 2, "a value disagreement must not be deduped away"
     assert [o.value for o in positions] == [20.0, 12.0, 50.0, 18.0], (
         "one compiler reporting four members is four facts, not one"
     )

@@ -1085,10 +1085,17 @@ def _dedupe_omissions(*sources: list[Omission]) -> tuple[Omission, ...]:
     Hence: cross-source only. Each source keeps its own repetitions; a key already seen in an
     EARLIER source is dropped from a later one.
     """
-    seen: set[tuple[int, str, str]] = set()
+
+    def key(o: Omission) -> tuple[int, str, object, str]:
+        # `value` is in the key deliberately. Two sources reporting one parameter with
+        # DIFFERENT values are not one fact reported twice — they are two compilers
+        # disagreeing, and an audit should surface that rather than silently keep whichever
+        # source happens to run first.
+        return (id(o.feature), o.parameter_id, o.value, o.reason)
+
+    seen: set[tuple[int, str, object, str]] = set()
     out: list[Omission] = []
     for source in sources:
-        keys_here = {(id(o.feature), o.parameter_id, o.reason) for o in source}
-        out += [o for o in source if (id(o.feature), o.parameter_id, o.reason) not in seen]
-        seen |= keys_here
+        out += [o for o in source if key(o) not in seen]
+        seen |= {key(o) for o in source}
     return tuple(out)
