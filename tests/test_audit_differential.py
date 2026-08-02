@@ -185,6 +185,56 @@ def test_sheet_furniture_is_not_a_measurement():
     )
 
 
+def test_an_unknown_annotation_type_counts_as_a_measurement():
+    """The filter is a DENYLIST, and the polarity is the point (Codex #1001 r2).
+
+    An allowlist of {"Dimension", "Leader"} silently dropped `SafeDimension` — a real
+    measurement-bearing class — and would drop every future dimensional type the same way. For
+    a tool whose one job is not to hide a loss, an unknown type must fail toward NOISE, which a
+    reader can dismiss, never toward silence, which nobody can.
+
+    This test deliberately does NOT use the implementation's own type names: it asserts that a
+    type the module has never heard of still counts. The previous version supplied the exact
+    strings the code checks and asserted their classification, which could only ever confirm
+    the implementation to itself.
+    """
+    before = _FakeDrawing(
+        {"sd0": "25", "whatever0": "9", "title_block": "DRAWING"},
+        types={
+            "sd0": "SafeDimension",
+            "whatever0": "SomeFutureDimensionKind",
+            "title_block": "TitleBlock",
+        },
+    )
+    after = _FakeDrawing({"title_block": "DRAWING"}, types={"title_block": "TitleBlock"})
+
+    lost = diff_builds(before, after)["dimensions_lost"]
+    assert "sd0" in lost, "SafeDimension is a measurement"
+    assert "whatever0" in lost, "an unknown type must fail toward noise, not silence"
+    assert "title_block" not in lost, "known furniture is still excluded"
+
+
+def test_a_same_name_same_label_replacement_is_invisible():
+    """The limit the module documents, pinned so the documentation cannot quietly drift from
+    the behaviour (Codex #1001 r2).
+
+    A name is a registry slot. If a different measurement takes the slot AND renders the same
+    label, every result map is empty — the substitution is wholly invisible. A clean diff
+    therefore does not establish that the measurements were preserved.
+
+    Asserting a KNOWN BLIND SPOT, not desired behaviour. It fails the day #1002 gives
+    annotations real identity, which is exactly when someone should come back and delete it.
+    """
+    before = _FakeDrawing({"m_locx0": "70"})
+    after = _FakeDrawing({"m_locx0": "70"})  # different measurement, same slot, same text
+
+    diff = diff_builds(before, after)
+    assert diff["dimensions_lost"] == {}
+    assert diff["dimensions_gained"] == {}
+    assert diff["dimensions_changed"] == {}
+    assert explain(diff) == [], "invisible — and the docstring says so rather than implying it"
+
+
 def test_a_labelless_callout_loss_is_still_detected():
     """A hole callout renders as a `Leader` whose own `label` is "" — its text lives on an
     attached callout object, and on some paths nowhere readable at all.

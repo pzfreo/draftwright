@@ -13,13 +13,18 @@ actually found: not from the four issue reports describing its symptoms, but fro
 ## What this cannot do, stated first
 
 A placed annotation carries **no measurement identity** — its name is an engine-assigned
-registry slot, not a handle on what it measures. Two consequences, both real:
+registry slot, not a handle on what it measures. Three consequences, all real:
 
-- **A replaced measurement can hide as a changed one.** Move a hole and `m_locx0` goes from
-  `70` to `90`: a different measurement reused the slot. This reports it under
-  ``dimensions_changed``, which is honest but weaker than "the 70 measurement is gone".
+- **A replaced measurement can hide completely.** Move a hole and `m_locx0` goes from `70` to
+  `90`: a different measurement reused the slot, and this reports it as a *change*. Worse, if
+  the replacement happens to render the same label, **every result map is empty** — the
+  substitution is wholly invisible. So a clean diff does **not** establish that the
+  measurements were preserved; it establishes only that nothing observable at this resolution
+  moved (Codex #1001).
 - **A loss cannot be attributed to a suppression with confidence.** The ledger row names a
   feature; the annotation does not. So a candidate explanation is a *hint*, never a verdict.
+- **An unnamed annotation is invisible.** ``Drawing.annotations()`` returns only *named*
+  annotations by contract, so anything placed without a name cannot be compared here at all.
 
 Closing either needs ADR 0010 provenance threaded from the planner to the placed annotation.
 Until then this is a **triage aid, not a proof** — and deliberately shaped so its weakest part
@@ -34,19 +39,23 @@ nothing from the engine, so the thing it measures can never come to depend on it
 
 from __future__ import annotations
 
-#: Annotation types that carry a MEASUREMENT. Everything else a drawing names — the title
-#: block, notes, centre marks — is furniture: it has a label, it changes between builds for
-#: reasons that are not dimensional, and counting it drowns the signal in exactly the noise
-#: this module exists to lift out (Codex #1001). `Leader` is in: a hole callout is dimensional
-#: content, it just renders as a leader.
-_DIMENSIONAL = frozenset({"Dimension", "Leader"})
+#: Sheet FURNITURE — the annotation types that carry no measurement. Everything else counts.
+#:
+#: A denylist, not an allowlist, and the polarity is the point (Codex #1001). An allowlist of
+#: {"Dimension", "Leader"} silently dropped `SafeDimension`, a real measurement-bearing class,
+#: and would drop every future dimensional type and subclass the same way. For a tool whose
+#: one job is not to hide a loss, an unknown type must fail toward NOISE — reported and
+#: dismissed by a reader — never toward silence. Adding a genuinely new furniture type here is
+#: a deliberate act; forgetting to add a new measurement type to an allowlist was an accident
+#: waiting to happen, and had already happened once.
+_FURNITURE = frozenset({"TitleBlock", "Note", "CenterMark"})
 
 
 def _measurements(dwg) -> dict[str, str]:
-    """``{annotation name: label}`` for the DIMENSIONAL annotations only."""
+    """``{annotation name: label}`` for everything that is not furniture."""
     out: dict[str, str] = {}
     for name, type_name in dwg.annotations().items():
-        if type_name not in _DIMENSIONAL:
+        if type_name in _FURNITURE:
             continue
         # NO non-empty-label requirement. A hole callout renders as a `Leader` whose own
         # `label` is "" — its text lives on an attached callout object, and on some paths
@@ -68,8 +77,9 @@ def diff_builds(before, after) -> dict:
     *before* and *after* are two builds differing in one property — a square part and a
     near-square one, a feature added, a dimension authored. Returns:
 
-    - ``dimensions_lost`` / ``dimensions_gained`` — ``{name: label}``. **Every** loss appears
-      here; nothing filters this list. It is the alarm.
+    - ``dimensions_lost`` / ``dimensions_gained`` — ``{name: label}``. Nothing *downstream*
+      filters this list; it is the alarm. It is not a completeness guarantee — see the
+      admission limits at the top of the module, which bound what reaches it at all.
     - ``dimensions_changed`` — ``{name: (before, after)}`` where the annotation survived but
       its label did not. Reported, not alarmed: in a perturbation study a changed value is the
       expected result of the change, so ranking it with the losses would bury them in noise
