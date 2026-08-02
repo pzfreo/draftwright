@@ -17,7 +17,7 @@ keeps it honest about the real `Drawing` surface.
 
 from __future__ import annotations
 
-from build123d import Box, Cylinder, Rot
+from build123d import Box, BuildPart, Cylinder, Hole, Locations, Rot
 
 from draftwright import build_drawing
 from draftwright.audit import diff_builds, explain
@@ -31,10 +31,12 @@ class _FakeDrawing:
         dims: dict[str, str],
         suppressions: list[dict] | None = None,
         types: dict[str, str] | None = None,
+        identities: dict[str, tuple] | None = None,
     ):
         self._dims = dims
         self._supp = suppressions or []
         self._types = types or {}
+        self._ids = identities or {}
 
     def annotations(self):
         return {n: self._types.get(n, "Dimension") for n in self._dims}
@@ -44,6 +46,10 @@ class _FakeDrawing:
 
     def suppressions(self):
         return list(self._supp)
+
+    def measurement_key(self, name):
+        ident = self._ids.get(name)
+        return None if ident is None else {"feature": ident[0], "parameter_id": ident[1]}
 
 
 def _supp(parameter, reason, feature="envelope@(0,0,0)/z"):
@@ -63,7 +69,11 @@ def test_a_loss_a_rule_accounts_for_is_not_unexplained():
     suffices)" and can ask whether a 50x50 part should really have no plan size. The
     measurement is gone, but nothing is hidden.
     """
-    before = _FakeDrawing({"m_env_width": "50", "m_env_depth": "40", "dim_height": "30"})
+    env = "envelope@(0,0,0)/z"
+    before = _FakeDrawing(
+        {"m_env_width": "50", "m_env_depth": "40", "dim_height": "30"},
+        identities={"m_env_width": (env, "width.length"), "m_env_depth": (env, "depth.length")},
+    )
     after = _FakeDrawing(
         {"dim_height": "30"},
         [_supp("width.length", "square footprint"), _supp("depth.length", "square footprint")],
@@ -214,25 +224,93 @@ def test_an_unknown_annotation_type_counts_as_a_measurement():
     assert "title_block" not in lost, "known furniture is still excluded"
 
 
-def test_a_same_name_same_label_replacement_is_invisible():
-    """The limit the module documents, pinned so the documentation cannot quietly drift from
-    the behaviour (Codex #1001 r2).
+def test_a_same_name_same_label_replacement_is_invisible_without_identity():
+    """The limit the module documents, pinned so the documentation cannot drift from the
+    behaviour (Codex #1001 r2) — now scoped to where it actually still applies.
 
     A name is a registry slot. If a different measurement takes the slot AND renders the same
-    label, every result map is empty — the substitution is wholly invisible. A clean diff
-    therefore does not establish that the measurements were preserved.
+    label, every result map is empty. #1002 closed this for annotations whose renderer records
+    a `DimensionId` (see the test below); it remains true for the renderers that record none —
+    the rotational OD/bore group, #754 — so a clean diff still does not establish that the
+    measurements were preserved.
 
-    Asserting a KNOWN BLIND SPOT, not desired behaviour. It fails the day #1002 gives
-    annotations real identity, which is exactly when someone should come back and delete it.
+    Asserting a KNOWN BLIND SPOT, not desired behaviour. Delete it when every renderer records
+    identity.
     """
-    before = _FakeDrawing({"m_locx0": "70"})
-    after = _FakeDrawing({"m_locx0": "70"})  # different measurement, same slot, same text
+    before = _FakeDrawing({"dim_od": "40"})  # no identity: the direct-placing renderers
+    after = _FakeDrawing({"dim_od": "40"})  # different measurement, same slot, same text
 
     diff = diff_builds(before, after)
     assert diff["dimensions_lost"] == {}
     assert diff["dimensions_gained"] == {}
     assert diff["dimensions_changed"] == {}
+    assert diff["measurements_substituted"] == {}
     assert explain(diff) == [], "invisible — and the docstring says so rather than implying it"
+
+
+def test_a_same_name_same_label_replacement_is_caught_with_identity():
+    """The blind spot above, closed wherever the renderer recorded what it drew (#1002).
+
+    Same name, same label, so every other map in the diff is empty — the only thing that
+    differs is what the annotation IS. This is the case the module previously could not see at
+    all, and the reason measurement identity was worth threading.
+    """
+    before = _FakeDrawing({"m_x0": "70"}, identities={"m_x0": ("hole@(10,5,5)/z", "location")})
+    after = _FakeDrawing({"m_x0": "70"}, identities={"m_x0": ("slot@(10,5,5)/z", "width.length")})
+
+    diff = diff_builds(before, after)
+    assert diff["dimensions_lost"] == {} and diff["dimensions_changed"] == {}
+    assert diff["measurements_substituted"] == {
+        "m_x0": (("hole@(10,5,5)/z", "location"), ("slot@(10,5,5)/z", "width.length"))
+    }
+    assert explain(diff)[0].startswith("SUBSTITUTED: m_x0"), "a changed parameter is an alarm"
+
+
+def test_the_same_measurement_of_a_moved_feature_is_reported_not_alarmed():
+    """A perturbation study MOVES features, so `feature_key` legitimately changes on every
+    run. Ranking that as an alarm would bury the real losses under one line per moved feature
+    — the failure mode `explain`'s ordering exists to prevent.
+
+    So a changed feature with an unchanged parameter is reported below the alarms, not as one.
+    """
+    before = _FakeDrawing({"m_x0": "70"}, identities={"m_x0": ("hole@(10,5,5)/z", "location")})
+    after = _FakeDrawing({"m_x0": "90"}, identities={"m_x0": ("hole@(30,5,5)/z", "location")})
+
+    lines = explain(diff_builds(before, after))
+    assert not any(line.startswith("SUBSTITUTED") for line in lines)
+    assert any(line.startswith("reattributed: m_x0") for line in lines)
+
+
+def test_a_suppression_on_another_feature_does_not_explain_this_loss():
+    """The canary for the attribution fix (#1002).
+
+    The first cut matched a suppression's parameter STEM against the annotation's NAME by
+    substring, so a newly-suppressed `width.length` on ANY feature claimed every lost
+    annotation whose name contained "width" (Codex #1001 r1). Here the stem matches the name
+    and the parameter matches exactly — only the feature differs, which is precisely what a
+    name-based match cannot see. The loss must stay unexplained.
+    """
+    before = _FakeDrawing(
+        {"m_width0": "20"}, identities={"m_width0": ("slot@(0,0,0)/z", "width.length")}
+    )
+    after = _FakeDrawing({}, [_supp("width.length", "coincident", feature="slot@(99,0,0)/z")])
+
+    diff = diff_builds(before, after)
+    assert "m_width0" in diff["dimensions_lost"]
+    assert diff["candidate_explanations"] == {}, "a different feature's rule explains nothing"
+    assert explain(diff)[0].endswith("nothing claims it")
+
+
+def test_a_suppression_on_the_same_measurement_does_explain_the_loss():
+    """The other half: an exact `(feature, parameter_id)` match IS the attribution, and the
+    hint still annotates the loss rather than removing it."""
+    ident = ("slot@(0,0,0)/z", "width.length")
+    before = _FakeDrawing({"m_width0": "20"}, identities={"m_width0": ident})
+    after = _FakeDrawing({}, [_supp("width.length", "coincident", feature="slot@(0,0,0)/z")])
+
+    diff = diff_builds(before, after)
+    assert diff["candidate_explanations"] == {"m_width0": ["coincident"]}
+    assert "m_width0" in diff["dimensions_lost"], "explained, still not cancelled"
 
 
 def test_a_labelless_callout_loss_is_still_detected():
@@ -295,3 +373,73 @@ def test_it_works_on_real_drawings():
     assert "m_env_depth" in diff["dimensions_lost"], "the turned part states no depth"
     reasons = " ".join(r for _, _, r in diff["suppressions_gained"])
     assert "rotational OD" in reasons, "and the ledger says which rule took it"
+
+
+def test_a_real_build_records_which_measurement_its_location_dims_draw():
+    """End-to-end (#1002): the duck types above encode what `diff_builds` *reads*, so they
+    cannot show that the engine actually WRITES any of it. This does.
+
+    Two things matter and both are asserted: identity reaches the registry from a real render
+    pass, and it is the SAME key shape `suppressions()` reports — that shared shape is the
+    whole point, since it is what lets a drawn measurement and a suppressed one be compared
+    without matching engine-assigned names by substring.
+    """
+    with BuildPart() as p:
+        Box(50, 40, 10)
+        with Locations((10, 5, 0)):
+            Hole(4)
+    dwg = build_drawing(p.part)
+
+    keyed = {n: dwg.measurement_key(n) for n in dwg.annotations()}
+    identified = {n: k for n, k in keyed.items() if k is not None}
+    assert identified, "the compiled-plan renderers must record what they drew"
+    for name, key in identified.items():
+        assert set(key) == {"feature", "parameter_id"}, f"{name}: the ledger's key shape"
+
+    # The two threaded groups, named rather than counted: a count would keep passing if a
+    # renderer stopped recording and another started.
+    assert identified["m_locx0"]["feature"].startswith("hole@"), "located hole"
+    assert identified["m_env_width"]["feature"].startswith("envelope@"), "overall extent"
+
+    assert dwg.measurement_key("title_block") is None, "furniture measures nothing"
+    # Not yet threaded, and asserted so the gap is visible rather than assumed closed: the
+    # hole callout is on the legacy surface (#926) and the direct-placing group is #754.
+    assert dwg.measurement_key("hc_plan0") is None, "callouts still record none (#926)"
+
+
+def test_identity_survives_the_repair_loops_snapshot_and_restore():
+    """A repair pass may roll back a worse placement by restoring a registry snapshot. The
+    view and feature tags are snapshotted for exactly this reason — a restore that dropped
+    them would leave provenance referencing names the rollback removed.
+
+    Measurement identity is a peer of those and must round-trip the same way. A stale or
+    missing id is worse here than elsewhere: the audit treats a recorded id as EXACT.
+    """
+    from draftwright.registry import AnnotationRegistry
+
+    reg = AnnotationRegistry()
+    obj = object()
+    reg.add(obj, "m_x0", "plan", feature="f", measurement="mid")
+    snap = reg.snapshot()
+
+    reg.add(object(), "m_x0", "plan", feature="g", measurement="other")
+    assert reg.measurement_of("m_x0") == "other"
+
+    reg.restore(snap)
+    assert reg.measurement_of("m_x0") == "mid", "a rollback restores what was drawn"
+
+
+def test_re_adding_a_name_without_an_identity_clears_the_old_one():
+    """The rule the view and feature tags already follow, and it matters more here: a
+    replacement draws whatever the new caller says it draws, including nothing identifiable.
+
+    Inheriting the displaced annotation's id would hand the audit a STALE identity it then
+    treats as exact — worse than the honest `None` that reads as "unknown".
+    """
+    from draftwright.registry import AnnotationRegistry
+
+    reg = AnnotationRegistry()
+    reg.add(object(), "m_x0", "plan", feature="f", measurement="mid")
+    reg.add(object(), "m_x0", "plan")
+
+    assert reg.measurement_of("m_x0") is None, "cleared, not inherited"

@@ -49,18 +49,21 @@ from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
 _log = logging.getLogger(__name__)
 
 
-def place_annotation(registry, items, obj, name=None, view=None, feature=None):
+def place_annotation(registry, items, obj, name=None, view=None, feature=None, measurement=None):
     """The annotation-placement primitive (#817): register *obj* under *name* — replacing any
     prior object of that name (dropped from the render list *items*) so a name maps to one
     object — append it to *items*, and record its owning *view* + source *feature* in *registry*.
     Shared by :meth:`Drawing._add` and :meth:`PlacementContext.place` so the render passes place
-    annotations without reaching into the ``Drawing``. Returns *obj*."""
+    annotations without reaching into the ``Drawing``. Returns *obj*.
+
+    *measurement* is the `DimensionId` *obj* draws, where the caller holds one (#1002) —
+    one axis finer than *feature*, since a feature has several measurements."""
     displaced = registry.named(name) if name is not None else None
     if displaced is not None:
         items.remove(displaced)
     annotate(obj, name)
     items.append(obj)
-    registry.add(obj, name, view, feature)
+    registry.add(obj, name, view, feature, measurement)
     return obj
 
 

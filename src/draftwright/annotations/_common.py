@@ -840,6 +840,11 @@ class CorridorCandidate:
     # The source IR feature this dim was rendered for — recorded as provenance when the
     # dim is placed at drain (ADR 0010). ``None`` leaves the annotation feature-less.
     feature: object | None = None
+    # The `DimensionId` this candidate draws, where the renderer holds an
+    # `ApprovedDimension` to take it from (#1002). Peer to `feature` and recorded the same
+    # way at drain, one axis finer: `feature` says which hole, this says which of its
+    # measurements. ``None`` for a candidate whose renderer places directly (#754).
+    measurement: object | None = None
     # Real stacking-axis + perpendicular footprint ``(w, h)`` in page-mm, or ``None`` to
     # use the dimension default ``(tier, tier)``. Wide/tall occupants (a GD&T feature
     # control frame is ~24×6 mm) set this so the strip solve reserves their true extent
@@ -943,6 +948,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
     # A migrated renderer passes the opaque handle through; `resolve_feature` is a
     # no-op for the unmigrated ones that still pass the feature itself.
     feats = {c.name: resolve_feature(c.feature) for c in kept if c.feature is not None}
+    meas = {c.name: c.measurement for c in kept if c.measurement is not None}
     sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
     forbid = {c.name: c.forbid for c in kept if c.forbid is not None}  # title-block box (#481)
     prio = {c.name: c.priority for c in kept if c.priority}  # over-capacity survival rank (#357)
@@ -960,6 +966,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             tier,
             ctx=ctx,
             features=feats,
+            measurements=meas,
             sizes=sizes,
             forbid=forbid,
             priorities=prio,
@@ -986,6 +993,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 footprints=foots,
                 corner_reserves=corner_reserves,
                 features=feats,
+                measurements=meas,
                 sizes=sizes,
                 forbid=forbid,
                 priorities=prio,
@@ -1079,7 +1087,7 @@ class PlacementContext:
     # per-ctx (per-run) index is correct (mirrors the old ``Drawing._hole_feature_index``).
     _hole_feature_index: Any = field(default=None, repr=False)
 
-    def place(self, obj, name=None, view=None, feature=None):
+    def place(self, obj, name=None, view=None, feature=None, measurement=None):
         """Place an annotation onto the drawing through this context (#817) — the render passes'
         door to the placement primitive, so a pass never reaches into the ``Drawing`` (ADR 0005
         §2). Registers *obj* under *name* (owning *view* + source *feature*) and appends it to the
@@ -1090,7 +1098,7 @@ class PlacementContext:
                 "with items=dwg.items (the orchestrator and Drawing verbs already do; a unit test "
                 "calling a render helper must pass it too)."
             )
-        return place_annotation(self.registry, self.items, obj, name, view, feature)
+        return place_annotation(self.registry, self.items, obj, name, view, feature, measurement)
 
     def feature_of_hole_at(self, location):
         """The IR hole/pattern feature whose member sits at model-space *location*, or ``None``
@@ -1195,6 +1203,7 @@ def place_strip_candidates(
     ctx,
     force=False,
     features=None,
+    measurements=None,
     sizes=None,
     forbid=None,
     priorities=None,
@@ -1502,7 +1511,13 @@ def place_strip_candidates(
         for name, dim in placed:
             # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed
             # dims — `features` maps this batch's names to their source IR feature.
-            ctx.place(dim, name, view=view, feature=(features or {}).get(name))
+            ctx.place(
+                dim,
+                name,
+                view=view,
+                feature=(features or {}).get(name),
+                measurement=(measurements or {}).get(name),
+            )
     if tp is not None:
         tp["unplaced"] = [n for n, _ in todo]
         trace.end_pass(tp)  # folds a standalone pass's items; no-op when corridor-nested

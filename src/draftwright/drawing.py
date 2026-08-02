@@ -641,6 +641,24 @@ class Drawing:
             for o in self._build.omissions
         ]
 
+    def measurement_key(self, name) -> dict | None:
+        """Which measurement the annotation *name* draws, or ``None`` if unrecorded (#1002).
+
+        The mirror of :meth:`suppressions` and deliberately the SAME key shape —
+        ``{"feature": <stable key>, "parameter_id": ...}`` — so a drawn measurement and a
+        suppressed one are directly comparable. Without it the two halves of the audit could
+        only be joined by matching an engine-assigned annotation name against a parameter id
+        by substring, which attributed losses to unrelated suppressions (Codex #1001 r1).
+
+        ``None`` means the renderer did not record an identity, **not** that the annotation
+        measures nothing: the direct-placing renderers (#754) record none. Treat presence as
+        exact and absence as unknown.
+        """
+        mid = self._registry.measurement_of(name)
+        if mid is None:
+            return None
+        return {"feature": feature_key(mid.feature), "parameter_id": mid.parameter}
+
     @property
     def solve_trace(self):
         """The opt-in solve-trace recorder threaded through this build (#736), or

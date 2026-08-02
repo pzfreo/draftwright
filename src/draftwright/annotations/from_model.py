@@ -509,6 +509,7 @@ def _location_candidate(
     distance,
     build,
     feature=None,
+    measurement=None,
     pinned=False,
     footprint=None,
 ):
@@ -543,6 +544,7 @@ def _location_candidate(
         priority=PRIORITY.MANDATORY if pinned else PRIORITY.AUTO,
         force=True,
         feature=feature,  # provenance (ADR 0010): the located hole/pattern
+        measurement=measurement,  # which of its measurements this is (#1002)
         footprint=footprint,  # analytical measure — no probe build (#602)
     )
 
@@ -594,7 +596,10 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             continue
         # Provenance (ADR 0010): the located feature. `resolve_feature` is the sanctioned
         # seam for exactly this — the corridor's feature map keys drop()/annotations_of().
-        refs.append((rx, ry, resolve_feature(loc.ref)))
+        # `loc.id` rides along as the measurement identity (#1002): the compiler already
+        # minted it for this very entry, so the renderer records WHICH measurement it drew
+        # rather than leaving the audit to infer it from the annotation's name.
+        refs.append((rx, ry, resolve_feature(loc.ref), loc.id))
     if not refs:
         return 0
     pinned_set = set(pinned or ())
@@ -623,7 +628,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 u[3] = u[3] or r[2] in pinned_set
                 break
         else:
-            x_refs.append([r[0], r[1], r[2], r[2] in pinned_set])
+            x_refs.append([r[0], r[1], r[2], r[2] in pinned_set, r[3]])
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
     _kept_x, _n_x_close = _legible_locations(_x_drawable, a.SCALE)
     if _n_x_close:
@@ -642,14 +647,21 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     # pass carving around the other and interleaving. No alternate view for a plan-X
     # location, so a corridor-blocked dim is force-kept (policy B), not relocated; only a
     # physically full strip drops (→ location_ref_dropped, escalates the hole table).
-    for i, (rx, ry, feat, pin_ref) in enumerate(sorted(x_refs, key=lambda r: abs(r[0] - datum_x))):
+    for i, (rx, ry, feat, pin_ref, mid) in enumerate(
+        sorted(x_refs, key=lambda r: abs(r[0] - datum_x))
+    ):
         if abs(rx - datum_x) * a.SCALE < 1.0:
             continue  # on the datum edge — nothing to dimension
         n += 1
         # A single X-location dim shared by two *distinct* features at this X belongs to
         # neither exclusively — leave it unowned so drop() cannot over-strip a sibling's
         # dimension and annotations_of never over-claims it (review #406, ADR 0010).
-        _xfeat = None if any(abs(o[0] - rx) < 0.5 and o[2] != feat for o in refs) else feat
+        _shared_x = any(abs(o[0] - rx) < 0.5 and o[2] != feat for o in refs)
+        _xfeat = None if _shared_x else feat
+        # The measurement id follows the feature for the same reason (#1002), and more
+        # strictly: a shared dim genuinely IS both features' X location, so naming one of
+        # them would be a false attribution the audit then reports as exact.
+        _xmid = None if _shared_x else mid
         register_corridor(
             ctx,
             ("plan", "above"),
@@ -673,6 +685,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     label=_fmt(_rx - datum_x),
                 ),
                 feature=_xfeat,
+                measurement=_xmid,
                 pinned=pin_ref,
                 footprint=lambda pos, _rx=rx, _ry=ry: dim_footprint(
                     (PX(datum_x), PY(_ry), 0),
@@ -696,7 +709,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 u[3] = u[3] or r[2] in pinned_set
                 break
         else:
-            y_refs.append([r[0], r[1], r[2], r[2] in pinned_set])
+            y_refs.append([r[0], r[1], r[2], r[2] in pinned_set, r[3]])
     _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
     _kept_y, _n_y_close = _legible_locations(_y_drawable, a.SCALE)
     if _n_y_close:
@@ -712,14 +725,18 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     # Cap the side-above strip below the iso view so Y-location dims never run under it
     # (the carve respects outer_limit); the dim_pitch_side dims are obstacles the carve
     # avoids structurally, retiring the old manual allocate(10.0) reservation + cursor.
-    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin in y_refs):
+    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin, _mid in y_refs):
         a.sv_zones.above.outer_limit = min(a.sv_zones.above.outer_limit, iso_y0 - 4)
-    for i, (rx, ry, feat, pin_ref) in enumerate(sorted(y_refs, key=lambda r: abs(r[1] - datum_y))):
+    for i, (rx, ry, feat, pin_ref, mid) in enumerate(
+        sorted(y_refs, key=lambda r: abs(r[1] - datum_y))
+    ):
         if abs(ry - datum_y) * a.SCALE < 1.0:
             continue
         n += 1
         # Shared-Y location dim → unowned (see the X loop; review #406).
-        _yfeat = None if any(abs(o[1] - ry) < 0.5 and o[2] != feat for o in refs) else feat
+        _shared_y = any(abs(o[1] - ry) < 0.5 and o[2] != feat for o in refs)
+        _yfeat = None if _shared_y else feat
+        _ymid = None if _shared_y else mid  # see the X loop (#1002)
         register_corridor(
             ctx,
             ("side", "above"),
@@ -743,6 +760,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     label=_fmt(_ry - datum_y),
                 ),
                 feature=_yfeat,
+                measurement=_ymid,
                 pinned=pin_ref,
                 footprint=lambda pos, _ry=ry: dim_footprint(
                     (SX(datum_y), SZ(a.bb.max.Z), 0),
@@ -2026,6 +2044,7 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
                 on_drop=lambda _nm: None,
                 force=True,
                 feature=g.ref,
+                measurement=pd.id,
                 footprint=footprint,
             ),
         )
@@ -2236,7 +2255,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
         return 0
     n = 0
 
-    def _queue(name, strip, view, tier, distance, build, footprint=None):
+    def _queue(name, strip, view, tier, distance, build, footprint=None, measurement=None):
         register_corridor(
             ctx,
             (view, "below"),
@@ -2252,6 +2271,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                 on_drop=lambda _nm: None,
                 priority=_MANDATORY_OVERALL_PRIORITY,
                 force=True,
+                measurement=measurement,  # which envelope extent this is (#1002)
                 footprint=footprint,  # analytical measure — no probe build (#602)
             ),
         )
@@ -2278,6 +2298,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.value_text: dim_footprint(
                 (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v
             ),
+            measurement=width.id,
         )
         n += 1
     depth = env.dim(role="depth")
@@ -2302,6 +2323,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.value_text: dim_footprint(
                 (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v
             ),
+            measurement=depth.id,
         )
         n += 1
     return n
@@ -2902,7 +2924,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
     has_shoulders = plan.ladder("step_position") is not None
     short_rungs: list = []
 
-    # The chain, inner→outer: (name, page-z top, label, tier size, drop message).
+    # The chain, inner→outer: (name, page-z span, label, tier size, drop message, dim id).
     chain: list = []
     if rung_set is not None and rung_set.representative:
         (rep,) = rungs
@@ -2913,6 +2935,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 rep.final_label,
                 _SLOT_DIM_STEP,
                 "representative step-height dimension dropped (front-view right strip full)",
+                rep.id,
             )
         )
     elif rungs:
@@ -2956,6 +2979,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                     rung.final_label,
                     _SLOT_DIM_STEP,
                     "step-height dimension dropped (front-view right strip full)",
+                    rung.id,
                 )
             )
 
@@ -2969,12 +2993,13 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 height.final_label,
                 _SLOT_DIM_HEIGHT,
                 "overall height dimension dropped (front-view right strip full)",
+                height.id,
             )
         )
 
     names = [c[0] for c in chain]
     solved: dict[str, float] = {}
-    for k, (name, zbase, ztop, label, _tsize, drop_msg) in enumerate(chain):
+    for k, (name, zbase, ztop, label, _tsize, drop_msg, mid) in enumerate(chain):
 
         def _build(pos, name=name, zbase=zbase, ztop=ztop, label=label, k=k):
             base = edge2
@@ -3032,6 +3057,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 # than tying with them at 0 and losing on the generated key (#894).
                 priority=_PRINCIPAL_CHAIN_PRIORITY,
                 feature=step if name != "dim_height" else None,
+                measurement=mid,  # the rung's own compiled id (#1002)
                 footprint=_foot,
             ),
         )
