@@ -937,7 +937,9 @@ def make_drawing(
     Returns:
         Tuple of ``(svg_path, dxf_path)`` for the generated files.
 
-    This is a thin wrapper: ``make_drawing(...)`` is ``build_drawing(...).export()``.
+    This is a thin wrapper: ``make_drawing(...)`` is
+    ``build_drawing(...).export(formats=("svg", "dxf"))``, unpacked to a tuple. Not a bare
+    ``.export()`` — that is the deprecated legacy shape and warns (#987).
     To add or remove annotations or add section/auxiliary views before export,
     call :func:`build_drawing` and use the returned :class:`Drawing`.
     """

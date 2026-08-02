@@ -10879,3 +10879,47 @@ class TestExportFormats:
         with pytest.warns(DeprecationWarning, match="export_pdf"):
             pdf = dwg.export_pdf(str(tmp_path / "old"))
         assert Path(pdf).exists() and pdf.endswith(".pdf")
+
+    def test_the_legacy_export_shapes_warn_and_still_work(self, tmp_path):
+        """#987: both were "Deprecated" in the v0.3.1 changelog and silent at runtime for four
+        minor releases, which made their 0.5.0 removal a silent break.
+
+        `test_deprecation_dates` only counts that a warning EXISTS and names a version, so it
+        cannot catch any of what is asserted here (Codex review): the two shapes are told apart,
+        the advice matches what the call actually selected, the caller is blamed rather than
+        draftwright, and the legacy return value is unchanged."""
+        dwg = build_drawing(Box(30, 20, 10))
+
+        # Bare export(): the old default. Distinct message, and still the (svg, dxf) tuple.
+        with pytest.warns(DeprecationWarning, match="no formats=") as rec:
+            legacy = dwg.export(str(tmp_path / "bare"))
+        assert isinstance(legacy, tuple) and len(legacy) == 2
+        assert all(p and Path(p).exists() for p in legacy)
+        # Blamed on THIS file, not drawing.py — a warning pointing at the library tells the
+        # reader nothing about which of their lines to change (#965).
+        assert Path(rec[0].filename).name == Path(__file__).name
+
+        # The booleans deselect, so the suggested formats must be what this call ASKED for.
+        # A canned ('svg', 'dxf') would tell the caller to start writing an SVG they had
+        # switched off — advice that changes behaviour.
+        with pytest.warns(DeprecationWarning, match=r"formats=\('dxf',\)") as rec2:
+            svg_path, dxf_path = dwg.export(str(tmp_path / "dxfonly"), svg=False, dxf=True)
+        assert svg_path is None and dxf_path is not None and Path(dxf_path).exists()
+        assert "no formats=" not in str(rec2[0].message)  # the other shape's message
+
+        # The supported call is silent and returns the dict.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            paths = dwg.export(str(tmp_path / "new"), formats=("svg", "dxf"))
+        assert sorted(paths) == ["dxf", "svg"]
+
+    def test_make_drawing_is_not_on_the_legacy_export_path(self, tmp_path):
+        """#987: `make_drawing` used to call `.export()` with no formats, so warning on that
+        path would have fired for every caller of the headline API — blaming draftwright's own
+        line for a call they never made. It passes `formats=` now, and its documented tuple
+        return is unchanged."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            svg, dxf = make_drawing(Box(30, 20, 10), out=str(tmp_path / "mk"))
+        assert Path(svg).exists() and svg.endswith(".svg")
+        assert Path(dxf).exists() and dxf.endswith(".dxf")

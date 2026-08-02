@@ -2733,10 +2733,13 @@ class Drawing:
     ) -> dict[str, str] | tuple[str | None, str | None]:
         """Lint, then write the requested output *formats*; return ``{format: path}``.
 
-        *formats* is a format name or an iterable from ``("svg", "dxf", "pdf", "png")``
-        (default ``("pdf",)``). PDF renders from the SVG and PNG from the PDF, so the SVG/PDF are
-        written as intermediates and removed when not themselves requested. *dpi* sets the PNG
-        raster resolution.
+        *formats* is a format name or an iterable from ``("svg", "dxf", "pdf", "png")``. PDF
+        renders from the SVG and PNG from the PDF, so the SVG/PDF are written as intermediates
+        and removed when not themselves requested. *dpi* sets the PNG raster resolution.
+
+        Omitting *formats* does **not** default to ``("pdf",)`` — that is
+        :meth:`Sheet.export`'s default. Here it selects the deprecated legacy path below, which
+        writes SVG + DXF and returns a tuple.
 
         Legacy (deprecated in 0.3.1, **removed in 0.5.0**): the boolean ``svg=``/``dxf=``
         keywords — and calling ``export()`` with no ``formats`` — select those two vector
@@ -2764,10 +2767,16 @@ class Drawing:
             # type is a tuple. Callers of the first want `formats=[...]`; callers of the second
             # additionally have to stop unpacking two values.
             if svg is not None or dxf is not None:
+                # Name the formats THIS call selected, not a fixed ('svg', 'dxf') pair: the
+                # booleans can deselect, so `export(out, svg=False, dxf=True)` writes DXF only
+                # and a canned suggestion would tell the caller to start writing an SVG they
+                # had switched off — advice that changes behaviour (Codex #987 r1).
+                _wanted = tuple(
+                    f for f, on in (("svg", svg is None or svg), ("dxf", dxf is None or dxf)) if on
+                )
                 warnings.warn(
-                    "Drawing.export(svg=…, dxf=…) is deprecated; pass formats=(...) and read "
-                    "the {format: path} dict — e.g. export(out, formats=('svg', 'dxf')). "
-                    "Removed in 0.5.0.",
+                    f"Drawing.export(svg=…, dxf=…) is deprecated; pass formats={_wanted!r} and "
+                    "read the {format: path} dict. Removed in 0.5.0.",
                     DeprecationWarning,
                     stacklevel=2,
                 )

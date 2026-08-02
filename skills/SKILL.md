@@ -180,7 +180,8 @@ warn from 0.4.0. See `docs/deprecations.md`.
 `make_drawing(...)` is unaffected and does not warn: it still returns
 `(svg_path, dxf_path)`, and passes `formats=` internally to get them.
 
-`make_drawing(...)` is exactly `build_drawing(...).export()`.
+`make_drawing(...)` is `build_drawing(...).export(formats=("svg", "dxf"))`, unpacked to a
+tuple — not a bare `.export()`, which is the deprecated shape above.
 
 **Section views** come from the section verb rather than from projecting a view by
 hand. The two entry points are *not* equivalent:
