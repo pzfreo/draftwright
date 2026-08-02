@@ -26,6 +26,7 @@ nothing from the engine, so it can never become a dependency of the thing it mea
 
 from __future__ import annotations
 
+
 def _labelled(dwg) -> dict[str, str]:
     """``{annotation name: label}`` for every labelled annotation on a drawing."""
     out: dict[str, str] = {}
