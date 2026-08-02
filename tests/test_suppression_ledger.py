@@ -202,6 +202,41 @@ def test_the_ledger_is_filled_when_auto_dimensions_are_off():
     assert [r["reason"] for r in auto] == [r["reason"] for r in manual]
 
 
+def test_a_model_with_no_datum_records_the_locations_it_cannot_measure():
+    """The fourth hole, and the third round in a row to find one (Codex #996 r3).
+
+    `plan_locations` returned `[]` outright when the model carried no `datum_xy`. Every
+    otherwise-eligible feature still HAD a position to lose, so the drawing simply had no
+    locations and the audit said nothing.
+
+    It breaks the same guarantee as the edge-anchored pocket: `_check_authored_targets`
+    accepts `dimension(hole, "location")` on feature eligibility alone, so an author could
+    name a position, pass validation, and receive neither the dimension nor a reason. It bites
+    a caller-supplied `PartModel` (ADR 0011), which `build_drawing` preserves verbatim —
+    datums included, or not.
+
+    Not fixed by defaulting a datum into model coercion: that would hide malformed compiler
+    input behind a plausible-looking drawing rather than reporting it.
+    """
+    from build123d import Box as _Box
+
+    from draftwright.model import Frame, HoleFeature, PartModel
+    from draftwright.model.planner import plan_locations
+
+    bbox = _Box(80, 50, 20).bounding_box()
+    model = PartModel(
+        bbox=bbox,
+        orientation="prismatic",
+        features=[HoleFeature(Frame((10.0, 5.0, 10.0), "z"), 6.0, depth=None, through=True)],
+        datums=[],  # the point: a model that never got a datum_xy
+    )
+
+    planned = plan_locations(model)
+    assert [p.suppressed for p in planned] == [True], "an unmeasurable location must be recorded"
+    assert "no datum_xy" in planned[0].reason
+    assert planned[0].datum is None  # there is none — the row says so rather than inventing one
+
+
 def test_the_ledger_is_plain_data():
     """A harness, a generated script or an LLM has to diff two builds without importing IR
     types — that is the whole point of an audit surface — so the rows are plain dicts."""

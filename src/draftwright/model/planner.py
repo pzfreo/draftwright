@@ -423,7 +423,30 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     """
     datum = next((d for d in model.datums if d.id == "datum_xy"), None)
     if datum is None:
-        return []
+        # No datum to measure from — but every otherwise-eligible feature still HAD a location
+        # to lose, so say so rather than returning nothing (#996, Codex r3).
+        #
+        # This bare `return []` broke the same guarantee as the edge-anchored pocket:
+        # `_check_authored_targets` accepts `dimension(hole, "location")` on feature
+        # eligibility alone, so an author could name a position, pass validation, and get
+        # neither the dimension nor a word about why. It bites a caller-supplied `PartModel`
+        # (ADR 0011), which `build_drawing` preserves verbatim — datums included, or not.
+        #
+        # Deliberately NOT fixed by defaulting a datum into model coercion: that would hide
+        # malformed compiler input behind a plausible drawing instead of reporting it.
+        return [
+            PlannedDimension(
+                param=DimParameter(kind="location", role=role, value=0.0, span=None, refs=()),
+                convention="location",
+                suppressed=True,
+                reason="no datum_xy in the model to measure the position from",
+                datum=None,
+                feature=f,
+            )
+            for f in model.features
+            for role in (location_role(f),)
+            if role is not None and location_datum(f) == "datum_xy"
+        ]
     dx, dy, dz = datum.at
     # (ref_point, role): role distinguishes a hole ref from a pattern ref — the
     # renderer's concentric-bore exclusion applies to holes only (a bolt circle on
