@@ -1062,5 +1062,30 @@ def compile_dimensions(
         groups=tuple(groups_out),
         ladders=tuple(ladders),
         locations=tuple(locations),
-        diagnostics=tuple(omissions + height_omissions + location_omissions + group_omissions),
+        diagnostics=_dedupe_omissions(
+            omissions + height_omissions + location_omissions + group_omissions
+        ),
     )
+
+
+def _dedupe_omissions(omissions: list[Omission]) -> tuple[Omission, ...]:
+    """One row per (feature, parameter, reason) — the audit reports facts, not sightings.
+
+    An authored set records the overall height twice: once by `_compile_overall_height`'s
+    bespoke branch and once by the general group traversal, since the envelope's `height`
+    parameter is in its group too. Both are correct about the same fact, and a duplicated row
+    makes a consumer over-count suppressions and a build-diff show churn that did not happen
+    (#996 — the lead Codex was chasing when its run timed out).
+
+    Keyed on the FEATURE's identity rather than the object, so two distinct features that
+    share a kind and reason still get a row each.
+    """
+    seen: set[tuple[int, str, str]] = set()
+    out: list[Omission] = []
+    for o in omissions:
+        key = (id(o.feature), o.parameter_id, o.reason)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(o)
+    return tuple(out)

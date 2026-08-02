@@ -246,6 +246,29 @@ def test_a_model_with_no_datum_records_the_locations_it_cannot_measure():
     assert rows, "the missing-datum diagnostic must reach Drawing.suppressions()"
 
 
+def test_one_row_per_fact_not_per_sighting():
+    """An authored set records the overall height TWICE — `_compile_overall_height`'s bespoke
+    branch and the general group traversal both notice it, since the envelope's `height`
+    parameter is in its group too.
+
+    Both are right about the same fact. A duplicated row makes a consumer over-count
+    suppressions, and a build-diff show churn that never happened — the false signal this
+    audit exists to remove. (The lead Codex was chasing when its final run timed out; found
+    by counting rows rather than reading them.)
+    """
+    from collections import Counter
+
+    sheet = Sheet(Box(120, 80, 25) - Pos(0, 0, 15) * Box(30, 20, 12), title="T", number="N")
+    sheet.dimension(sheet.envelope(), "width.length")  # authored: everything else omitted
+    rows = sheet.build().suppressions()
+
+    keys = [(r["feature"], r["parameter_id"], r["reason"]) for r in rows]
+    dupes = {k: n for k, n in Counter(keys).items() if n > 1}
+    assert not dupes, f"the same omission reported more than once: {dupes}"
+    # ...and the fact itself survives the dedup rather than being dropped with its twin.
+    assert any(r["parameter_id"] == "height.length" for r in rows)
+
+
 def test_the_ledger_is_plain_data():
     """A harness, a generated script or an LLM has to diff two builds without importing IR
     types — that is the whole point of an audit surface — so the rows are plain dicts."""
