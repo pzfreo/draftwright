@@ -346,6 +346,7 @@ class TestStepPosition:
         intents_before = len(dwg._intents)
         coverage_before = dwg.coverage.snapshot()
         issues_before = dwg.registry.issues
+        suppressions_before = dwg.suppressions()
 
         calls = {"n": 0}
         real = _common.drain_corridors
@@ -371,6 +372,12 @@ class TestStepPosition:
         assert len(dwg._intents) == intents_before
         assert dwg.coverage.snapshot() == coverage_before  # coverage restored (#647 review)
         assert dwg.registry.issues == issues_before  # the mid-drain issue rolled out too
+        # The audit ledger (#996) is NOT part of the transaction, and that is the guarantee
+        # rather than an oversight: finalize recompiles the same immutable model and never
+        # writes _build.omissions, so there is nothing to roll back. Asserted explicitly
+        # (Codex #996 r4) so a future stage that DOES write it has to notice this and add it
+        # to the snapshot set above.
+        assert dwg.suppressions() == suppressions_before
 
         monkeypatch.undo()
         dwg.finalize()  # clean retry — the shoulder position places exactly once (no duplicate)

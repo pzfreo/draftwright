@@ -211,13 +211,26 @@ class _IntentRouting:
     slot_pattern_ids: set
 
 
+#: Size scalars appended to a feature key when present, in this order. Position alone is not
+#: identity: two holes at ONE origin with different bores keyed the same, and that is exactly
+#: the coincident-dedup case where the ledger most needs to say which instance lost its
+#: location (Codex #996 r4). Rounded, so float noise from a rebuild does not change the key.
+_KEY_SCALARS = ("diameter", "depth", "width", "length", "radius")
+
+
 def feature_key(f) -> str | None:
     """A stable, plain-data identity for a feature in the audit ledger (#996).
 
-    ``kind@(x,y,z)/axis``. The type name alone made two holes indistinguishable, so a diff of
-    two builds could not say which one lost a measurement, or whether a suppression had moved
-    between instances (Codex #996 r1). Derived from the geometry, so it also survives a
-    rebuild that reorders the feature list — list position would not.
+    ``kind@(x,y,z)/axis`` plus whichever of :data:`_KEY_SCALARS` the feature carries. The type
+    name alone made two holes indistinguishable, so a diff of two builds could not say which
+    one lost a measurement, or whether a suppression had moved between instances (Codex r1).
+    Derived from the geometry, so it survives a rebuild that reorders the feature list — list
+    position would not.
+
+    **Its limit, stated rather than implied:** two features of one kind sharing an origin,
+    an axis *and* every scalar above are indistinguishable here. They are the same measurement
+    to the compiler, so nothing in the ledger could separate them — but a caller diffing builds
+    should know the key is a description, not a handle.
     """
     if f is None:
         return None
@@ -230,7 +243,13 @@ def feature_key(f) -> str | None:
     if origin is None:
         return f"{kind}/{axis}" if axis else kind
     x, y, z = (float(v) for v in (origin[0], origin[1], origin[2]))
-    return f"{kind}@({x:.3f},{y:.3f},{z:.3f})/{axis}"
+    sizes = [
+        f"{name}={float(v):.3f}"
+        for name in _KEY_SCALARS
+        if isinstance(v := getattr(f, name, None), (int, float))
+    ]
+    tail = ("[" + ",".join(sizes) + "]") if sizes else ""
+    return f"{kind}@({x:.3f},{y:.3f},{z:.3f})/{axis}{tail}"
 
 
 @dataclass

@@ -273,7 +273,14 @@ def test_the_feature_key_distinguishes_two_instances_of_one_kind():
     b = HoleFeature(Frame((10.2, 5.1, 18.0), "z"), 4.0, depth=5.0, through=False)
 
     assert feature_key(a) != feature_key(b), "two distinct holes must not share a key"
-    assert feature_key(a) == "hole@(10.000,5.000,10.000)/z"
+
+    # Position alone is not identity. Two holes at ONE origin with different bores keyed the
+    # same — and that is precisely the coincident-dedup case, where the ledger most needs to
+    # say which instance lost its location (Codex #996 r4).
+    same_spot_wide = HoleFeature(Frame((10.0, 5.0, 10.0), "z"), 6.0, depth=None, through=True)
+    same_spot_narrow = HoleFeature(Frame((10.0, 5.0, 10.0), "z"), 4.0, depth=8.0, through=False)
+    assert feature_key(same_spot_wide) != feature_key(same_spot_narrow)
+    assert feature_key(a) == "hole@(10.000,5.000,10.000)/z[diameter=6.000]"
     assert feature_key(a) == feature_key(
         HoleFeature(Frame((10.0, 5.0, 10.0), "z"), 6.0, depth=None, through=True)
     ), "the same geometry must key the same across builds — that is what a diff relies on"
