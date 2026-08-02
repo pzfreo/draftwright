@@ -605,7 +605,7 @@ def test_place_strip_candidates_reserves_outermost_label_within_bounds():
         def view_of(s, n):
             return "plan"
 
-        def place(s, obj, name, view=None, feature=None):
+        def place(s, obj, name, view=None, feature=None, measurement=None):
             s.added.append((name, obj))
 
     strip = Strip(anchor=0.0, outer_limit=20.0, direction=1.0, gap=8.0, spacing=4.0)  # near=8
@@ -635,7 +635,7 @@ def test_place_strip_candidates_priority_survives_key_order():
         def view_of(s, n):
             return "plan"
 
-        def place(s, obj, name, view=None, feature=None):
+        def place(s, obj, name, view=None, feature=None, measurement=None):
             s.added.append((name, obj))
 
     def _run(priorities):
@@ -724,7 +724,7 @@ def test_place_strip_candidates_refills_after_late_forbid_rejection():
         def view_of(s, n):
             return "plan"
 
-        def place(s, obj, name, view=None, feature=None):
+        def place(s, obj, name, view=None, feature=None, measurement=None):
             s.added.append((name, obj))
 
     strip = Strip(anchor=0.0, outer_limit=13.0, direction=1.0, gap=0.0, spacing=4.0)
@@ -766,7 +766,7 @@ def test_place_strip_candidates_honors_per_candidate_natural_anchor():
         def view_of(s, n):
             return "plan"
 
-        def place(s, obj, name, view=None, feature=None):
+        def place(s, obj, name, view=None, feature=None, measurement=None):
             s.added.append((name, obj))
 
     strip = Strip(anchor=0.0, outer_limit=60.0, direction=1.0, gap=0.0, spacing=4.0)
@@ -818,7 +818,7 @@ def test_place_strip_candidates_ignores_perpendicular_disjoint_obstacle():
         def view_of(s, n):
             return "plan"
 
-        def place(s, o, n, view=None, feature=None):
+        def place(s, o, n, view=None, feature=None, measurement=None):
             s.added.append((n, o))
 
     # obstacle spans the whole strip in X but sits at y=[0,5]; the candidate dim is y=[30,40]

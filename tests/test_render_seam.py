@@ -240,7 +240,7 @@ class TestDiameterColumnOccupancy:
             def view_of(s, n):
                 return "front"
 
-            def add(s, ann, name, view, feature=None):
+            def add(s, ann, name, view, feature=None, measurement=None):
                 pass
 
         return _Dwg()
