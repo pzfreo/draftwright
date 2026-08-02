@@ -21,8 +21,12 @@ registry slot, not a handle on what it measures. Three consequences, all real:
   substitution is wholly invisible. So a clean diff does **not** establish that the
   measurements were preserved; it establishes only that nothing observable at this resolution
   moved (Codex #1001).
-- **A loss cannot be attributed to a suppression with confidence.** The ledger row names a
-  feature; the annotation does not. So a candidate explanation is a *hint*, never a verdict.
+- **A loss cannot be attributed to a suppression with confidence.** Feature provenance is
+  PARTIAL, not absent: ``registry.feature_of(name)`` returns the owning feature for a hole
+  callout, centre mark or location, and ``None`` for an envelope dim (measured). And even a
+  known feature does not identify *which* of its measurements an annotation is. So a candidate
+  explanation is a *hint*, never a verdict — though tightening it to feature identity where
+  provenance exists is a real improvement available today (#1002).
 - **An unnamed annotation is invisible.** ``Drawing.annotations()`` returns only *named*
   annotations by contract, so anything placed without a name cannot be compared here at all.
 - **A hole callout's CONTENT is invisible; only its presence is seen.** It renders as a
@@ -30,7 +34,8 @@ registry slot, not a handle on what it measures. Three consequences, all real:
   the object. Measured: changing a bore from ⌀8 to ⌀12 produces an identical diff. So a lost
   callout is reported, and a callout that starts saying something different is not.
 
-Closing either needs ADR 0010 provenance threaded from the planner to the placed annotation.
+Closing these needs stable MEASUREMENT identity on a placed annotation — feature provenance
+alone is not enough, and is in any case only partial today.
 Until then this is a **triage aid, not a proof** — and deliberately shaped so its weakest part
 cannot silence its strongest: a candidate suppression annotates a loss, it never removes it.
 An earlier cut let a weak substring match cancel the alarm outright, so any newly-suppressed
