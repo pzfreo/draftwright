@@ -48,9 +48,13 @@ def _measurements(dwg) -> dict[str, str]:
     for name, type_name in dwg.annotations().items():
         if type_name not in _DIMENSIONAL:
             continue
+        # NO non-empty-label requirement. A hole callout renders as a `Leader` whose own
+        # `label` is "" — its text lives on an attached callout object, and on some paths
+        # nowhere readable at all. Requiring a label dropped those from the comparison
+        # entirely, so a vanished hole callout produced NO loss: the one thing this must
+        # never do (#996). Presence is the signal; the label is extra detail on it.
         label = getattr(dwg.get_annotation(name), "label", None)
-        if label is not None and str(label) != "":
-            out[name] = str(label)
+        out[name] = "" if label is None else str(label)
     return out
 
 

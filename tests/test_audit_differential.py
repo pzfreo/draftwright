@@ -185,6 +185,27 @@ def test_sheet_furniture_is_not_a_measurement():
     )
 
 
+def test_a_labelless_callout_loss_is_still_detected():
+    """A hole callout renders as a `Leader` whose own `label` is "" — its text lives on an
+    attached callout object, and on some paths nowhere readable at all.
+
+    The first cut required a non-empty label, so those were dropped from the comparison
+    entirely and a vanished hole callout produced NO loss. That is the single thing this
+    module must never do, and the type filter added to remove furniture is what introduced it.
+
+    Presence is the signal; the label is extra detail on it.
+    """
+    before = _FakeDrawing(
+        {"hc_plan0": "", "m_env_width": "90"},
+        types={"hc_plan0": "Leader", "m_env_width": "Dimension"},
+    )
+    after = _FakeDrawing({"m_env_width": "90"}, types={"m_env_width": "Dimension"})
+
+    diff = diff_builds(before, after)
+    assert "hc_plan0" in diff["dimensions_lost"], "a labelless callout still counts"
+    assert explain(diff)[0].startswith("LOST: hc_plan0")
+
+
 def test_no_difference_reports_nothing():
     """No false positives: two identical builds produce an empty report, or the signal is
     noise and nobody reads it."""
