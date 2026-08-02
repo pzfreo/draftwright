@@ -139,7 +139,9 @@ class TestBuildDrawingPmi:
 
     def test_pmi_annotate_exports_svg_dxf(self, ctc01_annotated):
         """build_drawing + export with PMI produces valid SVG and DXF files."""
-        svg_path, dxf_path = ctc01_annotated.export()
+        _p = ctc01_annotated.export(formats=("svg", "dxf"))
+        svg_path = _p["svg"]
+        dxf_path = _p["dxf"]
         assert Path(svg_path).exists() and Path(svg_path).stat().st_size > 0
         assert Path(dxf_path).exists() and Path(dxf_path).stat().st_size > 0
 

@@ -10,9 +10,11 @@ the caller actually sees said nothing, so answering "what is left for the next r
 grepping three ADRs and a changelog, and still getting it wrong.
 
 **Known blind spot.** This scans code that *warns*. A surface documented as deprecated but
-emitting no warning is invisible here — `Drawing.export(svg=, dxf=)` is exactly that (declared
-deprecated under v0.3.1's "Deprecated" heading, warns nowhere). `docs/deprecations.md` is the
-backstop for those; this file cannot be.
+emitting no warning is invisible here, by construction. `Drawing.export(svg=, dxf=)` used to be
+exactly that — declared deprecated under v0.3.1's "Deprecated" heading and silent at runtime
+for four minor releases — until #987 gave it a warning, which is what brought it into this
+check's scope at all. `docs/deprecations.md` is the backstop for anything still in that state;
+this file cannot be.
 """
 
 from __future__ import annotations
@@ -111,10 +113,14 @@ def test_every_deprecation_names_its_removal() -> None:
 
 #: The number of deprecation announcements the scanner must still find. Lower it ONLY when a
 #: deprecation was genuinely removed, and say which — the point is that a silent drop means the
-#: scanner broke, not that the codebase got cleaner. Was 11 until #720 removed the two #963
-#: warnings (the bare dimension-role spelling and the `dimension(kind=…, value=…)` call shape)
-#: at 0.4.0; those are now raises, which carry no removal date to check.
-_EXPECTED_DEPRECATIONS = 9
+#: scanner broke, not that the codebase got cleaner.
+#:
+#: 11 → 9 when #720 removed the two #963 warnings (the bare dimension-role spelling and the
+#: `dimension(kind=…, value=…)` call shape) at 0.4.0; those are raises now, which carry no
+#: removal date to check. 9 → 11 when #987 gave the two legacy `Drawing.export` shapes the
+#: warnings they had lacked since 0.3.1 — which is also what brought them into this check's
+#: scope, since it can only see things that warn.
+_EXPECTED_DEPRECATIONS = 11
 
 
 def test_the_scanner_actually_matches_something() -> None:

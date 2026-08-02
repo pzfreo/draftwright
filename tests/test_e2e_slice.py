@@ -68,5 +68,7 @@ def test_dense_plate_callouts_dont_collide():
 def test_model_pipeline_drawing_exports(tmp_path):
     part = Box(80, 60, 12) - Pos(0, 0, 0) * Cylinder(4, 30)
     dwg = build_drawing(part, number="X")
-    svg, dxf = dwg.export(str(tmp_path / "slice"))
+    _p = dwg.export(str(tmp_path / "slice"), formats=("svg", "dxf"))
+    svg = _p["svg"]
+    dxf = _p["dxf"]
     assert os.path.getsize(svg) > 0 and os.path.getsize(dxf) > 0  # renders real geometry

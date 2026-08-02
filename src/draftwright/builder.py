@@ -941,7 +941,12 @@ def make_drawing(
     To add or remove annotations or add section/auxiliary views before export,
     call :func:`build_drawing` and use the returned :class:`Drawing`.
     """
-    svg_path, dxf_path = build_drawing(
+    # `formats=("svg", "dxf")` rather than a bare `.export()` (#987): the no-formats call is
+    # the deprecated legacy shape and now warns, and a warning raised from HERE would blame
+    # draftwright's own line for a call the caller never made — the #965 stacklevel lesson.
+    # This keeps make_drawing's documented `(svg_path, dxf_path)` return while leaving the
+    # legacy path with no internal callers, which is what lets it warn honestly.
+    _paths = build_drawing(
         step_file,
         out=out,
         title=title,
@@ -961,6 +966,6 @@ def make_drawing(
         frame=frame,
         projection=projection,
         zones=zones,
-    ).export()
-    assert svg_path is not None and dxf_path is not None  # export() writes both by default
-    return svg_path, dxf_path
+    ).export(formats=("svg", "dxf"))
+    assert isinstance(_paths, dict)  # formats=... always returns the {format: path} dict
+    return _paths["svg"], _paths["dxf"]

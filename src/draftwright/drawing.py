@@ -2738,10 +2738,16 @@ class Drawing:
         written as intermediates and removed when not themselves requested. *dpi* sets the PNG
         raster resolution.
 
-        Legacy (kept for back-compat): the boolean ``svg=``/``dxf=`` keywords — and calling
-        ``export()`` with no ``formats`` — select those two vector formats and return the old
-        ``(svg_path, dxf_path)`` tuple. Prefer ``formats=[...]`` (the dict API); ``export_pdf`` is
-        likewise superseded by ``export(formats=("pdf",))`` and now warns.
+        Legacy (deprecated in 0.3.1, **removed in 0.5.0**): the boolean ``svg=``/``dxf=``
+        keywords — and calling ``export()`` with no ``formats`` — select those two vector
+        formats and return the old ``(svg_path, dxf_path)`` tuple. Prefer ``formats=[...]``
+        (the dict API); ``export_pdf`` is likewise superseded by ``export(formats=("pdf",))``.
+
+        Both legacy shapes now **warn** (#987). They were listed under "Deprecated" in the
+        v0.3.1 changelog and then said nothing at runtime for four minor releases, which made
+        the planned 0.5.0 removal a silent break — and invisible to
+        ``tests/test_deprecation_dates.py``, which can only scan things that warn. A
+        deprecation nobody is warned about is documentation, not a deprecation.
         """
         self.finalize()  # #426: drain any recorded intents before export (no-op if none)
         out = out if out is not None else self.out
@@ -2753,6 +2759,26 @@ class Drawing:
 
         # --- legacy path: svg=/dxf= keywords → the old (svg, dxf) tuple (back-compat) ---
         if formats is None:
+            # Two distinct legacy shapes, warned separately because the fix differs (#987):
+            # the booleans SELECT formats, while bare export() is the old DEFAULT whose return
+            # type is a tuple. Callers of the first want `formats=[...]`; callers of the second
+            # additionally have to stop unpacking two values.
+            if svg is not None or dxf is not None:
+                warnings.warn(
+                    "Drawing.export(svg=…, dxf=…) is deprecated; pass formats=(...) and read "
+                    "the {format: path} dict — e.g. export(out, formats=('svg', 'dxf')). "
+                    "Removed in 0.5.0.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+            else:
+                warnings.warn(
+                    "Drawing.export() with no formats= returns the legacy (svg, dxf) tuple "
+                    "and is deprecated; pass formats=(...) and read the {format: path} dict — "
+                    "e.g. export(out, formats=('svg', 'dxf')). Removed in 0.5.0.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
             svg_path = self._write_svg(out) if (svg is None or svg) else None
             dxf_path = self._write_dxf(out) if (dxf is None or dxf) else None
             self.svg_path, self.dxf_path = svg_path, dxf_path

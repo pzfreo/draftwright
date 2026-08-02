@@ -71,7 +71,9 @@ def test_e2e_from_object_meets_standards(tmp_path, name):
     part = _make_parts()[name]
     stem = str(tmp_path / name)
     dwg = build_drawing(part, out=stem, title=name.upper(), number="DWG-1")
-    svg, dxf = dwg.export(stem)
+    _p = dwg.export(stem, formats=("svg", "dxf"))
+    svg = _p["svg"]
+    dxf = _p["dxf"]
     _assert_meets_standards(dwg, svg, dxf)
 
 
@@ -114,7 +116,9 @@ def test_ctc_ap203_meets_standards_no_degenerate_arcs(tmp_path, n):
     step = FIXTURES / f"nist_ctc_{n}_asme1_ap203.stp"
     stem = str(tmp_path / f"ctc{n}")
     dwg = build_drawing(str(step), out=stem)
-    svg, dxf = dwg.export(stem)
+    _p = dwg.export(stem, formats=("svg", "dxf"))
+    svg = _p["svg"]
+    dxf = _p["dxf"]
     _assert_meets_standards(dwg, svg, dxf)
     # The #19 fix: no circle-edge-on degenerate arcs leak into the SVG.
     data = Path(svg).read_text(encoding="utf-8")
@@ -133,7 +137,9 @@ def test_ctc_ap242_meets_standards(tmp_path, n):
     step = FIXTURES / f"nist_ctc_{n}_asme1_ap242.stp"
     stem = str(tmp_path / f"ctc{n}_ap242")
     dwg = build_drawing(str(step), out=stem)
-    svg, dxf = dwg.export(stem)
+    _p = dwg.export(stem, formats=("svg", "dxf"))
+    svg = _p["svg"]
+    dxf = _p["dxf"]
     _assert_meets_standards(dwg, svg, dxf)
 
 
