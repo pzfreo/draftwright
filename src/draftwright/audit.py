@@ -25,6 +25,10 @@ registry slot, not a handle on what it measures. Three consequences, all real:
   feature; the annotation does not. So a candidate explanation is a *hint*, never a verdict.
 - **An unnamed annotation is invisible.** ``Drawing.annotations()`` returns only *named*
   annotations by contract, so anything placed without a name cannot be compared here at all.
+- **A hole callout's CONTENT is invisible; only its presence is seen.** It renders as a
+  ``Leader`` whose ``label`` is ``""`` — the text is built at draw time and never exposed on
+  the object. Measured: changing a bore from ⌀8 to ⌀12 produces an identical diff. So a lost
+  callout is reported, and a callout that starts saying something different is not.
 
 Closing either needs ADR 0010 provenance threaded from the planner to the placed annotation.
 Until then this is a **triage aid, not a proof** — and deliberately shaped so its weakest part

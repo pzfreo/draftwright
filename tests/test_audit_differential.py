@@ -256,6 +256,22 @@ def test_a_labelless_callout_loss_is_still_detected():
     assert explain(diff)[0].startswith("LOST: hc_plan0")
 
 
+def test_a_callout_content_change_is_a_documented_blind_spot():
+    """Presence is seen; CONTENT is not, for hole callouts.
+
+    A callout renders as a `Leader` whose `label` is "" — the text is built at draw time and
+    never exposed on the object. Measured on real builds: changing a bore from 8 to 12
+    produces an identical diff. Pinned as a KNOWN LIMIT so the docstring cannot drift from the
+    behaviour, and so the day the text becomes readable this test fails and someone deletes it.
+    """
+    before = _FakeDrawing({"hc_plan0": ""}, types={"hc_plan0": "Leader"})
+    after = _FakeDrawing({"hc_plan0": ""}, types={"hc_plan0": "Leader"})  # different bore
+
+    diff = diff_builds(before, after)
+    assert diff["dimensions_changed"] == {}, "no readable text, so no detectable change"
+    assert explain(diff) == []
+
+
 def test_no_difference_reports_nothing():
     """No false positives: two identical builds produce an empty report, or the signal is
     noise and nobody reads it."""
