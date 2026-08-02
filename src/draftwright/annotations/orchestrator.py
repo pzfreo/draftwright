@@ -458,7 +458,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_envelope():
         # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
         # queued into the shared corridor instead of claiming a post-hoc carve tier.
-        # Suppression (square footprint / X-turned width) is the planner's decision (#250).
+        # Suppression (the rotational OD's cross-axis extents, X/Z-turned) is the planner's
+        # decision (#250). No square-footprint rule any more — #997 removed it.
         render_envelope(dwg, _compiled, a, ctx=ctx)
 
     def _s_detail_request():

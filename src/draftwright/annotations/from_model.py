@@ -2226,8 +2226,10 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
     registered into the same below-strip corridor as feature/location/GD&T/PMI candidates.
     The overall dims use the last ladder subchain so they stack outermost by construction,
     while their mandatory priority prevents best-effort below-strip occupants from starving
-    principal dimensions. The **planner** decides suppression (square footprint / X-turned;
-    #250); suppressed entries never arrive. Returns the count queued."""
+    principal dimensions. The **planner** decides suppression (the rotational OD's cross-axis
+    extents, X/Z-turned; #250) — there is no square-footprint rule since #997, so a square
+    part arrives with both extents. Suppressed entries never arrive. Returns the count
+    queued."""
     envs = plan.of_kind("envelope")
     env = envs[0] if envs else None
     if env is None:
