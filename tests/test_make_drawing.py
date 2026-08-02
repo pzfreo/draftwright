@@ -1721,7 +1721,7 @@ class TestStripZones:
         assert ann.label == "40", f"depth label should be y_size=40, got {ann.label!r}"
 
     def test_dim_depth_absent_for_square_plan(self):
-        # dim_depth must be omitted when x_size == y_size (within 5%).
+        # dim_depth is omitted when x_size == y_size — the width states the same extent.
         from build123d import Box
 
         from draftwright import build_drawing
@@ -1731,6 +1731,32 @@ class TestStripZones:
         assert "m_env_depth" not in dwg.annotations(), (
             "depth dim should be skipped for square plan"
         )
+        # ...but the WIDTH must survive, or the plate has no plan size at all (#997). This
+        # exact part drew only its height before the fix, and nothing here noticed, because
+        # the test asserted the absence it wanted without asserting the presence it needed.
+        assert "m_env_width" in dwg.annotations(), (
+            "a square plate must still state one planar extent"
+        )
+
+    def test_a_near_square_part_states_both_extents(self):
+        """#997: the square test was "within 5%", so a 100 x 95 part was drawn showing 100
+        and nothing else in-plane — no second dimension, and no `SQ` notation to even claim
+        squareness. A reader takes that part as 100 x 100. It is 5 mm narrower.
+
+        5% of a 100 mm part is 5 mm: orders of magnitude outside any machining tolerance. Two
+        extents are interchangeable only when they are the same number, so the tolerance now
+        absorbs float error and nothing else.
+        """
+        from build123d import Box
+
+        from draftwright import build_drawing
+
+        for w, d in ((100, 95), (50, 48), (100, 99)):
+            dwg = build_drawing(Box(w, d, 30), number="X")
+            assert "m_env_depth" in dwg.annotations(), (
+                f"{w}x{d} is not square — its depth must be stated, not implied by projection"
+            )
+            assert dwg.get_annotation("m_env_depth").label == str(d)
 
 
 # ---------------------------------------------------------------------------

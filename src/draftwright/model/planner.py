@@ -279,10 +279,17 @@ def _group_view(feature: Feature) -> str:
 
 
 def _square_footprint(model: PartModel) -> bool:
-    """In-plane width ≈ depth (within 5%) — a single overall dim suffices."""
+    """In-plane width == depth, to a geometric epsilon.
+
+    Was "within 5%" (#997). On a 100 mm part that admitted a 5 mm difference — orders of
+    magnitude outside any machining tolerance — and the drawing then showed ONE extent with
+    no ``SQ`` notation, so a 100 × 95 part read as 100 × 100. A dimension is a specification,
+    not an approximation of the projection: two extents are only interchangeable if they are
+    the same number. The tolerance now exists solely to absorb float error from the bbox.
+    """
     size = model.bbox.size  # type: ignore[attr-defined]  # build123d BoundBox
     w, d = float(size.X), float(size.Y)
-    return abs(w - d) <= max(w, d) * 0.05
+    return abs(w - d) <= max(1e-6, max(w, d) * 1e-9)
 
 
 def _suppression(model: PartModel, feature: Feature, param: DimParameter):
@@ -302,14 +309,13 @@ def _suppression(model: PartModel, feature: Feature, param: DimParameter):
         od_perp = {"x": {"depth"}, "y": {"width"}, "z": {"width", "depth"}}[rot.frame.axis]
         if param.role in od_perp:
             return True, f"rotational OD ({rot.frame.axis}-axis) conveys this extent"
-    # Keep width as the single representative planar extent. Suppressing both
-    # width and depth made square parts lose their plan size entirely (#897).
-    if param.role in ("width", "depth") and _square_footprint(model):
-        has_profile = any(
-            f.kind == "step_level" and getattr(f, "shoulders", ()) for f in model.features
-        )
-        if not has_profile or param.role == "depth":
-            return True, "square footprint (single overall dim suffices)"
+    # Keep width as the single representative planar extent on a square part; suppress only
+    # the depth, which repeats it. #897 added this after suppressing BOTH left square parts
+    # with no plan size at all — but it only took effect for parts carrying a step profile,
+    # so a plain square plate still lost both and was drawn with its height alone (#997).
+    # The profile has nothing to do with whether an extent is redundant, so it is gone.
+    if param.role == "depth" and _square_footprint(model):
+        return True, "square footprint (width states the same extent)"
     if param.role == "width" and model.orientation == "x":
         return True, "X-turned (step-length chain conveys the length)"
     if param.role == "height" and model.orientation == "z":

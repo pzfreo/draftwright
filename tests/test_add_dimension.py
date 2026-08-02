@@ -572,10 +572,16 @@ class TestItActuallyChangesTheDrawing:
         return sorted(n for n in drawing.annotations() if n.startswith("m_env"))
 
     def test_the_planner_suppresses_it_without_a_request(self):
-        assert self._env_dims(request=False) == []
+        # The WIDTH stays — it is the one representative planar extent, and the class
+        # docstring above says so ("suppresses the envelope depth ... it would restate the
+        # width"). This asserted `== []` until #997: both extents were being suppressed, so a
+        # square plate was drawn with no plan size at all. The intent written two lines up and
+        # the behaviour asserted here disagreed, and the test passed anyway — which is how the
+        # bug survived to be found from a case study instead of from its own suite.
+        assert self._env_dims(request=False) == ["m_env_width"]
 
     def test_a_request_puts_the_dimension_on_the_sheet(self):
-        assert self._env_dims(request=True) == ["m_env_depth"]
+        assert self._env_dims(request=True) == ["m_env_depth", "m_env_width"]
 
     def test_the_dotted_identity_works_end_to_end_too(self):
         sheet = Sheet(self._square_part(), title="T", number="N").auto_dimensions()
