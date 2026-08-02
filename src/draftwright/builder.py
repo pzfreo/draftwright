@@ -756,8 +756,8 @@ def build_drawing(
 
     Same arguments as :func:`make_drawing`, but returns the live :class:`Drawing`
     so you can add or remove annotations and add section/auxiliary views before
-    calling :meth:`Drawing.export`. ``make_drawing(...)`` is exactly
-    ``build_drawing(...).export()``.
+    calling :meth:`Drawing.export`. ``make_drawing(...)`` is
+    ``build_drawing(...).export(formats=("svg", "dxf"))``, unpacked to a tuple.
 
     Args:
         auto_dims: pass ``False`` to skip the automatic dimensions,

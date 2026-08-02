@@ -43,9 +43,11 @@ The two shapes warn **separately**, because the fix differs. `export(svg=…, dx
 need `formats=(...)`; bare `export(out)` callers need that *and* to stop unpacking two values,
 since the return type changes from tuple to dict.
 
-**Still open for 0.5.0:** removing the no-`formats` default changes what a bare `export(out)`
-returns. That is a larger decision than dropping a keyword and has not been taken — it is
-listed here so the removal is a choice rather than a consequence.
+**What removing the bare form at 0.5.0 entails.** It is dated like everything else on this
+page — the date is the commitment, and "we'll see" is how a surface ends up permanent. But it
+is not merely dropping a keyword: `export(out)` currently *returns* a tuple, so the removal
+changes a return type rather than rejecting an argument. Callers who never passed `svg=`/`dxf=`
+are still affected. Flagged so 0.5.0 confirms that is intended, rather than discovering it.
 
 ### ⚠ The two #963 removals broke without a warning release — deliberately
 
