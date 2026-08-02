@@ -97,6 +97,39 @@ def test_the_report_puts_the_alarm_first():
     assert sum(line.startswith("UNEXPLAINED") for line in lines) == 1
 
 
+def test_a_changed_value_is_reported_but_not_alarmed():
+    """A dimension can change without disappearing, and the first cut could not see it: an
+    80 mm width becoming 90 produced NO output at all, because the diff compared annotation
+    names and the name survived.
+
+    Reported now — a surface claiming to show "what was drawn" has to see a changed value. But
+    deliberately not an alarm: in a perturbation study a changed value is the expected result
+    of the perturbation, so ranking it with the losses would bury the signal in the noise the
+    experiment itself creates.
+    """
+    before = _FakeDrawing({"m_env_width": "80", "dim_height": "20"})
+    after = _FakeDrawing({"m_env_width": "90", "dim_height": "20"})
+
+    diff = diff_builds(before, after)
+    assert diff["dimensions_changed"] == {"m_env_width": ("80", "90")}
+    assert diff["dimensions_lost"] == {} and diff["dimensions_gained"] == {}
+
+    lines = explain(diff)
+    assert lines == ["changed: m_env_width 80 -> 90"]
+    assert not lines[0].startswith("UNEXPLAINED"), "a value change is not an alarm"
+
+
+def test_a_loss_outranks_a_change_in_the_report():
+    """Ordering again: a vanished dimension is a possible defect, a changed one is usually the
+    experiment working. The alarm must not sit below the noise."""
+    before = _FakeDrawing({"m_locx0": "33", "m_env_width": "80"})
+    after = _FakeDrawing({"m_env_width": "90"})
+
+    lines = explain(diff_builds(before, after))
+    assert lines[0].startswith("UNEXPLAINED")
+    assert lines[-1].startswith("changed:")
+
+
 def test_no_difference_reports_nothing():
     """No false positives: two identical builds produce an empty report, or the signal is
     noise and nobody reads it."""
