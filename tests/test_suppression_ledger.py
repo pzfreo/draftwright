@@ -109,6 +109,49 @@ def test_the_coincident_location_dedup_records_its_rejection():
     assert "10.000" in suppressed[0].reason and "5.000" in suppressed[0].reason
 
 
+def test_an_edge_anchored_pocket_records_why_it_has_no_location():
+    """The second completeness hole, same shape as the dedup one (Codex #996 r2).
+
+    An edge-anchored pocket passes the location eligibility check and is then `continue`d
+    out of the loop — a rule decision, silently. Worse than a missing audit row: an authored
+    `dimension(pocket, "location")` that `_check_authored_targets` had ACCEPTED produced
+    nothing at all, breaking that check's guarantee that an accepted entry cannot silently
+    yield nothing.
+
+    Found by asking the reviewer, twice, for *other* paths that drop a measurement without an
+    `Omission` — a completeness claim is only worth what the search behind it was.
+    """
+    from build123d import Box as _Box
+
+    from draftwright.model import Datum, Frame, PartModel, PocketFeature
+    from draftwright.model.planner import plan_locations
+
+    bbox = _Box(80, 50, 20).bounding_box()
+    pocket = PocketFeature(
+        frame=Frame((10.0, 5.0, 20.0), "z"),
+        width_axis="y",
+        long_axis="x",
+        width=10.0,
+        length=20.0,
+        depth=6.0,
+        w_center=5.0,
+        lo=0.0,
+        hi=20.0,
+        edge_anchored=True,
+    )
+    model = PartModel(
+        bbox=bbox,
+        orientation="prismatic",
+        features=[pocket],
+        datums=[Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))],
+    )
+
+    planned = plan_locations(model)
+    assert len(planned) == 1, "the skipped location must be recorded, not dropped"
+    assert planned[0].suppressed
+    assert "edge-anchored" in planned[0].reason
+
+
 def test_the_ledger_is_plain_data():
     """A harness, a generated script or an LLM has to diff two builds without importing IR
     types — that is the whole point of an audit surface — so the rows are plain dicts."""

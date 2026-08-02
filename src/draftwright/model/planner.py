@@ -431,6 +431,10 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     # (ref_point, role, source feature): the feature is carried so the renderer can
     # record provenance on the placed location dim (ADR 0010).
     refs: list[tuple[Point, str, Feature]] = []
+    # Features whose location a RULE declined before a reference point existed. They have no
+    # ref to plan from, so they cannot go through `refs`, but they were considered — and an
+    # audit that cannot see them reads their absence as "nothing was suppressed" (#996).
+    dropped: list[tuple[Feature, str, str]] = []
     for f in model.features:
         # Which features get a `datum_xy` position — including the orientation rule (the
         # hole/pattern/pad ladder is Z-normal; a pocket's two in-plane coordinates belong
@@ -450,8 +454,19 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
             elif f.members:
                 near = min(f.members, key=lambda m: (m[0] - dx) ** 2 + (m[1] - dy) ** 2)
                 refs.append((near, role, f))
+            else:
+                # A non-bolt-circle pattern with no members has no point to locate FROM.
+                # Recorded rather than skipped (#996): this feature passed the eligibility
+                # check two lines up, so its location was considered and then dropped.
+                dropped.append((f, role, "pattern has no members to locate from"))
         elif isinstance(f, PocketFeature):
             if f.edge_anchored:
+                # The pocket's position is conveyed by the edge it is anchored to, so no
+                # datum location is planned. A RULE decision, and it used to `continue`
+                # silently — so an authored `dimension(pocket, "location")` that
+                # `_check_authored_targets` had ACCEPTED produced nothing at all, with no
+                # diagnostic to say why (Codex #996 r2).
+                dropped.append((f, role, "edge-anchored; the edge conveys the position"))
                 continue
             # A recognised pocket frame may be anchored at an opening corner;
             # location furniture defines the in-plane centre, which is expressed
@@ -516,6 +531,10 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
                     ),
                 )
             )
+    omitted += [
+        _plan(feat.frame.origin, role, feat, suppressed=True, reason=why)
+        for feat, role, why in dropped
+    ]
     return [_plan(r, role, feat) for r, role, feat in unique] + omitted
 
 
