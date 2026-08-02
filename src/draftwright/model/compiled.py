@@ -379,8 +379,9 @@ class ApprovedLadder:
 class Omission:
     """A measurement the compiler did not approve, and why.
 
-    ``authored`` separates the author's own omission from a planner rule's suppression (a
-    square footprint, an X-turned extent). Only the first makes an empty result the script's
+    ``authored`` separates the author's own omission from a planner rule's suppression (an
+    X-turned extent, a rotational OD's cross-axis extent — the square-footprint rule that used
+    to be the stock example was deleted in #997). Only the first makes an empty result the script's
     doing, and only the first is recoverable by adding a `dimension(...)` line — a
     distinction three attempts at predicting renderer behaviour in #921 kept blurring.
     """
