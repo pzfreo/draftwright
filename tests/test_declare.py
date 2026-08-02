@@ -1657,6 +1657,27 @@ class TestAuthoredDimension:
         # The referential form is unaffected — same verb, the one meaning it now has.
         assert not [f for f in sheet.features if f.kind == "authored_dimension"]
 
+    def test_the_other_two_argument_errors_are_still_legible(self):
+        """`dimension` takes `**removed` so a keyword-only legacy call reaches its message
+        rather than dying on "missing 2 required positional arguments". That catch-all has two
+        other exits, and both were added WITHOUT tests — codecov caught it (#720 review).
+
+        They matter because `**removed` swallows what a normal signature would reject: an
+        ordinary typo must still say it is a typo, and a call with no arguments must still say
+        what it wanted, or the compat catch-all degrades every unrelated mistake."""
+        from draftwright.sheet import Sheet
+
+        sheet = Sheet(Box(40, 20, 10), title="P").auto_dimensions()
+        env = sheet.envelope()
+
+        # A keyword that is neither valid nor legacy: reported as unexpected, and named.
+        with pytest.raises(TypeError, match="unexpected keyword"):
+            sheet.dimension(env, "width.length", nonesuch=1)
+
+        # No arguments at all: says what it needs, rather than a bare "unexpected keyword".
+        with pytest.raises(TypeError, match="requires a feature and a parameter id"):
+            sheet.dimension()
+
     def test_validates_without_the_facade(self):
         from draftwright.model import measured_dimension
 
