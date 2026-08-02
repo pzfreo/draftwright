@@ -10891,7 +10891,7 @@ class TestExportFormats:
         dwg = build_drawing(Box(30, 20, 10))
 
         # Bare export(): the old default. Distinct message, and still the (svg, dxf) tuple.
-        with pytest.warns(DeprecationWarning, match="no formats=") as rec:
+        with pytest.warns(DeprecationWarning, match="omitted or None") as rec:
             legacy = dwg.export(str(tmp_path / "bare"))
         assert isinstance(legacy, tuple) and len(legacy) == 2
         assert all(p and Path(p).exists() for p in legacy)
@@ -10905,13 +10905,34 @@ class TestExportFormats:
         with pytest.warns(DeprecationWarning, match=r"formats=\('dxf',\)") as rec2:
             svg_path, dxf_path = dwg.export(str(tmp_path / "dxfonly"), svg=False, dxf=True)
         assert svg_path is None and dxf_path is not None and Path(dxf_path).exists()
-        assert "no formats=" not in str(rec2[0].message)  # the other shape's message
+        assert "omitted or None" not in str(rec2[0].message)  # the other shape's message
+
+        # `formats=None` is indistinguishable from omitting it — None IS the default sentinel —
+        # so it takes the same path and must get the same message, not one claiming no formats
+        # argument was passed (Codex r3).
+        with pytest.warns(DeprecationWarning, match="omitted or None"):
+            assert isinstance(dwg.export(str(tmp_path / "none"), formats=None), tuple)
 
         # The supported call is silent and returns the dict.
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
             paths = dwg.export(str(tmp_path / "new"), formats=("svg", "dxf"))
         assert sorted(paths) == ["dxf", "svg"]
+
+    def test_a_legacy_boolean_alongside_formats_says_it_is_ignored(self, tmp_path):
+        """`formats=` wins over the booleans, so `formats=("svg",), svg=False` writes the very
+        SVG the caller switched off — and the legacy branch never runs, so before this it
+        happened in total silence.
+
+        A deprecated argument that is ignored without a word is the failure this change exists
+        to fix, so it warns. `formats` still wins: the warning reports the outcome rather than
+        changing it."""
+        dwg = build_drawing(Box(30, 20, 10))
+        with pytest.warns(DeprecationWarning, match="IGNORED when formats=") as rec:
+            paths = dwg.export(str(tmp_path / "both"), formats=("svg",), svg=False)
+        assert sorted(paths) == ["svg"], "formats= still decides what is written"
+        assert "svg=" in str(rec[0].message)  # names which argument was dropped
+        assert Path(rec[0].filename).name == Path(__file__).name  # blames the caller
 
     def test_make_drawing_is_not_on_the_legacy_export_path(self, tmp_path):
         """#987: `make_drawing` used to call `.export()` with no formats, so warning on that

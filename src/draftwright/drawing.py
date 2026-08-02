@@ -2737,9 +2737,9 @@ class Drawing:
         renders from the SVG and PNG from the PDF, so the SVG/PDF are written as intermediates
         and removed when not themselves requested. *dpi* sets the PNG raster resolution.
 
-        Omitting *formats* does **not** default to ``("pdf",)`` — that is
-        :meth:`Sheet.export`'s default. Here it selects the deprecated legacy path below, which
-        writes SVG + DXF and returns a tuple.
+        Omitting *formats* — or passing ``None``, which is indistinguishable from omitting it
+        — does **not** default to ``("pdf",)``; that is :meth:`Sheet.export`'s default. Here it
+        selects the deprecated legacy path below, which writes SVG + DXF and returns a tuple.
 
         Legacy (deprecated in 0.3.1, **removed in 0.5.0**): the boolean ``svg=``/``dxf=``
         keywords — and calling ``export()`` with no ``formats`` — select those two vector
@@ -2759,6 +2759,21 @@ class Drawing:
                 out = out[: -(len(_ext) + 1)]
                 break
         self._lint_and_log()
+
+        # `formats=` wins over the legacy booleans, which means `export(out, formats=("svg",),
+        # svg=False)` writes the SVG the caller just switched off — silently, since the legacy
+        # branch below never runs. A caller passing both has a stale mental model, and a
+        # deprecated argument that is ignored WITHOUT a word is the exact failure this change
+        # exists to fix (#987). Say so; `formats` still wins.
+        if formats is not None and (svg is not None or dxf is not None):
+            _ignored = [f"{k}=" for k, v in (("svg", svg), ("dxf", dxf)) if v is not None]
+            warnings.warn(
+                f"Drawing.export(): {', '.join(_ignored)} is deprecated and is IGNORED when "
+                f"formats= is given — this call writes formats={tuple(formats)!r}. Drop it, or "
+                "put the format in formats=. Removed in 0.5.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         # --- legacy path: svg=/dxf= keywords → the old (svg, dxf) tuple (back-compat) ---
         if formats is None:
@@ -2782,9 +2797,10 @@ class Drawing:
                 )
             else:
                 warnings.warn(
-                    "Drawing.export() with no formats= returns the legacy (svg, dxf) tuple "
-                    "and is deprecated; pass formats=(...) and read the {format: path} dict — "
-                    "e.g. export(out, formats=('svg', 'dxf')). Removed in 0.5.0.",
+                    "Drawing.export() with formats= omitted or None returns the legacy "
+                    "(svg, dxf) tuple and is deprecated; pass formats=(...) and read the "
+                    "{format: path} dict — e.g. export(out, formats=('svg', 'dxf')). "
+                    "Removed in 0.5.0.",
                     DeprecationWarning,
                     stacklevel=2,
                 )
