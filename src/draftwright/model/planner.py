@@ -491,8 +491,31 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
         refs = kept
     unique: list[tuple[Point, str, Feature]] = []
     for r, role, feat in refs:
-        if not any(abs(r[0] - u[0]) < 0.5 and abs(r[1] - u[1]) < 0.5 for u, _, _ in unique):
+        clash = next(
+            (u for u, _, _ in unique if abs(r[0] - u[0]) < 0.5 and abs(r[1] - u[1]) < 0.5),
+            None,
+        )
+        if clash is None:
             unique.append((r, role, feat))
+        else:
+            # Record the rejection instead of dropping it silently (#996). This is a RULE
+            # deciding a measurement is redundant — the same category as the suppressions
+            # above — but it used to filter before the compiler saw the candidate, so no
+            # `Omission` existed and the audit could not see it. An audit that claims
+            # completeness while a suppression path is invisible is worse than none, because
+            # its silence reads as "nothing was suppressed" (Codex #996 r1).
+            omitted.append(
+                _plan(
+                    r,
+                    role,
+                    feat,
+                    suppressed=True,
+                    reason=(
+                        f"coincident with a location already dimensioned at "
+                        f"({clash[0]:.3f}, {clash[1]:.3f})"
+                    ),
+                )
+            )
     return [_plan(r, role, feat) for r, role, feat in unique] + omitted
 
 

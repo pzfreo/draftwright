@@ -495,7 +495,7 @@ def test_build_state_has_a_single_construction_and_fill_site():
             "_build.detail_view",
             "_build.trace",
             "_build.omissions",
-        ],
+        ],  # omissions: ONE assignment covering both the auto and auto_dims=False paths
         # drawing.py still writes _build.trace via the deprecated attach_solve_trace
         # shim/primitive (kept until 0.5.0) — no engine caller reaches it now. The
         # recorder also participates in finalize()'s #647 transaction: finalize

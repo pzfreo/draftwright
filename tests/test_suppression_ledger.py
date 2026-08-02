@@ -69,6 +69,46 @@ def test_an_authored_omission_is_distinguished_from_a_rule_suppression():
     assert all(o["reason"] for o in dwg.suppressions()), "every omission carries a reason"
 
 
+def test_the_coincident_location_dedup_records_its_rejection():
+    """Completeness: a rule that drops a measurement must produce an `Omission`.
+
+    `plan_locations` dedups references within 0.5 of one another. That filter ran *before*
+    the compiler saw the candidate, so the rejection produced no diagnostic at all and the
+    audit could not see it (Codex #996 r1). An audit claiming completeness while a
+    suppression path is invisible is worse than no audit — its silence reads as "nothing was
+    suppressed", which is the exact false confidence this surface exists to remove.
+
+    Unit-level on purpose: the dedup compares feature *origins* in X/Y, so provoking it from
+    real geometry needs two features stacked at one plan position, and the fixture would then
+    be testing recognition rather than the rule.
+    """
+    from build123d import Box as _Box
+
+    from draftwright.model import Datum, Frame, HoleFeature, PartModel
+    from draftwright.model.planner import plan_locations
+
+    bbox = _Box(80, 50, 20).bounding_box()
+    datum = Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))
+    near, also_near = (10.0, 5.0, 10.0), (10.2, 5.1, 18.0)  # within the 0.5 window in X/Y
+    model = PartModel(
+        bbox=bbox,
+        orientation="prismatic",
+        features=[
+            HoleFeature(Frame(near, "z"), 6.0, depth=None, through=True),
+            HoleFeature(Frame(also_near, "z"), 4.0, depth=5.0, through=False),
+        ],
+        datums=[datum],
+    )
+
+    planned = plan_locations(model)
+    suppressed = [p for p in planned if p.suppressed]
+    assert len(suppressed) == 1, "the deduped reference must be recorded, not dropped"
+    # ...and it names the winner, so an auditor can see WHICH location absorbed it rather
+    # than only that something vanished.
+    assert "coincident" in suppressed[0].reason
+    assert "10.000" in suppressed[0].reason and "5.000" in suppressed[0].reason
+
+
 def test_the_ledger_is_plain_data():
     """A harness, a generated script or an LLM has to diff two builds without importing IR
     types — that is the whole point of an audit surface — so the rows are plain dicts."""
@@ -79,3 +119,25 @@ def test_the_ledger_is_plain_data():
     import json
 
     json.dumps(rows)  # must round-trip; a harness will serialise these
+
+
+def test_the_feature_key_distinguishes_two_instances_of_one_kind():
+    """A diff has to say WHICH feature lost a measurement.
+
+    The key was the class name, so two holes both read `"HoleFeature"` and a diff could not
+    tell whether the same hole was suppressed in both builds, or whether a suppression had
+    moved between instances (Codex #996 r1). It is derived from the geometry now, so it also
+    survives a rebuild that reorders the feature list — list position would not.
+    """
+    from draftwright.drawing import feature_key
+    from draftwright.model import Frame, HoleFeature
+
+    a = HoleFeature(Frame((10.0, 5.0, 10.0), "z"), 6.0, depth=None, through=True)
+    b = HoleFeature(Frame((10.2, 5.1, 18.0), "z"), 4.0, depth=5.0, through=False)
+
+    assert feature_key(a) != feature_key(b), "two distinct holes must not share a key"
+    assert feature_key(a) == "hole@(10.000,5.000,10.000)/z"
+    assert feature_key(a) == feature_key(
+        HoleFeature(Frame((10.0, 5.0, 10.0), "z"), 6.0, depth=None, through=True)
+    ), "the same geometry must key the same across builds — that is what a diff relies on"
+    assert feature_key(None) is None  # a model-level omission has no feature

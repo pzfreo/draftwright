@@ -437,6 +437,7 @@ def _assemble(
     dwg._add_view("side", part_s, (cxs + dist, cys, czs), (0, 0, 1), (a.SV_X, a.SV_Y), scaled=True)
     _project_iso(dwg, a, a.SCALE, shape_s=part_s)
 
+    _diagnostics = None  # the audit ledger; filled once at the end of this function (#996)
     if auto_dims:
         # Snapshot outer_limits before _auto_annotate tightens them against the
         # initial (possibly overflowing) iso.  After _fit_iso_view rescales the
@@ -445,10 +446,10 @@ def _assemble(
         _fv_ol = a.fv_zones.right.outer_limit
         _pv_ol = a.pv_zones.right.outer_limit
         _sv_ol = a.sv_zones.right.outer_limit
-        # BuildState's single fill site owns the omission ledger too (#996 / ADR 0005 §2):
-        # the orchestrator returns it rather than writing a drawing private, so `annotations/`
-        # stays off the state bus (#639/#830) and `suppressions()` has something to read.
-        dwg._build.omissions = tuple(_auto_annotate(dwg, a, detail_view=detail_view) or ())
+        # The orchestrator RETURNS the omission ledger rather than writing a drawing private,
+        # so `annotations/` stays off the state bus (#639/#830). Filled at the single site
+        # below, not here — see there (#996 / ADR 0005 §2).
+        _diagnostics = _auto_annotate(dwg, a, detail_view=detail_view)
         _fit_iso_view(dwg, a)
         _ix0, _iy0, _, _iy1 = _iso_bbox(dwg)
         _final_iso_x_lim = _ix0 - 4
@@ -473,6 +474,25 @@ def _assemble(
             _add_zone_grid(dwg, a)
         if a.projection:  # projection-method glyph (#769) — auto path adds it via the orchestrator
             _add_projection_symbol(dwg, a)
+
+    # The audit ledger, filled at ONE site for both paths (#996 / ADR 0005 §2).
+    #
+    # It is not a by-product of rendering. The auto path gets it from `_auto_annotate`'s
+    # return; `auto_dims=False` draws no automatic dimensions, so it compiles for the
+    # diagnostics alone — the plan is discarded, only the record kept. That branch reported an
+    # EMPTY ledger while the compiler really had suppressed measurements, which is precisely
+    # the false confidence this surface exists to remove (Codex #996 r1).
+    #
+    # Assigned once rather than in each branch: two fill sites for one BuildState field is
+    # what #830's single-construction rule exists to stop, and the guard caught the first
+    # attempt at exactly that.
+    if _diagnostics is None:
+        _model_for_audit = dwg.model()
+        if _model_for_audit is not None:
+            from draftwright.model.compiled import compile_dimensions
+
+            _diagnostics = compile_dimensions(_model_for_audit).diagnostics
+    dwg._build.omissions = tuple(_diagnostics or ())
     return dwg
 
 

@@ -211,6 +211,28 @@ class _IntentRouting:
     slot_pattern_ids: set
 
 
+def feature_key(f) -> str | None:
+    """A stable, plain-data identity for a feature in the audit ledger (#996).
+
+    ``kind@(x,y,z)/axis``. The type name alone made two holes indistinguishable, so a diff of
+    two builds could not say which one lost a measurement, or whether a suppression had moved
+    between instances (Codex #996 r1). Derived from the geometry, so it also survives a
+    rebuild that reorders the feature list — list position would not.
+    """
+    if f is None:
+        return None
+    kind = getattr(f, "kind", None) or type(f).__name__
+    frame = getattr(f, "frame", None)
+    if frame is None:
+        return kind
+    origin = getattr(frame, "origin", None)
+    axis = getattr(frame, "axis", "")
+    if origin is None:
+        return f"{kind}/{axis}" if axis else kind
+    x, y, z = (float(v) for v in (origin[0], origin[1], origin[2]))
+    return f"{kind}@({x:.3f},{y:.3f},{z:.3f})/{axis}"
+
+
 @dataclass
 class BuildState:
     """The build context a finished :class:`Drawing` carries (ADR 0005 §2 / #639).
@@ -581,12 +603,17 @@ class Drawing:
         absent dimension is only defensible if something can say which rule removed it; this
         is that something.
 
-        Returns plain dicts (``feature``/``parameter_id``/``value``/``reason``/``authored``)
-        so a harness, a script or an LLM can diff two builds without importing IR types.
+        Returns plain dicts so a harness, a script or an LLM can diff two builds without
+        importing IR types. ``feature`` is a **stable key**, not just the type name: a bare
+        ``"HoleFeature"`` made two holes indistinguishable, so a diff could not say *which*
+        one lost its location, or whether a suppression had moved between instances (Codex
+        #996 r1). The key is ``kind@(x,y,z)/axis``, which survives a rebuild because it is
+        derived from the geometry rather than from list position.
         """
+
         return [
             {
-                "feature": type(o.feature).__name__ if o.feature is not None else None,
+                "feature": feature_key(o.feature),
                 "parameter_id": o.parameter_id,
                 "value": o.value,
                 "reason": o.reason,
