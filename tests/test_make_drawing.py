@@ -10934,6 +10934,26 @@ class TestExportFormats:
         assert "svg=" in str(rec[0].message)  # names which argument was dropped
         assert Path(rec[0].filename).name == Path(__file__).name  # blames the caller
 
+    def test_a_one_shot_formats_iterable_survives_the_warning(self, tmp_path):
+        """Building the warning message must not CONSUME `formats` (Codex #987 r4).
+
+        It read `tuple(formats)` to say what would be written, and the export then iterated the
+        same object again — so a generator warned "writes ('svg', 'dxf')" and then wrote
+        nothing, returning {}. The warning silently broke the call it was describing, which is
+        a worse failure than the silence it was added to fix. `formats` is normalised once now.
+        """
+        dwg = build_drawing(Box(30, 20, 10))
+        with pytest.warns(DeprecationWarning, match=r"formats=\('svg', 'dxf'\)"):
+            paths = dwg.export(
+                str(tmp_path / "gen"), formats=(f for f in ("svg", "dxf")), svg=False
+            )
+        assert sorted(paths) == ["dxf", "svg"], "the generator was consumed by the warning"
+        assert all(Path(p).exists() for p in paths.values())
+
+        # And a plain string is one format, not its letters: `tuple("svg")` said ('s','v','g').
+        with pytest.warns(DeprecationWarning, match=r"formats=\('svg',\)"):
+            assert sorted(dwg.export(str(tmp_path / "str"), formats="svg", dxf=True)) == ["svg"]
+
     def test_make_drawing_is_not_on_the_legacy_export_path(self, tmp_path):
         """#987: `make_drawing` used to call `.export()` with no formats, so warning on that
         path would have fired for every caller of the headline API — blaming draftwright's own

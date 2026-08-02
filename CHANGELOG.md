@@ -47,6 +47,22 @@ upgrading from v0.3.9 or earlier goes straight from working to a raise. That is 
 (ADR 0016); this entry and `docs/deprecations.md` are the only notice you get, so both
 failures name their replacement rather than raising about argument counts.
 
+### Deprecated
+
+- **The legacy `Drawing.export` shapes now emit `DeprecationWarning`** (#987) — they were
+  announced as deprecated in v0.3.1 and then said nothing at runtime for four minor releases,
+  which would have made their 0.5.0 removal a silent break. Three cases warn:
+  - `export()` with `formats=` **omitted or `None`** — the legacy default, which writes
+    SVG + DXF and returns an `(svg, dxf)` **tuple** rather than the `{format: path}` dict.
+  - the **`svg=` / `dxf=` booleans**. The suggested replacement names the formats *that call*
+    selected, so following it cannot change what gets written.
+  - passing a boolean **alongside** `formats=`, where it is silently ignored — `formats` wins,
+    and now says so.
+
+  **If you promote `DeprecationWarning` to an error, previously-passing exports will now
+  raise.** Migration: `export(out, formats=("svg", "dxf"))` and read the dict. `make_drawing`
+  is unaffected — it returns the same tuple and does not warn.
+
 ### Fixed
 
 - **`sheet.envelope()` measured the file, not the part** (#977). An AP242 STEP import is a

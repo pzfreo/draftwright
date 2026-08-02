@@ -2760,16 +2760,25 @@ class Drawing:
                 break
         self._lint_and_log()
 
+        # Normalise ONCE, here, before anything reads it. `formats` may be a one-shot iterable,
+        # and the mixed-API warning below used to build its message with `tuple(formats)` —
+        # which consumed a generator, leaving the export loop nothing to iterate: it warned
+        # that it would write SVG+DXF and then wrote nothing (Codex #987 r4). Normalising early
+        # also makes the message say `('svg',)` rather than `('s', 'v', 'g')` for `formats="svg"`.
+        want: list[str] | None = None
+        if formats is not None:
+            want = [formats.lower()] if isinstance(formats, str) else [f.lower() for f in formats]
+
         # `formats=` wins over the legacy booleans, which means `export(out, formats=("svg",),
         # svg=False)` writes the SVG the caller just switched off — silently, since the legacy
         # branch below never runs. A caller passing both has a stale mental model, and a
         # deprecated argument that is ignored WITHOUT a word is the exact failure this change
         # exists to fix (#987). Say so; `formats` still wins.
-        if formats is not None and (svg is not None or dxf is not None):
+        if want is not None and (svg is not None or dxf is not None):
             _ignored = [f"{k}=" for k, v in (("svg", svg), ("dxf", dxf)) if v is not None]
             warnings.warn(
                 f"Drawing.export(): {', '.join(_ignored)} is deprecated and is IGNORED when "
-                f"formats= is given — this call writes formats={tuple(formats)!r}. Drop it, or "
+                f"formats= is given — this call writes formats={tuple(want)!r}. Drop it, or "
                 "put the format in formats=. Removed in 0.5.0.",
                 DeprecationWarning,
                 stacklevel=2,
@@ -2809,8 +2818,8 @@ class Drawing:
             self.svg_path, self.dxf_path = svg_path, dxf_path
             return svg_path, dxf_path
 
-        # --- formats=... → {format: path} (requested order) ---
-        want = [formats.lower()] if isinstance(formats, str) else [f.lower() for f in formats]
+        # --- formats=... → {format: path} (requested order); `want` normalised above ---
+        assert want is not None  # formats is not None on this branch
         unknown = [f for f in want if f not in self._EXPORT_FORMATS]
         if unknown:
             raise ValueError(
