@@ -242,6 +242,13 @@ class BuildState:
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
     trace: Any = None
     detail_view: bool = False
+    #: The compiler's :class:`~draftwright.model.compiled.Omission` records — every
+    #: measurement it considered and did not approve, with the rule that stopped it (#996).
+    #: The compiled plan was a local in the orchestrator: built, read by the renderers, and
+    #: dropped. So the one place recording WHY a dimension is absent did not outlive the
+    #: build, and absence had to be inferred from a finished sheet — which is how a wrong
+    #: suppression rule produced four issue reports before anyone found the rule (#997).
+    omissions: tuple = ()
 
     def clear_geometry_caches(self) -> None:
         """The one invalidation seam (finalize rollback): view edges + annotation
@@ -557,6 +564,36 @@ class Drawing:
         """Attach the built PartModel so ``model()`` and feature edits see it. Lets the
         orchestrator hand the model back without an ``annotations/`` attribute write (#639)."""
         self._build.part_model = model
+
+    def suppressions(self) -> list[dict]:
+        """Every measurement the compiler considered and did not approve, and why.
+
+        The **audit read** (#996). A finished drawing shows what was drawn; this shows what
+        was *not*, separated into the two cases that mean opposite things:
+
+        - ``authored`` — the script's own omission, under ADR 0016's rule that an authored
+          set means omission is suppression. Recoverable by adding a ``dimension(...)`` line.
+        - otherwise — a **planner rule** decided it, and ``reason`` names which.
+
+        The second is the one worth auditing. A rule that fires where it should not produces
+        a drawing that is silently under-defined and lints clean, which is how #997's square
+        rule generated four separate issue reports without any of them naming the cause. An
+        absent dimension is only defensible if something can say which rule removed it; this
+        is that something.
+
+        Returns plain dicts (``feature``/``parameter_id``/``value``/``reason``/``authored``)
+        so a harness, a script or an LLM can diff two builds without importing IR types.
+        """
+        return [
+            {
+                "feature": type(o.feature).__name__ if o.feature is not None else None,
+                "parameter_id": o.parameter_id,
+                "value": o.value,
+                "reason": o.reason,
+                "authored": o.authored,
+            }
+            for o in self._build.omissions
+        ]
 
     @property
     def solve_trace(self):

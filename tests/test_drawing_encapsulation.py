@@ -484,11 +484,17 @@ def test_build_state_has_a_single_construction_and_fill_site():
         # _build.trace: the #736 solve-trace recorder now rides BuildState filled
         # directly at the one construction site (#830 — the engine constructs the
         # build state, it does not mutate a live Drawing through attach_solve_trace).
+        # _build.omissions: the compiler's suppression ledger (#996). `_auto_annotate`
+        # RETURNS it and builder fills it here, rather than `annotations/` writing a drawing
+        # private — #830 removed the last engine caller that did that, and this new field is
+        # not an excuse to reintroduce the pattern. The first cut of #996 did exactly that
+        # and these guards caught it.
         "builder.py": [
             "_build.analysis",
             "_build.part_model",
             "_build.detail_view",
             "_build.trace",
+            "_build.omissions",
         ],
         # drawing.py still writes _build.trace via the deprecated attach_solve_trace
         # shim/primitive (kept until 0.5.0) — no engine caller reaches it now. The

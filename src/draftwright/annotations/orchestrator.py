@@ -244,7 +244,15 @@ def _declared_feature_keys(groups, a: Analysis) -> set:
 
 
 def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
-    """Add the standard automatic dimensions, centrelines, and title block."""
+    """Add the standard automatic dimensions, centrelines, and title block.
+
+    Returns the compiler's omission diagnostics — every measurement it considered and did not
+    approve, with the rule that stopped it (#996). RETURNED rather than written onto the
+    drawing: #830 removed the last engine caller that reached for `dwg._attach_*`, and
+    `builder._assemble` is BuildState's single fill site (ADR 0005 §2 / #639). Handing them
+    back keeps both true — the record outlives the build without `annotations/` touching the
+    drawing's privates.
+    """
     # Per-run placement scratch (detail requests / escalations / corridor batch) + references to
     # the drawing's build-state stores (registry/coverage), threaded to the passes instead of hung
     # on the Drawing (ADR 0005 §2, #639). Fresh each auto-pass; the corridor batch is drained once
@@ -623,6 +631,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # The escalations live only on this per-run ctx (#639), discarded when _auto_annotate
     # returns — so nothing carries stale drops into a later deferred edit (#440), and there is
     # no drawing-level list to clear.
+    return _compiled.diagnostics
 
 
 def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):

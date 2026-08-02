@@ -445,7 +445,10 @@ def _assemble(
         _fv_ol = a.fv_zones.right.outer_limit
         _pv_ol = a.pv_zones.right.outer_limit
         _sv_ol = a.sv_zones.right.outer_limit
-        _auto_annotate(dwg, a, detail_view=detail_view)
+        # BuildState's single fill site owns the omission ledger too (#996 / ADR 0005 §2):
+        # the orchestrator returns it rather than writing a drawing private, so `annotations/`
+        # stays off the state bus (#639/#830) and `suppressions()` has something to read.
+        dwg._build.omissions = tuple(_auto_annotate(dwg, a, detail_view=detail_view) or ())
         _fit_iso_view(dwg, a)
         _ix0, _iy0, _, _iy1 = _iso_bbox(dwg)
         _final_iso_x_lim = _ix0 - 4
