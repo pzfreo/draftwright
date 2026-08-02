@@ -22,7 +22,7 @@ something.
 | `Drawing.attach_solve_trace()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.export_pdf()` | `export(out, formats=("pdf",))["pdf"]` | 0.3.1 | 0.5.0 |
 | `Drawing.export(svg=, dxf=)` keywords | `export(out, formats=[...])` → `{format: path}` | 0.3.1 (warns since 0.4.0) | 0.5.0 |
-| `Drawing.export()` with no `formats` → `(svg, dxf)` tuple | `export(out, formats=[...])` → `{format: path}` | 0.3.1 (warns since 0.4.0) | 0.5.0 — **see below** |
+| `Drawing.export()` with `formats` omitted **or `None`** → `(svg, dxf)` tuple | `export(out, formats=[...])` → `{format: path}` | 0.3.1 (warns since 0.4.0) | 0.5.0 — **see below** |
 | `Drawing.place_dim()` | `dimension(feature, param, pin=True)` / `locate(…, pin=True)` | **0.2.12** (0.3.8 added the PEP 702 shim) | gated on #707, target 0.6.0 |
 
 ### The legacy `export` shapes warn from 0.4.0 — and why that needed `make_drawing` moved first

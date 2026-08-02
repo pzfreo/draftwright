@@ -10954,6 +10954,20 @@ class TestExportFormats:
         with pytest.warns(DeprecationWarning, match=r"formats=\('svg',\)"):
             assert sorted(dwg.export(str(tmp_path / "str"), formats="svg", dxf=True)) == ["svg"]
 
+    def test_a_bad_format_reports_the_typo_not_the_deprecation(self, tmp_path):
+        """A mistyped format is a broken call, not a deprecated one. Normalising `formats`
+        earlier put the deprecation warning ahead of the format validation, so a caller
+        promoting DeprecationWarning to an error would see the deprecation instead of the typo
+        that actually stopped their export. Validation runs first."""
+        dwg = build_drawing(Box(30, 20, 10))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with pytest.raises(ValueError, match="unknown export format"):
+                dwg.export(str(tmp_path / "bad"), formats=("nope",), svg=False)
+        assert not [w for w in caught if issubclass(w.category, DeprecationWarning)], (
+            "the deprecation fired before the ValueError that matters"
+        )
+
     def test_make_drawing_is_not_on_the_legacy_export_path(self, tmp_path):
         """#987: `make_drawing` used to call `.export()` with no formats, so warning on that
         path would have fired for every caller of the headline API — blaming draftwright's own

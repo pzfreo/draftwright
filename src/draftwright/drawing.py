@@ -2768,6 +2768,15 @@ class Drawing:
         want: list[str] | None = None
         if formats is not None:
             want = [formats.lower()] if isinstance(formats, str) else [f.lower() for f in formats]
+            # Validate BEFORE the deprecation warning below. A caller who mistyped a format has
+            # a broken call, not a deprecated one — and under `-W error` a warning raised first
+            # would surface the deprecation instead of the typo that actually stopped the
+            # export. Report the fault that matters.
+            unknown = [f for f in want if f not in self._EXPORT_FORMATS]
+            if unknown:
+                raise ValueError(
+                    f"unknown export format(s) {unknown}; choose from {self._EXPORT_FORMATS}"
+                )
 
         # `formats=` wins over the legacy booleans, which means `export(out, formats=("svg",),
         # svg=False)` writes the SVG the caller just switched off — silently, since the legacy
@@ -2818,13 +2827,8 @@ class Drawing:
             self.svg_path, self.dxf_path = svg_path, dxf_path
             return svg_path, dxf_path
 
-        # --- formats=... → {format: path} (requested order); `want` normalised above ---
+        # --- formats=... → {format: path} (requested order); normalised + validated above ---
         assert want is not None  # formats is not None on this branch
-        unknown = [f for f in want if f not in self._EXPORT_FORMATS]
-        if unknown:
-            raise ValueError(
-                f"unknown export format(s) {unknown}; choose from {self._EXPORT_FORMATS}"
-            )
         if "png" in want and dpi <= 0:
             raise ValueError(f"png export needs dpi > 0, got {dpi}")
         want_set = set(want)

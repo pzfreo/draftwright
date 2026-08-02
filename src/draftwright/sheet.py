@@ -1752,6 +1752,15 @@ class Sheet:
         """Build the drawing and write the requested *formats* — a format name or an
         iterable from ``("svg", "dxf", "pdf", "png")``, default PDF (matching the
         CLI); return ``{format: path}``. *dpi* sets the PNG raster resolution.
-        *stem* defaults to the drawing number, lower-cased."""
+        *stem* defaults to the drawing number, lower-cased.
+
+        ``formats=None`` means "unspecified", so it takes this method's default rather than
+        being forwarded. On :meth:`Drawing.export` a ``None`` selects the deprecated legacy
+        path, which would have returned a *tuple* — breaking the dict return documented above —
+        and raised its warning against this line instead of the caller's (#987, Codex r5). Same
+        attribution problem that moved ``make_drawing`` off that path.
+        """
         stem = stem or self._opts["out"] or self._opts["number"].lower()
-        return self.build().export(stem, formats=formats, dpi=dpi)
+        return self.build().export(
+            stem, formats=("pdf",) if formats is None else formats, dpi=dpi
+        )
