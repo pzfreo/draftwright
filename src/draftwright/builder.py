@@ -487,11 +487,14 @@ def _assemble(
     # what #830's single-construction rule exists to stop, and the guard caught the first
     # attempt at exactly that.
     if _diagnostics is None:
-        _model_for_audit = dwg.model()
-        if _model_for_audit is not None:
-            from draftwright.model.compiled import compile_dimensions
+        from draftwright.model.compiled import compile_dimensions
 
-            _diagnostics = compile_dimensions(_model_for_audit).diagnostics
+        # No `is not None` guard on the model: `_build.part_model` is filled unconditionally
+        # above, so the guard was unreachable — and its fallback was a silent empty ledger,
+        # which is the precise failure this whole surface exists to remove. If a future path
+        # ever reaches here without a model, that should raise where it happens rather than
+        # produce a confident "nothing was suppressed" (#996).
+        _diagnostics = compile_dimensions(dwg.model()).diagnostics
     dwg._build.omissions = tuple(_diagnostics or ())
     return dwg
 
