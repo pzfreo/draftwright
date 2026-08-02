@@ -63,6 +63,10 @@ _LAYERS: dict[str, int] = {
     "intents": 0,
     "recognition": 0,
     "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
+    # audit: diffs two FINISHED drawings through their public reads (#996). A leaf by
+    # construction — it imports nothing from the engine, so the thing it measures can never
+    # come to depend on it.
+    "audit": 0,
     "model": 0,  # the ADR 0008 IR waist — depends only on rank-0 leaves (guarded below too)
     # 1 — the shared drawing/layout primitives
     "_core": 1,
