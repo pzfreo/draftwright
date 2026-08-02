@@ -363,3 +363,18 @@ def test_the_feature_key_distinguishes_two_instances_of_one_kind():
         HoleFeature(Frame((10.0, 5.0, 10.0), "z"), 6.0, depth=None, through=True)
     ), "the same geometry must key the same across builds — that is what a diff relies on"
     assert feature_key(None) is None  # a model-level omission has no feature
+
+    # The key is TOTAL by design. Every concrete IR feature carries a frame with a required
+    # origin, so these fallbacks are unreachable today — but `feature_key` runs once per
+    # ledger row, and one odd feature raising would take the whole audit read down with it.
+    # A degraded-but-honest key beats an exception here, which is the opposite trade to the
+    # builder's model guard (removed, because ITS fallback was a silent empty ledger).
+    class _NoFrame:
+        kind = "mystery"
+
+    class _NoOrigin:
+        kind = "mystery"
+        frame = type("F", (), {"origin": None, "axis": "z"})()
+
+    assert feature_key(_NoFrame()) == "mystery"
+    assert feature_key(_NoOrigin()) == "mystery/z"
