@@ -1761,6 +1761,4 @@ class Sheet:
         attribution problem that moved ``make_drawing`` off that path.
         """
         stem = stem or self._opts["out"] or self._opts["number"].lower()
-        return self.build().export(
-            stem, formats=("pdf",) if formats is None else formats, dpi=dpi
-        )
+        return self.build().export(stem, formats=("pdf",) if formats is None else formats, dpi=dpi)
