@@ -269,6 +269,35 @@ def test_one_row_per_fact_not_per_sighting():
     assert any(r["parameter_id"] == "height.length" for r in rows)
 
 
+def test_the_dedup_keeps_repetitions_within_one_source():
+    """The dedup must not eat genuine per-member facts (Codex #996 r6).
+
+    `_compile_off_axis_hole_locations` emits one omission per member, and every member of a
+    grouped hole shares the SAME `HoleFeature` — so a key of (feature, parameter, reason) is
+    identical across members. Keyed that way, four real member positions collapsed to one and
+    vanished from the audit. Losing a real row is worse than the duplicate it was meant to fix.
+
+    So the dedup is cross-SOURCE only: two different compilers reporting one fact is a
+    duplicate; one compiler reporting four members is four facts. My first test asserted only
+    the envelope case and passed while this was broken.
+    """
+    from draftwright.model.compiled import Omission, _dedupe_omissions
+
+    feature = object()  # one feature, as a grouped hole's members share theirs
+    bespoke = [Omission(feature, "height.length", 25.0, "authored")]
+    members = [Omission(feature, "location.location", v, "r") for v in (20.0, 12.0, 50.0, 18.0)]
+    general = [Omission(feature, "height.length", 25.0, "authored")]  # the same fact again
+
+    rows = _dedupe_omissions(bespoke, members, general)
+
+    heights = [o for o in rows if o.parameter_id == "height.length"]
+    positions = [o for o in rows if o.parameter_id == "location.location"]
+    assert len(heights) == 1, "two compilers reporting one fact is a duplicate"
+    assert [o.value for o in positions] == [20.0, 12.0, 50.0, 18.0], (
+        "one compiler reporting four members is four facts, not one"
+    )
+
+
 def test_the_ledger_is_plain_data():
     """A harness, a generated script or an LLM has to diff two builds without importing IR
     types — that is the whole point of an audit surface — so the rows are plain dicts."""

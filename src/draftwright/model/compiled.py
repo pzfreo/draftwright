@@ -1063,29 +1063,32 @@ def compile_dimensions(
         ladders=tuple(ladders),
         locations=tuple(locations),
         diagnostics=_dedupe_omissions(
-            omissions + height_omissions + location_omissions + group_omissions
+            omissions, height_omissions, location_omissions, group_omissions
         ),
     )
 
 
-def _dedupe_omissions(omissions: list[Omission]) -> tuple[Omission, ...]:
-    """One row per (feature, parameter, reason) — the audit reports facts, not sightings.
+def _dedupe_omissions(*sources: list[Omission]) -> tuple[Omission, ...]:
+    """Drop only the omissions two DIFFERENT compilers reported about one fact.
 
-    An authored set records the overall height twice: once by `_compile_overall_height`'s
-    bespoke branch and once by the general group traversal, since the envelope's `height`
-    parameter is in its group too. Both are correct about the same fact, and a duplicated row
-    makes a consumer over-count suppressions and a build-diff show churn that did not happen
-    (#996 — the lead Codex was chasing when its run timed out).
+    An authored set records the overall height twice — `_compile_overall_height`'s bespoke
+    branch and the general group traversal both notice it, since the envelope's `height`
+    parameter is in its group too. That duplication makes a consumer over-count suppressions
+    and a build-diff show churn that did not happen.
 
-    Keyed on the FEATURE's identity rather than the object, so two distinct features that
-    share a kind and reason still get a row each.
+    But a repetition *within* one source is not a duplicate. `_compile_off_axis_hole_locations`
+    deliberately emits one omission per member, and every member of a grouped hole shares the
+    same `HoleFeature` — so a naive key of (feature, parameter, reason) collapses four real
+    member facts into one and silently loses positions. Losing a real row is worse than the
+    duplicate it was meant to fix (Codex #996 r6).
+
+    Hence: cross-source only. Each source keeps its own repetitions; a key already seen in an
+    EARLIER source is dropped from a later one.
     """
     seen: set[tuple[int, str, str]] = set()
     out: list[Omission] = []
-    for o in omissions:
-        key = (id(o.feature), o.parameter_id, o.reason)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(o)
+    for source in sources:
+        keys_here = {(id(o.feature), o.parameter_id, o.reason) for o in source}
+        out += [o for o in source if (id(o.feature), o.parameter_id, o.reason) not in seen]
+        seen |= keys_here
     return tuple(out)
