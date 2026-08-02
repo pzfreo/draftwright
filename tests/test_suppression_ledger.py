@@ -302,6 +302,23 @@ def test_the_dedup_keeps_repetitions_within_one_source():
         [Omission(feature, "height.length", 30.0, "authored")],
     )
     assert len(disagreeing) == 2, "a value disagreement must not be deduped away"
+
+    # ...but float NOISE is not a disagreement. These values carry real jitter — an X-turned
+    # envelope reports its height as 20.000000000000007 by one route and 20.0 by another — so
+    # the key rounds. Keying on the raw float would split a genuine duplicate back into two
+    # rows on noise, re-creating the over-reporting this function exists to remove.
+    jittered = _dedupe_omissions(
+        [Omission(feature, "height.length", 20.0, "authored")],
+        [Omission(feature, "height.length", 20.000000000000007, "authored")],
+    )
+    assert len(jittered) == 1, "float jitter must not read as two compilers disagreeing"
+
+    # And an omission with no value at all (most location rows) still dedupes.
+    valueless = _dedupe_omissions(
+        [Omission(feature, "location.location", None, "r")],
+        [Omission(feature, "location.location", None, "r")],
+    )
+    assert len(valueless) == 1
     assert [o.value for o in positions] == [20.0, 12.0, 50.0, 18.0], (
         "one compiler reporting four members is four facts, not one"
     )

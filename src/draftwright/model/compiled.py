@@ -1091,7 +1091,14 @@ def _dedupe_omissions(*sources: list[Omission]) -> tuple[Omission, ...]:
         # DIFFERENT values are not one fact reported twice — they are two compilers
         # disagreeing, and an audit should surface that rather than silently keep whichever
         # source happens to run first.
-        return (id(o.feature), o.parameter_id, o.value, o.reason)
+        #
+        # ROUNDED, because these values carry real float jitter: an X-turned envelope reports
+        # its height as 20.000000000000007 by one route and 20.0 by another. Keying on the raw
+        # float would split a genuine duplicate back into two rows on noise, re-creating the
+        # over-reporting this function exists to remove. A disagreement that matters differs by
+        # far more than a micron.
+        v = round(o.value, 6) if isinstance(o.value, float) else o.value
+        return (id(o.feature), o.parameter_id, v, o.reason)
 
     seen: set[tuple[int, str, object, str]] = set()
     out: list[Omission] = []
