@@ -798,12 +798,17 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
     for pd in plan_locations(model):
         feature = pd.feature
         span = pd.param.span
-        assert span is not None  # plan_locations always sets the datum → ref span
         if pd.suppressed:
+            # Before the span assert, deliberately: a suppressed entry records WHY a position
+            # is absent and needs no geometry. When the model has no `datum_xy` there is no
+            # datum → ref span to build one from, so requiring it here turned that diagnostic
+            # into an AssertionError — a silent hole replaced by a crash, which is worse for
+            # the caller it was meant to help (#996).
             omissions.append(
                 Omission(feature, pd.param.parameter_id, None, pd.reason or "suppressed")
             )
             continue
+        assert span is not None  # an APPROVED location always carries its datum → ref span
         axis = feature.frame.axis if feature is not None else None
         if isinstance(feature, PocketFeature) and axis != "z":
             # A non-Z pocket's two in-plane coordinates are drawn as TWO dims in its end-on

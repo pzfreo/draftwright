@@ -236,6 +236,15 @@ def test_a_model_with_no_datum_records_the_locations_it_cannot_measure():
     assert "no datum_xy" in planned[0].reason
     assert planned[0].datum is None  # there is none — the row says so rather than inventing one
 
+    # ...and it survives the FULL build, not just the planner. The unit assertions above all
+    # passed while `build_drawing` raised AssertionError on this very model: `_compile_locations`
+    # asserted a datum → ref span before checking `suppressed`, so the diagnostic that closed
+    # the hole crashed the build instead — a silent omission traded for a hard failure.
+    # Testing the planner in isolation could not see that; the public path is the contract.
+    drawing = build_drawing(_Box(80, 50, 20), model=model, number="X")
+    rows = [r for r in drawing.suppressions() if "no datum_xy" in r["reason"]]
+    assert rows, "the missing-datum diagnostic must reach Drawing.suppressions()"
+
 
 def test_the_ledger_is_plain_data():
     """A harness, a generated script or an LLM has to diff two builds without importing IR
