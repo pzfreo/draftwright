@@ -152,6 +152,56 @@ def test_an_edge_anchored_pocket_records_why_it_has_no_location():
     assert "edge-anchored" in planned[0].reason
 
 
+def test_a_pattern_with_no_members_records_why_it_has_no_location():
+    """The third silent drop, found by sweeping the loop rather than waiting for a report.
+
+    A non-bolt-circle pattern with no members has no point to locate FROM, so it fell through
+    the elif chain. Like the edge-anchored pocket, it had already passed the eligibility check
+    — considered, then dropped, with nothing to show for it.
+    """
+    from build123d import Box as _Box
+
+    from draftwright.model import Datum, Frame, HoleFeature, PartModel, PatternFeature
+    from draftwright.model.planner import plan_locations
+
+    bbox = _Box(80, 50, 20).bounding_box()
+    member = HoleFeature(Frame((10.0, 5.0, 10.0), "z"), 6.0, depth=None, through=True)
+    model = PartModel(
+        bbox=bbox,
+        orientation="prismatic",
+        features=[
+            PatternFeature(
+                Frame((10.0, 5.0, 10.0), "z"),
+                pattern="linear",
+                count=2,
+                member=member,
+                members=(),
+            )
+        ],
+        datums=[Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))],
+    )
+    planned = plan_locations(model)
+    assert [p.suppressed for p in planned] == [True]
+    assert "no members" in planned[0].reason
+
+
+def test_the_ledger_is_filled_when_auto_dimensions_are_off():
+    """`auto_dims=False` reported an EMPTY ledger while the compiler really had suppressed
+    measurements (Codex #996 r1) — the fill sat inside the auto branch.
+
+    That is the worst failure this surface can have: not a wrong answer but a confident empty
+    one, on a supported path. Both paths must agree about what the compiler decided, because
+    the compiler decided the same thing either way; only the rendering differs.
+    """
+    part = Rot(0, 90, 0) * Cylinder(10, 40)
+    auto = build_drawing(part, number="X", auto_dims=True).suppressions()
+    manual = build_drawing(part, number="X", auto_dims=False).suppressions()
+
+    assert manual, "auto_dims=False must not report an empty ledger"
+    assert [r["parameter_id"] for r in auto] == [r["parameter_id"] for r in manual]
+    assert [r["reason"] for r in auto] == [r["reason"] for r in manual]
+
+
 def test_the_ledger_is_plain_data():
     """A harness, a generated script or an LLM has to diff two builds without importing IR
     types — that is the whole point of an audit surface — so the rows are plain dicts."""
