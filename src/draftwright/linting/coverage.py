@@ -44,29 +44,30 @@ from draftwright.recognition import (
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
-# An across-flats callout and nothing else (#914): the size and an optional tolerance region
-# before the "A/F" token. ANCHORED at both ends on purpose — a label is a callout or it is
-# prose, and "USE 25 A/F SPANNER" is prose that happens to contain a size (Codex #1011 r4).
+# An across-flats callout and nothing else (#914): the size, an optional tolerance, then the
+# "A/F" token. ANCHORED at both ends — a label is a callout or it is prose, and
+# "USE 25 A/F SPANNER" is prose that happens to contain a size (Codex #1011 r4).
 #
-# NO `n×` quantity prefix. One was added at r8 because r4 observed that `2× 25 A/F` was
-# rejected — but `_flat_label` never writes a count (unlike `_fillet_label`), so that was
-# support for a form nothing produces, and it let `0× 25 A/F` certify a flat as defined
-# (r16). Reconciling a multiplicity the engine never states would be more speculative
-# machinery, not less: the fix is to not accept the form.
+# The tolerance alternatives ARE `_tol_suffix`'s branches, one for one: nothing, symmetric
+# `±n`, asymmetric limits, a fit's deviation pair, a fit's class code. Enumerating them was
+# the right answer all along and I reached it three times over: a single token could not read
+# the asymmetric limit (r8), so I widened it to any non-letter run, which then accepted
+# `25 123 A/F` (r9) and `25 +0.2 $$$ 999 A/F` (r19). Enumeration is only safe because
+# `test_the_parser_reads_every_label_the_renderer_can_write` builds its input by CALLING
+# `_tol_suffix` for every tolerance kind — so a new branch there fails the test rather than
+# silently becoming unreadable here.
 #
-# The tolerance region is a SIGN followed by a run containing at least one digit — wide
-# enough for every form without enumerating them, narrow enough that `25 123 A/F` and
-# `25 --- A/F` are not definitions (Codex #1011 r9). Not an enumerated set of forms: It was
-# one whitespace-free token, which could not read `_tol_suffix`'s own asymmetric limit
-# (`25 +0.20 -0.10 A/F` is two tokens), so the check called our own correctly dimensioned
-# drawing incomplete (Codex #1011 r8). This parser and `_flat_label` are two halves of one
-# contract with nothing holding them together, so the shape here is deliberately wider than
-# any list of formats — and a test builds its input from `_tol_suffix` rather than restating
-# what it emits. Letters stay excluded, which is what keeps prose ("25 THREADED A/F") out.
+# NO `n×` quantity prefix: `_flat_label` never writes a count (unlike `_fillet_label`), and
+# accepting one let `0× 25 A/F` — a label denying the flat — certify it as defined (r16).
+_NUM = r"\d+(?:\.\d+)?"
+_TOLERANCE = (
+    rf"±{_NUM}"  # a symmetric tolerance
+    rf"|\+{_NUM}\s+-{_NUM}"  # asymmetric limits
+    rf"|[+-]?{_NUM}/[+-]?{_NUM}"  # a resolved fit shown as deviations
+    r"|[A-Za-z]{1,3}\d+"  # a resolved fit shown as its class code (H7, js6)
+)
 _AF_RE = re.compile(
-    r"^\s*"
-    r"(?:(\d+(?:\.\d+)?)(?:\s+[±+-][^A-Za-z]*\d[^A-Za-z]*)?\s*A/F|A/F\s*(\d+(?:\.\d+)?))"
-    r"\s*$",
+    rf"^\s*(?:({_NUM})(?:\s+(?:{_TOLERANCE}))?\s*A/F|A/F\s*({_NUM}))\s*$",
     re.IGNORECASE,
 )
 

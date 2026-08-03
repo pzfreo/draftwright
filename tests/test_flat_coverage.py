@@ -20,7 +20,7 @@ from draftwright import Sheet, build_drawing
 from draftwright._core import _tol_suffix
 from draftwright.annotations.from_model import _flat_label
 from draftwright.drawing import _GEOMETRY_AWARE_CODES
-from draftwright.fits import fit_deviation
+from draftwright.fits import fit_class
 from draftwright.linting import lint_flat_coverage
 from draftwright.recognition import Flat, recognise_flats
 
@@ -173,6 +173,10 @@ def test_a_callout_stating_the_size_counts_however_it_is_worded(flatted_shaft, l
         pytest.param("2× 25 A/F", id="a-quantity-the-engine-never-writes"),
         pytest.param("0× 25 A/F", id="a-quantity-that-denies-the-flat"),
         pytest.param("999x 25 A/F", id="an-absurd-quantity"),
+        # The tolerance alternatives are `_tol_suffix`'s branches exactly, so trailing junk
+        # after a well-formed one is not a tolerance (Codex #1011 r19).
+        pytest.param("25 +0.2 123 A/F", id="a-limit-with-trailing-junk"),
+        pytest.param("25 +0.2 $$$ 999 A/F", id="a-limit-with-worse-trailing-junk"),
     ],
 )
 def test_a_label_that_is_not_a_callout_does_not_count(flatted_shaft, label):
@@ -444,7 +448,12 @@ def test_the_two_faces_of_one_lobe_remain_a_single_definition():
         pytest.param(None, id="none"),
         pytest.param(0.2, id="symmetric"),
         pytest.param((0.1, 0.2), id="asymmetric-limits"),
-        pytest.param(fit_deviation("H7", 25), id="resolved-fit"),
+        # REAL FitClass values, both display modes. The old parameter passed
+        # `fit_deviation(...)`, which returns a TUPLE — so it exercised the asymmetric-limits
+        # branch again and never a fit at all, while `25 H7 A/F` and `25 +0.021/0 A/F` (both
+        # things the renderer writes) were rejected by the parser (found while fixing r19).
+        pytest.param(fit_class("H7", 25, show="class"), id="resolved-fit-as-class-code"),
+        pytest.param(fit_class("H7", 25, show="deviation"), id="resolved-fit-as-deviations"),
     ],
 )
 def test_the_parser_reads_every_label_the_renderer_can_write(flatted_shaft, tolerance):
