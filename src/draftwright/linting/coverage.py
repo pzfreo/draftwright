@@ -44,10 +44,15 @@ from draftwright.recognition import (
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
-# An across-flats callout and nothing else (#914): the size, an optional `n×` quantity
-# prefix, and an optional tolerance region between the size and the "A/F" token. ANCHORED at
-# both ends on purpose — a label is a callout or it is prose, and "USE 25 A/F SPANNER" is
-# prose that happens to contain a size (Codex #1011 r4).
+# An across-flats callout and nothing else (#914): the size and an optional tolerance region
+# before the "A/F" token. ANCHORED at both ends on purpose — a label is a callout or it is
+# prose, and "USE 25 A/F SPANNER" is prose that happens to contain a size (Codex #1011 r4).
+#
+# NO `n×` quantity prefix. One was added at r8 because r4 observed that `2× 25 A/F` was
+# rejected — but `_flat_label` never writes a count (unlike `_fillet_label`), so that was
+# support for a form nothing produces, and it let `0× 25 A/F` certify a flat as defined
+# (r16). Reconciling a multiplicity the engine never states would be more speculative
+# machinery, not less: the fix is to not accept the form.
 #
 # The tolerance region is a SIGN followed by a run containing at least one digit — wide
 # enough for every form without enumerating them, narrow enough that `25 123 A/F` and
@@ -59,7 +64,7 @@ _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=No
 # any list of formats — and a test builds its input from `_tol_suffix` rather than restating
 # what it emits. Letters stay excluded, which is what keeps prose ("25 THREADED A/F") out.
 _AF_RE = re.compile(
-    r"^\s*(?:\d+\s*[×x]\s*)?"
+    r"^\s*"
     r"(?:(\d+(?:\.\d+)?)(?:\s+[±+-][^A-Za-z]*\d[^A-Za-z]*)?\s*A/F|A/F\s*(\d+(?:\.\d+)?))"
     r"\s*$",
     re.IGNORECASE,
@@ -801,7 +806,7 @@ def lint_flat_coverage(
     any producer rather than trusting a build-time side channel.
 
     A flat is covered by a **leader tipped at that flat's own page position** whose whole
-    label is an across-flats callout — ``25 A/F``, ``25 ±0.2 A/F``, ``2× 25 A/F``, ``A/F 25``.
+    label is an across-flats callout — ``25 A/F``, ``25 ±0.2 A/F``, ``A/F 25``.
     Three separate conditions, each earned:
 
     - *A leader*, because a size defines a feature only when something points at it. Text

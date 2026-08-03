@@ -138,7 +138,6 @@ def _sheet(*labels, tips=None, scale=1.0, view=None):
         pytest.param("25 ±0.2 A/F", id="toleranced"),
         pytest.param("A/F 25.0", id="worded-the-other-way-round"),
         pytest.param("25.05 A/F", id="within-tolerance"),
-        pytest.param("2× 25 A/F", id="quantity-prefixed"),
     ],
 )
 def test_a_callout_stating_the_size_counts_however_it_is_worded(flatted_shaft, label):
@@ -167,6 +166,12 @@ def test_a_callout_stating_the_size_counts_however_it_is_worded(flatted_shaft, l
         pytest.param("25 123 A/F", id="an-unsigned-number-is-not-a-tolerance"),
         pytest.param("25 + A/F", id="a-sign-with-no-value"),
         pytest.param("25 --- A/F", id="punctuation-only"),
+        # No quantity prefix. `_flat_label` never writes a count, so accepting `n×` was
+        # support for a form nothing produces — and it let `0× 25 A/F`, which asserts the
+        # flat is not there, certify it as defined (Codex #1011 r16).
+        pytest.param("2× 25 A/F", id="a-quantity-the-engine-never-writes"),
+        pytest.param("0× 25 A/F", id="a-quantity-that-denies-the-flat"),
+        pytest.param("999x 25 A/F", id="an-absurd-quantity"),
     ],
 )
 def test_a_label_that_is_not_a_callout_does_not_count(flatted_shaft, label):
