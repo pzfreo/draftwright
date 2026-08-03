@@ -786,6 +786,45 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     ]
 
 
+def _face_chord(flat, radius):
+    """The flat face's two extreme points in part space — its chord across the stock.
+
+    A flat face is a RECTANGLE, and end-on it projects to a chord: a leader may legitimately
+    target any point on it. Treating the face as the single point ``Flat.at`` made a declared
+    flat with an explicit off-centre ``at=`` — the documented meaning of that parameter, "the
+    leader point" — read as undimensioned (Codex #1011 r18).
+
+    *radius* is the stock's, from the cylinder inventory. Returns ``(at, at)`` when it is
+    unknown or the geometry degenerates: the old point behaviour, erring toward the tighter
+    test rather than inventing extent.
+    """
+    idx = "xyz".index(flat.axis)
+    plane = [i for i in range(3) if i != idx]
+    off = [flat.at[i] - flat.axis_at[i] for i in plane]
+    span = math.hypot(*off)
+    half = math.sqrt(max(radius * radius - span * span, 0.0)) if radius else 0.0
+    if not half or not span:
+        return (flat.at, flat.at)
+    tangent = (-off[1] / span, off[0] / span)  # along the face, perpendicular to axis→face
+    ends = []
+    for sign in (-1.0, 1.0):
+        point = list(flat.at)
+        point[plane[0]] += sign * half * tangent[0]
+        point[plane[1]] += sign * half * tangent[1]
+        ends.append(tuple(point))
+    return tuple(ends)
+
+
+def _point_to_segment(point, a, b) -> float:
+    """Distance from *point* to segment *a*-*b* in the page plane."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = dx * dx + dy * dy
+    if not length:
+        return math.dist(point, a)
+    t = max(0.0, min(1.0, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / length))
+    return math.dist(point, (a[0] + t * dx, a[1] + t * dy))
+
+
 def lint_flat_coverage(
     part, dwg, *, cyls=None, flats=None, assembly=None, tol: float = 0.15, pos_tol: float = 1.0
 ):
@@ -848,6 +887,15 @@ def lint_flat_coverage(
         return []
     if assembly is None:
         assembly = len(part.solids()) > 1
+    if cyls is None:
+        cyls = analyse_cylinders(part)
+    # Stock radius per axis line, so a face's chord extent is known. Keyed exactly as
+    # `Flat.axis_at` records it — both are the same rounded cylinder placement.
+    radii = {
+        tuple(round(v, 3) for v in c["axis_xyz"]): c["diameter"] / 2
+        for c in (*cyls[0], *cyls[1])
+        if c.get("external")
+    }
 
     groups: dict = {}
     for flat in inventory:
@@ -886,7 +934,14 @@ def lint_flat_coverage(
         ordered_keys = sorted(keys, key=str)  # deterministic, so an exact tie resolves alike
         try:
             projected = {
-                k: [dwg.at(view, *flat.at)[:2] for flat in groups[k]] for k in ordered_keys
+                k: [
+                    tuple(
+                        dwg.at(view, *end)[:2]
+                        for end in _face_chord(flat, radii.get(flat.axis_at))
+                    )
+                    for flat in groups[k]
+                ]
+                for k in ordered_keys
             }
         except Exception:  # noqa: BLE001 — a view with no coordinate mapping
             # `Drawing.drop_view_coordinates` (deprecated, but public until 0.5.0) and the
@@ -904,8 +959,8 @@ def lint_flat_coverage(
         for (tx, ty), value in callouts:
             best = None
             for key in ordered_keys:
-                for px, py in projected[key]:
-                    gap = math.dist((tx, ty), (px, py))
+                for end_a, end_b in projected[key]:
+                    gap = _point_to_segment((tx, ty), end_a, end_b)
                     if gap > pos_tol:
                         continue
                     # Distance decides; the stated size only breaks an exact POSITIONAL tie.

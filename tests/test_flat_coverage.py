@@ -619,3 +619,37 @@ def test_a_view_with_no_coordinate_mapping_does_not_break_lint(flatted_shaft):
         warnings.simplefilter("ignore")
         dwg.drop_view_coordinates("plan")
     assert "flat_not_dimensioned" in _codes(dwg)
+
+
+@pytest.mark.parametrize(
+    "at",
+    [
+        pytest.param((12.5, 0, 20), id="face-centre"),
+        pytest.param((12.5, 5, 20), id="off-centre-along-the-face"),
+        pytest.param((12.5, -8, 20), id="off-centre-the-other-way"),
+    ],
+)
+def test_a_declared_leader_point_anywhere_on_the_face_defines_the_flat(at):
+    """`declare.flat`'s `at=` is documented as THE LEADER POINT, so any point on the machined
+    face is a legitimate target. Associating against the face CENTRE alone reported those
+    drawings as undimensioned — a false positive on a documented public parameter, and
+    scale-dependent besides, since the same physical offset passes at a smaller scale
+    (Codex #1011 r18).
+
+    A flat face is a rectangle; end-on it projects to a chord, so the association is against
+    that segment rather than its midpoint.
+    """
+    part = _flatted_shaft()
+    sheet = Sheet(part)
+    sheet.flat(axis="z", across=25, at=at)
+    sheet.auto_dimensions()
+    dwg = sheet.build()
+    assert not [i for i in dwg.lint() if i.code.startswith("flat_")]
+
+
+def test_a_leader_off_the_end_of_the_face_still_does_not_define_it(flatted_shaft):
+    """The chord is a segment, not an infinite line: a tip beyond its end, past the stock
+    entirely, is not on the face. Widening the association must not make it unbounded."""
+    sheet = _sheet("25 A/F", tips=[(12.5, 40)])
+    issues = lint_flat_coverage(flatted_shaft, sheet, assembly=False)
+    assert [i.code for i in issues] == ["flat_not_dimensioned"]
