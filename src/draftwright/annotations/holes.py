@@ -270,7 +270,7 @@ def add_feature_location(
     def _uniq(prefix: str) -> str:
         return f"{prefix}{_first_free_index(prefix, ctx.registry)}"
 
-    def _place(view: str, strip, p1, p2, baseline, label: str) -> str:
+    def _place(view: str, strip, p1, p2, baseline, label: str, mid=None) -> str:
         perp = (min(p1, p2), max(p1, p2))
         pos = carve_free_position(dwg, strip, view, "y", tier, perp) if strip is not None else None
         if pos is None:  # strip full / absent — fall back just above the view
@@ -284,6 +284,7 @@ def add_feature_location(
             nm,
             view=view,
             feature=feature,
+            measurement=mid,  # the compiled location this dim draws (#1002)
         )
         if pin:
             dwg.pin(nm)
@@ -314,6 +315,7 @@ def add_feature_location(
                     PX(rx),
                     PY(ry),
                     _fmt(rx - dx),
+                    loc.id,
                 )
             )
         if (
@@ -330,6 +332,7 @@ def add_feature_location(
                     SX(ry),
                     SZ(a.bb.max.Z),
                     _fmt(ry - dy),
+                    loc.id,
                 )
             )
     return names
@@ -1452,6 +1455,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 vb,
                 label,
                 _radial_candidates(dwg, view, vb, feat, reach, provenance=g.ref),
+                (wpd.id, lpd.id, dpd.id),  # width × length × depth, one callout (#1002)
             )
         )
         furniture.append((i, g, view, name))
@@ -1561,6 +1565,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 vb,
                 label,
                 _radial_candidates(dwg, view, vb, feat, reach, provenance=g.ref),
+                (wpd.id, lpd.id),  # width × length, one callout (#1002)
             )
         )
         furniture.append((i, g, view, name))

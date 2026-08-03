@@ -518,71 +518,179 @@ def test_a_bare_id_and_a_sequence_are_both_accepted():
     assert reg.measurement_of("c") == (), "a sequence of nothing is still unknown"
 
 
-def test_every_compiled_plan_dimensional_renderer_records_identity():
-    """The ratchet Codex asked for (#1002 r1): enumerate the renderers, do not spot-check.
+def test_a_real_build_records_identity_for_the_machined_feature_callouts():
+    """Behavioural counterpart to the two syntax ratchets (#1002 r3).
 
-    The first cut threaded three renderers and documented the remaining gap as "the
-    direct-placing rotational group" — while slots, plate thicknesses, short step rungs and
-    the step-position ladder all held an `ApprovedDimension.id` and silently dropped it. The
-    documentation invited a reader to treat the unknown set as narrowly bounded when it was
-    not, which is the failure this whole epic exists to stop.
+    The shared `_leader_callout_pass` renders chamfers, fillets, flats, pockets, grooves and
+    boss diameters, and recorded nothing for any of them while the module docstring listed a
+    four-item exception set. Source scans alone would not have caught that — the keyword was
+    simply absent from a path nothing scanned — so this reads a real build's output.
 
-    So this asserts the SOURCE, not one part's output: every `CorridorCandidate` built in the
-    IR render layer either passes a measurement or sits in EXEMPT with a reason. A renderer
-    added later that forgets fails here instead of quietly widening the unknown set again.
+    The fillet case is the important one: four equal fillets collapse to ONE `4× R5` callout,
+    so the annotation genuinely draws four measurements. That is the one-to-many relationship
+    ADR 0016 requires the channel to carry (#886), exercised end to end rather than asserted
+    on the registry in isolation.
+    """
+    from build123d import Axis, Box, chamfer, fillet
+
+    part = Box(60, 40, 20)
+    chamfered = build_drawing(chamfer(part.edges().filter_by(Axis.Z), 3))
+    keys = chamfered.measurement_keys("m_chamfer_z0")
+    assert [k["parameter_id"] for k in keys] == ["chamfer.length"]
+    assert keys[0]["feature"].startswith("chamfer@")
+
+    filleted = build_drawing(fillet(part.edges().filter_by(Axis.Z), 5))
+    grouped = filleted.measurement_keys("m_fillet_z0")
+    assert len(grouped) == 4, "one grouped callout, four collapsed members"
+    assert {k["parameter_id"] for k in grouped} == {"fillet.radius"}
+    assert len({k["feature"] for k in grouped}) == 4, "four distinct fillets, not one repeated"
+
+
+def _records_a_measurement(call) -> bool:
+    """True when *call* passes a ``measurement=`` that could actually carry an id.
+
+    A literal satisfies the keyword while recording nothing — ``measurement=None`` and
+    ``measurement=()`` both leave the annotation unidentified — so testing only that the
+    KEYWORD IS PRESENT yields a ratchet that cannot fail, which is precisely what the first
+    cut did (Codex #1002 r3). Constants and the empty-tuple literal are rejected; a name,
+    attribute or call is accepted.
+
+    Syntax, not dataflow: a variable that happens to hold ``None`` still passes here. That
+    limit is stated rather than papered over — the behavioural counterpart is
+    `test_a_real_build_records_which_measurement_its_location_dims_draw`, which reads a real
+    build's output rather than its source.
+    """
+    import ast
+
+    for kw in call.keywords:
+        if kw.arg != "measurement":
+            continue
+        if isinstance(kw.value, ast.Constant):
+            return False
+        return not (isinstance(kw.value, ast.Tuple) and not kw.value.elts)
+    return False
+
+
+def test_every_direct_placement_records_identity_or_says_why_not():
+    """The `ctx.place(...)` paths — the half the candidate ratchet never saw (#1002 r3).
+
+    The first ratchet scanned `CorridorCandidate(...)` only, so the shared machined-feature
+    renderer `_leader_callout_pass` — chamfers, fillets, flats, pockets, grooves, boss
+    diameters — placed with no identity at all while `audit.py` told readers the only gaps
+    were hole callouts, PMI, GD&T and the rotational group. The claim was false, and nothing
+    could have caught it.
+
+    Scanned across the WHOLE `annotations/` package, not one module. The first version of
+    this ratchet read `from_model.py` alone and so missed the two pattern-callout producers
+    in `holes.py` — the same mistake one level up, caught only because the tuple arity change
+    broke them at runtime. A guard narrower than its claim is the recurring defect here.
+
+    Every direct place in the package now either records a measurement or is listed below
+    with the reason it carries none. **The EXEMPT map IS the exception inventory** `audit.py`
+    refuses to restate in prose — and a stale entry fails too, so it cannot rot into a list
+    of excuses for renderers that have since been fixed.
+
+    Its reach ends at the placement site. `_leader_callout_pass` receives identity down a job
+    tuple, so a *producer* that passed `()` would satisfy this while recording nothing — the
+    job-tuple arity catches a dropped element, and
+    `test_a_real_build_records_identity_for_the_machined_feature_callouts` catches an empty
+    one for the kinds it builds. Stated because a canary for that case did NOT fire here.
     """
     import ast
     import pathlib
 
-    # Keyed by enclosing function so it survives edits above it, unlike a line number.
     EXEMPT = {
-        # The shared location factory: its callers pass `measurement=` in, and it forwards.
-        "_location_candidate": "receives the id as a parameter",
-        # PMI comes from STEP AP242 extraction, not from the compiled plan — there is no
-        # ApprovedDimension and so no DimensionId to record.
-        "_pmi_queue_options": "PMI records are not compiled dimensions",
-        # GD&T frames are standalone IR features (ControlFrame/DatumRef/Finish, ADR 0011),
-        # placed as corridor candidates but carrying no dimensional measurement.
-        "render_gdt": "a control frame is not a measurement",
+        # -- furniture: nothing here measures anything ------------------------------
+        ("from_model.py", "render_centermarks"): "a centre mark measures nothing",
+        (
+            "from_model.py",
+            "render_local_turned_centerlines._place",
+        ): "centrelines are furniture",
+        ("holes.py", "add_feature_furniture"): "centre marks are furniture",
+        ("holes.py", "_add_furniture"): "bolt-circle centre-cross is furniture",
+        ("balloons.py", "_render_balloon"): "a balloon tags a hole, it does not measure it",
+        ("sections.py", "_add_section_view"): "section geometry + its caption",
+        ("sections.py", "_add_section_letters"): "the 'A' identification letters",
+        ("sections.py", "_add_cutting_plane_arrows"): "ISO 128-44 arrows are not dimensions",
+        ("sections.py", "_render_detail"): "detail-view geometry, caption and circle",
+        (
+            "sections.py",
+            "_request_prismatic_detail.redraw",
+        ): "re-renders the section geometry, not a dimension",
+        # -- hole callouts: still on the legacy surface (#926) ----------------------
+        ("holes.py", "add_feature_callout"): "hole callouts are pre-compiled-plan (#926)",
+        ("holes.py", "_place_queue"): "hole callouts are pre-compiled-plan (#926)",
+        # -- the direct-placing rotational group (#754) -----------------------------
+        ("from_model.py", "render_rotational"): "direct-placing rotational group (#754)",
+        ("from_model.py", "_diameter_row_below"): "direct-placing rotational group (#754)",
+        ("from_model.py", "_diameter_column_left"): "direct-placing rotational group (#754)",
+        # -- gaps that ARE measurements, with the id not yet plumbed ----------------
+        # Named individually rather than waved at, because each is a real hole in the
+        # audit's attribution and each needs its own plumbing.
+        ("from_model.py", "_draw_step_chain"): "step-chain segs carry no id (#1004)",
+        (
+            "holes.py",
+            "_place_pitch_dim",
+        ): "pattern pitch dims carry no id (#1005)",
+        (
+            "holes.py",
+            "_place_pitch_dim._place",
+        ): "pattern pitch dims carry no id (#1005)",
+        ("holes.py", "_off_axis_queue"): "side-hole location candidates, no id map (#1005)",
+        # -- identity arrives by another route --------------------------------------
+        ("from_model.py", "_reroute_crossing_diameters"): "reapplies the saved identity",
+        ("orchestrator.py", "_maybe_tabulate_holes"): "reapplies the saved identity",
+        ("sections.py", "_resolve_details"): "reapplies the saved identity",
+        # -- not a measurement (ADR 0011) -------------------------------------------
+        ("from_model.py", "_drop._retry"): "GD&T relaxed-side retry places a control frame",
+        ("from_model.py", "_pmi_queue_options"): "PMI records are not compiled dimensions",
+        ("from_model.py", "render_gdt"): "a control frame is not a measurement",
     }
 
-    src = pathlib.Path("src/draftwright/annotations/from_model.py").read_text()
-    tree = ast.parse(src)
-    owner = {}
-    for fn in ast.walk(tree):
-        if isinstance(fn, ast.FunctionDef):
-            for line in range(fn.lineno, (fn.end_lineno or fn.lineno) + 1):
-                # Innermost wins: nested defs are visited after their parent's range is set
-                # only if they are narrower, so prefer the smallest enclosing span.
-                prev = owner.get(line)
-                if prev is None or (fn.end_lineno - fn.lineno) < (prev[1] - prev[0]):
-                    owner[line] = (fn.lineno, fn.end_lineno or fn.lineno, fn.name)
+    unrecorded, used = [], set()
+    for path in sorted(pathlib.Path("src/draftwright/annotations").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        fns = [f for f in ast.walk(tree) if isinstance(f, ast.FunctionDef)]
 
-    unrecorded = []
-    for node in ast.walk(tree):
-        if not (
-            isinstance(node, ast.Call) and getattr(node.func, "id", None) == "CorridorCandidate"
-        ):
-            continue
-        if "measurement" in {k.arg for k in node.keywords}:
-            continue
-        # Attribute to the nearest ENCLOSING top-level renderer that EXEMPT can name.
-        names = {
-            o[2]
-            for line, o in owner.items()
-            if o[0] <= node.lineno <= o[1] and line == node.lineno
-        }
-        enclosing = {
-            fn.name
-            for fn in ast.walk(tree)
-            if isinstance(fn, ast.FunctionDef) and fn.lineno <= node.lineno <= (fn.end_lineno or 0)
-        }
-        if enclosing & set(EXEMPT):
-            continue
-        unrecorded.append((node.lineno, sorted(names or enclosing)))
+        def enclosing(line, fns=fns):
+            """The DOTTED path of enclosing functions, e.g. ``locate._place``.
+
+            Bare names are not unique: `holes.py` has two nested `_place` helpers, one for
+            location dims and one for pitch dims, so a single `("holes.py", "_place")` entry
+            exempted both — and silently covered the one that had just been fixed. Caught by
+            a canary that failed to fire, which is the only way that class of hole shows up.
+            """
+            chain = sorted(
+                (f for f in fns if f.lineno <= line <= (f.end_lineno or 0)),
+                key=lambda f: f.end_lineno - f.lineno,
+                reverse=True,
+            )
+            return ".".join(f.name for f in chain[-2:]) if chain else "?"
+
+        for node in ast.walk(tree):
+            is_place = (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "place"
+            )
+            is_cand = isinstance(node, ast.Call) and getattr(node.func, "id", None) == (
+                "CorridorCandidate"
+            )
+            if not (is_place or is_cand) or _records_a_measurement(node):
+                continue
+            key = (path.name, enclosing(node.lineno))
+            if key in EXEMPT:
+                used.add(key)
+                continue
+            unrecorded.append((path.name, node.lineno, key[1]))
 
     assert not unrecorded, (
-        f"CorridorCandidate records no measurement identity at {unrecorded}. "
-        "Pass measurement=<the ApprovedDimension>.id, or add the renderer to EXEMPT "
-        "with the reason it carries no compiled measurement."
+        f"these place an annotation with no measurement identity: {unrecorded}. "
+        "Pass measurement=<the ApprovedDimension>.id, or add the enclosing renderer to "
+        "EXEMPT with the reason it carries no compiled measurement."
+    )
+    assert set(EXEMPT) == used, (
+        f"stale EXEMPT entries — these renderers no longer need an exemption: "
+        f"{sorted(set(EXEMPT) - used)}. Delete them, or the inventory becomes a list of "
+        "excuses for code that has since been fixed."
     )

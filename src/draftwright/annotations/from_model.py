@@ -1220,7 +1220,13 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
                 if thr:
                     label += f" {thr}"
                 name = f"m_dia_y{start_y + i}"
-                jobs.append((name, "front", vb, label, candidates))
+                # One ø callout stands for every step sharing this diameter, so it draws
+                # each of their diameter dims (#1002). Empty when a group planned none —
+                # recorded as unknown, which is the honest answer, not a guessed id.
+                mids = tuple(
+                    pd.id for gp in feature_groups for pd in gp.dims if pd.kind == "diameter"
+                )
+                jobs.append((name, "front", vb, label, candidates, mids))
                 covered_by_name[name] = dia
             placed += _leader_callout_pass(
                 dwg,
@@ -1439,8 +1445,12 @@ def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None):
 
 def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx, geom_clear=False) -> int:
     """Place one machined-feature leader callout per job (#637). A *job* is
-    ``(name, view, vb, label, candidates)`` where *candidates* yields ``(tip, elbow,
-    feature)`` lead positions to try in order. Places the first Leader whose label lands clear
+    ``(name, view, vb, label, candidates, measurement)`` where *candidates* yields ``(tip,
+    elbow, feature)`` lead positions to try in order and *measurement* is the tuple of
+    `DimensionId`s the callout's label draws — several, because these callouts are compound:
+    a pocket prints width × length × depth, a groove width × ⌀ (#1002 r3, which found the
+    whole machined-feature group recording nothing at all).
+    Places the first Leader whose label lands clear
     (:func:`_label_lands_clear`, with *geom_clear* passed through), attributed to that
     candidate's feature; if none of a job's candidates land, records ``<noun> callout … not
     placed`` as ``<drop_code>`` lint (never a silent drop). Obstacles are recomputed per job
@@ -1455,7 +1465,7 @@ def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx, geom_clear=False
     ev = trace.pass_event(f"{noun}_callouts") if trace is not None and jobs else None
     page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
     n = 0
-    for name, view, vb, label, candidates in jobs:
+    for name, view, vb, label, candidates, measurement in jobs:
         obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
         tried = 0
         for tip, elbow, feature in candidates:
@@ -1464,8 +1474,15 @@ def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx, geom_clear=False
             if _label_lands_clear(ldr, obstacles, vb, page, geom_clear=geom_clear):
                 # Compiled renderers carry opaque FeatureRefs so they cannot recover
                 # measurements from the source feature. Provenance is the one seam
-                # where the registry intentionally needs the source object itself.
-                ctx.place(ldr, name, view=view, feature=resolve_feature(feature))
+                # where the registry intentionally needs the source object itself —
+                # the measurements come down the job, from the planner (#1002).
+                ctx.place(
+                    ldr,
+                    name,
+                    view=view,
+                    feature=resolve_feature(feature),
+                    measurement=measurement,
+                )
                 if ev is not None:
                     ev["items"].append(
                         {
@@ -1545,6 +1562,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
                 vb,
                 _chamfer_label(pd.value_text, pd.value, ch) + _tol_suffix(pd.tolerance, draft),
                 _corner_candidates(dwg, view, vb, [ch], reach, provenances=[g.ref]),
+                (pd.id,),
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="chamfer", drop_code="chamfer_dropped", ctx=ctx)
@@ -1621,6 +1639,9 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
                     reach,
                     provenances=[g.ref for g, _ in ordered],
                 ),
+                # One `n× R` callout stands for EVERY collapsed member, so it draws all of
+                # their radii — the tuple storage exists for exactly this (#1002).
+                tuple(pd.id for _, pd in ordered),
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="fillet", drop_code="fillet_dropped", ctx=ctx)
@@ -1691,6 +1712,7 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
                     reach,
                     provenances=[g.ref for g, _ in ordered],
                 ),
+                tuple(pd.id for _, pd in ordered),  # the grouped callout draws every member
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="flat", drop_code="flat_dropped", ctx=ctx)
@@ -1868,6 +1890,7 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
                     dsfx=_tol_suffix(dpd.tolerance, draft),
                 ),
                 _radial_candidates(dwg, view, vb, pk, reach, provenance=g.ref),
+                (wpd.id, lpd.id, dpd.id),  # width × length × depth, one callout (#1002)
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="pocket", drop_code="pocket_dropped", ctx=ctx)
@@ -1924,6 +1947,7 @@ def render_grooves(dwg, plan, a, *, ctx, only=None) -> int:
                     dsfx=_tol_suffix(dpd.tolerance, draft),
                 ),
                 _radial_candidates(dwg, view, vb, gr, reach, provenance=g.ref),
+                (wpd.id, dpd.id),  # one callout, two measurements (#1002)
             )
         )
     return _leader_callout_pass(dwg, a, jobs, noun="groove", drop_code="groove_dropped", ctx=ctx)
@@ -1987,6 +2011,7 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
                 _radial_candidates(
                     dwg, view, vb, b, reach, rim=dia / 2 * a.SCALE, provenance=g.ref
                 ),
+                (dpd.id,),
             )
         )
     return _leader_callout_pass(

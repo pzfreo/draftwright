@@ -16,12 +16,20 @@ A placed annotation carries measurement identity only where the renderer recorde
 (#1002) — otherwise its name is an engine-assigned registry slot, not a handle on what it
 measures. **Identity is partial, and every limit below is a consequence of where it is
 missing.** Which renderers record it is not described here in prose, because a prose
-description of that set was wrong the first time it was written: it named only the
-direct-placing group while four compiled-plan renderers were also silently dropping their
-ids (Codex #1002 r1). `tests/test_audit_differential.py` enumerates the set mechanically and
-fails when a renderer forgets, so **that test is the answer**, not this paragraph. The
-standing exceptions are hole callouts (on the legacy surface, #926), PMI (from STEP, never
-compiled), GD&T frames (not measurements) and the direct-placing rotational group (#754).
+description of that set has now been wrong TWICE: first it named only the direct-placing
+group while four compiled-plan renderers dropped their ids (Codex r1), then it listed a
+four-item exception set while the entire shared machined-feature renderer — chamfers,
+fillets, flats, pockets, grooves, boss diameters — recorded nothing (Codex r3). The prose
+was believable both times, which is the point.
+
+The answer lives in `tests/test_audit_differential.py`, whose ratchet scans both placement
+paths (corridor candidates and direct `ctx.place`) across the whole `annotations/` package,
+and whose EXEMPT map IS the exception inventory — every entry carrying its reason, and a
+stale entry failing so the list cannot outlive the gaps it describes. Read that, not this
+paragraph. At the time of writing the gaps are hole callouts (legacy surface, #926), PMI
+(from STEP, never compiled), GD&T frames (not measurements), the direct-placing rotational
+group (#754), the turned step-length chain (#1004) and the pattern pitch/side-hole
+placers (#1005).
 
 Even where identity IS recorded, matching it across two builds is approximate. The ledger's
 key embeds the feature's origin and scalars, so it cannot join two builds that differ — the
@@ -132,10 +140,11 @@ def diff_builds(before, after) -> dict:
     - ``suppressions_gained`` / ``suppressions_lost`` — ledger rows as
       ``(feature, parameter_id, reason)``.
     - ``candidate_explanations`` — ``{lost name: [reason, ...]}``, a **hint** at which
-      newly-gained suppression might account for a loss, by parameter stem.
+      newly-gained suppression might account for a loss, joined on ``(feature kind,
+      parameter_id)`` where the renderer recorded identity, and absent where it did not.
 
-    The hint does not subtract from ``dimensions_lost``. An annotation carries no feature
-    identity, so the match cannot be trusted, and a weak match that cancels an alarm is worse
+    The hint does not subtract from ``dimensions_lost``. The join is by feature KIND, so it
+    cannot separate two features of one kind, and a weak match that cancels an alarm is worse
     than no match at all — it manufactures the confidence this epic exists to remove.
     """
     before_dims, after_dims = _measurements(before), _measurements(after)
