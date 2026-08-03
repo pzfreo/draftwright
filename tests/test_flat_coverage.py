@@ -155,6 +155,11 @@ def test_a_callout_stating_the_size_counts_however_it_is_worded(flatted_shaft, l
         # enough for every `_tol_suffix` form without having to enumerate them. Excluding
         # letters is what stops that width swallowing prose (Codex #1011 r8).
         pytest.param("25 THREADED A/F", id="prose-between-the-size-and-the-token"),
+        # The tolerance region needs a SIGN and at least one digit. Without that it was any
+        # run of non-letters, so these read as definitions (Codex #1011 r9).
+        pytest.param("25 123 A/F", id="an-unsigned-number-is-not-a-tolerance"),
+        pytest.param("25 + A/F", id="a-sign-with-no-value"),
+        pytest.param("25 --- A/F", id="punctuation-only"),
     ],
 )
 def test_a_label_that_is_not_a_callout_does_not_count(flatted_shaft, label):
@@ -187,6 +192,23 @@ def test_a_note_stating_the_size_does_not_define_the_flat(flatted_shaft):
     assert "flat_not_dimensioned" in _codes(dwg), "precondition: the flat is undefined"
     dwg.note("25 A/F", (20, 20), view="front")
     assert "flat_not_dimensioned" in _codes(dwg), "a note is not a callout"
+
+
+def _two_lobes():
+    """One solid with TWO parallel Z lobes, each truncated to the same 25 mm A/F — the case
+    an axis-letter grouping conflates with a single double-D."""
+
+    def lobe(x):
+        return Pos(x, 0, 0) * (
+            Cylinder(20, 40) & Box(25, 60, 40, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+        )
+
+    return Pos(0, 0, -24) * Box(160, 40, 8) + lobe(-50) + lobe(50)
+
+
+def _sheet_at(*tips):
+    """A sheet carrying one ``25 A/F`` leader per tip."""
+    return _sheet(*["25 A/F"] * len(tips), tips=list(tips))
 
 
 def test_a_non_leader_carrying_a_tip_does_not_define_a_flat(flatted_shaft):
@@ -331,21 +353,39 @@ def test_a_missing_callout_is_still_a_gap_not_a_mismatch(flatted_shaft):
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
 
 
-def test_two_lobes_of_the_same_size_are_the_documented_gap():
-    """Pins the #1013 boundary so it is visible rather than silent.
+@pytest.mark.parametrize(
+    ("tips", "expected"),
+    [
+        pytest.param([(-62.5, 0), (62.5, 0)], 0, id="one-callout-on-each-lobe"),
+        pytest.param([(-62.5, 0)], 1, id="only-the-left-lobe-defined"),
+        pytest.param([(-62.5, 0), (-37.5, 0)], 1, id="both-callouts-on-the-left-lobe"),
+        pytest.param([], 2, id="neither-lobe-defined"),
+    ],
+)
+def test_same_sized_flats_on_separate_stock_are_separate_definitions(tips, expected):
+    """Two parallel lobes each machined to 25 A/F are TWO definitions; the two faces of one
+    double-D are one. ``Flat`` cannot tell those apart — its ``axis`` is a letter — so the
+    stock's axis line is re-derived from the cylinder inventory (#1013).
 
-    Two D-flats of the same size on separate parallel stock are two definitions, but
-    ``Flat`` records only the axis LETTER and the face centre — no stock identity — so they
-    group as one and a callout at the first satisfies both. The renderer collapses the same
-    way and draws one callout for the pair, so this check mirrors that defect rather than
-    introducing it; the fix is the record (ADR 0013), which both ends then group by.
-
-    Asserting the current behaviour, not endorsing it: when #1013 lands this test should
-    FAIL, and its replacement is a two-lobe fixture that reports the undefined lobe.
+    Grouping the way ``render_flats`` groups would have been the easy choice, and wrong for
+    the reason coverage exists: a check that mirrors the pipeline cannot see the pipeline get
+    it wrong (ADR 0015). The renderer still collapses these into one callout, so on a real
+    two-lobe build this check now reports the undefined lobe — a true finding about a drawing
+    that really is incomplete.
     """
-    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("z", 25.0, (100, 0, 0))]
-    sheet = _sheet("25 A/F", tips=[(0, 0)])
-    assert lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False) == []
+    codes = [i.code for i in lint_flat_coverage(_two_lobes(), _sheet_at(*tips), assembly=False)]
+    assert codes == ["flat_not_dimensioned"] * expected
+
+
+def test_the_two_faces_of_one_lobe_remain_a_single_definition():
+    """The other half of the same rule, and the thing axis-line grouping must not break: two
+    faces at ±12.5 from ONE axis are one requirement, satisfied by a callout at either."""
+    part = _two_lobes()
+    for face in (-62.5, -37.5):
+        codes = [i.code for i in lint_flat_coverage(part, _sheet_at((face, 0)), assembly=False)]
+        assert codes == ["flat_not_dimensioned"], (
+            f"a callout at {face} must satisfy its own lobe, leaving only the other reported"
+        )
 
 
 @pytest.mark.parametrize(

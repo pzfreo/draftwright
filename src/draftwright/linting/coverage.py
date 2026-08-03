@@ -19,6 +19,7 @@ Part of the :mod:`draftwright.linting` package (ADR 0007):
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Iterable
 from typing import Literal
@@ -48,7 +49,9 @@ _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=No
 # both ends on purpose — a label is a callout or it is prose, and "USE 25 A/F SPANNER" is
 # prose that happens to contain a size (Codex #1011 r4).
 #
-# The tolerance region is "any run of non-letters", NOT an enumerated set of forms. It was
+# The tolerance region is a SIGN followed by a run containing at least one digit — wide
+# enough for every form without enumerating them, narrow enough that `25 123 A/F` and
+# `25 --- A/F` are not definitions (Codex #1011 r9). Not an enumerated set of forms: It was
 # one whitespace-free token, which could not read `_tol_suffix`'s own asymmetric limit
 # (`25 +0.20 -0.10 A/F` is two tokens), so the check called our own correctly dimensioned
 # drawing incomplete (Codex #1011 r8). This parser and `_flat_label` are two halves of one
@@ -57,7 +60,7 @@ _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=No
 # what it emits. Letters stay excluded, which is what keeps prose ("25 THREADED A/F") out.
 _AF_RE = re.compile(
     r"^\s*(?:\d+\s*[×x]\s*)?"
-    r"(?:(\d+(?:\.\d+)?)(?:\s+[^A-Za-z]+)?\s*A/F|A/F\s*(\d+(?:\.\d+)?))"
+    r"(?:(\d+(?:\.\d+)?)(?:\s+[±+-][^A-Za-z]*\d[^A-Za-z]*)?\s*A/F|A/F\s*(\d+(?:\.\d+)?))"
     r"\s*$",
     re.IGNORECASE,
 )
@@ -778,6 +781,39 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     ]
 
 
+def _stock_axis_line(flat, cylinders, ndigits: int = 3):
+    """The in-plane position of the axis line *flat*'s stock is coaxial about, or ``None``.
+
+    The identity :class:`~draftwright.recognition.Flat` does not carry (#1013): its ``axis``
+    is a LETTER, so two D-flats of the same size on parallel stock look exactly like the two
+    faces of one double-D. Re-derived here from the cylinder inventory — the flat's face
+    centre lies on the OD it truncates, so the nearest external cylinder axis on the same
+    letter is its stock.
+
+    Deriving it rather than mirroring ``render_flats``'s ``(axis, across)`` collapse is the
+    point: coverage exists to reconcile geometry against the sheet *independently*, and a
+    check that groups the way the renderer groups cannot see the renderer group wrongly
+    (ADR 0015's carve-out, and the reason it re-recognises instead of reading the model).
+    So a two-lobe part now reports its undefined second lobe — a true finding that surfaces
+    the renderer collapse tracked by #1013.
+
+    ``None`` when no external cylinder shares the axis, which the recogniser's OD-adjacency
+    gate should make unreachable; grouping then falls back to the axis letter.
+    """
+    idx = "xyz".index(flat.axis)
+    plane = [i for i in range(3) if i != idx]
+    here = tuple(flat.at[i] for i in plane)
+    best = None
+    for c in cylinders:
+        if not c.get("external") or c.get("axis") != flat.axis:
+            continue
+        line = tuple(c["axis_xyz"][i] for i in plane)
+        gap = math.dist(here, line)
+        if best is None or gap < best[0]:
+            best = (gap, line)
+    return None if best is None else tuple(round(v, ndigits) for v in best[1])
+
+
 def lint_flat_coverage(
     part, dwg, *, cyls=None, flats=None, assembly=None, tol: float = 0.15, pos_tol: float = 1.0
 ):
@@ -823,15 +859,13 @@ def lint_flat_coverage(
     grouped the same way: a double-D's two faces are one definition, satisfied by a leader at
     either face.
 
-    **Known gap (#1013).** That grouping is by axis *letter* and size, which conflates the two
-    faces of one double-D with two D-flats of the same size on separate parallel stock: the
-    first is one definition, the second is two, and the ``Flat`` record carries no stock
-    identity to tell them apart. So a two-lobe part whose second lobe has no callout is
-    reported as complete. The renderer collapses identically and draws only one callout for
-    the pair, so this check mirrors a defect rather than introducing one — and the fix is the
-    record, per ADR 0013, which both ends then group by. Within one piece of stock per axis,
-    which is what ``recognise_flats`` sees on every fixture the suite covers, the check is
-    exact.
+    Groups are keyed by the stock's **axis line**, not the axis letter, so two D-flats of the
+    same size on parallel stock stay two definitions while a double-D's two faces stay one.
+    ``Flat`` carries no stock identity, so :func:`_stock_axis_line` re-derives it from the
+    cylinder inventory rather than copying ``render_flats``'s ``(axis, across)`` collapse —
+    a check that groups the way the renderer groups cannot see the renderer group wrongly.
+    The renderer still collapses, so a two-lobe part reports its undefined lobe here until
+    #1013 fixes that end too.
 
     *cyls* accepts a precomputed ``analyse_cylinders(part)`` result, and *flats* a
     precomputed inventory, so repeated lint runs need not re-scan the solid. *pos_tol* is the
@@ -854,12 +888,16 @@ def lint_flat_coverage(
         if found is not None and tip is not None:
             callouts.append(((tip[0], tip[1]), float(found.group(1) or found.group(2))))
 
-    groups: dict[tuple[str, float], list] = {}
+    if cyls is None:
+        cyls = analyse_cylinders(part)
+    cylinders = [*cyls[0], *cyls[1]]
+    groups: dict = {}
     for flat in inventory:
-        groups.setdefault((flat.axis, round(flat.across, 3)), []).append(flat)
+        line = _stock_axis_line(flat, cylinders)
+        groups.setdefault((flat.axis, line, round(flat.across, 3)), []).append(flat)
 
     issues = []
-    for (axis, across), members in sorted(groups.items()):
+    for (axis, _line, across), members in sorted(groups.items(), key=lambda kv: str(kv[0])):
         view = _END_ON[axis]
         stated = []
         for member in members if callouts else ():
