@@ -48,8 +48,16 @@ class _FakeDrawing:
         return list(self._supp)
 
     def measurement_keys(self, name):
+        # A LIST of identities, because a real annotation can draw several (a grouped `4× R5`
+        # fillet callout draws four). The first cut returned at most one, so the differential
+        # tests could not express the compound case at all — and did not notice the audit
+        # collapsing tuples to a set (Codex #1002 r5). A single `(feature, parameter)` pair is
+        # still accepted for the many one-measurement cases.
         ident = self._ids.get(name)
-        return [] if ident is None else [{"feature": ident[0], "parameter_id": ident[1]}]
+        if ident is None:
+            return []
+        pairs = ident if isinstance(ident, list) else [ident]
+        return [{"feature": f, "parameter_id": p} for f, p in pairs]
 
 
 def _supp(parameter, reason, feature="envelope@(0,0,0)/z"):
@@ -435,8 +443,17 @@ def test_a_real_build_records_which_measurement_its_location_dims_draw():
             assert set(key) == {"feature", "parameter_id"}, f"{name}: the ledger's key shape"
 
     # The two threaded groups, named rather than counted: a count would keep passing if a
-    # renderer stopped recording and another started.
+    # renderer stopped recording and another started. And the PARAMETER is asserted, not just
+    # the feature (Codex #1002 r5): checking only the feature prefix would let an envelope
+    # renderer record its *depth* under `m_env_width` and still pass, which is precisely the
+    # mis-threading the audit would then report as exact.
+    assert identified["m_locx0"] == [
+        {"feature": identified["m_locx0"][0]["feature"], "parameter_id": "location.location"}
+    ]
     assert identified["m_locx0"][0]["feature"].startswith("hole@"), "located hole"
+    assert identified["m_env_width"][0]["parameter_id"] == "width.length"
+    assert identified["m_env_depth"][0]["parameter_id"] == "depth.length"
+    assert identified["dim_height"][0]["parameter_id"] == "height.length"
     assert identified["m_env_width"][0]["feature"].startswith("envelope@"), "overall extent"
 
     assert dwg.measurement_keys("title_block") == [], "furniture measures nothing"
@@ -518,6 +535,32 @@ def test_a_bare_id_and_a_sequence_are_both_accepted():
     assert reg.measurement_of("c") == (), "a sequence of nothing is still unknown"
 
 
+def test_a_grouped_callout_losing_a_member_is_a_substitution():
+    """Multiplicity is part of the identity (Codex #1002 r5).
+
+    A `4× R5` fillet callout collapses four equal fillets into one annotation drawing four
+    measurements. Lose one and it becomes `3× R5` — same name, same feature kind, same
+    parameter. Comparing DISTINCT keys made that invisible: every result map came back empty
+    while a measurement had silently left the drawing, which is the exact failure this module
+    exists to prevent. A multiset sees it.
+    """
+    fillet_a = "fillet@(-28,-18,0)/z[radius=5.000]"
+    fillet_b = "fillet@(-28,18,0)/z[radius=5.000]"
+    before = _FakeDrawing(
+        {"m_fillet_z0": "4× R5"},
+        identities={"m_fillet_z0": [(fillet_a, "fillet.radius"), (fillet_b, "fillet.radius")]},
+    )
+    after = _FakeDrawing(
+        {"m_fillet_z0": "4× R5"},  # label unchanged too — identity is the only signal
+        identities={"m_fillet_z0": [(fillet_a, "fillet.radius")]},
+    )
+
+    diff = diff_builds(before, after)
+    assert diff["dimensions_lost"] == {} and diff["dimensions_changed"] == {}
+    assert "m_fillet_z0" in diff["measurements_substituted"], "a dropped member is a change"
+    assert any(line.startswith("SUBSTITUTED") for line in explain(diff))
+
+
 def test_a_location_dim_two_features_share_records_both_measurements():
     """The dedup path, which the single-hole canary never reached (#1002 r4).
 
@@ -558,7 +601,7 @@ def test_a_real_build_records_identity_for_the_machined_feature_callouts():
     ADR 0016 requires the channel to carry (#886), exercised end to end rather than asserted
     on the registry in isolation.
     """
-    from build123d import Axis, Box, chamfer, fillet
+    from build123d import Axis, Box, Mode, chamfer, fillet
 
     part = Box(60, 40, 20)
     chamfered = build_drawing(chamfer(part.edges().filter_by(Axis.Z), 3))
@@ -571,6 +614,20 @@ def test_a_real_build_records_identity_for_the_machined_feature_callouts():
     assert len(grouped) == 4, "one grouped callout, four collapsed members"
     assert {k["parameter_id"] for k in grouped} == {"fillet.radius"}
     assert len({k["feature"] for k in grouped}) == 4, "four distinct fillets, not one repeated"
+
+    # A pocket is the compound case with DISTINCT parameters, so it is the one that would
+    # expose a swapped width/depth id — the failure a presence-only check cannot see.
+    with BuildPart() as pk:
+        Box(80, 60, 20)
+        with Locations((0, 0, 10)):
+            Box(30, 20, 6, mode=Mode.SUBTRACT)
+    pocket = build_drawing(pk.part).measurement_keys("m_pocket_yx0")
+    assert [k["parameter_id"] for k in pocket] == [
+        "pocket_width.length",
+        "pocket_length.length",
+        "pocket_depth.length",
+    ], "width, length and depth in the order the label prints them"
+    assert {k["feature"].split("@")[0] for k in pocket} == {"pocket"}
 
 
 def _records_a_measurement(call) -> bool:

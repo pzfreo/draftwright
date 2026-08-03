@@ -34,7 +34,9 @@ placers (#1005).
 Even where identity IS recorded, matching it across two builds is approximate. The ledger's
 key embeds the feature's origin and scalars, so it cannot join two builds that differ — the
 join uses `_correspondence` instead, which keeps the feature's KIND and drops its
-coordinates. Two features of one kind are therefore not separated.
+coordinates. Two features of one kind are therefore not separated: a same-count swap of one
+slot's width for another's is invisible (**#1006**). Multiplicity IS compared — as a multiset,
+so a grouped callout dropping a member is caught — but a like-for-like exchange is not.
 
 - **A replaced measurement hides where identity is unrecorded.** Move a hole and `m_locx0`
   goes from `70` to `90`: a different measurement reused the slot. With identity recorded
@@ -67,6 +69,8 @@ nothing from the engine, so the thing it measures can never come to depend on it
 """
 
 from __future__ import annotations
+
+from collections import Counter
 
 #: Sheet FURNITURE — the annotation types that carry no measurement. Everything else counts.
 #:
@@ -117,11 +121,21 @@ def _correspondence(feature, parameter) -> tuple:
     return (str(feature).split("@")[0], parameter)
 
 
-def _identities(dwg, name) -> set[tuple]:
-    """Cross-build correspondence keys for everything *name* draws; empty if unrecorded."""
+def _identities(dwg, name) -> Counter:
+    """Cross-build correspondence keys for everything *name* draws; empty if unrecorded.
+
+    A **multiset**, not a set (Codex #1002 r5). The whole reason the registry stores a tuple
+    is that one annotation can draw several measurements — a grouped ``4× R5`` fillet callout
+    draws four. Deduplicating them here threw that away: a grouped callout dropping from four
+    members to three keeps the same *distinct* key, so the change vanished and every result
+    map came back empty. The counts survive the cross-build key even though the coordinates
+    do not, so multiplicity is exactly the part of the tuple worth keeping.
+    """
     if not hasattr(dwg, "measurement_keys"):
-        return set()
-    return {_correspondence(k["feature"], k["parameter_id"]) for k in dwg.measurement_keys(name)}
+        return Counter()
+    return Counter(
+        _correspondence(k["feature"], k["parameter_id"]) for k in dwg.measurement_keys(name)
+    )
 
 
 def diff_builds(before, after) -> dict:
@@ -174,7 +188,7 @@ def diff_builds(before, after) -> dict:
     for name in set(before_dims) & set(after_dims):
         b_ids, a_ids = _identities(before, name), _identities(after, name)
         if b_ids and a_ids and b_ids != a_ids:
-            substituted[name] = (sorted(b_ids), sorted(a_ids))
+            substituted[name] = (sorted(b_ids.elements()), sorted(a_ids.elements()))
 
     # Attribution, on the cross-build correspondence key. The first cut matched a
     # suppression's parameter stem against the annotation's NAME by substring, so a
