@@ -507,3 +507,42 @@ def test_the_stock_axis_comes_from_the_recogniser_not_from_proximity(flatted_sha
     # them would win a proximity contest while being the wrong stock.
     for face in faces:
         assert abs(face.at[0] - face.axis_at[0]) == 12.5
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [
+        pytest.param(("18 A/F", "28 A/F"), id="smaller-first"),
+        pytest.param(("28 A/F", "18 A/F"), id="larger-first"),
+    ],
+)
+def test_coaxial_flats_projecting_to_one_point_take_their_own_callouts(labels):
+    """Two sections of ONE shaft at different Z stations, flats in the same x plane but
+    different stock radii. The plan view is end-on, so both project to the same page point and
+    position alone cannot separate them — every leader went to the first group, reporting a
+    mismatch and a gap on a sheet that had both callouts, correct (Codex #1011 r13).
+
+    Order-parametrised: the fix must not depend on which leader is read first.
+    """
+    flats = [Flat("z", 18.0, (8, 0, 0), (0, 0, 0)), Flat("z", 28.0, (8, 0, 20), (0, 0, 0))]
+    sheet = _sheet(*labels, tips=[(8, 0), (8, 0)])
+    assert lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False) == []
+
+
+def test_value_ranks_second_so_it_cannot_override_position():
+    """Value breaks a positional TIE; it must not outrank distance.
+
+    Both groups sit inside the 1 mm window, 0.5 mm apart, with their callouts swapped — each
+    leader is nearest one flat and states the OTHER's size. Distance-first calls both
+    mismatched, which is the truth: the sheet dimensions each flat with its neighbour's size.
+    Value-first would hand each leader to whichever flat its number happened to match and the
+    sheet would lint clean while every callout pointed at the wrong feature.
+
+    The 0.5 mm separation is a unit test of the ranking rule, not a plausible part; two flats
+    further apart than the window never compete, so the rule would be untestable through
+    realistic geometry.
+    """
+    flats = [Flat("z", 18.0, (0, 0, 0), (0, 0, 0)), Flat("z", 28.0, (0.5, 0, 0), (0.5, 0, 0))]
+    sheet = _sheet("28 A/F", "18 A/F", tips=[(0, 0), (0.5, 0)])
+    codes = [i.code for i in lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)]
+    assert codes == ["flat_callout_mismatched", "flat_callout_mismatched"]

@@ -885,8 +885,18 @@ def lint_flat_coverage(
             for key in ordered_keys:
                 for px, py in projected[key]:
                     gap = math.dist((tx, ty), (px, py))
-                    if gap <= pos_tol and (best is None or gap < best[0]):
-                        best = (gap, key)
+                    if gap > pos_tol:
+                        continue
+                    # Distance decides; the stated size only breaks an exact POSITIONAL tie.
+                    # The end-on view discards position along the stock axis, so two sections
+                    # of one shaft at different stations project to the same point — a
+                    # correct sheet carrying `18 A/F` and `28 A/F` there gave both leaders to
+                    # the 18 group, reporting a mismatch and a gap on a drawing that had
+                    # neither (Codex #1011 r13). Value ranks second, never first: position is
+                    # still the association, which is the r6 lesson.
+                    rank = (round(gap, 6), 0 if abs(value - key[2]) <= tol else 1)
+                    if best is None or rank < best[0]:
+                        best = (rank, key)
             if best is not None:
                 claimed.setdefault(best[1], []).append(value)
 
