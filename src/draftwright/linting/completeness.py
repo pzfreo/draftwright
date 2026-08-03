@@ -51,23 +51,52 @@ COVERED = "covered"
 UNCOVERED = "uncovered"
 UNCHECKED = "unchecked"
 
-#: kind -> (size parameter ids, location parameter ids). A recognised kind absent from here
-#: answers ``unchecked``, by design — see the module docstring.
+#: kind -> (size parameter ids, location parameter ids) for a feature with nothing special
+#: about it. A recognised kind absent from here answers ``unchecked``, by design.
 #:
-#: The ids are the compiler's own `parameter_id`s, read off real builds rather than guessed,
-#: because a typo here would silently mean "never covered" and read as a real finding.
-_REQUIRED: dict[str, tuple[frozenset, frozenset]] = {
+#: The ids are the compiler's own `parameter_id`s. Every one of them is asserted to appear in
+#: a real build's ledger by `test_every_required_id_is_one_the_compiler_actually_emits` —
+#: because the first cut wrote `location_slot.location` where the compiler emits
+#: `location_slot.length`, which made EVERY slot report its location missing, and nothing
+#: caught it. A hand-maintained string table without a ratchet is an unenforced claim.
+#:
+#: (The two location ids disagree in form — `location_pocket.location` against
+#: `location_slot.length` — which looks like an engine inconsistency rather than a deliberate
+#: distinction. Recorded as a side issue rather than papered over here.)
+_BASE_REQUIRED: dict[str, tuple[frozenset, frozenset]] = {
     "pocket": (
         frozenset({"pocket_width.length", "pocket_length.length", "pocket_depth.length"}),
         frozenset({"location_pocket.location"}),
     ),
     "slot": (
         frozenset({"slot_width.length", "slot_length.length"}),
-        frozenset({"location_slot.location"}),
+        frozenset({"location_slot.length"}),
     ),
     "chamfer": (frozenset({"chamfer.length"}), frozenset()),
     "fillet": (frozenset({"fillet.radius"}), frozenset()),
 }
+
+
+def _requirements(kind: str, feat):
+    """What *this* feature needs — a function of the RECORD, not of its kind.
+
+    Kind alone cannot express a per-feature requirement, and that is not academic: a pocket
+    whose walls are flush with the stock edges is located by those edges, so the planner
+    correctly emits no location dimension for it. A kind-only table demanded one anyway and
+    reported a correct drawing as defective (Codex #1007 r1) — the same fabricated-defect
+    class this module has now produced four ways.
+
+    ``edge_anchored`` is a **recogniser** fact, sitting on the record, so consulting it is not
+    the plan-sourcing the ADR 0015 carve-out forbids. That is the distinction: reading what
+    the geometry IS stays honest; reading what the planner DECIDED would not.
+    """
+    base = _BASE_REQUIRED.get(kind)
+    if base is None:
+        return None
+    size, location = base
+    if getattr(feat, "edge_anchored", False):
+        return size, frozenset()  # the stock edges locate it; no location dim is owed
+    return size, location
 
 
 @dataclass(frozen=True)
@@ -160,14 +189,22 @@ def feature_completeness(part, dwg, *, analysis=None, tol: float = 0.6) -> list[
     drawn = _drawn_by_feature(dwg)
     out: list[FeatureVerdict] = []
     for kind, feats in _inventory(part, analysis):
-        want = _REQUIRED.get(kind)
+        anchors = [_anchor(f) for f in feats]
         for feat in feats:
+            want = _requirements(kind, feat)
             anchor = _anchor(feat)
             if anchor is None:
                 # No anchor means the join cannot run, so nothing can be concluded either
                 # way. Reported as its own key so the feature still APPEARS — a feature
                 # missing from the report reads as "nothing to say about it".
                 out.append(FeatureVerdict(kind, f"{kind}@?", UNCHECKED, UNCHECKED))
+                continue
+            # Two same-kind features within *tol* of each other cannot be told apart by this
+            # join, so a complete neighbour would lend its ids to an incomplete one and the
+            # incomplete one would read covered (Codex #1007 r1). Ambiguity resolves to
+            # UNKNOWN, never to a union — the module's polarity rule, applied to the join.
+            if sum(1 for other in anchors if other is not None and _near(other, anchor, tol)) > 1:
+                out.append(FeatureVerdict(kind, _key(kind, anchor), UNCHECKED, UNCHECKED))
                 continue
             mine = tuple(
                 sorted(
@@ -191,12 +228,20 @@ def _near(a, b, tol: float) -> bool:
 
 
 def _inventory(part, analysis):
-    """``(kind, records)`` for every recognised feature kind.
+    """``(kind, records)`` for the feature kinds this module enumerates.
 
-    Every kind the recognisers produce is listed, including those with no rule yet, so the
-    unchecked set is REAL. Enumerating only the kinds this module can judge would make the
-    report agree with itself by construction — the self-confirming shape the ADR 0015
-    carve-out prevents, one level up.
+    **Not yet every recognised kind.** Hole patterns, pocket/slot patterns, countersinks,
+    plates, face levels, step shoulders and turned steps are absent, so a part dominated by
+    those produces a sparse report. Said plainly because the first version claimed "every
+    recognised feature kind" while omitting all eight — and a report that looks authoritative
+    while silently skipping most of a part is the exact false confidence this epic exists to
+    remove. Tracked as #1008.
+
+    Listing kinds with no rule yet is still deliberate: they answer ``unchecked``, so the
+    report does not agree with itself by construction.
+
+    ``analysis`` is reused where the build already computed an inventory (five of the nine);
+    the rest are recognised here, so this is only partly ADR 0015's one-inventory rule.
     """
     from draftwright.recognition import (
         recognise_bosses,
@@ -247,9 +292,20 @@ def completeness_summary(verdicts) -> dict:
 
 
 def _by_kind(verdicts) -> dict:
+    """``kind -> {complete, undefined, unchecked}`` counting FEATURES.
+
+    The first cut incremented once for size and once for location, so one fully covered
+    pocket read ``{"covered": 2}`` while the surrounding API described feature counts — and
+    the test asserted the field against itself, so it could never have said otherwise
+    (Codex #1007 r1).
+    """
     out: dict = {}
     for v in verdicts:
-        row = out.setdefault(v.kind, {COVERED: 0, UNCOVERED: 0, UNCHECKED: 0})
-        for verdict in (v.size, v.location):
-            row[verdict] += 1
+        row = out.setdefault(v.kind, {"complete": 0, "undefined": 0, "unchecked": 0})
+        if v.complete:
+            row["complete"] += 1
+        elif v.undefined:
+            row["undefined"] += 1
+        else:
+            row["unchecked"] += 1
     return out
