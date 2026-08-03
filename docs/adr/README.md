@@ -33,6 +33,7 @@ architecture** table; open retired or superseded records only for design history
 | [0014](0014-collect-then-solve-annotation-placement.md) | Collect-then-solve annotation placement (as built) | Collect, select, assign, and deterministically solve annotations per corridor before rendering. | Accepted; supersedes 0009 | `test_carve_free_position_callers.py`, `test_strip_layout.py`, `test_layout_property.py`, `test_import_boundaries.py` |
 | [0015](0015-part-drawing-compiler-as-built.md) | The part-drawing compiler, as built | Use one detected-or-declared feature IR and planner-fed dimension groups as the compiler waist. | Accepted; supersedes 0008 | `test_part_model.py`, `test_detect_once.py`, `test_import_boundaries.py` |
 | [0016](0016-declared-dimensioning-intent.md) | Declared dimensioning intent: capture what to measure, let the engine place it | Declare which measurements matter as scale-independent intent routed through the planner and corridor solve; never hardcode dimension geometry. | Accepted; epic #867 complete; phase 6 landed (#940) | `test_compiled_plan_boundary.py`, `test_label_provenance.py`, `test_sheet_emit.py`, `test_add_dimension.py` |
+| [0017](0017-recognition-inventory-correspondence-and-measurement-provenance.md) | Recognition inventory, feature correspondence, and measurement provenance | Produce one explicit recognition result, reconcile competing geometric claims once, and propagate deterministic requirement identity through compilation and placement. | Proposed | Guards required before acceptance are listed in the ADR |
 
 ## Historical records
 
@@ -49,5 +50,6 @@ architecture** table; open retired or superseded records only for design history
 - Layout and placement: 0004 → 0014 → 0012.
 - Declared intent and the editable surface: 0001 → 0011 → 0012 → 0016.
 - Quality and correction: 0002, with provenance from 0010.
+- Recognition correspondence and completeness: 0007 → 0013 → 0015 → 0017.
 
 Tracking issue: #745.
