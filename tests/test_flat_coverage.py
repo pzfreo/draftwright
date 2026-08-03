@@ -223,6 +223,18 @@ def _two_lobes():
     return Pos(0, 0, -24) * Box(160, 40, 8) + lobe(-50) + lobe(50)
 
 
+def _stepped_regions():
+    """One shaft, two coaxial machined regions of DIFFERENT diameters — ⌀40 with a 24 A/F
+    flat pair, ⌀24 with an 18 A/F pair. Their chords differ, so one shared radius is wrong
+    for at least one of them."""
+    C = (Align.CENTER, Align.CENTER, Align.CENTER)
+    return (
+        (Cylinder(20, 40) & Box(30, 60, 40, align=C))
+        + Pos(0, 0, 20) * Cylinder(6, 40)
+        + Pos(0, 0, 60) * (Cylinder(12, 40) & Box(18, 60, 40, align=C))
+    )
+
+
 def _two_coaxial_regions():
     """ONE shaft with two 25 A/F machined regions at different Z stations, joined by a plain
     waist — two definitions that share an axis line and a size."""
@@ -712,3 +724,75 @@ def test_parallel_lobes_sharing_an_extent_stay_separate():
     assert len({f.axis_at for f in faces}) == 2, "and really are told apart by their line"
     issues = lint_flat_coverage(_two_lobes(), _sheet_at((-62.5, 0)), assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
+
+
+def test_two_regions_of_different_diameter_each_use_their_own_radius():
+    """End-to-end on a real stepped shaft: ⌀40 with a 24 A/F pair, ⌀24 with an 18 A/F pair,
+    each leader inside its own region's chord and outside the other's.
+
+    NOT the guard for the r22 keying bug — these two regions have different `axis_at`, so
+    keying on that alone still separates them and this passes either way. The discriminating
+    case is below, and needed regions that SHARE an axis reference point.
+    """
+    sheet = _sheet("24 A/F", "18 A/F", tips=[(15, 12), (9, 5)])
+    assert lint_flat_coverage(_stepped_regions(), sheet, assembly=False) == []
+
+
+def test_coaxial_regions_sharing_an_axis_point_still_get_their_own_radius():
+    """The radius lookup answers the same question as the grouping — "which stock is this" —
+    so it must be keyed the same way. When the grouping moved to line-plus-extent (r21) the
+    lookup kept keying on `axis_at`, so two coaxial regions sharing an axis reference point
+    collapsed to one entry and both used whichever radius was read last. A correct callout on
+    the larger region was then reported missing (Codex #1011 r22).
+
+    Synthetic cylinders and records, deliberately: the failure needs two coaxial regions that
+    report the SAME `Axis.Location()`, which is exactly the shape r21 established the
+    recogniser does not guarantee against but a hand-built fixture cannot be made to produce
+    on demand.
+
+    ⌀40 at span 10 gives a half-chord of 17.3; ⌀24 gives 6.6. The leader sits at y=15 — inside
+    the first, outside the second — so the wrong radius reports a defined flat as missing.
+    """
+    stock_big, stock_small = (0, -20.0, 20.0), (0, 40.0, 80.0)
+    cyls = (
+        [
+            {
+                "axis": "z",
+                "axis_xyz": (0, 0, 0),
+                "diameter": 40,
+                "external": True,
+                "solid_idx": 0,
+                "s_lo": -20.0,
+                "s_hi": 20.0,
+            },
+            {
+                "axis": "z",
+                "axis_xyz": (0, 0, 0),
+                "diameter": 24,
+                "external": True,
+                "solid_idx": 0,
+                "s_lo": 40.0,
+                "s_hi": 80.0,
+            },
+        ],
+        [],
+    )
+    flats = [
+        Flat("z", 30.0, (10, 0, 0), (0, 0, 0), stock_big),
+        Flat("z", 18.0, (10, 0, 60), (0, 0, 0), stock_small),
+    ]
+    sheet = _sheet("30 A/F", "18 A/F", tips=[(10, 15), (10, 0)])
+    issues = lint_flat_coverage(Box(1, 1, 1), sheet, cyls=cyls, flats=flats, assembly=False)
+    assert issues == []
+
+
+def test_a_broken_coordinate_object_is_not_reported_as_a_coverage_gap(flatted_shaft):
+    """The projection guard exists for `drop_view_coordinates`, which raises `KeyError`.
+    Catching every `Exception` also swallowed genuine bugs — a coordinate object with no `pp`
+    became `flat_not_dimensioned` instead of surfacing (Codex #1011 r22). A lint that hides a
+    programming error is only marginally better than one that crashes on a supported call.
+    """
+    dwg = build_drawing(flatted_shaft)
+    dwg.set_view_coordinates("plan", object())
+    with pytest.raises(AttributeError):
+        dwg.lint()

@@ -787,6 +787,25 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     ]
 
 
+def _stock_key(axis: str, axis_at, stock):
+    """Which piece of stock, as one value — the axis LINE plus its EXTENT.
+
+    Two independent parts, because neither alone is enough: parallel lobes share an axial
+    span and differ only in line; disjoint coaxial regions share a line and differ only in
+    span; one double-D matches on both. `axis` alone is a letter and separates neither.
+
+    ONE function, called by both the flat grouping and the stock-radius lookup. They are the
+    same question, and when only the grouping was corrected to use the extent (r21) the radius
+    lookup kept keying on `axis_at` alone — so two coaxial regions of different diameters
+    shared whichever radius was read last, and a correct callout on the larger one was
+    reported missing (Codex #1011 r22). A shared identity cannot drift out of step; two
+    spellings of it did.
+    """
+    idx = "xyz".index(axis)
+    line = tuple(round(axis_at[i], 3) for i in range(3) if i != idx)
+    return (axis, line, stock)
+
+
 def _face_chord(flat, radius):
     """The flat face's two extreme points in part space — its chord across the stock.
 
@@ -890,31 +909,23 @@ def lint_flat_coverage(
         assembly = len(part.solids()) > 1
     if cyls is None:
         cyls = analyse_cylinders(part)
-    # Stock radius per axis line, so a face's chord extent is known. Keyed exactly as
-    # `Flat.axis_at` records it — both are the same rounded cylinder placement.
+    # Stock radius per PIECE OF STOCK, so a face's chord extent is known — keyed by the same
+    # `_stock_key` the grouping uses, since "which stock" is one question with one answer.
     radii = {
-        tuple(round(v, 3) for v in c["axis_xyz"]): c["diameter"] / 2
+        _stock_key(
+            c["axis"],
+            c["axis_xyz"],
+            (c.get("solid_idx", 0), round(c["s_lo"], 3), round(c["s_hi"], 3)),
+        ): c["diameter"] / 2
         for c in (*cyls[0], *cyls[1])
         if c.get("external")
     }
 
     groups: dict = {}
     for flat in inventory:
-        idx = "xyz".index(flat.axis)
-        # Which piece of stock, in two independent parts, because neither alone is enough:
-        #
-        #   the axis LINE  — the in-plane part of `axis_at`, separating parallel lobes, which
-        #                    share an axial span and so are identical to `stock`;
-        #   the extent     — `stock`, separating disjoint regions ON one line, which share an
-        #                    axis and so are identical to `axis_at`.
-        #
-        # `axis` alone is a letter and separates neither (#1013). The whole `axis_at` looked
-        # like it separated both, and a real two-region shaft did report two placements — but
-        # that is `Axis.Location()`, an arbitrary point on an infinite axis, so two disjoint
-        # coaxial regions may legitimately share one and silently merge (Codex #1011 r15
-        # then r21). The recogniser's matched cylinder knows the extent; it is not inferred.
-        line = tuple(round(flat.axis_at[i], 3) for i in range(3) if i != idx)
-        groups.setdefault((flat.axis, line, flat.stock, round(flat.across, 3)), []).append(flat)
+        groups.setdefault(
+            (_stock_key(flat.axis, flat.axis_at, flat.stock), round(flat.across, 3)), []
+        ).append(flat)
 
     # Callouts are read PER VIEW, from the view the flat reads in. Page coordinates alone are
     # not identity: a front-view leader whose tip happens to land on a Z-flat's projected plan
@@ -924,7 +935,7 @@ def lint_flat_coverage(
     claimed: dict = {}
     by_view: dict = {}
     for key in groups:
-        by_view.setdefault(_END_ON[key[0]], []).append(key)
+        by_view.setdefault(_END_ON[key[0][0]], []).append(key)
 
     for view, keys in by_view.items():
         callouts = []
@@ -943,13 +954,15 @@ def lint_flat_coverage(
                 k: [
                     tuple(
                         dwg.at(view, *end)[:2]
-                        for end in _face_chord(flat, radii.get(flat.axis_at))
+                        for end in _face_chord(
+                            flat, radii.get(_stock_key(flat.axis, flat.axis_at, flat.stock))
+                        )
                     )
                     for flat in groups[k]
                 ]
                 for k in ordered_keys
             }
-        except Exception:  # noqa: BLE001 — a view with no coordinate mapping
+        except KeyError:
             # `Drawing.drop_view_coordinates` (deprecated, but public until 0.5.0) and the
             # internal view bailout both leave a view holding annotations while `at` can no
             # longer place a point in it. Leaving those groups unclaimed reports them as
@@ -976,7 +989,7 @@ def lint_flat_coverage(
                     # the 18 group, reporting a mismatch and a gap on a drawing that had
                     # neither (Codex #1011 r13). Value ranks second, never first: position is
                     # still the association, which is the r6 lesson.
-                    rank = (round(gap, 6), 0 if abs(value - key[3]) <= tol else 1)
+                    rank = (round(gap, 6), 0 if abs(value - key[1]) <= tol else 1)
                     if best is None or rank < best[0]:
                         best = (rank, key)
             if best is not None:
@@ -986,7 +999,7 @@ def lint_flat_coverage(
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     issues = []
     for key in ordered:
-        axis, _line, _stock, across = key
+        (axis, _line, _stock), across = key
         stated = claimed.get(key, [])
         # EVERY disagreeing callout, not just the first, and not only when none agrees. A
         # right answer beside a wrong one does not make the wrong one right: two leaders on
