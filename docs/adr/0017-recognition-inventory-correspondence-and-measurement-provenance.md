@@ -55,11 +55,12 @@ one semantic question.
 ## Decision
 
 **A recognition run produces one first-class recognition result. It contains the shared
-geometry inventory, accepted feature records, physical measurement requirements, and
+geometry inventory, accepted feature records, physical measurables, and
 recognition diagnostics. A named reconciliation stage resolves overlapping candidate claims.
-Deterministic identities for accepted features and requirements propagate through the IR,
-compiler and placement result, so completeness lint compares recognised requirements with
-explicit downstream outcomes instead of reconstructing association from presentation.**
+Drafting policy turns measurables into applicable requirements. Deterministic identities for
+accepted features, measurables and requirements propagate through the IR, compiler and
+placement result, so completeness lint compares recognised requirements with explicit
+downstream outcomes instead of reconstructing association from presentation.**
 
 The conceptual pipeline becomes:
 
@@ -69,9 +70,11 @@ The conceptual pipeline becomes:
 B-rep → geometry inventory → candidates → reconciliation → accepted recognition records
                                       │                         │
                                       │                         ├─ diagnostics
-                                      │                         └─ measurement requirements
+                                      │                         └─ physical measurables
                                       ▼
                               PartModel / compiler
+                                      │
+                             applicable requirements
                                       │
                            approved or suppressed intent
                                       │
@@ -91,16 +94,25 @@ variables and optional `build_part_model(...)` arguments. It is the owner of:
 - reusable geometric substrate such as cylinders, planar regions, adjacency and profile facts;
 - feature candidates and the evidence/regions they claim;
 - accepted geometry-only recognition records;
-- physical measurement requirements recovered from those records;
+- physical measurables recovered from those records;
 - ambiguity, unsupported-topology and rejection diagnostics.
 
 Individual `recognise_<feature>` functions keep the ADR 0013 contract. The aggregate sits above
 them; it does not move drafting semantics into `recognition/` or require every recogniser to be
 rewritten at once.
 
-`analysis`, `model/detect.py`, `score.py` and geometry-based lint consume an explicit result or
-a documented projection of it. They do not independently assemble subtly different feature
+`RecognitionResult` owns the recognition portion of today's `Analysis`; it does not replace
+layout/sizing state such as the bounding box, zones, page/scale classification or view facts.
+`analysis`, `model/detect.py`, `score.py` and geometry-based lint consume the result or a
+documented projection of it. They do not independently assemble subtly different feature
 universes.
+
+**Migration baseline at proposal time.** Of roughly seventeen recognisers, seven inventories
+are carried on `Analysis`, eight are injectable into `build_part_model`, and eight are neither:
+countersinks, grooves, plates, chamfers, fillets, flats, step shoulders and face levels. “Neither”
+does not necessarily mean “run twice” — some run only inside detection — but it proves that one
+explicit orchestration result does not yet exist. This is a current-state ratchet for the
+implementation plan, not a permanent target encoded by this ADR.
 
 ### 2. Candidate discovery and ownership reconciliation are separate
 
@@ -122,25 +134,41 @@ constraint solver.
 
 ### 3. Identity is deterministic semantic data
 
-Feature and requirement identity must not depend on Python object identity, traversal order,
-annotation names, formatted labels, or page coordinates. An identity is derived from the
-recognised physical relation it names: feature kind, stable region/stock identity, measurement
-role and any required discriminator.
+Feature, measurable and requirement identity must not depend on Python object identity,
+traversal order, annotation names, formatted labels, or page coordinates. In particular, an
+enumeration index such as `solid_idx` is not stock identity: adding or reordering one solid can
+renumber every later record. A stock/region identity is derived positively from geometry — for
+example its axis direction and in-plane position, axial extent, diameter and other stable
+relations needed to distinguish the material region — plus the feature kind, measurement role
+and any required discriminator.
 
 The identity need only be stable for equivalent recognition of the same part under the
 project's geometric tolerances. It is not a promise of persistence across arbitrary topology-
 changing CAD edits. Exact identifiers, quantisation and collision handling are settled by the
 implementation plan and guarded with redetection tests.
 
-A physical feature may create more than one requirement; a correlated requirement may render
-as several marks. Therefore feature identity, measurement-requirement identity and annotation
-identity remain distinct types rather than one overloaded key.
+A physical feature may create more than one measurable; drafting policy may combine or reject
+measurables when forming requirements; a correlated requirement may render as several marks.
+Therefore feature identity, measurable identity, requirement identity and annotation identity
+remain distinct types rather than one overloaded key.
 
-### 4. Requirements carry independently through the compiler
+This is not a flat-only correction. `Flat`, `Chamfer`, `Fillet`, `Groove` and `CounterSink`
+currently carry an axis letter plus a point but cannot by themselves answer “which material
+region am I on?”. `TurnedStep`, `Plate` and `Slot` already carry useful extents. Migration must
+strengthen every thin record whose identity depends on material/region ownership rather than
+inventing a special key for flats.
 
-A recognised measurement requirement answers “what fact must a manufacturing-complete drawing
-state?” Examples include a flat's across-flats, a hole's bore, a pocket's depth, a pattern's
-pitch and origin location, or a turned run's correlated length chain.
+### 4. Measurables become requirements in drafting policy
+
+A recognised **measurable** is a geometry fact: this flat has an across-flats of 25, this pocket
+has a depth of 6, or these members form a grid with a given pitch. It may live in the
+geometry-only recognition result and, eventually, in the shared recogniser package.
+
+A drafting **requirement** is policy: this measurable must be stated for this drawing to be
+manufacturing-complete. Drafting convention decides applicability, correlation and redundancy.
+For example, several step measurables may become one correlated length-chain requirement, while
+a groove-owned diameter may make a coincident boss measurable redundant. Recognition does not
+make those drafting decisions.
 
 The compiler records the fate of each applicable requirement:
 
@@ -186,7 +214,9 @@ feature detection merely to build or render it.
 
 Physical completeness critique is a separate concern. A caller may explicitly request it, or
 `Drawing.lint()` may lazily obtain and cache a recognition result when the documented lint
-policy calls for geometry reconciliation. That recognition is evidence for critique, not a
+policy calls for geometry reconciliation. The cache belongs in the existing typed `BuildState`
+(ADR 0005 / #639), whose builder fill site remains the single writer; it must not become another
+ad-hoc private attribute on `Drawing`. That recognition is evidence for critique, not a
 replacement for the declared model and not an input that widens its authored dimension set.
 
 The implementation must make the distinction observable and testable: declared build/render
@@ -207,8 +237,8 @@ lint wording belong to draftwright's critique layer.
 
 - **ADR 0013 remains authoritative for individual recognisers.** This ADR adds orchestration,
   evidence, reconciliation and identity above that contract. A future `b123d-recognisers`
-  package remains geometry-only; compiler outcomes and annotation provenance do not move into
-  it.
+  package remains geometry-only: it may expose measurable facts, but applicability,
+  requirements, compiler outcomes and annotation provenance do not move into it.
 - **ADR 0015 remains authoritative for the compiler waist.** Its “one inventory detected once”
   is clarified to mean one explicit recognition result per recognition run, not an informal
   collection split across `_analyse()` and `build_part_model()`.
@@ -230,8 +260,8 @@ lint wording belong to draftwright's critique layer.
   exclusions scattered through consumers.
 - Sizing, detection, scoring and lint can share one coherent feature universe.
 - Repeated recognition and its performance policy become visible and enforceable.
-- New recognisers must state physical identity, claimed regions, requirements and conflicts,
-  making their downstream obligations discoverable.
+- New recognisers must state physical identity, claimed regions, measurables and conflicts,
+  making their downstream drafting obligations discoverable.
 - Ambiguous and unsupported geometry no longer looks indistinguishable from a feature-free part.
 - Cross-build fidelity, redundancy and code-generation checks gain a world-space identity source
   rather than relying on page geometry.
@@ -273,8 +303,8 @@ signatures from topology and measurements without leaking kernel objects.
 
 ### Put drafting requirements into the future shared recogniser package
 
-Rejected. Recognition supplies geometry, evidence and physical measurement facts. Drafting
-convention decides which requirements are applicable, redundant or presentational. The shared
+Rejected. Recognition supplies geometry, evidence and measurables. Drafting convention turns
+them into applicable requirements and decides which are redundant or presentational. The shared
 boundary remains geometry-only.
 
 ## Migration constraints
@@ -282,8 +312,10 @@ boundary remains geometry-only.
 This ADR deliberately does not approve an immediate rewrite. The implementation plan should:
 
 1. define a minimal `RecognitionResult` around today's inventories without changing output;
-2. introduce deterministic stock/region identity using the flat cases in #1013/#1015;
-3. define requirement and outcome identities, including correlated/N-annotation cases;
+2. introduce geometry-derived stock/region identity using the fixtures and evidence from
+   #1013/#1015, explicitly replacing traversal-derived `solid_idx` rather than promoting it;
+3. define measurable, requirement and outcome identities, including correlated/N-annotation
+   cases;
 4. thread those identities through the existing ADR 0010 registration seam;
 5. move the conflict rules already in `build_part_model` into a named reconciliation layer;
 6. migrate completeness checks from presentation matching to requirement outcomes one family at
@@ -310,6 +342,10 @@ cover.
   missing rather than matching by coincident text;
 - an ambiguous/unsupported fixture emits a recognition diagnostic rather than a clean absence;
 - linting the same built drawing twice does not rerun recognition.
+
+The reusable evidence from #1011 is its geometry fixtures and stock/region counterexamples.
+Its downstream label/tip matching machinery is not phase-zero implementation: it is the
+presentation reconstruction this ADR is intended to retire.
 
 ## Related work
 
