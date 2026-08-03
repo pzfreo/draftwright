@@ -819,26 +819,46 @@ def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: 
     # against a shared pool. A text label carries no axis, so a global value set let one
     # `25 A/F` cover both an X-stock and a Z-stock 25 mm flat, and let one `25.05 A/F`
     # cover flats of 25.0 and 25.1 at once — two callouts on the sheet, one on the drawing
-    # (Codex #1011 r2). Assignment is greedy in group order; for it to leave a group
-    # unmatched that some other pairing would have covered, two labels must sit within
-    # 0.15 mm of each other, which is a drawing that dimensions one flat twice.
-    issues = []
-    for axis, across in sorted({(f.axis, round(f.across, 3)) for f in inventory}):
-        claim = next((i for i, v in enumerate(unclaimed) if abs(across - v) <= tol), None)
-        if claim is not None:
-            unclaimed.pop(claim)
-            continue
-        issues.append(
-            LintIssue(
-                severity="info" if assembly else "warning",
-                code="flat_not_dimensioned",
-                message=(
-                    f"machined flat {_fmt(across)} A/F on the {axis.upper()} stock has no "
-                    f"across-flats callout on the sheet — the flat's only size definition"
-                ),
-            )
+    # (Codex #1011 r2).
+    #
+    # The pairing must be a MAXIMUM matching, not a greedy pass in group order. Flats of
+    # 25.0 and 25.2 with labels 25.1 and 24.9 are fully defined, but greedy hands 25.1 to
+    # the 25.0 group and then reports the 25.2 flat as undefined — a completeness check
+    # crying wolf on a correct drawing, which is the one thing it must not do (Codex #1011
+    # r3; the earlier claim here, that greedy could only fail on labels within `tol` of
+    # each other, was simply wrong — those two are 0.2 apart). Kuhn's augmenting-path
+    # algorithm is exact and, at a handful of flats per part, free. Where several maximum
+    # matchings exist the COUNT of undefined groups is the same for all of them; which
+    # group gets named follows the deterministic group order, an ambiguity a text label
+    # carrying no axis cannot resolve.
+    groups = sorted({(f.axis, round(f.across, 3)) for f in inventory})
+    label_owner: dict[int, int] = {}
+
+    def _claim(gi: int, seen: set[int]) -> bool:
+        for li, value in enumerate(unclaimed):
+            if li in seen or abs(groups[gi][1] - value) > tol:
+                continue
+            seen.add(li)
+            if li not in label_owner or _claim(label_owner[li], seen):
+                label_owner[li] = gi
+                return True
+        return False
+
+    for gi in range(len(groups)):
+        _claim(gi, set())
+    covered = set(label_owner.values())
+    return [
+        LintIssue(
+            severity="info" if assembly else "warning",
+            code="flat_not_dimensioned",
+            message=(
+                f"machined flat {_fmt(across)} A/F on the {axis.upper()} stock has no "
+                f"across-flats callout on the sheet — the flat's only size definition"
+            ),
         )
-    return issues
+        for gi, (axis, across) in enumerate(groups)
+        if gi not in covered
+    ]
 
 
 def lint_boss_height_coverage(part, dwg, features, assembly=None) -> list:

@@ -161,6 +161,27 @@ def test_a_tolerance_figure_cannot_stand_in_for_a_second_flat():
     assert "12 A/F" in issues[0].message, "the UNDEFINED flat must be the one named"
 
 
+@pytest.mark.parametrize(
+    ("labels", "expected"),
+    [
+        # Greedy in group order hands 25.1 to the 25.0 flat and then finds nothing for the
+        # 25.2 one — but 24.9 defines 25.0 and 25.1 defines 25.2, so the drawing is
+        # complete. A completeness check must not cry wolf on a correct drawing.
+        pytest.param(("25.1 A/F", "24.9 A/F"), [], id="a-pairing-exists-in-the-other-order"),
+        pytest.param(("24.9 A/F", "25.1 A/F"), [], id="and-in-this-order"),
+        # One label genuinely cannot define both, whichever way it is assigned.
+        pytest.param(("25.1 A/F",), ["flat_not_dimensioned"], id="one-label-two-flats"),
+        pytest.param((), ["flat_not_dimensioned"] * 2, id="no-labels-at-all"),
+    ],
+)
+def test_a_pairing_is_found_whenever_one_exists(labels, expected):
+    """Matching is maximum, not greedy: a flat counts as defined when SOME assignment of
+    distinct labels covers it, not merely when the first-come one does (Codex #1011 r3)."""
+    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("z", 25.2, (0, 0, 1))]
+    issues = lint_flat_coverage(Box(1, 1, 1), _sheet(*labels), flats=flats, assembly=False)
+    assert [i.code for i in issues] == expected
+
+
 def test_a_part_with_no_flats_is_left_alone():
     """The inventory short-circuits, so a prismatic part pays nothing and is never flagged."""
     assert lint_flat_coverage(Box(50, 50, 30), SimpleNamespace(items=[]), assembly=False) == []
