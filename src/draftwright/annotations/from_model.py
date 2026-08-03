@@ -91,6 +91,7 @@ from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     HoleFeature,
     PatternFeature,
+    PocketFeature,
     SlotFeature,
 )
 
@@ -195,7 +196,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     pocket_locations = {
         (loc.ref, loc.discriminator): loc
         for loc in plan.locations
-        if loc.role == "location_pocket" and loc.discriminator is not None
+        if loc.role == PocketFeature.LOCATION_STEM and loc.discriminator is not None
     }
     # A slot's own position dim — datum→near-end along its long axis. Compiled, not
     # computed from `a.bb`: it prints a number, so an authored set that does not name the
@@ -605,7 +606,11 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # filter). A pattern ref (role "location_pattern" — e.g. a bolt-circle
         # centre) is NOT filtered, even on the axis. A renderer-side filter only ever
         # REMOVES an approved entry (a drop), so it does not breach the boundary.
-        if loc.role == "location" and a.is_rotational and _concentric_with_axis(a, rx, ry):
+        if (
+            loc.role == HoleFeature.LOCATION_STEM
+            and a.is_rotational
+            and _concentric_with_axis(a, rx, ry)
+        ):
             continue
         # Provenance (ADR 0010): the located feature. `resolve_feature` is the sanctioned
         # seam for exactly this — the corridor's feature map keys drop()/annotations_of().

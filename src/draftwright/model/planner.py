@@ -148,7 +148,7 @@ class AddressableDimension:
     `plan_locations` returns a flat cross-feature list of bare `PlannedDimension`s, deduped
     by ref point, that never enters a `DimensionGroup`.
 
-    That no longer means a location is unaddressable. :data:`_LOCATION_ROLE` gives each
+    That no longer means a location is unaddressable. each feature's own `LOCATION_STEM` gives
     locatable kind a role, which is what `sheet.dimension(bore, "location")` names and what
     an authored set omits (#925) — one unit per feature. The finer question **#883** asks
     (is a grouped hole's location one unit or one per member? does a deduped coincident ref
@@ -331,26 +331,22 @@ def _datum_for(model: PartModel, param: DimParameter) -> Datum | None:
 #: a location was unnameable — it had no `DimParameter`, so an authored set could neither
 #: include nor exclude it, and every location was drawn regardless of what the script
 #: declared. A dimension the author cannot address is a dimension the author cannot omit.
-#: Feature type -> compiled location stem, DERIVED from each feature's own
-#: `LOCATION_STEM` declaration (#966) rather than restated here. The stem used to be
-#: written in this table while the SUFFIX was chosen at each mint site, which is how
-#: `location_pocket.location` and `location_slot.length` came to disagree — two spellings
-#: for one concept, because no single place owned the name.
+#: The feature types whose position the planner plans. The NAME is not restated here — it
+#: is read from each feature's own `LOCATION_STEM` declaration at call time (#966).
 #:
-#: Kept as a mapping so existing callers are unchanged; it is now a projection of the
-#: declarations, not a second source. `test_every_locatable_feature_declares_its_stem`
-#: fails if a feature that plans a location does not declare one.
-_LOCATION_ROLE: dict[type, str] = {
-    cls: cls.LOCATION_STEM
-    for cls in (
-        HoleFeature,
-        PatternFeature,
-        PocketFeature,
-        PocketPatternFeature,
-        PadFeature,
-        SlotFeature,
-    )
-}
+#: A dict comprehension over the declarations was the first attempt, and it was an
+#: import-time SNAPSHOT: renaming a declaration afterwards left the snapshot stale, so the
+#: mint site kept the old name while the declaration said something else — the same
+#: two-owners defect in a new place (Codex #1010 r2). A membership set plus a live read
+#: cannot go stale.
+_LOCATABLE: tuple[type, ...] = (
+    HoleFeature,
+    PatternFeature,
+    PocketFeature,
+    PocketPatternFeature,
+    PadFeature,
+    SlotFeature,
+)
 
 
 #: Which DATUM each kind's position is measured from, per orientation — and therefore
@@ -375,8 +371,8 @@ _LOCATION_ROLE: dict[type, str] = {
 #: today's engine and the author gets an error instead of a blank drawing.
 def location_datum(feature) -> str | None:
     """``"datum_xy"``, ``"bbox"``, or ``None`` — where *feature*'s position is measured
-    from, or that it has none. See :data:`_LOCATION_ROLE`."""
-    if type(feature) not in _LOCATION_ROLE:
+    from, or that it has none. See :data:`_LOCATABLE`."""
+    if not isinstance(feature, _LOCATABLE):
         return None
     if isinstance(feature, SlotFeature):
         return "bbox"  # near-end offset along its long axis, in its own view
@@ -384,8 +380,13 @@ def location_datum(feature) -> str | None:
         return "datum_xy"  # every orientation: its two in-plane coordinates
     if isinstance(feature, HoleFeature):
         return "datum_xy" if feature.frame.axis == "z" else "bbox"
-    # Patterns and pads: the plan-X / side-Y ladder only, so Z-normal only.
-    return "datum_xy" if feature.frame.axis == "z" else None
+    # Patterns and pads: the plan-X / side-Y ladder only, so Z-normal only. Spelled as an
+    # explicit isinstance rather than a fall-through, so the narrowing is visible to a
+    # reader and to mypy — the membership guard above is a tuple variable and narrows to
+    # nothing.
+    if isinstance(feature, PatternFeature | PadFeature | PocketPatternFeature):
+        return "datum_xy" if feature.frame.axis == "z" else None
+    return None
 
 
 #: The role every authored entry uses to name a location, whatever the per-kind role above.
@@ -405,7 +406,7 @@ def location_role(feature) -> str | None:
     authored vocabulary cannot accept a target no compiler will produce."""
     if location_datum(feature) is None:
         return None
-    return _LOCATION_ROLE.get(type(feature))
+    return getattr(type(feature), "LOCATION_STEM", None)  # live read, never a snapshot
 
 
 def plan_locations(model: PartModel) -> list[PlannedDimension]:

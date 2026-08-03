@@ -297,7 +297,11 @@ def add_feature_location(
         rx, ry = _span(loc)[1][0], _span(loc)[1][1]
         # A rotational part's on-axis *hole* is located by the centreline, not a
         # position dim (matches render_locations); a pattern ref is never filtered.
-        if loc.role == "location" and a.is_rotational and _concentric_with_axis(a, rx, ry):
+        if (
+            loc.role == HoleFeature.LOCATION_STEM
+            and a.is_rotational
+            and _concentric_with_axis(a, rx, ry)
+        ):
             continue
         # Coincident X (or Y) across this feature's own members → one dim, not a stack
         # of identical position dims (matches render_locations' x_refs/y_refs dedup).
