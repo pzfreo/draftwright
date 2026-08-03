@@ -16,7 +16,10 @@ from build123d import Align, Box, Cylinder, Pos
 from build123d_drafting.helpers import Draft, Leader
 
 from draftwright import Sheet, build_drawing
+from draftwright._core import _tol_suffix
+from draftwright.annotations.from_model import _flat_label
 from draftwright.drawing import _GEOMETRY_AWARE_CODES
+from draftwright.fits import fit_deviation
 from draftwright.linting import lint_flat_coverage
 from draftwright.recognition import Flat, recognise_flats
 
@@ -148,6 +151,10 @@ def test_a_callout_stating_the_size_counts_however_it_is_worded(flatted_shaft, l
         # is what rejects this one — it arrives here already on a Leader (Codex #1011 r4).
         pytest.param("USE 25 A/F SPANNER", id="prose-quoting-the-size"),
         pytest.param("25 A/F; SEE NOTE 12", id="a-callout-with-prose-appended"),
+        # The tolerance region between the size and "A/F" is any run of NON-LETTERS, wide
+        # enough for every `_tol_suffix` form without having to enumerate them. Excluding
+        # letters is what stops that width swallowing prose (Codex #1011 r8).
+        pytest.param("25 THREADED A/F", id="prose-between-the-size-and-the-token"),
     ],
 )
 def test_a_label_that_is_not_a_callout_does_not_count(flatted_shaft, label):
@@ -339,3 +346,48 @@ def test_two_lobes_of_the_same_size_are_the_documented_gap():
     flats = [Flat("z", 25.0, (0, 0, 0)), Flat("z", 25.0, (100, 0, 0))]
     sheet = _sheet("25 A/F", tips=[(0, 0)])
     assert lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False) == []
+
+
+@pytest.mark.parametrize(
+    "tolerance",
+    [
+        pytest.param(None, id="none"),
+        pytest.param(0.2, id="symmetric"),
+        pytest.param((0.1, 0.2), id="asymmetric-limits"),
+        pytest.param(fit_deviation("H7", 25), id="resolved-fit"),
+    ],
+)
+def test_the_parser_reads_every_label_the_renderer_can_write(flatted_shaft, tolerance):
+    """`_AF_RE` and `_flat_label` are two halves of one contract with nothing holding them
+    together, and they drifted: `_tol_suffix` writes an asymmetric limit as TWO
+    space-separated tokens (`25 +0.20 -0.10 A/F`), which a one-token pattern could not read,
+    so the check called our own correctly dimensioned drawing incomplete (Codex #1011 r8).
+
+    The input is BUILT from `_tol_suffix` rather than restating what it emits, so a new
+    suffix form fails here instead of in the field. That is the structural half of the fix;
+    widening the pattern was only the local half.
+    """
+    label = _flat_label("25", _tol_suffix(tolerance, Draft()))
+    assert lint_flat_coverage(flatted_shaft, _sheet(label), assembly=False) == [], (
+        f"the renderer writes {label!r} and coverage could not read it"
+    )
+
+
+def test_an_asymmetric_tolerance_on_the_declared_path_lints_clean():
+    """End to end through the public surface, since the drift was invisible until a real
+    build produced the label (Codex #1011 r8)."""
+    sheet = Sheet(_flatted_shaft())
+    flat = sheet.flat(axis="z", across=25, at=(12.5, 0, 20))
+    flat.tolerance(0.1, 0.2)
+    sheet.auto_dimensions()
+    dwg = sheet.build()
+    drawn = [
+        a.label for _, a in dwg.iter_annotations() if "A/F" in (getattr(a, "label", "") or "")
+    ]
+    # Expected label derived from the formatter, not spelled out: `_tol_suffix` rounds to the
+    # draft's own decimal precision, so a literal here would assert this test's idea of the
+    # format rather than the renderer's.
+    assert drawn == [_flat_label("25", _tol_suffix((0.1, 0.2), dwg.draft))], (
+        "precondition: the asymmetric label is on the sheet"
+    )
+    assert not [i for i in dwg.lint() if i.code.startswith("flat_")]

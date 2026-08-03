@@ -43,13 +43,21 @@ from draftwright.recognition import (
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
-# An across-flats callout and nothing else (#914): the size adjacent to the "A/F" token,
-# with an optional `n×` quantity prefix and an optional tolerance riding the number. ANCHORED
-# on purpose — a label is a callout or it is prose, and "USE 25 A/F SPANNER" is prose that
-# happens to contain a size (Codex #1011 r4).
+# An across-flats callout and nothing else (#914): the size, an optional `n×` quantity
+# prefix, and an optional tolerance region between the size and the "A/F" token. ANCHORED at
+# both ends on purpose — a label is a callout or it is prose, and "USE 25 A/F SPANNER" is
+# prose that happens to contain a size (Codex #1011 r4).
+#
+# The tolerance region is "any run of non-letters", NOT an enumerated set of forms. It was
+# one whitespace-free token, which could not read `_tol_suffix`'s own asymmetric limit
+# (`25 +0.20 -0.10 A/F` is two tokens), so the check called our own correctly dimensioned
+# drawing incomplete (Codex #1011 r8). This parser and `_flat_label` are two halves of one
+# contract with nothing holding them together, so the shape here is deliberately wider than
+# any list of formats — and a test builds its input from `_tol_suffix` rather than restating
+# what it emits. Letters stay excluded, which is what keeps prose ("25 THREADED A/F") out.
 _AF_RE = re.compile(
     r"^\s*(?:\d+\s*[×x]\s*)?"
-    r"(?:(\d+(?:\.\d+)?)(?:\s*[±+-]\S*)?\s*A/F|A/F\s*(\d+(?:\.\d+)?))"
+    r"(?:(\d+(?:\.\d+)?)(?:\s+[^A-Za-z]+)?\s*A/F|A/F\s*(\d+(?:\.\d+)?))"
     r"\s*$",
     re.IGNORECASE,
 )
