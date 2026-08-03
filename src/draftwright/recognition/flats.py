@@ -145,7 +145,19 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
             if not _both_chord_ends_reach_od(verts, ax, d, nv, r):
                 continue  # one end abuts a slot floor, not the OD — a recess wall, not a flat
             cands.append(
-                {"axis": c["axis"], "n": nv, "s": s, "r": r, "at": pcv, "ax": ax, "dir": d}
+                {
+                    "axis": c["axis"],
+                    "n": nv,
+                    "s": s,
+                    "r": r,
+                    "at": pcv,
+                    "ax": ax,
+                    "dir": d,
+                    # Which piece of stock this face was matched to, for the opposition test
+                    # below. Internal to one recognition run — a same-run equality check, not
+                    # an identity that propagates — so the solid index is safe here.
+                    "stock": (c.get("solid_idx", 0), round(c["s_lo"], 3), round(c["s_hi"], 3)),
+                }
             )
             break
 
@@ -160,6 +172,13 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                 continue
             if not _same_axis_line(cand["ax"], cand["dir"], other["ax"]):
                 continue  # a lone flat on a *different* parallel shaft — not opposed
+            if other["stock"] != cand["stock"]:
+                # The same infinite axis is not the same piece of stock. Two lone D-flats on
+                # separate COAXIAL regions were each taken for the other's opposite face, so
+                # both got `across` = the sum of two unrelated chord offsets — a wrong number
+                # on the feature's only size parameter (#1015). The axial extent separates
+                # them; the axis line alone cannot.
+                continue
             dot = n[0] * other["n"][0] + n[1] * other["n"][1] + n[2] * other["n"][2]
             if abs(dot + 1.0) <= _ANTIPARALLEL_TOL:
                 opp = other
