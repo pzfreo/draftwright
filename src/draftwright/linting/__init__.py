@@ -16,6 +16,11 @@ Import the public surface from here, not the submodules.
 
 from __future__ import annotations
 
+from draftwright.linting.completeness import (
+    FeatureVerdict,
+    completeness_summary,
+    feature_completeness,
+)
 from draftwright.linting.coverage import (
     CoverageState,
     lint_axial_coverage,
@@ -31,8 +36,11 @@ from draftwright.linting.suggest import _suggest_fix
 
 __all__ = [
     "CoverageState",
+    "FeatureVerdict",
     "LintIssue",
     "_suggest_fix",
+    "completeness_summary",
+    "feature_completeness",
     "lint_axial_coverage",
     "lint_boss_height_coverage",
     "lint_declaration_reconciliation",
