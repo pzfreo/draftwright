@@ -152,6 +152,13 @@ measurables when forming requirements; a correlated requirement may render as se
 Therefore feature identity, measurable identity, requirement identity and annotation identity
 remain distinct types rather than one overloaded key.
 
+They are also distinct **Python types** — provisionally `FeatureId`, `MeasurableId`,
+`RequirementId` and `AnnotationId`, implemented as frozen value types rather than four aliases
+for a bare tuple or string. Passing a measurable identity where a requirement identity is
+expected must be a static/runtime type error, not a valid lookup that happens to return the
+wrong result. Their internal fields may reuse smaller typed geometry keys; consumers do not
+assemble or unpack those fields independently.
+
 This is not a flat-only correction. `Flat`, `Chamfer`, `Fillet`, `Groove` and `CounterSink`
 currently carry an axis letter plus a point but cannot by themselves answer “which material
 region am I on?”. `TurnedStep`, `Plate` and `Slot` already carry useful extents. Migration must
@@ -170,6 +177,14 @@ For example, several step measurables may become one correlated length-chain req
 a groove-owned diameter may make a coincident boss measurable redundant. Recognition does not
 make those drafting decisions.
 
+That policy has one explicit, low-level home, provisionally `draftwright.requirements`: a pure
+measurable→requirement mapping below both `model/` and `linting/` in the dependency DAG. It takes
+geometry-only measurable data plus explicit drafting-policy inputs and returns typed
+requirements; it imports neither the compiler/planner nor placed annotations. `model/` consumes
+it when compiling intent, and `linting/` consumes the same mapping when forming its independent
+physical-completeness inventory. The two callers may select different output projections, but
+they may not reimplement applicability, correlation or redundancy rules.
+
 The compiler records the fate of each applicable requirement:
 
 - approved;
@@ -186,18 +201,19 @@ recognition choose strips and coordinates.
 
 ADR 0015's lint carve-out remains: completeness cannot take the compiled dimension set as its
 only inventory, because an omission before planning would then be invisible. Its independent
-ground truth is the recognised physical requirements.
+ground truth is requirements formed from recognised measurables by the shared requirements
+policy — independently of what the compiler claims to have approved.
 
 Independence from the plan does **not** require independence from the recognition result, nor
 does it justify recovering association from rendered text when provenance exists. Lint compares:
 
 ```text
-recognised applicable requirements ↔ compiler/placement outcomes
+requirements(recognised measurables, drafting policy) ↔ compiler/placement outcomes
 ```
 
 It reports at least these distinct conditions:
 
-- no intent was approved for a required measurement;
+- no intent was approved for a requirement;
 - intent was deliberately suppressed;
 - intent was approved but placement dropped it;
 - an annotation states a conflicting value or identity;
@@ -243,7 +259,9 @@ lint wording belong to draftwright's critique layer.
   is clarified to mean one explicit recognition result per recognition run, not an informal
   collection split across `_analyse()` and `build_part_model()`.
 - **ADR 0015's lint carve-out remains.** Lint is independent of the compiler's claimed
-  completeness, but may consume the same recognition result as independent physical evidence.
+  completeness. It may consume the same recognition result as independent physical evidence
+  and the shared requirements policy, but does not import `model/` or trust compiler output as
+  its inventory.
 - **ADR 0010 remains the annotation provenance seam.** This ADR specifies the semantic identity
   that provenance must carry; it does not create a second registration seam.
 - **ADR 0016 remains the owner of authored dimensioning intent.** Suppression is a recorded
@@ -314,14 +332,15 @@ This ADR deliberately does not approve an immediate rewrite. The implementation 
 1. define a minimal `RecognitionResult` around today's inventories without changing output;
 2. introduce geometry-derived stock/region identity using the fixtures and evidence from
    #1013/#1015, explicitly replacing traversal-derived `solid_idx` rather than promoting it;
-3. define measurable, requirement and outcome identities, including correlated/N-annotation
-   cases;
-4. thread those identities through the existing ADR 0010 registration seam;
-5. move the conflict rules already in `build_part_model` into a named reconciliation layer;
-6. migrate completeness checks from presentation matching to requirement outcomes one family at
+3. define the shared measurable→requirement policy below `model/` and `linting/`;
+4. define the four distinct identity types and outcome records, including
+   correlated/N-annotation cases;
+5. thread those identities through the existing ADR 0010 registration seam;
+6. move the conflict rules already in `build_part_model` into a named reconciliation layer;
+7. migrate completeness checks from presentation matching to requirement outcomes one family at
    a time;
-7. retain explicit fallbacks for external/manual annotations;
-8. delete superseded matchers and duplicate recognition calls as each migration lands.
+8. retain explicit fallbacks for external/manual annotations;
+9. delete superseded matchers and duplicate recognition calls as each migration lands.
 
 Each phase must preserve the declared-model no-detection path and must include a mutation or
 counterexample demonstrating that the new guard observes the semantic failure it claims to
@@ -331,7 +350,13 @@ cover.
 
 - one recognition orchestration call per automatic build, with shared substrates not rescanned;
 - a declared build without physical completeness critique performs no recognition;
-- redetecting an unchanged part yields the same feature and requirement identities;
+- redetecting an unchanged part yields the same feature and measurable identities; applying the
+  same drafting policy yields the same requirement identities; recompiling and placing it yields
+  deterministic annotation identities;
+- `FeatureId`, `MeasurableId`, `RequirementId` and `AnnotationId` are distinct Python types, and
+  the public/internal APIs that exchange them reject a key of the wrong identity domain;
+- both compiler and lint requirements are produced by the one shared policy; changing a policy
+  rule changes both inventories, while deleting either call site's use of it fails a guard;
 - two parallel or coaxial stock regions receive distinct identities, while two faces of one
   double-D/hex feature reconcile as intended;
 - every accepted record has one converter/reconciliation home and every applicable requirement
