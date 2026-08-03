@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Cylinder, Pos
+from build123d_drafting.helpers import Draft, Leader
 
 from draftwright import build_drawing
 from draftwright.linting import lint_flat_coverage
@@ -94,6 +95,15 @@ def test_removing_the_callout_from_a_finished_sheet_reports_it(flatted_shaft):
     assert "flat_not_dimensioned" in _codes(dwg)
 
 
+def _sheet(*labels):
+    """A stand-in sheet carrying real ``Leader``s — the type ``render_flats`` places.
+    Real ones, not stubs: the check counts leaders only, so a stub would test nothing."""
+    draft = Draft()
+    return SimpleNamespace(
+        items=[Leader(tip=(0, 0, 0), elbow=(5, 5, 0), label=x, draft=draft) for x in labels]
+    )
+
+
 @pytest.mark.parametrize(
     "label",
     [
@@ -101,14 +111,14 @@ def test_removing_the_callout_from_a_finished_sheet_reports_it(flatted_shaft):
         pytest.param("25 ±0.2 A/F", id="toleranced"),
         pytest.param("A/F 25.0", id="worded-the-other-way-round"),
         pytest.param("25.05 A/F", id="within-tolerance"),
+        pytest.param("2× 25 A/F", id="quantity-prefixed"),
     ],
 )
-def test_a_label_stating_the_size_counts_however_it_is_worded(flatted_shaft, label):
+def test_a_callout_stating_the_size_counts_however_it_is_worded(flatted_shaft, label):
     """The *value* is matched, not the string. An authored tolerance rides the number
     (``25 ±0.2 A/F``), so a whole-string comparison would report a fully-defined drawing
     as incomplete — the #629 class of bug, one layer up."""
-    sheet = SimpleNamespace(items=[SimpleNamespace(label=label)])
-    assert lint_flat_coverage(flatted_shaft, sheet, assembly=False) == []
+    assert lint_flat_coverage(flatted_shaft, _sheet(label), assembly=False) == []
 
 
 @pytest.mark.parametrize(
@@ -118,16 +128,33 @@ def test_a_label_stating_the_size_counts_however_it_is_worded(flatted_shaft, lab
         pytest.param("⌀40", id="the-stock-diameter"),
         pytest.param("12 A/F", id="a-different-size"),
         pytest.param("25", id="the-number-without-the-callout"),
+        # Prose that happens to contain the size. Anchoring, not the leader-only rule,
+        # is what rejects this one — it arrives here already on a Leader (Codex #1011 r4).
+        pytest.param("USE 25 A/F SPANNER", id="prose-quoting-the-size"),
+        pytest.param("25 A/F; SEE NOTE 12", id="a-callout-with-prose-appended"),
     ],
 )
-def test_a_label_that_does_not_state_the_size_does_not_count(flatted_shaft, label):
-    sheet = SimpleNamespace(items=[SimpleNamespace(label=label)])
-    issues = lint_flat_coverage(flatted_shaft, sheet, assembly=False)
+def test_a_label_that_is_not_a_callout_does_not_count(flatted_shaft, label):
+    issues = lint_flat_coverage(flatted_shaft, _sheet(label), assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
 
 
-def _sheet(*labels):
-    return SimpleNamespace(items=[SimpleNamespace(label=x) for x in labels])
+def test_a_note_stating_the_size_does_not_define_the_flat(flatted_shaft):
+    """A size defines a feature only when something POINTS at it. A note is user-positioned
+    free text carrying no feature (``Drawing.note``'s own words), so it cannot define the
+    flat however it is worded (Codex #1011 r4).
+
+    The note text here is *exactly* the callout on purpose. Codex's repro — "USE 25 A/F
+    SPANNER" — is rejected by the anchored pattern before the leader rule is ever reached,
+    so a test using it stays green with the leader rule removed and proves nothing about it.
+    """
+    dwg = build_drawing(flatted_shaft)
+    for name, _ in list(dwg.iter_annotations()):
+        if name.startswith("m_flat_"):
+            dwg.remove(name)
+    assert "flat_not_dimensioned" in _codes(dwg), "precondition: the flat is undefined"
+    dwg.note("25 A/F", (20, 20), view="front")
+    assert "flat_not_dimensioned" in _codes(dwg), "a note is not a callout"
 
 
 def test_one_callout_cannot_define_two_flats_on_different_axes():

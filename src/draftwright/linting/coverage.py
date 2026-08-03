@@ -23,7 +23,7 @@ import re
 from collections.abc import Iterable
 from typing import Literal
 
-from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
+from build123d_drafting.helpers import CenterMark, Dimension, Leader, TitleBlock
 
 from draftwright._core import _DIAM_RE, _END_ON, HoleRef, _axis_letter, _fmt, _xyz
 from draftwright.linting.issues import LintIssue
@@ -43,7 +43,16 @@ from draftwright.recognition import (
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
-_NUM_RE = re.compile(r"\d+(?:\.\d+)?")  # any bare number in a label (#914 A/F coverage)
+# An across-flats callout and nothing else (#914): the size adjacent to the "A/F" token,
+# with an optional `n×` quantity prefix and an optional tolerance riding the number. ANCHORED
+# on purpose — a label is a callout or it is prose, and "USE 25 A/F SPANNER" is prose that
+# happens to contain a size (Codex #1011 r4).
+_AF_RE = re.compile(
+    r"^\s*(?:\d+\s*[×x]\s*)?"
+    r"(?:(\d+(?:\.\d+)?)(?:\s*[±+-]\S*)?\s*A/F|A/F\s*(\d+(?:\.\d+)?))"
+    r"\s*$",
+    re.IGNORECASE,
+)
 
 # Reconciliation tolerances (#487) mirror sheet._match_object (⌀ ≤ 0.2 mm, in-plane ≤ 0.5 mm):
 # a declared feature matches a recognised cylinder within these. Kept in sync by comment — linting/
@@ -775,11 +784,11 @@ def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: 
     deliberately: one names the cause, the other the consequence (#914).
 
     Drawing-derived, like :func:`lint_axial_coverage`: the inventory comes from geometry
-    (``recognise_flats``) and the coverage from labels actually on the sheet, so it judges
-    any producer rather than trusting a build-time side channel. A flat counts as covered
-    when a label mentioning ``A/F`` carries its across-flats size — the *value* is matched,
-    not the whole string, so an authored tolerance (``25 ±0.2 A/F``) still counts, as does
-    a hand-written callout that words it differently.
+    (``recognise_flats``) and the coverage from what is actually on the sheet, so it judges
+    any producer rather than trusting a build-time side channel. A flat counts as covered by
+    a **leader** whose whole label is an across-flats callout — ``25 A/F``, ``25 ±0.2 A/F``,
+    ``2× 25 A/F``, ``A/F 25``. Leaders only, because a size defines a feature only when
+    something points at it; anchored, because a label is a callout or it is prose.
 
     Flats sharing an axis and size are ONE callout in ``render_flats``, so the inventory is
     grouped the same way: a double-D's two faces are one definition to satisfy, not two.
@@ -794,25 +803,24 @@ def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: 
         return []
     if assembly is None:
         assembly = len(part.solids()) > 1
+    # A size is only a definition when something on the sheet POINTS at the feature, so only
+    # leaders count. Text alone let two non-callouts satisfy a flat: the drawing title, when
+    # the part was named after its own defining dimension (r1), and any free-form note
+    # mentioning the size — `dwg.note("USE 25 A/F SPANNER", …)` disabled the check entirely
+    # (r4). Both are ruled out by type rather than by special case; `Note` and `TitleBlock`
+    # are not leaders. This is annotation *semantics*, not our renderer's provenance, so a
+    # hand-authored `dwg.callout(...)` still counts and the check still judges any producer.
     unclaimed: list[float] = []
     for ann in dwg.items:
-        if isinstance(ann, TitleBlock):
-            # A title block's label is the drawing TITLE, not a callout — the same
-            # exemption `lint_feature_coverage` makes for "BRACKET R8". Without it a part
-            # titled "25 A/F" silently satisfies its own flat and the check reports a
-            # manufacturing-incomplete drawing as complete (Codex #1011 r1).
+        if not isinstance(ann, Leader):
             continue
-        label = getattr(ann, "label", None) or ""
-        if "A/F" not in label:
-            continue
-        # The FIRST number is the size: `render_flats` writes `{across}{tol} A/F`, so a
-        # tolerance figure always follows the value it qualifies. Reading every number
-        # instead was worse in both directions — the `12` in `25 ±12 A/F` could satisfy a
-        # separate 12 mm flat, and when it did, the greedy claim below blamed the wrong
-        # feature in the message (Codex #1011 r2).
-        size = _NUM_RE.search(label)
-        if size is not None:
-            unclaimed.append(float(size.group()))
+        # The size adjacent to the "A/F" token, not the first number anywhere in the label:
+        # reading every number let the `12` in `25 ±12 A/F` satisfy a separate 12 mm flat and,
+        # once labels were consumed, blame the 25 mm one in the message (r2). Anchored, so a
+        # quantity-prefixed `2× 25 A/F` counts but prose containing a size does not (r4).
+        found = _AF_RE.match(getattr(ann, "label", None) or "")
+        if found is not None:
+            unclaimed.append(float(found.group(1) or found.group(2)))
 
     # Each callout is CONSUMED by the group it covers, so N groups need N callouts —
     # counting, as `lint_feature_coverage` does for ⌀, rather than testing each group
