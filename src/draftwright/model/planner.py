@@ -386,13 +386,12 @@ def location_datum(feature) -> str | None:
         return "datum_xy"  # every orientation: its two in-plane coordinates
     if isinstance(feature, HoleFeature):
         return "datum_xy" if feature.frame.axis == "z" else "bbox"
-    # Patterns and pads: the plan-X / side-Y ladder only, so Z-normal only. Spelled as an
-    # explicit isinstance rather than a fall-through, so the narrowing is visible to a
-    # reader and to mypy — the membership guard above is a tuple variable and narrows to
-    # nothing.
-    if isinstance(feature, PatternFeature | PadFeature | PocketPatternFeature):
-        return "datum_xy" if feature.frame.axis == "z" else None
-    return None
+    # Patterns, pocket-patterns and pads: the plan-X / side-Y ladder only, so Z-normal only.
+    # A fall-through, not a fourth `isinstance` + `return None`: membership above is by
+    # exact type, so those three are all that can reach here and the extra arm was
+    # unreachable — dead code that read as defensive and showed up as the one uncovered
+    # line in the patch.
+    return "datum_xy" if feature.frame.axis == "z" else None
 
 
 #: The role every authored entry uses to name a location, whatever the per-kind role above.
