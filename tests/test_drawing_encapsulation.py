@@ -491,6 +491,9 @@ def test_build_state_has_a_single_construction_and_fill_site():
         # and these guards caught it.
         "builder.py": [
             "_build.analysis",
+            # ADR 0017's recognition aggregate is filled beside analysis/model at this
+            # same single construction site; Drawing.recognition() is read-only.
+            "_build.recognition",
             "_build.part_model",
             "_build.detail_view",
             "_build.trace",

@@ -571,6 +571,16 @@ class Drawing:
         """
         return self._part_model
 
+    def recognition(self) -> RecognitionResult | None:
+        """The ADR 0017 recognition inventory used to build this drawing.
+
+        This is the geometry-only evidence below the detected/declared :meth:`model` and
+        drafting policy.  It is an experimental, read-only result; ``None`` is possible only
+        for a bare ``Drawing`` that did not pass through :func:`build_drawing`.
+        """
+
+        return self._build.recognition
+
     # --- build-context compat properties (#639): one BuildState, thin views.
     # _part_model and the two caches are GETTER-ONLY by design (#691 review):
     # zero assignment sites exist in src/ or tests/, and a future wholesale

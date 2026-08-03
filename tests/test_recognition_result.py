@@ -24,12 +24,13 @@ def test_recognition_result_is_frozen_and_owns_tuple_inventories():
         result.holes = ()
 
 
-def test_drawing_build_state_reuses_analysis_recognition_result():
+def test_built_drawing_exposes_its_recognition_result_without_private_state():
     drawing = build_drawing(_plate_with_holes())
 
-    assert drawing._build.recognition is drawing._build.analysis.recognition
-    assert tuple(drawing._build.analysis.holes) == drawing._build.recognition.holes
-    assert drawing._build.analysis.cyls is drawing._build.recognition.cylinders
+    result = drawing.recognition()
+    assert isinstance(result, RecognitionResult)
+    assert len(result.holes) == 2
+    assert result.cylinders
 
 
 def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
