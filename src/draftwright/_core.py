@@ -837,7 +837,6 @@ class Analysis:
     pockets: list
     pocket_patterns: list
     pads: list  # geometry-derived rectangular-pad coverage inventory (#885)
-    flats: list  # machined flats (recognise_flats), detected once — the one inventory (#244)
     z_diams: list[float]
     cross_diams: list[float]
     cyls: tuple[list, list]

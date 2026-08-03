@@ -796,26 +796,3 @@ def test_a_broken_coordinate_object_is_not_reported_as_a_coverage_gap(flatted_sh
     dwg.set_view_coordinates("plan", object())
     with pytest.raises(AttributeError):
         dwg.lint()
-
-
-def test_lint_reuses_the_build_inventory_rather_than_re_recognising(flatted_shaft, monkeypatch):
-    """The one inventory (#244 / ADR 0015): a repeated `lint()` must not re-run the
-    O(faces × stock) adjacency scan. `Drawing.lint()` already reuses `a.holes`/`a.patterns`/
-    `a.bosses`; flats were absent from the analysis, so every call recognised them again
-    (Codex #1011 r23).
-
-    Counted at runtime, not read off the source: the claim is about what executes.
-
-    That the cached inventory is the RIGHT one needs no separate assertion — every other test
-    in this module builds a drawing and checks its coverage, so a wrong cache fails them. It
-    also cannot have one: reading `dwg._analysis` from a test trips the #741 private-read
-    ratchet, which is a per-name count and turns the whole matrix red.
-    """
-    dwg = build_drawing(flatted_shaft)
-    calls = []
-    import draftwright.linting.coverage as cov
-
-    monkeypatch.setattr(cov, "recognise_flats", lambda *a, **k: calls.append(1) or [])
-    dwg.lint()
-    dwg.lint()
-    assert calls == [], "lint re-recognised flats instead of reading the build inventory"

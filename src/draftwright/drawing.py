@@ -2702,7 +2702,6 @@ class Drawing:
                 self.part,
                 self,
                 cyls=cyls,
-                flats=a.flats if a is not None else None,
                 assembly=self.assembly,
             )
             model = self._part_model
