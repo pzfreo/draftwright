@@ -103,7 +103,7 @@ def test_removing_the_callout_from_a_finished_sheet_reports_it(flatted_shaft):
 _AT_THE_FLAT = (12.5, 0.0)
 
 
-def _sheet(*labels, tips=None, scale=1.0):
+def _sheet(*labels, tips=None, scale=1.0, view=None):
     """A stand-in sheet carrying real ``Leader``s tipped at given page points.
 
     Real leaders, not stubs: the check looks at type AND tip, so a stub with only a label
@@ -115,12 +115,19 @@ def _sheet(*labels, tips=None, scale=1.0):
     draft = Draft()
     if tips is None:
         tips = [_AT_THE_FLAT] * len(labels)
+    leaders = [
+        (
+            f"m_flat_{i}",
+            Leader(tip=(t[0], t[1], 0), elbow=(t[0] + 5, t[1] + 5, 0), label=x, draft=draft),
+        )
+        for i, (x, t) in enumerate(zip(labels, tips, strict=True))
+    ]
     return SimpleNamespace(
-        items=[
-            Leader(tip=(t[0], t[1], 0), elbow=(t[0] + 5, t[1] + 5, 0), label=x, draft=draft)
-            for x, t in zip(labels, tips, strict=True)
-        ],
-        at=lambda view, x, y, z: (x * scale, y * scale, 0.0),
+        items=[ldr for _, ldr in leaders],
+        # Callouts are read per view, so the stub must answer that question: *view* is the one
+        # these leaders are owned by, and every other view sees nothing.
+        annotations_in_view=lambda asked: leaders if view is None or asked == view else [],
+        at=lambda _view, x, y, z: (x * scale, y * scale, 0.0),
     )
 
 
@@ -206,12 +213,15 @@ def _two_lobes():
     return Pos(0, 0, -24) * Box(160, 40, 8) + lobe(-50) + lobe(50)
 
 
-def _sheet_at(*tips, scale=1.0):
+def _sheet_at(*tips, scale=1.0, view=None):
     """A sheet carrying one ``25 A/F`` leader per tip, tips given in PART space and projected
     by *scale* — so a test can put two flats close together on the page without moving them
     on the part."""
     return _sheet(
-        *["25 A/F"] * len(tips), tips=[(t[0] * scale, t[1] * scale) for t in tips], scale=scale
+        *["25 A/F"] * len(tips),
+        tips=[(t[0] * scale, t[1] * scale) for t in tips],
+        scale=scale,
+        view=view,
     )
 
 
@@ -226,7 +236,10 @@ def test_a_non_leader_carrying_a_tip_does_not_define_a_flat(flatted_shaft):
     """
     sheet = SimpleNamespace(
         items=[SimpleNamespace(tip=_AT_THE_FLAT, label="25 A/F")],
-        at=lambda view, x, y, z: (x, y, 0.0),
+        annotations_in_view=lambda _asked: [
+            ("n0", SimpleNamespace(tip=_AT_THE_FLAT, label="25 A/F"))
+        ],
+        at=lambda _view, x, y, z: (x, y, 0.0),
     )
     issues = lint_flat_coverage(flatted_shaft, sheet, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
@@ -237,7 +250,7 @@ def test_two_leaders_on_one_flat_do_not_define_a_second_one():
     ``25 A/F`` both pointing at the X flat say nothing about a 25 mm Z flat elsewhere on the
     part — but under value matching they were simply two labels of the right value, and the
     undefined flat went unreported (Codex #1011 r6)."""
-    flats = [Flat("x", 25.0, (0, 0, 0)), Flat("z", 25.0, (100, 0, 0))]
+    flats = [Flat("x", 25.0, (0, 0, 0), (0, 0, 0)), Flat("z", 25.0, (100, 0, 0), (100, 0, 0))]
     sheet = _sheet("25 A/F", "25 A/F", tips=[(0, 0), (0, 0)])
     issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
@@ -248,7 +261,7 @@ def test_one_callout_cannot_define_two_flats_on_different_axes():
     """``render_flats`` collapses by ``(axis, across)``, so an X-stock and a Z-stock 25 mm
     flat are TWO callouts. A leader points at one flat; it cannot also define a differently
     oriented one somewhere else (Codex #1011 r2)."""
-    flats = [Flat("x", 25.0, (0, 0, 0)), Flat("z", 25.0, (100, 0, 0))]
+    flats = [Flat("x", 25.0, (0, 0, 0), (0, 0, 0)), Flat("z", 25.0, (100, 0, 0), (100, 0, 0))]
     part = Box(1, 1, 1)
     both = _sheet("25 A/F", "25 A/F", tips=[(0, 0), (100, 0)])
     assert lint_flat_coverage(part, both, flats=flats, assembly=False) == []
@@ -260,7 +273,7 @@ def test_one_callout_cannot_define_two_flats_on_different_axes():
 def test_one_callout_cannot_define_two_flats_whose_sizes_are_within_tolerance():
     """25.0 and 25.1 are two groups and two callouts. A single ``25.05 A/F`` is within the
     size window of both, so under value matching it was accepted twice; it is at one flat."""
-    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("z", 25.1, (100, 0, 0))]
+    flats = [Flat("z", 25.0, (0, 0, 0), (0, 0, 0)), Flat("z", 25.1, (100, 0, 0), (100, 0, 0))]
     sheet = _sheet("25.05 A/F", tips=[(0, 0)])
     issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
@@ -269,7 +282,7 @@ def test_one_callout_cannot_define_two_flats_whose_sizes_are_within_tolerance():
 def test_a_tolerance_figure_cannot_stand_in_for_a_second_flat():
     """``25 ±12 A/F`` at the 25 mm flat defines that flat and says nothing about a 12 mm one
     elsewhere. The size is the label's first number, so the tolerance figure is not a size."""
-    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("x", 12.0, (100, 0, 0))]
+    flats = [Flat("z", 25.0, (0, 0, 0), (0, 0, 0)), Flat("x", 12.0, (100, 0, 0), (100, 0, 0))]
     sheet = _sheet("25 ±12 A/F", tips=[(0, 0)])
     issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
@@ -293,7 +306,7 @@ def test_coverage_follows_where_the_leaders_point(tips, expected):
     for."""
     # Different AXES, so two groups: same axis and size would collapse to one group that a
     # leader at either face covers, which is the double-D case tested separately.
-    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("x", 25.0, (100, 0, 0))]
+    flats = [Flat("z", 25.0, (0, 0, 0), (0, 0, 0)), Flat("x", 25.0, (100, 0, 0), (100, 0, 0))]
     sheet = _sheet("25 A/F", "25 A/F", tips=tips)
     issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == expected
@@ -470,3 +483,27 @@ def test_every_contradictory_callout_is_named_not_just_the_first(flatted_shaft):
     issues = lint_flat_coverage(flatted_shaft, sheet, assembly=False)
     assert [i.code for i in issues] == ["flat_callout_mismatched"] * 2
     assert "12 A/F" in issues[0].message and "40 A/F" in issues[1].message
+
+
+def test_a_callout_in_the_wrong_view_does_not_define_the_flat(flatted_shaft):
+    """A Z flat reads in the plan. A front-view leader whose tip happens to land on the same
+    page coordinates points at unrelated geometry, and page position alone cannot tell the two
+    apart — so callouts are read from the flat's own view (Codex #1011 r12)."""
+    right = _sheet("25 A/F", tips=[_AT_THE_FLAT], view="plan")
+    assert lint_flat_coverage(flatted_shaft, right, assembly=False) == []
+    wrong = _sheet("25 A/F", tips=[_AT_THE_FLAT], view="front")
+    issues = lint_flat_coverage(flatted_shaft, wrong, assembly=False)
+    assert [i.code for i in issues] == ["flat_not_dimensioned"]
+
+
+def test_the_stock_axis_comes_from_the_recogniser_not_from_proximity(flatted_shaft):
+    """`Flat.axis_at` is the OD the recogniser matched by edge adjacency, not the nearest
+    parallel axis. Deriving it from proximity split a double-D whenever another cylinder sat
+    closer to one face than its own axis did — a false positive on a correct drawing, which is
+    the worst thing a completeness check can do (Codex #1011 r12)."""
+    faces = recognise_flats(flatted_shaft)
+    assert len({f.axis_at for f in faces}) == 1, "both faces of a double-D share one stock axis"
+    # The faces sit 12.5 mm either side of the axis, so a cylinder nearer than that to one of
+    # them would win a proximity contest while being the wrong stock.
+    for face in faces:
+        assert abs(face.at[0] - face.axis_at[0]) == 12.5

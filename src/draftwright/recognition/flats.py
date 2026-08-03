@@ -99,6 +99,13 @@ class Flat(Record):
     axis: str
     across: float
     at: tuple[float, float, float]
+    #: A point on the axis of the stock this flat truncates. ``axis`` is only a LETTER, so
+    #: without this two D-flats of the same size on parallel stock are indistinguishable from
+    #: the two faces of one double-D — one definition or two, and no way to tell (#1013).
+    #: Phase 1 already matches each face to its OD by edge adjacency, so this is that match
+    #: surviving into the record instead of consumers re-deriving it from proximity, which
+    #: picks the wrong axis whenever another cylinder sits nearer the face than its own does.
+    axis_at: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 def recognise_flats(part, *, cyls=None) -> list[Flat]:
@@ -170,6 +177,11 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                 axis=cand["axis"],
                 across=round(across, 3),
                 at=(round(cand["at"][0], 3), round(cand["at"][1], 3), round(cand["at"][2], 3)),
+                axis_at=(
+                    round(cand["ax"][0], 3),
+                    round(cand["ax"][1], 3),
+                    round(cand["ax"][2], 3),
+                ),
             )
         )
     return sorted(out, key=lambda fl: (fl.axis, fl.at))

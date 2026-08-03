@@ -781,39 +781,6 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     ]
 
 
-def _stock_axis_line(flat, cylinders, ndigits: int = 3):
-    """The in-plane position of the axis line *flat*'s stock is coaxial about, or ``None``.
-
-    The identity :class:`~draftwright.recognition.Flat` does not carry (#1013): its ``axis``
-    is a LETTER, so two D-flats of the same size on parallel stock look exactly like the two
-    faces of one double-D. Re-derived here from the cylinder inventory — the flat's face
-    centre lies on the OD it truncates, so the nearest external cylinder axis on the same
-    letter is its stock.
-
-    Deriving it rather than mirroring ``render_flats``'s ``(axis, across)`` collapse is the
-    point: coverage exists to reconcile geometry against the sheet *independently*, and a
-    check that groups the way the renderer groups cannot see the renderer group wrongly
-    (ADR 0015's carve-out, and the reason it re-recognises instead of reading the model).
-    So a two-lobe part now reports its undefined second lobe — a true finding that surfaces
-    the renderer collapse tracked by #1013.
-
-    ``None`` when no external cylinder shares the axis, which the recogniser's OD-adjacency
-    gate should make unreachable; grouping then falls back to the axis letter.
-    """
-    idx = "xyz".index(flat.axis)
-    plane = [i for i in range(3) if i != idx]
-    here = tuple(flat.at[i] for i in plane)
-    best = None
-    for c in cylinders:
-        if not c.get("external") or c.get("axis") != flat.axis:
-            continue
-        line = tuple(c["axis_xyz"][i] for i in plane)
-        gap = math.dist(here, line)
-        if best is None or gap < best[0]:
-            best = (gap, line)
-    return None if best is None else tuple(round(v, ndigits) for v in best[1])
-
-
 def lint_flat_coverage(
     part, dwg, *, cyls=None, flats=None, assembly=None, tol: float = 0.15, pos_tol: float = 1.0
 ):
@@ -859,13 +826,12 @@ def lint_flat_coverage(
     grouped the same way: a double-D's two faces are one definition, satisfied by a leader at
     either face.
 
-    Groups are keyed by the stock's **axis line**, not the axis letter, so two D-flats of the
-    same size on parallel stock stay two definitions while a double-D's two faces stay one.
-    ``Flat`` carries no stock identity, so :func:`_stock_axis_line` re-derives it from the
-    cylinder inventory rather than copying ``render_flats``'s ``(axis, across)`` collapse —
-    a check that groups the way the renderer groups cannot see the renderer group wrongly.
-    The renderer still collapses, so a two-lobe part reports its undefined lobe here until
-    #1013 fixes that end too.
+    Groups are keyed by the stock's **axis line** (``Flat.axis_at``), not the axis letter, so
+    two D-flats of the same size on parallel stock stay two definitions while a double-D's two
+    faces stay one. Not by copying ``render_flats``'s ``(axis, across)`` collapse: a check that
+    groups the way the renderer groups cannot see the renderer group wrongly, which is the
+    whole reason coverage re-reads geometry (ADR 0015). The renderer still collapses, so a
+    two-lobe part reports its undefined lobe here until #1013 fixes that end too.
 
     *cyls* accepts a precomputed ``analyse_cylinders(part)`` result, and *flats* a
     precomputed inventory, so repeated lint runs need not re-scan the solid. *pos_tol* is the
@@ -878,48 +844,53 @@ def lint_flat_coverage(
     if assembly is None:
         assembly = len(part.solids()) > 1
 
-    callouts = []
-    for ann in dwg.items:
-        if not isinstance(ann, Leader):
-            continue
-        # The size adjacent to the "A/F" token, not the first number anywhere in the label:
-        # reading every number let the `12` in `25 ±12 A/F` satisfy a separate 12 mm flat (r2).
-        found = _AF_RE.match(getattr(ann, "label", None) or "")
-        tip = getattr(ann, "tip", None)
-        if found is not None and tip is not None:
-            callouts.append(((tip[0], tip[1]), float(found.group(1) or found.group(2))))
-
-    if cyls is None:
-        cyls = analyse_cylinders(part)
-    cylinders = [*cyls[0], *cyls[1]]
     groups: dict = {}
     for flat in inventory:
-        line = _stock_axis_line(flat, cylinders)
+        idx = "xyz".index(flat.axis)
+        # The stock's axis LINE — the in-plane part of a point on it. `axis` alone is a
+        # letter, so it cannot separate two parallel lobes from one double-D (#1013).
+        line = tuple(round(flat.axis_at[i], 3) for i in range(3) if i != idx)
         groups.setdefault((flat.axis, line, round(flat.across, 3)), []).append(flat)
 
-    ordered = sorted(groups, key=str)  # deterministic, so an exact tie resolves the same way
-    projected = {
-        key: [dwg.at(_END_ON[key[0]], *flat.at)[:2] for flat in groups[key]]
-        for key in (ordered if callouts else ())
-    }
-
-    # Each callout is assigned to the ONE group it is nearest, not to every group within
-    # `pos_tol`. A leader points at a single feature, and accepting it for all nearby groups
-    # made the window an association: at 1:100 two lobes 50 mm apart project 0.5 mm apart, so
-    # one leader sat inside both acceptance regions and certified the undefined lobe too
-    # (Codex #1011 r10). Nearest-wins needs no scale-dependent tolerance, because it asks
-    # which flat this callout belongs to rather than which flats it is close enough to.
+    # Callouts are read PER VIEW, from the view the flat reads in. Page coordinates alone are
+    # not identity: a front-view leader whose tip happens to land on a Z-flat's projected plan
+    # position would otherwise define it, while pointing at unrelated geometry (Codex #1011
+    # r12). `view_of`/`annotations_in_view` is the same duck-typed drawing surface
+    # `lint_axial_coverage` already relies on.
     claimed: dict = {}
-    for (tx, ty), value in callouts:
-        best = None
-        for key in ordered:
-            for px, py in projected[key]:
-                gap = math.dist((tx, ty), (px, py))
-                if gap <= pos_tol and (best is None or gap < best[0]):
-                    best = (gap, key)
-        if best is not None:
-            claimed.setdefault(best[1], []).append(value)
+    by_view: dict = {}
+    for key in groups:
+        by_view.setdefault(_END_ON[key[0]], []).append(key)
 
+    for view, keys in by_view.items():
+        callouts = []
+        for _name, ann in dwg.annotations_in_view(view):
+            if not isinstance(ann, Leader):
+                continue
+            found = _AF_RE.match(getattr(ann, "label", None) or "")
+            tip = getattr(ann, "tip", None)
+            if found is not None and tip is not None:
+                callouts.append(((tip[0], tip[1]), float(found.group(1) or found.group(2))))
+        if not callouts:
+            continue
+        ordered_keys = sorted(keys, key=str)  # deterministic, so an exact tie resolves alike
+        projected = {k: [dwg.at(view, *flat.at)[:2] for flat in groups[k]] for k in ordered_keys}
+        # Each callout is assigned to the ONE group it is nearest, not to every group within
+        # `pos_tol`. A leader points at a single feature, and accepting it for all nearby
+        # groups made the window an association: at 1:100 two lobes 100 mm apart project 1 mm
+        # apart, so one leader sat inside both windows and certified the undefined lobe too
+        # (Codex #1011 r10). Nearest-wins needs no scale-dependent tolerance.
+        for (tx, ty), value in callouts:
+            best = None
+            for key in ordered_keys:
+                for px, py in projected[key]:
+                    gap = math.dist((tx, ty), (px, py))
+                    if gap <= pos_tol and (best is None or gap < best[0]):
+                        best = (gap, key)
+            if best is not None:
+                claimed.setdefault(best[1], []).append(value)
+
+    ordered = sorted(groups, key=str)
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     issues = []
     for key in ordered:
