@@ -103,7 +103,7 @@ def test_removing_the_callout_from_a_finished_sheet_reports_it(flatted_shaft):
 _AT_THE_FLAT = (12.5, 0.0)
 
 
-def _sheet(*labels, tips=None):
+def _sheet(*labels, tips=None, scale=1.0):
     """A stand-in sheet carrying real ``Leader``s tipped at given page points.
 
     Real leaders, not stubs: the check looks at type AND tip, so a stub with only a label
@@ -120,7 +120,7 @@ def _sheet(*labels, tips=None):
             Leader(tip=(t[0], t[1], 0), elbow=(t[0] + 5, t[1] + 5, 0), label=x, draft=draft)
             for x, t in zip(labels, tips, strict=True)
         ],
-        at=lambda view, x, y, z: (x, y, 0.0),
+        at=lambda view, x, y, z: (x * scale, y * scale, 0.0),
     )
 
 
@@ -206,9 +206,13 @@ def _two_lobes():
     return Pos(0, 0, -24) * Box(160, 40, 8) + lobe(-50) + lobe(50)
 
 
-def _sheet_at(*tips):
-    """A sheet carrying one ``25 A/F`` leader per tip."""
-    return _sheet(*["25 A/F"] * len(tips), tips=list(tips))
+def _sheet_at(*tips, scale=1.0):
+    """A sheet carrying one ``25 A/F`` leader per tip, tips given in PART space and projected
+    by *scale* — so a test can put two flats close together on the page without moving them
+    on the part."""
+    return _sheet(
+        *["25 A/F"] * len(tips), tips=[(t[0] * scale, t[1] * scale) for t in tips], scale=scale
+    )
 
 
 def test_a_non_leader_carrying_a_tip_does_not_define_a_flat(flatted_shaft):
@@ -375,6 +379,22 @@ def test_same_sized_flats_on_separate_stock_are_separate_definitions(tips, expec
     """
     codes = [i.code for i in lint_flat_coverage(_two_lobes(), _sheet_at(*tips), assembly=False)]
     assert codes == ["flat_not_dimensioned"] * expected
+
+
+def test_a_callout_defines_the_flat_it_is_nearest_not_every_flat_it_is_near():
+    """At a small scale two separate lobes project close enough that one leader falls inside
+    both acceptance windows, and accepting it for each independently certified a lobe with no
+    callout at all (Codex #1011 r10).
+
+    1:100 here: lobes 100 mm apart on the part are 1 mm apart on the page, inside the 1 mm
+    window from either. The identity projection every other test uses cannot reach this — the
+    collision is a property of the SCALE, not of the geometry.
+    """
+    part = _two_lobes()
+    codes = [
+        i.code for i in lint_flat_coverage(part, _sheet_at((-37.5, 0), scale=0.01), assembly=False)
+    ]
+    assert codes == ["flat_not_dimensioned"], "the far lobe has no callout and must be reported"
 
 
 def test_the_two_faces_of_one_lobe_remain_a_single_definition():

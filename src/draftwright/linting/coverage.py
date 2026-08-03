@@ -869,7 +869,8 @@ def lint_flat_coverage(
 
     *cyls* accepts a precomputed ``analyse_cylinders(part)`` result, and *flats* a
     precomputed inventory, so repeated lint runs need not re-scan the solid. *pos_tol* is the
-    page-mm window for "this leader points at that flat".
+    page-mm window for "this leader points at that flat"; within it, each callout is assigned
+    to the single NEAREST group, so the window never has to shrink with the drawing scale.
     """
     inventory = recognise_flats(part, cyls=cyls) if flats is None else flats
     if not inventory:
@@ -896,17 +897,33 @@ def lint_flat_coverage(
         line = _stock_axis_line(flat, cylinders)
         groups.setdefault((flat.axis, line, round(flat.across, 3)), []).append(flat)
 
+    ordered = sorted(groups, key=str)  # deterministic, so an exact tie resolves the same way
+    projected = {
+        key: [dwg.at(_END_ON[key[0]], *flat.at)[:2] for flat in groups[key]]
+        for key in (ordered if callouts else ())
+    }
+
+    # Each callout is assigned to the ONE group it is nearest, not to every group within
+    # `pos_tol`. A leader points at a single feature, and accepting it for all nearby groups
+    # made the window an association: at 1:100 two lobes 50 mm apart project 0.5 mm apart, so
+    # one leader sat inside both acceptance regions and certified the undefined lobe too
+    # (Codex #1011 r10). Nearest-wins needs no scale-dependent tolerance, because it asks
+    # which flat this callout belongs to rather than which flats it is close enough to.
+    claimed: dict = {}
+    for (tx, ty), value in callouts:
+        best = None
+        for key in ordered:
+            for px, py in projected[key]:
+                gap = math.dist((tx, ty), (px, py))
+                if gap <= pos_tol and (best is None or gap < best[0]):
+                    best = (gap, key)
+        if best is not None:
+            claimed.setdefault(best[1], []).append(value)
+
     issues = []
-    for (axis, _line, across), members in sorted(groups.items(), key=lambda kv: str(kv[0])):
-        view = _END_ON[axis]
-        stated = []
-        for member in members if callouts else ():
-            px, py, *_ = dwg.at(view, *member.at)
-            stated += [
-                value
-                for (tx, ty), value in callouts
-                if abs(tx - px) <= pos_tol and abs(ty - py) <= pos_tol
-            ]
+    for key in ordered:
+        axis, _line, across = key
+        stated = claimed.get(key, [])
         if any(abs(value - across) <= tol for value in stated):
             continue
         if stated:
