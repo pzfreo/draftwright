@@ -10,7 +10,6 @@ import dataclasses
 
 import pytest
 
-from draftwright.model import PartModel
 from draftwright.model.planner import _LOCATION_ROLE, location_datum, location_role
 
 pytestmark = pytest.mark.smoke
@@ -69,14 +68,57 @@ def test_stems_are_unique_so_two_features_cannot_share_a_name():
     assert len(stems) == len(set(stems)), f"duplicate location stems: {stems}"
 
 
-def test_location_role_still_answers_none_where_no_location_is_planned():
-    """`location_role` derives from `location_datum`, so the authored vocabulary cannot
-    accept a target no compiler will produce. Declaring a stem must not change that."""
-    from draftwright.model import Frame, HoleFeature
+def test_a_real_build_mints_the_slot_location_from_the_declaration():
+    """The assertion the first cut was missing (Codex #1010 r1).
+
+    Every other test here compares the planner table with the declaration — table against
+    table. None of them touched a compiled plan, so **all of them passed while the
+    declaration was decorative**: the mint site in `compiled.py` still held its own
+    hardcoded `"location_slot.length"`, and renaming the declaration changed no output at
+    all. A vocabulary nothing consumes is not a vocabulary.
+
+    So this mutates the declaration and asserts a REAL build's ledger follows it.
+    """
+    from build123d import Box
+
+    from draftwright import build_drawing
+    from draftwright.model import SlotFeature
+
+    def _slot_ids(dwg):
+        return {
+            key["parameter_id"]
+            for name, _a in dwg.iter_annotations()
+            for key in dwg.measurement_keys(name)
+            if key["feature"].startswith("slot")
+        }
+
+    part = Box(60, 30, 10) - Box(30, 8, 20)
+    assert "location_slot.length" in _slot_ids(build_drawing(part))
+
+    original = SlotFeature.LOCATION_STEM
+    try:
+        SlotFeature.LOCATION_STEM = "location_canary"
+        mutated = _slot_ids(build_drawing(part))
+    finally:
+        SlotFeature.LOCATION_STEM = original
+
+    assert "location_canary.length" in mutated, (
+        "the compiled ledger ignored the declaration — the mint site still owns the name"
+    )
+    assert "location_slot.length" not in mutated
+
+
+def test_location_role_answers_for_an_eligible_feature_and_none_for_an_ineligible_one():
+    """Both directions, unlike the first cut — which was named "...answers none where no
+    location is planned" and then asserted the opposite on a feature that IS locatable,
+    ending with `assert model is not None`, which cannot fail after ordinary construction."""
+    from draftwright.model import Frame, HoleFeature, PatternFeature
 
     side = HoleFeature(Frame((0.0, 0.0, 0.0), "x"), 6.0, depth=None, through=True)
-    assert location_datum(side) == "bbox"
+    assert location_datum(side) == "bbox"  # eligible, from the bounding box
     assert location_role(side) == "location"
 
-    model = PartModel(bbox=None, orientation=None, features=[side])
-    assert model is not None  # the feature is constructible in a model, not just standalone
+    member = HoleFeature(Frame((0.0, 0.0, 0.0), "x"), 6.0, depth=None, through=True)
+    off_axis = PatternFeature(Frame((0.0, 0.0, 0.0), "x"), "linear", 3, member)
+    assert location_datum(off_axis) is None, "an off-axis pattern has never been drawn"
+    assert location_role(off_axis) is None, "so the vocabulary must not accept it"

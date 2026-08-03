@@ -87,7 +87,12 @@ from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model.callout import _first as _first
 from draftwright.model.callout import hole_callout_spec as hole_callout_spec
 from draftwright.model.compiled import FeatureRef, resolve_feature
-from draftwright.model.ir import AUTHORED_DIMENSION_KINDS, HoleFeature, PatternFeature
+from draftwright.model.ir import (
+    AUTHORED_DIMENSION_KINDS,
+    HoleFeature,
+    PatternFeature,
+    SlotFeature,
+)
 
 
 def callout_from_spec(spec, draft, count) -> HoleCallout | None:
@@ -195,7 +200,12 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     # A slot's own position dim — datum→near-end along its long axis. Compiled, not
     # computed from `a.bb`: it prints a number, so an authored set that does not name the
     # slot's location must not get one (#925).
-    slot_positions = {loc.ref: loc for loc in plan.locations if loc.role == "location_slot"}
+    # Derived, not spelled: the name is a CONTRACT between the compiler that mints it and
+    # this renderer that reads it, and until #966 neither end derived it — so renaming the
+    # declaration silently dropped every slot location dim rather than renaming it.
+    slot_positions = {
+        loc.ref: loc for loc in plan.locations if loc.role == SlotFeature.LOCATION_STEM
+    }
     draft = dwg.draft
     tier = draft.font_size + 2 * draft.pad_around_text
     views = {
