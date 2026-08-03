@@ -224,9 +224,15 @@ def _two_lobes():
 
 
 def _stepped_regions():
-    """One shaft, two coaxial machined regions of DIFFERENT diameters — ⌀40 with a 24 A/F
-    flat pair, ⌀24 with an 18 A/F pair. Their chords differ, so one shared radius is wrong
-    for at least one of them."""
+    """One shaft, two coaxial machined regions of DIFFERENT diameters — ⌀40 with a 30 A/F
+    double-D, ⌀24 with an 18 A/F one. Their chords differ, so one shared radius is wrong for
+    at least one of them.
+
+    This fixture read 24 A/F for the larger region until #1015 was fixed: its two faces were
+    being paired across the waist with the SMALLER region's, summing two unrelated offsets.
+    The expected value here came from the recogniser, so it inherited the recogniser's bug —
+    which is what taking ground truth from the thing under test buys you.
+    """
     C = (Align.CENTER, Align.CENTER, Align.CENTER)
     return (
         (Cylinder(20, 40) & Box(30, 60, 40, align=C))
@@ -734,7 +740,7 @@ def test_two_regions_of_different_diameter_each_use_their_own_radius():
     keying on that alone still separates them and this passes either way. The discriminating
     case is below, and needed regions that SHARE an axis reference point.
     """
-    sheet = _sheet("24 A/F", "18 A/F", tips=[(15, 12), (9, 5)])
+    sheet = _sheet("30 A/F", "18 A/F", tips=[(15, 12), (9, 5)])
     assert lint_flat_coverage(_stepped_regions(), sheet, assembly=False) == []
 
 
@@ -796,3 +802,24 @@ def test_a_broken_coordinate_object_is_not_reported_as_a_coverage_gap(flatted_sh
     dwg.set_view_coordinates("plan", object())
     with pytest.raises(AttributeError):
         dwg.lint()
+
+
+def test_lone_flats_on_separate_coaxial_regions_are_not_paired_as_opposites():
+    """`across` is a flat's ONLY size parameter, and it was wrong. The opponent search matched
+    any antiparallel face on the same infinite AXIS, so two lone D-flats on separate coaxial
+    regions were treated as each other's opposite and both got the sum of two unrelated chord
+    offsets (#1015, Codex #1011 r24/r25).
+
+    ⌀40 with a lone flat 10 from the axis is 10 + 20 = 30 A/F; ⌀24 with a lone flat 8 from the
+    axis is 8 + 12 = 20 A/F. Cross-paired they both read 18.
+
+    This is why it had to be fixed here rather than deferred: `lint_flat_coverage` takes the
+    recogniser's `across` as ground truth, so on the declared path a correct `30 A/F` was
+    reported as a mismatch against a wrong 18 — the new check converting a latent recogniser
+    bug into an active false positive.
+    """
+    C = (Align.CENTER, Align.CENTER, Align.CENTER)
+    big = Pos(0, 0, -30) * (Cylinder(20, 40) - Pos(25, 0, 0) * Box(30, 80, 60, align=C))
+    small = Pos(0, 0, 30) * (Cylinder(12, 40) - Pos(-20, 0, 0) * Box(24, 80, 60, align=C))
+    part = big + Cylinder(5, 40) + small
+    assert sorted(f.across for f in recognise_flats(part)) == [20.0, 30.0]

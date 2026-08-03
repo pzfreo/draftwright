@@ -182,6 +182,12 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                 continue
             if not _same_axis_line(cand["ax"], cand["dir"], other["ax"]):
                 continue  # a lone flat on a *different* parallel shaft — not opposed
+            if other["span"] != cand["span"]:
+                # Same infinite axis is not the same piece of stock. Two lone D-flats on
+                # separate coaxial regions were paired as each other's opposite face, so both
+                # got `across` = the sum of two unrelated chord offsets — a WRONG size, on the
+                # feature's only size parameter. The extent is what separates them (#1015).
+                continue
             dot = n[0] * other["n"][0] + n[1] * other["n"][1] + n[2] * other["n"][2]
             if abs(dot + 1.0) <= _ANTIPARALLEL_TOL:
                 opp = other
