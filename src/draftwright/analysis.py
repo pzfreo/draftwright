@@ -52,6 +52,7 @@ from draftwright.recognition import (
     full_cylinders,
     recognise_bosses,
     recognise_countersinks,
+    recognise_flats,
     recognise_hole_patterns,
     recognise_holes,
     recognise_pocket_patterns,
@@ -546,6 +547,10 @@ def _analyse(
     pockets = recognise_pockets(part)
     pocket_patterns = recognise_pocket_patterns(pockets)
     pads = recognise_rectangular_pads(part)
+    # Detected here rather than inside the lint that reads them, so a repeated
+    # `lint()` does not re-run the O(faces × stock) adjacency scan (#244 / ADR 0015,
+    # Codex #1011 r23). `cyls` is already in hand, so this costs the face loop once.
+    flats = recognise_flats(part, cyls=(z_cyls, cross_cyls))
     # Build the IR once, up front, so page/scale selection sizes from the SAME feature
     # model the renderers use — detected and declared parts share one sizing path and no
     # recogniser record reaches the sheet estimators (ADR 0008; #584 WP1 A). A declared
@@ -728,6 +733,7 @@ def _analyse(
         pockets=pockets,
         pocket_patterns=pocket_patterns,
         pads=pads,
+        flats=flats,
         z_diams=z_diams,
         cross_diams=cross_diams,
         cyls=(z_cyls, cross_cyls),
