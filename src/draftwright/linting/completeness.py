@@ -120,11 +120,20 @@ def _drawn_by_feature(dwg) -> list[tuple[str, tuple, str]]:
     return out
 
 
-def _anchor(feat) -> tuple:
-    """A geometry-derived point identifying *feat*, matching the IR's frame origin."""
-    location = getattr(feat, "location", None)
-    if location is not None:
-        return tuple(location)[:3]
+def _anchor(feat) -> tuple | None:
+    """A geometry-derived point identifying *feat*, matching the IR's frame origin.
+
+    ``None`` when no field yields one — and that is load-bearing. The first cut fell back to
+    ``(0, 0, 0)``, so all four chamfers on a box collapsed onto one key, matched none of the
+    four drawn identities, and were reported **undefined**. Measured on a part whose chamfers
+    are all correctly dimensioned: four fabricated alarms, from the checker rather than the
+    drawing. An unmatchable feature is *unknown*, never *undefined* — the same polarity rule
+    the rest of this module is built on, applied to the join itself.
+    """
+    for field in ("location", "at"):
+        point = getattr(feat, field, None)
+        if point is not None:
+            return tuple(point)[:3]
     frame = getattr(feat, "frame", None)
     if frame is not None:
         return tuple(frame.origin)[:3]
@@ -133,7 +142,7 @@ def _anchor(feat) -> tuple:
         da = next(a for a in "xyz" if a not in (wa, la))
         coords = {wa: feat.w_center, la: (feat.lo + feat.hi) / 2, da: getattr(feat, "d_hi", 0.0)}
         return (coords["x"], coords["y"], coords["z"])
-    return (0.0, 0.0, 0.0)
+    return None
 
 
 def _key(kind: str, point) -> str:
@@ -154,6 +163,12 @@ def feature_completeness(part, dwg, *, analysis=None, tol: float = 0.6) -> list[
         want = _REQUIRED.get(kind)
         for feat in feats:
             anchor = _anchor(feat)
+            if anchor is None:
+                # No anchor means the join cannot run, so nothing can be concluded either
+                # way. Reported as its own key so the feature still APPEARS — a feature
+                # missing from the report reads as "nothing to say about it".
+                out.append(FeatureVerdict(kind, f"{kind}@?", UNCHECKED, UNCHECKED))
+                continue
             mine = tuple(
                 sorted(
                     parameter
