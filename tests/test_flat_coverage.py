@@ -9,6 +9,7 @@ The two are deliberately both emitted, so a test here asserts the pair, not one 
 other.
 """
 
+import warnings
 from types import SimpleNamespace
 
 import pytest
@@ -602,3 +603,19 @@ def test_every_face_of_one_machined_region_shares_its_stock_identity():
     assert len(faces) == 4
     assert len({f.axis_at for f in faces}) == 1
     assert len(lint_flat_coverage(bar, _sheet(), assembly=False)) == 1
+
+
+def test_a_view_with_no_coordinate_mapping_does_not_break_lint(flatted_shaft):
+    """`drop_view_coordinates` leaves a view holding annotations that `at` can no longer
+    place. Coverage projected unconditionally and `lint()` raised `KeyError` instead of
+    returning issues — a lint that crashes is worse than one that is wrong (Codex #1011 r17).
+
+    The flat is then reported as undimensioned, which is true: a view the drawing cannot map
+    cannot carry its definition.
+    """
+    dwg = build_drawing(flatted_shaft)
+    assert "flat_not_dimensioned" not in _codes(dwg), "precondition: covered before the drop"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        dwg.drop_view_coordinates("plan")
+    assert "flat_not_dimensioned" in _codes(dwg)

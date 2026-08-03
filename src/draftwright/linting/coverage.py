@@ -884,7 +884,18 @@ def lint_flat_coverage(
         if not callouts:
             continue
         ordered_keys = sorted(keys, key=str)  # deterministic, so an exact tie resolves alike
-        projected = {k: [dwg.at(view, *flat.at)[:2] for flat in groups[k]] for k in ordered_keys}
+        try:
+            projected = {
+                k: [dwg.at(view, *flat.at)[:2] for flat in groups[k]] for k in ordered_keys
+            }
+        except Exception:  # noqa: BLE001 — a view with no coordinate mapping
+            # `Drawing.drop_view_coordinates` (deprecated, but public until 0.5.0) and the
+            # internal view bailout both leave a view holding annotations while `at` can no
+            # longer place a point in it. Leaving those groups unclaimed reports them as
+            # undimensioned, which is true — a view the drawing cannot map cannot carry a
+            # definition — whereas letting the KeyError out made `lint()` itself fail, and a
+            # lint that raises is worse than one that is wrong (Codex #1011 r17).
+            continue
         # Each callout is assigned to the ONE group it is nearest, not to every group within
         # `pos_tol`. A leader points at a single feature, and accepting it for all nearby
         # groups made the window an association: at 1:100 two lobes 100 mm apart project 1 mm
