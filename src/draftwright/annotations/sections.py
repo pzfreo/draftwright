@@ -618,9 +618,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             # room. The corridor solve now places dim_height when it fits — so on a
             # no-room prismatic detail, demote it DELIBERATELY (same outcome, now
             # explicit and logged) and retry the detail once.
-            hview = dwg.view_of(hname)
-            hfeat = dwg.registry.feature_of(hname)
-            hpinned = dwg.registry.is_pinned(hname)
+            ident = dwg.registry.identity_of(hname)
             hobj = dwg.remove(hname)
             placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter, ctx=ctx)
             if placed:
@@ -633,12 +631,11 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
                 # remove() also forgot the feature provenance + pin (#89), so restore
                 # them (user review): without the feature the restored dim drops off
                 # annotations_of(envelope) / drop(feature), and a later finalize's
-                # _overall_height_name can no longer rediscover it. (hpinned is
-                # defensive — _overall_height_name never returns a pinned name — but
-                # keeps this remove/re-add correct in isolation.)
-                ctx.place(hobj, hname, view=hview, feature=hfeat)
-                if hpinned:
-                    dwg.pin(hname)
+                # _overall_height_name can no longer rediscover it. Restored as one
+                # unit (#1002) — enumerating the axes here is what left the measurement
+                # behind when it was added (Codex r2).
+                ctx.place(hobj, hname)
+                dwg.registry.reapply(hname, ident)
         if placed:
             n_placed += 1
         elif req.kind == "prismatic-steps":

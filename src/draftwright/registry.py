@@ -163,6 +163,59 @@ class AnnotationRegistry:
         self._pinned.clear()
         self._pinned.update(snap["pinned"])
 
+    def identity_of(self, name) -> dict:
+        """Every per-name identity axis bound to *name*, as one opaque restorable value.
+
+        A remove-then-re-add transaction (the callout re-route, the hole-table fallback, the
+        detail-view retry) has to put back everything the name carried. All three sites
+        hand-rolled that axis by axis, and every axis added since broke the sites nobody
+        updated: the hole-table fallback still restored view alone, losing the feature added
+        in #398; the detail-view retry carried view/feature/pin but not the measurement added
+        here (Codex #1002 r2). Reading and reapplying the axes as a UNIT, in the class that
+        owns them, is the only version of this a *fourth* axis cannot silently break.
+
+        The keys mirror the ``_anno_*`` map names on purpose — that is what lets
+        ``test_registry`` compare the two mechanically and fail when an axis is added without
+        being covered here.
+        """
+        return {
+            "view": self._anno_view.get(name),
+            "feature": self._anno_feature.get(name),
+            "measurement": self._anno_measurement.get(name, ()),
+            "pinned": name in self._pinned,
+        }
+
+    def reapply(self, name, identity) -> None:
+        """Rebind *identity* (from :meth:`identity_of`) to *name* — the write half.
+
+        Authoritative, not additive: an axis absent from *identity* is CLEARED, so a restore
+        can never leave *name* wearing metadata from whatever briefly held the slot.
+
+        Restores the pin too. :meth:`add` deliberately drops it, because a same-name add is a
+        fresh object that has not earned the user's pin (#89) — but a restore puts the SAME
+        object back, and dropping the user's ADR 0012 pin because an engine-internal fallback
+        round-tripped it is a bug. The detail-view retry already re-pinned by hand; this makes
+        the other two agree.
+        """
+        view, feature = identity.get("view"), identity.get("feature")
+        if view is not None:
+            self._anno_view[name] = view
+        else:
+            self._anno_view.pop(name, None)
+        if feature is not None:
+            self._anno_feature[name] = feature
+        else:
+            self._anno_feature.pop(name, None)
+        ids = _as_ids(identity.get("measurement"))
+        if ids:
+            self._anno_measurement[name] = ids
+        else:
+            self._anno_measurement.pop(name, None)
+        if identity.get("pinned"):
+            self._pinned.add(name)
+        else:
+            self._pinned.discard(name)
+
     def add(self, obj, name, view, feature=None, measurement=None):
         """Register *obj* under *name* and record its owning *view* (and source *feature*).
 

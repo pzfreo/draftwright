@@ -736,7 +736,10 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
         replaced = {
             n: o for n, o in list(dwg.iter_annotations()) if ctx.coverage.is_scattered_hole_doc(n)
         }
-        replaced_view = {n: dwg.view_of(n) for n in replaced}
+        # Identity as a UNIT (#1002). This captured the view alone, so a restored dim came
+        # back stripped of the feature provenance added in #398 and of the measurement id
+        # added here — the audit would then read it as "nothing claims it" (Codex r2).
+        replaced_identity = {n: dwg.registry.identity_of(n) for n in replaced}
         for n in replaced:
             dwg.remove(n)
 
@@ -754,7 +757,8 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
             # drop lint, so the sheet is never left with neither. The pattern
             # balloons below are unaffected — nothing of theirs was removed.
             for n, obj in replaced.items():
-                ctx.place(obj, n, view=replaced_view.get(n))
+                ctx.place(obj, n)
+                dwg.registry.reapply(n, replaced_identity[n])
             ctx.record_issue("warning", "table_dropped", "hole table did not fit the sheet")
         else:
             # One entry per hole (with repeats) so the coverage *count* check sees

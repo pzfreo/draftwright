@@ -131,3 +131,96 @@ def test_snapshot_restore_round_trips_view_and_pin_metadata():
     assert r.view_of("d2") == "plan"  # NOT the repaired "side"
     assert r.view_of("d3") is None  # its stale view entry is gone
     assert r.is_pinned("d1") and not r.is_pinned("d3")  # pins restored exactly
+
+
+def test_identity_of_reapply_round_trips_every_axis():
+    # The remove/re-add transactions (callout re-route, hole-table fallback, detail-view
+    # retry) restore through this pair. It must carry the measurement id too: a restored
+    # dim that has lost it reads as "nothing claims it" to the audit — a false negative in
+    # exactly the tool this identity exists to feed (#1002, Codex r2).
+    r = AnnotationRegistry()
+    obj, feat = object(), object()
+    r.add(obj, "d1", "front", feature=feat, measurement=("bore.depth",))
+    r.pin("d1")
+    ident = r.identity_of("d1")
+
+    removed = r.remove("d1")
+    assert r.identity_of("d1") == {  # gone in every axis, not just the object
+        "view": None,
+        "feature": None,
+        "measurement": (),
+        "pinned": False,
+    }
+
+    r.add(removed, "d1", None)  # the bare re-place the call sites do …
+    r.reapply("d1", ident)  # … then the identity, as a unit
+    assert r.view_of("d1") == "front"
+    assert r.feature_of("d1") is feat
+    assert r.measurement_of("d1") == ("bore.depth",)
+    assert r.is_pinned("d1")
+
+
+def test_reapply_clears_axes_the_identity_does_not_carry():
+    # Authoritative, not additive: a restore must never leave the name wearing metadata
+    # from whatever briefly held the slot.
+    r = AnnotationRegistry()
+    r.add(object(), "d1", "plan", feature=object(), measurement=("width.length",))
+    r.pin("d1")
+    r.reapply("d1", {"view": "front", "feature": None, "measurement": (), "pinned": False})
+    assert r.view_of("d1") == "front"
+    assert r.feature_of("d1") is None
+    assert r.measurement_of("d1") == ()
+    assert not r.is_pinned("d1")
+
+
+def test_identity_of_covers_every_per_name_axis():
+    """Ratchet: a FOURTH identity axis cannot be added and then silently forgotten.
+
+    That is the defect this pair exists to end — `_anno_feature` (#398) and
+    `_anno_measurement` (#1002) were each added without updating every restore site, and
+    each loss was found by a reviewer rather than by a test. The keys of `identity_of`
+    mirror the `_anno_*` map names so the two can be compared mechanically here.
+    """
+    r = AnnotationRegistry()
+    axes = {n for n in vars(r) if n.startswith("_anno_")}
+    ident = r.identity_of("nothing-registered")
+    assert {f"_anno_{k}" for k in ident if k != "pinned"} == axes
+    assert "pinned" in ident  # the non-`_anno_` axis, asserted explicitly
+
+
+def test_every_remove_and_restore_site_goes_through_the_identity_pair():
+    """Ratchet: the restore SITES, not just the primitive (Codex #1002 r2).
+
+    A registry-level round-trip cannot catch a call site that hand-rolls the axes — which is
+    precisely how this bug arrived three times. Any annotation pass that removes a name and
+    puts it back must read `identity_of` and write `reapply`; a pass that removes without
+    restoring says so here, with a reason.
+    """
+    import ast
+    import pathlib
+
+    # function name -> why it may remove without restoring identity
+    EXEMPT = {
+        "_clear_section_reservation": "deletes the reserved section marks outright; no restore"
+    }
+
+    root = pathlib.Path("src/draftwright/annotations")
+    offenders = []
+    for path in sorted(root.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            calls = {
+                n.func.attr
+                for n in ast.walk(fn)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            }
+            if "remove" not in calls or fn.name in EXEMPT:
+                continue
+            if not {"identity_of", "reapply"} <= calls:
+                offenders.append(f"{path.name}:{fn.name}")
+    assert offenders == [], (
+        "these remove a named annotation without round-tripping its identity: "
+        + ", ".join(offenders)
+    )

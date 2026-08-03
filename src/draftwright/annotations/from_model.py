@@ -1329,7 +1329,7 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
             _pt(tip[ax], fb[rad] - gap),
             _pt(tip[ax], fb[rad + 2] + gap),
         )
-        feat = dwg.registry.feature_of(name)
+        ident = dwg.registry.identity_of(name)  # every axis, as a unit (#1002)
         old = dwg.remove(name)  # remove first so obstacles exclude the leader being replaced
         placed_it = False
         try:
@@ -1349,14 +1349,16 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
                 box = _anno_box(cand)
                 if box is None or not _within_page(box) or _box_hits(box, obstacles):
                     continue
-                ctx.place(cand, name, view="front", feature=feat)
+                ctx.place(cand, name, view="front")
+                dwg.registry.reapply(name, ident)  # the re-routed leader draws the same thing
                 rerouted += 1
                 placed_it = True
                 break
         except Exception:  # noqa: BLE001 — a re-route error must never lose the leader
             placed_it = False
         if not placed_it and dwg.get_annotation(name) is None:
-            ctx.place(old, name, view="front", feature=feat)  # restore (Phase-1 flags it)
+            ctx.place(old, name, view="front")  # restore (Phase-1 flags it)
+            dwg.registry.reapply(name, ident)
     return rerouted
 
 
