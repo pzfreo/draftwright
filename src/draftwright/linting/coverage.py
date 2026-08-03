@@ -31,6 +31,7 @@ from draftwright.recognition import (
     TurnedProfile,
     analyse_cylinders,
     feature_diameters,
+    recognise_flats,
     recognise_hole_patterns,
     recognise_holes,
     recognise_pockets,
@@ -41,6 +42,8 @@ from draftwright.recognition import (
 )
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
+
+_NUM_RE = re.compile(r"\d+(?:\.\d+)?")  # any bare number in a label (#914 A/F coverage)
 
 # Reconciliation tolerances (#487) mirror sheet._match_object (⌀ ≤ 0.2 mm, in-plane ≤ 0.5 mm):
 # a declared feature matches a recognised cylinder within these. Kept in sync by comment — linting/
@@ -755,6 +758,61 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
                 f"dimensioned — shoulders cannot be located"
             ),
         )
+    ]
+
+
+def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: float = 0.15):
+    """Report a recognised machined flat with no across-flats callout on the sheet (#914).
+
+    A flat truncating round stock has exactly ONE size parameter — its A/F. Every other
+    dimension on such a drawing describes the *stock*, so when the callout goes the
+    feature's whole definition goes with it and the part cannot be made.
+
+    That is why this exists alongside ``flat_dropped`` rather than instead of it. The
+    drop signal reports a *placement* outcome ("no clear room") from inside the leader
+    pass; nothing in it tells a reader that the drawing is no longer manufacturable, and
+    it says nothing at all when the callout is lost by some other route. Both are emitted
+    deliberately: one names the cause, the other the consequence (#914).
+
+    Drawing-derived, like :func:`lint_axial_coverage`: the inventory comes from geometry
+    (``recognise_flats``) and the coverage from labels actually on the sheet, so it judges
+    any producer rather than trusting a build-time side channel. A flat counts as covered
+    when a label mentioning ``A/F`` carries its across-flats size — the *value* is matched,
+    not the whole string, so an authored tolerance (``25 ±0.2 A/F``) still counts, as does
+    a hand-written callout that words it differently.
+
+    Flats sharing an axis and size are ONE callout in ``render_flats``, so the inventory is
+    grouped the same way: a double-D's two faces are one definition to satisfy, not two.
+
+    *cyls* accepts a precomputed ``analyse_cylinders(part)`` result, and *flats* a
+    precomputed inventory, so repeated lint runs need not re-scan the solid.
+    """
+    inventory = recognise_flats(part, cyls=cyls) if flats is None else flats
+    if not inventory:
+        return []
+    if assembly is None:
+        assembly = len(part.solids()) > 1
+    mentioned: set[float] = set()
+    for ann in dwg.items:
+        label = getattr(ann, "label", None) or ""
+        if "A/F" not in label:
+            continue
+        # Every number in the label, not just the one before "A/F": the render pass writes
+        # `{across}{tol} A/F`, so the size is the first number, but reading them all keeps
+        # the check honest about producers that word it differently. A tolerance figure
+        # entering the set is harmless — it would have to equal an across-flats size.
+        mentioned.update(float(m.group()) for m in _NUM_RE.finditer(label))
+    return [
+        LintIssue(
+            severity="info" if assembly else "warning",
+            code="flat_not_dimensioned",
+            message=(
+                f"machined flat {_fmt(across)} A/F on the {axis.upper()} stock has no "
+                f"across-flats callout on the sheet — the flat's only size definition"
+            ),
+        )
+        for axis, across in sorted({(f.axis, round(f.across, 3)) for f in inventory})
+        if not any(abs(across - v) <= tol for v in mentioned)
     ]
 
 

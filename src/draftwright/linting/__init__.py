@@ -22,6 +22,7 @@ from draftwright.linting.coverage import (
     lint_boss_height_coverage,
     lint_declaration_reconciliation,
     lint_feature_coverage,
+    lint_flat_coverage,
     lint_location_coverage,
     lint_prismatic_coverage,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "lint_declaration_reconciliation",
     "lint_drawing",
     "lint_feature_coverage",
+    "lint_flat_coverage",
     "lint_location_coverage",
     "lint_prismatic_coverage",
 ]

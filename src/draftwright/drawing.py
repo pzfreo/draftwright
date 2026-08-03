@@ -73,6 +73,7 @@ from draftwright.linting import (
     lint_declaration_reconciliation,
     lint_drawing,
     lint_feature_coverage,
+    lint_flat_coverage,
     lint_location_coverage,
     lint_prismatic_coverage,
 )
@@ -2692,6 +2693,14 @@ class Drawing:
                 self,
                 assembly=self.assembly,
                 **prof_kw,
+            )
+            # A flat's A/F is its only size parameter, so a lost callout is a completeness
+            # failure, not just a placement one — reported alongside `flat_dropped` (#914).
+            issues += lint_flat_coverage(
+                self.part,
+                self,
+                cyls=cyls,
+                assembly=self.assembly,
             )
             model = self._part_model
             # Turned bosses/bands remain in the OD + axial-step policy; this check is
