@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from draftwright.compose import StripDepths
-    from draftwright.recognition import TurnedProfile
+    from draftwright.recognition import RecognitionResult, TurnedProfile
 
 from build123d import Align, BoundBox, Compound, Edge, Location, Mode, Shape, Text, Vector
 from build123d_drafting.helpers import (
@@ -822,6 +822,7 @@ class Analysis:
     """
 
     part: Shape
+    recognition: RecognitionResult
     bb: BoundBox
     x_size: float
     y_size: float
@@ -839,7 +840,7 @@ class Analysis:
     pads: list  # geometry-derived rectangular-pad coverage inventory (#885)
     z_diams: list[float]
     cross_diams: list[float]
-    cyls: tuple[list, list]
+    cyls: tuple[tuple, tuple]
     prof: TurnedProfile | None  # turned step profile (recognise_turned_steps), detected once
     od_diam: float | None
     is_rotational: bool

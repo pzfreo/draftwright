@@ -49,16 +49,8 @@ from draftwright.model.planner import plan_dimensions
 from draftwright.recognition import (
     TurnedProfile,
     analyse_cylinders,
+    build_recognition_result,
     full_cylinders,
-    recognise_bosses,
-    recognise_countersinks,
-    recognise_hole_patterns,
-    recognise_holes,
-    recognise_pocket_patterns,
-    recognise_pockets,
-    recognise_rectangular_pads,
-    recognise_slots,
-    recognise_turned_steps,
     step_level_zs,
 )
 
@@ -521,7 +513,13 @@ def _analyse(
     # recognise_face_levels admitted it). Prismatic and other parts keep the
     # general face-level scan, which recognise_turned_steps cannot replace (no
     # cylinders → no profile).
-    _turned = TurnedProfile.from_steps(recognise_turned_steps(part, cyls=(z_cyls, cross_cyls)))
+    recognition = build_recognition_result(part, cylinders=(z_cyls, cross_cyls))
+    # The aggregate owns the shared substrate from here on.  Rebind the local projection so
+    # model construction, Analysis and the finished BuildState all consume the same inventory
+    # object rather than parallel list/tuple wrappers that merely happen to contain equal data.
+    shared_cyls = recognition.cylinders
+    shared_z_cyls, _shared_cross_cyls = shared_cyls
+    _turned = TurnedProfile.from_steps(list(recognition.turned_steps))
     if _turned is not None and _turned.axis == "z":
         step_zs = [z for z in _turned.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
     else:
@@ -537,15 +535,13 @@ def _analyse(
     _arrow_length = _draft_est.arrow_length
     _pad_around_text = _draft_est.pad_around_text
     layout_model = _coerce_layout_model(model, part, decorations)
-    holes = recognise_holes(part, cyls=(z_cyls, cross_cyls), csinks=recognise_countersinks(part))
-    patterns = recognise_hole_patterns(holes)
-    bosses = recognise_bosses(
-        part, cyls=(z_cyls, cross_cyls)
-    )  # detect once — the one inventory (#264)
-    slots = recognise_slots(part)
-    pockets = recognise_pockets(part)
-    pocket_patterns = recognise_pocket_patterns(pockets)
-    pads = recognise_rectangular_pads(part)
+    holes = list(recognition.holes)
+    patterns = list(recognition.hole_patterns)
+    bosses = list(recognition.bosses)
+    slots = list(recognition.slots)
+    pockets = list(recognition.pockets)
+    pocket_patterns = list(recognition.pocket_patterns)
+    pads = list(recognition.pads)
     # Build the IR once, up front, so page/scale selection sizes from the SAME feature
     # model the renderers use — detected and declared parts share one sizing path and no
     # recogniser record reaches the sheet estimators (ADR 0008; #584 WP1 A). A declared
@@ -556,7 +552,7 @@ def _analyse(
     # own callout, not a phantom merged "N×" (the renderer emits them separately too — the
     # old estimator over-reserved). This can shift a tightly-packed such part's layout.
     _bores = (
-        tuple(_sizing_bores(z_cyls, z_diams, od_diam, cx, cy))
+        tuple(_sizing_bores(shared_z_cyls, z_diams, od_diam, cx, cy))
         if is_rotational and od_axis == "z"
         else ()
     )
@@ -576,7 +572,7 @@ def _analyse(
             step_zs=step_zs,
             rotational=(od_diam, _bores, od_axis) if is_rotational else None,
             pmi=pmi_records,
-            cyls=(z_cyls, cross_cyls),
+            cyls=shared_cyls,
         )
     )
     sizing_groups = plan_dimensions(sizing_model)
@@ -713,6 +709,7 @@ def _analyse(
 
     return Analysis(
         part=part,
+        recognition=recognition,
         bb=bb,
         x_size=x_size,
         y_size=y_size,
@@ -730,7 +727,7 @@ def _analyse(
         pads=pads,
         z_diams=z_diams,
         cross_diams=cross_diams,
-        cyls=(z_cyls, cross_cyls),
+        cyls=shared_cyls,
         prof=_turned,
         od_diam=od_diam,
         is_rotational=is_rotational,

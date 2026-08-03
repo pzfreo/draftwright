@@ -300,8 +300,8 @@ def test_feature_detection_runs_once_per_build(monkeypatch):
     (was: holes/patterns/slots 2×, turned steps 3×)."""
     from build123d import Cylinder, Pos, Rotation
 
-    import draftwright.analysis as anmod
     import draftwright.model.detect as dmod
+    import draftwright.recognition.result as rmod
     from draftwright import build_drawing
 
     counts: dict[str, int] = {}
@@ -311,7 +311,7 @@ def test_feature_detection_runs_once_per_build(monkeypatch):
         "recognise_slots",
         "recognise_turned_steps",
     ):
-        for mod in (anmod, dmod):
+        for mod in (rmod, dmod):
             orig = getattr(mod, name)
 
             def wrap(*a, _orig=orig, _n=name, **k):

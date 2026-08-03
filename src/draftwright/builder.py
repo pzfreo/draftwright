@@ -418,6 +418,7 @@ def _assemble(
     # ADR 0005 §2 (#639): the ONE build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a
+    dwg._build.recognition = a.recognition
     dwg._build.part_model = pm
     # Persist the caller's detail-view opt-in: on the auto_dims=False path the flag
     # reaches no pass here, but the finalize drain gates the prismatic detail

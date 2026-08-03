@@ -91,6 +91,7 @@ from draftwright.recognition.levels import (
 )
 from draftwright.recognition.pads import RaisedPad, recognise_rectangular_pads
 from draftwright.recognition.plates import Plate, recognise_plates
+from draftwright.recognition.result import RecognitionResult, build_recognition_result
 from draftwright.recognition.slots import (
     Pocket,
     PocketArray,
@@ -130,6 +131,7 @@ __all__ = [
     "StepShoulder",
     "TurnedProfile",
     "TurnedStep",
+    "RecognitionResult",
     "BevelReject",
     "analyse_cylinders",
     "classify_bevel",
@@ -155,5 +157,6 @@ __all__ = [
     "recognise_slot_patterns",
     "recognise_slots",
     "recognise_turned_steps",
+    "build_recognition_result",
     "full_cylinders",
 ]
