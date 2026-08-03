@@ -322,3 +322,20 @@ def test_a_missing_callout_is_still_a_gap_not_a_mismatch(flatted_shaft):
     the mismatch arm must not swallow the case the check exists for."""
     issues = lint_flat_coverage(flatted_shaft, _sheet(), assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
+
+
+def test_two_lobes_of_the_same_size_are_the_documented_gap():
+    """Pins the #1013 boundary so it is visible rather than silent.
+
+    Two D-flats of the same size on separate parallel stock are two definitions, but
+    ``Flat`` records only the axis LETTER and the face centre — no stock identity — so they
+    group as one and a callout at the first satisfies both. The renderer collapses the same
+    way and draws one callout for the pair, so this check mirrors that defect rather than
+    introducing it; the fix is the record (ADR 0013), which both ends then group by.
+
+    Asserting the current behaviour, not endorsing it: when #1013 lands this test should
+    FAIL, and its replacement is a two-lobe fixture that reports the undefined lobe.
+    """
+    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("z", 25.0, (100, 0, 0))]
+    sheet = _sheet("25 A/F", tips=[(0, 0)])
+    assert lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False) == []

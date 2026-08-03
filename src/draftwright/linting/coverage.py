@@ -815,6 +815,16 @@ def lint_flat_coverage(
     grouped the same way: a double-D's two faces are one definition, satisfied by a leader at
     either face.
 
+    **Known gap (#1013).** That grouping is by axis *letter* and size, which conflates the two
+    faces of one double-D with two D-flats of the same size on separate parallel stock: the
+    first is one definition, the second is two, and the ``Flat`` record carries no stock
+    identity to tell them apart. So a two-lobe part whose second lobe has no callout is
+    reported as complete. The renderer collapses identically and draws only one callout for
+    the pair, so this check mirrors a defect rather than introducing one — and the fix is the
+    record, per ADR 0013, which both ends then group by. Within one piece of stock per axis,
+    which is what ``recognise_flats`` sees on every fixture the suite covers, the check is
+    exact.
+
     *cyls* accepts a precomputed ``analyse_cylinders(part)`` result, and *flats* a
     precomputed inventory, so repeated lint runs need not re-scan the solid. *pos_tol* is the
     page-mm window for "this leader points at that flat".
