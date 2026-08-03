@@ -12,7 +12,7 @@ other.
 from types import SimpleNamespace
 
 import pytest
-from build123d import Align, Box, Cylinder, Pos
+from build123d import Align, Box, Cylinder, Pos, Rot
 from build123d_drafting.helpers import Draft, Leader
 
 from draftwright import Sheet, build_drawing
@@ -211,6 +211,17 @@ def _two_lobes():
         )
 
     return Pos(0, 0, -24) * Box(160, 40, 8) + lobe(-50) + lobe(50)
+
+
+def _two_coaxial_regions():
+    """ONE shaft with two 25 A/F machined regions at different Z stations, joined by a plain
+    waist — two definitions that share an axis line and a size."""
+    C = (Align.CENTER, Align.CENTER, Align.CENTER)
+
+    def region(z):
+        return Pos(0, 0, z) * (Cylinder(20, 40) & Box(25, 60, 40, align=C))
+
+    return region(0) + Pos(0, 0, 45) * Cylinder(6, 50) + region(90)
 
 
 def _sheet_at(*tips, scale=1.0, view=None):
@@ -546,3 +557,43 @@ def test_value_ranks_second_so_it_cannot_override_position():
     sheet = _sheet("28 A/F", "18 A/F", tips=[(0, 0), (0.5, 0)])
     codes = [i.code for i in lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)]
     assert codes == ["flat_callout_mismatched", "flat_callout_mismatched"]
+
+
+@pytest.mark.parametrize(
+    ("tips", "expected"),
+    [
+        pytest.param([], 2, id="neither-region-called-out"),
+        pytest.param([(-12.5, 0)], 1, id="one-callout-covers-one-region"),
+        pytest.param([(-12.5, 0), (-12.5, 0)], 1, id="two-callouts-still-cover-only-one"),
+    ],
+)
+def test_two_machined_regions_on_one_shaft_are_two_definitions(tips, expected):
+    """Same axis line, same size, different stations. Grouping on the axis line alone merged
+    them into ONE requirement, so a callout on the first certified the second — and since
+    `render_flats` collapses them too, the check mirrored that rather than caught it
+    (Codex #1011 r15). Two regions are now two requirements, and an uncovered one is reported.
+
+    The plan view is end-on, so the two regions project onto each other: a leader there is
+    positionally tied between them and nearest-wins gives it to one. Hence one callout leaves
+    one region reported, and a second callout at the same point — indistinguishable from the
+    first — does not help. That is the drawing's problem, not the check's: these two regions
+    cannot be told apart in the plan view alone, which is the renderer half of #1013.
+
+    The counts here were verified against the code, not predicted from that narrative; my
+    first version asserted two issues in every case and was simply wrong about the tie.
+    """
+    part = _two_coaxial_regions()
+    codes = [i.code for i in lint_flat_coverage(part, _sheet_at(*tips), assembly=False)]
+    assert codes == ["flat_not_dimensioned"] * expected
+
+
+def test_every_face_of_one_machined_region_shares_its_stock_identity():
+    """The property the grouping key rests on: `axis_at` is the matched cylinder's placement,
+    so all faces of one region carry the same one. Checked on a four-flat section, where a
+    per-face identity would split one definition into four."""
+    C = (Align.CENTER, Align.CENTER, Align.CENTER)
+    bar = Cylinder(20, 40) & Box(30, 60, 60, align=C) & (Rot(0, 0, 90) * Box(30, 60, 60, align=C))
+    faces = recognise_flats(bar)
+    assert len(faces) == 4
+    assert len({f.axis_at for f in faces}) == 1
+    assert len(lint_flat_coverage(bar, _sheet(), assembly=False)) == 1

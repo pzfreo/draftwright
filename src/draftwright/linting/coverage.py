@@ -846,11 +846,16 @@ def lint_flat_coverage(
 
     groups: dict = {}
     for flat in inventory:
-        idx = "xyz".index(flat.axis)
-        # The stock's axis LINE — the in-plane part of a point on it. `axis` alone is a
-        # letter, so it cannot separate two parallel lobes from one double-D (#1013).
-        line = tuple(round(flat.axis_at[i], 3) for i in range(3) if i != idx)
-        groups.setdefault((flat.axis, line, round(flat.across, 3)), []).append(flat)
+        # The WHOLE `axis_at`, not just its in-plane part. It is the matched cylinder's own
+        # placement, so every face of one machined region shares it (verified for a double-D
+        # and for a four-flat section) while a second region further along the SAME shaft has
+        # its own. Dropping the along-axis coordinate — on the reasoning that it was an
+        # arbitrary reference point — merged two 25 A/F regions on one shaft into a single
+        # definition, so a callout on the first certified the second (Codex #1011 r15).
+        # `axis` alone is only a letter and cannot separate parallel lobes either (#1013).
+        groups.setdefault(
+            (flat.axis, tuple(round(v, 3) for v in flat.axis_at), round(flat.across, 3)), []
+        ).append(flat)
 
     # Callouts are read PER VIEW, from the view the flat reads in. Page coordinates alone are
     # not identity: a front-view leader whose tip happens to land on a Z-flat's projected plan
