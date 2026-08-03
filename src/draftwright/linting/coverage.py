@@ -871,9 +871,9 @@ def lint_flat_coverage(
     grouped the same way: a double-D's two faces are one definition, satisfied by a leader at
     either face.
 
-    Groups are keyed by the stock's **axis line** (``Flat.axis_at``), not the axis letter, so
-    two D-flats of the same size on parallel stock stay two definitions while a double-D's two
-    faces stay one. Not by copying ``render_flats``'s ``(axis, across)`` collapse: a check that
+    Groups are keyed by the stock's **axis line** (``Flat.axis_at``) *and* its **extent**
+    (``Flat.stock``), not the axis letter: parallel lobes differ in line, disjoint coaxial
+    regions differ in extent, and a double-D's two faces match on both. Not by copying ``render_flats``'s ``(axis, across)`` collapse: a check that
     groups the way the renderer groups cannot see the renderer group wrongly, which is the
     whole reason coverage re-reads geometry (ADR 0015). The renderer still collapses, so a
     two-lobe part reports its undefined lobe here until #1013 fixes that end too.
@@ -900,16 +900,21 @@ def lint_flat_coverage(
 
     groups: dict = {}
     for flat in inventory:
-        # The WHOLE `axis_at`, not just its in-plane part. It is the matched cylinder's own
-        # placement, so every face of one machined region shares it (verified for a double-D
-        # and for a four-flat section) while a second region further along the SAME shaft has
-        # its own. Dropping the along-axis coordinate — on the reasoning that it was an
-        # arbitrary reference point — merged two 25 A/F regions on one shaft into a single
-        # definition, so a callout on the first certified the second (Codex #1011 r15).
-        # `axis` alone is only a letter and cannot separate parallel lobes either (#1013).
-        groups.setdefault(
-            (flat.axis, tuple(round(v, 3) for v in flat.axis_at), round(flat.across, 3)), []
-        ).append(flat)
+        idx = "xyz".index(flat.axis)
+        # Which piece of stock, in two independent parts, because neither alone is enough:
+        #
+        #   the axis LINE  — the in-plane part of `axis_at`, separating parallel lobes, which
+        #                    share an axial span and so are identical to `stock`;
+        #   the extent     — `stock`, separating disjoint regions ON one line, which share an
+        #                    axis and so are identical to `axis_at`.
+        #
+        # `axis` alone is a letter and separates neither (#1013). The whole `axis_at` looked
+        # like it separated both, and a real two-region shaft did report two placements — but
+        # that is `Axis.Location()`, an arbitrary point on an infinite axis, so two disjoint
+        # coaxial regions may legitimately share one and silently merge (Codex #1011 r15
+        # then r21). The recogniser's matched cylinder knows the extent; it is not inferred.
+        line = tuple(round(flat.axis_at[i], 3) for i in range(3) if i != idx)
+        groups.setdefault((flat.axis, line, flat.stock, round(flat.across, 3)), []).append(flat)
 
     # Callouts are read PER VIEW, from the view the flat reads in. Page coordinates alone are
     # not identity: a front-view leader whose tip happens to land on a Z-flat's projected plan
@@ -971,7 +976,7 @@ def lint_flat_coverage(
                     # the 18 group, reporting a mismatch and a gap on a drawing that had
                     # neither (Codex #1011 r13). Value ranks second, never first: position is
                     # still the association, which is the r6 lesson.
-                    rank = (round(gap, 6), 0 if abs(value - key[2]) <= tol else 1)
+                    rank = (round(gap, 6), 0 if abs(value - key[3]) <= tol else 1)
                     if best is None or rank < best[0]:
                         best = (rank, key)
             if best is not None:
@@ -981,7 +986,7 @@ def lint_flat_coverage(
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     issues = []
     for key in ordered:
-        axis, _line, across = key
+        axis, _line, _stock, across = key
         stated = claimed.get(key, [])
         # EVERY disagreeing callout, not just the first, and not only when none agrees. A
         # right answer beside a wrong one does not make the wrong one right: two leaders on

@@ -106,6 +106,12 @@ class Flat(Record):
     #: surviving into the record instead of consumers re-deriving it from proximity, which
     #: picks the wrong axis whenever another cylinder sits nearer the face than its own does.
     axis_at: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    #: The stock's identity as ``(solid, axial start, axial end)`` — which piece of material
+    #: this flat is machined on. ``axis_at`` alone is NOT that: it is ``Axis.Location()``, an
+    #: arbitrary point on an infinite axis, so two disjoint coaxial regions may legitimately
+    #: report the same one (imported B-reps especially) and collapse into one definition. The
+    #: extent is what distinguishes them, and phase 1 has it from the matched cylinder.
+    stock: tuple[int, float, float] = (0, 0.0, 0.0)
 
 
 def recognise_flats(part, *, cyls=None) -> list[Flat]:
@@ -152,7 +158,16 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
             if not _both_chord_ends_reach_od(verts, ax, d, nv, r):
                 continue  # one end abuts a slot floor, not the OD — a recess wall, not a flat
             cands.append(
-                {"axis": c["axis"], "n": nv, "s": s, "r": r, "at": pcv, "ax": ax, "dir": d}
+                {
+                    "axis": c["axis"],
+                    "n": nv,
+                    "s": s,
+                    "r": r,
+                    "at": pcv,
+                    "ax": ax,
+                    "dir": d,
+                    "span": (c.get("solid_idx", 0), round(c["s_lo"], 3), round(c["s_hi"], 3)),
+                }
             )
             break
 
@@ -182,6 +197,7 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                     round(cand["ax"][1], 3),
                     round(cand["ax"][2], 3),
                 ),
+                stock=cand["span"],
             )
         )
     return sorted(out, key=lambda fl: (fl.axis, fl.at))

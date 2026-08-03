@@ -271,7 +271,10 @@ def test_two_leaders_on_one_flat_do_not_define_a_second_one():
     ``25 A/F`` both pointing at the X flat say nothing about a 25 mm Z flat elsewhere on the
     part — but under value matching they were simply two labels of the right value, and the
     undefined flat went unreported (Codex #1011 r6)."""
-    flats = [Flat("x", 25.0, (0, 0, 0), (0, 0, 0)), Flat("z", 25.0, (100, 0, 0), (100, 0, 0))]
+    flats = [
+        Flat("x", 25.0, (0, 0, 0), (0, 0, 0), (0, 0.0, 1.0)),
+        Flat("z", 25.0, (100, 0, 0), (100, 0, 0), (0, 0.0, 1.0)),
+    ]
     sheet = _sheet("25 A/F", "25 A/F", tips=[(0, 0), (0, 0)])
     issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
@@ -282,7 +285,10 @@ def test_one_callout_cannot_define_two_flats_on_different_axes():
     """``render_flats`` collapses by ``(axis, across)``, so an X-stock and a Z-stock 25 mm
     flat are TWO callouts. A leader points at one flat; it cannot also define a differently
     oriented one somewhere else (Codex #1011 r2)."""
-    flats = [Flat("x", 25.0, (0, 0, 0), (0, 0, 0)), Flat("z", 25.0, (100, 0, 0), (100, 0, 0))]
+    flats = [
+        Flat("x", 25.0, (0, 0, 0), (0, 0, 0), (0, 0.0, 1.0)),
+        Flat("z", 25.0, (100, 0, 0), (100, 0, 0), (0, 0.0, 1.0)),
+    ]
     part = Box(1, 1, 1)
     both = _sheet("25 A/F", "25 A/F", tips=[(0, 0), (100, 0)])
     assert lint_flat_coverage(part, both, flats=flats, assembly=False) == []
@@ -294,7 +300,10 @@ def test_one_callout_cannot_define_two_flats_on_different_axes():
 def test_one_callout_cannot_define_two_flats_whose_sizes_are_within_tolerance():
     """25.0 and 25.1 are two groups and two callouts. A single ``25.05 A/F`` is within the
     size window of both, so under value matching it was accepted twice; it is at one flat."""
-    flats = [Flat("z", 25.0, (0, 0, 0), (0, 0, 0)), Flat("z", 25.1, (100, 0, 0), (100, 0, 0))]
+    flats = [
+        Flat("z", 25.0, (0, 0, 0), (0, 0, 0), (0, 0.0, 1.0)),
+        Flat("z", 25.1, (100, 0, 0), (100, 0, 0), (0, 0.0, 1.0)),
+    ]
     sheet = _sheet("25.05 A/F", tips=[(0, 0)])
     issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
@@ -303,7 +312,10 @@ def test_one_callout_cannot_define_two_flats_whose_sizes_are_within_tolerance():
 def test_a_tolerance_figure_cannot_stand_in_for_a_second_flat():
     """``25 ±12 A/F`` at the 25 mm flat defines that flat and says nothing about a 12 mm one
     elsewhere. The size is the label's first number, so the tolerance figure is not a size."""
-    flats = [Flat("z", 25.0, (0, 0, 0), (0, 0, 0)), Flat("x", 12.0, (100, 0, 0), (100, 0, 0))]
+    flats = [
+        Flat("z", 25.0, (0, 0, 0), (0, 0, 0), (0, 0.0, 1.0)),
+        Flat("x", 12.0, (100, 0, 0), (100, 0, 0), (0, 0.0, 1.0)),
+    ]
     sheet = _sheet("25 ±12 A/F", tips=[(0, 0)])
     issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
@@ -327,7 +339,10 @@ def test_coverage_follows_where_the_leaders_point(tips, expected):
     for."""
     # Different AXES, so two groups: same axis and size would collapse to one group that a
     # leader at either face covers, which is the double-D case tested separately.
-    flats = [Flat("z", 25.0, (0, 0, 0), (0, 0, 0)), Flat("x", 25.0, (100, 0, 0), (100, 0, 0))]
+    flats = [
+        Flat("z", 25.0, (0, 0, 0), (0, 0, 0), (0, 0.0, 1.0)),
+        Flat("x", 25.0, (100, 0, 0), (100, 0, 0), (0, 0.0, 1.0)),
+    ]
     sheet = _sheet("25 A/F", "25 A/F", tips=tips)
     issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == expected
@@ -550,7 +565,10 @@ def test_coaxial_flats_projecting_to_one_point_take_their_own_callouts(labels):
 
     Order-parametrised: the fix must not depend on which leader is read first.
     """
-    flats = [Flat("z", 18.0, (8, 0, 0), (0, 0, 0)), Flat("z", 28.0, (8, 0, 20), (0, 0, 0))]
+    flats = [
+        Flat("z", 18.0, (8, 0, 0), (0, 0, 0), (0, 0.0, 10.0)),
+        Flat("z", 28.0, (8, 0, 20), (0, 0, 0), (0, 20.0, 30.0)),
+    ]
     sheet = _sheet(*labels, tips=[(8, 0), (8, 0)])
     assert lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False) == []
 
@@ -568,7 +586,10 @@ def test_value_ranks_second_so_it_cannot_override_position():
     further apart than the window never compete, so the rule would be untestable through
     realistic geometry.
     """
-    flats = [Flat("z", 18.0, (0, 0, 0), (0, 0, 0)), Flat("z", 28.0, (0.5, 0, 0), (0.5, 0, 0))]
+    flats = [
+        Flat("z", 18.0, (0, 0, 0), (0, 0, 0), (0, 0.0, 1.0)),
+        Flat("z", 28.0, (0.5, 0, 0), (0.5, 0, 0), (0, 0.0, 1.0)),
+    ]
     sheet = _sheet("28 A/F", "18 A/F", tips=[(0, 0), (0.5, 0)])
     codes = [i.code for i in lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)]
     assert codes == ["flat_callout_mismatched", "flat_callout_mismatched"]
@@ -661,4 +682,33 @@ def test_a_leader_off_the_end_of_the_face_still_does_not_define_it(flatted_shaft
     entirely, is not on the face. Widening the association must not make it unbounded."""
     sheet = _sheet("25 A/F", tips=[(12.5, 40)])
     issues = lint_flat_coverage(flatted_shaft, sheet, assembly=False)
+    assert [i.code for i in issues] == ["flat_not_dimensioned"]
+
+
+def test_coaxial_regions_sharing_an_axis_reference_point_stay_separate():
+    """`axis_at` is `Axis.Location()` — an arbitrary point on an infinite axis — so two
+    disjoint coaxial regions may legitimately report the SAME one, especially in imported
+    B-reps. Keying on it merged them and a callout on the first certified the second
+    (Codex #1011 r21). `Flat.stock` carries the extent, which does distinguish them.
+
+    Synthetic records on purpose: the point is a shape of data the recogniser is not
+    guaranteed to avoid, so a fixture that happens not to produce it proves nothing.
+    """
+    flats = [
+        Flat("z", 25.0, (12.5, 0, 0), (0, 0, 0), (0, -20.0, 20.0)),
+        Flat("z", 25.0, (12.5, 0, 20), (0, 0, 0), (0, 40.0, 80.0)),
+    ]
+    sheet = _sheet("25 A/F", tips=[(12.5, 0)])
+    issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
+    assert [i.code for i in issues] == ["flat_not_dimensioned"]
+
+
+def test_parallel_lobes_sharing_an_extent_stay_separate():
+    """The other half: two lobes side by side span the SAME axial range, so `stock` alone
+    merges them. The axis line is what separates those. Neither part of the key is
+    sufficient alone, which is why both are in it."""
+    faces = recognise_flats(_two_lobes())
+    assert len({f.stock for f in faces}) == 1, "the lobes really do share an extent"
+    assert len({f.axis_at for f in faces}) == 2, "and really are told apart by their line"
+    issues = lint_flat_coverage(_two_lobes(), _sheet_at((-62.5, 0)), assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
