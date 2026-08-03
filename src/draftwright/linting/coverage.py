@@ -770,7 +770,9 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     ]
 
 
-def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: float = 0.15):
+def lint_flat_coverage(
+    part, dwg, *, cyls=None, flats=None, assembly=None, tol: float = 0.15, pos_tol: float = 1.0
+):
     """Report a recognised machined flat with no across-flats callout on the sheet (#914).
 
     A flat truncating round stock has exactly ONE size parameter — its A/F. Every other
@@ -785,103 +787,80 @@ def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: 
 
     Drawing-derived, like :func:`lint_axial_coverage`: the inventory comes from geometry
     (``recognise_flats``) and the coverage from what is actually on the sheet, so it judges
-    any producer rather than trusting a build-time side channel. A flat counts as covered by
-    a **leader** whose whole label is an across-flats callout — ``25 A/F``, ``25 ±0.2 A/F``,
-    ``2× 25 A/F``, ``A/F 25``. Leaders only, because a size defines a feature only when
-    something points at it; anchored, because a label is a callout or it is prose.
+    any producer rather than trusting a build-time side channel.
 
-    A callout stating a size the geometry does not corroborate is a different defect — a
-    wrong dimension rather than a missing one — and gets its own ``flat_callout_mismatched``
-    code naming both numbers.
+    A flat is covered by a **leader tipped at that flat's own page position** whose whole
+    label is an across-flats callout — ``25 A/F``, ``25 ±0.2 A/F``, ``2× 25 A/F``, ``A/F 25``.
+    Three separate conditions, each earned:
+
+    - *A leader*, because a size defines a feature only when something points at it. Text
+      alone let the drawing title (r1) and any free-form note mentioning the size (r4)
+      satisfy a flat; ``Note`` and ``TitleBlock`` are not leaders.
+    - *Tipped at the flat*, because association by VALUE is not association at all. Matching
+      labels to flats through a shared pool of numbers went wrong three times — one label
+      covering two flats (r2), a greedy pairing that missed a valid one (r3), and two leaders
+      on the *same* flat silencing a second, undefined one (r6). The tip is the association:
+      ``render_flats`` leads from ``FlatFeature.frame.origin``, which IS the recogniser's
+      ``Flat.at``, so the engine's own callouts land exactly here — and an authored leader
+      that points at the flat is judged the same way, which pooling could never manage.
+    - *An A/F callout*, anchored, because a label is a callout or it is prose.
+
+    A leader at the flat stating a size the geometry does not corroborate is a different
+    defect — a wrong dimension rather than a missing one — and gets its own
+    ``flat_callout_mismatched`` code naming both numbers. Ground truth stays the geometry
+    (ADR 0015: coverage deliberately does not trust the part model, because a stale or
+    mistaken declaration is exactly what it must catch).
 
     Flats sharing an axis and size are ONE callout in ``render_flats``, so the inventory is
-    grouped the same way: a double-D's two faces are one definition to satisfy, not two.
-    Groups that differ only in *axis* are two callouts, so each consumes its own label —
-    a lone ``25 A/F`` cannot define both an X-stock and a Z-stock 25 mm flat.
+    grouped the same way: a double-D's two faces are one definition, satisfied by a leader at
+    either face.
 
     *cyls* accepts a precomputed ``analyse_cylinders(part)`` result, and *flats* a
-    precomputed inventory, so repeated lint runs need not re-scan the solid.
+    precomputed inventory, so repeated lint runs need not re-scan the solid. *pos_tol* is the
+    page-mm window for "this leader points at that flat".
     """
     inventory = recognise_flats(part, cyls=cyls) if flats is None else flats
     if not inventory:
         return []
     if assembly is None:
         assembly = len(part.solids()) > 1
-    # A size is only a definition when something on the sheet POINTS at the feature, so only
-    # leaders count. Text alone let two non-callouts satisfy a flat: the drawing title, when
-    # the part was named after its own defining dimension (r1), and any free-form note
-    # mentioning the size — `dwg.note("USE 25 A/F SPANNER", …)` disabled the check entirely
-    # (r4). Both are ruled out by type rather than by special case; `Note` and `TitleBlock`
-    # are not leaders. This is annotation *semantics*, not our renderer's provenance, so a
-    # hand-authored `dwg.callout(...)` still counts and the check still judges any producer.
-    unclaimed: list[float] = []
+
+    callouts = []
     for ann in dwg.items:
         if not isinstance(ann, Leader):
             continue
         # The size adjacent to the "A/F" token, not the first number anywhere in the label:
-        # reading every number let the `12` in `25 ±12 A/F` satisfy a separate 12 mm flat and,
-        # once labels were consumed, blame the 25 mm one in the message (r2). Anchored, so a
-        # quantity-prefixed `2× 25 A/F` counts but prose containing a size does not (r4).
+        # reading every number let the `12` in `25 ±12 A/F` satisfy a separate 12 mm flat (r2).
         found = _AF_RE.match(getattr(ann, "label", None) or "")
-        if found is not None:
-            unclaimed.append(float(found.group(1) or found.group(2)))
+        tip = getattr(ann, "tip", None)
+        if found is not None and tip is not None:
+            callouts.append(((tip[0], tip[1]), float(found.group(1) or found.group(2))))
 
-    # Each callout is CONSUMED by the group it covers, so N groups need N callouts —
-    # counting, as `lint_feature_coverage` does for ⌀, rather than testing each group
-    # against a shared pool. A text label carries no axis, so a global value set let one
-    # `25 A/F` cover both an X-stock and a Z-stock 25 mm flat, and let one `25.05 A/F`
-    # cover flats of 25.0 and 25.1 at once — two callouts on the sheet, one on the drawing
-    # (Codex #1011 r2).
-    #
-    # The pairing must be a MAXIMUM matching, not a greedy pass in group order. Flats of
-    # 25.0 and 25.2 with labels 25.1 and 24.9 are fully defined, but greedy hands 25.1 to
-    # the 25.0 group and then reports the 25.2 flat as undefined — a completeness check
-    # crying wolf on a correct drawing, which is the one thing it must not do (Codex #1011
-    # r3; the earlier claim here, that greedy could only fail on labels within `tol` of
-    # each other, was simply wrong — those two are 0.2 apart). Kuhn's augmenting-path
-    # algorithm is exact and, at a handful of flats per part, free. Where several maximum
-    # matchings exist the COUNT of undefined groups is the same for all of them; which
-    # group gets named follows the deterministic group order, an ambiguity a text label
-    # carrying no axis cannot resolve.
-    groups = sorted({(f.axis, round(f.across, 3)) for f in inventory})
-    label_owner: dict[int, int] = {}
+    groups: dict[tuple[str, float], list] = {}
+    for flat in inventory:
+        groups.setdefault((flat.axis, round(flat.across, 3)), []).append(flat)
 
-    def _claim(gi: int, seen: set[int]) -> bool:
-        for li, value in enumerate(unclaimed):
-            if li in seen or abs(groups[gi][1] - value) > tol:
-                continue
-            seen.add(li)
-            if li not in label_owner or _claim(label_owner[li], seen):
-                label_owner[li] = gi
-                return True
-        return False
-
-    for gi in range(len(groups)):
-        _claim(gi, set())
-    covered = set(label_owner.values())
-
-    # A callout no flat could claim means the sheet states a size the geometry does not
-    # corroborate — a *wrong* dimension, not a missing one. Declaring `across=24` on stock
-    # that measures 25 renders `24 A/F`, and calling that "no across-flats callout" pointed
-    # at the wrong problem and read as false to anyone looking at the sheet (Codex #1011 r5).
-    # Ground truth stays the geometry (ADR 0015: coverage deliberately does not trust the
-    # part model, because a stale or mistaken declaration is exactly what it must catch) —
-    # what changes is only what the drawing is told. Pairing leftovers positionally is
-    # arbitrary when there are several of each; with the one-flat case it is exact, and with
-    # more it still says "these callouts and these flats do not correspond", which is true.
-    orphans = [v for li, v in enumerate(unclaimed) if li not in label_owner]
     issues = []
-    for gi, (axis, across) in enumerate(groups):
-        if gi in covered:
+    for (axis, across), members in sorted(groups.items()):
+        view = _END_ON[axis]
+        stated = []
+        for member in members if callouts else ():
+            px, py, *_ = dwg.at(view, *member.at)
+            stated += [
+                value
+                for (tx, ty), value in callouts
+                if abs(tx - px) <= pos_tol and abs(ty - py) <= pos_tol
+            ]
+        if any(abs(value - across) <= tol for value in stated):
             continue
-        if orphans:
+        if stated:
             issues.append(
                 LintIssue(
                     severity="info" if assembly else "warning",
                     code="flat_callout_mismatched",
                     message=(
                         f"the {axis.upper()} stock's flat measures {_fmt(across)} A/F but the "
-                        f"sheet calls it out as {_fmt(orphans.pop(0))} A/F"
+                        f"sheet calls it out as {_fmt(stated[0])} A/F"
                     ),
                 )
             )

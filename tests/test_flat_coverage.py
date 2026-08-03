@@ -96,12 +96,28 @@ def test_removing_the_callout_from_a_finished_sheet_reports_it(flatted_shaft):
     assert "flat_not_dimensioned" in _codes(dwg)
 
 
-def _sheet(*labels):
-    """A stand-in sheet carrying real ``Leader``s — the type ``render_flats`` places.
-    Real ones, not stubs: the check counts leaders only, so a stub would test nothing."""
+#: Where the module's single-flat fixture projects, under `_sheet`'s stub projection.
+_AT_THE_FLAT = (12.5, 0.0)
+
+
+def _sheet(*labels, tips=None):
+    """A stand-in sheet carrying real ``Leader``s tipped at given page points.
+
+    Real leaders, not stubs: the check looks at type AND tip, so a stub with only a label
+    would sail past both. The stub ``at`` projects a part point to its own ``(x, y)``, which
+    is enough to tell two flats apart — the property every association test here turns on.
+    *tips* defaults to every leader pointing at :data:`_AT_THE_FLAT`, the module fixture's
+    flat.
+    """
     draft = Draft()
+    if tips is None:
+        tips = [_AT_THE_FLAT] * len(labels)
     return SimpleNamespace(
-        items=[Leader(tip=(0, 0, 0), elbow=(5, 5, 0), label=x, draft=draft) for x in labels]
+        items=[
+            Leader(tip=(t[0], t[1], 0), elbow=(t[0] + 5, t[1] + 5, 0), label=x, draft=draft)
+            for x, t in zip(labels, tips, strict=True)
+        ],
+        at=lambda view, x, y, z: (x, y, 0.0),
     )
 
 
@@ -166,55 +182,87 @@ def test_a_note_stating_the_size_does_not_define_the_flat(flatted_shaft):
     assert "flat_not_dimensioned" in _codes(dwg), "a note is not a callout"
 
 
+def test_a_non_leader_carrying_a_tip_does_not_define_a_flat(flatted_shaft):
+    """The leader rule and the tip rule are independent, and each needs its own guard.
+
+    Today's `Note` and `TitleBlock` have no tip, so the tip rule alone would keep them out —
+    but that is incidental to those two classes, not the intent. "A callout is a leader" is
+    the rule; an annotation type that grows a `tip` must not silently begin defining flats.
+    The stub here is deliberately not a real annotation: it exists to be exactly the thing
+    the type check, and nothing else, excludes.
+    """
+    sheet = SimpleNamespace(
+        items=[SimpleNamespace(tip=_AT_THE_FLAT, label="25 A/F")],
+        at=lambda view, x, y, z: (x, y, 0.0),
+    )
+    issues = lint_flat_coverage(flatted_shaft, sheet, assembly=False)
+    assert [i.code for i in issues] == ["flat_not_dimensioned"]
+
+
+def test_two_leaders_on_one_flat_do_not_define_a_second_one():
+    """The r6 case, and the reason association is positional at all. Two callouts reading
+    ``25 A/F`` both pointing at the X flat say nothing about a 25 mm Z flat elsewhere on the
+    part — but under value matching they were simply two labels of the right value, and the
+    undefined flat went unreported (Codex #1011 r6)."""
+    flats = [Flat("x", 25.0, (0, 0, 0)), Flat("z", 25.0, (100, 0, 0))]
+    sheet = _sheet("25 A/F", "25 A/F", tips=[(0, 0), (0, 0)])
+    issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
+    assert [i.code for i in issues] == ["flat_not_dimensioned"]
+    assert "Z stock" in issues[0].message
+
+
 def test_one_callout_cannot_define_two_flats_on_different_axes():
     """``render_flats`` collapses by ``(axis, across)``, so an X-stock and a Z-stock 25 mm
-    flat are TWO callouts on the sheet. A leader points at one flat; it cannot also define a
-    differently oriented one. Matching on value alone let a single label cover both
-    (Codex #1011 r2)."""
-    flats = [Flat("x", 25.0, (0, 0, 0)), Flat("z", 25.0, (0, 0, 0))]
+    flat are TWO callouts. A leader points at one flat; it cannot also define a differently
+    oriented one somewhere else (Codex #1011 r2)."""
+    flats = [Flat("x", 25.0, (0, 0, 0)), Flat("z", 25.0, (100, 0, 0))]
     part = Box(1, 1, 1)
-    assert lint_flat_coverage(part, _sheet("25 A/F", "25 A/F"), flats=flats, assembly=False) == []
-    issues = lint_flat_coverage(part, _sheet("25 A/F"), flats=flats, assembly=False)
+    both = _sheet("25 A/F", "25 A/F", tips=[(0, 0), (100, 0)])
+    assert lint_flat_coverage(part, both, flats=flats, assembly=False) == []
+    issues = lint_flat_coverage(part, _sheet("25 A/F", tips=[(0, 0)]), flats=flats, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
     assert "Z stock" in issues[0].message
 
 
 def test_one_callout_cannot_define_two_flats_whose_sizes_are_within_tolerance():
     """25.0 and 25.1 are two groups and two callouts. A single ``25.05 A/F`` is within the
-    match window of both, and independent comparisons therefore accepted it twice."""
-    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("z", 25.1, (0, 0, 1))]
-    issues = lint_flat_coverage(Box(1, 1, 1), _sheet("25.05 A/F"), flats=flats, assembly=False)
+    size window of both, so under value matching it was accepted twice; it is at one flat."""
+    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("z", 25.1, (100, 0, 0))]
+    sheet = _sheet("25.05 A/F", tips=[(0, 0)])
+    issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
 
 
 def test_a_tolerance_figure_cannot_stand_in_for_a_second_flat():
-    """``25 ±12 A/F`` defines the 25 mm flat and says nothing about a 12 mm one. The size
-    is the label's FIRST number, so the tolerance figure neither covers the second flat nor
-    — the subtler failure — claims the label and leaves the message blaming the 25."""
-    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("x", 12.0, (0, 0, 0))]
-    issues = lint_flat_coverage(Box(1, 1, 1), _sheet("25 ±12 A/F"), flats=flats, assembly=False)
+    """``25 ±12 A/F`` at the 25 mm flat defines that flat and says nothing about a 12 mm one
+    elsewhere. The size is the label's first number, so the tolerance figure is not a size."""
+    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("x", 12.0, (100, 0, 0))]
+    sheet = _sheet("25 ±12 A/F", tips=[(0, 0)])
+    issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
     assert "12 A/F" in issues[0].message, "the UNDEFINED flat must be the one named"
 
 
 @pytest.mark.parametrize(
-    ("labels", "expected"),
+    ("tips", "expected"),
     [
-        # Greedy in group order hands 25.1 to the 25.0 flat and then finds nothing for the
-        # 25.2 one — but 24.9 defines 25.0 and 25.1 defines 25.2, so the drawing is
-        # complete. A completeness check must not cry wolf on a correct drawing.
-        pytest.param(("25.1 A/F", "24.9 A/F"), [], id="a-pairing-exists-in-the-other-order"),
-        pytest.param(("24.9 A/F", "25.1 A/F"), [], id="and-in-this-order"),
-        # One label genuinely cannot define both, whichever way it is assigned.
-        pytest.param(("25.1 A/F",), ["flat_not_dimensioned"], id="one-label-two-flats"),
-        pytest.param((), ["flat_not_dimensioned"] * 2, id="no-labels-at-all"),
+        pytest.param([(0, 0), (100, 0)], [], id="one-leader-at-each-flat"),
+        pytest.param([(100, 0), (0, 0)], [], id="and-in-the-other-order"),
+        pytest.param([(0, 0), (0, 0)], ["flat_not_dimensioned"], id="both-at-the-first-flat"),
+        pytest.param([(50, 0), (60, 0)], ["flat_not_dimensioned"] * 2, id="neither-at-a-flat"),
     ],
 )
-def test_a_pairing_is_found_whenever_one_exists(labels, expected):
-    """Matching is maximum, not greedy: a flat counts as defined when SOME assignment of
-    distinct labels covers it, not merely when the first-come one does (Codex #1011 r3)."""
-    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("z", 25.2, (0, 0, 1))]
-    issues = lint_flat_coverage(Box(1, 1, 1), _sheet(*labels), flats=flats, assembly=False)
+def test_coverage_follows_where_the_leaders_point(tips, expected):
+    """Two same-sized flats and two identical labels: only the tips distinguish the cases, so
+    every value-based scheme gives the same answer for all four and at least two of them are
+    wrong. This replaces the maximum-matching guard from r3 — with association by position
+    there is no pool to mis-assign, so that whole class of defect is structural, not tested
+    for."""
+    # Different AXES, so two groups: same axis and size would collapse to one group that a
+    # leader at either face covers, which is the double-D case tested separately.
+    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("x", 25.0, (100, 0, 0))]
+    sheet = _sheet("25 A/F", "25 A/F", tips=tips)
+    issues = lint_flat_coverage(Box(1, 1, 1), sheet, flats=flats, assembly=False)
     assert [i.code for i in issues] == expected
 
 
@@ -225,10 +273,17 @@ def test_a_part_with_no_flats_is_left_alone():
 
 def test_the_two_faces_of_a_double_d_are_one_definition(flatted_shaft):
     """``render_flats`` collapses flats sharing an axis and size into ONE callout, so the
-    inventory groups the same way. Two faces, one unsatisfied requirement — not two."""
-    assert len(recognise_flats(flatted_shaft)) == 2
-    issues = lint_flat_coverage(flatted_shaft, SimpleNamespace(items=[]), assembly=False)
-    assert len(issues) == 1
+    inventory groups the same way: two faces, one requirement, and a leader at EITHER face
+    satisfies it — which is what the renderer does, trying each corner until one is clear."""
+    faces = recognise_flats(flatted_shaft)
+    assert len(faces) == 2
+    assert len(lint_flat_coverage(flatted_shaft, _sheet(), assembly=False)) == 1
+    for face in faces:
+        at = (face.at[0], face.at[1])
+        sheet = _sheet("25 A/F", tips=[at])
+        assert lint_flat_coverage(flatted_shaft, sheet, assembly=False) == [], (
+            f"a callout at the face at {at} must satisfy the group"
+        )
 
 
 def test_a_correctly_declared_flat_lints_clean():
