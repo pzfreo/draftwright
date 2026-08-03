@@ -341,9 +341,14 @@ def test_the_on_axis_bore_skip_reads_the_declaration_on_both_surfaces():
     copies of the comparison. With a stale literal the reader stops recognising the renamed
     role, the skip does not fire, and a redundant position dim appears on a part whose bore
     is located by its centreline.
+
+    The precondition is that the COMPILER approved a position for this bore — otherwise both
+    readers receive nothing and drawing nothing is free. That is the meaningful check here,
+    and a stronger one than asking the analysis whether the part is rotational.
     """
     from draftwright import build_drawing
     from draftwright.model import HoleFeature
+    from draftwright.model.compiled import compile_dimensions
 
     part = Cylinder(20, 40) - Cylinder(6, 60)
     original = HoleFeature.LOCATION_STEM
@@ -357,11 +362,17 @@ def test_the_on_axis_bore_skip_reads_the_declaration_on_both_surfaces():
             if key["feature"].startswith("hole")
         }
         dwg = build_drawing(part, auto_dims=False)
-        hole = next(f for f in dwg.model().features if isinstance(f, HoleFeature))
-        assert dwg._analysis.is_rotational, "fixture must be rotational to reach the skip"
+        model = dwg.model()
+        hole = next(f for f in model.features if isinstance(f, HoleFeature))
+        approved = [loc.id.parameter for loc in compile_dimensions(model).locations]
         names = dwg.locate(hole)
     finally:
         HoleFeature.LOCATION_STEM = original
+
+    assert any(p.startswith("location_canary.") for p in approved), (
+        f"the compiler approved {approved} — with no position to skip, neither reader is "
+        "reached and this test proves nothing"
+    )
 
     assert auto_ids == set(), (
         f"the auto pass drew {sorted(auto_ids)} for an on-axis bore on a rotational part — "
