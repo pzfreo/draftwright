@@ -518,6 +518,33 @@ def test_a_bare_id_and_a_sequence_are_both_accepted():
     assert reg.measurement_of("c") == (), "a sequence of nothing is still unknown"
 
 
+def test_a_location_dim_two_features_share_records_both_measurements():
+    """The dedup path, which the single-hole canary never reached (#1002 r4).
+
+    Two distinct holes at the same X collapse to ONE `m_locx0`. That dim is deliberately
+    feature-*unowned* so `drop(feature)` cannot strip a sibling's dimension (ADR 0010) — but
+    the first cut let the measurement follow the feature and recorded nothing, conflating an
+    ownership rule with an identity one. A shared dim measures BOTH holes' X, and the
+    tuple-valued channel exists to say so (ADR 0016 / #886).
+
+    Asserted end to end because no source scan can see it: the renderer passes a variable, so
+    `measurement=_xmid` satisfies the syntax ratchet whether or not it holds anything.
+    """
+    with BuildPart() as p:
+        Box(60, 50, 10)
+        with Locations((10, 5, 0)):
+            Hole(3)
+        with Locations((10, 15, 0)):
+            Hole(5)
+    dwg = build_drawing(p.part)
+
+    assert dwg.registry.feature_of("m_locx0") is None, "shared dim stays unowned (ADR 0010)"
+    keys = dwg.measurement_keys("m_locx0")
+    assert len(keys) == 2, "it measures BOTH holes' X location, not neither"
+    assert {k["parameter_id"] for k in keys} == {"location.location"}
+    assert len({k["feature"] for k in keys}) == 2, "two distinct holes, not one repeated"
+
+
 def test_a_real_build_records_identity_for_the_machined_feature_callouts():
     """Behavioural counterpart to the two syntax ratchets (#1002 r3).
 

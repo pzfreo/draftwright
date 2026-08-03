@@ -629,9 +629,15 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         for u in x_refs:
             if abs(r[0] - u[0]) < 0.5:
                 u[3] = u[3] or r[2] in pinned_set
+                # Collapsing coincident Xs into one dim must ACCUMULATE what it draws
+                # (#1002 r4): the survivor genuinely measures every collapsed feature's X.
+                if r[3] is not None and r[3] not in u[4]:
+                    u[4].append(r[3])
                 break
         else:
-            x_refs.append([r[0], r[1], r[2], r[2] in pinned_set, r[3]])
+            x_refs.append(
+                [r[0], r[1], r[2], r[2] in pinned_set, [r[3]] if r[3] is not None else []]
+            )
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
     _kept_x, _n_x_close = _legible_locations(_x_drawable, a.SCALE)
     if _n_x_close:
@@ -650,7 +656,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     # pass carving around the other and interleaving. No alternate view for a plan-X
     # location, so a corridor-blocked dim is force-kept (policy B), not relocated; only a
     # physically full strip drops (→ location_ref_dropped, escalates the hole table).
-    for i, (rx, ry, feat, pin_ref, mid) in enumerate(
+    for i, (rx, ry, feat, pin_ref, mids) in enumerate(
         sorted(x_refs, key=lambda r: abs(r[0] - datum_x))
     ):
         if abs(rx - datum_x) * a.SCALE < 1.0:
@@ -661,10 +667,14 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # dimension and annotations_of never over-claims it (review #406, ADR 0010).
         _shared_x = any(abs(o[0] - rx) < 0.5 and o[2] != feat for o in refs)
         _xfeat = None if _shared_x else feat
-        # The measurement id follows the feature for the same reason (#1002), and more
-        # strictly: a shared dim genuinely IS both features' X location, so naming one of
-        # them would be a false attribution the audit then reports as exact.
-        _xmid = None if _shared_x else mid
+        # The measurement does NOT follow the feature (#1002 r4). Feature-unowned is an
+        # ADR 0010 *ownership* rule — it stops drop(feature) stripping a sibling's dim. It
+        # says nothing about what the dim measures, and a shared dim measures BOTH features'
+        # X location. The first cut dropped the id here as though naming one feature were the
+        # only option; recording all of them is both true and exactly what the tuple-valued
+        # channel exists for (ADR 0016 / #886). Discarding it made the audit blind on an
+        # ordinary dedup path.
+        _xmid = tuple(mids)
         register_corridor(
             ctx,
             ("plan", "above"),
@@ -710,9 +720,13 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         for u in y_refs:
             if abs(r[1] - u[1]) < 0.5:
                 u[3] = u[3] or r[2] in pinned_set
+                if r[3] is not None and r[3] not in u[4]:
+                    u[4].append(r[3])  # accumulate, as in the X loop (#1002 r4)
                 break
         else:
-            y_refs.append([r[0], r[1], r[2], r[2] in pinned_set, r[3]])
+            y_refs.append(
+                [r[0], r[1], r[2], r[2] in pinned_set, [r[3]] if r[3] is not None else []]
+            )
     _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
     _kept_y, _n_y_close = _legible_locations(_y_drawable, a.SCALE)
     if _n_y_close:
@@ -728,9 +742,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     # Cap the side-above strip below the iso view so Y-location dims never run under it
     # (the carve respects outer_limit); the dim_pitch_side dims are obstacles the carve
     # avoids structurally, retiring the old manual allocate(10.0) reservation + cursor.
-    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin, _mid in y_refs):
+    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin, _mids in y_refs):
         a.sv_zones.above.outer_limit = min(a.sv_zones.above.outer_limit, iso_y0 - 4)
-    for i, (rx, ry, feat, pin_ref, mid) in enumerate(
+    for i, (rx, ry, feat, pin_ref, mids) in enumerate(
         sorted(y_refs, key=lambda r: abs(r[1] - datum_y))
     ):
         if abs(ry - datum_y) * a.SCALE < 1.0:
@@ -739,7 +753,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # Shared-Y location dim → unowned (see the X loop; review #406).
         _shared_y = any(abs(o[1] - ry) < 0.5 and o[2] != feat for o in refs)
         _yfeat = None if _shared_y else feat
-        _ymid = None if _shared_y else mid  # see the X loop (#1002)
+        _ymid = tuple(mids)  # every collapsed feature's Y — see the X loop (#1002 r4)
         register_corridor(
             ctx,
             ("side", "above"),
