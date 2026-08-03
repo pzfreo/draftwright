@@ -93,7 +93,43 @@ def test_stems_are_unique_so_two_features_cannot_share_a_name():
     assert len(stems) == len(set(stems)), f"duplicate location stems: {stems}"
 
 
-def test_a_subclass_is_not_silently_locatable():
+def _locatable_instances():
+    """One instance per locatable kind, with geometry the compiler actually mints for.
+
+    Written out rather than generated from field introspection: a constructor that guesses
+    values fails silently on whichever kind it guesses wrong, and a silent failure here is
+    indistinguishable from the defect under test. `members` on the pattern and `datum_xy` on
+    the model are both load-bearing for exactly that reason — without either, every case
+    below mints nothing and the whole parametrisation passes while proving nothing.
+    """
+    from draftwright.model import (
+        Frame,
+        HoleFeature,
+        PadFeature,
+        PatternFeature,
+        PocketFeature,
+        PocketPatternFeature,
+        SlotFeature,
+    )
+
+    z = Frame((10.0, 10.0, 0.0), "z")
+    hole = HoleFeature(z, 6.0, depth=None, through=True)
+    pocket = PocketFeature(z, "y", "x", 8.0, 20.0, 4.0, 10.0, 4.0, 24.0)
+    members = ((5.0, 10.0, 0.0), (15.0, 10.0, 0.0), (25.0, 10.0, 0.0))
+    return [
+        pytest.param(hole, id="hole"),
+        pytest.param(PatternFeature(z, "linear", 3, hole, members, pitch=10.0), id="pattern"),
+        pytest.param(pocket, id="pocket"),
+        pytest.param(
+            PocketPatternFeature(z, "linear", 3, pocket, members, pitch=10.0), id="pocket_pattern"
+        ),
+        pytest.param(PadFeature(z, "y", "x", 8.0, 20.0, 10.0, 4.0, 24.0, 0.0, 5.0), id="pad"),
+        pytest.param(SlotFeature(z, "y", "x", 8.0, 20.0, 10.0, 4.0, 24.0), id="slot"),
+    ]
+
+
+@pytest.mark.parametrize("feature", _locatable_instances())
+def test_a_subclass_is_not_silently_locatable(feature):
     """Membership is by EXACT type, as the `dict[type, str]` this replaced was.
 
     An `isinstance` check reads as the friendlier spelling and is wrong here: a subclass
@@ -102,17 +138,43 @@ def test_a_subclass_is_not_silently_locatable():
     prevent. It is also a behaviour change from main, and the review that caught it
     (Codex #1010 r3) caught it as an *undocumented* one. Declaring its own stem and joining
     `_LOCATABLE` is the way in.
+
+    Parametrised over **every** locatable kind, asserting on the COMPILED PLAN rather than
+    on `location_role` alone, and asserting the PARENT mints first — because the first cut
+    did none of the three. It tested a `HoleFeature` subclass and inferred the policy
+    generally, while `_compile_slot_positions` reached its mint site through a bare
+    `isinstance` and never asked: a slot subclass the planner refused minted
+    `location_slot.length` anyway (Codex #1010 r4). And the same test without the
+    parent-mints assertion was **vacuous for five of six kinds** — the model it built had no
+    `datum_xy`, so nothing was minted for anyone and every case passed.
     """
-    from draftwright.model import Frame, HoleFeature
+    from build123d import Box
 
-    @dataclasses.dataclass(frozen=True)
-    class DowelHole(HoleFeature):
-        pass
+    from draftwright.model import Datum, PartModel
+    from draftwright.model.compiled import compile_dimensions
 
-    sub = DowelHole(Frame((10.0, 10.0, 0.0), "z"), 6.0, depth=None, through=True)
-    assert sub.LOCATION_STEM == HoleFeature.LOCATION_STEM, "inherits its parent's name"
+    sub_cls = dataclasses.dataclass(frozen=True)(
+        type(f"Custom{type(feature).__name__}", (type(feature),), {})
+    )
+    sub = sub_cls(**{f.name: getattr(feature, f.name) for f in dataclasses.fields(feature)})
+    assert sub_cls.LOCATION_STEM == type(feature).LOCATION_STEM, "inherits its parent's name"
     assert location_datum(sub) is None, "so it must not be planned under that name"
     assert location_role(sub) is None
+
+    bb = Box(60, 60, 20).bounding_box()
+    datums = [Datum(id="datum_xy", kind="point", at=(bb.min.X, bb.min.Y, bb.min.Z))]
+
+    def _minted(f):
+        return [
+            loc.id.parameter
+            for loc in compile_dimensions(PartModel(bb, None, [f], datums)).locations
+        ]
+
+    assert _minted(feature), "the parent must mint here, or the subclass minting nothing is free"
+    assert _minted(sub) == [], (
+        f"a {sub_cls.__name__} the planner refused still minted {_minted(sub)} — a compiler "
+        "reached its mint site without asking the eligibility question"
+    )
 
 
 @pytest.mark.parametrize(

@@ -941,7 +941,13 @@ def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], 
     omissions: list[Omission] = []
     bb: Any = model.bbox
     for f in model.features:
-        if not isinstance(f, SlotFeature):
+        # Eligibility through `location_datum`, matching `_compile_off_axis_hole_locations`
+        # — a bare `isinstance` was a second, laxer answer to "is this locatable": it
+        # accepted a SlotFeature SUBCLASS, which inherits `LOCATION_STEM`, so the subclass
+        # minted its position under the parent's name while the planner (exact type)
+        # refused to plan one. The collision the declaration exists to prevent, reached by
+        # the one path that did not ask (Codex #1010 r4).
+        if not isinstance(f, SlotFeature) or location_datum(f) != "bbox":
             continue
         datum = float(getattr(bb.min, f.long_axis.upper()))
         value = f.lo - datum
