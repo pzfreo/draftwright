@@ -98,6 +98,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "unrecognised_defining_geometry",
         "axial_length_missing",
         "flat_not_dimensioned",
+        "flat_callout_mismatched",
         "missing_principal_dimension",
         "label_vs_measured",
         "dim_inside_part",

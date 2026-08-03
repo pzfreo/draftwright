@@ -790,6 +790,10 @@ def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: 
     ``2× 25 A/F``, ``A/F 25``. Leaders only, because a size defines a feature only when
     something points at it; anchored, because a label is a callout or it is prose.
 
+    A callout stating a size the geometry does not corroborate is a different defect — a
+    wrong dimension rather than a missing one — and gets its own ``flat_callout_mismatched``
+    code naming both numbers.
+
     Flats sharing an axis and size are ONE callout in ``render_flats``, so the inventory is
     grouped the same way: a double-D's two faces are one definition to satisfy, not two.
     Groups that differ only in *axis* are two callouts, so each consumes its own label —
@@ -855,18 +859,44 @@ def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: 
     for gi in range(len(groups)):
         _claim(gi, set())
     covered = set(label_owner.values())
-    return [
-        LintIssue(
-            severity="info" if assembly else "warning",
-            code="flat_not_dimensioned",
-            message=(
-                f"machined flat {_fmt(across)} A/F on the {axis.upper()} stock has no "
-                f"across-flats callout on the sheet — the flat's only size definition"
-            ),
+
+    # A callout no flat could claim means the sheet states a size the geometry does not
+    # corroborate — a *wrong* dimension, not a missing one. Declaring `across=24` on stock
+    # that measures 25 renders `24 A/F`, and calling that "no across-flats callout" pointed
+    # at the wrong problem and read as false to anyone looking at the sheet (Codex #1011 r5).
+    # Ground truth stays the geometry (ADR 0015: coverage deliberately does not trust the
+    # part model, because a stale or mistaken declaration is exactly what it must catch) —
+    # what changes is only what the drawing is told. Pairing leftovers positionally is
+    # arbitrary when there are several of each; with the one-flat case it is exact, and with
+    # more it still says "these callouts and these flats do not correspond", which is true.
+    orphans = [v for li, v in enumerate(unclaimed) if li not in label_owner]
+    issues = []
+    for gi, (axis, across) in enumerate(groups):
+        if gi in covered:
+            continue
+        if orphans:
+            issues.append(
+                LintIssue(
+                    severity="info" if assembly else "warning",
+                    code="flat_callout_mismatched",
+                    message=(
+                        f"the {axis.upper()} stock's flat measures {_fmt(across)} A/F but the "
+                        f"sheet calls it out as {_fmt(orphans.pop(0))} A/F"
+                    ),
+                )
+            )
+            continue
+        issues.append(
+            LintIssue(
+                severity="info" if assembly else "warning",
+                code="flat_not_dimensioned",
+                message=(
+                    f"machined flat {_fmt(across)} A/F on the {axis.upper()} stock has no "
+                    f"across-flats callout on the sheet — the flat's only size definition"
+                ),
+            )
         )
-        for gi, (axis, across) in enumerate(groups)
-        if gi not in covered
-    ]
+    return issues
 
 
 def lint_boss_height_coverage(part, dwg, features, assembly=None) -> list:

@@ -15,7 +15,8 @@ import pytest
 from build123d import Align, Box, Cylinder, Pos
 from build123d_drafting.helpers import Draft, Leader
 
-from draftwright import build_drawing
+from draftwright import Sheet, build_drawing
+from draftwright.drawing import _GEOMETRY_AWARE_CODES
 from draftwright.linting import lint_flat_coverage
 from draftwright.recognition import Flat, recognise_flats
 
@@ -126,7 +127,6 @@ def test_a_callout_stating_the_size_counts_however_it_is_worded(flatted_shaft, l
     [
         pytest.param("", id="nothing-at-all"),
         pytest.param("⌀40", id="the-stock-diameter"),
-        pytest.param("12 A/F", id="a-different-size"),
         pytest.param("25", id="the-number-without-the-callout"),
         # Prose that happens to contain the size. Anchoring, not the leader-only rule,
         # is what rejects this one — it arrives here already on a Leader (Codex #1011 r4).
@@ -137,6 +137,15 @@ def test_a_callout_stating_the_size_counts_however_it_is_worded(flatted_shaft, l
 def test_a_label_that_is_not_a_callout_does_not_count(flatted_shaft, label):
     issues = lint_flat_coverage(flatted_shaft, _sheet(label), assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
+
+
+def test_a_callout_of_the_wrong_size_is_a_mismatch_not_a_gap(flatted_shaft):
+    """`12 A/F` on a 25 mm flat IS a callout — the drawing dimensions the feature, just
+    wrongly. Reporting that as "no across-flats callout" would describe a sheet that
+    plainly has one (Codex #1011 r5)."""
+    issues = lint_flat_coverage(flatted_shaft, _sheet("12 A/F"), assembly=False)
+    assert [i.code for i in issues] == ["flat_callout_mismatched"]
+    assert "12 A/F" in issues[0].message and "25 A/F" in issues[0].message
 
 
 def test_a_note_stating_the_size_does_not_define_the_flat(flatted_shaft):
@@ -220,3 +229,41 @@ def test_the_two_faces_of_a_double_d_are_one_definition(flatted_shaft):
     assert len(recognise_flats(flatted_shaft)) == 2
     issues = lint_flat_coverage(flatted_shaft, SimpleNamespace(items=[]), assembly=False)
     assert len(issues) == 1
+
+
+def test_a_correctly_declared_flat_lints_clean():
+    """The declared-IR path (ADR 0011) renders the caller's value. When it agrees with the
+    geometry the drawing is complete, and coverage must say so."""
+    sheet = Sheet(_flatted_shaft())
+    sheet.flat(axis="z", across=25, at=(12.5, 0, 20))
+    sheet.auto_dimensions()
+    dwg = sheet.build()
+    assert not [i for i in dwg.lint() if i.code.startswith("flat_")]
+
+
+def test_a_declared_value_the_geometry_contradicts_is_a_mismatch_not_a_gap():
+    """Declaring ``across=24`` on stock that measures 25 renders `24 A/F`. The drawing is
+    wrong, and coverage still reports it — ground truth is the geometry, because a stale or
+    mistaken declaration is exactly what this must catch (ADR 0015). But calling it "no
+    across-flats callout" pointed at the wrong problem and read as plainly false to anyone
+    looking at the sheet, which had one (Codex #1011 r5)."""
+    sheet = Sheet(_flatted_shaft())
+    sheet.flat(axis="z", across=24, at=(12.5, 0, 20))
+    sheet.auto_dimensions()
+    dwg = sheet.build()
+    flat_issues = [i for i in dwg.lint() if i.code.startswith("flat_")]
+    assert [i.code for i in flat_issues] == ["flat_callout_mismatched"]
+    assert "24 A/F" in flat_issues[0].message and "25 A/F" in flat_issues[0].message
+    # A wrong dimension is wrong, not tight — so it belongs in the geometry count beside
+    # `flat_not_dimensioned`. Asserted against the register rather than the count: this
+    # drawing also raises `feature_not_dimensioned`, so a `>= 1` on the count stayed green
+    # with the new code unregistered and proved nothing.
+    assert "flat_callout_mismatched" in _GEOMETRY_AWARE_CODES
+    assert dwg.lint_summary()["geometry_issues"] == len(dwg.lint())
+
+
+def test_a_missing_callout_is_still_a_gap_not_a_mismatch(flatted_shaft):
+    """With no leftover callout to blame, the diagnosis stays 'nothing defines this flat' —
+    the mismatch arm must not swallow the case the check exists for."""
+    issues = lint_flat_coverage(flatted_shaft, _sheet(), assembly=False)
+    assert [i.code for i in issues] == ["flat_not_dimensioned"]
