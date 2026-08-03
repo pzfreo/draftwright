@@ -783,6 +783,8 @@ def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: 
 
     Flats sharing an axis and size are ONE callout in ``render_flats``, so the inventory is
     grouped the same way: a double-D's two faces are one definition to satisfy, not two.
+    Groups that differ only in *axis* are two callouts, so each consumes its own label —
+    a lone ``25 A/F`` cannot define both an X-stock and a Z-stock 25 mm flat.
 
     *cyls* accepts a precomputed ``analyse_cylinders(part)`` result, and *flats* a
     precomputed inventory, so repeated lint runs need not re-scan the solid.
@@ -792,7 +794,7 @@ def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: 
         return []
     if assembly is None:
         assembly = len(part.solids()) > 1
-    mentioned: set[float] = set()
+    unclaimed: list[float] = []
     for ann in dwg.items:
         if isinstance(ann, TitleBlock):
             # A title block's label is the drawing TITLE, not a callout — the same
@@ -803,23 +805,40 @@ def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: 
         label = getattr(ann, "label", None) or ""
         if "A/F" not in label:
             continue
-        # Every number in the label, not just the one before "A/F": the render pass writes
-        # `{across}{tol} A/F`, so the size is the first number, but reading them all keeps
-        # the check honest about producers that word it differently. A tolerance figure
-        # entering the set is harmless — it would have to equal an across-flats size.
-        mentioned.update(float(m.group()) for m in _NUM_RE.finditer(label))
-    return [
-        LintIssue(
-            severity="info" if assembly else "warning",
-            code="flat_not_dimensioned",
-            message=(
-                f"machined flat {_fmt(across)} A/F on the {axis.upper()} stock has no "
-                f"across-flats callout on the sheet — the flat's only size definition"
-            ),
+        # The FIRST number is the size: `render_flats` writes `{across}{tol} A/F`, so a
+        # tolerance figure always follows the value it qualifies. Reading every number
+        # instead was worse in both directions — the `12` in `25 ±12 A/F` could satisfy a
+        # separate 12 mm flat, and when it did, the greedy claim below blamed the wrong
+        # feature in the message (Codex #1011 r2).
+        size = _NUM_RE.search(label)
+        if size is not None:
+            unclaimed.append(float(size.group()))
+
+    # Each callout is CONSUMED by the group it covers, so N groups need N callouts —
+    # counting, as `lint_feature_coverage` does for ⌀, rather than testing each group
+    # against a shared pool. A text label carries no axis, so a global value set let one
+    # `25 A/F` cover both an X-stock and a Z-stock 25 mm flat, and let one `25.05 A/F`
+    # cover flats of 25.0 and 25.1 at once — two callouts on the sheet, one on the drawing
+    # (Codex #1011 r2). Assignment is greedy in group order; for it to leave a group
+    # unmatched that some other pairing would have covered, two labels must sit within
+    # 0.15 mm of each other, which is a drawing that dimensions one flat twice.
+    issues = []
+    for axis, across in sorted({(f.axis, round(f.across, 3)) for f in inventory}):
+        claim = next((i for i, v in enumerate(unclaimed) if abs(across - v) <= tol), None)
+        if claim is not None:
+            unclaimed.pop(claim)
+            continue
+        issues.append(
+            LintIssue(
+                severity="info" if assembly else "warning",
+                code="flat_not_dimensioned",
+                message=(
+                    f"machined flat {_fmt(across)} A/F on the {axis.upper()} stock has no "
+                    f"across-flats callout on the sheet — the flat's only size definition"
+                ),
+            )
         )
-        for axis, across in sorted({(f.axis, round(f.across, 3)) for f in inventory})
-        if not any(abs(across - v) <= tol for v in mentioned)
-    ]
+    return issues
 
 
 def lint_boss_height_coverage(part, dwg, features, assembly=None) -> list:

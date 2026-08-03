@@ -16,7 +16,7 @@ from build123d import Align, Box, Cylinder, Pos
 
 from draftwright import build_drawing
 from draftwright.linting import lint_flat_coverage
-from draftwright.recognition import recognise_flats
+from draftwright.recognition import Flat, recognise_flats
 
 
 def _flatted_shaft():
@@ -124,6 +124,41 @@ def test_a_label_that_does_not_state_the_size_does_not_count(flatted_shaft, labe
     sheet = SimpleNamespace(items=[SimpleNamespace(label=label)])
     issues = lint_flat_coverage(flatted_shaft, sheet, assembly=False)
     assert [i.code for i in issues] == ["flat_not_dimensioned"]
+
+
+def _sheet(*labels):
+    return SimpleNamespace(items=[SimpleNamespace(label=x) for x in labels])
+
+
+def test_one_callout_cannot_define_two_flats_on_different_axes():
+    """``render_flats`` collapses by ``(axis, across)``, so an X-stock and a Z-stock 25 mm
+    flat are TWO callouts on the sheet. A leader points at one flat; it cannot also define a
+    differently oriented one. Matching on value alone let a single label cover both
+    (Codex #1011 r2)."""
+    flats = [Flat("x", 25.0, (0, 0, 0)), Flat("z", 25.0, (0, 0, 0))]
+    part = Box(1, 1, 1)
+    assert lint_flat_coverage(part, _sheet("25 A/F", "25 A/F"), flats=flats, assembly=False) == []
+    issues = lint_flat_coverage(part, _sheet("25 A/F"), flats=flats, assembly=False)
+    assert [i.code for i in issues] == ["flat_not_dimensioned"]
+    assert "Z stock" in issues[0].message
+
+
+def test_one_callout_cannot_define_two_flats_whose_sizes_are_within_tolerance():
+    """25.0 and 25.1 are two groups and two callouts. A single ``25.05 A/F`` is within the
+    match window of both, and independent comparisons therefore accepted it twice."""
+    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("z", 25.1, (0, 0, 1))]
+    issues = lint_flat_coverage(Box(1, 1, 1), _sheet("25.05 A/F"), flats=flats, assembly=False)
+    assert [i.code for i in issues] == ["flat_not_dimensioned"]
+
+
+def test_a_tolerance_figure_cannot_stand_in_for_a_second_flat():
+    """``25 ±12 A/F`` defines the 25 mm flat and says nothing about a 12 mm one. The size
+    is the label's FIRST number, so the tolerance figure neither covers the second flat nor
+    — the subtler failure — claims the label and leaves the message blaming the 25."""
+    flats = [Flat("z", 25.0, (0, 0, 0)), Flat("x", 12.0, (0, 0, 0))]
+    issues = lint_flat_coverage(Box(1, 1, 1), _sheet("25 ±12 A/F"), flats=flats, assembly=False)
+    assert [i.code for i in issues] == ["flat_not_dimensioned"]
+    assert "12 A/F" in issues[0].message, "the UNDEFINED flat must be the one named"
 
 
 def test_a_part_with_no_flats_is_left_alone():
