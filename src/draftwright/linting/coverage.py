@@ -920,34 +920,39 @@ def lint_flat_coverage(
         if best is not None:
             claimed.setdefault(best[1], []).append(value)
 
+    severity: Literal["info", "warning"] = "info" if assembly else "warning"
     issues = []
     for key in ordered:
         axis, _line, across = key
         stated = claimed.get(key, [])
-        if any(abs(value - across) <= tol for value in stated):
-            continue
-        if stated:
+        # EVERY disagreeing callout, not just the first, and not only when none agrees. A
+        # right answer beside a wrong one does not make the wrong one right: two leaders on
+        # one flat reading `25 A/F` and `12 A/F` are a contradiction a reader has to resolve
+        # at the bench, and nothing else on the sheet checks leader text — `label_vs_measured`
+        # reads Dimensions (Codex #1011 r11).
+        issues += [
+            LintIssue(
+                severity=severity,
+                code="flat_callout_mismatched",
+                message=(
+                    f"the {axis.upper()} stock's flat measures {_fmt(across)} A/F but the "
+                    f"sheet calls it out as {_fmt(value)} A/F"
+                ),
+            )
+            for value in stated
+            if abs(value - across) > tol
+        ]
+        if not stated:
             issues.append(
                 LintIssue(
-                    severity="info" if assembly else "warning",
-                    code="flat_callout_mismatched",
+                    severity=severity,
+                    code="flat_not_dimensioned",
                     message=(
-                        f"the {axis.upper()} stock's flat measures {_fmt(across)} A/F but the "
-                        f"sheet calls it out as {_fmt(stated[0])} A/F"
+                        f"machined flat {_fmt(across)} A/F on the {axis.upper()} stock has no "
+                        f"across-flats callout on the sheet — the flat's only size definition"
                     ),
                 )
             )
-            continue
-        issues.append(
-            LintIssue(
-                severity="info" if assembly else "warning",
-                code="flat_not_dimensioned",
-                message=(
-                    f"machined flat {_fmt(across)} A/F on the {axis.upper()} stock has no "
-                    f"across-flats callout on the sheet — the flat's only size definition"
-                ),
-            )
-        )
     return issues
 
 

@@ -451,3 +451,22 @@ def test_an_asymmetric_tolerance_on_the_declared_path_lints_clean():
         "precondition: the asymmetric label is on the sheet"
     )
     assert not [i for i in dwg.lint() if i.code.startswith("flat_")]
+
+
+def test_a_correct_callout_does_not_excuse_a_contradictory_one(flatted_shaft):
+    """Two leaders on one flat reading `25 A/F` and `12 A/F` are a contradiction someone has
+    to resolve at the bench. A right answer beside a wrong one does not make the wrong one
+    right, and nothing else on the sheet checks leader text — `label_vs_measured` reads
+    Dimensions (Codex #1011 r11)."""
+    sheet = _sheet("25 A/F", "12 A/F", tips=[_AT_THE_FLAT, _AT_THE_FLAT])
+    issues = lint_flat_coverage(flatted_shaft, sheet, assembly=False)
+    assert [i.code for i in issues] == ["flat_callout_mismatched"]
+    assert "12 A/F" in issues[0].message
+
+
+def test_every_contradictory_callout_is_named_not_just_the_first(flatted_shaft):
+    """One issue per wrong callout: a reader fixing the sheet needs to find all of them."""
+    sheet = _sheet("12 A/F", "40 A/F", tips=[_AT_THE_FLAT, _AT_THE_FLAT])
+    issues = lint_flat_coverage(flatted_shaft, sheet, assembly=False)
+    assert [i.code for i in issues] == ["flat_callout_mismatched"] * 2
+    assert "12 A/F" in issues[0].message and "40 A/F" in issues[1].message
