@@ -30,6 +30,21 @@ draftwright and carries no behaviour beyond the bookkeeping moved out of
 from __future__ import annotations
 
 
+def _as_ids(measurement) -> tuple:
+    """Normalise a caller's *measurement* to a tuple of ids (#1002).
+
+    Renderers that draw exactly one measurement pass the bare `DimensionId` they already
+    hold; a compound renderer passes a sequence. Accepting both keeps the common call site
+    honest — ``measurement=pd.id`` — without the storage pretending the relationship is
+    one-to-one, which ADR 0016 says it is not.
+    """
+    if measurement is None:
+        return ()
+    if isinstance(measurement, (list, tuple)):
+        return tuple(m for m in measurement if m is not None)
+    return (measurement,)
+
+
 class AnnotationRegistry:
     """Single owner of annotation identity, ownership, pins, and build issues."""
 
@@ -42,13 +57,20 @@ class AnnotationRegistry:
         # so a repack/repair preserves provenance. Absent for part-level marks (title
         # block, section arrows) that belong to no single feature.
         self._anno_feature: dict = {}
-        # name -> the `DimensionId` this annotation draws (#1002). One axis finer than
-        # _anno_feature, and the distinction is the point: a hole has a diameter, a depth
-        # and two locations, so knowing the FEATURE still does not say WHICH of its
-        # measurements an annotation is. This is the same `(feature, parameter)` key the
-        # compiler already mints for the compiled plan and `Drawing.suppressions()`
-        # reports, so an annotation and a suppression become comparable without matching
-        # on names — see `draftwright.audit`, whose substring hint this replaces.
+        # name -> the `DimensionId`s this annotation draws, as a TUPLE (#1002). One axis
+        # finer than _anno_feature, and the distinction is the point: a hole has a
+        # diameter, a depth and two locations, so knowing the FEATURE still does not say
+        # WHICH of its measurements an annotation is. Same `(feature, parameter)` key the
+        # compiler mints for the compiled plan and `Drawing.suppressions()` reports, so an
+        # annotation and a suppression become comparable without matching on names.
+        #
+        # A TUPLE rather than one id, from the start, because the relationship really is
+        # one-to-many: a compound hole callout renders bore diameter, depth, counterbore
+        # diameter and depth as ONE annotation, each independently suppressible. ADR 0016
+        # states this outright — the channel "has to become `name → tuple[DimensionId,
+        # ...]` before per-dimension resolution is possible at all" (#886). Storing one id
+        # would have to be widened again later, and worse, would make the audit's
+        # "exact when present" promise false for a callout's other measurements.
         self._anno_measurement: dict = {}
         self._pinned: set = set()
         self._build_issues: list = []
@@ -79,15 +101,16 @@ class AnnotationRegistry:
         """The source IR feature *name* was rendered for, or ``None`` (#398)."""
         return self._anno_feature.get(name)
 
-    def measurement_of(self, name):
-        """The `DimensionId` *name* draws, or ``None`` (#1002).
+    def measurement_of(self, name) -> tuple:
+        """The `DimensionId`s *name* draws, as a tuple — possibly empty (#1002).
 
-        ``None`` means *unknown*, never *not a measurement*: provenance is threaded from the
-        renderers that hold an `ApprovedDimension`, and the ones that place directly (the
-        rotational OD/bore group, #754) still answer ``None``. Read it as a hint that is
-        exact when present, and absent otherwise — never as a claim that the annotation
-        measures nothing."""
-        return self._anno_measurement.get(name)
+        Empty means *unknown*, never *measures nothing*: identity is threaded from the
+        renderers that hold an `ApprovedDimension`, and the rest answer empty. Which
+        renderers those are is enumerated and enforced by the ratchet in
+        `tests/test_audit_differential.py` rather than described here — the prose version of
+        that set was wrong when first written (Codex #1002 r1)."""
+        ids: tuple = self._anno_measurement.get(name, ())
+        return ids
 
     def names_for_feature(self, feature) -> list:
         """Every annotation name owned by *feature* (matched by value equality, so a
@@ -168,9 +191,10 @@ class AnnotationRegistry:
             # Same rule again, and it matters MORE here (#1002): a stale measurement id is
             # worse than none, because the audit trusts it as exact. A replacement under
             # this name draws whatever the new caller says it draws — including nothing
-            # identifiable, which must clear the old id rather than inherit it.
-            if measurement is not None:
-                self._anno_measurement[name] = measurement
+            # identifiable, which must clear the old ids rather than inherit them.
+            ids = _as_ids(measurement)
+            if ids:
+                self._anno_measurement[name] = ids
             else:
                 self._anno_measurement.pop(name, None)
         return displaced

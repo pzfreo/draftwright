@@ -47,9 +47,9 @@ class _FakeDrawing:
     def suppressions(self):
         return list(self._supp)
 
-    def measurement_key(self, name):
+    def measurement_keys(self, name):
         ident = self._ids.get(name)
-        return None if ident is None else {"feature": ident[0], "parameter_id": ident[1]}
+        return [] if ident is None else [{"feature": ident[0], "parameter_id": ident[1]}]
 
 
 def _supp(parameter, reason, feature="envelope@(0,0,0)/z"):
@@ -69,14 +69,26 @@ def test_a_loss_a_rule_accounts_for_is_not_unexplained():
     suffices)" and can ask whether a 50x50 part should really have no plan size. The
     measurement is gone, but nothing is hidden.
     """
-    env = "envelope@(0,0,0)/z"
+    # The two builds describe DIFFERENT geometry — that is the whole point of a
+    # differential — so the feature keys differ in their scalars. An exact join on the
+    # ledger key finds nothing here and reports "nothing claims it" for a suppression that
+    # plainly does claim it (Codex #1002 r1, reproduced on a real build). The cross-build
+    # correspondence key is what makes this match.
+    before_env = "envelope@(0,0,0)/z[depth=40.000,width=50.000]"
+    after_env = "envelope@(0,0,0)/z[depth=50.000,width=50.000]"
     before = _FakeDrawing(
         {"m_env_width": "50", "m_env_depth": "40", "dim_height": "30"},
-        identities={"m_env_width": (env, "width.length"), "m_env_depth": (env, "depth.length")},
+        identities={
+            "m_env_width": (before_env, "width.length"),
+            "m_env_depth": (before_env, "depth.length"),
+        },
     )
     after = _FakeDrawing(
         {"dim_height": "30"},
-        [_supp("width.length", "square footprint"), _supp("depth.length", "square footprint")],
+        [
+            _supp("width.length", "square footprint", feature=after_env),
+            _supp("depth.length", "square footprint", feature=after_env),
+        ],
     )
 
     diff = diff_builds(before, after)
@@ -261,44 +273,69 @@ def test_a_same_name_same_label_replacement_is_caught_with_identity():
     diff = diff_builds(before, after)
     assert diff["dimensions_lost"] == {} and diff["dimensions_changed"] == {}
     assert diff["measurements_substituted"] == {
-        "m_x0": (("hole@(10,5,5)/z", "location"), ("slot@(10,5,5)/z", "width.length"))
+        "m_x0": ([("hole", "location")], [("slot", "width.length")])
     }
-    assert explain(diff)[0].startswith("SUBSTITUTED: m_x0"), "a changed parameter is an alarm"
+    assert explain(diff)[0].startswith("SUBSTITUTED: m_x0"), "a real substitution is an alarm"
 
 
-def test_the_same_measurement_of_a_moved_feature_is_reported_not_alarmed():
-    """A perturbation study MOVES features, so `feature_key` legitimately changes on every
-    run. Ranking that as an alarm would bury the real losses under one line per moved feature
-    — the failure mode `explain`'s ordering exists to prevent.
+def test_moving_a_feature_is_not_a_substitution():
+    """A perturbation study MOVES features, and `feature_key` embeds the origin and the
+    scalars — so the full ledger key changes on every run of the experiment this module
+    exists to run.
 
-    So a changed feature with an unchanged parameter is reported below the alarms, not as one.
+    Comparing that key reported EVERY dimension of EVERY perturbed feature as changed
+    identity: on a real 50x40 -> 50x50 box, three noise lines on a three-dimension drawing
+    (Codex #1002 r1). The correspondence key is the fix — same hole, same measurement, so
+    nothing is reported but the value change.
     """
     before = _FakeDrawing({"m_x0": "70"}, identities={"m_x0": ("hole@(10,5,5)/z", "location")})
     after = _FakeDrawing({"m_x0": "90"}, identities={"m_x0": ("hole@(30,5,5)/z", "location")})
 
-    lines = explain(diff_builds(before, after))
-    assert not any(line.startswith("SUBSTITUTED") for line in lines)
-    assert any(line.startswith("reattributed: m_x0") for line in lines)
+    diff = diff_builds(before, after)
+    assert diff["measurements_substituted"] == {}, "the same measurement, moved"
+    assert explain(diff) == ["changed: m_x0 70 -> 90"]
 
 
-def test_a_suppression_on_another_feature_does_not_explain_this_loss():
-    """The canary for the attribution fix (#1002).
+def test_a_suppression_on_a_different_kind_of_feature_does_not_explain_this_loss():
+    """The canary for the attribution fix (#1002), on the shape the historical bug had.
 
     The first cut matched a suppression's parameter STEM against the annotation's NAME by
-    substring, so a newly-suppressed `width.length` on ANY feature claimed every lost
-    annotation whose name contained "width" (Codex #1001 r1). Here the stem matches the name
-    and the parameter matches exactly — only the feature differs, which is precisely what a
-    name-based match cannot see. The loss must stay unexplained.
+    substring, so an ENVELOPE `width.length` suppression claimed a lost SLOT width — the
+    stem "width" appears in the name (Codex #1001 r1). Identity separates them because the
+    feature kinds differ, which is exactly what a name-based match cannot see.
     """
     before = _FakeDrawing(
-        {"m_width0": "20"}, identities={"m_width0": ("slot@(0,0,0)/z", "width.length")}
+        {"m_slot_width0": "20"},
+        identities={"m_slot_width0": ("slot@(0,0,0)/z", "width.length")},
+    )
+    after = _FakeDrawing({}, [_supp("width.length", "square footprint", feature="envelope@z")])
+
+    diff = diff_builds(before, after)
+    assert "m_slot_width0" in diff["dimensions_lost"]
+    assert diff["candidate_explanations"] == {}, "another KIND's rule explains nothing"
+    assert explain(diff)[0].endswith("nothing claims it")
+
+
+def test_two_features_of_one_kind_are_not_separated_by_the_cross_build_key():
+    """The price of matching across builds, asserted rather than left to be discovered.
+
+    The cross-build key is `(feature KIND, parameter_id)` — it must be, because the full
+    ledger key embeds coordinates and scalars that any perturbation changes. So a rule that
+    fired on a DIFFERENT slot still reads as a candidate explanation for this one.
+
+    Tolerable only because attribution never cancels an alarm: the loss is still reported,
+    with a hint that may be the wrong slot. Narrowing it needs a cross-build feature
+    correspondence the engine does not have (ADR 0016 leaves a durable `FeatureId` open).
+    """
+    before = _FakeDrawing(
+        {"m_slot0_width": "20"},
+        identities={"m_slot0_width": ("slot@(0,0,0)/z", "width.length")},
     )
     after = _FakeDrawing({}, [_supp("width.length", "coincident", feature="slot@(99,0,0)/z")])
 
     diff = diff_builds(before, after)
-    assert "m_width0" in diff["dimensions_lost"]
-    assert diff["candidate_explanations"] == {}, "a different feature's rule explains nothing"
-    assert explain(diff)[0].endswith("nothing claims it")
+    assert diff["candidate_explanations"] == {"m_slot0_width": ["coincident"]}, "same kind"
+    assert "m_slot0_width" in diff["dimensions_lost"], "hinted, never cancelled"
 
 
 def test_a_suppression_on_the_same_measurement_does_explain_the_loss():
@@ -390,21 +427,22 @@ def test_a_real_build_records_which_measurement_its_location_dims_draw():
             Hole(4)
     dwg = build_drawing(p.part)
 
-    keyed = {n: dwg.measurement_key(n) for n in dwg.annotations()}
-    identified = {n: k for n, k in keyed.items() if k is not None}
+    keyed = {n: dwg.measurement_keys(n) for n in dwg.annotations()}
+    identified = {n: k for n, k in keyed.items() if k}
     assert identified, "the compiled-plan renderers must record what they drew"
-    for name, key in identified.items():
-        assert set(key) == {"feature", "parameter_id"}, f"{name}: the ledger's key shape"
+    for name, keys in identified.items():
+        for key in keys:
+            assert set(key) == {"feature", "parameter_id"}, f"{name}: the ledger's key shape"
 
     # The two threaded groups, named rather than counted: a count would keep passing if a
     # renderer stopped recording and another started.
-    assert identified["m_locx0"]["feature"].startswith("hole@"), "located hole"
-    assert identified["m_env_width"]["feature"].startswith("envelope@"), "overall extent"
+    assert identified["m_locx0"][0]["feature"].startswith("hole@"), "located hole"
+    assert identified["m_env_width"][0]["feature"].startswith("envelope@"), "overall extent"
 
-    assert dwg.measurement_key("title_block") is None, "furniture measures nothing"
+    assert dwg.measurement_keys("title_block") == [], "furniture measures nothing"
     # Not yet threaded, and asserted so the gap is visible rather than assumed closed: the
     # hole callout is on the legacy surface (#926) and the direct-placing group is #754.
-    assert dwg.measurement_key("hc_plan0") is None, "callouts still record none (#926)"
+    assert dwg.measurement_keys("hc_plan0") == [], "callouts still record none (#926)"
 
 
 def test_identity_survives_the_repair_loops_snapshot_and_restore():
@@ -423,10 +461,10 @@ def test_identity_survives_the_repair_loops_snapshot_and_restore():
     snap = reg.snapshot()
 
     reg.add(object(), "m_x0", "plan", feature="g", measurement="other")
-    assert reg.measurement_of("m_x0") == "other"
+    assert reg.measurement_of("m_x0") == ("other",)
 
     reg.restore(snap)
-    assert reg.measurement_of("m_x0") == "mid", "a rollback restores what was drawn"
+    assert reg.measurement_of("m_x0") == ("mid",), "a rollback restores what was drawn"
 
 
 def test_re_adding_a_name_without_an_identity_clears_the_old_one():
@@ -442,4 +480,109 @@ def test_re_adding_a_name_without_an_identity_clears_the_old_one():
     reg.add(object(), "m_x0", "plan", feature="f", measurement="mid")
     reg.add(object(), "m_x0", "plan")
 
-    assert reg.measurement_of("m_x0") is None, "cleared, not inherited"
+    assert reg.measurement_of("m_x0") == (), "cleared, not inherited"
+
+
+def test_an_annotation_can_draw_several_measurements():
+    """The registry stores a TUPLE, and the relationship really is one-to-many: a compound
+    hole callout renders bore diameter, depth and counterbore as ONE annotation, each
+    independently suppressible.
+
+    ADR 0016 states this outright — the provenance channel "has to become
+    `name -> tuple[DimensionId, ...]` before per-dimension resolution is possible at all"
+    (#886). Storing one id would make the audit's "exact when present" promise false for
+    every other measurement the annotation carries, so the storage models it from the start
+    even though today's threaded renderers each supply exactly one.
+    """
+    from draftwright.registry import AnnotationRegistry
+
+    reg = AnnotationRegistry()
+    reg.add(object(), "hc0", "plan", measurement=["bore.diameter", "bore.depth"])
+
+    assert reg.measurement_of("hc0") == ("bore.diameter", "bore.depth")
+
+
+def test_a_bare_id_and_a_sequence_are_both_accepted():
+    """The common renderer draws one measurement and passes the `DimensionId` it already
+    holds — `measurement=pd.id`. Normalising at the boundary keeps that call site honest
+    without the storage pretending the relationship is one-to-one."""
+    from draftwright.registry import AnnotationRegistry
+
+    reg = AnnotationRegistry()
+    reg.add(object(), "a", "plan", measurement="one")
+    reg.add(object(), "b", "plan", measurement=("one", "two"))
+    reg.add(object(), "c", "plan", measurement=[None])
+
+    assert reg.measurement_of("a") == ("one",)
+    assert reg.measurement_of("b") == ("one", "two")
+    assert reg.measurement_of("c") == (), "a sequence of nothing is still unknown"
+
+
+def test_every_compiled_plan_dimensional_renderer_records_identity():
+    """The ratchet Codex asked for (#1002 r1): enumerate the renderers, do not spot-check.
+
+    The first cut threaded three renderers and documented the remaining gap as "the
+    direct-placing rotational group" — while slots, plate thicknesses, short step rungs and
+    the step-position ladder all held an `ApprovedDimension.id` and silently dropped it. The
+    documentation invited a reader to treat the unknown set as narrowly bounded when it was
+    not, which is the failure this whole epic exists to stop.
+
+    So this asserts the SOURCE, not one part's output: every `CorridorCandidate` built in the
+    IR render layer either passes a measurement or sits in EXEMPT with a reason. A renderer
+    added later that forgets fails here instead of quietly widening the unknown set again.
+    """
+    import ast
+    import pathlib
+
+    # Keyed by enclosing function so it survives edits above it, unlike a line number.
+    EXEMPT = {
+        # The shared location factory: its callers pass `measurement=` in, and it forwards.
+        "_location_candidate": "receives the id as a parameter",
+        # PMI comes from STEP AP242 extraction, not from the compiled plan — there is no
+        # ApprovedDimension and so no DimensionId to record.
+        "_pmi_queue_options": "PMI records are not compiled dimensions",
+        # GD&T frames are standalone IR features (ControlFrame/DatumRef/Finish, ADR 0011),
+        # placed as corridor candidates but carrying no dimensional measurement.
+        "render_gdt": "a control frame is not a measurement",
+    }
+
+    src = pathlib.Path("src/draftwright/annotations/from_model.py").read_text()
+    tree = ast.parse(src)
+    owner = {}
+    for fn in ast.walk(tree):
+        if isinstance(fn, ast.FunctionDef):
+            for line in range(fn.lineno, (fn.end_lineno or fn.lineno) + 1):
+                # Innermost wins: nested defs are visited after their parent's range is set
+                # only if they are narrower, so prefer the smallest enclosing span.
+                prev = owner.get(line)
+                if prev is None or (fn.end_lineno - fn.lineno) < (prev[1] - prev[0]):
+                    owner[line] = (fn.lineno, fn.end_lineno or fn.lineno, fn.name)
+
+    unrecorded = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call) and getattr(node.func, "id", None) == "CorridorCandidate"
+        ):
+            continue
+        if "measurement" in {k.arg for k in node.keywords}:
+            continue
+        # Attribute to the nearest ENCLOSING top-level renderer that EXEMPT can name.
+        names = {
+            o[2]
+            for line, o in owner.items()
+            if o[0] <= node.lineno <= o[1] and line == node.lineno
+        }
+        enclosing = {
+            fn.name
+            for fn in ast.walk(tree)
+            if isinstance(fn, ast.FunctionDef) and fn.lineno <= node.lineno <= (fn.end_lineno or 0)
+        }
+        if enclosing & set(EXEMPT):
+            continue
+        unrecorded.append((node.lineno, sorted(names or enclosing)))
+
+    assert not unrecorded, (
+        f"CorridorCandidate records no measurement identity at {unrecorded}. "
+        "Pass measurement=<the ApprovedDimension>.id, or add the renderer to EXEMPT "
+        "with the reason it carries no compiled measurement."
+    )

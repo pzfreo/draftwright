@@ -15,8 +15,18 @@ actually found: not from the four issue reports describing its symptoms, but fro
 A placed annotation carries measurement identity only where the renderer recorded one
 (#1002) — otherwise its name is an engine-assigned registry slot, not a handle on what it
 measures. **Identity is partial, and every limit below is a consequence of where it is
-missing**, not of its absence everywhere: the renderers that consume the compiled plan record
-a `DimensionId`; the ones that place directly (the rotational OD/bore group, #754) do not.
+missing.** Which renderers record it is not described here in prose, because a prose
+description of that set was wrong the first time it was written: it named only the
+direct-placing group while four compiled-plan renderers were also silently dropping their
+ids (Codex #1002 r1). `tests/test_audit_differential.py` enumerates the set mechanically and
+fails when a renderer forgets, so **that test is the answer**, not this paragraph. The
+standing exceptions are hole callouts (on the legacy surface, #926), PMI (from STEP, never
+compiled), GD&T frames (not measurements) and the direct-placing rotational group (#754).
+
+Even where identity IS recorded, matching it across two builds is approximate. The ledger's
+key embeds the feature's origin and scalars, so it cannot join two builds that differ — the
+join uses `_correspondence` instead, which keeps the feature's KIND and drops its
+coordinates. Two features of one kind are therefore not separated.
 
 - **A replaced measurement hides where identity is unrecorded.** Move a hole and `m_locx0`
   goes from `70` to `90`: a different measurement reused the slot. With identity recorded
@@ -24,11 +34,12 @@ a `DimensionId`; the ones that place directly (the rotational OD/bore group, #75
   remains — and if the replacement renders the same label, **every result map is empty**. So
   a clean diff still does not establish that the measurements were preserved; it establishes
   that nothing observable at this resolution moved (Codex #1001).
-- **A loss is attributed only where identity exists.** Where it does, the join to the ledger
-  is exact — the same ``(feature, parameter_id)`` key both halves use. Where it does not, the
-  loss reads "nothing claims it" whether or not a rule removed it: unknown, deliberately,
-  rather than guessed. The first cut inferred attribution from annotation NAMES by substring
-  and cancelled real alarms with unrelated suppressions.
+- **A loss is attributed only where identity exists, and only by kind.** Where identity is
+  recorded the join is on ``(feature kind, parameter_id)`` — precise enough to separate an
+  envelope's width from a slot's, not precise enough to separate two slots. Where it is not
+  recorded the loss reads "nothing claims it" whether or not a rule removed it: unknown,
+  deliberately, rather than guessed. The first cut inferred attribution from annotation
+  NAMES by substring and cancelled real alarms with unrelated suppressions.
 - **An unnamed annotation is invisible.** ``Drawing.annotations()`` returns only *named*
   annotations by contract, so anything placed without a name cannot be compared here at all.
 - **A hole callout's CONTENT is invisible; only its presence is seen.** It renders as a
@@ -81,10 +92,28 @@ def _rows(dwg) -> set[tuple]:
     return {(r["feature"], r["parameter_id"], r["reason"]) for r in dwg.suppressions()}
 
 
-def _identity(dwg, name):
-    """``(feature, parameter_id)`` for *name*, or ``None`` where the renderer recorded none."""
-    key = dwg.measurement_key(name) if hasattr(dwg, "measurement_key") else None
-    return None if key is None else (key["feature"], key["parameter_id"])
+def _correspondence(feature, parameter) -> tuple:
+    """The cross-build key: ``(feature KIND, parameter_id)``.
+
+    The full ledger key is ``(feature_key, parameter_id)``, and `feature_key` embeds the
+    feature's ORIGIN AND SCALARS — by design, so two holes in one drawing are distinct. That
+    makes it useless for comparing two DIFFERENT builds, which is the only thing this module
+    does: widen a box 40→50 and the envelope's key changes, so an exact join finds nothing
+    and every real suppression reads "nothing claims it" (Codex #1002 r1, reproduced).
+
+    The kind survives the perturbation; the parameter is already stable. Weaker than full
+    identity — two features of one kind share a key — but a weak key that MATCHES ACROSS
+    BUILDS beats an exact key that cannot. It is safe here precisely because attribution
+    only ever annotates a loss; nothing downstream cancels an alarm on it.
+    """
+    return (str(feature).split("@")[0], parameter)
+
+
+def _identities(dwg, name) -> set[tuple]:
+    """Cross-build correspondence keys for everything *name* draws; empty if unrecorded."""
+    if not hasattr(dwg, "measurement_keys"):
+        return set()
+    return {_correspondence(k["feature"], k["parameter_id"]) for k in dwg.measurement_keys(name)}
 
 
 def diff_builds(before, after) -> dict:
@@ -123,38 +152,36 @@ def diff_builds(before, after) -> dict:
     # substitution under the same name (and, if the labels agree, under the same label)
     # previously produced an entirely empty diff.
     #
-    # BOTH halves of the id are compared, and the two mean different things — `explain`
-    # ranks them apart rather than this splitting them into two maps:
+    # Compared on the CORRESPONDENCE key, so a `width.length` on an envelope that merely got
+    # wider is not a substitution. An earlier cut compared the full ledger key and reported
+    # every envelope dim of every perturbed build as "reattributed" — three noise lines on a
+    # three-dimension drawing, in the one experiment this module exists to run.
     #
-    # - the PARAMETER changed → the name draws a different kind of measurement. Always an
-    #   alarm. Rare in practice, because a slot is usually reused by its own pass.
-    # - the FEATURE changed → the name draws the same measurement OF SOMETHING ELSE.
-    #   Reported, not alarmed: `feature_key` is positional, so any experiment that moves a
-    #   feature legitimately changes it. Alarming on that would fire on every perturbation.
-    #
-    # Comparing the parameter alone would have been nearly inert: a hole's X and Y location
-    # dims share ONE id (`location.location`), because `location` is addressable per feature
-    # and per-member identity is still open (ADR 0016 / #883). So an X↔Y swap is invisible
-    # here whichever half is compared — a limit of the compiler's addressing granularity,
-    # not of this comparison.
+    # A hole's X and Y location dims share ONE id (`location.location`), because `location`
+    # is addressable per feature and per-member identity is still open (ADR 0016 / #883), so
+    # an X↔Y swap is invisible here. That is the compiler's addressing granularity, not a
+    # limit of this comparison.
     substituted: dict[str, tuple] = {}
     for name in set(before_dims) & set(after_dims):
-        b_id, a_id = _identity(before, name), _identity(after, name)
-        if b_id is not None and a_id is not None and b_id != a_id:
-            substituted[name] = (b_id, a_id)
+        b_ids, a_ids = _identities(before, name), _identities(after, name)
+        if b_ids and a_ids and b_ids != a_ids:
+            substituted[name] = (sorted(b_ids), sorted(a_ids))
 
-    # Attribution, exact where identity exists. The first cut matched a suppression's
-    # parameter stem against the annotation's NAME by substring, so a newly-suppressed
-    # `width.length` claimed every lost annotation whose name contained "width" — across
-    # unrelated features (Codex #1001 r1). With identity recorded the join is on the same
-    # `(feature, parameter_id)` key both halves use, and a mismatch stays unexplained.
+    # Attribution, on the cross-build correspondence key. The first cut matched a
+    # suppression's parameter stem against the annotation's NAME by substring, so a
+    # newly-suppressed `width.length` claimed every lost annotation whose name contained
+    # "width" — across unrelated features (Codex #1001 r1). The second joined on the exact
+    # ledger key, which cannot match across two builds at all (Codex #1002 r1). This joins
+    # on what the two builds genuinely share: the feature's kind and the parameter.
     candidates: dict[str, list[str]] = {}
     for name in lost:
-        ident = _identity(before, name)
-        if ident is None:
+        idents = _identities(before, name)
+        if not idents:
             continue  # unknown identity — no attribution rather than a guessed one
         hits = [
-            reason for feature, parameter, reason in gained_supp if (feature, parameter) == ident
+            reason
+            for feature, parameter, reason in gained_supp
+            if _correspondence(feature, parameter) in idents
         ]
         if hits:
             candidates[name] = hits
@@ -187,16 +214,9 @@ def explain(diff: dict) -> list[str]:
         why = f" — possibly: {'; '.join(hint)}" if hint else " — nothing claims it"
         out.append(f"LOST: {name} ({label}){why}")
     # A name that silently changed what it measures is a measurement lost and another
-    # gained, disguised as neither (#1002) — so a changed PARAMETER ranks with the losses.
-    # A changed FEATURE goes below them: it is the expected result of moving a feature, and
-    # ranking it as an alarm would bury the real ones in every perturbation study.
-    subs = sorted(diff.get("measurements_substituted", {}).items())
-    for name, (was, now) in subs:
-        if was[1] != now[1]:
-            out.append(f"SUBSTITUTED: {name} now draws {now[1]}, was {was[1]}")
-    for name, (was, now) in subs:
-        if was[1] == now[1]:
-            out.append(f"reattributed: {name} ({now[1]}) now measures {now[0]}, was {was[0]}")
+    # gained, disguised as neither (#1002) — so it ranks with the losses.
+    for name, (was, now) in sorted(diff.get("measurements_substituted", {}).items()):
+        out.append(f"SUBSTITUTED: {name} now draws {now}, was {was}")
     for feature, parameter, reason in diff["suppressions_gained"]:
         out.append(f"suppressed: {parameter} on {feature} — {reason}")
     for name, label in sorted(diff["dimensions_gained"].items()):

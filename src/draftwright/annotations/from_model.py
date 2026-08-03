@@ -319,6 +319,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                         tier,
                         ctx=ctx,
                         features={cname: s},
+                        measurements={cname: approved.id},  # #1002
                         trace=ctx.trace,
                         trace_label=f"slot_{side}",
                     ):
@@ -362,6 +363,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                         tier,
                         ctx=ctx,
                         features={cname: _feat},
+                        measurements={cname: approved.id},  # #1002
                         trace=ctx.trace,
                         trace_label=f"slot_{_fsd}_fallthrough",
                     ):
@@ -397,6 +399,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                     ),
                     on_place=lambda nm: None,
                     on_drop=_far_or_drop,
+                    measurement=approved.id,  # #1002
                     dedup=(
                         (vw[0], round(meas_proj(raw_lo), 1), round(meas_proj(raw_hi), 1))
                         if is_pos
@@ -2168,12 +2171,17 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
         def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, lbl=lbl):
             return dim_footprint(pa, pb, side, pos - edge, draft, lbl)
 
-        def _drop(nm, val=val, lbl=lbl, view=view, stack=stack, alt=alt, feat=g.ref):  # noqa: B008
+        def _drop(nm, val=val, lbl=lbl, view=view, stack=stack, alt=alt, feat=g.ref, mid=pd.id):  # noqa: B008
             # Opposite-strip fallthrough (mirrors the GD&T #481 pattern), DEFERRED to
             # ctx.post_drain so it runs after EVERY corridor has drained (#684 review):
             # a mid-drain carve could occupy a corner a later sibling's force candidate
             # needs; post-drain, carve_free_position sees all placed annotations.
-            def _retry(nm=nm, val=val, lbl=lbl, view=view, stack=stack, alt=alt, feat=feat):
+            # `mid` is bound as a DEFAULT like every sibling here: `pd` is the enclosing
+            # loop's variable and these retries run post-drain, so reading it live would
+            # record the LAST plate's identity on every one of them (#1002).
+            def _retry(
+                nm=nm, val=val, lbl=lbl, view=view, stack=stack, alt=alt, feat=feat, mid=mid
+            ):
                 for view2, side2, strip2, axis2, qa, qb, edge2 in alt or ():
                     if strip2 is None:
                         continue
@@ -2199,7 +2207,7 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
                             or real[3] > page[3]
                         ):
                             continue
-                        ctx.place(dim, nm, view=view2, feature=feat)
+                        ctx.place(dim, nm, view=view2, feature=feat, measurement=mid)
                         return
                 ctx.record_issue(
                     "warning",
@@ -2233,6 +2241,7 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
                 on_drop=_drop,
                 force=True,
                 feature=g.ref,  # opaque provenance handle
+                measurement=pd.id,  # #1002
                 footprint=_foot,  # analytical measure — no probe build (#602)
             ),
         )
@@ -3105,6 +3114,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 on_drop=_drop_left,
                 force=True,
                 feature=step,
+                measurement=rung.id,  # #1002
                 footprint=lambda pos, zbase=zbase, ztop=ztop, label=label: dim_footprint(
                     (left_edge, zbase, 0),
                     (left_edge, ztop, 0),
@@ -3227,6 +3237,7 @@ def render_step_positions(dwg, plan, frame, *, ctx) -> int:
                 force=True,
                 # The opaque provenance handle, passed straight through.
                 feature=ladder.ref,
+                measurement=rung.id,  # #1002
             ),
         )
         n += 1

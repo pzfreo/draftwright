@@ -641,23 +641,29 @@ class Drawing:
             for o in self._build.omissions
         ]
 
-    def measurement_key(self, name) -> dict | None:
-        """Which measurement the annotation *name* draws, or ``None`` if unrecorded (#1002).
+    def measurement_keys(self, name) -> list[dict]:
+        """Which measurements the annotation *name* draws — possibly none (#1002).
 
-        The mirror of :meth:`suppressions` and deliberately the SAME key shape —
+        The mirror of :meth:`suppressions` and deliberately the SAME row shape —
         ``{"feature": <stable key>, "parameter_id": ...}`` — so a drawn measurement and a
         suppressed one are directly comparable. Without it the two halves of the audit could
         only be joined by matching an engine-assigned annotation name against a parameter id
         by substring, which attributed losses to unrelated suppressions (Codex #1001 r1).
 
-        ``None`` means the renderer did not record an identity, **not** that the annotation
-        measures nothing: the direct-placing renderers (#754) record none. Treat presence as
-        exact and absence as unknown.
+        A **list**, because one annotation can draw several independently suppressible
+        measurements — a compound hole callout renders bore diameter, depth and counterbore
+        together (ADR 0016 / #886). Empty means the renderer recorded nothing, **not** that
+        the annotation measures nothing. Which renderers record it is enforced by the ratchet
+        in `tests/test_audit_differential.py`; treat presence as exact and absence as unknown.
+
+        Exact **within** a build. Across two builds the key cannot match directly, because
+        `feature_key` embeds coordinates and scalars a differential deliberately changes —
+        `draftwright.audit` joins on the feature's kind instead.
         """
-        mid = self._registry.measurement_of(name)
-        if mid is None:
-            return None
-        return {"feature": feature_key(mid.feature), "parameter_id": mid.parameter}
+        return [
+            {"feature": feature_key(mid.feature), "parameter_id": mid.parameter}
+            for mid in self._registry.measurement_of(name)
+        ]
 
     @property
     def solve_trace(self):
