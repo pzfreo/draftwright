@@ -331,19 +331,25 @@ def _datum_for(model: PartModel, param: DimParameter) -> Datum | None:
 #: a location was unnameable — it had no `DimParameter`, so an authored set could neither
 #: include nor exclude it, and every location was drawn regardless of what the script
 #: declared. A dimension the author cannot address is a dimension the author cannot omit.
+#: Feature type -> compiled location stem, DERIVED from each feature's own
+#: `LOCATION_STEM` declaration (#966) rather than restated here. The stem used to be
+#: written in this table while the SUFFIX was chosen at each mint site, which is how
+#: `location_pocket.location` and `location_slot.length` came to disagree — two spellings
+#: for one concept, because no single place owned the name.
+#:
+#: Kept as a mapping so existing callers are unchanged; it is now a projection of the
+#: declarations, not a second source. `test_every_locatable_feature_declares_its_stem`
+#: fails if a feature that plans a location does not declare one.
 _LOCATION_ROLE: dict[type, str] = {
-    HoleFeature: "location",
-    PatternFeature: "location_pattern",
-    PocketFeature: "location_pocket",
-    PocketPatternFeature: "location_pocket_pattern",
-    PadFeature: "location_pad",
-    # A slot's position is datum-referenced too, but from the BOUNDING BOX along its long
-    # axis rather than from `datum_xy`, and it is drawn in the slot's own view. So it is
-    # addressable here (an authored set can name or omit it) while `plan_locations` skips
-    # it — the span is compiled in `model/compiled._compile_slot_positions`, which has the
-    # bbox. Listing it in one table with the rest is what keeps "which features have a
-    # position" a single answer.
-    SlotFeature: "location_slot",
+    cls: cls.LOCATION_STEM
+    for cls in (
+        HoleFeature,
+        PatternFeature,
+        PocketFeature,
+        PocketPatternFeature,
+        PadFeature,
+        SlotFeature,
+    )
 }
 
 
