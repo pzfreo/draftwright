@@ -794,6 +794,12 @@ def lint_flat_coverage(part, dwg, *, cyls=None, flats=None, assembly=None, tol: 
         assembly = len(part.solids()) > 1
     mentioned: set[float] = set()
     for ann in dwg.items:
+        if isinstance(ann, TitleBlock):
+            # A title block's label is the drawing TITLE, not a callout — the same
+            # exemption `lint_feature_coverage` makes for "BRACKET R8". Without it a part
+            # titled "25 A/F" silently satisfies its own flat and the check reports a
+            # manufacturing-incomplete drawing as complete (Codex #1011 r1).
+            continue
         label = getattr(ann, "label", None) or ""
         if "A/F" not in label:
             continue

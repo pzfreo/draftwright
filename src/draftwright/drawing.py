@@ -97,6 +97,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "pocket_not_located",
         "unrecognised_defining_geometry",
         "axial_length_missing",
+        "flat_not_dimensioned",
         "missing_principal_dimension",
         "label_vs_measured",
         "dim_inside_part",

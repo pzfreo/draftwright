@@ -50,10 +50,21 @@ def test_a_placed_flat_callout_is_not_reported(flatted_shaft):
     assert "flat_not_dimensioned" not in _codes(dwg)
 
 
-def test_a_dropped_flat_callout_is_reported_as_incomplete_not_merely_unplaced(flatted_shaft):
+@pytest.mark.parametrize(
+    "title",
+    [
+        pytest.param("PART", id="ordinary-title"),
+        # A title block's label is the drawing title, not a callout. Titling the part after
+        # its own defining dimension must not satisfy the check (Codex #1011 r1).
+        pytest.param("25 A/F", id="title-quoting-the-missing-callout"),
+    ],
+)
+def test_a_dropped_flat_callout_is_reported_as_incomplete_not_merely_unplaced(
+    flatted_shaft, title
+):
     """The #914 case: the leader finds no room, and the drawing silently stops defining
     the flat. Both signals must appear — the cause and the consequence."""
-    dwg = build_drawing(flatted_shaft, page="A4", scale=2.0)
+    dwg = build_drawing(flatted_shaft, page="A4", scale=2.0, title=title)
     assert not any(n.startswith("m_flat_") for n, _ in dwg.iter_annotations()), (
         "this fixture is meant to DROP the callout; if it now places, the drop case is untested"
     )
@@ -61,6 +72,15 @@ def test_a_dropped_flat_callout_is_reported_as_incomplete_not_merely_unplaced(fl
     assert "flat_dropped" in issues, "the placement signal must survive — this adds to it"
     assert "flat_not_dimensioned" in issues
     assert "25 A/F" in issues["flat_not_dimensioned"].message
+
+
+def test_the_completeness_failure_counts_as_a_geometry_issue(flatted_shaft):
+    """``lint_summary()['geometry_issues']`` is what a non-interactive caller reads to tell
+    a wrong drawing from a merely tight one. An undefined flat is wrong, not tight — so it
+    belongs in that count, beside its sibling completeness codes (Codex #1011 r1)."""
+    summary = build_drawing(flatted_shaft, page="A4", scale=2.0).lint_summary()
+    assert summary["by_code"].get("flat_not_dimensioned"), "precondition: the check fired"
+    assert summary["geometry_issues"] >= 1
 
 
 def test_removing_the_callout_from_a_finished_sheet_reports_it(flatted_shaft):
