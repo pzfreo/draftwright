@@ -901,20 +901,22 @@ def _compile_off_axis_hole_locations(
                 value = abs(member[index] - datum)
                 if omitted:
                     omissions.append(
-                        Omission(f, f"location_off_axis.{meas}", value, _AUTHORED_OMISSION)
+                        Omission(
+                            f, f"{f.LOCATION_OFF_AXIS_STEM}.{meas}", value, _AUTHORED_OMISSION
+                        )
                     )
                     continue
                 start = list(member)
                 start[index] = datum
                 approved.append(
                     ApprovedDimension(
-                        id=_dim_id(f, f"location_off_axis.{meas}"),
+                        id=_dim_id(f, f"{f.LOCATION_OFF_AXIS_STEM}.{meas}"),
                         value_text=_fmt(value),
                         value=value,
                         span=((start[0], start[1], start[2]), member),
                         ref=FeatureRef(f),
                         kind="length",
-                        role="location_off_axis",
+                        role=f.LOCATION_OFF_AXIS_STEM,  # the feature owns its name (#966)
                         discriminator=meas,
                         axis=f.frame.axis,
                     )

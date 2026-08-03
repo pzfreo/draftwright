@@ -339,6 +339,12 @@ def _datum_for(model: PartModel, param: DimParameter) -> Datum | None:
 #: mint site kept the old name while the declaration said something else — the same
 #: two-owners defect in a new place (Codex #1010 r2). A membership set plus a live read
 #: cannot go stale.
+#:
+#: Membership is by EXACT type, not `isinstance`, matching the `dict[type, str]` this
+#: replaced and `model/detect.py`'s exact-type converter registry. A subclass of a
+#: locatable feature is a new kind: it inherits `LOCATION_STEM`, so accepting it would
+#: mint its position under its PARENT's name and collide with it in the ledger. Declaring
+#: its own stem (and joining this tuple) is the way in.
 _LOCATABLE: tuple[type, ...] = (
     HoleFeature,
     PatternFeature,
@@ -372,7 +378,7 @@ _LOCATABLE: tuple[type, ...] = (
 def location_datum(feature) -> str | None:
     """``"datum_xy"``, ``"bbox"``, or ``None`` — where *feature*'s position is measured
     from, or that it has none. See :data:`_LOCATABLE`."""
-    if not isinstance(feature, _LOCATABLE):
+    if type(feature) not in _LOCATABLE:
         return None
     if isinstance(feature, SlotFeature):
         return "bbox"  # near-end offset along its long axis, in its own view

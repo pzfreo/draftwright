@@ -93,26 +93,86 @@ def test_stems_are_unique_so_two_features_cannot_share_a_name():
     assert len(stems) == len(set(stems)), f"duplicate location stems: {stems}"
 
 
+def test_a_subclass_is_not_silently_locatable():
+    """Membership is by EXACT type, as the `dict[type, str]` this replaced was.
+
+    An `isinstance` check reads as the friendlier spelling and is wrong here: a subclass
+    INHERITS `LOCATION_STEM`, so accepting it would mint its position under its parent's
+    stem — two features minting one name, which is the collision the declaration exists to
+    prevent. It is also a behaviour change from main, and the review that caught it
+    (Codex #1010 r3) caught it as an *undocumented* one. Declaring its own stem and joining
+    `_LOCATABLE` is the way in.
+    """
+    from draftwright.model import Frame, HoleFeature
+
+    @dataclasses.dataclass(frozen=True)
+    class DowelHole(HoleFeature):
+        pass
+
+    sub = DowelHole(Frame((10.0, 10.0, 0.0), "z"), 6.0, depth=None, through=True)
+    assert sub.LOCATION_STEM == HoleFeature.LOCATION_STEM, "inherits its parent's name"
+    assert location_datum(sub) is None, "so it must not be planned under that name"
+    assert location_role(sub) is None
+
+
 @pytest.mark.parametrize(
     ("kind", "feature_name", "build"),
     [
-        ("slot", "SlotFeature", lambda: Box(60, 30, 10) - Box(30, 8, 20)),
-        ("pocket", "PocketFeature", lambda: Box(80, 60, 20) - Pos(0, 0, 12) * Box(30, 20, 10)),
-        ("hole", "HoleFeature", lambda: Box(80, 60, 10) - Pos(20, 10, 0) * Cylinder(4, 20)),
+        pytest.param("slot", "SlotFeature", lambda: Box(60, 30, 10) - Box(30, 8, 20), id="slot"),
+        pytest.param(
+            "pocket",
+            "PocketFeature",
+            lambda: Box(80, 60, 20) - Pos(0, 0, 12) * Box(30, 20, 10),
+            id="pocket-z",
+        ),
+        # A pocket in a VERTICAL face, whose position compiles to two discriminated entries
+        # and is read back by a second branch in `from_model`. Added because mutating that
+        # branch to a literal left the Z-normal case above green — the reader it guards was
+        # never reached, and a fixture that does not reach a path says nothing about it.
+        pytest.param(
+            "pocket",
+            "PocketFeature",
+            lambda: Box(80, 60, 40) - Pos(38, 0, 5) * Box(10, 20, 15),
+            id="pocket-x",
+        ),
+        pytest.param(
+            "hole",
+            "HoleFeature",
+            lambda: Box(80, 60, 10) - Pos(20, 10, 0) * Cylinder(4, 20),
+            id="hole-z",
+        ),
+        pytest.param(
+            "pattern",
+            "PatternFeature",
+            lambda: (
+                Box(80, 80, 10)
+                - Pos(25, 25, 0) * Cylinder(3, 20)
+                - Pos(-25, 25, 0) * Cylinder(3, 20)
+                - Pos(25, -25, 0) * Cylinder(3, 20)
+                - Pos(-25, -25, 0) * Cylinder(3, 20)
+            ),
+            id="pattern-z",
+        ),
     ],
 )
 def test_a_real_build_mints_each_location_from_its_declaration(kind, feature_name, build):
     """Rename the declaration; the real build's ledger must follow.
 
-    **Parametrised over every kind whose readers this work has touched**, deliberately. The
-    first cut tested the slot alone and its prose claimed canonical ownership generally
-    (Codex #1010 r2) — which is the recurring defect in this branch's history: verify the
-    path just changed, then describe the result more broadly than was tested.
-
     This is the assertion that matters, because the name is a CONTRACT between the compiler
     that mints it and the renderer that reads it. When only one end derived it, renaming did
     not rename the dimension — it made the dimension VANISH, since the two ends disagreed
-    about what to look for. So a passing rename proves both ends follow the declaration.
+    about what to look for.
+
+    **Scope, stated as narrowly as the evidence.** What passing proves: for a *slot*, a
+    *pocket in each of its two compiled shapes*, a *Z-normal hole* and a *Z-normal pattern*,
+    on an automatic `build_drawing`, both the mint site and the reader derive the stem from
+    the declaration. It does **not** cover `PadFeature` or `PocketPatternFeature` (no fixture
+    here draws either's position), nor the two paths outside this parametrisation — the
+    side-drilled bore's own stem and the `locate()` edit verb, each canaried separately
+    below. Every case here was added after mutating the reader it guards and watching this
+    test go red; the two that were assumed instead (`pocket-x`, `locate()`) had both been
+    green against a broken reader. The recurring defect in this branch is to verify the one
+    path just changed and then describe the result more broadly than was tested.
     """
     import draftwright.model as model_pkg
     from draftwright import build_drawing
@@ -146,6 +206,108 @@ def test_a_real_build_mints_each_location_from_its_declaration(kind, feature_nam
     )
     assert not any(i.startswith(f"{original}.") for i in mutated), (
         f"{kind}: the old name survived the rename, so something holds a parallel copy"
+    )
+
+
+def test_the_side_drilled_path_mints_from_its_own_declaration():
+    """The off-axis bore, which the canary above does not reach.
+
+    Its two positions are a different measurement from the Z-normal ladder — bounding-box
+    datum, one entry per measured axis — so they carry their own declaration,
+    `LOCATION_OFF_AXIS_STEM`, rather than a suffix rule over `LOCATION_STEM`. Before this
+    the name was a literal in the compiler and the same literal in `holes.py`'s filter: the
+    branch's own two-owners defect, still open at r3.
+
+    Asserted at TWO levels because they fail differently, and asserting one would miss the
+    other: the compiled ids show the *mint* followed the rename; the drawn `dim_loc_*`
+    annotations surviving it show the *reader* did. A reader still holding the literal
+    matches nothing, so the dims vanish while the compiled ids look perfect.
+
+    Not via `measurement_keys` like the canary above — the off-axis dims record no
+    measurement identity yet (#1005), so that ledger is empty here and an assertion over it
+    would pass vacuously.
+    """
+    from build123d import Rot
+
+    from draftwright import build_drawing
+    from draftwright.builder import detect_part_model
+    from draftwright.model import HoleFeature
+    from draftwright.model.compiled import compile_dimensions
+
+    part = Box(12, 40, 30) - Pos(0, 8, 6) * Rot(0, 90, 0) * Cylinder(3, 12)
+    model = detect_part_model(part)
+    original = HoleFeature.LOCATION_OFF_AXIS_STEM
+
+    def _params():
+        return {loc.id.parameter for loc in compile_dimensions(model).locations}
+
+    def _drawn():
+        return {n for n, _a in build_drawing(part).iter_annotations() if n.startswith("dim_loc_")}
+
+    baseline_params, baseline_drawn = _params(), _drawn()
+    assert any(p.startswith(f"{original}.") for p in baseline_params), (
+        "fixture must reach the off-axis compiler, or the rename proves nothing"
+    )
+    assert baseline_drawn, "fixture must actually DRAW the off-axis positions"
+
+    try:
+        HoleFeature.LOCATION_OFF_AXIS_STEM = "location_canary"
+        mutated_params, mutated_drawn = _params(), _drawn()
+    finally:
+        HoleFeature.LOCATION_OFF_AXIS_STEM = original
+
+    assert {p for p in mutated_params if p.startswith("location_canary.")} == {
+        p.replace(original, "location_canary") for p in baseline_params
+    }, "the off-axis mint site still owns the name"
+    assert mutated_drawn == baseline_drawn, (
+        "renaming the declaration dropped the side-hole position dims — the renderer holds "
+        "a literal copy of the role and now matches nothing"
+    )
+
+
+def test_the_on_axis_bore_skip_reads_the_declaration_on_both_surfaces():
+    """The two readers that compare the role in order to NOT draw something.
+
+    A ROTATIONAL part with an on-axis bore, deliberately: that is the one branch where
+    `render_locations` (the auto pass) and `Drawing.locate()` (the edit verb) consult the
+    role at all — each skips the position dim because the centreline already locates the
+    bore. On a plate neither comparison is reached, so a plate fixture says nothing about
+    these readers however plausible it reads. This test's first cut used one and a stale
+    literal sailed straight through it.
+
+    So the observable is the SKIP, asserted on both surfaces because they hold separate
+    copies of the comparison. With a stale literal the reader stops recognising the renamed
+    role, the skip does not fire, and a redundant position dim appears on a part whose bore
+    is located by its centreline.
+    """
+    from draftwright import build_drawing
+    from draftwright.model import HoleFeature
+
+    part = Cylinder(20, 40) - Cylinder(6, 60)
+    original = HoleFeature.LOCATION_STEM
+    try:
+        HoleFeature.LOCATION_STEM = "location_canary"
+        auto = build_drawing(part)
+        auto_ids = {
+            key["parameter_id"]
+            for n, _a in auto.iter_annotations()
+            for key in auto.measurement_keys(n)
+            if key["feature"].startswith("hole")
+        }
+        dwg = build_drawing(part, auto_dims=False)
+        hole = next(f for f in dwg.model().features if isinstance(f, HoleFeature))
+        assert dwg._analysis.is_rotational, "fixture must be rotational to reach the skip"
+        names = dwg.locate(hole)
+    finally:
+        HoleFeature.LOCATION_STEM = original
+
+    assert auto_ids == set(), (
+        f"the auto pass drew {sorted(auto_ids)} for an on-axis bore on a rotational part — "
+        "`render_locations` no longer recognises the renamed role"
+    )
+    assert names == [], (
+        f"locate() placed {names} for the same bore — the edit surface holds a literal copy "
+        "of the role"
     )
 
 

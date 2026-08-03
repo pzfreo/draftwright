@@ -211,11 +211,22 @@ class HoleFeature:
     (plain tuples — the IR stays decoupled from the recogniser's types)."""
 
     #: The compiled stem this feature's position is minted under (#966). Declared HERE,
-    #: beside the feature, rather than in a table in the planner: the stem was per-type
-    #: there but the SUFFIX was chosen at each mint site, which is how
-    #: `location_pocket.location` and `location_slot.length` came to disagree. One
-    #: declaration site, one spelling.
+    #: beside the feature, rather than in a table in the planner, because the planner's
+    #: table was one of TWO owners: the mint sites in `model/compiled.py` and the readers
+    #: in `annotations/` spelled the same name again as a literal, so renaming the table
+    #: made a dimension VANISH rather than change name. One owner of the stem.
+    #:
+    #: The SUFFIX is still chosen at each mint site, which is how
+    #: `location_pocket.location` and `location_slot.length` came to disagree — that half
+    #: of #966 is not fixed here. This declaration owns the stem and nothing more.
     LOCATION_STEM: ClassVar[str] = "location"
+
+    #: The stem a SIDE-DRILLED bore's two positions are minted under — a separate
+    #: measurement from the Z-normal ladder above (bounding-box datum, one entry per
+    #: measured axis, compiled in `_compile_off_axis_hole_locations`), so it is a separate
+    #: declaration rather than a suffix rule over `LOCATION_STEM`. Declared for the same
+    #: reason: compiler and renderer both read it instead of restating the literal.
+    LOCATION_OFF_AXIS_STEM: ClassVar[str] = "location_off_axis"
 
     frame: Frame
     diameter: float
@@ -294,11 +305,8 @@ class PatternFeature:
     pattern-defining dims (BCD / pitch / grid pitches). The member holes are NOT
     emitted individually (the engine's grouped ``n× ø`` callout)."""
 
-    #: The compiled stem this feature's position is minted under (#966). Declared HERE,
-    #: beside the feature, rather than in a table in the planner: the stem was per-type
-    #: there but the SUFFIX was chosen at each mint site, which is how
-    #: `location_pocket.location` and `location_slot.length` came to disagree. One
-    #: declaration site, one spelling.
+    #: The compiled stem this feature's position is minted under — see
+    #: :attr:`HoleFeature.LOCATION_STEM` for why it is declared here (#966).
     LOCATION_STEM: ClassVar[str] = "location_pattern"
 
     frame: Frame
@@ -369,11 +377,8 @@ class SlotFeature:
     in-plane geometry so the renderer can place the size + position dims in the
     view the two axes span (the recogniser's `Slot`, normalised into the IR)."""
 
-    #: The compiled stem this feature's position is minted under (#966). Declared HERE,
-    #: beside the feature, rather than in a table in the planner: the stem was per-type
-    #: there but the SUFFIX was chosen at each mint site, which is how
-    #: `location_pocket.location` and `location_slot.length` came to disagree. One
-    #: declaration site, one spelling.
+    #: The compiled stem this feature's position is minted under — see
+    #: :attr:`HoleFeature.LOCATION_STEM` for why it is declared here (#966).
     LOCATION_STEM: ClassVar[str] = "location_slot"
 
     frame: Frame
@@ -404,11 +409,8 @@ class PocketFeature:
     the callout in the view the two in-plane axes span (the recogniser's `Pocket`,
     normalised into the IR)."""
 
-    #: The compiled stem this feature's position is minted under (#966). Declared HERE,
-    #: beside the feature, rather than in a table in the planner: the stem was per-type
-    #: there but the SUFFIX was chosen at each mint site, which is how
-    #: `location_pocket.location` and `location_slot.length` came to disagree. One
-    #: declaration site, one spelling.
+    #: The compiled stem this feature's position is minted under — see
+    #: :attr:`HoleFeature.LOCATION_STEM` for why it is declared here (#966).
     LOCATION_STEM: ClassVar[str] = "location_pocket"
 
     frame: Frame
@@ -449,11 +451,8 @@ class PadFeature:
     prismatic level ladder, avoiding double-dimensioning the same Z rise.
     """
 
-    #: The compiled stem this feature's position is minted under (#966). Declared HERE,
-    #: beside the feature, rather than in a table in the planner: the stem was per-type
-    #: there but the SUFFIX was chosen at each mint site, which is how
-    #: `location_pocket.location` and `location_slot.length` came to disagree. One
-    #: declaration site, one spelling.
+    #: The compiled stem this feature's position is minted under — see
+    #: :attr:`HoleFeature.LOCATION_STEM` for why it is declared here (#966).
     LOCATION_STEM: ClassVar[str] = "location_pad"
 
     frame: Frame
@@ -488,11 +487,8 @@ class PocketPatternFeature:
     callout reads in the view normal to it (``_END_ON`` z→plan / x→side / y→front — the
     same map `render_pockets` uses)."""
 
-    #: The compiled stem this feature's position is minted under (#966). Declared HERE,
-    #: beside the feature, rather than in a table in the planner: the stem was per-type
-    #: there but the SUFFIX was chosen at each mint site, which is how
-    #: `location_pocket.location` and `location_slot.length` came to disagree. One
-    #: declaration site, one spelling.
+    #: The compiled stem this feature's position is minted under — see
+    #: :attr:`HoleFeature.LOCATION_STEM` for why it is declared here (#966).
     LOCATION_STEM: ClassVar[str] = "location_pocket_pattern"
 
     frame: Frame

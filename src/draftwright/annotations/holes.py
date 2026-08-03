@@ -581,7 +581,10 @@ def _approved_off_axis_holes(plan) -> list[_OffHole]:
     """
     holes: dict[tuple, _OffHole] = {}
     for entry in plan.locations:
-        if entry.role != "location_off_axis":
+        # Derived, not spelled: the role is a CONTRACT between the compiler that mints it
+        # and this filter that reads it. A literal here is a second owner — renaming the
+        # declaration would make every side-hole position dim vanish (#966).
+        if entry.role != HoleFeature.LOCATION_OFF_AXIS_STEM:
             continue
         assert entry.span is not None  # off-axis entries always carry datum → member
         member = entry.span[1]
