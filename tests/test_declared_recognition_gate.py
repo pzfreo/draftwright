@@ -384,7 +384,7 @@ def test_lint_projects_the_shared_riser_evidence_and_rescans_nothing():
     )
 
 
-def test_the_critique_cannot_be_handed_a_narrower_shoulder_inventory():
+def test_the_critique_rejects_an_assembled_shoulder_inventory():
     """A completeness check must not accept an argument that can silence it.
 
     ``lint_prismatic_coverage`` used to take ``step_zs=``, and it *fully determined* the
@@ -399,7 +399,20 @@ def test_the_critique_cannot_be_handed_a_narrower_shoulder_inventory():
     caller can narrow it. A duck-typed `SimpleNamespace(risers=(), step_levels=())` silenced
     the check exactly as `step_zs=[]` had — the same door wearing a new parameter name (Codex
     #1031 r1). So the behavioural half is the one with teeth: an assembled stand-in is
-    REJECTED, and only recognition's own frozen result is accepted.
+    REJECTED.
+
+    **What this does NOT establish**, deliberately named rather than implied: the type check
+    proves neither provenance nor correspondence with *part*. A caller can still pass
+    ``build_recognition_result(some_other_solid)``, or construct a valid frozen result with
+    empty inventories, and this function will use it (Codex #1031 r2). That is true of every
+    injected inventory in the engine — `holes=`, `pockets=`, `pads=` — and is the accepted
+    cost of ADR 0008 Amdt 5 dependency injection, not something specific to this parameter.
+    Closing it needs an unforgeable association between an aggregate and its solid, which is
+    tracked separately (#1032); singling out this one parameter would be inconsistent and
+    would still not make the check fail-closed.
+
+    So the test is named for what it does: it rejects an ASSEMBLED inventory, which is the
+    accidental form. It does not claim to reject a mismatched genuine one.
     """
     params = inspect.signature(lint_prismatic_coverage).parameters
     assert "step_zs" not in params, (
@@ -508,10 +521,21 @@ def test_one_ladder_rule_serves_sizing_and_critique():
     # vacuous and would pass with the consolidation removed (verified: it did).
     with counting_calls({"ladder": RecognitionResult.step_ladder}) as calls:
         drawing = build_drawing(part)
+        sizing = dict(calls)
+        calls.clear()
+        drawing.lint()
+        critique = dict(calls)
 
-    assert calls.get("ladder"), (
+    assert sizing.get("ladder"), (
         "the build never called RecognitionResult.step_ladder — sizing is deriving its own "
         "ladder again, which is the drift this consolidation removes"
+    )
+    # Both consumers, asserted separately. Counting across the whole build satisfied the
+    # assertion from `_analyse`'s call alone, so critique could revert to the raw face levels
+    # and this guard would stay green — the regression it names, undetected (Codex #1031 r2).
+    assert critique.get("ladder"), (
+        "lint never called RecognitionResult.step_ladder — critique is projecting risers over "
+        "a different ladder than the model was sized from"
     )
     lengths = sorted(n for n in drawing.annotations() if n.startswith("m_steplen"))
     assert len(lengths) == 2, f"expected one length per turned segment, got {lengths}"
