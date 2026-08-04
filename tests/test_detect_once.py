@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import pytest
 from build123d import Axis, Box, fillet
+from conftest import counting_calls
 
 from draftwright import build_drawing
 
@@ -67,26 +68,22 @@ def test_generate_script_detects_once(fillet_counter, tmp_path):
 
 
 @pytest.fixture
-def cyls_counter(monkeypatch):
-    """Count ``analyse_cylinders`` scans everywhere the name is import-bound —
-    patching only ``_features`` would miss the recognisers' own bindings."""
-    import draftwright.analysis as analysis
-    import draftwright.drawing as drawing
+def cyls_counter():
+    """Count ``analyse_cylinders`` scans by CODE OBJECT (see ``conftest.counting_calls``).
+
+    Not by patching the modules that bind the name. #1019 spent four review rounds on that
+    approach and each round found one more binding form it could not see — modules nobody
+    had listed (``recognition.result`` and ``linting.coverage``, both on live paths), then
+    aliased imports, and next would have been a function held in a container or a closure.
+    Every miss is silent: the rescan happens and the count does not move.
+
+    Yields a live dict, so the count is read AFTER the work — matching the previous
+    fixture's ``calls["n"]`` shape.
+    """
     import draftwright.recognition._features as _features
-    import draftwright.recognition.flats as flats
-    import draftwright.recognition.grooves as grooves
-    import draftwright.recognition.turned as turned
 
-    calls = {"n": 0}
-    real = _features.analyse_cylinders
-
-    def counting(part):
-        calls["n"] += 1
-        return real(part)
-
-    for mod in (_features, analysis, drawing, flats, grooves, turned):
-        monkeypatch.setattr(mod, "analyse_cylinders", counting)
-    return calls
+    with counting_calls({"n": _features.analyse_cylinders}) as counts:
+        yield counts
 
 
 def test_cylinder_scan_runs_once_per_build(cyls_counter):
@@ -97,8 +94,9 @@ def test_cylinder_scan_runs_once_per_build(cyls_counter):
     # scan count regresses.
     dwg = build_drawing(_filleted())
     dwg.lint()
-    assert cyls_counter["n"] == 1, (
-        f"analyse_cylinders ran {cyls_counter['n']}× in one build+lint — a recogniser "
+    scans = cyls_counter.get("n", 0)
+    assert scans == 1, (
+        f"analyse_cylinders ran {scans}× in one build+lint — a recogniser "
         f"or lint path is re-scanning instead of sharing the one Analysis scan (#703)"
     )
 
