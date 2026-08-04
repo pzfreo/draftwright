@@ -20,7 +20,7 @@ from draftwright.recognition._features import (
 from draftwright.recognition.countersinks import recognise_countersinks
 from draftwright.recognition.flats import recognise_flats
 from draftwright.recognition.grooves import recognise_grooves
-from draftwright.recognition.levels import step_level_zs
+from draftwright.recognition.levels import recognise_risers, step_level_zs
 from draftwright.recognition.pads import recognise_rectangular_pads
 from draftwright.recognition.slots import (
     recognise_pocket_patterns,
@@ -48,6 +48,7 @@ MIGRATED: frozenset[str] = frozenset(
         "recognise_pocket_patterns",
         "recognise_pockets",
         "recognise_rectangular_pads",
+        "recognise_risers",
         "recognise_slot_patterns",
         "recognise_slots",
         "recognise_turned_steps",
@@ -76,7 +77,10 @@ class Deferral(Enum):
 
     ``CALLER_SPECIFIC_INPUT`` — an input other than the part decides the answer and the
     callers pass different ones, so there is no single per-build value for a frozen
-    aggregate to hold.
+    aggregate to hold.  Its last holder left in #1025, which showed the reason is usually a
+    *shape* problem rather than a fact about the feature: the scan did not depend on the
+    caller's input, only the filter did, so separating the two gave the aggregate something
+    single-valued to own.  Prefer that split before reaching for this member again.
 
     ``NO_INDEPENDENT_CONSUMER`` — reached only through one shared helper, so there is
     nothing to cache for.  Unlike the others, not scheduled to change.
@@ -109,14 +113,16 @@ class Deferred:
 #: family can be deferred for that reason again; what does not survive is a *deferral*
 #: justified by a cost that no longer exists.
 #:
-#: What is left binds on the AUTOMATIC path, which #1022 did not touch: the classification
-#: gate (#1028) and the one recogniser whose answer depends on which caller is asking
-#: (#1025).
+#: ``CALLER_SPECIFIC_INPUT`` is gone too (#1025): ``recognise_step_shoulders`` split into a
+#: level-free scan the aggregate owns (``recognise_risers``) and a pure
+#: ``project_step_shoulders`` each consumer applies with its own level set.
+#:
+#: What is left is one reason on the AUTOMATIC path, which #1022 did not touch: the
+#: classification gate (#1028).
 DEFERRED: dict[str, Deferred] = {
     "recognise_chamfers": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
     "recognise_fillets": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
     "recognise_plates": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
-    "recognise_step_shoulders": Deferred(Deferral.CALLER_SPECIFIC_INPUT, blocker=1025),
 }
 
 
@@ -146,8 +152,12 @@ class RecognitionResult:
     #: The interior prismatic step Z-levels (:func:`step_level_zs` — ``recognise_face_levels``
     #: behind its area filter). A float tuple rather than records because both consumers want
     #: the gated levels, not the faces: sizing converges page/scale on them, and critique feeds
-    #: them to ``recognise_step_shoulders`` as the geometry's own ladder (#1022).
+    #: them to ``project_step_shoulders`` as the geometry's own ladder (#1022).
     step_levels: tuple[float, ...]
+    #: Candidate step risers, scanned once and projected per consumer (#1025). NOT shoulders:
+    #: which risers count depends on the level set the asker holds, and that is the whole
+    #: reason this family could not be hoisted until the scan and the filter were separated.
+    risers: tuple
 
 
 def build_recognition_result(part, *, cylinders=None) -> RecognitionResult:
@@ -181,4 +191,5 @@ def build_recognition_result(part, *, cylinders=None) -> RecognitionResult:
         pads=tuple(recognise_rectangular_pads(part)),
         turned_steps=tuple(recognise_turned_steps(part, cyls=cyls)),
         step_levels=tuple(step_level_zs(part)),
+        risers=tuple(recognise_risers(part)),
     )

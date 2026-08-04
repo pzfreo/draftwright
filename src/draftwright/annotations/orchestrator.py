@@ -217,6 +217,7 @@ def build_model(a: Analysis):
         # #1024 collapses that duplication.
         slot_patterns=a.recognition.slot_patterns,
         grooves=a.recognition.grooves,
+        risers=a.recognition.risers,
         flats=a.recognition.flats,
         pockets=a.recognition.pockets,
         pocket_patterns=a.recognition.pocket_patterns,

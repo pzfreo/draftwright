@@ -647,6 +647,7 @@ def _analyse(
             # branch `recognition` is non-None by construction (it is the not-declared arm).
             slot_patterns=list(recognition.slot_patterns) if recognition else None,
             grooves=list(recognition.grooves) if recognition else None,
+            risers=list(recognition.risers) if recognition else None,
             flats=list(recognition.flats) if recognition else None,
             pockets=pockets,
             pocket_patterns=pocket_patterns,

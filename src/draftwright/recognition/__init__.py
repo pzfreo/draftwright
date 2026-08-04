@@ -15,7 +15,7 @@ A *feature* recogniser takes one of two shapes:
 
 - **Part-based** — ``recognise_<feature>(part, *, <tuning / injected deps>) -> list[record]``
   (``recognise_holes(part, *, cyls=None)``, ``recognise_chamfers(part, *, tol=...)``,
-  ``recognise_step_shoulders(part, *, levels)``). Everything after ``part`` is
+  ``recognise_risers(part, *, tol=...)``). Everything after ``part`` is
   **keyword-only** — both tuning and any injected inventory. A recogniser **never
   re-recognises a dependency internally**; the caller (``detect.py`` / ``analysis.py``)
   owns the single inventory and threads it (one inventory, ADR 0008 Am5).
@@ -53,6 +53,13 @@ query), and deliberately keep their names. Likewise the **shared single-face rea
 ``floor_face_anchor``, ``step_level_zs``, #704): helpers shared with the declared
 front-end, not recognisers — they traffic in build123d/OCP objects,
 so a future ADR 0013 Phase-2 package extraction would keep them internal, not surface.
+
+``project_step_shoulders`` is likewise not a recogniser but its mirror image: a **pure
+projection** over :func:`recognise_risers`' records, with no ``part`` and no geometry access
+at all (#1025). It carries the ``project_`` verb rather than ``recognise_`` precisely so the
+manifest does not have to decide whether the aggregate owns it — it owns the evidence, and
+each consumer projects. A function that cannot look at a solid cannot become a second
+recognition site.
 """
 
 from __future__ import annotations
@@ -84,9 +91,11 @@ from draftwright.recognition.flats import Flat, recognise_flats
 from draftwright.recognition.grooves import Groove, floor_face_anchor, recognise_grooves
 from draftwright.recognition.levels import (
     FaceLevel,
+    RiserEvidence,
     StepShoulder,
+    project_step_shoulders,
     recognise_face_levels,
-    recognise_step_shoulders,
+    recognise_risers,
     step_level_zs,
 )
 from draftwright.recognition.pads import RaisedPad, recognise_rectangular_pads
@@ -128,6 +137,7 @@ __all__ = [
     "Slot",
     "SlotArray",
     "SlotGrid",
+    "RiserEvidence",
     "StepShoulder",
     "TurnedProfile",
     "TurnedStep",
@@ -138,8 +148,9 @@ __all__ = [
     "cone_rims",
     "fillet_anchor",
     "floor_face_anchor",
+    "project_step_shoulders",
     "recognise_face_levels",
-    "recognise_step_shoulders",
+    "recognise_risers",
     "step_level_zs",
     "feature_diameters",
     "recognise_bosses",

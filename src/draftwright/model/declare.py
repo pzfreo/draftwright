@@ -684,7 +684,7 @@ def _read_step_levels(
     for a single-level rebate, mirroring ``model/detect.py``), the ``datum`` (bbox min corner
     the positions measure from) and ``at`` (the frame anchor — bbox centre X/Y at ``base``,
     matching ``detect.py`` so an object round-trips to the same IR)."""
-    from draftwright.recognition import recognise_step_shoulders, step_level_zs
+    from draftwright.recognition import project_step_shoulders, recognise_risers, step_level_zs
 
     # Solids only, for the same reason as `envelope()` (#977): this takes the WHOLE part, so a
     # STEP import hands it PMI presentation geometry too. Measuring the compound put CTC01's
@@ -695,8 +695,15 @@ def _read_step_levels(
     bb = obj.bounding_box()
     base = round(bb.min.Z, 3)
     levels = tuple(sorted(round(z, 3) for z in step_level_zs(obj)))
+    # Scans `obj`, not the build's part — a declared step_level reads the object the author
+    # handed it, which is a different solid from the one the aggregate recognised (#1025). So
+    # this is the one consumer that legitimately keeps its own scan, in the same sense
+    # `hole(cylinder)` reads a diameter off the cylinder you passed.
     shoulders = (
-        tuple((s.axis, s.position) for s in recognise_step_shoulders(obj, levels=list(levels)))
+        tuple(
+            (s.axis, s.position)
+            for s in project_step_shoulders(recognise_risers(obj), levels=list(levels))
+        )
         if len(levels) == 1
         else ()
     )

@@ -38,6 +38,7 @@ from draftwright.recognition import (
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_rectangular_pads,
+    recognise_risers,
     recognise_slot_patterns,
     recognise_slots,
     recognise_turned_steps,
@@ -87,6 +88,16 @@ def _padded_plate():
     return Box(120, 90, 16) + Pos(0, -30, 10) * Box(30, 20, 4)
 
 
+def _stepped_block():
+    """A full-span step — the shape `recognise_risers` exists to find (#1025).
+
+    None of the other fixtures produce a riser: a pad, a pocket and a bolt circle all have
+    BOUNDED walls, which the full-span test deliberately rejects, so without this the
+    aggregate's `risers` field would be compared () to () everywhere.
+    """
+    return Box(80, 40, 10) + Pos(-20, 0, 10) * Box(40, 40, 12)
+
+
 #: Between them these cover every RecognitionResult field with a NON-EMPTY inventory, which
 #: is what makes the equality assertions in the oracle below discriminating rather than
 #: comparing () to ().
@@ -99,6 +110,7 @@ _ORACLE_FIXTURES = [
     ("pocket grid", _pocket_grid_plate),
     ("stepped shaft", _stepped_shaft),
     ("padded plate", _padded_plate),
+    ("stepped block", _stepped_block),
 ]
 
 
@@ -279,6 +291,7 @@ def _expected_inventory(part) -> dict:
         "pads": tuple(recognise_rectangular_pads(part)),
         "turned_steps": tuple(recognise_turned_steps(part, cyls=cyls)),
         "step_levels": tuple(step_level_zs(part)),
+        "risers": tuple(recognise_risers(part)),
     }
 
 
@@ -317,21 +330,17 @@ def test_the_aggregate_carries_what_its_recognisers_returned():
     )
 
 
-#: How many times a family may run during ONE automatic build. Anything absent budgets 1.
-#: The single entry is the DEFERRED family with two callers that may ask different questions
-#: (see ``recognition.result.DEFERRED``) — model construction with ownership-filtered levels,
-#: and the critique with unfiltered ones. On this fixture the two level sets happen to
-#: coincide, so the second scan is pure waste rather than a second answer; the budget records
-#: the deferral's real price and pins it so it cannot quietly rise.
-_BUILD_CALL_BUDGET = {"recognise_step_shoulders": 2}
+#: How many times a family may run during ONE automatic build. Anything absent budgets 1, and
+#: the map is now EMPTY: #1025 split the last family that needed a second scan into
+#: ``recognise_risers`` plus a pure projection, so no family has a reason to run twice.
+#: An entry appearing here again needs a reason, not a bigger number.
+_BUILD_CALL_BUDGET: dict[str, int] = {}
 
-#: How many times a family may run during ONE ``lint()`` of an already-built drawing. The
-#: single entry is the same deferral: the critique recognises its own shoulder inventory on
-#: every pass, because ADR 0015 forbids it taking one from the model and there is nowhere
-#: below both ``model/`` and ``linting/`` for a shared answer to live. #1025 makes it a
-#: projection over the aggregate's evidence and this budget goes to zero. Anything else
-#: appearing here is lint growing a scan it did not have.
-_LINT_CALL_BUDGET = {"recognise_step_shoulders": 1}
+#: How many times a family may run during ONE ``lint()`` of an already-built drawing. EMPTY
+#: since #1025: critique projects the aggregate's riser evidence over its own levels instead
+#: of rescanning, so linting a built drawing now recognises NOTHING. That is phase 0's third
+#: guard. Any entry here is lint growing back a recognition owner.
+_LINT_CALL_BUDGET: dict[str, int] = {}
 
 
 @contextmanager

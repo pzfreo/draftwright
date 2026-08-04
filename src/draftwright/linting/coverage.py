@@ -31,11 +31,12 @@ from draftwright.recognition import (
     TurnedProfile,
     analyse_cylinders,
     feature_diameters,
+    project_step_shoulders,
     recognise_hole_patterns,
     recognise_holes,
     recognise_pockets,
     recognise_rectangular_pads,
-    recognise_step_shoulders,
+    recognise_risers,
     recognise_turned_steps,
     step_level_zs,
 )
@@ -419,7 +420,7 @@ def lint_prismatic_coverage(
     assembly=None,
     tol: float = 0.6,
     features=(),
-    step_zs=None,
+    recognition=None,
 ) -> list:
     """Report undefined raised-pad footprints and blind-pocket locations.
 
@@ -600,8 +601,16 @@ def lint_prismatic_coverage(
                 message=f"{unlocated} blind pocket(s) have no complete X/Y location scheme",
             )
         )
-    source_shoulders = recognise_step_shoulders(
-        part, levels=step_level_zs(part) if step_zs is None else step_zs
+    # BOTH halves come from recognition, never from a caller argument (#1025). The old
+    # `step_zs=` parameter fully determined the answer — `step_zs=[]` yielded no shoulders, so
+    # `missing_transitions` was structurally zero and this check could never fire. The engine
+    # never passed that, but a false-negative door in a completeness check is the one place a
+    # clean absence is indistinguishable from a clean part, so it is closed by construction:
+    # `recognition` is the run's aggregate, and an absent one is re-derived from the solid
+    # rather than defaulted to something narrower.
+    source_shoulders = project_step_shoulders(
+        recognise_risers(part) if recognition is None else recognition.risers,
+        levels=step_level_zs(part) if recognition is None else list(recognition.step_levels),
     )
     model_shoulders = {
         (axis, round(pos, 3))

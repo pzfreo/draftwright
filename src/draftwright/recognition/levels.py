@@ -40,6 +40,36 @@ class StepShoulder(Record):
     position: float
 
 
+@dataclass(frozen=True, order=True)
+class RiserEvidence(Record):
+    """One candidate step riser, recognised WITHOUT reference to any level set (#1025).
+
+    :func:`recognise_risers` scans the solid once and emits these; each consumer then calls
+    :func:`project_step_shoulders` with the level set *it* cares about. The split exists
+    because the scan is the cost and the levels are only a filter: model construction
+    projects over levels filtered by plate and pocket ownership, while critique must project
+    over the unfiltered ones (ADR 0015 forbids lint taking its inventory from the model). One
+    scan, two answers — rather than one scan per asker.
+
+    ``z_lo``/``z_hi`` are the riser face's vertical extent, kept raw so the level test stays
+    in the projection. ``lo_at_envelope``/``hi_at_envelope`` pre-answer the part of the
+    oblique tie-test that does NOT depend on levels — whether that end sits on the part's top
+    or bottom — so the projection needs the levels and nothing else about the solid.
+
+    ``order=True`` for a deterministic recogniser return, per ADR 0013.
+    """
+
+    vertical: bool
+    axis: str
+    positions: tuple[float, ...]
+    other_axis: str
+    other_positions: tuple[float, ...]
+    z_lo: float
+    z_hi: float
+    lo_at_envelope: bool
+    hi_at_envelope: bool
+
+
 def recognise_face_levels(
     part, *, tol: float = 0.5, min_area_frac: float = 0.0
 ) -> list[FaceLevel]:
@@ -99,16 +129,26 @@ def step_level_zs(part, *, tol: float = 0.6) -> list[float]:
     ]
 
 
-def recognise_step_shoulders(
-    part, *, levels, min_area_frac: float = 0.15, tol: float = 0.5
-) -> list[StepShoulder]:
-    """Return the in-plane positions of a prismatic part's step shoulders — the
-    ``(axis, position)`` where a step/rebate changes height (#555).
+def recognise_risers(
+    part, *, min_area_frac: float = 0.15, tol: float = 0.5
+) -> list[RiserEvidence]:
+    """Scan *part* once for candidate step risers, independent of any level set (#1025).
 
-    ``recognise_face_levels`` recovers the step *heights* (Z); this recovers *where along
-    the part* each shoulder sits, so a stepped block is fully constrained (two different
-    shoulder positions no longer draw the same sheet). A shoulder is either a
-    vertical riser or an endpoint of a full-span slanted transition. The latter's
+    This is the expensive half of the old ``recognise_step_shoulders``: the full
+    ``part.faces()`` walk and every geometric gate that does not need levels — planarity,
+    in-plane axis, the full-span test that separates a step from a pad or blind pocket, the
+    interior-position test, the structural-ramp size floor and the area floor.
+
+    What it deliberately does NOT do is decide which candidates rise from a *recognised*
+    level; that is :func:`project_step_shoulders`, because the answer differs per consumer
+    and re-scanning per consumer is the cost ADR 0017 exists to remove.
+
+    See :class:`RiserEvidence`. Returns a sorted, deduplicated list.
+
+    ``recognise_face_levels`` recovers the step *heights* (Z); the projection over this
+    evidence recovers *where along the part* each shoulder sits, so a stepped block is fully
+    constrained (two different shoulder positions no longer draw the same sheet). A shoulder
+    is either a vertical riser or an endpoint of a full-span slanted transition. The latter's
     two stations, together with the adjacent height levels, define the ramp without
     a redundant angle dimension (#897).
 
@@ -120,17 +160,12 @@ def recognise_step_shoulders(
     larger than *tol* is not recognised — the alternative, loosening the span test,
     re-admits pads/pockets, so the full-span sharp-edged step is the recognised class
     (partial/filleted-end steps are a future refinement).
-
-    Returns a sorted, deduplicated list. Empty when *levels* is empty (no step) or no
-    riser qualifies.
     """
-    if not levels:
-        return []
     bb = part.bounding_box()
     ext = {"x": bb.max.X - bb.min.X, "y": bb.max.Y - bb.min.Y, "z": bb.max.Z - bb.min.Z}
     lo = {"x": bb.min.X, "y": bb.min.Y}
     hi = {"x": bb.max.X, "y": bb.max.Y}
-    out: list[StepShoulder] = []
+    out: list[RiserEvidence] = []
     for f in part.faces():
         s = BRepAdaptor_Surface(f.wrapped)
         if s.GetType() != GeomAbs_Plane:
@@ -168,8 +203,8 @@ def recognise_step_shoulders(
             pos = loc.X() if axis == "x" else loc.Y()
             if not (lo[axis] + tol < pos < hi[axis] - tol):
                 continue  # interior only — an envelope face is not a shoulder
-            if not any(abs(fb.min.Z - z) < tol for z in levels):
-                continue  # rises from a step level (not a through slot's wall)
+            # The "rises from a step level" test lives in project_step_shoulders — it is the
+            # one gate whose answer depends on which level set the asker holds (#1025).
             positions = (pos,)
         else:
             # A genuine oblique profile face contributes both transition
@@ -178,12 +213,6 @@ def recognise_step_shoulders(
             # both the ramp and its width (#897).
             if abs(nv.Z) <= 0.01 or fb.max.Z - fb.min.Z <= tol:
                 continue
-            structural_zs = (*levels, bb.min.Z, bb.max.Z)
-            if not all(
-                any(abs(z - structural_z) < tol for structural_z in structural_zs)
-                for z in (fb.min.Z, fb.max.Z)
-            ):
-                continue  # drafted/incidental face not tied to recognised profile levels
             axis_positions = (
                 fb.min.X if axis == "x" else fb.min.Y,
                 fb.max.X if axis == "x" else fb.max.Y,
@@ -207,14 +236,60 @@ def recognise_step_shoulders(
         )
         if cross <= 0 or props.Mass() < area_floor:
             continue  # a large riser, not an incidental feature face
-        out.extend(
-            StepShoulder(axis, round(pos, 3))
-            for pos in positions
-            if lo[axis] + tol < pos < hi[axis] - tol
+        out.append(
+            RiserEvidence(
+                vertical=vertical,
+                axis=axis,
+                positions=tuple(
+                    round(pos, 3) for pos in positions if lo[axis] + tol < pos < hi[axis] - tol
+                ),
+                other_axis=other,
+                other_positions=tuple(
+                    round(pos, 3)
+                    for pos in other_positions
+                    if lo[other] + tol < pos < hi[other] - tol
+                ),
+                z_lo=fb.min.Z,
+                z_hi=fb.max.Z,
+                # The level-independent half of the oblique tie-test: an end sitting on the
+                # part's top or bottom is structural whatever the level set says.
+                lo_at_envelope=abs(fb.min.Z - bb.min.Z) < tol or abs(fb.min.Z - bb.max.Z) < tol,
+                hi_at_envelope=abs(fb.max.Z - bb.min.Z) < tol or abs(fb.max.Z - bb.max.Z) < tol,
+            )
         )
-        out.extend(
-            StepShoulder(other, round(pos, 3))
-            for pos in other_positions
-            if lo[other] + tol < pos < hi[other] - tol
-        )
+    return sorted(set(out))
+
+
+def project_step_shoulders(risers, *, levels, tol: float = 0.5) -> list[StepShoulder]:
+    """Project :func:`recognise_risers` evidence onto *levels* — the pure half (#1025).
+
+    A candidate riser counts as a step shoulder only if it rises from a level the caller
+    recognises: a vertical riser's foot must sit on one, and an oblique ramp's two ends must
+    each sit on one or on the part envelope. That is the whole level dependency, and it is
+    the whole reason the old ``recognise_step_shoulders`` could not be hoisted into the
+    shared aggregate — its answer depends on who is asking.
+
+    Model construction passes levels filtered by plate and pocket ownership; critique passes
+    the unfiltered geometry ladder, because ADR 0015 forbids lint taking its inventory from
+    the model. Both project the same evidence; neither rescans the solid.
+
+    No *part* argument, by construction: this cannot look at geometry, so it cannot become a
+    second recognition site. Returns a sorted, deduplicated list; empty when *levels* is empty
+    (a part with no recognised step has no shoulders to locate).
+    """
+    if not levels:
+        return []
+
+    def tied(z: float, at_envelope: bool) -> bool:
+        return at_envelope or any(abs(z - level) < tol for level in levels)
+
+    out: list[StepShoulder] = []
+    for r in risers:
+        if r.vertical:
+            if not any(abs(r.z_lo - level) < tol for level in levels):
+                continue  # rises from a step level (not a through slot's wall)
+        elif not (tied(r.z_lo, r.lo_at_envelope) and tied(r.z_hi, r.hi_at_envelope)):
+            continue  # drafted/incidental face not tied to recognised profile levels
+        out.extend(StepShoulder(r.axis, pos) for pos in r.positions)
+        out.extend(StepShoulder(r.other_axis, pos) for pos in r.other_positions)
     return sorted(set(out))

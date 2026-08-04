@@ -132,6 +132,9 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
     )
     monkeypatch.setattr(result_module, "recognise_grooves", cyl_consumer("grooves", []))
     monkeypatch.setattr(result_module, "recognise_flats", cyl_consumer("flats", []))
+    # #1025: the level-free riser scan. Takes the part only — the level set that used to
+    # make this family caller-specific now lives in `project_step_shoulders`.
+    monkeypatch.setattr(result_module, "recognise_risers", counted("risers", []))
 
     built = result_module.build_recognition_result(object())
 
@@ -152,6 +155,7 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
         "slot_patterns",
         "grooves",
         "flats",
+        "risers",
     }, f"the orchestration ran a different set of families: {sorted(calls)}"
     assert set(calls.values()) == {1}, f"a family ran more than once: {calls}"
     assert built.holes == tuple(holes)
@@ -209,6 +213,7 @@ def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build)
         pocket_patterns=list(rec.pocket_patterns),
         pads=list(rec.pads),
         step_zs=list(rec.step_levels),
+        risers=list(rec.risers),
         cyls=rec.cylinders,
     )
 

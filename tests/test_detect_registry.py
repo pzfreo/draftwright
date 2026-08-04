@@ -52,16 +52,25 @@ def _record_types_in(annot) -> set[type]:
     return set()
 
 
+#: Prefixes of the public functions that emit records into the IR. ``project_`` joined
+#: ``recognise_`` in #1025: ``project_step_shoulders`` produces ``StepShoulder``, which reaches
+#: ``StepLevelFeature.shoulders`` exactly as a recogniser's record would. Deriving the universe
+#: from ``recognise_`` alone would have quietly dropped that type from the completeness guard
+#: the moment it moved behind a projection — and left a future ``project_*`` record type with
+#: no home and no test saying so.
+_RECORD_EMITTING_PREFIXES = ("recognise_", "project_")
+
+
 def _recogniser_record_universe() -> set[type]:
     """The authoritative set of record types, derived MECHANICALLY from the public
-    ``recognise_*`` return annotations (not a hand-maintained list). This is what makes
-    the completeness guard genuinely fail-closed: add ``recognise_threads() ->
+    record-emitting functions' return annotations (not a hand-maintained list). This is what
+    makes the completeness guard genuinely fail-closed: add ``recognise_threads() ->
     list[ThreadRecord]`` and ``ThreadRecord`` enters this universe automatically, so the
     partition test below fails until it is given a home — matching the ADR 0013 claim
     that a new recogniser cannot silently emit features with no converter."""
     universe: set[type] = set()
     for name in dir(recognition):
-        if not name.startswith("recognise_"):
+        if not name.startswith(_RECORD_EMITTING_PREFIXES):
             continue
         fn = getattr(recognition, name)
         # Fail loud, not open: an unresolvable return annotation must surface as a test

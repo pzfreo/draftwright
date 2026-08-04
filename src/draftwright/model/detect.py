@@ -62,12 +62,14 @@ from draftwright.recognition import (
     PocketGrid,
     RaisedPad,
     RectGrid,
+    RiserEvidence,
     Slot,
     SlotArray,
     SlotGrid,
     StepShoulder,
     TurnedProfile,
     TurnedStep,
+    project_step_shoulders,
     recognise_bosses,
     recognise_chamfers,
     recognise_countersinks,
@@ -80,9 +82,9 @@ from draftwright.recognition import (
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_rectangular_pads,
+    recognise_risers,
     recognise_slot_patterns,
     recognise_slots,
-    recognise_step_shoulders,
     recognise_turned_steps,
 )
 
@@ -555,6 +557,7 @@ _ORCHESTRATED_RECORDS: dict[type, str] = {
     CounterSink: "a nested sub-record of HoleRecord — rides on the hole callout, never a top-level feature",
     FaceLevel: "aggregated into a single StepLevelFeature step ladder (one feature per part, not per level)",
     StepShoulder: "aggregated into StepLevelFeature.shoulders (in-plane step positions, not a standalone feature)",
+    RiserEvidence: "pre-projection evidence (#1025) — projected to StepShoulder per consumer, never converted directly",
 }
 
 
@@ -582,6 +585,7 @@ def build_part_model(
     bosses=None,
     slots=None,
     slot_patterns=None,
+    risers=None,
     grooves=None,
     flats=None,
     pockets=None,
@@ -811,8 +815,16 @@ def build_part_model(
         if _levels:
             # Every profile transition needs an in-plane station. Heights alone do
             # not reconstruct a multi-level staircase or a slanted run (#897).
+            # Projected over the run's riser evidence, not a fresh scan (#1025). `_levels`
+            # is the OWNERSHIP-FILTERED set — plate and pocket floors removed — which is a
+            # model decision and stays here; the evidence underneath is shared with critique,
+            # which projects the same risers over its own unfiltered levels.
             _shoulders = tuple(
-                (s.axis, s.position) for s in recognise_step_shoulders(part, levels=list(_levels))
+                (s.axis, s.position)
+                for s in project_step_shoulders(
+                    recognise_risers(part) if risers is None else risers,
+                    levels=list(_levels),
+                )
             )
             features.append(
                 StepLevelFeature(

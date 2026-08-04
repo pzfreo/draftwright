@@ -23,7 +23,7 @@ from build123d import (
 from draftwright import build_drawing
 from draftwright.model.declare import envelope
 from draftwright.recognition import levels as levels_module
-from draftwright.recognition.levels import recognise_step_shoulders
+from draftwright.recognition.levels import project_step_shoulders, recognise_risers
 from draftwright.recognition.slots import _Face, _recognise_corner_notches
 
 
@@ -181,8 +181,8 @@ def test_oblique_degenerate_and_small_bounded_faces_are_rejected(monkeypatch):
     shallow = Face((1.0, 0.0, 0.02), _box(2, 3, 0, 10, 24.75, 25))
     small = Face((1.0, 0.0, 0.5), _box(2, 3, 0, 2, 20, 25))
 
-    assert recognise_step_shoulders(Part(shallow), levels=[24.75]) == []
-    assert recognise_step_shoulders(Part(small), levels=[20]) == []
+    assert project_step_shoulders(recognise_risers(Part(shallow)), levels=[24.75]) == []
+    assert project_step_shoulders(recognise_risers(Part(small)), levels=[20]) == []
 
 
 def test_completeness_lint_can_report_transitions_without_blind_recesses(

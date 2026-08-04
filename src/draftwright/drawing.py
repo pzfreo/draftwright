@@ -2713,12 +2713,16 @@ class Drawing:
             bosses: list | None
             pads: list | None
             pockets: list | None
-            step_zs: list | None
+            recognition: object | None
             prof_kw: dict
             if a is not None and a.recognition is not None:
                 cyls = a.cyls
                 holes, patterns, bosses = a.holes, a.patterns, a.bosses
-                pads, pockets, step_zs = a.pads, a.pockets, a.step_zs
+                pads, pockets = a.pads, a.pockets
+                # The whole aggregate, not a level set: coverage projects the shared riser
+                # evidence over recognition's OWN levels, so no caller can narrow the
+                # shoulder inventory (#1025).
+                recognition = a.recognition
                 prof_kw = {"prof": a.prof}
             elif a is not None:
                 # A DECLARED build recognised nothing (#1022), so `a.holes` and friends are
@@ -2732,13 +2736,12 @@ class Drawing:
                 bosses = list(rec.bosses)
                 pads = list(rec.pads)
                 pockets = list(rec.pockets)
-                # NOT `a.step_zs`: that is declaration-sourced on this path, and critique
-                # taking its inventory from the model is what ADR 0015 forbids — it would
-                # make lint blind to exactly the geometry a sparse declaration omitted, which
-                # is the case `unrecognised_defining_geometry` exists to report. The
-                # aggregate's geometry-sourced ladder is the right answer, and reading it here
-                # rather than passing `None` is what stops coverage rescanning it every lint.
-                step_zs = list(rec.step_levels)
+                # The aggregate, NOT anything off `Analysis`: its levels and risers are
+                # geometry-sourced, where the declared `Analysis` carries what the author
+                # declared. Critique taking its inventory from the model is what ADR 0015
+                # forbids — it would make lint blind to exactly the geometry a sparse
+                # declaration omitted, the case `unrecognised_defining_geometry` reports.
+                recognition = rec
                 # `a.prof` IS declaration-sourced, and here that is right rather than a
                 # shortcut: axial critique judges the declared profile's dimensioning, so a
                 # declared turned part keeps it without the aggregate.
@@ -2748,7 +2751,7 @@ class Drawing:
                     self._cyl_cache = analyse_cylinders(self.part)
                 cyls = self._cyl_cache
                 holes = patterns = bosses = None
-                pads = pockets = step_zs = None
+                pads = pockets = recognition = None
                 prof_kw = {}
             issues += lint_feature_coverage(
                 self.part,
@@ -2791,7 +2794,7 @@ class Drawing:
                 pockets=pockets,
                 bbox=a.bb if a is not None else None,
                 features=getattr(model, "features", ()) if model is not None else (),
-                step_zs=step_zs,
+                recognition=recognition,
             )
             # Reverse direction (#487): a DECLARED feature with no matching geometry (a stale
             # phantom callout). Only for a caller-supplied model — detection can't over-declare.

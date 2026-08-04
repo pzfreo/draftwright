@@ -42,6 +42,7 @@ from draftwright.recognition import (
     StepShoulder,
     TurnedStep,
     analyse_cylinders,
+    project_step_shoulders,
     recognise_bosses,
     recognise_chamfers,
     recognise_countersinks,
@@ -54,9 +55,9 @@ from draftwright.recognition import (
     recognise_plates,
     recognise_pocket_patterns,
     recognise_pockets,
+    recognise_risers,
     recognise_slot_patterns,
     recognise_slots,
-    recognise_step_shoulders,
     recognise_turned_steps,
 )
 from draftwright.recognition._record import Record
@@ -222,7 +223,16 @@ def _records_from_recognisers():
         ("recognise_grooves", recognise_grooves(grooved)),
         ("recognise_plates", recognise_plates(_l_bracket())),
         ("recognise_face_levels", recognise_face_levels(stepped)),
-        ("recognise_step_shoulders", recognise_step_shoulders(stepped, levels=levels)),
+        ("recognise_risers", recognise_risers(stepped)),
+        # `StepShoulder` stopped being a recogniser return in #1025 — it is now what
+        # `project_step_shoulders` derives from riser evidence. It stays in this roster
+        # because the record contract (frozen, JSON-serialisable, no leaked build123d object)
+        # binds a projection's output exactly as it binds a recogniser's; dropping it would
+        # retire the only coverage of that type on the grounds that it moved.
+        (
+            "project_step_shoulders",
+            project_step_shoulders(recognise_risers(stepped), levels=levels),
+        ),
         ("recognise_turned_steps", recognise_turned_steps(_turned_shaft())),
     ]:
         for r in recs:
@@ -277,7 +287,7 @@ def test_part_based_recognisers_are_keyword_only_after_part():
         recognise_grooves,
         recognise_plates,
         recognise_face_levels,
-        recognise_step_shoulders,
+        recognise_risers,
         recognise_turned_steps,
     ):
         params = list(inspect.signature(fn).parameters.values())
