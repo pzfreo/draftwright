@@ -123,6 +123,14 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
     # aggregate by #1022 so declared-path critique reads one ladder instead of rescanning per
     # lint. It takes the part only — no injected substrate to assert identity on.
     monkeypatch.setattr(result_module, "step_level_zs", counted("step_levels", [4.0, 9.0]))
+    # #1026 hoisted these three out of `build_part_model`. `slot_patterns` is derived, so it
+    # must be handed the accepted slot records rather than rediscovering them; the other two
+    # take the shared cylinder substrate.
+    monkeypatch.setattr(
+        result_module, "recognise_slot_patterns", derived("slot_patterns", slots, [])
+    )
+    monkeypatch.setattr(result_module, "recognise_grooves", cyl_consumer("grooves", []))
+    monkeypatch.setattr(result_module, "recognise_flats", cyl_consumer("flats", []))
 
     built = result_module.build_recognition_result(object())
 
@@ -140,6 +148,9 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
         "pads",
         "turned_steps",
         "step_levels",
+        "slot_patterns",
+        "grooves",
+        "flats",
     }, f"the orchestration ran a different set of families: {sorted(calls)}"
     assert set(calls.values()) == {1}, f"a family ran more than once: {calls}"
     assert built.holes == tuple(holes)

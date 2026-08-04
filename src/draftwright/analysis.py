@@ -642,6 +642,12 @@ def _analyse(
             patterns=patterns,
             bosses=bosses,
             slots=slots,
+            # Injected from the aggregate since #1026 — `build_part_model` detected these
+            # three itself, which is the duplicate scan ADR 0017 exists to remove. On this
+            # branch `recognition` is non-None by construction (it is the not-declared arm).
+            slot_patterns=list(recognition.slot_patterns) if recognition else None,
+            grooves=list(recognition.grooves) if recognition else None,
+            flats=list(recognition.flats) if recognition else None,
             pockets=pockets,
             pocket_patterns=pocket_patterns,
             pads=pads,

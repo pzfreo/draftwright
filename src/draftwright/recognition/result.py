@@ -18,11 +18,14 @@ from draftwright.recognition._features import (
     recognise_holes,
 )
 from draftwright.recognition.countersinks import recognise_countersinks
+from draftwright.recognition.flats import recognise_flats
+from draftwright.recognition.grooves import recognise_grooves
 from draftwright.recognition.levels import step_level_zs
 from draftwright.recognition.pads import recognise_rectangular_pads
 from draftwright.recognition.slots import (
     recognise_pocket_patterns,
     recognise_pockets,
+    recognise_slot_patterns,
     recognise_slots,
 )
 from draftwright.recognition.turned import recognise_turned_steps
@@ -32,6 +35,8 @@ MIGRATED: frozenset[str] = frozenset(
     {
         "recognise_bosses",
         "recognise_countersinks",
+        "recognise_flats",
+        "recognise_grooves",
         # Reached through `step_level_zs`, the area-filtered gate over it — which is the form
         # both consumers want, so the aggregate stores that rather than the raw levels. It was
         # deferred NO_INDEPENDENT_CONSUMER until #1022 gave it one: critique on the declared
@@ -43,6 +48,7 @@ MIGRATED: frozenset[str] = frozenset(
         "recognise_pocket_patterns",
         "recognise_pockets",
         "recognise_rectangular_pads",
+        "recognise_slot_patterns",
         "recognise_slots",
         "recognise_turned_steps",
     }
@@ -97,19 +103,19 @@ class Deferred:
 
 #: The families the aggregate does NOT own, each with its constraint.
 #:
-#: Two different blockers, deliberately: #1022 (a declared build recognises nothing) makes
-#: the three ``BUILD_MODEL_ONLY`` migrations free, and #1026 does them.  It does nothing for
-#: the classification gate, which binds on the automatic path — those wait for #1028.
-#: ``recognise_slots`` and ``recognise_pocket_patterns`` are in MIGRATED with the
-#: ``BUILD_MODEL_ONLY`` property (nothing reads ``Analysis.pocket_patterns``); they arrived
-#: with #1020 and #1026 makes the list uniform.
+#: ``BUILD_MODEL_ONLY`` is gone as a live reason (#1026): its three families cost the
+#: declared path nothing now that #1022 stops that path recognising at all, so ADR 0017
+#: completeness was reason enough on its own.  The enum member survives because a future
+#: family can be deferred for that reason again; what does not survive is a *deferral*
+#: justified by a cost that no longer exists.
+#:
+#: What is left binds on the AUTOMATIC path, which #1022 did not touch: the classification
+#: gate (#1028) and the one recogniser whose answer depends on which caller is asking
+#: (#1025).
 DEFERRED: dict[str, Deferred] = {
     "recognise_chamfers": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
     "recognise_fillets": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
     "recognise_plates": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
-    "recognise_grooves": Deferred(Deferral.BUILD_MODEL_ONLY, blocker=1022),
-    "recognise_flats": Deferred(Deferral.BUILD_MODEL_ONLY, blocker=1022),
-    "recognise_slot_patterns": Deferred(Deferral.BUILD_MODEL_ONLY, blocker=1022),
     "recognise_step_shoulders": Deferred(Deferral.CALLER_SPECIFIC_INPUT, blocker=1025),
 }
 
@@ -130,6 +136,9 @@ class RecognitionResult:
     hole_patterns: tuple
     bosses: tuple
     slots: tuple
+    slot_patterns: tuple
+    grooves: tuple
+    flats: tuple
     pockets: tuple
     pocket_patterns: tuple
     pads: tuple
@@ -154,13 +163,19 @@ def build_recognition_result(part, *, cylinders=None) -> RecognitionResult:
     countersinks = recognise_countersinks(part)
     holes = recognise_holes(part, cyls=cyls, csinks=countersinks)
     pockets = recognise_pockets(part)
+    slots = recognise_slots(part)
     return RecognitionResult(
         cylinders=(tuple(z_cyls), tuple(cross_cyls)),
         countersinks=tuple(countersinks),
         holes=tuple(holes),
         hole_patterns=tuple(recognise_hole_patterns(holes)),
         bosses=tuple(recognise_bosses(part, cyls=cyls)),
-        slots=tuple(recognise_slots(part)),
+        slots=tuple(slots),
+        # Derived from the accepted members, like the other two pattern families — the
+        # recogniser must not rediscover the slots it groups.
+        slot_patterns=tuple(recognise_slot_patterns(slots)),
+        grooves=tuple(recognise_grooves(part, cyls=cyls)),
+        flats=tuple(recognise_flats(part, cyls=cyls)),
         pockets=tuple(pockets),
         pocket_patterns=tuple(recognise_pocket_patterns(pockets)),
         pads=tuple(recognise_rectangular_pads(part)),

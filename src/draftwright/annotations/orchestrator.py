@@ -215,6 +215,9 @@ def build_model(a: Analysis):
         # the run's one RecognitionResult (ADR 0017); `a.pockets`/`a.pads`/
         # `a.pocket_patterns` are list copies of the same records and would do as well —
         # #1024 collapses that duplication.
+        slot_patterns=a.recognition.slot_patterns,
+        grooves=a.recognition.grooves,
+        flats=a.recognition.flats,
         pockets=a.recognition.pockets,
         pocket_patterns=a.recognition.pocket_patterns,
         pads=a.recognition.pads,

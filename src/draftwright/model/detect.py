@@ -582,6 +582,8 @@ def build_part_model(
     bosses=None,
     slots=None,
     slot_patterns=None,
+    grooves=None,
+    flats=None,
     pockets=None,
     pocket_patterns=None,
     pads=None,
@@ -710,7 +712,8 @@ def build_part_model(
     # its two walls read as shoulders, so recognise_turned_steps also delimits it as a
     # middle "step". Emitting both a StepFeature and a GrooveFeature for one band would
     # double-dimension the floor ø (ISO 129) and break ADR 0008's one-band-one-owner waist.
-    grooves = recognise_grooves(part, cyls=cyls)
+    if grooves is None:
+        grooves = recognise_grooves(part, cyls=cyls)
 
     # Turned profile → step segments; else external bosses → diameters. (`prof` and the
     # convert-context were classified up front.)
@@ -837,7 +840,7 @@ def build_part_model(
     # rotational branch): a D-shaft / hex head IS round stock and classifies rotational,
     # yet its flat still needs a callout. The recogniser self-gates on OD adjacency, so a
     # part with no round stock yields none.
-    for flat in recognise_flats(part, cyls=cyls):
+    for flat in recognise_flats(part, cyls=cyls) if flats is None else flats:
         features.append(convert(flat, ctx))
 
     # Turned / circlip grooves on round stock (#148c) — an annular channel (a strict
