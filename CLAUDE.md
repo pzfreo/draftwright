@@ -388,7 +388,7 @@ Current ADRs:
   deferral is a `Deferral` reason **code** plus the issue that removes it, not a paragraph:
   prose in a constant CI reads goes stale silently, and the first cut's did. The why-trail
   lives in the blocking issue.
-  Three things are still open, in this order. **#1022** — the ADR 0011 declared-path gate:
+  Four things are still open, in this order. **#1022** — the ADR 0011 declared-path gate:
   a declared build still recognises, and gating it is *not* just skipping the call, because
   page/scale selection reads `step_zs` and the turned profile off that recognition even
   when the model was declared, so sizing has to source them from the declaration first; the
@@ -398,8 +398,12 @@ Current ADRs:
   input differs between model construction (filtered by plate and pocket ownership) and
   critique (unfiltered — ADR 0015 forbids lint taking its inventory from the model); until
   then lint rescans on every pass, budgeted rather than memoised, since a lint-owned memo
-  would be a second recognition owner. **#1026** — migrate the families #1022 unblocks and
-  shrink the manifest. Beyond the epic's phase 1: stable feature identity, and the
+  would be a second recognition owner. **#1026** — migrate the three `BUILD_MODEL_ONLY`
+  families #1022 unblocks, and shrink the manifest. **#1028** — the classification gate is
+  a *different* blocker on the automatic path, untouched by #1022: `chamfers`/`fillets`/
+  `plates` migrate only once the orchestration itself carries the part classification, so
+  hoisting them stops meaning "scan every turned build for a discarded result". Beyond the
+  epic's phase 1: stable feature identity, and the
   measurable→requirement policy in the specified `draftwright.requirements` module — a
   pure mapping ranked below both `model/` and `linting/`.
 

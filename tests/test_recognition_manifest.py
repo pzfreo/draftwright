@@ -402,6 +402,26 @@ def test_an_automatic_build_runs_each_family_exactly_once_and_lint_runs_no_migra
         )
 
 
+#: What a declared build recognises today, per family. A ratchet baseline, not a target:
+#: ADR 0011 says a declared model skips detection, and #1022 takes every entry here to zero.
+#: Pinned per family rather than as a total because a total permits SUBSTITUTION — one
+#: family dropping out while another appears leaves the count unmoved and the guard silent,
+#: which is precisely the quiet migration this test exists to catch.
+_DECLARED_BUILD_BASELINE = {
+    "recognise_bosses": 1,
+    "recognise_countersinks": 1,
+    "recognise_face_levels": 1,
+    "recognise_hole_patterns": 1,
+    "recognise_holes": 1,
+    "recognise_pocket_patterns": 1,
+    "recognise_pockets": 1,
+    "recognise_rectangular_pads": 1,
+    "recognise_slots": 1,
+    "recognise_step_shoulders": 1,
+    "recognise_turned_steps": 1,
+}
+
+
 def test_a_declared_build_does_not_grow_new_recognition():
     """A ratchet on the ADR 0011 / ADR 0017 §6 debt, not a pass mark.
 
@@ -410,30 +430,38 @@ def test_a_declared_build_does_not_grow_new_recognition():
     aggregate even when the model was declared, so the gate needs sizing reworked first
     (#1022). What this pins is the *direction of travel*: the manifest forces a
     MIGRATED/DEFERRED decision for each new family but has no opinion on which way that
-    decision loads this path, so without a count here every future migration quietly makes
+    decision loads this path, so without a ratchet here every future migration quietly makes
     the declared path do more work and no test says a word.
 
     It earned its keep by catching a regression in the PR that introduced it: an earlier
     revision migrated three ``BUILD_MODEL_ONLY`` families and took this path from 11 to 14
     for no detected-path saving at all. They are deferred instead.
 
-    The numbers may only go DOWN, to zero when #1022 lands. Calls are counted as well as families,
-    because a family that starts running five times is the same regression as a new family
-    and the family count alone would not notice.
+    Monotone per family, not by cardinality. Counting ``len(ran) <= 11`` and
+    ``sum(ran.values()) <= 11`` — the form this replaces — is satisfied by substitution: drop
+    one family, add another, and 11/11 still holds while the declared path is doing entirely
+    different work. Each entry may only go DOWN, to absent, which is what #1022 does to all
+    of them at once.
     """
     with _counting_every_family() as ran:
         sheet = Sheet(Box(80, 60, 20)).auto_dimensions()
         sheet.envelope()
         sheet.build()
 
-    assert len(ran) <= 11, (
-        f"a declared build now recognises {len(ran)} families: {sorted(ran)}. "
-        "ADR 0011 says a declared model skips detection; this count is a ratchet on the "
-        "way to zero (#1022) and must not grow."
+    added = sorted(set(ran) - set(_DECLARED_BUILD_BASELINE))
+    assert not added, (
+        f"a declared build now recognises {added}, which it did not before. ADR 0011 says a "
+        "declared model skips detection — this baseline is a ratchet on the way to zero "
+        "(#1022), so a family may leave it but none may join."
     )
-    assert sum(ran.values()) <= 11, (
-        f"a declared build now makes {sum(ran.values())} recogniser calls: {dict(sorted(ran.items()))}. "
-        "Same ratchet, counting repeats — a family called twice as often is new work too."
+    grew = {
+        n: (c, _DECLARED_BUILD_BASELINE[n])
+        for n, c in ran.items()
+        if c > _DECLARED_BUILD_BASELINE[n]
+    }
+    assert not grew, (
+        f"a declared build now calls {grew} (actual, baseline) — a family called more often "
+        "is new work on this path just as surely as a new family is."
     )
 
 

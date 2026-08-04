@@ -50,7 +50,10 @@ class Deferral(Enum):
     list below did not satisfy, and cold timings for a migration that review reverted.
 
     ``CLASSIFICATION_GATED`` — ``build_part_model`` runs it only for one part class, so
-    hoisting it unconditionally scans the other class for a result that is discarded.
+    hoisting it unconditionally scans the other class for a result that is discarded.  Note
+    this constraint is on the AUTOMATIC path: #1022 removes recognition from the declared
+    path and leaves it entirely untouched.  It ends when the orchestration itself carries
+    the classification (#1028).
 
     ``BUILD_MODEL_ONLY`` — its sole engine consumer is ``build_part_model``, which the ADR
     0011 declared path skips.  The aggregate runs unconditionally, so migrating it removes
@@ -87,15 +90,16 @@ class Deferred:
 
 #: The families the aggregate does NOT own, each with its constraint.
 #:
-#: The six blocked on #1022 migrate together once a declared build performs no recognition
-#: at all: that removes the cost side, and ADR 0017 completeness is then reason enough on
-#: its own.  #1026 does that and shrinks this map.  ``recognise_slots`` and
-#: ``recognise_pocket_patterns`` are in MIGRATED with the same property (nothing reads
-#: ``Analysis.pocket_patterns``); they arrived with #1020 and #1026 makes the list uniform.
+#: Two different blockers, deliberately: #1022 (a declared build recognises nothing) makes
+#: the three ``BUILD_MODEL_ONLY`` migrations free, and #1026 does them.  It does nothing for
+#: the classification gate, which binds on the automatic path — those wait for #1028.
+#: ``recognise_slots`` and ``recognise_pocket_patterns`` are in MIGRATED with the
+#: ``BUILD_MODEL_ONLY`` property (nothing reads ``Analysis.pocket_patterns``); they arrived
+#: with #1020 and #1026 makes the list uniform.
 DEFERRED: dict[str, Deferred] = {
-    "recognise_chamfers": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1022),
-    "recognise_fillets": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1022),
-    "recognise_plates": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1022),
+    "recognise_chamfers": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
+    "recognise_fillets": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
+    "recognise_plates": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
     "recognise_grooves": Deferred(Deferral.BUILD_MODEL_ONLY, blocker=1022),
     "recognise_flats": Deferred(Deferral.BUILD_MODEL_ONLY, blocker=1022),
     "recognise_slot_patterns": Deferred(Deferral.BUILD_MODEL_ONLY, blocker=1022),
