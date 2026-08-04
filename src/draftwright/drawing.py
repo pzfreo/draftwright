@@ -2932,8 +2932,6 @@ class Drawing:
             if out.endswith("." + _ext):
                 out = out[: -(len(_ext) + 1)]
                 break
-        self._lint_and_log()
-
         # Normalise ONCE, here, before anything reads it. `formats` may be a one-shot iterable,
         # and the mixed-API warning below used to build its message with `tuple(formats)` —
         # which consumed a generator, leaving the export loop nothing to iterate: it warned
@@ -2951,6 +2949,12 @@ class Drawing:
                 raise ValueError(
                     f"unknown export format(s) {unknown}; choose from {self._EXPORT_FORMATS}"
                 )
+
+        # AFTER validation, for the same reason validation precedes the deprecation warning
+        # above: a call that is about to raise should not first do the work. On a declared
+        # drawing this critique builds the recognition aggregate (#1022), so a mistyped format
+        # used to scan the whole solid and only then report the typo.
+        self._lint_and_log()
 
         # `formats=` wins over the legacy booleans, which means `export(out, formats=("svg",),
         # svg=False)` writes the SVG the caller just switched off — silently, since the legacy

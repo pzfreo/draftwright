@@ -35,6 +35,16 @@ def _counting_every_family():
         yield counts
 
 
+def _issue_keys(issues) -> tuple:
+    """A stable, order-insensitive representation of a lint result.
+
+    Sorted because the issue list is assembled from several checks and their relative order is
+    not part of the contract; message included because two issues of one code differ only
+    there (which hole, which shoulder).
+    """
+    return tuple(sorted((i.code, i.severity, i.message) for i in issues))
+
+
 def _prismatic_plate():
     return Box(80, 60, 20) - Pos(0, 0, 0) * Cylinder(5, 20)
 
@@ -124,11 +134,11 @@ def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
     drawing = sheet.build()
 
     with _counting_every_family() as counts:
-        drawing.lint()
+        first_issues = _issue_keys(drawing.lint())
         first = dict(counts)
         counts.clear()
-        drawing.lint()
-        drawing.lint()
+        second_issues = _issue_keys(drawing.lint())
+        third_issues = _issue_keys(drawing.lint())
         later = dict(counts)
 
     assert first.get("recognise_holes") == 1, (
@@ -139,6 +149,36 @@ def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
     assert not rescanned, (
         f"two further lints re-ran {rescanned} — the aggregate is supposed to be built once "
         "and reused, so a second scan is a cache that is not being hit"
+    )
+    # Counting alone would pass an implementation whose later lints reuse the aggregate and
+    # return LESS — placement issues only, or nothing. "Obtains no new aggregate" and "returns
+    # the same answer" are separate claims and the second is the one a user would notice.
+    assert second_issues == first_issues, (
+        "the second lint of a declared drawing disagreed with the first while recognising "
+        f"nothing new: {sorted(set(first_issues) ^ set(second_issues))}"
+    )
+    assert third_issues == first_issues, "the third lint disagreed with the first"
+
+
+def test_a_rejected_export_does_not_recognise_first():
+    """``export`` validates its formats, then lints. It used to lint first, so a mistyped
+    format scanned the whole solid and only then reported the typo.
+
+    Harmless while the critique was free — on a detected build the inventory already exists —
+    but #1022 made it the trigger for the lazy aggregate, so a broken call started paying for
+    recognition it could never use. Same reasoning the surrounding code already applies to the
+    deprecation warning: report the fault that matters before doing the work.
+    """
+    _, sheet = _declared_plate_sheet()
+    drawing = sheet.build()
+
+    with _counting_every_family() as counts:
+        with pytest.raises(ValueError, match="unknown export format"):
+            drawing.export("out", formats=("bogus",))
+
+    assert dict(counts) == {}, (
+        f"a rejected export recognised {dict(counts)} before raising — the call was never "
+        "going to produce a drawing to critique"
     )
 
 
