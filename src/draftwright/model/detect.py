@@ -586,6 +586,9 @@ def build_part_model(
     slots=None,
     slot_patterns=None,
     risers=None,
+    chamfers=None,
+    fillets=None,
+    plates=None,
     grooves=None,
     flats=None,
     pockets=None,
@@ -786,7 +789,7 @@ def build_part_model(
     # dim (#559 review). This keeps the plate feature to the issue's stated domain.
     plate_zs_at_base: set = set()
     if prof is None and rotational is None:
-        plates = recognise_plates(part)
+        plates = recognise_plates(part) if plates is None else plates
         if len({pl.axis for pl in plates}) >= 2:
             for pl in plates:
                 features.append(convert(pl, ctx))
@@ -839,12 +842,12 @@ def build_part_model(
     # Chamfers (#560) — oblique planar faces on a non-turned part, called out C{leg} /
     # {leg}×{angle}°. A turned part's chamfers are conical (recognise_chamfers finds none).
     if rotational is None:
-        for ch in recognise_chamfers(part):
+        for ch in recognise_chamfers(part) if chamfers is None else chamfers:
             features.append(convert(ch, ctx))
 
         # Fillets (#561) — external edge rounds on a non-turned part, called out R{radius}
         # (grouped n× at render). Same non-rotational guard as chamfers.
-        for fl in recognise_fillets(part):
+        for fl in recognise_fillets(part) if fillets is None else fillets:
             features.append(convert(fl, ctx))
 
     # Machined flats on round stock (#148b) — a planar face truncating a cylinder,

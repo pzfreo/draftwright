@@ -17,11 +17,14 @@ from draftwright.recognition._features import (
     recognise_hole_patterns,
     recognise_holes,
 )
+from draftwright.recognition.chamfers import recognise_chamfers
 from draftwright.recognition.countersinks import recognise_countersinks
+from draftwright.recognition.fillets import recognise_fillets
 from draftwright.recognition.flats import recognise_flats
 from draftwright.recognition.grooves import recognise_grooves
 from draftwright.recognition.levels import recognise_risers, step_level_zs
 from draftwright.recognition.pads import recognise_rectangular_pads
+from draftwright.recognition.plates import recognise_plates
 from draftwright.recognition.slots import (
     recognise_pocket_patterns,
     recognise_pockets,
@@ -34,7 +37,9 @@ from draftwright.recognition.turned import TurnedProfile, recognise_turned_steps
 MIGRATED: frozenset[str] = frozenset(
     {
         "recognise_bosses",
+        "recognise_chamfers",
         "recognise_countersinks",
+        "recognise_fillets",
         "recognise_flats",
         "recognise_grooves",
         # Reached through `step_level_zs`, the area-filtered gate over it — which is the form
@@ -46,6 +51,7 @@ MIGRATED: frozenset[str] = frozenset(
         "recognise_hole_patterns",
         "recognise_holes",
         "recognise_pocket_patterns",
+        "recognise_plates",
         "recognise_pockets",
         "recognise_rectangular_pads",
         "recognise_risers",
@@ -117,13 +123,15 @@ class Deferred:
 #: level-free scan the aggregate owns (``recognise_risers``) and a pure
 #: ``project_step_shoulders`` each consumer applies with its own level set.
 #:
-#: What is left is one reason on the AUTOMATIC path, which #1022 did not touch: the
-#: classification gate (#1028).
-DEFERRED: dict[str, Deferred] = {
-    "recognise_chamfers": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
-    "recognise_fillets": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
-    "recognise_plates": Deferred(Deferral.CLASSIFICATION_GATED, blocker=1028),
-}
+#: ``CLASSIFICATION_GATED`` is gone last (#1028). Its three families are gated INSIDE the
+#: orchestration now — one place decides, once, from the classification the result carries —
+#: rather than each call site deciding for itself. Migration and applicability turned out to
+#: be different questions: the aggregate can own a family it does not always run.
+#:
+#: The map is EMPTY, which is the state ADR 0017 phase 1 was aiming at: every public
+#: ``recognise_*`` family is owned by the one orchestration. The mechanism stays — a new
+#: family still has to be classified — and every enum member survives for a future one.
+DEFERRED: dict[str, Deferred] = {}
 
 
 @dataclass(frozen=True)
@@ -154,10 +162,24 @@ class RecognitionResult:
     #: the gated levels, not the faces: sizing converges page/scale on them, and critique feeds
     #: them to ``project_step_shoulders`` as the geometry's own ladder (#1022).
     step_levels: tuple[float, ...]
+    #: Whether the part classified as ROTATIONAL, carried so consumers can tell a gated-away
+    #: inventory from an empty one (#1028). ``chamfers``/``fillets``/``plates`` are ``()`` on a
+    #: rotational part because they were not run, not because the part has none — the same
+    #: empty-vs-absent distinction #1022 drew for the declared path.
+    rotational: bool
     #: Candidate step risers, scanned once and projected per consumer (#1025). NOT shoulders:
     #: which risers count depends on the level set the asker holds, and that is the whole
     #: reason this family could not be hoisted until the scan and the filter were separated.
     risers: tuple
+    #: Classification-gated inventories (#1028). Recognised only for the class that consumes
+    #: them: chamfers and fillets on a non-rotational part (a turned part's chamfers are
+    #: conical, so the recogniser finds none anyway), plates additionally only when there is no
+    #: turned profile. The gate lives HERE, in the one orchestration, rather than at each call
+    #: site — which is the distinction that let these migrate at all: owning a family and
+    #: always running it are different things.
+    chamfers: tuple
+    fillets: tuple
+    plates: tuple
 
     def step_ladder(self, bb) -> list[float]:
         """The effective step ladder for *bb*: turned shoulders for a Z-turned part, else the
@@ -177,12 +199,27 @@ class RecognitionResult:
         return list(self.step_levels)
 
 
-def build_recognition_result(part, *, cylinders=None) -> RecognitionResult:
-    """Run the initial shared recognition inventory exactly once for *part*.
+def build_recognition_result(
+    part, *, cylinders=None, rotational: bool = False
+) -> RecognitionResult:
+    """Run the shared recognition inventory exactly once for *part*.
 
     Dependencies are computed by this orchestration layer and injected downstream: holes
     reuse both the cylinder substrate and countersinks, while patterns reuse their accepted
     member records.  No recogniser rediscovers one of those dependencies internally.
+
+    *rotational* is the caller's geometric classification (``analysis._classify_geometry``).
+    It gates the three families that only one part class consumes, so migrating them did not
+    mean scanning every turned build for a discarded result (#1028).  It stays an argument
+    rather than something recognised here: the rotational test reads bbox proportions and OD
+    offset, which is sizing's question about the part, not recognition's inventory of it —
+    deriving it below the IR would move drafting classification into ``recognition/``, an
+    explicit ADR 0017 non-goal.
+
+    The default is ``False`` — prismatic, so nothing is gated away.  A caller who has no
+    classification (the lazy critique aggregate on a declared build) gets the COMPLETE
+    inventory, which is the right default for a completeness check: over-recognising costs
+    time, under-recognising reports a real feature as absent.
     """
 
     z_cyls, cross_cyls = cylinders if cylinders is not None else analyse_cylinders(part)
@@ -191,6 +228,12 @@ def build_recognition_result(part, *, cylinders=None) -> RecognitionResult:
     holes = recognise_holes(part, cyls=cyls, csinks=countersinks)
     pockets = recognise_pockets(part)
     slots = recognise_slots(part)
+    turned_steps = recognise_turned_steps(part, cyls=cyls)
+    # ONE place decides, from the classification the result then carries. Per-family
+    # conditionals at each call site are what ADR 0017 exists to remove; the difference is
+    # that this decides once for every consumer rather than each consumer deciding again.
+    prismatic = not rotational
+    prof = TurnedProfile.from_steps(list(turned_steps))
     return RecognitionResult(
         cylinders=(tuple(z_cyls), tuple(cross_cyls)),
         countersinks=tuple(countersinks),
@@ -206,7 +249,11 @@ def build_recognition_result(part, *, cylinders=None) -> RecognitionResult:
         pockets=tuple(pockets),
         pocket_patterns=tuple(recognise_pocket_patterns(pockets)),
         pads=tuple(recognise_rectangular_pads(part)),
-        turned_steps=tuple(recognise_turned_steps(part, cyls=cyls)),
+        turned_steps=tuple(turned_steps),
+        rotational=rotational,
         step_levels=tuple(step_level_zs(part)),
         risers=tuple(recognise_risers(part)),
+        chamfers=tuple(recognise_chamfers(part)) if prismatic else (),
+        fillets=tuple(recognise_fillets(part)) if prismatic else (),
+        plates=tuple(recognise_plates(part)) if prismatic and prof is None else (),
     )

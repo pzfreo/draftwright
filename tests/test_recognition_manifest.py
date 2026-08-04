@@ -30,11 +30,14 @@ from draftwright.recognition import (
     analyse_cylinders,
     build_recognition_result,
     recognise_bosses,
+    recognise_chamfers,
     recognise_countersinks,
+    recognise_fillets,
     recognise_flats,
     recognise_grooves,
     recognise_hole_patterns,
     recognise_holes,
+    recognise_plates,
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_rectangular_pads,
@@ -88,6 +91,22 @@ def _padded_plate():
     return Box(120, 90, 16) + Pos(0, -30, 10) * Box(30, 20, 4)
 
 
+def _chamfered_filleted_block():
+    """A prismatic block with a chamfered edge and a filleted one — the only fixture that
+    exercises the two classification-gated inventories with content (#1028)."""
+    from build123d import Axis, chamfer, fillet
+
+    box = Box(60, 40, 30)
+    box = chamfer(box.edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 4)
+    return fillet(box.edges().filter_by(Axis.Z).sort_by(Axis.X)[0], 5)
+
+
+def _rotational_shaft():
+    """A plain cylinder — rotational, so the gated three must come back EMPTY. Without this
+    the `rotational` field is False everywhere and the oracle never states the gate."""
+    return Cylinder(20, 60)
+
+
 def _stepped_block():
     """A full-span step — the shape `recognise_risers` exists to find (#1025).
 
@@ -111,6 +130,8 @@ _ORACLE_FIXTURES = [
     ("stepped shaft", _stepped_shaft),
     ("padded plate", _padded_plate),
     ("stepped block", _stepped_block),
+    ("chamfered+filleted block", _chamfered_filleted_block),
+    ("rotational shaft", _rotational_shaft),
 ]
 
 
@@ -202,43 +223,62 @@ def test_no_deferred_family_is_reachable_from_the_orchestration():
     assert not ran, f"the orchestration called DEFERRED famil(ies): {ran}"
 
 
-#: The DEFERRED families claiming the classification gate, taken from the manifest rather
-#: than listed here — a family given the code later must be checked by it too. Turned parts
-#: are the excluded class for all of them: chamfers and fillets are gated on
-#: ``rotational is None``, plates additionally on ``prof is None``.
-_CLASSIFICATION_GATED = tuple(
-    name for name, d in DEFERRED.items() if d.reason is Deferral.CLASSIFICATION_GATED
-)
+#: Families the ORCHESTRATION runs only for the class that consumes them (#1028). Listed here
+#: rather than derived from DEFERRED because they are no longer deferred: they are MIGRATED
+#: *and* gated, which is the distinction #1028 established — owning a family and always
+#: running it are different things. Turned parts are the excluded class for all three:
+#: chamfers and fillets on ``rotational``, plates additionally on a turned profile.
+_CLASSIFICATION_GATED = ("recognise_chamfers", "recognise_fillets", "recognise_plates")
 
 
-def test_a_classification_gated_reason_is_true_of_the_build():
-    """``test_every_deferred_reason_states_a_constraint`` can only measure a reason's
-    LENGTH, and a detailed-but-wrong reason is not hypothetical — one shipped in this
-    epic's first cut and was caught by human review, not by a test.
+def test_a_classification_gated_family_does_not_run_for_the_excluded_class():
+    """The gate is the reason these three could be migrated at all, so it needs teeth.
 
-    So every family carrying the classification code is checked against the running engine:
-    each claims ``build_part_model`` does not call it for a turned part, and that is either
-    true of a turned build or the code is fiction. Deleting the gate in ``detect.py``
-    makes the family run here and this goes red — which is the whole point, because the
-    gate is the stated cost of hoisting the family into the aggregate.
+    Before #1028 they were DEFERRED with a reason claiming ``build_part_model`` skips them
+    for turned parts, and this test checked the claim against the running engine — because a
+    detailed-but-wrong reason is not hypothetical; one shipped in this epic's first cut and
+    was caught by human review, not by a test.
 
-    Two turned fixtures, because plates claims a CONJUNCTION (``prof is None`` *and*
-    ``rotational is None``) and the stepped shaft satisfies both — so on it alone, weakening
-    the gate to either half still passes. The plain cylinder has no shoulders, so ``prof`` is
-    ``None`` while ``rotational`` is not: it separates the two clauses and fails if the
-    ``rotational`` half is dropped.
+    Now the gate lives in the ORCHESTRATION, so that is what is checked. Deleting it makes
+    every turned build scan for a result the model discards, which is the cost the deferral
+    was protecting against — and this goes red.
+
+    Two turned fixtures, because plates gates on a CONJUNCTION (not rotational *and* no
+    turned profile) and the stepped shaft satisfies both — so on it alone, weakening the gate
+    to either half still passes. The plain cylinder has no shoulders, so its profile is
+    ``None`` while it is still rotational: it separates the two clauses and fails if the
+    rotational half is dropped.
     """
-    assert _CLASSIFICATION_GATED, "no family carries the classification code — check vacuous"
+    assert _CLASSIFICATION_GATED, "no family is classification-gated — check vacuous"
+    assert set(_CLASSIFICATION_GATED) <= MIGRATED, (
+        "a gated family left MIGRATED — if the aggregate no longer owns it, this test is "
+        "checking a gate that is not the one doing the work"
+    )
     for label, part in (("stepped shaft", _stepped_shaft()), ("plain cylinder", Cylinder(20, 60))):
         with _counting_every_family() as counts:
             build_drawing(part, repair=False)
 
         ungated = sorted(name for name in _CLASSIFICATION_GATED if name in counts)
         assert not ungated, (
-            f"{ungated} ran for a turned part ({label}), but DEFERRED says each is gated "
-            "against exactly that classification. Either the gate in model/detect.py went "
-            "away — in which case the family is now an unconditional scan and belongs in "
-            "MIGRATED — or the reason needs rewriting to say what really stops it."
+            f"{ungated} ran for a turned part ({label}). The aggregate is supposed to gate "
+            "these on the classification it carries, so a turned build never scans for a "
+            "result the model would discard — that gate is what made migrating them free."
+        )
+
+
+def test_a_gated_family_still_runs_for_the_class_that_consumes_it():
+    """The counterexample that stops the gate guard being satisfied by never running them.
+
+    A gate that excludes everything passes the test above perfectly. What must also hold is
+    that a PRISMATIC build gets all three, exactly once, from the aggregate.
+    """
+    with _counting_every_family() as counts:
+        build_drawing(_pocketed_plate(), repair=False)
+
+    for name in _CLASSIFICATION_GATED:
+        assert counts.get(name) == 1, (
+            f"{name} ran {counts.get(name, 0)}× on a prismatic build — the gate is supposed "
+            "to exclude the turned class, not the class that consumes it"
         )
 
 
@@ -268,9 +308,14 @@ def test_the_migrated_families_are_the_ones_the_orchestration_actually_runs():
     assert not repeated, f"the orchestration ran a family more than once: {repeated}"
 
 
-def _expected_inventory(part) -> dict:
+def _expected_inventory(part, *, rotational: bool = False) -> dict:
     """What each :class:`RecognitionResult` field should hold for *part*, computed by calling
-    the recognisers directly — the oracle the aggregate is judged against."""
+    the recognisers directly — the oracle the aggregate is judged against.
+
+    The three classification-gated fields are ``()`` for a rotational part, mirroring the
+    orchestration's gate (#1028). Computed here rather than skipped so the oracle states the
+    gate too: an aggregate that ran them anyway would differ from this.
+    """
     cyls = analyse_cylinders(part)
     csinks = recognise_countersinks(part)
     holes = recognise_holes(part, cyls=cyls, csinks=csinks)
@@ -292,6 +337,14 @@ def _expected_inventory(part) -> dict:
         "turned_steps": tuple(recognise_turned_steps(part, cyls=cyls)),
         "step_levels": tuple(step_level_zs(part)),
         "risers": tuple(recognise_risers(part)),
+        "rotational": rotational,
+        "chamfers": tuple(recognise_chamfers(part)) if not rotational else (),
+        "fillets": tuple(recognise_fillets(part)) if not rotational else (),
+        "plates": (
+            tuple(recognise_plates(part))
+            if not rotational and not recognise_turned_steps(part, cyls=cyls)
+            else ()
+        ),
     }
 
 
@@ -311,11 +364,15 @@ def test_the_aggregate_carries_what_its_recognisers_returned():
     covered: set[str] = set()
     for name, build in _ORACLE_FIXTURES:
         part = build()
-        expected = _expected_inventory(part)
+        # The rotational fixture drives the gate; everything else is prismatic. Passed
+        # explicitly because the aggregate takes it as an argument rather than deriving it
+        # (recognition does not classify — #1028).
+        rotational = name == "rotational shaft"
+        expected = _expected_inventory(part, rotational=rotational)
         assert set(expected) == {f.name for f in fields(RecognitionResult)}, (
             "RecognitionResult grew a field with no oracle — add it to _expected_inventory"
         )
-        result = build_recognition_result(part)
+        result = build_recognition_result(part, rotational=rotational)
         for field, want in expected.items():
             assert getattr(result, field) == want, (
                 f"{name}: the aggregate's {field} is not what its recogniser returned"
@@ -392,7 +449,12 @@ def test_an_automatic_build_runs_each_family_exactly_once_and_lint_runs_no_migra
             drawing.lint()
             after_lint = dict(counts)
 
-        for family in MIGRATED:
+        # The gated three are excluded for a turned part BY DESIGN (#1028) — owning a family
+        # and always running it are different things, and
+        # `test_a_classification_gated_family_does_not_run_for_the_excluded_class` owns that
+        # claim. Everything else must run exactly once whatever the part class.
+        expected_once = MIGRATED - (set(_CLASSIFICATION_GATED) if label == "turned" else set())
+        for family in expected_once:
             assert after_build.get(family) == 1, (
                 f"{label}: {family} is MIGRATED but ran {after_build.get(family, 0)}× "
                 "during the build — the aggregate is supposed to be the only place it runs"

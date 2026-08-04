@@ -406,17 +406,22 @@ Current ADRs:
   *both* paths: `_est_right_strip_depth` counted ladder steps only, while boss heights share
   that strip — detected builds hid it in the ladder's slack (`_n_right_strip_boss_heights`,
   `compose.py`).
-  Three things are still open, in this order. **#1025** — `recognise_step_shoulders` splits into raw
-  riser evidence in the aggregate plus a pure projection per consumer, because its `levels=`
-  input differs between model construction (filtered by plate and pocket ownership) and
-  critique (unfiltered — ADR 0015 forbids lint taking its inventory from the model); until
-  then lint rescans on every pass, budgeted rather than memoised, since a lint-owned memo
-  would be a second recognition owner. **#1026** — migrate the three `BUILD_MODEL_ONLY`
-  families #1022 has now unblocked, and shrink the manifest. **#1028** — the classification gate is
-  a *different* blocker on the automatic path, untouched by #1022: `chamfers`/`fillets`/
-  `plates` migrate only once the orchestration itself carries the part classification, so
-  hoisting them stops meaning "scan every turned build for a discarded result". Beyond the
-  epic's phase 1: stable feature identity, and the
+  **Phase 1 is complete.** #1025 split `recognise_step_shoulders` into level-free riser
+  evidence the aggregate owns (`recognise_risers`) plus a pure `project_step_shoulders` each
+  consumer applies with its own level set — which took *lint's* per-pass rescan to zero, epic
+  #1018's third phase-0 guard, and closed a false-negative door on the way (coverage's
+  `step_zs=` argument fully determined the shoulder answer, so `step_zs=[]` silenced
+  `unrecognised_defining_geometry`). #1026 then migrated the three `BUILD_MODEL_ONLY`
+  families once #1022 had removed their cost, and #1028 migrated the last three by moving
+  their classification gate *into* the orchestration — the distinction that made it possible
+  being that **owning a family and always running it are different things**: the aggregate
+  owns `recognise_chamfers` and still does not run it for a turned part.
+  **`DEFERRED` is now empty** — every public `recognise_*` family is owned by the one
+  orchestration. The mechanism stays fail-closed (a new family must still be classified, and
+  every `Deferral` member survives for a future one); what went was each deferral, as its
+  stated constraint stopped being true. Measured per family: a prismatic build runs 17 once
+  each, a turned build 14 (the gated three excluded by design), a declared build **zero**.
+  Beyond phase 1: stable feature identity, and the
   measurable→requirement policy in the specified `draftwright.requirements` module — a
   pure mapping ranked below both `model/` and `linting/`.
 

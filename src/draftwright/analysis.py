@@ -581,7 +581,9 @@ def _analyse(
         _turned = _declared_turned_profile(layout_model)
         step_zs = _declared_step_zs(layout_model, _turned, bb)
     else:
-        recognition = build_recognition_result(part, cylinders=(z_cyls, cross_cyls))
+        recognition = build_recognition_result(
+            part, cylinders=(z_cyls, cross_cyls), rotational=is_rotational
+        )
         _turned = TurnedProfile.from_steps(list(recognition.turned_steps))
         # The aggregate's own rule (#578 review; hoisted there by #1022, shared with critique
         # by #1025). Both callers deriving this separately let lint project over a different
@@ -647,6 +649,9 @@ def _analyse(
             slot_patterns=list(recognition.slot_patterns) if recognition else None,
             grooves=list(recognition.grooves) if recognition else None,
             risers=list(recognition.risers) if recognition else None,
+            chamfers=list(recognition.chamfers) if recognition else None,
+            fillets=list(recognition.fillets) if recognition else None,
+            plates=list(recognition.plates) if recognition else None,
             flats=list(recognition.flats) if recognition else None,
             pockets=pockets,
             pocket_patterns=pocket_patterns,
