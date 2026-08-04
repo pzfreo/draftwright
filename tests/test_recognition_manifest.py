@@ -38,6 +38,7 @@ from draftwright.recognition import (
     recognise_rectangular_pads,
     recognise_slots,
     recognise_turned_steps,
+    step_level_zs,
 )
 from draftwright.recognition.result import DEFERRED, MIGRATED, Deferral
 
@@ -229,27 +230,19 @@ def test_a_classification_gated_reason_is_true_of_the_build():
 def test_the_migrated_families_are_the_ones_the_orchestration_actually_runs():
     """Guards the manifest against the failure that makes it worthless: a name listed as
     MIGRATED that ``build_recognition_result`` never calls. Checked by *running* the
-    orchestration with each family instrumented, not by reading its source."""
-    called: dict[str, int] = {}
-    originals = {name: getattr(result_module, name) for name in MIGRATED}
+    orchestration with each family instrumented, not by reading its source.
 
-    def spy(name, orig):
-        def wrapper(*args, **kwargs):
-            called[name] = called.get(name, 0) + 1
-            return orig(*args, **kwargs)
-
-        return wrapper
-
-    for name, orig in originals.items():
-        setattr(result_module, name, spy(name, orig))
-    try:
-        # A part carrying every migrated feature kind would be enormous; the claim under test
-        # is that the ORCHESTRATION invokes each family, which holds for any solid — a family
-        # that finds nothing was still asked.
+    Counted by code object rather than by patching ``result_module``'s bindings. The binding
+    form was not merely fragile here, it was wrong: #1022 migrated ``recognise_face_levels``,
+    which the orchestration reaches INDIRECTLY through ``step_level_zs``, so there is no name
+    on this module to patch and the spy raised ``AttributeError``. A family is migrated if the
+    orchestration calls it, not if it happens to be called by a line in this file.
+    """
+    # A part carrying every migrated feature kind would be enormous; the claim under test
+    # is that the ORCHESTRATION invokes each family, which holds for any solid — a family
+    # that finds nothing was still asked.
+    with counting_calls({name: getattr(recognition, name) for name in MIGRATED}) as called:
         result_module.build_recognition_result(Box(40, 30, 10))
-    finally:
-        for name, orig in originals.items():
-            setattr(result_module, name, orig)
 
     assert set(called) == MIGRATED, (
         f"listed as migrated but never called: {sorted(MIGRATED - set(called))}"
@@ -279,6 +272,7 @@ def _expected_inventory(part) -> dict:
         "pocket_patterns": tuple(recognise_pocket_patterns(pockets)),
         "pads": tuple(recognise_rectangular_pads(part)),
         "turned_steps": tuple(recognise_turned_steps(part, cyls=cyls)),
+        "step_levels": tuple(step_level_zs(part)),
     }
 
 
@@ -402,66 +396,32 @@ def test_an_automatic_build_runs_each_family_exactly_once_and_lint_runs_no_migra
         )
 
 
-#: What a declared build recognises today, per family. A ratchet baseline, not a target:
-#: ADR 0011 says a declared model skips detection, and #1022 takes every entry here to zero.
-#: Pinned per family rather than as a total because a total permits SUBSTITUTION — one
-#: family dropping out while another appears leaves the count unmoved and the guard silent,
-#: which is precisely the quiet migration this test exists to catch.
-_DECLARED_BUILD_BASELINE = {
-    "recognise_bosses": 1,
-    "recognise_countersinks": 1,
-    "recognise_face_levels": 1,
-    "recognise_hole_patterns": 1,
-    "recognise_holes": 1,
-    "recognise_pocket_patterns": 1,
-    "recognise_pockets": 1,
-    "recognise_rectangular_pads": 1,
-    "recognise_slots": 1,
-    "recognise_step_shoulders": 1,
-    "recognise_turned_steps": 1,
-}
+def test_a_declared_build_recognises_nothing():
+    """ADR 0011 / ADR 0017 §6, now a pass mark rather than a ratchet (#1022).
 
+    This started life as ``test_a_declared_build_does_not_grow_new_recognition``, pinning
+    eleven families per build so the debt could only shrink. #1022 took all eleven to zero:
+    ``_analyse`` gates the aggregate on whether a model was declared, sizing sources the
+    turned profile and step ladder from the declaration, and the repair loop stopped asking
+    for the feature-coverage half of lint it never used.
 
-def test_a_declared_build_does_not_grow_new_recognition():
-    """A ratchet on the ADR 0011 / ADR 0017 §6 debt, not a pass mark.
+    Zero rather than a budget, because there is no longer a family with a reason to run here
+    — anything appearing is a new consumer that has not been threaded through the
+    declaration, and it should have to justify itself in review rather than nudge a number.
 
-    A declared build is supposed to perform **no** recognition, and today it performs a
-    lot — page and scale selection read ``step_zs`` and the turned profile off the
-    aggregate even when the model was declared, so the gate needs sizing reworked first
-    (#1022). What this pins is the *direction of travel*: the manifest forces a
-    MIGRATED/DEFERRED decision for each new family but has no opinion on which way that
-    decision loads this path, so without a ratchet here every future migration quietly makes
-    the declared path do more work and no test says a word.
-
-    It earned its keep by catching a regression in the PR that introduced it: an earlier
-    revision migrated three ``BUILD_MODEL_ONLY`` families and took this path from 11 to 14
-    for no detected-path saving at all. They are deferred instead.
-
-    Monotone per family, not by cardinality. Counting ``len(ran) <= 11`` and
-    ``sum(ran.values()) <= 11`` — the form this replaces — is satisfied by substitution: drop
-    one family, add another, and 11/11 still holds while the declared path is doing entirely
-    different work. Each entry may only go DOWN, to absent, which is what #1022 does to all
-    of them at once.
+    Detected-path coverage lives in
+    :func:`test_an_automatic_build_runs_each_family_exactly_once_and_lint_runs_no_migrated_one`,
+    which is what stops this being satisfiable by breaking recognition outright.
     """
     with _counting_every_family() as ran:
         sheet = Sheet(Box(80, 60, 20)).auto_dimensions()
         sheet.envelope()
         sheet.build()
 
-    added = sorted(set(ran) - set(_DECLARED_BUILD_BASELINE))
-    assert not added, (
-        f"a declared build now recognises {added}, which it did not before. ADR 0011 says a "
-        "declared model skips detection — this baseline is a ratchet on the way to zero "
-        "(#1022), so a family may leave it but none may join."
-    )
-    grew = {
-        n: (c, _DECLARED_BUILD_BASELINE[n])
-        for n, c in ran.items()
-        if c > _DECLARED_BUILD_BASELINE[n]
-    }
-    assert not grew, (
-        f"a declared build now calls {grew} (actual, baseline) — a family called more often "
-        "is new work on this path just as surely as a new family is."
+    assert dict(ran) == {}, (
+        f"a declared build recognised {dict(ran)}. ADR 0011 says a caller-supplied model "
+        "skips detection — each of these scanned a solid whose features the caller had "
+        "already stated, and threw the answer away."
     )
 
 

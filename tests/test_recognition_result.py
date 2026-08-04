@@ -119,6 +119,10 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
     )
     monkeypatch.setattr(result_module, "recognise_rectangular_pads", counted("pads", []))
     monkeypatch.setattr(result_module, "recognise_turned_steps", cyl_consumer("turned_steps", []))
+    # `step_level_zs` is the area-filtered gate over `recognise_face_levels`, migrated into the
+    # aggregate by #1022 so declared-path critique reads one ladder instead of rescanning per
+    # lint. It takes the part only — no injected substrate to assert identity on.
+    monkeypatch.setattr(result_module, "step_level_zs", counted("step_levels", [4.0, 9.0]))
 
     built = result_module.build_recognition_result(object())
 
@@ -135,6 +139,8 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
         "pocket_patterns",
         "pads",
         "turned_steps",
+        "step_levels",
     }, f"the orchestration ran a different set of families: {sorted(calls)}"
     assert set(calls.values()) == {1}, f"a family ran more than once: {calls}"
     assert built.holes == tuple(holes)
+    assert built.step_levels == (4.0, 9.0)

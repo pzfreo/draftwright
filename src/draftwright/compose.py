@@ -58,16 +58,43 @@ from draftwright.model.callout import hole_callout_spec
 _log = logging.getLogger(__name__)
 
 
-def _est_right_strip_depth(n_steps: int) -> float:
+def _est_right_strip_depth(n_steps: int, n_extra: int = 0) -> float:
     """Depth needed to the right of the front view.
 
-    Always includes dim_height (1 slot).  *n_steps* dim_step slots follow if
-    any step levels are present.  Returns the minimum corridor width (from view
-    edge to outer_limit) that makes all those allocations succeed.
+    Always includes dim_height (1 slot).  *n_steps* dim_step slots follow if any step levels
+    are present, and *n_extra* covers the strip's OTHER occupants — see
+    :func:`_n_right_strip_boss_heights`.  Returns the minimum corridor width (from view edge
+    to outer_limit) that makes all those allocations succeed.
     """
-    n = 1 + max(n_steps, 0)  # dim_height + one slot per step dim
+    n = 1 + max(n_steps, 0) + max(n_extra, 0)  # dim_height + one slot per step / other dim
     # gap + dim_height + (n-1) step slots each preceded by one spacing
     return float(_STRIP_GAP + _SLOT_DIM_HEIGHT + (n - 1) * (_STRIP_SPACING + _SLOT_DIM_STEP))
+
+
+def _n_right_strip_boss_heights(model) -> int:
+    """How many boss-height dims will contend for the front view's right strip (#1022).
+
+    ``render_boss_heights`` puts a Z-axis boss's height there, sharing the strip with the step
+    ladder — but the depth estimate counted only ladder steps, so the strip was sized for one
+    occupant class and solved for two.  On a DETECTED build that stayed invisible: the ladder
+    reserved enough slack that the boss height fitted in it.  Gating recognition off the
+    declared path (#1022) removed that accident — a declared model that states a boss but no
+    height ladder reserved one slot, needed two, and the height was dropped silently.
+
+    Mirrors ``render_boss_heights``' own guards: a turned model (any declared step) renders no
+    boss heights at all, and only the Z-axis ones land right — X/Y bosses go to the *above*
+    strips.  A rotational part that declares a Z boss over-reserves by one slot; that is the
+    conservative direction, and the same call the authored-Z-dim branch below makes.
+    """
+    if any(getattr(f, "kind", None) == "step" for f in model.features):
+        return 0
+    return sum(
+        1
+        for f in model.features
+        if getattr(f, "kind", None) == "boss"
+        and getattr(f, "height", None) is not None
+        and f.frame.axis == "z"
+    )
 
 
 def _est_pv_below_depth() -> float:
@@ -348,7 +375,9 @@ def _compose_anno_boxes(
     (#584 WP1 A); ``bore_callout_width`` is the planner-derived callout width the
     caller measured with :func:`_est_planned_bore_callout_width`.
     """
-    boxes = [AnnoBox("right", _est_right_strip_depth(n_steps))]  # FV right dim ladder
+    n_boss_h = _n_right_strip_boss_heights(model)
+    # FV right dim ladder + the boss heights that share the strip with it
+    boxes = [AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h))]
     bore_depth = bore_callout_width
     if bore_depth > 0:
         # elbow clearance + leader-to-label gap, as in _measure_strips
@@ -370,7 +399,9 @@ def _compose_anno_boxes(
     )
     if z_authored:
         slot = _SLOT_DIM_STEP + _STRIP_SPACING
-        boxes.append(AnnoBox("right", _est_right_strip_depth(n_steps) + z_authored * slot))
+        boxes.append(
+            AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h) + z_authored * slot)
+        )
         boxes.append(AnnoBox("left", _STRIP_GAP + z_authored * slot))
     above = _est_pv_above_depth(model, font_size, pad_around_text)
     if above > 0:

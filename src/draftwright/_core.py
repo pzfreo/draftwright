@@ -822,7 +822,12 @@ class Analysis:
     """
 
     part: Shape
-    recognition: RecognitionResult
+    #: The ADR 0017 aggregate, or ``None`` on a DECLARED build — which recognises nothing
+    #: (ADR 0011 / #1022).  ``None`` means "not detected", never "detected and empty": a
+    #: consumer needing an inventory on that path must go through the lazy
+    #: ``Drawing._recognition()``, which builds one on demand rather than reading an absence
+    #: as an answer.
+    recognition: RecognitionResult | None
     bb: BoundBox
     x_size: float
     y_size: float

@@ -8369,7 +8369,8 @@ class TestRepair:
             message="Dim 'OSC': annotation bbox overlaps part outline by 40%",
             code="dim_inside_part",
         )
-        dwg.lint = lambda: [issue]
+        # `physical=` because repair asks for the placement critique only (#1022).
+        dwg.lint = lambda **kw: [issue]
         dwg.repair(max_iter=5)
         # Flipped exactly once → ends on "below", not back to "above".
         assert dwg.get_annotation("x")._dw_spec.side == "below"
@@ -8408,7 +8409,7 @@ class TestRepair:
         )
         calls = {"n": 0}
 
-        def fake_lint():
+        def fake_lint(**kw):  # repair lints physical=False (#1022)
             calls["n"] += 1
             return [overlap]
 

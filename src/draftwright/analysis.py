@@ -44,14 +44,15 @@ from draftwright.compose import (
     choose_scale,
 )
 from draftwright.model import build_part_model
-from draftwright.model.ir import Datum, PartModel, StepFeature
+from draftwright.model.ir import Datum, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
 from draftwright.recognition import (
+    RecognitionResult,
     TurnedProfile,
+    TurnedStep,
     analyse_cylinders,
     build_recognition_result,
     full_cylinders,
-    step_level_zs,
 )
 
 _log = logging.getLogger(__name__)
@@ -140,6 +141,57 @@ def _coerce_layout_model(model, part, decorations=None) -> PartModel | None:
         features=features,
         datums=[datum],
         decorations=decorations or {},
+    )
+
+
+def _declared_turned_profile(model: PartModel) -> TurnedProfile | None:
+    """The turned profile a DECLARED model states, or ``None`` if it declares no steps.
+
+    The detected path aggregates ``recognise_turned_steps``; a declared model already carries
+    the same information as :class:`StepFeature`\\ s, so this reads it rather than scanning the
+    solid for it (#1022).  ``span`` is the pair of axial end-points the declaration fixed, so
+    ``lo``/``hi`` need no geometry — a declared step's extent is what the author said it is.
+
+    Mixed-axis steps are a malformed declaration, not a recoverable one:
+    :meth:`TurnedProfile.from_steps` raises, and it is allowed to reach the caller here for
+    the same reason it does on the detected path.
+    """
+    steps = [f for f in model.features if isinstance(f, StepFeature)]
+    if not steps:
+        return None
+    axis_i = "xyz".index(steps[0].frame.axis)
+    return TurnedProfile.from_steps(
+        [
+            TurnedStep(
+                axis=f.frame.axis,
+                lo=min(f.span[0][axis_i], f.span[1][axis_i]),
+                hi=max(f.span[0][axis_i], f.span[1][axis_i]),
+                diameter=f.diameter,
+            )
+            for f in steps
+        ]
+    )
+
+
+def _declared_step_zs(model: PartModel, prof: TurnedProfile | None, bb) -> list[float]:
+    """The step Z-levels page/scale selection converges on, sourced from the declaration.
+
+    Mirrors the detected path's two branches exactly — a Z-axis turned profile contributes its
+    interior shoulders, anything else the prismatic height ladder — with the ladder read off a
+    declared :class:`StepLevelFeature` instead of re-scanning face levels (#1022).  The 0.6 mm
+    end-exclusion is the detected path's, kept identical so a declared build selects the same
+    page as the equivalent detected one.
+    """
+    if prof is not None and prof.axis == "z":
+        return [z for z in prof.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
+    return sorted(
+        {
+            z
+            for f in model.features
+            if isinstance(f, StepLevelFeature)
+            for z in f.levels
+            if bb.min.Z + 0.6 < z < bb.max.Z - 0.6
+        }
     )
 
 
@@ -513,17 +565,39 @@ def _analyse(
     # recognise_face_levels admitted it). Prismatic and other parts keep the
     # general face-level scan, which recognise_turned_steps cannot replace (no
     # cylinders → no profile).
-    recognition = build_recognition_result(part, cylinders=(z_cyls, cross_cyls))
+    # ADR 0011 / ADR 0017 §6: a declared model skips detection (#1022).  The gate has to sit
+    # here, ABOVE the aggregate, which is why `_coerce_layout_model` moved up from its old
+    # place below — it is pure (IR in, IR out) and reads nothing this block computes.
+    layout_model = _coerce_layout_model(model, part, decorations)
+    recognition: RecognitionResult | None
+    _turned: TurnedProfile | None
+    step_zs: list[float]
+    if layout_model is not None:
+        # Sizing must source `prof` and `step_zs` from the DECLARATION here. Taking them from
+        # a recognition that has been gated away would silently change page/scale selection,
+        # and leaving `prof=None` would silently disable axial critique for a declared turned
+        # part — both are failures the gate must not introduce (#1022).
+        recognition = None
+        _turned = _declared_turned_profile(layout_model)
+        step_zs = _declared_step_zs(layout_model, _turned, bb)
+    else:
+        recognition = build_recognition_result(part, cylinders=(z_cyls, cross_cyls))
+        _turned = TurnedProfile.from_steps(list(recognition.turned_steps))
+        if _turned is not None and _turned.axis == "z":
+            step_zs = [z for z in _turned.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
+        else:
+            # The aggregate's own area-filtered extraction (#578 review; hoisted there by
+            # #1022 so critique on the declared path reads one value rather than rescanning).
+            step_zs = list(recognition.step_levels)
     # The aggregate owns the shared substrate from here on.  Rebind the local projection so
     # model construction, Analysis and the finished BuildState all consume the same inventory
     # object rather than parallel list/tuple wrappers that merely happen to contain equal data.
-    shared_cyls = recognition.cylinders
+    # A declared build has no aggregate, but `analyse_cylinders` already ran in
+    # `_classify_geometry` — it is substrate, not a recogniser, so reusing it gates nothing.
+    shared_cyls = (
+        recognition.cylinders if recognition is not None else (tuple(z_cyls), tuple(cross_cyls))
+    )
     shared_z_cyls, _shared_cross_cyls = shared_cyls
-    _turned = TurnedProfile.from_steps(list(recognition.turned_steps))
-    if _turned is not None and _turned.axis == "z":
-        step_zs = [z for z in _turned.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
-    else:
-        step_zs = step_level_zs(part)  # shared area-filtered extraction (#578 review)
 
     # Pass 1 (two-pass layout, #131): measure annotation strip depths before
     # view positions are fixed.  font_size=3.0 is a fixed page-mm constant so
@@ -534,14 +608,17 @@ def _analyse(
     _draft_est = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
     _arrow_length = _draft_est.arrow_length
     _pad_around_text = _draft_est.pad_around_text
-    layout_model = _coerce_layout_model(model, part, decorations)
-    holes = list(recognition.holes)
-    patterns = list(recognition.hole_patterns)
-    bosses = list(recognition.bosses)
-    slots = list(recognition.slots)
-    pockets = list(recognition.pockets)
-    pocket_patterns = list(recognition.pocket_patterns)
-    pads = list(recognition.pads)
+    # Empty on the declared path — NOT "this part has no holes", but "nothing was detected".
+    # Every consumer that would read them as an inventory is either skipped there
+    # (`build_part_model`, `build_model`) or goes through the lazy aggregate instead
+    # (critique — see `Drawing._recognition`), so the two never get confused.
+    holes = list(recognition.holes) if recognition else []
+    patterns = list(recognition.hole_patterns) if recognition else []
+    bosses = list(recognition.bosses) if recognition else []
+    slots = list(recognition.slots) if recognition else []
+    pockets = list(recognition.pockets) if recognition else []
+    pocket_patterns = list(recognition.pocket_patterns) if recognition else []
+    pads = list(recognition.pads) if recognition else []
     # Build the IR once, up front, so page/scale selection sizes from the SAME feature
     # model the renderers use — detected and declared parts share one sizing path and no
     # recogniser record reaches the sheet estimators (ADR 0008; #584 WP1 A). A declared

@@ -18,6 +18,7 @@ from draftwright.recognition._features import (
     recognise_holes,
 )
 from draftwright.recognition.countersinks import recognise_countersinks
+from draftwright.recognition.levels import step_level_zs
 from draftwright.recognition.pads import recognise_rectangular_pads
 from draftwright.recognition.slots import (
     recognise_pocket_patterns,
@@ -31,6 +32,12 @@ MIGRATED: frozenset[str] = frozenset(
     {
         "recognise_bosses",
         "recognise_countersinks",
+        # Reached through `step_level_zs`, the area-filtered gate over it — which is the form
+        # both consumers want, so the aggregate stores that rather than the raw levels. It was
+        # deferred NO_INDEPENDENT_CONSUMER until #1022 gave it one: critique on the declared
+        # path needs the geometry ladder, and rescanning it per lint is what the deferral's
+        # reason had stopped covering.
+        "recognise_face_levels",
         "recognise_hole_patterns",
         "recognise_holes",
         "recognise_pocket_patterns",
@@ -104,7 +111,6 @@ DEFERRED: dict[str, Deferred] = {
     "recognise_flats": Deferred(Deferral.BUILD_MODEL_ONLY, blocker=1022),
     "recognise_slot_patterns": Deferred(Deferral.BUILD_MODEL_ONLY, blocker=1022),
     "recognise_step_shoulders": Deferred(Deferral.CALLER_SPECIFIC_INPUT, blocker=1025),
-    "recognise_face_levels": Deferred(Deferral.NO_INDEPENDENT_CONSUMER),
 }
 
 
@@ -128,6 +134,11 @@ class RecognitionResult:
     pocket_patterns: tuple
     pads: tuple
     turned_steps: tuple
+    #: The interior prismatic step Z-levels (:func:`step_level_zs` — ``recognise_face_levels``
+    #: behind its area filter). A float tuple rather than records because both consumers want
+    #: the gated levels, not the faces: sizing converges page/scale on them, and critique feeds
+    #: them to ``recognise_step_shoulders`` as the geometry's own ladder (#1022).
+    step_levels: tuple[float, ...]
 
 
 def build_recognition_result(part, *, cylinders=None) -> RecognitionResult:
@@ -154,4 +165,5 @@ def build_recognition_result(part, *, cylinders=None) -> RecognitionResult:
         pocket_patterns=tuple(recognise_pocket_patterns(pockets)),
         pads=tuple(recognise_rectangular_pads(part)),
         turned_steps=tuple(recognise_turned_steps(part, cyls=cyls)),
+        step_levels=tuple(step_level_zs(part)),
     )

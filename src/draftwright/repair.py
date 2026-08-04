@@ -61,10 +61,18 @@ def _repair_dim_inside_part(dwg, issue) -> bool:
 
 def repair_drawing(dwg, max_iter: int = 3):
     """Close the lint→repair loop; see :meth:`Drawing.repair` for the contract.
-    Returns *dwg* for chaining."""
+    Returns *dwg* for chaining.
+
+    Lints ``physical=False`` — the placement critique only. This loop acts on
+    ``_REPAIRABLE_CODES`` (``dim_inside_part``) and nothing else, so the feature-coverage
+    half was computed and discarded on every iteration; on a declared build it also forced
+    the recognition ADR 0011 says that path skips (#1022). It makes the net-worsened
+    comparison below stricter too: coverage issues cannot change from re-placing a
+    dimension, so counting them only diluted the ratio.
+    """
     flipped: set = set()
     for _ in range(max_iter):
-        before = dwg.lint()
+        before = dwg.lint(physical=False)
         if not before:
             break
         snap_annotations = list(dwg.items)
@@ -83,7 +91,7 @@ def repair_drawing(dwg, max_iter: int = 3):
                     changed = True
         if not changed:
             break
-        if len(dwg.lint()) > len(before):
+        if len(dwg.lint(physical=False)) > len(before):
             # The repairs net-worsened the sheet — undo this pass and stop.
             dwg.items[:] = snap_annotations
             dwg.registry.restore(snap_registry)

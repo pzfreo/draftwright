@@ -388,18 +388,31 @@ Current ADRs:
   deferral is a `Deferral` reason **code** plus the issue that removes it, not a paragraph:
   prose in a constant CI reads goes stale silently, and the first cut's did. The why-trail
   lives in the blocking issue.
-  Four things are still open, in this order. **#1022** — the ADR 0011 declared-path gate:
-  a declared build still recognises, and gating it is *not* just skipping the call, because
-  page/scale selection reads `step_zs` and the turned profile off that recognition even
-  when the model was declared, so sizing has to source them from the declaration first; the
-  same issue owns the one lazily-built `BuildState` aggregate a declared drawing needs when
-  physical critique *is* asked for. **#1025** — `recognise_step_shoulders` splits into raw
+  **#1022** landed the **ADR 0011 declared-path gate**: a declared build now recognises
+  **nothing**. It was not one `if` — sizing sources the turned profile and step ladder from
+  the declaration (`_declared_turned_profile` / `_declared_step_zs` in `analysis.py`), and
+  the lint→repair loop stopped asking for the feature-coverage half it never used
+  (`Drawing.lint(physical=False)`; repair acts on `dim_inside_part` alone, ADR 0002).
+  Critique on that path still needs an inventory, so `BuildState.ensure_recognition()` builds
+  one lazily, once — in the typed build state, not a lint- or `Drawing`-side memo, which
+  would make critique a second recognition owner. Exporting a declared drawing pays for that
+  one aggregate by design: `export` logs the coverage critique, and suppressing it to reach
+  "zero" would trade a user-facing diagnostic for a benchmark number. Two consequences worth
+  knowing: lint takes `step_zs`/`pads`/`pockets` from the **aggregate**, never from
+  `Analysis` on the declared path (ADR 0015 — critique must not inventory from the model);
+  and `recognise_face_levels` migrated into the aggregate as `step_levels`, its
+  `NO_INDEPENDENT_CONSUMER` deferral having stopped being true the moment declared-path
+  critique needed the geometry ladder. The gate also exposed a latent strip-sizing bug on
+  *both* paths: `_est_right_strip_depth` counted ladder steps only, while boss heights share
+  that strip — detected builds hid it in the ladder's slack (`_n_right_strip_boss_heights`,
+  `compose.py`).
+  Three things are still open, in this order. **#1025** — `recognise_step_shoulders` splits into raw
   riser evidence in the aggregate plus a pure projection per consumer, because its `levels=`
   input differs between model construction (filtered by plate and pocket ownership) and
   critique (unfiltered — ADR 0015 forbids lint taking its inventory from the model); until
   then lint rescans on every pass, budgeted rather than memoised, since a lint-owned memo
   would be a second recognition owner. **#1026** — migrate the three `BUILD_MODEL_ONLY`
-  families #1022 unblocks, and shrink the manifest. **#1028** — the classification gate is
+  families #1022 has now unblocked, and shrink the manifest. **#1028** — the classification gate is
   a *different* blocker on the automatic path, untouched by #1022: `chamfers`/`fillets`/
   `plates` migrate only once the orchestration itself carries the part classification, so
   hoisting them stops meaning "scan every turned build for a discarded result". Beyond the

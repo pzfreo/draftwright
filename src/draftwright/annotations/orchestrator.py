@@ -196,6 +196,14 @@ def build_model(a: Analysis):
     its bore set is empty.
     """
     _bores = tuple(_concentric_bore_diams(a)) if a.is_rotational and a.od_axis == "z" else ()
+    # This is the DETECTED path's model construction — `_auto_annotate` calls it only when the
+    # caller declared no model, and a detected build always has the aggregate. On the declared
+    # path `a.recognition` is None (#1022) and there is nothing here to build from, so an
+    # absent aggregate means the caller reached this from somewhere it should not have.
+    assert a.recognition is not None, (
+        "build_model needs the recognition aggregate, which a declared build does not have — "
+        "the declared path uses the caller's model (dwg.model()) instead of building one."
+    )
     return build_part_model(
         a.part,
         holes=a.holes,
