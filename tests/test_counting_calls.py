@@ -40,6 +40,7 @@ def test_an_outer_profiler_still_sees_calls_made_inside():
         if event == "call":
             seen.append(frame.f_code.co_name)
 
+    before = sys.getprofile()
     sys.setprofile(outer)
     try:
         with counting_calls({"target": _target}) as counts:
@@ -47,7 +48,9 @@ def test_an_outer_profiler_still_sees_calls_made_inside():
             inside = sys.getprofile()
         restored = sys.getprofile()
     finally:
-        sys.setprofile(None)
+        # Restore what was there, not None: clobbering an outer profiler for the rest of the
+        # session is the same defect this test exists to catch, committed by the test.
+        sys.setprofile(before)
 
     assert counts == {"target": 1}
     assert "_target" in seen, "the outer profiler went blind inside counting_calls"
@@ -89,3 +92,26 @@ def test_distinct_functions_are_counted_separately():
         _other()
 
     assert counts == {"target": 2, "other": 1}
+
+
+def test_a_c_level_profiler_is_refused_rather_than_crashed_into(monkeypatch):
+    """Under cProfile on Python <= 3.11, ``sys.getprofile()`` returns the ``Profile``
+    object, which is **not callable**. Chaining to it raises ``TypeError`` from inside the
+    context, and so does restoring it on exit — verified on 3.10, where both paths blow up.
+
+    ``sys.setprofile`` rejects non-callables, so the object cannot be installed for real
+    here; the guard reads ``sys.getprofile()``, which is what is faked.
+    """
+
+    class _NotCallable:
+        pass
+
+    monkeypatch.setattr(sys, "getprofile", lambda: _NotCallable())
+    installed = []
+    monkeypatch.setattr(sys, "setprofile", lambda fn: installed.append(fn))
+
+    with pytest.raises(RuntimeError, match="non-callable profiler"):
+        with counting_calls({"target": _target}):
+            pass  # pragma: no cover — the raise happens on entry
+
+    assert not installed, "the hook was installed before the profiler was checked"
