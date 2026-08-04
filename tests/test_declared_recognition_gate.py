@@ -189,15 +189,17 @@ def test_the_lazy_aggregate_is_owned_by_the_build_state():
     """
     _, sheet = _declared_plate_sheet()
     drawing = sheet.build()
-    assert drawing._build.recognition is None, "a declared build should not have recognised yet"
+    assert drawing.recognition() is None, "a declared build should not have recognised yet"
 
     drawing.lint()
 
-    assert drawing._build.recognition is not None, "the aggregate did not land in BuildState"
-    assert drawing._analysis.recognition is None, (
-        "Analysis is frozen and built before critique — a filled `recognition` here would mean "
-        "the lazy aggregate had been written back into the sizing-time inventory"
-    )
+    first = drawing.recognition()
+    assert first is not None, "the aggregate did not land in BuildState"
+    # Read through `Drawing.recognition()`, the public accessor over ``BuildState.recognition``
+    # — reaching into `_build` here would be the test-side private read #741 ratchets, and the
+    # claim is about the aggregate being reachable and stable, which the accessor states.
+    drawing.lint()
+    assert drawing.recognition() is first, "a second lint replaced the aggregate"
 
 
 def test_repair_asks_for_the_placement_critique_only():
@@ -229,22 +231,25 @@ def test_a_declared_turned_part_keeps_axial_critique():
     critique for every declared turned part — a gate that quietly removes a check is worse
     than the scan it saves.
 
-    Asserted by making the check FIRE, not merely by finding a profile: a `prof` that is
-    present but wrong would pass the weaker assertion.
+    Asserted through what the profile PRODUCES rather than by reading it off ``Analysis``: one
+    step-length dimension per declared segment, and the check firing when they are removed. A
+    ``prof`` that is present but wrong — one step, or the wrong axis — passes "is not None"
+    and fails both of these.
     """
     a, b, c = _turned_shaft_parts()
     sheet = Sheet(a + b + c).auto_dimensions()
     sheet.step(a)
     sheet.step(b)
     sheet.step(c)
-    drawing = sheet.build()
+    with _counting_every_family() as counts:
+        drawing = sheet.build()
+    assert dict(counts) == {}, f"the declared turned path recognised {dict(counts)}"
 
-    assert drawing._analysis.recognition is None, "the declared turned path still recognised"
-    prof = drawing._analysis.prof
-    assert prof is not None and prof.axis == "x", (
-        "a declared turned shaft lost its profile — sizing and axial critique both read it"
+    lengths = sorted(n for n in drawing.annotations() if n.startswith("m_steplen"))
+    assert len(lengths) == 3, (
+        f"expected one step-length dim per declared segment, got {lengths} — the declared "
+        "profile reached the renderer with the wrong step count or axis"
     )
-    assert len(prof.steps) == 3, f"declared profile has {len(prof.steps)} steps, expected 3"
     assert not [i for i in drawing.lint() if i.code == "axial_length_missing"]
 
     for name in [n for n in drawing.annotations() if n.startswith("m_steplen")][:2]:
@@ -279,7 +284,11 @@ def test_a_declared_boss_height_is_reserved_room_in_the_right_strip():
     sheet.pocket(pocket)
     drawing = sheet.build()
 
-    assert drawing._analysis.step_zs == [], (
+    # The fixture only exercises the case while it declares NO height ladder: with one, the
+    # ladder's own slots would hide the missing boss-height slot exactly as they do on the
+    # detected path. Asserted off the declared model rather than `Analysis.step_zs`, which
+    # says the same thing one derivation later and is a test-side private read (#741).
+    assert not [f for f in drawing.model().features if f.kind == "step_level"], (
         "fixture no longer exercises the case — it needs a declared boss with NO declared "
         "height ladder, so the strip's only reserved slot is the envelope height"
     )

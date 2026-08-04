@@ -591,8 +591,13 @@ class Drawing:
         """The ADR 0017 recognition inventory used to build this drawing.
 
         This is the geometry-only evidence below the detected/declared :meth:`model` and
-        drafting policy.  It is an experimental, read-only result; ``None`` is possible only
-        for a bare ``Drawing`` that did not pass through :func:`build_drawing`.
+        drafting policy.  It is an experimental, read-only result.
+
+        ``None`` for a bare ``Drawing`` that did not pass through :func:`build_drawing`, and
+        for a **declared** build that has not yet been critiqued — that path recognises
+        nothing (ADR 0011 / #1022) and only builds an aggregate when something asks for
+        physical critique.  So ``None`` here means "nothing has needed recognition yet", never
+        "this part has no features".
         """
 
         return self._build.recognition
