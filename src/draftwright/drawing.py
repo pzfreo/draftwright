@@ -2954,6 +2954,11 @@ class Drawing:
                 raise ValueError(
                     f"unknown export format(s) {unknown}; choose from {self._EXPORT_FORMATS}"
                 )
+            # Beside the format check, not down at the PNG render: EVERY reason this call
+            # cannot succeed belongs before the work, or the "validate first" rule holds for
+            # whichever argument someone remembered (Codex #1029 r2).
+            if "png" in want and dpi <= 0:
+                raise ValueError(f"png export needs dpi > 0, got {dpi}")
 
         # AFTER validation, for the same reason validation precedes the deprecation warning
         # above: a call that is about to raise should not first do the work. On a declared
@@ -3012,8 +3017,6 @@ class Drawing:
 
         # --- formats=... → {format: path} (requested order); normalised + validated above ---
         assert want is not None  # formats is not None on this branch
-        if "png" in want and dpi <= 0:
-            raise ValueError(f"png export needs dpi > 0, got {dpi}")
         want_set = set(want)
         paths: dict[str, str] = {}
         # Intermediates — the SVG behind a PDF/PNG, the PDF behind a PNG — go to a temp dir when

@@ -160,9 +160,22 @@ def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
     assert third_issues == first_issues, "the third lint disagreed with the first"
 
 
-def test_a_rejected_export_does_not_recognise_first():
-    """``export`` validates its formats, then lints. It used to lint first, so a mistyped
-    format scanned the whole solid and only then reported the typo.
+#: Every way ``export`` can reject a call outright, with the message it rejects it by.
+#: Parametrised rather than written once because the first fix covered only the unknown-format
+#: path and left the `dpi` check where it was — a second review round found the parallel path
+#: still recognising. A rejection reason added here without moving its check ahead of
+#: ``_lint_and_log`` fails, which is the property that generalises.
+_REJECTED_EXPORTS = [
+    ({"formats": ("bogus",)}, "unknown export format"),
+    ({"formats": ("png",), "dpi": 0}, "dpi > 0"),
+    ({"formats": ("png",), "dpi": -150}, "dpi > 0"),
+]
+
+
+@pytest.mark.parametrize(("kwargs", "message"), _REJECTED_EXPORTS)
+def test_a_rejected_export_does_not_recognise_first(kwargs, message):
+    """``export`` validates, then lints. It used to lint first, so a call that could not
+    possibly succeed scanned the whole solid and only then reported the fault.
 
     Harmless while the critique was free — on a detected build the inventory already exists —
     but #1022 made it the trigger for the lazy aggregate, so a broken call started paying for
@@ -173,12 +186,12 @@ def test_a_rejected_export_does_not_recognise_first():
     drawing = sheet.build()
 
     with _counting_every_family() as counts:
-        with pytest.raises(ValueError, match="unknown export format"):
-            drawing.export("out", formats=("bogus",))
+        with pytest.raises(ValueError, match=message):
+            drawing.export("out", **kwargs)
 
     assert dict(counts) == {}, (
-        f"a rejected export recognised {dict(counts)} before raising — the call was never "
-        "going to produce a drawing to critique"
+        f"a rejected export ({kwargs}) recognised {dict(counts)} before raising — the call "
+        "was never going to produce a drawing to critique"
     )
 
 
