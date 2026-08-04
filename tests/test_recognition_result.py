@@ -6,6 +6,7 @@ import pytest
 from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
+from draftwright.model import build_part_model
 from draftwright.recognition import RecognitionResult, build_recognition_result
 
 
@@ -155,3 +156,65 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
     assert set(calls.values()) == {1}, f"a family ran more than once: {calls}"
     assert built.holes == tuple(holes)
     assert built.step_levels == (4.0, 9.0)
+
+
+def _grooved_flatted_shaft():
+    """A turned shaft carrying both a groove and a machined flat."""
+    part = Cylinder(20, 30) + Pos(0, 0, 30) * Cylinder(14, 30)
+    part -= Pos(0, 0, 10) * (Cylinder(20, 5) - Cylinder(16, 5))  # groove
+    part -= Pos(20, 0, 45) * Box(20, 40, 30)  # flat
+    return part
+
+
+def _slot_lattice_plate():
+    """A 2x3 slot lattice — `rect_grid` needs n >= 6 to form a slot pattern."""
+    part = Box(180, 130, 20)
+    for i in range(2):
+        for j in range(3):
+            part -= Pos((i - 0.5) * 44, (j - 1) * 34, 0) * Box(24, 8, 20)
+    return part
+
+
+@pytest.mark.parametrize(
+    ("name", "build"),
+    [("grooved+flatted shaft", _grooved_flatted_shaft), ("slot lattice", _slot_lattice_plate)],
+)
+def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build):
+    """The migration's actual claim: feeding ``build_part_model`` the aggregate's inventories
+    produces the model it would have detected for itself (#1026).
+
+    The manifest's value oracle cannot check this. It computes the expected inventory the same
+    way the orchestration does, so if the *inputs* were wrong — a recogniser needing a filtered
+    or reconciled set rather than the aggregate's raw accepted records — production and oracle
+    would agree on the same wrong answer and the guard would pass (Codex #1030 r1).
+
+    This compares the two paths end to end instead: detect-for-yourself against
+    inject-from-the-aggregate. It is the equivalence every hoist in ADR 0017 assumes and the
+    one that silently stops holding when a recogniser's contract drifts.
+    """
+    part = build()
+    rec = build_recognition_result(part)
+
+    detected = build_part_model(part)
+    injected = build_part_model(
+        part,
+        holes=list(rec.holes),
+        patterns=list(rec.hole_patterns),
+        bosses=list(rec.bosses),
+        slots=list(rec.slots),
+        slot_patterns=list(rec.slot_patterns),
+        grooves=list(rec.grooves),
+        flats=list(rec.flats),
+        pockets=list(rec.pockets),
+        pocket_patterns=list(rec.pocket_patterns),
+        pads=list(rec.pads),
+        step_zs=list(rec.step_levels),
+        cyls=rec.cylinders,
+    )
+
+    assert [f.kind for f in injected.features] == [f.kind for f in detected.features], (
+        f"{name}: injecting the aggregate changed WHICH features the model carries"
+    )
+    assert injected.features == detected.features, (
+        f"{name}: injecting the aggregate changed the features' values"
+    )
