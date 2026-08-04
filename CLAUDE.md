@@ -200,7 +200,12 @@ entry. Keep `_LAYERS` and this section in step.
   `pads.py` (bounded rectangular raised islands, #885)/
   `countersinks.py`, and `_record.py` (the shared frozen-`Record` mixin,
   `.to_dict()`). Bottom of the DAG: depends only on build123d/OCP. Import
-  via the package surface.
+  via the package surface. **`result.py`** sits one step above the individual
+  recognisers (still inside the package): the ADR 0017 `RecognitionResult`
+  aggregate, its one `build_recognition_result` orchestration — which computes
+  each shared substrate once and *injects* it downstream rather than letting a
+  recogniser rediscover it — and the `MIGRATED`/`DEFERRED` manifest that keeps
+  the aggregate's coverage of the package surface honest.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
 - **`export.py`** — SVG/DXF/PDF/PNG export + post-processing (page-size fix,
@@ -368,6 +373,35 @@ Current ADRs:
   **Not** shipped: the emitter dimension-mirror (phase 4). `emit_sheet_script` refuses a
   model with an authored set rather than silently writing `auto_dimensions()`, because
   naming a feature in a generated script would have to address it by position — #922.
+- **0017** — **Proposed; epic #1018 in progress** (the ADR lists the guards required
+  before it can be accepted): **the recognition inventory as a first-class result**, with
+  semantic feature correspondence and requirement provenance. Recognition stops being a
+  scatter of ad-hoc calls: one orchestration per build produces a frozen
+  `RecognitionResult` (`recognition/result.py`), carried in `BuildState` and reused by
+  model construction *and* by critique — lint reads its inventories off `Analysis`, which
+  ADR 0017 §5 explicitly permits (independence from the *plan* is not independence from the
+  *recognition*).
+  Phase 1 (#1019) landed the **fail-closed manifest** — `MIGRATED` / `DEFERRED` in
+  `recognition/result.py` classify every public `recognise_*` family, and
+  `tests/test_recognition_manifest.py` fails when a new one appears without that decision,
+  so a recogniser cannot be added and then quietly re-scanned from three call sites. A
+  deferral is a `Deferral` reason **code** plus the issue that removes it, not a paragraph:
+  prose in a constant CI reads goes stale silently, and the first cut's did. The why-trail
+  lives in the blocking issue.
+  Three things are still open, in this order. **#1022** — the ADR 0011 declared-path gate:
+  a declared build still recognises, and gating it is *not* just skipping the call, because
+  page/scale selection reads `step_zs` and the turned profile off that recognition even
+  when the model was declared, so sizing has to source them from the declaration first; the
+  same issue owns the one lazily-built `BuildState` aggregate a declared drawing needs when
+  physical critique *is* asked for. **#1025** — `recognise_step_shoulders` splits into raw
+  riser evidence in the aggregate plus a pure projection per consumer, because its `levels=`
+  input differs between model construction (filtered by plate and pocket ownership) and
+  critique (unfiltered — ADR 0015 forbids lint taking its inventory from the model); until
+  then lint rescans on every pass, budgeted rather than memoised, since a lint-owned memo
+  would be a second recognition owner. **#1026** — migrate the families #1022 unblocks and
+  shrink the manifest. Beyond the epic's phase 1: stable feature identity, and the
+  measurable→requirement policy in the specified `draftwright.requirements` module — a
+  pure mapping ranked below both `model/` and `linting/`.
 
 ## Dependencies
 

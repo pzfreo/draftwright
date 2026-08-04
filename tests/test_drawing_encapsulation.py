@@ -435,7 +435,10 @@ def test_build_state_has_a_single_construction_and_fill_site():
     """
     from pathlib import Path
 
+    from draftwright.drawing import BuildState
+
     watched = {"_build", "_analysis", "_part_model", "_view_edge_cache", "_ann_box_cache"}
+    _BUILD_STATE_FIELDS = frozenset(BuildState.__dataclass_fields__)
     src = Path(__file__).parent.parent / "src" / "draftwright"
     writers: dict[str, list[str]] = {}
 
@@ -465,9 +468,13 @@ def test_build_state_has_a_single_construction_and_fill_site():
                     node.args[1].value in watched
                     # setattr(dwg._build, "analysis", …) — BuildState field names
                     # count too when the receiver is a _build attribute (#691 r2).
+                    # Taken from the dataclass rather than listed, so a field added to
+                    # BuildState is watched the moment it exists: the hand-kept tuple this
+                    # replaces had fallen three fields behind, leaving `recognition`,
+                    # `omissions` and `detail_view` writable by setattr from any module
+                    # with the single-writer guard none the wiser.
                     or (
-                        node.args[1].value
-                        in ("analysis", "part_model", "view_edge_cache", "ann_box_cache", "trace")
+                        node.args[1].value in _BUILD_STATE_FIELDS
                         and isinstance(node.args[0], ast.Attribute)
                         and node.args[0].attr == "_build"
                     )

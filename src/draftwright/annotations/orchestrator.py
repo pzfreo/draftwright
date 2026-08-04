@@ -202,6 +202,14 @@ def build_model(a: Analysis):
         patterns=a.patterns,
         bosses=a.bosses,
         slots=a.slots,
+        # The engine's SECOND build_part_model call site; unthreaded, these three were
+        # detected again here after _analyse had already recognised them (#1019). Read off
+        # the run's one RecognitionResult (ADR 0017); `a.pockets`/`a.pads`/
+        # `a.pocket_patterns` are list copies of the same records and would do as well —
+        # #1024 collapses that duplication.
+        pockets=a.recognition.pockets,
+        pocket_patterns=a.recognition.pocket_patterns,
+        pads=a.recognition.pads,
         prof=a.prof,
         step_zs=a.step_zs,
         rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
