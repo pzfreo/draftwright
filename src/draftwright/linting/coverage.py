@@ -28,17 +28,17 @@ from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
 from draftwright._core import _DIAM_RE, _END_ON, HoleRef, _axis_letter, _fmt, _xyz
 from draftwright.linting.issues import LintIssue
 from draftwright.recognition import (
+    RecognitionResult,
     TurnedProfile,
     analyse_cylinders,
+    build_recognition_result,
     feature_diameters,
     project_step_shoulders,
     recognise_hole_patterns,
     recognise_holes,
     recognise_pockets,
     recognise_rectangular_pads,
-    recognise_risers,
     recognise_turned_steps,
-    step_level_zs,
 )
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
@@ -608,9 +608,19 @@ def lint_prismatic_coverage(
     # clean absence is indistinguishable from a clean part, so it is closed by construction:
     # `recognition` is the run's aggregate, and an absent one is re-derived from the solid
     # rather than defaulted to something narrower.
+    # Fail-closed on the TYPE, not just the name: `recognition=` replaced the old `step_zs=`,
+    # and a duck-typed stand-in (`SimpleNamespace(risers=(), step_levels=())`) would silence
+    # this check exactly as `step_zs=[]` did — the same false-negative door wearing a new
+    # parameter (Codex #1031 r1). Only recognition's own frozen result is accepted.
+    if recognition is not None and not isinstance(recognition, RecognitionResult):
+        raise TypeError(
+            f"lint_prismatic_coverage(recognition=) takes the run's RecognitionResult, got "
+            f"{type(recognition).__name__}. A completeness check must not accept a "
+            "caller-assembled inventory: an empty stand-in silences it."
+        )
+    _rec = build_recognition_result(part) if recognition is None else recognition
     source_shoulders = project_step_shoulders(
-        recognise_risers(part) if recognition is None else recognition.risers,
-        levels=step_level_zs(part) if recognition is None else list(recognition.step_levels),
+        _rec.risers, levels=_rec.step_ladder(bbox if bbox is not None else part.bounding_box())
     )
     model_shoulders = {
         (axis, round(pos, 3))

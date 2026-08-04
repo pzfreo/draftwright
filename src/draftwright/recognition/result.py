@@ -28,7 +28,7 @@ from draftwright.recognition.slots import (
     recognise_slot_patterns,
     recognise_slots,
 )
-from draftwright.recognition.turned import recognise_turned_steps
+from draftwright.recognition.turned import TurnedProfile, recognise_turned_steps
 
 #: The families this aggregate runs, exactly once, per orchestration.
 MIGRATED: frozenset[str] = frozenset(
@@ -158,6 +158,23 @@ class RecognitionResult:
     #: which risers count depends on the level set the asker holds, and that is the whole
     #: reason this family could not be hoisted until the scan and the filter were separated.
     risers: tuple
+
+    def step_ladder(self, bb) -> list[float]:
+        """The effective step ladder for *bb*: turned shoulders for a Z-turned part, else the
+        prismatic face levels (#1025).
+
+        ONE rule, two callers. ``_analyse`` computes the ladder page/scale selection converges
+        on, and critique needs the same set to decide which risers count — but they derived it
+        separately, so lint could silently project over a different ladder than the model was
+        built from (Codex #1031 r3). Both now call this.
+
+        Geometry-only, so it is a legitimate source for critique under ADR 0015: it reads the
+        aggregate's own recognition, never the model.
+        """
+        prof = TurnedProfile.from_steps(list(self.turned_steps))
+        if prof is not None and prof.axis == "z":
+            return [z for z in prof.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
+        return list(self.step_levels)
 
 
 def build_recognition_result(part, *, cylinders=None) -> RecognitionResult:

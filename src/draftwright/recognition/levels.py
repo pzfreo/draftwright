@@ -68,6 +68,14 @@ class RiserEvidence(Record):
     z_hi: float
     lo_at_envelope: bool
     hi_at_envelope: bool
+    #: The tolerance this evidence was scanned with, so the projection matches it by default.
+    #: Without this the split silently broke a non-default ``tol``: the old one-stage call used
+    #: one value for the geometric gates AND the level ties, whereas ``recognise_risers(part,
+    #: tol=0.1)`` followed by a bare ``project_step_shoulders(...)`` mixed 0.1 with the
+    #: projection's own default (Codex #1031 r1). Carried on the record rather than passed
+    #: separately because a caller who has the evidence should not have to remember how it was
+    #: produced.
+    tol: float = 0.5
 
 
 def recognise_face_levels(
@@ -255,12 +263,13 @@ def recognise_risers(
                 # part's top or bottom is structural whatever the level set says.
                 lo_at_envelope=abs(fb.min.Z - bb.min.Z) < tol or abs(fb.min.Z - bb.max.Z) < tol,
                 hi_at_envelope=abs(fb.max.Z - bb.min.Z) < tol or abs(fb.max.Z - bb.max.Z) < tol,
+                tol=tol,
             )
         )
     return sorted(set(out))
 
 
-def project_step_shoulders(risers, *, levels, tol: float = 0.5) -> list[StepShoulder]:
+def project_step_shoulders(risers, *, levels, tol: float | None = None) -> list[StepShoulder]:
     """Project :func:`recognise_risers` evidence onto *levels* — the pure half (#1025).
 
     A candidate riser counts as a step shoulder only if it rises from a level the caller
@@ -276,9 +285,18 @@ def project_step_shoulders(risers, *, levels, tol: float = 0.5) -> list[StepShou
     No *part* argument, by construction: this cannot look at geometry, so it cannot become a
     second recognition site. Returns a sorted, deduplicated list; empty when *levels* is empty
     (a part with no recognised step has no shoulders to locate).
+
+    *tol* defaults to the tolerance the evidence was scanned with, so a two-stage call is
+    equivalent to the old single-stage one at ANY tolerance, not just the default. Pass it
+    explicitly only to project more or less tightly than the scan deliberately.
     """
     if not levels:
         return []
+    risers = list(risers)
+    if not risers:
+        return []
+    if tol is None:
+        tol = risers[0].tol
 
     def tied(z: float, at_envelope: bool) -> bool:
         return at_envelope or any(abs(z - level) < tol for level in levels)

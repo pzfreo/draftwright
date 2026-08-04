@@ -17,6 +17,7 @@ see that helper for why a binding-level spy cannot be trusted for this claim.
 
 import inspect
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot
@@ -26,7 +27,13 @@ import draftwright.recognition as recognition
 from draftwright import Sheet, build_drawing
 from draftwright.compose import _est_right_strip_depth, _n_right_strip_boss_heights
 from draftwright.linting.coverage import lint_prismatic_coverage
-from draftwright.recognition import project_step_shoulders, recognise_risers, step_level_zs
+from draftwright.recognition import (
+    RecognitionResult,
+    build_recognition_result,
+    project_step_shoulders,
+    recognise_risers,
+    step_level_zs,
+)
 from draftwright.recognition.result import DEFERRED, MIGRATED
 
 
@@ -387,12 +394,14 @@ def test_the_critique_cannot_be_handed_a_narrower_shoulder_inventory():
     false-negative door in a completeness check is the one place a clean absence is
     indistinguishable from a clean part.
 
-    Asserted on the SIGNATURE, not on behaviour: the door is closed by there being no
-    parameter to open it with. A caller may pass the whole recognition aggregate, which is
-    recognition's own answer and not narrowable to a subset the caller chose.
+    The signature half is necessary but NOT sufficient, which the first cut of this test got
+    wrong: asserting that a `recognition=` parameter exists says nothing about whether a
+    caller can narrow it. A duck-typed `SimpleNamespace(risers=(), step_levels=())` silenced
+    the check exactly as `step_zs=[]` had — the same door wearing a new parameter name (Codex
+    #1031 r1). So the behavioural half is the one with teeth: an assembled stand-in is
+    REJECTED, and only recognition's own frozen result is accepted.
     """
     params = inspect.signature(lint_prismatic_coverage).parameters
-
     assert "step_zs" not in params, (
         "lint_prismatic_coverage grew back a caller-supplied level set — that argument "
         "decides the shoulder answer, so a caller passing [] silences the check entirely"
@@ -400,8 +409,16 @@ def test_the_critique_cannot_be_handed_a_narrower_shoulder_inventory():
     assert "step_shoulders" not in params, (
         "the critique must recognise its own shoulder inventory rather than accept one"
     )
-    assert "recognition" in params, (
-        "the critique needs the aggregate to project, or it falls back to rescanning"
+
+    part = _rebated_block()
+    empty_stand_in = SimpleNamespace(risers=(), step_levels=())
+    with pytest.raises(TypeError, match="RecognitionResult"):
+        lint_prismatic_coverage(part, [], features=(), recognition=empty_stand_in)
+
+    # And the real thing still works — the guard rejects impostors, not the parameter.
+    assert isinstance(
+        lint_prismatic_coverage(part, [], features=(), recognition=build_recognition_result(part)),
+        list,
     )
 
 
@@ -424,3 +441,77 @@ def test_the_two_consumers_project_the_same_evidence_differently():
     assert everything, "the real level set produced no shoulders"
     assert nothing == [], "an empty level set must locate no shoulder"
     assert unrelated == [], "a level no riser sits on must locate no shoulder"
+
+
+def test_a_two_stage_call_matches_the_old_one_stage_one_at_any_tolerance():
+    """The split must not change what a NON-default tolerance means.
+
+    The old `recognise_step_shoulders(part, levels=..., tol=t)` used one `t` for the geometric
+    gates and the level ties. Split naively, `recognise_risers(part, tol=0.1)` followed by a
+    bare `project_step_shoulders(...)` mixed 0.1 with the projection's own default — so a
+    riser 0.3 mm off a level was rejected before and accepted after (Codex #1031 r1). The
+    evidence carries the tolerance it was scanned with, so the natural two-stage call stays
+    equivalent.
+    """
+    part = _rebated_block()
+
+    for tol in (0.1, 0.5, 2.0):
+        risers = recognise_risers(part, tol=tol)
+        assert all(r.tol == tol for r in risers), "evidence lost the tolerance it was scanned with"
+        # The bare projection must behave as if it had been told `tol` explicitly.
+        assert project_step_shoulders(risers, levels=[10.4]) == project_step_shoulders(
+            risers, levels=[10.4], tol=tol
+        ), f"tol={tol}: the bare projection did not inherit the scan's tolerance"
+
+    # And the inheritance is load-bearing, not incidental: a level 0.3mm off is inside the
+    # loose scan's tolerance and outside the tight one's.
+    loose = project_step_shoulders(recognise_risers(part, tol=0.5), levels=[10.3])
+    tight = project_step_shoulders(recognise_risers(part, tol=0.1), levels=[10.3])
+    assert loose != tight, "fixture no longer distinguishes the two tolerances"
+
+
+def _turned_shaft_with_blind_bore():
+    """A Z-turned shaft whose blind-bore floor is a horizontal face level but NOT an OD
+    shoulder — so the two candidate ladders genuinely differ."""
+    part = Cylinder(20, 30) + Pos(0, 0, 30) * Cylinder(14, 30)
+    return part - Pos(0, 0, 45) * Cylinder(6, 30)
+
+
+def test_one_ladder_rule_serves_sizing_and_critique():
+    """Sizing and critique must converge on the SAME step ladder.
+
+    For a Z-turned part the ladder is the turned profile's shoulders, not the raw horizontal
+    face levels — that distinction exists because a blind bore's flat floor is a face level
+    and is emphatically not an OD shoulder. `_analyse` had that rule; critique derived its own
+    level set separately, so lint could project risers over a different ladder than the model
+    was sized from (Codex #1031 r3). `RecognitionResult.step_ladder` is now the one rule both
+    call.
+
+    The fixture is chosen so the two candidate sets actually differ; on an ordinary prismatic
+    part they coincide and this would assert nothing.
+    """
+    part = _turned_shaft_with_blind_bore()
+    rec = build_recognition_result(part)
+    bb = part.bounding_box()
+
+    ladder = rec.step_ladder(bb)
+    assert ladder != list(rec.step_levels), (
+        "fixture stopped exercising the divergence — the turned ladder and the raw face "
+        "levels coincide here, so this test would pass with the rule removed"
+    )
+    assert 30.0 not in ladder, "the blind-bore floor leaked into the turned ladder"
+    assert 30.0 in rec.step_levels, "fixture no longer produces the bore floor as a face level"
+
+    # And sizing goes through that same rule rather than re-deriving it. Asserted by counting
+    # the call, because on a turned part `step_zs` feeds only the strip reservation — there is
+    # no rendered rung to read the difference off, so a behavioural assertion here would be
+    # vacuous and would pass with the consolidation removed (verified: it did).
+    with counting_calls({"ladder": RecognitionResult.step_ladder}) as calls:
+        drawing = build_drawing(part)
+
+    assert calls.get("ladder"), (
+        "the build never called RecognitionResult.step_ladder — sizing is deriving its own "
+        "ladder again, which is the drift this consolidation removes"
+    )
+    lengths = sorted(n for n in drawing.annotations() if n.startswith("m_steplen"))
+    assert len(lengths) == 2, f"expected one length per turned segment, got {lengths}"

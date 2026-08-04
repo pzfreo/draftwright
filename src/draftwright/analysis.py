@@ -583,12 +583,11 @@ def _analyse(
     else:
         recognition = build_recognition_result(part, cylinders=(z_cyls, cross_cyls))
         _turned = TurnedProfile.from_steps(list(recognition.turned_steps))
-        if _turned is not None and _turned.axis == "z":
-            step_zs = [z for z in _turned.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
-        else:
-            # The aggregate's own area-filtered extraction (#578 review; hoisted there by
-            # #1022 so critique on the declared path reads one value rather than rescanning).
-            step_zs = list(recognition.step_levels)
+        # The aggregate's own rule (#578 review; hoisted there by #1022, shared with critique
+        # by #1025). Both callers deriving this separately let lint project over a different
+        # ladder than the model was sized from — which is exactly the divergence one waist is
+        # supposed to prevent.
+        step_zs = recognition.step_ladder(bb)
     # The aggregate owns the shared substrate from here on.  Rebind the local projection so
     # model construction, Analysis and the finished BuildState all consume the same inventory
     # object rather than parallel list/tuple wrappers that merely happen to contain equal data.
