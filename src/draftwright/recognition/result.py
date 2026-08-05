@@ -210,11 +210,20 @@ def build_recognition_result(
 
     *rotational* is the caller's geometric classification (``analysis._classify_geometry``).
     It gates the three families that only one part class consumes, so migrating them did not
-    mean scanning every turned build for a discarded result (#1028).  It stays an argument
-    rather than something recognised here: the rotational test reads bbox proportions and OD
-    offset, which is sizing's question about the part, not recognition's inventory of it —
-    deriving it below the IR would move drafting classification into ``recognition/``, an
-    explicit ADR 0017 non-goal.
+    mean scanning every turned build for a discarded result (#1028).
+
+    It is an argument for a SCOPING reason, not an architectural one, and #1037 removes it.
+    An earlier version of this docstring claimed the rotational test was "sizing's question,
+    not recognition's", and that deriving it here would move drafting classification into
+    ``recognition/``.  That is wrong: ``_is_rotational`` reads bbox proportions, the largest
+    external cylinder diameter and its concentricity — all geometric, all facts recovered
+    from the solid, and ``recognition/`` already uses bounding boxes and the cylinder
+    substrate freely.  Drafting *consumes* the classification for view selection exactly as
+    it consumes hole diameters; that does not make it drafting policy.
+
+    The real reason is that ``_classify_geometry`` lives in the analysis stage and moving it
+    was larger than #1028 warranted.  Until it moves, the gate is a property of this
+    orchestration only because a caller supplies the classification.
 
     The default is ``False`` — prismatic, so nothing is gated away.  A caller who has no
     classification (the lazy critique aggregate on a declared build) gets the COMPLETE
