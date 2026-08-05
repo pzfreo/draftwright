@@ -174,6 +174,25 @@ def test_a_recognised_requirement_missing_from_the_declared_ir_is_unverifiable()
     assert _flat_codes(dwg) == ["flat_requirement_unverifiable"]
 
 
+def test_requirement_identity_without_source_record_correspondence_is_unverifiable():
+    part = _double_d()
+    sheet = Sheet(part)
+    for flat in recognise_flats(part):
+        shifted_at = (flat.at[0], flat.at[1] + 1.0, flat.at[2])
+        sheet.flat(
+            axis=flat.axis,
+            across=flat.across,
+            at=shifted_at,
+            axis_line=flat.axis_line,
+            stock_span=flat.stock_span,
+        )
+    sheet.auto_dimensions()
+    dwg = sheet.build()
+
+    assert _flat_callout(dwg), "precondition: the stale declaration still rendered a callout"
+    assert _flat_codes(dwg) == ["flat_requirement_unverifiable"]
+
+
 def test_automatic_and_declared_paths_agree_when_provenance_is_complete():
     automatic = build_drawing(_double_d())
     declared = _declared_flat_drawing()

@@ -50,6 +50,14 @@ def _key(flat) -> _FlatRequirementKey:
     )
 
 
+def _source_point(flat) -> tuple[float, float, float]:
+    point = getattr(flat, "at", None)
+    if point is None:
+        point = flat.frame.origin
+    x, y, z = point
+    return (round(float(x), 3), round(float(y), 3), round(float(z), 3))
+
+
 def _matches(measurement, feature, parameter: str) -> bool:
     """Match a compiler identity without coupling linting to the model package."""
     return (
@@ -67,8 +75,8 @@ def flat_requirement_outcomes(
     """Follow each recognised flat requirement to an explicit engine outcome.
 
     Two faces of one double-D/hex share a requirement; parallel or disjoint coaxial stock
-    does not. The grouping key is exactly the stock identity carried by recognition and the
-    IR, plus the measured A/F value. If that exact recognition-to-IR correspondence is absent,
+    does not. Stock identity plus A/F defines that physical grouping; each group's recognised
+    3-D face anchors then join to IR exactly. If that record-to-IR correspondence is absent,
     the result is ``unverifiable`` rather than a fuzzy match.
     """
     if recognition is None:
@@ -79,7 +87,9 @@ def flat_requirement_outcomes(
             f"got {type(recognition).__name__}"
         )
 
-    physical: set[_FlatRequirementKey] = {_key(flat) for flat in recognition.flats}
+    physical: dict[_FlatRequirementKey, set[tuple[float, float, float]]] = defaultdict(set)
+    for flat in recognition.flats:
+        physical[_key(flat)].add(_source_point(flat))
     if not physical:
         return []
 
@@ -88,8 +98,11 @@ def flat_requirement_outcomes(
     # boundary as the other coverage checks.
     ir_by_requirement: dict[_FlatRequirementKey, list] = defaultdict(list)
     for feature in features:
-        if getattr(feature, "kind", None) == "flat":
-            ir_by_requirement[_key(feature)].append(feature)
+        if getattr(feature, "kind", None) != "flat":
+            continue
+        requirement = _key(feature)
+        if _source_point(feature) in physical.get(requirement, ()):
+            ir_by_requirement[requirement].append(feature)
 
     placed = {
         measurement for name in registry.names() for measurement in registry.measurement_of(name)
