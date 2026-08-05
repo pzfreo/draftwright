@@ -93,7 +93,7 @@ def test_issue_915_a2_detail_uses_each_levels_supporting_geometry():
     assert "detail_a" in dwg.views
     x0, _, x1, _ = dwg.view_bounds("detail_a")
     detail_world_width = (x1 - x0) / dwg.coords("detail_a")._scale
-    assert detail_world_width < dwg._analysis.bb.size.X / 2
+    assert detail_world_width < dwg.model().bbox.size.X / 2
     detail_dims = {
         annotation.label: annotation
         for name, annotation in dwg.iter_annotations()
