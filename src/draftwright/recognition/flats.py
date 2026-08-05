@@ -50,6 +50,7 @@ _MIN_FLAT_DEPTH = 0.5
 # line (not merely the same axis letter) within these mm tolerances.
 _OD_REACH_TOL = 0.1
 _AXIS_LINE_TOL = 0.1
+_AXIS_ALIGNED_TOL = 1e-3
 
 
 def _both_chord_ends_reach_od(verts, ax, dv, nv, r):
@@ -126,6 +127,10 @@ class Flat(Record):
     #: recogniser's internal ``stock`` tuple also carries a solid index, which is a same-run
     #: equality check and deliberately NOT propagated: it is not stable across runs.
     stock_span: tuple[float, float] = (0.0, 0.0)
+    #: Whether the owning cylinder follows the named principal axis. Placement may use
+    #: aggregate-view margin fallbacks only for aligned stock: slanted stock's two-coordinate
+    #: ``axis_line`` is not a canonical identity (#1036).
+    axis_aligned: bool = True
 
 
 def recognise_flats(part, *, cyls=None) -> list[Flat]:
@@ -182,6 +187,7 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                     "at": pcv,
                     "ax": ax,
                     "dir": d,
+                    "axis_aligned": _is_axis_aligned(c["axis"], d),
                     # Which piece of stock this face was matched to, for the opposition test
                     # below. Internal to one recognition run — a same-run equality check, not
                     # an identity that propagates — so the solid index is safe here.
@@ -220,6 +226,7 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                 at=(round(cand["at"][0], 3), round(cand["at"][1], 3), round(cand["at"][2], 3)),
                 axis_line=cand["axis_line"],
                 stock_span=cand["stock_span"],
+                axis_aligned=cand["axis_aligned"],
             )
         )
     return sorted(out, key=lambda fl: (fl.axis, fl.at))
@@ -247,3 +254,16 @@ def _axis_line(axis: str, ax) -> tuple[float, float]:
     """
     keep = [i for i, letter in enumerate("xyz") if letter != axis]
     return (round(ax[keep[0]], 3), round(ax[keep[1]], 3))
+
+
+def _is_axis_aligned(axis: str, direction) -> bool:
+    """Whether *direction* follows the principal axis named by *axis*.
+
+    This is deliberately a capability bit, not a line identity. It prevents a placement
+    fallback from making slanted A/F callouts visible before #1036 carries the canonical
+    direction + perpendicular-foot identity needed to group them safely.
+    """
+    idx = "xyz".index(axis)
+    return abs(abs(direction[idx]) - 1.0) <= _AXIS_ALIGNED_TOL and all(
+        abs(direction[j]) <= _AXIS_ALIGNED_TOL for j in range(3) if j != idx
+    )

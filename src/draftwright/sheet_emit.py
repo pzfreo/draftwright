@@ -382,9 +382,10 @@ def _feature_line(f, part_envelope=None) -> str:
         # collapsing into one callout, and a script that omits them regenerates the very
         # drawing the detection was fixing (Codex #1035 r1). The declared defaults reproduce
         # pre-#1013 grouping, so silence here is not neutral — it is the old bug.
+        alignment = "" if f.axis_aligned else ", axis_aligned=False"
         return (
             f'sheet.flat(axis="{f.axis}", across={_n(f.across)}, at={_pt(f.frame.origin)}, '
-            f"axis_line={_pt(f.axis_line)}, stock_span={_pt(f.stock_span)})"
+            f"axis_line={_pt(f.axis_line)}, stock_span={_pt(f.stock_span)}{alignment})"
         )
     if k == "groove":
         return (

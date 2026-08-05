@@ -1792,27 +1792,37 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
         # First-AUTHORED tolerance wins (planner/model order, not spatial — see the
         # fillet pass / render_diameters precedent, Codex review).
         tol = next((pd.tolerance for _, pd in members if pd.tolerance is not None), None)
-        # The margin fallback is specifically for several independent pieces of stock in the
-        # same aggregate view (#1034).  Do not enable it for a lone flat: today that includes
-        # slanted stock, whose aligned-only identity is not canonical and must remain reported
-        # as dropped until both halves of #1036 are fixed together.
-        candidate_factory = (
-            _flat_candidates if sum(key[0] == axis for key in collapse) > 1 else _corner_candidates
-        )
+        axis_aligned = all(g.facts.axis_aligned for g, _ in members)
+        if not axis_aligned:
+            # Slanted stock's two-coordinate axis_line is not canonical (#1036). It used to
+            # drop accidentally when alone but could render when several slanted stocks made
+            # the aggregate view large enough. An empty candidate set makes the unsupported
+            # state deterministic and still records one attributed flat_dropped outcome.
+            candidates = ()
+        else:
+            # The margin fallback is specifically for several independent pieces of aligned
+            # stock in the same aggregate view (#1034). Ordinary single/double-D stock keeps
+            # the established centre-out placement first and unchanged.
+            candidate_factory = (
+                _flat_candidates
+                if sum(key[0] == axis for key in collapse) > 1
+                else _corner_candidates
+            )
+            candidates = candidate_factory(
+                dwg,
+                view,
+                vb,
+                [g.facts for g, _ in ordered],
+                reach,
+                provenances=[g.ref for g, _ in ordered],
+            )
         jobs.append(
             (
                 f"m_flat_{axis}{gi}",
                 view,
                 vb,
                 _flat_label(members[0][1].value_text, _tol_suffix(tol, draft)),
-                candidate_factory(
-                    dwg,
-                    view,
-                    vb,
-                    [g.facts for g, _ in ordered],
-                    reach,
-                    provenances=[g.ref for g, _ in ordered],
-                ),
+                candidates,
                 tuple(pd.id for _, pd in ordered),  # the grouped callout draws every member
             )
         )

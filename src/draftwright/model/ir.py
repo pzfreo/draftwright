@@ -649,6 +649,10 @@ class FlatFeature:
     #: The owning stock's axial extent — with ``axis_line``, the stock identity. Coaxial
     #: stacked stock shares an axis line, so that alone merged independent definitions.
     stock_span: tuple[float, float] = (0.0, 0.0)
+    #: False for stock whose real cylinder direction is not the named principal ``axis``.
+    #: Its aligned-only ``axis_line`` is not canonical, so margin fallback must not make its
+    #: callout render before #1036 fixes identity and rendering together.
+    axis_aligned: bool = True
     kind: ClassVar[str] = "flat"
 
     def parameters(self) -> list[DimParameter]:

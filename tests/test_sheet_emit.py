@@ -569,6 +569,23 @@ class TestEmit:
         redeclared = eval(line, {"__builtins__": {}}, env)  # noqa: S307
         assert redeclared.axis == det.axis and redeclared.across == det.across
         assert redeclared.frame.origin == pytest.approx(det.frame.origin)
+        assert redeclared.axis_line == det.axis_line and redeclared.stock_span == det.stock_span
+        assert redeclared.axis_aligned == det.axis_aligned
+
+    def test_slanted_flat_round_trips_the_alignment_guard(self):
+        from build123d import Rot
+
+        from draftwright.model import flat as declare_flat
+        from draftwright.sheet_emit import _feature_line
+
+        part = Rot(0, 45, 0) * (Cylinder(10, 40) - Pos(8, 0, 0) * Box(10, 40, 60))
+        det = next(f for f in build_drawing(part, number="X").model().features if f.kind == "flat")
+        assert det.axis_aligned is False
+        line = _feature_line(det)
+        assert "axis_aligned=False" in line
+        env = {"sheet": type("S", (), {"flat": staticmethod(declare_flat)})()}
+        redeclared = eval(line, {"__builtins__": {}}, env)  # noqa: S307
+        assert redeclared.axis_aligned is False
 
     def test_groove_emits_the_groove_verb(self):
         # #148c: a detected turned groove emits `sheet.groove(...)` — the emit surface for the

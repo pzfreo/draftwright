@@ -498,7 +498,14 @@ def _read_flat_face(face) -> Point:
 
 
 def flat(
-    obj=None, *, axis=None, across=None, at=None, axis_line=None, stock_span=None
+    obj=None,
+    *,
+    axis=None,
+    across=None,
+    at=None,
+    axis_line=None,
+    stock_span=None,
+    axis_aligned=True,
 ) -> FlatFeature:
     """A machined flat on round stock (#148b). Either ``flat(flat_face)`` — the planar face
     supplies the leader point ``at`` (``axis=`` and ``across=`` still required, being
@@ -523,6 +530,7 @@ def flat(
         across=round(across, 3),
         axis_line=_stock_pair(axis_line),
         stock_span=_stock_pair(stock_span),
+        axis_aligned=axis_aligned,
     )
 
 
