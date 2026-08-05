@@ -7,11 +7,13 @@ through the IR feature and compiler-owned ``DimensionId`` already stored in the 
 registry.
 """
 
+from collections import Counter
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Align, Box, Cylinder, Pos
+from build123d import Align, Box, Cylinder, Pos, import_step
 
 from draftwright import Sheet, build_drawing
 from draftwright.linting import LintIssue
@@ -20,6 +22,8 @@ from draftwright.model.declare import flat as declare_flat
 from draftwright.recognition import recognise_flats
 from draftwright.recognition.flats import Flat
 from draftwright.registry import AnnotationRegistry
+
+_ISSUE_914 = Path(__file__).parent / "fixtures" / "if_step_flat_across_cylinder.step"
 
 
 def _double_d():
@@ -102,6 +106,40 @@ def test_a_placed_engine_callout_satisfies_the_recognised_requirement():
         "coverage result would have no semantic evidence"
     )
     assert _flat_codes(dwg) == []
+
+
+def test_issue_914_case_study_keeps_its_only_flat_definition():
+    """The real topology, normalized from metres to millimetres for a stable regression.
+
+    Before #1046 the flat was recognised but its only size definition was dropped at both
+    scales.  The boundary-aware fallback must retain the A/F callout without disturbing the
+    diameter or step dimensions that already survived in the reported drawing.
+    """
+    part = import_step(str(_ISSUE_914)).scale(0.001)
+    dwg = build_drawing(part)
+
+    assert Counter(feature.kind for feature in dwg.model().features) == Counter(
+        {"boss": 1, "envelope": 1, "step_level": 1, "flat": 1, "rotational": 1}
+    ), "the imported case must keep the inventory that made #914 a flat-placement defect"
+    assert dwg.get_annotation("m_flat_y0").label == "25 A/F"
+    assert len(dwg.measurement_keys("m_flat_y0")) == 1, (
+        "the visible callout must retain compiler provenance for the recognised requirement"
+    )
+    assert dwg.get_annotation("dim_od").label == "ø40"
+    assert dwg.get_annotation("dim_step_0").label == "25"
+
+    prohibited = {
+        "annotation_out_of_bounds",
+        "annotation_overlap",
+        "flat_dropped",
+        "leader_crosses_silhouette",
+    }
+    issues = dwg.lint()
+    assert not [
+        issue
+        for issue in issues
+        if issue.code in prohibited or issue.code.startswith("flat_requirement_")
+    ]
 
 
 def test_removing_the_callout_produces_missing():
