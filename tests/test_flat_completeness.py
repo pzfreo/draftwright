@@ -151,6 +151,26 @@ def test_authored_omission_is_suppressed_not_missing():
     assert _flat_codes(dwg) == ["flat_requirement_suppressed"]
 
 
+def test_a_planner_omission_is_not_authored_suppression():
+    dwg = build_drawing(_double_d())
+    recognition = dwg.recognition()
+    assert recognition is not None
+    features = dwg.model().features
+    omissions = tuple(
+        SimpleNamespace(feature=feature, parameter_id="flat.length", authored=False)
+        for feature in features
+        if feature.kind == "flat"
+    )
+
+    outcomes = flat_requirement_outcomes(
+        recognition,
+        features,
+        AnnotationRegistry(),
+        omissions,
+    )
+    assert [outcome.state for outcome in outcomes] == ["missing"]
+
+
 def test_forced_placement_failure_is_dropped_not_missing():
     dwg = build_drawing(_flatted_shaft(), page="A4", scale=2.0)
     issues = dwg.lint()
