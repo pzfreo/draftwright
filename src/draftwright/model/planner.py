@@ -36,6 +36,7 @@ from draftwright.model.ir import (
     PocketPatternFeature,
     Point,
     SlotFeature,
+    SlotPatternFeature,
 )
 
 #: The `reason` marking a measurement the AUTHORED set left out — the author's own
@@ -352,6 +353,7 @@ _LOCATABLE: tuple[type, ...] = (
     PocketPatternFeature,
     PadFeature,
     SlotFeature,
+    SlotPatternFeature,
 )
 
 
@@ -386,9 +388,9 @@ def location_datum(feature) -> str | None:
         return "datum_xy"  # every orientation: its two in-plane coordinates
     if isinstance(feature, HoleFeature):
         return "datum_xy" if feature.frame.axis == "z" else "bbox"
-    # Patterns, pocket-patterns and pads: the plan-X / side-Y ladder only, so Z-normal only.
-    # A fall-through, not a fourth `isinstance` + `return None`: membership above is by
-    # exact type, so those three are all that can reach here and the extra arm was
+    # Patterns, pocket/slot-patterns and pads: the plan-X / side-Y ladder only, so Z-normal
+    # only. A fall-through, not another `isinstance` + `return None`: membership above is by
+    # exact type, so those four are all that can reach here and the extra arm was
     # unreachable — dead code that read as defensive and showed up as the one uncovered
     # line in the patch.
     return "datum_xy" if feature.frame.axis == "z" else None

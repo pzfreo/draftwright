@@ -8,6 +8,7 @@ from build123d import Box, Pos
 from draftwright import Sheet, build_drawing
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 from draftwright.model import slot
+from draftwright.model.compiled import compile_dimensions
 from draftwright.recognition import recognise_slots
 
 
@@ -38,6 +39,21 @@ def _slot_row():
     return part
 
 
+def _slot_column():
+    part = Box(180, 60, 20)
+    for x in (-45, -15, 15, 45):
+        part -= Pos(x, 0, 0) * Box(8, 30, 20)
+    return part
+
+
+def _off_axis_slot_grid():
+    part = Box(20, 176, 136)
+    for y in (-22, 22):
+        for z in (-34, 0, 34):
+            part -= Pos(0, y, z) * Box(20, 24, 8)
+    return part
+
+
 def _slot_requirement_codes(dwg):
     return [issue.code for issue in dwg.lint() if issue.code.startswith("slot_requirement_")]
 
@@ -48,7 +64,7 @@ def _outcomes(dwg):
         dwg.recognition(),
         dwg.model().features,
         dwg.registry,
-        dwg._build.omissions,
+        compile_dimensions(dwg.model()).diagnostics,
     )
 
 
@@ -89,10 +105,7 @@ def test_removing_an_off_centre_slots_location_is_detected():
     (location_name,) = [
         name
         for name in dwg.registry.names_for_feature(slot)
-        if any(
-            key["parameter_id"] == "location_slot.length"
-            for key in dwg.measurement_keys(name)
-        )
+        if any(key["parameter_id"] == "location_slot.length" for key in dwg.measurement_keys(name))
     ]
     dwg.remove(location_name)
 
@@ -111,10 +124,7 @@ def test_grid_pitch_annotations_retain_distinct_directional_provenance():
     pitch_names = sorted(name for name in dwg.annotations() if "slotpat_pitch" in name)
     assert len(pitch_names) == 2
 
-    pitch_by_id = {
-        dwg.measurement_keys(name)[0]["parameter_id"]: name
-        for name in pitch_names
-    }
+    pitch_by_id = {dwg.measurement_keys(name)[0]["parameter_id"]: name for name in pitch_names}
     assert set(pitch_by_id) == {"grid_pitch.length.row", "grid_pitch.length.col"}
 
     dwg.remove(pitch_by_id["grid_pitch.length.row"])
@@ -122,6 +132,25 @@ def test_grid_pitch_annotations_retain_distinct_directional_provenance():
     outcomes = {outcome.parameter_id: outcome.state for outcome in _outcomes(dwg)}
     assert outcomes["grid_pitch.length.row"] == "missing"
     assert outcomes["grid_pitch.length.col"] == "placed"
+
+
+def test_pattern_location_keeps_x_and_y_measurement_identity_distinct():
+    dwg = build_drawing(_slot_grid())
+    locations = {
+        key["parameter_id"]: name
+        for name in dwg.annotations()
+        for key in dwg.measurement_keys(name)
+        if key["parameter_id"].startswith("location_slot_pattern.")
+    }
+    assert set(locations) == {
+        "location_slot_pattern.location.x",
+        "location_slot_pattern.location.y",
+    }
+
+    dwg.remove(locations["location_slot_pattern.location.x"])
+    states = {outcome.parameter_id: outcome.state for outcome in _outcomes(dwg)}
+    assert states["location_slot_pattern.location.x"] == "missing"
+    assert states["location_slot_pattern.location.y"] == "placed"
 
 
 def test_equal_grid_pitches_do_not_collapse_directional_identity():
@@ -141,12 +170,14 @@ def test_one_recognised_grid_is_one_requirement_with_compound_provenance():
     outcomes = _outcomes(dwg)
     assert [(outcome.source_kind, outcome.member_count) for outcome in outcomes] == [
         ("slot_pattern", 6),
-    ] * 4
+    ] * 6
     assert {outcome.parameter_id for outcome in outcomes} == {
         "slot_width.length",
         "slot_length.length",
         "grid_pitch.length.row",
         "grid_pitch.length.col",
+        "location_slot_pattern.location.x",
+        "location_slot_pattern.location.y",
     }
     assert {outcome.state for outcome in outcomes} == {"placed"}
 
@@ -206,6 +237,47 @@ def test_authored_omission_is_suppressed_not_missing():
     assert _slot_requirement_codes(dwg) == ["slot_requirement_suppressed"] * 3
 
 
+def test_authored_pattern_omission_suppresses_both_location_directions():
+    part = _slot_grid()
+    detected = build_drawing(part)
+    (source,) = detected.recognition().slot_patterns
+    source_member = source.slots[0]
+    member = slot(
+        width=source_member.width,
+        length=source_member.length,
+        long_axis=source_member.long_axis,
+        width_axis=source_member.width_axis,
+        depth_axis=source_member.depth_axis,
+        w_center=source_member.w_center,
+        lo=source_member.lo,
+        hi=source_member.hi,
+        at=source_member.location,
+    )
+    sheet = Sheet(part)
+    sheet.slot_pattern(
+        member,
+        kind="grid",
+        count=len(source.slots),
+        grid=(source.row_pitch, source.col_pitch),
+        rows=source.rows,
+        cols=source.cols,
+        angle=source.angle,
+        at=source.center,
+    )
+    envelope = sheet.envelope()
+    sheet.dimension(envelope, "width.length")
+    outcomes = _outcomes(sheet.build())
+
+    assert {outcome.parameter_id for outcome in outcomes if outcome.state == "suppressed"} == {
+        "slot_width.length",
+        "slot_length.length",
+        "grid_pitch.length.row",
+        "grid_pitch.length.col",
+        "location_slot_pattern.location.x",
+        "location_slot_pattern.location.y",
+    }
+
+
 def test_a_real_placement_failure_retains_the_dropped_measurement():
     dwg = build_drawing(_off_centre_slot(), page="A4", scale=1.5)
     (drop,) = [issue for issue in dwg.lint() if issue.code == "slot_dim_dropped"]
@@ -219,6 +291,18 @@ def test_a_real_placement_failure_retains_the_dropped_measurement():
     dwg.registry.record_issue(replace(drop, measurement_ids=()))
     outcome = next(item for item in _outcomes(dwg) if item.parameter_id == dropped_parameter)
     assert outcome.state == "missing"
+
+
+def test_pattern_placement_failures_retain_each_failed_measurement():
+    dwg = build_drawing(_slot_grid(), page="A4", scale=1.0)
+    outcomes = _outcomes(dwg)
+    dropped = {outcome.parameter_id for outcome in outcomes if outcome.state == "dropped"}
+    assert dropped == {
+        "grid_pitch.length.row",
+        "location_slot_pattern.location.x",
+        "location_slot_pattern.location.y",
+    }
+    assert not [outcome for outcome in outcomes if outcome.state == "missing"]
 
 
 def test_stale_declared_geometry_is_unverifiable_without_a_nearest_match():
@@ -236,9 +320,18 @@ def test_duplicate_ir_candidates_are_unverifiable_not_merged():
         dwg.recognition(),
         (pattern, pattern),
         dwg.registry,
-        dwg._build.omissions,
+        compile_dimensions(dwg.model()).diagnostics,
     )
     assert len(outcomes) == 1
+    assert outcomes[0].state == "unverifiable"
+
+
+def test_off_axis_pattern_location_is_unverifiable_not_assumed_complete():
+    dwg = build_drawing(_off_axis_slot_grid())
+    outcomes = _outcomes(dwg)
+    assert len(outcomes) == 1
+    assert outcomes[0].source_kind == "slot_pattern"
+    assert outcomes[0].member_count == 6
     assert outcomes[0].state == "unverifiable"
 
 
@@ -246,7 +339,9 @@ def test_automatic_and_declared_paths_agree_despite_their_frame_conventions():
     automatic = build_drawing(_off_centre_slot())
     declared, _handle = _declared_slot_drawing()
     auto_slot = next(feature for feature in automatic.model().features if feature.kind == "slot")
-    declared_slot = next(feature for feature in declared.model().features if feature.kind == "slot")
+    declared_slot = next(
+        feature for feature in declared.model().features if feature.kind == "slot"
+    )
     assert auto_slot.frame.origin != declared_slot.frame.origin
 
     auto_states = [(outcome.parameter_id, outcome.state) for outcome in _outcomes(automatic)]
@@ -255,7 +350,7 @@ def test_automatic_and_declared_paths_agree_despite_their_frame_conventions():
     assert declared.recognition() is not None
 
 
-def test_detected_and_declared_grids_have_the_same_grouped_outcomes():
+def test_detected_and_equivalently_rotated_declared_grids_have_the_same_outcomes():
     part = _slot_grid()
     automatic = build_drawing(part)
     (source,) = automatic.recognition().slot_patterns
@@ -279,8 +374,79 @@ def test_detected_and_declared_grids_have_the_same_grouped_outcomes():
         grid=(source.row_pitch, source.col_pitch),
         rows=source.rows,
         cols=source.cols,
-        angle=source.angle,
+        angle=source.angle + 180.0,
         at=source.center,
+    )
+    declared = sheet.build()
+
+    expected = [(outcome.parameter_id, outcome.state) for outcome in _outcomes(automatic)]
+    actual = [(outcome.parameter_id, outcome.state) for outcome in _outcomes(declared)]
+    assert actual == expected
+
+
+def test_declared_linear_pattern_accepts_another_member_and_reversed_axis():
+    """Representative position and direction sign do not change the physical pattern."""
+    part = _slot_row()
+    automatic = build_drawing(part)
+    (source,) = automatic.recognition().slot_patterns
+    source_member = source.slots[-1]
+    member = slot(
+        width=source_member.width,
+        length=source_member.length,
+        long_axis=source_member.long_axis,
+        width_axis=source_member.width_axis,
+        depth_axis=source_member.depth_axis,
+        w_center=source_member.w_center,
+        lo=source_member.lo,
+        hi=source_member.hi,
+        at=source_member.location,
+    )
+    center = tuple(
+        sum(slot.location[i] for slot in source.slots) / len(source.slots) for i in range(3)
+    )
+    sheet = Sheet(part).auto_dimensions()
+    sheet.slot_pattern(
+        member,
+        kind="linear",
+        count=len(source.slots),
+        pitch=source.pitch,
+        direction=tuple(-value for value in source.direction),
+        at=center,
+    )
+    declared = sheet.build()
+
+    expected = [(outcome.parameter_id, outcome.state) for outcome in _outcomes(automatic)]
+    actual = [(outcome.parameter_id, outcome.state) for outcome in _outcomes(declared)]
+    assert actual == expected
+
+
+def test_declared_linear_pattern_accepts_its_implicit_default_axis():
+    """Omitting the default +X axis is representation, not different geometry."""
+    part = _slot_column()
+    automatic = build_drawing(part)
+    (source,) = automatic.recognition().slot_patterns
+    source_member = source.slots[0]
+    member = slot(
+        width=source_member.width,
+        length=source_member.length,
+        long_axis=source_member.long_axis,
+        width_axis=source_member.width_axis,
+        depth_axis=source_member.depth_axis,
+        w_center=source_member.w_center,
+        lo=source_member.lo,
+        hi=source_member.hi,
+        at=source_member.location,
+    )
+    center = tuple(
+        sum(item.location[i] for item in source.slots) / len(source.slots) for i in range(3)
+    )
+    sheet = Sheet(part).auto_dimensions()
+    sheet.slot_pattern(
+        member,
+        kind="linear",
+        count=len(source.slots),
+        pitch=source.pitch,
+        at=center,
     )
     declared = sheet.build()
 
@@ -295,4 +461,6 @@ def test_a_caller_assembled_empty_inventory_cannot_silence_slot_coverage():
     from draftwright.registry import AnnotationRegistry
 
     with pytest.raises(TypeError, match="RecognitionResult"):
-        slot_requirement_outcomes(SimpleNamespace(slots=(), slot_patterns=()), (), AnnotationRegistry())
+        slot_requirement_outcomes(
+            SimpleNamespace(slots=(), slot_patterns=()), (), AnnotationRegistry()
+        )

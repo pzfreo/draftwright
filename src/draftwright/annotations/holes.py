@@ -1157,9 +1157,7 @@ def _add_grid_pitch_dims(
     ):
         pu, pv = plane_axes(actual_feature.frame.axis)
         angle = math.radians(actual_feature.angle or 0.0)
-        column_world = tuple(
-            math.cos(angle) * pu[k] + math.sin(angle) * pv[k] for k in range(3)
-        )
+        column_world = tuple(math.cos(angle) * pu[k] + math.sin(angle) * pv[k] for k in range(3))
         origin = actual_feature.frame.origin
         page_origin = to_page(origin)
         page_column = to_page(tuple(origin[k] + column_world[k] for k in range(3)))
@@ -1194,7 +1192,9 @@ def _add_grid_pitch_dims(
         span = along(hi) - along(lo)
         n = round(span / pitch_page) + 1
         if column_page is not None:
-            discriminator = "col" if abs(u[0] * column_page[0] + u[1] * column_page[1]) > 0.7 else "row"
+            discriminator = (
+                "col" if abs(u[0] * column_page[0] + u[1] * column_page[1]) > 0.7 else "row"
+            )
             pitch = by_discriminator[discriminator]
         else:
             # Selection fallback is numeric; the LABEL remains the compiler's own text.
@@ -1645,6 +1645,18 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         # misleading spec, Codex #848 r3). Distinct name prefix (dim_slotpat_pitch) so a plan-view
         # slot pattern and hole/pocket pattern do not collide.
         if name not in placed_names:
+            for dimension in (
+                (g.dim(role="pitch"),)
+                if g.facts.pattern == "linear"
+                else tuple(d for d in g.dims if d.role == "grid_pitch")
+            ):
+                if dimension is not None:
+                    ctx.record_issue(
+                        "warning",
+                        "slot_dim_dropped",
+                        "slot pattern pitch not placed because its grouped callout dropped",
+                        measurement=dimension.id,
+                    )
             continue
         feat = g.facts
         members = feat.members or (feat.frame.origin,)

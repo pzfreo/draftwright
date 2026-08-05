@@ -531,6 +531,11 @@ class SlotPatternFeature:
     dim(s). ``frame.axis`` is the slot's THROUGH axis (the one neither width nor long), so the
     callout reads in the view normal to it (the same view the member slots' dims read in)."""
 
+    #: The compiled stem for the pattern's datum location (#1018 Gate 2). A Z-normal slot
+    #: pattern is located in X and Y; the compiler gives those page dimensions distinct
+    #: discriminators so one direction cannot certify the other.
+    LOCATION_STEM: ClassVar[str] = "location_slot_pattern"
+
     frame: Frame
     pattern: str  # "linear" | "grid"
     count: int

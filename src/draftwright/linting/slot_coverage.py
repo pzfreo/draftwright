@@ -52,6 +52,42 @@ def _slot_key(slot) -> tuple:
     )
 
 
+def _slot_spec_key(slot) -> tuple:
+    """The representative facts a pattern consumes; its member position is inert."""
+    return (
+        slot.width_axis,
+        slot.long_axis,
+        _rounded(slot.width),
+        _rounded(slot.length),
+    )
+
+
+def _unoriented_direction(value) -> tuple[float, float, float] | None:
+    if value is None:
+        return None
+    x, y, z = (float(component) for component in value)
+    norm = (x * x + y * y + z * z) ** 0.5
+    if norm == 0:
+        return None
+    direction = (x / norm, y / norm, z / norm)
+    first = next((component for component in direction if abs(component) > 1e-9), 1.0)
+    if first < 0:
+        direction = tuple(-component for component in direction)
+    return _point(direction)
+
+
+def _pattern_direction(value, members) -> tuple[float, float, float] | None:
+    """Canonicalise an explicit axis or derive the default axis from its member line."""
+    if value is None and len(members) >= 2:
+        value = tuple(members[-1][i] - members[0][i] for i in range(3))
+    return _unoriented_direction(value)
+
+
+def _grid_angle(value) -> float | None:
+    """A rectangular lattice is unchanged by reversing both of its basis directions."""
+    return None if value is None else _rounded(float(value) % 180.0)
+
+
 def _slot_source_at(slot) -> tuple[float, float, float]:
     location = getattr(slot, "location", None)
     if location is not None:
@@ -86,14 +122,14 @@ def _pattern_key(pattern) -> tuple:
     return (
         pattern_kind,
         len(members),
-        _slot_key(member),
+        _slot_spec_key(member),
         members,
         None if pitch is None else _rounded(pitch),
-        None if direction is None else _point(direction),
+        _pattern_direction(direction, members),
         tuple(None if value is None else _rounded(value) for value in grid),
         getattr(pattern, "rows", None),
         getattr(pattern, "cols", None),
-        None if getattr(pattern, "angle", None) is None else _rounded(pattern.angle),
+        _grid_angle(getattr(pattern, "angle", None)),
     )
 
 
@@ -127,6 +163,9 @@ def _parameter_ids(feature, *, pattern: bool) -> tuple[str, ...] | None:
             required_roles.extend(("grid_pitch", "grid_pitch"))
         else:
             return None
+        location_stem = getattr(feature, "LOCATION_STEM", None)
+        if feature.frame.axis != "z" or location_stem is None:
+            return None
     else:
         stem = getattr(feature, "LOCATION_STEM", None)
         if stem is None:
@@ -138,7 +177,9 @@ def _parameter_ids(feature, *, pattern: bool) -> tuple[str, ...] | None:
     if any(len(by_role.get(role, ())) != count for role, count in expected_counts.items()):
         return None
     ids = [parameter.parameter_id for parameter in parameters if parameter.role in expected_counts]
-    if not pattern:
+    if pattern:
+        ids.extend(f"{feature.LOCATION_STEM}.location.{axis}" for axis in ("x", "y"))
+    else:
         ids.append(f"{feature.LOCATION_STEM}.length")
     return tuple(ids)
 
@@ -226,13 +267,13 @@ def slot_requirement_outcomes(
     for kind, _source, key, at, member_count in sources:
         matches = ir_by_key.get((kind, key), ())
         feature = matches[0] if len(matches) == source_counts[(kind, key)] == 1 else None
-        parameter_ids = _parameter_ids(feature, pattern=kind == "slot_pattern") if feature else None
+        parameter_ids = (
+            _parameter_ids(feature, pattern=kind == "slot_pattern") if feature else None
+        )
         if parameter_ids is None:
             # The association or required compiler vocabulary is not provable. Keep the
             # physical item visible as one unchecked outcome rather than inventing ids.
-            outcomes.append(
-                SlotRequirementOutcome(kind, at, member_count, "?", "unverifiable")
-            )
+            outcomes.append(SlotRequirementOutcome(kind, at, member_count, "?", "unverifiable"))
             continue
         outcomes.extend(
             SlotRequirementOutcome(

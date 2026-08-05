@@ -62,6 +62,7 @@ from draftwright.model.ir import (
     Point,
     RotationalFeature,
     SlotFeature,
+    SlotPatternFeature,
     StepLevelFeature,
 )
 from draftwright.model.planner import (
@@ -801,18 +802,52 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
     for pd in plan_locations(model):
         feature = pd.feature
         span = pd.param.span
+        directional_slot_pattern = (
+            isinstance(feature, SlotPatternFeature) and feature.frame.axis == "z"
+        )
         if pd.suppressed:
             # Before the span assert, deliberately: a suppressed entry records WHY a position
             # is absent and needs no geometry. When the model has no `datum_xy` there is no
             # datum → ref span to build one from, so requiring it here turned that diagnostic
             # into an AssertionError — a silent hole replaced by a crash, which is worse for
             # the caller it was meant to help (#996).
-            omissions.append(
-                Omission(feature, pd.param.parameter_id, None, pd.reason or "suppressed")
+            parameter_ids = (
+                tuple(f"{pd.param.parameter_id}.{axis}" for axis in ("x", "y"))
+                if directional_slot_pattern
+                else (pd.param.parameter_id,)
+            )
+            omissions.extend(
+                Omission(feature, parameter_id, None, pd.reason or "suppressed")
+                for parameter_id in parameter_ids
             )
             continue
         assert span is not None  # an APPROVED location always carries its datum → ref span
         axis = feature.frame.axis if feature is not None else None
+        if directional_slot_pattern:
+            assert isinstance(feature, SlotPatternFeature)
+            # One authored `location` intent, two independently observable page dimensions.
+            # Keeping distinct ids is what lets completeness detect deletion of X while Y
+            # remains placed; a shared set member would make that false negative structural.
+            for measured_axis in ("x", "y"):
+                index = "xyz".index(measured_axis)
+                value = abs(span[1][index] - span[0][index])
+                approved.append(
+                    ApprovedDimension(
+                        id=_dim_id(feature, f"{pd.param.parameter_id}.{measured_axis}"),
+                        value_text=_fmt(value),
+                        value=value,
+                        # `render_locations` groups both axes from this full datum→ref
+                        # relationship; narrowing one copy would erase the other datum
+                        # coordinate before the renderer separates X from Y.
+                        span=span,
+                        ref=FeatureRef(feature),
+                        kind="location",
+                        role=pd.param.role,
+                        discriminator=measured_axis,
+                        axis=axis,
+                    )
+                )
+            continue
         if isinstance(feature, PocketFeature) and axis != "z":
             # A non-Z pocket's two in-plane coordinates are drawn as TWO dims in its end-on
             # view (`render_slots`), so they are approved as two entries carrying their own
