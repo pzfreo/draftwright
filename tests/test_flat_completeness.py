@@ -121,8 +121,10 @@ def test_issue_914_case_study_keeps_its_only_flat_definition():
     assert Counter(feature.kind for feature in dwg.model().features) == Counter(
         {"boss": 1, "envelope": 1, "step_level": 1, "flat": 1, "rotational": 1}
     ), "the imported case must keep the inventory that made #914 a flat-placement defect"
-    assert dwg.get_annotation("m_flat_y0").label == "25 A/F"
-    assert len(dwg.measurement_keys("m_flat_y0")) == 1, (
+    callouts = [name for name in dwg.annotations() if name.startswith("m_flat_")]
+    assert callouts == ["m_flat_y0"], "one physical requirement needs exactly one definition"
+    assert dwg.get_annotation(callouts[0]).label == "25 A/F"
+    assert len(dwg.measurement_keys(callouts[0])) == 1, (
         "the visible callout must retain compiler provenance for the recognised requirement"
     )
     assert dwg.get_annotation("dim_od").label == "ø40"
