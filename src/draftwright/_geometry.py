@@ -12,6 +12,7 @@ drawing grab-bag (ADR 0008; #584 WP2). This module imports nothing from
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 
 from build123d import Compound
@@ -106,6 +107,102 @@ def plane_axes(axis) -> tuple[tuple[float, float, float], tuple[float, float, fl
 def _axis_letter_of(axis) -> str:
     """Letter of a bare 3-vector's dominant component (:func:`_axis_letter` takes an object)."""
     return max(zip("xyz", axis, strict=True), key=lambda t: abs(t[1]))[0]
+
+
+def _axis_direction_components(axis: str, direction=None):
+    """Validate a direction and return ``(raw, norm, dominant_index)``."""
+    if axis not in "xyz" or len(axis) != 1:
+        raise ValueError("axis must be 'x', 'y', or 'z'")
+    if direction is None:
+        direction = tuple(1.0 if letter == axis else 0.0 for letter in "xyz")
+    try:
+        raw = tuple(float(component) for component in direction)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("axis_direction must be a 3-vector") from exc
+    if len(raw) != 3:
+        raise ValueError("axis_direction must be a 3-vector")
+    if not all(math.isfinite(component) for component in raw):
+        raise ValueError("axis_direction must contain only finite values")
+    norm = math.hypot(*raw)
+    if norm <= 1e-12:
+        raise ValueError("axis_direction must be non-zero")
+    idx = "xyz".index(axis)
+    if abs(raw[idx]) + norm * 1e-9 < max(abs(component) for component in raw):
+        raise ValueError(f"axis_direction's dominant component must match axis={axis!r}")
+    return raw, norm, idx
+
+
+def _normalised_axis_direction(axis: str, direction=None) -> tuple[float, float, float]:
+    """Full-precision unit direction used for geometric projection."""
+    raw, norm, idx = _axis_direction_components(axis, direction)
+    sign = -1.0 if raw[idx] < 0 else 1.0
+    return (
+        sign * raw[0] / norm,
+        sign * raw[1] / norm,
+        sign * raw[2] / norm,
+    )
+
+
+def _canonical_axis_direction(axis: str, direction=None) -> tuple[float, float, float]:
+    """Return a stable unit direction whose named dominant component is positive.
+
+    ``axis`` remains the orthographic routing hint used by the IR. ``direction`` is the
+    actual geometric axis needed to distinguish slanted stock lines; omitting it means the
+    corresponding principal axis. Six decimal places preserve direction while keeping
+    recognition/declaration identities stable across round trips.
+    """
+    raw, norm, idx = _axis_direction_components(axis, direction)
+    sign = -1.0 if raw[idx] < 0 else 1.0
+    # A previously canonical six-decimal vector is close enough to unit length that
+    # normalising it again can move the last digit. Preserve it to make emit -> declare
+    # idempotent; arbitrary vectors are still normalised on first entry.
+    unit = (
+        tuple(sign * component for component in raw)
+        if abs(norm - 1.0) <= 2e-6
+        else _normalised_axis_direction(axis, raw)
+    )
+    rounded = tuple(0.0 if abs(component) < 0.5e-6 else round(component, 6) for component in unit)
+    return (rounded[0], rounded[1], rounded[2])
+
+
+def _canonical_axis_span(axis: str, direction, span) -> tuple[float, float]:
+    """Express an axial extent along the canonical positive direction."""
+    raw, _norm, idx = _axis_direction_components(axis, direction)
+    lo, hi = (float(value) for value in span)
+    if raw[idx] < 0:
+        lo, hi = -hi, -lo
+    return (round(lo, 3), round(hi, 3))
+
+
+def _axis_line_coordinates(axis: str, point, direction=None) -> tuple[float, float]:
+    """Canonical in-plane coordinates of a 3-D axis line.
+
+    The perpendicular foot from the origin makes the result invariant to which point on the
+    line a geometry kernel reports. The named dominant coordinate is omitted; together with
+    the direction it is recoverable from the foot's perpendicularity, so two numbers retain
+    the aligned-stock representation while remaining sufficient for slanted stock.
+    """
+    px, py, pz = (float(component) for component in point)
+    # Use the unrounded unit vector here. Rounding before projection amplifies angular error
+    # into millimetres when the reported axis point is tens of metres from the origin.
+    vector = _normalised_axis_direction(axis, direction)
+    along = px * vector[0] + py * vector[1] + pz * vector[2]
+    foot = tuple(component - along * delta for component, delta in zip((px, py, pz), vector))
+    keep = [i for i, letter in enumerate("xyz") if letter != axis]
+    coordinates = tuple(round(foot[i], 3) for i in keep)
+    return (
+        0.0 if coordinates[0] == 0 else coordinates[0],
+        0.0 if coordinates[1] == 0 else coordinates[1],
+    )
+
+
+def _axis_direction_is_aligned(axis: str, direction, *, tol: float = 1e-3) -> bool:
+    """Whether a canonical direction follows the principal axis named by ``axis``."""
+    vector = _canonical_axis_direction(axis, direction)
+    idx = "xyz".index(axis)
+    return abs(vector[idx] - 1.0) <= tol and all(
+        abs(vector[j]) <= tol for j in range(3) if j != idx
+    )
 
 
 def _fmt(v: float) -> str:

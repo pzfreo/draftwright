@@ -23,7 +23,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
-from draftwright._geometry import _fmt
+from draftwright._geometry import (
+    _axis_direction_is_aligned,
+    _canonical_axis_direction,
+    _canonical_axis_span,
+    _fmt,
+)
 
 if TYPE_CHECKING:
     from draftwright.fits import FitClass
@@ -642,18 +647,36 @@ class FlatFeature:
     frame: Frame
     axis: str
     across: float
-    #: The stock's axis line — see :class:`~draftwright.recognition.flats.Flat`. Two flats
-    #: share an A/F definition only if they share this; the axis letter alone cannot tell a
-    #: double-D's two faces from two parallel lobes (#1013).
+    #: The stock axis line's canonical in-plane position — see
+    #: :class:`~draftwright.recognition.flats.Flat`. Two flats share an A/F definition only if
+    #: they share direction, line and span; the axis letter alone cannot tell a double-D's
+    #: two faces from two parallel or slanted regions (#1013/#1036).
     axis_line: tuple[float, float] = (0.0, 0.0)
-    #: The owning stock's axial extent — with ``axis_line``, the stock identity. Coaxial
-    #: stacked stock shares an axis line, so that alone merged independent definitions.
+    #: The owning stock's axial extent along ``axis_direction``. Coaxial stacked stock shares
+    #: a direction and line, so those alone merged independent definitions.
     stock_span: tuple[float, float] = (0.0, 0.0)
-    #: False for stock whose real cylinder direction is not the named principal ``axis``.
-    #: Its aligned-only ``axis_line`` is not canonical, so margin fallback must not make its
-    #: callout render before #1036 fixes identity and rendering together.
-    axis_aligned: bool = True
+    #: Real stock direction, canonicalised with the named dominant component positive. With
+    #: the perpendicular-foot ``axis_line`` and axial ``stock_span``, this distinguishes
+    #: slanted stock regions without presentation inference (#1036).
+    axis_direction: Point | None = None
     kind: ClassVar[str] = "flat"
+
+    def __post_init__(self) -> None:
+        direction = self.axis_direction
+        object.__setattr__(
+            self,
+            "stock_span",
+            _canonical_axis_span(self.axis, direction, self.stock_span),
+        )
+        object.__setattr__(
+            self,
+            "axis_direction",
+            _canonical_axis_direction(self.axis, direction),
+        )
+
+    @property
+    def axis_aligned(self) -> bool:
+        return _axis_direction_is_aligned(self.axis, self.axis_direction)
 
     def parameters(self) -> list[DimParameter]:
         return [DimParameter("length", "flat", self.across)]

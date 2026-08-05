@@ -33,6 +33,12 @@ from dataclasses import dataclass
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Plane
 
+from draftwright._geometry import (
+    _axis_direction_is_aligned,
+    _axis_line_coordinates,
+    _canonical_axis_direction,
+    _canonical_axis_span,
+)
 from draftwright.recognition._features import analyse_cylinders
 from draftwright.recognition._record import Record
 
@@ -50,7 +56,6 @@ _MIN_FLAT_DEPTH = 0.5
 # line (not merely the same axis letter) within these mm tolerances.
 _OD_REACH_TOL = 0.1
 _AXIS_LINE_TOL = 0.1
-_AXIS_ALIGNED_TOL = 1e-3
 
 
 def _both_chord_ends_reach_od(verts, ax, dv, nv, r):
@@ -80,10 +85,12 @@ def _both_chord_ends_reach_od(verts, ax, dv, nv, r):
     return lo_r is not None and lo_r >= r - _OD_REACH_TOL and hi_r >= r - _OD_REACH_TOL
 
 
-def _same_axis_line(a_ax, a_dir, b_ax):
+def _same_axis_line(axis, a_ax, a_dir, b_ax, b_dir):
     """Two radial flats are opposed across one shaft only if their turning axes are the *same
     line* — the vector between the axis points has no component perpendicular to the shared
     direction. Guards against pairing lone flats on two distinct parallel shafts."""
+    if _canonical_axis_direction(axis, a_dir) != _canonical_axis_direction(axis, b_dir):
+        return False
     vx, vy, vz = b_ax[0] - a_ax[0], b_ax[1] - a_ax[1], b_ax[2] - a_ax[2]
     adot = vx * a_dir[0] + vy * a_dir[1] + vz * a_dir[2]
     px, py, pz = vx - adot * a_dir[0], vy - adot * a_dir[1], vz - adot * a_dir[2]
@@ -100,8 +107,10 @@ class Flat(Record):
     axis: str
     across: float
     at: tuple[float, float, float]
-    #: The stock's axis LINE — the two coordinates perpendicular to ``axis``, in xyz order
-    #: with the axis component dropped (z → (x, y); x → (y, z); y → (x, z)).
+    #: The stock axis line's perpendicular foot from the origin, stored as the two coordinates
+    #: other than dominant ``axis`` (z → (x, y); x → (y, z); y → (x, z)). With
+    #: ``axis_direction`` the omitted coordinate is recoverable, so this is canonical for
+    #: aligned and slanted lines (#1036).
     #:
     #: The axis letter alone cannot say whether two flats belong to the same piece of round
     #: stock, and that is the one thing both consumers need (#1013). Two faces at
@@ -114,7 +123,7 @@ class Flat(Record):
     #: ADR 0013's rule for a record that looks too thin: the fix is the record. The
     #: recogniser already had the owning cylinder in hand, so this costs nothing to carry.
     axis_line: tuple[float, float] = (0.0, 0.0)
-    #: The owning stock's axial extent ``(lo, hi)`` along ``axis``.
+    #: The owning stock's axial extent ``(lo, hi)`` along ``axis_direction``.
     #:
     #: The axis line alone is NOT stock identity, and this code already knew it: #1015 taught
     #: the opposition test that "the same infinite axis is not the same piece of stock", and
@@ -123,14 +132,32 @@ class Flat(Record):
     #: — the very defect #1013 set out to fix, in a coaxial arrangement instead of a parallel
     #: one (Codex #1035 r1).
     #:
-    #: Together with ``axis_line`` this is the stock identity. Purely geometric — the
-    #: recogniser's internal ``stock`` tuple also carries a solid index, which is a same-run
-    #: equality check and deliberately NOT propagated: it is not stable across runs.
+    #: Together with ``axis_direction`` and ``axis_line`` this is the stock identity. Purely
+    #: geometric — the recogniser's internal ``stock`` tuple also carries a solid index,
+    #: which is a same-run equality check and deliberately NOT propagated: it is not stable
+    #: across runs.
     stock_span: tuple[float, float] = (0.0, 0.0)
-    #: Whether the owning cylinder follows the named principal axis. Placement may use
-    #: aggregate-view margin fallbacks only for aligned stock: slanted stock's two-coordinate
-    #: ``axis_line`` is not a canonical identity (#1036).
-    axis_aligned: bool = True
+    #: The real cylinder direction, with the named dominant component positive. Together
+    #: with the perpendicular-foot ``axis_line`` and ``stock_span`` this is the canonical
+    #: stock-region identity ADR 0017 section 3 requires (#1036).
+    axis_direction: tuple[float, float, float] | None = None
+
+    def __post_init__(self) -> None:
+        direction = self.axis_direction
+        object.__setattr__(
+            self,
+            "stock_span",
+            _canonical_axis_span(self.axis, direction, self.stock_span),
+        )
+        object.__setattr__(
+            self,
+            "axis_direction",
+            _canonical_axis_direction(self.axis, direction),
+        )
+
+    @property
+    def axis_aligned(self) -> bool:
+        return _axis_direction_is_aligned(self.axis, self.axis_direction)
 
 
 def recognise_flats(part, *, cyls=None) -> list[Flat]:
@@ -179,7 +206,7 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
             cands.append(
                 {
                     "axis": c["axis"],
-                    "axis_line": _axis_line(c["axis"], ax),
+                    "axis_line": _axis_line(c["axis"], ax, d),
                     "stock_span": (round(c["s_lo"], 3), round(c["s_hi"], 3)),
                     "n": nv,
                     "s": s,
@@ -187,7 +214,7 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                     "at": pcv,
                     "ax": ax,
                     "dir": d,
-                    "axis_aligned": _is_axis_aligned(c["axis"], d),
+                    "axis_direction": d,
                     # Which piece of stock this face was matched to, for the opposition test
                     # below. Internal to one recognition run — a same-run equality check, not
                     # an identity that propagates — so the solid index is safe here.
@@ -205,7 +232,9 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
         for j, other in enumerate(cands):
             if j == i or other["axis"] != cand["axis"]:
                 continue
-            if not _same_axis_line(cand["ax"], cand["dir"], other["ax"]):
+            if not _same_axis_line(
+                cand["axis"], cand["ax"], cand["dir"], other["ax"], other["dir"]
+            ):
                 continue  # a lone flat on a *different* parallel shaft — not opposed
             if other["stock"] != cand["stock"]:
                 # The same infinite axis is not the same piece of stock. Two lone D-flats on
@@ -226,44 +255,21 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                 at=(round(cand["at"][0], 3), round(cand["at"][1], 3), round(cand["at"][2], 3)),
                 axis_line=cand["axis_line"],
                 stock_span=cand["stock_span"],
-                axis_aligned=cand["axis_aligned"],
+                axis_direction=cand["axis_direction"],
             )
         )
     return sorted(out, key=lambda fl: (fl.axis, fl.at))
 
 
-def _axis_line(axis: str, ax) -> tuple[float, float]:
-    """The two coordinates of *ax* perpendicular to *axis* — the stock's axis line (#1013).
+def _axis_line(axis: str, ax, direction=None) -> tuple[float, float]:
+    """Canonical in-plane coordinates of the stock's axis line (#1013, #1036).
 
     Rounded to the same 3 dp as every other coordinate a record carries, so two faces on one
     piece of stock compare equal rather than differing in float noise.
 
-    **Axis-ALIGNED stock only, and deliberately so.** Dropping the dominant axis letter's
-    coordinate identifies a line only when the axis is along X, Y or Z. For a slanted
-    cylinder — ``analyse_cylinders`` classifies one by its dominant component, so a
-    ``(0.707, 0, 0.707)`` axis reads as ``"x"`` — this is neither canonical (the value depends
-    on WHICH point along the axis the cylinder record reports) nor sufficient (two different
-    slanted directions through one point encode identically). A canonical key would be the
-    perpendicular foot from the origin plus the direction, as :func:`_same_axis_line` already
-    computes for the opposition test.
-
-    That is not done here because slanted flats do not render at all today: the callout is
-    dropped (`flat_dropped`) before identity matters, so a canonical key would fix a
-    component of an already-broken path with no observable improvement. #1036 covers both
-    halves together. The narrow claim this function makes is the one it can keep.
+    The stored point is the perpendicular foot from the origin, so it is invariant to which
+    point along the line OCP reports. The dominant coordinate is omitted; ``axis_direction``
+    makes it recoverable and distinguishes different slanted directions through one foot.
+    Aligned stock therefore retains its existing two-coordinate representation.
     """
-    keep = [i for i, letter in enumerate("xyz") if letter != axis]
-    return (round(ax[keep[0]], 3), round(ax[keep[1]], 3))
-
-
-def _is_axis_aligned(axis: str, direction) -> bool:
-    """Whether *direction* follows the principal axis named by *axis*.
-
-    This is deliberately a capability bit, not a line identity. It prevents a placement
-    fallback from making slanted A/F callouts visible before #1036 carries the canonical
-    direction + perpendicular-foot identity needed to group them safely.
-    """
-    idx = "xyz".index(axis)
-    return abs(abs(direction[idx]) - 1.0) <= _AXIS_ALIGNED_TOL and all(
-        abs(direction[j]) <= _AXIS_ALIGNED_TOL for j in range(3) if j != idx
-    )
+    return _axis_line_coordinates(axis, ax, direction)

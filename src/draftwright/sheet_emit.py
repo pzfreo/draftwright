@@ -47,6 +47,12 @@ def _pt(p) -> str:
     return "(" + ", ".join(str(_n(c)) for c in p) + ")"
 
 
+def _direction(p) -> str:
+    """A direction vector needs angular precision, not the 3 dp used for mm coordinates."""
+    values = (round(float(component), 6) for component in p)
+    return "(" + ", ".join(str(int(v)) if v == int(v) else str(v) for v in values) + ")"
+
+
 def _pts_arg(points) -> str:
     return "[" + ", ".join(_pt(p) for p in points) + "]"
 
@@ -382,10 +388,15 @@ def _feature_line(f, part_envelope=None) -> str:
         # collapsing into one callout, and a script that omits them regenerates the very
         # drawing the detection was fixing (Codex #1035 r1). The declared defaults reproduce
         # pre-#1013 grouping, so silence here is not neutral — it is the old bug.
-        alignment = "" if f.axis_aligned else ", axis_aligned=False"
+        principal = tuple(1.0 if letter == f.axis else 0.0 for letter in "xyz")
+        direction = (
+            ""
+            if f.axis_direction == principal
+            else f", axis_direction={_direction(f.axis_direction)}"
+        )
         return (
             f'sheet.flat(axis="{f.axis}", across={_n(f.across)}, at={_pt(f.frame.origin)}, '
-            f"axis_line={_pt(f.axis_line)}, stock_span={_pt(f.stock_span)}{alignment})"
+            f"axis_line={_pt(f.axis_line)}, stock_span={_pt(f.stock_span)}{direction})"
         )
     if k == "groove":
         return (

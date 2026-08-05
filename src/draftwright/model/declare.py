@@ -505,13 +505,14 @@ def flat(
     at=None,
     axis_line=None,
     stock_span=None,
-    axis_aligned=True,
+    axis_direction=None,
 ) -> FlatFeature:
     """A machined flat on round stock (#148b). Either ``flat(flat_face)`` — the planar face
     supplies the leader point ``at`` (``axis=`` and ``across=`` still required, being
     unrecoverable from a plane) — or fully explicit ``flat(axis="z", across=15, at=(x, y,
-    z))``. Called out ``{across} A/F`` (across flats). An object supplies the ``at`` default;
-    any explicit keyword overrides (#451)."""
+    z))``. ``axis_direction=`` carries a non-principal stock direction; ``axis_line=`` and
+    ``stock_span=`` then complete its geometric identity. Called out ``{across} A/F`` (across
+    flats). An object supplies the ``at`` default; any explicit keyword overrides (#451)."""
     if obj is not None:
         at = _read_flat_face(obj) if at is None else at
     if across is None or axis is None or at is None:
@@ -530,7 +531,7 @@ def flat(
         across=round(across, 3),
         axis_line=_stock_pair(axis_line),
         stock_span=_stock_pair(stock_span),
-        axis_aligned=axis_aligned,
+        axis_direction=axis_direction,
     )
 
 

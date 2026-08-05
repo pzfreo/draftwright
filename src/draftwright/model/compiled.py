@@ -253,11 +253,10 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # changes output, and a migration that claims byte-identity is the wrong place for it.
     "chamfer": ("frame", "axis", "leg2", "angle"),
     "fillet": ("frame", "axis"),
-    # `axis_line`/`stock_span` are STRUCTURE, not measurements: they say which piece of stock
-    # a flat belongs to, so the renderer can tell a double-D's two faces from two parallel
-    # lobes (#1013). `axis_aligned` gates a placement capability whose slanted identity is not
-    # canonical yet (#1036). The drawing prints none of them.
-    "flat": ("frame", "axis", "axis_line", "stock_span", "axis_aligned"),
+    # These are STRUCTURE, not measurements: together they say which piece of stock a flat
+    # belongs to, so the renderer can tell one double-D's two faces from independent aligned
+    # or slanted regions (#1013/#1036). The drawing prints none of them.
+    "flat": ("frame", "axis", "axis_line", "stock_span", "axis_direction"),
     "groove": ("frame", "axis"),
     "plate": ("frame", "axis"),
     # Raw AP242 PMI is the documented non-generated exception: its source-authored label

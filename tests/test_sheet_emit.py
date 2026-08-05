@@ -570,9 +570,10 @@ class TestEmit:
         assert redeclared.axis == det.axis and redeclared.across == det.across
         assert redeclared.frame.origin == pytest.approx(det.frame.origin)
         assert redeclared.axis_line == det.axis_line and redeclared.stock_span == det.stock_span
+        assert redeclared.axis_direction == det.axis_direction
         assert redeclared.axis_aligned == det.axis_aligned
 
-    def test_slanted_flat_round_trips_the_alignment_guard(self):
+    def test_slanted_flat_round_trips_its_canonical_stock_identity(self):
         from build123d import Rot
 
         from draftwright.model import flat as declare_flat
@@ -582,10 +583,38 @@ class TestEmit:
         det = next(f for f in build_drawing(part, number="X").model().features if f.kind == "flat")
         assert det.axis_aligned is False
         line = _feature_line(det)
-        assert "axis_aligned=False" in line
+        assert "axis_direction=(0.707107, 0, 0.707107)" in line
+        assert "axis_line=(0, 0)" in line
         env = {"sheet": type("S", (), {"flat": staticmethod(declare_flat)})()}
         redeclared = eval(line, {"__builtins__": {}}, env)  # noqa: S307
-        assert redeclared.axis_aligned is False
+        assert redeclared.axis_direction == det.axis_direction
+        assert redeclared.axis_line == det.axis_line and redeclared.stock_span == det.stock_span
+
+        redrawn = build_drawing(part, model=[redeclared], number="X")
+        assert [n for n in redrawn.annotations() if n.startswith("m_flat_")] == ["m_flat_x0"]
+        assert not [
+            i
+            for i in redrawn.lint()
+            if i.code == "flat_dropped" or i.code.startswith("flat_requirement_")
+        ]
+
+    def test_flat_direction_round_trip_is_not_coordinate_precision(self):
+        from draftwright.model import flat as declare_flat
+        from draftwright.sheet_emit import _feature_line
+
+        feature = declare_flat(
+            axis="x",
+            across=13,
+            at=(3, 0, -3),
+            axis_line=(0, 0),
+            stock_span=(-20, 20),
+            axis_direction=(0.907331, -0.059575, 0.416176),
+        )
+        line = _feature_line(feature)
+        assert "axis_direction=(0.907331, -0.059575, 0.416176)" in line
+        env = {"sheet": type("S", (), {"flat": staticmethod(declare_flat)})()}
+        redeclared = eval(line, {"__builtins__": {}}, env)  # noqa: S307
+        assert redeclared.axis_direction == feature.axis_direction
 
     def test_groove_emits_the_groove_verb(self):
         # #148c: a detected turned groove emits `sheet.groove(...)` — the emit surface for the

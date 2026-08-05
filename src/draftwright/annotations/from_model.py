@@ -1774,10 +1774,19 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
         # but not a span. Grouping on the line alone merged the coaxial case silently — the
         # same defect this fix is about, one arrangement over (Codex #1035 r1).
         collapse.setdefault(
-            (g.facts.axis, g.facts.axis_line, g.facts.stock_span, round(pd.value, 3)), []
+            (
+                g.facts.axis,
+                g.facts.axis_direction,
+                g.facts.axis_line,
+                g.facts.stock_span,
+                round(pd.value, 3),
+            ),
+            [],
         ).append((g, pd))
     jobs = []
-    for gi, ((axis, _line, _span, _across), members) in enumerate(sorted(collapse.items())):
+    for gi, ((axis, _direction, _line, _span, _across), members) in enumerate(
+        sorted(collapse.items())
+    ):
         if only is not None:
             # #426 Ph2b subset (finalize): filter members AFTER enumerating the collapse so gi
             # stays the full-drawing group index (Codex #811) — see render_fillets.
@@ -1792,30 +1801,18 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
         # First-AUTHORED tolerance wins (planner/model order, not spatial — see the
         # fillet pass / render_diameters precedent, Codex review).
         tol = next((pd.tolerance for _, pd in members if pd.tolerance is not None), None)
-        axis_aligned = all(g.facts.axis_aligned for g, _ in members)
-        if not axis_aligned:
-            # Slanted stock's two-coordinate axis_line is not canonical (#1036). It used to
-            # drop accidentally when alone but could render when several slanted stocks made
-            # the aggregate view large enough. An empty candidate set makes the unsupported
-            # state deterministic and still records one attributed flat_dropped outcome.
-            candidates = ()
-        else:
-            # The margin fallback is specifically for several independent pieces of aligned
-            # stock in the same aggregate view (#1034). Ordinary single/double-D stock keeps
-            # the established centre-out placement first and unchanged.
-            candidate_factory = (
-                _flat_candidates
-                if sum(key[0] == axis for key in collapse) > 1
-                else _corner_candidates
-            )
-            candidates = candidate_factory(
-                dwg,
-                view,
-                vb,
-                [g.facts for g, _ in ordered],
-                reach,
-                provenances=[g.ref for g, _ in ordered],
-            )
+        # The established centre-out positions remain first. Boundary-aware fallbacks are
+        # now safe for every flat because direction + perpendicular line position + span make
+        # aligned and slanted stock groups canonical (#1036); they also cover a lone flat
+        # under local placement pressure, not only #1034's multiple-stock case.
+        candidates = _flat_candidates(
+            dwg,
+            view,
+            vb,
+            [g.facts for g, _ in ordered],
+            reach,
+            provenances=[g.ref for g, _ in ordered],
+        )
         jobs.append(
             (
                 f"m_flat_{axis}{gi}",

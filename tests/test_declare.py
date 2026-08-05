@@ -555,6 +555,24 @@ class TestFlat:
         f = flat(axis="z", across=15, at=(5, 0, 0))
         assert isinstance(f, FlatFeature)
         assert f.axis == "z" and f.across == 15 and f.frame.origin == pytest.approx((5, 0, 0))
+        assert f.axis_direction == (0.0, 0.0, 1.0) and f.axis_aligned
+
+    def test_direction_is_normalised_and_canonical(self):
+        f = flat(
+            axis="x",
+            across=13,
+            at=(3, 0, -3),
+            stock_span=(-20, 10),
+            axis_direction=(-1, 0, -1),
+        )
+        assert f.axis_direction == pytest.approx((2**-0.5, 0.0, 2**-0.5), abs=1e-6)
+        assert f.stock_span == (-10.0, 20.0)
+        assert not f.axis_aligned
+
+    @pytest.mark.parametrize("direction", [(0, 0, 0), (0, 1, 0), (1, 0), (float("nan"), 0, 0)])
+    def test_rejects_invalid_direction(self, direction):
+        with pytest.raises(ValueError, match="axis_direction"):
+            flat(axis="x", across=13, at=(3, 0, -3), axis_direction=direction)
 
     def test_reads_at_off_the_planar_face(self):
         # The object flavour reads the leader point off the planar flat face; axis/across

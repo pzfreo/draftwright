@@ -11,6 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Literal
 
+from draftwright._geometry import _canonical_axis_direction
 from draftwright.linting.issues import LintIssue
 from draftwright.recognition import RecognitionResult
 
@@ -20,6 +21,7 @@ FlatRequirementState = Literal["placed", "suppressed", "dropped", "missing", "un
 @dataclass(frozen=True, order=True)
 class _FlatRequirementKey:
     axis: str
+    axis_direction: tuple[float, float, float]
     axis_line: tuple[float, float]
     stock_span: tuple[float, float]
     across: float
@@ -30,6 +32,7 @@ class FlatRequirementOutcome:
     """The observable engine outcome of one physical A/F requirement."""
 
     axis: str
+    axis_direction: tuple[float, float, float]
     axis_line: tuple[float, float]
     stock_span: tuple[float, float]
     across: float
@@ -44,6 +47,7 @@ def _rounded_pair(values) -> tuple[float, float]:
 def _key(flat) -> _FlatRequirementKey:
     return _FlatRequirementKey(
         axis=flat.axis,
+        axis_direction=_canonical_axis_direction(flat.axis, getattr(flat, "axis_direction", None)),
         axis_line=_rounded_pair(flat.axis_line),
         stock_span=_rounded_pair(flat.stock_span),
         across=round(float(flat.across), 3),
@@ -74,10 +78,11 @@ def flat_requirement_outcomes(
 ) -> list[FlatRequirementOutcome]:
     """Follow each recognised flat requirement to an explicit engine outcome.
 
-    Two faces of one double-D/hex share a requirement; parallel or disjoint coaxial stock
-    does not. Stock identity plus A/F defines that physical grouping; each group's recognised
-    3-D face anchors then join to IR exactly. If that record-to-IR correspondence is absent,
-    the result is ``unverifiable`` rather than a fuzzy match.
+    Two faces of one double-D/hex share a requirement; parallel, differently-directed, or
+    disjoint coaxial stock does not. Direction + line + span identity and A/F define that
+    physical grouping; each group's recognised 3-D face anchors then join to IR exactly. If
+    that record-to-IR correspondence is absent, the result is ``unverifiable`` rather than a
+    fuzzy match.
     """
     if recognition is None:
         return []
@@ -152,6 +157,7 @@ def flat_requirement_outcomes(
         outcomes.append(
             FlatRequirementOutcome(
                 axis=requirement.axis,
+                axis_direction=requirement.axis_direction,
                 axis_line=requirement.axis_line,
                 stock_span=requirement.stock_span,
                 across=requirement.across,
@@ -182,7 +188,8 @@ def lint_flat_coverage(
         if outcome.state in {"placed", "dropped"}:
             continue
         stock = (
-            f"{outcome.axis.upper()} stock at axis line {outcome.axis_line}, "
+            f"{outcome.axis.upper()} stock along {outcome.axis_direction} at axis line "
+            f"{outcome.axis_line}, "
             f"span {outcome.stock_span}"
         )
         messages = {

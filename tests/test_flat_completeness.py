@@ -16,7 +16,9 @@ from build123d import Align, Box, Cylinder, Pos
 from draftwright import Sheet, build_drawing
 from draftwright.linting import LintIssue
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
+from draftwright.model.declare import flat as declare_flat
 from draftwright.recognition import recognise_flats
+from draftwright.recognition.flats import Flat
 from draftwright.registry import AnnotationRegistry
 
 
@@ -82,6 +84,7 @@ def _declared_flat_drawing(*, suppress: bool = False):
             at=flat.at,
             axis_line=flat.axis_line,
             stock_span=flat.stock_span,
+            axis_direction=flat.axis_direction,
         )
     if suppress:
         envelope = sheet.envelope()
@@ -143,6 +146,49 @@ def test_stock_identity_defines_requirement_cardinality_without_page_matching():
     )
 
 
+def test_direction_is_a_load_bearing_part_of_slanted_requirement_identity():
+    """Two directions through one perpendicular foot are different stock lines.
+
+    This deliberately holds axis letter, line coordinates, span and A/F equal. Removing
+    direction from the key collapses the two physical requirements into one and must fail.
+    """
+    drawing = build_drawing(_double_d())
+    recognition = drawing.recognition()
+    assert recognition is not None
+    directions = ((1.0, 0.0, 1.0), (1.0, 0.0, -1.0))
+    points = ((3.0, 0.0, -3.0), (3.0, 0.0, 3.0))
+    records = tuple(
+        Flat(
+            axis="x",
+            across=13.0,
+            at=point,
+            axis_line=(0.0, 0.0),
+            stock_span=(-20.0, 20.0),
+            axis_direction=direction,
+        )
+        for point, direction in zip(points, directions, strict=True)
+    )
+    features = tuple(
+        declare_flat(
+            axis=record.axis,
+            across=record.across,
+            at=record.at,
+            axis_line=record.axis_line,
+            stock_span=record.stock_span,
+            axis_direction=record.axis_direction,
+        )
+        for record in records
+    )
+
+    outcomes = flat_requirement_outcomes(
+        replace(recognition, flats=records),
+        features,
+        AnnotationRegistry(),
+    )
+    assert [outcome.state for outcome in outcomes] == ["missing", "missing"]
+    assert len({outcome.axis_direction for outcome in outcomes}) == 2
+
+
 def test_authored_omission_is_suppressed_not_missing():
     dwg = _declared_flat_drawing(suppress=True)
     assert not [name for name in dwg.annotations() if name.startswith("m_flat_")], (
@@ -172,7 +218,7 @@ def test_a_planner_omission_is_not_authored_suppression():
 
 
 def test_forced_placement_failure_is_dropped_not_missing():
-    dwg = build_drawing(_flatted_shaft(), page="A4", scale=2.0)
+    dwg = build_drawing(_flatted_shaft(), page="A4", scale=3.0)
     issues = dwg.lint()
     drop = next(issue for issue in issues if issue.code == "flat_dropped")
     assert len(drop.measurement_ids) == 2, (
@@ -214,6 +260,7 @@ def test_requirement_identity_without_source_record_correspondence_is_unverifiab
             at=shifted_at,
             axis_line=flat.axis_line,
             stock_span=flat.stock_span,
+            axis_direction=flat.axis_direction,
         )
     sheet.auto_dimensions()
     dwg = sheet.build()

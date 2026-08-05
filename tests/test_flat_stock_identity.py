@@ -9,11 +9,13 @@ undefined on the sheet with nothing reporting it.
 ADR 0013's rule for a record that looks too thin is that the fix is the record.
 """
 
+import pytest
 from build123d import Box, Cylinder, Pos, Rot
 
 from draftwright import build_drawing
 from draftwright.model.declare import flat as declare_flat
 from draftwright.recognition import recognise_flats
+from draftwright.recognition.flats import _axis_line, _same_axis_line
 
 
 def _lobe():
@@ -168,14 +170,13 @@ def test_a_declared_flat_defaults_to_one_stock():
     assert far.axis_line != a.axis_line, "an explicit axis line must separate declared lobes"
 
 
-def test_slanted_stock_is_an_acknowledged_limitation_not_a_silent_wrong_answer():
-    """`axis_line` identifies AXIS-ALIGNED stock. For a slanted axis it is neither canonical
-    nor sufficient — see `_axis_line`'s docstring and #1036.
+def test_slanted_stock_has_canonical_identity_and_a_placed_definition():
+    """A slanted flat's A/F callout is safe only after its stock key carries direction.
 
-    This pins the reason that gap is tolerable rather than urgent: a slanted flat produces no
-    callout at all, so the identity never gets to be wrong in a drawing. The test exists so
-    that if slanted rendering is ever fixed, this fails and the identity gap surfaces with
-    it — rather than the two being fixed months apart with a wrong callout in between.
+    The OCP axis point for this fixture is ``(-14.142, 0, -14.142)``. Dropping X from that
+    point produced ``(0, -14.142)``, a key that changed with the chosen point along the line.
+    The perpendicular foot is the origin, so the canonical in-plane coordinates are
+    ``(0, 0)`` and direction distinguishes other lines through that foot (#1036).
     """
     slant = Rot(0, 45, 0) * (Cylinder(10, 40) - Pos(8, 0, 0) * Box(10, 40, 60))
 
@@ -185,21 +186,55 @@ def test_slanted_stock_is_an_acknowledged_limitation_not_a_silent_wrong_answer()
         "a (0.707, 0, 0.707) axis is classified by its dominant component; if that changed, "
         "the slanted-identity reasoning in _axis_line needs rechecking"
     )
-    assert not flats[0].axis_aligned, "the renderer needs an explicit slanted-stock guard"
+    assert flats[0].axis_direction == pytest.approx((2**-0.5, 0.0, 2**-0.5), abs=1e-6)
+    assert flats[0].axis_line == (0.0, 0.0), (
+        "the line key used OCP's arbitrary point rather than the perpendicular foot"
+    )
+    assert not flats[0].axis_aligned
 
     dwg = build_drawing(slant)
-    assert not [n for n in dwg.annotations() if n.startswith("m_flat_")], (
-        "a slanted flat now RENDERS. The identity key it is grouped by is not canonical for "
-        "slanted axes (#1036) — fix that before shipping slanted A/F callouts, or two "
-        "patches of one shaft may draw two callouts and two shafts may draw one."
-    )
-    assert [i for i in dwg.lint() if i.code == "flat_dropped"], (
-        "the slanted flat is neither drawn nor reported — that would be a silent omission"
-    )
+    callouts = [n for n in dwg.annotations() if n.startswith("m_flat_")]
+    assert callouts == ["m_flat_x0"]
+    assert len(dwg.measurement_keys(callouts[0])) == 1
+    assert not [
+        issue
+        for issue in dwg.lint()
+        if issue.code in {"flat_dropped", "annotation_overlap", "leader_crosses_silhouette"}
+        or issue.code.startswith("flat_requirement_")
+    ]
 
-    # The multi-stock fallback from #1034 must not defeat the guard merely because there are
-    # now two non-canonical stock groups (the adversarial counterexample to the first cut).
+    # Translation perpendicular to the slanted direction changes the canonical line position,
+    # so the two physical requirements remain two rendered definitions.
     two_slants = slant + Pos(0, 60, 0) * slant
     multi = build_drawing(two_slants)
-    assert not [n for n in multi.annotations() if n.startswith("m_flat_")]
-    assert len([i for i in multi.lint() if i.code == "flat_dropped"]) == 2
+    assert len([n for n in multi.annotations() if n.startswith("m_flat_")]) == 2
+    assert not [i for i in multi.lint() if i.code == "flat_dropped"]
+
+
+def test_a_slanted_double_d_is_still_one_physical_definition():
+    slanted_double_d = Rot(0, 45, 0) * _double_d()
+    flats = recognise_flats(slanted_double_d)
+    assert len(flats) == 2 and len({f.axis_direction for f in flats}) == 1
+    assert len({(f.axis_line, f.stock_span) for f in flats}) == 1
+
+    dwg = build_drawing(slanted_double_d)
+    callouts = [n for n in dwg.annotations() if n.startswith("m_flat_")]
+    assert len(callouts) == 1 and len(dwg.measurement_keys(callouts[0])) == 2
+    assert not [i for i in dwg.lint() if i.code == "flat_dropped"]
+
+
+def test_slanted_line_geometry_is_directional_and_point_invariant():
+    direction = (2**-0.5, 0.0, 2**-0.5)
+    first = (-14142.135624, 60.0, -14142.135624)
+    second = tuple(first[i] + 40000 * direction[i] for i in range(3))
+    assert _axis_line("x", first, direction) == _axis_line("x", second, direction) == (60.0, 0.0)
+
+    # A perpendicular foot alone is not a line: a different direction through it must not
+    # make two faces opponents. Removing the direction comparison makes this assertion fail.
+    assert not _same_axis_line(
+        "x",
+        (0.0, 0.0, 0.0),
+        direction,
+        (0.0, 0.0, 0.0),
+        (2**-0.5, 0.0, -(2**-0.5)),
+    )
