@@ -15,8 +15,7 @@ import warnings
 import pytest
 from build123d import Box, Cylinder, Pos
 
-from draftwright import Sheet, build_drawing
-from draftwright._core import SoftDeprecationWarning
+from draftwright import Sheet, SoftDeprecationWarning, build_drawing
 
 
 def _part():
@@ -35,43 +34,74 @@ def test_soft_deprecation_is_not_a_deprecation_warning():
     assert not issubclass(SoftDeprecationWarning, DeprecationWarning)
 
 
+def _warn_auto(sheet):
+    """Select the automatic source WITHOUT its warning reaching the caller's capture.
+
+    `add_dimension` is only legal against an automatic set, so reaching it necessarily warns
+    twice. The first cut of these tests wrapped both calls in one `pytest.warns` and asserted
+    on the last record — which passes even if `add_dimension` stops warning entirely, because
+    `auto_dimensions`' warning satisfies every assertion on its own. Verified: deleting
+    `add_dimension`'s warning left all seven tests green (Codex #1045 r1).
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SoftDeprecationWarning)
+        sheet.auto_dimensions()
+
+
+def _trigger(verb, sheet, hole):
+    """Call exactly ONE discouraged verb, with any prerequisite warning already absorbed."""
+    if verb == "auto_dimensions":
+        sheet.auto_dimensions()
+    else:
+        _warn_auto(sheet)
+        sheet.add_dimension(hole, "bore.diameter")
+
+
 @pytest.mark.parametrize("verb", ["auto_dimensions", "add_dimension"])
 def test_the_discouraged_verbs_warn_without_promising_removal(verb):
     """Each names the replacement, and explicitly does NOT promise to go away — a user who
-    reads the warning should learn that their code will keep working."""
+    reads the warning should learn that their code will keep working.
+
+    Exactly one warning is captured, so each verb is tested on its own behaviour.
+    """
     sheet = Sheet(_part())
     hole = sheet.hole(Pos(0, 0, 0) * Cylinder(5, 20))
 
     with pytest.warns(SoftDeprecationWarning) as rec:
-        if verb == "auto_dimensions":
-            sheet.auto_dimensions()
-        else:
-            # `add_dimension` only means something against an automatic set, so reaching it
-            # necessarily warns twice. The last warning is the one under test.
-            sheet.auto_dimensions()
-            sheet.add_dimension(hole, "bore.diameter")
+        _trigger(verb, sheet, hole)
 
-    msg = str(rec[-1].message)
+    assert len(rec) == 1, (
+        f"expected exactly one warning from {verb}, got {len(rec)} — a prerequisite verb's "
+        "warning is leaking into the capture and could satisfy these assertions by itself"
+    )
+    msg = str(rec[0].message)
+    assert verb in msg, f"the warning must name the verb it came from: {msg}"
     assert "authored" in msg.lower(), f"the warning must name the replacement: {msg}"
     assert "not scheduled for removal" in msg.lower(), (
         f"the warning must say it is staying — that is what makes this soft: {msg}"
     )
 
 
-def test_the_warning_does_not_claim_a_removal_version():
+@pytest.mark.parametrize("verb", ["auto_dimensions", "add_dimension"])
+def test_the_warning_does_not_claim_a_removal_version(verb):
     """`test_deprecation_dates` requires removal LANGUAGE plus a version of every
     `DeprecationWarning`. These must not read like that, or a future reader will believe a
     removal is scheduled when none is.
+
+    Parametrised over both verbs: the first cut checked only `auto_dimensions`, so
+    `add_dimension` could have started promising a removal without this failing.
     """
     import re
 
     sheet = Sheet(_part())
+    hole = sheet.hole(Pos(0, 0, 0) * Cylinder(5, 20))
+
     with pytest.warns(SoftDeprecationWarning) as rec:
-        sheet.auto_dimensions()
+        _trigger(verb, sheet, hole)
 
     msg = str(rec[0].message)
     assert not re.search(r"(?:removed|removal|expires)\b[^.]{0,60}?\d+\.\d+", msg, re.I), (
-        f"the message reads like a scheduled removal, which it is not: {msg}"
+        f"{verb}'s message reads like a scheduled removal, which it is not: {msg}"
     )
 
 

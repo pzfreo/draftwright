@@ -90,7 +90,7 @@ markers = [
 # `pytest.warns`, which fires regardless of this filter. Real `DeprecationWarning`s are
 # untouched and still carry removal dates (`tests/test_deprecation_dates.py`).
 filterwarnings = [
-    "ignore::draftwright._core.SoftDeprecationWarning",
+    "ignore::draftwright.SoftDeprecationWarning",
 ]
 # Coverage is a CI concern (it adds ~13% locally and instruments every line); the
 # CI workflow passes the --cov flags explicitly. Keep the local default lean.

@@ -32,6 +32,10 @@ _LAZY = {
     "PmiRecord": "draftwright.pmi",
     "extract_pmi": "draftwright.pmi",
     "choose_scale": "draftwright.compose",
+    # A warning category users are told to filter must be importable without reaching into a
+    # private module (#1043 review). `_core` is cheap — it does not drag the CAD kernel — but
+    # it stays lazy for consistency with everything else here.
+    "SoftDeprecationWarning": "draftwright._core",
 }
 
 
@@ -85,6 +89,7 @@ def __dir__():
 
 __all__ = [
     "Drawing",
+    "SoftDeprecationWarning",
     "FeatureInfo",
     "PmiRecord",
     "Sheet",

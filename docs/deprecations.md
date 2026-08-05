@@ -12,7 +12,7 @@ something.
 ## Discouraged — supported, no removal planned
 
 These are **soft deprecated**: they warn, they steer you elsewhere, and they are **not going
-away**. They raise `SoftDeprecationWarning` (a `UserWarning` subclass), *not*
+away**. They raise `draftwright.SoftDeprecationWarning` (a `UserWarning` subclass), *not*
 `DeprecationWarning`, and they deliberately carry **no removal target**.
 
 That is not a violation of ADR 0005 §4's exit-date rule — it is the reason the two categories
@@ -23,6 +23,15 @@ failure §4 names, wearing a date.
 
 `tests/test_deprecation_dates.py` scans `DeprecationWarning`s only, so these rows are outside
 it by construction.
+
+To silence the category in your own code:
+
+```python
+import warnings
+from draftwright import SoftDeprecationWarning
+
+warnings.filterwarnings("ignore", category=SoftDeprecationWarning)
+```
 
 | Surface | Prefer | Since | Why |
 |---|---|---|---|
