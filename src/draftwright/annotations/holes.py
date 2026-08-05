@@ -2168,8 +2168,7 @@ def _place_queue(
     # at the natural-pull baseline (user, 2026-07-02 — a large relocation to dodge a thin
     # obstacle is worse than a small, visible, correctable crossing; a tight win is still taken).
     _RELOCATE_TOLERANCE = min_gap
-    placed: list = []  # (s, elbow_y, leader) — leader built once, reused at emit
-    crossing: list = []  # ditto, kept despite an obstacle crossing (policy B)
+    preferred: list = []  # (s, preferred_y) — reconciled as one batch below
     dropped: list = []  # s — genuinely no room anywhere, not just a crossing
     for s in queue:
         sid = id(s)
@@ -2187,6 +2186,25 @@ def _place_queue(
         else:
             dropped.append(s)
             continue
+        preferred.append((s, y))
+
+    # ``base_y`` and ``seg_y`` are each valid whole-queue layouts. Choosing between them per
+    # candidate can interleave their rows into a third layout that neither solve spacing-checked
+    # (#915). Use those choices as preferred anchors, then reconcile every survivor through one
+    # final bands-only solve. Obstacle crossings remain the explicit policy-B fallback below.
+    targets = [(s[0], s[1], s[2], s[3], y, s[5]) for s, y in preferred]
+    source_by_target = {id(target): s for target, (s, _y) in zip(targets, preferred, strict=True)}
+    final_y, final_dropped = _carve_and_place(targets, band_intervals, f"{key_prefix}final_", sctx)
+
+    placed: list = []  # (s, elbow_y, leader) — leader built once, reused at emit
+    crossing: list = []  # ditto, kept despite an obstacle crossing (policy B)
+    for target in targets:
+        tid = id(target)
+        s = source_by_target[tid]
+        if tid in final_dropped or tid not in final_y:
+            dropped.append(s)
+            continue
+        y = final_y[tid]
         leader, tip, elbow = _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, a.SCALE)
         if _leader_hits(leader, tip, elbow, side, occupied):
             crossing.append((s, y, leader))
