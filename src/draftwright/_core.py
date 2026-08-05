@@ -555,8 +555,13 @@ def _largest_empty_rect(drawable, obstacles, *, target_size=None, warn: bool = T
     obstacle bounds, so enumerating those cut lines finds the optimum.
     """
     target_w, target_h = target_size or (1.0, 1.0)
-    if target_w <= 0 or target_h <= 0:
-        raise ValueError("target_size must contain positive dimensions")
+    if not (
+        math.isfinite(target_w)
+        and target_w > 0
+        and math.isfinite(target_h)
+        and target_h > 0
+    ):
+        raise ValueError("target_size must contain finite positive dimensions")
 
     dx0, dy0, dx1, dy1 = drawable
     xs = sorted({dx0, dx1, *(c for o in obstacles for c in (o[0], o[2]) if dx0 < c < dx1)})

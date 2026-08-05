@@ -1385,6 +1385,16 @@ class TestIsoEmptyRect:
             100.0,
         )
 
+    @pytest.mark.parametrize(
+        "target_size",
+        [(float("nan"), 1.0), (0.0, 1.0), (1.0, float("nan")), (1.0, 0.0)],
+    )
+    def test_target_aspect_requires_two_finite_positive_dimensions(self, target_size):
+        from draftwright._core import _largest_empty_rect
+
+        with pytest.raises(ValueError, match="finite positive dimensions"):
+            _largest_empty_rect((0.0, 0.0, 10.0, 10.0), [], target_size=target_size)
+
 
 class TestScaleMinimum:
     """An explicit scale below the legibility floor is honoured with a warning (#489);
@@ -5591,6 +5601,23 @@ class TestDetailView:
         assert "detail_a" not in dwg.views
         assert "detail_caption" not in dwg.annotations()
         assert not any(n.startswith("dim_detail") for n in dwg.annotations())
+
+    def test_non_finite_requested_scale_is_rejected_before_geometry_work(self):
+        from types import SimpleNamespace
+
+        from draftwright._core import DetailRequest
+        from draftwright.annotations.sections import _render_detail
+
+        req = DetailRequest(axis="z", lo=0.0, hi=1.0, scale_needed=float("inf"), redraw=lambda: 1)
+
+        assert not _render_detail(
+            None,
+            SimpleNamespace(SCALE=1.0),
+            req,
+            "detail_a",
+            "A",
+            ctx=None,
+        )
 
     def test_crowded_shoulders_get_a_detail_view_when_requested(self):
         from draftwright._core import _legible_steps

@@ -420,6 +420,11 @@ def _render_detail(
         if detail_scale >= req.scale_needed:
             break
 
+    min_detail_scale = max(req.scale_needed, a.SCALE * 1.2 + 1e-6)
+    if not math.isfinite(min_detail_scale):
+        _log.info("Detail %s skipped (non-finite scale required)", letter)
+        return False
+
     # Crop to the band along req.axis (two fuzzy cuts). Solids only — a mixed
     # compound (PMI curves) cannot be cut.
     solids = a.part.solids()
@@ -468,10 +473,6 @@ def _render_detail(
     def _pads(s):  # annotation bands may depend on the scale (the prismatic ladder)
         return req.pads(s) if req.pads is not None else (0.0, req.pad_top)
 
-    min_detail_scale = max(req.scale_needed, a.SCALE * 1.2 + 1e-6)
-    if not math.isfinite(min_detail_scale):
-        _log.info("Detail %s skipped (non-finite scale required)", letter)
-        return False
     min_pad_right, min_pad_top = _pads(min_detail_scale)
     min_footprint = (
         view_w * min_detail_scale + min_pad_right,
