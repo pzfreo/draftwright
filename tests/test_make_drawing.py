@@ -3460,6 +3460,8 @@ def test_analyse_face_levels_box():
     # Box centred at origin has Z faces at -5 and +5
     assert any(abs(fl.z - (-5.0)) < 0.1 for fl in levels)
     assert any(abs(fl.z - 5.0) < 0.1 for fl in levels)
+    assert all(fl.x_span == pytest.approx((-15.0, 15.0)) for fl in levels)
+    assert all(fl.y_span == pytest.approx((-10.0, 10.0)) for fl in levels)
 
 
 @pytest.mark.timeout(60)
@@ -5753,11 +5755,51 @@ class TestDetailView:
         assert ctx.detail_requests[0].crop_lo == bbox_base
         assert ctx.detail_requests[0].crop_lo != declared_base
 
-    def test_unplaceable_detail_is_reported_not_silently_dropped(self):
-        # #630: on a shelled cover the crowded step band is full-width (stacked face
-        # levels), so a detail can't be enlarged legibly AND still fit — detail_view=True
-        # used to be a silent no-op (output byte-identical to False). It must now SAY SO:
-        # a `detail_unplaceable` warning that False does not carry.
+    def test_partial_level_support_does_not_crop_away_an_unwitnessed_rung(self):
+        """Correspondence cropping is all-or-nothing: one fallback rung keeps full context."""
+        from types import SimpleNamespace
+
+        from draftwright.annotations._common import Escalation, PlacementContext
+        from draftwright.annotations.sections import _request_prismatic_detail
+        from draftwright.model.compiled import (
+            ApprovedDimension,
+            ApprovedLadder,
+            RenderableDimensionPlan,
+        )
+
+        rungs = tuple(
+            ApprovedDimension(
+                id=None,
+                value_text=str(z),
+                value=z,
+                span=((x, 0.0, 0.0), (x, 0.0, z)),
+                rendered_label=str(z),
+                support_bounds=(-20.0, -10.0, x, 10.0) if z < 3.0 else None,
+            )
+            for z, x in ((1.0, 10.0), (2.0, 20.0), (3.0, 50.0))
+        )
+        plan = RenderableDimensionPlan(ladders=(ApprovedLadder("step_height", rungs),))
+        analysis = SimpleNamespace(
+            bb=SimpleNamespace(
+                min=SimpleNamespace(X=-50.0, Z=0.0),
+                max=SimpleNamespace(X=50.0, Z=4.0),
+            ),
+            SCALE=1.0,
+        )
+        ctx = PlacementContext(
+            escalations=[Escalation(kind="step", view="front", feature=None, reason="illegible")]
+        )
+
+        _request_prismatic_detail(None, analysis, ctx=ctx, plan=plan)
+
+        assert len(ctx.detail_requests) == 1
+        request = ctx.detail_requests[0]
+        assert (request.cross_axis, request.cross_lo, request.cross_hi) == (None, None, None)
+
+    def test_face_support_recovers_a_shelled_covers_crowded_levels(self):
+        # The two levels span most of the cover, but each has a real right-edge witness
+        # station. Retaining that correspondence makes a narrow wall detail truthful and
+        # avoids preserving the old full-envelope `detail_unplaceable` fallback (#915).
         cover = (
             Box(90, 64, 38)
             - Pos(0, 0, -3) * Box(84, 58, 38)
@@ -5767,8 +5809,13 @@ class TestDetailView:
         off = build_drawing(cover, title="Cover", detail_view=False)
         on = build_drawing(cover, title="Cover", detail_view=True)
         assert off.lint_summary()["by_code"].get("detail_unplaceable", 0) == 0
-        assert on.lint_summary()["by_code"].get("detail_unplaceable", 0) == 1
-        assert "detail_a" not in on.views  # genuinely couldn't place, so no empty box
+        assert on.lint_summary()["by_code"].get("detail_unplaceable", 0) == 0
+        assert "detail_a" in on.views
+        assert [
+            annotation.label
+            for name, annotation in on.iter_annotations()
+            if name.startswith("dim_detail_a_step")
+        ] == ["35", "38"]
 
     def test_plain_part_gets_no_detail_view(self):
         dwg = build_drawing(Box(60, 40, 20))

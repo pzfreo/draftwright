@@ -23,11 +23,18 @@ from draftwright.recognition._record import Record
 
 @dataclass(frozen=True, order=True)
 class FaceLevel(Record):
-    """A recognised horizontal face level — its Z coordinate. A prismatic part's step
-    heights are dimensioned from these. ``order=True`` so the recogniser returns a
-    deterministically sorted list."""
+    """A recognised horizontal face level and its in-plane supporting extent.
+
+    ``x_span`` / ``y_span`` are the union bounds of the horizontal faces at ``z``. They let
+    downstream dimensions retain a real witness station instead of inventing the part's
+    envelope edge after the face correspondence has been discarded (#915). ``None`` keeps
+    construction of legacy value-only records compatible. ``order=True`` makes recognition
+    deterministic.
+    """
 
     z: float
+    x_span: tuple[float, float] | None = None
+    y_span: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True, order=True)
@@ -95,6 +102,7 @@ def recognise_face_levels(
     """
     buckets: dict = {}  # bucket key -> representative z
     areas: dict = {}  # bucket key -> total horizontal-face area
+    bounds: dict = {}  # bucket key -> union (x0, y0, x1, y1) support bounds
     for face in part.faces():
         surf = BRepAdaptor_Surface(face.wrapped)
         if surf.GetType() == GeomAbs_Plane:
@@ -103,6 +111,19 @@ def recognise_face_levels(
                 z = surf.Plane().Location().Z()
                 key = round(z / tol) * tol
                 buckets.setdefault(key, z)
+                bb = face.bounding_box()
+                current = bounds.get(key)
+                face_bounds = (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
+                bounds[key] = (
+                    face_bounds
+                    if current is None
+                    else (
+                        min(current[0], face_bounds[0]),
+                        min(current[1], face_bounds[1]),
+                        max(current[2], face_bounds[2]),
+                        max(current[3], face_bounds[3]),
+                    )
+                )
                 if min_area_frac > 0.0:
                     props = GProp_GProps()
                     BRepGProp.SurfaceProperties_s(face.wrapped, props)
@@ -111,10 +132,17 @@ def recognise_face_levels(
         bb = part.bounding_box()
         footprint = (bb.max.X - bb.min.X) * (bb.max.Y - bb.min.Y)
         threshold = min_area_frac * footprint
-        return sorted(
-            FaceLevel(z) for key, z in buckets.items() if areas.get(key, 0.0) >= threshold
+        accepted_keys = [key for key in buckets if areas.get(key, 0.0) >= threshold]
+    else:
+        accepted_keys = list(buckets)
+    return sorted(
+        FaceLevel(
+            buckets[key],
+            (bounds[key][0], bounds[key][2]),
+            (bounds[key][1], bounds[key][3]),
         )
-    return sorted(FaceLevel(z) for z in buckets.values())
+        for key in accepted_keys
+    )
 
 
 # Minimum horizontal-face area (as a fraction of the plan footprint) for a Z level to count
@@ -123,18 +151,23 @@ def recognise_face_levels(
 _STEP_MIN_AREA_FRAC = 0.01
 
 
+def step_level_records(part, *, tol: float = 0.6) -> list[FaceLevel]:
+    """Area-filtered interior face-level records, retaining their support bounds."""
+    bb = part.bounding_box()
+    return [
+        fl
+        for fl in recognise_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)
+        if bb.min.Z + tol < fl.z < bb.max.Z - tol
+    ]
+
+
 def step_level_zs(part, *, tol: float = 0.6) -> list[float]:
     """The interior prismatic step Z-levels: the area-filtered horizontal face levels strictly
     inside the part height (``base + tol < z < top - tol``). The single source of truth for the
     step-height ladder (``analysis.py``) and the ``declare.step_level`` object flavour — using
     the raw, unfiltered :func:`recognise_face_levels` in one and this gate in the other let a
     tiny incidental face leak in as a phantom level, diverging the two paths (#578 review)."""
-    bb = part.bounding_box()
-    return [
-        fl.z
-        for fl in recognise_face_levels(part, min_area_frac=_STEP_MIN_AREA_FRAC)
-        if bb.min.Z + tol < fl.z < bb.max.Z - tol
-    ]
+    return [fl.z for fl in step_level_records(part, tol=tol)]
 
 
 def recognise_risers(

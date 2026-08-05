@@ -245,9 +245,18 @@ def _feature_line(f, part_envelope=None) -> str:
         # POSITION, not just its heights. The fluent verb rebuilds the frame from base+datum.
         _items = [f"({a!r}, {_n(p)})" for a, p in f.shoulders]
         _sh = "(" + ", ".join(_items) + ("," if len(_items) == 1 else "") + ")"
+        _support_items = [
+            f"({_n(s.level)}, ({_n(s.x_span[0])}, {_n(s.x_span[1])}), "
+            f"({_n(s.y_span[0])}, {_n(s.y_span[1])}))"
+            for s in f.level_supports
+        ]
+        _supports = (
+            "(" + ", ".join(_support_items) + ("," if len(_support_items) == 1 else "") + ")"
+        )
+        _support_arg = f", level_supports={_supports}" if _support_items else ""
         return (
             f"sheet.step_level(base={_n(f.base)}, levels={_tuple_arg(f.levels)}, "
-            f"shoulders={_sh}, datum={_pt(f.datum)}, at={_pt(f.frame.origin)})"
+            f"shoulders={_sh}, datum={_pt(f.datum)}, at={_pt(f.frame.origin)}{_support_arg})"
             "   # prismatic height ladder + shoulder position(s)"
         )
     if k == "rotational":

@@ -1121,6 +1121,9 @@ class TestStepLevel:
         assert f.frame.origin == pytest.approx(
             (0.0, 0.0, -5.0)
         )  # bbox centre X/Y — matches detect
+        assert f.level_supports[0].level == pytest.approx(5.0)
+        assert f.level_supports[0].x_span == pytest.approx((0.0, 40.0))
+        assert f.level_supports[0].y_span == pytest.approx((-20.0, 20.0))
 
     def test_object_flavour_matches_detection(self):
         # #578 review: the object flavour must read the SAME area-filtered levels detection
@@ -1133,12 +1136,28 @@ class TestStepLevel:
         f = step_level(part)
         det = next(x for x in detect_part_model(part).features if x.kind == "step_level")
         assert f.levels == (5.0,) and f.shoulders == (("x", 0.0),)  # NOT (5.0, 9.0), ()
-        assert (f.levels, f.shoulders) == (det.levels, det.shoulders)  # parity with detection
+        assert (f.levels, f.shoulders, f.level_supports) == (
+            det.levels,
+            det.shoulders,
+            det.level_supports,
+        )  # parity with detection
 
     def test_explicit_step_level(self):
-        f = step_level(base=0, levels=(10,), shoulders=(("X", 30),), datum=(0, 0, 0))
+        f = step_level(
+            base=0,
+            levels=(10,),
+            shoulders=(("X", 30),),
+            datum=(0, 0, 0),
+            level_supports=((10, (-20, 8), (-5, 5)),),
+        )
         assert f.base == 0 and f.levels == (10,)
         assert f.shoulders == (("x", 30.0),)  # axis normalised to lowercase
+        assert f.level_supports[0].x_span == (-20, 8)
+
+    def test_overridden_levels_do_not_inherit_incompatible_object_support(self):
+        f = step_level(self._stepped(), levels=(7.0,))
+        assert f.levels == (7.0,)
+        assert f.level_supports == ()
 
     def test_declared_step_renders_shoulder_and_height(self):
         # The step POSITION lands as dim_shoulder_x0 alongside the height ladder — assert
@@ -1174,6 +1193,19 @@ class TestStepLevel:
         # A shoulder POSITION is horizontal; Z is the height, not a position.
         with pytest.raises(ValueError, match="'x' or 'y'"):
             step_level(base=0, levels=(10,), shoulders=(("z", 5),))
+
+    @pytest.mark.parametrize(
+        ("supports", "message"),
+        [
+            (((11, (0, 1), (0, 1)),), "not one of the declared levels"),
+            (((10, (1, 0), (0, 1)),), "finite ordered pair"),
+            (((10, (0, 1), (0, 1)), (10, (0, 1), (0, 1))), "at most one"),
+            (((10, (0, 1)),), "support must be"),
+        ],
+    )
+    def test_rejects_invalid_level_support(self, supports, message):
+        with pytest.raises(ValueError, match=message):
+            step_level(base=0, levels=(10,), level_supports=supports)
 
 
 class TestExplicitOverridesObject:

@@ -96,6 +96,7 @@ from draftwright.recognition.levels import (
     project_step_shoulders,
     recognise_face_levels,
     recognise_risers,
+    step_level_records,
     step_level_zs,
 )
 from draftwright.recognition.pads import RaisedPad, recognise_rectangular_pads
@@ -151,6 +152,7 @@ __all__ = [
     "project_step_shoulders",
     "recognise_face_levels",
     "recognise_risers",
+    "step_level_records",
     "step_level_zs",
     "feature_diameters",
     "recognise_bosses",

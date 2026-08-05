@@ -45,7 +45,7 @@ from draftwright.recognition import (
     recognise_slot_patterns,
     recognise_slots,
     recognise_turned_steps,
-    step_level_zs,
+    step_level_records,
 )
 from draftwright.recognition.result import DEFERRED, MIGRATED, Deferral
 
@@ -289,7 +289,7 @@ def test_the_migrated_families_are_the_ones_the_orchestration_actually_runs():
 
     Counted by code object rather than by patching ``result_module``'s bindings. The binding
     form was not merely fragile here, it was wrong: #1022 migrated ``recognise_face_levels``,
-    which the orchestration reaches INDIRECTLY through ``step_level_zs``, so there is no name
+    which the orchestration reaches INDIRECTLY through ``step_level_records``, so there is no name
     on this module to patch and the spy raised ``AttributeError``. A family is migrated if the
     orchestration calls it, not if it happens to be called by a line in this file.
     """
@@ -335,7 +335,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
         "pocket_patterns": tuple(recognise_pocket_patterns(pockets)),
         "pads": tuple(recognise_rectangular_pads(part)),
         "turned_steps": tuple(recognise_turned_steps(part, cyls=cyls)),
-        "step_levels": tuple(step_level_zs(part)),
+        "step_levels": tuple(step_level_records(part)),
         "risers": tuple(recognise_risers(part)),
         "rotational": rotational,
         "chamfers": tuple(recognise_chamfers(part)) if not rotational else (),

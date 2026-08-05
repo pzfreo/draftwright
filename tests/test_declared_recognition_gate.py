@@ -508,12 +508,13 @@ def test_one_ladder_rule_serves_sizing_and_critique():
     bb = part.bounding_box()
 
     ladder = rec.step_ladder(bb)
-    assert ladder != list(rec.step_levels), (
+    raw_level_zs = [level.z for level in rec.step_levels]
+    assert ladder != raw_level_zs, (
         "fixture stopped exercising the divergence — the turned ladder and the raw face "
         "levels coincide here, so this test would pass with the rule removed"
     )
     assert 30.0 not in ladder, "the blind-bore floor leaked into the turned ladder"
-    assert 30.0 in rec.step_levels, "fixture no longer produces the bore floor as a face level"
+    assert 30.0 in raw_level_zs, "fixture no longer produces the bore floor as a face level"
 
     # And sizing goes through that same rule rather than re-deriving it. Asserted by counting
     # the call, because on a turned part `step_zs` feeds only the strip reservation — there is

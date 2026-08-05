@@ -177,6 +177,30 @@ class TestTheCompilerOwnsContent:
         assert [r.value for r in rungs.rungs] == [5.0, 15.0], "measured from base=5, not bbox"
         assert all(r.span[0][2] == 5.0 for r in rungs.rungs), "and the LINE starts there too"
 
+    def test_step_rungs_use_retained_support_and_missing_evidence_falls_back(self):
+        """A support is physical evidence; its absence must remain distinguishable."""
+        from draftwright.model.ir import Frame, LevelSupport, PartModel, StepLevelFeature
+
+        step = StepLevelFeature(
+            Frame((0, 0, 0), "z"),
+            base=0.0,
+            levels=(10.0, 20.0),
+            level_supports=(LevelSupport(10.0, (-12.0, 7.0), (-8.0, 6.0)),),
+        )
+        model = PartModel(
+            bbox=Box(90, 60, 30).bounding_box(),
+            orientation="prismatic",
+            features=[step],
+            datums=[],
+        )
+
+        rungs = compile_dimensions(model).ladder("step_height")
+
+        assert rungs.rungs[0].span == ((7.0, -8.0, 0.0), (7.0, -8.0, 10.0))
+        assert rungs.rungs[0].support_bounds == (-12.0, -8.0, 7.0, 6.0)
+        assert rungs.rungs[1].span == ((45.0, -30.0, 0.0), (45.0, -30.0, 20.0))
+        assert rungs.rungs[1].support_bounds is None
+
     def test_the_overall_height_is_an_approved_entry_not_a_bbox_read(self):
         plan = compile_dimensions(detect_part_model(Box(90, 60, 20)))
         overall = plan.ladder("overall_height")

@@ -658,6 +658,7 @@ def _analyse(
             pads=pads,
             prof=_turned,
             step_zs=step_zs,
+            face_levels=list(recognition.step_levels) if recognition else None,
             rotational=(od_diam, _bores, od_axis) if is_rotational else None,
             pmi=pmi_records,
             cyls=shared_cyls,

@@ -710,11 +710,24 @@ class GrooveFeature:
 
 
 @dataclass(frozen=True)
+class LevelSupport:
+    """The in-plane horizontal-face support for one prismatic height level (#915)."""
+
+    level: float
+    x_span: tuple[float, float]
+    y_span: tuple[float, float]
+
+
+@dataclass(frozen=True)
 class StepLevelFeature:
     """The prismatic height profile — horizontal face levels (Z) dimensioned from the
     base, stacked right of the front view (#237). The turned analogue is `StepFeature`
     (length + OD per segment); this is the prismatic *height* ladder. ``levels`` are the
     interior step Z-coords (ascending); ``base`` is the part's bottom (bbox min Z).
+
+    ``level_supports`` retain the horizontal faces each level came from. They give the
+    compiler a real witness station and the detailer a truthful crop instead of forcing both
+    to use the whole-part envelope (#915).
 
     ``shoulders`` are the in-plane step POSITIONS (#555) — ``(axis, position)`` where a
     step/rebate changes height — so the part is fully constrained (a step is located
@@ -727,6 +740,7 @@ class StepLevelFeature:
     levels: tuple[float, ...]
     shoulders: tuple[tuple[str, float], ...] = ()
     datum: Point = (0.0, 0.0, 0.0)
+    level_supports: tuple[LevelSupport, ...] = ()
     kind: ClassVar[str] = "step_level"
 
     def parameters(self) -> list[DimParameter]:

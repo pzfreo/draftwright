@@ -174,6 +174,10 @@ class ApprovedDimension:
     #: ``None`` and consume :attr:`value_text`; the two contracts are deliberately named
     #: apart so a renderer cannot mistake a numeric fragment for finished callout text.
     rendered_label: str | None = None
+    #: Model-space bounds of the geometry that established ``span``'s witness, when retained.
+    #: Step details use presence of this fact to crop around correspondent stations rather
+    #: than treating a fallback envelope-edge span as physical evidence (#915).
+    support_bounds: tuple[float, float, float, float] | None = None
 
     @property
     def parameter_id(self) -> str:
@@ -628,20 +632,35 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
     approved: list[ApprovedLadder] = []
     omissions: list[Omission] = []
     bb: Any = model.bbox  # build123d BoundBox
-    x, y = float(bb.max.X), float(bb.min.Y)
+    fallback_x, fallback_y = float(bb.max.X), float(bb.min.Y)
+    support_by_level = {support.level: support for support in step.level_supports}
     step_ref = FeatureRef(step)
 
-    heights = [
-        ApprovedDimension(
-            id=_dim_id(step, "step_height.length"),
-            value_text=_fmt(z - step.base),
-            value=z - step.base,
-            span=((x, y, step.base), (x, y, z)),
-            ref=step_ref,
-            rendered_label=_fmt(z - step.base),
+    def _height_evidence(z: float):
+        support = support_by_level.get(z)
+        x = support.x_span[1] if support is not None else fallback_x
+        y = support.y_span[0] if support is not None else fallback_y
+        bounds = (
+            (support.x_span[0], support.y_span[0], support.x_span[1], support.y_span[1])
+            if support is not None
+            else None
         )
-        for z in sorted(step.levels)
-    ]
+        return ((x, y, step.base), (x, y, z)), bounds
+
+    heights = []
+    for z in sorted(step.levels):
+        span, support_bounds = _height_evidence(z)
+        heights.append(
+            ApprovedDimension(
+                id=_dim_id(step, "step_height.length"),
+                value_text=_fmt(z - step.base),
+                value=z - step.base,
+                span=span,
+                ref=step_ref,
+                rendered_label=_fmt(z - step.base),
+                support_bounds=support_bounds,
+            )
+        )
     height_marks = [
         (pid, v, why)
         for (fid, pid), (v, why) in marked.items()
@@ -652,14 +671,16 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
         if rep is not None:
             n, rise = rep
             first = sorted(step.levels)[0]
+            span, support_bounds = _height_evidence(first)
             heights = [
                 ApprovedDimension(
                     id=_dim_id(step, "step_height.length"),
                     value_text=_fmt(rise),
                     value=rise,
-                    span=((x, y, step.base), (x, y, first)),
+                    span=span,
                     ref=step_ref,
                     rendered_label=f"{n}× {_fmt(rise)}",
+                    support_bounds=support_bounds,
                 )
             ]
         approved.append(

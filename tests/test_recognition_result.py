@@ -1,6 +1,7 @@
 """ADR 0017 phase 1: one explicit recognition result."""
 
 from dataclasses import FrozenInstanceError
+from types import SimpleNamespace
 
 import pytest
 from build123d import Axis, Box, Cylinder, Pos, chamfer, fillet
@@ -9,6 +10,7 @@ from conftest import counting_calls
 from draftwright import build_drawing
 from draftwright.model import build_part_model
 from draftwright.recognition import (
+    FaceLevel,
     RecognitionResult,
     build_recognition_result,
     recognise_plates,
@@ -125,10 +127,10 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
     )
     monkeypatch.setattr(result_module, "recognise_rectangular_pads", counted("pads", []))
     monkeypatch.setattr(result_module, "recognise_turned_steps", cyl_consumer("turned_steps", []))
-    # `step_level_zs` is the area-filtered gate over `recognise_face_levels`, migrated into the
-    # aggregate by #1022 so declared-path critique reads one ladder instead of rescanning per
-    # lint. It takes the part only — no injected substrate to assert identity on.
-    monkeypatch.setattr(result_module, "step_level_zs", counted("step_levels", [4.0, 9.0]))
+    # The area-filtered records retain face support (#915); `step_ladder()` projects their Z
+    # values for sizing/critique. It takes the part only — no substrate identity to assert.
+    level_records = [FaceLevel(4.0, (0.0, 8.0), (0.0, 6.0)), FaceLevel(9.0)]
+    monkeypatch.setattr(result_module, "step_level_records", counted("step_levels", level_records))
     # #1026 hoisted these three out of `build_part_model`. `slot_patterns` is derived, so it
     # must be handed the accepted slot records rather than rediscovering them; the other two
     # take the shared cylinder substrate.
@@ -172,7 +174,9 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
     }, f"the orchestration ran a different set of families: {sorted(calls)}"
     assert set(calls.values()) == {1}, f"a family ran more than once: {calls}"
     assert built.holes == tuple(holes)
-    assert built.step_levels == (4.0, 9.0)
+    assert built.step_levels == tuple(level_records)
+    bb = SimpleNamespace(min=SimpleNamespace(Z=0.0), max=SimpleNamespace(Z=10.0))
+    assert built.step_ladder(bb) == [4.0, 9.0]
 
 
 def _grooved_flatted_shaft():
@@ -246,7 +250,8 @@ def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build)
         pockets=list(rec.pockets),
         pocket_patterns=list(rec.pocket_patterns),
         pads=list(rec.pads),
-        step_zs=list(rec.step_levels),
+        step_zs=rec.step_ladder(part.bounding_box()),
+        face_levels=list(rec.step_levels),
         risers=list(rec.risers),
         chamfers=list(rec.chamfers),
         fillets=list(rec.fillets),

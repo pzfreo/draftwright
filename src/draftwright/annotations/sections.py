@@ -760,8 +760,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     levels = [r.span[1][2] for r in rungs]
     datum_z = rungs[0].span[0][2]
     label_of = {r.span[1][2]: r.final_label for r in rungs}
-    shoulder_set = plan.ladder("step_position")
-    has_shoulders = shoulder_set is not None
+    has_shoulders = plan.ladder("step_position") is not None
     z0, z1 = min(levels), max(levels)
     pad = 0.08 * (z1 - z0) + 1.0
     band_lo, band_hi = max(a.bb.min.Z, z0 - pad), min(a.bb.max.Z, z1 + pad)
@@ -777,15 +776,20 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     step_pad = (
         dwg.draft.font_size + dwg.draft.pad_around_text if dwg is not None else _MIN_STEP_SEP_MM
     )
-    # X stations frame the crowded band — view geometry, but read off the approved
-    # shoulder spans rather than the feature, so nothing here needs the model either.
-    # Axis is explicit because a shoulder coincident with its datum has a degenerate span.
-    x_stations = sorted(
-        r.span[1][0]
-        for r in (shoulder_set.rungs if shoulder_set is not None else ())
-        if r.span is not None and r.axis == "x"
+    # Crop around the approved HEIGHT witnesses only when every rung carries retained physical
+    # support. A compiler fallback at the envelope edge has a span too, but no support bounds;
+    # treating that synthetic station as crop evidence would cut away the measured face. One
+    # millimetre gives the fuzzy booleans context without scaling the crop back toward the full
+    # 170 mm envelope that made the A2 detail unplaceable (#915).
+    supported = [r for r in rungs if r.span is not None and r.support_bounds is not None]
+    has_level_supports = len(supported) == len(rungs)
+    x_stations = sorted({r.span[1][0] for r in supported}) if has_level_supports else []
+    crop_xs = (
+        (max(a.bb.min.X, x_stations[0] - 1.0), min(a.bb.max.X, x_stations[-1] + 1.0))
+        if x_stations
+        # Lightweight unit plans do not need X bounds until a queued request is rendered.
+        else (getattr(a.bb.min, "X", 0.0), getattr(a.bb.max, "X", 0.0))
     )
-    xpad = 0.08 * (x_stations[-1] - x_stations[0]) + 1.0 if len(x_stations) >= 2 else 0.0
 
     def pads(detail_scale):  # one ladder rung per step legible at this scale, + overall
         return (
@@ -820,33 +824,42 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
         # Projection handedness can put world max-X on the page-left. Anchor
         # the ladder to the actual page-right silhouette, not an assumed world
         # edge, so labels remain outside the detail line-work (#897).
-        detail_xs = (
-            (
-                max(a.bb.min.X, x_stations[0] - xpad),
-                min(a.bb.max.X, x_stations[-1] + xpad),
-            )
-            if len(x_stations) >= 2
-            else (a.bb.min.X, a.bb.max.X)
-        )
+        detail_xs = crop_xs
         anchor_x = max(
             detail_xs,
             key=lambda x: _at(x, a.cy, datum_z)[0],
         )
-        ladder = _at(anchor_x, a.cy, datum_z)[0] + 2
+        page_right = _at(anchor_x, a.cy, datum_z)[0]
+        ladder = page_right + 2 + (step_pad if has_level_supports else 0)
+        source_x_by_z = {r.span[1][2]: r.span[1][0] for r in supported}
         placed = 0
         for i, z in enumerate(det_kept):
             label = label_of[z]  # the compiler's label, not a second derivation
             try:
-                p_lo = _at(anchor_x, a.cy, datum_z)
-                p_hi = _at(anchor_x, a.cy, z)
-                det_dim = _dim(
-                    (ladder, p_lo[1], 0),
-                    (ladder, p_hi[1], 0),
-                    "right",
-                    step_pad,
-                    dwg.draft,
-                    label=label,
-                )
+                if has_level_supports:
+                    source_x = source_x_by_z[z]
+                    p_lo = _at(source_x, a.cy, datum_z)
+                    p_hi = _at(source_x, a.cy, z)
+                    side = "right" if ladder >= p_hi[0] else "left"
+                    det_dim = _dim(
+                        p_lo,
+                        p_hi,
+                        side,
+                        abs(ladder - p_hi[0]),
+                        dwg.draft,
+                        label=label,
+                    )
+                else:
+                    p_lo = _at(anchor_x, a.cy, datum_z)
+                    p_hi = _at(anchor_x, a.cy, z)
+                    det_dim = _dim(
+                        (ladder, p_lo[1], 0),
+                        (ladder, p_hi[1], 0),
+                        "right",
+                        step_pad,
+                        dwg.draft,
+                        label=label,
+                    )
                 det_dim._dw_scale = detail_scale  # detail scale, for label-vs-measured lint (#42)
                 ctx.place(
                     det_dim, f"dim_{view}_step{i}", view=view
@@ -869,9 +882,9 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
             # retain the physical part base so those witnesses attach to visible detail
             # linework even when a declared base differs from the bounding-box minimum.
             crop_lo=a.bb.min.Z,
-            cross_axis="x" if len(x_stations) >= 2 else None,
-            cross_lo=max(a.bb.min.X, x_stations[0] - xpad) if len(x_stations) >= 2 else None,
-            cross_hi=min(a.bb.max.X, x_stations[-1] + xpad) if len(x_stations) >= 2 else None,
+            cross_axis="x" if x_stations else None,
+            cross_lo=crop_xs[0] if x_stations else None,
+            cross_hi=crop_xs[1] if x_stations else None,
             kind="prismatic-steps",
         )
     )

@@ -227,6 +227,7 @@ def build_model(a: Analysis):
         pads=a.recognition.pads,
         prof=a.prof,
         step_zs=a.step_zs,
+        face_levels=a.recognition.step_levels,
         rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
         pmi=a.pmi,
         cyls=a.cyls,

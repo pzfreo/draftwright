@@ -31,6 +31,7 @@ from draftwright.model.ir import (
     Frame,
     GrooveFeature,
     HoleFeature,
+    LevelSupport,
     PadFeature,
     PartModel,
     PatternFeature,
@@ -601,6 +602,7 @@ def build_part_model(
     pads=None,
     prof=_UNSET,
     step_zs=None,
+    face_levels=None,
     rotational=None,
     pmi=None,
     cyls=None,
@@ -613,10 +615,10 @@ def build_part_model(
     so a standalone ``build_part_model(part)`` still works. ``prof`` uses a sentinel
     because ``None`` is a valid value (a non-turned part).
 
-    ``step_zs`` (prismatic horizontal face levels) and ``rotational`` (``(od, bores)``
-    or ``None``) are *classification* inputs from `_analyse` — the IR can't derive
-    them from geometry alone — feeding the prismatic step ladder (#237) and the
-    rotational OD/bore furniture (#237).
+    ``step_zs`` (prismatic horizontal face levels), their optional ``face_levels`` records
+    carrying support bounds, and ``rotational`` (``(od, bores)`` or ``None``) are
+    *classification* inputs from `_analyse` — feeding the prismatic step ladder (#237/#915)
+    and the rotational OD/bore furniture (#237).
 
     ``cyls`` is a precomputed ``analyse_cylinders(part)`` result threaded into every
     cylinder-substrate recogniser called here (holes/bosses/turned/grooves/flats), so
@@ -821,6 +823,12 @@ def build_part_model(
                 z for z in _levels if not any(abs(z - floor) < 0.5 for floor in edge_floor_zs)
             )
         if _levels:
+            support_by_level = {
+                level.z: LevelSupport(level.z, level.x_span, level.y_span)
+                for level in (face_levels or ())
+                if level.x_span is not None and level.y_span is not None
+            }
+            _level_supports = tuple(support_by_level[z] for z in _levels if z in support_by_level)
             # Every profile transition needs an in-plane station. Heights alone do
             # not reconstruct a multi-level staircase or a slanted run (#897).
             # Projected over the run's riser evidence, not a fresh scan (#1025). `_levels`
@@ -841,6 +849,7 @@ def build_part_model(
                     levels=_levels,
                     shoulders=_shoulders,
                     datum=(bbox.min.X, bbox.min.Y, bbox.min.Z),
+                    level_supports=_level_supports,
                 )
             )
 

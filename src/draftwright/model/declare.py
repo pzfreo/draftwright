@@ -44,6 +44,7 @@ from draftwright.model.ir import (
     Frame,
     GrooveFeature,
     HoleFeature,
+    LevelSupport,
     Note,
     PadFeature,
     PatternFeature,
@@ -709,15 +710,27 @@ def plate(obj=None, *, axis=None, lo=None, hi=None, u=None, v=None) -> PlateFeat
 
 def _read_step_levels(
     obj,
-) -> tuple[float, tuple[float, ...], tuple[tuple[str, float], ...], Point, Point]:
+) -> tuple[
+    float,
+    tuple[float, ...],
+    tuple[tuple[str, float], ...],
+    Point,
+    Point,
+    tuple[LevelSupport, ...],
+]:
     """Read a prismatic height ladder off a part: ``base`` (bbox min Z), the interior step
-    ``levels`` (the shared area-filtered :func:`recognition.step_level_zs` — so the object
-    flavour reads exactly the levels ``analysis.py``/``detect.py`` do, not phantom incidental
-    faces, #578 review), the step ``shoulders`` (in-plane ``(axis, position)`` risers — only
-    for a single-level rebate, mirroring ``model/detect.py``), the ``datum`` (bbox min corner
-    the positions measure from) and ``at`` (the frame anchor — bbox centre X/Y at ``base``,
-    matching ``detect.py`` so an object round-trips to the same IR)."""
-    from draftwright.recognition import project_step_shoulders, recognise_risers, step_level_zs
+    ``levels`` and their support spans (the shared area-filtered
+    :func:`recognition.step_level_records` — so the object flavour reads exactly what
+    ``analysis.py``/``detect.py`` do, not phantom incidental faces, #578/#915), the step
+    ``shoulders`` (in-plane ``(axis, position)`` risers — only for a single-level rebate,
+    mirroring ``model/detect.py``), the ``datum`` (bbox min corner the positions measure from)
+    and ``at`` (the frame anchor — bbox centre X/Y at ``base``, matching ``detect.py`` so an
+    object round-trips to the same IR)."""
+    from draftwright.recognition import (
+        project_step_shoulders,
+        recognise_risers,
+        step_level_records,
+    )
 
     # Solids only, for the same reason as `envelope()` (#977): this takes the WHOLE part, so a
     # STEP import hands it PMI presentation geometry too. Measuring the compound put CTC01's
@@ -727,7 +740,17 @@ def _read_step_levels(
     obj = _solids_body(obj)
     bb = obj.bounding_box()
     base = round(bb.min.Z, 3)
-    levels = tuple(sorted(round(z, 3) for z in step_level_zs(obj)))
+    records = tuple(step_level_records(obj))
+    levels = tuple(sorted(round(record.z, 3) for record in records))
+    level_supports = tuple(
+        LevelSupport(
+            round(record.z, 3),
+            (record.x_span[0], record.x_span[1]),
+            (record.y_span[0], record.y_span[1]),
+        )
+        for record in records
+        if record.x_span is not None and record.y_span is not None
+    )
     # Scans `obj`, not the build's part — a declared step_level reads the object the author
     # handed it, which is a different solid from the one the aggregate recognised (#1025). So
     # this is the one consumer that legitimately keeps its own scan, in the same sense
@@ -747,11 +770,12 @@ def _read_step_levels(
         shoulders,
         (round(bb.min.X, 3), round(bb.min.Y, 3), base),
         (round(c.X, 3), round(c.Y, 3), base),
+        level_supports,
     )
 
 
 def step_level(
-    obj=None, *, base=None, levels=None, shoulders=None, datum=None, at=None
+    obj=None, *, base=None, levels=None, shoulders=None, datum=None, at=None, level_supports=None
 ) -> StepLevelFeature:
     """A prismatic height ladder + step-position shoulders (#555/#578) — a rebated / stepped
     block. Either ``step_level(part)`` — ``base``, the interior ``levels``, the ``(axis,
@@ -760,15 +784,29 @@ def step_level(
     interior step Z-coords (unique, strictly increasing, each above ``base``); a ``shoulder`` is
     *where* a step changes height, its position measured from ``datum`` along a horizontal
     ``axis`` (x/y). ``at`` is the IR frame origin (like every sibling constructor); it defaults
-    to the ``datum`` X/Y at ``base`` and is inert for step rendering. An object supplies
-    *defaults*; any explicit keyword overrides that field (#451)."""
+    to the ``datum`` X/Y at ``base`` and is inert for step rendering. ``level_supports`` may
+    carry one ``(level, x_span, y_span)`` record per level so a dimension retains the face that
+    established it (#915). An object supplies *defaults*; any explicit keyword overrides that
+    field (#451)."""
     if obj is not None:
-        r_base, r_levels, r_shoulders, r_datum, r_at = _read_step_levels(obj)
+        r_base, r_levels, r_shoulders, r_datum, r_at, r_level_supports = _read_step_levels(obj)
+        explicit_levels = levels is not None
+        if explicit_levels:
+            levels = tuple(levels)
         base = r_base if base is None else base
         levels = r_levels if levels is None else levels
         shoulders = r_shoulders if shoulders is None else shoulders
         datum = r_datum if datum is None else datum
         at = r_at if at is None else at
+        if level_supports is None:
+            # A caller may override the ladder independently (#451). Retain only object-derived
+            # correspondence that still belongs to that ladder; stale records must not make the
+            # otherwise independent ``levels=`` override invalid.
+            level_supports = (
+                tuple(support for support in r_level_supports if support.level in levels)
+                if explicit_levels
+                else r_level_supports
+            )
     if datum is None:
         datum = (0.0, 0.0, 0.0)
     if shoulders is None:
@@ -797,6 +835,36 @@ def step_level(
     if at is None:
         at = (datum[0], datum[1], base)
     _require_point("at", at)
+    norm_supports = []
+    for support in level_supports or ():
+        if isinstance(support, LevelSupport):
+            item = support
+        elif isinstance(support, (tuple, list)) and len(support) == 3:
+            item = LevelSupport(support[0], tuple(support[1]), tuple(support[2]))
+        else:
+            raise ValueError(
+                "step_level() support must be LevelSupport or "
+                f"(level, x_span, y_span) (got {support!r})"
+            )
+        if item.level not in levels:
+            raise ValueError(
+                f"step_level() support level {item.level} is not one of the declared levels"
+            )
+        for name, span in (("x_span", item.x_span), ("y_span", item.y_span)):
+            if not (
+                len(span) == 2
+                and all(
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(value)
+                    for value in span
+                )
+                and span[0] <= span[1]
+            ):
+                raise ValueError(f"step_level() support {name} must be a finite ordered pair")
+        norm_supports.append(item)
+    if len({support.level for support in norm_supports}) != len(norm_supports):
+        raise ValueError("step_level() supports must contain at most one record per level")
     norm_shoulders = []
     for sh in shoulders:
         if not (isinstance(sh, (tuple, list)) and len(sh) == 2):
@@ -818,6 +886,7 @@ def step_level(
         levels=levels,
         shoulders=tuple(norm_shoulders),
         datum=(datum[0], datum[1], datum[2]),
+        level_supports=tuple(sorted(norm_supports, key=lambda support: support.level)),
     )
 
 

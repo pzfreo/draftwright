@@ -1,7 +1,11 @@
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 from draftwright import build_drawing
+from draftwright.model import StepLevelFeature
+from draftwright.model.compiled import compile_dimensions
 
 _ISSUE_915 = Path(__file__).parent / "fixtures" / "issue_915_case_study_2.step"
 
@@ -53,4 +57,50 @@ def test_issue_915_wide_detail_uses_a_matching_empty_region():
         if name.startswith("dim_detail_a_step")
     ]
     assert labels == ["10", "13", "20", "30", "40", "57", "60", "65"]
+    assert dwg.lint() == []
+
+
+def test_issue_915_a2_detail_uses_each_levels_supporting_geometry():
+    """A level's own face support, not the envelope edge, defines its witness and crop."""
+    dwg = build_drawing(_ISSUE_915, page="A2", scale=0.5, detail_view=True)
+    step = next(
+        feature for feature in dwg.model().features if isinstance(feature, StepLevelFeature)
+    )
+
+    support_rights = {support.level: support.x_span[1] for support in step.level_supports}
+    assert support_rights == pytest.approx(
+        {
+            10.0: 135.0,
+            13.0: 121.686,
+            20.0: 105.0,
+            30.0: 170.0,
+            40.0: 170.0,
+            57.0: 121.686,
+            60.0: 135.0,
+            65.0: 120.0,
+        },
+        abs=0.001,
+    )
+
+    plan = compile_dimensions(dwg.model())
+    ladder = plan.ladder("step_height")
+    assert ladder is not None
+    rungs = {rung.final_label: rung for rung in ladder.rungs}
+    assert {label: rung.span[1][0] for label, rung in rungs.items()} == pytest.approx(
+        {str(int(level)): x for level, x in support_rights.items()}
+    )
+
+    assert "detail_a" in dwg.views
+    x0, _, x1, _ = dwg.view_bounds("detail_a")
+    detail_world_width = (x1 - x0) / dwg.coords("detail_a")._scale
+    assert detail_world_width < dwg._analysis.bb.size.X / 2
+    detail_dims = {
+        annotation.label: annotation
+        for name, annotation in dwg.iter_annotations()
+        if name.startswith("dim_detail_a_step")
+    }
+    assert list(detail_dims) == ["10", "13", "20", "30", "40", "57", "60", "65"]
+    for label, dimension in detail_dims.items():
+        expected = dwg.at("detail_a", *rungs[label].span[1])
+        assert dimension._dw_spec.p2[:2] == pytest.approx(expected[:2])
     assert dwg.lint() == []

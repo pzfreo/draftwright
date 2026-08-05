@@ -781,11 +781,12 @@ class TestEmit:
         exec(compile(line, "<emit>", "exec"), {"sheet": sheet})
         got = sheet._features[-1]
         det = next(f for f in model.features if f.kind == "step_level")
-        assert (got.base, got.levels, got.shoulders, got.datum) == (
+        assert (got.base, got.levels, got.shoulders, got.datum, got.level_supports) == (
             det.base,
             det.levels,
             det.shoulders,
             det.datum,
+            det.level_supports,
         )
         assert tuple(round(c, 3) for c in got.frame.origin) == tuple(
             round(c, 3) for c in det.frame.origin

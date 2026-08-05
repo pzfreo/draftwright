@@ -22,7 +22,7 @@ from draftwright.recognition.countersinks import recognise_countersinks
 from draftwright.recognition.fillets import recognise_fillets
 from draftwright.recognition.flats import recognise_flats
 from draftwright.recognition.grooves import recognise_grooves
-from draftwright.recognition.levels import recognise_risers, step_level_zs
+from draftwright.recognition.levels import FaceLevel, recognise_risers, step_level_records
 from draftwright.recognition.pads import recognise_rectangular_pads
 from draftwright.recognition.plates import recognise_plates
 from draftwright.recognition.slots import (
@@ -42,8 +42,9 @@ MIGRATED: frozenset[str] = frozenset(
         "recognise_fillets",
         "recognise_flats",
         "recognise_grooves",
-        # Reached through `step_level_zs`, the area-filtered gate over it — which is the form
-        # both consumers want, so the aggregate stores that rather than the raw levels. It was
+        # Reached through `step_level_records`, the area-filtered gate over it. The aggregate
+        # retains those records now that #915 needs their support spans; `step_ladder()` gives
+        # the float projection sizing and critique consume. It was
         # deferred NO_INDEPENDENT_CONSUMER until #1022 gave it one: critique on the declared
         # path needs the geometry ladder, and rescanning it per lint is what the deferral's
         # reason had stopped covering.
@@ -156,11 +157,10 @@ class RecognitionResult:
     pocket_patterns: tuple
     pads: tuple
     turned_steps: tuple
-    #: The interior prismatic step Z-levels (:func:`step_level_zs` — ``recognise_face_levels``
-    #: behind its area filter). A float tuple rather than records because both consumers want
-    #: the gated levels, not the faces: sizing converges page/scale on them, and critique feeds
-    #: them to ``project_step_shoulders`` as the geometry's own ladder (#1022).
-    step_levels: tuple[float, ...]
+    #: Area-filtered interior prismatic levels. The support spans remain on each record so IR
+    #: assembly can preserve level-to-face correspondence; sizing and critique project the Z
+    #: values through :meth:`step_ladder` (#915).
+    step_levels: tuple[FaceLevel, ...]
     #: Whether the part classified as ROTATIONAL, carried so consumers can tell a gated-away
     #: inventory from an empty one (#1028). ``chamfers``/``fillets``/``plates`` are ``()`` on a
     #: rotational part because they were not run, not because the part has none — the same
@@ -195,7 +195,7 @@ class RecognitionResult:
         prof = TurnedProfile.from_steps(list(self.turned_steps))
         if prof is not None and prof.axis == "z":
             return [z for z in prof.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
-        return list(self.step_levels)
+        return [level.z for level in self.step_levels]
 
 
 def build_recognition_result(
@@ -259,7 +259,7 @@ def build_recognition_result(
         pads=tuple(recognise_rectangular_pads(part)),
         turned_steps=tuple(turned_steps),
         rotational=rotational,
-        step_levels=tuple(step_level_zs(part)),
+        step_levels=tuple(step_level_records(part)),
         risers=tuple(recognise_risers(part)),
         chamfers=tuple(recognise_chamfers(part)) if prismatic else (),
         fillets=tuple(recognise_fillets(part)) if prismatic else (),
